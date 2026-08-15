@@ -183,6 +183,7 @@ html[data-dsh-tavern-profile="true"] [data-composer-seat] {
 .dsh-tavern-choice-trigger { border: 1px solid rgba(166,107,53,.55); background: rgba(166,107,53,.10); color: #a66b35; cursor: pointer; padding: 3px 9px; border-radius: 7px; font-size: 12px; font-weight: 650; }
 .dsh-tavern-choice-trigger:hover { background: rgba(166,107,53,.20); color: #8e5728; }
 .dsh-tavern-dock-actions { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; max-width: var(--dsh-composer-card-max-width, 780px); box-sizing: border-box; margin: 0 auto; padding: 8px 12px 0; flex-wrap: wrap; }
+.dsh-tavern-candidate-error-banner { width: 100%; max-width: var(--dsh-composer-card-max-width, 780px); box-sizing: border-box; margin: 0 auto; padding: 8px 12px; border: 1px solid rgba(196,95,95,.45); border-radius: 10px; background: rgba(196,95,95,.10); color: #c45f5f; font-size: 12px; line-height: 1.5; }
 .dsh-tavern-choice-pop { position: absolute; z-index: 120; left: 0; bottom: calc(100% + 7px); width: 340px; padding: 8px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 10px; background: var(--dsw-specific-popover-fill, var(--dsw-specific-sidebar-fill)); box-shadow: 0 12px 30px rgba(0,0,0,.22); }
 .dsh-tavern-choice-item { width: 100%; display: block; margin-top: 5px; padding: 8px 9px; border: 0; border-radius: 7px; background: transparent; color: var(--dsw-alias-label-primary); text-align: left; line-height: 1.45; cursor: pointer; }
 .dsh-tavern-choice-item:hover { background: var(--dsw-alias-interactive-bg-hover); }
@@ -1231,6 +1232,11 @@ html[data-dsh-tavern-profile="true"] [data-composer-seat] {
 				const timer = window.setInterval(function () { applyHiddenTurns(props.sessionId); applyRolledBackTurns(props.sessionId); }, 1500);
 				return function () { window.clearInterval(timer); };
 			}, [props.sessionId]);
+			if (panel && panel.sessionId === props.sessionId && panel.phase === "error") {
+				return React.createElement("div", { className: "dsh-tavern-choice-error dsh-tavern-candidate-error-banner" },
+					"候选项生成失败：" + (panel.error || "未知错误") + "。请点上方“生成候选项”重试。"
+				);
+			}
 			if (!isPlayMode(sessionMode) || !panel || panel.sessionId !== props.sessionId || panel.messageId !== latestMessageId || running) {
 				return null;
 			}
