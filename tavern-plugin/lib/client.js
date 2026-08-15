@@ -221,6 +221,11 @@ html[data-dsh-tavern-profile="true"] [data-composer-seat] {
 .dsh-tavern-status-section { margin-bottom: 16px; }
 .dsh-tavern-status-label { margin-bottom: 7px; color: var(--dsw-alias-label-secondary); font-size: 11px; font-weight: 700; letter-spacing: .06em; }
 .dsh-tavern-status-now { padding: 9px 10px; border: 1px solid rgba(166,107,53,.30); border-radius: 9px; background: rgba(166,107,53,.08); font-size: 12px; line-height: 1.55; }
+.dsh-tavern-guide-list { display: flex; flex-direction: column; gap: 6px; }
+.dsh-tavern-guide-item { display: flex; align-items: flex-start; gap: 6px; padding: 7px 8px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-alias-interactive-bg-hover); }
+.dsh-tavern-guide-text { flex: 1; min-width: 0; font-size: 12px; line-height: 1.5; white-space: pre-wrap; }
+.dsh-tavern-guide-add { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.dsh-tavern-guide-add textarea { box-sizing: border-box; width: 100%; resize: vertical; min-height: 54px; padding: 7px 8px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-specific-input-major); color: inherit; font: inherit; font-size: 12px; line-height: 1.5; }
 .dsh-tavern-script-preview { display: flex; flex-direction: column; gap: 7px; }
 .dsh-tavern-script-chunk { border: 1px solid var(--dsw-alias-border-l2); border-radius: 9px; background: var(--dsw-alias-interactive-bg-hover); padding: 7px 9px; font-size: 11px; line-height: 1.55; }
 .dsh-tavern-script-chunk-label { display: block; margin-bottom: 3px; color: #a66b35; font-size: 10px; font-weight: 700; }
@@ -873,6 +878,9 @@ html[data-dsh-tavern-profile="true"] [data-composer-seat] {
 		function TavernStatusPanel(props) {
 			const [view, setView] = React.useState(null);
 			const [error, setError] = React.useState("");
+			const [guideDraft, setGuideDraft] = React.useState("");
+			const [guideBusy, setGuideBusy] = React.useState(false);
+			const [guideError, setGuideError] = React.useState("");
 			const stateKey = props.useSession(function (snapshot) {
 				const nodes = snapshot.nodes || [];
 				let latest = "";
@@ -901,6 +909,25 @@ html[data-dsh-tavern-profile="true"] [data-composer-seat] {
 				for (let i = 1; i <= 3; i++) timers.push(window.setTimeout(props.openDetails, 1000 * i));
 				return function () { timers.forEach(function (t) { window.clearTimeout(t); }); };
 			}, [props.sessionId]);
+			async function addGuide() {
+				const text = guideDraft.trim();
+				if (!text) return;
+				setGuideBusy(true); setGuideError("");
+				try {
+					const result = await rpc("addGuide", { text: text }, props.sessionId);
+					setView(Object.assign({}, view, { guides: result.guides || [] }));
+					setGuideDraft("");
+				} catch (err) { setGuideError(String(err && err.message || err)); }
+				finally { setGuideBusy(false); }
+			}
+			async function removeGuide(index) {
+				setGuideBusy(true); setGuideError("");
+				try {
+					const result = await rpc("deleteGuide", { index: index }, props.sessionId);
+					setView(Object.assign({}, view, { guides: result.guides || [] }));
+				} catch (err) { setGuideError(String(err && err.message || err)); }
+				finally { setGuideBusy(false); }
+			}
 			const h = React.createElement;
 			if (!view) return h("aside", { className: "dsh-tavern-status" },
 				h("div", { className: "dsh-tavern-status-head" }, h("div", { className: "dsh-tavern-status-title" }, "状态栏")),
@@ -936,6 +963,22 @@ html[data-dsh-tavern-profile="true"] [data-composer-seat] {
 							})
 						)
 					) : null,
+					h("section", { className: "dsh-tavern-status-section" },
+						h("div", { className: "dsh-tavern-status-label" }, "Guide（注入上下文）"),
+						h("div", { className: "dsh-tavern-guide-list" },
+							(view.guides || []).length ? (view.guides || []).map(function (guide, index) {
+								return h("div", { key: guide.id || index, className: "dsh-tavern-guide-item" },
+									h("div", { className: "dsh-tavern-guide-text" }, guide.text),
+									h("button", { className: "dsh-tavern-worldbook-del", disabled: guideBusy, onClick: function () { removeGuide(index); } }, "删除")
+								);
+							}) : h("div", { className: "dsh-tavern-status-empty" }, "暂无 Guide。添加后会自动注入正文和候选项生成。")
+						),
+						h("div", { className: "dsh-tavern-guide-add" },
+							h("textarea", { className: "dsh-tavern-regen-input", rows: 2, value: guideDraft, placeholder: "例如：多用短句，多写心理活动，对话不要超过三句", onChange: function (e) { setGuideDraft(e.target.value); } }),
+							h("button", { className: "dsh-card-primary", disabled: guideBusy || guideDraft.trim() === "", onClick: addGuide }, guideBusy ? "保存中…" : "添加 Guide")
+						),
+						guideError ? h("div", { className: "dsh-card-error" }, guideError) : null
+					),
 					h("section", { className: "dsh-tavern-status-section" },
 						h("div", { className: "dsh-tavern-status-label" }, "人物姿势"),
 						view.posture ? h("div", { className: "dsh-tavern-status-now" }, view.posture) : h("div", { className: "dsh-tavern-status-empty" }, "等待第一轮状态结算")
