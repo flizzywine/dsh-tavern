@@ -1597,49 +1597,6 @@ export function apply(ctx) {
     const card = await readChatCard(chat)
     if (typeof sessionId === 'string' && sessionId !== '') chat.sessionId = sessionId
     if (typeof chat.sessionId !== 'string' || chat.sessionId === '') throw new Error('会话未绑定 DSH 会话')
-    const sel = modelSelection(chat.sessionId)
-    if (sel === null) throw new Error('没有可用的模型配置')
-    // 1) 生成新正文（以上一轮玩家输入为准，去掉旧正文，指导意见可选）
-    const src = regenSourceMessages(chat)
-    let hasUser = false
-    const messages = []
-    for (let i = 0; i < src.length; i++) {
-      const m = src[i]
-      if (m === null || typeof m !== 'object' || str(m.text) === '') continue
-      if (m.role === 'user') hasUser = true
-      messages.push({
-        id: 'regen-' + i + '-' + Date.now().toString(36),
-        role: m.role === 'assistant' ? 'assistant' : 'user',
-        content: [{ type: 'text', text: str(m.text) }],
-        source: m.role === 'assistant' ? { kind: 'model', provider: sel.provider, model: sel.model } : { kind: 'plugin', plugin: 'dsh-tavern' }
-      })
-    }
-    if (!hasUser) throw new Error('没有可重新生成的玩家输入')
-    const guide = str(guidance).trim()
-    let system = buildSystem(card, chat, null)
-    if (guide !== '') system += '\n\n【正文生成指导 · 用户针对本次重新生成的指导意见，必须遵循，优先级高于默认叙事要求】\n' + guide
-    const raw = await callModel({
-      messages: messages,
-      system: system,
-      temperature: settings.temperature,
-      maxTokens: 2048,
-      sessionId: chat.sessionId
-    })
-    const body = str(raw).trim()
-    if (body === '') throw new Error('重新生成失败：模型返回空文本')
-    // 2) 插件 chat 数据：直接替换最后一条正文
-    let replaced = false
-    const msgs = chat.messages || []
-    for (let i = msgs.length - 1; i >= 0; i--) {
-      if (msgs[i] !== null && typeof msgs[i] === 'object' && msgs[i].role === 'assistant' && msgs[i].greeting !== true) {
-        msgs[i].text = body
-        msgs[i].ts = Date.now()
-        replaced = true
-        break
-      }
-    }
-    if (!replaced) throw new Error('没有可替换的正文消息')
-    // 3) 原生消息流：可见追加新正文 + 模型面替换旧正文（DSH 界面只显示 append 事件）
     const agents = ctx.get('agents')
     const agent = agents !== undefined ? agents.get(chat.sessionId) : undefined
     if (agent === undefined || agent.session === undefined) throw new Error('无法访问 DSH 会话: ' + chat.sessionId)
@@ -1656,46 +1613,64 @@ export function apply(ctx) {
       }
     }
     if (oldSeq < 0) throw new Error('原生消息流中找不到可替换的正文消息')
-    const newTurn = nextTurnOf(session)
-    const step = 1
-    session.append('turn/start', { turn: newTurn })
-    session.append('step/start', { turn: newTurn, step: step })
-    const visibleEvent = session.append('assistant/message', {
-      turn: newTurn,
-      step: step,
-      message: {
-        id: crypto.randomUUID(),
-        role: 'assistant',
-        content: [{ type: 'text', text: body }],
-        source: { kind: 'model', provider: sel.provider, model: sel.model }
+    const msgs0 = chat.messages || []
+    let oldAssistantIndex = -1
+    for (let i = msgs0.length - 1; i >= 0; i--) {
+      const m = msgs0[i]
+      if (m !== null && typeof m === 'object' && m.role === 'assistant' && m.greeting !== true) {
+        oldAssistantIndex = i
+        break
       }
-    }, { surfaceOp: 'append', sourceEventSeqs: [] })
-    session.append('step/end', { turn: newTurn, step: step })
-    session.append('turn/end', { turn: newTurn, reason: { kind: 'completed' } })
-    // 模型面：遮蔽旧正文与刚追加的可见正文，模型只看到一份新正文
-    session.append('assistant/message', {
-      turn: newTurn,
-      step: step,
-      message: {
-        id: crypto.randomUUID(),
-        role: 'assistant',
-        content: [{ type: 'text', text: body }],
-        source: { kind: 'model', provider: sel.provider, model: sel.model }
-      }
-    }, {
-      surfaceOp: { op: 'replace', start: oldSeq, end: visibleEvent.seq },
-      sourceEventSeqs: [oldSeq, visibleEvent.seq]
-    })
-    if (agent.phase !== undefined && agent.phase !== null && agent.phase.kind === 'idle') {
-      agent.phase.lastTurn = Math.max(Number(agent.phase.lastTurn) || 0, newTurn)
     }
-    chat.settleStatus = 'running'
-    chat.settleError = null
-    chat.updatedAt = Date.now()
-    await writeChat(chat)
-    queueSettlement(chat.id)
-    const result = view(chat, card)
-    result.adopted = { text: body, guidance: guide, hiddenTurn: oldTurn, newTurn: newTurn }
+    if (oldAssistantIndex < 1 || msgs0[oldAssistantIndex - 1] === null || typeof msgs0[oldAssistantIndex - 1] !== 'object' || msgs0[oldAssistantIndex - 1].role !== 'user') throw new Error('没有可重新生成的玩家输入与正文组合')
+    const originalUserText = str(msgs0[oldAssistantIndex - 1].text).trim()
+    const oldChatCount = msgs0.length
+    const guide = str(guidance).trim()
+    const syntheticText = '【重新生成正文】\n原玩家输入：\n' + originalUserText + '\n\n指导意见：\n' + (guide !== '' ? guide : '（无）') + '\n\n请按正常流程处理：先调用 tavern_session action=context，再根据原玩家输入和指导意见重新生成小说正文，最后调用 action=commit。'
+    const beforeLastTurn = agent.phase !== undefined && agent.phase !== null && Number.isFinite(Number(agent.phase.lastTurn)) ? Number(agent.phase.lastTurn) : 0
+    agent.followup({
+      id: crypto.randomUUID(),
+      role: 'user',
+      content: [{ type: 'text', text: syntheticText }],
+      source: { kind: 'plugin', plugin: 'dsh-tavern-regen' }
+    })
+    await agent.whenIdle()
+    const syntheticTurn = agent.phase !== undefined && agent.phase !== null && Number.isFinite(Number(agent.phase.lastTurn)) ? Number(agent.phase.lastTurn) : (beforeLastTurn + 1)
+    const latest = await readChat(chat.id)
+    if (latest === undefined) throw new Error('聊天不存在: ' + chat.id)
+    const latestMsgs = latest.messages || []
+    if (latestMsgs.length < oldChatCount + 2) throw new Error('重新生成流程未产生新的用户/助手回合')
+    const newAssistant = latestMsgs[latestMsgs.length - 1]
+    if (newAssistant === null || typeof newAssistant !== 'object' || newAssistant.role !== 'assistant') throw new Error('重新生成流程未产生正文')
+    const body = str(newAssistant.text).trim()
+    if (body === '') throw new Error('重新生成失败：模型返回空文本')
+    latestMsgs[oldAssistantIndex].text = body
+    latestMsgs[oldAssistantIndex].ts = Date.now()
+    latestMsgs.splice(oldChatCount, latestMsgs.length - oldChatCount)
+    if (latest.nativeCommits !== null && typeof latest.nativeCommits === 'object') delete latest.nativeCommits[String(syntheticTurn)]
+    latest.updatedAt = Date.now()
+    latest.settleStatus = 'running'
+    latest.settleError = null
+    await writeChat(latest)
+    queueSettlement(latest.id)
+    // 模型面遮蔽旧正文；新正文由正常 Agent 回合生成，UI 隐藏旧 turn tail 与合成的重新生成用户消息
+    if (nodes.indexOf(oldSeq) >= 0) {
+      session.append('assistant/message', {
+        turn: oldTurn,
+        step: 1,
+        message: {
+          id: crypto.randomUUID(),
+          role: 'assistant',
+          content: [],
+          source: { kind: 'plugin', plugin: 'dsh-tavern-regen' }
+        }
+      }, {
+        surfaceOp: { op: 'replace', start: oldSeq, end: oldSeq },
+        sourceEventSeqs: [oldSeq]
+      })
+    }
+    const result = view(latest, card)
+    result.adopted = { text: body, guidance: guide, hiddenTurn: oldTurn, syntheticTurn: syntheticTurn }
     return result
   }
 

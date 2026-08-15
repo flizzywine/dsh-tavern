@@ -1024,6 +1024,7 @@ html[data-dsh-tavern-profile="true"] [data-composer-seat] {
 
 		const HIDDEN_TURNS_KEY = "dsh-tavern-hidden-turns";
 		const ROLLED_BACK_TURNS_KEY = "dsh-tavern-rolled-back-turns";
+		const HIDDEN_REGEN_USER_TURNS_KEY = "dsh-tavern-hidden-regen-user-turns";
 		function recordHiddenTurn(sessionId, turn) {
 			try {
 				const all = JSON.parse(window.localStorage.getItem(HIDDEN_TURNS_KEY) || "{}");
@@ -1040,6 +1041,42 @@ html[data-dsh-tavern-profile="true"] [data-composer-seat] {
 				if (list.indexOf(turn) < 0) list.push(turn);
 				all[sessionId] = list;
 				window.localStorage.setItem(ROLLED_BACK_TURNS_KEY, JSON.stringify(all));
+			} catch (err) {}
+		}
+		function recordHiddenRegenUserTurn(sessionId, turn) {
+			try {
+				const all = JSON.parse(window.localStorage.getItem(HIDDEN_REGEN_USER_TURNS_KEY) || "{}");
+				const list = all[sessionId] || [];
+				if (list.indexOf(turn) < 0) list.push(turn);
+				all[sessionId] = list;
+				window.localStorage.setItem(HIDDEN_REGEN_USER_TURNS_KEY, JSON.stringify(all));
+			} catch (err) {}
+		}
+		function hideUserForTurnTail(tail) {
+			if (!tail) return;
+			let sib = tail.previousElementSibling;
+			while (sib) {
+				const kind = sib.getAttribute("data-chat-flow-kind");
+				if (kind === "user") {
+					sib.style.display = "none";
+					break;
+				}
+				if (kind === "turn-tail") break;
+				sib = sib.previousElementSibling;
+			}
+		}
+		function applyHiddenRegenUserTurns(sessionId) {
+			try {
+				const all = JSON.parse(window.localStorage.getItem(HIDDEN_REGEN_USER_TURNS_KEY) || "{}");
+				const turns = all[sessionId];
+				if (!Array.isArray(turns) || turns.length === 0) return;
+				const set = new Set(turns.map(String));
+				const tails = document.querySelectorAll('[data-chat-flow-kind="turn-tail"]');
+				for (let i = 0; i < tails.length; i++) {
+					const tail = tails[i];
+					if (!set.has(tailTurnOf(tail))) continue;
+					hideUserForTurnTail(tail);
+				}
 			} catch (err) {}
 		}
 		function hideTurnTail(el) {
@@ -1229,7 +1266,8 @@ html[data-dsh-tavern-profile="true"] [data-composer-seat] {
 			React.useEffect(function () {
 				applyHiddenTurns(props.sessionId);
 				applyRolledBackTurns(props.sessionId);
-				const timer = window.setInterval(function () { applyHiddenTurns(props.sessionId); applyRolledBackTurns(props.sessionId); }, 1500);
+				applyHiddenRegenUserTurns(props.sessionId);
+				const timer = window.setInterval(function () { applyHiddenTurns(props.sessionId); applyRolledBackTurns(props.sessionId); applyHiddenRegenUserTurns(props.sessionId); }, 1500);
 				return function () { window.clearInterval(timer); };
 			}, [props.sessionId]);
 			if (panel && panel.sessionId === props.sessionId && panel.phase === "error") {
@@ -1351,8 +1389,10 @@ html[data-dsh-tavern-profile="true"] [data-composer-seat] {
 					const res = await call("regenBody", { guidance: guide });
 					const adopted = res.view && res.view.adopted ? res.view.adopted : null;
 					if (adopted && Number(adopted.hiddenTurn) > 0) recordHiddenTurn(props.sessionId, Number(adopted.hiddenTurn));
+					if (adopted && Number(adopted.syntheticTurn) > 0) recordHiddenRegenUserTurn(props.sessionId, Number(adopted.syntheticTurn));
 					hideTurnTail(panel.tail);
 					applyHiddenTurns(props.sessionId);
+					applyHiddenRegenUserTurns(props.sessionId);
 					setRegenPanel(null);
 					setCandidatePanel(null);
 				} catch (err) {
