@@ -904,14 +904,17 @@ export function apply(ctx) {
     const cursor = Math.max(0, Number(state.cursor) || 0)
     const chunks = Array.isArray(script.chunks) ? script.chunks : []
     const ended = cursor >= chunks.length
-    const held = !ended && typeof state.heldChunkId === 'string' && Number(state.heldOrder) === cursor
+    const heldChunk = !ended && typeof state.heldChunkId === 'string'
+      ? chunks.find(function (chunk) { return chunk.id === state.heldChunkId })
+      : undefined
+    const referenceCursor = heldChunk !== undefined ? Math.max(0, Number(heldChunk.order) || 0) : cursor
     return {
-      cursor: cursor,
+      cursor: referenceCursor,
       total: chunks.length,
       ended: ended,
-      held: held,
+      held: heldChunk !== undefined,
       title: str(script.title),
-      chunks: ended ? [] : chunks.slice(cursor, Math.min(chunks.length, cursor + 2))
+      chunks: ended ? [] : (heldChunk !== undefined ? [heldChunk] : chunks.slice(referenceCursor, Math.min(chunks.length, referenceCursor + 2)))
     }
   }
   function lastAssistantTail(chat, limit) {
@@ -1288,7 +1291,7 @@ export function apply(ctx) {
     }
     let selected = script.chunks[state.cursor]
     let held = false
-    if (state.heldChunkId !== null && state.heldOrder === state.cursor) {
+    if (state.heldChunkId !== null) {
       const heldChunk = script.chunks.find(function (chunk) { return chunk.id === state.heldChunkId })
       if (heldChunk !== undefined) {
         selected = heldChunk
