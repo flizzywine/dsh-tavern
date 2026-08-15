@@ -989,7 +989,6 @@ html[data-dsh-tavern-profile="true"] [data-composer-seat] {
 
 		const candidatePanel = { value: null, listeners: new Set() };
 		const candidateRequests = new Set();
-		const candidateAutoRetries = new Set();
 		function setCandidatePanel(value) {
 			candidatePanel.value = value;
 			candidatePanel.listeners.forEach(function (listener) { listener(value); });
@@ -1166,16 +1165,7 @@ html[data-dsh-tavern-profile="true"] [data-composer-seat] {
 				const key = props.sessionId + ":" + props.messageId;
 				if (candidateRequests.has(key)) return;
 				candidateRequests.add(key);
-				const timer = window.setTimeout(function () {
-					generate(false).then(function () {
-						const current = candidatePanel.value;
-						if (current !== null && current.sessionId === props.sessionId && current.messageId === props.messageId && current.phase === "error" && !candidateAutoRetries.has(key)) {
-							candidateAutoRetries.add(key);
-							candidateRequests.delete(key);
-							window.setTimeout(function () { generate(false); }, 2500);
-						}
-					});
-				}, 600);
+				const timer = window.setTimeout(function () { generate(false); }, 600);
 				return function () { window.clearTimeout(timer); };
 			}, [latestMessageId, props.messageId, props.sessionId, sessionMode, hasUserMessage]);
 			const h = React.createElement;
@@ -1233,7 +1223,7 @@ html[data-dsh-tavern-profile="true"] [data-composer-seat] {
 			const [expanded, setExpanded] = React.useState(false);
 			React.useEffect(function () {
 				setSelected(sessionMode === "script" && panel && Array.isArray(panel.choices) && panel.choices.length === 1 ? 0 : -1);
-				setExpanded(false);
+				setExpanded(panel !== null && panel.phase === "error");
 			}, [panel, sessionMode]);
 			React.useEffect(function () {
 				applyHiddenTurns(props.sessionId);
