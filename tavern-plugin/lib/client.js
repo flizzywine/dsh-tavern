@@ -1284,16 +1284,15 @@ html[data-dsh-tavern-profile="true"] [data-composer-seat] {
 			const h = React.createElement;
 			const count = (panel.choices || []).length;
 			const isScript = sessionMode === "script";
-			const isScenePick = !isScript && count > 0 && (panel.choices || []).every(function (choice) { return choice !== null && typeof choice === "object" && choice.type === "scene2"; });
-			const heading = isScenePick ? "选择新场景开头" : "接下来的行动";
+			const heading = "接下来的行动";
 			const summary = panel.phase === "loading" ? "正在生成…" : (panel.error ? "生成失败" : (isScript ? "1 个候选 · 跟随剧本，只有一个推荐候选项" : count + " 个候选项"));
 			return h("div", { className: "dsh-tavern-question" + (expanded ? "" : " collapsed") },
 				h("div", { className: "dsh-tavern-question-head", onClick: function () { setExpanded(!expanded); } }, h("span", null, heading), h("span", { className: "dsh-tavern-question-sub" }, summary), h("button", { className: "dsh-tavern-question-close", title: expanded ? "收起" : "展开", onClick: function (event) { event.stopPropagation(); setExpanded(!expanded); } }, expanded ? "⌃" : "⌄")),
 				expanded && panel.phase === "loading" ? h("div", { className: "dsh-tavern-question-sub" }, "正在生成候选项…") : null,
 				expanded && panel.error ? h("div", { className: "dsh-tavern-choice-error" }, "候选项生成失败，请点回复下方的“生成候选项”重试") : null,
 				expanded ? (panel.choices || []).map(function (choice, index) {
-					const item = choice !== null && typeof choice === "object" ? choice : { type: "player", text: String(choice) };
-					const label = item.type === "npc" ? "角色行动" : item.type === "scene" ? "场景结束" : item.type === "scene2" ? "新场景" : "玩家行动";
+					const item = choice !== null && typeof choice === "object" ? choice : { type: "action", text: String(choice) };
+					const label = item.type === "scene" ? "场景变化" : "人物行为";
 					return h("button", { key: index, className: "dsh-tavern-question-option" + (selected === index ? " selected" : ""), onClick: function () { setSelected(index); } },
 						h("span", { className: "dsh-tavern-question-radio" }),
 						h("span", { className: "dsh-tavern-question-text" },
@@ -1313,8 +1312,8 @@ html[data-dsh-tavern-profile="true"] [data-composer-seat] {
 					h("button", { className: "dsh-tavern-question-primary", disabled: selected < 0, onClick: function () {
 						if (selected < 0) return;
 						const item = panel.choices[selected];
-						const choice = item !== null && typeof item === "object" ? item : { type: "player", text: String(item) };
-						const marked = choice.type === "npc" ? "【角色行动】" + choice.text : choice.type === "scene" ? "【场景结束】" + choice.text : choice.type === "scene2" ? "【新场景】" + choice.text : choice.text;
+						const choice = item !== null && typeof item === "object" ? item : { type: "action", text: String(item) };
+						const marked = choice.type === "scene" ? "【场景变化】" + choice.text : choice.text;
 						props.inputActions.setDraft(marked);
 						setCandidatePanel(null);
 					} }, "填入输入框")

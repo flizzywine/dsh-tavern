@@ -941,31 +941,22 @@ export function apply(ctx) {
       if (script === undefined || !Array.isArray(script.chunks) || script.chunks.length === 0) throw new Error('剧本文件不存在，请重新为人物卡导入剧本')
       scriptWin = scriptChoiceWindow(chat, script)
     }
-    const awaitingScene = chat.awaitingScene === true
     const guide = str(guidance).trim().slice(0, 600)
     let task = ''
     let baseRequest = ''
     const latestTail = lastAssistantTail(chat, 180)
     if (scriptMode) {
-      task = '你现在不是续写正文，而是为玩家生成唯一一个“剧本推荐”候选。只输出 JSON：{"choices":[{"type":"player|npc|scene|scene2","text":"选项内容"}]}。必须恰好一个候选，不要输出多个。'
-      if (awaitingScene) {
-        task += '当前场景刚刚结束，type 必须是 scene2：text 写成一段 10~80 字的【新场景提要】——写明新时间、新地点、新人物组合与开场画面，只写场景本身，不要提前描述剧情发展，且必须与剧本后续内容自然衔接。'
-      } else {
-        task += 'type 必须根据剧本当前块的内容选择，不要默认 player：player=以玩家视角写玩家下一步行动或台词（只有当前块自然落在玩家动作时才选）；npc=写其他角色的行动或台词（当前块以某个角色为主时选，角色必须带名字）；scene=结束当前场景的收尾（当前块是场景收束或时间流逝时选）；scene2=剧本开启全新场景时写一段新时间、新地点、新人物组合的新场景提要。text 每项 10~80 字，不要提前描述行动结果。'
-      }
+      task = '你现在不是续写正文，而是为玩家生成唯一一个“剧本推荐”候选。只输出 JSON：{"choices":[{"type":"action|scene","text":"选项内容"}]}。必须恰好一个候选，不要输出多个。'
+      task += 'type 二选一：action=人物行为（动作、心理、对白都可以）；scene=场景变化（可以结束当前场景，也可以直接开启新场景）。text 每项 10~80 字，不要提前描述行动结果。'
       task += '这个候选是剧本路线的推荐：关键是直接承接当前现状，不要跳跃剧情；参考剧本只是了解方向，信息不够时可调用 tavern_script_peek。候选从【上一段正文结尾】自然接起，不重复已发生的动作。'
-      baseRequest = awaitingScene
-        ? '上一场景已经结束。根据剧本后续内容，给出唯一一个新场景开头候选。'
-        : '根据当前剧情与剧本后续内容，给出唯一一个剧本路线候选。'
+      baseRequest = '根据当前剧情与剧本后续内容，给出唯一一个剧本路线候选。'
       if (latestTail !== '') baseRequest += '\n【上一段正文结尾】\n' + latestTail
     } else {
-      task = awaitingScene
-        ? '你现在不是续写正文，而是为玩家生成下一场景的候选提要。只输出 JSON：{"choices":[{"type":"scene2","text":"选项内容"}]}。恰好三个选项，type 全部为 scene2；每项 10~80 字；每个选项都是一段【完全不同的新场景提要】——写明新时间、新地点、新人物组合（可增减出场人物）与开场画面，彼此之间差异要大，不要求与上一场景衔接；这些提要在玩家选中后会被正文完整展开演绎，所以只写场景本身，不要提前描述剧情发展。'
-        : '你现在不是续写正文，而是为玩家生成下一步候选。只输出 JSON：{"choices":[{"type":"player|npc|scene","text":"选项内容"}]}。恰好五个选项，type 依次为 player、player、player、npc、scene；每项 10~80 字；player：玩家视角写玩家角色的行动或台词，三个玩家行动要各有侧重、彼此不重复；npc：写其他角色的行动或台词（角色必须带名字，正文会以该角色行动为主推进）；scene：写结束当前场景的收尾（收束当前场面：人物反应、情绪、环境收束或时间流逝，作为本场景的落幕）；不要提前描述行动结果。候选必须从上一段正文结尾自然接起，先补一小步承接，再进入候选动作，禁止直接跳到与上一段无关的新动作，也禁止重复上一段已经发生过的动作。'
-      baseRequest = awaitingScene ? '上一场景已经结束。构思三个完全不同的新场景提要。' : '根据当前剧情，生成五个下一步候选：三个玩家行动、一个其他角色行动、一个场景结束。'
-      if (!awaitingScene && latestTail !== '') baseRequest += '\n【上一段正文结尾】\n' + latestTail
+      task = '你现在不是续写正文，而是为玩家生成下一步候选。只输出 JSON：{"choices":[{"type":"action|scene","text":"选项内容"}]}。恰好五个选项：四个 type=action（人物行为，动作、心理、对白都可以，四个候选要各有侧重、彼此不重复），一个 type=scene（场景变化，可以结束当前场景，也可以直接开启新场景）。每项 10~80 字，不要提前描述行动结果。候选必须从上一段正文结尾自然接起，先补一小步承接，再进入候选内容，禁止直接跳到与上一段无关的新动作，也禁止重复上一段已经发生过的动作。'
+      baseRequest = '根据当前剧情，生成五个下一步候选：四个人物行为，一个场景变化。'
+      if (latestTail !== '') baseRequest += '\n【上一段正文结尾】\n' + latestTail
     }
-    const requiredCount = scriptMode ? 1 : (awaitingScene ? 3 : 5)
+    const requiredCount = scriptMode ? 1 : 5
     const taskSystem = task + (guide !== '' ? '\n\n【用户对候选项的额外要求 · 必须遵循，但仍要保证恰好 ' + requiredCount + ' 个候选且类型要求不变】\n' + guide : '')
     let system = buildSystem(card, chat)
     if (scriptMode) {
@@ -1028,14 +1019,11 @@ export function apply(ctx) {
           const raw = typeof item === 'string' ? item : (item !== null && typeof item === 'object' ? str(item.text) : '')
           const content = raw.trim().slice(0, 120)
           if (content === '') continue
-          let type = 'player'
+          let type = 'action'
           if (item !== null && typeof item === 'object') {
             const t = str(item.type).trim().toLowerCase()
-            if (t === 'npc' || t === 'character' || t === '角色') type = 'npc'
-            else if (t === 'scene' || t === '场景') type = 'scene'
-            else if (t === 'scene2' || t === 'newscene' || t === '新场景') type = 'scene2'
+            if (t === 'scene' || t === 'scene2' || t === 'newscene' || t === '场景' || t === '新场景' || t === '场景变化') type = 'scene'
           }
-          if (scriptMode && awaitingScene) type = 'scene2'
           choices.push({ type: type, text: content })
         }
         if (choices.length === 0) throw new Error('模型没有返回有效候选项')
@@ -1062,10 +1050,10 @@ export function apply(ctx) {
     if (chat === undefined || chat.candidates === null || typeof chat.candidates !== 'object') return null
     const choices = Array.isArray(chat.candidates.choices) ? chat.candidates.choices.map(function (item) {
       if (item !== null && typeof item === 'object') {
-        const type = item.type === 'npc' || item.type === 'scene' || item.type === 'scene2' ? item.type : 'player'
+        const type = item.type === 'scene' || item.type === 'scene2' ? 'scene' : 'action'
         return { type: type, text: str(item.text).trim() }
       }
-      return { type: 'player', text: str(item).trim() }
+      return { type: 'action', text: str(item).trim() }
     }).filter(function (item) { return item.text !== '' }).slice(0, 5) : []
     if (choices.length === 0) return null
     return {
@@ -1213,7 +1201,7 @@ export function apply(ctx) {
   }
   function buildSystem(card, chat, scriptReference, worldBookIds) {
     const parts = []
-    parts.push('你是小说续写引擎，只输出小说正文，不要解释、点评或元信息；长度由剧情自然决定。\n1. "你"是玩家角色；除玩家外，所有角色都由你叙述和扮演。\n2. 用户最新消息是导演指令：无标记或「玩家行动」=玩家行动/台词；「角色行动」=其他角色行动/台词；「场景结束」=只收尾当前场景；「新场景」=把场景提要展开成完整场景，不能当成已发生，也不能跳过。玩家不是上帝：其他角色可以按人设拒绝、反对、打断玩家行动，不必百依百顺。\n3. 指令不是已发生事实，关键在**自然过渡**，不强求放最前面：先承接上一段和当前现场，铺垫环境、心理或反应，再自然落到指令的动作与台词；顺序可以调整，只要逻辑合理。指令内容只出现一次，同一动作/台词只演一次，不得先复读再演一遍；完成后可继续自然发展。\n4. 文风参照【文风示例】（若有）；与【现场】冲突时以【现场】为准。')
+    parts.push('你是小说续写引擎，只输出小说正文，不要解释、点评或元信息；长度由剧情自然决定。\n1. "你"是玩家角色；除玩家外，所有角色都由你叙述和扮演。\n2. 用户最新消息是导演指令：无标记=人物行为（动作、心理、对白）；「场景变化」=可以结束当前场景，也可以直接开启新场景；如果是新场景提要，要把它展开成完整场景，不能当成已发生，也不能跳过。玩家不是上帝：其他角色可以按人设拒绝、反对、打断玩家行动，不必百依百顺。\n3. 指令不是已发生事实，关键在**自然过渡**，不强求放最前面：先承接上一段和当前现场，铺垫环境、心理或反应，再自然落到指令的动作与台词；顺序可以调整，只要逻辑合理。指令内容只出现一次，同一动作/台词只演一次，不得先复读再演一遍；完成后可继续自然发展。\n4. 文风参照【文风示例】（若有）；与【现场】冲突时以【现场】为准。')
     const wb = worldBookLines(card, worldBookIds)
     if (wb.length > 0) parts.push('【世界设定】\n' + wb.join('\n'))
     if (str(chat.posture) !== '') parts.push('【现场 · 主要人物状态（每轮结算更新，务必与之一致）】\n' + chat.posture)
@@ -2193,8 +2181,7 @@ export function apply(ctx) {
             : null
           const scriptAdvance = (chat.mode || 'story') === 'script' && (args && (args.scriptAdvance === true || args.scriptAdvance === 'true'))
           if ((chat.mode || 'story') === 'script') commitScriptReference(chat, userText, nativeTurn, scriptAdvance)
-          if (userText.indexOf('【场景结束】') === 0) chat.awaitingScene = true
-          else if (userText.indexOf('【新场景】') === 0) chat.awaitingScene = false
+          if (userText.indexOf('【场景变化】') === 0) chat.awaitingScene = false
           if (userText !== '') chat.messages.push({ role: 'user', text: userText, ts: Date.now(), native: true })
           chat.messages.push({ role: 'assistant', text: assistantText, ts: Date.now(), native: true })
           chat.pending = null
