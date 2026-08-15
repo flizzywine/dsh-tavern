@@ -147,6 +147,62 @@ export function apply(ctx) {
     if (out === '') throw new Error('模型返回为空')
     return out
   }
+  async function callModelWithTool(opts) {
+    const sel = modelSelection(opts.sessionId)
+    if (sel === null) throw new Error('没有可用的模型配置')
+    const cfg = { provider: sel.provider, model: sel.model }
+    if (sel.reasoningEffort !== undefined) cfg.reasoningEffort = sel.reasoningEffort
+    if (typeof opts.temperature === 'number' && sel.provider !== 'openai-codex') cfg.temperature = opts.temperature
+    if (typeof opts.maxTokens === 'number') cfg.maxTokens = opts.maxTokens
+    const prepared = await llm.prepareCall(cfg)
+    let messages = opts.messages.slice()
+    for (let round = 0; round < 4; round++) {
+      const options = Object.assign({}, prepared.config, { messages: messages, system: opts.system, tools: opts.tools })
+      let text = ''
+      let finish = null
+      const blocks = []
+      try {
+        for await (const chunk of prepared.stream(options)) {
+          if (chunk.type === 'text-delta') text += chunk.text
+          else if (chunk.type === 'block-end') blocks.push(chunk.block)
+          else if (chunk.type === 'finish') finish = chunk.reason
+        }
+      } catch (err) {
+        throw new Error('模型流失败: ' + (err && (err.message || err.code) || err))
+      }
+      if (finish !== null && finish !== undefined && (finish.kind === 'error' || finish.kind === 'aborted')) {
+        const f = finish.failure
+        throw new Error('模型调用失败: ' + (f !== undefined && f !== null ? (f.message || f.code) : finish.kind))
+      }
+      const calls = blocks.filter(function (block) { return block !== null && typeof block === 'object' && block.type === 'tool-call' })
+      if (calls.length === 0) {
+        const out = text.trim()
+        if (out === '') throw new Error('模型返回为空')
+        return out
+      }
+      messages.push({
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        content: calls.map(function (call) { return { type: 'tool-call', id: call.id, name: call.name, arguments: call.arguments } }),
+        source: { kind: 'model', provider: sel.provider, model: sel.model }
+      })
+      for (const call of calls) {
+        let resultText = ''
+        try {
+          resultText = str(await opts.onToolCall(call))
+        } catch (err) {
+          resultText = '工具执行失败: ' + str(err && err.message || err)
+        }
+        messages.push({
+          id: crypto.randomUUID(),
+          role: 'user',
+          content: [{ type: 'tool-result', toolCallId: call.id, content: [{ type: 'text', text: resultText }], isError: false }],
+          source: { kind: 'tool', callId: call.id }
+        })
+      }
+    }
+    throw new Error('工具调用轮次过多')
+  }
 
   // ---------- 角色卡 ----------
   function splitNovelText(source, requestedSize) {
@@ -855,7 +911,7 @@ export function apply(ctx) {
       ended: ended,
       held: held,
       title: str(script.title),
-      chunks: ended ? [] : chunks.slice(cursor, Math.min(chunks.length, cursor + 3))
+      chunks: ended ? [] : chunks.slice(cursor, Math.min(chunks.length, cursor + 2))
     }
   }
   function lastAssistantTail(chat, limit) {
@@ -879,8 +935,9 @@ export function apply(ctx) {
     if (sel === null) throw new Error('没有可用的模型配置')
     const scriptMode = (chat.mode || 'story') === 'script'
     let scriptWin = null
+    let script = null
     if (scriptMode) {
-      const script = await readScript(chat.cardId)
+      script = await readScript(chat.cardId)
       if (script === undefined || !Array.isArray(script.chunks) || script.chunks.length === 0) throw new Error('剧本文件不存在，请重新为人物卡导入剧本')
       scriptWin = scriptChoiceWindow(chat, script)
     }
@@ -896,7 +953,7 @@ export function apply(ctx) {
       } else {
         task += 'type 必须根据剧本当前块的内容选择，不要默认 player：player=以玩家视角写玩家下一步行动或台词（只有当前块自然落在玩家动作时才选）；npc=写其他角色的行动或台词（当前块以某个角色为主时选，角色必须带名字）；scene=结束当前场景的收尾（当前块是场景收束或时间流逝时选）；scene2=剧本开启全新场景时写一段新时间、新地点、新人物组合的新场景提要。text 每项 10~80 字，不要提前描述行动结果。'
       }
-      task += '这个候选是剧本路线的推荐：必须依据【剧本候选参考】，并严格以剧本为准——当前块的剧情是哪个角色的动作、是收尾还是新场景，就生成对应 type，绝不能因为上一段正文是玩家视角就都生成 player。参考的第一块是当前块，候选动作必须落在当前块内；后面两块只是后续预览，用于了解剧情边界和方向，禁止直接生成后续块里的剧情。候选必须从【上一段正文结尾】的画面自然接起：先补一小步承接（一个反应、一句话、一个细微动作或短暂时间推移），再进入剧本要求的动作或事件；禁止直接跳到剧本分块里的动作，也禁止重复上一段已经发生过的动作（例如上一段已经写过笑，就不要再用“笑了笑”开场）。'
+      task += '这个候选是剧本路线的推荐：必须依据【剧本候选参考】，并严格以剧本为准——当前块的剧情是哪个角色的动作、是收尾还是新场景，就生成对应 type，绝不能因为上一段正文是玩家视角就都生成 player。参考的第一块是当前块，候选动作必须落在当前块内；第二块只是后续预览，用于了解剧情边界和方向，禁止直接生成后续块里的剧情。如果两块信息不够，可以调用 tavern_script_peek 再读更多块。候选必须从【上一段正文结尾】的画面自然接起：先补一小步承接（一个反应、一句话、一个细微动作或短暂时间推移），再进入剧本要求的动作或事件；禁止直接跳到剧本分块里的动作，也禁止重复上一段已经发生过的动作（例如上一段已经写过笑，就不要再用“笑了笑”开场）。'
       baseRequest = awaitingScene
         ? '上一场景已经结束。根据剧本后续内容，给出唯一一个新场景开头候选。'
         : '根据当前剧情与剧本后续内容，给出唯一一个剧本路线候选。'
@@ -930,13 +987,36 @@ export function apply(ctx) {
     for (let attempt = 1; attempt <= 3; attempt++) {
       if (attempt > 1) await new Promise(function (resolve) { setTimeout(resolve, 800) })
       try {
-        const text = await callModel({
+        const callOpts = {
           sessionId: sessionId,
           temperature: temps[(attempt - 1) % temps.length],
           maxTokens: 2400,
           system: system,
           messages: messages
-        })
+        }
+        const text = scriptMode
+          ? await callModelWithTool(Object.assign({}, callOpts, {
+              tools: [{
+                name: 'tavern_script_peek',
+                description: '只读查看剧本分块；默认读当前游标块，可用 scriptOffset 指定块号（1 起始）或 scriptQuery 检索关键词。只返回文本，不推进游标。',
+                parameters: {
+                  type: 'object',
+                  properties: {
+                    scriptOffset: { type: 'number', description: '1 起始的块号，缺省当前游标' },
+                    scriptQuery: { type: 'string', description: '按关键词在剧本中检索' }
+                  },
+                  additionalProperties: false
+                }
+              }],
+              onToolCall: async function (call) {
+                const callArgs = parseJsonLenient(str(call.arguments))
+                const win = scriptReadWindow(script, callArgs.scriptQuery, callArgs.scriptOffset, 1)
+                if (win.notFound === true) return '没有找到包含该关键词的剧本分块，可换关键词或用 scriptOffset 指定块号。'
+                if (win.chunks.length === 0) return '没有可读的剧本分块。'
+                return win.chunks.map(function (chunk) { return '[' + chunk.id + ' · 第 ' + (Number(chunk.order) + 1) + ' 块]\n' + chunk.text }).join('\n\n')
+              }
+            }))
+          : await callModel(callOpts)
         lastRaw = text
         const parsed = parseJsonLenient(text)
         let source = Array.isArray(parsed.choices) ? parsed.choices : (Array.isArray(parsed.options) ? parsed.options : [])
@@ -1133,18 +1213,20 @@ export function apply(ctx) {
   }
   function buildSystem(card, chat, scriptReference, worldBookIds) {
     const parts = []
-    parts.push('你是小说续写引擎。下面是一份【故事设定】（人物卡即故事的开头与隐藏设定）。你要以小说正文的形式续写这个故事。')
-    parts.push('【叙事要求】\n1. 输出一段完整的小说正文，长度由剧情需要自然决定，不要输出任何解释、点评或元信息。\n2. 正文中可以把"你"（玩家角色）的行动与台词、主要人物的行动与心理、其他 NPC 的出现与行动、环境与时间的推移全部织入叙述，像小说一样自然推进；除"你"之外的所有角色都由你扮演与叙述。\n3. 把"用户"的最新消息理解为导演指令并按前缀标记理解：无标记或「玩家行动」=玩家角色"你"的行动或台词；「角色行动」=其他角色的行动或台词，正文以该角色行动为主推进，玩家角色也可继续出场；「场景结束」=结束当前场景，正文只做本场景的收尾（收束动作、情绪、环境，可带时间流逝的落幕感），不要开启新场景；「新场景」=用户给出一段压缩的场景提要，正文的任务不是从提要结束后接着写，而是把这段提要展开演绎成完整的小说正文：从提要的起点写起，把环境、人物动作、对话台词与情绪反应逐一写细，把被压缩掉的中间过程补回来；对话要原样演出。把提要完整演完后，可以顺势续写一小段自然发展（人物反应、对话、下一个细微动作），不要戛然而止；但绝不能把提要当作已经发生过的事实，也绝不能跳过提要直接写之后的情节。时间、地点、人物组合可以完全不同，不必与上一场景衔接。若本轮是「新场景」的展开，把提要完整演完，长度由内容自然决定。绝不评论或跳出故事。\n4. 除「新场景」外，用户消息是"接下来要发生什么"的分镜指令，不是已经完成的事实。指令是正文必须包含的内容，也是正文的开头一部分：先从上一段正文末尾和当前【现场】自然承接（环境、人物反应），再把指令里的每个动作、台词、眼神、心理变化一一自然融入正文、重新演绎出来，绝不能把指令写成已发生的过去状态。指令里的台词和动作只出现一次，不要先原样复读一遍再演一遍；如果剧本参考里已有相同句子，要合并或改写，不能粘贴两遍。演完指令之后不要停，继续顺势续写自然的后续发展——人物的反应、对方的回应、下一个细微动作、情绪与氛围的变化——直到剧情自然收束；可以写指令之外的新动作和新台词，但它们必须发生在指令完成之后，不能跳过指令不演，也不能在指令尚未完成时就跳到后面。例如指令是"看着宝钗通红的耳根，伸手轻抚她散开的鬓发"：先演完注视与伸手，再写宝钗的反应、你的下一句话或下一步动作，让剧情顺势往前走。\n5. 文风与叙事节奏参照【文风示例】（为空则自行选择合适的小说文风，保持前后一致）。\n6. 若与【现场 · 主要人物状态】冲突，以【现场】为准。')
+    parts.push('你是小说续写引擎，只输出小说正文，不要解释、点评或元信息；长度由剧情自然决定。\n1. "你"是玩家角色；除玩家外，所有角色都由你叙述和扮演。\n2. 用户最新消息是导演指令：无标记或「玩家行动」=玩家行动/台词；「角色行动」=其他角色行动/台词；「场景结束」=只收尾当前场景；「新场景」=把场景提要展开成完整场景，不能当成已发生，也不能跳过。\n3. 指令是正文开头一部分，不是已发生事实：先承接上一段和当前现场，把指令里的动作与台词自然融入正文、只出现一次；演完后可继续自然发展，不跳指令、不重复已写内容。\n4. 文风参照【文风示例】（若有）；与【现场】冲突时以【现场】为准。')
     const wb = worldBookLines(card, worldBookIds)
     if (wb.length > 0) parts.push('【世界设定】\n' + wb.join('\n'))
     if (str(chat.posture) !== '') parts.push('【现场 · 主要人物状态（每轮结算更新，务必与之一致）】\n' + chat.posture)
     const guides = Array.isArray(chat.guides) ? chat.guides.filter(function (item) { return item !== null && typeof item === 'object' && str(item.text).trim() !== '' }) : []
     if (guides.length > 0) parts.push('【用户指导 Guide · 优先遵循】\n' + guides.map(function (item, index) { return (index + 1) + '. ' + str(item.text).trim() }).join('\n'))
+    const hasStoryTurn = (chat.messages || []).some(function (m) { return m !== null && typeof m === 'object' && m.greeting !== true })
     parts.push('【故事设定 · 人物卡】\n名字: ' + str(card.name))
-    if (str(card.description) !== '') parts.push('设定: ' + substChar(card.description, card, '你', '所有其他角色'))
-    if (str(card.personality) !== '') parts.push('主要人物性格: ' + card.personality)
-    if (str(card.scenario) !== '') parts.push('开场情境: ' + card.scenario)
-    if (str(card.mes_example) !== '') parts.push('【文风示例】\n' + substChar(card.mes_example, card, '你', '所有其他角色'))
+    if (!hasStoryTurn) {
+      if (str(card.description) !== '') parts.push('设定: ' + substChar(card.description, card, '你', '所有其他角色'))
+      if (str(card.personality) !== '') parts.push('主要人物性格: ' + card.personality)
+      if (str(card.scenario) !== '') parts.push('开场情境: ' + card.scenario)
+      if (str(card.mes_example) !== '') parts.push('【文风示例】\n' + substChar(card.mes_example, card, '你', '所有其他角色'))
+    }
     if (str(card.post_history_instructions) !== '') parts.push('【附加要求】\n' + card.post_history_instructions)
     if (str(card.system_prompt) !== '') parts.push('【特殊指令】\n' + card.system_prompt)
     if (scriptReference !== null && scriptReference !== undefined && str(scriptReference.text) !== '') {
@@ -1152,7 +1234,7 @@ export function apply(ctx) {
       if (scriptReference.held === true) {
         parts.push('【继续本块】上一轮未推进游标，说明本块剧情还没有演绎完。本轮继续把本块里尚未演出的人物、事件、对话和场面演足，不要跳到后续分块，也不要重复上一轮已经写过的内容。')
       }
-      parts.push('【剧本模式要求】\n自然承接玩家当前行动，同时始终把剧情引向这段剧本所提供的人物、事件、场面与发展方向。参考剧本的遣词造句，但允许适当自由发挥；剧情发展尽可能自然地遵循剧本：沿用原作的人物称呼、语气和细节氛围，保持整体文风一致；不必逐句照搬，允许合理扩写，也可以对重点场面增加动作、心理、感官或环境的展开描写。如果剧本参考里已有和指令相同的句子，要合并或改写，不能出现两遍。如果玩家行动偏离剧本，也可以自然偏离，再找机会回到剧本走向。不要解释你在参考剧本，也不要求一轮内完整演完整块。\n【连贯性要求】正文开头必须从上一段正文的最后画面无缝接起：先用一个反应、一句对话、一个细微动作或短暂时间推移完成承接，再进入本轮指令和剧本事件；禁止直接跳到剧本事件，也禁止重复上一段已经发生过的动作（上一段写过的笑、起身、放下等不要原样再来一遍）。')
+      parts.push('【剧本模式要求】\n自然承接玩家行动并引向剧本方向；参考剧本遣词造句但允许自由发挥；剧情尽可能自然遵循剧本，玩家偏离时可自然偏离，再找机会回来；同一句话不要出现两遍；不要解释你在参考剧本。\n【连贯性要求】开头先承接上一段正文的结尾，再进入本轮指令和剧本事件；不跳事件，不重复已发生动作。')
     }
     return parts.join('\n\n')
   }
