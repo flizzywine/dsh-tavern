@@ -1324,13 +1324,14 @@ export function apply(ctx) {
     await writeChat(chat)
     return state.prepared
   }
-  function commitScriptReference(chat, userText, nativeTurn, scriptAdvance) {
+  function commitScriptReference(chat, userText, nativeTurn, scriptAdvance, scriptCursor) {
     const state = chat.scriptState
     if (state === null || typeof state !== 'object') throw new Error('剧本状态不存在，请重新打开该会话')
     const prepared = state.prepared
     if (prepared === null || typeof prepared !== 'object') throw new Error('本轮尚未准备剧本分块，请先调用 context')
     if (str(prepared.userText).trim() !== str(userText).trim()) throw new Error('commit 的 userText 与本轮剧本准备不一致')
     if (Number(prepared.nativeTurn) !== Number(nativeTurn)) throw new Error('commit 与本轮原生 turn 不一致')
+    const total = Math.max(1, Number(state.totalChunks) || 1)
     if (prepared.ended === true) {
       state.prepared = null
       state.heldChunkId = null
@@ -1341,22 +1342,25 @@ export function apply(ctx) {
       state.prepared = null
       return
     }
-    if (scriptAdvance === true) {
+    const order = Number(prepared.order) || 0
+    const before = Number(prepared.cursorBefore) || 0
+    let target = Number(state.cursor) || 0
+    if (scriptCursor !== undefined && scriptCursor !== null && Number.isFinite(Number(scriptCursor)) && Number(scriptCursor) >= 1) {
+      target = Math.max(0, Math.min(total - 1, Math.round(Number(scriptCursor)) - 1))
+    } else if (scriptAdvance === true) {
+      target = Math.max(target, order + 1)
+    }
+    if (target > order) {
       if (!state.recalledChunkIds.includes(prepared.chunkId)) state.recalledChunkIds.push(prepared.chunkId)
-      const before = Number(prepared.cursorBefore) || 0
-      const order = Number(prepared.order) || 0
       for (let index = before; index < order; index++) {
         const skippedId = 'chunk-' + String(index + 1).padStart(5, '0')
         if (!state.skippedChunkIds.includes(skippedId)) state.skippedChunkIds.push(skippedId)
       }
-      state.cursor = Math.max(Number(state.cursor) || 0, order + 1)
-      state.lastReference = { chunkId: prepared.chunkId, order: order, text: prepared.text, userText: str(userText), recalledAt: Date.now() }
-      state.heldChunkId = null
-      state.heldOrder = null
-    } else {
-      state.heldChunkId = prepared.chunkId
-      state.heldOrder = Number(prepared.order) || state.cursor
     }
+    state.cursor = Math.min(total - 1, target)
+    state.lastReference = { chunkId: prepared.chunkId, order: order, text: prepared.text, userText: str(userText), recalledAt: Date.now() }
+    state.heldChunkId = null
+    state.heldOrder = null
     state.prepared = null
   }
   function buildMessages(chat, sel, limit) {
@@ -2013,7 +2017,8 @@ export function apply(ctx) {
         assistantText: { type: 'string', description: 'commit 时填写准备作为最终回复的完整文本' },
         draftText: { type: 'string', description: 'action=polish 时填写待润色的正文初稿' },
         cardPatch: { type: 'string', description: '仅卡片模式（设定对话/素材抽取）使用：确认落盘时填写人物卡字段 patch JSON；只讨论则填 {}' },
-        scriptAdvance: { type: 'boolean', description: '仅剧本会话 commit 使用：true=本轮已充分演绎当前分块，推进游标；false 或缺省=不推进，下一轮继续同一分块' },
+        scriptAdvance: { type: 'boolean', description: '仅剧本会话 commit 兼容参数：true=按旧逻辑推进游标；优先使用 scriptCursor' },
+        scriptCursor: { type: 'number', description: '仅剧本会话 commit 使用：设置当前剧情大致位置（1 起始块号）；缺省保持游标不变，当前块演完通常设为当前游标+1' },
         scriptQuery: { type: 'string', description: 'action=script 时可选：按关键词检索剧本分块；剧本会话仅在游标前后 10 块内检索，命中返回前后各 1 块' },
         scriptOffset: { type: 'number', description: 'action=script 时可选：按 1 起始的块号读取；剧本会话中缺省为当前游标' },
         scriptLimit: { type: 'number', description: 'action=script 时可选：剧本会话连续读取 1~21 块（默认 1）；卡片模式设定对话读取 1~6 块（默认 3）' }
@@ -2119,7 +2124,7 @@ export function apply(ctx) {
               : '\n\n本卡已绑定剧本《' + scriptInfo.title + '》，共 ' + scriptInfo.chunkCount + ' 块。如需查看剧本原文，调用 tavern_session action=script：scriptQuery 传关键词检索，或 scriptOffset 传 1 起始的块号，scriptLimit 控制每次读取 1~6 块；不要仅凭文件名猜测剧本内容。'
           }
           const scriptLookHint = mode === 'script'
-            ? '\n\n【剧本前瞻】本轮只注入当前游标这一块。如果拿不准当前块是否快结束、或需要了解下一块边界，可以自己调用 tavern_session action=script 只读查看下一块（scriptOffset=当前块+1，scriptLimit=1）；只有需要时才看，不要每轮都看。这只是预览，不会推进游标，也不会改变本轮召回分块。'
+            ? '\n\n【剧本前瞻】本轮只注入当前游标这一块，当前游标见返回的 scriptCursor。如果拿不准边界，可以自己调用 tavern_session action=script 只读查看下一块；commit 时用 scriptCursor 标记剧情位置（演完通常 +1，跳段可给任意有效块号）。'
             : ''
           return {
             ready: true,
@@ -2130,7 +2135,9 @@ export function apply(ctx) {
               : buildSystem(card, chat, scriptReference, worldBookIds) + scriptLookHint,
             opening: substChar(card.first_mes, card, '你', '所有其他角色'),
             posture: chat.posture || '',
-            lore: chat.lore || []
+            lore: chat.lore || [],
+            scriptCursor: mode === 'script' && chat.scriptState !== null && typeof chat.scriptState === 'object' ? Math.min(Math.max(1, Number(chat.scriptState.totalChunks) || 1), (Number(chat.scriptState.cursor) || 0) + 1) : undefined,
+            scriptTotalChunks: mode === 'script' && chat.scriptState !== null && typeof chat.scriptState === 'object' ? (Number(chat.scriptState.totalChunks) || 0) : undefined
           }
         }
         if (action === 'commit') {
@@ -2204,14 +2211,15 @@ export function apply(ctx) {
             ? Object.assign({}, chat.scriptState.prepared)
             : null
           const scriptAdvance = (chat.mode || 'story') === 'script' && (args && (args.scriptAdvance === true || args.scriptAdvance === 'true'))
-          if ((chat.mode || 'story') === 'script') commitScriptReference(chat, userText, nativeTurn, scriptAdvance)
+          const scriptCursor = args && args.scriptCursor
+          if ((chat.mode || 'story') === 'script') commitScriptReference(chat, userText, nativeTurn, scriptAdvance, scriptCursor)
           if (userText.indexOf('【场景变化】') === 0) chat.awaitingScene = false
           if (userText !== '') chat.messages.push({ role: 'user', text: userText, ts: Date.now(), native: true })
           chat.messages.push({ role: 'assistant', text: assistantText, ts: Date.now(), native: true })
           chat.pending = null
           chat.settleStatus = 'running'
           chat.settleError = null
-          rememberNativeCommit(chat, nativeTurn, { mode: chat.mode || 'story', userText: userText, scriptReference: preparedReference, scriptAdvance: scriptAdvance }, commitBefore)
+          rememberNativeCommit(chat, nativeTurn, { mode: chat.mode || 'story', userText: userText, scriptReference: preparedReference, scriptAdvance: scriptAdvance, scriptCursor: scriptCursor }, commitBefore)
           await writeChat(chat)
           queueSettlement(chat.id)
           return { saved: true, chatId: chat.id, cardName: chat.cardName }
