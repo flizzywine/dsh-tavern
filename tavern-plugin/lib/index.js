@@ -704,9 +704,13 @@ export function apply(ctx) {
     }
     const chat = newChat(card, requestedMode || 'story')
     if (chat.mode === 'script') {
+      const scriptStart = Math.max(0, Math.min(script.chunks.length - 1, Number(card.script_start) || 0))
       chat.scriptState.totalChunks = script.chunks.length
       chat.scriptState.title = script.title || card.name + '剧本'
       chat.scriptState.scriptVersion = Number(script.importedAt) || 0
+      chat.scriptState.initialCursor = scriptStart
+      chat.scriptState.cursor = scriptStart
+      for (let index = 0; index < scriptStart; index++) chat.scriptState.skippedChunkIds.push('chunk-' + String(index + 1).padStart(5, '0'))
     }
     if (typeof sessionId === 'string') chat.sessionId = sessionId
     const greeting = chat.mode === 'revision'
@@ -1156,9 +1160,11 @@ export function apply(ctx) {
     const state = chat.scriptState
     const version = Number(script.importedAt) || 0
     if ((Number(state.scriptVersion) || 0) !== version) {
-      state.cursor = 0
+      const initialCursor = Math.max(0, Math.min(script.chunks.length - 1, Number(state.initialCursor) || 0))
+      state.cursor = initialCursor
       state.recalledChunkIds = []
       state.skippedChunkIds = []
+      for (let index = 0; index < initialCursor; index++) state.skippedChunkIds.push('chunk-' + String(index + 1).padStart(5, '0'))
       state.prepared = null
       state.lastReference = null
       state.heldChunkId = null
