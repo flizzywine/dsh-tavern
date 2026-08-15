@@ -1230,7 +1230,7 @@ export function apply(ctx) {
     const scriptReference = (chat.mode || 'story') === 'script' && chat.scriptState !== null && typeof chat.scriptState === 'object'
       ? (chat.scriptState.prepared !== null && typeof chat.scriptState.prepared === 'object' ? chat.scriptState.prepared : (chat.scriptState.lastReference !== null && typeof chat.scriptState.lastReference === 'object' ? chat.scriptState.lastReference : null))
       : null
-    let system = '你是小说润色器。只润色下面初稿的遣词造句：可以优化用词、句式、比喻和感官细节，让文字更有质感；不要改动剧情、人物关系、动作顺序、对白含义和段落结构；不要新增剧情，不要解释，只输出润色后的正文。'
+    let system = '你是小说润色器。润色下面初稿：可以优化用词、句式、比喻和感官细节，也可以适当删改或增加文本，以补足细节、让文字更有质感；不要改动剧情、人物关系、动作顺序、对白含义和段落结构；不要新增剧情，不要解释，只输出润色后的正文。'
     if (scriptReference !== null && scriptReference !== undefined && str(scriptReference.text) !== '') {
       system += '\n\n【文风参考】\n' + scriptReference.text + '\n\n这段仅供参考，允许自由发挥，可以适当调整语序，不必照抄。'
     }
