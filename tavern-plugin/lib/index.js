@@ -154,9 +154,9 @@ export function apply(ctx) {
     if (sel.reasoningEffort !== undefined) cfg.reasoningEffort = sel.reasoningEffort
     if (typeof opts.temperature === 'number' && sel.provider !== 'openai-codex') cfg.temperature = opts.temperature
     if (typeof opts.maxTokens === 'number') cfg.maxTokens = opts.maxTokens
-    const prepared = await llm.prepareCall(cfg)
     let messages = opts.messages.slice()
     for (let round = 0; round < 4; round++) {
+      const prepared = await llm.prepareCall(cfg)
       const options = Object.assign({}, prepared.config, { messages: messages, system: opts.system, tools: opts.tools })
       let text = ''
       let finish = null
