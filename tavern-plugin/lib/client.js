@@ -1200,8 +1200,11 @@ html[data-dsh-tavern-profile="true"] [data-composer-seat] {
 				if (latestMessageId !== props.messageId) return;
 				const key = props.sessionId + ":" + props.messageId;
 				if (candidateRequests.has(key)) return;
-				candidateRequests.add(key);
-				const timer = window.setTimeout(function () { generate(false); }, 600);
+				const timer = window.setTimeout(function () {
+					if (candidateRequests.has(key)) return;
+					candidateRequests.add(key);
+					generate(false);
+				}, 600);
 				return function () { window.clearTimeout(timer); };
 			}, [latestMessageId, props.messageId, props.sessionId, sessionMode, hasUserMessage]);
 			const h = React.createElement;
