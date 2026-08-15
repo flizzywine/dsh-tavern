@@ -1604,15 +1604,18 @@ export function apply(ctx) {
     const nodes = (session.surface !== undefined && Array.isArray(session.surface.nodes)) ? session.surface.nodes : []
     let oldSeq = -1
     let oldTurn = 0
+    let oldSource = null
     for (let i = nodes.length - 1; i >= 0; i--) {
       const candidate = session.events[nodes[i]]
       if (candidate !== undefined && candidate.type === 'assistant/message') {
         oldSeq = nodes[i]
         oldTurn = Number(candidate.data.turn) || 0
+        oldSource = candidate.data && candidate.data.message ? candidate.data.message.source : null
         break
       }
     }
     if (oldSeq < 0) throw new Error('原生消息流中找不到可替换的正文消息')
+    if (oldSource === null || typeof oldSource !== 'object' || oldSource.kind !== 'model') throw new Error('找不到旧正文的模型来源')
     const msgs0 = chat.messages || []
     let oldAssistantIndex = -1
     for (let i = msgs0.length - 1; i >= 0; i--) {
@@ -1662,7 +1665,7 @@ export function apply(ctx) {
           id: crypto.randomUUID(),
           role: 'assistant',
           content: [],
-          source: { kind: 'plugin', plugin: 'dsh-tavern-regen' }
+          source: oldSource
         }
       }, {
         surfaceOp: { op: 'replace', start: oldSeq, end: oldSeq },
@@ -1808,6 +1811,10 @@ export function apply(ctx) {
     const endSeq = shadowedSeqs[shadowedSeqs.length - 1]
     const hideTurn = Math.max(0, Number(lastAssistant.data && lastAssistant.data.turn) || 0)
     const hideStep = Math.max(1, Number(lastAssistant.data && lastAssistant.data.step) || 1)
+    const rollbackSource = lastAssistant !== null && lastAssistant.data !== undefined && lastAssistant.data.message !== undefined && lastAssistant.data.message.source !== undefined && lastAssistant.data.message.source.kind === 'model'
+      ? lastAssistant.data.message.source
+      : null
+    if (rollbackSource === null) throw new Error('找不到可用的模型来源，无法遮蔽本轮消息')
     session.append('assistant/message', {
       turn: hideTurn,
       step: hideStep,
@@ -1815,7 +1822,7 @@ export function apply(ctx) {
         id: crypto.randomUUID(),
         role: 'assistant',
         content: [],
-        source: { kind: 'plugin', plugin: 'dsh-tavern-rollback' }
+        source: rollbackSource
       }
     }, {
       surfaceOp: { op: 'replace', start: userSeq, end: endSeq },
