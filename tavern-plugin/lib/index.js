@@ -880,7 +880,7 @@ export function apply(ctx) {
     const guide = str(guidance).trim().slice(0, 600)
     let task = ''
     let baseRequest = ''
-    const scriptTail = scriptMode ? lastAssistantTail(chat, 180) : ''
+    const latestTail = lastAssistantTail(chat, 180)
     if (scriptMode) {
       task = '你现在不是续写正文，而是为玩家生成唯一一个“剧本推荐”候选。只输出 JSON：{"choices":[{"type":"player|npc|scene|scene2","text":"选项内容"}]}。必须恰好一个候选，不要输出多个。'
       if (awaitingScene) {
@@ -892,12 +892,13 @@ export function apply(ctx) {
       baseRequest = awaitingScene
         ? '上一场景已经结束。根据剧本后续内容，给出唯一一个新场景开头候选。'
         : '根据当前剧情与剧本后续内容，给出唯一一个剧本路线候选。'
-      if (scriptTail !== '') baseRequest += '\n【上一段正文结尾】\n' + scriptTail
+      if (latestTail !== '') baseRequest += '\n【上一段正文结尾】\n' + latestTail
     } else {
       task = awaitingScene
         ? '你现在不是续写正文，而是为玩家生成下一场景的候选提要。只输出 JSON：{"choices":[{"type":"scene2","text":"选项内容"}]}。恰好三个选项，type 全部为 scene2；每项 10~80 字；每个选项都是一段【完全不同的新场景提要】——写明新时间、新地点、新人物组合（可增减出场人物）与开场画面，彼此之间差异要大，不要求与上一场景衔接；这些提要在玩家选中后会被正文完整展开演绎，所以只写场景本身，不要提前描述剧情发展。'
-        : '你现在不是续写正文，而是为玩家生成下一步候选。只输出 JSON：{"choices":[{"type":"player|npc|scene","text":"选项内容"}]}。恰好五个选项，type 依次为 player、player、player、npc、scene；每项 10~80 字；player：玩家视角写玩家角色的行动或台词，三个玩家行动要各有侧重、彼此不重复；npc：写其他角色的行动或台词（角色必须带名字，正文会以该角色行动为主推进）；scene：写结束当前场景的收尾（收束当前场面：人物反应、情绪、环境收束或时间流逝，作为本场景的落幕）；不要提前描述行动结果。'
+        : '你现在不是续写正文，而是为玩家生成下一步候选。只输出 JSON：{"choices":[{"type":"player|npc|scene","text":"选项内容"}]}。恰好五个选项，type 依次为 player、player、player、npc、scene；每项 10~80 字；player：玩家视角写玩家角色的行动或台词，三个玩家行动要各有侧重、彼此不重复；npc：写其他角色的行动或台词（角色必须带名字，正文会以该角色行动为主推进）；scene：写结束当前场景的收尾（收束当前场面：人物反应、情绪、环境收束或时间流逝，作为本场景的落幕）；不要提前描述行动结果。候选必须从上一段正文结尾自然接起，先补一小步承接，再进入候选动作，禁止直接跳到与上一段无关的新动作，也禁止重复上一段已经发生过的动作。'
       baseRequest = awaitingScene ? '上一场景已经结束。构思三个完全不同的新场景提要。' : '根据当前剧情，生成五个下一步候选：三个玩家行动、一个其他角色行动、一个场景结束。'
+      if (!awaitingScene && latestTail !== '') baseRequest += '\n【上一段正文结尾】\n' + latestTail
     }
     const requiredCount = scriptMode ? 1 : (awaitingScene ? 3 : 5)
     const taskSystem = task + (guide !== '' ? '\n\n【用户对候选项的额外要求 · 必须遵循，但仍要保证恰好 ' + requiredCount + ' 个候选且类型要求不变】\n' + guide : '')
