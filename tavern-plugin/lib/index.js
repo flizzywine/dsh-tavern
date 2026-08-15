@@ -1225,13 +1225,10 @@ export function apply(ctx) {
     }
     return parts.join('\n\n')
   }
-  async function polishBody(chat, card, draftText, sessionId) {
-    const scriptReference = (chat.mode || 'story') === 'script' && chat.scriptState !== null && typeof chat.scriptState === 'object'
-      ? (chat.scriptState.prepared !== null && typeof chat.scriptState.prepared === 'object' ? chat.scriptState.prepared : (chat.scriptState.lastReference !== null && typeof chat.scriptState.lastReference === 'object' ? chat.scriptState.lastReference : null))
-      : null
+  async function polishBody(chat, card, draftText, sessionId, styleText) {
     let system = '你是小说润色器。润色下面初稿：可以优化用词、句式、比喻和感官细节，也可以适当删改或增加文本，以补足细节、让文字更有质感；不要改动剧情、人物关系、动作顺序、对白含义和段落结构；不要新增剧情，不要解释，只输出润色后的正文。'
-    if (scriptReference !== null && scriptReference !== undefined && str(scriptReference.text) !== '') {
-      system += '\n\n【文风参考】\n' + scriptReference.text + '\n\n这段仅供参考，允许自由发挥，可以适当调整语序，不必照抄。'
+    if (str(styleText) !== '') {
+      system += '\n\n【文风参考】\n' + styleText + '\n\n这段仅供参考，允许自由发挥，可以适当调整语序，不必照抄。'
     }
     const raw = await callModel({
       sessionId: sessionId,
@@ -1310,6 +1307,8 @@ export function apply(ctx) {
       }
     }
     const held = state.heldChunkId !== null && selected.id === state.heldChunkId
+    state.lookahead = []
+    state.lookaheadTurn = Number(nativeTurn) || 0
     state.prepared = {
       userText: request,
       nativeTurn: Number(nativeTurn) || 0,
@@ -2050,6 +2049,19 @@ export function apply(ctx) {
             if (windowResult.notFound === true) return { ready: false, message: '游标前后 10 块内没有找到包含“' + str(args && args.scriptQuery).trim() + '”的分块，请换一个关键词，或用 scriptOffset 直接按块号读取。' }
             if (windowResult.chunks.length === 0) return { ready: false, message: '剧本分块为空。' }
             const text = windowResult.chunks.map(function (chunk) { return '[' + chunk.id + ' · 第 ' + (Number(chunk.order) + 1) + ' 块]\n' + chunk.text }).join('\n\n')
+            if (chat.scriptState !== null && typeof chat.scriptState === 'object') {
+              if (Number(chat.scriptState.lookaheadTurn) !== Number(nativeTurn)) {
+                chat.scriptState.lookahead = []
+                chat.scriptState.lookaheadTurn = Number(nativeTurn) || 0
+              }
+              const ids = new Set((chat.scriptState.lookahead || []).map(function (item) { return item && item.id }))
+              for (const chunk of windowResult.chunks) {
+                if (ids.has(chunk.id)) continue
+                ids.add(chunk.id)
+                chat.scriptState.lookahead.push({ id: chunk.id, order: Number(chunk.order) || 0, text: str(chunk.text) })
+              }
+              await writeChat(chat)
+            }
             return {
               ready: true,
               mode: 'script-read',
@@ -2085,7 +2097,16 @@ export function apply(ctx) {
           const draftText = str(args && args.draftText).trim()
           if (draftText === '') throw new Error('draftText 不能为空')
           const card = await readChatCard(chat)
-          const polishedText = await polishBody(chat, card, draftText, sessionId)
+          let styleText = ''
+          if ((chat.mode || 'story') === 'script' && chat.scriptState !== null && typeof chat.scriptState === 'object') {
+            const styleParts = []
+            if (chat.scriptState.prepared !== null && typeof chat.scriptState.prepared === 'object' && str(chat.scriptState.prepared.text) !== '') styleParts.push(chat.scriptState.prepared.text)
+            for (const item of (chat.scriptState.lookahead || [])) {
+              if (item !== null && typeof item === 'object' && str(item.text) !== '' && styleParts.indexOf(str(item.text)) < 0) styleParts.push(str(item.text))
+            }
+            styleText = styleParts.join('\n\n')
+          }
+          const polishedText = await polishBody(chat, card, draftText, sessionId, styleText)
           return { ready: true, mode: 'polish', cardName: chat.cardName, polishedText: polishedText }
         }
         if (action === 'context') {
