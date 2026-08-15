@@ -1149,13 +1149,10 @@ export function apply(ctx) {
     if (str(card.system_prompt) !== '') parts.push('【特殊指令】\n' + card.system_prompt)
     if (scriptReference !== null && scriptReference !== undefined && str(scriptReference.text) !== '') {
       parts.push('【本轮剧本参考 · 仅本轮召回一次】\n' + scriptReference.text)
-      if (scriptReference.nextText !== undefined && scriptReference.nextText !== '') {
-        parts.push('【下一块预览 · 仅用于了解剧情边界，本轮不得演出】\n' + scriptReference.nextText)
-      }
       if (scriptReference.held === true) {
         parts.push('【继续本块】上一轮未推进游标，说明本块剧情还没有演绎完。本轮继续把本块里尚未演出的人物、事件、对话和场面演足，不要跳到后续分块，也不要重复上一轮已经写过的内容。')
       }
-      parts.push('【剧本模式要求】\n自然承接玩家当前行动，同时始终把剧情引向这段剧本所提供的人物、事件、场面与发展方向；下一块预览只用于参考边界，不要在本轮演出。参考剧本的遣词造句，但允许适当自由发挥；剧情发展尽可能自然地遵循剧本：沿用原作的人物称呼、语气和细节氛围，保持整体文风一致；不必逐句照搬，允许合理扩写，也可以对重点场面增加动作、心理、感官或环境的展开描写。如果剧本参考里已有和指令相同的句子，要合并或改写，不能出现两遍。如果玩家行动偏离剧本，也可以自然偏离，再找机会回到剧本走向。不要解释你在参考剧本，也不要求一轮内完整演完整块。\n【连贯性要求】正文开头必须从上一段正文的最后画面无缝接起：先用一个反应、一句对话、一个细微动作或短暂时间推移完成承接，再进入本轮指令和剧本事件；禁止直接跳到剧本事件，也禁止重复上一段已经发生过的动作（上一段写过的笑、起身、放下等不要原样再来一遍）。')
+      parts.push('【剧本模式要求】\n自然承接玩家当前行动，同时始终把剧情引向这段剧本所提供的人物、事件、场面与发展方向。参考剧本的遣词造句，但允许适当自由发挥；剧情发展尽可能自然地遵循剧本：沿用原作的人物称呼、语气和细节氛围，保持整体文风一致；不必逐句照搬，允许合理扩写，也可以对重点场面增加动作、心理、感官或环境的展开描写。如果剧本参考里已有和指令相同的句子，要合并或改写，不能出现两遍。如果玩家行动偏离剧本，也可以自然偏离，再找机会回到剧本走向。不要解释你在参考剧本，也不要求一轮内完整演完整块。\n【连贯性要求】正文开头必须从上一段正文的最后画面无缝接起：先用一个反应、一句对话、一个细微动作或短暂时间推移完成承接，再进入本轮指令和剧本事件；禁止直接跳到剧本事件，也禁止重复上一段已经发生过的动作（上一段写过的笑、起身、放下等不要原样再来一遍）。')
     }
     return parts.join('\n\n')
   }
@@ -1230,8 +1227,6 @@ export function apply(ctx) {
         console.error('dsh-tavern: 剧本分块选择失败，回退到游标分块', err)
       }
     }
-    const nextOrder = Number(selected.order) + 1
-    const nextChunk = nextOrder < script.chunks.length ? script.chunks[nextOrder] : undefined
     state.prepared = {
       userText: request,
       nativeTurn: Number(nativeTurn) || 0,
@@ -1239,8 +1234,6 @@ export function apply(ctx) {
       chunkId: selected.id,
       order: selected.order,
       text: selected.text,
-      nextOrder: nextChunk !== undefined ? Number(nextChunk.order) : null,
-      nextText: nextChunk !== undefined ? str(nextChunk.text) : '',
       cursorBefore: state.cursor,
       held: held,
       preparedAt: Date.now()
@@ -2032,7 +2025,7 @@ export function apply(ctx) {
               : '\n\n本卡已绑定剧本《' + scriptInfo.title + '》，共 ' + scriptInfo.chunkCount + ' 块。如需查看剧本原文，调用 tavern_session action=script：scriptQuery 传关键词检索，或 scriptOffset 传 1 起始的块号，scriptLimit 控制每次读取 1~6 块；不要仅凭文件名猜测剧本内容。'
           }
           const scriptLookHint = mode === 'script'
-            ? '\n\n【剧本前瞻】本轮 systemContext 已附带当前块和下一块预览：下一块仅用于了解剧情边界，不得演出。如需查看更后面的分块，可调用 tavern_session action=script 只读查看：默认返回当前游标 1 块；需要上下文时用 scriptQuery 在游标前后 10 块内检索（命中返回前后各 1 块），或用 scriptOffset + scriptLimit 连续读取 1~21 块。这只是预览，不会推进游标，也不会改变本轮召回分块。'
+            ? '\n\n【剧本前瞻】本轮只注入当前游标这一块。如果拿不准当前块是否快结束、或需要了解下一块边界，可以自己调用 tavern_session action=script 只读查看下一块（scriptOffset=当前块+1，scriptLimit=1）；只有需要时才看，不要每轮都看。这只是预览，不会推进游标，也不会改变本轮召回分块。'
             : ''
           return {
             ready: true,
