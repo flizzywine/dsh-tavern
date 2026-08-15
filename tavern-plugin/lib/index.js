@@ -39,6 +39,9 @@ export function apply(ctx) {
   function clampInt(v, min, max, def) {
     return Number.isInteger(v) && v >= min && v <= max ? v : def
   }
+  function sleep(ms) {
+    return new Promise(function (resolve) { setTimeout(resolve, ms) })
+  }
   async function readJson(rel) {
     const t = await fs.resolve(base + '/' + rel)
     const info = await fs.stat(t)
@@ -870,6 +873,7 @@ export function apply(ctx) {
     const chat = await chatForSession(sessionId)
     if (chat === undefined) throw new Error('当前会话没有绑定人物卡')
     if ((chat.mode || 'story') === 'revision' || (chat.mode || 'story') === 'extract') throw new Error('卡片模式不生成剧情候选项')
+    for (let i = 0; i < 40 && settlementJobs.has(chat.id); i++) await sleep(250)
     const card = await readChatCard(chat)
     const sel = modelSelection(sessionId)
     if (sel === null) throw new Error('没有可用的模型配置')
