@@ -303,9 +303,6 @@ html[data-dsh-tavern-profile="true"] [data-composer-seat] {
 		function isPlayMode(mode) {
 			return mode === "story" || mode === "script";
 		}
-		function isCardMode(mode) {
-			return mode === "revision" || mode === "extract";
-		}
 		function groupOfMode(mode) {
 			return isPlayMode(mode || "story") ? "play" : "card";
 		}
@@ -355,554 +352,19 @@ html[data-dsh-tavern-profile="true"] [data-composer-seat] {
 			});
 		}
 
-
-		function settleChip(view) {
-			if (view === null) return null;
-			let text = "就绪";
-			if (view.settleStatus === "running") text = "结算中…";
-			else if (view.settleStatus === "error") text = "结算失败";
-			else if (view.settleStatus === "done") {
-				const s = view.lastSettle;
-				text = "结算完成";
-				if (s !== null && s !== undefined && typeof s.facts === "number") text += " (" + s.facts + " 条 · " + (s.chars || 0) + " 字)";
-			}
-			return React.createElement("span", { className: "dsh-tavern-chip " + (view.settleStatus || "idle") }, text);
-		}
-
-		function TavernWindow(props) {
-			const sessionId = props.sessionId;
-			const onExit = props.onExit;
-			function call(method, args) {
-				const payload = Object.assign({}, args === undefined ? {} : args);
-				if (sessionId !== undefined && sessionId !== null && sessionId !== "") payload.sessionId = sessionId;
-				return fetch("/api/dsh-tavern/" + method, {
-					method: "POST",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify(payload)
-				}).then(function (r) { return r.json(); });
-			}
-			const [cards, setCards] = React.useState([]);
-			const [view, setView] = React.useState(null);
-			const [busy, setBusy] = React.useState(false);
-			const [error, setError] = React.useState("");
-			const [input, setInput] = React.useState("");
-			const [showLore, setShowLore] = React.useState(true);
-			const [showSettings, setShowSettings] = React.useState(false);
-			const [settings, setSettings] = React.useState(null);
-			const [importing, setImporting] = React.useState(false);
-			const fileRef = React.useRef(null);
-			const bottomRef = React.useRef(null);
-
-			function fail(err) {
-				setError(String(err && err.message || err));
-			}
-			function applyRes(res) {
-				if (res !== null && res !== undefined && res.ok) return res;
-				throw new Error(res && res.error ? res.error : "操作失败");
-			}
-			async function refreshCards() {
-				try {
-					const res = await call("listCards");
-					if (res !== null && res !== undefined && res.ok) setCards(res.cards || []);
-				} catch (err) { fail(err); }
-			}
-			async function openCard(cardId) {
-				setBusy(true); setError("");
-				try {
-					const res = await call("startChat", { cardId: cardId });
-					setView(applyRes(res).view);
-				} catch (err) { fail(err); } finally { setBusy(false); }
-			}
-			async function doImport(file) {
-				setImporting(true); setError("");
-				try {
-					const payload = await parseCardFile(file);
-					const res = await call("importCard", { payload: payload });
-					const card = applyRes(res).card;
-					await refreshCards();
-					await openCard(card.id);
-				} catch (err) { fail(err); } finally { setImporting(false); }
-			}
-			async function doSend() {
-				const text = input.trim();
-				if (text === "" || view === null || busy) return;
-				setInput(""); setBusy(true); setError("");
-				try {
-					const res = await call("generate", { chatId: view.chatId, text: text });
-					setView(applyRes(res).view);
-				} catch (err) { fail(err); } finally { setBusy(false); }
-			}
-			async function doChoose(index) {
-				if (view === null || busy) return;
-				setBusy(true); setError("");
-				try {
-					const res = await call("choose", { chatId: view.chatId, index: index });
-					setView(applyRes(res).view);
-				} catch (err) { fail(err); } finally { setBusy(false); }
-			}
-			async function doReroll() {
-				if (view === null || busy) return;
-				setBusy(true); setError("");
-				try {
-					const res = await call("reroll", { chatId: view.chatId });
-					setView(applyRes(res).view);
-				} catch (err) { fail(err); } finally { setBusy(false); }
-			}
-			async function doSettleNow() {
-				if (view === null || busy) return;
-				setBusy(true); setError("");
-				try {
-					const res = await call("settleNow", { chatId: view.chatId });
-					setView(applyRes(res).view);
-				} catch (err) { fail(err); } finally { setBusy(false); }
-			}
-			async function doDeleteLore(loreId) {
-				if (view === null) return;
-				try {
-					const res = await call("deleteLore", { chatId: view.chatId, loreId: loreId });
-					setView(applyRes(res).view);
-				} catch (err) { fail(err); }
-			}
-			async function doDeleteCard(cardId, e) {
-				e.stopPropagation();
-				try {
-					await call("deleteCard", { cardId: cardId });
-					if (view !== null && view.card.id === cardId) setView(null);
-					await refreshCards();
-				} catch (err) { fail(err); }
-			}
-			async function doResetChat() {
-				if (view === null || busy) return;
-				setBusy(true); setError("");
-				try {
-					await call("deleteChat", { chatId: view.chatId });
-					const res = await call("startChat", { cardId: view.card.id });
-					setView(applyRes(res).view);
-				} catch (err) { fail(err); } finally { setBusy(false); }
-			}
-			async function doSaveSettings() {
-				try {
-					const res = await call("setSettings", {
-						candidates: Number(settings.candidates),
-						temperature: Number(settings.temperature)
-					});
-					setSettings(applyRes(res).settings);
-				} catch (err) { fail(err); }
-			}
-
-			React.useEffect(function () {
-				refreshCards();
-				call("getSettings").then(function (res) {
-					if (res !== null && res !== undefined && res.ok) setSettings(res.settings);
-				}, function () {});
-			}, []);
-
-			React.useEffect(function () {
-				if (view === null || view.settleStatus !== "running") return;
-				const chatId = view.chatId;
-				const timer = window.setInterval(function () {
-					call("getChat", { chatId: chatId }).then(function (res) {
-						if (res !== null && res !== undefined && res.ok && res.view) setView(res.view);
-					}, function () {});
-				}, 2000);
-				return function () { window.clearInterval(timer); };
-			}, [view === null ? "" : view.settleStatus + "|" + view.chatId]);
-
-			React.useEffect(function () {
-				if (bottomRef.current !== null && typeof bottomRef.current.scrollIntoView === "function") {
-					bottomRef.current.scrollIntoView({ block: "end" });
-				}
-			}, [view === null ? "" : view.messages.length + "|" + (view.pending !== null && view.pending !== undefined ? view.pending.candidates.length : 0)]);
-
-			const h = React.createElement;
-			const header = h("div", { className: "dsh-tavern-head" },
-				h("span", { className: "dsh-tavern-title" }, "🍺 DSH 酒馆"),
-				view !== null ? h("span", { className: "dsh-tavern-subtitle" }, "正在游玩 · " + view.card.name) : h("span", { className: "dsh-tavern-subtitle" }, "选择人物卡，进入故事"),
-				h("div", { className: "dsh-tavern-spacer" }),
-				h("button", { className: "dsh-tavern-btn", onClick: onExit, title: "退出酒馆并返回普通 DSH 会话" }, "退出酒馆"),
-				settleChip(view),
-				view !== null ? h("button", { className: "dsh-tavern-btn", onClick: doResetChat, disabled: busy, title: "重新开始当前故事" }, "重新开始") : null,
-				h("button", { className: "dsh-tavern-btn", onClick: function () { setShowLore(!showLore); }, title: "显示或隐藏世界状态" }, showLore ? "隐藏记忆" : "显示记忆"),
-				h("button", { className: "dsh-tavern-btn", onClick: function () { setShowSettings(!showSettings); }, title: "游戏生成设置" }, "游戏设置")
-			);
-
-			const cardItems = cards.map(function (c) {
-				const active = view !== null && view.card.id === c.id;
-				return h("div", {
-					key: c.id,
-					className: "dsh-tavern-card-item" + (active ? " active" : ""),
-					onClick: function () { openCard(c.id); }
-				},
-					h("div", { className: "dsh-tavern-card-name" },
-						h("span", null, c.name),
-						h("button", { className: "dsh-tavern-x", title: "删除卡片", onClick: function (e) { doDeleteCard(c.id, e); } }, "✕")
-					),
-					c.description ? h("div", { className: "dsh-tavern-card-desc" }, c.description) : null
-				);
+		function rpc(method, args, sessionId) {
+			const payload = Object.assign({}, args || {});
+			if (sessionId) payload.sessionId = sessionId;
+			return fetch("/api/dsh-tavern/" + method, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify(payload)
+			}).then(function (response) { return response.json(); }).then(function (result) {
+				if (!result || !result.ok) throw new Error(result && result.error ? result.error : "操作失败");
+				return result;
 			});
-			const cardsPanel = h("div", { className: "dsh-tavern-cards" },
-				h("div", { className: "dsh-tavern-panel-title" },
-					h("span", null, "人物卡 (" + cards.length + ")"),
-					h("button", {
-						className: "dsh-tavern-btn",
-						disabled: importing,
-						onClick: function () { if (fileRef.current !== null) fileRef.current.click(); }
-					}, importing ? "导入中…" : "导入")
-				),
-				h("input", {
-					ref: fileRef,
-					type: "file",
-					accept: ".png,.json",
-					style: { display: "none" },
-					onChange: function (e) {
-						const f = e.target.files && e.target.files[0];
-						if (f !== undefined && f !== null) doImport(f);
-						e.target.value = "";
-					}
-				}),
-				cardItems.length > 0 ? cardItems : h("div", { className: "dsh-tavern-empty" }, "还没有人物卡。\n点击“导入”选择 PNG 或 JSON 人物卡。")
-			);
-
-			let chatBody;
-			if (view === null) {
-				chatBody = h("div", { className: "dsh-tavern-empty" },
-					"欢迎来到 dsh-tavern 🍺\n\n人物卡即小说的开头与隐藏设定：选择或导入一张卡（PNG/JSON），开始续写小说。\n每轮生成多段候选正文，点击即可采纳；采纳后自动结算重要信息并持续注入，防止遗忘。"
-				);
-			} else {
-				const msgs = (view.messages || []).map(function (m, i) {
-					const isUser = m.role === "user";
-					return h("div", { key: i, className: "dsh-tavern-msg " + (isUser ? "user" : "assistant") },
-						h("div", { className: "dsh-tavern-msg-name" }, isUser ? "玩家" : "正文"),
-						h("div", null, m.text)
-					);
-				});
-				let candidates = null;
-				if (view.pending !== null && view.pending !== undefined) {
-					const cands = view.pending.candidates.map(function (c) {
-						return h("div", {
-							key: c.index,
-							className: "dsh-tavern-cand" + (c.error ? " dsh-tavern-cand-error" : ""),
-							onClick: c.error ? undefined : function () { doChoose(c.index); }
-						},
-							c.error
-								? h("span", null, h("b", null, "候选 " + (c.index + 1) + " 生成失败: "), c.error)
-								: h("span", null, h("span", { className: "dsh-tavern-cand-badge" }, "候选 " + (c.index + 1)), c.text)
-						);
-					});
-					candidates = h("div", { className: "dsh-tavern-candidates" },
-						h("div", { className: "dsh-tavern-cand-head" },
-							h("span", null, "选择一段正文（点击候选即采纳）"),
-							h("button", { className: "dsh-tavern-btn", onClick: doReroll, disabled: busy }, busy ? "生成中…" : "重新生成")
-						),
-						cands
-					);
-				}
-				chatBody = h(React.Fragment, null,
-					h("div", { className: "dsh-tavern-scroll" }, msgs, h("div", { ref: bottomRef })),
-					candidates
-				);
-			}
-			const chatPanel = h("div", { className: "dsh-tavern-chat" },
-				error !== "" ? h("div", { className: "dsh-tavern-error" }, error) : null,
-				chatBody
-			);
-
-			let lorePanel = null;
-			if (showLore && view !== null) {
-				let chars = 0;
-				for (let i = 0; i < (view.lore || []).length; i++) chars += String(view.lore[i].content || "").length;
-				const items = (view.lore || []).map(function (e) {
-					return h("div", { key: e.id, className: "dsh-tavern-lore-item" },
-						h("div", { className: "dsh-tavern-lore-type" },
-							h("span", null, "[" + (e.type || "其他") + "]"),
-							h("button", { className: "dsh-tavern-x", title: "删除记忆", onClick: function () { doDeleteLore(e.id); } }, "✕")
-						),
-						h("div", { className: "dsh-tavern-lore-content" }, e.content)
-					);
-				});
-				lorePanel = h("div", { className: "dsh-tavern-lore" },
-					h("div", { className: "dsh-tavern-panel-title" },
-						h("span", null, "重要信息 (" + (view.lore || []).length + " 条 · " + chars + " 字)"),
-						h("button", { className: "dsh-tavern-btn", onClick: doSettleNow, disabled: busy || view.settleStatus === "running", title: "立即结算最新一轮" }, "立即结算")
-					),
-					(view.posture !== undefined && view.posture !== null && String(view.posture) !== "") ? h("div", { className: "dsh-tavern-lore-item dsh-tavern-posture" },
-						h("div", { className: "dsh-tavern-lore-type" }, h("span", null, "【现场 · 姿势】")),
-						h("div", { className: "dsh-tavern-lore-content" }, view.posture)
-					) : null,
-					items.length > 0 ? items : h("div", { className: "dsh-tavern-empty" }, "暂无结算信息。\n选择回复后会自动结算。"),
-					view.settleStatus === "error" && view.settleError ? h("div", { className: "dsh-tavern-error" }, "结算失败: " + view.settleError) : null
-				);
-			}
-
-			const inputRow = h("div", { className: "dsh-tavern-input" },
-				h("textarea", {
-					value: input,
-					placeholder: view === null ? "先选择一张人物卡…" : "输入消息，Enter 发送，Shift+Enter 换行",
-					disabled: view === null || busy,
-					onChange: function (e) { setInput(e.target.value); },
-					onKeyDown: function (e) {
-						if (e.key === "Enter" && !e.shiftKey) {
-							e.preventDefault();
-							doSend();
-						}
-					}
-				}),
-				h("button", { className: "dsh-tavern-send", disabled: view === null || busy, onClick: doSend }, busy ? "生成中…" : "发送")
-			);
-
-			let settingsRow = null;
-			if (showSettings && settings !== null && settings !== undefined) {
-				settingsRow = h("div", { className: "dsh-tavern-settings" },
-					h("span", null, "候选数"),
-					h("input", {
-						type: "number", min: 1, max: 6, value: settings.candidates,
-						onChange: function (e) { setSettings(Object.assign({}, settings, { candidates: e.target.value })); }
-					}),
-					h("span", null, "温度"),
-					h("input", {
-						type: "number", min: 0, max: 1.5, step: 0.1, value: settings.temperature,
-						onChange: function (e) { setSettings(Object.assign({}, settings, { temperature: e.target.value })); }
-					}),
-					h("button", { className: "dsh-tavern-btn", onClick: doSaveSettings }, "保存"),
-					h("span", null, "数据目录: 工作区 /dsh-tavern")
-				);
-			}
-
-			return h("div", { className: "dsh-tavern-root" },
-				header,
-				h("div", { className: "dsh-tavern-body" }, cardsPanel, chatPanel, lorePanel),
-				inputRow,
-				settingsRow
-			);
 		}
 
-		function TavernContent(props) {
-			const [target, setTarget] = React.useState(null);
-			React.useLayoutEffect(function () {
-				if (typeof document === "undefined") return;
-				document.documentElement.dataset.dshTavernProfile = "true";
-				let cancelled = false;
-				function findTarget() {
-					if (cancelled) return;
-					const next = document.querySelector("[data-conversation-scroll]");
-					if (next !== null) setTarget(next);
-					else window.requestAnimationFrame(findTarget);
-				}
-				findTarget();
-				return function () {
-					cancelled = true;
-					delete document.documentElement.dataset.dshTavernProfile;
-				};
-			}, []);
-			if (target === null) return null;
-			return ReactDOM.createPortal(React.createElement(TavernWindow, props), target);
-		}
-
-		function TavernDock(props) {
-			const sessionId = props.sessionId;
-			const [cards, setCards] = React.useState([]);
-			const [view, setView] = React.useState(null);
-			const [expanded, setExpanded] = React.useState(false);
-			const [busy, setBusy] = React.useState(false);
-			const [error, setError] = React.useState("");
-			const fileRef = React.useRef(null);
-			function call(method, args) {
-				return fetch("/api/dsh-tavern/" + method, {
-					method: "POST", headers: { "Content-Type": "application/json" },
-					body: JSON.stringify(Object.assign({}, args || {}, { sessionId: sessionId }))
-				}).then(function (r) { return r.json(); }).then(function (res) {
-					if (!res || !res.ok) throw new Error(res && res.error ? res.error : "操作失败");
-					return res;
-				});
-			}
-			function refresh() {
-				return Promise.all([call("listCards"), call("getSession")]).then(function (all) {
-					setCards(all[0].cards || []); setView(all[1].view || null); setError("");
-				}, function (err) { setError(String(err && err.message || err)); });
-			}
-			React.useEffect(function () {
-				refresh();
-				function changed(e) { if (!e.detail || e.detail.sessionId === sessionId) refresh(); }
-				window.addEventListener("dsh-tavern-session-changed", changed);
-				return function () { window.removeEventListener("dsh-tavern-session-changed", changed); };
-			}, [sessionId]);
-			React.useEffect(function () {
-				if (!view || view.settleStatus !== "running") return;
-				const timer = window.setInterval(refresh, 1800);
-				return function () { window.clearInterval(timer); };
-			}, [view ? view.settleStatus + "|" + view.chatId : ""]);
-			async function chooseCard(cardId) {
-				if (!cardId) return;
-				setBusy(true); setError("");
-				try { const res = await call("startChat", { cardId: cardId }); setView(res.view); }
-				catch (err) { setError(String(err && err.message || err)); }
-				finally { setBusy(false); }
-			}
-			async function importCard(file) {
-				setBusy(true); setError("");
-				try {
-					const payload = await parseCardFile(file);
-					const imported = await call("importCard", { payload: payload });
-					await refresh(); await chooseCard(imported.card.id);
-				} catch (err) { setError(String(err && err.message || err)); }
-				finally { setBusy(false); }
-			}
-			async function chooseGreeting(index) {
-				if (!view || busy) return;
-				setBusy(true); setError("");
-				try { const res = await call("chooseGreeting", { chatId: view.chatId, index: index }); setView(res.view); }
-				catch (err) { setError(String(err && err.message || err)); }
-				finally { setBusy(false); }
-			}
-			const h = React.createElement;
-			const selected = view ? view.card.id : "";
-			const status = view && view.settleStatus === "running" ? "正在整理记忆…" : (view ? ((view.lore || []).length + " 条记忆") : "先选择人物卡");
-			const greeting = view && (view.messages || []).length === 1 && view.messages[0].greeting === true ? view.messages[0].text : "";
-			const greetingOptions = view ? [view.card.opening].concat(view.card.alternateGreetings || []).filter(function (text) { return text; }) : [];
-			return h("div", { className: "dsh-tavern-dock" },
-				h("div", { className: "dsh-tavern-dockbar" },
-					h("strong", null, view ? "🍺 " + view.card.name : "🍺 尚未选择人物卡"),
-					h("span", { className: "dsh-tavern-dock-note" }, status),
-					h("span", { className: "dsh-tavern-spacer" }),
-					h("button", { className: "dsh-tavern-btn", disabled: !view, onClick: function () { setExpanded(!expanded); } }, expanded ? "收起" : "记忆")
-				),
-				error ? h("div", { className: "dsh-tavern-dock-error" }, error) : null,
-				greeting ? h("div", { className: "dsh-tavern-opening" },
-					h("div", { className: "dsh-tavern-opening-label" }, "开场白"),
-					h("div", null, greeting),
-					greetingOptions.length > 1 ? h("div", { style: { marginTop: "8px", display: "flex", gap: "6px", flexWrap: "wrap" } }, greetingOptions.map(function (text, index) {
-						return h("button", { key: index, className: "dsh-tavern-btn", disabled: busy || text === greeting, onClick: function () { chooseGreeting(index); } }, "候选 " + (index + 1));
-					})) : null
-				) : null,
-				expanded && view ? h("div", { className: "dsh-tavern-dock-detail" },
-					view.card.description ? h("div", null, view.card.description) : null,
-					view.posture ? h("div", null, h("b", null, "当前状态："), view.posture) : null,
-					(view.lore || []).length ? h("ul", { className: "dsh-tavern-dock-lore" }, (view.lore || []).map(function (item) { return h("li", { key: item.id }, "[" + (item.type || "其他") + "] " + item.content); })) : h("div", null, "暂无长期记忆")
-				) : null
-			);
-		}
-
-		function CardStudio(props) {
-			const [cards, setCards] = React.useState([]);
-			const [selectedId, setSelectedId] = React.useState("");
-			const [card, setCard] = React.useState(null);
-			const [draft, setDraft] = React.useState(null);
-			const [mode, setMode] = React.useState("edit");
-			const [instruction, setInstruction] = React.useState("");
-			const [busy, setBusy] = React.useState(false);
-			const [error, setError] = React.useState("");
-			const fileRef = React.useRef(null);
-			function call(method, args) {
-				return fetch("/api/dsh-tavern/" + method, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(args || {}) })
-					.then(function (r) { return r.json(); }).then(function (res) { if (!res || !res.ok) throw new Error(res && res.error ? res.error : "操作失败"); return res; });
-			}
-			function cardDraft(value) {
-				return {
-					name: value.name || "", tags: (value.tags || []).join(", "), description: value.description || "", personality: value.personality || "",
-					scenario: value.scenario || "", first_mes: value.first_mes || "", alternate_greetings: (value.alternate_greetings || []).join("\n---\n"),
-					mes_example: value.mes_example || "", system_prompt: value.system_prompt || "", post_history_instructions: value.post_history_instructions || "",
-					creator_notes: value.creator_notes || "", character_book: value.character_book ? JSON.stringify(value.character_book, null, 2) : ""
-				};
-			}
-			async function loadCards(preferred) {
-				const res = await call("listCards");
-				const list = res.cards || []; setCards(list);
-				const next = preferred || selectedId || (list[0] && list[0].id) || "";
-				if (next) await loadCard(next); else { setSelectedId(""); setCard(null); setDraft(null); }
-			}
-			async function loadCard(id) {
-				const res = await call("getCard", { cardId: id });
-				setSelectedId(id); setCard(res.card); setDraft(cardDraft(res.card)); setError("");
-			}
-			React.useEffect(function () { loadCards().catch(function (err) { setError(String(err && err.message || err)); }); }, []);
-			function setField(name, value) { setDraft(Object.assign({}, draft, { [name]: value })); }
-			async function save() {
-				if (!card || !draft || busy) return;
-				setBusy(true); setError("");
-				try {
-					let book = null;
-					if (draft.character_book.trim()) book = JSON.parse(draft.character_book);
-					const patch = Object.assign({}, draft, {
-						tags: draft.tags.split(/[,，]/).map(function (x) { return x.trim(); }).filter(Boolean),
-						alternate_greetings: draft.alternate_greetings.split(/\n---+\n/).map(function (x) { return x.trim(); }).filter(Boolean),
-						character_book: book
-					});
-					const res = await call("updateCard", { cardId: card.id, patch: patch });
-					setCard(res.card); setDraft(cardDraft(res.card)); await loadCards(res.card.id);
-				} catch (err) { setError(String(err && err.message || err)); }
-				finally { setBusy(false); }
-			}
-			async function revise() {
-				if (!card || !instruction.trim() || busy) return;
-				setBusy(true); setError("");
-				try {
-					const res = await call("reviseCard", { cardId: card.id, instruction: instruction, sessionId: props.sessionId });
-					setInstruction(""); setCard(res.card); setDraft(cardDraft(res.card)); await loadCards(res.card.id);
-				} catch (err) { setError(String(err && err.message || err)); }
-				finally { setBusy(false); }
-			}
-			async function clearRevision() {
-				if (!card || busy) return;
-				setBusy(true); setError("");
-				try { const res = await call("clearRevisionChat", { cardId: card.id }); setCard(res.card); setDraft(cardDraft(res.card)); }
-				catch (err) { setError(String(err && err.message || err)); } finally { setBusy(false); }
-			}
-			async function createNew() {
-				setBusy(true);
-				try { const res = await call("createCard", { source: { name: "新人物" } }); await loadCards(res.card.id); setMode("edit"); }
-				catch (err) { setError(String(err && err.message || err)); } finally { setBusy(false); }
-			}
-			async function importFile(file) {
-				setBusy(true);
-				try { const payload = await parseCardFile(file); const res = await call("importCard", { payload: payload }); await loadCards(res.card.id); }
-				catch (err) { setError(String(err && err.message || err)); } finally { setBusy(false); }
-			}
-			async function duplicate() {
-				if (!card) return; setBusy(true);
-				try { const res = await call("duplicateCard", { cardId: card.id }); await loadCards(res.card.id); }
-				catch (err) { setError(String(err && err.message || err)); } finally { setBusy(false); }
-			}
-			async function removeCard() {
-				if (!card || busy) return;
-				if (!window.confirm("确定删除“" + card.name + "”吗？该人物卡关联的酒馆历史也会一并删除。")) return;
-				setBusy(true); setError("");
-				try { await call("deleteCard", { cardId: card.id }); setSelectedId(""); await loadCards(""); }
-				catch (err) { setError(String(err && err.message || err)); } finally { setBusy(false); }
-			}
-			function exportCard() {
-				if (!card) return;
-				const blob = new Blob([JSON.stringify({ spec: "chara_card_v3", spec_version: "3.0", data: card }, null, 2)], { type: "application/json" });
-				const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = (card.name || "character") + ".json"; a.click(); URL.revokeObjectURL(url);
-			}
-			function Field(name, label, wide, tall) {
-				return React.createElement("div", { className: "dsh-card-field" + (wide ? " wide" : "") },
-					React.createElement("label", null, label),
-					tall === false ? React.createElement("input", { value: draft[name], onChange: function (e) { setField(name, e.target.value); } }) : React.createElement("textarea", { className: tall === "tall" ? "tall" : "", value: draft[name], onChange: function (e) { setField(name, e.target.value); } })
-				);
-			}
-			const h = React.createElement;
-			const revisionMessages = card && Array.isArray(card.revision_chat) ? card.revision_chat : [];
-			return h("div", { className: "dsh-card-studio" },
-				h("header", { className: "dsh-card-studio-head" }, h("div", { className: "dsh-card-studio-title" }, "人物卡工作室"), h("span", { className: "dsh-card-hint" }, "管理设定 · 不进入游戏"), h("span", { className: "dsh-tavern-spacer" }), error ? h("span", { className: "dsh-card-error" }, error) : null, h("button", { className: "dsh-tavern-btn", onClick: props.onClose }, "返回酒馆")),
-				h("div", { className: "dsh-card-studio-body" },
-					h("aside", { className: "dsh-card-library" },
-						h("div", { className: "dsh-card-library-tools" }, h("button", { className: "dsh-card-primary", disabled: busy, onClick: createNew }, "＋ 新建"), h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { fileRef.current && fileRef.current.click(); } }, "导入")),
-						h("input", { ref: fileRef, type: "file", accept: ".png,.json", style: { display: "none" }, onChange: function (e) { const f = e.target.files && e.target.files[0]; if (f) importFile(f); e.target.value = ""; } }),
-						cards.map(function (item) { return h("button", { key: item.id, className: "dsh-card-library-item" + (item.id === selectedId ? " active" : ""), onClick: function () { loadCard(item.id).catch(function (err) { setError(String(err && err.message || err)); }); } }, h("div", { className: "dsh-card-library-name" }, item.name), h("div", { className: "dsh-card-library-meta" }, (item.tags || []).join(" · ") || "未分类")); })
-					),
-					h("main", { className: "dsh-card-workspace" }, card && draft ? h(React.Fragment, null,
-						h("div", { className: "dsh-card-tabs" }, h("button", { className: "dsh-card-tab active", onClick: function () { setMode("edit"); } }, "编辑人物卡"), h("button", { className: "dsh-card-tab", onClick: function () { props.onEnterRevision(card.id); } }, "进入设定模式")),
-						mode === "edit" ? h("div", { className: "dsh-card-editor" },
-							h("div", { className: "dsh-card-form-grid" }, Field("name", "名称", false, false), Field("tags", "标签（逗号分隔）", false, false), Field("description", "角色描述", true, "tall"), Field("personality", "性格", true), Field("scenario", "场景设定", true), Field("first_mes", "开场白", true, "tall"), Field("alternate_greetings", "备选开场白（用 --- 分隔）", true), Field("system_prompt", "系统提示", true), Field("post_history_instructions", "历史后指令", true), Field("mes_example", "对话示例", true, "tall"), Field("creator_notes", "创作者备注", true), Field("character_book", "世界书 JSON", true, "tall")),
-							h("div", { className: "dsh-card-editor-actions" }, h("button", { className: "dsh-tavern-btn", style: { color: "#c45f5f" }, disabled: busy, onClick: removeCard }, "删除"), h("button", { className: "dsh-tavern-btn", onClick: exportCard }, "导出"), h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: duplicate }, "复制人物卡"), h("button", { className: "dsh-card-primary", disabled: busy, onClick: save }, busy ? "保存中…" : "保存修改"))
-						) : h("div", { className: "dsh-card-reviser" },
-							h("div", { className: "dsh-card-revise-info" }, h("h2", null, card.name), h("p", { className: "dsh-card-hint" }, "这是一条独立的设定讨论。你可以先讨论、让模型追问或比较方案；只有明确要求修改时，模型才会把变更写入人物卡。不会推进酒馆剧情。"), h("h3", null, "当前核心设定"), h("div", { className: "dsh-tavern-status-now" }, card.description || "暂无角色描述"), h("h3", null, "场景"), h("div", { className: "dsh-card-hint" }, card.scenario || "暂无场景设定")),
-							h("div", { className: "dsh-card-revise-chat" }, h("div", { className: "dsh-card-revise-log" }, revisionMessages.length ? revisionMessages.map(function (item, index) { return h("div", { key: index, className: "dsh-card-revise-entry " + item.role }, h("span", { className: "dsh-card-revise-speaker" }, item.role === "assistant" ? "人物卡编辑助手" : "你"), h("span", null, item.text), item.changed ? h("div", { className: "dsh-card-revise-applied" }, "✓ 已写入人物卡" + (item.summary ? "：" + item.summary : "")) : null); }) : h("div", { className: "dsh-card-hint" }, "开始讨论这张人物卡。可以先问：这张卡目前有哪些矛盾？性格是否足以稳定驱动模型？开场白和场景是否匹配？")), h("div", { className: "dsh-card-revise-compose" }, h("textarea", { value: instruction, placeholder: "与人物卡编辑助手讨论…", onChange: function (e) { setInstruction(e.target.value); } }), h("div", { style: { display: "flex", justifyContent: "space-between", marginTop: "8px" } }, h("button", { className: "dsh-tavern-btn", disabled: busy || revisionMessages.length === 0, onClick: clearRevision }, "新建修正对话"), h("button", { className: "dsh-card-primary", disabled: busy || !instruction.trim(), onClick: revise }, busy ? "回复中…" : "发送"))))
-						)
-					) : h("div", { className: "dsh-tavern-status-empty", style: { margin: "auto" } }, "新建或导入一张人物卡开始编辑。"))
-				)
-			);
-		}
 
 		const tavernSessionModes = { values: {}, listeners: new Set() };
 		function publishSessionModes(items) {
@@ -942,14 +404,7 @@ html[data-dsh-tavern-profile="true"] [data-composer-seat] {
 			const extractFileRef = React.useRef(null);
 			const [sources, setSources] = React.useState([]);
 			const [selectedSourceIds, setSelectedSourceIds] = React.useState([]);
-			function call(method, args) {
-				return fetch("/api/dsh-tavern/" + method, {
-					method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(args || {})
-				}).then(function (r) { return r.json(); }).then(function (res) {
-					if (!res || !res.ok) throw new Error(res && res.error ? res.error : "操作失败");
-					return res;
-				});
-			}
+			function call(method, args) { return rpc(method, args); }
 			function ensureDetailsOpen() {
 				for (let i = 1; i <= 10; i++) window.setTimeout(props.openDetails, 120 * i);
 			}
@@ -1206,10 +661,7 @@ html[data-dsh-tavern-profile="true"] [data-composer-seat] {
 			const [scriptError, setScriptError] = React.useState("");
 			const scriptFileRef = React.useRef(null);
 			const cardId = props.view.card.id;
-			function call(method, args) {
-				return fetch("/api/dsh-tavern/" + method, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(args || {}) })
-					.then(function (r) { return r.json(); }).then(function (res) { if (!res || !res.ok) throw new Error(res && res.error ? res.error : "操作失败"); return res; });
-			}
+			function call(method, args) { return rpc(method, args); }
 			function loadScript() {
 				if (!cardId) return;
 				call("getScriptInfo", { cardId: cardId }).then(function (res) { setScript(res.script || null); setScriptError(""); }, function (err) { setScriptError(String(err && err.message || err)); });
@@ -1286,9 +738,7 @@ html[data-dsh-tavern-profile="true"] [data-composer-seat] {
 			async function finalize() {
 				setBusy(true); setError("");
 				try {
-					const response = await fetch("/api/dsh-tavern/finalizeExtract", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ chatId: view.chatId }) });
-					const result = await response.json();
-					if (!result || !result.ok) throw new Error(result && result.error ? result.error : "保存失败");
+					const result = await rpc("finalizeExtract", { chatId: view.chatId });
 					setDone(result.view && result.view.finalizedCard ? result.view.finalizedCard : { name: draft.name || "新人物" });
 					window.dispatchEvent(new CustomEvent("dsh-tavern-session-changed", { detail: { sessionId: props.sessionId || "" } }));
 					window.dispatchEvent(new CustomEvent("dsh-tavern-data-changed"));
@@ -1339,12 +789,7 @@ html[data-dsh-tavern-profile="true"] [data-composer-seat] {
 				let timer = null;
 				async function load() {
 					try {
-						const response = await fetch("/api/dsh-tavern/getSession", {
-							method: "POST", headers: { "Content-Type": "application/json" },
-							body: JSON.stringify({ sessionId: props.sessionId })
-						});
-						const result = await response.json();
-						if (!result || !result.ok) throw new Error(result && result.error ? result.error : "状态读取失败");
+						const result = await rpc("getSession", {}, props.sessionId);
 						if (stopped) return;
 						setView(result.view || null); setError("");
 						if (result.view && result.view.settleStatus === "running") timer = window.setTimeout(load, 1400);
@@ -1473,22 +918,13 @@ html[data-dsh-tavern-profile="true"] [data-composer-seat] {
 				setCandidatePanel({ sessionId: props.sessionId, messageId: props.messageId, phase: "loading", choices: [], error: "" });
 				try {
 					if (!force) {
-						const savedResponse = await fetch("/api/dsh-tavern/getChoices", {
-							method: "POST", headers: { "Content-Type": "application/json" },
-							body: JSON.stringify({ sessionId: props.sessionId })
-						});
-						const saved = await savedResponse.json();
+						const saved = await rpc("getChoices", {}, props.sessionId);
 						if (saved && saved.ok && saved.candidates && saved.candidates.messageId === props.messageId) {
 							setCandidatePanel({ sessionId: props.sessionId, messageId: props.messageId, phase: "ready", choices: saved.candidates.choices || [], error: "" });
 							return;
 						}
 					}
-					const response = await fetch("/api/dsh-tavern/generateChoices", {
-						method: "POST", headers: { "Content-Type": "application/json" },
-						body: JSON.stringify({ sessionId: props.sessionId, messageId: props.messageId, guidance: guidance || "" })
-					});
-					const result = await response.json();
-					if (!result || !result.ok) throw new Error(result && result.error ? result.error : "生成失败");
+					const result = await rpc("generateChoices", { messageId: props.messageId, guidance: guidance || "" }, props.sessionId);
 					setCandidatePanel({ sessionId: props.sessionId, messageId: props.messageId, phase: "ready", choices: result.choices || [], error: "" });
 				} catch (err) { setCandidatePanel({ sessionId: props.sessionId, messageId: props.messageId, phase: "error", choices: [], error: String(err && err.message || err) }); }
 				finally { setBusy(false); }
@@ -1600,12 +1036,7 @@ html[data-dsh-tavern-profile="true"] [data-composer-seat] {
 				const messageId = panel.messageId;
 				setCandidateGuidePanel({ sessionId: props.sessionId, messageId: messageId, phase: "loading", error: "", previous: panel.previous });
 				try {
-					const response = await fetch("/api/dsh-tavern/generateChoices", {
-						method: "POST", headers: { "Content-Type": "application/json" },
-						body: JSON.stringify({ sessionId: props.sessionId, messageId: messageId, guidance: guide })
-					});
-					const result = await response.json();
-					if (!result || !result.ok) throw new Error(result && result.error ? result.error : "生成失败");
+					const result = await rpc("generateChoices", { messageId: messageId, guidance: guide }, props.sessionId);
 					setCandidatePanel({ sessionId: props.sessionId, messageId: messageId, phase: "ready", choices: result.choices || [], error: "" });
 					setCandidateGuidePanel(null);
 				} catch (err) {
@@ -1645,15 +1076,7 @@ html[data-dsh-tavern-profile="true"] [data-composer-seat] {
 			const [guidance, setGuidance] = React.useState("");
 			const h = React.createElement;
 			if (!isPlayMode(sessionMode) || running || !panel || panel.sessionId !== props.sessionId) return null;
-			function call(method, args) {
-				return fetch("/api/dsh-tavern/" + method, {
-					method: "POST", headers: { "Content-Type": "application/json" },
-					body: JSON.stringify(Object.assign({}, args || {}, { sessionId: props.sessionId }))
-				}).then(function (r) { return r.json(); }).then(function (res) {
-					if (!res || !res.ok) throw new Error(res && res.error ? res.error : "操作失败");
-					return res;
-				});
-			}
+			function call(method, args) { return rpc(method, args, props.sessionId); }
 			async function generate() {
 				const guide = guidance.trim();
 				setRegenPanel(Object.assign({}, panel, { phase: "loading", error: "" }));

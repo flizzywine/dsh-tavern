@@ -6,7 +6,7 @@
 - id: agent-presets
   config:
     default: tavern
-    includeUserRoot: true
+    includeUserRoot: false
 - insert:
     - id: dsh-tavern
       name: dsh-tavern-plugin
@@ -18,3 +18,4 @@
         - agentDefaultModel
         - sandboxPolicy
         - shell
+        - agentPresets

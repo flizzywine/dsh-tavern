@@ -1,12 +1,9 @@
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { copyFileSync, mkdirSync } from 'node:fs'
-import { copyFile, mkdir } from 'node:fs/promises'
-import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 // dsh-tavern 宿主插件（profile 组合行）
 // RPC：同源 HTTP 路由 /api/dsh-tavern/<method>（客户端 fetch 调用）
-// 调试：注册 tavern_probe 模型工具
+// 模型工具：读取并提交 Tavern 会话状态
 export function apply(ctx) {
   const fs = ctx.get('fs')
   const llm = ctx.get('llm')
@@ -21,28 +18,15 @@ export function apply(ctx) {
     ? sandboxPolicy.workspaceRoot.replace(/\/+$/, '') + '/dsh-tavern'
     : 'dsh-tavern'
 
-  // ---------- Tavern preset 运行时副本 ----------
-  // DSH 启动器只发现 `<dshHome>/.agent-presets` 里的用户 preset，且会覆盖 profile
-  // 自己声明的 roots；因此 profile 的 `presets/tavern/` 是唯一维护副本，插件启动时
-  // 自动同步到运行时目录。用户不需要手动管理该目录，删掉后重启（或新建会话）即自愈。
-  const dshHome = (() => {
-    const env = process.env.DSH_HOME
-    return typeof env === 'string' && env.trim() !== '' ? env.replace(/\/+$/, '') : join(homedir(), '.dsh')
-  })()
-  const presetSourceDir = join(dshHome, 'profiles', 'tavern', 'presets', 'tavern')
-  const presetRuntimeDir = join(dshHome, '.agent-presets', 'tavern')
-  async function ensureRuntimePreset() {
-    await mkdir(presetRuntimeDir, { recursive: true })
-    await copyFile(join(presetSourceDir, 'agent.cordis.yml'), join(presetRuntimeDir, 'agent.cordis.yml'))
-    await copyFile(join(presetSourceDir, 'preset.yml'), join(presetRuntimeDir, 'preset.yml'))
-  }
-  try {
-    mkdirSync(presetRuntimeDir, { recursive: true })
-    copyFileSync(join(presetSourceDir, 'agent.cordis.yml'), join(presetRuntimeDir, 'agent.cordis.yml'))
-    copyFileSync(join(presetSourceDir, 'preset.yml'), join(presetRuntimeDir, 'preset.yml'))
-    console.log('dsh-tavern: tavern preset 运行时副本已同步')
-  } catch (err) {
-    console.error('dsh-tavern: tavern preset 运行时副本同步失败', err)
+  // ---------- profile 私有 preset ----------
+  // rc.6 启动器会固定系统 roots，因此在独立 Tavern 进程内追加 profile 自带目录。
+  // 不写入全局 `.agent-presets`，避免 Tavern 出现在普通 Web profile 的模式列表。
+  const agentPresetsProxy = ctx.get('agentPresets')
+  if (agentPresetsProxy === undefined) throw new Error('dsh-tavern: 缺少 agentPresets 服务')
+  const agentPresets = agentPresetsProxy[Symbol.for('cordis.original')] || agentPresetsProxy
+  const presetSourceDir = fileURLToPath(new URL('../../presets/', import.meta.url))
+  if (!agentPresets.resolvedRoots.some(function (root) { return root.path === presetSourceDir })) {
+    agentPresets.resolvedRoots.unshift({ path: presetSourceDir, trust: 'user' })
   }
 
   // ---------- 基础工具 ----------
@@ -86,13 +70,12 @@ export function apply(ctx) {
   }
 
   // ---------- 设置 ----------
-  let settings = { candidates: 3, temperature: 1.0, provider: '', model: '' }
+  let settings = { temperature: 1.0, provider: '', model: '' }
   let settingsReady = null
   const settlementJobs = new Set()
   async function loadSettings() {
     const s = await readJson('settings.json')
     if (s !== undefined && typeof s === 'object') {
-      settings.candidates = clampInt(s.candidates, 1, 6, settings.candidates)
       settings.temperature = typeof s.temperature === 'number' && isFinite(s.temperature) ? Math.min(1.5, Math.max(0, s.temperature)) : settings.temperature
       settings.provider = str(s.provider)
       settings.model = str(s.model)
@@ -101,9 +84,6 @@ export function apply(ctx) {
   function ensureSettings() {
     if (settingsReady === null) settingsReady = loadSettings()
     return settingsReady
-  }
-  async function saveSettings() {
-    await writeJson('settings.json', settings)
   }
 
   // ---------- 模型调用 ----------
@@ -537,13 +517,6 @@ export function apply(ctx) {
       updatedAt: Date.now()
     }
   }
-  async function findChat(cardId) {
-    const idx = await readIndex()
-    const hit = (idx.chats || []).filter(function (c) { return c.cardId === cardId })[0]
-    if (hit === undefined) return undefined
-    const chat = await readChat(hit.id)
-    return chat === undefined ? undefined : chat
-  }
   async function readSessionMap() {
     const value = await readJson('sessions.json')
     return value !== undefined && value !== null && typeof value === 'object' ? value : {}
@@ -645,7 +618,6 @@ export function apply(ctx) {
     return '我们现在进入“' + cardName + '”的人物卡设定对话（卡片模式）。可以先讨论、分析或比较方案；只有你明确确认修改时，我才会把变更写入人物卡。你想先调整哪一部分？'
   }
   async function startChat(cardId, sessionId, mode) {
-    try { await ensureRuntimePreset() } catch (err) { console.error('dsh-tavern: 新建会话前同步 preset 失败', err) }
     const card = await readCard(cardId)
     if (card === undefined) throw new Error('角色卡不存在: ' + cardId)
     // 游玩模式内部仍是 story/script 两类：人物卡已绑定剧本时必须走剧本（script）。
@@ -1099,76 +1071,6 @@ export function apply(ctx) {
     }
     return out
   }
-  async function buildCandidates(chat, card, sel, sessionId) {
-    const n = clampInt(settings.candidates, 1, 6, 3)
-    const jobs = []
-    for (let i = 0; i < n; i++) {
-      const temp = Math.min(1.5, settings.temperature + i * 0.05)
-      jobs.push(callModel({
-        messages: buildMessages(chat, sel, 40),
-        system: buildSystem(card, chat),
-        temperature: temp,
-        sessionId: sessionId
-      }).then(
-        function (t) { return { text: t, error: null } },
-        function (err) { return { text: '', error: str(err && err.message || err) } }
-      ))
-    }
-    return await Promise.all(jobs)
-  }
-
-  // ---------- 生成 / 选择 / 重掷 ----------
-  async function generate(chatId, userText, sessionId) {
-    await ensureSettings()
-    const chat = await readChat(chatId)
-    if (chat === undefined) throw new Error('聊天不存在: ' + chatId)
-    const card = await readChatCard(chat)
-    const text = str(userText).trim()
-    if (text === '') throw new Error('消息为空')
-    chat.messages.push({ role: 'user', text: text, ts: Date.now() })
-    if (typeof sessionId === 'string' && sessionId !== '') chat.sessionId = sessionId
-    const sel = modelSelection(chat.sessionId)
-    if (sel === null) throw new Error('没有可用的模型配置')
-    const results = await buildCandidates(chat, card, sel, chat.sessionId)
-    chat.pending = { userText: text, candidates: results, ts: Date.now() }
-    await writeChat(chat)
-    return view(chat, card)
-  }
-  async function reroll(chatId, sessionId) {
-    await ensureSettings()
-    const chat = await readChat(chatId)
-    if (chat === undefined) throw new Error('聊天不存在: ' + chatId)
-    const card = await readChatCard(chat)
-    const pending = chat.pending
-    if (pending === null || pending === undefined) throw new Error('没有可重掷的待选回复')
-    if (typeof sessionId === 'string' && sessionId !== '') chat.sessionId = sessionId
-    const sel = modelSelection(chat.sessionId)
-    if (sel === null) throw new Error('没有可用的模型配置')
-    const results = await buildCandidates(chat, card, sel, chat.sessionId)
-    chat.pending = { userText: pending.userText, candidates: results, ts: Date.now() }
-    await writeChat(chat)
-    return view(chat, card)
-  }
-  async function choose(chatId, index, sessionId) {
-    const chat = await readChat(chatId)
-    if (chat === undefined) throw new Error('聊天不存在: ' + chatId)
-    const card = await readChatCard(chat)
-    if (typeof sessionId === 'string' && sessionId !== '') chat.sessionId = sessionId
-    const pending = chat.pending
-    if (pending === null || pending === undefined || !Array.isArray(pending.candidates)) throw new Error('当前没有待选择的候选回复')
-    const i = clampInt(index, 0, pending.candidates.length - 1, -1)
-    if (i < 0) throw new Error('候选序号无效')
-    const chosen = pending.candidates[i]
-    if (chosen === null || chosen === undefined || str(chosen.text) === '') throw new Error('该候选生成失败，请选择其他候选或重新生成')
-    chat.messages.push({ role: 'assistant', text: str(chosen.text), ts: Date.now() })
-    chat.pending = null
-    chat.settleStatus = 'running'
-    chat.settleError = null
-    await writeChat(chat)
-    queueSettlement(chat.id)
-    return view(chat, card)
-  }
-
   // ---------- 后台结算 ----------
   function settleSystemPrompt() {
     return '你是剧情结算器。阅读【当前姿势】与【最新一轮对话】，只输出一个 JSON 对象，不要输出其他任何内容。\n' +
@@ -1302,42 +1204,6 @@ export function apply(ctx) {
     const keys = Object.keys(chat.nativeCommits).map(Number).filter(Number.isFinite).sort(function (a, b) { return b - a })
     for (const oldTurn of keys.slice(40)) delete chat.nativeCommits[String(oldTurn)]
   }
-  async function settleNow(chatId, sessionId) {
-    const chat = await readChat(chatId)
-    if (chat === undefined) throw new Error('聊天不存在: ' + chatId)
-    const card = await readChatCard(chat)
-    if (typeof sessionId === 'string' && sessionId !== '') chat.sessionId = sessionId
-    chat.settleStatus = 'running'
-    chat.settleError = null
-    await writeChat(chat)
-    queueSettlement(chat.id)
-    return view(chat, card)
-  }
-
-  // ---------- 记忆条目编辑 ----------
-  async function updateLore(chatId, loreId, patch) {
-    const chat = await readChat(chatId)
-    if (chat === undefined) throw new Error('聊天不存在: ' + chatId)
-    const card = await readChatCard(chat)
-    const entry = (chat.lore || []).filter(function (e) { return e.id === loreId })[0]
-    if (entry === undefined) throw new Error('记忆条目不存在')
-    if (patch !== null && typeof patch === 'object') {
-      if (typeof patch.content === 'string' && str(patch.content).trim() !== '') entry.content = str(patch.content).trim()
-      if (typeof patch.type === 'string' && str(patch.type).trim() !== '') entry.type = str(patch.type).trim().slice(0, 12)
-      entry.ts = Date.now()
-    }
-    await writeChat(chat)
-    return view(chat, card)
-  }
-  async function deleteLore(chatId, loreId) {
-    const chat = await readChat(chatId)
-    if (chat === undefined) throw new Error('聊天不存在: ' + chatId)
-    const card = await readChatCard(chat)
-    chat.lore = (chat.lore || []).filter(function (e) { return e.id !== loreId })
-    await writeChat(chat)
-    return view(chat, card)
-  }
-
   // ---------- 抽取模式：从素材提炼新人物卡 ----------
   async function extractWindowOf(chat) {
     const idx = await readIndex()
@@ -1407,7 +1273,6 @@ export function apply(ctx) {
     }
   }
   async function startExtract(sourceIds, sessionId) {
-    try { await ensureRuntimePreset() } catch (err) { console.error('dsh-tavern: 新建抽取会话前同步 preset 失败', err) }
     const ids = (Array.isArray(sourceIds) ? sourceIds : []).filter(function (id) { return str(id) !== '' })
     if (ids.length === 0) throw new Error('请先选择抽取素材')
     const chat = newChat({ id: '', name: '抽取中' }, 'extract')
@@ -1615,17 +1480,6 @@ export function apply(ctx) {
       case 'reviseCard': return await reviseCard(args && args.cardId, args && args.instruction, args && args.sessionId)
       case 'clearRevisionChat': return { card: await clearRevisionChat(args && args.cardId) }
       case 'listSessions': return { sessions: await listTavernSessions() }
-      case 'getSettings': return { settings: settings }
-      case 'setSettings': {
-        if (args !== null && typeof args === 'object') {
-          if (Number.isInteger(args.candidates)) settings.candidates = clampInt(args.candidates, 1, 6, settings.candidates)
-          if (typeof args.temperature === 'number' && isFinite(args.temperature)) settings.temperature = Math.min(1.5, Math.max(0, args.temperature))
-          if (typeof args.provider === 'string') settings.provider = args.provider
-          if (typeof args.model === 'string') settings.model = args.model
-        }
-        await saveSettings()
-        return { settings: settings }
-      }
       case 'importCard': return { card: await importCard(args && args.payload) }
       case 'deleteCard': return await deleteCard(args && args.cardId)
       case 'deleteChat': return await deleteChat(args && args.chatId)
@@ -1644,12 +1498,6 @@ export function apply(ctx) {
         const card = await readChatCard(chat)
         return { view: view(chat, card) }
       }
-      case 'generate': return { view: await generate(args && args.chatId, args && args.text, args && args.sessionId) }
-      case 'reroll': return { view: await reroll(args && args.chatId, args && args.sessionId) }
-      case 'choose': return { view: await choose(args && args.chatId, args && args.index, args && args.sessionId) }
-      case 'settleNow': return { view: await settleNow(args && args.chatId, args && args.sessionId) }
-      case 'updateLore': return { view: await updateLore(args && args.chatId, args && args.loreId, args && args.patch) }
-      case 'deleteLore': return { view: await deleteLore(args && args.chatId, args && args.loreId) }
       case 'regenBody': return { view: await regenBody(args && args.chatId, args && args.guidance, args && args.sessionId) }
       default: throw new Error('未知方法: ' + method)
     }
@@ -1697,26 +1545,6 @@ export function apply(ctx) {
   }
 
   // ---------- 调试探针（模型可调用） ----------
-  const DEMO_CARD = {
-    spec: 'chara_card_v3',
-    spec_version: '3.0',
-    data: {
-      name: '阿芙拉',
-      description: '边境小酒馆"金麦穗"的老板娘，三十出头，红发，绿眼睛，精明爽利，消息灵通，酒馆里人人都敬她三分。',
-      personality: '爽朗热情，精明世故，爱开玩笑，看重朋友，讨厌闹事的人；酒馆是她的地盘，也是情报集散地。',
-      scenario: '雨夜，你风尘仆仆地推开"金麦穗"酒馆的门。店内炉火正旺，客人不多。',
-      first_mes: '哟，稀客！雨下这么大还赶路？快进来坐，先把外套晾晾。想喝点什么？今天有热麦酒，配刚出炉的黑面包。',
-      mes_example: '<START>\n{{user}}: 来一杯麦酒。\n{{char}}: 好嘞！\n*阿芙拉麻利地倒满一大杯，麦酒泡沫漫到杯沿，她把杯子"咚"地搁在你面前。*\n第一杯算我的，看你淋成落汤鸡的份上。\n<START>\n{{user}}: 最近镇子上有什么新鲜事？\n{{char}}: *阿芙拉擦着酒杯，朝你倾了倾身子，压低声音。*\n新鲜事可多了。就昨儿，货郎老皮特的骡子丢了一只，结果在后巷和磨坊主的山羊卿卿我我呢。要听更值钱的，得看你能出什么价。',
-      tags: ['奇幻', '酒馆', '老板娘'],
-      system_prompt: '',
-      post_history_instructions: ''
-    }
-  }
-  function demoCard() {
-    const card = normalizeCard(DEMO_CARD)
-    card.id = 'card-demo'
-    return card
-  }
   const tools = ctx.get('tools')
   if (tools !== undefined) {
     tools.register(defineTool({
@@ -1850,120 +1678,5 @@ export function apply(ctx) {
       }
     }))
 
-    tools.register(defineTool({
-      name: 'tavern_probe',
-      description: '调试 dsh-tavern：listCards / importDemo / import / importFile / startChat / generate / choose / reroll / settleNow / state / deleteChat / deleteCard / setSettings。参数: action 必填；cardId、chatId、text、index、payload(卡片JSON字符串)、path(importFile 文件路径)、settings(JSON字符串) 按需。',
-      parameters: {
-        action: { type: 'string', required: true, description: '要执行的操作' },
-        cardId: { type: 'string', description: '卡片 ID' },
-        chatId: { type: 'string', description: '聊天 ID' },
-        text: { type: 'string', description: '用户消息文本' },
-        index: { type: 'number', description: '候选序号' },
-        payload: { type: 'string', description: 'import 时直接传卡片 JSON 字符串' },
-        path: { type: 'string', description: 'importFile 时传 PNG/JSON 卡片文件绝对路径' },
-        settings: { type: 'string', description: 'setSettings 时传 JSON 字符串' }
-      },
-      output: {
-        schema: { type: 'object', additionalProperties: true },
-        render: function (_a, v) { return [{ type: 'text', text: JSON.stringify(v, null, 2).slice(0, 6000) }] }
-      },
-      async execute(args, exec) {
-        await ensureSettings()
-        const a = args || {}
-        const sessionId = (exec !== undefined && exec !== null && exec.agent !== undefined && exec.agent !== null && exec.agent.session !== undefined && exec.agent.session !== null)
-          ? exec.agent.session.id
-          : undefined
-        switch (a.action) {
-          case 'listCards': return { cards: await listCards() }
-          case 'importDemo': {
-            const card = demoCard()
-            await writeJson('cards/' + card.id + '.json', card)
-            const idx = await readIndex()
-            idx.cards = idx.cards || []
-            if (!idx.cards.some(function (c) { return c.id === card.id })) {
-              idx.cards.push({ id: card.id, name: card.name, description: card.description, tags: card.tags, importedAt: card.importedAt })
-            }
-            await writeIndex(idx)
-            return { card: { id: card.id, name: card.name } }
-          }
-          case 'import': {
-            if (typeof a.payload !== 'string') throw new Error('payload 需要卡片 JSON 字符串')
-            return { card: await importCard({ kind: 'text', text: a.payload }) }
-          }
-          case 'importFile': {
-            const p = str(a.path)
-            if (p === '') throw new Error('path 必填（PNG 或 JSON 卡片的绝对路径）')
-            const t = await fs.resolve(p)
-            const info = await fs.stat(t)
-            if (info === undefined) throw new Error('文件不存在: ' + p)
-            const bytes = await fs.readBytes(t, undefined, 20 * 1024 * 1024)
-            let payload = null
-            if (bytes.length > 8 && bytes[0] === 0x89 && bytes[1] === 0x50) {
-              let off = 8
-              while (off + 8 <= bytes.length) {
-                const len = ((bytes[off] << 24) | (bytes[off + 1] << 16) | (bytes[off + 2] << 8) | bytes[off + 3]) >>> 0
-                const typ = String.fromCharCode(bytes[off + 4], bytes[off + 5], bytes[off + 6], bytes[off + 7])
-                if (typ === 'tEXt' && off + 8 + len <= bytes.length) {
-                  const d = off + 8
-                  let nul = -1
-                  for (let i = 0; i < len; i++) {
-                    if (bytes[d + i] === 0) { nul = i; break }
-                  }
-                  if (nul >= 0) {
-                    let kw = ''
-                    for (let i = 0; i < nul; i++) kw += String.fromCharCode(bytes[d + i])
-                    if (kw === 'chara' || kw === 'ccv3') {
-                      let val = ''
-                      for (let i = nul + 1; i < len; i++) val += String.fromCharCode(bytes[d + i])
-                      payload = { kind: 'png', b64: Buffer.from(val, 'binary').toString('base64') }
-                      break
-                    }
-                  }
-                }
-                if (typ === 'IEND') break
-                off += 12 + len
-              }
-            }
-            if (payload === null) {
-              // 不是 PNG，尝试按 JSON 文本读取
-              payload = { kind: 'text', text: await fs.readText(t) }
-            }
-            return { card: await importCard(payload) }
-          }
-          case 'startChat': return { view: await startChat(a.cardId || 'card-demo', sessionId) }
-          case 'generate': {
-            if (str(a.chatId) === '') {
-              const v = await startChat(a.cardId || 'card-demo', sessionId)
-              const g = await generate(v.chatId, a.text || '你好', sessionId)
-              return { view: g }
-            }
-            return { view: await generate(a.chatId, a.text || '你好', sessionId) }
-          }
-          case 'choose': return { view: await choose(a.chatId, Number.isInteger(a.index) ? a.index : 0, sessionId) }
-          case 'reroll': return { view: await reroll(a.chatId, sessionId) }
-          case 'settleNow': return { view: await settleNow(a.chatId, sessionId) }
-          case 'modelInfo': return { sessionId: sessionId, model: modelSelection(sessionId) }
-          case 'state': {
-            const chat = await readChat(a.chatId)
-            if (chat === undefined) throw new Error('聊天不存在: ' + a.chatId)
-            return { view: view(chat, await readChatCard(chat)) }
-          }
-          case 'deleteChat': return { result: await deleteChat(a.chatId) }
-          case 'deleteCard': return { result: await deleteCard(a.cardId) }
-          case 'setSettings': {
-            if (typeof a.settings === 'string') {
-              const s = JSON.parse(a.settings)
-              if (Number.isInteger(s.candidates)) settings.candidates = clampInt(s.candidates, 1, 6, settings.candidates)
-              if (typeof s.temperature === 'number' && isFinite(s.temperature)) settings.temperature = Math.min(1.5, Math.max(0, s.temperature))
-              if (typeof s.provider === 'string') settings.provider = s.provider
-              if (typeof s.model === 'string') settings.model = s.model
-              await saveSettings()
-            }
-            return { settings: settings, model: modelSelection(sessionId) }
-          }
-          default: return { hint: 'action: listCards|importDemo|import|importFile|startChat|generate|choose|reroll|settleNow|state|deleteChat|deleteCard|setSettings' }
-        }
-      }
-    }))
   }
 }
