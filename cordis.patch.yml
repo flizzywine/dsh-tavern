@@ -1,0 +1,20 @@
+# 独立酒馆 profile：使用 3081，启动后直接显示酒馆整页界面。
+- id: webserver
+  config:
+    host: 127.0.0.1
+    port: 3081
+- id: agent-presets
+  config:
+    default: tavern
+    includeUserRoot: true
+- insert:
+    - id: dsh-tavern
+      name: dsh-tavern-plugin
+      inject:
+        - fs
+        - llm
+        - webServer
+        - tools
+        - agentDefaultModel
+        - sandboxPolicy
+        - shell

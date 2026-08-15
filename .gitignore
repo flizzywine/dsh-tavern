@@ -1,0 +1,4 @@
+node_modules/
+cordis.yml
+*.log
+.DS_Store

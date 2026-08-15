@@ -1,0 +1,45 @@
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: false
+  excludeLinksFromLockfile: false
+
+importers:
+
+  .:
+    dependencies:
+      dsh-codex-connect:
+        specifier: 0.1.0-alpha.4.5
+        version: 0.1.0-alpha.4.5
+      dsh-tavern-plugin:
+        specifier: link:./tavern-plugin
+        version: link:tavern-plugin
+
+packages:
+
+  dsh-codex-connect@0.1.0-alpha.4.5:
+    resolution: {integrity: sha512-ZBUCWwTNgDdpwgwV5vSrWOv299g5WuD5pCmTUa6Bug7JsWD0fpaDswM3QRkk66sIyND3uaBYe7wSAFdgs6QBEw==}
+    engines: {node: ^22.19.0 || >=24.0.0}
+    hasBin: true
+    peerDependencies:
+      '@deepseek-ai/cordis': ^4.0.1-rc.1
+      '@deepseek-ai/dsh-agent': '*'
+      '@deepseek-ai/dsh-atomic-write': '*'
+      '@deepseek-ai/dsh-attachment': '*'
+      '@deepseek-ai/dsh-fs': '*'
+      '@deepseek-ai/dsh-home-paths': '*'
+      '@deepseek-ai/dsh-host-webserver': '*'
+      '@deepseek-ai/dsh-invariants': '*'
+      '@deepseek-ai/dsh-llm': '*'
+      '@deepseek-ai/dsh-llm-pi-ai': '*'
+      '@deepseek-ai/dsh-session': '*'
+      '@deepseek-ai/dsh-settings': '*'
+      '@deepseek-ai/dsh-tools': '*'
+      '@deepseek-ai/dsh-web': '*'
+      '@deepseek-ai/schemastery': ^3.18.1-rc.1
+      '@earendil-works/pi-ai': ^0.82.1
+      react: ^18.2.0
+
+snapshots:
+
+  dsh-codex-connect@0.1.0-alpha.4.5: {}
