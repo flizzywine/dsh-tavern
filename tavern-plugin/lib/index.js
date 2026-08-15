@@ -1226,6 +1226,27 @@ export function apply(ctx) {
     }
     return parts.join('\n\n')
   }
+  async function polishBody(chat, card, draftText, sessionId) {
+    const scriptReference = (chat.mode || 'story') === 'script' && chat.scriptState !== null && typeof chat.scriptState === 'object'
+      ? (chat.scriptState.prepared !== null && typeof chat.scriptState.prepared === 'object' ? chat.scriptState.prepared : (chat.scriptState.lastReference !== null && typeof chat.scriptState.lastReference === 'object' ? chat.scriptState.lastReference : null))
+      : null
+    const system = buildSystem(card, chat, scriptReference) + '\n\n【润色任务】保持下面初稿的剧情、动作顺序、对白含义和段落结构不变，只优化遣词造句；不要新增剧情，不要解释，只输出润色后的正文。'
+    const raw = await callModel({
+      sessionId: sessionId,
+      temperature: 0.6,
+      maxTokens: 4096,
+      system: system,
+      messages: [{
+        id: 'polish-' + Date.now().toString(36),
+        role: 'user',
+        content: [{ type: 'text', text: '【待润色正文】\n' + draftText }],
+        source: { kind: 'plugin', plugin: 'dsh-tavern-polish' }
+      }]
+    })
+    const polished = str(raw).trim()
+    if (polished === '') throw new Error('润色失败：模型返回空文本')
+    return polished
+  }
   function normalizeScriptState(chat, script) {
     if (chat.scriptState === null || typeof chat.scriptState !== 'object') chat.scriptState = {}
     const state = chat.scriptState
@@ -1995,9 +2016,10 @@ export function apply(ctx) {
       name: 'tavern_session',
       description: '读取当前会话的模式（游玩/卡片）与人物卡，并提交本轮结果。必须先 action=context；游玩模式的 context 同时传入本轮 userText，剧本类会话会召回一个游标附近分块。剧本会话 commit 时用 scriptAdvance 决定是否推进游标；剧本会话和卡片模式（设定对话）还可以用 action=script 只读查看已绑定剧本的分块。最终回复前 action=commit。',
       parameters: {
-        action: { type: 'string', required: true, description: 'context、commit 或 script（script 用于只读查看已绑定剧本；剧本会话默认返回当前游标 1 块，可按块号/关键词再取，卡片模式设定对话按块号/关键词检索 1~6 块）' },
+        action: { type: 'string', required: true, description: 'context、commit、script 或 polish（script 只读查看剧本；polish 润色 draftText 后用于 commit）' },
         userText: { type: 'string', description: 'context 与 commit 时都填写用户本轮原始消息' },
         assistantText: { type: 'string', description: 'commit 时填写准备作为最终回复的完整文本' },
+        draftText: { type: 'string', description: 'action=polish 时填写待润色的正文初稿' },
         cardPatch: { type: 'string', description: '仅卡片模式（设定对话/素材抽取）使用：确认落盘时填写人物卡字段 patch JSON；只讨论则填 {}' },
         scriptAdvance: { type: 'boolean', description: '仅剧本会话 commit 使用：true=本轮已充分演绎当前分块，推进游标；false 或缺省=不推进，下一轮继续同一分块' },
         scriptQuery: { type: 'string', description: 'action=script 时可选：按关键词检索剧本分块；剧本会话仅在游标前后 10 块内检索，命中返回前后各 1 块' },
@@ -2008,6 +2030,7 @@ export function apply(ctx) {
         schema: { type: 'object', additionalProperties: true },
         render: function (_a, value) {
           if (value && value.ready === false) return [{ type: 'text', text: str(value.message) || '尚未选择人物卡' }]
+          if (value && value.mode === 'polish') return [{ type: 'text', text: '润色结果\n\n' + (value.polishedText || '') }]
           if (value && value.mode === 'script-read') return [{ type: 'text', text: '剧本《' + (value.title || '未命名') + '》第 ' + value.from + '~' + value.to + ' 块 / 共 ' + value.totalChunks + ' 块\n\n' + (value.text || '') }]
           if (value && value.saved === true) return [{ type: 'text', text: value.mode === 'revision' ? ('卡片模式设定对话已保存' + (value.changed ? '，人物卡字段已更新' : '，人物卡未改动')) : '故事状态已更新' }]
           if (value && value.ready === true) return [{ type: 'text', text: 'mode=' + (value.mode || 'story') + '\n人物卡=' + (value.cardName || '未命名') + '\n\n' + (value.systemContext || '') }]
@@ -2058,6 +2081,15 @@ export function apply(ctx) {
             text: text,
             hint: '可继续用 action=script 读取其他分块：scriptQuery 按关键词检索，或 scriptOffset 按 1 起始的块号读取，scriptLimit 控制每次返回 1~6 块。'
           }
+        }
+        if (action === 'polish') {
+          if (chat === undefined) return { ready: false, message: '尚未选择人物卡，无法润色正文。' }
+          if ((chat.mode || 'story') === 'revision' || (chat.mode || 'story') === 'extract') throw new Error('仅游玩模式支持润色正文')
+          const draftText = str(args && args.draftText).trim()
+          if (draftText === '') throw new Error('draftText 不能为空')
+          const card = await readChatCard(chat)
+          const polishedText = await polishBody(chat, card, draftText, sessionId)
+          return { ready: true, mode: 'polish', cardName: chat.cardName, polishedText: polishedText }
         }
         if (action === 'context') {
           if (chat === undefined) return { ready: false, message: '尚未选择人物卡，请提示用户在输入框上方选择人物卡。' }
