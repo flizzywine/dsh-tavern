@@ -1144,7 +1144,6 @@ export function apply(ctx) {
     if (str(card.description) !== '') parts.push('设定: ' + substChar(card.description, card, '你', '所有其他角色'))
     if (str(card.personality) !== '') parts.push('主要人物性格: ' + card.personality)
     if (str(card.scenario) !== '') parts.push('开场情境: ' + card.scenario)
-    if (str(card.first_mes) !== '') parts.push('【开场白 · 剧情起点，已发生的事实】\n' + substChar(card.first_mes, card, '你', '所有其他角色'))
     if (str(card.mes_example) !== '') parts.push('【文风示例】\n' + substChar(card.mes_example, card, '你', '所有其他角色'))
     if (str(card.post_history_instructions) !== '') parts.push('【附加要求】\n' + card.post_history_instructions)
     if (str(card.system_prompt) !== '') parts.push('【特殊指令】\n' + card.system_prompt)
