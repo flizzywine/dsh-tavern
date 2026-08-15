@@ -904,17 +904,13 @@ export function apply(ctx) {
     const cursor = Math.max(0, Number(state.cursor) || 0)
     const chunks = Array.isArray(script.chunks) ? script.chunks : []
     const ended = cursor >= chunks.length
-    const heldChunk = !ended && typeof state.heldChunkId === 'string'
-      ? chunks.find(function (chunk) { return chunk.id === state.heldChunkId })
-      : undefined
-    const referenceCursor = heldChunk !== undefined ? Math.max(0, Number(heldChunk.order) || 0) : cursor
     return {
-      cursor: referenceCursor,
+      cursor: cursor,
       total: chunks.length,
       ended: ended,
-      held: heldChunk !== undefined,
+      held: !ended && typeof state.heldChunkId === 'string',
       title: str(script.title),
-      chunks: ended ? [] : (heldChunk !== undefined ? [heldChunk] : chunks.slice(referenceCursor, Math.min(chunks.length, referenceCursor + 2)))
+      chunks: ended ? [] : chunks.slice(cursor, Math.min(chunks.length, cursor + 2))
     }
   }
   function lastAssistantTail(chat, limit) {
@@ -1290,30 +1286,19 @@ export function apply(ctx) {
       return state.prepared
     }
     let selected = script.chunks[state.cursor]
-    let held = false
-    if (state.heldChunkId !== null) {
-      const heldChunk = script.chunks.find(function (chunk) { return chunk.id === state.heldChunkId })
-      if (heldChunk !== undefined) {
-        selected = heldChunk
-        held = true
-      } else {
-        state.heldChunkId = null
-        state.heldOrder = null
-      }
-    }
     const windowChunks = script.chunks.slice(state.cursor, Math.min(script.chunks.length, state.cursor + 5))
-    if (!held && windowChunks.length > 1) {
+    if (windowChunks.length > 1) {
       const recent = (chat.messages || []).slice(-6).map(function (message) { return (message.role === 'assistant' ? '正文' : '玩家') + ': ' + str(message.text) }).join('\n')
       try {
         const raw = await callModel({
           sessionId: sessionId || chat.sessionId,
           temperature: 0.1,
           maxTokens: 800,
-          system: '你是线性小说剧本的分块选择器。每轮必须从游标附近候选中选择一个分块，让续写自然地朝原小说发展。优先选择顺序最早、与当前人物和场景能够自然衔接的分块；即使没有完全匹配，也必须选择一块，后续正文会负责自然铺垫。只输出 JSON：{"chunkId":"chunk-xxxxx"}。',
+          system: '你是线性小说剧本的分块选择器。每轮必须从游标附近候选中选择一个分块，让续写自然地朝原小说发展。默认优先选择顺序最早、与当前人物和场景能够自然衔接的分块；如果玩家本轮明确表示跳过某段剧情，允许选择更后的分块。只输出 JSON：{"chunkId":"chunk-xxxxx"}。',
           messages: [{
             id: 'script-select-' + Date.now().toString(36),
             role: 'user',
-            content: [{ type: 'text', text: '【最近剧情】\n' + (recent || '（只有开场白）') + '\n\n【玩家本轮输入】\n' + (request || '（无）') + '\n\n【当前姿势】\n' + (chat.posture || '（无）') + '\n\n【候选分块】\n' + windowChunks.map(function (chunk) { return '[' + chunk.id + ']\n' + chunk.text }).join('\n\n') }],
+            content: [{ type: 'text', text: '【最近剧情】\n' + (recent || '（只有开场白）') + '\n\n【玩家本轮输入】\n' + (request || '（无）') + '\n\n【当前姿势】\n' + (chat.posture || '（无）') + '\n\n【上一轮未演完分块】\n' + (state.heldChunkId || '（无）') + '\n\n【候选分块】\n' + windowChunks.map(function (chunk) { return '[' + chunk.id + ']\n' + chunk.text }).join('\n\n') }],
             source: { kind: 'plugin', plugin: 'dsh-tavern-script-selector' }
           }]
         })
@@ -1324,6 +1309,7 @@ export function apply(ctx) {
         console.error('dsh-tavern: 剧本分块选择失败，回退到游标分块', err)
       }
     }
+    const held = state.heldChunkId !== null && selected.id === state.heldChunkId
     state.prepared = {
       userText: request,
       nativeTurn: Number(nativeTurn) || 0,
