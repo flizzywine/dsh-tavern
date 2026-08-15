@@ -924,6 +924,7 @@ export function apply(ctx) {
     const maxChoices = requiredCount
     const temps = [0.8, 1.0, 1.1]
     for (let attempt = 1; attempt <= 3; attempt++) {
+      if (attempt > 1) await new Promise(function (resolve) { setTimeout(resolve, 800) })
       try {
         const text = await callModel({
           sessionId: sessionId,

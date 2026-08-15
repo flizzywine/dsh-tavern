@@ -989,6 +989,7 @@ html[data-dsh-tavern-profile="true"] [data-composer-seat] {
 
 		const candidatePanel = { value: null, listeners: new Set() };
 		const candidateRequests = new Set();
+		const candidateAutoRetries = new Set();
 		function setCandidatePanel(value) {
 			candidatePanel.value = value;
 			candidatePanel.listeners.forEach(function (listener) { listener(value); });
@@ -1165,7 +1166,17 @@ html[data-dsh-tavern-profile="true"] [data-composer-seat] {
 				const key = props.sessionId + ":" + props.messageId;
 				if (candidateRequests.has(key)) return;
 				candidateRequests.add(key);
-				generate(false);
+				const timer = window.setTimeout(function () {
+					generate(false).then(function () {
+						const current = candidatePanel.value;
+						if (current !== null && current.sessionId === props.sessionId && current.messageId === props.messageId && current.phase === "error" && !candidateAutoRetries.has(key)) {
+							candidateAutoRetries.add(key);
+							candidateRequests.delete(key);
+							window.setTimeout(function () { generate(false); }, 2500);
+						}
+					});
+				}, 600);
+				return function () { window.clearTimeout(timer); };
 			}, [latestMessageId, props.messageId, props.sessionId, sessionMode, hasUserMessage]);
 			const h = React.createElement;
 			const isScript = sessionMode === "script";
