@@ -1200,6 +1200,7 @@ html[data-dsh-tavern-profile="true"] [data-composer-seat] {
 				if (latestMessageId !== props.messageId) return;
 				const key = props.sessionId + ":" + props.messageId;
 				if (candidateRequests.has(key)) return;
+				setCandidatePanel({ sessionId: props.sessionId, messageId: props.messageId, phase: "loading", choices: [], error: "" });
 				const timer = window.setTimeout(function () {
 					if (candidateRequests.has(key)) return;
 					candidateRequests.add(key);
@@ -1210,9 +1211,10 @@ html[data-dsh-tavern-profile="true"] [data-composer-seat] {
 			const h = React.createElement;
 			const isScript = sessionMode === "script";
 			const hasReadyPanel = candidatePanelState !== null && candidatePanelState.sessionId === props.sessionId && candidatePanelState.messageId === props.messageId && candidatePanelState.phase === "ready";
+			const hasLoadingPanel = candidatePanelState !== null && candidatePanelState.sessionId === props.sessionId && candidatePanelState.messageId === props.messageId && candidatePanelState.phase === "loading";
 			if (!isPlayMode(sessionMode) || latestMessageId !== props.messageId) return null;
 			return h(React.Fragment, null,
-				h("button", { className: "dsh-tavern-choice-trigger", disabled: busy || rolling, title: hasReadyPanel ? "重新生成候选项（可先填写意见）" : (isScript ? "手动生成候选项；由于跟随剧本，只有一个推荐候选项" : "手动生成候选项"), onClick: function () {
+				h("button", { className: "dsh-tavern-choice-trigger", disabled: busy || rolling || hasLoadingPanel, title: hasReadyPanel ? "重新生成候选项（可先填写意见）" : (isScript ? "手动生成候选项；由于跟随剧本，只有一个推荐候选项" : "手动生成候选项"), onClick: function () {
 					setRegenPanel(null);
 					if (hasReadyPanel) {
 						const previous = candidatePanelState;
@@ -1221,7 +1223,7 @@ html[data-dsh-tavern-profile="true"] [data-composer-seat] {
 					} else {
 						generate(false);
 					}
-				} }, busy ? "生成中…" : (hasReadyPanel ? "重新生成候选项" : "生成候选项")),
+				} }, (busy || hasLoadingPanel) ? "生成中…" : (hasReadyPanel ? "重新生成候选项" : "生成候选项")),
 				h("button", { className: "dsh-tavern-choice-trigger", title: "重新生成正文（可填指导意见，生成后直接替换）", onClick: function (event) {
 					const tail = event && event.currentTarget ? event.currentTarget.closest('[data-chat-flow-kind="turn-tail"]') : null;
 					setCandidatePanel(null);
