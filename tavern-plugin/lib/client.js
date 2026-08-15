@@ -464,8 +464,7 @@ html[data-dsh-tavern-profile="true"] [data-composer-seat] {
 				setBusy(true); setError("");
 				try {
 					const currentSummary = current ? summaries[current] : null;
-					const currentIsTavern = current ? history.some(function (item) { return item.sessionId === current; }) : false;
-					if (currentSummary && currentSummary.blank && currentIsTavern) {
+					if (current && currentSummary && currentSummary.blank) {
 						await props.workspaces.archiveSession(current);
 					}
 					const sessionId = await props.workspaces.connectWorkspace(workspaceId);
@@ -529,8 +528,7 @@ html[data-dsh-tavern-profile="true"] [data-composer-seat] {
 				setBusy(true); setError("");
 				try {
 					const currentSummary = current ? summaries[current] : null;
-					const currentIsTavern = current ? history.some(function (item) { return item.sessionId === current; }) : false;
-					if (currentSummary && currentSummary.blank && currentIsTavern) {
+					if (current && currentSummary && currentSummary.blank) {
 						await props.workspaces.archiveSession(current);
 					}
 					const sessionId = await props.workspaces.connectWorkspace(workspaceId);
