@@ -71,17 +71,15 @@ export function apply(ctx) {
   }
 
   // ---------- 设置 ----------
-  let settings = { temperature: 1.0, provider: '', model: '', polish: false, candidates: 3 }
+  let settings = { provider: '', model: '', polish: false }
   let settingsReady = null
   const settlementJobs = new Set()
   async function loadSettings() {
     const s = await readJson('settings.json')
     if (s !== undefined && typeof s === 'object') {
-      settings.temperature = typeof s.temperature === 'number' && isFinite(s.temperature) ? Math.min(1.5, Math.max(0, s.temperature)) : settings.temperature
       settings.provider = str(s.provider)
       settings.model = str(s.model)
       settings.polish = s.polish === true
-      settings.candidates = clampInt(Number(s.candidates), 1, 5, 3)
     }
   }
   function ensureSettings() {
@@ -482,26 +480,6 @@ export function apply(ctx) {
     await writeIndex(idx)
     return { id: card.id, name: card.name, description: card.description, tags: card.tags }
   }
-  async function createCard(source) {
-    const card = normalizeCard(source && typeof source === 'object' ? source : { name: '新人物' })
-    await writeJson('cards/' + card.id + '.json', card)
-    const idx = await readIndex()
-    idx.cards = idx.cards || []
-    idx.cards.push({ id: card.id, name: card.name, description: card.description, tags: card.tags, importedAt: card.importedAt })
-    await writeIndex(idx)
-    return card
-  }
-  async function duplicateCard(cardId) {
-    const source = await readCard(cardId)
-    if (source === undefined) throw new Error('角色卡不存在: ' + cardId)
-    const copy = Object.assign({}, source, { id: uid('card'), name: str(source.name) + '（副本）', importedAt: Date.now(), updatedAt: Date.now(), revision_history: [] })
-    await writeJson('cards/' + copy.id + '.json', copy)
-    const idx = await readIndex()
-    idx.cards = idx.cards || []
-    idx.cards.push({ id: copy.id, name: copy.name, description: copy.description, tags: copy.tags || [], importedAt: copy.importedAt })
-    await writeIndex(idx)
-    return copy
-  }
   async function listCards() {
     const idx = await readIndex()
     return (idx.cards || []).map(function (item) { return Object.assign({}, item, { script: item.script || null }) })
@@ -538,62 +516,6 @@ export function apply(ctx) {
         await writeJson('chats/' + linked.id + '.json', linked)
       }
     }
-    return card
-  }
-  async function reviseCard(cardId, instruction, sessionId) {
-    const card = await readCard(cardId)
-    if (card === undefined) throw new Error('角色卡不存在: ' + cardId)
-    const request = str(instruction).trim()
-    if (request === '') throw new Error('请输入想要调整的设定')
-    const editable = {}
-    for (const field of CARD_TEXT_FIELDS) editable[field] = card[field] || ''
-    editable.tags = card.tags || []
-    editable.alternate_greetings = card.alternate_greetings || []
-    editable.character_book = card.character_book || null
-    const history = (card.revision_chat || []).slice(-16)
-    const messages = history.map(function (item, index) {
-      return {
-        id: 'card-revise-history-' + index,
-        role: item.role === 'assistant' ? 'assistant' : 'user',
-        content: [{ type: 'text', text: str(item.text) }],
-        source: { kind: 'plugin', plugin: 'dsh-tavern-card-studio' }
-      }
-    })
-    messages.push({
-      id: 'card-revise-' + Date.now().toString(36),
-      role: 'user',
-      content: [{ type: 'text', text: request }],
-      source: { kind: 'plugin', plugin: 'dsh-tavern-card-studio' }
-    })
-    const text = await callModel({
-      sessionId: sessionId,
-      temperature: 0.25,
-      maxTokens: 10000,
-      system: '你是与用户共同打磨人物卡的编辑助手，这是一场持续的多轮对话，不是角色扮演，也不推进任何剧情。当前人物卡：\n' + JSON.stringify(editable) + '\n\n你可以分析设定、追问意图、提出方案、比较取舍。只有当用户明确要求或确认具体修改时，才在 patch 中给出实际变更；如果仍在讨论，patch 必须为 {}。只输出 JSON：{"reply":"给用户的自然对话回复","summary":"本轮若有落盘修改则简述，否则为空","patch":{}}。patch 可用字段：name,description,personality,scenario,first_mes,mes_example,system_prompt,post_history_instructions,creator_notes,tags,alternate_greetings,character_book。保留 {{char}}、{{user}} 等模板变量，采用最小必要修改。',
-      messages: messages
-    })
-    const result = parseJsonLenient(text)
-    const cardPatch = result.patch !== null && typeof result.patch === 'object' ? result.patch : {}
-    const changed = Object.keys(cardPatch).length > 0
-    const summary = changed ? (str(result.summary).trim() || '已更新人物卡') : ''
-    const reply = str(result.reply).trim() || (changed ? summary : '我们可以继续讨论这张人物卡的设定。')
-    let saved = card
-    if (changed) saved = await updateCard(cardId, cardPatch, { ts: Date.now(), instruction: request, summary: summary })
-    saved = await readCard(cardId)
-    saved.revision_chat = Array.isArray(saved.revision_chat) ? saved.revision_chat : []
-    saved.revision_chat.push({ role: 'user', text: request, ts: Date.now() })
-    saved.revision_chat.push({ role: 'assistant', text: reply, ts: Date.now(), changed: changed, summary: summary })
-    saved.revision_chat = saved.revision_chat.slice(-60)
-    saved.updatedAt = Date.now()
-    await writeJson('cards/' + saved.id + '.json', saved)
-    return { card: saved, reply: reply, changed: changed, summary: summary }
-  }
-  async function clearRevisionChat(cardId) {
-    const card = await readCard(cardId)
-    if (card === undefined) throw new Error('角色卡不存在: ' + cardId)
-    card.revision_chat = []
-    card.updatedAt = Date.now()
-    await writeJson('cards/' + card.id + '.json', card)
     return card
   }
   async function deleteCard(cardId) {
@@ -885,22 +807,6 @@ export function apply(ctx) {
     const result = view(chat, card)
     if (isExtract) result.extract = await extractViewOf(chat)
     return result
-  }
-  async function chooseGreeting(chatId, index) {
-    const chat = await readChat(chatId)
-    if (chat === undefined) throw new Error('聊天不存在: ' + chatId)
-    const card = await readChatCard(chat)
-    const greetings = [card.first_mes].concat(card.alternate_greetings || []).map(function (text) {
-      return substChar(text, card, '你', '所有其他角色')
-    }).filter(function (text) { return text !== '' })
-    const selected = greetings[clampInt(index, 0, greetings.length - 1, 0)]
-    if (selected === undefined) throw new Error('人物卡没有可用开场白')
-    const old = Array.isArray(chat.messages) ? chat.messages : []
-    const rest = old.filter(function (message) { return message.greeting !== true })
-    chat.messages = [{ role: 'assistant', text: selected, ts: Date.now(), greeting: true }].concat(rest)
-    chat.updatedAt = Date.now()
-    await writeChat(chat)
-    return view(chat, card)
   }
   function scriptChoiceWindow(chat, script) {
     const state = chat.scriptState !== null && typeof chat.scriptState === 'object' ? chat.scriptState : {}
@@ -1640,7 +1546,7 @@ export function apply(ctx) {
     parts.push('【人物卡可提炼字段】name（角色名）、description（角色描述：身份、外貌、背景）、personality（性格）、scenario（开场情境）、first_mes（开场白，写第一幕）、mes_example（对话示例，<START> 分隔，用 {{char}}/{{user}} 模板）、system_prompt、post_history_instructions、tags（字符串数组）。')
     parts.push('【玩家身份（{{user}}）】\n' + (player !== ''
       ? player + '\n已确认。mes_example、scenario、first_mes 中的 {{user}} 一律指这个身份；玩家行动和正文中的“你”也指这个身份。若用户要求修改玩家，确认后在 commit 的 cardPatch 中输出 {"player":"新的身份"}。'
-      : '尚未确认，这是当前最优先事项：先向用户明确提问“谁是玩家（{{user}}）？”，例如“玩家是段恩泽”“玩家是贾宝玉”“玩家是原创读者”。得到确认后，在 commit 的 cardPatch 中输出 {"player":"玩家身份"}；该字段只记录抽取会话的玩家身份，不写入人物卡字段。未确认前不要把玩家身份写死。'))
+      : '尚未确认，这是当前最优先事项：先在对话中请用户确认两件事——准备提炼谁（或制作哪类人物卡），以及谁是玩家（{{user}}）。例如“提炼阿芙拉，玩家是受雇调查商队失踪事件的旅行者”。得到玩家确认后，在 commit 的 cardPatch 中输出 {"player":"玩家身份"}；该字段只记录抽取会话的玩家身份，不写入人物卡字段。未确认前不要把玩家身份写死。'))
     parts.push('【规则】\n1. 只依据素材与对话中已确认的信息写卡，素材不足时向用户提问或给多个方案。\n2. 人物卡是 {{char}} 的卡：system_prompt、post_history_instructions、personality、description 一律用第三人称写角色（如“段莹莹是……她……”），禁止写“你是{{char}}”“你是段莹莹”这类第二人称；{{user}} 才是玩家，{{char}} 和其他出场人物都是角色。\n3. 用户可以指定角色（如“抽取王夫人”）或指定卡类型（单一角色/多角色卡），也可以随时修改玩家身份。\n4. 每轮可以讨论、提问或给出草稿片段；只有用户明确确认修改时，才在 commit 时输出最小 draftPatch（JSON 对象，只含要改的字段；player 可以单独输出）；只讨论时 draftPatch 必须是 {}。\n5. 素材按游标分批注入，未读部分会在后续轮次继续注入，不要担心一次读不完。')
     parts.push('【当前草稿】\n' + JSON.stringify(draft, null, 1))
     if (prepared !== null && typeof prepared === 'object' && Array.isArray(prepared.window) && prepared.window.length > 0) {
@@ -1683,8 +1589,8 @@ export function apply(ctx) {
     }
     const playerNote = chat.extract.player !== ''
       ? '已确认玩家（{{user}}）= ' + chat.extract.player + '。我会按这个身份处理对话示例与玩家视角；人物卡中的角色一律用第三人称，不会在 system_prompt 里写“你是角色”。你可以随时说“玩家改成……”。'
-      : '在开始前，请先告诉我：这份素材里的玩家（{{user}}）是谁？例如“玩家是段恩泽”“玩家是贾宝玉”“玩家是原创读者”。确认玩家身份后，我才会把它用于人物卡。'
-    const greeting = '卡片模式 · 素材抽取：素材《' + titles.join('》《') + '》。我会根据你的要求从中提炼人物卡。你可以指定角色（如“抽取王夫人”）或卡类型（单一角色/多角色卡）。' + playerNote
+      : '请直接在对话中告诉我两件事：准备提炼谁（或制作哪类人物卡），以及谁是玩家（{{user}}）。例如：“提炼阿芙拉，玩家是受雇调查商队失踪事件的旅行者。先分析，不要立即生成卡片。”'
+    const greeting = '卡片模式 · 素材抽取：已载入素材《' + titles.join('》《') + '》。我会根据你的要求从中提炼人物卡。' + playerNote
     chat.messages.push({ role: 'assistant', text: greeting, ts: Date.now(), greeting: true })
     await writeChat(chat)
     idx.chats = idx.chats || []
@@ -1732,26 +1638,6 @@ export function apply(ctx) {
   }
 
   // ---------- 重新生成正文（生成即替换，无确认） ----------
-  function regenSourceMessages(chat) {
-    const src = (chat.messages || []).slice()
-    for (let i = src.length - 1; i >= 0; i--) {
-      const m = src[i]
-      if (m !== null && typeof m === 'object' && m.role === 'assistant' && m.greeting !== true) {
-        src.splice(i, 1)
-        break
-      }
-    }
-    return src
-  }
-  function nextTurnOf(session) {
-    let maxTurn = 0
-    for (const event of session.events) {
-      if (event.type === 'turn/start' && Number.isSafeInteger(event.data.turn)) {
-        maxTurn = Math.max(maxTurn, Number(event.data.turn))
-      }
-    }
-    return maxTurn + 1
-  }
   async function regenBody(chatId, guidance, sessionId) {
     await ensureSettings()
     const chat = str(chatId) === '' ? await chatForSession(sessionId) : await readChat(chatId)
@@ -1996,18 +1882,16 @@ export function apply(ctx) {
   async function dispatch(method, args) {
     await ensureSettings()
     switch (method) {
-      case 'getSettings': return { settings: { polish: settings.polish === true, temperature: settings.temperature, provider: settings.provider, model: settings.model, candidates: settings.candidates } }
+      case 'getSettings': return { settings: { polish: settings.polish === true, provider: settings.provider, model: settings.model } }
       case 'updateSettings': {
         const patch = args && args.patch
         if (patch !== null && typeof patch === 'object') {
           if (typeof patch.polish === 'boolean') settings.polish = patch.polish
-          if (typeof patch.temperature === 'number') settings.temperature = Math.min(1.5, Math.max(0, patch.temperature))
           if (typeof patch.provider === 'string') settings.provider = str(patch.provider)
           if (typeof patch.model === 'string') settings.model = str(patch.model)
-          if (typeof patch.candidates === 'number') settings.candidates = clampInt(Math.round(patch.candidates), 1, 5, settings.candidates)
         }
-        await writeJson('settings.json', { candidates: settings.candidates, temperature: settings.temperature, provider: settings.provider, model: settings.model, polish: settings.polish === true })
-        return { settings: { polish: settings.polish === true, temperature: settings.temperature, provider: settings.provider, model: settings.model, candidates: settings.candidates } }
+        await writeJson('settings.json', { provider: settings.provider, model: settings.model, polish: settings.polish === true })
+        return { settings: { polish: settings.polish === true, provider: settings.provider, model: settings.model } }
       }
       case 'listCards': return { cards: await listCards() }
       case 'getScriptInfo': return { script: compactScriptInfo(await readScript(args && args.cardId)) }
@@ -2018,16 +1902,12 @@ export function apply(ctx) {
       case 'deleteSource': return await deleteSource(args && args.sourceId)
       case 'startExtract': return { view: await startExtract(args && args.sourceIds, args && args.sessionId, args && args.player) }
       case 'finalizeExtract': return { view: await finalizeExtract(args && args.chatId) }
-      case 'createCard': return { card: await createCard(args && args.source) }
-      case 'duplicateCard': return { card: await duplicateCard(args && args.cardId) }
       case 'getCard': {
         const card = await readCard(args && args.cardId)
         if (card === undefined) throw new Error('角色卡不存在: ' + (args && args.cardId))
         return { card: card }
       }
       case 'updateCard': return { card: await updateCard(args && args.cardId, args && args.patch) }
-      case 'reviseCard': return await reviseCard(args && args.cardId, args && args.instruction, args && args.sessionId)
-      case 'clearRevisionChat': return { card: await clearRevisionChat(args && args.cardId) }
       case 'listSessions': return { sessions: await listTavernSessions() }
       case 'importCard': return { card: await importCard(args && args.payload) }
       case 'deleteCard': return await deleteCard(args && args.cardId)
@@ -2035,7 +1915,6 @@ export function apply(ctx) {
       case 'startChat': return { view: await startChat(args && args.cardId, args && args.sessionId, args && args.mode) }
       case 'getSession': return { view: await sessionView(args && args.sessionId) }
       case 'ensureOpening': return { view: await ensureNativeOpening(args && args.sessionId) }
-      case 'chooseGreeting': return { view: await chooseGreeting(args && args.chatId, args && args.index) }
       case 'getChoices': return { candidates: await getChoices(args && args.sessionId) }
       case 'generateChoices': {
         const candidates = await generateChoices(args && args.sessionId, args && args.messageId, args && args.guidance)
@@ -2043,12 +1922,6 @@ export function apply(ctx) {
       }
       case 'addGuide': return { guides: await addGuide(args && args.sessionId, args && args.text) }
       case 'deleteGuide': return { guides: await deleteGuide(args && args.sessionId, args && args.index) }
-      case 'getChat': {
-        const chat = await readChat(args && args.chatId)
-        if (chat === undefined) throw new Error('聊天不存在: ' + (args && args.chatId))
-        const card = await readChatCard(chat)
-        return { view: view(chat, card) }
-      }
       case 'regenBody': return { view: await regenBody(args && args.chatId, args && args.guidance, args && args.sessionId) }
       case 'rollbackTurn': return { view: await rollbackTurn(args && args.sessionId, args && args.chatId) }
       default: throw new Error('未知方法: ' + method)
@@ -2242,7 +2115,7 @@ export function apply(ctx) {
           const polishHint = settings.polish === true
             ? '\n\n【精修模式】本轮开启精修：正文初稿写好后，先调用 tavern_session action=polish（draftText 填初稿全文），得到 polishedText 后再调用 action=commit，assistantText 填 polishedText。'
             : '\n\n【精修模式】本轮精修已关闭：正文写好后直接调用 action=commit 提交，不要调用 action=polish。'
-          return {
+          const contextResult = {
             ready: true,
             mode: mode,
             cardName: card.name,
@@ -2251,10 +2124,13 @@ export function apply(ctx) {
               : buildSystem(card, chat, scriptReference, worldBookIds) + scriptLookHint + polishHint,
             opening: substChar(card.first_mes, card, '你', '所有其他角色'),
             posture: chat.posture || '',
-            lore: chat.lore || [],
-            scriptCursor: mode === 'script' && chat.scriptState !== null && typeof chat.scriptState === 'object' ? Math.min(Math.max(1, Number(chat.scriptState.totalChunks) || 1), (Number(chat.scriptState.cursor) || 0) + 1) : undefined,
-            scriptTotalChunks: mode === 'script' && chat.scriptState !== null && typeof chat.scriptState === 'object' ? (Number(chat.scriptState.totalChunks) || 0) : undefined
+            lore: chat.lore || []
           }
+          if (mode === 'script' && chat.scriptState !== null && typeof chat.scriptState === 'object') {
+            contextResult.scriptCursor = Math.min(Math.max(1, Number(chat.scriptState.totalChunks) || 1), (Number(chat.scriptState.cursor) || 0) + 1)
+            contextResult.scriptTotalChunks = Number(chat.scriptState.totalChunks) || 0
+          }
+          return contextResult
         }
         if (action === 'commit') {
           if (chat === undefined) return { ready: false, message: '尚未选择人物卡' }

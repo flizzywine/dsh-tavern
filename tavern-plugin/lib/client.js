@@ -3,142 +3,19 @@ window.__ModuleLoader__.load({
 	factory: (require) => {
 		var module = { exports: {} };
 		var exports = module.exports;
-		Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
-		let React = require("react");
-		let ReactDOM = require("react-dom");
+			Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
+			let React = require("react");
 
-		const TAVERN_CSS = `
-.dsh-tavern-root {
-  position: absolute;
-  z-index: 20;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  background:
-    radial-gradient(circle at 50% -20%, rgba(151, 96, 42, .28), transparent 42%),
-    linear-gradient(180deg, #17120f 0%, #100d0c 100%);
-  color: #eee6da;
-  font-size: 14px;
-  pointer-events: auto;
-  overflow: hidden;
-}
-html[data-dsh-tavern-profile="true"] [data-conversation-scroll] {
-  position: relative;
-  overflow: hidden;
-}
-html[data-dsh-tavern-profile="true"] [data-composer-seat] {
-  position: relative;
-  z-index: 30;
-}
-.dsh-tavern-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-height: 54px;
-  padding: 0 20px;
-  background: linear-gradient(180deg, rgba(49,35,27,.98), rgba(31,24,20,.98));
-  border-bottom: 1px solid #5a402a;
-  box-shadow: 0 3px 18px rgba(0,0,0,.3);
-  user-select: none;
-}
-.dsh-tavern-title { font-size: 17px; font-weight: 800; letter-spacing: .08em; color: #efc879; white-space: nowrap; }
-.dsh-tavern-subtitle { color: #c8ad89; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 360px; }
+			const TAVERN_CSS = `
 .dsh-tavern-spacer { flex: 1 1 auto; }
-.dsh-tavern-chip {
-  font-size: 12px; padding: 2px 8px; border-radius: 999px;
-  background: #262631; color: #9a97a5; white-space: nowrap;
-}
-.dsh-tavern-chip.running { color: #f0c060; }
-.dsh-tavern-chip.done { color: #7fd08a; }
-.dsh-tavern-chip.error { color: #e07b7b; }
 .dsh-tavern-btn {
   background: #2a2a36; color: #e8e6e3; border: 1px solid #3f3f4d;
   border-radius: 6px; padding: 3px 10px; cursor: pointer; font-size: 12px;
 }
 .dsh-tavern-btn:hover { background: #34343f; }
 .dsh-tavern-btn:disabled { opacity: .45; cursor: default; }
-.dsh-tavern-body { flex: 1 1 auto; display: flex; min-height: 0; }
-.dsh-tavern-cards {
-  width: 216px; min-width: 216px; border-right: 1px solid #3b2b23;
-  background: #171310; overflow-y: auto; padding: 8px;
-  display: flex; flex-direction: column; gap: 8px;
-}
-.dsh-tavern-panel-title { font-size: 12px; color: #9a97a5; font-weight: 600; display: flex; align-items: center; justify-content: space-between; }
-.dsh-tavern-card-item {
-  background: #241d18; border: 1px solid #4b392d; border-radius: 8px;
-  padding: 8px; cursor: pointer;
-}
-.dsh-tavern-card-item:hover { border-color: #b98245; }
-.dsh-tavern-card-item.active { border-color: #b98245; background: #26283a; }
-.dsh-tavern-card-name { font-weight: 700; color: #f0c060; display: flex; justify-content: space-between; }
-.dsh-tavern-card-desc {
-  font-size: 12px; color: #9a97a5; margin-top: 4px;
-  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
-}
-.dsh-tavern-x {
-  background: none; border: none; color: #6b6878; cursor: pointer; font-size: 12px; padding: 0 2px;
-}
-.dsh-tavern-x:hover { color: #e07b7b; }
-.dsh-tavern-chat { flex: 1 1 auto; display: flex; flex-direction: column; min-width: 0; }
-.dsh-tavern-scroll { flex: 1 1 auto; overflow-y: auto; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
-.dsh-tavern-msg { max-width: 82%; padding: 8px 12px; border-radius: 10px; white-space: pre-wrap; word-break: break-word; line-height: 1.55; }
-.dsh-tavern-msg.user { align-self: flex-end; background: #2a3f5f; border-bottom-right-radius: 2px; }
-.dsh-tavern-msg.assistant { align-self: flex-start; background: #272733; border: 1px solid #35354a; border-bottom-left-radius: 2px; }
-.dsh-tavern-msg-name { font-size: 11px; color: #8d8aa0; margin-bottom: 3px; }
-.dsh-tavern-msg.user .dsh-tavern-msg-name { color: #7fa7d8; text-align: right; }
-.dsh-tavern-candidates { border-top: 1px dashed #3a3a46; padding: 10px 14px; display: flex; flex-direction: column; gap: 8px; max-height: 42%; overflow-y: auto; background: #15110f; }
-.dsh-tavern-cand-head { font-size: 12px; color: #9a97a5; display: flex; justify-content: space-between; align-items: center; }
-.dsh-tavern-cand {
-  background: #241d18; border: 1px solid #4b392d; border-radius: 8px; padding: 8px 10px;
-  cursor: pointer; white-space: pre-wrap; font-size: 13px; line-height: 1.5;
-}
-.dsh-tavern-cand:hover { border-color: #b98245; }
-.dsh-tavern-cand-badge { color: #b98245; font-size: 11px; margin-right: 6px; }
-.dsh-tavern-cand-error { color: #e07b7b; }
 .dsh-tavern-empty { margin: auto; text-align: center; color: #6b6878; padding: 24px; line-height: 1.8; white-space: pre-wrap; }
-.dsh-tavern-error { background: #3a2226; color: #e07b7b; border: 1px solid #5a3038; border-radius: 6px; padding: 6px 10px; margin: 8px 12px; font-size: 12px; }
-.dsh-tavern-lore {
-  width: 252px; min-width: 252px; border-left: 1px solid #3b2b23;
-  background: #171310; overflow-y: auto; padding: 8px;
-  display: flex; flex-direction: column; gap: 8px;
-}
-.dsh-tavern-lore-item {
-  background: #241d18; border: 1px solid #4b392d; border-radius: 8px; padding: 7px 9px; font-size: 12px;
-}
-.dsh-tavern-lore-item.dsh-tavern-posture { border-color: #b98245; }
-.dsh-tavern-lore-type { color: #f0c060; font-size: 11px; margin-bottom: 3px; display: flex; justify-content: space-between; }
-.dsh-tavern-lore-content { line-height: 1.5; color: #cfccd8; white-space: pre-wrap; word-break: break-word; }
-.dsh-tavern-input { display: flex; gap: 8px; padding: 10px 12px; border-top: 1px solid #3b2b23; background: #171310; }
-.dsh-tavern-input textarea {
-  flex: 1 1 auto; resize: none; height: 44px; background: #241d18; color: #e8e6e3;
-  border: 1px solid #3f3f4d; border-radius: 8px; padding: 8px 10px; font-size: 13px; font-family: inherit;
-}
-.dsh-tavern-input textarea:focus { outline: none; border-color: #b98245; }
-.dsh-tavern-send { background: #b98245; color: #fff; border: none; border-radius: 8px; padding: 0 18px; font-weight: 600; cursor: pointer; }
-.dsh-tavern-send:hover { background: #7d9aff; }
-.dsh-tavern-send:disabled { opacity: .5; cursor: default; }
-.dsh-tavern-settings {
-  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-  padding: 8px 12px; border-top: 1px solid #3b2b23; background: #15110f; font-size: 12px; color: #9a97a5;
-}
-.dsh-tavern-settings input { width: 64px; background: #241d18; color: #e8e6e3; border: 1px solid #3f3f4d; border-radius: 6px; padding: 3px 6px; }
-.dsh-tavern-dock {
-  width: 100%; box-sizing: border-box; color: #d8c9b7;
-  background: linear-gradient(180deg, rgba(54,39,29,.96), rgba(35,27,22,.96));
-  border: 1px solid #684b32; border-radius: 10px; overflow: hidden;
-}
-.dsh-tavern-dockbar { min-height: 36px; padding: 6px 10px; display: flex; align-items: center; gap: 8px; }
-.dsh-tavern-dockbar strong { color: #efc879; white-space: nowrap; }
-.dsh-tavern-dockbar select {
-  min-width: 120px; max-width: 240px; color: #eee6da; background: #241d18;
-  border: 1px solid #5c4433; border-radius: 6px; padding: 4px 7px;
-}
-.dsh-tavern-dock-note { color: #a99580; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dsh-tavern-dock-detail { border-top: 1px solid #513a29; padding: 8px 10px; max-height: 180px; overflow: auto; font-size: 12px; line-height: 1.55; }
-.dsh-tavern-dock-lore { margin-top: 5px; padding-left: 18px; }
 .dsh-tavern-dock-error { color: #ef8f8f; padding: 0 10px 7px; font-size: 12px; }
-.dsh-tavern-opening { padding: 10px 12px; border-top: 1px solid #513a29; color: #e6d8c7; line-height: 1.65; white-space: pre-wrap; }
-.dsh-tavern-opening-label { margin-bottom: 4px; color: #b98550; font-size: 11px; font-weight: 700; }
 .dsh-tavern-sidebar { height: 100%; box-sizing: border-box; display: flex; flex-direction: column; padding: 12px; color: var(--dsw-alias-label-primary); background: var(--dsw-specific-sidebar-fill); }
 .dsh-tavern-sidebar.collapsed { padding: 12px 10px; align-items: center; }
 .dsh-tavern-side-head { height: 48px; display: flex; align-items: center; gap: 8px; flex: none; }
@@ -179,14 +56,10 @@ html[data-dsh-tavern-profile="true"] [data-composer-seat] {
 .dsh-tavern-card-pick-wrap { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 5px; align-items: stretch; }
 .dsh-tavern-script-file { align-self: center; white-space: nowrap; border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; background: transparent; color: var(--dsw-alias-label-secondary); padding: 6px 8px; cursor: pointer; font-size: 11px; }
 .dsh-tavern-script-file:hover { border-color: #a56d3c; color: #a66b35; }
-.dsh-tavern-choice-wrap { position: relative; display: inline-flex; }
 .dsh-tavern-choice-trigger { border: 1px solid rgba(166,107,53,.55); background: rgba(166,107,53,.10); color: #a66b35; cursor: pointer; padding: 3px 9px; border-radius: 7px; font-size: 12px; font-weight: 650; }
 .dsh-tavern-choice-trigger:hover { background: rgba(166,107,53,.20); color: #8e5728; }
 .dsh-tavern-dock-actions { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; max-width: var(--dsh-composer-card-max-width, 780px); box-sizing: border-box; margin: 0 auto; padding: 8px 12px 0; flex-wrap: wrap; }
 .dsh-tavern-candidate-error-banner { width: 100%; max-width: var(--dsh-composer-card-max-width, 780px); box-sizing: border-box; margin: 0 auto; padding: 8px 12px; border: 1px solid rgba(196,95,95,.45); border-radius: 10px; background: rgba(196,95,95,.10); color: #c45f5f; font-size: 12px; line-height: 1.5; }
-.dsh-tavern-choice-pop { position: absolute; z-index: 120; left: 0; bottom: calc(100% + 7px); width: 340px; padding: 8px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 10px; background: var(--dsw-specific-popover-fill, var(--dsw-specific-sidebar-fill)); box-shadow: 0 12px 30px rgba(0,0,0,.22); }
-.dsh-tavern-choice-item { width: 100%; display: block; margin-top: 5px; padding: 8px 9px; border: 0; border-radius: 7px; background: transparent; color: var(--dsw-alias-label-primary); text-align: left; line-height: 1.45; cursor: pointer; }
-.dsh-tavern-choice-item:hover { background: var(--dsw-alias-interactive-bg-hover); }
 .dsh-tavern-choice-error { padding: 5px; color: #c45f5f; font-size: 12px; }
 .dsh-tavern-question { width: 100%; max-width: var(--dsh-composer-card-max-width, 780px); box-sizing: border-box; margin: 0 auto; padding: 12px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 14px; background: var(--dsw-specific-tip, var(--dsw-specific-sidebar-fill)); box-shadow: var(--dsw-shadow-lv1); }
 .dsh-tavern-question.collapsed { padding: 9px 12px; box-shadow: none; }
@@ -201,17 +74,13 @@ html[data-dsh-tavern-profile="true"] [data-composer-seat] {
 .dsh-tavern-question-option.selected .dsh-tavern-question-radio { border: 4px solid #a66b35; }
 .dsh-tavern-question-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .dsh-tavern-question-tag { align-self: flex-start; font-size: 10px; font-weight: 700; padding: 1px 7px; border-radius: 999px; color: #a66b35; background: rgba(166,107,53,.12); }
-.dsh-tavern-question-tag-npc { color: #7a8c5c; background: rgba(122,140,92,.15); }
 .dsh-tavern-question-tag-scene { color: #6b7fa3; background: rgba(107,127,163,.16); }
-.dsh-tavern-question-tag-scene2 { color: #8b6f9e; background: rgba(139,111,158,.16); }
 .dsh-tavern-question-free { width: 100%; margin-top: 6px; padding: 8px 10px; border: 1px dashed var(--dsw-alias-border-l2); border-radius: 9px; background: transparent; color: var(--dsw-alias-label-secondary); text-align: left; cursor: pointer; }
 .dsh-tavern-question-free:hover { color: var(--dsw-alias-label-primary); background: var(--dsw-alias-interactive-bg-hover); }
 .dsh-tavern-question-foot { display: flex; justify-content: flex-end; gap: 7px; margin-top: 10px; }
 .dsh-tavern-question-primary { border: 0; border-radius: 8px; padding: 6px 12px; background: var(--dsw-alias-button-info-fill); color: #fff; cursor: pointer; }
 .dsh-tavern-question-primary:disabled { opacity: .45; cursor: default; }
 .dsh-tavern-regen-input { width: 100%; box-sizing: border-box; margin-top: 6px; padding: 8px 10px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 9px; background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary); font: inherit; resize: vertical; }
-.dsh-tavern-regen-text { margin-top: 6px; padding: 9px 10px; border: 1px solid rgba(166,107,53,.30); border-radius: 9px; background: rgba(166,107,53,.08); font-size: 12px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; }
-.dsh-tavern-regen-guide-note { margin-top: 6px; color: var(--dsw-alias-label-secondary); font-size: 12px; }
 .dsh-tavern-status { height: 100%; box-sizing: border-box; display: flex; flex-direction: column; color: var(--dsw-alias-label-primary); background: var(--dsw-specific-sidebar-fill); }
 .dsh-tavern-status-head { flex: none; padding: 16px 16px 12px; border-bottom: 1px solid var(--dsw-alias-border-l2); }
 .dsh-tavern-status-title { font-size: 15px; font-weight: 800; }
@@ -263,54 +132,11 @@ html[data-dsh-tavern-profile="true"] [data-composer-seat] {
 .dsh-tavern-script-info { flex: 1; min-width: 150px; line-height: 1.5; }
 .dsh-tavern-script-info b { color: #a66b35; }
 @keyframes dsh-tavern-pulse { from { opacity: .35; } to { opacity: 1; } }
-.dsh-card-studio { position: fixed; z-index: 500; inset: 0; display: flex; flex-direction: column; background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary); }
-.dsh-card-studio-head { height: 58px; flex: none; display: flex; align-items: center; gap: 10px; padding: 0 18px; border-bottom: 1px solid var(--dsw-alias-border-l2); }
-.dsh-card-studio-title { font-size: 17px; font-weight: 800; color: #9a622f; }
-.dsh-card-studio-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 260px minmax(0,1fr); }
-.dsh-card-library { min-height: 0; overflow-y: auto; padding: 12px; border-right: 1px solid var(--dsw-alias-border-l2); background: var(--dsw-specific-sidebar-fill); }
-.dsh-card-library-tools { display: flex; gap: 6px; margin-bottom: 10px; }
-.dsh-card-library-item { width: 100%; margin-bottom: 5px; padding: 9px 10px; border: 1px solid transparent; border-radius: 9px; background: transparent; color: inherit; text-align: left; cursor: pointer; }
-.dsh-card-library-item:hover { background: var(--dsw-alias-interactive-bg-hover); }
-.dsh-card-library-item.active { border-color: rgba(166,107,53,.45); background: rgba(166,107,53,.10); }
-.dsh-card-library-name { font-weight: 700; }
-.dsh-card-library-meta { margin-top: 3px; color: var(--dsw-alias-label-secondary); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.dsh-card-workspace { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
-.dsh-card-tabs { height: 46px; flex: none; display: flex; align-items: end; gap: 22px; padding: 0 22px; border-bottom: 1px solid var(--dsw-alias-border-l2); }
-.dsh-card-tab { height: 38px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--dsw-alias-label-secondary); cursor: pointer; }
-.dsh-card-tab.active { color: #9a622f; border-bottom-color: #9a622f; font-weight: 700; }
-.dsh-card-editor { flex: 1; min-height: 0; overflow-y: auto; padding: 20px max(24px, calc((100% - 900px)/2)); }
-.dsh-card-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-.dsh-card-field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
-.dsh-card-field.wide { grid-column: 1 / -1; }
-.dsh-card-field label { color: var(--dsw-alias-label-secondary); font-size: 12px; font-weight: 700; }
-.dsh-card-field input,.dsh-card-field textarea { box-sizing: border-box; width: 100%; border: 1px solid var(--dsw-alias-border-l2); border-radius: 9px; background: var(--dsw-specific-input-major); color: var(--dsw-alias-label-primary); padding: 9px 10px; font: inherit; line-height: 1.5; outline: none; }
-.dsh-card-field textarea { min-height: 110px; resize: vertical; }
-.dsh-card-field textarea.tall { min-height: 190px; }
-.dsh-card-field input:focus,.dsh-card-field textarea:focus { border-color: #a66b35; }
-.dsh-card-editor-actions { position: sticky; bottom: 0; display: flex; justify-content: flex-end; gap: 8px; padding: 12px 0; background: linear-gradient(transparent, var(--dsw-alias-bg-base) 25%); }
 .dsh-card-primary { border: 0; border-radius: 8px; padding: 7px 14px; background: #9a622f; color: white; cursor: pointer; }
-.dsh-card-reviser { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0,1fr) 360px; }
-.dsh-card-revise-info { overflow-y: auto; padding: 26px max(24px, calc((100% - 720px)/2)); }
-.dsh-card-revise-chat { min-height: 0; display: flex; flex-direction: column; border-left: 1px solid var(--dsw-alias-border-l2); background: var(--dsw-specific-sidebar-fill); }
-.dsh-card-revise-log { flex: 1; min-height: 0; overflow-y: auto; padding: 14px; }
-.dsh-card-revise-entry { margin-bottom: 10px; padding: 9px 10px; border-radius: 9px; background: var(--dsw-alias-interactive-bg-hover); font-size: 12px; line-height: 1.55; white-space: pre-wrap; }
-.dsh-card-revise-entry.user { margin-left: 28px; background: rgba(97,135,216,.14); }
-.dsh-card-revise-entry.assistant { margin-right: 28px; }
-.dsh-card-revise-speaker { display: block; margin-bottom: 3px; color: #a66b35; font-size: 10px; font-weight: 700; }
-.dsh-card-revise-applied { margin-top: 6px; color: #6d9a68; font-size: 11px; }
-.dsh-card-revise-compose { flex: none; padding: 12px; border-top: 1px solid var(--dsw-alias-border-l2); }
-.dsh-card-revise-compose textarea { box-sizing: border-box; width: 100%; min-height: 100px; resize: vertical; padding: 9px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 9px; background: var(--dsw-specific-input-major); color: inherit; font: inherit; }
 .dsh-card-hint { color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 1.65; }
 .dsh-card-error { color: #c45f5f; font-size: 12px; }
 @media (max-width: 820px) {
-  .dsh-tavern-head { padding: 0 10px; gap: 6px; }
-  .dsh-tavern-subtitle { display: none; }
-  .dsh-tavern-cards { width: 150px; min-width: 150px; }
-  .dsh-tavern-lore { position: absolute; z-index: 2; right: 0; top: 54px; bottom: 66px; box-shadow: -12px 0 28px rgba(0,0,0,.45); }
   .dsh-tavern-question { width: calc(100% - 24px); }
-  .dsh-card-studio-body { grid-template-columns: 180px minmax(0,1fr); }
-  .dsh-card-form-grid,.dsh-card-reviser { grid-template-columns: 1fr; }
-  .dsh-card-revise-chat { border-left: 0; border-top: 1px solid var(--dsw-alias-border-l2); }
 }
 `;
 		const tagId = "dsh-tavern-plugin/tavern.css";
@@ -522,9 +348,6 @@ html[data-dsh-tavern-profile="true"] [data-composer-seat] {
 			async function newExtractSession(sourceIds) {
 				if (!workspaceId) { setError("当前没有可用的 Workspace"); return; }
 				if (!sourceIds.length) { setError("请先勾选至少一个素材"); return; }
-				const rawPlayer = window.prompt("开始抽取前，先确认：这份素材里的玩家（{{user}}）是谁？\n例如：段恩泽、贾宝玉、原创读者……\n可以留空，稍后在对话里告诉助手确认。", "");
-				if (rawPlayer === null) return;
-				const player = rawPlayer.trim();
 				setBusy(true); setError("");
 				try {
 					const currentSummary = current ? summaries[current] : null;
@@ -535,13 +358,14 @@ html[data-dsh-tavern-profile="true"] [data-composer-seat] {
 					const presetResponse = await props.connection.api.agentPresets.select({ sessionId: sessionId, agentPreset: "tavern" });
 					if (!presetResponse.result.ok) throw new Error(presetResponse.result.error && presetResponse.result.error.message ? presetResponse.result.error.message : "无法切换到酒馆模式");
 					props.sessions.noteAgentPreset(sessionId, "tavern");
-					await call("startExtract", { sourceIds: sourceIds, sessionId: sessionId, player: player });
+					await call("startExtract", { sourceIds: sourceIds, sessionId: sessionId, player: "" });
+					setPicking(false); setSelectedSourceIds([]);
 					setUiMode("card"); setPickerSub("sources");
 					publishSessionMode(sessionId, "extract");
 					props.sessions.open(sessionId);
 					ensureDetailsOpen();
 					window.dispatchEvent(new CustomEvent("dsh-tavern-session-changed", { detail: { sessionId: sessionId } }));
-					setPicking(false); setSelectedSourceIds([]); await refresh();
+					await refresh();
 				} catch (err) { setError(String(err && err.message || err)); }
 				finally { setBusy(false); }
 			}

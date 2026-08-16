@@ -101,12 +101,31 @@ SillyTavern 的预设（Preset / 预设）其实混杂了两类完全不同的�
 - 实践结果：参考剧本但允许自由发挥后，输出常常比原文更好。
 - 正文生成也区分两件事：**内容（写什么）** 与 **形式（如何表达）**；先写初稿保证剧情素材（剧本模式尽量贴合剧本），再单独润色整理成形（去重、调顺序、补过渡、优化遣词造句）。分离是为了减轻 LLM 单次生成的压力。
 
+## 安装
+
+需要预先安装 Node.js、pnpm、DeepSeek Harness（`dsh`）和 `lsof`。克隆仓库并进入目录后运行：
+
+```bash
+pnpm run install:tavern
+```
+
+安装程序会：
+
+- 创建独立的 `~/.dsh/profiles/tavern` profile；
+- 安装所需依赖，并把 profile 链接到当前仓库中的 Tavern 插件；
+- 创建本地数据目录；
+- 把 `dsh-tavern` 命令安装到 `~/.local/bin`。
+
+安装后请保留仓库目录。如果终端仍提示找不到 `dsh-tavern`，把 `~/.local/bin` 加入 PATH 后重新打开终端。
+
 ## 快速开始
 
 ```bash
-dsh --profile tavern
+dsh-tavern start
 # 打开 http://127.0.0.1:3081
 ```
+
+需要在前台查看启动输出时，也可以运行 `dsh --profile tavern`。
 
 日常管理使用：
 
@@ -122,8 +141,6 @@ dsh-tavern start
 `Cmd + Shift + R` 强制刷新，避免旧标签页继续运行内存中的旧版前端。
 启动日志位于 `~/.dsh/logs/tavern.log`。
 
-## 文档与数据
+## 数据目录
 
-- `交接文档.md`：架构、数据流、关键路径、验证清单；
-- `剧本模式.md`：剧本分块与召回的完整协议；
 - `data/cards/`：人物卡；`data/chats/`：会话与状态；`data/scripts/`：独立剧本；`data/sources/`：抽取素材。

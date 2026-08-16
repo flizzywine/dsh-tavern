@@ -1,9 +1,12 @@
 {
   "name": "dsh-tavern-plugin",
-  "version": "1.0.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "main": "lib/index.js",
+  "dependencies": {
+    "@deepseek-ai/dsh-tools": "0.1.0-rc.6"
+  },
   "exports": {
     ".": "./lib/index.js",
     "./client": "./lib/client.js",
