@@ -1,4 +1,18 @@
+# 运行环境
 node_modules/
 cordis.yml
 *.log
 .DS_Store
+
+# 用户数据（人物卡、聊天、剧本、素材、索引、设置、diff）
+cards/
+chats/
+diffs/
+scripts/
+sources/
+index.json
+sessions.json
+settings.json
+
+# node_modules 可能是 symlink
+node_modules
