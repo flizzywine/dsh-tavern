@@ -73,7 +73,7 @@ export function apply(ctx) {
   }
 
   // ---------- 设置 ----------
-  let settings = { temperature: 1.0, provider: '', model: '' }
+  let settings = { temperature: 1.0, provider: '', model: '', polish: false, candidates: 3 }
   let settingsReady = null
   const settlementJobs = new Set()
   async function loadSettings() {
@@ -82,6 +82,8 @@ export function apply(ctx) {
       settings.temperature = typeof s.temperature === 'number' && isFinite(s.temperature) ? Math.min(1.5, Math.max(0, s.temperature)) : settings.temperature
       settings.provider = str(s.provider)
       settings.model = str(s.model)
+      settings.polish = s.polish === true
+      settings.candidates = clampInt(Number(s.candidates), 1, 5, 3)
     }
   }
   function ensureSettings() {
@@ -155,7 +157,8 @@ export function apply(ctx) {
     if (typeof opts.temperature === 'number' && sel.provider !== 'openai-codex') cfg.temperature = opts.temperature
     if (typeof opts.maxTokens === 'number') cfg.maxTokens = opts.maxTokens
     let messages = opts.messages.slice()
-    for (let round = 0; round < 4; round++) {
+    let lastText = ''
+    for (let round = 0; round < 10; round++) {
       const prepared = await llm.prepareCall(cfg)
       const options = Object.assign({}, prepared.config, { messages: messages, system: opts.system, tools: opts.tools })
       let text = ''
@@ -180,6 +183,7 @@ export function apply(ctx) {
         if (out === '') throw new Error('模型返回为空')
         return out
       }
+      lastText = text
       messages.push({
         id: crypto.randomUUID(),
         role: 'assistant',
@@ -201,6 +205,8 @@ export function apply(ctx) {
         })
       }
     }
+    const fallback = lastText.trim()
+    if (fallback !== '') return fallback
     throw new Error('工具调用轮次过多')
   }
 
@@ -734,8 +740,7 @@ export function apply(ctx) {
         totalChunks: Number(chat.scriptState.totalChunks) || 0,
         recalledCount: Array.isArray(chat.scriptState.recalledChunkIds) ? chat.scriptState.recalledChunkIds.length : 0,
         skippedCount: Array.isArray(chat.scriptState.skippedChunkIds) ? chat.scriptState.skippedChunkIds.length : 0,
-        title: str(chat.scriptState.title),
-        heldChunk: typeof chat.scriptState.heldChunkId === 'string' && chat.scriptState.heldChunkId !== ''
+        title: str(chat.scriptState.title)
       } : null,
       updatedAt: chat.updatedAt || 0
     }
@@ -908,7 +913,6 @@ export function apply(ctx) {
       cursor: cursor,
       total: chunks.length,
       ended: ended,
-      held: !ended && typeof state.heldChunkId === 'string',
       title: str(script.title),
       chunks: ended ? [] : chunks.slice(cursor, Math.min(chunks.length, cursor + 2))
     }
@@ -945,10 +949,12 @@ export function apply(ctx) {
     let baseRequest = ''
     const latestTail = lastAssistantTail(chat, 180)
     if (scriptMode) {
-      task = '你现在不是续写正文，而是为玩家生成唯一一个“剧本推荐”候选。只输出 JSON：{"choices":[{"type":"action|scene","text":"选项内容"}]}。必须恰好一个候选，不要输出多个。'
+      task = '你现在不是续写正文，而是为玩家生成唯一一个“剧本推荐”候选，并标记下一轮正文应重点参考的剧本位置。只输出 JSON：{"choices":[{"type":"action|scene","text":"选项内容"}],"scriptCursor":1}（scriptCursor 用实际块号）。必须恰好一个候选，不要输出多个。'
       task += 'type 二选一：action=人物行为（动作、心理、对白都可以）；scene=场景变化（可以结束当前场景，也可以直接开启新场景）。text 每项 10~80 字，不要提前描述行动结果。'
-      task += '这个候选是剧本路线的推荐：关键是直接承接当前现状，不要跳跃剧情；参考剧本只是了解方向，信息不够时可调用 tavern_script_peek。候选从【上一段正文结尾】自然接起，不重复已发生的动作。'
-      baseRequest = '根据当前剧情与剧本后续内容，给出唯一一个剧本路线候选。'
+      task += '你已能看到上面的上下文：人物卡信息、现场姿势、世界设定与最近正文/玩家输入。先阅读给出的剧本分块，必要时用 tavern_script_peek 向前或向后查看剧本（最多调用 4 次，可用 scriptLimit 一次读多块），弄清接下来的剧情走向。'
+      task += '这个候选是剧本路线的推荐：结合上下文与剧本，给出一个对剧情走向有意义的行动——它应推动剧情进入剧本中的下一处关键场面、冲突或转折，而不只是一个孤立动作；同时从【上一段正文结尾】自然接起，不重复已发生的动作。'
+      task += 'scriptCursor 是游标：评估当前剧情实际进度，标记下一轮正文该重点看哪一块；保持当前游标、向前移动、向后移动都可以，给任意有效块号。'
+      baseRequest = '根据当前剧情与剧本内容，给出唯一一个有剧情走向意义的剧本路线候选，并用 scriptCursor 标记下一轮正文应参考的剧本块。'
       if (latestTail !== '') baseRequest += '\n【上一段正文结尾】\n' + latestTail
     } else {
       task = '你现在不是续写正文，而是为玩家生成下一步候选。只输出 JSON：{"choices":[{"type":"action|scene","text":"选项内容"}]}。恰好五个选项：四个 type=action（人物行为，动作、心理、对白都可以，四个候选要各有侧重、彼此不重复），一个 type=scene（场景变化，可以结束当前场景，也可以直接开启新场景）。每项 10~80 字，不要提前描述行动结果。候选必须从上一段正文结尾自然接起，先补一小步承接，再进入候选内容，禁止直接跳到与上一段无关的新动作，也禁止重复上一段已经发生过的动作。'
@@ -977,6 +983,7 @@ export function apply(ctx) {
     for (let attempt = 1; attempt <= 3; attempt++) {
       if (attempt > 1) await new Promise(function (resolve) { setTimeout(resolve, 800) })
       try {
+        let peekCalls = 0
         const callOpts = {
           sessionId: sessionId,
           temperature: temps[(attempt - 1) % temps.length],
@@ -988,19 +995,23 @@ export function apply(ctx) {
           ? await callModelWithTool(Object.assign({}, callOpts, {
               tools: [{
                 name: 'tavern_script_peek',
-                description: '只读查看剧本分块；默认读当前游标块，可用 scriptOffset 指定块号（1 起始）或 scriptQuery 检索关键词。只返回文本，不推进游标。',
+                description: '只读查看剧本分块，可向前或向后看任意位置；默认读当前游标块，可用 scriptOffset 指定块号（1 起始）或 scriptQuery 检索关键词。最多调用 4 次，可用 scriptLimit 一次读多块。只返回文本，不推进游标。',
                 parameters: {
                   type: 'object',
                   properties: {
                     scriptOffset: { type: 'number', description: '1 起始的块号，缺省当前游标' },
+                    scriptLimit: { type: 'number', description: '连续读取 1~4 块，默认 1' },
                     scriptQuery: { type: 'string', description: '按关键词在剧本中检索' }
                   },
                   additionalProperties: false
                 }
               }],
               onToolCall: async function (call) {
+                peekCalls += 1
+                if (peekCalls > 4) return 'peek 次数已用尽，请直接输出 JSON 结果，不要再调用工具。'
                 const callArgs = parseJsonLenient(str(call.arguments))
-                const win = scriptReadWindow(script, callArgs.scriptQuery, callArgs.scriptOffset, 1)
+                const limit = clampInt(Number(callArgs.scriptLimit), 1, 4, 1)
+                const win = scriptReadWindow(script, callArgs.scriptQuery, callArgs.scriptOffset, limit)
                 if (win.notFound === true) return '没有找到包含该关键词的剧本分块，可换关键词或用 scriptOffset 指定块号。'
                 if (win.chunks.length === 0) return '没有可读的剧本分块。'
                 return win.chunks.map(function (chunk) { return '[' + chunk.id + ' · 第 ' + (Number(chunk.order) + 1) + ' 块]\n' + chunk.text }).join('\n\n')
@@ -1009,7 +1020,21 @@ export function apply(ctx) {
           : await callModel(callOpts)
         lastRaw = text
         const parsed = parseJsonLenient(text)
+        let nextCursorRaw = Number(parsed !== null && typeof parsed === 'object' ? parsed.scriptCursor : NaN)
+        if (!Number.isFinite(nextCursorRaw) || nextCursorRaw < 1) {
+          const cursorMatch = /"scriptCursor"\s*:\s*(\d+)/.exec(text)
+          if (cursorMatch !== null) nextCursorRaw = Number(cursorMatch[1])
+        }
         let source = Array.isArray(parsed.choices) ? parsed.choices : (Array.isArray(parsed.options) ? parsed.options : [])
+        if (source.length === 0) {
+          const arrText = extractChoicesArray(text)
+          if (arrText !== null) {
+            try {
+              const arr = JSON.parse(arrText)
+              if (Array.isArray(arr)) source = arr
+            } catch (err) {}
+          }
+        }
         // 模型偶发输出被 maxTokens 截断成不完整 JSON：直接从原文里把每个 choice 对象抠出来。
         if (source.length === 0) source = parseChoiceObjects(text)
         const choices = []
@@ -1028,11 +1053,19 @@ export function apply(ctx) {
         if (choices.length === 0) throw new Error('模型没有返回有效候选项')
         const latestChat = await readChat(chat.id)
         if (latestChat === undefined) throw new Error('聊天不存在: ' + chat.id)
+        let adjustedCursor = scriptWin ? scriptWin.cursor : 0
+        let adjustedEnded = scriptWin ? scriptWin.ended : false
+        if (scriptMode && Number.isFinite(nextCursorRaw) && nextCursorRaw >= 1 && latestChat.scriptState !== null && typeof latestChat.scriptState === 'object') {
+          const total = Math.max(1, Number(latestChat.scriptState.totalChunks) || Number(script.chunks.length) || 1)
+          adjustedCursor = Math.max(0, Math.min(total - 1, Math.round(nextCursorRaw) - 1))
+          adjustedEnded = adjustedCursor >= total
+          latestChat.scriptState.cursor = adjustedCursor
+        }
         latestChat.candidates = {
           messageId: str(messageId),
           choices: choices,
           generatedAt: Date.now(),
-          script: scriptMode ? { cursor: scriptWin.cursor, ended: scriptWin.ended } : undefined
+          script: scriptMode ? { cursor: adjustedCursor, ended: adjustedEnded } : undefined
         }
         await writeChat(latestChat)
         return latestChat.candidates
@@ -1217,18 +1250,21 @@ export function apply(ctx) {
     if (str(card.post_history_instructions) !== '') parts.push('【附加要求】\n' + card.post_history_instructions)
     if (str(card.system_prompt) !== '') parts.push('【特殊指令】\n' + card.system_prompt)
     if (scriptReference !== null && scriptReference !== undefined && str(scriptReference.text) !== '') {
-      parts.push('【本轮剧本参考 · 仅本轮召回一次】\n' + scriptReference.text)
-      if (scriptReference.held === true) {
-        parts.push('【继续本块】上一轮未推进游标，说明本块剧情还没有演绎完。本轮继续把本块里尚未演出的人物、事件、对话和场面演足，不要跳到后续分块，也不要重复上一轮已经写过的内容。')
-      }
-      parts.push('【剧本模式要求】\n真正要顺着写的是用户指令，剧本仅供参考、供模仿：可以参考剧本的剧情和遣词造句，但不强求贴合，可以跳过或调整剧本顺序。不要为了贴剧本而偏离、替换或补写指令之外的主干剧情；允许自由发挥；同一句话不要出现两遍，同一动作/台词只演一次；如果原文与当前情节冲突，以当前情节和用户指令的连贯合理为先，可省略或改写；不要解释你在参考剧本。\n【连贯性要求】开头先承接上一段正文的结尾，沿着用户指令往下续写；剧本只作参考和模仿，不要求融入或遵循。不重复已发生动作，不出现前后位置或动作矛盾。')
+      parts.push('【本轮剧本参考 · 仅本轮注入一次】\n' + scriptReference.text)
+      parts.push('【剧本模式 · 初稿要求】\n你正在写正文，直接写出成稿：内容与形式一次到位，删除重复、理顺叙述顺序、补足过渡、润色遣词造句，不要留下粗糙痕迹。剧本是本轮剧情主线：先分析本块内容，必要时用 tavern_session action=script 前瞻后续分块、了解剧情走向，然后尽量贴合剧本发展——把本块中的事件、对白、人物反应、转折尽量演出；允许照抄剧本原文，也允许自由发挥。玩家指令是承接方式：从上一段结尾和玩家本轮行动自然进入剧本剧情；指令与剧本冲突时以剧本走向为主，把玩家动作自然融入。优先保住剧本内容，不要为通顺牺牲剧本，也不要重复上一段已发生的情节。')
     }
     return parts.join('\n\n')
   }
-  async function polishBody(chat, card, draftText, sessionId, styleText) {
-    let system = '你是小说润色器。润色下面初稿：可以优化用词、句式、比喻和感官细节，也可以适当删改或增加文本，以补足细节、让文字更有质感；不要改动剧情、人物关系、动作顺序、对白含义和段落结构；不要新增剧情，不要解释，只输出润色后的正文。'
-    if (str(styleText) !== '') {
-      system += '\n\n【文风参考】\n' + styleText + '\n\n这段仅供参考，允许自由发挥，可以适当调整语序，不必照抄。'
+  async function polishBody(chat, draftText, sessionId, previousTail, scriptText, posture) {
+    let system = '你是小说润色器。下面正文是直接写出的成稿，仍可能有重复、生硬、顺序不顺之处。你的任务是进一步整理成形：删除重复与冗余，调整叙述顺序让逻辑顺畅，补上必要的过渡衔接，润色用词、句式、比喻和感官细节；可以参照剧本适当新增、改写或删除内容，让文字更有质感。注意保持剧情主线连贯、不与上一段及已发生情节矛盾；不要解释，只输出润色后的正文。'
+    if (str(previousTail) !== '') {
+      system += '\n\n【上一段正文结尾】\n' + previousTail + '\n\n润色后正文必须与上一段结尾连续、自然，开头先承接上一段结尾。'
+    }
+    if (str(posture) !== '') {
+      system += '\n\n【上一轮结束 · 人物姿势（每轮结算更新）】\n' + posture + '\n\n润色后正文中的人物位置、动作、姿态要从这段姿势自然承接、连贯发展，不要出现矛盾或跳跃。'
+    }
+    if (str(scriptText) !== '') {
+      system += '\n\n【本轮对应剧本原文 · 文风基准】\n' + scriptText + '\n\n润色时模仿这段剧本的遣词造句与语言风格：用词、句式、语感、称呼习惯都向它靠拢。允许适当修改和自由发挥，不必照抄。'
     }
     const raw = await callModel({
       sessionId: sessionId,
@@ -1246,6 +1282,79 @@ export function apply(ctx) {
     if (polished === '') throw new Error('润色失败：模型返回空文本')
     return polished
   }
+  function splitDiffSentences(text) {
+    const out = []
+    let buf = ''
+    const src = String(text ?? '')
+    for (let i = 0; i < src.length; i++) {
+      const ch = src[i]
+      buf += ch
+      if ('。！？!?…\n'.indexOf(ch) >= 0) {
+        const part = buf.trim()
+        if (part !== '') out.push(part)
+        buf = ''
+      }
+    }
+    const tail = buf.trim()
+    if (tail !== '') out.push(tail)
+    return out
+  }
+  function sentenceDiffOps(before, after) {
+    const a = splitDiffSentences(before)
+    const b = splitDiffSentences(after)
+    const n = a.length
+    const m = b.length
+    const dp = []
+    for (let i = 0; i <= n; i++) {
+      dp.push(new Array(m + 1).fill(0))
+    }
+    for (let i = 1; i <= n; i++) {
+      for (let j = 1; j <= m; j++) {
+        if (a[i - 1] === b[j - 1]) dp[i][j] = dp[i - 1][j - 1] + 1
+        else dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1])
+      }
+    }
+    const ops = []
+    let i = n
+    let j = m
+    while (i > 0 && j > 0) {
+      if (a[i - 1] === b[j - 1]) {
+        ops.unshift({ type: 'same', text: a[i - 1] })
+        i--
+        j--
+      } else if (dp[i - 1][j] >= dp[i][j - 1]) {
+        ops.unshift({ type: 'del', text: a[i - 1] })
+        i--
+      } else {
+        ops.unshift({ type: 'add', text: b[j - 1] })
+        j--
+      }
+    }
+    while (i > 0) { ops.unshift({ type: 'del', text: a[i - 1] }); i-- }
+    while (j > 0) { ops.unshift({ type: 'add', text: b[j - 1] }); j-- }
+    return ops
+  }
+  function escapeDiffHtml(text) {
+    return String(text).replace(/[&<>]/g, function (ch) {
+      return ch === '&' ? '&amp;' : (ch === '<' ? '&lt;' : '&gt;')
+    })
+  }
+  function renderPolishDiffHtml(cardName, draftText, polishedText, at) {
+    const ops = sentenceDiffOps(draftText, polishedText)
+    let body = ''
+    for (const op of ops) {
+      const escaped = escapeDiffHtml(op.text)
+      if (op.type === 'del') body += '<del>' + escaped + '</del>'
+      else if (op.type === 'add') body += '<ins>' + escaped + '</ins>'
+      else body += escaped
+    }
+    return '<!doctype html><html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>润色对比</title><style>body{margin:0;padding:24px;background:#16130f;color:#eee6da;font-family:ui-serif,Georgia,"Songti SC",serif;line-height:1.9}header{max-width:900px;margin:0 auto 18px;color:#b9a48d;font-size:13px}.diff{max-width:900px;margin:0 auto;white-space:pre-wrap;font-size:16px}del{background:rgba(220,80,60,.22);color:#ff9d8f;text-decoration:line-through;border-radius:3px;padding:0 1px}ins{background:rgba(90,170,90,.22);color:#b6e3b0;text-decoration:none;border-radius:3px;padding:0 1px}</style></head><body><header><b>润色对比</b> · ' + escapeDiffHtml(cardName || '未命名角色') + ' · ' + new Date(at || Date.now()).toLocaleString('zh-CN') + '<br>红色划线 = 润色前删除，绿色 = 润色后新增；无标记文字未变。</header><div class="diff">' + body + '</div></body></html>'
+  }
+  async function writePolishDiff(chatId, cardName, draftText, polishedText) {
+    await ensureDataDir('diffs')
+    const target = await fs.resolve(base + '/diffs/polish-' + chatId + '.html')
+    await fs.writeText(target, renderPolishDiffHtml(cardName, draftText, polishedText, Date.now()))
+  }
   function normalizeScriptState(chat, script) {
     if (chat.scriptState === null || typeof chat.scriptState !== 'object') chat.scriptState = {}
     const state = chat.scriptState
@@ -1258,15 +1367,11 @@ export function apply(ctx) {
       for (let index = 0; index < initialCursor; index++) state.skippedChunkIds.push('chunk-' + String(index + 1).padStart(5, '0'))
       state.prepared = null
       state.lastReference = null
-      state.heldChunkId = null
-      state.heldOrder = null
       state.scriptVersion = version
     }
     state.cursor = Math.max(0, Number(state.cursor) || 0)
     state.recalledChunkIds = Array.isArray(state.recalledChunkIds) ? state.recalledChunkIds : []
     state.skippedChunkIds = Array.isArray(state.skippedChunkIds) ? state.skippedChunkIds : []
-    state.heldChunkId = typeof state.heldChunkId === 'string' ? state.heldChunkId : null
-    state.heldOrder = Number.isFinite(Number(state.heldOrder)) ? Number(state.heldOrder) : null
     state.totalChunks = Array.isArray(script.chunks) ? script.chunks.length : 0
     state.title = script.title || state.title || chat.cardName + '剧本'
     return state
@@ -1282,31 +1387,8 @@ export function apply(ctx) {
       await writeChat(chat)
       return state.prepared
     }
-    let selected = script.chunks[state.cursor]
-    const windowChunks = script.chunks.slice(state.cursor, Math.min(script.chunks.length, state.cursor + 5))
-    if (windowChunks.length > 1) {
-      const recent = (chat.messages || []).slice(-6).map(function (message) { return (message.role === 'assistant' ? '正文' : '玩家') + ': ' + str(message.text) }).join('\n')
-      try {
-        const raw = await callModel({
-          sessionId: sessionId || chat.sessionId,
-          temperature: 0.1,
-          maxTokens: 800,
-          system: '你是线性小说剧本的分块选择器。每轮必须从游标附近候选中选择一个分块，让续写自然地朝原小说发展。默认优先选择顺序最早、与当前人物和场景能够自然衔接的分块；如果玩家本轮明确表示跳过某段剧情，允许选择更后的分块。只输出 JSON：{"chunkId":"chunk-xxxxx"}。',
-          messages: [{
-            id: 'script-select-' + Date.now().toString(36),
-            role: 'user',
-            content: [{ type: 'text', text: '【最近剧情】\n' + (recent || '（只有开场白）') + '\n\n【玩家本轮输入】\n' + (request || '（无）') + '\n\n【当前姿势】\n' + (chat.posture || '（无）') + '\n\n【上一轮未演完分块】\n' + (state.heldChunkId || '（无）') + '\n\n【候选分块】\n' + windowChunks.map(function (chunk) { return '[' + chunk.id + ']\n' + chunk.text }).join('\n\n') }],
-            source: { kind: 'plugin', plugin: 'dsh-tavern-script-selector' }
-          }]
-        })
-        const parsed = parseJsonLenient(raw)
-        const hit = windowChunks.find(function (chunk) { return chunk.id === str(parsed.chunkId).trim() })
-        if (hit !== undefined) selected = hit
-      } catch (err) {
-        console.error('dsh-tavern: 剧本分块选择失败，回退到游标分块', err)
-      }
-    }
-    const held = state.heldChunkId !== null && selected.id === state.heldChunkId
+    // 游标由候选项模块调整，这里只按游标注入当前参考分块；正文需要更多范围时用 action=script peek 前后看。
+    const selected = script.chunks[state.cursor]
     state.lookahead = []
     state.lookaheadTurn = Number(nativeTurn) || 0
     state.prepared = {
@@ -1317,49 +1399,26 @@ export function apply(ctx) {
       order: selected.order,
       text: selected.text,
       cursorBefore: state.cursor,
-      held: held,
       preparedAt: Date.now()
     }
     await writeChat(chat)
     return state.prepared
   }
-  function commitScriptReference(chat, userText, nativeTurn, scriptAdvance, scriptCursor) {
+  function commitScriptReference(chat, userText, nativeTurn) {
     const state = chat.scriptState
     if (state === null || typeof state !== 'object') throw new Error('剧本状态不存在，请重新打开该会话')
     const prepared = state.prepared
     if (prepared === null || typeof prepared !== 'object') throw new Error('本轮尚未准备剧本分块，请先调用 context')
     if (str(prepared.userText).trim() !== str(userText).trim()) throw new Error('commit 的 userText 与本轮剧本准备不一致')
     if (Number(prepared.nativeTurn) !== Number(nativeTurn)) throw new Error('commit 与本轮原生 turn 不一致')
-    const total = Math.max(1, Number(state.totalChunks) || 1)
-    if (prepared.ended === true) {
-      state.prepared = null
-      state.heldChunkId = null
-      state.heldOrder = null
-      return
-    }
-    if (str(prepared.chunkId) === '') {
+    if (prepared.ended === true || str(prepared.chunkId) === '') {
       state.prepared = null
       return
     }
     const order = Number(prepared.order) || 0
-    const before = Number(prepared.cursorBefore) || 0
-    let target = Number(state.cursor) || 0
-    if (scriptCursor !== undefined && scriptCursor !== null && Number.isFinite(Number(scriptCursor)) && Number(scriptCursor) >= 1) {
-      target = Math.max(0, Math.min(total - 1, Math.round(Number(scriptCursor)) - 1))
-    } else if (scriptAdvance === true) {
-      target = Math.max(target, order + 1)
-    }
-    if (target > order) {
-      if (!state.recalledChunkIds.includes(prepared.chunkId)) state.recalledChunkIds.push(prepared.chunkId)
-      for (let index = before; index < order; index++) {
-        const skippedId = 'chunk-' + String(index + 1).padStart(5, '0')
-        if (!state.skippedChunkIds.includes(skippedId)) state.skippedChunkIds.push(skippedId)
-      }
-    }
-    state.cursor = Math.min(total - 1, target)
+    if (!state.recalledChunkIds.includes(prepared.chunkId)) state.recalledChunkIds.push(prepared.chunkId)
+    // 游标由候选项模块生成候选时调整（向前/向后/不变），commit 不推进游标。
     state.lastReference = { chunkId: prepared.chunkId, order: order, text: prepared.text, userText: str(userText), recalledAt: Date.now() }
-    state.heldChunkId = null
-    state.heldOrder = null
     state.prepared = null
   }
   function buildMessages(chat, sel, limit) {
@@ -1425,7 +1484,7 @@ export function apply(ctx) {
   function parseChoiceObjects(text) {
     const out = []
     if (text === undefined || text === null || text === '') return out
-    const re = /\{\s*"type"\s*:\s*"([^"]+)"\s*,\s*"text"\s*:\s*"((?:[^"\\]|\\.)*)"\s*\}/g
+    const re = /\{\s*"type"\s*:\s*"([^"]+)"\s*,\s*"text"\s*:\s*"((?:[^"\\]|\\.)*)"\s*[}\]]/g
     let m
     while ((m = re.exec(text)) !== null) {
       const type = m[1].trim().toLowerCase()
@@ -1433,6 +1492,32 @@ export function apply(ctx) {
       if (content !== '') out.push({ type: type, text: content })
     }
     return out
+  }
+  function extractChoicesArray(text) {
+    if (text === undefined || text === null || text === '') return null
+    const keyAt = text.indexOf('"choices"')
+    if (keyAt < 0) return null
+    const start = text.indexOf('[', keyAt)
+    if (start < 0) return null
+    let depth = 0
+    let inString = false
+    let escaped = false
+    for (let i = start; i < text.length; i++) {
+      const ch = text[i]
+      if (inString) {
+        if (escaped) escaped = false
+        else if (ch === '\\') escaped = true
+        else if (ch === '"') inString = false
+        continue
+      }
+      if (ch === '"') inString = true
+      else if (ch === '[') depth++
+      else if (ch === ']') {
+        depth--
+        if (depth === 0) return text.slice(start, i + 1)
+      }
+    }
+    return null
   }
   function applySettlement(chat, result) {
     let postureUpdated = false
@@ -1783,8 +1868,6 @@ export function apply(ctx) {
     for (let index = before; index < order; index++) skippedBack.add('chunk-' + String(index + 1).padStart(5, '0'))
     state.skippedChunkIds = Array.isArray(state.skippedChunkIds) ? state.skippedChunkIds.filter(function (id) { return !skippedBack.has(id) }) : []
     state.lastReference = null
-    state.heldChunkId = null
-    state.heldOrder = null
   }
   async function rollbackTurn(sessionId, chatId) {
     const chat = str(chatId) === '' ? await chatForSession(sessionId) : await readChat(chatId)
@@ -1870,8 +1953,6 @@ export function apply(ctx) {
           state.skippedChunkIds = Array.isArray(before.scriptState.skippedChunkIds) ? before.scriptState.skippedChunkIds.slice() : []
           state.prepared = null
           state.lastReference = before.scriptState.lastReference !== null && typeof before.scriptState.lastReference === 'object' ? Object.assign({}, before.scriptState.lastReference) : null
-          state.heldChunkId = typeof before.scriptState.heldChunkId === 'string' ? before.scriptState.heldChunkId : null
-          state.heldOrder = before.scriptState.heldOrder === null || before.scriptState.heldOrder === undefined ? null : Number(before.scriptState.heldOrder) || 0
         }
       } else {
         restoreScriptStateFromReference(chat, rollbackCommit !== null && rollbackCommit.scriptReference !== null && typeof rollbackCommit.scriptReference === 'object' ? rollbackCommit.scriptReference : null)
@@ -1917,6 +1998,19 @@ export function apply(ctx) {
   async function dispatch(method, args) {
     await ensureSettings()
     switch (method) {
+      case 'getSettings': return { settings: { polish: settings.polish === true, temperature: settings.temperature, provider: settings.provider, model: settings.model, candidates: settings.candidates } }
+      case 'updateSettings': {
+        const patch = args && args.patch
+        if (patch !== null && typeof patch === 'object') {
+          if (typeof patch.polish === 'boolean') settings.polish = patch.polish
+          if (typeof patch.temperature === 'number') settings.temperature = Math.min(1.5, Math.max(0, patch.temperature))
+          if (typeof patch.provider === 'string') settings.provider = str(patch.provider)
+          if (typeof patch.model === 'string') settings.model = str(patch.model)
+          if (typeof patch.candidates === 'number') settings.candidates = clampInt(Math.round(patch.candidates), 1, 5, settings.candidates)
+        }
+        await writeJson('settings.json', { candidates: settings.candidates, temperature: settings.temperature, provider: settings.provider, model: settings.model, polish: settings.polish === true })
+        return { settings: { polish: settings.polish === true, temperature: settings.temperature, provider: settings.provider, model: settings.model, candidates: settings.candidates } }
+      }
       case 'listCards': return { cards: await listCards() }
       case 'getScriptInfo': return { script: compactScriptInfo(await readScript(args && args.cardId)) }
       case 'importScript': return { script: await importScript(args && args.cardId, args && args.payload) }
@@ -2009,17 +2103,15 @@ export function apply(ctx) {
   if (tools !== undefined) {
     tools.register(defineTool({
       name: 'tavern_session',
-      description: '读取当前会话的模式（游玩/卡片）与人物卡，并提交本轮结果。必须先 action=context；游玩模式的 context 同时传入本轮 userText，剧本类会话会召回一个游标附近分块。剧本会话 commit 时用 scriptAdvance 决定是否推进游标；剧本会话和卡片模式（设定对话）还可以用 action=script 只读查看已绑定剧本的分块。最终回复前 action=commit。',
+      description: '读取当前会话的模式（游玩/卡片）与人物卡，并提交本轮结果。必须先 action=context；游玩模式的 context 同时传入本轮 userText，剧本类会话按游标注入当前参考分块（游标由候选项生成时调整，commit 不推进）。剧本会话和卡片模式（设定对话）可以用 action=script 只读查看剧本任意分块，向前向后看都行。最终回复前 action=commit。',
       parameters: {
         action: { type: 'string', required: true, description: 'context、commit、script 或 polish（script 只读查看剧本；polish 润色 draftText 后用于 commit）' },
         userText: { type: 'string', description: 'context 与 commit 时都填写用户本轮原始消息' },
         assistantText: { type: 'string', description: 'commit 时填写准备作为最终回复的完整文本' },
         draftText: { type: 'string', description: 'action=polish 时填写待润色的正文初稿' },
         cardPatch: { type: 'string', description: '仅卡片模式（设定对话/素材抽取）使用：确认落盘时填写人物卡字段 patch JSON；只讨论则填 {}' },
-        scriptAdvance: { type: 'boolean', description: '仅剧本会话 commit 兼容参数：true=按旧逻辑推进游标；优先使用 scriptCursor' },
-        scriptCursor: { type: 'number', description: '仅剧本会话 commit 使用：设置当前剧情大致位置（1 起始块号）；缺省保持游标不变，当前块演完通常设为当前游标+1' },
         scriptQuery: { type: 'string', description: 'action=script 时可选：按关键词检索剧本分块；剧本会话仅在游标前后 10 块内检索，命中返回前后各 1 块' },
-        scriptOffset: { type: 'number', description: 'action=script 时可选：按 1 起始的块号读取；剧本会话中缺省为当前游标' },
+        scriptOffset: { type: 'number', description: 'action=script 时可选：按 1 起始的块号读取，可向前或向后查看任意分块；剧本会话中缺省为当前游标' },
         scriptLimit: { type: 'number', description: 'action=script 时可选：剧本会话连续读取 1~21 块（默认 1）；卡片模式设定对话读取 1~6 块（默认 3）' }
       },
       output: {
@@ -2096,21 +2188,23 @@ export function apply(ctx) {
           if ((chat.mode || 'story') === 'revision' || (chat.mode || 'story') === 'extract') throw new Error('仅游玩模式支持润色正文')
           const draftText = str(args && args.draftText).trim()
           if (draftText === '') throw new Error('draftText 不能为空')
-          const card = await readChatCard(chat)
-          let styleText = ''
+          const previousTail = lastAssistantTail(chat, 240)
+          let scriptText = ''
           if ((chat.mode || 'story') === 'script' && chat.scriptState !== null && typeof chat.scriptState === 'object') {
-            const styleParts = []
-            if (chat.scriptState.prepared !== null && typeof chat.scriptState.prepared === 'object' && str(chat.scriptState.prepared.text) !== '') styleParts.push(chat.scriptState.prepared.text)
+            const scriptParts = []
+            if (chat.scriptState.prepared !== null && typeof chat.scriptState.prepared === 'object' && str(chat.scriptState.prepared.text) !== '') scriptParts.push(chat.scriptState.prepared.text)
             for (const item of (chat.scriptState.lookahead || [])) {
-              if (item !== null && typeof item === 'object' && str(item.text) !== '' && styleParts.indexOf(str(item.text)) < 0) styleParts.push(str(item.text))
+              if (item !== null && typeof item === 'object' && str(item.text) !== '' && scriptParts.indexOf(str(item.text)) < 0) scriptParts.push(str(item.text))
             }
-            styleText = styleParts.join('\n\n')
+            scriptText = scriptParts.join('\n\n')
           }
-          const polishedText = await polishBody(chat, card, draftText, sessionId, styleText)
+          const polishedText = await polishBody(chat, draftText, sessionId, previousTail, scriptText, chat.posture || '')
+          await writePolishDiff(chat.id, chat.cardName, draftText, polishedText)
           return { ready: true, mode: 'polish', cardName: chat.cardName, polishedText: polishedText }
         }
         if (action === 'context') {
           if (chat === undefined) return { ready: false, message: '尚未选择人物卡，请提示用户在输入框上方选择人物卡。' }
+          await ensureSettings()
           const mode = chat.mode || 'story'
           if (mode === 'extract') {
             const prepared = await prepareExtract(chat, nativeTurn)
@@ -2145,15 +2239,18 @@ export function apply(ctx) {
               : '\n\n本卡已绑定剧本《' + scriptInfo.title + '》，共 ' + scriptInfo.chunkCount + ' 块。如需查看剧本原文，调用 tavern_session action=script：scriptQuery 传关键词检索，或 scriptOffset 传 1 起始的块号，scriptLimit 控制每次读取 1~6 块；不要仅凭文件名猜测剧本内容。'
           }
           const scriptLookHint = mode === 'script'
-            ? '\n\n【剧本前瞻】本轮只注入当前游标这一块，当前游标见返回的 scriptCursor。如果拿不准边界，可以自己调用 tavern_session action=script 只读查看下一块；commit 时用 scriptCursor 标记剧情位置（演完通常 +1，跳段可给任意有效块号）。'
+            ? '\n\n【剧本参考范围】游标是候选项阶段标记的“当前看哪里”位置，本轮注入游标处这一块；commit 不推进游标。写初稿前先分析本块内容；需要了解后续剧情走向时，用 tavern_session action=script 主动前瞻：scriptOffset 指定块号可向前或向后看，scriptLimit 可连续读多块。'
             : ''
+          const polishHint = settings.polish === true
+            ? '\n\n【精修模式】本轮开启精修：正文初稿写好后，先调用 tavern_session action=polish（draftText 填初稿全文），得到 polishedText 后再调用 action=commit，assistantText 填 polishedText。'
+            : '\n\n【精修模式】本轮精修已关闭：正文写好后直接调用 action=commit 提交，不要调用 action=polish。'
           return {
             ready: true,
             mode: mode,
             cardName: card.name,
             systemContext: mode === 'revision'
               ? '你正在卡片模式的人物卡设定对话中，与用户共同讨论和修正人物卡，不进行角色扮演，不续写剧情。可以分析、追问、提出多个方案。只有用户明确要求或确认修改时才生成最小 cardPatch；只讨论时 cardPatch 必须是 {}。可修改字段：' + CARD_TEXT_FIELDS.join(',') + ',tags,alternate_greetings,character_book。保留 {{char}}、{{user}} 模板变量。\n\n当前人物卡：\n' + JSON.stringify(editable) + revisionScriptHint
-              : buildSystem(card, chat, scriptReference, worldBookIds) + scriptLookHint,
+              : buildSystem(card, chat, scriptReference, worldBookIds) + scriptLookHint + polishHint,
             opening: substChar(card.first_mes, card, '你', '所有其他角色'),
             posture: chat.posture || '',
             lore: chat.lore || [],
@@ -2222,25 +2319,21 @@ export function apply(ctx) {
                   cursor: Number(chat.scriptState.cursor) || 0,
                   recalledChunkIds: Array.isArray(chat.scriptState.recalledChunkIds) ? chat.scriptState.recalledChunkIds.slice() : [],
                   skippedChunkIds: Array.isArray(chat.scriptState.skippedChunkIds) ? chat.scriptState.skippedChunkIds.slice() : [],
-                  lastReference: chat.scriptState.lastReference !== null && typeof chat.scriptState.lastReference === 'object' ? Object.assign({}, chat.scriptState.lastReference) : null,
-                  heldChunkId: typeof chat.scriptState.heldChunkId === 'string' ? chat.scriptState.heldChunkId : null,
-                  heldOrder: chat.scriptState.heldOrder === null || chat.scriptState.heldOrder === undefined ? null : Number(chat.scriptState.heldOrder) || 0
+                  lastReference: chat.scriptState.lastReference !== null && typeof chat.scriptState.lastReference === 'object' ? Object.assign({}, chat.scriptState.lastReference) : null
                 }
               : undefined
           }
           const preparedReference = (chat.mode || 'story') === 'script' && chat.scriptState && chat.scriptState.prepared
             ? Object.assign({}, chat.scriptState.prepared)
             : null
-          const scriptAdvance = (chat.mode || 'story') === 'script' && (args && (args.scriptAdvance === true || args.scriptAdvance === 'true'))
-          const scriptCursor = args && args.scriptCursor
-          if ((chat.mode || 'story') === 'script') commitScriptReference(chat, userText, nativeTurn, scriptAdvance, scriptCursor)
+          if ((chat.mode || 'story') === 'script') commitScriptReference(chat, userText, nativeTurn)
           if (userText.indexOf('【场景变化】') === 0) chat.awaitingScene = false
           if (userText !== '') chat.messages.push({ role: 'user', text: userText, ts: Date.now(), native: true })
           chat.messages.push({ role: 'assistant', text: assistantText, ts: Date.now(), native: true })
           chat.pending = null
           chat.settleStatus = 'running'
           chat.settleError = null
-          rememberNativeCommit(chat, nativeTurn, { mode: chat.mode || 'story', userText: userText, scriptReference: preparedReference, scriptAdvance: scriptAdvance, scriptCursor: scriptCursor }, commitBefore)
+          rememberNativeCommit(chat, nativeTurn, { mode: chat.mode || 'story', userText: userText, scriptReference: preparedReference }, commitBefore)
           await writeChat(chat)
           queueSettlement(chat.id)
           return { saved: true, chatId: chat.id, cardName: chat.cardName }

@@ -945,7 +945,7 @@ html[data-dsh-tavern-profile="true"] [data-composer-seat] {
 				h("div", { className: "dsh-tavern-status-body" },
 					view.mode === "script" && view.scriptProgress ? h("section", { className: "dsh-tavern-status-section" },
 						h("div", { className: "dsh-tavern-status-label" }, "剧本进度"),
-						h("div", { className: "dsh-tavern-status-now" }, (view.scriptProgress.title || "剧本") + " · 游标 " + Math.min(view.scriptProgress.cursor + 1, view.scriptProgress.totalChunks) + "/" + view.scriptProgress.totalChunks + " · 已召回 " + view.scriptProgress.recalledCount + " 块" + (view.scriptProgress.heldChunk ? " · 本块未演完，继续" : ""))
+						h("div", { className: "dsh-tavern-status-now" }, (view.scriptProgress.title || "剧本") + " · 游标 " + Math.min(view.scriptProgress.cursor + 1, view.scriptProgress.totalChunks) + "/" + view.scriptProgress.totalChunks + " · 已召回 " + view.scriptProgress.recalledCount + " 块")
 					) : null,
 					view.mode === "script" && view.scriptPreview ? h("section", { className: "dsh-tavern-status-section" },
 						h("div", { className: "dsh-tavern-status-label" }, "剧本预览"),
@@ -987,7 +987,6 @@ html[data-dsh-tavern-profile="true"] [data-composer-seat] {
 		}
 
 		const candidatePanel = { value: null, listeners: new Set() };
-		const candidateRequests = new Set();
 		function setCandidatePanel(value) {
 			candidatePanel.value = value;
 			candidatePanel.listeners.forEach(function (listener) { listener(value); });
@@ -1139,6 +1138,7 @@ html[data-dsh-tavern-profile="true"] [data-composer-seat] {
 		function CandidateAction(props) {
 			const [busy, setBusy] = React.useState(false);
 			const [rolling, setRolling] = React.useState(false);
+			const [polishOn, setPolishOn] = React.useState(null);
 			const candidatePanelState = useCandidatePanel();
 			const sessionMode = useTavernSessionMode(props.sessionId);
 			const latestMessageId = props.useSession(function (snapshot) {
@@ -1147,13 +1147,6 @@ html[data-dsh-tavern-profile="true"] [data-composer-seat] {
 					if (nodes[index].kind === "assistant" && nodes[index].messageId) return nodes[index].messageId;
 				}
 				return null;
-			});
-			const hasUserMessage = props.useSession(function (snapshot) {
-				const nodes = snapshot.nodes || [];
-				for (let index = 0; index < nodes.length; index += 1) {
-					if (nodes[index].kind === "user") return true;
-				}
-				return false;
 			});
 			async function generate(force, guidance) {
 				if (busy) return;
@@ -1181,11 +1174,6 @@ html[data-dsh-tavern-profile="true"] [data-composer-seat] {
 					const rolledBack = result && result.view && result.view.rolledBack ? result.view.rolledBack : null;
 					if (rolledBack && Number(rolledBack.hiddenTurn) > 0) recordRolledBackTurn(props.sessionId, Number(rolledBack.hiddenTurn));
 					applyRolledBackTurns(props.sessionId);
-					const prefix = props.sessionId + ":";
-					const keys = Array.from(candidateRequests);
-					for (let i = 0; i < keys.length; i++) {
-						if (keys[i].indexOf(prefix) === 0) candidateRequests.delete(keys[i]);
-					}
 					setCandidatePanel(null);
 					setRegenPanel(null);
 					setCandidateGuidePanel(null);
@@ -1195,19 +1183,25 @@ html[data-dsh-tavern-profile="true"] [data-composer-seat] {
 				} finally { setRolling(false); }
 			}
 			React.useEffect(function () {
-				if (!isPlayMode(sessionMode)) return;
-				if (!hasUserMessage) return;
-				if (latestMessageId !== props.messageId) return;
-				const key = props.sessionId + ":" + props.messageId;
-				if (candidateRequests.has(key)) return;
-				setCandidatePanel({ sessionId: props.sessionId, messageId: props.messageId, phase: "loading", choices: [], error: "" });
-				const timer = window.setTimeout(function () {
-					if (candidateRequests.has(key)) return;
-					candidateRequests.add(key);
-					generate(false);
-				}, 600);
-				return function () { window.clearTimeout(timer); };
-			}, [latestMessageId, props.messageId, props.sessionId, sessionMode, hasUserMessage]);
+				let alive = true;
+				rpc("getSettings", {}, props.sessionId).then(function (res) {
+					if (alive && res && res.settings) setPolishOn(res.settings.polish === true);
+				}).catch(function () {
+					if (alive) setPolishOn(false);
+				});
+				return function () { alive = false; };
+			}, [props.sessionId]);
+			async function togglePolish() {
+				if (polishOn === null) return;
+				const next = !polishOn;
+				setPolishOn(next);
+				try {
+					await rpc("updateSettings", { patch: { polish: next } }, props.sessionId);
+				} catch (err) {
+					setPolishOn(!next);
+					window.alert(String(err && err.message || err));
+				}
+			}
 			const h = React.createElement;
 			const isScript = sessionMode === "script";
 			const hasReadyPanel = candidatePanelState !== null && candidatePanelState.sessionId === props.sessionId && candidatePanelState.messageId === props.messageId && candidatePanelState.phase === "ready";
@@ -1229,7 +1223,8 @@ html[data-dsh-tavern-profile="true"] [data-composer-seat] {
 					setCandidatePanel(null);
 					setRegenPanel({ sessionId: props.sessionId, phase: "input", guidance: "", text: "", error: "", tail: tail });
 				} }, "重新生成正文"),
-				h("button", { className: "dsh-tavern-choice-trigger", disabled: rolling, title: "删除最近一次用户输入和这段 LLM 输出", onClick: rollback }, rolling ? "回退中…" : "回退本轮")
+				h("button", { className: "dsh-tavern-choice-trigger", disabled: rolling, title: "删除最近一次用户输入和这段 LLM 输出", onClick: rollback }, rolling ? "回退中…" : "回退本轮"),
+				h("button", { className: "dsh-tavern-choice-trigger", onClick: togglePolish, title: "切换正文精修（润色）开关；关闭时写正文直接提交，省一半 token 与时间" }, polishOn === null ? "精修…" : (polishOn ? "精修：开" : "精修：关"))
 			);
 		}
 
