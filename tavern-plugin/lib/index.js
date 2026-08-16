@@ -12,11 +12,9 @@ export function apply(ctx) {
     return
   }
   const agentDefaultModel = ctx.get('agentDefaultModel')
-  const sandboxPolicy = ctx.get('sandboxPolicy')
 
-  const base = (sandboxPolicy !== undefined && typeof sandboxPolicy.workspaceRoot === 'string' && sandboxPolicy.workspaceRoot.length > 0)
-    ? sandboxPolicy.workspaceRoot.replace(/\/+$/, '') + '/dsh-tavern'
-    : 'dsh-tavern'
+  // 项目根：源码位于 <project>/tavern-plugin/lib/，数据固定在 <project>/data/。
+  const base = fileURLToPath(new URL('../../', import.meta.url))
 
   // ---------- profile 私有 preset ----------
   // rc.6 启动器会固定系统 roots，因此在独立 Tavern 进程内追加 profile 自带目录。
@@ -43,20 +41,20 @@ export function apply(ctx) {
     return new Promise(function (resolve) { setTimeout(resolve, ms) })
   }
   async function readJson(rel) {
-    const t = await fs.resolve(base + '/' + rel)
+    const t = await fs.resolve(base + '/data/' + rel)
     const info = await fs.stat(t)
     if (info === undefined) return undefined
     return JSON.parse(await fs.readText(t))
   }
   async function writeJson(rel, value) {
-    const t = await fs.resolve(base + '/' + rel)
+    const t = await fs.resolve(base + '/data/' + rel)
     await fs.writeText(t, JSON.stringify(value, null, 2))
   }
   async function rmFile(rel) {
     const shell = ctx.get('shell')
     if (shell === undefined) return
     try {
-      const spec = shell.resolve({ command: 'rm -f ' + JSON.stringify(base + '/' + rel), timeoutMs: 10000 })
+      const spec = shell.resolve({ command: 'rm -f ' + JSON.stringify(base + '/data/' + rel), timeoutMs: 10000 })
       await shell.run(spec)
     } catch (err) {
       console.error('dsh-tavern: rm 失败', err)
@@ -287,12 +285,12 @@ export function apply(ctx) {
   async function readCard(cardId) { return await readJson('cards/' + cardId + '.json') }
   async function readScript(cardId) { return await readJson('scripts/' + cardId + '.json') }
   async function ensureDataDir(name) {
-    const target = await fs.resolve(base + '/' + name)
+    const target = await fs.resolve(base + '/data/' + name)
     const info = await fs.stat(target)
     if (info !== undefined) return
     const shell = ctx.get('shell')
     if (shell === undefined) throw new Error('无法创建数据目录: ' + name)
-    const spec = shell.resolve({ command: 'mkdir -p ' + JSON.stringify(base + '/' + name), timeoutMs: 10000 })
+    const spec = shell.resolve({ command: 'mkdir -p ' + JSON.stringify(base + '/data/' + name), timeoutMs: 10000 })
     await shell.run(spec)
   }
   async function writeScript(cardId, value) {
@@ -1352,7 +1350,7 @@ export function apply(ctx) {
   }
   async function writePolishDiff(chatId, cardName, draftText, polishedText) {
     await ensureDataDir('diffs')
-    const target = await fs.resolve(base + '/diffs/polish-' + chatId + '.html')
+    const target = await fs.resolve(base + '/data/diffs/polish-' + chatId + '.html')
     await fs.writeText(target, renderPolishDiffHtml(cardName, draftText, polishedText, Date.now()))
   }
   function normalizeScriptState(chat, script) {

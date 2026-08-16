@@ -126,4 +126,4 @@ dsh-tavern start
 
 - `交接文档.md`：架构、数据流、关键路径、验证清单；
 - `剧本模式.md`：剧本分块与召回的完整协议；
-- `cards/`：人物卡；`chats/`：会话与状态；`scripts/`：独立剧本；`sources/`：抽取素材。
+- `data/cards/`：人物卡；`data/chats/`：会话与状态；`data/scripts/`：独立剧本；`data/sources/`：抽取素材。
