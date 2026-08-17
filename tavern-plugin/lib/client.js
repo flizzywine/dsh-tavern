@@ -18,6 +18,7 @@ window.__ModuleLoader__.load({
 .dsh-tavern-dock-error { color: #ef8f8f; padding: 0 10px 7px; font-size: 12px; }
 .dsh-tavern-sidebar { height: 100%; box-sizing: border-box; display: flex; flex-direction: column; padding: 12px; color: var(--dsw-alias-label-primary); background: var(--dsw-specific-sidebar-fill); }
 .dsh-tavern-sidebar.collapsed { padding: 12px 10px; align-items: center; }
+body.dsh-tavern-shell-active button[aria-label="新建会话"], body.dsh-tavern-shell-active button[aria-label="New session"] { display: none !important; }
 .dsh-tavern-side-head { height: 48px; display: flex; align-items: center; gap: 8px; flex: none; }
 .dsh-tavern-side-brand { flex: 1; min-width: 0; font-size: 16px; font-weight: 800; color: #9a622f; white-space: nowrap; overflow: hidden; }
 .dsh-tavern-side-icon { width: 34px; height: 34px; border: 0; border-radius: 9px; background: transparent; color: inherit; cursor: pointer; font-size: 17px; }
@@ -489,8 +490,8 @@ window.__ModuleLoader__.load({
 					cardEditorRows
 				)
 			);
-			return h("div", { className: "dsh-tavern-sidebar", style: { position: "relative", width: props.width + "px" } },
-				h("div", { className: "dsh-tavern-side-head" }, h("div", { className: "dsh-tavern-side-brand" }, "🍺 DSH Tavern"), h("button", { className: "dsh-tavern-side-icon", title: "收起侧栏", onClick: props.toggleSidebar }, "◧")),
+			return h("div", { className: "dsh-tavern-sidebar", style: { position: "relative", width: props.embedded ? "100%" : props.width + "px" } },
+				h("div", { className: "dsh-tavern-side-head" }, h("div", { className: "dsh-tavern-side-brand" }, "🍺 DSH Tavern"), props.embedded ? null : h("button", { className: "dsh-tavern-side-icon", title: "收起侧栏", onClick: props.toggleSidebar }, "◧")),
 				h("div", { className: "dsh-tavern-mode-switch" }, h("button", { className: uiMode === "play" ? "active" : "", onClick: function () { switchMode("play"); } }, "游玩"), h("button", { className: uiMode === "card" ? "active" : "", onClick: function () { switchMode("card"); } }, "卡片")),
 				h("button", { className: "dsh-tavern-side-new", onClick: function () { openPicker("cards"); } }, uiMode === "play" ? "＋ 选择人物卡 · 新开游玩" : "＋ 新建 / 编辑人物卡"),
 				h("div", { className: "dsh-tavern-side-title" }, uiMode === "play" ? "游玩历史" : "卡片历史"),
@@ -1247,9 +1248,15 @@ window.__ModuleLoader__.load({
 		function apply(ctx) {
 			const slots = ctx.slots;
 			if (slots === undefined) return;
-			ctx.effect(() => slots.inject("sidebar", () => slots.register(
-				{ name: "sidebar", priority: -1 },
+			ctx.effect(function () {
+				document.body.classList.add("dsh-tavern-shell-active");
+				return function () { document.body.classList.remove("dsh-tavern-shell-active"); };
+			}, "dsh-tavern: shell marker");
+			ctx.effect(() => slots.inject("sidebar.workspaces", () => slots.register(
+				{ name: "sidebar.workspaces", priority: -1 },
 				function (props) { return React.createElement(TavernSidebar, Object.assign({}, props, {
+					collapsed: !props.wide,
+					embedded: true,
 					sessions: ctx.sessions,
 					workspaces: ctx.workspaces,
 					connection: ctx.get("connection"),
@@ -1260,10 +1267,10 @@ window.__ModuleLoader__.load({
 						if (!result.ok) throw new Error(result.error.message);
 					},
 					archiveSession: function (sessionId) { return ctx.workspaces.archiveSession(sessionId); },
-					toggleSidebar: function () { ctx.layout.toggleSidebar(); },
+					toggleSidebar: function () { if (props.wide) ctx.layout.toggleSidebar(); else props.expandSidebar(); },
 					openDetails: function () { ctx.layout.openDetails(); }
 				})); }
-			)), "dsh-tavern: dedicated Tavern sidebar");
+			)), "dsh-tavern: Tavern workspace browser");
 			ctx.effect(() => slots.inject("details", () => slots.register(
 				{ name: "details", priority: -1 },
 				function (props) { return React.createElement(TavernStatusPanel, Object.assign({}, props, {

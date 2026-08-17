@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import net from 'node:net'
 import test from 'node:test'
 
-import { isPortOpen, renderWindowsLauncher } from '../bin/dsh-tavern.mjs'
+import { encodeWindowsPowerShellScript, isPortOpen, renderWindowsLauncher } from '../bin/dsh-tavern.mjs'
 
 test('Windows launcher quotes paths containing spaces and forwards arguments', () => {
   const launcher = renderWindowsLauncher('D:\\My Games\\dsh-tavern\\bin\\dsh-tavern.mjs')
@@ -10,6 +10,11 @@ test('Windows launcher quotes paths containing spaces and forwards arguments', (
     launcher,
     '@echo off\r\nnode "D:\\My Games\\dsh-tavern\\bin\\dsh-tavern.mjs" %*\r\n',
   )
+})
+
+test('Windows update script carries a UTF-8 BOM for Windows PowerShell 5.1', () => {
+  assert.equal(encodeWindowsPowerShellScript("Write-Host '模型设置'"), "\uFEFFWrite-Host '模型设置'")
+  assert.equal(encodeWindowsPowerShellScript("\uFEFFWrite-Host '模型设置'"), "\uFEFFWrite-Host '模型设置'")
 })
 
 test('port probe distinguishes an open listener from a closed port', async () => {

@@ -36,3 +36,8 @@ test('空玩家身份由首轮 Agent 对话确认，并可通过 cardPatch.playe
   assert.match(serverSource, /typeof patch\.player === 'string'/)
   assert.match(serverSource, /ext\.player = nextPlayer/)
 })
+
+test('Tavern 只接管会话区域，保留 DSH 原生设置与模型配置入口', () => {
+  assert.match(clientSource, /slots\.inject\("sidebar\.workspaces"/)
+  assert.doesNotMatch(clientSource, /slots\.inject\("sidebar",/)
+})

@@ -156,6 +156,10 @@ export function renderWindowsLauncher(scriptPath) {
   return `@echo off\r\nnode "${scriptPath.replaceAll('"', '""')}" %*\r\n`
 }
 
+export function encodeWindowsPowerShellScript(source) {
+  return `\uFEFF${source.replace(/^\uFEFF/, '')}`
+}
+
 function pathEntries() {
   return (process.env.PATH || '').split(path.delimiter).map((entry) => path.resolve(entry).toLowerCase())
 }
@@ -439,7 +443,11 @@ async function updateApplication() {
   const installer = path.join(SOURCE_ROOT, `install.${extension}`)
   if (!existsSync(installer)) throw new Error(`当前安装缺少更新程序：${installer}`)
   const temporary = path.join(os.tmpdir(), `dsh-tavern-update-${process.pid}.${extension}`)
-  copyFileSync(installer, temporary)
+  if (process.platform === 'win32') {
+    writeFileSync(temporary, encodeWindowsPowerShellScript(readFileSync(installer, 'utf8')), 'utf8')
+  } else {
+    copyFileSync(installer, temporary)
+  }
   try {
     const command = process.platform === 'win32' ? 'powershell.exe' : 'sh'
     const args = process.platform === 'win32'

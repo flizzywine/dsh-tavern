@@ -200,6 +200,8 @@ curl -fsSL https://raw.githubusercontent.com/flizzywine/dsh-tavern/main/install.
 
 脚本会完成下载、安装和启动，不需要 Git 或 `lsof`。
 
+首次打开后，点击左侧栏底部的 **设置 → 模型**，填写模型提供方的 API 密钥；之后可以在输入框下方随时切换当前对话使用的模型。
+
 <details>
 <summary><strong>国内网络失败时：手动下载与安装</strong></summary>
 
