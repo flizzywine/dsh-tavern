@@ -24,7 +24,6 @@ jobs:
   windows-install:
     runs-on: windows-latest
     env:
-      DSH_HOME: ${{ runner.temp }}\dsh-tavern-test
       DSH_TAVERN_ARCHIVE_URL: https://github.com/${{ github.repository }}/archive/${{ github.sha }}.zip
       DSH_TAVERN_NO_OPEN: 1
     steps:
@@ -33,9 +32,13 @@ jobs:
         with:
           node-version: 22.19.0
       - name: Run one-line installer path
+        env:
+          DSH_HOME: ${{ runner.temp }}\dsh-tavern-test
         run: .\install.ps1
       - name: Update, preserve data and stop Tavern
         shell: pwsh
+        env:
+          DSH_HOME: ${{ runner.temp }}\dsh-tavern-test
         run: |
           $app = "$env:DSH_HOME\apps\dsh-tavern"
           New-Item -ItemType Directory -Force "$app\data\cards" | Out-Null
@@ -51,7 +54,6 @@ jobs:
   unix-install:
     runs-on: ubuntu-latest
     env:
-      DSH_HOME: ${{ runner.temp }}/dsh-tavern-test
       DSH_TAVERN_ARCHIVE_URL: https://github.com/${{ github.repository }}/archive/${{ github.sha }}.tar.gz
       DSH_TAVERN_NO_OPEN: 1
     steps:
@@ -60,8 +62,12 @@ jobs:
         with:
           node-version: 22.19.0
       - name: Run one-line installer path
+        env:
+          DSH_HOME: ${{ runner.temp }}/dsh-tavern-test
         run: sh ./install.sh
       - name: Update, preserve data and stop Tavern
+        env:
+          DSH_HOME: ${{ runner.temp }}/dsh-tavern-test
         run: |
           app="$DSH_HOME/apps/dsh-tavern"
           mkdir -p "$app/data/cards"
