@@ -178,28 +178,54 @@ AI 直接续写时，输出往往会逐渐回到常见的句式、节奏和叙�
 
 ## 开始使用
 
-安装完成后运行：
+### Windows（PowerShell）
+
+需要先安装 [Git](https://git-scm.com/download/win) 和 Node.js 22.19 或更高版本。打开一个新的 PowerShell，依次运行：
+
+```powershell
+npm install -g pnpm @deepseek-ai/dsh
+git clone https://github.com/flizzywine/dsh-tavern.git
+Set-Location dsh-tavern
+pnpm run install:tavern
+pnpm run start:tavern
+```
+
+打开 <http://127.0.0.1:3081>，导入一张人物卡开始游玩。安装程序也会创建全局的 `dsh-tavern` 命令；重新打开 PowerShell 后，可以在任意目录运行：
 
 ```bash
 dsh-tavern start
 ```
 
-打开 <http://127.0.0.1:3081>，导入一张人物卡开始游玩。
+如果安装 DSH 后仍提示找不到 `dsh`，请关闭并重新打开 PowerShell。若不希望使用原生 Windows，也可以在 WSL2 的 Ubuntu 终端中按照下面的 macOS / Linux 步骤安装。
+
+> 如果出现 `ERR_PNPM_NO_IMPORTER_MANIFEST_FOUND`，说明当前目录不是项目目录。先运行 `Set-Location dsh-tavern`，确认当前目录中能看到 `package.json`，再执行安装命令。
+
+### macOS / Linux / WSL2
+
+需要 Node.js 22.19 或更高版本、pnpm、Git 和 DeepSeek Harness（`dsh`）。不再需要单独安装 `lsof`。
+
+```bash
+npm install -g pnpm @deepseek-ai/dsh
+git clone https://github.com/flizzywine/dsh-tavern.git
+cd dsh-tavern
+pnpm run install:tavern
+dsh-tavern start
+```
+
+打开 <http://127.0.0.1:3081>。
 
 <details>
-<summary><strong>安装方法与环境要求</strong></summary>
+<summary><strong>安装过程说明</strong></summary>
 
-需要 Node.js、pnpm、DeepSeek Harness（`dsh`）和 `lsof`。
-
-克隆仓库并进入项目目录后运行：
+如果已经克隆过仓库，只需进入项目目录后运行：
 
 ```bash
 pnpm run install:tavern
 ```
 
-安装程序会创建独立 Tavern profile、安装依赖、准备本地数据目录，并把 `dsh-tavern` 命令安装到 `~/.local/bin`。安装后请保留仓库目录。
+安装程序会创建独立 Tavern profile、安装依赖、准备本地数据目录，并安装 `dsh-tavern` 命令。安装后请保留仓库目录。
 
-如果终端找不到 `dsh-tavern`，请把 `~/.local/bin` 加入 `PATH` 后重新打开终端。
+如果 macOS / Linux 终端找不到 `dsh-tavern`，请把 `~/.local/bin` 加入 `PATH` 后重新打开终端。Windows 可以重新打开 PowerShell，或者在仓库目录中使用 `pnpm run start:tavern`。
 
 </details>
 
@@ -213,13 +239,22 @@ dsh-tavern stop
 dsh-tavern start
 ```
 
+在仓库目录中也可以使用以下跨平台命令：
+
+```bash
+pnpm run status:tavern
+pnpm run restart:tavern
+pnpm run stop:tavern
+pnpm run start:tavern
+```
+
 需要查看前台输出时，可以运行：
 
 ```bash
 dsh --profile tavern
 ```
 
-日志位于 `~/.dsh/logs/tavern.log`。代码更新并重启后，如果页面仍显示旧界面，请使用 `Cmd + Shift + R` 强制刷新。
+日志位于用户目录下的 `.dsh/logs/tavern.log`。代码更新并重启后，如果页面仍显示旧界面，macOS 请使用 `Cmd + Shift + R`，Windows / Linux 请使用 `Ctrl + Shift + R` 强制刷新。
 
 </details>
 

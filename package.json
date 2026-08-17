@@ -3,10 +3,14 @@
   "version": "0.2.0",
   "private": true,
   "bin": {
-    "dsh-tavern": "bin/dsh-tavern"
+    "dsh-tavern": "bin/dsh-tavern.mjs"
   },
   "scripts": {
-    "install:tavern": "./bin/dsh-tavern install",
+    "install:tavern": "node ./bin/dsh-tavern.mjs install",
+    "start:tavern": "node ./bin/dsh-tavern.mjs start",
+    "stop:tavern": "node ./bin/dsh-tavern.mjs stop",
+    "restart:tavern": "node ./bin/dsh-tavern.mjs restart",
+    "status:tavern": "node ./bin/dsh-tavern.mjs status",
     "test": "node --test tests/*.test.mjs"
   },
   "dependencies": {

@@ -1,0 +1,39 @@
+name: Launcher
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  cross-platform:
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.0
+      - name: Check launcher
+        run: node --test tests/launcher.test.mjs
+      - name: Check help command
+        run: node bin/dsh-tavern.mjs --help
+
+  windows-install:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.0
+      - name: Install DSH and pnpm
+        run: npm install --global pnpm @deepseek-ai/dsh
+      - name: Install Tavern profile
+        run: pnpm run install:tavern
+      - name: Start, inspect and stop Tavern
+        shell: pwsh
+        run: |
+          pnpm run start:tavern
+          pnpm run status:tavern
+          pnpm run stop:tavern
