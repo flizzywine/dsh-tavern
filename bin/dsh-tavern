@@ -1,6 +1,6 @@
 #!/bin/sh
 
-# Compatibility entry point for installations created before v0.2 Windows support.
+# Compatibility entry point for installations created before cross-platform support.
 set -eu
 
 SCRIPT_PATH=$0

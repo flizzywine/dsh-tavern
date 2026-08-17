@@ -2,6 +2,7 @@ name: Launcher
 
 on:
   push:
+    branches: [main]
   pull_request:
 
 jobs:
@@ -22,18 +23,53 @@ jobs:
 
   windows-install:
     runs-on: windows-latest
+    env:
+      DSH_HOME: ${{ runner.temp }}\dsh-tavern-test
+      DSH_TAVERN_ARCHIVE_URL: https://github.com/${{ github.repository }}/archive/${{ github.sha }}.zip
+      DSH_TAVERN_NO_OPEN: 1
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22.19.0
-      - name: Install DSH and pnpm
-        run: npm install --global pnpm @deepseek-ai/dsh
-      - name: Install Tavern profile
-        run: pnpm run install:tavern
-      - name: Start, inspect and stop Tavern
+      - name: Run one-line installer path
+        run: .\install.ps1
+      - name: Update, preserve data and stop Tavern
         shell: pwsh
         run: |
-          pnpm run start:tavern
-          pnpm run status:tavern
-          pnpm run stop:tavern
+          $app = "$env:DSH_HOME\apps\dsh-tavern"
+          New-Item -ItemType Directory -Force "$app\data\cards" | Out-Null
+          Set-Content "$app\data\cards\preserve-check.json" '{"preserved":true}'
+          $firstPid = (Get-Content "$env:DSH_HOME\logs\tavern.pid.json" | ConvertFrom-Json).pid
+          node "$app\bin\dsh-tavern.mjs" update
+          $secondPid = (Get-Content "$env:DSH_HOME\logs\tavern.pid.json" | ConvertFrom-Json).pid
+          if ($firstPid -eq $secondPid) { throw 'Update did not restart Tavern' }
+          if (-not (Test-Path "$app\data\cards\preserve-check.json")) { throw 'Update removed user data' }
+          node "$app\bin\dsh-tavern.mjs" status
+          node "$app\bin\dsh-tavern.mjs" stop
+
+  unix-install:
+    runs-on: ubuntu-latest
+    env:
+      DSH_HOME: ${{ runner.temp }}/dsh-tavern-test
+      DSH_TAVERN_ARCHIVE_URL: https://github.com/${{ github.repository }}/archive/${{ github.sha }}.tar.gz
+      DSH_TAVERN_NO_OPEN: 1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.0
+      - name: Run one-line installer path
+        run: sh ./install.sh
+      - name: Update, preserve data and stop Tavern
+        run: |
+          app="$DSH_HOME/apps/dsh-tavern"
+          mkdir -p "$app/data/cards"
+          printf '%s\n' '{"preserved":true}' >"$app/data/cards/preserve-check.json"
+          first_pid=$(node -e "console.log(require('$DSH_HOME/logs/tavern.pid.json').pid)")
+          node "$app/bin/dsh-tavern.mjs" update
+          second_pid=$(node -e "console.log(require('$DSH_HOME/logs/tavern.pid.json').pid)")
+          test "$first_pid" != "$second_pid"
+          test -f "$app/data/cards/preserve-check.json"
+          node "$app/bin/dsh-tavern.mjs" status
+          node "$app/bin/dsh-tavern.mjs" stop

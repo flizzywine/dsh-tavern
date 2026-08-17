@@ -10,6 +10,7 @@ import {
   openSync,
   readFileSync,
   readlinkSync,
+  realpathSync,
   readdirSync,
   renameSync,
   symlinkSync,
@@ -19,7 +20,7 @@ import {
 import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
-import { fileURLToPath, pathToFileURL } from 'node:url'
+import { fileURLToPath } from 'node:url'
 
 const PROFILE = 'tavern'
 const SCRIPT_PATH = fileURLToPath(import.meta.url)
@@ -74,6 +75,11 @@ function commandExists(command) {
 
 function findDshCommand() {
   if (commandExists('dsh')) return 'dsh'
+
+  const bundledDsh = process.platform === 'win32'
+    ? path.join(DSH_ROOT, 'runtime', 'dsh.cmd')
+    : path.join(DSH_ROOT, 'runtime', 'bin', 'dsh')
+  if (existsSync(bundledDsh)) return bundledDsh
 
   if (process.platform !== 'win32') {
     const versionsDir = path.join(os.homedir(), '.nvm', 'versions', 'node')
@@ -166,7 +172,7 @@ function pathExistsNoFollow(targetPath) {
 
 function installCommand() {
   if (process.platform === 'win32') {
-    let binDir = process.env.PNPM_HOME
+    let binDir = process.env.DSH_TAVERN_BIN_DIR || process.env.PNPM_HOME
     if (!binDir) {
       try {
         binDir = run('pnpm', ['bin', '--global'], { capture: true })
@@ -427,8 +433,28 @@ async function startService() {
   throw new Error(`DSH Tavern 启动超时，日志：${LOG_FILE}`)
 }
 
+async function updateApplication() {
+  console.log('正在更新 DSH Tavern……')
+  const extension = process.platform === 'win32' ? 'ps1' : 'sh'
+  const installer = path.join(SOURCE_ROOT, `install.${extension}`)
+  if (!existsSync(installer)) throw new Error(`当前安装缺少更新程序：${installer}`)
+  const temporary = path.join(os.tmpdir(), `dsh-tavern-update-${process.pid}.${extension}`)
+  copyFileSync(installer, temporary)
+  try {
+    const command = process.platform === 'win32' ? 'powershell.exe' : 'sh'
+    const args = process.platform === 'win32'
+      ? ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', temporary]
+      : [temporary]
+    const result = spawnSync(command, args, { stdio: 'inherit' })
+    if (result.error) throw new Error(`无法运行更新程序：${result.error.message}`)
+    if (result.status !== 0) throw new Error('更新失败，请查看上方错误信息。')
+  } finally {
+    if (existsSync(temporary)) unlinkSync(temporary)
+  }
+}
+
 function usage() {
-  console.log('用法：dsh-tavern {install|start|stop|restart|status}')
+  console.log('用法：dsh-tavern {install|update|start|stop|restart|status}')
 }
 
 async function main() {
@@ -436,6 +462,9 @@ async function main() {
   switch (action) {
     case 'install':
       await installProfile()
+      break
+    case 'update':
+      await updateApplication()
       break
     case 'start':
       await startService()
@@ -462,7 +491,7 @@ async function main() {
   }
 }
 
-const isEntrypoint = process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href
+const isEntrypoint = process.argv[1] && realpathSync(SCRIPT_PATH) === realpathSync(path.resolve(process.argv[1]))
 if (isEntrypoint) {
   main().catch((error) => fail(error instanceof Error ? error.message : String(error)))
 }
