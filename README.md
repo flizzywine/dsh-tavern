@@ -178,28 +178,62 @@ AI 直接续写时，输出往往会逐渐回到常见的句式、节奏和叙�
 
 ## 开始使用
 
-安装完成后运行：
+### Windows（PowerShell）
 
-```bash
-dsh-tavern start
+需要 Node.js 22.19 或更高版本。打开 PowerShell，复制下面一行并回车：
+
+```powershell
+irm https://raw.githubusercontent.com/flizzywine/dsh-tavern/main/install.ps1 | iex
 ```
 
-打开 <http://127.0.0.1:3081>，导入一张人物卡开始游玩。
+脚本会自动下载最新版、补齐 pnpm 和 DSH、安装 Tavern、启动服务并打开 <http://127.0.0.1:3081>。不需要 Git，也不需要手动进入项目目录。
 
-<details>
-<summary><strong>安装方法与环境要求</strong></summary>
+如果提示没有 Node.js，按照自动打开的官网安装后，再重新执行上面这一行。若不希望使用原生 Windows，也可以在 WSL2 的 Ubuntu 终端中按照下面的 macOS / Linux 方法安装。
 
-需要 Node.js、pnpm、DeepSeek Harness（`dsh`）和 `lsof`。
+### macOS / Linux / WSL2
 
-克隆仓库并进入项目目录后运行：
+需要 Node.js 22.19 或更高版本。打开终端，复制下面一行并回车：
 
 ```bash
+curl -fsSL https://raw.githubusercontent.com/flizzywine/dsh-tavern/main/install.sh | sh
+```
+
+脚本会完成下载、安装和启动，不需要 Git 或 `lsof`。
+
+首次打开后，点击左侧栏底部的 **设置 → 模型**，填写模型提供方的 API 密钥；之后可以在输入框下方随时切换当前对话使用的模型。
+
+<details>
+<summary><strong>国内网络失败时：手动下载与安装</strong></summary>
+
+如果一键命令无法访问 `raw.githubusercontent.com`：
+
+1. 在 GitHub 项目页点击 **Code → Download ZIP**，或直接下载 [`main.zip`](https://github.com/flizzywine/dsh-tavern/archive/refs/heads/main.zip)；
+2. 解压后进入 `dsh-tavern-main` 文件夹；
+3. 在这个文件夹中打开 PowerShell（Windows）或终端（macOS / Linux），确认当前目录可以看到 `package.json`；
+4. 依次运行：
+
+```bash
+npm install -g pnpm @deepseek-ai/dsh
+pnpm run install:tavern
+pnpm run start:tavern
+```
+
+然后打开 <http://127.0.0.1:3081>。安装后请保留解压出的文件夹，不要随意移动；人物卡、会话、剧本和素材都保存在其中的 `data/` 目录。
+
+如果出现 `ERR_PNPM_NO_IMPORTER_MANIFEST_FOUND`，说明终端开错了目录。进入能够看到 `package.json` 的 `dsh-tavern-main` 文件夹后重新运行即可。
+
+</details>
+
+<details>
+<summary><strong>开发者：通过 Git 安装</strong></summary>
+
+```bash
+git clone https://github.com/flizzywine/dsh-tavern.git
+cd dsh-tavern
 pnpm run install:tavern
 ```
 
-安装程序会创建独立 Tavern profile、安装依赖、准备本地数据目录，并把 `dsh-tavern` 命令安装到 `~/.local/bin`。安装后请保留仓库目录。
-
-如果终端找不到 `dsh-tavern`，请把 `~/.local/bin` 加入 `PATH` 后重新打开终端。
+一键安装版固定保存在用户目录的 `.dsh/apps/dsh-tavern`，重复执行安装命令会覆盖程序文件，但保留 `data/` 下的人物卡、会话、剧本、素材和设置。
 
 </details>
 
@@ -211,6 +245,16 @@ dsh-tavern status
 dsh-tavern restart
 dsh-tavern stop
 dsh-tavern start
+dsh-tavern update
+```
+
+在仓库目录中也可以使用以下跨平台命令：
+
+```bash
+pnpm run status:tavern
+pnpm run restart:tavern
+pnpm run stop:tavern
+pnpm run start:tavern
 ```
 
 需要查看前台输出时，可以运行：
@@ -219,7 +263,7 @@ dsh-tavern start
 dsh --profile tavern
 ```
 
-日志位于 `~/.dsh/logs/tavern.log`。代码更新并重启后，如果页面仍显示旧界面，请使用 `Cmd + Shift + R` 强制刷新。
+日志位于用户目录下的 `.dsh/logs/tavern.log`。代码更新并重启后，如果页面仍显示旧界面，macOS 请使用 `Cmd + Shift + R`，Windows / Linux 请使用 `Ctrl + Shift + R` 强制刷新。
 
 </details>
 
