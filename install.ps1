@@ -30,9 +30,10 @@ try {
     throw '未找到 Node.js。请安装 Node.js 22.19 或更高版本，然后重新运行本命令。'
   }
 
-  & node -e 'const [a,b]=process.versions.node.split(".").map(Number);process.exit(a>22||(a===22&&b>=19)?0:1)'
-  if ($LASTEXITCODE -ne 0) {
-    throw "Node.js 版本过低，需要 22.19 或更高版本（当前：$(& node --version)）。"
+  $NodeVersionText = (& node --version).Trim()
+  $NodeVersion = [version]$NodeVersionText.TrimStart('v')
+  if ($NodeVersion -lt [version]'22.19.0') {
+    throw "Node.js 版本过低，需要 22.19 或更高版本（当前：$NodeVersionText）。"
   }
   $NpmCommand = Resolve-Command 'npm'
   if ($null -eq $NpmCommand) { throw '未找到 npm，请重新安装 Node.js。' }
