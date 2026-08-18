@@ -985,7 +985,7 @@ body.dsh-tavern-shell-active button[aria-label="新建会话"], body.dsh-tavern-
 						}
 					}
 					const result = await rpc("generateChoices", { messageId: props.messageId, guidance: guidance || "" }, props.sessionId);
-					setCandidatePanel({ sessionId: props.sessionId, messageId: props.messageId, phase: "ready", choices: result.choices || [], error: "" });
+					setCandidatePanel({ sessionId: props.sessionId, messageId: props.messageId, phase: "ready", choices: result.candidates && result.candidates.choices ? result.candidates.choices : [], error: "" });
 				} catch (err) { setCandidatePanel({ sessionId: props.sessionId, messageId: props.messageId, phase: "error", choices: [], error: String(err && err.message || err) }); }
 				finally { setBusy(false); }
 			}
@@ -1142,7 +1142,7 @@ body.dsh-tavern-shell-active button[aria-label="新建会话"], body.dsh-tavern-
 				setCandidateGuidePanel({ sessionId: props.sessionId, messageId: messageId, phase: "loading", error: "", previous: panel.previous });
 				try {
 					const result = await rpc("generateChoices", { messageId: messageId, guidance: guide }, props.sessionId);
-					setCandidatePanel({ sessionId: props.sessionId, messageId: messageId, phase: "ready", choices: result.choices || [], error: "" });
+					setCandidatePanel({ sessionId: props.sessionId, messageId: messageId, phase: "ready", choices: result.candidates && result.candidates.choices ? result.candidates.choices : [], error: "" });
 					setCandidateGuidePanel(null);
 				} catch (err) {
 					setCandidateGuidePanel({ sessionId: props.sessionId, messageId: messageId, phase: "input", error: String(err && err.message || err), previous: panel.previous });
