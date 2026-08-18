@@ -963,7 +963,6 @@ body.dsh-tavern-shell-active button[aria-label="新建会话"], body.dsh-tavern-
 		function CandidateAction(props) {
 			const [busy, setBusy] = React.useState(false);
 			const [rolling, setRolling] = React.useState(false);
-			const [polishOn, setPolishOn] = React.useState(null);
 			const candidatePanelState = useCandidatePanel();
 			const sessionMode = useTavernSessionMode(props.sessionId);
 			const latestMessageId = props.useSession(function (snapshot) {
@@ -1007,26 +1006,6 @@ body.dsh-tavern-shell-active button[aria-label="新建会话"], body.dsh-tavern-
 					window.alert(String(err && err.message || err));
 				} finally { setRolling(false); }
 			}
-			React.useEffect(function () {
-				let alive = true;
-				rpc("getSettings", {}, props.sessionId).then(function (res) {
-					if (alive && res && res.settings) setPolishOn(res.settings.polish === true);
-				}).catch(function () {
-					if (alive) setPolishOn(false);
-				});
-				return function () { alive = false; };
-			}, [props.sessionId]);
-			async function togglePolish() {
-				if (polishOn === null) return;
-				const next = !polishOn;
-				setPolishOn(next);
-				try {
-					await rpc("updateSettings", { patch: { polish: next } }, props.sessionId);
-				} catch (err) {
-					setPolishOn(!next);
-					window.alert(String(err && err.message || err));
-				}
-			}
 			const h = React.createElement;
 			const isScript = sessionMode === "script";
 			const hasReadyPanel = candidatePanelState !== null && candidatePanelState.sessionId === props.sessionId && candidatePanelState.messageId === props.messageId && candidatePanelState.phase === "ready";
@@ -1048,8 +1027,7 @@ body.dsh-tavern-shell-active button[aria-label="新建会话"], body.dsh-tavern-
 					setCandidatePanel(null);
 					setRegenPanel({ sessionId: props.sessionId, phase: "input", guidance: "", text: "", error: "", tail: tail });
 				} }, "重新生成正文"),
-				h("button", { className: "dsh-tavern-choice-trigger", disabled: rolling, title: "删除最近一次用户输入和这段 LLM 输出", onClick: rollback }, rolling ? "回退中…" : "回退本轮"),
-				h("button", { className: "dsh-tavern-choice-trigger", onClick: togglePolish, title: "切换正文精修（润色）开关；关闭时写正文直接提交，省一半 token 与时间" }, polishOn === null ? "精修…" : (polishOn ? "精修：开" : "精修：关"))
+				h("button", { className: "dsh-tavern-choice-trigger", disabled: rolling, title: "删除最近一次用户输入和这段 LLM 输出", onClick: rollback }, rolling ? "回退中…" : "回退本轮")
 			);
 		}
 

@@ -71,7 +71,7 @@ export function apply(ctx) {
   }
 
   // ---------- 设置 ----------
-  let settings = { provider: '', model: '', polish: false }
+  let settings = { provider: '', model: '' }
   let settingsReady = null
   const settlementJobs = new Set()
   async function loadSettings() {
@@ -79,7 +79,6 @@ export function apply(ctx) {
     if (s !== undefined && typeof s === 'object') {
       settings.provider = str(s.provider)
       settings.model = str(s.model)
-      settings.polish = s.polish === true
     }
   }
   function ensureSettings() {
@@ -1155,109 +1154,9 @@ export function apply(ctx) {
     if (str(card.system_prompt) !== '') parts.push('【特殊指令】\n' + card.system_prompt)
     if (scriptReference !== null && scriptReference !== undefined && str(scriptReference.text) !== '') {
       parts.push('【本轮剧本参考 · 仅本轮注入一次】\n' + scriptReference.text)
-      parts.push('【剧本模式 · 初稿要求】\n你正在写正文，直接写出成稿：内容与形式一次到位，删除重复、理顺叙述顺序、补足过渡、润色遣词造句，不要留下粗糙痕迹。剧本是本轮剧情主线：先分析本块内容，必要时用 tavern_session action=script 前瞻后续分块、了解剧情走向，然后尽量贴合剧本发展——把本块中的事件、对白、人物反应、转折尽量演出；允许照抄剧本原文，也允许自由发挥。玩家指令是承接方式：从上一段结尾和玩家本轮行动自然进入剧本剧情；指令与剧本冲突时以剧本走向为主，把玩家动作自然融入。优先保住剧本内容，不要为通顺牺牲剧本，也不要重复上一段已发生的情节。')
+      parts.push('【剧本模式 · 成稿要求】\n你正在写正文，直接写出成稿：内容与形式一次到位，删除重复、理顺叙述顺序、补足过渡、润色遣词造句，不要留下粗糙痕迹。剧本是本轮剧情主线：先分析本块内容，必要时用 tavern_session action=script 前瞻后续分块、了解剧情走向，然后尽量贴合剧本发展——把本块中的事件、对白、人物反应、转折尽量演出；允许照抄剧本原文，也允许自由发挥。玩家指令是承接方式：从上一段结尾和玩家本轮行动自然进入剧本剧情；指令与剧本冲突时以剧本走向为主，把玩家动作自然融入。优先保住剧本内容，不要为通顺牺牲剧本，也不要重复上一段已发生的情节。')
     }
     return parts.join('\n\n')
-  }
-  async function polishBody(chat, draftText, sessionId, previousTail, scriptText, posture) {
-    let system = '你是小说润色器。下面正文是直接写出的成稿，仍可能有重复、生硬、顺序不顺之处。你的任务是进一步整理成形：删除重复与冗余，调整叙述顺序让逻辑顺畅，补上必要的过渡衔接，润色用词、句式、比喻和感官细节；可以参照剧本适当新增、改写或删除内容，让文字更有质感。注意保持剧情主线连贯、不与上一段及已发生情节矛盾；不要解释，只输出润色后的正文。'
-    if (str(previousTail) !== '') {
-      system += '\n\n【上一段正文结尾】\n' + previousTail + '\n\n润色后正文必须与上一段结尾连续、自然，开头先承接上一段结尾。'
-    }
-    if (str(posture) !== '') {
-      system += '\n\n【上一轮结束 · 人物姿势（每轮结算更新）】\n' + posture + '\n\n润色后正文中的人物位置、动作、姿态要从这段姿势自然承接、连贯发展，不要出现矛盾或跳跃。'
-    }
-    if (str(scriptText) !== '') {
-      system += '\n\n【本轮对应剧本原文 · 文风基准】\n' + scriptText + '\n\n润色时模仿这段剧本的遣词造句与语言风格：用词、句式、语感、称呼习惯都向它靠拢。允许适当修改和自由发挥，不必照抄。'
-    }
-    const raw = await callModel({
-      sessionId: sessionId,
-      temperature: 0.6,
-      maxTokens: 4096,
-      system: system,
-      messages: [{
-        id: 'polish-' + Date.now().toString(36),
-        role: 'user',
-        content: [{ type: 'text', text: '【待润色正文】\n' + draftText }],
-        source: { kind: 'plugin', plugin: 'dsh-tavern-polish' }
-      }]
-    })
-    const polished = str(raw).trim()
-    if (polished === '') throw new Error('润色失败：模型返回空文本')
-    return polished
-  }
-  function splitDiffSentences(text) {
-    const out = []
-    let buf = ''
-    const src = String(text ?? '')
-    for (let i = 0; i < src.length; i++) {
-      const ch = src[i]
-      buf += ch
-      if ('。！？!?…\n'.indexOf(ch) >= 0) {
-        const part = buf.trim()
-        if (part !== '') out.push(part)
-        buf = ''
-      }
-    }
-    const tail = buf.trim()
-    if (tail !== '') out.push(tail)
-    return out
-  }
-  function sentenceDiffOps(before, after) {
-    const a = splitDiffSentences(before)
-    const b = splitDiffSentences(after)
-    const n = a.length
-    const m = b.length
-    const dp = []
-    for (let i = 0; i <= n; i++) {
-      dp.push(new Array(m + 1).fill(0))
-    }
-    for (let i = 1; i <= n; i++) {
-      for (let j = 1; j <= m; j++) {
-        if (a[i - 1] === b[j - 1]) dp[i][j] = dp[i - 1][j - 1] + 1
-        else dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1])
-      }
-    }
-    const ops = []
-    let i = n
-    let j = m
-    while (i > 0 && j > 0) {
-      if (a[i - 1] === b[j - 1]) {
-        ops.unshift({ type: 'same', text: a[i - 1] })
-        i--
-        j--
-      } else if (dp[i - 1][j] >= dp[i][j - 1]) {
-        ops.unshift({ type: 'del', text: a[i - 1] })
-        i--
-      } else {
-        ops.unshift({ type: 'add', text: b[j - 1] })
-        j--
-      }
-    }
-    while (i > 0) { ops.unshift({ type: 'del', text: a[i - 1] }); i-- }
-    while (j > 0) { ops.unshift({ type: 'add', text: b[j - 1] }); j-- }
-    return ops
-  }
-  function escapeDiffHtml(text) {
-    return String(text).replace(/[&<>]/g, function (ch) {
-      return ch === '&' ? '&amp;' : (ch === '<' ? '&lt;' : '&gt;')
-    })
-  }
-  function renderPolishDiffHtml(cardName, draftText, polishedText, at) {
-    const ops = sentenceDiffOps(draftText, polishedText)
-    let body = ''
-    for (const op of ops) {
-      const escaped = escapeDiffHtml(op.text)
-      if (op.type === 'del') body += '<del>' + escaped + '</del>'
-      else if (op.type === 'add') body += '<ins>' + escaped + '</ins>'
-      else body += escaped
-    }
-    return '<!doctype html><html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>润色对比</title><style>body{margin:0;padding:24px;background:#16130f;color:#eee6da;font-family:ui-serif,Georgia,"Songti SC",serif;line-height:1.9}header{max-width:900px;margin:0 auto 18px;color:#b9a48d;font-size:13px}.diff{max-width:900px;margin:0 auto;white-space:pre-wrap;font-size:16px}del{background:rgba(220,80,60,.22);color:#ff9d8f;text-decoration:line-through;border-radius:3px;padding:0 1px}ins{background:rgba(90,170,90,.22);color:#b6e3b0;text-decoration:none;border-radius:3px;padding:0 1px}</style></head><body><header><b>润色对比</b> · ' + escapeDiffHtml(cardName || '未命名角色') + ' · ' + new Date(at || Date.now()).toLocaleString('zh-CN') + '<br>红色划线 = 润色前删除，绿色 = 润色后新增；无标记文字未变。</header><div class="diff">' + body + '</div></body></html>'
-  }
-  async function writePolishDiff(chatId, cardName, draftText, polishedText) {
-    await ensureDataDir('diffs')
-    const target = await fs.resolve(base + '/data/diffs/polish-' + chatId + '.html')
-    await fs.writeText(target, renderPolishDiffHtml(cardName, draftText, polishedText, Date.now()))
   }
   function normalizeScriptState(chat, script) {
     if (chat.scriptState === null || typeof chat.scriptState !== 'object') chat.scriptState = {}
@@ -1882,16 +1781,15 @@ export function apply(ctx) {
   async function dispatch(method, args) {
     await ensureSettings()
     switch (method) {
-      case 'getSettings': return { settings: { polish: settings.polish === true, provider: settings.provider, model: settings.model } }
+      case 'getSettings': return { settings: { provider: settings.provider, model: settings.model } }
       case 'updateSettings': {
         const patch = args && args.patch
         if (patch !== null && typeof patch === 'object') {
-          if (typeof patch.polish === 'boolean') settings.polish = patch.polish
           if (typeof patch.provider === 'string') settings.provider = str(patch.provider)
           if (typeof patch.model === 'string') settings.model = str(patch.model)
         }
-        await writeJson('settings.json', { provider: settings.provider, model: settings.model, polish: settings.polish === true })
-        return { settings: { polish: settings.polish === true, provider: settings.provider, model: settings.model } }
+        await writeJson('settings.json', { provider: settings.provider, model: settings.model })
+        return { settings: { provider: settings.provider, model: settings.model } }
       }
       case 'listCards': return { cards: await listCards() }
       case 'getScriptInfo': return { script: compactScriptInfo(await readScript(args && args.cardId)) }
@@ -1976,10 +1874,9 @@ export function apply(ctx) {
       name: 'tavern_session',
       description: '读取当前会话的模式（游玩/卡片）与人物卡，并提交本轮结果。必须先 action=context；游玩模式的 context 同时传入本轮 userText，剧本类会话按游标注入当前参考分块（游标由候选项生成时调整，commit 不推进）。剧本会话和卡片模式（设定对话）可以用 action=script 只读查看剧本任意分块，向前向后看都行。最终回复前 action=commit。',
       parameters: {
-        action: { type: 'string', required: true, description: 'context、commit、script 或 polish（script 只读查看剧本；polish 润色 draftText 后用于 commit）' },
+        action: { type: 'string', required: true, description: 'context、commit 或 script（script 只读查看剧本）' },
         userText: { type: 'string', description: 'context 与 commit 时都填写用户本轮原始消息' },
         assistantText: { type: 'string', description: 'commit 时填写准备作为最终回复的完整文本' },
-        draftText: { type: 'string', description: 'action=polish 时填写待润色的正文初稿' },
         cardPatch: { type: 'string', description: '仅卡片模式（设定对话/素材抽取）使用：确认落盘时填写人物卡字段 patch JSON；只讨论则填 {}' },
         scriptQuery: { type: 'string', description: 'action=script 时可选：按关键词检索剧本分块；剧本会话仅在游标前后 10 块内检索，命中返回前后各 1 块' },
         scriptOffset: { type: 'number', description: 'action=script 时可选：按 1 起始的块号读取，可向前或向后查看任意分块；剧本会话中缺省为当前游标' },
@@ -1989,7 +1886,6 @@ export function apply(ctx) {
         schema: { type: 'object', additionalProperties: true },
         render: function (_a, value) {
           if (value && value.ready === false) return [{ type: 'text', text: str(value.message) || '尚未选择人物卡' }]
-          if (value && value.mode === 'polish') return [{ type: 'text', text: '润色结果\n\n' + (value.polishedText || '') }]
           if (value && value.mode === 'script-read') return [{ type: 'text', text: '剧本《' + (value.title || '未命名') + '》第 ' + value.from + '~' + value.to + ' 块 / 共 ' + value.totalChunks + ' 块\n\n' + (value.text || '') }]
           if (value && value.saved === true) return [{ type: 'text', text: value.mode === 'revision' ? ('卡片模式设定对话已保存' + (value.changed ? '，人物卡字段已更新' : '，人物卡未改动')) : '故事状态已更新' }]
           if (value && value.ready === true) return [{ type: 'text', text: 'mode=' + (value.mode || 'story') + '\n人物卡=' + (value.cardName || '未命名') + '\n\n' + (value.systemContext || '') }]
@@ -2054,25 +1950,6 @@ export function apply(ctx) {
             hint: '可继续用 action=script 读取其他分块：scriptQuery 按关键词检索，或 scriptOffset 按 1 起始的块号读取，scriptLimit 控制每次返回 1~6 块。'
           }
         }
-        if (action === 'polish') {
-          if (chat === undefined) return { ready: false, message: '尚未选择人物卡，无法润色正文。' }
-          if ((chat.mode || 'story') === 'revision' || (chat.mode || 'story') === 'extract') throw new Error('仅游玩模式支持润色正文')
-          const draftText = str(args && args.draftText).trim()
-          if (draftText === '') throw new Error('draftText 不能为空')
-          const previousTail = lastAssistantTail(chat, 240)
-          let scriptText = ''
-          if ((chat.mode || 'story') === 'script' && chat.scriptState !== null && typeof chat.scriptState === 'object') {
-            const scriptParts = []
-            if (chat.scriptState.prepared !== null && typeof chat.scriptState.prepared === 'object' && str(chat.scriptState.prepared.text) !== '') scriptParts.push(chat.scriptState.prepared.text)
-            for (const item of (chat.scriptState.lookahead || [])) {
-              if (item !== null && typeof item === 'object' && str(item.text) !== '' && scriptParts.indexOf(str(item.text)) < 0) scriptParts.push(str(item.text))
-            }
-            scriptText = scriptParts.join('\n\n')
-          }
-          const polishedText = await polishBody(chat, draftText, sessionId, previousTail, scriptText, chat.posture || '')
-          await writePolishDiff(chat.id, chat.cardName, draftText, polishedText)
-          return { ready: true, mode: 'polish', cardName: chat.cardName, polishedText: polishedText }
-        }
         if (action === 'context') {
           if (chat === undefined) return { ready: false, message: '尚未选择人物卡，请提示用户在输入框上方选择人物卡。' }
           await ensureSettings()
@@ -2110,18 +1987,15 @@ export function apply(ctx) {
               : '\n\n本卡已绑定剧本《' + scriptInfo.title + '》，共 ' + scriptInfo.chunkCount + ' 块。如需查看剧本原文，调用 tavern_session action=script：scriptQuery 传关键词检索，或 scriptOffset 传 1 起始的块号，scriptLimit 控制每次读取 1~6 块；不要仅凭文件名猜测剧本内容。'
           }
           const scriptLookHint = mode === 'script'
-            ? '\n\n【剧本参考范围】游标是候选项阶段标记的“当前看哪里”位置，本轮注入游标处这一块；commit 不推进游标。写初稿前先分析本块内容；需要了解后续剧情走向时，用 tavern_session action=script 主动前瞻：scriptOffset 指定块号可向前或向后看，scriptLimit 可连续读多块。'
+            ? '\n\n【剧本参考范围】游标是候选项阶段标记的“当前看哪里”位置，本轮注入游标处这一块；commit 不推进游标。写正文前先分析本块内容；需要了解后续剧情走向时，用 tavern_session action=script 主动前瞻：scriptOffset 指定块号可向前或向后看，scriptLimit 可连续读多块。'
             : ''
-          const polishHint = settings.polish === true
-            ? '\n\n【精修模式】本轮开启精修：正文初稿写好后，先调用 tavern_session action=polish（draftText 填初稿全文），得到 polishedText 后再调用 action=commit，assistantText 填 polishedText。'
-            : '\n\n【精修模式】本轮精修已关闭：正文写好后直接调用 action=commit 提交，不要调用 action=polish。'
           const contextResult = {
             ready: true,
             mode: mode,
             cardName: card.name,
             systemContext: mode === 'revision'
               ? '你正在卡片模式的人物卡设定对话中，与用户共同讨论和修正人物卡，不进行角色扮演，不续写剧情。可以分析、追问、提出多个方案。只有用户明确要求或确认修改时才生成最小 cardPatch；只讨论时 cardPatch 必须是 {}。可修改字段：' + CARD_TEXT_FIELDS.join(',') + ',tags,alternate_greetings,character_book。保留 {{char}}、{{user}} 模板变量。\n\n当前人物卡：\n' + JSON.stringify(editable) + revisionScriptHint
-              : buildSystem(card, chat, scriptReference, worldBookIds) + scriptLookHint + polishHint,
+              : buildSystem(card, chat, scriptReference, worldBookIds) + scriptLookHint,
             opening: substChar(card.first_mes, card, '你', '所有其他角色'),
             posture: chat.posture || '',
             lore: chat.lore || []
