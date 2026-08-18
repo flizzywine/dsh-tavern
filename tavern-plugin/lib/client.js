@@ -19,6 +19,7 @@ window.__ModuleLoader__.load({
 .dsh-tavern-sidebar { height: 100%; box-sizing: border-box; display: flex; flex-direction: column; padding: 12px; color: var(--dsw-alias-label-primary); background: var(--dsw-specific-sidebar-fill); }
 .dsh-tavern-sidebar.collapsed { padding: 12px 10px; align-items: center; }
 body.dsh-tavern-shell-active button[aria-label="新建会话"], body.dsh-tavern-shell-active button[aria-label="New session"] { display: none !important; }
+body.dsh-tavern-shell-active button[aria-haspopup="tree"] { display: none !important; }
 .dsh-tavern-side-head { height: 48px; display: flex; align-items: center; gap: 8px; flex: none; }
 .dsh-tavern-side-brand { flex: 1; min-width: 0; font-size: 16px; font-weight: 800; color: #9a622f; white-space: nowrap; overflow: hidden; }
 .dsh-tavern-side-icon { width: 34px; height: 34px; border: 0; border-radius: 9px; background: transparent; color: inherit; cursor: pointer; font-size: 17px; }
@@ -254,10 +255,8 @@ body.dsh-tavern-shell-active button[aria-label="新建会话"], body.dsh-tavern-
 			const extractFileRef = React.useRef(null);
 			const [sources, setSources] = React.useState([]);
 			const [selectedSourceIds, setSelectedSourceIds] = React.useState([]);
+			const readyTavernSession = current && summaries[current] && summaries[current].blank === false && history.some(function (entry) { return entry.sessionId === current; }) ? current : "";
 			function call(method, args) { return rpc(method, args); }
-			function ensureDetailsOpen() {
-				for (let i = 1; i <= 3; i++) window.setTimeout(props.openDetails, 1000 * i);
-			}
 			function notifyDataChanged() {
 				window.dispatchEvent(new CustomEvent("dsh-tavern-data-changed"));
 			}
@@ -280,6 +279,10 @@ body.dsh-tavern-shell-active button[aria-label="新建会话"], body.dsh-tavern-
 				lastModeSession.current = current;
 				setUiMode(groupOfMode(item.mode));
 			}, [current, history]);
+			React.useEffect(function () {
+				if (!readyTavernSession || typeof props.openDetails !== "function") return;
+				props.openDetails();
+			}, [readyTavernSession]);
 			function openPicker(sub) {
 				setMenuSession(null);
 				setPickerSub(sub === "sources" ? "sources" : (cards.length ? "cards" : "sources"));
@@ -302,7 +305,6 @@ body.dsh-tavern-shell-active button[aria-label="新建会话"], body.dsh-tavern-
 					setUiMode(groupOfMode(targetMode));
 					publishSessionMode(sessionId, targetMode);
 					props.sessions.open(sessionId);
-					ensureDetailsOpen();
 					window.dispatchEvent(new CustomEvent("dsh-tavern-session-changed", { detail: { sessionId: sessionId } }));
 					setPicking(false); await refresh();
 				} catch (err) { setError(String(err && err.message || err)); }
@@ -364,7 +366,6 @@ body.dsh-tavern-shell-active button[aria-label="新建会话"], body.dsh-tavern-
 					setUiMode("card"); setPickerSub("sources");
 					publishSessionMode(sessionId, "extract");
 					props.sessions.open(sessionId);
-					ensureDetailsOpen();
 					window.dispatchEvent(new CustomEvent("dsh-tavern-session-changed", { detail: { sessionId: sessionId } }));
 					await refresh();
 				} catch (err) { setError(String(err && err.message || err)); }
@@ -377,7 +378,7 @@ body.dsh-tavern-shell-active button[aria-label="新建会话"], body.dsh-tavern-
 			function switchMode(nextMode) {
 				setUiMode(nextMode); setPicking(false); setMenuSession(null);
 				const first = history.filter(function (item) { return groupOfMode(item.mode) === nextMode; })[0];
-				if (first) { props.sessions.open(first.sessionId); ensureDetailsOpen(); }
+				if (first) props.sessions.open(first.sessionId);
 				else openPicker("cards");
 			}
 			async function renameConversation(item, currentTitle) {
@@ -397,7 +398,7 @@ body.dsh-tavern-shell-active button[aria-label="新建会话"], body.dsh-tavern-
 					await props.archiveSession(item.sessionId);
 					await call("deleteChat", { chatId: item.chatId });
 					const next = history.filter(function (entry) { return entry.sessionId !== item.sessionId && groupOfMode(entry.mode) === uiMode; })[0];
-					if (next) { props.sessions.open(next.sessionId); ensureDetailsOpen(); }
+					if (next) props.sessions.open(next.sessionId);
 					else { props.sessions.clear(); openPicker("cards"); }
 					await refresh();
 				} catch (err) { setError(String(err && err.message || err)); }
@@ -428,7 +429,6 @@ body.dsh-tavern-shell-active button[aria-label="新建会话"], body.dsh-tavern-
 					try {
 						if (summary && summary.blank) await call("ensureOpening", { sessionId: item.sessionId });
 						props.sessions.open(item.sessionId);
-						ensureDetailsOpen();
 					} catch (err) { setError(String(err && err.message || err)); }
 				} },
 					h("div", { className: "dsh-tavern-side-row-name" }, title),
@@ -720,12 +720,6 @@ body.dsh-tavern-shell-active button[aria-label="新建会话"], body.dsh-tavern-
 				load();
 				return function () { stopped = true; if (timer) window.clearTimeout(timer); };
 			}, [props.sessionId, stateKey]);
-			React.useEffect(function () {
-				if (typeof props.openDetails !== "function") return;
-				const timers = [];
-				for (let i = 1; i <= 3; i++) timers.push(window.setTimeout(props.openDetails, 1000 * i));
-				return function () { timers.forEach(function (t) { window.clearTimeout(t); }); };
-			}, [props.sessionId]);
 			async function addGuide() {
 				const text = guideDraft.trim();
 				if (!text) return;
@@ -768,13 +762,9 @@ body.dsh-tavern-shell-active button[aria-label="新建会话"], body.dsh-tavern-
 					view.mode === "script" && view.scriptPreview ? h("section", { className: "dsh-tavern-status-section" },
 						h("div", { className: "dsh-tavern-status-label" }, "剧本预览"),
 						h("div", { className: "dsh-tavern-script-preview" },
-							view.scriptPreview.previous ? h("div", { className: "dsh-tavern-script-chunk" },
-								h("span", { className: "dsh-tavern-script-chunk-label" }, "上一块（已召回）· 第 " + (view.scriptPreview.previous.order + 1) + " 块"),
-								h("div", { className: "dsh-tavern-script-chunk-text" }, view.scriptPreview.previous.text)
-							) : null,
 							(view.scriptPreview.upcoming || []).map(function (chunk, index) {
 								return h("div", { key: chunk.id || index, className: "dsh-tavern-script-chunk" },
-									h("span", { className: "dsh-tavern-script-chunk-label" }, (index === 0 ? "当前待召回" : "后续") + " · 第 " + (chunk.order + 1) + " 块"),
+									h("span", { className: "dsh-tavern-script-chunk-label" }, (index === 0 ? "当前召回" : "后续") + " · 第 " + (chunk.order + 1) + " 块"),
 									h("div", { className: "dsh-tavern-script-chunk-text" }, chunk.text)
 								);
 							})
@@ -813,6 +803,17 @@ body.dsh-tavern-shell-active button[aria-label="新建会话"], body.dsh-tavern-
 			const [value, setValue] = React.useState(candidatePanel.value);
 			React.useEffect(function () { candidatePanel.listeners.add(setValue); return function () { candidatePanel.listeners.delete(setValue); }; }, []);
 			return value;
+		}
+		function readyCandidatePanel(sessionId, messageId, candidates) {
+			const value = candidates && typeof candidates === "object" ? candidates : {};
+			return {
+				sessionId: sessionId,
+				messageId: messageId,
+				phase: "ready",
+				choices: Array.isArray(value.choices) ? value.choices : [],
+				traceSessionId: String(value.traceSessionId || ""),
+				error: ""
+			};
 		}
 
 		const regenPanel = { value: null, listeners: new Set() };
@@ -973,12 +974,12 @@ body.dsh-tavern-shell-active button[aria-label="新建会话"], body.dsh-tavern-
 					if (!force) {
 						const saved = await rpc("getChoices", { messageId: props.messageId }, props.sessionId);
 						if (saved && saved.ok && saved.candidates && saved.candidates.messageId === props.messageId) {
-							setCandidatePanel({ sessionId: props.sessionId, messageId: props.messageId, phase: "ready", choices: saved.candidates.choices || [], error: "" });
+							setCandidatePanel(readyCandidatePanel(props.sessionId, props.messageId, saved.candidates));
 							return;
 						}
 					}
 					const result = await rpc("generateChoices", { messageId: props.messageId, guidance: guidance || "" }, props.sessionId);
-					setCandidatePanel({ sessionId: props.sessionId, messageId: props.messageId, phase: "ready", choices: result.candidates && result.candidates.choices ? result.candidates.choices : [], error: "" });
+					setCandidatePanel(readyCandidatePanel(props.sessionId, props.messageId, result.candidates));
 				} catch (err) { setCandidatePanel({ sessionId: props.sessionId, messageId: props.messageId, phase: "error", choices: [], error: String(err && err.message || err) }); }
 				finally { setBusy(false); }
 			}
@@ -1099,6 +1100,14 @@ body.dsh-tavern-shell-active button[aria-label="新建会话"], body.dsh-tavern-
 						if (input) input.focus();
 					});
 				} }, "✎ 自由行动（直接在下方输入）") : null,
+				expanded && panel.phase === "ready" && panel.traceSessionId ? h("button", { className: "dsh-tavern-question-free", title: "打开独立候选 Agent 的推理与工具调用记录", onClick: async function () {
+					try {
+						await props.sessions.refreshSubagents(panel.sessionId);
+						props.sessions.openSubagent({ parentSessionId: panel.sessionId, childSessionId: panel.traceSessionId, mode: "one-shot" });
+					} catch (err) {
+						window.alert("无法打开候选 Agent 轨迹：" + String(err && err.message || err));
+					}
+				} }, "查看候选 Agent 运行轨迹") : null,
 				expanded && panel.phase === "ready" && panel.choices && panel.choices.length ? h("div", { className: "dsh-tavern-question-foot" },
 					h("button", { className: "dsh-tavern-question-primary", disabled: selected < 0, onClick: function () {
 						if (selected < 0) return;
@@ -1135,7 +1144,7 @@ body.dsh-tavern-shell-active button[aria-label="新建会话"], body.dsh-tavern-
 				setCandidateGuidePanel({ sessionId: props.sessionId, messageId: messageId, phase: "loading", error: "", previous: panel.previous });
 				try {
 					const result = await rpc("generateChoices", { messageId: messageId, guidance: guide }, props.sessionId);
-					setCandidatePanel({ sessionId: props.sessionId, messageId: messageId, phase: "ready", choices: result.candidates && result.candidates.choices ? result.candidates.choices : [], error: "" });
+					setCandidatePanel(readyCandidatePanel(props.sessionId, messageId, result.candidates));
 					setCandidateGuidePanel(null);
 				} catch (err) {
 					setCandidateGuidePanel({ sessionId: props.sessionId, messageId: messageId, phase: "input", error: String(err && err.message || err), previous: panel.previous });
@@ -1244,22 +1253,15 @@ body.dsh-tavern-shell-active button[aria-label="新建会话"], body.dsh-tavern-
 			)), "dsh-tavern: Tavern workspace browser");
 			ctx.effect(() => slots.inject("details", () => slots.register(
 				{ name: "details", priority: -1 },
-				function (props) { return React.createElement(TavernStatusPanel, Object.assign({}, props, {
-					openDetails: function () { ctx.layout.openDetails(); }
-				})); }
+				function (props) { return React.createElement(TavernStatusPanel, props); }
 			)), "dsh-tavern: persistent status panel");
-			ctx.effect(function () {
-				const timers = [];
-				for (let i = 1; i <= 3; i++) timers.push(window.setTimeout(function () { ctx.layout.openDetails(); }, 1000 * i));
-				return function () { timers.forEach(function (t) { window.clearTimeout(t); }); };
-			});
 			ctx.effect(() => slots.inject("conversation.input.dock", () => slots.register(
 				{ name: "conversation.input.dock", id: "dsh-tavern-candidate-actions", order: -130, label: "候选项操作" },
 				function (props) { return React.createElement(CandidateDockActions, props); }
 			)), "dsh-tavern: candidate dock actions");
 			ctx.effect(() => slots.inject("conversation.input.dock", () => slots.register(
 				{ name: "conversation.input.dock", id: "dsh-tavern-question", order: -120, label: "下一步行动" },
-				function (props) { return React.createElement(CandidateQuestion, props); }
+				function (props) { return React.createElement(CandidateQuestion, Object.assign({}, props, { sessions: ctx.sessions })); }
 			)), "dsh-tavern: candidate question panel");
 			ctx.effect(() => slots.inject("conversation.input.dock", () => slots.register(
 				{ name: "conversation.input.dock", id: "dsh-tavern-candidate-guide", order: -115, label: "重新生成候选项" },

@@ -41,7 +41,11 @@ test('候选项 RPC 只返回一份 candidates', () => {
 
   assert.match(dispatch, /return \{ candidates: candidates \}/)
   assert.doesNotMatch(dispatch, /choices: candidates\.choices/)
-  assert.match(clientSource, /result\.candidates && result\.candidates\.choices/)
+  assert.match(clientSource, /readyCandidatePanel\(props\.sessionId, props\.messageId, result\.candidates\)/)
+  assert.match(clientSource, /查看候选 Agent 运行轨迹/)
+  assert.match(clientSource, /body\.dsh-tavern-shell-active button\[aria-haspopup="tree"\] \{ display: none !important; \}/)
+  assert.match(clientSource, /refreshSubagents\(panel\.sessionId\)/)
+  assert.match(clientSource, /openSubagent\(\{ parentSessionId: panel\.sessionId, childSessionId: panel\.traceSessionId, mode: "one-shot" \}\)/)
 })
 
 test('姿势结算限制为短 JSON 输出', () => {
@@ -66,6 +70,15 @@ test('达到输出 token 上限时不把截断内容当作成功', () => {
 
   assert.match(call, /finish\.kind === 'max-tokens'/)
   assert.match(call, /模型输出达到 token 上限/)
+})
+
+test('候选 Agent 不进入正文上下文注入和工具过滤', () => {
+  const lifecycle = between(serverSource, '// ---------- DSH 回合生命周期 ----------', '// ---------- 模型可选工具 ----------')
+
+  assert.match(lifecycle, /candidateAgentRunner\.owns\(sessionId\)/)
+  assert.match(lifecycle, /if \(candidateAgentRunner\.owns\(sessionId\)\) return next\(\)/)
+  assert.match(lifecycle, /if \(candidateAgentRunner\.owns\(sessionId\)\) return/)
+  assert.match(lifecycle, /if \(candidateAgentRunner\.owns\(agent\.session\.id\)\) return assembly/)
 })
 
 test('剧本正文产生明显推进后自然收束，不把剧本块当清单', () => {

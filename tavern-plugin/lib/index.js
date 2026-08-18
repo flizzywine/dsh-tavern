@@ -1,5 +1,6 @@
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { fileURLToPath } from 'node:url'
+import { createCandidateAgentRunner } from './candidate-agent-runner.js'
 import { createCandidateGenerator } from './domain/candidate-generation.js'
 import { createCardPreparation } from './domain/card-preparation.js'
 import { createContextPlanner } from './domain/context-planner.js'
@@ -13,8 +14,9 @@ import { prompt } from './prompt-catalog.js'
 export function apply(ctx) {
   const fs = ctx.get('fs')
   const llm = ctx.get('llm')
-  if (fs === undefined || llm === undefined) {
-    console.error('dsh-tavern: 缺少 fs 或 llm 服务')
+  const agentRegistry = ctx.get('agents')
+  if (fs === undefined || llm === undefined || agentRegistry === undefined) {
+    console.error('dsh-tavern: 缺少 fs、llm 或 agents 服务')
     return
   }
   const agentDefaultModel = ctx.get('agentDefaultModel')
@@ -143,74 +145,8 @@ export function apply(ctx) {
     if (out === '') throw new Error('模型返回为空')
     return out
   }
-  async function callModelWithTools(opts) {
-    const sel = modelSelection(opts.sessionId)
-    if (sel === null) throw new Error('没有可用的模型配置，请先在当前会话的模型选择器中选择模型')
-    const cfg = { provider: sel.provider, model: sel.model }
-    if (sel.reasoningEffort !== undefined) cfg.reasoningEffort = sel.reasoningEffort
-    if (typeof opts.temperature === 'number' && sel.provider !== 'openai-codex') cfg.temperature = opts.temperature
-    if (typeof opts.maxTokens === 'number') cfg.maxTokens = opts.maxTokens
-    const messages = opts.messages.slice()
-    const maxRounds = Number.isInteger(opts.maxRounds) ? opts.maxRounds : 10
-    const maxToolCalls = Number.isInteger(opts.maxToolCalls) ? opts.maxToolCalls : 8
-    let toolCallCount = 0
-    for (let round = 0; round < maxRounds; round++) {
-      const prepared = await llm.prepareCall(cfg)
-      const options = Object.assign({}, prepared.config, { messages, system: opts.system, tools: opts.tools })
-      let text = ''
-      let finish = null
-      const blocks = []
-      try {
-        for await (const chunk of prepared.stream(options)) {
-          if (chunk.type === 'text-delta') text += chunk.text
-          else if (chunk.type === 'block-end') blocks.push(chunk.block)
-          else if (chunk.type === 'finish') finish = chunk.reason
-        }
-      } catch (err) {
-        throw new Error('模型流失败: ' + (err && (err.message || err.code) || err))
-      }
-      if (finish !== null && finish !== undefined && (finish.kind === 'error' || finish.kind === 'aborted')) {
-        const failure = finish.failure
-        throw new Error('模型调用失败: ' + (failure !== undefined && failure !== null ? (failure.message || failure.code) : finish.kind))
-      }
-      if (finish !== null && finish !== undefined && finish.kind === 'max-tokens') throw new Error('模型输出达到 token 上限')
-      const replayBlocks = blocks.filter(function (block) {
-        return block !== null && typeof block === 'object' && (block.type === 'reasoning' || block.type === 'text' || block.type === 'tool-call')
-      })
-      const calls = replayBlocks.filter(function (block) { return block.type === 'tool-call' })
-      if (calls.length === 0) {
-        const out = text.trim()
-        if (out === '') throw new Error('模型返回为空')
-        return out
-      }
-      toolCallCount += calls.length
-      if (toolCallCount > maxToolCalls) throw new Error('候选项查阅剧本次数过多')
-      messages.push({
-        id: crypto.randomUUID(),
-        role: 'assistant',
-        content: replayBlocks,
-        source: { kind: 'model', provider: sel.provider, model: sel.model }
-      })
-      for (const call of calls) {
-        let resultText = ''
-        let isError = false
-        try {
-          resultText = str(await opts.onToolCall(call))
-        } catch (err) {
-          isError = true
-          resultText = '工具执行失败: ' + str(err && err.message || err)
-        }
-        messages.push({
-          id: crypto.randomUUID(),
-          role: 'user',
-          content: [{ type: 'tool-result', toolCallId: call.id, content: [{ type: 'text', text: resultText }], isError }],
-          source: { kind: 'tool', callId: call.id }
-        })
-      }
-    }
-    throw new Error('候选项查阅剧本轮次过多')
-  }
   const contextPlanner = createContextPlanner({ prompt: prompt, callModel: callModel, now: Date.now, logger: console })
+  const candidateAgentRunner = createCandidateAgentRunner({ agents: agentRegistry })
 
   // ---------- 角色卡 ----------
   function splitNovelText(source, requestedSize) {
@@ -532,15 +468,14 @@ export function apply(ctx) {
         return await view(current, card)
       }
     }
-    const chat = newChat(card, requestedMode || 'story')
-    if (chat.mode === 'script') {
-      const scriptStart = Math.max(0, Math.min(script.chunks.length - 1, Number(card.script_start) || 0))
-      chat.scriptState = scriptContinuity.start(script, scriptStart)
-    }
-    if (typeof sessionId === 'string') chat.sessionId = sessionId
-    const greeting = chat.mode === 'revision'
+    const greeting = requestedMode === 'revision'
       ? revisionGreeting(card.name)
       : renderCardText(card.first_mes, card)
+    const chat = newChat(card, requestedMode || 'story')
+    if (chat.mode === 'script') {
+      chat.scriptState = scriptContinuity.startAligned(script, greeting, card.script_start)
+    }
+    if (typeof sessionId === 'string') chat.sessionId = sessionId
     if (greeting !== '') chat.messages.push({ role: 'assistant', text: greeting, ts: Date.now(), greeting: true })
     await writeChat(chat)
     const idx = await readIndex()
@@ -645,8 +580,7 @@ export function apply(ctx) {
     },
     model: {
       selection: modelSelection,
-      call: callModel,
-      callWithTools: callModelWithTools
+      runCandidate: candidateAgentRunner.run
     },
     planner: contextPlanner,
     prompt: prompt,
@@ -1283,9 +1217,10 @@ export function apply(ctx) {
 
   // ---------- DSH 回合生命周期 ----------
   ctx.on('agent/pre-step', async function (payload, next) {
+    const sessionId = payload.agent && payload.agent.session ? payload.agent.session.id : ''
+    if (candidateAgentRunner.owns(sessionId)) return next()
     const decision = await next()
     if (decision.kind === 'reject' || Number(payload.step) !== 1) return decision
-    const sessionId = payload.agent && payload.agent.session ? payload.agent.session.id : ''
     const userText = payload.messages.filter(isTurnInput).map(contentText).filter(Boolean).join('\n').trim()
     const prepared = await turnOrchestrator.prepare({ sessionId, turn: payload.turn, userText })
     const contextMessage = {
@@ -1303,8 +1238,10 @@ export function apply(ctx) {
   ctx.on('agent/turn-stopping', async function (payload) {
     const session = payload.agent && payload.agent.session
     if (session === undefined) return
+    const sessionId = session.id
+    if (candidateAgentRunner.owns(sessionId)) return
     await turnOrchestrator.finalize({
-      sessionId: session.id,
+      sessionId,
       turn: payload.turn,
       userText: userTextForTurn(session, payload.turn),
       assistantText: assistantTextForTurn(session, payload.turn)
@@ -1313,6 +1250,7 @@ export function apply(ctx) {
 
   ctx.on('session/event', function (session, event) {
     if (!event || event.type !== 'turn/end') return
+    if (candidateAgentRunner.owns(session.id)) return
     const reason = event.data && event.data.reason ? event.data.reason.kind : ''
     if (reason === 'completed' || reason === 'max-tokens') return
     void turnOrchestrator.discard({ sessionId: session.id, turn: event.data && event.data.turn })
@@ -1323,6 +1261,7 @@ export function apply(ctx) {
     const assembly = await next()
     const agent = context && context.agent
     if (agent === undefined || agent.session === undefined) return assembly
+    if (candidateAgentRunner.owns(agent.session.id)) return assembly
     const visible = new Set(await turnOrchestrator.visibleTools(agent.session.id))
     assembly.tools = assembly.tools.filter(function (schema) { return !tavernToolNames.has(schema.name) || visible.has(schema.name) })
     return assembly

@@ -18,6 +18,44 @@ function chunksOf(script) {
   return script && Array.isArray(script.chunks) ? script.chunks : []
 }
 
+function normalizedMatchText(value) {
+  return str(value).toLowerCase().replace(/[\s\p{P}\p{S}]+/gu, '')
+}
+
+function openingCursor(script, opening) {
+  const chunks = chunksOf(script)
+  const ending = normalizedMatchText(opening).slice(-180)
+  if (chunks.length === 0 || ending.length < 3) return 0
+
+  const weights = new Map()
+  let totalWeight = 0
+  for (let index = 0; index <= ending.length - 3; index++) {
+    const gram = ending.slice(index, index + 3)
+    const weight = Math.pow((index + 3) / ending.length, 2)
+    const previous = weights.get(gram) || 0
+    if (weight > previous) {
+      weights.set(gram, weight)
+      totalWeight += weight - previous
+    }
+  }
+
+  let best = { cursor: 0, hits: 0, score: 0 }
+  for (let cursor = 0; cursor < chunks.length; cursor++) {
+    const text = normalizedMatchText(chunks[cursor].text)
+    let hits = 0
+    let matchedWeight = 0
+    for (const [gram, weight] of weights) {
+      if (!text.includes(gram)) continue
+      hits++
+      matchedWeight += weight
+    }
+    const score = totalWeight > 0 ? matchedWeight / totalWeight : 0
+    if (score > best.score || (score === best.score && hits > best.hits)) best = { cursor, hits, score }
+  }
+
+  return best.hits >= 3 && best.score >= 0.08 ? best.cursor : 0
+}
+
 function normalizedState(script, source) {
   const chunks = chunksOf(script)
   const total = chunks.length
@@ -125,6 +163,12 @@ export function createScriptContinuity() {
       lastReference: null,
       scriptVersion: scriptVersion(script)
     })
+  }
+
+  function startAligned(script, opening, explicitCursor) {
+    const hasExplicitCursor = explicitCursor !== undefined && explicitCursor !== null && str(explicitCursor).trim() !== '' && Number.isFinite(Number(explicitCursor))
+    const cursor = hasExplicitCursor ? Number(explicitCursor) : openingCursor(script, opening)
+    return start(script, cursor)
   }
 
   function transition(input) {
@@ -257,5 +301,5 @@ export function createScriptContinuity() {
     throw new Error('未知剧本读取请求: ' + str(request.kind))
   }
 
-  return Object.freeze({ start, transition, inspect })
+  return Object.freeze({ start, startAligned, transition, inspect })
 }

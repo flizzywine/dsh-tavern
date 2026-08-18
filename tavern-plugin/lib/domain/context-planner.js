@@ -151,9 +151,16 @@ export function createContextPlanner(options = {}) {
     if (selected.length > 0) {
       sections.push({ kind: 'world-book', required: false, text: '【世界设定】\n' + selected.map(function (entry) { return renderCardText('[' + entry.keys + '] ' + entry.text, input.card) }).join('\n') })
     }
-    if (str(input.chat.posture) !== '') sections.push({ kind: 'posture', required: true, text: '【现场 · 主要人物状态（每轮结算更新，务必与之一致）】\n' + input.chat.posture })
     const guides = Array.isArray(input.chat.guides) ? input.chat.guides.filter(function (item) { return item !== null && typeof item === 'object' && str(item.text).trim() !== '' }) : []
-    if (guides.length > 0) sections.push({ kind: 'guide', required: true, text: '【用户指导 Guide · 优先遵循】\n' + guides.map(function (item, index) { return (index + 1) + '. ' + str(item.text).trim() }).join('\n') })
+    const guideSection = guides.length > 0 ? { kind: 'guide', required: true, text: '【用户指导 Guide · 优先遵循】\n' + guides.map(function (item, index) { return (index + 1) + '. ' + str(item.text).trim() }).join('\n') } : null
+    const postureSection = str(input.chat.posture) !== '' ? { kind: 'posture', required: true, text: '【现场 · 主要人物状态（每轮结算更新，务必与之一致）】\n' + input.chat.posture } : null
+    if (input.stableFirst === true) {
+      if (guideSection !== null) sections.push(guideSection)
+      if (postureSection !== null) sections.push(postureSection)
+    } else {
+      if (postureSection !== null) sections.push(postureSection)
+      if (guideSection !== null) sections.push(guideSection)
+    }
     if (input.includeName !== false) sections.push({ kind: 'card', required: true, text: '【故事设定 · 人物卡】\n名字: ' + str(input.card.name) })
     if (input.includeDetails === true) {
       if (str(input.card.description) !== '') sections.push({ kind: 'card', required: false, text: '设定: ' + renderCardText(input.card.description, input.card) })
@@ -190,9 +197,11 @@ export function createContextPlanner(options = {}) {
         text: prompt('story')
       }]
       const hasStoryTurn = (input.chat.messages || []).some(function (message) { return message !== null && typeof message === 'object' && message.greeting !== true })
-      sections.push.apply(sections, cardSections({ card: input.card, chat: input.chat, worldBookIds: selectedIds, includeDetails: !hasStoryTurn, includeInstructions: true }))
+      sections.push.apply(sections, cardSections({ card: input.card, chat: input.chat, worldBookIds: selectedIds, includeName: false, includeDetails: !hasStoryTurn, includeInstructions: true }))
       if (input.scriptReference !== null && input.scriptReference !== undefined && str(input.scriptReference.text) !== '') {
-        sections.push({ kind: 'script', required: true, text: '【本轮剧本参考 · 仅本轮注入一次】\n' + input.scriptReference.text })
+        const order = Number(input.scriptReference.order)
+        const position = Number.isInteger(order) && order >= 0 ? ' · 第 ' + (order + 1) + ' 块' : ''
+        sections.push({ kind: 'script', required: true, text: '【本轮剧本参考' + position + '】\n' + input.scriptReference.text })
         sections.push({ kind: 'script', required: true, text: prompt('script-story') })
       }
       return resultOf(sections, warnings, hasStoryTurn ? [{ kind: 'card-details', reason: '仅首轮注入完整人物卡细节' }] : [])
@@ -200,7 +209,7 @@ export function createContextPlanner(options = {}) {
 
     if (input.purpose === 'candidate') {
       const sections = [{ kind: 'candidate-task', required: true, text: str(input.task) }]
-      sections.push.apply(sections, cardSections({ card: input.card, chat: input.chat, worldBookIds: [], includeName: false, includeDetails: false, includeInstructions: false }))
+      sections.push.apply(sections, cardSections({ card: input.card, chat: input.chat, worldBookIds: [], includeName: false, includeDetails: false, includeInstructions: false, stableFirst: true }))
       if (input.scriptWindow !== null && input.scriptWindow !== undefined) {
         const window = input.scriptWindow
         sections.push({

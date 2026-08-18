@@ -5,6 +5,7 @@
   "type": "module",
   "main": "lib/index.js",
   "dependencies": {
+    "@deepseek-ai/dsh-subagent": "0.1.0-rc.7",
     "@deepseek-ai/dsh-tools": "0.1.0-rc.6"
   },
   "exports": {

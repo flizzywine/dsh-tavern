@@ -108,43 +108,40 @@ function validatedChoices(source, scriptMode) {
 }
 
 function buildMessages(chat, selection, now) {
-  const source = (chat.messages || []).slice(-12)
+  const source = (chat.messages || []).filter(function (message) {
+    return message !== null && typeof message === 'object' && message.role === 'assistant' && str(message.text) !== ''
+  }).slice(-6)
   const messages = []
   for (let index = 0; index < source.length; index++) {
     const message = source[index]
-    if (message === null || typeof message !== 'object' || str(message.text) === '') continue
     messages.push({
       id: 'm' + index + '-' + now().toString(36),
-      role: message.role === 'assistant' ? 'assistant' : 'user',
+      role: 'assistant',
       content: [{ type: 'text', text: str(message.text) }],
-      source: message.role === 'assistant'
-        ? { kind: 'model', provider: selection.provider, model: selection.model }
-        : { kind: 'plugin', plugin: 'dsh-tavern' }
+      source: { kind: 'model', provider: selection.provider, model: selection.model }
     })
   }
   return messages
 }
 
-const SCRIPT_RESEARCH_TOOL = Object.freeze({
+const SCRIPT_READ_TOOL = Object.freeze({
   name: 'tavern_read_script',
-  description: '用 next 或 prev 逐块阅读，或用 search 随机检索剧本；用 point 把当前阅读位置选为下一轮正式游标。所有操作都先暂存，候选生成成功后才提交。',
+  description: '按 1 起始块号直接读取任意剧本块，或按关键词检索整本剧本。候选成功后，最后一次成功读取的位置自动成为下一轮游标；总块数加 1 表示剧本结束。position 与 query 必须且只能提供一个。',
   parameters: {
     type: 'object',
     properties: {
-      action: { type: 'string', enum: ['next', 'prev', 'search', 'point'], description: 'next 后一块；prev 前一块；search 按关键词随机检索；point 选择当前阅读位置。' },
-      query: { type: 'string', description: 'search 时必填的关键词；其他动作不需要。' }
+      position: { type: 'integer', minimum: 1, description: '要读取的 1 起始剧本块号；总块数加 1 表示剧本结束。' },
+      query: { type: 'string', description: '要在整本剧本中检索的关键词。' }
     },
-    required: ['action'],
     additionalProperties: false
   }
 })
 
-function scriptResearchAttempt(script, scriptWindow) {
+function scriptResearchAttempt(script) {
   const total = script.chunks.length
-  let position = Math.max(0, Math.min(total, Number(scriptWindow.cursor) || 0))
-  let pointed = null
+  let lastRead = null
 
-  function positionResult(extra) {
+  function positionResult(position, extra) {
     if (position >= total) {
       return Object.assign({
         title: str(script.title), totalChunks: total, position: total + 1,
@@ -159,40 +156,33 @@ function scriptResearchAttempt(script, scriptWindow) {
   }
 
   async function onToolCall(call) {
-    if (call === null || typeof call !== 'object' || call.name !== SCRIPT_RESEARCH_TOOL.name) throw new Error('未知候选项研究工具')
+    if (call === null || typeof call !== 'object' || call.name !== SCRIPT_READ_TOOL.name) throw new Error('未知候选项研究工具')
     const args = call.arguments !== null && typeof call.arguments === 'object'
       ? call.arguments
       : parseJsonLenient(call.arguments)
-    if (args.action === 'next') {
-      if (position < total) position++
-      return JSON.stringify(positionResult())
-    }
-    if (args.action === 'prev') {
-      if (position > 0) position--
-      return JSON.stringify(positionResult(position === 0 ? { atStart: true } : null))
-    }
-    if (args.action === 'search') {
-      const query = str(args.query).trim()
-      if (query === '') throw new Error('候选项随机检索必须提供关键词')
+    const query = str(args.query).trim()
+    const hasQuery = query !== ''
+    const hasPosition = args.position !== undefined
+    if (hasQuery === hasPosition) throw new Error('读取剧本必须且只能提供 position 或 query')
+    if (hasQuery) {
       const needle = query.toLocaleLowerCase()
       const found = script.chunks.findIndex(function (chunk) { return str(chunk.text).toLocaleLowerCase().includes(needle) })
       if (found < 0) {
         return JSON.stringify({
-          title: str(script.title), totalChunks: total, position: position >= total ? total + 1 : position + 1,
-          ended: position >= total, notFound: true, message: '没有找到包含该关键词的剧本块。', chunks: []
+          title: str(script.title), totalChunks: total,
+          ended: false, notFound: true, message: '没有找到包含该关键词的剧本块。', chunks: []
         })
       }
-      position = found
-      return JSON.stringify(positionResult({ matchedQuery: query }))
+      lastRead = found
+      return JSON.stringify(positionResult(found, { matchedQuery: query }))
     }
-    if (args.action === 'point') {
-      pointed = position
-      return JSON.stringify(positionResult({ pointedAt: position >= total ? null : position + 1, pointedToEnd: position >= total }))
-    }
-    throw new Error('候选项剧本研究动作只能是 next、prev、search 或 point')
+    const requested = Number(args.position)
+    if (!Number.isInteger(requested) || requested < 1 || requested > total + 1) throw new Error('读取剧本的 position 必须是 1 到 ' + (total + 1) + ' 的整数')
+    lastRead = requested - 1
+    return JSON.stringify(positionResult(lastRead))
   }
 
-  return { onToolCall, pointedPosition: function () { return pointed } }
+  return { onToolCall, lastReadPosition: function () { return lastRead } }
 }
 
 export function createCandidateGenerator(options) {
@@ -204,7 +194,6 @@ export function createCandidateGenerator(options) {
   const planner = options.planner
   const scripts = options.scripts
   const waitUntilSettled = typeof options.waitUntilSettled === 'function' ? options.waitUntilSettled : async function () {}
-  const sleep = typeof options.sleep === 'function' ? options.sleep : function (milliseconds) { return new Promise(function (resolve) { setTimeout(resolve, milliseconds) }) }
   const now = typeof options.now === 'function' ? options.now : Date.now
   const logger = options.logger || console
 
@@ -237,61 +226,67 @@ export function createCandidateGenerator(options) {
       content: [{ type: 'text', text: request }],
       source: { kind: 'plugin', plugin: 'dsh-tavern' }
     }])
-    const temperatures = [0.8, 1.0, 1.1]
-    let lastError = null
-    let lastRaw = ''
-    for (let attempt = 0; attempt < 3; attempt++) {
-      if (attempt > 0) await sleep(800)
-      try {
-        const research = scriptMode ? scriptResearchAttempt(script, scriptWindow) : null
-        const callOptions = {
-          sessionId: input.sessionId,
-          temperature: temperatures[attempt],
-          maxTokens: 2400,
-          system: context.text,
-          messages
-        }
-        const text = scriptMode
-          ? await model.callWithTools(Object.assign({}, callOptions, {
-              tools: [SCRIPT_RESEARCH_TOOL],
-              onToolCall: research.onToolCall,
-              maxToolCalls: 8,
-              maxRounds: 10
-            }))
-          : await model.call(callOptions)
-        lastRaw = text
-        const decision = parsedDecision(text)
-        const choices = validatedChoices(decision.choices, scriptMode)
-        const latest = await store.readChat(chat.id)
-        if (latest === undefined) throw new Error('聊天不存在: ' + chat.id)
-        let scriptProjection
-        if (scriptMode) {
-          const pointed = research.pointedPosition()
-          if (pointed === script.chunks.length) {
-            latest.scriptState = scripts.transition({ script, state: latest.scriptState, event: { kind: 'end' } }).state
-          } else if (Number.isInteger(pointed) && pointed >= 0) {
-            latest.scriptState = scripts.transition({ script, state: latest.scriptState, event: { kind: 'focus', cursor: pointed + 1 } }).state
-          }
-          const progress = scripts.inspect({ script, state: latest.scriptState, request: { kind: 'progress' } })
-          scriptProjection = { cursor: progress.cursor, ended: progress.cursor >= progress.totalChunks }
-        }
-        latest.candidates = {
-          messageId: str(input.messageId),
-          choices,
-          generatedAt: now(),
-          script: scriptProjection
-        }
-        await store.writeChat(latest)
-        return { messageId: latest.candidates.messageId, choices: latest.candidates.choices, generatedAt: latest.candidates.generatedAt }
-      } catch (error) {
-        lastError = error
-        if (logger && typeof logger.error === 'function') {
-          logger.error('dsh-tavern: 候选项生成第 ' + (attempt + 1) + ' 次失败:', str(error && error.message || error))
-          if (lastRaw !== '') logger.error('dsh-tavern: 候选项原始输出:', lastRaw.slice(0, 1200))
-        }
-      }
+    const research = scriptMode ? scriptResearchAttempt(script) : null
+    const callOptions = {
+      sessionId: input.sessionId,
+      selection,
+      temperature: 0.8,
+      maxTokens: 4000,
+      system: context.text,
+      messages
     }
-    throw lastError || new Error('候选项生成失败')
+    let run
+    try {
+      run = await model.runCandidate(Object.assign({}, callOptions, scriptMode ? {
+        tools: [SCRIPT_READ_TOOL],
+        onToolCall: research.onToolCall,
+        maxToolCalls: 8
+      } : { tools: [] }))
+    } catch (error) {
+      if (logger && typeof logger.error === 'function') logger.error('dsh-tavern: 候选项生成失败:', str(error && error.message || error))
+      throw error
+    }
+    const text = run.text
+    let choices
+    try {
+      choices = validatedChoices(parsedDecision(text).choices, scriptMode)
+    } catch (error) {
+      if (logger && typeof logger.error === 'function') {
+        logger.error('dsh-tavern: 候选项输出无效:', str(error && error.message || error))
+        logger.error('dsh-tavern: 候选项原始输出:', str(text).slice(0, 1200))
+      }
+      throw error
+    }
+    const latest = await store.readChat(chat.id)
+    if (latest === undefined) throw new Error('聊天不存在: ' + chat.id)
+    let scriptProjection
+    if (scriptMode) {
+      const lastRead = research.lastReadPosition()
+      if (lastRead === script.chunks.length) {
+        latest.scriptState = scripts.transition({ script, state: latest.scriptState, event: { kind: 'end' } }).state
+      } else if (Number.isInteger(lastRead) && lastRead >= 0) {
+        latest.scriptState = scripts.transition({ script, state: latest.scriptState, event: { kind: 'focus', cursor: lastRead + 1 } }).state
+      }
+      const progress = scripts.inspect({ script, state: latest.scriptState, request: { kind: 'progress' } })
+      scriptProjection = { cursor: progress.cursor, ended: progress.cursor >= progress.totalChunks }
+    }
+    const traceSessionId = str(run.traceSessionId)
+    latest.candidates = {
+      messageId: str(input.messageId),
+      choices,
+      generatedAt: now(),
+      script: scriptProjection,
+      traceSessionId,
+      traceSessionIds: traceSessionId === '' ? [] : [traceSessionId]
+    }
+    await store.writeChat(latest)
+    return {
+      messageId: latest.candidates.messageId,
+      choices: latest.candidates.choices,
+      generatedAt: latest.candidates.generatedAt,
+      traceSessionId: latest.candidates.traceSessionId,
+      traceSessionIds: latest.candidates.traceSessionIds
+    }
   }
 
   async function find(input) {
@@ -302,7 +297,9 @@ export function createCandidateGenerator(options) {
       return { type: item.type === 'scene' || item.type === 'scene2' ? 'scene' : 'action', text: str(item.text).trim() }
     }).filter(function (item) { return item.text !== '' }).slice(0, limit) : []
     if (choices.length === 0) return null
-    return { messageId: str(chat.candidates.messageId), choices, generatedAt: Number(chat.candidates.generatedAt) || 0 }
+    const traceSessionIds = Array.isArray(chat.candidates.traceSessionIds) ? chat.candidates.traceSessionIds.map(str).filter(function (id) { return id !== '' }) : []
+    const traceSessionId = str(chat.candidates.traceSessionId) || traceSessionIds[traceSessionIds.length - 1] || ''
+    return { messageId: str(chat.candidates.messageId), choices, generatedAt: Number(chat.candidates.generatedAt) || 0, traceSessionId, traceSessionIds }
   }
 
   return Object.freeze({ generate, find })

@@ -51,7 +51,7 @@ test('正文首轮只选择必要世界书并完整替换人物卡模板变量',
     userText: '去钟楼看看',
     sessionId: 'session-1',
     nativeTurn: 2,
-    scriptReference: { text: '两人沿石阶进入钟楼。' }
+    scriptReference: { order: 7, text: '两人沿石阶进入钟楼。' }
   })
 
   assert.equal(calls.length, 1)
@@ -62,7 +62,8 @@ test('正文首轮只选择必要世界书并完整替换人物卡模板变量',
   assert.match(result.text, /阿芙拉 是银发佣兵/)
   assert.match(result.text, /你 在旅店遇见 阿芙拉/)
   assert.doesNotMatch(result.text, /\{\{char\}\}|\{\{user\}\}/)
-  assert.match(result.text, /本轮剧本参考/)
+  assert.match(result.text, /本轮剧本参考 · 第 8 块/)
+  assert.doesNotMatch(result.text, /故事设定 · 人物卡|名字: 阿芙拉/)
   assert.match(result.text, /Guide ＞ 剧本 ＞ 世界一致性 ＞ 本轮玩家指令/)
   assert.doesNotMatch(result.text, /以玩家指令为准|否定、撤销或暗中改写玩家行动/)
   assert.match(result.text, /让故事自然贴近剧本/)
@@ -112,6 +113,9 @@ test('候选项只注入任务、姿势、Guide 和常驻世界书，不注入�
   assert.match(result.text, /黑麦镇常年下雨/)
   assert.doesNotMatch(result.text, /钟楼藏着失踪商队的线索/)
   assert.equal(result.audit.included.some((item) => item.kind === 'card'), false)
+  assert.ok(result.text.indexOf('候选任务') < result.text.indexOf('黑麦镇常年下雨'))
+  assert.ok(result.text.indexOf('黑麦镇常年下雨') < result.text.indexOf('多写动作'))
+  assert.ok(result.text.indexOf('多写动作') < result.text.indexOf('右手按着剑柄'))
 })
 
 test('世界书模型失败时用关键词确定性回退，不阻断正文规划', async () => {

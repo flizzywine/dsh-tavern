@@ -15,6 +15,27 @@ function script(version = 100) {
   }
 }
 
+test('新剧本会话根据开场白末尾对齐当前剧本块', () => {
+  const continuity = createScriptContinuity()
+  const source = {
+    title: '开场对齐测试',
+    importedAt: 100,
+    chunks: [
+      { id: 'chunk-00001', order: 0, text: '屋里十分杂乱，父亲开始帮女儿收拾房间。' },
+      { id: 'chunk-00002', order: 1, text: '孩子忽然哭了，女儿抱起孩子开始喂奶。' },
+      { id: 'chunk-00003', order: 2, text: '女儿说父亲一个人住不容易，不如搬过来互相照应。' },
+      { id: 'chunk-00004', order: 3, text: '父亲犹豫之后，暂时没有答应搬家的请求。' }
+    ]
+  }
+  const opening = '父亲已经帮女儿收拾好了杂乱的房间。孩子哭起来后，她抱着孩子喂奶，随后抬眼说道：“爸，你一个人住也不容易，不如搬过来吧，咱俩也好有个照应。”'
+
+  const aligned = continuity.startAligned(source, opening)
+  assert.equal(continuity.inspect({ script: source, state: aligned, request: { kind: 'progress' } }).cursor, 2)
+
+  const explicit = continuity.startAligned(source, opening, 0)
+  assert.equal(continuity.inspect({ script: source, state: explicit, request: { kind: 'progress' } }).cursor, 0)
+})
+
 test('剧本回合准备与正文提交都不强制推进游标', () => {
   const continuity = createScriptContinuity()
   let state = continuity.start(script(), 1)

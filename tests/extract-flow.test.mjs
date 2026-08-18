@@ -34,3 +34,18 @@ test('Tavern 只接管会话区域，保留 DSH 原生设置与模型配置入�
   assert.match(clientSource, /slots\.inject\("sidebar\.workspaces"/)
   assert.doesNotMatch(clientSource, /slots\.inject\("sidebar",/)
 })
+
+test('酒馆会话就绪后通过 DSH 原生布局打开状态栏，不再依赖定时重试', () => {
+  const sidebar = between(clientSource, 'function TavernSidebar', 'function RevisionFieldsPanel')
+
+  assert.match(sidebar, /readyTavernSession/)
+  assert.match(sidebar, /summaries\[current\]\.blank === false/)
+  assert.match(sidebar, /history\.some\(function \(entry\) \{ return entry\.sessionId === current; \}\)/)
+  assert.match(sidebar, /props\.openDetails\(\)/)
+  assert.doesNotMatch(clientSource, /ensureDetailsOpen|setTimeout\(props\.openDetails|1000 \* i/)
+})
+
+test('剧本预览只显示当前召回和后续块', () => {
+  assert.match(clientSource, /index === 0 \? "当前召回" : "后续"/)
+  assert.doesNotMatch(clientSource, /上一块（已召回）|当前待召回|scriptPreview\.previous/)
+})

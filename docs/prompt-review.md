@@ -15,7 +15,7 @@
 - 姿势结算、卡片 JSON、工具描述和候选任务已精简；未使用返回字段、双份候选输出与死状态已删除。
 - 人物卡修改改为结构化 `tavern_update_card`：普通字段使用 `fields`，世界书使用 `worldBook` 逐条操作，不再把 JSON 包进字符串参数。
 - `nativeCommits` 不按原报告建议裁剪：它继续服务回退与生命周期重复通知的幂等提交。
-- 剧本候选只注入当前块，并可在独立上下文中调用有次数上限的 `tavern_read_script`：`next`、`prev` 每次移动一块，`search` 按关键词随机定位临时阅读位置，`point` 选择当前位置。工具状态与推理不进入正文历史，`point` 只在候选结果校验成功后提交；候选 JSON 不再携带 `scriptCursor`。
+- 剧本候选只注入当前块，并可在独立上下文中调用有次数上限的 `tavern_read_script`，按块号直接读取或按关键词检索整本剧本。候选成功后，最后一次成功读取的位置自动成为下一轮游标；工具状态与推理不进入正文历史，生成失败不提交游标，候选 JSON 也不携带 `scriptCursor`。
 
 > 以下保留审查基线上的原始问题、建议与采纳记录；位置和“现状”描述均指修改前的 `6dbe54e`。
 
@@ -276,7 +276,7 @@ IO-1 ~ IO-7
 1. `npm test`
 2. 启动 `dsh-tavern`，逐模式 smoke：
    - story：首轮正文、候选项 5 个、姿态结算
-   - script：候选项 1 个、`next / prev / search / point` 剧本研究、正文召回
+   - script：候选项 1 个、按块号或关键词读取剧本、最后读取位置自动成为游标、正文召回
    - revision：讨论不落盘、确认后落盘
    - extract：素材注入、草稿更新、保存
    - regenBody、rollbackTurn 各一次
