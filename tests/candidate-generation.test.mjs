@@ -3,6 +3,7 @@ import test from 'node:test'
 
 import { createCandidateGenerator } from '../tavern-plugin/lib/domain/candidate-generation.js'
 import { createScriptContinuity } from '../tavern-plugin/lib/domain/script-continuity.js'
+import { prompt } from '../tavern-plugin/lib/prompt-catalog.js'
 
 const storyChoices = [
   { type: 'action', text: '走到窗边仔细观察街上的动静' },
@@ -23,15 +24,19 @@ function script() {
   }
 }
 
-function harness({ mode = 'story', outputs, initialCandidates }) {
+function harness({ mode = 'story', outputs, initialCandidates, messages }) {
   const continuity = createScriptContinuity()
   let chat = {
-    id: 'chat-1', cardId: 'card-1', mode, messages: [{ role: 'assistant', text: '雨水敲着窗。' }],
+    id: 'chat-1', cardId: 'card-1', mode, messages: messages || [{ role: 'assistant', text: '雨水敲着窗。' }],
     scriptState: mode === 'script' ? continuity.start(script(), 0) : null
   }
   if (initialCandidates !== undefined) chat.candidates = structuredClone(initialCandidates)
   const card = { id: 'card-1', name: '阿芙拉', description: '银发佣兵', tags: [] }
   let modelCalls = 0
+  const modelRequests = []
+  function remember(options) {
+    modelRequests.push({ system: options.system, messages: structuredClone(options.messages), tools: structuredClone(options.tools || []) })
+  }
   const store = {
     async chatForSession() { return structuredClone(chat) },
     async readChat() { return structuredClone(chat) },
@@ -41,19 +46,19 @@ function harness({ mode = 'story', outputs, initialCandidates }) {
   }
   const model = {
     selection() { return { provider: 'test', model: 'scripted' } },
-    async call() { return outputs[Math.min(modelCalls++, outputs.length - 1)] },
-    async callWithTool() { return outputs[Math.min(modelCalls++, outputs.length - 1)] }
+    async call(options) { remember(options); return outputs[Math.min(modelCalls++, outputs.length - 1)] },
+    async callWithTool(options) { remember(options); return outputs[Math.min(modelCalls++, outputs.length - 1)] }
   }
   const plannerCalls = []
   const planner = {
     async plan(input) { plannerCalls.push(input); return { text: '候选项上下文', audit: { included: [], omitted: [], warnings: [], totalChars: 7 } } }
   }
   const candidates = createCandidateGenerator({
-    store, model, planner, scripts: continuity,
+    store, model, planner, prompt, scripts: continuity,
     waitUntilSettled: async () => {}, sleep: async () => {}, now: () => 123456,
     logger: { error() {} }
   })
-  return { candidates, continuity, plannerCalls, modelCalls: () => modelCalls, chat: () => structuredClone(chat) }
+  return { candidates, continuity, plannerCalls, modelRequests, modelCalls: () => modelCalls, chat: () => structuredClone(chat) }
 }
 
 test('自由故事只保存完整的 4 action + 1 scene，失败输出会在 module 内重试', async () => {
@@ -67,6 +72,7 @@ test('自由故事只保存完整的 4 action + 1 scene，失败输出会在 mod
   assert.equal(result.choices.filter((item) => item.type === 'action').length, 4)
   assert.equal(result.choices.filter((item) => item.type === 'scene').length, 1)
   assert.equal(run.plannerCalls[0].purpose, 'candidate')
+  assert.match(run.plannerCalls[0].task, /剧情候选项生成器/)
 
   const saved = await run.candidates.find({ sessionId: 'session-1', messageId: 'message-1' })
   assert.deepEqual(saved, result)
@@ -82,6 +88,7 @@ test('剧本候选恰好一项，并由剧本连续性 module 钳制下一轮游
 
   const result = await run.candidates.generate({ sessionId: 'session-1', messageId: 'message-2' })
   assert.equal(result.choices.length, 1)
+  assert.match(run.plannerCalls[0].task, /剧本候选项生成器/)
   const savedChat = run.chat()
   const progress = run.continuity.inspect({ script: script(), state: savedChat.scriptState, request: { kind: 'progress' } })
   assert.equal(progress.cursor, 2)
@@ -102,4 +109,19 @@ test('三次输出都无效时不覆盖旧候选，也不改变剧本游标', as
 test('卡片模式拒绝生成候选项', async () => {
   const run = harness({ mode: 'revision', outputs: ['{}'] })
   await assert.rejects(() => run.candidates.generate({ sessionId: 'session-1', messageId: 'message-4' }), /卡片模式不生成剧情候选项/)
+})
+
+test('候选项只读取最近 12 条剧情消息', async () => {
+  const messages = Array.from({ length: 20 }, (_, index) => ({
+    role: index % 2 === 0 ? 'user' : 'assistant',
+    text: 'history-' + index
+  }))
+  const run = harness({ outputs: [JSON.stringify({ choices: storyChoices })], messages })
+  await run.candidates.generate({ sessionId: 'session-1', messageId: 'message-window' })
+
+  const sent = run.modelRequests[0].messages
+  assert.equal(sent.length, 13)
+  assert.doesNotMatch(JSON.stringify(sent), /history-7/)
+  assert.match(JSON.stringify(sent), /history-8/)
+  assert.match(JSON.stringify(sent), /history-19/)
 })

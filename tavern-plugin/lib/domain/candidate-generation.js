@@ -117,7 +117,7 @@ function validatedChoices(source, scriptMode) {
 }
 
 function buildMessages(chat, selection, now) {
-  const source = (chat.messages || []).slice(-30)
+  const source = (chat.messages || []).slice(-12)
   const messages = []
   for (let index = 0; index < source.length; index++) {
     const message = source[index]
@@ -136,6 +136,8 @@ function buildMessages(chat, selection, now) {
 
 export function createCandidateGenerator(options) {
   if (options === null || typeof options !== 'object') throw new Error('缺少候选项生成依赖')
+  if (typeof options.prompt !== 'function') throw new Error('缺少提示词目录')
+  const prompt = options.prompt
   const store = options.store
   const model = options.model
   const planner = options.planner
@@ -163,13 +165,11 @@ export function createCandidateGenerator(options) {
       if (script === undefined || !Array.isArray(script.chunks) || script.chunks.length === 0) throw new Error('剧本文件不存在，请重新为人物卡导入剧本')
       scriptWindow = scripts.inspect({ script, state: chat.scriptState, request: { kind: 'choice' } })
     }
-    const task = scriptMode
-      ? '你是剧本候选项生成器，只输出 JSON：{"choices":[{"type":"action|scene","text":"选项内容"}],"scriptCursor":1}。恰好生成 1 个候选；action 是人物行为，scene 是场景变化；text 限 10~80 字，不预写行动结果。阅读人物卡、最近剧情与剧本块，必要时用 tavern_script_peek 查看前后文；候选应自然承接最近正文，不重复已发生内容，并推动剧情进入下一处关键场面、冲突或转折。scriptCursor 填下一轮正文应重点参考的实际块号，可保持、前移或后移。'
-      : '你是剧情候选项生成器，只输出 JSON：{"choices":[{"type":"action|scene","text":"选项内容"}]}。恰好生成 5 个候选：4 个各有侧重、彼此不重复的 action（人物行为），1 个 scene（场景变化）。每项 10~80 字，不预写行动结果。候选必须自然承接最近正文，不跳到无关动作，不重复已发生内容。'
+    const task = prompt(scriptMode ? 'candidate-script' : 'candidate-story')
     const context = await planner.plan({ purpose: 'candidate', card, chat, task, scriptWindow })
     const guidance = str(input.guidance).trim().slice(0, 600)
     let request = '请按上述规则生成候选项。'
-    if (guidance !== '') request += '\n\n【用户额外要求】\n' + guidance + '\n\n额外要求不改变 ' + (scriptMode ? 1 : 5) + ' 个候选及类型约束。'
+    if (guidance !== '') request += '\n\n【用户额外要求】\n' + guidance + '\n\n额外要求不改变 ' + (scriptMode ? '剧本走向、' : '') + (scriptMode ? 1 : 5) + ' 个候选及类型约束。'
     const messages = buildMessages(chat, selection, now).concat([{
       id: 'choices-' + now().toString(36),
       role: 'user',

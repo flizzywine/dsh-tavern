@@ -4,6 +4,7 @@ import { createCandidateGenerator } from './domain/candidate-generation.js'
 import { createCardPreparation } from './domain/card-preparation.js'
 import { createContextPlanner } from './domain/context-planner.js'
 import { createScriptContinuity } from './domain/script-continuity.js'
+import { prompt } from './prompt-catalog.js'
 
 // dsh-tavern 宿主插件（profile 组合行）
 // RPC：同源 HTTP 路由 /api/dsh-tavern/<method>（客户端 fetch 调用）
@@ -199,7 +200,7 @@ export function apply(ctx) {
     throw new Error('工具调用轮次过多')
   }
 
-  const contextPlanner = createContextPlanner({ callModel: callModel, now: Date.now, logger: console })
+  const contextPlanner = createContextPlanner({ prompt: prompt, callModel: callModel, now: Date.now, logger: console })
 
   // ---------- 角色卡 ----------
   function splitNovelText(source, requestedSize) {
@@ -363,10 +364,10 @@ export function apply(ctx) {
     const idx = await readIndex()
     return (idx.cards || []).map(function (item) { return { id: item.id, name: item.name, script: item.script || null } })
   }
-  async function updateCard(cardId, patch, revision) {
+  async function updateCard(cardId, patch, revision, worldBookOperations) {
     const card = await readCard(cardId)
     if (card === undefined) throw new Error('角色卡不存在: ' + cardId)
-    const change = cardPreparation.update({ kind: 'card', card: card, patch: patch, revision: revision })
+    const change = cardPreparation.update({ kind: 'card', card: card, patch: patch, revision: revision, worldBookOperations: worldBookOperations })
     const savedCard = change.card
     if (!change.changed) return change
     await writeJson('cards/' + savedCard.id + '.json', savedCard)
@@ -636,6 +637,7 @@ export function apply(ctx) {
       callWithTool: callModelWithTool
     },
     planner: contextPlanner,
+    prompt: prompt,
     scripts: scriptContinuity,
     waitUntilSettled: async function (chat) {
       for (let index = 0; index < 40 && settlementJobs.has(chat.id); index++) await sleep(250)
@@ -686,13 +688,10 @@ export function apply(ctx) {
   }
 
   // ---------- 后台结算 ----------
-  function settleSystemPrompt() {
-    return '你是剧情姿势结算器。只输出 JSON：{"posture":"一句话"}。posture 必填；用第三人称概括最新对话结束时主要人物的位置、姿势、动作和必要的衣着状态。只写当前状态，不写历史，不解释。'
-  }
   function settleUserText(chat) {
-    const msgs = (chat.messages || []).slice(-4)
+    const msgs = (chat.messages || []).slice(-2)
     const lines = [
-      '【当前姿势】',
+      '【上一轮结算姿势】',
       str(chat.posture) !== '' ? chat.posture : '（无）',
       '【最新一轮对话】'
     ]
@@ -751,7 +750,7 @@ export function apply(ctx) {
             content: [{ type: 'text', text: settleUserText(snapshot) }],
             source: { kind: 'plugin', plugin: 'dsh-tavern' }
           }],
-          system: settleSystemPrompt(),
+          system: prompt('posture-settlement'),
           temperature: 0.2,
           maxTokens: 400,
           sessionId: snapshot.sessionId
@@ -957,7 +956,7 @@ export function apply(ctx) {
     const originalUserText = str(msgs0[oldAssistantIndex - 1].text).trim()
     const oldChatCount = msgs0.length
     const guide = str(guidance).trim()
-    const syntheticText = '【重新生成正文】\n原玩家输入：\n' + originalUserText + '\n\n指导意见：\n' + (guide !== '' ? guide : '（无）') + '\n\n请按正常流程处理：先调用 tavern_session action=context，再根据原玩家输入和指导意见重新生成小说正文，最后调用 action=commit。'
+    const syntheticText = '【重新生成正文】\n原玩家输入：\n' + originalUserText + '\n\n指导意见：\n' + (guide !== '' ? guide : '（无）') + '\n\n请根据原玩家输入和指导意见重新生成小说正文。'
     const beforeLastTurn = agent.phase !== undefined && agent.phase !== null && Number.isFinite(Number(agent.phase.lastTurn)) ? Number(agent.phase.lastTurn) : 0
     agent.followup({
       id: crypto.randomUUID(),
@@ -1213,21 +1212,31 @@ export function apply(ctx) {
   if (tools !== undefined) {
     tools.register(defineTool({
       name: 'tavern_session',
-      description: '读取酒馆会话上下文并提交本轮结果。每轮先 action=context，最终回复前 action=commit；剧本游玩或绑定了剧本的卡片会话可用 action=script 只读查看分块。',
+      description: '读取酒馆上下文、提交本轮结果，或按需读取剧本和世界书。每轮先 context，最终回复前 commit。',
       parameters: {
-        action: { type: 'string', required: true, description: 'context、commit 或 script（script 只读查看剧本）' },
+        action: { type: 'string', required: true, description: 'context、commit、script 或 worldbook' },
         userText: { type: 'string', description: 'context 与 commit 时都填写用户本轮原始消息' },
         assistantText: { type: 'string', description: 'commit 时填写准备作为最终回复的完整文本' },
         cardPatch: { type: 'string', description: '仅卡片模式（设定对话/素材抽取）使用：确认落盘时填写人物卡字段 patch JSON；只讨论则填 {}' },
         scriptQuery: { type: 'string', description: 'action=script 时可选：按关键词检索剧本分块；剧本会话仅在游标前后 10 块内检索，命中返回前后各 1 块' },
         scriptOffset: { type: 'number', description: 'action=script 时可选：按 1 起始的块号读取，可向前或向后查看任意分块；剧本会话中缺省为当前游标' },
-        scriptLimit: { type: 'number', description: 'action=script 时可选：剧本会话连续读取 1~21 块（默认 1）；卡片模式设定对话读取 1~6 块（默认 3）' }
+        scriptLimit: { type: 'number', description: 'action=script 时可选：剧本会话连续读取 1~21 块（默认 1）；卡片模式设定对话读取 1~6 块（默认 3）' },
+        worldBookRef: { type: 'string', description: 'action=worldbook 时可选：读取目录中的 wb-N 条目' },
+        worldBookQuery: { type: 'string', description: 'action=worldbook 时可选：按关键词读取世界书条目' },
+        worldBookOffset: { type: 'number', description: 'action=worldbook 时可选：从 1 起始的条目序号读取' },
+        worldBookLimit: { type: 'number', description: 'action=worldbook 时可选：读取 1~10 条，默认 3' },
+        worldBookPatch: { type: 'string', description: '仅卡片模式 commit：按 systemContext 格式提交世界书逐条修改 JSON' }
       },
       output: {
         schema: { type: 'object', additionalProperties: true },
         render: function (_a, value) {
           if (value && value.ready === false) return [{ type: 'text', text: str(value.message) || '尚未选择人物卡' }]
           if (value && value.mode === 'script-read') return [{ type: 'text', text: '剧本《' + (value.title || '未命名') + '》第 ' + value.from + '~' + value.to + ' 块 / 共 ' + value.totalChunks + ' 块\n\n' + (value.text || '') }]
+          if (value && value.mode === 'worldbook-read') {
+            const entries = Array.isArray(value.entries) ? value.entries : []
+            const text = entries.map(function (item) { return '[' + item.ref + ']\n' + JSON.stringify(item.entry, null, 2) }).join('\n\n')
+            return [{ type: 'text', text: '世界书《' + (value.name || '未命名') + '》· 共 ' + value.total + ' 条\n\n' + text }]
+          }
           if (value && value.saved === true) {
             if (value.mode === 'revision') return [{ type: 'text', text: '卡片模式设定对话已保存' + (value.changed ? '，人物卡字段已更新' : '，人物卡未改动') }]
             if (value.mode === 'extract') return [{ type: 'text', text: value.changed ? '卡片草稿已更新' : '卡片草稿未改动' }]
@@ -1242,6 +1251,22 @@ export function apply(ctx) {
         const nativeTurn = nativeTurnOf(exec)
         const action = str(args && args.action)
         const chat = await chatForSession(sessionId)
+        if (action === 'worldbook') {
+          if (chat === undefined) return { ready: false, message: '尚未选择人物卡，无法读取世界书。' }
+          if ((chat.mode || 'story') !== 'revision') throw new Error('action=worldbook 仅在卡片模式设定对话中使用')
+          const card = await readChatCard(chat)
+          const windowResult = cardPreparation.present({
+            card: card,
+            as: 'world-book-window',
+            ref: args && args.worldBookRef,
+            query: args && args.worldBookQuery,
+            offset: args && args.worldBookOffset,
+            limit: args && args.worldBookLimit
+          })
+          if (windowResult === null) return { ready: false, message: '当前人物卡没有世界书。' }
+          if (windowResult.entries.length === 0) return { ready: false, message: '没有找到符合条件的世界书条目。' }
+          return { ready: true, mode: 'worldbook-read', name: windowResult.name, total: windowResult.total, entries: windowResult.entries }
+        }
         if (action === 'script') {
           if (chat === undefined) return { ready: false, message: '尚未选择人物卡，无法读取剧本。' }
           const chatMode = chat.mode || 'story'
@@ -1305,6 +1330,7 @@ export function apply(ctx) {
           const priorCommit = nativeCommitFor(chat, nativeTurn)
           let scriptReference = null
           let scriptInfo = null
+          let worldBookOverview = null
           if (mode === 'script') {
             if (priorCommit && priorCommit.scriptReference) {
               scriptReference = priorCommit.scriptReference
@@ -1320,18 +1346,16 @@ export function apply(ctx) {
           if (mode === 'revision') {
             const script = await readScript(chat.cardId)
             scriptInfo = scriptContinuity.inspect({ script: script, state: chat.scriptState, request: { kind: 'info' } })
+            worldBookOverview = cardPreparation.present({ card: card, as: 'world-book-overview' })
           }
-          const scriptLookHint = mode === 'script'
-            ? '\n\n【剧本参考范围】commit 不推进游标；需要前后文时用 action=script 查看其他分块。'
-            : ''
           const plan = mode === 'revision'
-            ? await contextPlanner.plan({ purpose: 'revision', card: card, scriptInfo: scriptInfo })
+            ? await contextPlanner.plan({ purpose: 'revision', card: card, scriptInfo: scriptInfo, worldBookOverview: worldBookOverview })
             : await contextPlanner.plan({ purpose: 'body', card: card, chat: chat, userText: args && args.userText, sessionId: sessionId, nativeTurn: nativeTurn, scriptReference: scriptReference })
           const contextResult = {
             ready: true,
             mode: mode,
             cardName: card.name,
-            systemContext: plan.text + scriptLookHint
+            systemContext: plan.text
           }
           return contextResult
         }
@@ -1363,11 +1387,16 @@ export function apply(ctx) {
           }
           if ((chat.mode || 'story') === 'revision') {
             let patch = {}
+            let worldBookOperations = []
             const rawPatch = str(args && args.cardPatch).trim()
             if (rawPatch !== '') {
               try { patch = JSON.parse(rawPatch) } catch (err) { throw new Error('cardPatch 必须是 JSON 对象') }
             }
-            const cardChange = await updateCard(chat.cardId, patch, { ts: Date.now(), instruction: userText, summary: '通过卡片模式设定对话更新人物卡' })
+            const rawWorldBookPatch = str(args && args.worldBookPatch).trim()
+            if (rawWorldBookPatch !== '') {
+              try { worldBookOperations = JSON.parse(rawWorldBookPatch) } catch (err) { throw new Error('worldBookPatch 必须是 JSON 对象或数组') }
+            }
+            const cardChange = await updateCard(chat.cardId, patch, { ts: Date.now(), instruction: userText, summary: '通过卡片模式设定对话更新人物卡' }, worldBookOperations)
             const changed = cardChange.changed
             const savedCard = cardChange.card
             if (userText !== '') chat.messages.push({ role: 'user', text: userText, ts: Date.now(), native: true })
@@ -1396,7 +1425,7 @@ export function apply(ctx) {
           queueSettlement(chat.id)
           return { saved: true, chatId: chat.id, cardName: chat.cardName }
         }
-        throw new Error('action 仅支持 context、commit 或 script')
+        throw new Error('action 仅支持 context、commit、script 或 worldbook')
       }
     }))
 

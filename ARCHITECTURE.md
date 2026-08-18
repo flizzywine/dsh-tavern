@@ -8,6 +8,8 @@ DSH 负责通用 Agent 基础设施：会话、模型选择、工具调用、消
 
 `tavern-plugin/lib/index.js` 是宿主适配层。它连接 DSH、文件存储、HTTP 和领域模块，但不自行决定正文与卡片上下文、剧本状态转换、候选格式或人物卡字段政策。
 
+`tavern-plugin/lib/prompt-catalog.js` 是固定提示词的文件适配层。领域模块只通过注入的 `prompt` 读取提示词，不直接依赖文件系统；动态上下文仍由 Context Planner 选择和组合。
+
 ## 四个领域模块
 
 | 模块 | 公开操作 | 唯一职责 |
@@ -31,11 +33,14 @@ DSH 负责通用 Agent 基础设施：会话、模型选择、工具调用、消
 tavern-plugin/lib/
 ├── client.js                 Web 界面
 ├── index.js                  DSH、HTTP、存储适配层
+├── prompt-catalog.js         固定提示词文件适配层
 └── domain/
     ├── candidate-generation.js
     ├── card-preparation.js
     ├── context-planner.js
     └── script-continuity.js
+
+tavern-plugin/prompts/        可独立编辑的固定提示词
 ```
 
 领域用语见 [CONTEXT.md](CONTEXT.md)，产品取舍以 [MISSION.md](MISSION.md) 为准。

@@ -73,7 +73,24 @@ function promptObjectText(value) {
   return Object.keys(compact).length > 0 ? JSON.stringify(compact, null, 1) : '暂无已确认内容（未列出的字段为空）'
 }
 
+function worldBookOverviewText(overview) {
+  if (overview === null || typeof overview !== 'object') return '【世界书目录】\n无'
+  const entries = Array.isArray(overview.entries) ? overview.entries : []
+  const lines = ['【世界书目录 · 《' + (str(overview.name) || '未命名') + '》· ' + (Number(overview.entryCount) || entries.length) + ' 条】']
+  if (entries.length === 0) lines.push('无条目')
+  for (const entry of entries) {
+    const labels = []
+    labels.push(entry.enabled === false ? '停用' : '启用')
+    labels.push(entry.constant === true ? '常驻' : '按需')
+    const identity = Array.isArray(entry.keys) && entry.keys.length > 0 ? entry.keys.join('、') : (str(entry.comment) || '无关键词')
+    lines.push('[' + str(entry.ref) + '] ' + labels.join('、') + '｜' + identity + '｜' + (Number(entry.chars) || 0) + ' 字')
+  }
+  return lines.join('\n')
+}
+
 export function createContextPlanner(options = {}) {
+  if (typeof options.prompt !== 'function') throw new Error('缺少提示词目录')
+  const prompt = options.prompt
   const callModel = typeof options.callModel === 'function' ? options.callModel : async function () { return '{"ids":[]}' }
   const now = typeof options.now === 'function' ? options.now : Date.now
   const logger = options.logger || console
@@ -95,7 +112,7 @@ export function createContextPlanner(options = {}) {
           sessionId: input.sessionId || input.chat.sessionId,
           temperature: 0.1,
           maxTokens: 400,
-          system: '你是世界书条目检索器。根据最近几轮剧情，从可用条目中选出本轮正文生成最需要注入的条目。只输出 JSON：{"ids":["条目ID"]}。最多选 3 个；只选与最近剧情直接相关的人物或设定；不相关就输出空数组。',
+          system: prompt('worldbook-selector'),
           messages: [{
             id: 'worldbook-select-' + now().toString(36),
             role: 'user',
@@ -137,7 +154,7 @@ export function createContextPlanner(options = {}) {
     if (str(input.chat.posture) !== '') sections.push({ kind: 'posture', required: true, text: '【现场 · 主要人物状态（每轮结算更新，务必与之一致）】\n' + input.chat.posture })
     const guides = Array.isArray(input.chat.guides) ? input.chat.guides.filter(function (item) { return item !== null && typeof item === 'object' && str(item.text).trim() !== '' }) : []
     if (guides.length > 0) sections.push({ kind: 'guide', required: true, text: '【用户指导 Guide · 优先遵循】\n' + guides.map(function (item, index) { return (index + 1) + '. ' + str(item.text).trim() }).join('\n') })
-    sections.push({ kind: 'card', required: true, text: '【故事设定 · 人物卡】\n名字: ' + str(input.card.name) })
+    if (input.includeName !== false) sections.push({ kind: 'card', required: true, text: '【故事设定 · 人物卡】\n名字: ' + str(input.card.name) })
     if (input.includeDetails === true) {
       if (str(input.card.description) !== '') sections.push({ kind: 'card', required: false, text: '设定: ' + renderCardText(input.card.description, input.card) })
       if (str(input.card.personality) !== '') sections.push({ kind: 'card', required: false, text: '主要人物性格: ' + renderCardText(input.card.personality, input.card) })
@@ -170,20 +187,20 @@ export function createContextPlanner(options = {}) {
       const selectedIds = await selectWorldBookEntries(input, warnings)
       const sections = [{
         kind: 'base', required: true,
-        text: '你是小说续写引擎，只输出小说正文，不要解释、点评或元信息；长度由剧情自然决定。\n1. "你"是玩家角色；除玩家外，所有角色都由你叙述和扮演。\n2. 用户最新消息是导演指令：无标记=人物行为（动作、心理、对白）；「场景变化」=可以结束当前场景，也可以直接开启新场景；如果是新场景提要，要把它展开成完整场景，不能当成已发生，也不能跳过。玩家不是上帝：其他角色可以按人设拒绝、反对、打断玩家行动，不必百依百顺。\n3. 用户指令只是大致引导，不是要接续的原文，也不是已发生事实：先承接上一段和当前现场，让情节自然推进，在过程中完成指令要表达的意思；指令原文可以改写、拆散、融入叙述，不要整句直接复制。同一动作/台词只演一次，完成后可继续自然发展。\n4. 文风参照【文风示例】（若有）；与【现场】冲突时以【现场】为准。'
+        text: prompt('story')
       }]
       const hasStoryTurn = (input.chat.messages || []).some(function (message) { return message !== null && typeof message === 'object' && message.greeting !== true })
       sections.push.apply(sections, cardSections({ card: input.card, chat: input.chat, worldBookIds: selectedIds, includeDetails: !hasStoryTurn, includeInstructions: true }))
       if (input.scriptReference !== null && input.scriptReference !== undefined && str(input.scriptReference.text) !== '') {
         sections.push({ kind: 'script', required: true, text: '【本轮剧本参考 · 仅本轮注入一次】\n' + input.scriptReference.text })
-        sections.push({ kind: 'script', required: true, text: '【剧本模式 · 成稿要求】\n你正在写正文，直接写出成稿：内容与形式一次到位，删除重复、理顺叙述顺序、补足过渡、润色遣词造句，不要留下粗糙痕迹。剧本是本轮剧情主线：先分析本块内容，必要时用 tavern_session action=script 前瞻后续分块、了解剧情走向，然后尽量贴合剧本发展——把本块中的事件、对白、人物反应、转折尽量演出；允许照抄剧本原文，也允许自由发挥。玩家指令是承接方式：从上一段结尾和玩家本轮行动自然进入剧本剧情；指令与剧本冲突时以剧本走向为主，把玩家动作自然融入。优先保住剧本内容，不要为通顺牺牲剧本，也不要重复上一段已发生的情节。' })
+        sections.push({ kind: 'script', required: true, text: prompt('script-story') })
       }
       return resultOf(sections, warnings, hasStoryTurn ? [{ kind: 'card-details', reason: '仅首轮注入完整人物卡细节' }] : [])
     }
 
     if (input.purpose === 'candidate') {
       const sections = [{ kind: 'candidate-task', required: true, text: str(input.task) }]
-      sections.push.apply(sections, cardSections({ card: input.card, chat: input.chat, worldBookIds: [], includeDetails: true, includeInstructions: false }))
+      sections.push.apply(sections, cardSections({ card: input.card, chat: input.chat, worldBookIds: [], includeName: false, includeDetails: false, includeInstructions: false }))
       if (input.scriptWindow !== null && input.scriptWindow !== undefined) {
         const window = input.scriptWindow
         sections.push({
@@ -201,13 +218,16 @@ export function createContextPlanner(options = {}) {
       const editable = {
         name: card.name || '', description: card.description || '', personality: card.personality || '', scenario: card.scenario || '', first_mes: card.first_mes || '',
         mes_example: card.mes_example || '', system_prompt: card.system_prompt || '', post_history_instructions: card.post_history_instructions || '', creator_notes: card.creator_notes || '',
-        tags: card.tags || [], alternate_greetings: card.alternate_greetings || [], character_book: card.character_book || null
+        tags: card.tags || [], alternate_greetings: card.alternate_greetings || []
       }
       const scriptInfo = input.scriptInfo
       const scriptHint = scriptInfo === null || scriptInfo === undefined
-        ? '\n\n本卡未绑定剧本。'
-        : '\n\n本卡已绑定剧本《' + scriptInfo.title + '》，共 ' + scriptInfo.chunkCount + ' 块。如需查看剧本原文，调用 tavern_session action=script：scriptQuery 传关键词检索，或 scriptOffset 传 1 起始的块号，scriptLimit 控制每次读取 1~6 块；不要仅凭文件名猜测剧本内容。'
-      return resultOf([{ kind: 'card-revision', required: true, text: '你正在卡片模式的人物卡设定对话中，与用户共同讨论和修正人物卡，不进行角色扮演，不续写剧情。可以分析、追问、提出多个方案。只有用户明确要求或确认修改时才生成最小 cardPatch；只讨论时 cardPatch 必须是 {}。可修改字段：name,description,personality,scenario,first_mes,mes_example,system_prompt,post_history_instructions,creator_notes,tags,alternate_greetings,character_book。保留 {{char}}、{{user}} 模板变量。\n\n当前人物卡（未列出的字段为空）：\n' + promptObjectText(editable) + scriptHint }], warnings)
+        ? ''
+        : '\n\n本卡已绑定剧本《' + scriptInfo.title + '》，共 ' + scriptInfo.chunkCount + ' 块；需要核对内容时可调用 tavern_session action=script 读取。'
+      return resultOf([
+        { kind: 'card-revision', required: true, text: prompt('card-editor') + '\n' + promptObjectText(editable) + scriptHint },
+        { kind: 'world-book-overview', required: false, text: worldBookOverviewText(input.worldBookOverview) + '\n需要查看世界书正文时调用 tavern_session action=worldbook。确认修改时在 commit 中填写 worldBookPatch，不要在 cardPatch 中重传整本世界书。worldBookPatch 可传单个操作或数组：update 使用 {"op":"update","ref":"wb-0","patch":{...}}，add 使用 {"op":"add","entry":{...}}，delete 使用 {"op":"delete","ref":"wb-0"}，rename 使用 {"op":"rename","name":"新名称"}。' }
+      ], warnings)
     }
 
     if (input.purpose === 'extract') {
@@ -217,10 +237,8 @@ export function createContextPlanner(options = {}) {
       const draft = extract.draft || {}
       const player = str(extract.player)
       const sections = []
-      sections.push({ kind: 'extract-task', required: true, text: '你在酒馆的卡片模式（素材抽取）中：根据给定的剧本/小说素材，与用户讨论并提炼出一张新的人物卡。你不续写剧情、不进行角色扮演。' })
-      sections.push({ kind: 'extract-schema', required: true, text: '【人物卡可提炼字段】name（角色名）、description（角色描述：身份、外貌、背景）、personality（性格）、scenario（开场情境）、first_mes（开场白，写第一幕）、mes_example（对话示例，<START> 分隔，用 {{char}}/{{user}} 模板）、system_prompt、post_history_instructions、tags（字符串数组）。' })
+      sections.push({ kind: 'extract-rules', required: true, text: prompt('card-extractor') })
       sections.push({ kind: 'extract-player', required: true, text: '【玩家身份（{{user}}）】\n' + (player !== '' ? player + '\n已确认。mes_example、scenario、first_mes 中的 {{user}} 一律指这个身份；玩家行动和正文中的“你”也指这个身份。若用户要求修改玩家，确认后在 commit 的 cardPatch 中输出 {"player":"新的身份"}。' : '尚未确认，这是当前最优先事项：先在对话中请用户确认准备提炼谁，以及谁是玩家（{{user}}）。得到确认后，在 commit 的 cardPatch 中输出 {"player":"玩家身份"}。') })
-      sections.push({ kind: 'extract-rules', required: true, text: '【规则】\n1. 只依据素材与对话中已确认的信息写卡，素材不足时向用户提问或给多个方案。\n2. 人物卡是 {{char}} 的卡：角色字段一律用第三人称，禁止写“你是{{char}}”；{{user}} 才是玩家。\n3. 每轮可以讨论、提问或给出草稿片段；只有用户明确确认修改时，才在 commit 时输出最小 cardPatch；只讨论时 cardPatch 必须是 {}。\n4. 素材按游标分批注入，未读部分会在后续轮次继续注入。' })
       sections.push({ kind: 'extract-draft', required: true, text: '【当前草稿】\n' + promptObjectText(draft) })
       if (prepared !== null && typeof prepared === 'object' && Array.isArray(prepared.window) && prepared.window.length > 0) {
         sections.push({ kind: 'extract-source', required: true, text: '【本轮素材 · 第 ' + (Number(prepared.cursorBefore) + 1) + '~' + (Number(prepared.cursorBefore) + prepared.window.length) + ' 块 / 共 ' + prepared.total + ' 块】\n' + prepared.window.map(function (chunk) { return '[' + chunk.title + '] ' + chunk.text }).join('\n\n') })

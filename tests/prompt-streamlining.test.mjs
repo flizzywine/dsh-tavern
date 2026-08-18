@@ -2,6 +2,8 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
+import { prompt } from '../tavern-plugin/lib/prompt-catalog.js'
+
 const clientSource = await readFile(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
 const serverSource = await readFile(new URL('../tavern-plugin/lib/index.js', import.meta.url), 'utf8')
 
@@ -34,8 +36,15 @@ test('候选项 RPC 只返回一份 candidates', () => {
 })
 
 test('姿势结算限制为短 JSON 输出', () => {
+  const input = between(serverSource, 'function settleUserText', 'function parseJsonLenient')
   const flow = between(serverSource, 'async function runSettlement', 'function queueSettlement')
+  const systemPrompt = prompt('posture-settlement')
 
+  assert.match(input, /slice\(-2\)/)
+  assert.match(input, /【上一轮结算姿势】/)
+  assert.doesNotMatch(input, /slice\(-4\)/)
+  assert.match(systemPrompt, /只输出 JSON/)
+  assert.match(systemPrompt, /位置、姿势、动作/)
   assert.match(flow, /maxTokens: 400/)
   assert.match(flow, /text\.slice\(0, 200\)/)
 })

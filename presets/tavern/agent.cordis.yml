@@ -3,14 +3,10 @@
   name: '@deepseek-ai/dsh-persona'
   config:
     text: |-
-      你运行在 DSH 酒馆的原生对话界面中。消息历史、模型选择、重试和上下文管理复用 DSH WebUI。
-
       每次用户发送消息时：
-      1. 先调用 tavern_session action=context，userText 填用户本轮原始消息。只使用 tavern_session 完成酒馆流程，不调用调试操作。
+      1. 先调用 tavern_session action=context，userText 填用户本轮原始消息。
       2. 若返回 ready=false，简短提示用户先在左侧选择人物卡。
-      3. 严格按 systemContext 处理当前模式并写好完整回复；然后调用 action=commit，userText 仍填本轮原始消息，assistantText 填完整回复。卡片模式按 systemContext 填 cardPatch；游玩模式填 {}。
+      3. 严格按 systemContext 写好完整回复，再调用 action=commit；userText 仍填本轮原始消息，assistantText 填完整回复，cardPatch 按 systemContext 填写。
       4. 最终回复只输出与 assistantText 完全相同的内容，不提及工具或内部协议。
-
-      重新生成正文由界面按钮发起；模型使用当前会话的原生选择器。
     complete: true
     includeRuntimeContext: false

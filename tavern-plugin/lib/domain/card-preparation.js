@@ -23,6 +23,127 @@ function normalizedList(value, limit) {
   return result
 }
 
+function worldBookOf(card) {
+  const book = card !== null && typeof card === 'object' ? card.character_book : null
+  if (book === null || typeof book !== 'object') return null
+  return book
+}
+
+function worldBookEntries(book) {
+  return book !== null && typeof book === 'object' && Array.isArray(book.entries) ? book.entries : []
+}
+
+function entryContentText(entry) {
+  if (entry === null || typeof entry !== 'object') return ''
+  if (Array.isArray(entry.content)) {
+    return entry.content.map(function (item) { return item !== null && typeof item === 'object' ? str(item.content) : str(item) }).filter(Boolean).join('\n')
+  }
+  return str(entry.content)
+}
+
+function worldBookRef(value, total) {
+  const match = /^wb-(\d+)$/.exec(str(value).trim())
+  const index = match === null ? -1 : Number(match[1])
+  if (!Number.isInteger(index) || index < 0 || index >= total) throw new Error('世界书条目不存在: ' + str(value))
+  return index
+}
+
+function worldBookOverview(card) {
+  const book = worldBookOf(card)
+  if (book === null) return null
+  const entries = worldBookEntries(book)
+  return {
+    name: str(book.name),
+    entryCount: entries.length,
+    entries: entries.map(function (entry, index) {
+      const source = entry !== null && typeof entry === 'object' ? entry : {}
+      return {
+        ref: 'wb-' + index,
+        keys: normalizedList(source.keys, 30),
+        comment: str(source.comment || source.name).trim(),
+        enabled: source.enabled !== false,
+        constant: source.constant === true,
+        chars: entryContentText(source).length
+      }
+    })
+  }
+}
+
+function worldBookWindow(card, request) {
+  const book = worldBookOf(card)
+  if (book === null) return null
+  const entries = worldBookEntries(book)
+  const query = str(request.query).trim().toLowerCase()
+  const ref = str(request.ref).trim()
+  const rawLimit = Number(request.limit)
+  const limit = Number.isInteger(rawLimit) && rawLimit >= 1 && rawLimit <= 10 ? rawLimit : 3
+  let selected = []
+  if (ref !== '') {
+    const index = worldBookRef(ref, entries.length)
+    selected = [{ index, entry: entries[index] }]
+  } else if (query !== '') {
+    for (let index = 0; index < entries.length && selected.length < limit; index++) {
+      const entry = entries[index] !== null && typeof entries[index] === 'object' ? entries[index] : {}
+      const haystack = [str(entry.comment), str(entry.name), normalizedList(entry.keys, 30).join(' '), entryContentText(entry)].join('\n').toLowerCase()
+      if (haystack.includes(query)) selected.push({ index, entry })
+    }
+  } else {
+    const rawOffset = Number(request.offset)
+    const start = Number.isInteger(rawOffset) && rawOffset >= 1 ? Math.min(entries.length, rawOffset - 1) : 0
+    selected = entries.slice(start, start + limit).map(function (entry, relative) { return { index: start + relative, entry } })
+  }
+  return {
+    name: str(book.name),
+    total: entries.length,
+    ref,
+    query,
+    entries: selected.map(function (item) { return { ref: 'wb-' + item.index, entry: clone(item.entry) } })
+  }
+}
+
+function applyWorldBookOperations(card, value) {
+  if (value === undefined || value === null || (Array.isArray(value) && value.length === 0)) return false
+  const operations = Array.isArray(value) ? value : [value]
+  if (operations.length > 20) throw new Error('单次世界书修改不能超过 20 项')
+  const current = worldBookOf(card)
+  const book = current === null ? { name: '', entries: [] } : clone(current)
+  book.entries = worldBookEntries(book).map(clone)
+  const original = JSON.stringify(book)
+  const additions = []
+  const deletions = new Set()
+  for (const operation of operations) {
+    if (operation === null || typeof operation !== 'object' || Array.isArray(operation)) throw new Error('worldBookPatch 必须是操作对象或操作数组')
+    const op = str(operation.op).trim()
+    if (op === 'rename') {
+      book.name = str(operation.name)
+      continue
+    }
+    if (op === 'add') {
+      if (operation.entry === null || typeof operation.entry !== 'object' || Array.isArray(operation.entry)) throw new Error('世界书 add 操作缺少 entry')
+      additions.push(clone(operation.entry))
+      continue
+    }
+    if (op === 'update') {
+      const index = worldBookRef(operation.ref, book.entries.length)
+      if (operation.patch === null || typeof operation.patch !== 'object' || Array.isArray(operation.patch)) throw new Error('世界书 update 操作缺少 patch')
+      const patch = clone(operation.patch)
+      if (Object.prototype.hasOwnProperty.call(patch, 'keys') && !Array.isArray(patch.keys)) throw new Error('世界书条目 keys 必须是数组')
+      book.entries[index] = Object.assign({}, book.entries[index] !== null && typeof book.entries[index] === 'object' ? book.entries[index] : {}, patch)
+      continue
+    }
+    if (op === 'delete') {
+      deletions.add(worldBookRef(operation.ref, book.entries.length))
+      continue
+    }
+    throw new Error('未知世界书操作: ' + op)
+  }
+  for (const index of Array.from(deletions).sort(function (a, b) { return b - a })) book.entries.splice(index, 1)
+  book.entries.push.apply(book.entries, additions)
+  if (JSON.stringify(book) === original) return false
+  card.character_book = book
+  return true
+}
+
 function importedObject(payload) {
   if (payload !== null && typeof payload === 'object' && payload.kind === 'png') {
     const text = Buffer.from(str(payload.b64), 'base64').toString('utf8')
@@ -117,6 +238,7 @@ export function createCardPreparation(options = {}) {
       const value = clone(patch.character_book)
       if (JSON.stringify(card.character_book || null) !== JSON.stringify(value)) { card.character_book = value; changedFields.push('character_book') }
     }
+    if (request.kind === 'card' && applyWorldBookOperations(card, request.worldBookOperations) && !changedFields.includes('character_book')) changedFields.push('character_book')
     card.name = str(card.name).trim() || (request.kind === 'draft' ? '' : '未命名角色')
     let player = str(request.player).trim()
     if (request.kind === 'draft' && typeof patch.player === 'string') {
@@ -137,6 +259,8 @@ export function createCardPreparation(options = {}) {
   function present(request) {
     if (request === null || typeof request !== 'object' || request.card === null || typeof request.card !== 'object') throw new Error('缺少人物卡')
     const card = request.card
+    if (request.as === 'world-book-overview') return worldBookOverview(card)
+    if (request.as === 'world-book-window') return worldBookWindow(card, request)
     const editable = {}
     for (const field of TEXT_FIELDS) editable[field] = card[field] || ''
     editable.tags = clone(card.tags || [])
