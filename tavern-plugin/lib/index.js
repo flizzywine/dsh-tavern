@@ -4,11 +4,12 @@ import { createCandidateGenerator } from './domain/candidate-generation.js'
 import { createCardPreparation } from './domain/card-preparation.js'
 import { createContextPlanner } from './domain/context-planner.js'
 import { createScriptContinuity } from './domain/script-continuity.js'
+import { createTurnOrchestrator } from './domain/turn-orchestration.js'
 import { prompt } from './prompt-catalog.js'
 
 // dsh-tavern 宿主插件（profile 组合行）
 // RPC：同源 HTTP 路由 /api/dsh-tavern/<method>（客户端 fetch 调用）
-// 模型工具：读取并提交 Tavern 会话状态
+// DSH 生命周期负责回合状态；模型工具只处理按需读取和明确修改。
 export function apply(ctx) {
   const fs = ctx.get('fs')
   const llm = ctx.get('llm')
@@ -135,22 +136,27 @@ export function apply(ctx) {
       const f = finish.failure
       throw new Error('模型调用失败: ' + (f !== undefined && f !== null ? (f.message || f.code) : finish.kind))
     }
+    if (finish !== null && finish !== undefined && finish.kind === 'max-tokens') {
+      throw new Error('模型输出达到 token 上限')
+    }
     const out = text.trim()
     if (out === '') throw new Error('模型返回为空')
     return out
   }
-  async function callModelWithTool(opts) {
+  async function callModelWithTools(opts) {
     const sel = modelSelection(opts.sessionId)
-    if (sel === null) throw new Error('没有可用的模型配置')
+    if (sel === null) throw new Error('没有可用的模型配置，请先在当前会话的模型选择器中选择模型')
     const cfg = { provider: sel.provider, model: sel.model }
     if (sel.reasoningEffort !== undefined) cfg.reasoningEffort = sel.reasoningEffort
     if (typeof opts.temperature === 'number' && sel.provider !== 'openai-codex') cfg.temperature = opts.temperature
     if (typeof opts.maxTokens === 'number') cfg.maxTokens = opts.maxTokens
-    let messages = opts.messages.slice()
-    let lastText = ''
-    for (let round = 0; round < 10; round++) {
+    const messages = opts.messages.slice()
+    const maxRounds = Number.isInteger(opts.maxRounds) ? opts.maxRounds : 10
+    const maxToolCalls = Number.isInteger(opts.maxToolCalls) ? opts.maxToolCalls : 8
+    let toolCallCount = 0
+    for (let round = 0; round < maxRounds; round++) {
       const prepared = await llm.prepareCall(cfg)
-      const options = Object.assign({}, prepared.config, { messages: messages, system: opts.system, tools: opts.tools })
+      const options = Object.assign({}, prepared.config, { messages, system: opts.system, tools: opts.tools })
       let text = ''
       let finish = null
       const blocks = []
@@ -164,42 +170,46 @@ export function apply(ctx) {
         throw new Error('模型流失败: ' + (err && (err.message || err.code) || err))
       }
       if (finish !== null && finish !== undefined && (finish.kind === 'error' || finish.kind === 'aborted')) {
-        const f = finish.failure
-        throw new Error('模型调用失败: ' + (f !== undefined && f !== null ? (f.message || f.code) : finish.kind))
+        const failure = finish.failure
+        throw new Error('模型调用失败: ' + (failure !== undefined && failure !== null ? (failure.message || failure.code) : finish.kind))
       }
-      const calls = blocks.filter(function (block) { return block !== null && typeof block === 'object' && block.type === 'tool-call' })
+      if (finish !== null && finish !== undefined && finish.kind === 'max-tokens') throw new Error('模型输出达到 token 上限')
+      const replayBlocks = blocks.filter(function (block) {
+        return block !== null && typeof block === 'object' && (block.type === 'reasoning' || block.type === 'text' || block.type === 'tool-call')
+      })
+      const calls = replayBlocks.filter(function (block) { return block.type === 'tool-call' })
       if (calls.length === 0) {
         const out = text.trim()
         if (out === '') throw new Error('模型返回为空')
         return out
       }
-      lastText = text
+      toolCallCount += calls.length
+      if (toolCallCount > maxToolCalls) throw new Error('候选项查阅剧本次数过多')
       messages.push({
         id: crypto.randomUUID(),
         role: 'assistant',
-        content: calls.map(function (call) { return { type: 'tool-call', id: call.id, name: call.name, arguments: call.arguments } }),
+        content: replayBlocks,
         source: { kind: 'model', provider: sel.provider, model: sel.model }
       })
       for (const call of calls) {
         let resultText = ''
+        let isError = false
         try {
           resultText = str(await opts.onToolCall(call))
         } catch (err) {
+          isError = true
           resultText = '工具执行失败: ' + str(err && err.message || err)
         }
         messages.push({
           id: crypto.randomUUID(),
           role: 'user',
-          content: [{ type: 'tool-result', toolCallId: call.id, content: [{ type: 'text', text: resultText }], isError: false }],
+          content: [{ type: 'tool-result', toolCallId: call.id, content: [{ type: 'text', text: resultText }], isError }],
           source: { kind: 'tool', callId: call.id }
         })
       }
     }
-    const fallback = lastText.trim()
-    if (fallback !== '') return fallback
-    throw new Error('工具调用轮次过多')
+    throw new Error('候选项查阅剧本轮次过多')
   }
-
   const contextPlanner = createContextPlanner({ prompt: prompt, callModel: callModel, now: Date.now, logger: console })
 
   // ---------- 角色卡 ----------
@@ -428,6 +438,8 @@ export function apply(ctx) {
       settleStatus: 'idle',
       settleError: null,
       lastSettle: null,
+      nativeCommits: {},
+      pendingCardChanges: {},
       createdAt: Date.now(),
       updatedAt: Date.now()
     }
@@ -634,7 +646,7 @@ export function apply(ctx) {
     model: {
       selection: modelSelection,
       call: callModel,
-      callWithTool: callModelWithTool
+      callWithTools: callModelWithTools
     },
     planner: contextPlanner,
     prompt: prompt,
@@ -743,19 +755,33 @@ export function apply(ctx) {
       const snapshotMessageCount = Array.isArray(snapshot.messages) ? snapshot.messages.length : 0
       try {
         await readChatCard(snapshot)
-        const text = await callModel({
-          messages: [{
-            id: 'settle-' + Date.now().toString(36),
-            role: 'user',
-            content: [{ type: 'text', text: settleUserText(snapshot) }],
-            source: { kind: 'plugin', plugin: 'dsh-tavern' }
-          }],
-          system: prompt('posture-settlement'),
-          temperature: 0.2,
-          maxTokens: 400,
-          sessionId: snapshot.sessionId
-        })
-        const result = parseJsonLenient(text)
+        let text = ''
+        let result = null
+        let lastError = null
+        for (let attempt = 1; attempt <= 2; attempt++) {
+          try {
+            text = await callModel({
+              messages: [{
+                id: 'settle-' + Date.now().toString(36),
+                role: 'user',
+                content: [{ type: 'text', text: settleUserText(snapshot) }],
+                source: { kind: 'plugin', plugin: 'dsh-tavern' }
+              }],
+              system: prompt('posture-settlement'),
+              temperature: 0.2,
+              maxTokens: 3000,
+              sessionId: snapshot.sessionId
+            })
+            result = parseJsonLenient(text)
+            if (str(result.posture).trim() === '') throw new Error('模型返回的姿势 JSON 无效')
+            lastError = null
+            break
+          } catch (err) {
+            lastError = err
+            if (attempt < 2) console.warn('dsh-tavern: 结算输出无效，自动重试', str(err && err.message || err))
+          }
+        }
+        if (lastError !== null) throw lastError
         const latest = await readChat(chatId)
         if (latest === undefined) return
         const latestMessageCount = Array.isArray(latest.messages) ? latest.messages.length : 0
@@ -785,24 +811,6 @@ export function apply(ctx) {
     void runSettlement(chatId).finally(function () { settlementJobs.delete(chatId) })
     return true
   }
-  function nativeTurnOf(exec) {
-    const phase = exec && exec.agent ? exec.agent.phase : null
-    return phase && phase.kind === 'running' ? Math.max(0, Number(phase.turn) || 0) : 0
-  }
-  function nativeCommitFor(chat, turn) {
-    if (!turn || chat.nativeCommits === null || typeof chat.nativeCommits !== 'object') return null
-    const value = chat.nativeCommits[String(turn)]
-    return value !== null && typeof value === 'object' ? value : null
-  }
-  function rememberNativeCommit(chat, turn, value, before) {
-    if (!turn) return
-    if (chat.nativeCommits === null || typeof chat.nativeCommits !== 'object') chat.nativeCommits = {}
-    const record = Object.assign({ turn: turn, committedAt: Date.now() }, value)
-    if (before !== undefined && before !== null) record.before = before
-    chat.nativeCommits[String(turn)] = record
-    const keys = Object.keys(chat.nativeCommits).map(Number).filter(Number.isFinite).sort(function (a, b) { return b - a })
-    for (const oldTurn of keys.slice(40)) delete chat.nativeCommits[String(oldTurn)]
-  }
   // ---------- 抽取模式：从素材提炼新人物卡 ----------
   async function extractWindowOf(chat) {
     const idx = await readIndex()
@@ -827,7 +835,6 @@ export function apply(ctx) {
     const cursor = Math.max(0, Number(ext.cursor) || 0)
     const window = all.slice(cursor, cursor + 6)
     ext.prepared = { nativeTurn: Number(nativeTurn) || 0, window: window, cursorBefore: cursor, total: all.length }
-    await writeChat(chat)
     return ext.prepared
   }
   function commitExtract(chat, nativeTurn) {
@@ -916,6 +923,25 @@ export function apply(ctx) {
     result.finalizedCard = { id: card.id, name: card.name, description: card.description, tags: card.tags }
     return result
   }
+
+  const turnOrchestrator = createTurnOrchestrator({
+    store: {
+      chatForSession,
+      readCard,
+      readScript,
+      writeChat,
+      updateCard
+    },
+    planner: contextPlanner,
+    scripts: scriptContinuity,
+    cards: cardPreparation,
+    extract: {
+      prepare: prepareExtract,
+      commit: commitExtract
+    },
+    queueSettlement,
+    now: Date.now
+  })
 
   // ---------- 重新生成正文（生成即替换，无确认） ----------
   async function regenBody(chatId, guidance, sessionId) {
@@ -1207,227 +1233,279 @@ export function apply(ctx) {
     }), 'dsh-tavern: web route')
   }
 
-  // ---------- 调试探针（模型可调用） ----------
+  function contentText(message) {
+    if (message === null || typeof message !== 'object' || !Array.isArray(message.content)) return ''
+    return message.content.map(function (block) { return block !== null && typeof block === 'object' && block.type === 'text' ? str(block.text) : '' }).filter(Boolean).join('\n').trim()
+  }
+
+  function isTurnInput(message) {
+    const source = message && message.source
+    return source && (source.kind === 'user' || (source.kind === 'plugin' && source.plugin === 'dsh-tavern-regen'))
+  }
+
+  function activeTurnOf(exec) {
+    const phase = exec && exec.agent ? exec.agent.phase : null
+    return phase && phase.kind === 'running' ? Math.max(0, Number(phase.turn) || 0) : 0
+  }
+
+  function turnStartIndex(session, turn) {
+    const events = Array.isArray(session && session.events) ? session.events : []
+    for (let index = events.length - 1; index >= 0; index--) {
+      const event = events[index]
+      if (event && event.type === 'turn/start' && Number(event.data && event.data.turn) === Number(turn)) return index
+    }
+    return -1
+  }
+
+  function userTextForTurn(session, turn) {
+    const events = Array.isArray(session && session.events) ? session.events : []
+    const start = turnStartIndex(session, turn)
+    if (start < 0) return ''
+    for (let index = Math.max(0, start + 1); index < events.length; index++) {
+      const event = events[index]
+      if (!event || event.type !== 'user/message') continue
+      if (isTurnInput(event.data)) return contentText(event.data)
+    }
+    return ''
+  }
+
+  function assistantTextForTurn(session, turn) {
+    const events = Array.isArray(session && session.events) ? session.events : []
+    const start = turnStartIndex(session, turn)
+    for (let index = events.length - 1; index > start; index--) {
+      const event = events[index]
+      if (!event || event.type !== 'assistant/message' || Number(event.data && event.data.turn) !== Number(turn)) continue
+      const text = contentText(event.data && event.data.message)
+      if (text !== '') return text
+    }
+    return ''
+  }
+
+  // ---------- DSH 回合生命周期 ----------
+  ctx.on('agent/pre-step', async function (payload, next) {
+    const decision = await next()
+    if (decision.kind === 'reject' || Number(payload.step) !== 1) return decision
+    const sessionId = payload.agent && payload.agent.session ? payload.agent.session.id : ''
+    const userText = payload.messages.filter(isTurnInput).map(contentText).filter(Boolean).join('\n').trim()
+    const prepared = await turnOrchestrator.prepare({ sessionId, turn: payload.turn, userText })
+    const contextMessage = {
+      id: crypto.randomUUID(),
+      role: 'user',
+      content: [{ type: 'text', text: prepared.text }],
+      source: {
+        kind: 'plugin', plugin: 'dsh-tavern', form: 'snapshot',
+        sections: [{ name: 'tavern:turn', text: prepared.text }]
+      }
+    }
+    return { kind: 'enter', messages: decision.messages.concat([contextMessage]) }
+  })
+
+  ctx.on('agent/turn-stopping', async function (payload) {
+    const session = payload.agent && payload.agent.session
+    if (session === undefined) return
+    await turnOrchestrator.finalize({
+      sessionId: session.id,
+      turn: payload.turn,
+      userText: userTextForTurn(session, payload.turn),
+      assistantText: assistantTextForTurn(session, payload.turn)
+    })
+  })
+
+  ctx.on('session/event', function (session, event) {
+    if (!event || event.type !== 'turn/end') return
+    const reason = event.data && event.data.reason ? event.data.reason.kind : ''
+    if (reason === 'completed' || reason === 'max-tokens') return
+    void turnOrchestrator.discard({ sessionId: session.id, turn: event.data && event.data.turn })
+  })
+
+  const tavernToolNames = new Set(['tavern_read_script', 'tavern_read_worldbook', 'tavern_update_card'])
+  ctx.on('system-prompt/assemble', async function (_assembly, context, next) {
+    const assembly = await next()
+    const agent = context && context.agent
+    if (agent === undefined || agent.session === undefined) return assembly
+    const visible = new Set(await turnOrchestrator.visibleTools(agent.session.id))
+    assembly.tools = assembly.tools.filter(function (schema) { return !tavernToolNames.has(schema.name) || visible.has(schema.name) })
+    return assembly
+  })
+
+  // ---------- 模型可选工具 ----------
   const tools = ctx.get('tools')
   if (tools !== undefined) {
+    const scriptOutput = {
+      type: 'object', additionalProperties: false,
+      properties: {
+        found: { type: 'boolean', required: true },
+        message: { type: 'string', required: true },
+        title: { type: 'string', required: true },
+        totalChunks: { type: 'integer', required: true },
+        from: { type: 'integer', required: true },
+        to: { type: 'integer', required: true },
+        cursor: { type: 'integer', required: true },
+        chunks: {
+          type: 'array', required: true,
+          items: {
+            type: 'object', additionalProperties: false,
+            properties: {
+              id: { type: 'string', required: true },
+              number: { type: 'integer', required: true },
+              text: { type: 'string', required: true }
+            }
+          }
+        }
+      }
+    }
     tools.register(defineTool({
-      name: 'tavern_session',
-      description: '读取酒馆上下文、提交本轮结果，或按需读取剧本和世界书。每轮先 context，最终回复前 commit。',
+      name: 'tavern_read_script',
+      description: '按需读取已绑定剧本。剧本游玩中优先读取当前游标附近；卡片设定中可检索整本剧本。',
       parameters: {
-        action: { type: 'string', required: true, description: 'context、commit、script 或 worldbook' },
-        userText: { type: 'string', description: 'context 与 commit 时都填写用户本轮原始消息' },
-        assistantText: { type: 'string', description: 'commit 时填写准备作为最终回复的完整文本' },
-        cardPatch: { type: 'string', description: '仅卡片模式（设定对话/素材抽取）使用：确认落盘时填写人物卡字段 patch JSON；只讨论则填 {}' },
-        scriptQuery: { type: 'string', description: 'action=script 时可选：按关键词检索剧本分块；剧本会话仅在游标前后 10 块内检索，命中返回前后各 1 块' },
-        scriptOffset: { type: 'number', description: 'action=script 时可选：按 1 起始的块号读取，可向前或向后查看任意分块；剧本会话中缺省为当前游标' },
-        scriptLimit: { type: 'number', description: 'action=script 时可选：剧本会话连续读取 1~21 块（默认 1）；卡片模式设定对话读取 1~6 块（默认 3）' },
-        worldBookRef: { type: 'string', description: 'action=worldbook 时可选：读取目录中的 wb-N 条目' },
-        worldBookQuery: { type: 'string', description: 'action=worldbook 时可选：按关键词读取世界书条目' },
-        worldBookOffset: { type: 'number', description: 'action=worldbook 时可选：从 1 起始的条目序号读取' },
-        worldBookLimit: { type: 'number', description: 'action=worldbook 时可选：读取 1~10 条，默认 3' },
-        worldBookPatch: { type: 'string', description: '仅卡片模式 commit：按 systemContext 格式提交世界书逐条修改 JSON' }
+        query: { type: 'string', description: '可选关键词；剧本游玩只检索当前游标前后 10 块' },
+        offset: { type: 'integer', description: '可选的 1 起始块号' },
+        limit: { type: 'integer', description: '连续读取块数；游玩最多 21，卡片设定最多 6' }
       },
       output: {
-        schema: { type: 'object', additionalProperties: true },
-        render: function (_a, value) {
-          if (value && value.ready === false) return [{ type: 'text', text: str(value.message) || '尚未选择人物卡' }]
-          if (value && value.mode === 'script-read') return [{ type: 'text', text: '剧本《' + (value.title || '未命名') + '》第 ' + value.from + '~' + value.to + ' 块 / 共 ' + value.totalChunks + ' 块\n\n' + (value.text || '') }]
-          if (value && value.mode === 'worldbook-read') {
-            const entries = Array.isArray(value.entries) ? value.entries : []
-            const text = entries.map(function (item) { return '[' + item.ref + ']\n' + JSON.stringify(item.entry, null, 2) }).join('\n\n')
-            return [{ type: 'text', text: '世界书《' + (value.name || '未命名') + '》· 共 ' + value.total + ' 条\n\n' + text }]
-          }
-          if (value && value.saved === true) {
-            if (value.mode === 'revision') return [{ type: 'text', text: '卡片模式设定对话已保存' + (value.changed ? '，人物卡字段已更新' : '，人物卡未改动') }]
-            if (value.mode === 'extract') return [{ type: 'text', text: value.changed ? '卡片草稿已更新' : '卡片草稿未改动' }]
-            return [{ type: 'text', text: '故事状态已更新' }]
-          }
-          if (value && value.ready === true) return [{ type: 'text', text: 'mode=' + (value.mode || 'story') + '\n人物卡=' + (value.cardName || '未命名') + '\n\n' + (value.systemContext || '') }]
-          return [{ type: 'text', text: '酒馆状态已载入' }]
+        schema: scriptOutput,
+        render: function (_args, value) {
+          if (!value.found) return [{ type: 'text', text: value.message }]
+          const body = value.chunks.map(function (chunk) { return '[' + chunk.id + ' · 第 ' + chunk.number + ' 块]\n' + chunk.text }).join('\n\n')
+          return [{ type: 'text', text: '剧本《' + value.title + '》第 ' + value.from + '~' + value.to + ' 块 / 共 ' + value.totalChunks + ' 块\n\n' + body }]
         }
       },
+      isConcurrencySafe: function () { return true },
       async execute(args, exec) {
-        const sessionId = (exec && exec.agent && exec.agent.session) ? exec.agent.session.id : ''
-        const nativeTurn = nativeTurnOf(exec)
-        const action = str(args && args.action)
+        const sessionId = exec && exec.agent && exec.agent.session ? exec.agent.session.id : ''
         const chat = await chatForSession(sessionId)
-        if (action === 'worldbook') {
-          if (chat === undefined) return { ready: false, message: '尚未选择人物卡，无法读取世界书。' }
-          if ((chat.mode || 'story') !== 'revision') throw new Error('action=worldbook 仅在卡片模式设定对话中使用')
-          const card = await readChatCard(chat)
-          const windowResult = cardPreparation.present({
-            card: card,
-            as: 'world-book-window',
-            ref: args && args.worldBookRef,
-            query: args && args.worldBookQuery,
-            offset: args && args.worldBookOffset,
-            limit: args && args.worldBookLimit
-          })
-          if (windowResult === null) return { ready: false, message: '当前人物卡没有世界书。' }
-          if (windowResult.entries.length === 0) return { ready: false, message: '没有找到符合条件的世界书条目。' }
-          return { ready: true, mode: 'worldbook-read', name: windowResult.name, total: windowResult.total, entries: windowResult.entries }
-        }
-        if (action === 'script') {
-          if (chat === undefined) return { ready: false, message: '尚未选择人物卡，无法读取剧本。' }
-          const chatMode = chat.mode || 'story'
-          if (chatMode !== 'revision' && chatMode !== 'script') throw new Error('action=script 仅在卡片模式（设定对话）或游玩模式（剧本会话）中用于读取已绑定剧本')
-          const script = await readScript(chat.cardId)
-          if (script === undefined || !Array.isArray(script.chunks) || script.chunks.length === 0) return { ready: false, message: '当前人物卡没有绑定剧本，无法读取。' }
-          const windowResult = scriptContinuity.inspect({
-            script: script,
-            state: chat.scriptState,
-            request: {
-              kind: chatMode === 'script' ? 'play' : 'read',
-              query: args && args.scriptQuery,
-              offset: args && args.scriptOffset,
-              limit: args && args.scriptLimit
-            }
-          })
-          if (chatMode === 'script') {
-            if (windowResult.notFound === true) return { ready: false, message: '游标前后 10 块内没有找到包含“' + str(args && args.scriptQuery).trim() + '”的分块，请换一个关键词，或用 scriptOffset 直接按块号读取。' }
-            if (windowResult.chunks.length === 0) return { ready: false, message: '剧本分块为空。' }
-            const text = windowResult.chunks.map(function (chunk) { return '[' + chunk.id + ' · 第 ' + (Number(chunk.order) + 1) + ' 块]\n' + chunk.text }).join('\n\n')
-            return {
-              ready: true,
-              mode: 'script-read',
-              cardName: chat.cardName,
-              title: windowResult.title,
-              totalChunks: windowResult.total,
-              from: windowResult.from,
-              to: windowResult.to,
-              cursor: windowResult.cursor,
-              text: text
-            }
-          }
-          if (windowResult.notFound === true) return { ready: false, message: '剧本中没有找到包含“' + str(args && args.scriptQuery).trim() + '”的分块，请换一个关键词，或用 scriptOffset 直接按块号读取。' }
-          if (windowResult.chunks.length === 0) return { ready: false, message: '剧本分块为空。' }
-          const text = windowResult.chunks.map(function (chunk) { return '[' + chunk.id + ' · 第 ' + (Number(chunk.order) + 1) + ' 块]\n' + chunk.text }).join('\n\n')
+        if (chat === undefined) return { found: false, message: '尚未选择人物卡。', title: '', totalChunks: 0, from: 0, to: 0, cursor: 0, chunks: [] }
+        const mode = chat.mode || 'story'
+        if (mode !== 'script' && mode !== 'revision') throw new Error('当前模式不能读取剧本')
+        const script = await readScript(chat.cardId)
+        if (script === undefined || !Array.isArray(script.chunks) || script.chunks.length === 0) return { found: false, message: '当前人物卡没有绑定剧本。', title: '', totalChunks: 0, from: 0, to: 0, cursor: 0, chunks: [] }
+        const windowResult = scriptContinuity.inspect({
+          script,
+          state: chat.scriptState,
+          request: { kind: mode === 'script' ? 'play' : 'read', query: args.query, offset: args.offset, limit: args.limit }
+        })
+        if (windowResult.notFound === true || windowResult.chunks.length === 0) {
           return {
-            ready: true,
-            mode: 'script-read',
-            cardName: chat.cardName,
-            title: windowResult.title,
-            totalChunks: windowResult.total,
-            from: windowResult.from,
-            to: windowResult.to,
-            text: text
+            found: false,
+            message: windowResult.notFound === true ? '没有找到包含该关键词的剧本分块。' : '剧本分块为空。',
+            title: str(windowResult.title), totalChunks: Number(windowResult.total) || 0,
+            from: 0, to: 0, cursor: Number(windowResult.cursor) || 0, chunks: []
           }
         }
-        if (action === 'context') {
-          if (chat === undefined) return { ready: false, message: '尚未选择人物卡，请提示用户在输入框上方选择人物卡。' }
-          const mode = chat.mode || 'story'
-          if (mode === 'extract') {
-            const prepared = await prepareExtract(chat, nativeTurn)
-            const plan = await contextPlanner.plan({ purpose: 'extract', chat: chat, extractPrepared: prepared })
-            return {
-              ready: true,
-              mode: 'extract',
-              cardName: (chat.extract && chat.extract.draft ? str(chat.extract.draft.name) : '') || '未命名角色',
-              systemContext: plan.text
-            }
-          }
-          const card = await readChatCard(chat)
-          const priorCommit = nativeCommitFor(chat, nativeTurn)
-          let scriptReference = null
-          let scriptInfo = null
-          let worldBookOverview = null
-          if (mode === 'script') {
-            if (priorCommit && priorCommit.scriptReference) {
-              scriptReference = priorCommit.scriptReference
-            } else {
-              const script = await readScript(chat.cardId)
-              if (script === undefined || !Array.isArray(script.chunks) || script.chunks.length === 0) throw new Error('剧本文件不存在，请重新为人物卡导入剧本')
-              const prepared = scriptContinuity.transition({ script: script, state: chat.scriptState, event: { kind: 'prepare', userText: args && args.userText, nativeTurn: nativeTurn } })
-              chat.scriptState = prepared.state
-              scriptReference = prepared.reference
-              if (prepared.changed) await writeChat(chat)
-            }
-          }
-          if (mode === 'revision') {
-            const script = await readScript(chat.cardId)
-            scriptInfo = scriptContinuity.inspect({ script: script, state: chat.scriptState, request: { kind: 'info' } })
-            worldBookOverview = cardPreparation.present({ card: card, as: 'world-book-overview' })
-          }
-          const plan = mode === 'revision'
-            ? await contextPlanner.plan({ purpose: 'revision', card: card, scriptInfo: scriptInfo, worldBookOverview: worldBookOverview })
-            : await contextPlanner.plan({ purpose: 'body', card: card, chat: chat, userText: args && args.userText, sessionId: sessionId, nativeTurn: nativeTurn, scriptReference: scriptReference })
-          const contextResult = {
-            ready: true,
-            mode: mode,
-            cardName: card.name,
-            systemContext: plan.text
-          }
-          return contextResult
+        return {
+          found: true, message: '', title: str(windowResult.title), totalChunks: Number(windowResult.total) || 0,
+          from: Number(windowResult.from) || 0, to: Number(windowResult.to) || 0, cursor: Number(windowResult.cursor) || 0,
+          chunks: windowResult.chunks.map(function (chunk) { return { id: str(chunk.id), number: Number(chunk.order) + 1, text: str(chunk.text) } })
         }
-        if (action === 'commit') {
-          if (chat === undefined) return { ready: false, message: '尚未选择人物卡' }
-          const userText = str(args && args.userText).trim()
-          const assistantText = str(args && args.assistantText).trim()
-          if (assistantText === '') throw new Error('assistantText 不能为空')
-          const priorCommit = nativeCommitFor(chat, nativeTurn)
-          if (priorCommit !== null) return { saved: true, duplicate: true, mode: chat.mode || 'story', changed: priorCommit.changed === true, chatId: chat.id, cardName: chat.cardName }
-          if ((chat.mode || 'story') === 'extract') {
-            let patch = {}
-            const rawPatch = str(args && args.cardPatch).trim()
-            if (rawPatch !== '') {
-              try { patch = JSON.parse(rawPatch) } catch (err) { throw new Error('cardPatch 必须是 JSON 对象') }
-            }
-            const ext = chat.extract !== null && typeof chat.extract === 'object' ? chat.extract : {}
-            const draftChange = cardPreparation.update({ kind: 'draft', card: ext.draft || {}, player: ext.player, patch: patch })
-            ext.draft = draftChange.card
-            ext.player = draftChange.player
-            const changed = draftChange.changed
-            commitExtract(chat, nativeTurn)
-            if (userText !== '') chat.messages.push({ role: 'user', text: userText, ts: Date.now(), native: true })
-            chat.messages.push({ role: 'assistant', text: assistantText, ts: Date.now(), native: true, changed: changed })
-            chat.cardName = str(ext.draft.name) || '抽取中'
-            rememberNativeCommit(chat, nativeTurn, { mode: 'extract', userText: userText, changed: changed })
-            await writeChat(chat)
-            return { saved: true, mode: 'extract', changed: changed, chatId: chat.id, cardName: chat.cardName }
-          }
-          if ((chat.mode || 'story') === 'revision') {
-            let patch = {}
-            let worldBookOperations = []
-            const rawPatch = str(args && args.cardPatch).trim()
-            if (rawPatch !== '') {
-              try { patch = JSON.parse(rawPatch) } catch (err) { throw new Error('cardPatch 必须是 JSON 对象') }
-            }
-            const rawWorldBookPatch = str(args && args.worldBookPatch).trim()
-            if (rawWorldBookPatch !== '') {
-              try { worldBookOperations = JSON.parse(rawWorldBookPatch) } catch (err) { throw new Error('worldBookPatch 必须是 JSON 对象或数组') }
-            }
-            const cardChange = await updateCard(chat.cardId, patch, { ts: Date.now(), instruction: userText, summary: '通过卡片模式设定对话更新人物卡' }, worldBookOperations)
-            const changed = cardChange.changed
-            const savedCard = cardChange.card
-            if (userText !== '') chat.messages.push({ role: 'user', text: userText, ts: Date.now(), native: true })
-            chat.messages.push({ role: 'assistant', text: assistantText, ts: Date.now(), native: true, changed: changed })
-            chat.cardName = savedCard.name
-            rememberNativeCommit(chat, nativeTurn, { mode: 'revision', userText: userText, changed: changed })
-            await writeChat(chat)
-            return { saved: true, mode: 'revision', changed: changed, chatId: chat.id, cardName: savedCard.name }
-          }
-          const commitBefore = { posture: chat.posture || '' }
-          let preparedReference = null
-          if ((chat.mode || 'story') === 'script') {
-            const script = await readScript(chat.cardId)
-            if (script === undefined || !Array.isArray(script.chunks) || script.chunks.length === 0) throw new Error('剧本文件不存在，请重新为人物卡导入剧本')
-            const committed = scriptContinuity.transition({ script: script, state: chat.scriptState, event: { kind: 'commit', userText: userText, nativeTurn: nativeTurn } })
-            chat.scriptState = committed.state
-            preparedReference = committed.reference
-            commitBefore.scriptRevision = committed.revision
-          }
-          if (userText !== '') chat.messages.push({ role: 'user', text: userText, ts: Date.now(), native: true })
-          chat.messages.push({ role: 'assistant', text: assistantText, ts: Date.now(), native: true })
-          chat.settleStatus = 'running'
-          chat.settleError = null
-          rememberNativeCommit(chat, nativeTurn, { mode: chat.mode || 'story', userText: userText, scriptReference: preparedReference }, commitBefore)
-          await writeChat(chat)
-          queueSettlement(chat.id)
-          return { saved: true, chatId: chat.id, cardName: chat.cardName }
-        }
-        throw new Error('action 仅支持 context、commit、script 或 worldbook')
       }
     }))
 
+    tools.register(defineTool({
+      name: 'tavern_read_worldbook',
+      description: '在卡片设定对话中按编号、关键词或分页读取世界书正文。',
+      parameters: {
+        ref: { type: 'string', description: '目录中的条目编号，例如 wb-0' },
+        query: { type: 'string', description: '可选关键词' },
+        offset: { type: 'integer', description: '可选的 1 起始条目序号' },
+        limit: { type: 'integer', description: '读取 1~10 条，默认 3' }
+      },
+      output: {
+        schema: {
+          type: 'object', additionalProperties: false,
+          properties: {
+            found: { type: 'boolean', required: true },
+            message: { type: 'string', required: true },
+            name: { type: 'string', required: true },
+            total: { type: 'integer', required: true },
+            entries: {
+              type: 'array', required: true,
+              items: {
+                type: 'object', additionalProperties: false,
+                properties: { ref: { type: 'string', required: true }, entry: { type: 'json', required: true } }
+              }
+            }
+          }
+        },
+        render: function (_args, value) {
+          if (!value.found) return [{ type: 'text', text: value.message }]
+          const body = value.entries.map(function (item) { return '[' + item.ref + ']\n' + JSON.stringify(item.entry, null, 2) }).join('\n\n')
+          return [{ type: 'text', text: '世界书《' + (value.name || '未命名') + '》· 共 ' + value.total + ' 条\n\n' + body }]
+        }
+      },
+      isConcurrencySafe: function () { return true },
+      async execute(args, exec) {
+        const sessionId = exec && exec.agent && exec.agent.session ? exec.agent.session.id : ''
+        const chat = await chatForSession(sessionId)
+        if (chat === undefined) return { found: false, message: '尚未选择人物卡。', name: '', total: 0, entries: [] }
+        if ((chat.mode || 'story') !== 'revision') throw new Error('世界书只能在卡片设定对话中读取')
+        const card = await readChatCard(chat)
+        const windowResult = cardPreparation.present({ card, as: 'world-book-window', ref: args.ref, query: args.query, offset: args.offset, limit: args.limit })
+        if (windowResult === null) return { found: false, message: '当前人物卡没有世界书。', name: '', total: 0, entries: [] }
+        if (windowResult.entries.length === 0) return { found: false, message: '没有找到符合条件的世界书条目。', name: windowResult.name, total: windowResult.total, entries: [] }
+        return { found: true, message: '', name: windowResult.name, total: windowResult.total, entries: windowResult.entries }
+      }
+    }))
+
+    tools.register(defineTool({
+      name: 'tavern_update_card',
+      description: '仅当用户明确要求或确认修改时，暂存最小的人物卡变更；本轮最终回复完成后自动保存。只讨论时不要调用。',
+      parameters: {
+        fields: {
+          type: 'object', additionalProperties: false,
+          properties: {
+            name: { type: 'string' },
+            description: { type: 'string' },
+            personality: { type: 'string' },
+            scenario: { type: 'string' },
+            first_mes: { type: 'string' },
+            mes_example: { type: 'string' },
+            system_prompt: { type: 'string' },
+            post_history_instructions: { type: 'string' },
+            creator_notes: { type: 'string' },
+            tags: { type: 'array', items: { type: 'string' } },
+            alternate_greetings: { type: 'array', items: { type: 'string' } },
+            player: { type: 'string', description: '仅素材抽取模式：{{user}} 的身份' }
+          }
+        },
+        worldBook: {
+          type: 'array',
+          description: '仅人物卡设定模式：世界书逐条操作',
+          items: {
+            type: 'object', additionalProperties: false,
+            properties: {
+              op: { type: 'string', required: true, enum: ['update', 'add', 'delete', 'rename'] },
+              ref: { type: 'string' },
+              name: { type: 'string' },
+              patch: { type: 'object', additionalProperties: true },
+              entry: { type: 'object', additionalProperties: true }
+            }
+          }
+        }
+      },
+      output: {
+        schema: {
+          type: 'object', additionalProperties: false,
+          properties: {
+            staged: { type: 'boolean', required: true },
+            mode: { type: 'string', required: true, enum: ['revision', 'extract'] },
+            changed: { type: 'boolean', required: true },
+            changedFields: { type: 'array', required: true, items: { type: 'string' } }
+          }
+        },
+        render: function (_args, value) {
+          const detail = value.changedFields.length > 0 ? '：' + value.changedFields.join('、') : ''
+          return [{ type: 'text', text: value.changed ? '变更已暂存，将随本轮回复保存' + detail : '提交内容与当前设定相同，无需改动' }]
+        }
+      },
+      async execute(args, exec) {
+        const sessionId = exec && exec.agent && exec.agent.session ? exec.agent.session.id : ''
+        return await turnOrchestrator.stageChanges({
+          sessionId,
+          turn: activeTurnOf(exec),
+          fields: args.fields,
+          worldBook: args.worldBook
+        })
+      }
+    }))
   }
 }

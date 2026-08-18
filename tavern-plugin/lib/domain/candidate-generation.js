@@ -2,10 +2,6 @@ function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
 }
 
-function clampInt(value, min, max, fallback) {
-  return Number.isInteger(value) && value >= min && value <= max ? value : fallback
-}
-
 function parseJsonLenient(text) {
   if (text === undefined || text === null || text === '') return {}
   let source = str(text).trim()
@@ -82,12 +78,7 @@ function parsedDecision(text) {
     }
   }
   if (choices.length === 0) choices = parseChoiceObjects(text)
-  let scriptCursor = Number(parsed !== null && typeof parsed === 'object' ? parsed.scriptCursor : NaN)
-  if (!Number.isFinite(scriptCursor) || scriptCursor < 1) {
-    const match = /"scriptCursor"\s*:\s*(\d+)/.exec(str(text))
-    if (match !== null) scriptCursor = Number(match[1])
-  }
-  return { choices, scriptCursor }
+  return { choices }
 }
 
 function choiceType(value) {
@@ -132,6 +123,76 @@ function buildMessages(chat, selection, now) {
     })
   }
   return messages
+}
+
+const SCRIPT_RESEARCH_TOOL = Object.freeze({
+  name: 'tavern_read_script',
+  description: '用 next 或 prev 逐块阅读，或用 search 随机检索剧本；用 point 把当前阅读位置选为下一轮正式游标。所有操作都先暂存，候选生成成功后才提交。',
+  parameters: {
+    type: 'object',
+    properties: {
+      action: { type: 'string', enum: ['next', 'prev', 'search', 'point'], description: 'next 后一块；prev 前一块；search 按关键词随机检索；point 选择当前阅读位置。' },
+      query: { type: 'string', description: 'search 时必填的关键词；其他动作不需要。' }
+    },
+    required: ['action'],
+    additionalProperties: false
+  }
+})
+
+function scriptResearchAttempt(script, scriptWindow) {
+  const total = script.chunks.length
+  let position = Math.max(0, Math.min(total, Number(scriptWindow.cursor) || 0))
+  let pointed = null
+
+  function positionResult(extra) {
+    if (position >= total) {
+      return Object.assign({
+        title: str(script.title), totalChunks: total, position: total + 1,
+        ended: true, message: '已经到达剧本结尾。', chunks: []
+      }, extra || {})
+    }
+    const chunk = script.chunks[position]
+    return Object.assign({
+      title: str(script.title), totalChunks: total, position: position + 1,
+      ended: false, chunks: [{ id: chunk.id, number: position + 1, text: str(chunk.text) }]
+    }, extra || {})
+  }
+
+  async function onToolCall(call) {
+    if (call === null || typeof call !== 'object' || call.name !== SCRIPT_RESEARCH_TOOL.name) throw new Error('未知候选项研究工具')
+    const args = call.arguments !== null && typeof call.arguments === 'object'
+      ? call.arguments
+      : parseJsonLenient(call.arguments)
+    if (args.action === 'next') {
+      if (position < total) position++
+      return JSON.stringify(positionResult())
+    }
+    if (args.action === 'prev') {
+      if (position > 0) position--
+      return JSON.stringify(positionResult(position === 0 ? { atStart: true } : null))
+    }
+    if (args.action === 'search') {
+      const query = str(args.query).trim()
+      if (query === '') throw new Error('候选项随机检索必须提供关键词')
+      const needle = query.toLocaleLowerCase()
+      const found = script.chunks.findIndex(function (chunk) { return str(chunk.text).toLocaleLowerCase().includes(needle) })
+      if (found < 0) {
+        return JSON.stringify({
+          title: str(script.title), totalChunks: total, position: position >= total ? total + 1 : position + 1,
+          ended: position >= total, notFound: true, message: '没有找到包含该关键词的剧本块。', chunks: []
+        })
+      }
+      position = found
+      return JSON.stringify(positionResult({ matchedQuery: query }))
+    }
+    if (args.action === 'point') {
+      pointed = position
+      return JSON.stringify(positionResult({ pointedAt: position >= total ? null : position + 1, pointedToEnd: position >= total }))
+    }
+    throw new Error('候选项剧本研究动作只能是 next、prev、search 或 point')
+  }
+
+  return { onToolCall, pointedPosition: function () { return pointed } }
 }
 
 export function createCandidateGenerator(options) {
@@ -182,6 +243,7 @@ export function createCandidateGenerator(options) {
     for (let attempt = 0; attempt < 3; attempt++) {
       if (attempt > 0) await sleep(800)
       try {
+        const research = scriptMode ? scriptResearchAttempt(script, scriptWindow) : null
         const callOptions = {
           sessionId: input.sessionId,
           temperature: temperatures[attempt],
@@ -189,40 +251,14 @@ export function createCandidateGenerator(options) {
           system: context.text,
           messages
         }
-        let text
-        if (scriptMode) {
-          let peekCalls = 0
-          text = await model.callWithTool(Object.assign({}, callOptions, {
-            tools: [{
-              name: 'tavern_script_peek',
-              description: '只读查看剧本分块，可向前或向后看任意位置；默认读当前游标块，可用 scriptOffset 指定块号（1 起始）或 scriptQuery 检索关键词。最多调用 4 次。',
-              parameters: {
-                type: 'object',
-                properties: {
-                  scriptOffset: { type: 'number' },
-                  scriptLimit: { type: 'number' },
-                  scriptQuery: { type: 'string' }
-                },
-                additionalProperties: false
-              }
-            }],
-            onToolCall: async function (call) {
-              peekCalls++
-              if (peekCalls > 4) return 'peek 次数已用尽，请直接输出 JSON 结果。'
-              const args = parseJsonLenient(str(call.arguments))
-              const window = scripts.inspect({
-                script,
-                state: chat.scriptState,
-                request: { kind: 'read', query: args.scriptQuery, offset: args.scriptOffset, limit: clampInt(Number(args.scriptLimit), 1, 4, 1) }
-              })
-              if (window.notFound === true) return '没有找到包含该关键词的剧本分块。'
-              if (window.chunks.length === 0) return '没有可读的剧本分块。'
-              return window.chunks.map(function (chunk) { return '[' + chunk.id + ' · 第 ' + (Number(chunk.order) + 1) + ' 块]\n' + chunk.text }).join('\n\n')
-            }
-          }))
-        } else {
-          text = await model.call(callOptions)
-        }
+        const text = scriptMode
+          ? await model.callWithTools(Object.assign({}, callOptions, {
+              tools: [SCRIPT_RESEARCH_TOOL],
+              onToolCall: research.onToolCall,
+              maxToolCalls: 8,
+              maxRounds: 10
+            }))
+          : await model.call(callOptions)
         lastRaw = text
         const decision = parsedDecision(text)
         const choices = validatedChoices(decision.choices, scriptMode)
@@ -230,8 +266,11 @@ export function createCandidateGenerator(options) {
         if (latest === undefined) throw new Error('聊天不存在: ' + chat.id)
         let scriptProjection
         if (scriptMode) {
-          if (Number.isFinite(decision.scriptCursor) && decision.scriptCursor >= 1) {
-            latest.scriptState = scripts.transition({ script, state: latest.scriptState, event: { kind: 'focus', cursor: decision.scriptCursor } }).state
+          const pointed = research.pointedPosition()
+          if (pointed === script.chunks.length) {
+            latest.scriptState = scripts.transition({ script, state: latest.scriptState, event: { kind: 'end' } }).state
+          } else if (Number.isInteger(pointed) && pointed >= 0) {
+            latest.scriptState = scripts.transition({ script, state: latest.scriptState, event: { kind: 'focus', cursor: pointed + 1 } }).state
           }
           const progress = scripts.inspect({ script, state: latest.scriptState, request: { kind: 'progress' } })
           scriptProjection = { cursor: progress.cursor, ended: progress.cursor >= progress.totalChunks }

@@ -223,10 +223,10 @@ export function createContextPlanner(options = {}) {
       const scriptInfo = input.scriptInfo
       const scriptHint = scriptInfo === null || scriptInfo === undefined
         ? ''
-        : '\n\n本卡已绑定剧本《' + scriptInfo.title + '》，共 ' + scriptInfo.chunkCount + ' 块；需要核对内容时可调用 tavern_session action=script 读取。'
+        : '\n\n本卡已绑定剧本《' + scriptInfo.title + '》，共 ' + scriptInfo.chunkCount + ' 块；需要核对内容时可调用 tavern_read_script。'
       return resultOf([
         { kind: 'card-revision', required: true, text: prompt('card-editor') + '\n' + promptObjectText(editable) + scriptHint },
-        { kind: 'world-book-overview', required: false, text: worldBookOverviewText(input.worldBookOverview) + '\n需要查看世界书正文时调用 tavern_session action=worldbook。确认修改时在 commit 中填写 worldBookPatch，不要在 cardPatch 中重传整本世界书。worldBookPatch 可传单个操作或数组：update 使用 {"op":"update","ref":"wb-0","patch":{...}}，add 使用 {"op":"add","entry":{...}}，delete 使用 {"op":"delete","ref":"wb-0"}，rename 使用 {"op":"rename","name":"新名称"}。' }
+        { kind: 'world-book-overview', required: false, text: worldBookOverviewText(input.worldBookOverview) + '\n需要查看世界书正文时调用 tavern_read_worldbook。确认修改时调用 tavern_update_card，并在 worldBook 数组中提交逐条操作；不要在 fields 中重传整本世界书。支持 update、add、delete、rename。' }
       ], warnings)
     }
 
@@ -238,7 +238,7 @@ export function createContextPlanner(options = {}) {
       const player = str(extract.player)
       const sections = []
       sections.push({ kind: 'extract-rules', required: true, text: prompt('card-extractor') })
-      sections.push({ kind: 'extract-player', required: true, text: '【玩家身份（{{user}}）】\n' + (player !== '' ? player + '\n已确认。mes_example、scenario、first_mes 中的 {{user}} 一律指这个身份；玩家行动和正文中的“你”也指这个身份。若用户要求修改玩家，确认后在 commit 的 cardPatch 中输出 {"player":"新的身份"}。' : '尚未确认，这是当前最优先事项：先在对话中请用户确认准备提炼谁，以及谁是玩家（{{user}}）。得到确认后，在 commit 的 cardPatch 中输出 {"player":"玩家身份"}。') })
+      sections.push({ kind: 'extract-player', required: true, text: '【玩家身份（{{user}}）】\n' + (player !== '' ? player + '\n已确认。mes_example、scenario、first_mes 中的 {{user}} 一律指这个身份；玩家行动和正文中的“你”也指这个身份。若用户要求修改玩家，确认后调用 tavern_update_card，并在 fields 中提交 {"player":"新的身份"}。' : '尚未确认，这是当前最优先事项：先在对话中请用户确认准备提炼谁，以及谁是玩家（{{user}}）。得到确认后调用 tavern_update_card，并在 fields 中提交 {"player":"玩家身份"}。') })
       sections.push({ kind: 'extract-draft', required: true, text: '【当前草稿】\n' + promptObjectText(draft) })
       if (prepared !== null && typeof prepared === 'object' && Array.isArray(prepared.window) && prepared.window.length > 0) {
         sections.push({ kind: 'extract-source', required: true, text: '【本轮素材 · 第 ' + (Number(prepared.cursorBefore) + 1) + '~' + (Number(prepared.cursorBefore) + prepared.window.length) + ' 块 / 共 ' + prepared.total + ' 块】\n' + prepared.window.map(function (chunk) { return '[' + chunk.title + '] ' + chunk.text }).join('\n\n') })

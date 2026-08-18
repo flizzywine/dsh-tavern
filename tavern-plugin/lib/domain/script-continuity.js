@@ -36,7 +36,8 @@ function normalizedState(script, source) {
       scriptVersion: version
     }
   }
-  incoming.cursor = Math.max(0, Math.min(Math.max(0, total - 1), Number(incoming.cursor) || 0))
+  // cursor === total 是明确的“剧本已结束”位置；不能钳回最后一块，否则末块会被无限重复。
+  incoming.cursor = Math.max(0, Math.min(total, Number(incoming.cursor) || 0))
   incoming.initialCursor = initialCursor
   incoming.recalledChunkIds = Array.isArray(incoming.recalledChunkIds) ? incoming.recalledChunkIds.filter(function (id) { return typeof id === 'string' }) : []
   incoming.prepared = incoming.prepared !== null && typeof incoming.prepared === 'object' ? incoming.prepared : null
@@ -173,6 +174,13 @@ export function createScriptContinuity() {
       return { state, changed }
     }
 
+    if (event.kind === 'end') {
+      if (state.prepared !== null) throw new Error('当前剧本回合尚未提交，不能结束剧本游标')
+      const changed = state.cursor !== chunks.length
+      state.cursor = chunks.length
+      return { state, changed }
+    }
+
     if (event.kind === 'commit') {
       const prepared = state.prepared
       if (prepared === null) throw new Error('本轮尚未准备剧本分块，请先读取上下文')
@@ -226,7 +234,7 @@ export function createScriptContinuity() {
     if (request.kind === 'choice') {
       const cursor = Math.max(0, Number(state.cursor) || 0)
       const ended = cursor >= chunks.length
-      return { cursor, total: chunks.length, ended, title: str(script && script.title), chunks: ended ? [] : chunks.slice(cursor, Math.min(chunks.length, cursor + 2)) }
+      return { cursor, total: chunks.length, ended, title: str(script && script.title), chunks: ended ? [] : chunks.slice(cursor, cursor + 1) }
     }
     if (request.kind === 'preview') {
       const cursor = Math.max(0, Math.min(chunks.length, Number(state.cursor) || 0))

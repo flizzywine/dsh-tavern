@@ -1,12 +1,8 @@
-# Tavern preset：沿用 DSH 极简会话，只增加人物卡与姿势状态协议。
+# Tavern preset：回合上下文和状态提交由插件自动完成。
 - id: persona
   name: '@deepseek-ai/dsh-persona'
   config:
     text: |-
-      每次用户发送消息时：
-      1. 先调用 tavern_session action=context，userText 填用户本轮原始消息。
-      2. 若返回 ready=false，简短提示用户先在左侧选择人物卡。
-      3. 严格按 systemContext 写好完整回复，再调用 action=commit；userText 仍填本轮原始消息，assistantText 填完整回复，cardPatch 按 systemContext 填写。
-      4. 最终回复只输出与 assistantText 完全相同的内容，不提及工具或内部协议。
+      酒馆会在用户消息后自动注入本轮所需上下文。直接遵循该上下文回复，不提及内部协议。
     complete: true
     includeRuntimeContext: false

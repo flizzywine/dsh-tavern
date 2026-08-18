@@ -20,11 +20,20 @@ test('模型选择只读取当前会话和 DSH 默认值', () => {
   assert.match(serverSource, /当前会话的模型选择器/)
 })
 
-test('素材抽取提交返回卡片草稿语义', () => {
+test('素材抽取使用结构化卡片修改工具，不再传递 JSON 字符串', () => {
   assert.doesNotMatch(serverSource, /draftPatch/)
-  assert.match(serverSource, /value\.mode === 'extract'/)
-  assert.match(serverSource, /卡片草稿已更新/)
-  assert.match(serverSource, /卡片草稿未改动/)
+  assert.doesNotMatch(serverSource, /cardPatch|worldBookPatch/)
+  assert.match(serverSource, /name: 'tavern_update_card'/)
+  assert.match(serverSource, /fields: \{/)
+  assert.match(serverSource, /worldBook: \{/)
+})
+
+test('模型工具只保留按需读取和明确修改', () => {
+  assert.doesNotMatch(serverSource, /name: 'tavern_session'|action=context|action=commit|assistantText.*description/)
+  assert.match(serverSource, /name: 'tavern_read_script'/)
+  assert.match(serverSource, /name: 'tavern_read_worldbook'/)
+  assert.match(serverSource, /name: 'tavern_update_card'/)
+  assert.doesNotMatch(serverSource, /additionalProperties: true \},\s*render/)
 })
 
 test('候选项 RPC 只返回一份 candidates', () => {
@@ -45,6 +54,24 @@ test('姿势结算限制为短 JSON 输出', () => {
   assert.doesNotMatch(input, /slice\(-4\)/)
   assert.match(systemPrompt, /只输出 JSON/)
   assert.match(systemPrompt, /位置、姿势、动作/)
-  assert.match(flow, /maxTokens: 400/)
+  assert.match(flow, /maxTokens: 3000/)
+  assert.doesNotMatch(flow, /maxTokens: 400/)
+  assert.match(flow, /attempt < 2/)
+  assert.match(flow, /姿势 JSON 无效/)
   assert.match(flow, /text\.slice\(0, 200\)/)
+})
+
+test('达到输出 token 上限时不把截断内容当作成功', () => {
+  const call = between(serverSource, 'async function callModel', 'const contextPlanner')
+
+  assert.match(call, /finish\.kind === 'max-tokens'/)
+  assert.match(call, /模型输出达到 token 上限/)
+})
+
+test('剧本正文产生明显推进后自然收束，不把剧本块当清单', () => {
+  const systemPrompt = prompt('script-story')
+
+  assert.match(systemPrompt, /明显的剧情推进/)
+  assert.match(systemPrompt, /自然收束/)
+  assert.match(systemPrompt, /不是.*清单/)
 })

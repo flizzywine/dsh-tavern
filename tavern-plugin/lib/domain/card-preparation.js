@@ -112,7 +112,7 @@ function applyWorldBookOperations(card, value) {
   const additions = []
   const deletions = new Set()
   for (const operation of operations) {
-    if (operation === null || typeof operation !== 'object' || Array.isArray(operation)) throw new Error('worldBookPatch 必须是操作对象或操作数组')
+    if (operation === null || typeof operation !== 'object' || Array.isArray(operation)) throw new Error('世界书修改必须是操作对象或操作数组')
     const op = str(operation.op).trim()
     if (op === 'rename') {
       book.name = str(operation.name)

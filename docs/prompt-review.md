@@ -4,16 +4,18 @@
 - 审查时工作区干净（仅 `output/` 未跟踪），`npm test` 11/11 通过
 - 状态：**已人工复核并实施**
 - 实施范围：P0-1 ~ P0-5、PR-1 ~ PR-7、IO-1 ~ IO-6；IO-7 仅删除旧 settings 覆盖，保留 `nativeCommits`
+- 后续工具架构调整：模型侧 `context → commit` 协议已经删除，改由 DSH 生命周期自动准备上下文、读取最终回复并提交状态。
 
 ## 实施结论
 
 - 候选项改用独立提示，不再复用“只输出小说正文”的 `buildSystem`。
-- persona 只保留 `context → 按 systemContext 生成 → commit` 流程；重新生成文案与 UI 一致。
+- persona 只要求直接遵循自动注入的本轮上下文；正常游玩一次生成即可完成，不再把完整正文放进工具参数后重复输出。
 - 选择 P0-2 方案 B：删除无前端入口的 `settings.json` 模型覆盖与 RPC，统一使用当前会话的原生模型选择器。
 - 选择 P0-4 方向 1：注入模型前统一把 `{{char}}` / `{{user}}` 替换为实际卡名 / “你”；卡片编辑中仍保留模板变量。
 - 姿势结算、卡片 JSON、工具描述和候选任务已精简；未使用返回字段、双份候选输出与死状态已删除。
-- 额外复核发现 extract 提示使用了不存在的 `draftPatch` 名称，已统一为工具真实参数 `cardPatch`。
-- `nativeCommits` 不按原报告建议裁剪：它不只服务回退，还用于同一 DSH turn 重复调用 `context` 时复用原剧本块，保证幂等与上下文一致。
+- 人物卡修改改为结构化 `tavern_update_card`：普通字段使用 `fields`，世界书使用 `worldBook` 逐条操作，不再把 JSON 包进字符串参数。
+- `nativeCommits` 不按原报告建议裁剪：它继续服务回退与生命周期重复通知的幂等提交。
+- 剧本候选只注入当前块，并可在独立上下文中调用有次数上限的 `tavern_read_script`：`next`、`prev` 每次移动一块，`search` 按关键词随机定位临时阅读位置，`point` 选择当前位置。工具状态与推理不进入正文历史，`point` 只在候选结果校验成功后提交；候选 JSON 不再携带 `scriptCursor`。
 
 > 以下保留审查基线上的原始问题、建议与采纳记录；位置和“现状”描述均指修改前的 `6dbe54e`。
 
@@ -128,8 +130,8 @@
 ### PR-3 剧本相关提示重复 4 处
 
 - 位置：`index.js:1875`（工具描述）、`index.js:1990`（scriptLookHint）、`index.js:1157`（buildSystem）、persona 第 3 条
-- 现状：“游标由候选调整、commit 不推进、action=script 前瞻/查看”在 4 处重复。
-- 建议：工具描述保留一句；buildSystem 保留成稿要求；删除 scriptLookHint 或缩成一句“commit 不推进游标；需要前后文用 action=script”。
+- 现状（当时）：“游标由候选调整、commit 不推进、action=script 前瞻/查看”在 4 处重复。
+- 后续修正：剧本块只是上下文单位，不是回合单位；正文提交不再机械推进一块。候选项根据正文实际演到的位置调整唯一的剧本游标，工具读取仍不推进游标。
 - 风险：低。
 - 确认：☑ 采纳　☐ 不采纳
 
@@ -274,7 +276,7 @@ IO-1 ~ IO-7
 1. `npm test`
 2. 启动 `dsh-tavern`，逐模式 smoke：
    - story：首轮正文、候选项 5 个、姿态结算
-   - script：候选项 1 个 + scriptCursor、正文召回、action=script 前后看
+   - script：候选项 1 个、`next / prev / search / point` 剧本研究、正文召回
    - revision：讨论不落盘、确认后落盘
    - extract：素材注入、草稿更新、保存
    - regenBody、rollbackTurn 各一次

@@ -147,7 +147,8 @@ test('卡片设定与素材抽取也通过同一规划 interface', async () => {
   assert.match(revision.text, /剧本《银铃》/)
   assert.match(revision.text, /世界书目录.*2 条/s)
   assert.match(revision.text, /wb-1.*钟楼/s)
-  assert.match(revision.text, /worldBookPatch.*update.*add.*delete.*rename/s)
+  assert.match(revision.text, /tavern_read_worldbook/)
+  assert.match(revision.text, /tavern_update_card.*worldBook.*update.*add.*delete.*rename/s)
   assert.doesNotMatch(revision.text, /钟楼藏着失踪商队的线索/)
 
   const extraction = await planner.plan({
