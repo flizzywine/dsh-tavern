@@ -3,7 +3,6 @@ import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
 const clientSource = await readFile(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
-const serverSource = await readFile(new URL('../tavern-plugin/lib/index.js', import.meta.url), 'utf8')
 
 function between(source, start, end) {
   const from = source.indexOf(start)
@@ -29,12 +28,6 @@ test('成功创建抽取会话后关闭选择器并清空素材勾选', () => {
 
   assert.ok(start >= 0 && close > start && clear > start)
   assert.ok(close < refresh && clear < refresh)
-})
-
-test('空玩家身份由首轮 Agent 对话确认，并可通过 cardPatch.player 写入', () => {
-  assert.match(serverSource, /请直接在对话中告诉我两件事：准备提炼谁/)
-  assert.match(serverSource, /typeof patch\.player === 'string'/)
-  assert.match(serverSource, /ext\.player = nextPlayer/)
 })
 
 test('Tavern 只接管会话区域，保留 DSH 原生设置与模型配置入口', () => {

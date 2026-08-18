@@ -1,5 +1,9 @@
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { fileURLToPath } from 'node:url'
+import { createCandidateGenerator } from './domain/candidate-generation.js'
+import { createCardPreparation } from './domain/card-preparation.js'
+import { createContextPlanner } from './domain/context-planner.js'
+import { createScriptContinuity } from './domain/script-continuity.js'
 
 // dsh-tavern 宿主插件（profile 组合行）
 // RPC：同源 HTTP 路由 /api/dsh-tavern/<method>（客户端 fetch 调用）
@@ -69,8 +73,13 @@ export function apply(ctx) {
     const c = charLabel === undefined ? str(card.name) : charLabel
     return str(text).split('{{char}}').join(c).split('{{user}}').join(u)
   }
+  function renderCardText(text, card) {
+    return substChar(text, card, '你', str(card.name))
+  }
 
   const settlementJobs = new Set()
+  const scriptContinuity = createScriptContinuity()
+  const cardPreparation = createCardPreparation({ id: function () { return uid('card') }, now: Date.now })
 
   // ---------- 模型调用 ----------
   function modelSelection(sessionId) {
@@ -190,6 +199,8 @@ export function apply(ctx) {
     throw new Error('工具调用轮次过多')
   }
 
+  const contextPlanner = createContextPlanner({ callModel: callModel, now: Date.now, logger: console })
+
   // ---------- 角色卡 ----------
   function splitNovelText(source, requestedSize) {
     const target = clampInt(requestedSize, 300, 800, 500)
@@ -235,29 +246,6 @@ export function apply(ctx) {
       else packed.push(current)
     }
     return packed.map(function (text, index) { return { id: 'chunk-' + String(index + 1).padStart(5, '0'), order: index, text: text } })
-  }
-  function normalizeCard(raw) {
-    const data = (raw !== null && typeof raw === 'object' && raw.data !== null && typeof raw.data === 'object') ? raw.data : raw
-    const cb = (data !== null && typeof data === 'object' && data.character_book !== null && typeof data.character_book === 'object')
-      ? data.character_book
-      : (raw !== null && typeof raw === 'object' && raw.character_book !== null && typeof raw.character_book === 'object' ? raw.character_book : null)
-    return {
-      id: uid('card'),
-      name: str(data.name) || '未命名角色',
-      description: str(data.description),
-      personality: str(data.personality),
-      scenario: str(data.scenario),
-      first_mes: str(data.first_mes),
-      mes_example: str(data.mes_example),
-      system_prompt: str(data.system_prompt),
-      post_history_instructions: str(data.post_history_instructions),
-      alternate_greetings: Array.isArray(data.alternate_greetings) ? data.alternate_greetings.map(str).filter(function (x) { return x !== '' }) : [],
-      creator_notes: str(data.creator_notes),
-      tags: Array.isArray(data.tags) ? data.tags.map(str).filter(function (x) { return x !== '' }) : [],
-      character_book: cb,
-      spec: str(raw !== null && typeof raw === 'object' ? raw.spec : ''),
-      importedAt: Date.now()
-    }
   }
   async function readIndex() {
     const idx = await readJson('index.json')
@@ -314,81 +302,6 @@ export function apply(ctx) {
     await writeIndex(idx)
     return { deleted: true }
   }
-  function compactScriptInfo(script) {
-    if (script === undefined) return null
-    return {
-      title: script.title || '未命名剧本',
-      sourceChars: Number(script.sourceChars) || 0,
-      chunkSize: Number(script.chunkSize) || 500,
-      chunkCount: Array.isArray(script.chunks) ? script.chunks.length : 0,
-      importedAt: Number(script.importedAt) || 0
-    }
-  }
-  function scriptReadWindow(script, query, offset, limit) {
-    const chunks = Array.isArray(script.chunks) ? script.chunks : []
-    const total = chunks.length
-    if (total === 0) return { title: str(script.title), total: total, from: 0, to: 0, chunks: [] }
-    const maxLimit = clampInt(limit, 1, 6, 3)
-    const keyword = str(query).trim()
-    if (keyword !== '') {
-      for (let i = 0; i < chunks.length; i++) {
-        if (str(chunks[i].text).indexOf(keyword) >= 0) {
-          const from = Math.max(0, i - Math.floor((maxLimit - 1) / 2))
-          const to = Math.min(total - 1, from + maxLimit - 1)
-          const selected = chunks.slice(from, to + 1)
-          return { title: str(script.title), total: total, from: from + 1, to: to + 1, chunks: selected, matchOrder: chunks[i].order }
-        }
-      }
-      return { title: str(script.title), total: total, from: 0, to: 0, chunks: [], notFound: true }
-    }
-    const start = Math.max(0, clampInt(offset, 1, Math.max(1, total), 1) - 1)
-    const end = Math.min(total, start + maxLimit)
-    return { title: str(script.title), total: total, from: start + 1, to: end, chunks: chunks.slice(start, end) }
-  }
-  function scriptPlayWindow(script, chat, query, offset, limit) {
-    const chunks = Array.isArray(script.chunks) ? script.chunks : []
-    const total = chunks.length
-    const state = chat.scriptState !== null && typeof chat.scriptState === 'object' ? chat.scriptState : {}
-    const cursor = Math.max(0, Math.min(Math.max(0, total - 1), Number(state.cursor) || 0))
-    if (total === 0) return { title: str(script.title), total: total, from: 0, to: 0, chunks: [], cursor: 0 }
-    const radius = 10
-    const windowFrom = Math.max(0, cursor - radius)
-    const windowTo = Math.min(total - 1, cursor + radius)
-    const keyword = str(query).trim()
-    if (keyword !== '') {
-      for (let i = windowFrom; i <= windowTo; i++) {
-        if (str(chunks[i].text).indexOf(keyword) >= 0) {
-          const hitFrom = Math.max(windowFrom, i - 1)
-          const hitTo = Math.min(windowTo, i + 1)
-          return {
-            title: str(script.title),
-            total: total,
-            from: hitFrom + 1,
-            to: hitTo + 1,
-            chunks: chunks.slice(hitFrom, hitTo + 1),
-            cursor: cursor + 1,
-            matchOrder: chunks[i].order,
-            windowFrom: windowFrom + 1,
-            windowTo: windowTo + 1
-          }
-        }
-      }
-      return { title: str(script.title), total: total, from: 0, to: 0, chunks: [], cursor: cursor + 1, windowFrom: windowFrom + 1, windowTo: windowTo + 1, notFound: true }
-    }
-    const start = Math.max(0, Math.min(total - 1, offset === undefined || offset === null ? cursor : clampInt(offset, 1, total, 1) - 1))
-    const maxLimit = clampInt(limit, 1, 21, 1)
-    const end = Math.min(total - 1, start + maxLimit - 1)
-    return {
-      title: str(script.title),
-      total: total,
-      from: start + 1,
-      to: end + 1,
-      chunks: chunks.slice(start, end + 1),
-      cursor: cursor + 1,
-      windowFrom: windowFrom + 1,
-      windowTo: windowTo + 1
-    }
-  }
   // ---------- 抽取素材（独立于人物卡的 txt/md 小说库） ----------
   async function readSource(sourceId) { return await readJson('sources/' + sourceId + '.json') }
   async function writeSource(sourceId, value) {
@@ -437,26 +350,8 @@ export function apply(ctx) {
     if (card === undefined) throw new Error('角色卡不存在: ' + chat.cardId)
     return card
   }
-  function parseImported(payload) {
-    let text
-    if (payload !== null && typeof payload === 'object' && payload.kind === 'png') {
-      text = Buffer.from(String(payload.b64 || ''), 'base64').toString('utf8')
-    } else if (payload !== null && typeof payload === 'object' && typeof payload.text === 'string') {
-      text = payload.text
-    } else {
-      throw new Error('无法识别的导入数据')
-    }
-    let raw
-    try {
-      raw = JSON.parse(text)
-    } catch (err) {
-      throw new Error('角色卡 JSON 解析失败: ' + (err && err.message || err))
-    }
-    if (raw === null || typeof raw !== 'object') throw new Error('角色卡格式错误')
-    return normalizeCard(raw)
-  }
   async function importCard(payload) {
-    const card = parseImported(payload)
+    const card = cardPreparation.create({ kind: 'import', payload: payload })
     await writeJson('cards/' + card.id + '.json', card)
     const idx = await readIndex()
     idx.cards = idx.cards || []
@@ -468,39 +363,27 @@ export function apply(ctx) {
     const idx = await readIndex()
     return (idx.cards || []).map(function (item) { return { id: item.id, name: item.name, script: item.script || null } })
   }
-  const CARD_TEXT_FIELDS = ['name', 'description', 'personality', 'scenario', 'first_mes', 'mes_example', 'system_prompt', 'post_history_instructions', 'creator_notes']
   async function updateCard(cardId, patch, revision) {
     const card = await readCard(cardId)
     if (card === undefined) throw new Error('角色卡不存在: ' + cardId)
-    const source = patch !== null && typeof patch === 'object' ? patch : {}
-    for (const field of CARD_TEXT_FIELDS) {
-      if (Object.prototype.hasOwnProperty.call(source, field)) card[field] = str(source[field])
-    }
-    if (Array.isArray(source.tags)) card.tags = source.tags.map(str).map(function (x) { return x.trim() }).filter(function (x) { return x !== '' }).slice(0, 30)
-    if (Array.isArray(source.alternate_greetings)) card.alternate_greetings = source.alternate_greetings.map(str).map(function (x) { return x.trim() }).filter(function (x) { return x !== '' }).slice(0, 20)
-    if (source.character_book !== undefined && (source.character_book === null || typeof source.character_book === 'object')) card.character_book = source.character_book
-    card.name = str(card.name).trim() || '未命名角色'
-    card.updatedAt = Date.now()
-    if (revision !== undefined && revision !== null) {
-      card.revision_history = Array.isArray(card.revision_history) ? card.revision_history : []
-      card.revision_history.push(revision)
-      card.revision_history = card.revision_history.slice(-30)
-    }
-    await writeJson('cards/' + card.id + '.json', card)
+    const change = cardPreparation.update({ kind: 'card', card: card, patch: patch, revision: revision })
+    const savedCard = change.card
+    if (!change.changed) return change
+    await writeJson('cards/' + savedCard.id + '.json', savedCard)
     const idx = await readIndex()
     idx.cards = (idx.cards || []).map(function (item) {
-      return item.id === card.id ? Object.assign({}, item, { name: card.name, description: card.description, tags: card.tags, updatedAt: card.updatedAt }) : item
+      return item.id === savedCard.id ? Object.assign({}, item, { name: savedCard.name, description: savedCard.description, tags: savedCard.tags, updatedAt: savedCard.updatedAt }) : item
     })
-    idx.chats = (idx.chats || []).map(function (item) { return item.cardId === card.id ? Object.assign({}, item, { cardName: card.name }) : item })
+    idx.chats = (idx.chats || []).map(function (item) { return item.cardId === savedCard.id ? Object.assign({}, item, { cardName: savedCard.name }) : item })
     await writeIndex(idx)
-    for (const item of (idx.chats || []).filter(function (entry) { return entry.cardId === card.id })) {
+    for (const item of (idx.chats || []).filter(function (entry) { return entry.cardId === savedCard.id })) {
       const linked = await readChat(item.id)
-      if (linked !== undefined && linked.cardName !== card.name) {
-        linked.cardName = card.name
+      if (linked !== undefined && linked.cardName !== savedCard.name) {
+        linked.cardName = savedCard.name
         await writeJson('chats/' + linked.id + '.json', linked)
       }
     }
-    return card
+    return change
   }
   async function deleteCard(cardId) {
     const idx = await readIndex()
@@ -594,23 +477,16 @@ export function apply(ctx) {
         character_book: null
       }
     }
-    return {
-      id: card.id,
-      name: card.name,
-      description: card.description,
-      personality: card.personality || '',
-      scenario: card.scenario || '',
-      first_mes: card.first_mes || '',
-      mes_example: card.mes_example || '',
-      system_prompt: card.system_prompt || '',
-      post_history_instructions: card.post_history_instructions || '',
-      creator_notes: card.creator_notes || '',
-      tags: card.tags || [],
-      alternate_greetings: card.alternate_greetings || [],
-      character_book: card.character_book || null
-    }
+    return cardPreparation.present({ card: card, as: 'view' })
   }
-  function view(chat, card) {
+  async function view(chat, card) {
+    let scriptProgress = null
+    if ((chat.mode || 'story') === 'script') {
+      const script = await readScript(chat.cardId)
+      if (script !== undefined && Array.isArray(script.chunks)) {
+        scriptProgress = scriptContinuity.inspect({ script: script, state: chat.scriptState, request: { kind: 'progress' } })
+      }
+    }
     return {
       chatId: chat.id,
       mode: chat.mode || 'story',
@@ -618,12 +494,7 @@ export function apply(ctx) {
       posture: chat.posture || '',
       guides: Array.isArray(chat.guides) ? chat.guides : [],
       settleStatus: chat.settleStatus || 'idle',
-      scriptProgress: chat.scriptState ? {
-        cursor: Number(chat.scriptState.cursor) || 0,
-        totalChunks: Number(chat.scriptState.totalChunks) || 0,
-        recalledCount: Array.isArray(chat.scriptState.recalledChunkIds) ? chat.scriptState.recalledChunkIds.length : 0,
-        title: str(chat.scriptState.title)
-      } : null,
+      scriptProgress: scriptProgress,
       updatedAt: chat.updatedAt || 0
     }
   }
@@ -645,17 +516,13 @@ export function apply(ctx) {
       // 同一大模式（游玩/卡片）内复用当前会话；旧的自由故事会话不会被强行切换成剧本。
       if (current !== undefined && current.cardId === cardId && groupOfMode(current.mode) === groupOfMode(requestedMode)) {
         await appendNativeOpening(sessionId, current, card)
-        return view(current, card)
+        return await view(current, card)
       }
     }
     const chat = newChat(card, requestedMode || 'story')
     if (chat.mode === 'script') {
       const scriptStart = Math.max(0, Math.min(script.chunks.length - 1, Number(card.script_start) || 0))
-      chat.scriptState.totalChunks = script.chunks.length
-      chat.scriptState.title = script.title || card.name + '剧本'
-      chat.scriptState.scriptVersion = Number(script.importedAt) || 0
-      chat.scriptState.initialCursor = scriptStart
-      chat.scriptState.cursor = scriptStart
+      chat.scriptState = scriptContinuity.start(script, scriptStart)
     }
     if (typeof sessionId === 'string') chat.sessionId = sessionId
     const greeting = chat.mode === 'revision'
@@ -673,7 +540,7 @@ export function apply(ctx) {
       await writeSessionMap(map)
       await appendNativeOpening(sessionId, chat, card)
     }
-    return view(chat, card)
+    return await view(chat, card)
   }
 
   async function appendNativeOpening(sessionId, chat, card) {
@@ -724,21 +591,7 @@ export function apply(ctx) {
     if ((chat.mode || 'story') !== 'script') return null
     const script = await readScript(chat.cardId)
     if (script === undefined || !Array.isArray(script.chunks)) return null
-    const state = chat.scriptState !== null && typeof chat.scriptState === 'object' ? chat.scriptState : {}
-    const cursor = Math.max(0, Math.min(script.chunks.length, Number(state.cursor) || 0))
-    const previous = state.lastReference !== null && typeof state.lastReference === 'object' && str(state.lastReference.text) !== ''
-      ? { order: Number(state.lastReference.order) || 0, text: str(state.lastReference.text) }
-      : null
-    const upcoming = script.chunks.slice(cursor, cursor + 3).map(function (chunk) {
-      return { order: Number(chunk.order) || 0, id: chunk.id, text: str(chunk.text) }
-    })
-    return {
-      title: str(script.title),
-      cursor: cursor,
-      totalChunks: script.chunks.length,
-      previous: previous,
-      upcoming: upcoming
-    }
+    return scriptContinuity.inspect({ script: script, state: chat.scriptState, request: { kind: 'preview' } })
   }
   async function sessionView(sessionId) {
     const chat = await chatForSession(sessionId)
@@ -754,7 +607,7 @@ export function apply(ctx) {
       await writeChat(chat)
       void runSettlement(chat.id).finally(function () { settlementJobs.delete(chat.id) })
     }
-    const result = view(chat, card)
+    const result = await view(chat, card)
     if (isExtract) result.extract = await extractViewOf(chat)
     if ((chat.mode || 'story') === 'script') result.scriptPreview = await scriptPreviewOf(chat)
     return result
@@ -765,174 +618,32 @@ export function apply(ctx) {
     const isExtract = (chat.mode || 'story') === 'extract'
     const card = isExtract ? null : await readChatCard(chat)
     await appendNativeOpening(sessionId, chat, card)
-    const result = view(chat, card)
+    const result = await view(chat, card)
     if (isExtract) result.extract = await extractViewOf(chat)
     return result
   }
-  function scriptChoiceWindow(chat, script) {
-    const state = chat.scriptState !== null && typeof chat.scriptState === 'object' ? chat.scriptState : {}
-    const cursor = Math.max(0, Number(state.cursor) || 0)
-    const chunks = Array.isArray(script.chunks) ? script.chunks : []
-    const ended = cursor >= chunks.length
-    return {
-      cursor: cursor,
-      total: chunks.length,
-      ended: ended,
-      title: str(script.title),
-      chunks: ended ? [] : chunks.slice(cursor, Math.min(chunks.length, cursor + 2))
-    }
-  }
-  async function generateChoices(sessionId, messageId, guidance) {
-    const chat = await chatForSession(sessionId)
-    if (chat === undefined) throw new Error('当前会话没有绑定人物卡')
-    if ((chat.mode || 'story') === 'revision' || (chat.mode || 'story') === 'extract') throw new Error('卡片模式不生成剧情候选项')
-    for (let i = 0; i < 40 && settlementJobs.has(chat.id); i++) await sleep(250)
-    const card = await readChatCard(chat)
-    const sel = modelSelection(sessionId)
-    if (sel === null) throw new Error('没有可用的模型配置')
-    const scriptMode = (chat.mode || 'story') === 'script'
-    let scriptWin = null
-    let script = null
-    if (scriptMode) {
-      script = await readScript(chat.cardId)
-      if (script === undefined || !Array.isArray(script.chunks) || script.chunks.length === 0) throw new Error('剧本文件不存在，请重新为人物卡导入剧本')
-      scriptWin = scriptChoiceWindow(chat, script)
-    }
-    const guide = str(guidance).trim().slice(0, 600)
-    let task = ''
-    if (scriptMode) {
-      task = '你是剧本候选项生成器，只输出 JSON：{"choices":[{"type":"action|scene","text":"选项内容"}],"scriptCursor":1}。恰好生成 1 个候选；action 是人物行为，scene 是场景变化；text 限 10~80 字，不预写行动结果。阅读人物卡、最近剧情与剧本块，必要时用 tavern_script_peek 查看前后文；候选应自然承接最近正文，不重复已发生内容，并推动剧情进入下一处关键场面、冲突或转折。scriptCursor 填下一轮正文应重点参考的实际块号，可保持、前移或后移。'
-    } else {
-      task = '你是剧情候选项生成器，只输出 JSON：{"choices":[{"type":"action|scene","text":"选项内容"}]}。恰好生成 5 个候选：4 个各有侧重、彼此不重复的 action（人物行为），1 个 scene（场景变化）。每项 10~80 字，不预写行动结果。候选必须自然承接最近正文，不跳到无关动作，不重复已发生内容。'
-    }
-    const requiredCount = scriptMode ? 1 : 5
-    const system = buildCandidateSystem(card, chat, task, scriptWin)
-    let request = '请按上述规则生成候选项。'
-    if (guide !== '') request += '\n\n【用户额外要求】\n' + guide + '\n\n额外要求不改变 ' + requiredCount + ' 个候选及类型约束。'
-    const messages = buildMessages(chat, sel, 30).concat([{
-      id: 'choices-' + Date.now().toString(36),
-      role: 'user',
-      content: [{ type: 'text', text: request }],
-      source: { kind: 'plugin', plugin: 'dsh-tavern' }
-    }])
-    let lastError = null
-    let lastRaw = ''
-    const maxChoices = requiredCount
-    const temps = [0.8, 1.0, 1.1]
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      if (attempt > 1) await new Promise(function (resolve) { setTimeout(resolve, 800) })
-      try {
-        let peekCalls = 0
-        const callOpts = {
-          sessionId: sessionId,
-          temperature: temps[(attempt - 1) % temps.length],
-          maxTokens: 2400,
-          system: system,
-          messages: messages
-        }
-        const text = scriptMode
-          ? await callModelWithTool(Object.assign({}, callOpts, {
-              tools: [{
-                name: 'tavern_script_peek',
-                description: '只读查看剧本分块，可向前或向后看任意位置；默认读当前游标块，可用 scriptOffset 指定块号（1 起始）或 scriptQuery 检索关键词。最多调用 4 次，可用 scriptLimit 一次读多块。只返回文本，不推进游标。',
-                parameters: {
-                  type: 'object',
-                  properties: {
-                    scriptOffset: { type: 'number', description: '1 起始的块号，缺省当前游标' },
-                    scriptLimit: { type: 'number', description: '连续读取 1~4 块，默认 1' },
-                    scriptQuery: { type: 'string', description: '按关键词在剧本中检索' }
-                  },
-                  additionalProperties: false
-                }
-              }],
-              onToolCall: async function (call) {
-                peekCalls += 1
-                if (peekCalls > 4) return 'peek 次数已用尽，请直接输出 JSON 结果，不要再调用工具。'
-                const callArgs = parseJsonLenient(str(call.arguments))
-                const limit = clampInt(Number(callArgs.scriptLimit), 1, 4, 1)
-                const win = scriptReadWindow(script, callArgs.scriptQuery, callArgs.scriptOffset, limit)
-                if (win.notFound === true) return '没有找到包含该关键词的剧本分块，可换关键词或用 scriptOffset 指定块号。'
-                if (win.chunks.length === 0) return '没有可读的剧本分块。'
-                return win.chunks.map(function (chunk) { return '[' + chunk.id + ' · 第 ' + (Number(chunk.order) + 1) + ' 块]\n' + chunk.text }).join('\n\n')
-              }
-            }))
-          : await callModel(callOpts)
-        lastRaw = text
-        const parsed = parseJsonLenient(text)
-        let nextCursorRaw = Number(parsed !== null && typeof parsed === 'object' ? parsed.scriptCursor : NaN)
-        if (!Number.isFinite(nextCursorRaw) || nextCursorRaw < 1) {
-          const cursorMatch = /"scriptCursor"\s*:\s*(\d+)/.exec(text)
-          if (cursorMatch !== null) nextCursorRaw = Number(cursorMatch[1])
-        }
-        let source = Array.isArray(parsed.choices) ? parsed.choices : (Array.isArray(parsed.options) ? parsed.options : [])
-        if (source.length === 0) {
-          const arrText = extractChoicesArray(text)
-          if (arrText !== null) {
-            try {
-              const arr = JSON.parse(arrText)
-              if (Array.isArray(arr)) source = arr
-            } catch (err) {}
-          }
-        }
-        // 模型偶发输出被 maxTokens 截断成不完整 JSON：直接从原文里把每个 choice 对象抠出来。
-        if (source.length === 0) source = parseChoiceObjects(text)
-        const choices = []
-        for (let i = 0; i < source.length && choices.length < maxChoices; i++) {
-          const item = source[i]
-          const raw = typeof item === 'string' ? item : (item !== null && typeof item === 'object' ? str(item.text) : '')
-          const content = raw.trim().slice(0, 120)
-          if (content === '') continue
-          let type = 'action'
-          if (item !== null && typeof item === 'object') {
-            const t = str(item.type).trim().toLowerCase()
-            if (t === 'scene' || t === 'scene2' || t === 'newscene' || t === '场景' || t === '新场景' || t === '场景变化') type = 'scene'
-          }
-          choices.push({ type: type, text: content })
-        }
-        if (choices.length === 0) throw new Error('模型没有返回有效候选项')
-        const latestChat = await readChat(chat.id)
-        if (latestChat === undefined) throw new Error('聊天不存在: ' + chat.id)
-        let adjustedCursor = scriptWin ? scriptWin.cursor : 0
-        let adjustedEnded = scriptWin ? scriptWin.ended : false
-        if (scriptMode && Number.isFinite(nextCursorRaw) && nextCursorRaw >= 1 && latestChat.scriptState !== null && typeof latestChat.scriptState === 'object') {
-          const total = Math.max(1, Number(latestChat.scriptState.totalChunks) || Number(script.chunks.length) || 1)
-          adjustedCursor = Math.max(0, Math.min(total - 1, Math.round(nextCursorRaw) - 1))
-          adjustedEnded = adjustedCursor >= total
-          latestChat.scriptState.cursor = adjustedCursor
-        }
-        latestChat.candidates = {
-          messageId: str(messageId),
-          choices: choices,
-          generatedAt: Date.now(),
-          script: scriptMode ? { cursor: adjustedCursor, ended: adjustedEnded } : undefined
-        }
-        await writeChat(latestChat)
-        return latestChat.candidates
-      } catch (err) {
-        lastError = err
-        console.error('dsh-tavern: 候选项生成第 ' + attempt + ' 次失败:', str(err && err.message || err))
-        if (lastRaw !== '') console.error('dsh-tavern: 候选项原始输出:', lastRaw.slice(0, 1200))
-      }
-    }
-    throw lastError || new Error('候选项生成失败')
-  }
-  async function getChoices(sessionId) {
-    const chat = await chatForSession(sessionId)
-    if (chat === undefined || chat.candidates === null || typeof chat.candidates !== 'object') return null
-    const choices = Array.isArray(chat.candidates.choices) ? chat.candidates.choices.map(function (item) {
-      if (item !== null && typeof item === 'object') {
-        const type = item.type === 'scene' || item.type === 'scene2' ? 'scene' : 'action'
-        return { type: type, text: str(item.text).trim() }
-      }
-      return { type: 'action', text: str(item).trim() }
-    }).filter(function (item) { return item.text !== '' }).slice(0, 5) : []
-    if (choices.length === 0) return null
-    return {
-      messageId: str(chat.candidates.messageId),
-      choices: choices,
-      generatedAt: Number(chat.candidates.generatedAt) || 0
-    }
-  }
+  const candidateGenerator = createCandidateGenerator({
+    store: {
+      chatForSession: chatForSession,
+      readChat: readChat,
+      readCard: readCard,
+      readScript: readScript,
+      writeChat: writeChat
+    },
+    model: {
+      selection: modelSelection,
+      call: callModel,
+      callWithTool: callModelWithTool
+    },
+    planner: contextPlanner,
+    scripts: scriptContinuity,
+    waitUntilSettled: async function (chat) {
+      for (let index = 0; index < 40 && settlementJobs.has(chat.id); index++) await sleep(250)
+    },
+    sleep: sleep,
+    now: Date.now,
+    logger: console
+  })
   async function listTavernSessions() {
     const map = await readSessionMap()
     const rows = []
@@ -974,219 +685,6 @@ export function apply(ctx) {
     return chat.guides
   }
 
-  // ---------- 提示词 ----------
-  function worldBookEntries(card) {
-    const out = []
-    const book = card.character_book
-    if (book === null || book === undefined || !Array.isArray(book.entries)) return out
-    for (let i = 0; i < book.entries.length; i++) {
-      const e = book.entries[i]
-      if (e === null || typeof e !== 'object') continue
-      if (e.enabled === false) continue
-      let c = ''
-      if (Array.isArray(e.content)) {
-        c = e.content.map(function (x) { return x !== null && typeof x === 'object' ? str(x.content) : str(x) }).filter(function (x) { return x !== '' }).join('\n')
-      } else {
-        c = str(e.content)
-      }
-      if (c === '') continue
-      const keys = Array.isArray(e.keys) && e.keys.length > 0 ? e.keys.join(',') : '设定'
-      out.push({ id: 'wb-' + i, keys: keys, text: c, constant: e.constant === true })
-    }
-    return out
-  }
-  function worldBookLine(entry) {
-    return '[' + str(entry.keys) + '] ' + str(entry.text)
-  }
-  function worldBookLines(card, selectedIds) {
-    const out = []
-    const wanted = Array.isArray(selectedIds) ? selectedIds : []
-    for (const entry of worldBookEntries(card)) {
-      if (entry.constant === true || wanted.indexOf(entry.id) >= 0) out.push(renderCardText(worldBookLine(entry), card))
-    }
-    return out
-  }
-  function renderCardText(text, card) {
-    return substChar(text, card, '你', str(card.name))
-  }
-  function cardContextParts(card, chat, worldBookIds, includeDetails, includeInstructions) {
-    const parts = []
-    const wb = worldBookLines(card, worldBookIds)
-    if (wb.length > 0) parts.push('【世界设定】\n' + wb.join('\n'))
-    if (str(chat.posture) !== '') parts.push('【现场 · 主要人物状态（每轮结算更新，务必与之一致）】\n' + chat.posture)
-    const guides = Array.isArray(chat.guides) ? chat.guides.filter(function (item) { return item !== null && typeof item === 'object' && str(item.text).trim() !== '' }) : []
-    if (guides.length > 0) parts.push('【用户指导 Guide · 优先遵循】\n' + guides.map(function (item, index) { return (index + 1) + '. ' + str(item.text).trim() }).join('\n'))
-    parts.push('【故事设定 · 人物卡】\n名字: ' + str(card.name))
-    if (includeDetails === true) {
-      if (str(card.description) !== '') parts.push('设定: ' + renderCardText(card.description, card))
-      if (str(card.personality) !== '') parts.push('主要人物性格: ' + renderCardText(card.personality, card))
-      if (str(card.scenario) !== '') parts.push('开场情境: ' + renderCardText(card.scenario, card))
-      if (str(card.mes_example) !== '') parts.push('【文风示例】\n' + renderCardText(card.mes_example, card))
-    }
-    if (includeInstructions !== false) {
-      if (str(card.post_history_instructions) !== '') parts.push('【附加要求】\n' + renderCardText(card.post_history_instructions, card))
-      if (str(card.system_prompt) !== '') parts.push('【特殊指令】\n' + renderCardText(card.system_prompt, card))
-    }
-    return parts
-  }
-  const worldBookSelectionCache = new Map()
-  async function selectWorldBookEntries(chat, card, userText, sessionId, nativeTurn) {
-    const entries = worldBookEntries(card).filter(function (entry) { return entry.constant !== true })
-    if (entries.length === 0) return []
-    const key = chat.id + ':' + nativeTurn
-    if (worldBookSelectionCache.has(key)) return worldBookSelectionCache.get(key)
-    // 非恒定条目很少时无需再调用模型，直接全部注入。
-    let selectedIds = entries.length <= 3 ? entries.map(function (entry) { return entry.id }) : []
-    const recent = (chat.messages || []).slice(-8).map(function (message) {
-      return (message.role === 'assistant' ? '正文' : '玩家') + ': ' + str(message.text)
-    }).join('\n')
-    const recentText = recent + '\n' + str(userText).trim()
-    if (entries.length > 3) {
-      try {
-        const raw = await callModel({
-          sessionId: sessionId || chat.sessionId,
-          temperature: 0.1,
-          maxTokens: 400,
-          system: '你是世界书条目检索器。根据最近几轮剧情，从可用条目中选出本轮正文生成最需要注入的条目。只输出 JSON：{"ids":["条目ID"]}。最多选 3 个；只选与最近剧情直接相关的人物或设定；不相关就输出空数组。',
-          messages: [{
-            id: 'worldbook-select-' + Date.now().toString(36),
-            role: 'user',
-            content: [{ type: 'text', text: '【最近剧情】\n' + (recent || '（只有开场白）') + '\n\n【玩家本轮输入】\n' + (str(userText).trim() || '（无）') + '\n\n【当前姿势】\n' + (chat.posture || '（无）') + '\n\n【可用条目】\n' + entries.map(function (entry) { return '[' + entry.id + '] keys: ' + entry.keys + '\n' + str(entry.text).slice(0, 160) }).join('\n\n') }],
-            source: { kind: 'plugin', plugin: 'dsh-tavern-worldbook' }
-          }]
-        })
-        const parsed = parseJsonLenient(raw)
-        const ids = Array.isArray(parsed.ids) ? parsed.ids.map(function (id) { return str(id).trim() }) : []
-        const valid = entries.map(function (entry) { return entry.id })
-        selectedIds = ids.filter(function (id) { return valid.indexOf(id) >= 0 }).slice(0, 3)
-      } catch (err) {
-        console.error('dsh-tavern: 世界书条目检索失败，本轮仅注入常驻条目', str(err && err.message || err))
-        selectedIds = []
-      }
-      // LLM 偶发空选择时，用条目 keys 对最近正文 + 本轮输入做一次确定性兜底匹配。
-      if (selectedIds.length === 0) {
-        const matched = []
-        for (const entry of entries) {
-          const keys = String(entry.keys || '').split(',')
-          for (const key of keys) {
-            const k = key.trim()
-            if (k !== '' && recentText.indexOf(k) >= 0 && matched.indexOf(entry.id) < 0) {
-              matched.push(entry.id)
-              break
-            }
-          }
-          if (matched.length >= 3) break
-        }
-        if (matched.length > 0) {
-          console.log('dsh-tavern: 世界书检索回退为关键词匹配:', matched.join(','))
-          selectedIds = matched
-        }
-      }
-    }
-    if (worldBookSelectionCache.size > 200) {
-      const oldest = worldBookSelectionCache.keys().next().value
-      if (oldest !== undefined) worldBookSelectionCache.delete(oldest)
-    }
-    worldBookSelectionCache.set(key, selectedIds)
-    return selectedIds
-  }
-  function buildSystem(card, chat, scriptReference, worldBookIds) {
-    const parts = []
-    parts.push('你是小说续写引擎，只输出小说正文，不要解释、点评或元信息；长度由剧情自然决定。\n1. "你"是玩家角色；除玩家外，所有角色都由你叙述和扮演。\n2. 用户最新消息是导演指令：无标记=人物行为（动作、心理、对白）；「场景变化」=可以结束当前场景，也可以直接开启新场景；如果是新场景提要，要把它展开成完整场景，不能当成已发生，也不能跳过。玩家不是上帝：其他角色可以按人设拒绝、反对、打断玩家行动，不必百依百顺。\n3. 用户指令只是大致引导，不是要接续的原文，也不是已发生事实：先承接上一段和当前现场，让情节自然推进，在过程中完成指令要表达的意思；指令原文可以改写、拆散、融入叙述，不要整句直接复制。同一动作/台词只演一次，完成后可继续自然发展。\n4. 文风参照【文风示例】（若有）；与【现场】冲突时以【现场】为准。')
-    const hasStoryTurn = (chat.messages || []).some(function (m) { return m !== null && typeof m === 'object' && m.greeting !== true })
-    parts.push.apply(parts, cardContextParts(card, chat, worldBookIds, !hasStoryTurn, true))
-    if (scriptReference !== null && scriptReference !== undefined && str(scriptReference.text) !== '') {
-      parts.push('【本轮剧本参考 · 仅本轮注入一次】\n' + scriptReference.text)
-      parts.push('【剧本模式 · 成稿要求】\n你正在写正文，直接写出成稿：内容与形式一次到位，删除重复、理顺叙述顺序、补足过渡、润色遣词造句，不要留下粗糙痕迹。剧本是本轮剧情主线：先分析本块内容，必要时用 tavern_session action=script 前瞻后续分块、了解剧情走向，然后尽量贴合剧本发展——把本块中的事件、对白、人物反应、转折尽量演出；允许照抄剧本原文，也允许自由发挥。玩家指令是承接方式：从上一段结尾和玩家本轮行动自然进入剧本剧情；指令与剧本冲突时以剧本走向为主，把玩家动作自然融入。优先保住剧本内容，不要为通顺牺牲剧本，也不要重复上一段已发生的情节。')
-    }
-    return parts.join('\n\n')
-  }
-  function buildCandidateSystem(card, chat, task, scriptWin) {
-    const parts = [task]
-    parts.push.apply(parts, cardContextParts(card, chat, undefined, true, false))
-    if (scriptWin !== null) {
-      parts.push('【剧本候选参考 · 游标 ' + Math.min(scriptWin.cursor + 1, scriptWin.total) + ' / ' + scriptWin.total + '】\n' + (scriptWin.ended
-        ? '剧本已到结尾。按最近剧情自然收束，或给出一个新场景开头候选。'
-        : scriptWin.chunks.map(function (chunk) { return '[' + chunk.id + ']\n' + chunk.text }).join('\n\n')))
-    }
-    return parts.join('\n\n')
-  }
-  function normalizeScriptState(chat, script) {
-    if (chat.scriptState === null || typeof chat.scriptState !== 'object') chat.scriptState = {}
-    const state = chat.scriptState
-    const version = Number(script.importedAt) || 0
-    if ((Number(state.scriptVersion) || 0) !== version) {
-      const initialCursor = Math.max(0, Math.min(script.chunks.length - 1, Number(state.initialCursor) || 0))
-      state.cursor = initialCursor
-      state.recalledChunkIds = []
-      state.prepared = null
-      state.lastReference = null
-      state.scriptVersion = version
-    }
-    state.cursor = Math.max(0, Number(state.cursor) || 0)
-    state.recalledChunkIds = Array.isArray(state.recalledChunkIds) ? state.recalledChunkIds : []
-    state.totalChunks = Array.isArray(script.chunks) ? script.chunks.length : 0
-    state.title = script.title || state.title || chat.cardName + '剧本'
-    return state
-  }
-  async function prepareScriptReference(chat, card, userText, sessionId, nativeTurn) {
-    const script = await readScript(chat.cardId)
-    if (script === undefined || !Array.isArray(script.chunks) || script.chunks.length === 0) throw new Error('剧本文件不存在，请重新为人物卡导入剧本')
-    const state = normalizeScriptState(chat, script)
-    const request = str(userText).trim()
-    if (state.prepared !== null && typeof state.prepared === 'object' && state.prepared.userText === request && Number(state.prepared.nativeTurn) === Number(nativeTurn)) return state.prepared
-    if (state.cursor >= script.chunks.length) {
-      state.prepared = { userText: request, nativeTurn: Number(nativeTurn) || 0, ended: true, chunkId: '', order: state.cursor, text: '' }
-      await writeChat(chat)
-      return state.prepared
-    }
-    // 游标由候选项模块调整，这里只按游标注入当前参考分块；正文需要更多范围时用 action=script peek 前后看。
-    const selected = script.chunks[state.cursor]
-    state.prepared = {
-      userText: request,
-      nativeTurn: Number(nativeTurn) || 0,
-      ended: false,
-      chunkId: selected.id,
-      order: selected.order,
-      text: selected.text,
-      cursorBefore: state.cursor,
-      preparedAt: Date.now()
-    }
-    await writeChat(chat)
-    return state.prepared
-  }
-  function commitScriptReference(chat, userText, nativeTurn) {
-    const state = chat.scriptState
-    if (state === null || typeof state !== 'object') throw new Error('剧本状态不存在，请重新打开该会话')
-    const prepared = state.prepared
-    if (prepared === null || typeof prepared !== 'object') throw new Error('本轮尚未准备剧本分块，请先调用 context')
-    if (str(prepared.userText).trim() !== str(userText).trim()) throw new Error('commit 的 userText 与本轮剧本准备不一致')
-    if (Number(prepared.nativeTurn) !== Number(nativeTurn)) throw new Error('commit 与本轮原生 turn 不一致')
-    if (prepared.ended === true || str(prepared.chunkId) === '') {
-      state.prepared = null
-      return
-    }
-    const order = Number(prepared.order) || 0
-    if (!state.recalledChunkIds.includes(prepared.chunkId)) state.recalledChunkIds.push(prepared.chunkId)
-    // 游标由候选项模块生成候选时调整（向前/向后/不变），commit 不推进游标。
-    state.lastReference = { chunkId: prepared.chunkId, order: order, text: prepared.text, userText: str(userText), recalledAt: Date.now() }
-    state.prepared = null
-  }
-  function buildMessages(chat, sel, limit) {
-    const src = (chat.messages || []).slice(-(limit || 40))
-    const out = []
-    for (let i = 0; i < src.length; i++) {
-      const m = src[i]
-      if (m === null || typeof m !== 'object' || str(m.text) === '') continue
-      out.push({
-        id: 'm' + i + '-' + Date.now().toString(36),
-        role: m.role === 'assistant' ? 'assistant' : 'user',
-        content: [{ type: 'text', text: str(m.text) }],
-        source: m.role === 'assistant' ? { kind: 'model', provider: sel.provider, model: sel.model } : { kind: 'plugin', plugin: 'dsh-tavern' }
-      })
-    }
-    return out
-  }
   // ---------- 后台结算 ----------
   function settleSystemPrompt() {
     return '你是剧情姿势结算器。只输出 JSON：{"posture":"一句话"}。posture 必填；用第三人称概括最新对话结束时主要人物的位置、姿势、动作和必要的衣着状态。只写当前状态，不写历史，不解释。'
@@ -1227,44 +725,6 @@ export function apply(ctx) {
       } catch (err) {}
     }
     return {}
-  }
-  function parseChoiceObjects(text) {
-    const out = []
-    if (text === undefined || text === null || text === '') return out
-    const re = /\{\s*"type"\s*:\s*"([^"]+)"\s*,\s*"text"\s*:\s*"((?:[^"\\]|\\.)*)"\s*[}\]]/g
-    let m
-    while ((m = re.exec(text)) !== null) {
-      const type = m[1].trim().toLowerCase()
-      const content = m[2].replace(/\\"/g, '"').replace(/\\n/g, '\n').trim()
-      if (content !== '') out.push({ type: type, text: content })
-    }
-    return out
-  }
-  function extractChoicesArray(text) {
-    if (text === undefined || text === null || text === '') return null
-    const keyAt = text.indexOf('"choices"')
-    if (keyAt < 0) return null
-    const start = text.indexOf('[', keyAt)
-    if (start < 0) return null
-    let depth = 0
-    let inString = false
-    let escaped = false
-    for (let i = start; i < text.length; i++) {
-      const ch = text[i]
-      if (inString) {
-        if (escaped) escaped = false
-        else if (ch === '\\') escaped = true
-        else if (ch === '"') inString = false
-        continue
-      }
-      if (ch === '"') inString = true
-      else if (ch === '[') depth++
-      else if (ch === ']') {
-        depth--
-        if (depth === 0) return text.slice(start, i + 1)
-      }
-    }
-    return null
   }
   function applySettlement(chat, result) {
     let postureUpdated = false
@@ -1380,46 +840,6 @@ export function apply(ctx) {
       ext.prepared = null
     }
   }
-  function compactPromptObject(value) {
-    const source = value !== null && typeof value === 'object' ? value : {}
-    const out = {}
-    for (const key of Object.keys(source)) {
-      const item = source[key]
-      if (typeof item === 'string') {
-        if (item.trim() !== '') out[key] = item
-      } else if (Array.isArray(item)) {
-        if (item.length > 0) out[key] = item
-      } else if (item !== null && typeof item === 'object') {
-        if (Object.keys(item).length > 0) out[key] = item
-      } else if (item !== undefined && item !== null) {
-        out[key] = item
-      }
-    }
-    return out
-  }
-  function promptObjectText(value) {
-    const compact = compactPromptObject(value)
-    return Object.keys(compact).length > 0 ? JSON.stringify(compact, null, 1) : '暂无已确认内容（未列出的字段为空）'
-  }
-  function buildExtractSystem(chat, prepared) {
-    const ext = chat.extract || {}
-    const draft = ext.draft || {}
-    const player = str(ext.player)
-    const parts = []
-    parts.push('你在酒馆的卡片模式（素材抽取）中：根据给定的剧本/小说素材，与用户讨论并提炼出一张新的人物卡。你不续写剧情、不进行角色扮演。')
-    parts.push('【人物卡可提炼字段】name（角色名）、description（角色描述：身份、外貌、背景）、personality（性格）、scenario（开场情境）、first_mes（开场白，写第一幕）、mes_example（对话示例，<START> 分隔，用 {{char}}/{{user}} 模板）、system_prompt、post_history_instructions、tags（字符串数组）。')
-    parts.push('【玩家身份（{{user}}）】\n' + (player !== ''
-      ? player + '\n已确认。mes_example、scenario、first_mes 中的 {{user}} 一律指这个身份；玩家行动和正文中的“你”也指这个身份。若用户要求修改玩家，确认后在 commit 的 cardPatch 中输出 {"player":"新的身份"}。'
-      : '尚未确认，这是当前最优先事项：先在对话中请用户确认两件事——准备提炼谁（或制作哪类人物卡），以及谁是玩家（{{user}}）。例如“提炼阿芙拉，玩家是受雇调查商队失踪事件的旅行者”。得到玩家确认后，在 commit 的 cardPatch 中输出 {"player":"玩家身份"}；该字段只记录抽取会话的玩家身份，不写入人物卡字段。未确认前不要把玩家身份写死。'))
-    parts.push('【规则】\n1. 只依据素材与对话中已确认的信息写卡，素材不足时向用户提问或给多个方案。\n2. 人物卡是 {{char}} 的卡：system_prompt、post_history_instructions、personality、description 一律用第三人称写角色（如“段莹莹是……她……”），禁止写“你是{{char}}”“你是段莹莹”这类第二人称；{{user}} 才是玩家，{{char}} 和其他出场人物都是角色。\n3. 用户可以指定角色（如“抽取王夫人”）或指定卡类型（单一角色/多角色卡），也可以随时修改玩家身份。\n4. 每轮可以讨论、提问或给出草稿片段；只有用户明确确认修改时，才在 commit 时输出最小 cardPatch（JSON 对象，只含要改的字段；player 可以单独输出）；只讨论时 cardPatch 必须是 {}。\n5. 素材按游标分批注入，未读部分会在后续轮次继续注入，不要担心一次读不完。')
-    parts.push('【当前草稿】\n' + promptObjectText(draft))
-    if (prepared !== null && typeof prepared === 'object' && Array.isArray(prepared.window) && prepared.window.length > 0) {
-      parts.push('【本轮素材 · 第 ' + (Number(prepared.cursorBefore) + 1) + '~' + (Number(prepared.cursorBefore) + prepared.window.length) + ' 块 / 共 ' + prepared.total + ' 块】\n' + prepared.window.map(function (c) { return '[' + c.title + '] ' + c.text }).join('\n\n'))
-    } else {
-      parts.push('【素材】全部素材已注入完毕（共 ' + (prepared !== null && typeof prepared === 'object' ? prepared.total : 0) + ' 块），可以定稿。')
-    }
-    return parts.join('\n\n')
-  }
   async function extractViewOf(chat) {
     const ext = chat.extract || {}
     const idx = await readIndex()
@@ -1466,7 +886,7 @@ export function apply(ctx) {
       await writeSessionMap(map)
       await appendNativeOpening(sessionId, chat, null)
     }
-    const result = view(chat, null)
+    const result = await view(chat, null)
     result.extract = await extractViewOf(chat)
     return result
   }
@@ -1479,10 +899,7 @@ export function apply(ctx) {
     if (str(draft.name).trim() === '') throw new Error('草稿还没有角色名，请先在对话中确认')
     const player = str(ext.player)
     if (player === '' && ext.done !== true) throw new Error('玩家（{{user}}）身份还没有确认。请先在对话中告诉助手“玩家是XX”，确认后再保存。')
-    const card = normalizeCard(draft)
-    const sysPrompt = str(card.system_prompt).trim()
-    if (sysPrompt !== '' && /^你是/.test(sysPrompt)) throw new Error('草稿的 system_prompt 把角色写成了“你是……”，会与玩家身份冲突；请让助手改成第三人称后再保存。')
-    card.creator_notes = str(card.creator_notes || '') + '\n[抽取生成] ' + ((ext.sourceIds) || []).join(',') + '\n[玩家] ' + (player !== '' ? player : '未确认（旧会话）')
+    const card = cardPreparation.create({ kind: 'extract', draft: draft, player: player, sourceIds: ext.sourceIds || [], allowMissingPlayer: ext.done === true })
     await writeJson('cards/' + card.id + '.json', card)
     const idx = await readIndex()
     idx.cards = idx.cards || []
@@ -1495,7 +912,7 @@ export function apply(ctx) {
     chat.cardName = card.name
     chat.extract.done = true
     await writeChat(chat)
-    const result = view(chat, card)
+    const result = await view(chat, card)
     result.extract = await extractViewOf(chat)
     result.finalizedCard = { id: card.id, name: card.name, description: card.description, tags: card.tags }
     return result
@@ -1583,25 +1000,12 @@ export function apply(ctx) {
         sourceEventSeqs: [oldSeq]
       })
     }
-    const result = view(latest, card)
+    const result = await view(latest, card)
     result.adopted = { text: body, guidance: guide, hiddenTurn: oldTurn, syntheticTurn: syntheticTurn }
     return result
   }
 
   // ---------- 回退本轮（删除最近一次用户输入 + LLM 输出） ----------
-  function restoreScriptStateFromReference(chat, ref) {
-    const state = chat.scriptState
-    if (state === null || typeof state !== 'object') return
-    state.prepared = null
-    if (ref === null || ref === undefined) return
-    if (ref.ended === true) return
-    const chunkId = str(ref.chunkId)
-    if (chunkId === '') return
-    const before = Math.max(0, Number(ref.cursorBefore) || 0)
-    state.cursor = before
-    state.recalledChunkIds = Array.isArray(state.recalledChunkIds) ? state.recalledChunkIds.filter(function (id) { return id !== chunkId }) : []
-    state.lastReference = null
-  }
   async function rollbackTurn(sessionId, chatId) {
     const chat = str(chatId) === '' ? await chatForSession(sessionId) : await readChat(chatId)
     if (chat === undefined) throw new Error('聊天不存在: ' + chatId)
@@ -1676,17 +1080,13 @@ export function apply(ctx) {
       postureFallback = true
     }
     if (mode === 'script') {
-      if (before !== null && before.scriptState !== null && typeof before.scriptState === 'object') {
-        const state = chat.scriptState
-        if (state !== null && typeof state === 'object') {
-          state.cursor = Math.max(0, Number(before.scriptState.cursor) || 0)
-          state.recalledChunkIds = Array.isArray(before.scriptState.recalledChunkIds) ? before.scriptState.recalledChunkIds.slice() : []
-          state.prepared = null
-          state.lastReference = before.scriptState.lastReference !== null && typeof before.scriptState.lastReference === 'object' ? Object.assign({}, before.scriptState.lastReference) : null
-        }
-      } else {
-        restoreScriptStateFromReference(chat, rollbackCommit !== null && rollbackCommit.scriptReference !== null && typeof rollbackCommit.scriptReference === 'object' ? rollbackCommit.scriptReference : null)
-      }
+      const script = await readScript(chat.cardId)
+      if (script === undefined || !Array.isArray(script.chunks)) throw new Error('剧本文件不存在，无法回退剧本状态')
+      const revision = before !== null && before.scriptRevision !== null && typeof before.scriptRevision === 'object'
+        ? before.scriptRevision
+        : (before !== null && before.scriptState !== null && typeof before.scriptState === 'object' ? before.scriptState : null)
+      const reference = rollbackCommit !== null && rollbackCommit.scriptReference !== null && typeof rollbackCommit.scriptReference === 'object' ? rollbackCommit.scriptReference : null
+      chat.scriptState = scriptContinuity.transition({ script: script, state: chat.scriptState, event: { kind: 'restore', revision: revision, reference: reference } }).state
     }
     if (rollbackCommitKey !== '') delete chat.nativeCommits[rollbackCommitKey]
     chat.candidates = null
@@ -1718,7 +1118,7 @@ export function apply(ctx) {
       sourceEventSeqs: shadowedSeqs
     })
     if (postureFallback) queueSettlement(chat.id)
-    const result = view(chat, card)
+    const result = await view(chat, card)
     result.rolledBack = { hiddenTurn: hiddenTurn, removedUserText: removedUserText, removedAssistantText: removedAssistantText }
     return result
   }
@@ -1727,7 +1127,10 @@ export function apply(ctx) {
   async function dispatch(method, args) {
     switch (method) {
       case 'listCards': return { cards: await listCards() }
-      case 'getScriptInfo': return { script: compactScriptInfo(await readScript(args && args.cardId)) }
+      case 'getScriptInfo': {
+        const script = await readScript(args && args.cardId)
+        return { script: scriptContinuity.inspect({ script: script, state: null, request: { kind: 'info' } }) }
+      }
       case 'importScript': return { script: await importScript(args && args.cardId, args && args.payload) }
       case 'deleteScript': return await deleteScript(args && args.cardId)
       case 'listSources': return { sources: await listSources() }
@@ -1735,12 +1138,10 @@ export function apply(ctx) {
       case 'deleteSource': return await deleteSource(args && args.sourceId)
       case 'startExtract': return { view: await startExtract(args && args.sourceIds, args && args.sessionId, args && args.player) }
       case 'finalizeExtract': return { view: await finalizeExtract(args && args.chatId) }
-      case 'getCard': {
-        const card = await readCard(args && args.cardId)
-        if (card === undefined) throw new Error('角色卡不存在: ' + (args && args.cardId))
-        return { card: card }
+      case 'updateCard': {
+        const change = await updateCard(args && args.cardId, args && args.patch)
+        return { card: change.card, changed: change.changed }
       }
-      case 'updateCard': return { card: await updateCard(args && args.cardId, args && args.patch) }
       case 'listSessions': return { sessions: await listTavernSessions() }
       case 'importCard': return { card: await importCard(args && args.payload) }
       case 'deleteCard': return await deleteCard(args && args.cardId)
@@ -1748,10 +1149,15 @@ export function apply(ctx) {
       case 'startChat': return { view: await startChat(args && args.cardId, args && args.sessionId, args && args.mode) }
       case 'getSession': return { view: await sessionView(args && args.sessionId) }
       case 'ensureOpening': return { view: await ensureNativeOpening(args && args.sessionId) }
-      case 'getChoices': return { candidates: await getChoices(args && args.sessionId) }
+      case 'getChoices': return { candidates: await candidateGenerator.find({ sessionId: args && args.sessionId, messageId: args && args.messageId }) }
       case 'generateChoices': {
-        const candidates = await generateChoices(args && args.sessionId, args && args.messageId, args && args.guidance)
+        const candidates = await candidateGenerator.generate({ sessionId: args && args.sessionId, messageId: args && args.messageId, guidance: args && args.guidance })
         return { candidates: candidates }
+      }
+      case 'exportCard': {
+        const card = await readCard(args && args.cardId)
+        if (card === undefined) throw new Error('角色卡不存在: ' + (args && args.cardId))
+        return { document: cardPreparation.present({ card: card, as: 'sillytavern-v3' }) }
       }
       case 'addGuide': return { guides: await addGuide(args && args.sessionId, args && args.text) }
       case 'deleteGuide': return { guides: await deleteGuide(args && args.sessionId, args && args.index) }
@@ -1842,8 +1248,17 @@ export function apply(ctx) {
           if (chatMode !== 'revision' && chatMode !== 'script') throw new Error('action=script 仅在卡片模式（设定对话）或游玩模式（剧本会话）中用于读取已绑定剧本')
           const script = await readScript(chat.cardId)
           if (script === undefined || !Array.isArray(script.chunks) || script.chunks.length === 0) return { ready: false, message: '当前人物卡没有绑定剧本，无法读取。' }
+          const windowResult = scriptContinuity.inspect({
+            script: script,
+            state: chat.scriptState,
+            request: {
+              kind: chatMode === 'script' ? 'play' : 'read',
+              query: args && args.scriptQuery,
+              offset: args && args.scriptOffset,
+              limit: args && args.scriptLimit
+            }
+          })
           if (chatMode === 'script') {
-            const windowResult = scriptPlayWindow(script, chat, args && args.scriptQuery, args && args.scriptOffset, args && args.scriptLimit)
             if (windowResult.notFound === true) return { ready: false, message: '游标前后 10 块内没有找到包含“' + str(args && args.scriptQuery).trim() + '”的分块，请换一个关键词，或用 scriptOffset 直接按块号读取。' }
             if (windowResult.chunks.length === 0) return { ready: false, message: '剧本分块为空。' }
             const text = windowResult.chunks.map(function (chunk) { return '[' + chunk.id + ' · 第 ' + (Number(chunk.order) + 1) + ' 块]\n' + chunk.text }).join('\n\n')
@@ -1859,7 +1274,6 @@ export function apply(ctx) {
               text: text
             }
           }
-          const windowResult = scriptReadWindow(script, args && args.scriptQuery, args && args.scriptOffset, args && args.scriptLimit)
           if (windowResult.notFound === true) return { ready: false, message: '剧本中没有找到包含“' + str(args && args.scriptQuery).trim() + '”的分块，请换一个关键词，或用 scriptOffset 直接按块号读取。' }
           if (windowResult.chunks.length === 0) return { ready: false, message: '剧本分块为空。' }
           const text = windowResult.chunks.map(function (chunk) { return '[' + chunk.id + ' · 第 ' + (Number(chunk.order) + 1) + ' 块]\n' + chunk.text }).join('\n\n')
@@ -1879,43 +1293,45 @@ export function apply(ctx) {
           const mode = chat.mode || 'story'
           if (mode === 'extract') {
             const prepared = await prepareExtract(chat, nativeTurn)
+            const plan = await contextPlanner.plan({ purpose: 'extract', chat: chat, extractPrepared: prepared })
             return {
               ready: true,
               mode: 'extract',
               cardName: (chat.extract && chat.extract.draft ? str(chat.extract.draft.name) : '') || '未命名角色',
-              systemContext: buildExtractSystem(chat, prepared)
+              systemContext: plan.text
             }
           }
           const card = await readChatCard(chat)
-          const editable = {}
-          for (const field of CARD_TEXT_FIELDS) editable[field] = card[field] || ''
-          editable.tags = card.tags || []
-          editable.alternate_greetings = card.alternate_greetings || []
-          editable.character_book = card.character_book || null
           const priorCommit = nativeCommitFor(chat, nativeTurn)
-          const scriptReference = mode === 'script'
-            ? (priorCommit && priorCommit.scriptReference ? priorCommit.scriptReference : await prepareScriptReference(chat, card, args && args.userText, sessionId, nativeTurn))
-            : null
-          const worldBookIds = mode === 'revision'
-            ? []
-            : await selectWorldBookEntries(chat, card, args && args.userText, sessionId, nativeTurn)
-          let revisionScriptHint = ''
+          let scriptReference = null
+          let scriptInfo = null
+          if (mode === 'script') {
+            if (priorCommit && priorCommit.scriptReference) {
+              scriptReference = priorCommit.scriptReference
+            } else {
+              const script = await readScript(chat.cardId)
+              if (script === undefined || !Array.isArray(script.chunks) || script.chunks.length === 0) throw new Error('剧本文件不存在，请重新为人物卡导入剧本')
+              const prepared = scriptContinuity.transition({ script: script, state: chat.scriptState, event: { kind: 'prepare', userText: args && args.userText, nativeTurn: nativeTurn } })
+              chat.scriptState = prepared.state
+              scriptReference = prepared.reference
+              if (prepared.changed) await writeChat(chat)
+            }
+          }
           if (mode === 'revision') {
-            const scriptInfo = compactScriptInfo(await readScript(chat.cardId))
-            revisionScriptHint = scriptInfo === null
-              ? '\n\n本卡未绑定剧本。'
-              : '\n\n本卡已绑定剧本《' + scriptInfo.title + '》，共 ' + scriptInfo.chunkCount + ' 块。如需查看剧本原文，调用 tavern_session action=script：scriptQuery 传关键词检索，或 scriptOffset 传 1 起始的块号，scriptLimit 控制每次读取 1~6 块；不要仅凭文件名猜测剧本内容。'
+            const script = await readScript(chat.cardId)
+            scriptInfo = scriptContinuity.inspect({ script: script, state: chat.scriptState, request: { kind: 'info' } })
           }
           const scriptLookHint = mode === 'script'
             ? '\n\n【剧本参考范围】commit 不推进游标；需要前后文时用 action=script 查看其他分块。'
             : ''
+          const plan = mode === 'revision'
+            ? await contextPlanner.plan({ purpose: 'revision', card: card, scriptInfo: scriptInfo })
+            : await contextPlanner.plan({ purpose: 'body', card: card, chat: chat, userText: args && args.userText, sessionId: sessionId, nativeTurn: nativeTurn, scriptReference: scriptReference })
           const contextResult = {
             ready: true,
             mode: mode,
             cardName: card.name,
-            systemContext: mode === 'revision'
-              ? '你正在卡片模式的人物卡设定对话中，与用户共同讨论和修正人物卡，不进行角色扮演，不续写剧情。可以分析、追问、提出多个方案。只有用户明确要求或确认修改时才生成最小 cardPatch；只讨论时 cardPatch 必须是 {}。可修改字段：' + CARD_TEXT_FIELDS.join(',') + ',tags,alternate_greetings,character_book。保留 {{char}}、{{user}} 模板变量。\n\n当前人物卡（未列出的字段为空）：\n' + promptObjectText(editable) + revisionScriptHint
-              : buildSystem(card, chat, scriptReference, worldBookIds) + scriptLookHint
+            systemContext: plan.text + scriptLookHint
           }
           return contextResult
         }
@@ -1932,24 +1348,15 @@ export function apply(ctx) {
             if (rawPatch !== '') {
               try { patch = JSON.parse(rawPatch) } catch (err) { throw new Error('cardPatch 必须是 JSON 对象') }
             }
-            const changed = patch !== null && typeof patch === 'object' && Object.keys(patch).length > 0
             const ext = chat.extract !== null && typeof chat.extract === 'object' ? chat.extract : {}
-            const draft = ext.draft !== null && typeof ext.draft === 'object' ? ext.draft : {}
-            if (patch !== null && typeof patch === 'object' && typeof patch.player === 'string') {
-              const nextPlayer = str(patch.player).trim()
-              if (nextPlayer !== '') ext.player = nextPlayer
-            }
-            if (changed) {
-              for (const field of CARD_TEXT_FIELDS) {
-                if (typeof patch[field] === 'string' && str(patch[field]).trim() !== '') draft[field] = str(patch[field]).trim()
-              }
-              if (Array.isArray(patch.tags)) draft.tags = patch.tags.map(str).filter(function (x) { return x !== '' })
-              draft.updatedAt = Date.now()
-            }
+            const draftChange = cardPreparation.update({ kind: 'draft', card: ext.draft || {}, player: ext.player, patch: patch })
+            ext.draft = draftChange.card
+            ext.player = draftChange.player
+            const changed = draftChange.changed
             commitExtract(chat, nativeTurn)
             if (userText !== '') chat.messages.push({ role: 'user', text: userText, ts: Date.now(), native: true })
             chat.messages.push({ role: 'assistant', text: assistantText, ts: Date.now(), native: true, changed: changed })
-            chat.cardName = str(draft.name) || '抽取中'
+            chat.cardName = str(ext.draft.name) || '抽取中'
             rememberNativeCommit(chat, nativeTurn, { mode: 'extract', userText: userText, changed: changed })
             await writeChat(chat)
             return { saved: true, mode: 'extract', changed: changed, chatId: chat.id, cardName: chat.cardName }
@@ -1960,9 +1367,9 @@ export function apply(ctx) {
             if (rawPatch !== '') {
               try { patch = JSON.parse(rawPatch) } catch (err) { throw new Error('cardPatch 必须是 JSON 对象') }
             }
-            const changed = patch !== null && typeof patch === 'object' && Object.keys(patch).length > 0
-            let savedCard = await readChatCard(chat)
-            if (changed) savedCard = await updateCard(chat.cardId, patch, { ts: Date.now(), instruction: userText, summary: '通过卡片模式设定对话更新人物卡' })
+            const cardChange = await updateCard(chat.cardId, patch, { ts: Date.now(), instruction: userText, summary: '通过卡片模式设定对话更新人物卡' })
+            const changed = cardChange.changed
+            const savedCard = cardChange.card
             if (userText !== '') chat.messages.push({ role: 'user', text: userText, ts: Date.now(), native: true })
             chat.messages.push({ role: 'assistant', text: assistantText, ts: Date.now(), native: true, changed: changed })
             chat.cardName = savedCard.name
@@ -1970,20 +1377,16 @@ export function apply(ctx) {
             await writeChat(chat)
             return { saved: true, mode: 'revision', changed: changed, chatId: chat.id, cardName: savedCard.name }
           }
-          const commitBefore = {
-            posture: chat.posture || '',
-            scriptState: (chat.mode || 'story') === 'script' && chat.scriptState !== null && typeof chat.scriptState === 'object'
-              ? {
-                  cursor: Number(chat.scriptState.cursor) || 0,
-                  recalledChunkIds: Array.isArray(chat.scriptState.recalledChunkIds) ? chat.scriptState.recalledChunkIds.slice() : [],
-                  lastReference: chat.scriptState.lastReference !== null && typeof chat.scriptState.lastReference === 'object' ? Object.assign({}, chat.scriptState.lastReference) : null
-                }
-              : undefined
+          const commitBefore = { posture: chat.posture || '' }
+          let preparedReference = null
+          if ((chat.mode || 'story') === 'script') {
+            const script = await readScript(chat.cardId)
+            if (script === undefined || !Array.isArray(script.chunks) || script.chunks.length === 0) throw new Error('剧本文件不存在，请重新为人物卡导入剧本')
+            const committed = scriptContinuity.transition({ script: script, state: chat.scriptState, event: { kind: 'commit', userText: userText, nativeTurn: nativeTurn } })
+            chat.scriptState = committed.state
+            preparedReference = committed.reference
+            commitBefore.scriptRevision = committed.revision
           }
-          const preparedReference = (chat.mode || 'story') === 'script' && chat.scriptState && chat.scriptState.prepared
-            ? Object.assign({}, chat.scriptState.prepared)
-            : null
-          if ((chat.mode || 'story') === 'script') commitScriptReference(chat, userText, nativeTurn)
           if (userText !== '') chat.messages.push({ role: 'user', text: userText, ts: Date.now(), native: true })
           chat.messages.push({ role: 'assistant', text: assistantText, ts: Date.now(), native: true })
           chat.settleStatus = 'running'

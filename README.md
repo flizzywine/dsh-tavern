@@ -289,4 +289,10 @@ dsh --profile tavern
 
 </details>
 
+## 项目方向与架构
+
+- [MISSION.md](MISSION.md)：项目使命、第一性原理和不可放弃的核心功能；
+- [ARCHITECTURE.md](ARCHITECTURE.md)：DSH 与 dsh-tavern 的边界，以及四个领域模块的职责；
+- [CONTEXT.md](CONTEXT.md)：游玩、剧本、上下文和人物卡准备的统一领域用语。
+
 ---

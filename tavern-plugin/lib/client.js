@@ -405,18 +405,11 @@ body.dsh-tavern-shell-active button[aria-label="新建会话"], body.dsh-tavern-
 			}
 			async function exportCard(card) {
 				try {
-					const res = await call("getCard", { cardId: card.id });
-					const raw = res.card;
-					const exported = { spec: "chara_card_v3", spec_version: "3.0", data: {
-						name: raw.name, description: raw.description || "", personality: raw.personality || "", scenario: raw.scenario || "",
-						first_mes: raw.first_mes || "", mes_example: raw.mes_example || "", creator_notes: raw.creator_notes || "",
-						system_prompt: raw.system_prompt || "", post_history_instructions: raw.post_history_instructions || "",
-						tags: raw.tags || [], alternate_greetings: raw.alternate_greetings || [], character_book: raw.character_book || null
-					} };
-					const blob = new Blob([JSON.stringify(exported, null, 2)], { type: "application/json" });
+					const res = await call("exportCard", { cardId: card.id });
+					const blob = new Blob([JSON.stringify(res.document, null, 2)], { type: "application/json" });
 					const url = URL.createObjectURL(blob);
 					const a = document.createElement("a");
-					a.href = url; a.download = (raw.name || "人物卡") + ".json";
+					a.href = url; a.download = (card.name || "人物卡") + ".json";
 					document.body.appendChild(a); a.click(); a.remove();
 					URL.revokeObjectURL(url);
 				} catch (err) { setError(String(err && err.message || err)); }
@@ -978,7 +971,7 @@ body.dsh-tavern-shell-active button[aria-label="新建会话"], body.dsh-tavern-
 				setCandidatePanel({ sessionId: props.sessionId, messageId: props.messageId, phase: "loading", choices: [], error: "" });
 				try {
 					if (!force) {
-						const saved = await rpc("getChoices", {}, props.sessionId);
+						const saved = await rpc("getChoices", { messageId: props.messageId }, props.sessionId);
 						if (saved && saved.ok && saved.candidates && saved.candidates.messageId === props.messageId) {
 							setCandidatePanel({ sessionId: props.sessionId, messageId: props.messageId, phase: "ready", choices: saved.candidates.choices || [], error: "" });
 							return;
