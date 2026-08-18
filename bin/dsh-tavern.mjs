@@ -134,10 +134,10 @@ function writeProfileManifest() {
   const pluginPath = path.join(SOURCE_ROOT, 'tavern-plugin').replaceAll(path.sep, '/')
   const dependencies = {
     ...(current.dependencies || {}),
-    'dsh-codex-connect': source.dependencies['dsh-codex-connect'],
     'dsh-tavern-plugin': `link:${pluginPath}`,
   }
   delete dependencies['@deepseek-ai/dsh-tools']
+  delete dependencies['dsh-codex-connect']
 
   const next = {
     ...current,

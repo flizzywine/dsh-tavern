@@ -3,5 +3,3 @@ packages:
 
 nodeLinker: hoisted
 autoInstallPeers: false
-minimumReleaseAgeExclude:
-  - dsh-codex-connect@0.1.0-alpha.4.5

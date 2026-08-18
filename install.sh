@@ -39,13 +39,19 @@ if ! command -v npm >/dev/null 2>&1; then
   fail "未找到 npm，请重新安装 Node.js。"
 fi
 
-if ! command -v pnpm >/dev/null 2>&1 || ! command -v dsh >/dev/null 2>&1; then
-  echo "正在安装 pnpm 与 DeepSeek Harness……"
+set --
+if ! command -v pnpm >/dev/null 2>&1; then set -- "$@" pnpm; fi
+if ! command -v dsh >/dev/null 2>&1; then set -- "$@" @deepseek-ai/dsh; fi
+if [ "$#" -gt 0 ]; then
+  echo "正在补齐：$*……"
   mkdir -p "${RUNTIME_ROOT}"
-  npm install --global --prefix "${RUNTIME_ROOT}" pnpm @deepseek-ai/dsh
+  npm install --global --prefix "${RUNTIME_ROOT}" "$@"
   PATH=${RUNTIME_BIN}:${PATH}
   export PATH
 fi
+
+command -v pnpm >/dev/null 2>&1 || fail "安装后仍未找到 pnpm。"
+command -v dsh >/dev/null 2>&1 || fail "安装后仍未找到 DSH。"
 
 DSH_TAVERN_BIN_DIR=${COMMAND_BIN}
 export DSH_TAVERN_BIN_DIR

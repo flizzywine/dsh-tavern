@@ -14,15 +14,13 @@
     "test": "node --test tests/*.test.mjs"
   },
   "dependencies": {
-    "dsh-codex-connect": "0.1.0-alpha.4.5",
     "dsh-tavern-plugin": "link:./tavern-plugin"
   },
   "dsh": {
     "profile": {
       "bundles": [
         "@deepseek-ai/dsh-base",
-        "@deepseek-ai/dsh-web-app",
-        "dsh-codex-connect"
+        "@deepseek-ai/dsh-web-app"
       ]
     }
   }

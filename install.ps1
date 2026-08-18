@@ -38,15 +38,19 @@ try {
   $NpmCommand = Resolve-Command 'npm'
   if ($null -eq $NpmCommand) { throw '未找到 npm，请重新安装 Node.js。' }
 
-  if (-not (Test-Command 'pnpm') -or -not (Test-Command 'dsh')) {
-    Write-Host '正在安装 pnpm 与 DeepSeek Harness……'
+  $MissingPackages = @()
+  if (-not (Test-Command 'pnpm')) { $MissingPackages += 'pnpm' }
+  if (-not (Test-Command 'dsh')) { $MissingPackages += '@deepseek-ai/dsh' }
+  if ($MissingPackages.Count -gt 0) {
+    Write-Host ("正在补齐：" + ($MissingPackages -join '、') + '……')
     New-Item -ItemType Directory -Force -Path $RuntimeRoot | Out-Null
-    & $NpmCommand install --global --prefix $RuntimeRoot pnpm '@deepseek-ai/dsh'
+    & $NpmCommand install --global --prefix $RuntimeRoot @MissingPackages
     Assert-LastCommand 'pnpm 或 DeepSeek Harness 安装失败。'
     $env:Path = "$RuntimeRoot;$env:Path"
   }
   $PnpmCommand = Resolve-Command 'pnpm'
   if ($null -eq $PnpmCommand) { throw '安装后仍未找到 pnpm。' }
+  if (-not (Test-Command 'dsh')) { throw '安装后仍未找到 DSH。' }
 
   $env:DSH_TAVERN_BIN_DIR = $CommandBin
   $env:Path = "$CommandBin;$env:Path"
