@@ -126,13 +126,25 @@ function buildMessages(chat, selection, now, limit = 6) {
 
 const SCRIPT_READ_TOOL = Object.freeze({
   name: 'tavern_read_script',
-  description: '用 position 读取任意剧本块，用 query 检索整本剧本，两者都不移动游标。只有 point 会把下一轮游标向前定位；总块数加 1 表示剧本结束。position、query、point 必须且只能提供一个。最多查询 6 次，用完后必须根据已有材料输出最终候选。',
+  description: '只读剧本：用 position 读取任意剧本块，或用 query 检索整本剧本，两者都不移动游标。position、query 必须且只能提供一个。最多查询 6 次，用完后必须根据已有材料输出最终候选。',
   parameters: {
     type: 'object',
     properties: {
       position: { type: 'integer', minimum: 1, description: '要读取的 1 起始剧本块号；总块数加 1 表示剧本结束。' },
-      query: { type: 'string', description: '要在整本剧本中检索的关键词。' },
-      point: { type: 'integer', minimum: 1, description: '要定位的 1 起始剧本块号；只能保持或向前跳，总块数加 1 表示剧本结束。' }
+      query: { type: 'string', description: '要在整本剧本中检索的关键词。' }
+    },
+    additionalProperties: false
+  }
+})
+
+const SCRIPT_POINT_TOOL = Object.freeze({
+  name: 'tavern_point_script',
+  description: '请求把下一轮剧本游标定位到指定块。只能保持当前位置或向前跳，不能后退；总块数加 1 表示剧本结束。调用只暂存请求，候选成功后才会一起提交。',
+  countsTowardLimit: false,
+  parameters: {
+    type: 'object',
+    properties: {
+      position: { type: 'integer', minimum: 1, description: '要定位的 1 起始剧本块号；只能保持或向前跳，总块数加 1 表示剧本结束。' }
     },
     additionalProperties: false
   }
@@ -158,25 +170,30 @@ function scriptResearchAttempt(script, scriptWindow) {
   }
 
   async function onToolCall(call) {
-    if (call === null || typeof call !== 'object' || call.name !== SCRIPT_READ_TOOL.name) throw new Error('未知候选项研究工具')
+    if (call === null || typeof call !== 'object') throw new Error('未知候选项研究工具')
     const args = call.arguments !== null && typeof call.arguments === 'object'
       ? call.arguments
       : parseJsonLenient(call.arguments)
+    if (call.name === SCRIPT_POINT_TOOL.name) {
+      const requested = Number(args.position)
+      if (!Number.isInteger(requested) || requested < 1 || requested > total + 1) throw new Error('剧本定位的 position 必须是 1 到 ' + (total + 1) + ' 的整数')
+      const before = pointed === null ? initial : pointed
+      pointed = Math.max(before, requested - 1)
+      return JSON.stringify({
+        title: str(script.title), totalChunks: total,
+        requestedPosition: requested,
+        pointedAt: pointed >= total ? null : pointed + 1,
+        pointedToEnd: pointed >= total,
+        ignoredBackward: requested - 1 < before,
+        pending: true,
+        message: '定位请求已暂存；候选成功后才会提交。'
+      })
+    }
+    if (call.name !== SCRIPT_READ_TOOL.name) throw new Error('未知候选项研究工具')
     const query = str(args.query).trim()
     const hasQuery = query !== ''
     const hasPosition = args.position !== undefined
-    const hasPoint = args.point !== undefined
-    if (Number(hasQuery) + Number(hasPosition) + Number(hasPoint) !== 1) throw new Error('读取剧本必须且只能提供 position、query 或 point')
-    if (hasPoint) {
-      const requested = Number(args.point)
-      if (!Number.isInteger(requested) || requested < 1 || requested > total + 1) throw new Error('剧本 point 必须是 1 到 ' + (total + 1) + ' 的整数')
-      pointed = Math.max(pointed === null ? initial : pointed, requested - 1)
-      return JSON.stringify(positionResult(pointed, {
-        pointedAt: pointed >= total ? null : pointed + 1,
-        pointedToEnd: pointed >= total,
-        ignoredBackward: requested - 1 < initial
-      }))
-    }
+    if (Number(hasQuery) + Number(hasPosition) !== 1) throw new Error('读取剧本必须且只能提供 position 或 query')
     if (hasQuery) {
       const needle = query.toLocaleLowerCase()
       const found = script.chunks.findIndex(function (chunk) { return str(chunk.text).toLocaleLowerCase().includes(needle) })
@@ -264,7 +281,7 @@ export function createCandidateGenerator(options) {
     let run
     try {
       run = await model.runCandidate(Object.assign({}, callOptions, scriptMode ? {
-        tools: [SCRIPT_READ_TOOL],
+        tools: [SCRIPT_READ_TOOL, SCRIPT_POINT_TOOL],
         onToolCall: research.onToolCall,
         maxToolCalls: 6
       } : { tools: [] }))

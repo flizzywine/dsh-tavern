@@ -125,7 +125,7 @@ test('候选输出无效时不自动创建第二个 Agent', async () => {
 test('候选生成期间时间线变化，迟到候选与 point 都不会落盘', async () => {
   let run
   run = harness({ mode: 'script', outputs: [async function (options) {
-    await options.onToolCall({ name: 'tavern_read_script', arguments: { point: 3 } })
+    await options.onToolCall({ name: 'tavern_point_script', arguments: { position: 3 } })
     run.mutateChat(function (chat) { chat.timeline.revision++ })
     return JSON.stringify({ choices: [{ type: 'action', text: '这是已经过期的候选' }] })
   }] })
@@ -169,8 +169,8 @@ test('剧本候选可按数字自由读取远处剧本并直接定位游标', as
       arguments: { position: 3 }
     })))
     researched.push(JSON.parse(await options.onToolCall({
-      name: 'tavern_read_script',
-      arguments: { point: 3 }
+      name: 'tavern_point_script',
+      arguments: { position: 3 }
     })))
     return JSON.stringify({
       choices: [{ type: 'action', text: '沿着钟楼石阶谨慎地向上追去' }]
@@ -182,16 +182,17 @@ test('剧本候选可按数字自由读取远处剧本并直接定位游标', as
   assert.deepEqual(researched.slice(0, 2).map((item) => item.chunks[0].id), ['chunk-00002', 'chunk-00003'])
   assert.equal(researched[2].pointedAt, 3)
   assert.match(run.plannerCalls[0].task, /剧本候选项生成器/)
-  assert.match(run.plannerCalls[0].task, /position 阅读指定块/)
-  assert.match(run.plannerCalls[0].task, /point 不能后退/)
+  assert.match(run.plannerCalls[0].task, /tavern_point_script/)
   const savedChat = run.chat()
   const progress = run.continuity.inspect({ script: script(), state: savedChat.scriptState, request: { kind: 'progress' } })
   assert.equal(progress.cursor, 2)
   assert.equal(run.plannerCalls[0].scriptWindow.chunks[0].id, 'chunk-00001')
-  assert.equal(run.modelRequests[0].tools[0].name, 'tavern_read_script')
-  assert.equal(run.modelRequests[0].tools.length, 1)
+  assert.deepEqual(run.modelRequests[0].tools.map((tool) => tool.name), ['tavern_read_script', 'tavern_point_script'])
   assert.equal(run.modelRequests[0].tools[0].parameters.properties.position.minimum, 1)
-  assert.equal(run.modelRequests[0].tools[0].parameters.properties.action, undefined)
+  assert.equal(run.modelRequests[0].tools[0].parameters.properties.point, undefined)
+  assert.equal(run.modelRequests[0].tools[1].parameters.properties.position.minimum, 1)
+  assert.equal(run.modelRequests[0].tools[1].parameters.properties.query, undefined)
+  assert.equal(run.modelRequests[0].tools[1].countsTowardLimit, false)
   assert.equal(result.traceSessionId, 'candidate-trace-1')
   assert.deepEqual(savedChat.messages, [{ role: 'assistant', text: '雨水敲着窗。' }])
 })
@@ -235,7 +236,7 @@ test('剧本候选未 point 时保持当前块，读取位置不改变游标', a
   const ended = harness({ mode: 'script', initialScriptCursor: 2, outputs: [async function (options) {
     const end = JSON.parse(await options.onToolCall({ name: 'tavern_read_script', arguments: { position: 4 } }))
     assert.equal(end.ended, true)
-    await options.onToolCall({ name: 'tavern_read_script', arguments: { point: 4 } })
+    await options.onToolCall({ name: 'tavern_point_script', arguments: { position: 4 } })
     return JSON.stringify({ choices: [{ type: 'action', text: '在钟声消散后收起武器离开这里' }] })
   }] })
   await ended.candidates.generate({ sessionId: 'session-1', messageId: 'message-ended' })
@@ -243,7 +244,7 @@ test('剧本候选未 point 时保持当前块，读取位置不改变游标', a
   assert.equal(progress.cursor, 3)
 
   const remainsEnded = harness({ mode: 'script', initialScriptEnded: true, outputs: [async function (options) {
-    await options.onToolCall({ name: 'tavern_read_script', arguments: { point: 4 } })
+    await options.onToolCall({ name: 'tavern_point_script', arguments: { position: 4 } })
     return JSON.stringify({ choices: [{ type: 'scene', text: '让钟楼余波成为故事最后的安静尾声' }] })
   }] })
   await remainsEnded.candidates.generate({ sessionId: 'session-1', messageId: 'message-remains-ended' })
@@ -263,8 +264,8 @@ test('剧本候选可任意读取前文，但不能让游标后退', async () =>
     }))
     assert.equal(first.chunks[0].id, 'chunk-00001')
     const backwardPoint = JSON.parse(await options.onToolCall({
-      name: 'tavern_read_script',
-      arguments: { point: 1 }
+      name: 'tavern_point_script',
+      arguments: { position: 1 }
     }))
     assert.equal(backwardPoint.pointedAt, 3)
     assert.equal(backwardPoint.ignoredBackward, true)
@@ -295,12 +296,13 @@ test('剧本候选搜索到远处内容后不自动提交该位置', async () =>
   assert.equal(progress.cursor, 0)
 })
 
-test('剧本研究必须且只能提供一种读取或 point 操作', async () => {
+test('剧本读取与游标定位使用两个独立工具', async () => {
   const run = harness({ mode: 'script', outputs: [async function (options) {
-    await assert.rejects(() => options.onToolCall({ name: 'tavern_read_script', arguments: {} }), /position、query 或 point/)
-    await assert.rejects(() => options.onToolCall({ name: 'tavern_read_script', arguments: { position: 2, query: '雨夜' } }), /position、query 或 point/)
+    await assert.rejects(() => options.onToolCall({ name: 'tavern_read_script', arguments: {} }), /position 或 query/)
+    await assert.rejects(() => options.onToolCall({ name: 'tavern_read_script', arguments: { position: 2, query: '雨夜' } }), /position 或 query/)
     await assert.rejects(() => options.onToolCall({ name: 'tavern_read_script', arguments: { position: 5 } }), /1 到 4/)
-    await assert.rejects(() => options.onToolCall({ name: 'tavern_read_script', arguments: { point: 5 } }), /1 到 4/)
+    await assert.rejects(() => options.onToolCall({ name: 'tavern_point_script', arguments: {} }), /position/)
+    await assert.rejects(() => options.onToolCall({ name: 'tavern_point_script', arguments: { position: 5 } }), /1 到 4/)
     return JSON.stringify({ choices: [{ type: 'action', text: '继续留在当前场景观察人物的即时反应' }] })
   }] })
 

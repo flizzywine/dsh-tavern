@@ -15,6 +15,7 @@ test('后台 Runner 执行候选任务，查询超限后提示开始推理而不
   const listeners = []
   const appended = []
   const cappedResults = []
+  let pointResult = ''
   let concludeCalls = 0
   let disposed = false
   let work = Promise.resolve()
@@ -32,6 +33,7 @@ test('后台 Runner 执行候选任务，查询超限后提示开始推理而不
         const preStep = listeners.find(function (entry) { return entry.name === 'agent/pre-step' })
         assert.ok(preStep)
         await preStep.listener({ agent: child }, async function () { return { kind: 'enter' } })
+        pointResult = await registered[1].execute({ position: 3 })
         for (let index = 1; index <= 7; index++) {
           cappedResults.push(await registered[0].execute({ position: index }, {
             signal: new AbortController().signal,
@@ -75,7 +77,10 @@ test('后台 Runner 执行候选任务，查询超限后提示开始推理而不
       { role: 'assistant', content: [{ type: 'text', text: '雨水敲窗。' }] },
       { role: 'user', content: [{ type: 'text', text: '生成候选项。' }] }
     ],
-    tools: [{ name: 'tavern_read_script', description: '读取剧本', parameters: { type: 'object' } }],
+    tools: [
+      { name: 'tavern_read_script', description: '读取剧本', parameters: { type: 'object' } },
+      { name: 'tavern_point_script', description: '定位剧本', parameters: { type: 'object' }, countsTowardLimit: false }
+    ],
     async onToolCall(call) { calls.push(call); return '{"position":2}' },
     maxToolCalls: 6,
     temperature: 0.8,
@@ -90,6 +95,7 @@ test('后台 Runner 执行候选任务，查询超限后提示开始推理而不
   assert.equal(sections[0].complete, true)
   assert.deepEqual(restrictions, [{ allow: [] }])
   assert.equal(registered[0].name, 'tavern_read_script')
+  assert.equal(registered[1].name, 'tavern_point_script')
   const requestListener = listeners.find(function (entry) { return entry.name === 'agent/request' })
   assert.ok(requestListener)
   assert.deepEqual(await requestListener.listener({}, async function () { return { provider: 'test', model: 'scripted' } }), { provider: 'test', model: 'scripted', temperature: 0.8 })
@@ -97,9 +103,13 @@ test('后台 Runner 执行候选任务，查询超限后提示开始推理而不
     type: 'subagent/descriptor',
     data: { version: 2, mode: 'one-shot', provider: 'dsh-tavern-background', label: '候选研究' }
   }])
-  assert.deepEqual(calls, [1, 2, 3, 4, 5, 6].map(function (position) {
-    return { name: 'tavern_read_script', arguments: { position } }
-  }))
+  assert.deepEqual(calls, [
+    { name: 'tavern_point_script', arguments: { position: 3 } },
+    ...[1, 2, 3, 4, 5, 6].map(function (position) {
+      return { name: 'tavern_read_script', arguments: { position } }
+    })
+  ])
+  assert.match(pointResult, /position/)
   assert.match(cappedResults[6], /已达到剧本查询上限/)
   assert.match(cappedResults[6], /开始推理/)
   assert.equal(concludeCalls, 0)

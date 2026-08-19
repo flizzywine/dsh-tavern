@@ -120,9 +120,11 @@ export function createBackgroundAgentRunner(options) {
             render: function (_args, value) { return [{ type: 'text', text: value }] }
           },
           async execute(args) {
-            toolCallCount++
-            if (toolCallCount > maxToolCalls) {
-              return JSON.stringify({ message: '已达到剧本查询上限，请停止查询，基于已有材料开始推理并输出最终候选。' })
+            if (tool.countsTowardLimit !== false) {
+              toolCallCount++
+              if (toolCallCount > maxToolCalls) {
+                return JSON.stringify({ message: '已达到剧本查询上限，请停止查询，基于已有材料开始推理并输出最终候选。' })
+              }
             }
             return str(await input.onToolCall({ name: tool.name, arguments: args }))
           }

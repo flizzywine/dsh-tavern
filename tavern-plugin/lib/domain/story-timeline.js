@@ -147,6 +147,18 @@ export function createStoryTimeline(options = {}) {
     }
   }
 
+  function participantForkSource(value) {
+    const participant = object(value)
+    if (str(participant.sessionId) !== '' && Number.isSafeInteger(participant.boundary)) {
+      return { sessionId: participant.sessionId, boundary: participant.boundary }
+    }
+    const pending = object(participant.forkFrom)
+    if (str(pending.sessionId) !== '' && Number.isSafeInteger(pending.boundary)) {
+      return { sessionId: pending.sessionId, boundary: pending.boundary }
+    }
+    return null
+  }
+
   function beginAgent(chat, intent) {
     const role = str(intent.role).trim()
     if (role === '') throw new Error('Agent role 不能为空')
@@ -187,7 +199,7 @@ export function createStoryTimeline(options = {}) {
     for (const role of Object.keys(restoredParticipants)) {
       const participant = object(restoredParticipants[role])
       if ((participant.lifetime || 'one-shot') !== 'branch') continue
-      const canFork = str(participant.sessionId) !== '' && Number.isSafeInteger(participant.boundary)
+      const forkFrom = participantForkSource(participant)
       nextParticipants[role] = {
         role,
         lifetime: 'branch',
@@ -196,7 +208,7 @@ export function createStoryTimeline(options = {}) {
         syncedRevision: null,
         boundary: null,
         status: 'needs-branch',
-        forkFrom: canFork ? { sessionId: participant.sessionId, boundary: participant.boundary } : null,
+        forkFrom,
         updatedAt: now()
       }
     }
@@ -231,10 +243,10 @@ export function createStoryTimeline(options = {}) {
       for (const role of Object.keys(chat.timeline.participants)) {
         const participant = object(chat.timeline.participants[role])
         if ((participant.lifetime || 'one-shot') !== 'branch') continue
-        const canFork = str(participant.sessionId) !== '' && Number.isSafeInteger(participant.boundary)
+        const forkFrom = participantForkSource(participant)
         participants[role] = {
           role, lifetime: 'branch', sessionId: '', branchId, syncedRevision: null, boundary: null,
-          status: 'needs-branch', forkFrom: canFork ? { sessionId: participant.sessionId, boundary: participant.boundary } : null,
+          status: 'needs-branch', forkFrom,
           updatedAt: now()
         }
       }

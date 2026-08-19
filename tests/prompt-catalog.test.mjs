@@ -26,6 +26,8 @@ test('固定提示词从独立 Markdown 文件完整加载', () => {
   assert.match(prompt('story'), /不得直接沿用.*句式|不得.*直接拼接/)
   assert.doesNotMatch(prompt('story'), /指令原文可以改写、拆散、融入叙述/)
   assert.match(prompt('script-story'), /Guide ＞ 剧本 ＞ 世界一致性 ＞ 本轮演出指引/)
+  assert.match(prompt('candidate-script'), /tavern_read_script/)
+  assert.match(prompt('candidate-script'), /tavern_point_script/)
   assert.throws(() => prompt('missing'), /未知提示词/)
 })
 

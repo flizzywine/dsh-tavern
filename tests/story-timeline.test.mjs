@@ -145,6 +145,27 @@ test('分支级 participant 在正常推进时复用，回退后变为惰性派�
   assert.deepEqual(next.value.participant.forkFrom, { sessionId: 'candidate-1', boundary: 42 })
 })
 
+test('连续正文替代始终保留同一个有效后台 checkpoint', () => {
+  const { timeline, chat } = harness()
+  let current = timeline.apply({ chat, intent: { kind: 'ensure' } }).chat
+  current.timeline.participants.background = {
+    role: 'background', lifetime: 'branch', sessionId: 'background-before-body',
+    branchId: current.timeline.branchId, syncedRevision: current.timeline.revision,
+    boundary: 42, status: 'current', forkFrom: null, updatedAt: 1
+  }
+
+  current = beginAndCommitBody(timeline, current, 1, '推门', '第一版正文')
+  current = timeline.apply({ chat: current, intent: { kind: 'turn.rollback' } }).chat
+  let begun = timeline.apply({ chat: current, intent: { kind: 'agent.begin', role: 'candidate' } })
+  assert.deepEqual(begun.value.participant.forkFrom, { sessionId: 'background-before-body', boundary: 42 })
+
+  current = beginAndCommitBody(timeline, begun.chat, 2, '推门', '第二版正文')
+  current = timeline.apply({ chat: current, intent: { kind: 'turn.rollback' } }).chat
+  begun = timeline.apply({ chat: current, intent: { kind: 'agent.begin', role: 'candidate' } })
+
+  assert.deepEqual(begun.value.participant.forkFrom, { sessionId: 'background-before-body', boundary: 42 })
+})
+
 test('旧对话可惰性迁移，现有候选 Session 成为后台 participant', () => {
   const { timeline, chat } = harness()
   chat.messages.push({ role: 'assistant', text: '已有正文' })
@@ -192,4 +213,24 @@ test('正文替代失败恢复原内容，但仍换 branch/revision 防止瞬时
   assert.notEqual(restored.chat.timeline.branchId, original.timeline.branchId)
   assert.ok(restored.chat.timeline.revision > transient.timeline.revision)
   assert.equal(restored.chat.timeline.operations[Object.keys(restored.chat.timeline.operations)[0]], undefined)
+})
+
+test('正文替代失败不会清空待派生后台 checkpoint', () => {
+  const { timeline, chat } = harness()
+  const original = timeline.apply({ chat, intent: { kind: 'ensure' } }).chat
+  original.timeline.participants.background = {
+    role: 'background', lifetime: 'branch', sessionId: '', branchId: original.timeline.branchId,
+    syncedRevision: null, boundary: null, status: 'needs-branch',
+    forkFrom: { sessionId: 'background-before-body', boundary: 42 }, updatedAt: 1
+  }
+  const transient = timeline.apply({ chat: original, intent: { kind: 'agent.begin', role: 'candidate' } }).chat
+
+  const restored = timeline.apply({
+    chat: transient,
+    intent: { kind: 'replacement.abort', restoreChat: original }
+  })
+
+  assert.deepEqual(restored.chat.timeline.participants.background.forkFrom, {
+    sessionId: 'background-before-body', boundary: 42
+  })
 })
