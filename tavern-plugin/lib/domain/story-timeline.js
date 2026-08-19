@@ -18,6 +18,14 @@ function participantRole(role) {
   return role === 'candidate' || role === 'settlement' ? 'background' : role
 }
 
+function participantLifetime(value) {
+  return value === 'one-shot' ? 'one-shot' : 'chat'
+}
+
+function persistentParticipant(value) {
+  return value === 'chat' || value === 'branch'
+}
+
 export function createStoryTimeline(options = {}) {
   const makeId = typeof options.id === 'function' ? options.id : function (prefix) { return prefix + '-' + Math.random().toString(36).slice(2) }
   const now = typeof options.now === 'function' ? options.now : Date.now
@@ -31,9 +39,9 @@ export function createStoryTimeline(options = {}) {
       const legacy = object(chat.candidateAgent)
       if (str(legacy.sessionId) !== '') {
         participants.background = {
-          role: 'background', lifetime: 'branch', sessionId: str(legacy.sessionId),
+          role: 'background', lifetime: 'chat', sessionId: str(legacy.sessionId),
           branchId, syncedRevision: 0, boundary: Number.isSafeInteger(legacy.boundary) ? legacy.boundary : null,
-          status: 'current', forkFrom: null, updatedAt: Number(legacy.updatedAt) || now()
+          status: 'current', rewindTo: null, updatedAt: Number(legacy.updatedAt) || now()
         }
       }
       chat.timeline = {
@@ -57,6 +65,19 @@ export function createStoryTimeline(options = {}) {
     }
     delete incoming.participants.candidate
     delete incoming.participants.settlement
+    for (const role of Object.keys(incoming.participants)) {
+      const participant = object(incoming.participants[role])
+      participant.lifetime = participantLifetime(participant.lifetime)
+      const legacyFork = object(participant.forkFrom)
+      if (participant.status === 'needs-branch' && str(participant.sessionId) === '' && str(legacyFork.sessionId) !== '' && Number.isSafeInteger(legacyFork.boundary)) {
+        participant.sessionId = legacyFork.sessionId
+        participant.boundary = legacyFork.boundary
+        participant.status = 'needs-rewind'
+        participant.rewindTo = legacyFork.boundary
+      }
+      delete participant.forkFrom
+      incoming.participants[role] = participant
+    }
     incoming.operations = object(incoming.operations)
     incoming.updatedAt = Number(incoming.updatedAt) || now()
     chat.timeline = incoming
@@ -133,21 +154,19 @@ export function createStoryTimeline(options = {}) {
     const participantKey = participantRole(role)
     const current = object(chat.timeline.participants[participantKey])
     if (current.status === 'current' && current.branchId === chat.timeline.branchId && str(current.sessionId) !== '') {
-      return { role: participantKey, sessionId: current.sessionId, forkFrom: null, lifetime: current.lifetime || 'one-shot', syncedRevision: current.syncedRevision }
+      return { role: participantKey, sessionId: current.sessionId, rewindTo: null, lifetime: participantLifetime(current.lifetime), syncedRevision: current.syncedRevision }
     }
-    const forkFrom = object(current.forkFrom)
+    const rewindTo = Number.isSafeInteger(current.rewindTo) ? current.rewindTo : (Number.isSafeInteger(current.boundary) ? current.boundary : null)
     return {
       role: participantKey,
-      sessionId: '',
-      forkFrom: str(forkFrom.sessionId) !== '' && Number.isSafeInteger(forkFrom.boundary)
-        ? { sessionId: forkFrom.sessionId, boundary: forkFrom.boundary }
-        : null,
-      lifetime: current.lifetime || (participantKey === 'background' ? 'branch' : 'one-shot'),
+      sessionId: str(current.sessionId),
+      rewindTo,
+      lifetime: participantKey === 'background' ? participantLifetime(current.lifetime) : (current.lifetime || 'one-shot'),
       syncedRevision: current.syncedRevision === undefined ? null : current.syncedRevision
     }
   }
 
-  function participantForkSource(value) {
+  function participantCheckpointSource(value) {
     const participant = object(value)
     if (str(participant.sessionId) !== '' && Number.isSafeInteger(participant.boundary)) {
       return { sessionId: participant.sessionId, boundary: participant.boundary }
@@ -155,6 +174,15 @@ export function createStoryTimeline(options = {}) {
     const pending = object(participant.forkFrom)
     if (str(pending.sessionId) !== '' && Number.isSafeInteger(pending.boundary)) {
       return { sessionId: pending.sessionId, boundary: pending.boundary }
+    }
+    return null
+  }
+
+  function earlierParticipantSource(checkpoints, role) {
+    for (let index = checkpoints.length - 2; index >= 0; index--) {
+      const participants = object(checkpoints[index] && checkpoints[index].before && checkpoints[index].before.participants)
+      const source = participantCheckpointSource(participants[role])
+      if (source !== null) return source
     }
     return null
   }
@@ -198,17 +226,17 @@ export function createStoryTimeline(options = {}) {
     const nextParticipants = {}
     for (const role of Object.keys(restoredParticipants)) {
       const participant = object(restoredParticipants[role])
-      if ((participant.lifetime || 'one-shot') !== 'branch') continue
-      const forkFrom = participantForkSource(participant)
+      if (!persistentParticipant(participant.lifetime)) continue
+      const source = participantCheckpointSource(participant) || earlierParticipantSource(checkpoints, role)
       nextParticipants[role] = {
         role,
-        lifetime: 'branch',
-        sessionId: '',
+        lifetime: 'chat',
+        sessionId: source === null ? '' : source.sessionId,
         branchId,
         syncedRevision: null,
-        boundary: null,
-        status: 'needs-branch',
-        forkFrom,
+        boundary: source === null ? null : source.boundary,
+        status: source === null ? 'needs-session' : 'needs-rewind',
+        rewindTo: source === null ? null : source.boundary,
         updatedAt: now()
       }
     }
@@ -242,11 +270,12 @@ export function createStoryTimeline(options = {}) {
       const participants = {}
       for (const role of Object.keys(chat.timeline.participants)) {
         const participant = object(chat.timeline.participants[role])
-        if ((participant.lifetime || 'one-shot') !== 'branch') continue
-        const forkFrom = participantForkSource(participant)
+        if (!persistentParticipant(participant.lifetime)) continue
+        const source = participantCheckpointSource(participant)
         participants[role] = {
-          role, lifetime: 'branch', sessionId: '', branchId, syncedRevision: null, boundary: null,
-          status: 'needs-branch', forkFrom,
+          role, lifetime: 'chat', sessionId: source === null ? '' : source.sessionId, branchId, syncedRevision: null,
+          boundary: source === null ? null : source.boundary,
+          status: source === null ? 'needs-session' : 'needs-rewind', rewindTo: source === null ? null : source.boundary,
           updatedAt: now()
         }
       }
@@ -294,7 +323,7 @@ export function createStoryTimeline(options = {}) {
     }
     const participant = object(outcome.participant)
     if (operation.kind === 'agent' && str(participant.sessionId) !== '') {
-      const lifetime = participant.lifetime === 'branch' ? 'branch' : 'one-shot'
+      const lifetime = participantLifetime(participant.lifetime)
       const participantKey = participantRole(operation.role)
       chat.timeline.participants[participantKey] = {
         role: participantKey,
@@ -304,12 +333,12 @@ export function createStoryTimeline(options = {}) {
         syncedRevision: chat.timeline.revision,
         boundary: Number.isSafeInteger(participant.boundary) ? participant.boundary : null,
         status: 'current',
-        forkFrom: null,
+        rewindTo: null,
         updatedAt: now()
       }
       if (operation.role === 'candidate') {
         chat.candidateAgent = {
-          sessionId: str(participant.sessionId), mode: lifetime === 'branch' ? 'continuable' : 'one-shot',
+          sessionId: str(participant.sessionId), mode: lifetime === 'chat' ? 'continuable' : 'one-shot',
           branchId: chat.timeline.branchId, syncedRevision: chat.timeline.revision,
           boundary: Number.isSafeInteger(participant.boundary) ? participant.boundary : null,
           updatedAt: now()

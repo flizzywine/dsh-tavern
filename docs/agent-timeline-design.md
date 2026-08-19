@@ -36,7 +36,7 @@ Agent 身份与后台任务是两个维度。候选和状态结算共享一个�
 | Agent | 生命周期 | 触发方式 | 可提交效果 |
 | --- | --- | --- | --- |
 | 前台 Agent | 会话级 | 玩家输入 | 正文 |
-| 后台 Agent | 分支级持久化 | 后台任务 | 由本次 operation 的任务权限决定 |
+| 后台 Agent | 会话级持久化 | 后台任务 | 由本次 operation 的任务权限决定 |
 
 | 后台任务 | 触发方式 | 可提交效果 |
 | --- | --- | --- |
@@ -109,9 +109,9 @@ await timeline.inspect(query)
 4. 正文成功提交后剧本游标只前进一块。
 5. 候选 `point` 只是提案，由时间线经 Script Continuity 提交；仍执行 `max(current, requested)`。
 6. 正文替代是“基于正文前 checkpoint 生成，成功后一次替换”；失败时正文、游标、姿势、候选和 Agent 绑定全部不变。
-7. 候选重生成不改变 branch；同一分支的候选与结算复用同一个后台 Agent。
+7. 候选重生成不改变 branch；整条 Tavern 对话的候选与结算复用同一个后台 Agent。
 8. 回退和正文替代成功会让旧分支的运行结果全部失效。
-9. 看过废弃剧情的持久 Agent 不能靠一条“前文作废”消息同步；必须从有效 checkpoint 派生新 Session，旧 Session 退休但保留轨迹。
+9. 回退不能只追加“前文作废”；必须用 checkpoint 边界遮蔽后台 Agent 模型 Surface 中的废弃任务，再注入最新权威状态。
 10. 状态结算是后台任务，不是独立 Agent；回退直接恢复 checkpoint 中的派生状态，迟到结果因 revision 不一致而丢弃。
 
 ## 操作语义
@@ -126,7 +126,7 @@ await timeline.inspect(query)
 
 ### 回退本轮
 
-从最后一次正文提交的 `before` checkpoint 恢复正文、剧本状态、人物姿势和派生状态，同时创建新 branch/revision。当前候选结果清空；所有旧分支 participant 退休。反复回退只更新权威分支，不立即创建新 Agent；下次真正执行后台任务时才惰性派生。
+从最后一次正文提交的 `before` checkpoint 恢复正文、剧本状态、人物姿势和派生状态，同时创建新 branch/revision。当前候选结果清空；后台 participant 保留同一 Session ID，并记录待回退的闭合回合边界。下次后台任务开始前遮蔽该边界之后的模型 Surface，然后继续使用原 Session。
 
 ### 重新生成正文
 
@@ -143,29 +143,30 @@ await timeline.inspect(query)
 
 ## DSH Session 投影
 
-DSH Session 是追加式事件日志，但支持基于稳定、闭合 turn 前缀创建新 Session。后台 participant 的 checkpoint 记录其 Session ID 与闭合边界：
+DSH Session 是追加式事件日志，同时提供可替换的模型 Surface。后台 participant 的 checkpoint 记录其 Session ID 与闭合边界：
 
 ```js
 { sessionId, branchId, syncedRevision, boundary, status }
 ```
 
-- 同一 branch 向前推进：候选与结算恢复同一个后台 Session。
-- 回退到该 Session 的早期 checkpoint：从记录边界派生新 Session。
-- 没有可用边界或旧 Session 不存在：用权威 snapshot 新建 Session。
-- 旧 Session 不删除，标记 retired，继续可从父子导航查看。
+- 正常向前推进：候选与结算恢复同一个后台 Session。
+- 回退到早期 checkpoint：恢复同一个 Session，以空消息 `surface replace` 遮蔽边界之后的消息节点。
+- 重新生成正文：替代正文成功后，同样在下一次后台任务前回退 Surface，再处理新正文。
+- 没有可用后台 Session 的旧对话：用权威 snapshot 初始化一次，此后固定复用该 Session。
+- 旧版 checkpoint 丢失直接来源时：只向更早 checkpoint 查找最近的有效闭合边界，不读取废弃分支内容反推状态。
 
-主会话的近期回退优先使用 DSH surface replacement，使模型面与权威 checkpoint 一致；如果目标已经不在可证明安全的 surface 中，Session Adapter 必须派生新主会话，而不是猜测性遮蔽。
+前台与后台使用同一种回退语义：Tavern checkpoint 恢复权威领域状态，DSH `surface replace` 恢复模型面。底层追加式事件仍保留用于审计，但不再参与后续模型上下文。
 
 ## 一致性与失败恢复
 
-以下 outbox 是跨进程强一致性的后续加固目标，不是第一阶段已经完成的能力。第一阶段已经落地 canonical revision、operation 持久化、迟到结果拒绝和候选 Session 派生；DSH surface 投影仍由宿主在同一次 RPC 中立即执行。
+以下 outbox 是跨进程强一致性的后续加固目标，不是第一阶段已经完成的能力。第一阶段已经落地 canonical revision、operation 持久化、迟到结果拒绝和后台 Surface 回退；DSH surface 投影仍由宿主在同一次 RPC 中立即执行。
 
 JSON chat 与 DSH Session 不能形成真正的跨存储 ACID 事务。提交顺序固定为：
 
 1. 在 Tavern 中记录 operation；
 2. compare-and-swap 提交 canonical checkpoint/revision；
 3. 同一提交写入待执行的 projection outbox；
-4. Session Adapter 执行遮蔽、派生、退休或导航更新；
+4. Session Adapter 执行 Surface 遮蔽或导航更新；
 5. 确认 outbox。
 
 投影失败不回滚已经提交的 canonical revision，而是显示 `sync-pending` 并在重启或下次访问时重试。相同 request/operation 必须幂等。
@@ -182,7 +183,7 @@ JSON chat 与 DSH Session 不能形成真正的跨存储 ACID 事务。提交顺
 
 ## 兼容与迁移
 
-旧对话首次读取时惰性建立 baseline timeline。现有 `nativeCommits` 转为 checkpoint 输入；现有 `candidateAgent.sessionId` 作为 legacy 后台 participant 绑定，上一版 timeline 中的 `candidate` participant 也会改名为 `background`。无法证明 legacy Session 与当前 branch 一致时，正常前进可以继续使用；第一次回退或正文替代后必须退休并惰性派生新 Session。
+旧对话首次读取时惰性建立 baseline timeline。现有 `nativeCommits` 转为 checkpoint 输入；现有 `candidateAgent.sessionId` 作为 legacy 后台 participant 绑定，上一版 timeline 中的 `candidate` participant 也会改名为 `background`。旧版 `needs-branch/forkFrom` 会迁移为同一 Session 的 `needs-rewind/rewindTo`；直接来源已经丢失时，向更早 checkpoint 恢复最近有效边界。
 
 checkpoint 初期保存完整领域快照并保留最近 40 个。以后可以在 Store Adapter 内改成增量与周期快照，不改变 Story Timeline 接口。
 
@@ -194,12 +195,12 @@ checkpoint 初期保存完整领域快照并保留最近 40 个。以后可以�
 - 正文反复替代：每次游标只提交一次，失败零变化。
 - 候选运行中回退：候选结果 stale，`point` 不落盘。
 - 状态结算运行中回退：结算结果 stale，checkpoint 姿势保留。
-- 回退后重新生成候选：旧 Session 退休，新 Session 不含废弃正文。
+- 回退后重新生成候选：Session ID 不变，checkpoint 之后的废弃正文不在模型 Surface 中。
 - 服务重启后重复 operation：不重复写正文、不重复推进游标。
 - DSH 投影失败：canonical 状态保持，outbox 可重试。
 
 ## 当前落地范围
 
-已实现：完整 checkpoint、单调 revision、新分支回退、正文替代只推进一次、候选/结算迟到结果作废、同分支后台 Session 复用、回退后从闭合回合边界惰性派生、连续回退使用当前 surface、旧对话从 `nativeCommits` 惰性迁移。上一版的 `candidate` participant 会惰性迁移为 `background`。
+已实现：完整 checkpoint、单调 revision、新分支回退、正文替代只推进一次、候选/结算迟到结果作废、整条 Tavern 对话复用一个后台 Session、回退后从闭合回合边界遮蔽模型 Surface、旧对话从 `nativeCommits` 惰性迁移。上一版的 `candidate` participant 会惰性迁移为 `background`，旧版派生状态会迁移为 Surface 回退状态。
 
-后续加固：文件 Store 的跨进程 CAS、持久 projection outbox、compact 后主会话的自动派生与 UI 重绑定。这三项不影响当前单进程 Tavern 的时间线正确性，但在多进程写入或 DSH 投影中途崩溃时仍需要恢复机制。
+后续加固：文件 Store 的跨进程 CAS、持久 projection outbox、compact 后 Surface 回退能力的显式检测。这三项不影响当前单进程 Tavern 的时间线正确性，但在多进程写入、DSH 投影中途崩溃或目标边界已被 compact 时仍需要恢复机制。

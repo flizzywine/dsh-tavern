@@ -202,43 +202,54 @@ test('状态结算与候选生成复用同一个后台会话，并且每轮只�
   assert.doesNotMatch(prompts[1], /游标 2，姿势 A/)
 })
 
-test('回退后从 checkpoint 的完整回合边界派生新后台 Agent', async () => {
+test('回退后在同一个后台 Agent 中遮蔽 checkpoint 之后的 Surface', async () => {
   const parent = { id: 'parent-session', session: { header: { cwd: '/tmp/tavern', delegationDepth: 0 } } }
   const sourceEvents = [
     { seq: 0, type: 'user/message', data: { text: '有效正文' } },
-    { seq: 1, type: 'assistant/message', data: { message: { content: [{ type: 'text', text: '有效候选' }] } } },
+    { seq: 1, type: 'assistant/message', data: { turn: 1, step: 1, message: { source: { kind: 'model', provider: 'test', model: 'scripted' }, content: [{ type: 'text', text: '有效候选' }] } } },
     { seq: 2, type: 'turn/end', data: {} },
     { seq: 3, type: 'user/message', data: { text: '已废弃正文' } },
-    { seq: 4, type: 'turn/end', data: {} }
+    { seq: 4, type: 'assistant/message', data: { turn: 2, step: 1, message: { source: { kind: 'model', provider: 'test', model: 'scripted' }, content: [{ type: 'text', text: '已废弃候选' }] } } },
+    { seq: 5, type: 'turn/end', data: {} }
   ]
-  let createOptions = null
+  const appendCalls = []
+  let createCalls = 0
+  let resumeCalls = 0
   const agents = {
     get(id) { return id === parent.id ? parent : undefined },
     async resume(options) {
+      resumeCalls++
       assert.equal(options.resumeSessionId, 'old-candidate')
-      return { agent: { session: { events: sourceEvents } }, async dispose() {} }
-    },
-    async create(options) {
-      createOptions = options
       const listeners = []
       await options.setup({
         systemPrompt: { section() {}, suppressRuntimeContext() {} },
         tools: { restrict() {}, register() {} },
         on(name, listener) { listeners.push({ name, listener }) }
       })
-      const events = structuredClone(options.seed)
+      const events = structuredClone(sourceEvents)
       let work = Promise.resolve()
       const child = {
-        session: { events, append(type, data) { events.push({ seq: events.length, type, data }) } },
+        session: {
+          events,
+          surface: { nodes: [0, 1, 3, 4] },
+          append(type, data, options) {
+            appendCalls.push({ type, data, options })
+            events.push({ seq: events.length, type, data, ...(options || {}) })
+          }
+        },
         followup() {
           work = Promise.resolve().then(function () {
-            events.push({ seq: events.length, type: 'assistant/message', data: { message: { content: [{ type: 'text', text: '新分支候选' }] } } })
+            events.push({ seq: events.length, type: 'assistant/message', data: { message: { content: [{ type: 'text', text: '回退后候选' }] } } })
             events.push({ seq: events.length, type: 'turn/end', data: {} })
           })
         },
         async whenIdle() { await work }
       }
       return { agent: child, async dispose() {} }
+    },
+    async create() {
+      createCalls++
+      throw new Error('回退不应创建新的后台 Agent')
     }
   }
   const runner = createBackgroundAgentRunner({ agents, id: () => 'new-candidate' })
@@ -246,12 +257,16 @@ test('回退后从 checkpoint 的完整回合边界派生新后台 Agent', async
     sessionId: parent.id,
     selection: { provider: 'test', model: 'scripted' },
     system: '候选规则', messages: [], tools: [], persistent: true,
-    forkFrom: { sessionId: 'old-candidate', boundary: 2 }
+    persistentSessionId: 'old-candidate', rewindTo: 2
   })
 
-  assert.equal(result.traceSessionId, 'new-candidate')
-  assert.equal(result.traceBoundary, 4)
-  assert.deepEqual(createOptions.seed, sourceEvents.slice(0, 3))
-  assert.equal(createOptions.meta.seedLength, 3)
-  assert.doesNotMatch(JSON.stringify(createOptions.seed), /已废弃正文/)
+  assert.equal(result.traceSessionId, 'old-candidate')
+  assert.equal(result.traceBoundary, 8)
+  assert.equal(resumeCalls, 1)
+  assert.equal(createCalls, 0)
+  assert.equal(appendCalls.length, 1)
+  assert.equal(appendCalls[0].type, 'assistant/message')
+  assert.deepEqual(appendCalls[0].data.message.content, [])
+  assert.deepEqual(appendCalls[0].options.surfaceOp, { op: 'replace', start: 3, end: 4 })
+  assert.deepEqual(appendCalls[0].options.sourceEventSeqs, [3, 4])
 })

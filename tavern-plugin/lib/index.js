@@ -707,7 +707,7 @@ export function apply(ctx) {
               task: 'settlement',
               persistent: true,
               persistentSessionId: backgroundSessionId,
-              forkFrom: begun.value.participant && begun.value.participant.forkFrom,
+              rewindTo: begun.value.participant && begun.value.participant.rewindTo,
               selection,
               messages: [{
                 id: 'settle-' + Date.now().toString(36),
@@ -746,7 +746,7 @@ export function apply(ctx) {
           outcome: {
             status: 'success',
             stateChanged: true,
-            participant: { sessionId: backgroundSessionId, boundary: backgroundBoundary, lifetime: 'branch' }
+            participant: { sessionId: backgroundSessionId, boundary: backgroundBoundary, lifetime: 'chat' }
           },
           apply(draft) {
             stat = applySettlement(draft, result)
@@ -773,7 +773,7 @@ export function apply(ctx) {
           outcome: {
             status: 'success',
             stateChanged: false,
-            participant: backgroundSessionId === '' ? null : { sessionId: backgroundSessionId, boundary: backgroundBoundary, lifetime: 'branch' }
+            participant: backgroundSessionId === '' ? null : { sessionId: backgroundSessionId, boundary: backgroundBoundary, lifetime: 'chat' }
           },
           apply(draft) {
             draft.settleStatus = 'error'

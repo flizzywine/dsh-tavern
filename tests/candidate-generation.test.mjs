@@ -47,7 +47,7 @@ function harness({ mode = 'story', outputs, initialCandidates, initialCandidateA
       maxTokens: options.maxTokens,
       persistent: options.persistent,
       persistentSessionId: options.persistentSessionId,
-      forkFrom: structuredClone(options.forkFrom || null)
+      rewindTo: Number.isSafeInteger(options.rewindTo) ? options.rewindTo : null
     })
   }
   async function nextOutput(options) {

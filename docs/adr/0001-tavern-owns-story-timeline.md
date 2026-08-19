@@ -1,6 +1,6 @@
 # ADR-0001：Tavern 持有权威剧情时间线
 
-- 状态：Accepted
+- 状态：Accepted（后台 Session 回退策略由 ADR-0003 修订）
 - 日期：2026-08-19
 
 ## 背景

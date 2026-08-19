@@ -276,7 +276,7 @@ export function createCandidateGenerator(options) {
       messages,
       persistent: true,
       persistentSessionId,
-      forkFrom: participantRequest.forkFrom
+      rewindTo: participantRequest.rewindTo
     }
     let run
     try {
@@ -298,7 +298,7 @@ export function createCandidateGenerator(options) {
     const traceSessionId = str(run.traceSessionId)
     const participant = traceSessionId !== '' ? {
       sessionId: traceSessionId,
-      lifetime: 'branch',
+      lifetime: 'chat',
       boundary: Number.isSafeInteger(run.traceBoundary) ? run.traceBoundary : null
     } : null
     let choices

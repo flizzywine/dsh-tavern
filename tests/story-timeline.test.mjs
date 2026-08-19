@@ -106,7 +106,7 @@ test('候选与状态结算是同一后台 Agent 的不同任务，共用 partic
     chat: begun.chat,
     operationId: begun.value.operationId,
     basedOn: begun.value.basedOn,
-    outcome: { status: 'success', stateChanged: true, participant: { sessionId: 'background-1', boundary: 20, lifetime: 'branch' } },
+    outcome: { status: 'success', stateChanged: true, participant: { sessionId: 'background-1', boundary: 20, lifetime: 'chat' } },
     apply(draft) { draft.posture = '门内站立' }
   })
   current = completed.chat
@@ -120,7 +120,7 @@ test('候选与状态结算是同一后台 Agent 的不同任务，共用 partic
   assert.equal(timeline.inspect({ chat: begun.chat }).participants.settlement, undefined)
 })
 
-test('分支级 participant 在正常推进时复用，回退后变为惰性派生', () => {
+test('后台 participant 在正常推进时复用，回退后仍使用同一 Session 并请求 Surface 回退', () => {
   const { timeline, chat } = harness()
   let current = beginAndCommitBody(timeline, chat, 1, '推门', '门开了。')
   let begun = timeline.apply({ chat: current, intent: { kind: 'agent.begin', role: 'candidate' } })
@@ -128,7 +128,7 @@ test('分支级 participant 在正常推进时复用，回退后变为惰性派�
     chat: begun.chat,
     operationId: begun.value.operationId,
     basedOn: begun.value.basedOn,
-    outcome: { status: 'success', participant: { sessionId: 'candidate-1', boundary: 42, lifetime: 'branch' } },
+    outcome: { status: 'success', participant: { sessionId: 'candidate-1', boundary: 42, lifetime: 'chat' } },
     apply() {}
   })
   current = completed.chat
@@ -137,33 +137,35 @@ test('分支级 participant 在正常推进时复用，回退后变为惰性派�
 
   begun = timeline.apply({ chat: current, intent: { kind: 'agent.begin', role: 'candidate' } })
   assert.equal(begun.value.participant.sessionId, 'candidate-1')
-  assert.equal(begun.value.participant.forkFrom, null)
+  assert.equal(begun.value.participant.rewindTo, null)
 
   const rolled = timeline.apply({ chat: begun.chat, intent: { kind: 'turn.rollback' } })
   const next = timeline.apply({ chat: rolled.chat, intent: { kind: 'agent.begin', role: 'candidate' } })
-  assert.equal(next.value.participant.sessionId, '')
-  assert.deepEqual(next.value.participant.forkFrom, { sessionId: 'candidate-1', boundary: 42 })
+  assert.equal(next.value.participant.sessionId, 'candidate-1')
+  assert.equal(next.value.participant.rewindTo, 42)
 })
 
-test('连续正文替代始终保留同一个有效后台 checkpoint', () => {
+test('连续正文替代始终回退同一个后台 Session 的有效 checkpoint', () => {
   const { timeline, chat } = harness()
   let current = timeline.apply({ chat, intent: { kind: 'ensure' } }).chat
   current.timeline.participants.background = {
-    role: 'background', lifetime: 'branch', sessionId: 'background-before-body',
+    role: 'background', lifetime: 'chat', sessionId: 'background-before-body',
     branchId: current.timeline.branchId, syncedRevision: current.timeline.revision,
-    boundary: 42, status: 'current', forkFrom: null, updatedAt: 1
+    boundary: 42, status: 'current', rewindTo: null, updatedAt: 1
   }
 
   current = beginAndCommitBody(timeline, current, 1, '推门', '第一版正文')
   current = timeline.apply({ chat: current, intent: { kind: 'turn.rollback' } }).chat
   let begun = timeline.apply({ chat: current, intent: { kind: 'agent.begin', role: 'candidate' } })
-  assert.deepEqual(begun.value.participant.forkFrom, { sessionId: 'background-before-body', boundary: 42 })
+  assert.equal(begun.value.participant.sessionId, 'background-before-body')
+  assert.equal(begun.value.participant.rewindTo, 42)
 
   current = beginAndCommitBody(timeline, begun.chat, 2, '推门', '第二版正文')
   current = timeline.apply({ chat: current, intent: { kind: 'turn.rollback' } }).chat
   begun = timeline.apply({ chat: current, intent: { kind: 'agent.begin', role: 'candidate' } })
 
-  assert.deepEqual(begun.value.participant.forkFrom, { sessionId: 'background-before-body', boundary: 42 })
+  assert.equal(begun.value.participant.sessionId, 'background-before-body')
+  assert.equal(begun.value.participant.rewindTo, 42)
 })
 
 test('旧对话可惰性迁移，现有候选 Session 成为后台 participant', () => {
@@ -215,7 +217,7 @@ test('正文替代失败恢复原内容，但仍换 branch/revision 防止瞬时
   assert.equal(restored.chat.timeline.operations[Object.keys(restored.chat.timeline.operations)[0]], undefined)
 })
 
-test('正文替代失败不会清空待派生后台 checkpoint', () => {
+test('正文替代失败不会清空待回退的后台 checkpoint', () => {
   const { timeline, chat } = harness()
   const original = timeline.apply({ chat, intent: { kind: 'ensure' } }).chat
   original.timeline.participants.background = {
@@ -230,7 +232,27 @@ test('正文替代失败不会清空待派生后台 checkpoint', () => {
     intent: { kind: 'replacement.abort', restoreChat: original }
   })
 
-  assert.deepEqual(restored.chat.timeline.participants.background.forkFrom, {
-    sessionId: 'background-before-body', boundary: 42
-  })
+  assert.equal(restored.chat.timeline.participants.background.sessionId, 'background-before-body')
+  assert.equal(restored.chat.timeline.participants.background.rewindTo, 42)
+})
+
+test('旧 checkpoint 丢失直接来源时向前恢复最近的有效后台边界', () => {
+  const { timeline, chat } = harness()
+  let current = timeline.apply({ chat, intent: { kind: 'ensure' } }).chat
+  current.timeline.participants.background = {
+    role: 'background', lifetime: 'branch', sessionId: 'background-old', branchId: current.timeline.branchId,
+    syncedRevision: 0, boundary: 42, status: 'current', rewindTo: null, updatedAt: 1
+  }
+  current = beginAndCommitBody(timeline, current, 1, '推门', '第一段正文')
+  current.timeline.participants.background = {
+    role: 'background', lifetime: 'branch', sessionId: '', branchId: current.timeline.branchId,
+    syncedRevision: null, boundary: null, status: 'needs-branch', forkFrom: null, updatedAt: 2
+  }
+  current = beginAndCommitBody(timeline, current, 2, '上楼', '第二段正文')
+
+  const rolled = timeline.apply({ chat: current, intent: { kind: 'turn.rollback' } })
+  const begun = timeline.apply({ chat: rolled.chat, intent: { kind: 'agent.begin', role: 'candidate' } })
+
+  assert.equal(begun.value.participant.sessionId, 'background-old')
+  assert.equal(begun.value.participant.rewindTo, 42)
 })

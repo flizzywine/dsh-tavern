@@ -55,20 +55,35 @@ export function createBackgroundAgentRunner(options) {
     return null
   }
 
-  async function forkSeed(input, agentOptions) {
-    const source = input.forkFrom
-    if (source === null || typeof source !== 'object' || str(source.sessionId) === '' || !Number.isSafeInteger(source.boundary)) return null
-    if (typeof agents.resume !== 'function') throw new Error('当前 DSH 不支持从剧情 checkpoint 派生后台 Agent')
-    let handle
-    try {
-      handle = await agents.resume({ resumeSessionId: str(source.sessionId), agentOptions })
-      const events = Array.isArray(handle.agent.session.events) ? handle.agent.session.events : []
-      const seed = events.filter(function (event) { return Number(event && event.seq) <= source.boundary })
-      if (seed.length === 0 || completedBoundary(seed) !== source.boundary) throw new Error('后台 Agent checkpoint 不是完整回合边界')
-      return JSON.parse(JSON.stringify(seed))
-    } finally {
-      if (handle !== undefined) await handle.dispose()
+  function rewindSurface(session, boundary) {
+    if (!Number.isSafeInteger(boundary)) return 0
+    const events = Array.isArray(session && session.events) ? session.events : []
+    const nodes = session && session.surface && Array.isArray(session.surface.nodes) ? session.surface.nodes : []
+    const shadowed = nodes.filter(function (seq) { return Number.isSafeInteger(seq) && seq > boundary })
+    if (shadowed.length === 0) return 0
+    let source = null
+    let turn = 0
+    let step = 1
+    for (let index = nodes.length - 1; index >= 0; index--) {
+      const event = events[nodes[index]]
+      const candidate = event && event.data && event.data.message && event.data.message.source
+      if (event && event.type === 'assistant/message' && candidate && candidate.kind === 'model') {
+        source = candidate
+        turn = Math.max(0, Number(event.data.turn) || 0)
+        step = Math.max(1, Number(event.data.step) || 1)
+        break
+      }
     }
+    if (source === null) throw new Error('后台 Agent checkpoint 之后存在消息，但找不到可用的模型来源')
+    session.append('assistant/message', {
+      turn,
+      step,
+      message: { id: crypto.randomUUID(), role: 'assistant', content: [], source }
+    }, {
+      surfaceOp: { op: 'replace', start: shadowed[0], end: shadowed[shadowed.length - 1] },
+      sourceEventSeqs: shadowed
+    })
+    return shadowed.length
   }
 
   function descriptorFor(input, persistent) {
@@ -156,22 +171,20 @@ export function createBackgroundAgentRunner(options) {
           agentOptions,
           setup: setupFor(input, descriptor, false)
         })
+        rewindSurface(handle.agent.session, input.rewindTo)
       } else {
-        const seed = await forkSeed(input, agentOptions)
         const meta = {
           parentSession: parent.id,
           origin: 'subagent',
-          delegationDepth: Number.isSafeInteger(parentDepth) && parentDepth >= 0 ? parentDepth + 1 : 1,
-          ...(seed === null ? {} : { seedLength: seed.length })
+          delegationDepth: Number.isSafeInteger(parentDepth) && parentDepth >= 0 ? parentDepth + 1 : 1
         }
         const cwd = str(parent.session.header && parent.session.header.cwd)
         if (cwd !== '') meta.cwd = cwd
         handle = await agents.create({
           sessionId: traceSessionId,
           meta,
-          ...(seed === null ? {} : { seed }),
           agentOptions,
-          setup: setupFor(input, descriptor, seed === null)
+          setup: setupFor(input, descriptor, true)
         })
       }
     } catch (error) {
