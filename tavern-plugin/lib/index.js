@@ -618,6 +618,7 @@ export function apply(ctx) {
       rows.push({
         sessionId: sessionId,
         chatId: chat.id,
+        title: str(chat.title),
         cardName: chat.cardName || '未命名角色',
         updatedAt: chat.updatedAt || chat.createdAt || 0,
         mode: chat.mode || 'story'
@@ -1253,11 +1254,9 @@ export function apply(ctx) {
       case 'getChoices': return { candidates: await candidateGenerator.find({ sessionId: args && args.sessionId, messageId: args && args.messageId }) }
       case 'generateChoices': {
         if (previewMode) {
-          return { candidates: {
-            messageId: str(args && args.messageId),
-            choices: [{ type: 'action', text: previewNotice }],
-            generatedAt: Date.now()
-          } }
+          const candidates = await candidateGenerator.find({ sessionId: args && args.sessionId, messageId: args && args.messageId })
+          if (candidates !== null) return { candidates }
+          throw new Error(previewNotice)
         }
         const candidates = await candidateGenerator.generate({ sessionId: args && args.sessionId, messageId: args && args.messageId, guidance: args && args.guidance })
         return { candidates: candidates }

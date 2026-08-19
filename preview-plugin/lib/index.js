@@ -1,6 +1,14 @@
 const PROVIDER = 'dsh-tavern-preview'
 const MODEL = 'fixed-preview'
 const NOTICE = '没有模型配置，无法回复'
+const PUBLIC_DEMO_SESSION = 'session-public-script'
+const publicDemoBootstrap = `try {
+  const key = 'dsh.sessions.current';
+  const current = JSON.parse(localStorage.getItem(key) || '{}');
+  if (typeof current.sessionId !== 'string' || !current.sessionId.startsWith('session-public-')) {
+    localStorage.setItem(key, JSON.stringify({ sessionId: '${PUBLIC_DEMO_SESSION}' }));
+  }
+} catch (error) {}`
 
 const adapter = {
   providerInfo(provider) {
@@ -32,15 +40,21 @@ const adapter = {
 }
 
 export async function apply(ctx) {
+  const webServer = ctx.get('webServer')
+  if (webServer === undefined) throw new Error('dsh-tavern-preview: 缺少 webServer 服务')
+  ctx.effect(() => webServer.tapIndex((html) => html.replace(
+    '<head>',
+    `<head><script>${publicDemoBootstrap}</script>`,
+  )), 'dsh-tavern-preview: open initialized public demo')
+
   if (process.env.VERCEL) {
     ctx.provide('hmr', {
       registerConfig: async () => async () => {},
     })
 
-    const webServer = ctx.get('webServer')
     const apiProxy = ctx.get('apiProxy')
-    if (webServer === undefined || apiProxy === undefined) {
-      throw new Error('dsh-tavern-preview: Vercel 预览缺少 webServer 或 apiProxy 服务')
+    if (apiProxy === undefined) {
+      throw new Error('dsh-tavern-preview: Vercel 预览缺少 apiProxy 服务')
     }
     ctx.effect(() => webServer.tapIndex((html) => html.replace(
       '<head>',
@@ -77,7 +91,7 @@ export async function apply(ctx) {
   const workspaceRegistry = ctx.get('workspaceRegistry')
   const workspacePath = process.env.DSH_TAVERN_PREVIEW_WORKSPACE
   if (workspaceRegistry !== undefined && typeof workspacePath === 'string' && workspacePath !== '') {
-    await workspaceRegistry.create(workspacePath, 'DSH Tavern 公开预览')
+    await workspaceRegistry.create(workspacePath, 'dsh-tavern 公开案例')
   }
 }
 import { toFetchHandler } from '@deepseek-ai/dsh-host-apiproxy'

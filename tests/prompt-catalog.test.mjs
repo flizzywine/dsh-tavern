@@ -28,6 +28,10 @@ test('固定提示词从独立 Markdown 文件完整加载', () => {
   assert.match(prompt('script-story'), /Guide ＞ 剧本 ＞ 世界一致性 ＞ 本轮演出指引/)
   assert.match(prompt('candidate-script'), /tavern_read_script/)
   assert.match(prompt('candidate-script'), /tavern_point_script/)
+  assert.match(prompt('card-editor'), /目录＋按需读取/)
+  assert.match(prompt('card-editor'), /按编号或关键词调用 tavern_read_worldbook/)
+  assert.match(prompt('card-editor'), /全面审查世界书.*分批读取/s)
+  assert.match(prompt('card-editor'), /条目编号、关键词或想检查的问题/)
   assert.throws(() => prompt('missing'), /未知提示词/)
 })
 

@@ -30,12 +30,6 @@ try {
 console.info('[preview] DSH preview ready')
 
 export default function handlePreviewRequest(req, res) {
-  const requestUrl = new URL(req.url || '/', 'http://preview.local')
-  if (requestUrl.pathname === '/' && !requestUrl.searchParams.has('fixture')) {
-    res.writeHead(302, { Location: '/?fixture=empty' })
-    res.end()
-    return
-  }
   if (previewServer === undefined) {
     res.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8' })
     res.end('DSH Tavern preview is starting')
