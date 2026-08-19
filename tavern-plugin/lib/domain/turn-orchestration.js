@@ -68,11 +68,12 @@ export function createTurnOrchestrator(options) {
   const scripts = options.scripts
   const cards = options.cards
   const extract = options.extract
+  const timeline = options.timeline
   const now = typeof options.now === 'function' ? options.now : Date.now
   const queueSettlement = typeof options.queueSettlement === 'function' ? options.queueSettlement : function () {}
 
   async function prepare(input) {
-    const chat = await store.chatForSession(input.sessionId)
+    let chat = await store.chatForSession(input.sessionId)
     if (chat === undefined) {
       return {
         ready: false,
@@ -85,6 +86,12 @@ export function createTurnOrchestrator(options) {
     const userText = str(input.userText).trim()
     const mode = chat.mode || 'story'
     let chatChanged = clearStaleStages(chat, turn)
+
+    if (mode === 'story' || mode === 'script') {
+      const begun = timeline.apply({ chat, intent: { kind: 'body.begin', turn, userText } })
+      chat = begun.chat
+      chatChanged = true
+    }
 
     if (mode === 'extract') {
       const prepared = await extract.prepare(chat, turn)
@@ -166,7 +173,7 @@ export function createTurnOrchestrator(options) {
   }
 
   async function finalize(input) {
-    const chat = await store.chatForSession(input.sessionId)
+    let chat = await store.chatForSession(input.sessionId)
     if (chat === undefined) return { saved: false, reason: 'unbound' }
     const turn = Math.max(0, Number(input.turn) || 0)
     const prior = commitFor(chat, turn)
@@ -215,28 +222,45 @@ export function createTurnOrchestrator(options) {
       return { saved: true, mode, changed, chatId: chat.id, cardName: savedCard.name }
     }
 
+    const operation = Object.values(timeline.inspect({ chat }).operations).find(function (item) {
+      return item.kind === 'body' && item.status === 'running' && Number(item.turn) === turn
+    })
+    if (operation === undefined) throw new Error('找不到本轮正文 operation，请重新生成本轮正文')
     const before = { posture: chat.posture || '' }
     let scriptReference = null
+    let playScript = null
     if (mode === 'script') {
-      const script = await store.readScript(chat.cardId)
-      if (script === undefined || !Array.isArray(script.chunks) || script.chunks.length === 0) throw new Error('剧本文件不存在，请重新为人物卡导入剧本')
-      const committed = scripts.transition({ script, state: chat.scriptState, event: { kind: 'commit', userText, nativeTurn: turn } })
-      chat.scriptState = committed.state
-      scriptReference = committed.reference
-      before.scriptRevision = committed.revision
+      playScript = await store.readScript(chat.cardId)
+      if (playScript === undefined || !Array.isArray(playScript.chunks) || playScript.chunks.length === 0) throw new Error('剧本文件不存在，请重新为人物卡导入剧本')
     }
-    if (userText !== '') chat.messages.push({ role: 'user', text: userText, ts: now(), native: true })
-    chat.messages.push({ role: 'assistant', text: assistantText, ts: now(), native: true })
-    chat.settleStatus = 'running'
-    chat.settleError = null
-    rememberCommit(chat, turn, { mode, userText, scriptReference }, before, now)
+    const completed = timeline.complete({
+      chat,
+      operationId: operation.id,
+      basedOn: operation.basedOn,
+      outcome: { status: 'success' },
+      apply(draft) {
+        if (mode === 'script') {
+          const committed = scripts.transition({ script: playScript, state: draft.scriptState, event: { kind: 'commit', userText, nativeTurn: turn } })
+          draft.scriptState = committed.state
+          scriptReference = committed.reference
+          before.scriptRevision = committed.revision
+        }
+        if (userText !== '') draft.messages.push({ role: 'user', text: userText, ts: now(), native: true })
+        draft.messages.push({ role: 'assistant', text: assistantText, ts: now(), native: true })
+        draft.settleStatus = 'running'
+        draft.settleError = null
+        rememberCommit(draft, turn, { mode, userText, scriptReference }, before, now)
+      }
+    })
+    chat = completed.chat
+    if (completed.value.status !== 'committed') throw new Error('正文生成期间剧情状态已变化，本轮结果已作废')
     await store.writeChat(chat)
-    queueSettlement(chat.id)
+    if (chat.regenInProgress !== true) queueSettlement(chat.id)
     return { saved: true, mode, changed: false, chatId: chat.id, cardName: chat.cardName }
   }
 
   async function discard(input) {
-    const chat = await store.chatForSession(input.sessionId)
+    let chat = await store.chatForSession(input.sessionId)
     if (chat === undefined) return false
     const turn = Math.max(0, Number(input.turn) || 0)
     let changed = false
@@ -256,6 +280,16 @@ export function createTurnOrchestrator(options) {
       chat.extract.prepared = null
       changed = true
     }
+    if ((chat.mode || 'story') === 'story' || (chat.mode || 'story') === 'script') {
+      const operation = Object.values(timeline.inspect({ chat }).operations).find(function (item) {
+        return item.kind === 'body' && item.status === 'running' && Number(item.turn) === turn
+      })
+      if (operation !== undefined) {
+        const failed = timeline.complete({ chat, operationId: operation.id, basedOn: operation.basedOn, outcome: { status: 'failed' } })
+        chat = failed.chat
+        changed = true
+      }
+    }
     if (changed) await store.writeChat(chat)
     return changed
   }
@@ -272,4 +306,3 @@ export function createTurnOrchestrator(options) {
 
   return Object.freeze({ prepare, stageChanges, finalize, discard, visibleTools })
 }
-

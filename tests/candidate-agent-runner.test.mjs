@@ -189,3 +189,57 @@ test('剧本候选复用同一个可继续会话，并且每轮只读取本轮�
   assert.match(prompts[1], /游标 3，姿势 B/)
   assert.doesNotMatch(prompts[1], /游标 2，姿势 A/)
 })
+
+test('回退后从 checkpoint 的完整回合边界派生新候选 Agent', async () => {
+  const parent = { id: 'parent-session', session: { header: { cwd: '/tmp/tavern', delegationDepth: 0 } } }
+  const sourceEvents = [
+    { seq: 0, type: 'user/message', data: { text: '有效正文' } },
+    { seq: 1, type: 'assistant/message', data: { message: { content: [{ type: 'text', text: '有效候选' }] } } },
+    { seq: 2, type: 'turn/end', data: {} },
+    { seq: 3, type: 'user/message', data: { text: '已废弃正文' } },
+    { seq: 4, type: 'turn/end', data: {} }
+  ]
+  let createOptions = null
+  const agents = {
+    get(id) { return id === parent.id ? parent : undefined },
+    async resume(options) {
+      assert.equal(options.resumeSessionId, 'old-candidate')
+      return { agent: { session: { events: sourceEvents } }, async dispose() {} }
+    },
+    async create(options) {
+      createOptions = options
+      const listeners = []
+      await options.setup({
+        systemPrompt: { section() {}, suppressRuntimeContext() {} },
+        tools: { restrict() {}, register() {} },
+        on(name, listener) { listeners.push({ name, listener }) }
+      })
+      const events = structuredClone(options.seed)
+      let work = Promise.resolve()
+      const child = {
+        session: { events, append(type, data) { events.push({ seq: events.length, type, data }) } },
+        followup() {
+          work = Promise.resolve().then(function () {
+            events.push({ seq: events.length, type: 'assistant/message', data: { message: { content: [{ type: 'text', text: '新分支候选' }] } } })
+            events.push({ seq: events.length, type: 'turn/end', data: {} })
+          })
+        },
+        async whenIdle() { await work }
+      }
+      return { agent: child, async dispose() {} }
+    }
+  }
+  const runner = createCandidateAgentRunner({ agents, id: () => 'new-candidate' })
+  const result = await runner.run({
+    sessionId: parent.id,
+    selection: { provider: 'test', model: 'scripted' },
+    system: '候选规则', messages: [], tools: [], persistent: true,
+    forkFrom: { sessionId: 'old-candidate', boundary: 2 }
+  })
+
+  assert.equal(result.traceSessionId, 'new-candidate')
+  assert.equal(result.traceBoundary, 4)
+  assert.deepEqual(createOptions.seed, sourceEvents.slice(0, 3))
+  assert.equal(createOptions.meta.seedLength, 3)
+  assert.doesNotMatch(JSON.stringify(createOptions.seed), /已废弃正文/)
+})

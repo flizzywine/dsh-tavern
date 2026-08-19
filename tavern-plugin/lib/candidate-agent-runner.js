@@ -45,8 +45,31 @@ export function createCandidateAgentRunner(options) {
   const agents = options.agents
   const makeId = typeof options.id === 'function' ? options.id : function () { return 'candidate-' + crypto.randomUUID() }
   const activeSessions = new Set()
-  const persistentSessions = new Map()
   const queues = new Map()
+
+  function completedBoundary(events) {
+    for (let index = (events || []).length - 1; index >= 0; index--) {
+      const event = events[index]
+      if (event && event.type === 'turn/end' && Number.isSafeInteger(event.seq)) return event.seq
+    }
+    return null
+  }
+
+  async function forkSeed(input, agentOptions) {
+    const source = input.forkFrom
+    if (source === null || typeof source !== 'object' || str(source.sessionId) === '' || !Number.isSafeInteger(source.boundary)) return null
+    if (typeof agents.resume !== 'function') throw new Error('当前 DSH 不支持从剧情 checkpoint 派生候选 Agent')
+    let handle
+    try {
+      handle = await agents.resume({ resumeSessionId: str(source.sessionId), agentOptions })
+      const events = Array.isArray(handle.agent.session.events) ? handle.agent.session.events : []
+      const seed = events.filter(function (event) { return Number(event && event.seq) <= source.boundary })
+      if (seed.length === 0 || completedBoundary(seed) !== source.boundary) throw new Error('候选 Agent checkpoint 不是完整回合边界')
+      return JSON.parse(JSON.stringify(seed))
+    } finally {
+      if (handle !== undefined) await handle.dispose()
+    }
+  }
 
   function descriptorFor(input, persistent) {
     if (!persistent) return snapshotSubagentDescriptor({ mode: 'one-shot', provider: 'dsh-tavern-candidate', label: '候选研究' })
@@ -112,8 +135,7 @@ export function createCandidateAgentRunner(options) {
     const parent = agents.get(input.sessionId)
     if (parent === undefined || parent.session === undefined) throw new Error('无法为候选项创建独立 Agent：正文会话不可用')
     const persistent = input.persistent === true
-    const remembered = persistentSessions.get(input.sessionId)
-    const requestedSessionId = str(input.persistentSessionId) || str(remembered)
+    const requestedSessionId = str(input.persistentSessionId)
     const traceSessionId = requestedSessionId || makeId()
     const descriptor = descriptorFor(input, persistent)
     const parentDepth = Number(parent.session.header && parent.session.header.delegationDepth)
@@ -133,25 +155,27 @@ export function createCandidateAgentRunner(options) {
           setup: setupFor(input, descriptor, false)
         })
       } else {
+        const seed = await forkSeed(input, agentOptions)
         const meta = {
           parentSession: parent.id,
           origin: 'subagent',
-          delegationDepth: Number.isSafeInteger(parentDepth) && parentDepth >= 0 ? parentDepth + 1 : 1
+          delegationDepth: Number.isSafeInteger(parentDepth) && parentDepth >= 0 ? parentDepth + 1 : 1,
+          ...(seed === null ? {} : { seedLength: seed.length })
         }
         const cwd = str(parent.session.header && parent.session.header.cwd)
         if (cwd !== '') meta.cwd = cwd
         handle = await agents.create({
           sessionId: traceSessionId,
           meta,
+          ...(seed === null ? {} : { seed }),
           agentOptions,
-          setup: setupFor(input, descriptor, true)
+          setup: setupFor(input, descriptor, seed === null)
         })
       }
     } catch (error) {
       throw traceError(error, traceSessionId)
     }
     activeSessions.add(traceSessionId)
-    if (persistent) persistentSessions.set(input.sessionId, traceSessionId)
 
     try {
       const eventStart = Array.isArray(handle.agent.session.events) ? handle.agent.session.events.length : 0
@@ -164,7 +188,7 @@ export function createCandidateAgentRunner(options) {
       await handle.agent.whenIdle()
       const text = finalText(handle.agent.session.events, eventStart)
       if (text === '') throw new Error('候选 Agent 没有返回最终文本')
-      return { text, traceSessionId, persistent }
+      return { text, traceSessionId, persistent, traceBoundary: completedBoundary(handle.agent.session.events) }
     } catch (error) {
       throw traceError(error, traceSessionId)
     } finally {

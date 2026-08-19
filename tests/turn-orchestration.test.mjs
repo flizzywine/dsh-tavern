@@ -3,6 +3,7 @@ import test from 'node:test'
 
 import { createCardPreparation } from '../tavern-plugin/lib/domain/card-preparation.js'
 import { createScriptContinuity } from '../tavern-plugin/lib/domain/script-continuity.js'
+import { createStoryTimeline } from '../tavern-plugin/lib/domain/story-timeline.js'
 import { createTurnOrchestrator } from '../tavern-plugin/lib/domain/turn-orchestration.js'
 
 function clone(value) {
@@ -31,6 +32,7 @@ function harness(mode) {
   }
   const settlements = []
   const plannerCalls = []
+  const timeline = createStoryTimeline({ id: (prefix) => prefix + '-' + Math.random().toString(36).slice(2), now: () => 2000 })
   const store = {
     async chatForSession() { return clone(chat) },
     async readCard() { return clone(card) },
@@ -51,6 +53,7 @@ function harness(mode) {
       }
     },
     scripts,
+    timeline,
     cards,
     extract: {
       async prepare(value, turn) {
@@ -72,7 +75,9 @@ function harness(mode) {
     chat: () => clone(chat),
     card: () => clone(card),
     plannerCalls,
-    settlements
+    settlements,
+    timeline,
+    replaceChat(next) { chat = clone(next) }
   }
 }
 
@@ -108,6 +113,22 @@ test('剧本参考在准备时锁定，正文提交后游标前进一块，失�
   assert.equal(run.chat().scriptState.prepared.chunkId, 'chunk-2')
   assert.equal(await run.orchestrator.discard({ sessionId: 'session-1', turn: 4 }), true)
   assert.equal(run.chat().scriptState.prepared, null)
+})
+
+test('正文替代先回到 checkpoint 再提交，剧本游标不会推进两次', async () => {
+  const run = harness('script')
+  await run.orchestrator.prepare({ sessionId: 'session-1', turn: 1, userText: '走进旅店' })
+  await run.orchestrator.finalize({ sessionId: 'session-1', turn: 1, userText: '走进旅店', assistantText: '第一版正文' })
+  assert.equal(run.chat().scriptState.cursor, 1)
+
+  const rolled = run.timeline.apply({ chat: run.chat(), intent: { kind: 'turn.rollback' } })
+  run.replaceChat(rolled.chat)
+  await run.orchestrator.prepare({ sessionId: 'session-1', turn: 2, userText: '【重新生成】走进旅店' })
+  await run.orchestrator.finalize({ sessionId: 'session-1', turn: 2, userText: '【重新生成】走进旅店', assistantText: '替代正文' })
+
+  assert.equal(run.chat().scriptState.cursor, 1)
+  assert.equal(run.chat().timeline.checkpoints.length, 1)
+  assert.equal(run.chat().messages.at(-1).text, '替代正文')
 })
 
 test('卡片修改先校验暂存，只在最终回复完成后写入', async () => {

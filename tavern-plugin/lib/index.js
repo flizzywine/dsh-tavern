@@ -5,6 +5,7 @@ import { createCandidateGenerator } from './domain/candidate-generation.js'
 import { createCardPreparation } from './domain/card-preparation.js'
 import { createContextPlanner } from './domain/context-planner.js'
 import { createScriptContinuity } from './domain/script-continuity.js'
+import { createStoryTimeline } from './domain/story-timeline.js'
 import { createTurnOrchestrator } from './domain/turn-orchestration.js'
 import { prompt } from './prompt-catalog.js'
 
@@ -83,6 +84,7 @@ export function apply(ctx) {
 
   const settlementJobs = new Set()
   const scriptContinuity = createScriptContinuity()
+  const storyTimeline = createStoryTimeline({ id: uid, now: Date.now })
   const cardPreparation = createCardPreparation({ id: function () { return uid('card') }, now: Date.now })
 
   // ---------- 模型调用 ----------
@@ -585,6 +587,7 @@ export function apply(ctx) {
     planner: contextPlanner,
     prompt: prompt,
     scripts: scriptContinuity,
+    timeline: storyTimeline,
     waitUntilSettled: async function (chat) {
       for (let index = 0; index < 40 && settlementJobs.has(chat.id); index++) await sleep(250)
     },
@@ -684,9 +687,11 @@ export function apply(ctx) {
   }
   async function runSettlement(chatId) {
     while (true) {
-      const snapshot = await readChat(chatId)
+      let snapshot = await readChat(chatId)
       if (snapshot === undefined) return
-      const snapshotMessageCount = Array.isArray(snapshot.messages) ? snapshot.messages.length : 0
+      const begun = storyTimeline.apply({ chat: snapshot, intent: { kind: 'agent.begin', role: 'settlement' } })
+      snapshot = begun.chat
+      await writeChat(snapshot)
       try {
         await readChatCard(snapshot)
         let text = ''
@@ -718,23 +723,43 @@ export function apply(ctx) {
         if (lastError !== null) throw lastError
         const latest = await readChat(chatId)
         if (latest === undefined) return
-        const latestMessageCount = Array.isArray(latest.messages) ? latest.messages.length : 0
-        const changedDuringSettlement = latestMessageCount !== snapshotMessageCount
-        const stat = applySettlement(latest, result)
-        latest.settleStatus = changedDuringSettlement ? 'running' : 'done'
-        latest.settleError = null
-        latest.lastSettle = { ts: Date.now(), posture: stat.postureUpdated, raw: text.slice(0, 200) }
-        await writeChat(latest)
-        console.log('dsh-tavern: 结算完成', chatId, '姿势', stat.postureUpdated ? '已更新' : '未更新', changedDuringSettlement ? '（检测到新提交，继续结算）' : '')
+        let stat = { postureUpdated: false }
+        const completed = storyTimeline.complete({
+          chat: latest,
+          operationId: begun.value.operationId,
+          basedOn: begun.value.basedOn,
+          outcome: { status: 'success', stateChanged: true },
+          apply(draft) {
+            stat = applySettlement(draft, result)
+            draft.settleStatus = 'done'
+            draft.settleError = null
+            draft.lastSettle = { ts: Date.now(), posture: stat.postureUpdated, raw: text.slice(0, 200) }
+          }
+        })
+        await writeChat(completed.chat)
+        if (completed.value.status === 'stale') {
+          if ((completed.chat.settleStatus || 'idle') === 'running') continue
+          return
+        }
+        console.log('dsh-tavern: 结算完成', chatId, '姿势', stat.postureUpdated ? '已更新' : '未更新')
         console.log('dsh-tavern: 结算原始输出:', text.slice(0, 200))
-        if (!changedDuringSettlement) return
+        return
       } catch (err) {
         const latest = await readChat(chatId)
         if (latest === undefined) return
-        latest.settleStatus = 'error'
-        latest.settleError = str(err && err.message || err)
-        await writeChat(latest)
-        console.error('dsh-tavern: 结算失败', chatId, latest.settleError)
+        const failed = storyTimeline.complete({
+          chat: latest,
+          operationId: begun.value.operationId,
+          basedOn: begun.value.basedOn,
+          outcome: { status: 'success', stateChanged: false },
+          apply(draft) {
+            draft.settleStatus = 'error'
+            draft.settleError = str(err && err.message || err)
+          }
+        })
+        await writeChat(failed.chat)
+        if (failed.value.status === 'stale' && (failed.chat.settleStatus || 'idle') === 'running') continue
+        console.error('dsh-tavern: 结算失败', chatId, str(err && err.message || err))
         return
       }
     }
@@ -868,6 +893,7 @@ export function apply(ctx) {
     },
     planner: contextPlanner,
     scripts: scriptContinuity,
+    timeline: storyTimeline,
     cards: cardPreparation,
     extract: {
       prepare: prepareExtract,
@@ -879,7 +905,7 @@ export function apply(ctx) {
 
   // ---------- 重新生成正文（生成即替换，无确认） ----------
   async function regenBody(chatId, guidance, sessionId) {
-    const chat = str(chatId) === '' ? await chatForSession(sessionId) : await readChat(chatId)
+    let chat = str(chatId) === '' ? await chatForSession(sessionId) : await readChat(chatId)
     if (chat === undefined) throw new Error('聊天不存在: ' + chatId)
     const card = await readChatCard(chat)
     if (typeof sessionId === 'string' && sessionId !== '') chat.sessionId = sessionId
@@ -889,6 +915,7 @@ export function apply(ctx) {
     if (agent === undefined || agent.session === undefined) throw new Error('无法访问 DSH 会话: ' + chat.sessionId)
     const session = agent.session
     const nodes = (session.surface !== undefined && Array.isArray(session.surface.nodes)) ? session.surface.nodes : []
+    const eventStart = Array.isArray(session.events) ? session.events.length : 0
     let oldSeq = -1
     let oldTurn = 0
     let oldSource = null
@@ -914,31 +941,80 @@ export function apply(ctx) {
     }
     if (oldAssistantIndex < 1 || msgs0[oldAssistantIndex - 1] === null || typeof msgs0[oldAssistantIndex - 1] !== 'object' || msgs0[oldAssistantIndex - 1].role !== 'user') throw new Error('没有可重新生成的玩家输入与正文组合')
     const originalUserText = str(msgs0[oldAssistantIndex - 1].text).trim()
-    const oldChatCount = msgs0.length
+    const originalChat = structuredClone(chat)
+    async function restoreFailedRegen() {
+      const failedChat = await readChat(chat.id)
+      const restored = storyTimeline.apply({ chat: failedChat || chat, intent: { kind: 'replacement.abort', restoreChat: originalChat } })
+      await writeChat(restored.chat)
+    }
+    let legacyBefore = null
+    if (storyTimeline.inspect({ chat }).checkpointCount === 0) {
+      let rollbackCommit = null
+      if (chat.nativeCommits !== null && typeof chat.nativeCommits === 'object') {
+        const keys = Object.keys(chat.nativeCommits).map(Number).filter(Number.isFinite).sort(function (a, b) { return b - a })
+        for (const key of keys) {
+          const value = chat.nativeCommits[String(key)]
+          if (value && str(value.userText).trim() === originalUserText) { rollbackCommit = value; break }
+        }
+      }
+      const before = rollbackCommit && rollbackCommit.before && typeof rollbackCommit.before === 'object' ? rollbackCommit.before : {}
+      legacyBefore = {
+        messages: msgs0.slice(0, oldAssistantIndex - 1), posture: str(before.posture), scriptState: chat.scriptState,
+        candidates: null, settleStatus: 'idle', settleError: null, lastSettle: null, participants: {}
+      }
+      if ((chat.mode || 'story') === 'script') {
+        const script = await readScript(chat.cardId)
+        if (script === undefined || !Array.isArray(script.chunks)) throw new Error('剧本文件不存在，无法重新生成正文')
+        const revision = before.scriptRevision && typeof before.scriptRevision === 'object' ? before.scriptRevision : null
+        const reference = rollbackCommit && rollbackCommit.scriptReference && typeof rollbackCommit.scriptReference === 'object' ? rollbackCommit.scriptReference : null
+        legacyBefore.scriptState = scriptContinuity.transition({ script, state: chat.scriptState, event: { kind: 'restore', revision, reference } }).state
+      }
+    }
+    const rolled = storyTimeline.apply({ chat, intent: { kind: 'turn.rollback', turn: oldTurn, legacyBefore } })
+    chat = rolled.chat
+    chat.regenInProgress = true
+    await writeChat(chat)
     const guide = str(guidance).trim()
     const syntheticText = '【重新生成正文】\n原玩家输入：\n' + originalUserText + '\n\n指导意见：\n' + (guide !== '' ? guide : '（无）') + '\n\n请根据原玩家输入和指导意见重新生成小说正文。'
     const beforeLastTurn = agent.phase !== undefined && agent.phase !== null && Number.isFinite(Number(agent.phase.lastTurn)) ? Number(agent.phase.lastTurn) : 0
-    agent.followup({
-      id: crypto.randomUUID(),
-      role: 'user',
-      content: [{ type: 'text', text: syntheticText }],
-      source: { kind: 'plugin', plugin: 'dsh-tavern-regen' }
-    })
-    await agent.whenIdle()
+    try {
+      agent.followup({
+        id: crypto.randomUUID(),
+        role: 'user',
+        content: [{ type: 'text', text: syntheticText }],
+        source: { kind: 'plugin', plugin: 'dsh-tavern-regen' }
+      })
+      await agent.whenIdle()
+    } catch (error) {
+      await restoreFailedRegen()
+      throw error
+    }
     const syntheticTurn = agent.phase !== undefined && agent.phase !== null && Number.isFinite(Number(agent.phase.lastTurn)) ? Number(agent.phase.lastTurn) : (beforeLastTurn + 1)
     const latest = await readChat(chat.id)
-    if (latest === undefined) throw new Error('聊天不存在: ' + chat.id)
+    if (latest === undefined) {
+      await restoreFailedRegen()
+      throw new Error('聊天不存在: ' + chat.id)
+    }
     const latestMsgs = latest.messages || []
-    if (latestMsgs.length < oldChatCount + 2) throw new Error('重新生成流程未产生新的用户/助手回合')
+    if (latestMsgs.length < 2) {
+      await restoreFailedRegen()
+      throw new Error('重新生成流程未产生新的用户/助手回合')
+    }
     const newAssistant = latestMsgs[latestMsgs.length - 1]
-    if (newAssistant === null || typeof newAssistant !== 'object' || newAssistant.role !== 'assistant') throw new Error('重新生成流程未产生正文')
+    if (newAssistant === null || typeof newAssistant !== 'object' || newAssistant.role !== 'assistant') {
+      await restoreFailedRegen()
+      throw new Error('重新生成流程未产生正文')
+    }
     const body = str(newAssistant.text).trim()
-    if (body === '') throw new Error('重新生成失败：模型返回空文本')
-    latestMsgs[oldAssistantIndex].text = body
-    latestMsgs[oldAssistantIndex].ts = Date.now()
-    latestMsgs.splice(oldChatCount, latestMsgs.length - oldChatCount)
+    if (body === '') {
+      await restoreFailedRegen()
+      throw new Error('重新生成失败：模型返回空文本')
+    }
+    latestMsgs[latestMsgs.length - 2].text = originalUserText
+    latestMsgs[latestMsgs.length - 2].regen = true
     if (latest.nativeCommits !== null && typeof latest.nativeCommits === 'object') delete latest.nativeCommits[String(syntheticTurn)]
     latest.updatedAt = Date.now()
+    delete latest.regenInProgress
     latest.settleStatus = 'running'
     latest.settleError = null
     await writeChat(latest)
@@ -959,6 +1035,24 @@ export function apply(ctx) {
         sourceEventSeqs: [oldSeq]
       })
     }
+    const currentNodes = session.surface !== undefined && Array.isArray(session.surface.nodes) ? session.surface.nodes : []
+    const syntheticNodes = currentNodes.filter(function (seq) { return seq >= eventStart })
+    let finalAssistantIndex = -1
+    for (let index = syntheticNodes.length - 1; index >= 0; index--) {
+      const event = session.events[syntheticNodes[index]]
+      if (event && event.type === 'assistant/message') { finalAssistantIndex = index; break }
+    }
+    const syntheticPrefix = finalAssistantIndex > 0 ? syntheticNodes.slice(0, finalAssistantIndex) : []
+    if (syntheticPrefix.length > 0) {
+      session.append('assistant/message', {
+        turn: syntheticTurn,
+        step: 1,
+        message: { id: crypto.randomUUID(), role: 'assistant', content: [], source: oldSource }
+      }, {
+        surfaceOp: { op: 'replace', start: syntheticPrefix[0], end: syntheticPrefix[syntheticPrefix.length - 1] },
+        sourceEventSeqs: syntheticPrefix
+      })
+    }
     const result = await view(latest, card)
     result.adopted = { text: body, guidance: guide, hiddenTurn: oldTurn, syntheticTurn: syntheticTurn }
     return result
@@ -966,7 +1060,7 @@ export function apply(ctx) {
 
   // ---------- 回退本轮（删除最近一次用户输入 + LLM 输出） ----------
   async function rollbackTurn(sessionId, chatId) {
-    const chat = str(chatId) === '' ? await chatForSession(sessionId) : await readChat(chatId)
+    let chat = str(chatId) === '' ? await chatForSession(sessionId) : await readChat(chatId)
     if (chat === undefined) throw new Error('聊天不存在: ' + chatId)
     const mode = chat.mode || 'story'
     if (mode !== 'story' && mode !== 'script') throw new Error('仅游玩模式支持回退本轮')
@@ -976,18 +1070,19 @@ export function apply(ctx) {
     if (agent === undefined || agent.session === undefined) throw new Error('无法访问 DSH 会话: ' + chat.sessionId)
     const session = agent.session
     const events = Array.isArray(session.events) ? session.events : []
+    const nodes = session.surface !== undefined && Array.isArray(session.surface.nodes) ? session.surface.nodes : []
     let userSeq = -1
-    for (let i = events.length - 1; i >= 0; i--) {
-      const event = events[i]
+    for (let i = nodes.length - 1; i >= 0; i--) {
+      const event = events[nodes[i]]
       if (event !== null && typeof event === 'object' && event.type === 'user/message' && event.surfaceOp === 'append') {
-        userSeq = Number(event.seq) || 0
+        userSeq = Number(event.seq)
         break
       }
     }
     if (userSeq < 0) throw new Error('原生消息流中找不到可回退的用户输入')
     let lastAssistant = null
-    for (let i = events.length - 1; i >= 0; i--) {
-      const event = events[i]
+    for (let i = nodes.length - 1; i >= 0; i--) {
+      const event = events[nodes[i]]
       if (event !== null && typeof event === 'object' && event.type === 'assistant/message' && event.surfaceOp === 'append') {
         lastAssistant = event
         break
@@ -995,13 +1090,12 @@ export function apply(ctx) {
     }
     if (lastAssistant === null) throw new Error('原生消息流中找不到可回退的正文输出')
     const hiddenTurn = Math.max(0, Number(lastAssistant.data && lastAssistant.data.turn) || 0)
-    const nodes = session.surface !== undefined && Array.isArray(session.surface.nodes) ? session.surface.nodes : []
     const startIndex = nodes.indexOf(userSeq)
     if (startIndex < 0) throw new Error('目标用户输入已不在模型面中，可能已经回退过')
     const shadowedSeqs = nodes.slice(startIndex)
     if (shadowedSeqs.length === 0) throw new Error('没有可遮蔽的消息区间')
 
-    // 1) 插件 chat：移除最后一组 user + assistant
+    // 1) 定位要回退的最后一组 user + assistant
     const msgs = chat.messages || []
     let assistantIndex = -1
     for (let i = msgs.length - 1; i >= 0; i--) {
@@ -1015,9 +1109,7 @@ export function apply(ctx) {
     if (msgs[assistantIndex - 1] === null || typeof msgs[assistantIndex - 1] !== 'object' || msgs[assistantIndex - 1].role !== 'user') throw new Error('最后一组消息不是用户输入 + 正文')
     const removedUserText = str(msgs[assistantIndex - 1].text).trim()
     const removedAssistantText = str(msgs[assistantIndex].text).trim()
-    msgs.splice(assistantIndex - 1, 2)
-
-    // 2) 状态回滚
+    // 2) 旧对话从 native commit 生成一次性迁移 checkpoint；新对话直接使用权威 checkpoint
     let rollbackCommit = null
     let rollbackCommitKey = ''
     if (chat.nativeCommits !== null && typeof chat.nativeCommits === 'object') {
@@ -1032,26 +1124,31 @@ export function apply(ctx) {
       }
     }
     const before = rollbackCommit !== null && rollbackCommit.before !== null && typeof rollbackCommit.before === 'object' ? rollbackCommit.before : null
-    let postureFallback = false
-    if (before !== null && typeof before.posture === 'string') chat.posture = before.posture
-    else {
-      chat.posture = ''
-      postureFallback = true
+    const legacyBefore = {
+      messages: msgs.slice(0, assistantIndex - 1),
+      posture: before !== null && typeof before.posture === 'string' ? before.posture : '',
+      scriptState: chat.scriptState,
+      candidates: null,
+      settleStatus: 'idle',
+      settleError: null,
+      lastSettle: null,
+      participants: {}
     }
-    if (mode === 'script') {
+    if (mode === 'script' && storyTimeline.inspect({ chat }).checkpointCount === 0) {
       const script = await readScript(chat.cardId)
       if (script === undefined || !Array.isArray(script.chunks)) throw new Error('剧本文件不存在，无法回退剧本状态')
       const revision = before !== null && before.scriptRevision !== null && typeof before.scriptRevision === 'object'
         ? before.scriptRevision
         : (before !== null && before.scriptState !== null && typeof before.scriptState === 'object' ? before.scriptState : null)
       const reference = rollbackCommit !== null && rollbackCommit.scriptReference !== null && typeof rollbackCommit.scriptReference === 'object' ? rollbackCommit.scriptReference : null
-      chat.scriptState = scriptContinuity.transition({ script: script, state: chat.scriptState, event: { kind: 'restore', revision: revision, reference: reference } }).state
+      legacyBefore.scriptState = scriptContinuity.transition({ script: script, state: chat.scriptState, event: { kind: 'restore', revision: revision, reference: reference } }).state
     }
+    const rolled = storyTimeline.apply({
+      chat,
+      intent: { kind: 'turn.rollback', turn: hiddenTurn, legacyBefore }
+    })
+    chat = rolled.chat
     if (rollbackCommitKey !== '') delete chat.nativeCommits[rollbackCommitKey]
-    chat.candidates = null
-    chat.settleStatus = 'idle'
-    chat.settleError = null
-    chat.lastSettle = null
     chat.updatedAt = Date.now()
     await writeChat(chat)
 
@@ -1076,7 +1173,6 @@ export function apply(ctx) {
       surfaceOp: { op: 'replace', start: userSeq, end: endSeq },
       sourceEventSeqs: shadowedSeqs
     })
-    if (postureFallback) queueSettlement(chat.id)
     const result = await view(chat, card)
     result.rolledBack = { hiddenTurn: hiddenTurn, removedUserText: removedUserText, removedAssistantText: removedAssistantText }
     return result

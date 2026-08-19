@@ -3,6 +3,7 @@ import test from 'node:test'
 
 import { createCandidateGenerator } from '../tavern-plugin/lib/domain/candidate-generation.js'
 import { createScriptContinuity } from '../tavern-plugin/lib/domain/script-continuity.js'
+import { createStoryTimeline } from '../tavern-plugin/lib/domain/story-timeline.js'
 import { prompt } from '../tavern-plugin/lib/prompt-catalog.js'
 
 const storyChoices = [
@@ -45,7 +46,8 @@ function harness({ mode = 'story', outputs, initialCandidates, initialCandidateA
       tools: structuredClone(options.tools || []),
       maxTokens: options.maxTokens,
       persistent: options.persistent,
-      persistentSessionId: options.persistentSessionId
+      persistentSessionId: options.persistentSessionId,
+      forkFrom: structuredClone(options.forkFrom || null)
     })
   }
   async function nextOutput(options) {
@@ -75,13 +77,15 @@ function harness({ mode = 'story', outputs, initialCandidates, initialCandidateA
   }
   const candidates = createCandidateGenerator({
     store, model, planner, prompt, scripts: continuity,
+    timeline: createStoryTimeline({ id: (prefix) => prefix + '-' + Math.random().toString(36).slice(2), now: () => 123456 }),
     waitUntilSettled: async () => {}, sleep: async () => {}, now: () => 123456,
     logger: { error() {} }
   })
   return {
     candidates, continuity, plannerCalls, modelRequests, modelCalls: () => modelCalls,
     chat: () => structuredClone(chat),
-    setMessages(next) { chat.messages = structuredClone(next) }
+    setMessages(next) { chat.messages = structuredClone(next) },
+    mutateChat(change) { change(chat) }
   }
 }
 
@@ -111,6 +115,22 @@ test('候选输出无效时不自动创建第二个 Agent', async () => {
 
   await assert.rejects(() => run.candidates.generate({ sessionId: 'session-1', messageId: 'message-no-retry' }), /恰好 4 个行动候选/)
   assert.equal(run.modelCalls(), 1)
+})
+
+test('候选生成期间时间线变化，迟到候选与 point 都不会落盘', async () => {
+  let run
+  run = harness({ mode: 'script', outputs: [async function (options) {
+    await options.onToolCall({ name: 'tavern_read_script', arguments: { point: 3 } })
+    run.mutateChat(function (chat) { chat.timeline.revision++ })
+    return JSON.stringify({ choices: [{ type: 'action', text: '这是已经过期的候选' }] })
+  }] })
+
+  await assert.rejects(
+    () => run.candidates.generate({ sessionId: 'session-1', messageId: 'stale-candidate' }),
+    /剧情状态已变化/
+  )
+  assert.equal(run.chat().candidates, undefined)
+  assert.equal(run.continuity.inspect({ script: script(), state: run.chat().scriptState, request: { kind: 'progress' } }).cursor, 0)
 })
 
 test('候选字数只是软约束，过短或超过 80 字都可以通过', async () => {
@@ -179,7 +199,8 @@ test('剧本候选保存并复用持久 Agent，会话建立后每轮只追加�
   const first = await run.candidates.generate({ sessionId: 'session-1', messageId: 'message-persistent-1' })
   assert.equal(first.traceSessionId, 'candidate-trace-1')
   assert.equal(first.traceMode, 'continuable')
-  assert.deepEqual(run.chat().candidateAgent, { sessionId: 'candidate-trace-1', mode: 'continuable', updatedAt: 123456 })
+  assert.equal(run.chat().candidateAgent.sessionId, 'candidate-trace-1')
+  assert.equal(run.chat().candidateAgent.mode, 'continuable')
   assert.equal(run.modelRequests[0].persistent, true)
   assert.equal(run.modelRequests[0].persistentSessionId, '')
   assert.equal(run.modelRequests[0].system, '稳定候选上下文')
