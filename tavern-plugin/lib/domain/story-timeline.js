@@ -14,6 +14,10 @@ function sameBasedOn(left, right) {
   return str(left && left.branchId) === str(right && right.branchId) && Number(left && left.revision) === Number(right && right.revision)
 }
 
+function participantRole(role) {
+  return role === 'candidate' || role === 'settlement' ? 'background' : role
+}
+
 export function createStoryTimeline(options = {}) {
   const makeId = typeof options.id === 'function' ? options.id : function (prefix) { return prefix + '-' + Math.random().toString(36).slice(2) }
   const now = typeof options.now === 'function' ? options.now : Date.now
@@ -26,8 +30,8 @@ export function createStoryTimeline(options = {}) {
       const participants = {}
       const legacy = object(chat.candidateAgent)
       if (str(legacy.sessionId) !== '') {
-        participants.candidate = {
-          role: 'candidate', lifetime: 'branch', sessionId: str(legacy.sessionId),
+        participants.background = {
+          role: 'background', lifetime: 'branch', sessionId: str(legacy.sessionId),
           branchId, syncedRevision: 0, boundary: Number.isSafeInteger(legacy.boundary) ? legacy.boundary : null,
           status: 'current', forkFrom: null, updatedAt: Number(legacy.updatedAt) || now()
         }
@@ -47,6 +51,12 @@ export function createStoryTimeline(options = {}) {
     incoming.revision = Math.max(0, Number(incoming.revision) || 0)
     incoming.checkpoints = Array.isArray(incoming.checkpoints) ? incoming.checkpoints : []
     incoming.participants = object(incoming.participants)
+    if (incoming.participants.background === undefined) {
+      const legacyParticipant = incoming.participants.candidate || incoming.participants.settlement
+      if (legacyParticipant !== undefined) incoming.participants.background = Object.assign({}, legacyParticipant, { role: 'background' })
+    }
+    delete incoming.participants.candidate
+    delete incoming.participants.settlement
     incoming.operations = object(incoming.operations)
     incoming.updatedAt = Number(incoming.updatedAt) || now()
     chat.timeline = incoming
@@ -120,17 +130,20 @@ export function createStoryTimeline(options = {}) {
   }
 
   function participantRequest(chat, role) {
-    const current = object(chat.timeline.participants[role])
+    const participantKey = participantRole(role)
+    const current = object(chat.timeline.participants[participantKey])
     if (current.status === 'current' && current.branchId === chat.timeline.branchId && str(current.sessionId) !== '') {
-      return { sessionId: current.sessionId, forkFrom: null, lifetime: current.lifetime || 'one-shot' }
+      return { role: participantKey, sessionId: current.sessionId, forkFrom: null, lifetime: current.lifetime || 'one-shot', syncedRevision: current.syncedRevision }
     }
     const forkFrom = object(current.forkFrom)
     return {
+      role: participantKey,
       sessionId: '',
       forkFrom: str(forkFrom.sessionId) !== '' && Number.isSafeInteger(forkFrom.boundary)
         ? { sessionId: forkFrom.sessionId, boundary: forkFrom.boundary }
         : null,
-      lifetime: current.lifetime || (role === 'candidate' ? 'branch' : 'one-shot')
+      lifetime: current.lifetime || (participantKey === 'background' ? 'branch' : 'one-shot'),
+      syncedRevision: current.syncedRevision === undefined ? null : current.syncedRevision
     }
   }
 
@@ -270,8 +283,9 @@ export function createStoryTimeline(options = {}) {
     const participant = object(outcome.participant)
     if (operation.kind === 'agent' && str(participant.sessionId) !== '') {
       const lifetime = participant.lifetime === 'branch' ? 'branch' : 'one-shot'
-      chat.timeline.participants[operation.role] = {
-        role: operation.role,
+      const participantKey = participantRole(operation.role)
+      chat.timeline.participants[participantKey] = {
+        role: participantKey,
         lifetime,
         sessionId: str(participant.sessionId),
         branchId: chat.timeline.branchId,

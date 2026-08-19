@@ -42,7 +42,7 @@ test('候选项 RPC 只返回一份 candidates', () => {
   assert.match(dispatch, /return \{ candidates: candidates \}/)
   assert.doesNotMatch(dispatch, /choices: candidates\.choices/)
   assert.match(clientSource, /readyCandidatePanel\(props\.sessionId, props\.messageId, result\.candidates\)/)
-  assert.match(clientSource, /查看剧情候选 Agent/)
+  assert.match(clientSource, /查看后台 Agent/)
   assert.doesNotMatch(clientSource, /button\[aria-haspopup="tree"\] \{ display: none !important; \}/)
   assert.match(clientSource, /refreshSubagents\(panel\.sessionId\)/)
   assert.match(clientSource, /openSubagent\(\{ parentSessionId: panel\.sessionId, childSessionId: panel\.traceSessionId, mode: panel\.traceMode \}\)/)
@@ -63,6 +63,10 @@ test('姿势结算限制为短 JSON 输出', () => {
   assert.match(flow, /attempt < 2/)
   assert.match(flow, /姿势 JSON 无效/)
   assert.match(flow, /text\.slice\(0, 200\)/)
+  assert.match(flow, /backgroundAgentRunner\.run/)
+  assert.match(flow, /task: 'settlement'/)
+  assert.match(flow, /persistent: true/)
+  assert.match(flow, /participant: \{ sessionId: backgroundSessionId/)
 })
 
 test('达到输出 token 上限时不把截断内容当作成功', () => {
@@ -72,11 +76,11 @@ test('达到输出 token 上限时不把截断内容当作成功', () => {
   assert.match(call, /模型输出达到 token 上限/)
 })
 
-test('候选 Agent 不进入正文上下文注入和工具过滤', () => {
+test('后台 Agent 不进入前台正文上下文注入和工具过滤', () => {
   const lifecycle = between(serverSource, '// ---------- DSH 回合生命周期 ----------', '// ---------- 模型可选工具 ----------')
 
-  assert.match(lifecycle, /candidateAgentRunner\.owns\(sessionId\)/)
-  assert.match(lifecycle, /if \(candidateAgentRunner\.owns\(sessionId\)\) return next\(\)/)
-  assert.match(lifecycle, /if \(candidateAgentRunner\.owns\(sessionId\)\) return/)
-  assert.match(lifecycle, /if \(candidateAgentRunner\.owns\(agent\.session\.id\)\) return assembly/)
+  assert.match(lifecycle, /backgroundAgentRunner\.owns\(sessionId\)/)
+  assert.match(lifecycle, /if \(backgroundAgentRunner\.owns\(sessionId\)\) return next\(\)/)
+  assert.match(lifecycle, /if \(backgroundAgentRunner\.owns\(sessionId\)\) return/)
+  assert.match(lifecycle, /if \(backgroundAgentRunner\.owns\(agent\.session\.id\)\) return assembly/)
 })

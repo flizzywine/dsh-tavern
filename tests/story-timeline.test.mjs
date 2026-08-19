@@ -97,6 +97,29 @@ test('同一 operation 协议可扩展到状态结算，迟到结算不能覆盖
   assert.equal(late.chat.posture, '门边站立')
 })
 
+test('候选与状态结算是同一后台 Agent 的不同任务，共用 participant', () => {
+  const { timeline, chat } = harness()
+  let current = beginAndCommitBody(timeline, chat, 1, '推门', '门开了。')
+  let begun = timeline.apply({ chat: current, intent: { kind: 'agent.begin', role: 'settlement' } })
+  assert.equal(begun.value.participant.role, 'background')
+  let completed = timeline.complete({
+    chat: begun.chat,
+    operationId: begun.value.operationId,
+    basedOn: begun.value.basedOn,
+    outcome: { status: 'success', stateChanged: true, participant: { sessionId: 'background-1', boundary: 20, lifetime: 'branch' } },
+    apply(draft) { draft.posture = '门内站立' }
+  })
+  current = completed.chat
+
+  begun = timeline.apply({ chat: current, intent: { kind: 'agent.begin', role: 'candidate' } })
+  assert.equal(begun.value.role, 'candidate')
+  assert.equal(begun.value.participant.role, 'background')
+  assert.equal(begun.value.participant.sessionId, 'background-1')
+  assert.equal(begun.value.participant.syncedRevision, begun.value.basedOn.revision)
+  assert.equal(timeline.inspect({ chat: begun.chat }).participants.candidate, undefined)
+  assert.equal(timeline.inspect({ chat: begun.chat }).participants.settlement, undefined)
+})
+
 test('分支级 participant 在正常推进时复用，回退后变为惰性派生', () => {
   const { timeline, chat } = harness()
   let current = beginAndCommitBody(timeline, chat, 1, '推门', '门开了。')
@@ -122,7 +145,7 @@ test('分支级 participant 在正常推进时复用，回退后变为惰性派�
   assert.deepEqual(next.value.participant.forkFrom, { sessionId: 'candidate-1', boundary: 42 })
 })
 
-test('旧对话可惰性迁移，现有候选 Agent 成为当前 participant', () => {
+test('旧对话可惰性迁移，现有候选 Session 成为后台 participant', () => {
   const { timeline, chat } = harness()
   chat.messages.push({ role: 'assistant', text: '已有正文' })
   chat.candidateAgent = { sessionId: 'legacy-candidate', mode: 'continuable', updatedAt: 9 }
@@ -130,8 +153,28 @@ test('旧对话可惰性迁移，现有候选 Agent 成为当前 participant', (
   const view = timeline.inspect({ chat: ensured.chat })
 
   assert.equal(view.revision, 0)
-  assert.equal(view.participants.candidate.sessionId, 'legacy-candidate')
-  assert.equal(view.participants.candidate.status, 'current')
+  assert.equal(view.participants.background.sessionId, 'legacy-candidate')
+  assert.equal(view.participants.background.status, 'current')
+})
+
+test('上一版 timeline 的 candidate participant 自动迁移为 background', () => {
+  const { timeline, chat } = harness()
+  chat.timeline = {
+    schemaVersion: 1,
+    branchId: 'old-branch',
+    revision: 7,
+    checkpoints: [],
+    operations: {},
+    participants: {
+      candidate: { role: 'candidate', lifetime: 'branch', sessionId: 'old-candidate', branchId: 'old-branch', syncedRevision: 7, status: 'current' }
+    }
+  }
+
+  const ensured = timeline.apply({ chat, intent: { kind: 'ensure' } })
+  const participants = timeline.inspect({ chat: ensured.chat }).participants
+  assert.equal(participants.background.sessionId, 'old-candidate')
+  assert.equal(participants.background.role, 'background')
+  assert.equal(participants.candidate, undefined)
 })
 
 test('正文替代失败恢复原内容，但仍换 branch/revision 防止瞬时 operation 复活', () => {

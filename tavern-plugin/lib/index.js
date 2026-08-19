@@ -1,6 +1,6 @@
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { fileURLToPath } from 'node:url'
-import { createCandidateAgentRunner } from './candidate-agent-runner.js'
+import { createBackgroundAgentRunner } from './background-agent-runner.js'
 import { createCandidateGenerator } from './domain/candidate-generation.js'
 import { createCardPreparation } from './domain/card-preparation.js'
 import { createContextPlanner } from './domain/context-planner.js'
@@ -148,7 +148,7 @@ export function apply(ctx) {
     return out
   }
   const contextPlanner = createContextPlanner({ prompt: prompt, callModel: callModel, now: Date.now, logger: console })
-  const candidateAgentRunner = createCandidateAgentRunner({ agents: agentRegistry })
+  const backgroundAgentRunner = createBackgroundAgentRunner({ agents: agentRegistry })
 
   // ---------- 角色卡 ----------
   function splitNovelText(source, requestedSize) {
@@ -582,7 +582,7 @@ export function apply(ctx) {
     },
     model: {
       selection: modelSelection,
-      runCandidate: candidateAgentRunner.run
+      runCandidate: backgroundAgentRunner.run
     },
     planner: contextPlanner,
     prompt: prompt,
@@ -692,6 +692,8 @@ export function apply(ctx) {
       const begun = storyTimeline.apply({ chat: snapshot, intent: { kind: 'agent.begin', role: 'settlement' } })
       snapshot = begun.chat
       await writeChat(snapshot)
+      let backgroundSessionId = str(begun.value.participant && begun.value.participant.sessionId)
+      let backgroundBoundary = null
       try {
         await readChatCard(snapshot)
         let text = ''
@@ -699,7 +701,14 @@ export function apply(ctx) {
         let lastError = null
         for (let attempt = 1; attempt <= 2; attempt++) {
           try {
-            text = await callModel({
+            const selection = modelSelection(snapshot.sessionId)
+            if (selection === null) throw new Error('没有可用的模型配置，请先在当前会话的模型选择器中选择模型')
+            const run = await backgroundAgentRunner.run({
+              task: 'settlement',
+              persistent: true,
+              persistentSessionId: backgroundSessionId,
+              forkFrom: begun.value.participant && begun.value.participant.forkFrom,
+              selection,
               messages: [{
                 id: 'settle-' + Date.now().toString(36),
                 role: 'user',
@@ -707,15 +716,21 @@ export function apply(ctx) {
                 source: { kind: 'plugin', plugin: 'dsh-tavern' }
               }],
               system: prompt('posture-settlement'),
+              turnContext: '',
+              tools: [],
               temperature: 0.2,
               maxTokens: 3000,
               sessionId: snapshot.sessionId
             })
+            text = run.text
+            backgroundSessionId = str(run.traceSessionId)
+            backgroundBoundary = Number.isSafeInteger(run.traceBoundary) ? run.traceBoundary : null
             result = parseJsonLenient(text)
             if (str(result.posture).trim() === '') throw new Error('模型返回的姿势 JSON 无效')
             lastError = null
             break
           } catch (err) {
+            if (backgroundSessionId === '') backgroundSessionId = str(err && err.traceSessionId)
             lastError = err
             if (attempt < 2) console.warn('dsh-tavern: 结算输出无效，自动重试', str(err && err.message || err))
           }
@@ -728,7 +743,11 @@ export function apply(ctx) {
           chat: latest,
           operationId: begun.value.operationId,
           basedOn: begun.value.basedOn,
-          outcome: { status: 'success', stateChanged: true },
+          outcome: {
+            status: 'success',
+            stateChanged: true,
+            participant: { sessionId: backgroundSessionId, boundary: backgroundBoundary, lifetime: 'branch' }
+          },
           apply(draft) {
             stat = applySettlement(draft, result)
             draft.settleStatus = 'done'
@@ -751,7 +770,11 @@ export function apply(ctx) {
           chat: latest,
           operationId: begun.value.operationId,
           basedOn: begun.value.basedOn,
-          outcome: { status: 'success', stateChanged: false },
+          outcome: {
+            status: 'success',
+            stateChanged: false,
+            participant: backgroundSessionId === '' ? null : { sessionId: backgroundSessionId, boundary: backgroundBoundary, lifetime: 'branch' }
+          },
           apply(draft) {
             draft.settleStatus = 'error'
             draft.settleError = str(err && err.message || err)
@@ -1314,7 +1337,7 @@ export function apply(ctx) {
   // ---------- DSH 回合生命周期 ----------
   ctx.on('agent/pre-step', async function (payload, next) {
     const sessionId = payload.agent && payload.agent.session ? payload.agent.session.id : ''
-    if (candidateAgentRunner.owns(sessionId)) return next()
+    if (backgroundAgentRunner.owns(sessionId)) return next()
     const decision = await next()
     if (decision.kind === 'reject' || Number(payload.step) !== 1) return decision
     const userText = payload.messages.filter(isTurnInput).map(contentText).filter(Boolean).join('\n').trim()
@@ -1335,7 +1358,7 @@ export function apply(ctx) {
     const session = payload.agent && payload.agent.session
     if (session === undefined) return
     const sessionId = session.id
-    if (candidateAgentRunner.owns(sessionId)) return
+    if (backgroundAgentRunner.owns(sessionId)) return
     await turnOrchestrator.finalize({
       sessionId,
       turn: payload.turn,
@@ -1346,7 +1369,7 @@ export function apply(ctx) {
 
   ctx.on('session/event', function (session, event) {
     if (!event || event.type !== 'turn/end') return
-    if (candidateAgentRunner.owns(session.id)) return
+    if (backgroundAgentRunner.owns(session.id)) return
     const reason = event.data && event.data.reason ? event.data.reason.kind : ''
     if (reason === 'completed' || reason === 'max-tokens') return
     void turnOrchestrator.discard({ sessionId: session.id, turn: event.data && event.data.turn })
@@ -1357,7 +1380,7 @@ export function apply(ctx) {
     const assembly = await next()
     const agent = context && context.agent
     if (agent === undefined || agent.session === undefined) return assembly
-    if (candidateAgentRunner.owns(agent.session.id)) return assembly
+    if (backgroundAgentRunner.owns(agent.session.id)) return assembly
     const visible = new Set(await turnOrchestrator.visibleTools(agent.session.id))
     assembly.tools = assembly.tools.filter(function (schema) { return !tavernToolNames.has(schema.name) || visible.has(schema.name) })
     return assembly

@@ -19,20 +19,20 @@ DSH 负责通用 Agent 基础设施：会话、模型选择、工具调用、消
 | Context Planner | `plan` | 按正文、候选项、卡片设定或素材抽取的用途，选择并组合本次必需的上下文，同时返回注入审计 |
 | Script Continuity | `start`、`transition`、`inspect` | 维护剧本游标、回合参考、提交与回退；提供只读查看，不让调用方直接改内部状态 |
 | Story Timeline | `apply`、`complete`、`inspect` | 以 checkpoint、branch 和单调 revision 统一正文、候选、回退、替代与结算；拒绝迟到的 Agent 结果 |
-| Candidate Generator | `generate`、`find` | 生成、校验和保存候选项；剧本模式恢复同一个候选 Agent，在隔离上下文中自由读取剧本，只有显式 point 才能把下一轮游标向前定位 |
+| Candidate Generator | `generate`、`find` | 向后台 Agent 发起候选任务，校验并保存结果；剧本模式允许后台 Agent 自由读取剧本，只有显式 point 才能把下一轮游标向前定位 |
 | Card Preparation | `create`、`update`、`present` | 统一人物卡导入、素材成卡、手动编辑、对话式修改和 SillyTavern 导出所使用的字段规则 |
 | Turn Orchestrator | `prepare`、`stageChanges`、`finalize`、`discard`、`visibleTools` | 把 DSH 回合生命周期转换为酒馆上下文与状态变化；卡片修改先校验暂存，最终回复完成后统一提交 |
 
-`Candidate Agent Runner` 是 DSH Adapter，通过 `run` 执行候选研究，并通过 `owns` 让宿主识别正在运行的候选会话。同一剧情分支通过 Session ID 恢复同一个候选 Agent；回退或正文替代产生新分支后，从 checkpoint 记录的闭合回合边界派生新 Session，避免废弃正文污染当前分支。每轮完成后释放运行实例，但 Session、推理、工具调用和结果由 DSH 原生事件日志继续保存。自由故事仍使用一次性候选 Agent。
+`Background Agent Runner` 是 DSH Adapter，通过 `run` 执行候选生成或状态结算，并通过 `owns` 让宿主识别正在运行的后台会话。同一剧情分支的两种后台任务通过 Session ID 恢复同一个后台 Agent；回退或正文替代产生新分支后，从 checkpoint 记录的闭合回合边界派生新 Session，避免废弃正文污染当前分支。每轮完成后释放运行实例，但 Session、推理、工具调用和结果由 DSH 原生事件日志继续保存。
 
-候选 Agent 是持久 Session、短时 Activation：只在生成期间占用运行资源，不使用会向正文父会话回送结算结果的 continuation manager。正文的上下文注入、状态结算和工具过滤必须跳过候选 Activation，保证两个锚点共享剧本方向但不共享消息流。候选 Session 的长上下文直接交给 DSH 原生 compact 处理。
+后台 Agent 是持久 Session、短时 Activation：只在候选或结算任务期间占用运行资源，不使用会向前台会话回送自由文本的 continuation manager。候选与结算共享剧情理解，但 operation 仍保留各自的结果权限；前台的上下文注入、回合提交和工具过滤必须跳过后台 Activation。后台 Session 的长上下文直接交给 DSH 原生 compact 处理。
 
 ## 关键规则
 
 1. 正文、候选项和人物卡准备的上下文规则只在 Context Planner 和 Candidate Generator 中定义；宿主适配层只请求某种用途的上下文。
 2. 剧本状态只能通过 Script Continuity 改变，且唯一进度变量是游标。查看剧本不改变游标；正文成功提交后游标前进一块；候选项只能通过显式 point 保持、向前跳转或进入结束位置，不能后退。
 3. 人物卡的导入、编辑、Agent patch 和导出共享同一字段政策；未知字段明确失败，不能静默丢弃。
-4. 剧本候选项由独立、可续接的 DSH 子 Agent 生成；同一剧情分支恢复同一候选 Session，回退或正文替代后派生新 Session。它不混入正文，也不复用正文输出约束。候选查阅剧本产生的推理、工具调用和返回内容可从候选框或原生父子导航查看。
+4. 候选项和状态结算由同一个独立、可续接的后台 Agent 承担；同一剧情分支恢复同一后台 Session，回退或正文替代后派生新 Session。两种后台任务共享历史但保持输出与写入权限隔离，不混入前台正文。
 5. 候选上下文按稳定与动态分层：人物卡、固定任务和稳定世界书置前；每轮追加最新正文，并以最新 Guide、人物姿势和剧本窗口覆盖旧动态状态，提升缓存命中且避免旧状态污染。
 6. 领域模块不依赖 DSH 或文件系统。模型和存储通过小型适配器传入，因此可以直接做行为测试。
 7. 自由故事不暴露 Tavern 工具；剧本游玩只暴露剧本读取；卡片模式只暴露与当前准备任务有关的读取和修改工具。
@@ -44,7 +44,7 @@ DSH 负责通用 Agent 基础设施：会话、模型选择、工具调用、消
 ```text
 tavern-plugin/lib/
 ├── client.js                 Web 界面
-├── candidate-agent-runner.js 独立候选 Agent 的 DSH 适配器
+├── background-agent-runner.js 持久后台 Agent 的 DSH Adapter
 ├── index.js                  DSH、HTTP、存储适配层
 ├── prompt-catalog.js         固定提示词文件适配层
 └── domain/
@@ -58,4 +58,4 @@ tavern-plugin/lib/
 tavern-plugin/prompts/        可独立编辑的固定提示词
 ```
 
-跨 Agent 同步细节见 [docs/agent-timeline-design.md](docs/agent-timeline-design.md)，决策记录见 [docs/adr/0001-tavern-owns-story-timeline.md](docs/adr/0001-tavern-owns-story-timeline.md)。领域用语见 [CONTEXT.md](CONTEXT.md)，产品取舍以 [MISSION.md](MISSION.md) 为准。
+跨 Agent 同步细节见 [docs/agent-timeline-design.md](docs/agent-timeline-design.md)；权威时间线与前后台分工分别记录在 [ADR-0001](docs/adr/0001-tavern-owns-story-timeline.md) 和 [ADR-0002](docs/adr/0002-share-one-background-agent.md)。领域用语见 [CONTEXT.md](CONTEXT.md)，产品取舍以 [MISSION.md](MISSION.md) 为准。

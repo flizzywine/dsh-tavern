@@ -1100,14 +1100,14 @@ body.dsh-tavern-shell-active button[aria-label="新建会话"], body.dsh-tavern-
 						if (input) input.focus();
 					});
 				} }, "✎ 自由行动（直接在下方输入）") : null,
-				expanded && panel.phase === "ready" && panel.traceSessionId ? h("button", { className: "dsh-tavern-question-free", title: panel.traceMode === "continuable" ? "打开持续存在的剧情候选 Agent" : "打开独立候选 Agent 的推理与工具调用记录", onClick: async function () {
+				expanded && panel.phase === "ready" && panel.traceSessionId ? h("button", { className: "dsh-tavern-question-free", title: panel.traceMode === "continuable" ? "打开持续存在的后台 Agent" : "打开后台候选任务的推理与工具调用记录", onClick: async function () {
 					try {
 						await props.sessions.refreshSubagents(panel.sessionId);
 						props.sessions.openSubagent({ parentSessionId: panel.sessionId, childSessionId: panel.traceSessionId, mode: panel.traceMode });
 					} catch (err) {
-						window.alert("无法打开候选 Agent 轨迹：" + String(err && err.message || err));
+						window.alert("无法打开后台 Agent 轨迹：" + String(err && err.message || err));
 					}
-				} }, panel.traceMode === "continuable" ? "查看剧情候选 Agent" : "查看候选 Agent 运行轨迹") : null,
+				} }, panel.traceMode === "continuable" ? "查看后台 Agent" : "查看后台候选任务轨迹") : null,
 				expanded && panel.phase === "ready" && panel.choices && panel.choices.length ? h("div", { className: "dsh-tavern-question-foot" },
 					h("button", { className: "dsh-tavern-question-primary", disabled: selected < 0, onClick: function () {
 						if (selected < 0) return;

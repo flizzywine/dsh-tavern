@@ -84,7 +84,10 @@ function harness({ mode = 'story', outputs, initialCandidates, initialCandidateA
   return {
     candidates, continuity, plannerCalls, modelRequests, modelCalls: () => modelCalls,
     chat: () => structuredClone(chat),
-    setMessages(next) { chat.messages = structuredClone(next) },
+    setMessages(next) {
+      chat.messages = structuredClone(next)
+      if (chat.timeline) chat.timeline.revision++
+    },
     mutateChat(change) { change(chat) }
   }
 }
@@ -99,6 +102,8 @@ test('自由故事只保存完整的 4 action + 1 scene', async () => {
   assert.equal(result.choices.filter((item) => item.type === 'action').length, 4)
   assert.equal(result.choices.filter((item) => item.type === 'scene').length, 1)
   assert.equal(result.traceSessionId, 'candidate-trace-1')
+  assert.equal(result.traceMode, 'continuable')
+  assert.equal(run.modelRequests[0].persistent, true)
   assert.equal(run.modelRequests[0].maxTokens, 4000)
   assert.equal(run.plannerCalls[0].purpose, 'candidate')
   assert.match(run.plannerCalls[0].task, /剧情候选项生成器/)

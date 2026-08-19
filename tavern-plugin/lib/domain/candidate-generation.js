@@ -235,11 +235,13 @@ export function createCandidateGenerator(options) {
     chat = begun.chat
     await store.writeChat(chat)
     const participantRequest = begun.value.participant || {}
-    const persistentSessionId = scriptMode ? str(participantRequest.sessionId) : ''
+    const persistentSessionId = str(participantRequest.sessionId)
     const guidance = str(input.guidance).trim().slice(0, 600)
     let request = '请按上述规则生成候选项。'
     if (guidance !== '') request += '\n\n【用户额外要求】\n' + guidance + '\n\n额外要求不改变 ' + (scriptMode ? '剧本走向、' : '') + (scriptMode ? 1 : 5) + ' 个候选及类型约束。'
-    const messages = buildMessages(chat, selection, now, scriptMode && persistentSessionId !== '' ? 1 : 6).concat([{
+    const backgroundAlreadySynced = persistentSessionId !== '' && Number(participantRequest.syncedRevision) === Number(begun.value.basedOn.revision)
+    const recentMessages = backgroundAlreadySynced ? [] : buildMessages(chat, selection, now, persistentSessionId !== '' ? 1 : 6)
+    const messages = recentMessages.concat([{
       id: 'choices-' + now().toString(36),
       role: 'user',
       content: [{ type: 'text', text: request }],
@@ -248,15 +250,16 @@ export function createCandidateGenerator(options) {
     const research = scriptMode ? scriptResearchAttempt(script, scriptWindow) : null
     const callOptions = {
       sessionId: input.sessionId,
+      task: 'candidate',
       selection,
       temperature: 0.8,
       maxTokens: 4000,
       system: scriptMode ? context.stableText : context.text,
       turnContext: scriptMode ? context.dynamicText : '',
       messages,
-      persistent: scriptMode,
+      persistent: true,
       persistentSessionId,
-      forkFrom: scriptMode ? participantRequest.forkFrom : null
+      forkFrom: participantRequest.forkFrom
     }
     let run
     try {
@@ -276,7 +279,7 @@ export function createCandidateGenerator(options) {
     }
     const text = run.text
     const traceSessionId = str(run.traceSessionId)
-    const participant = scriptMode && traceSessionId !== '' ? {
+    const participant = traceSessionId !== '' ? {
       sessionId: traceSessionId,
       lifetime: 'branch',
       boundary: Number.isSafeInteger(run.traceBoundary) ? run.traceBoundary : null
@@ -324,7 +327,7 @@ export function createCandidateGenerator(options) {
         draft.candidates = {
           messageId: str(input.messageId), choices, generatedAt: now(), script: scriptProjection,
           traceSessionId, traceSessionIds: traceSessionId === '' ? [] : [traceSessionId],
-          traceMode: scriptMode ? 'continuable' : 'one-shot', basedOn: begun.value.basedOn
+          traceMode: 'continuable', basedOn: begun.value.basedOn
         }
         savedCandidates = draft.candidates
       }

@@ -2,11 +2,11 @@
 
 ## 目标
 
-回退、正文重生成、候选生成和状态结算必须作用于同一条权威剧情时间线。Tavern 保存的正文与结构化状态是唯一真相；DSH 主会话、剧情候选 Agent 和未来状态结算 Agent 都只是某个剧情 revision 的生产者或投影。
+回退、正文重生成、候选生成和状态结算必须作用于同一条权威剧情时间线。Tavern 保存的正文与结构化状态是唯一真相；DSH 前台 Agent 与后台 Agent 都只是某个剧情 revision 的生产者或投影。
 
 本设计解决以下问题：
 
-- 正文回退后，持久剧情候选 Agent 仍记得已经废弃的剧情。
+- 正文回退后，持久后台 Agent 仍记得已经废弃的剧情。
 - 正文重生成被当成新回合，剧本游标额外前进一块。
 - 旧候选项、人物姿势或迟到的结算结果覆盖新正文。
 - 后续每增加一种子 Agent，都要在回退函数中增加专用判断。
@@ -24,22 +24,26 @@ branchId + revision + checkpoint + participants + operations
 - `branchId`：当前剧情分支。不透明；回退或正文替代成功后必须变化。
 - `revision`：权威状态版本，只增不减。回退恢复旧内容，但仍产生更大的新 revision，避免旧异步结果重新合法。
 - `checkpoint`：某次正文提交前可完整恢复的剧情状态，包括消息、剧本状态、人物姿势、候选投影和 Agent 绑定。
-- `participant`：依附时间线工作的 Agent，例如剧情候选 Agent 或状态结算 Agent。
+- `participant`：时间线保存的持久 Agent 绑定。当前登记 `background`；前台 Agent 由 DSH 宿主会话持有，不重复登记。
 - `operation`：绑定 `{branchId, revision}` 的生成工作。结果只有在依据仍有效时才能提交。
 
 人物卡、Guide 和剧本文件是会话配置，不随“回退本轮”倒退；正文、剧本游标、人物姿势、候选项与派生状态属于 checkpoint。
 
-### Agent 生命周期政策
+### 前台、后台与任务权限
 
-Agent 的生命周期是角色政策，不写死在回退流程中：
+Agent 身份与后台任务是两个维度。候选和状态结算共享一个后台 Session，但 operation 仍按任务限制可提交效果：
 
-| 角色 | 默认生命周期 | 触发方式 | 可提交效果 |
+| Agent | 生命周期 | 触发方式 | 可提交效果 |
 | --- | --- | --- | --- |
-| 主会话 | 会话级 | 玩家输入 | 正文 |
-| 剧情候选 Agent | 分支级持久化 | 用户显式生成 | 候选项、向前 `point` 提案 |
-| 状态结算 Agent | 一次性 | 正文提交后 | 人物姿势与人物卡定义的派生状态 |
+| 前台 Agent | 会话级 | 玩家输入 | 正文 |
+| 后台 Agent | 分支级持久化 | 后台任务 | 由本次 operation 的任务权限决定 |
 
-以后可把状态结算改成分支级持久化，或增加其他 Agent，而不改变时间线的公开接口。
+| 后台任务 | 触发方式 | 可提交效果 |
+| --- | --- | --- |
+| `candidate` | 用户显式生成 | 候选项、向前 `point` 提案 |
+| `settlement` | 正文提交后 | 人物姿势与获准的派生状态 |
+
+以后增加世界状态、导演建议等能力时，优先增加后台任务，而不是新增长期 Agent；只有确实需要隔离记忆或不同生命周期时才增加 participant。
 
 ## 深 Module 与接口
 
@@ -105,16 +109,16 @@ await timeline.inspect(query)
 4. 正文成功提交后剧本游标只前进一块。
 5. 候选 `point` 只是提案，由时间线经 Script Continuity 提交；仍执行 `max(current, requested)`。
 6. 正文替代是“基于正文前 checkpoint 生成，成功后一次替换”；失败时正文、游标、姿势、候选和 Agent 绑定全部不变。
-7. 候选重生成不改变 branch；同一分支复用同一个剧情候选 Agent。
+7. 候选重生成不改变 branch；同一分支的候选与结算复用同一个后台 Agent。
 8. 回退和正文替代成功会让旧分支的运行结果全部失效。
 9. 看过废弃剧情的持久 Agent 不能靠一条“前文作废”消息同步；必须从有效 checkpoint 派生新 Session，旧 Session 退休但保留轨迹。
-10. 一次性状态结算 Agent 不需要反向推理；回退直接恢复 checkpoint 中的派生状态，迟到结果因 revision 不一致而丢弃。
+10. 状态结算是后台任务，不是独立 Agent；回退直接恢复 checkpoint 中的派生状态，迟到结果因 revision 不一致而丢弃。
 
 ## 操作语义
 
 ### 正常正文推进
 
-正文生成前锁定 checkpoint 和剧本参考；成功后提交正文、游标和新 revision，清除上一正文的候选结果，并安排绑定新 revision 的状态结算。剧情候选 Agent 保持同一 branch，在下次显式生成时追加最新正文。
+正文生成前锁定 checkpoint 和剧本参考；成功后提交正文、游标和新 revision，清除上一正文的候选结果，并安排绑定新 revision 的后台结算任务。后台 Agent 保持同一 branch；结算完成后候选任务直接复用其 Session 与最新剧情理解。
 
 ### 重新生成候选项
 
@@ -122,7 +126,7 @@ await timeline.inspect(query)
 
 ### 回退本轮
 
-从最后一次正文提交的 `before` checkpoint 恢复正文、剧本状态、人物姿势和派生状态，同时创建新 branch/revision。当前候选结果清空；所有旧分支 participant 退休。反复回退只更新权威分支，不立即创建新 Agent；下次真正生成候选时才惰性派生。
+从最后一次正文提交的 `before` checkpoint 恢复正文、剧本状态、人物姿势和派生状态，同时创建新 branch/revision。当前候选结果清空；所有旧分支 participant 退休。反复回退只更新权威分支，不立即创建新 Agent；下次真正执行后台任务时才惰性派生。
 
 ### 重新生成正文
 
@@ -135,17 +139,17 @@ await timeline.inspect(query)
 
 ### 状态结算
 
-状态结算以正文 revision 为输入，只能提交角色政策允许的派生字段。正文变化时，在途结算自动 stale；正文替代成功后重新运行。未来改为持久 Agent 时，同样遵守分支派生规则。
+状态结算以正文 revision 为输入，只能提交该任务获准的派生字段。正文变化时，在途结算自动 stale；正文替代成功后重新运行。它与候选任务串行复用后台 Agent，但不会因此获得候选任务的 `point` 权限。
 
 ## DSH Session 投影
 
-DSH Session 是追加式事件日志，但支持基于稳定、闭合 turn 前缀创建新 Session。每个持久 participant checkpoint 记录其 Session ID 与闭合边界：
+DSH Session 是追加式事件日志，但支持基于稳定、闭合 turn 前缀创建新 Session。后台 participant 的 checkpoint 记录其 Session ID 与闭合边界：
 
 ```js
 { sessionId, branchId, syncedRevision, boundary, status }
 ```
 
-- 同一 branch 向前推进：恢复原 Session。
+- 同一 branch 向前推进：候选与结算恢复同一个后台 Session。
 - 回退到该 Session 的早期 checkpoint：从记录边界派生新 Session。
 - 没有可用边界或旧 Session 不存在：用权威 snapshot 新建 Session。
 - 旧 Session 不删除，标记 retired，继续可从父子导航查看。
@@ -178,14 +182,14 @@ JSON chat 与 DSH Session 不能形成真正的跨存储 ACID 事务。提交顺
 
 ## 兼容与迁移
 
-旧对话首次读取时惰性建立 baseline timeline。现有 `nativeCommits` 转为 checkpoint 输入；现有 `candidateAgent.sessionId` 作为 legacy participant 绑定。无法证明 legacy Session 与当前 branch 一致时，正常前进可以继续使用；第一次回退或正文替代后必须退休并惰性派生新 Session。
+旧对话首次读取时惰性建立 baseline timeline。现有 `nativeCommits` 转为 checkpoint 输入；现有 `candidateAgent.sessionId` 作为 legacy 后台 participant 绑定，上一版 timeline 中的 `candidate` participant 也会改名为 `background`。无法证明 legacy Session 与当前 branch 一致时，正常前进可以继续使用；第一次回退或正文替代后必须退休并惰性派生新 Session。
 
 checkpoint 初期保存完整领域快照并保留最近 40 个。以后可以在 Store Adapter 内改成增量与周期快照，不改变 Story Timeline 接口。
 
 ## 验收矩阵
 
 - 正常连续正文：revision 单调增加，游标每次只前进一块。
-- 同正文反复候选重生成：复用同一剧情候选 Session。
+- 同正文反复候选重生成：复用同一后台 Session。
 - 连续回退：每次恢复完整 checkpoint，不创建无用 Agent。
 - 正文反复替代：每次游标只提交一次，失败零变化。
 - 候选运行中回退：候选结果 stale，`point` 不落盘。
@@ -196,6 +200,6 @@ checkpoint 初期保存完整领域快照并保留最近 40 个。以后可以�
 
 ## 当前落地范围
 
-已实现：完整 checkpoint、单调 revision、新分支回退、正文替代只推进一次、候选/结算迟到结果作废、同分支候选 Session 复用、回退后从闭合回合边界惰性派生、连续回退使用当前 surface、旧对话从 `nativeCommits` 惰性迁移。
+已实现：完整 checkpoint、单调 revision、新分支回退、正文替代只推进一次、候选/结算迟到结果作废、同分支后台 Session 复用、回退后从闭合回合边界惰性派生、连续回退使用当前 surface、旧对话从 `nativeCommits` 惰性迁移。上一版的 `candidate` participant 会惰性迁移为 `background`。
 
 后续加固：文件 Store 的跨进程 CAS、持久 projection outbox、compact 后主会话的自动派生与 UI 重绑定。这三项不影响当前单进程 Tavern 的时间线正确性，但在多进程写入或 DSH 投影中途崩溃时仍需要恢复机制。

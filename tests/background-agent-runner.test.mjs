@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { createCandidateAgentRunner } from '../tavern-plugin/lib/candidate-agent-runner.js'
+import { createBackgroundAgentRunner } from '../tavern-plugin/lib/background-agent-runner.js'
 
-test('候选 Runner 使用独立 DSH Agent，查询超限后提示开始推理而不终止回合', async () => {
+test('后台 Runner 执行候选任务，查询超限后提示开始推理而不终止回合', async () => {
   const parent = {
     id: 'parent-session',
     session: { header: { cwd: '/tmp/tavern', delegationDepth: 0 } }
@@ -66,7 +66,7 @@ test('候选 Runner 使用独立 DSH Agent，查询超限后提示开始推理�
     }
   }
   const calls = []
-  runner = createCandidateAgentRunner({ agents, id: () => 'candidate-session-1' })
+  runner = createBackgroundAgentRunner({ agents, id: () => 'candidate-session-1' })
   const result = await runner.run({
     sessionId: parent.id,
     selection: { provider: 'test', model: 'scripted' },
@@ -95,7 +95,7 @@ test('候选 Runner 使用独立 DSH Agent，查询超限后提示开始推理�
   assert.deepEqual(await requestListener.listener({}, async function () { return { provider: 'test', model: 'scripted' } }), { provider: 'test', model: 'scripted', temperature: 0.8 })
   assert.deepEqual(appended, [{
     type: 'subagent/descriptor',
-    data: { version: 2, mode: 'one-shot', provider: 'dsh-tavern-candidate', label: '候选研究' }
+    data: { version: 2, mode: 'one-shot', provider: 'dsh-tavern-background', label: '候选研究' }
   }])
   assert.deepEqual(calls, [1, 2, 3, 4, 5, 6].map(function (position) {
     return { name: 'tavern_read_script', arguments: { position } }
@@ -107,7 +107,7 @@ test('候选 Runner 使用独立 DSH Agent，查询超限后提示开始推理�
   assert.equal(runner.owns('candidate-session-1'), false)
 })
 
-test('剧本候选复用同一个可继续会话，并且每轮只读取本轮新增输出', async () => {
+test('状态结算与候选生成复用同一个后台会话，并且每轮只读取本轮新增输入', async () => {
   const parent = { id: 'parent-session', session: { header: { cwd: '/tmp/tavern', delegationDepth: 0 } } }
   const events = []
   const appended = []
@@ -156,7 +156,7 @@ test('剧本候选复用同一个可继续会话，并且每轮只读取本轮�
       return open(options, '{"choices":[{"type":"action","text":"第二轮候选"}]}')
     }
   }
-  const runner = createCandidateAgentRunner({ agents, id: () => 'candidate-session-1' })
+  const runner = createBackgroundAgentRunner({ agents, id: () => 'candidate-session-1' })
   const common = {
     sessionId: parent.id,
     selection: { provider: 'test', model: 'scripted' },
@@ -165,8 +165,8 @@ test('剧本候选复用同一个可继续会话，并且每轮只读取本轮�
     tools: [],
     persistent: true
   }
-  const first = await runner.run(Object.assign({}, common, { turnContext: '游标 2，姿势 A' }))
-  const second = await runner.run(Object.assign({}, common, { persistentSessionId: first.traceSessionId, turnContext: '游标 3，姿势 B' }))
+  const first = await runner.run(Object.assign({}, common, { task: 'settlement', turnContext: '游标 2，姿势 A' }))
+  const second = await runner.run(Object.assign({}, common, { task: 'candidate', persistentSessionId: first.traceSessionId, turnContext: '游标 3，姿势 B' }))
 
   assert.equal(first.traceSessionId, 'candidate-session-1')
   assert.equal(second.traceSessionId, 'candidate-session-1')
@@ -179,18 +179,20 @@ test('剧本候选复用同一个可继续会话，并且每轮只读取本轮�
   assert.deepEqual(appended[0].data, {
     version: 2,
     mode: 'continuable',
-    provider: 'dsh-tavern-candidate',
-    label: '剧情候选 Agent',
+    provider: 'dsh-tavern-background',
+    label: '酒馆后台 Agent',
     agentProvider: 'test',
     agentModel: 'scripted',
-    persona: '稳定的人物卡与候选规则'
+    persona: '共享剧情背景，承担状态结算与候选生成任务。'
   })
   assert.match(prompts[0], /游标 2，姿势 A/)
+  assert.match(prompts[0], /任务类型：状态结算/)
   assert.match(prompts[1], /游标 3，姿势 B/)
+  assert.match(prompts[1], /任务类型：候选生成/)
   assert.doesNotMatch(prompts[1], /游标 2，姿势 A/)
 })
 
-test('回退后从 checkpoint 的完整回合边界派生新候选 Agent', async () => {
+test('回退后从 checkpoint 的完整回合边界派生新后台 Agent', async () => {
   const parent = { id: 'parent-session', session: { header: { cwd: '/tmp/tavern', delegationDepth: 0 } } }
   const sourceEvents = [
     { seq: 0, type: 'user/message', data: { text: '有效正文' } },
@@ -229,7 +231,7 @@ test('回退后从 checkpoint 的完整回合边界派生新候选 Agent', async
       return { agent: child, async dispose() {} }
     }
   }
-  const runner = createCandidateAgentRunner({ agents, id: () => 'new-candidate' })
+  const runner = createBackgroundAgentRunner({ agents, id: () => 'new-candidate' })
   const result = await runner.run({
     sessionId: parent.id,
     selection: { provider: 'test', model: 'scripted' },

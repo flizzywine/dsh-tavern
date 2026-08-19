@@ -9,17 +9,17 @@ function messageText(message) {
   return blocks.filter(function (block) { return block && block.type === 'text' }).map(function (block) { return str(block.text) }).join('')
 }
 
-function candidatePrompt(messages, turnContext) {
+function backgroundPrompt(messages, turnContext, task) {
   const sections = []
   const authoritative = str(turnContext).trim()
   if (authoritative !== '') {
-    sections.push('【本轮权威状态】\n以下内容是当前最新状态；若与候选会话中的旧游标、姿势或指导冲突，以本节为准。\n' + authoritative)
+    sections.push('【本轮权威状态】\n以下内容是当前最新状态；若与后台会话中的旧游标、姿势或指导冲突，以本节为准。\n' + authoritative)
   }
   const recent = (messages || []).map(function (message) {
     const role = message && message.role === 'assistant' ? '正文' : '用户'
     return '[' + role + ']\n' + messageText(message)
   }).filter(function (text) { return text.trim() !== '' }).join('\n\n')
-  sections.push('【最近剧情与本次任务】\n' + recent)
+  sections.push('【最近剧情与本次任务】\n任务类型：' + (task === 'settlement' ? '状态结算' : '候选生成') + '\n' + recent)
   return sections.join('\n\n')
 }
 
@@ -34,16 +34,16 @@ function finalText(events, startAt) {
   return ''
 }
 
-function traceError(error, traceSessionId) {
-  const wrapped = new Error(str(error && error.message || error) || '候选 Agent 运行失败', { cause: error })
+function traceError(error, traceSessionId, task) {
+  const wrapped = new Error(str(error && error.message || error) || (task === 'settlement' ? '后台状态结算失败' : '后台候选生成失败'), { cause: error })
   wrapped.traceSessionId = traceSessionId
   return wrapped
 }
 
-export function createCandidateAgentRunner(options) {
+export function createBackgroundAgentRunner(options) {
   if (options === null || typeof options !== 'object' || options.agents === undefined) throw new Error('缺少 DSH Agent 运行环境')
   const agents = options.agents
-  const makeId = typeof options.id === 'function' ? options.id : function () { return 'candidate-' + crypto.randomUUID() }
+  const makeId = typeof options.id === 'function' ? options.id : function () { return 'background-' + crypto.randomUUID() }
   const activeSessions = new Set()
   const queues = new Map()
 
@@ -58,13 +58,13 @@ export function createCandidateAgentRunner(options) {
   async function forkSeed(input, agentOptions) {
     const source = input.forkFrom
     if (source === null || typeof source !== 'object' || str(source.sessionId) === '' || !Number.isSafeInteger(source.boundary)) return null
-    if (typeof agents.resume !== 'function') throw new Error('当前 DSH 不支持从剧情 checkpoint 派生候选 Agent')
+    if (typeof agents.resume !== 'function') throw new Error('当前 DSH 不支持从剧情 checkpoint 派生后台 Agent')
     let handle
     try {
       handle = await agents.resume({ resumeSessionId: str(source.sessionId), agentOptions })
       const events = Array.isArray(handle.agent.session.events) ? handle.agent.session.events : []
       const seed = events.filter(function (event) { return Number(event && event.seq) <= source.boundary })
-      if (seed.length === 0 || completedBoundary(seed) !== source.boundary) throw new Error('候选 Agent checkpoint 不是完整回合边界')
+      if (seed.length === 0 || completedBoundary(seed) !== source.boundary) throw new Error('后台 Agent checkpoint 不是完整回合边界')
       return JSON.parse(JSON.stringify(seed))
     } finally {
       if (handle !== undefined) await handle.dispose()
@@ -72,14 +72,14 @@ export function createCandidateAgentRunner(options) {
   }
 
   function descriptorFor(input, persistent) {
-    if (!persistent) return snapshotSubagentDescriptor({ mode: 'one-shot', provider: 'dsh-tavern-candidate', label: '候选研究' })
+    if (!persistent) return snapshotSubagentDescriptor({ mode: 'one-shot', provider: 'dsh-tavern-background', label: '候选研究' })
     return snapshotSubagentDescriptor({
       mode: 'continuable',
-      provider: 'dsh-tavern-candidate',
-      label: '剧情候选 Agent',
+      provider: 'dsh-tavern-background',
+      label: '酒馆后台 Agent',
       agentProvider: input.selection.provider,
       agentModel: input.selection.model,
-      persona: str(input.system)
+      persona: '共享剧情背景，承担状态结算与候选生成任务。'
     })
   }
 
@@ -101,7 +101,7 @@ export function createCandidateAgentRunner(options) {
         name: 'deployment:persona',
         order: 0,
         complete: true,
-        text: str(input.system) + '\n\n你是与正文隔离的剧情候选 Agent。每次收到新正文与本轮权威状态后，研究并输出这一轮的最终候选；不要假装尚未出现在最新正文中的事件已经发生。'
+        text: '你是与前台正文生成隔离的酒馆后台 Agent。你会在同一个剧情分支中依次承担状态结算与候选生成；严格按本轮任务输出，不得把某类任务的输出格式混入另一类任务。最新权威状态优先于 Session 中的旧动态状态。\n\n【本轮任务规则】\n' + str(input.system)
       })
       childCtx.systemPrompt.suppressRuntimeContext()
       childCtx.tools.restrict({ allow: [] })
@@ -133,7 +133,7 @@ export function createCandidateAgentRunner(options) {
 
   async function execute(input) {
     const parent = agents.get(input.sessionId)
-    if (parent === undefined || parent.session === undefined) throw new Error('无法为候选项创建独立 Agent：正文会话不可用')
+    if (parent === undefined || parent.session === undefined) throw new Error('无法创建后台 Agent：前台会话不可用')
     const persistent = input.persistent === true
     const requestedSessionId = str(input.persistentSessionId)
     const traceSessionId = requestedSessionId || makeId()
@@ -148,7 +148,7 @@ export function createCandidateAgentRunner(options) {
     let handle
     try {
       if (requestedSessionId !== '') {
-        if (typeof agents.resume !== 'function') throw new Error('当前 DSH 不支持恢复持久候选 Agent')
+        if (typeof agents.resume !== 'function') throw new Error('当前 DSH 不支持恢复持久后台 Agent')
         handle = await agents.resume({
           resumeSessionId: traceSessionId,
           agentOptions,
@@ -173,7 +173,7 @@ export function createCandidateAgentRunner(options) {
         })
       }
     } catch (error) {
-      throw traceError(error, traceSessionId)
+      throw traceError(error, traceSessionId, input.task)
     }
     activeSessions.add(traceSessionId)
 
@@ -182,15 +182,15 @@ export function createCandidateAgentRunner(options) {
       handle.agent.followup({
         id: crypto.randomUUID(),
         role: 'user',
-        content: [{ type: 'text', text: candidatePrompt(input.messages, input.turnContext) }],
+        content: [{ type: 'text', text: backgroundPrompt(input.messages, input.turnContext, input.task) }],
         source: { kind: 'plugin', plugin: 'dsh-tavern' }
       })
       await handle.agent.whenIdle()
       const text = finalText(handle.agent.session.events, eventStart)
-      if (text === '') throw new Error('候选 Agent 没有返回最终文本')
+      if (text === '') throw new Error(input.task === 'settlement' ? '后台 Agent 没有返回结算文本' : '后台 Agent 没有返回候选文本')
       return { text, traceSessionId, persistent, traceBoundary: completedBoundary(handle.agent.session.events) }
     } catch (error) {
-      throw traceError(error, traceSessionId)
+      throw traceError(error, traceSessionId, input.task)
     } finally {
       try {
         await handle.dispose()
