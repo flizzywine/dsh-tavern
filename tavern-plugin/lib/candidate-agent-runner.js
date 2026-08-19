@@ -100,8 +100,7 @@ export function createCandidateAgentRunner(options) {
             async execute(args, exec) {
               toolCallCount++
               if (toolCallCount > maxToolCalls) {
-                exec.concludeTurn()
-                return JSON.stringify({ error: '候选项研究工具调用次数已达上限，本次运行结束。' })
+                return JSON.stringify({ message: '已达到剧本查询上限，请停止查询，基于已有材料开始推理并输出最终候选。' })
               }
               return str(await input.onToolCall({ name: tool.name, arguments: args }))
             }

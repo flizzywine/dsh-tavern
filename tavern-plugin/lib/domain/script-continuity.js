@@ -212,7 +212,8 @@ export function createScriptContinuity() {
       if (chunks.length === 0) return { state, changed: false }
       const raw = Number(event.cursor)
       if (!Number.isFinite(raw) || raw < 1) return { state, changed: false }
-      const next = Math.max(0, Math.min(chunks.length - 1, Math.round(raw) - 1))
+      const requested = Math.max(0, Math.min(chunks.length - 1, Math.round(raw) - 1))
+      const next = Math.max(state.cursor, requested)
       const changed = next !== state.cursor
       state.cursor = next
       return { state, changed }
@@ -241,6 +242,7 @@ export function createScriptContinuity() {
           userText: str(event.userText),
           recalledAt: Date.now()
         }
+        state.cursor = Math.min(chunks.length, Math.max(state.cursor, (Number(prepared.cursorBefore) || 0) + 1))
       }
       state.prepared = null
       return { state, reference, revision, changed: true }

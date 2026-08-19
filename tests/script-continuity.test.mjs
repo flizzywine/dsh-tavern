@@ -36,7 +36,7 @@ test('新剧本会话根据开场白末尾对齐当前剧本块', () => {
   assert.equal(continuity.inspect({ script: source, state: explicit, request: { kind: 'progress' } }).cursor, 0)
 })
 
-test('剧本回合准备与正文提交都不强制推进游标', () => {
+test('剧本回合准备不移动游标，正文提交后自动前进一块', () => {
   const continuity = createScriptContinuity()
   let state = continuity.start(script(), 1)
 
@@ -71,7 +71,7 @@ test('剧本回合准备与正文提交都不强制推进游标', () => {
   state = committed.state
   const progress = continuity.inspect({ script: script(), state, request: { kind: 'progress' } })
   const preview = continuity.inspect({ script: script(), state, request: { kind: 'preview' } })
-  assert.equal(progress.cursor, 1)
+  assert.equal(progress.cursor, 2)
   assert.equal(progress.recalledCount, 1)
   assert.equal(preview.previous.text, '第二块：雨夜追踪。')
 
@@ -80,37 +80,26 @@ test('剧本回合准备与正文提交都不强制推进游标', () => {
     state,
     event: { kind: 'prepare', nativeTurn: 5, userText: '走上钟楼' }
   })
-  assert.equal(next.reference.chunkId, 'chunk-00002')
+  assert.equal(next.reference.chunkId, 'chunk-00003')
 })
 
-test('候选项可保持、后退或向前跳跃同一个剧本游标', () => {
+test('候选 point 可保持或向前跳跃，不能让剧本游标后退', () => {
   const continuity = createScriptContinuity()
-  let state = continuity.start(script(), 0)
-  state = continuity.transition({
-    script: script(),
-    state,
-    event: { kind: 'prepare', nativeTurn: 2, userText: '离开旅店' }
-  }).state
-  state = continuity.transition({
-    script: script(),
-    state,
-    event: { kind: 'commit', nativeTurn: 2, userText: '离开旅店' }
-  }).state
-  assert.equal(continuity.inspect({ script: script(), state, request: { kind: 'progress' } }).cursor, 0)
+  let state = continuity.start(script(), 1)
 
   state = continuity.transition({
     script: script(),
     state,
     event: { kind: 'focus', cursor: 1 }
   }).state
-  assert.equal(continuity.inspect({ script: script(), state, request: { kind: 'progress' } }).cursor, 0)
+  assert.equal(continuity.inspect({ script: script(), state, request: { kind: 'progress' } }).cursor, 1)
 
   state = continuity.transition({
     script: script(),
     state,
     event: { kind: 'focus', cursor: 1 }
   }).state
-  assert.equal(continuity.inspect({ script: script(), state, request: { kind: 'progress' } }).cursor, 0)
+  assert.equal(continuity.inspect({ script: script(), state, request: { kind: 'progress' } }).cursor, 1)
 
   const focused = continuity.transition({
     script: script(),
@@ -128,7 +117,7 @@ test('替换剧本自动复位，rollback 使用不透明 revision 恢复提交�
   let state = continuity.start(script(), 1)
   state = continuity.transition({ script: script(), state, event: { kind: 'prepare', nativeTurn: 2, userText: '进入钟楼' } }).state
   const committed = continuity.transition({ script: script(), state, event: { kind: 'commit', nativeTurn: 2, userText: '进入钟楼' } })
-  assert.equal(continuity.inspect({ script: script(), state: committed.state, request: { kind: 'progress' } }).cursor, 1)
+  assert.equal(continuity.inspect({ script: script(), state: committed.state, request: { kind: 'progress' } }).cursor, 2)
   const restored = continuity.transition({ script: script(), state: committed.state, event: { kind: 'restore', revision: committed.revision } })
   assert.equal(continuity.inspect({ script: script(), state: restored.state, request: { kind: 'progress' } }).cursor, 1)
   assert.equal(continuity.inspect({ script: script(), state: restored.state, request: { kind: 'progress' } }).recalledCount, 0)
@@ -139,7 +128,7 @@ test('替换剧本自动复位，rollback 使用不透明 revision 恢复提交�
   assert.equal(continuity.inspect({ script: replaced, state: reset.state, request: { kind: 'progress' } }).recalledCount, 0)
 })
 
-test('候选项确认剧本结束后进入结束位置，不再重复注入末块', () => {
+test('末块正文提交后自动进入结束位置，不再重复注入末块', () => {
   const continuity = createScriptContinuity()
   let state = continuity.start(script(), 2)
   state = continuity.transition({
@@ -152,7 +141,7 @@ test('候选项确认剧本结束后进入结束位置，不再重复注入末�
     state,
     event: { kind: 'commit', nativeTurn: 8, userText: '结束对峙' }
   }).state
-  assert.equal(continuity.inspect({ script: script(), state, request: { kind: 'progress' } }).cursor, 2)
+  assert.equal(continuity.inspect({ script: script(), state, request: { kind: 'progress' } }).cursor, 3)
   state = continuity.transition({ script: script(), state, event: { kind: 'end' } }).state
 
   assert.equal(continuity.inspect({ script: script(), state, request: { kind: 'progress' } }).cursor, 3)

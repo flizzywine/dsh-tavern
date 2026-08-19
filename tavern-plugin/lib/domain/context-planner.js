@@ -148,29 +148,37 @@ export function createContextPlanner(options = {}) {
     const entries = worldBookEntries(input.card)
     const selectedIds = Array.isArray(input.worldBookIds) ? input.worldBookIds : []
     const selected = entries.filter(function (entry) { return entry.constant === true || selectedIds.includes(entry.id) })
-    if (selected.length > 0) {
-      sections.push({ kind: 'world-book', required: false, text: '【世界设定】\n' + selected.map(function (entry) { return renderCardText('[' + entry.keys + '] ' + entry.text, input.card) }).join('\n') })
-    }
+    const worldBookSection = selected.length > 0
+      ? { kind: 'world-book', required: false, text: '【世界设定】\n' + selected.map(function (entry) { return renderCardText('[' + entry.keys + '] ' + entry.text, input.card) }).join('\n') }
+      : null
     const guides = Array.isArray(input.chat.guides) ? input.chat.guides.filter(function (item) { return item !== null && typeof item === 'object' && str(item.text).trim() !== '' }) : []
     const guideSection = guides.length > 0 ? { kind: 'guide', required: true, text: '【用户指导 Guide · 优先遵循】\n' + guides.map(function (item, index) { return (index + 1) + '. ' + str(item.text).trim() }).join('\n') } : null
     const postureSection = str(input.chat.posture) !== '' ? { kind: 'posture', required: true, text: '【现场 · 主要人物状态（每轮结算更新，务必与之一致）】\n' + input.chat.posture } : null
+    const cardInfoSections = []
+    const instructionSections = []
+    if (input.includeName !== false) cardInfoSections.push({ kind: 'card', required: true, text: '【故事设定 · 人物卡】\n名字: ' + str(input.card.name) })
+    if (input.includeDetails === true) {
+      if (str(input.card.description) !== '') cardInfoSections.push({ kind: 'card', required: false, text: '设定: ' + renderCardText(input.card.description, input.card) })
+      if (str(input.card.personality) !== '') cardInfoSections.push({ kind: 'card', required: false, text: '主要人物性格: ' + renderCardText(input.card.personality, input.card) })
+      if (str(input.card.scenario) !== '') cardInfoSections.push({ kind: 'card', required: false, text: '开场情境: ' + renderCardText(input.card.scenario, input.card) })
+      if (input.includeStyleExample !== false && str(input.card.mes_example) !== '') cardInfoSections.push({ kind: 'card', required: false, text: '【文风示例】\n' + renderCardText(input.card.mes_example, input.card) })
+    }
+    if (input.includeInstructions !== false) {
+      if (str(input.card.post_history_instructions) !== '') instructionSections.push({ kind: 'card-instruction', required: true, text: '【附加要求】\n' + renderCardText(input.card.post_history_instructions, input.card) })
+      if (str(input.card.system_prompt) !== '') instructionSections.push({ kind: 'card-instruction', required: true, text: '【特殊指令】\n' + renderCardText(input.card.system_prompt, input.card) })
+    }
     if (input.stableFirst === true) {
+      sections.push.apply(sections, cardInfoSections)
+      sections.push.apply(sections, instructionSections)
+      if (worldBookSection !== null) sections.push(worldBookSection)
       if (guideSection !== null) sections.push(guideSection)
       if (postureSection !== null) sections.push(postureSection)
     } else {
+      if (worldBookSection !== null) sections.push(worldBookSection)
       if (postureSection !== null) sections.push(postureSection)
       if (guideSection !== null) sections.push(guideSection)
-    }
-    if (input.includeName !== false) sections.push({ kind: 'card', required: true, text: '【故事设定 · 人物卡】\n名字: ' + str(input.card.name) })
-    if (input.includeDetails === true) {
-      if (str(input.card.description) !== '') sections.push({ kind: 'card', required: false, text: '设定: ' + renderCardText(input.card.description, input.card) })
-      if (str(input.card.personality) !== '') sections.push({ kind: 'card', required: false, text: '主要人物性格: ' + renderCardText(input.card.personality, input.card) })
-      if (str(input.card.scenario) !== '') sections.push({ kind: 'card', required: false, text: '开场情境: ' + renderCardText(input.card.scenario, input.card) })
-      if (str(input.card.mes_example) !== '') sections.push({ kind: 'card', required: false, text: '【文风示例】\n' + renderCardText(input.card.mes_example, input.card) })
-    }
-    if (input.includeInstructions !== false) {
-      if (str(input.card.post_history_instructions) !== '') sections.push({ kind: 'card-instruction', required: true, text: '【附加要求】\n' + renderCardText(input.card.post_history_instructions, input.card) })
-      if (str(input.card.system_prompt) !== '') sections.push({ kind: 'card-instruction', required: true, text: '【特殊指令】\n' + renderCardText(input.card.system_prompt, input.card) })
+      sections.push.apply(sections, cardInfoSections)
+      sections.push.apply(sections, instructionSections)
     }
     return sections
   }
@@ -197,7 +205,8 @@ export function createContextPlanner(options = {}) {
         text: prompt('story')
       }]
       const hasStoryTurn = (input.chat.messages || []).some(function (message) { return message !== null && typeof message === 'object' && message.greeting !== true })
-      sections.push.apply(sections, cardSections({ card: input.card, chat: input.chat, worldBookIds: selectedIds, includeName: false, includeDetails: !hasStoryTurn, includeInstructions: true }))
+      const hasScript = (input.chat.mode || 'story') === 'script' || (input.scriptReference !== null && input.scriptReference !== undefined)
+      sections.push.apply(sections, cardSections({ card: input.card, chat: input.chat, worldBookIds: selectedIds, includeName: false, includeDetails: !hasStoryTurn, includeStyleExample: !hasScript, includeInstructions: true }))
       if (input.scriptReference !== null && input.scriptReference !== undefined && str(input.scriptReference.text) !== '') {
         const order = Number(input.scriptReference.order)
         const position = Number.isInteger(order) && order >= 0 ? ' · 第 ' + (order + 1) + ' 块' : ''
@@ -209,7 +218,16 @@ export function createContextPlanner(options = {}) {
 
     if (input.purpose === 'candidate') {
       const sections = [{ kind: 'candidate-task', required: true, text: str(input.task) }]
-      sections.push.apply(sections, cardSections({ card: input.card, chat: input.chat, worldBookIds: [], includeName: false, includeDetails: false, includeInstructions: false, stableFirst: true }))
+      sections.push.apply(sections, cardSections({
+        card: input.card,
+        chat: input.chat,
+        worldBookIds: [],
+        includeName: true,
+        includeDetails: true,
+        includeStyleExample: input.scriptWindow === null || input.scriptWindow === undefined,
+        includeInstructions: true,
+        stableFirst: true
+      }))
       if (input.scriptWindow !== null && input.scriptWindow !== undefined) {
         const window = input.scriptWindow
         sections.push({

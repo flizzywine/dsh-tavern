@@ -3,7 +3,7 @@ import test from 'node:test'
 
 import { createCandidateAgentRunner } from '../tavern-plugin/lib/candidate-agent-runner.js'
 
-test('候选 Runner 使用独立 DSH Agent 会话并在其作用域注册研究工具', async () => {
+test('候选 Runner 使用独立 DSH Agent，查询超限后提示开始推理而不终止回合', async () => {
   const parent = {
     id: 'parent-session',
     session: { header: { cwd: '/tmp/tavern', delegationDepth: 0 } }
@@ -14,6 +14,8 @@ test('候选 Runner 使用独立 DSH Agent 会话并在其作用域注册研究�
   const restrictions = []
   const listeners = []
   const appended = []
+  const cappedResults = []
+  let concludeCalls = 0
   let disposed = false
   let work = Promise.resolve()
   let runner
@@ -30,7 +32,12 @@ test('候选 Runner 使用独立 DSH Agent 会话并在其作用域注册研究�
         const preStep = listeners.find(function (entry) { return entry.name === 'agent/pre-step' })
         assert.ok(preStep)
         await preStep.listener({ agent: child }, async function () { return { kind: 'enter' } })
-        await registered[0].execute({ position: 2 }, { signal: new AbortController().signal, concludeTurn() {} })
+        for (let index = 1; index <= 7; index++) {
+          cappedResults.push(await registered[0].execute({ position: index }, {
+            signal: new AbortController().signal,
+            concludeTurn() { concludeCalls++ }
+          }))
+        }
         events.push({
           type: 'assistant/message',
           data: { message: { content: [{ type: 'text', text: '{"choices":[{"type":"action","text":"沿着脚印继续向钟楼谨慎追去"}]}' }] } }
@@ -70,7 +77,7 @@ test('候选 Runner 使用独立 DSH Agent 会话并在其作用域注册研究�
     ],
     tools: [{ name: 'tavern_read_script', description: '读取剧本', parameters: { type: 'object' } }],
     async onToolCall(call) { calls.push(call); return '{"position":2}' },
-    maxToolCalls: 8,
+    maxToolCalls: 6,
     temperature: 0.8,
     maxTokens: 4000
   })
@@ -90,7 +97,12 @@ test('候选 Runner 使用独立 DSH Agent 会话并在其作用域注册研究�
     type: 'subagent/descriptor',
     data: { version: 2, mode: 'one-shot', provider: 'dsh-tavern-candidate', label: '候选研究' }
   }])
-  assert.deepEqual(calls, [{ name: 'tavern_read_script', arguments: { position: 2 } }])
+  assert.deepEqual(calls, [1, 2, 3, 4, 5, 6].map(function (position) {
+    return { name: 'tavern_read_script', arguments: { position } }
+  }))
+  assert.match(cappedResults[6], /已达到剧本查询上限/)
+  assert.match(cappedResults[6], /开始推理/)
+  assert.equal(concludeCalls, 0)
   assert.equal(disposed, true)
   assert.equal(runner.owns('candidate-session-1'), false)
 })

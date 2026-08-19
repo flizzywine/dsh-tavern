@@ -93,7 +93,7 @@ test('游玩回合由生命周期自动准备与提交，不再要求模型回�
   assert.equal(run.chat().messages.length, 2)
 })
 
-test('剧本参考在准备时锁定，正文提交后不强制推进游标，失败回合可清理', async () => {
+test('剧本参考在准备时锁定，正文提交后游标前进一块，失败回合可清理', async () => {
   const run = harness('script')
   await run.orchestrator.prepare({ sessionId: 'session-1', turn: 3, userText: '走进旅店' })
   assert.equal(run.chat().scriptState.prepared.nativeTurn, 3)
@@ -102,10 +102,10 @@ test('剧本参考在准备时锁定，正文提交后不强制推进游标，�
   await run.orchestrator.finalize({ sessionId: 'session-1', turn: 3, userText: '走进旅店', assistantText: '门轴发出低响。' })
   assert.equal(run.chat().scriptState.prepared, null)
   assert.deepEqual(run.chat().scriptState.recalledChunkIds, ['chunk-1'])
-  assert.equal(run.chat().scriptState.cursor, 0)
+  assert.equal(run.chat().scriptState.cursor, 1)
 
   await run.orchestrator.prepare({ sessionId: 'session-1', turn: 4, userText: '停下脚步' })
-  assert.equal(run.chat().scriptState.prepared.chunkId, 'chunk-1')
+  assert.equal(run.chat().scriptState.prepared.chunkId, 'chunk-2')
   assert.equal(await run.orchestrator.discard({ sessionId: 'session-1', turn: 4 }), true)
   assert.equal(run.chat().scriptState.prepared, null)
 })
@@ -135,4 +135,3 @@ test('素材抽取通过同一修改工具更新草稿和玩家身份', async ()
   assert.equal(run.chat().extract.cursor, 1)
   assert.deepEqual(await run.orchestrator.visibleTools('session-1'), ['tavern_update_card'])
 })
-

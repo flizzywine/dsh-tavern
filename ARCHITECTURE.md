@@ -18,7 +18,7 @@ DSH 负责通用 Agent 基础设施：会话、模型选择、工具调用、消
 | --- | --- | --- |
 | Context Planner | `plan` | 按正文、候选项、卡片设定或素材抽取的用途，选择并组合本次必需的上下文，同时返回注入审计 |
 | Script Continuity | `start`、`transition`、`inspect` | 维护剧本游标、回合参考、提交与回退；提供只读查看，不让调用方直接改内部状态 |
-| Candidate Generator | `generate`、`find` | 单次生成、校验和保存候选项，失败时不自动创建新 Agent；剧本模式在隔离上下文中按块号或关键词自由读取剧本，候选成功后自动把最后一次成功读取的位置提交为下一轮游标 |
+| Candidate Generator | `generate`、`find` | 单次生成、校验和保存候选项，失败时不自动创建新 Agent；剧本模式在隔离上下文中自由读取剧本，只有显式 point 才能把下一轮游标向前定位 |
 | Card Preparation | `create`、`update`、`present` | 统一人物卡导入、素材成卡、手动编辑、对话式修改和 SillyTavern 导出所使用的字段规则 |
 | Turn Orchestrator | `prepare`、`stageChanges`、`finalize`、`discard`、`visibleTools` | 把 DSH 回合生命周期转换为酒馆上下文与状态变化；卡片修改先校验暂存，最终回复完成后统一提交 |
 
@@ -27,7 +27,7 @@ DSH 负责通用 Agent 基础设施：会话、模型选择、工具调用、消
 ## 关键规则
 
 1. 正文、候选项和人物卡准备的上下文规则只在 Context Planner 和 Candidate Generator 中定义；宿主适配层只请求某种用途的上下文。
-2. 剧本状态只能通过 Script Continuity 改变，且唯一进度变量是游标。查看剧本和提交正文都不强制推进；候选项根据正文实际演到的位置，让下一轮游标保持、后退、前进或结束。
+2. 剧本状态只能通过 Script Continuity 改变，且唯一进度变量是游标。查看剧本不改变游标；正文成功提交后游标前进一块；候选项只能通过显式 point 保持、向前跳转或进入结束位置，不能后退。
 3. 人物卡的导入、编辑、Agent patch 和导出共享同一字段政策；未知字段明确失败，不能静默丢弃。
 4. 候选项由独立的一次性 DSH 子 Agent 生成，不混入正文，也不复用正文输出约束。候选查阅剧本产生的推理、工具调用和返回内容写入持久 Session，可从候选框进入原生父子导航查看；运行实例释放后轨迹仍然保留。
 5. 领域模块不依赖 DSH 或文件系统。模型和存储通过小型适配器传入，因此可以直接做行为测试。

@@ -61,6 +61,7 @@ test('正文首轮只选择必要世界书并完整替换人物卡模板变量',
   assert.doesNotMatch(result.text, /遥远王都/)
   assert.match(result.text, /阿芙拉 是银发佣兵/)
   assert.match(result.text, /你 在旅店遇见 阿芙拉/)
+  assert.doesNotMatch(result.text, /文风示例|跟紧我/)
   assert.doesNotMatch(result.text, /\{\{char\}\}|\{\{user\}\}/)
   assert.match(result.text, /本轮剧本参考 · 第 8 块/)
   assert.doesNotMatch(result.text, /故事设定 · 人物卡|名字: 阿芙拉/)
@@ -71,6 +72,22 @@ test('正文首轮只选择必要世界书并完整替换人物卡模板变量',
   assert.doesNotMatch(result.text, /不要为通顺牺牲剧本/)
   assert.ok(result.audit.totalChars > 0)
   assert.ok(result.audit.included.some((item) => item.kind === 'world-book'))
+})
+
+test('自由故事首轮仍注入人物卡文风示例', async () => {
+  const planner = createContextPlanner({ prompt, callModel: async () => '{"ids":[]}' })
+  const result = await planner.plan({
+    purpose: 'body',
+    card: card(),
+    chat: chat(),
+    userText: '留在旅店交谈',
+    sessionId: 'session-1',
+    nativeTurn: 2,
+    scriptReference: null
+  })
+
+  assert.match(result.text, /文风示例/)
+  assert.match(result.text, /阿芙拉 对 你 说：跟紧我/)
 })
 
 test('后续正文不重复首轮人物卡细节，但保留姿势、Guide 和特殊指令', async () => {
@@ -95,7 +112,7 @@ test('后续正文不重复首轮人物卡细节，但保留姿势、Guide 和�
   assert.match(result.text, /避免替玩家决定/)
 })
 
-test('候选项只注入任务、姿势、Guide 和常驻世界书，不注入人物卡字段', async () => {
+test('自由故事候选按稳定到动态的顺序注入完整人物卡约束', async () => {
   const planner = createContextPlanner({ prompt, callModel: async () => '{"ids":[]}' })
   const task = '候选任务：只输出 JSON。'
   const result = await planner.plan({
@@ -107,15 +124,42 @@ test('候选项只注入任务、姿势、Guide 和常驻世界书，不注入�
   })
 
   assert.equal(result.text.split(task).length - 1, 1)
-  assert.doesNotMatch(result.text, /小说续写引擎|保持冷静|避免替玩家决定/)
-  assert.doesNotMatch(result.text, /银发佣兵|谨慎而直接|旅店遇见|跟紧我/)
+  assert.doesNotMatch(result.text, /小说续写引擎/)
+  assert.match(result.text, /名字: 阿芙拉/)
+  assert.match(result.text, /银发佣兵|谨慎而直接|旅店遇见|跟紧我/)
+  assert.match(result.text, /保持冷静|避免替玩家决定/)
   assert.match(result.text, /多写动作/)
   assert.match(result.text, /黑麦镇常年下雨/)
   assert.doesNotMatch(result.text, /钟楼藏着失踪商队的线索/)
-  assert.equal(result.audit.included.some((item) => item.kind === 'card'), false)
+  assert.equal(result.audit.included.some((item) => item.kind === 'card'), true)
   assert.ok(result.text.indexOf('候选任务') < result.text.indexOf('黑麦镇常年下雨'))
+  assert.ok(result.text.indexOf('谨慎而直接') < result.text.indexOf('黑麦镇常年下雨'))
+  assert.ok(result.text.indexOf('保持冷静') < result.text.indexOf('黑麦镇常年下雨'))
   assert.ok(result.text.indexOf('黑麦镇常年下雨') < result.text.indexOf('多写动作'))
   assert.ok(result.text.indexOf('多写动作') < result.text.indexOf('右手按着剑柄'))
+})
+
+test('剧本候选注入人物卡但排除文风示例，剧本块放在动态上下文末尾', async () => {
+  const planner = createContextPlanner({ prompt, callModel: async () => '{"ids":[]}' })
+  const task = '剧本候选任务：只输出 JSON。'
+  const result = await planner.plan({
+    purpose: 'candidate',
+    card: card(),
+    chat: Object.assign(chat(), { mode: 'script' }),
+    task,
+    scriptWindow: {
+      title: '银铃', cursor: 1, total: 3, ended: false,
+      chunks: [{ id: 'chunk-2', order: 1, text: '两人沿石阶走近钟楼。' }]
+    }
+  })
+
+  assert.match(result.text, /名字: 阿芙拉|谨慎而直接|保持冷静/)
+  assert.doesNotMatch(result.text, /文风示例|跟紧我/)
+  assert.ok(result.text.indexOf('剧本候选任务') < result.text.indexOf('谨慎而直接'))
+  assert.ok(result.text.indexOf('谨慎而直接') < result.text.indexOf('黑麦镇常年下雨'))
+  assert.ok(result.text.indexOf('黑麦镇常年下雨') < result.text.indexOf('多写动作'))
+  assert.ok(result.text.indexOf('多写动作') < result.text.indexOf('右手按着剑柄'))
+  assert.ok(result.text.indexOf('右手按着剑柄') < result.text.indexOf('两人沿石阶走近钟楼'))
 })
 
 test('世界书模型失败时用关键词确定性回退，不阻断正文规划', async () => {

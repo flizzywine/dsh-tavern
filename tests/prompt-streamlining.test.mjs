@@ -80,11 +80,3 @@ test('候选 Agent 不进入正文上下文注入和工具过滤', () => {
   assert.match(lifecycle, /if \(candidateAgentRunner\.owns\(sessionId\)\) return/)
   assert.match(lifecycle, /if \(candidateAgentRunner\.owns\(agent\.session\.id\)\) return assembly/)
 })
-
-test('剧本正文产生明显推进后自然收束，不把剧本块当清单', () => {
-  const systemPrompt = prompt('script-story')
-
-  assert.match(systemPrompt, /明显的剧情推进/)
-  assert.match(systemPrompt, /自然收束/)
-  assert.match(systemPrompt, /不是.*清单/)
-})

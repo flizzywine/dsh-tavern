@@ -94,7 +94,7 @@ function validatedChoices(source, scriptMode) {
     if (item === null || typeof item !== 'object') continue
     const type = choiceType(item.type)
     const text = str(item.text).trim()
-    if (type === null || text.length < 10 || text.length > 80 || choices.some(function (choice) { return choice.text === text })) continue
+    if (type === null || text === '' || choices.some(function (choice) { return choice.text === text })) continue
     choices.push({ type, text })
   }
   if (scriptMode) {
@@ -126,20 +126,22 @@ function buildMessages(chat, selection, now) {
 
 const SCRIPT_READ_TOOL = Object.freeze({
   name: 'tavern_read_script',
-  description: '按 1 起始块号直接读取任意剧本块，或按关键词检索整本剧本。候选成功后，最后一次成功读取的位置自动成为下一轮游标；总块数加 1 表示剧本结束。position 与 query 必须且只能提供一个。',
+  description: '用 position 读取任意剧本块，用 query 检索整本剧本，两者都不移动游标。只有 point 会把下一轮游标向前定位；总块数加 1 表示剧本结束。position、query、point 必须且只能提供一个。最多查询 6 次，用完后必须根据已有材料输出最终候选。',
   parameters: {
     type: 'object',
     properties: {
       position: { type: 'integer', minimum: 1, description: '要读取的 1 起始剧本块号；总块数加 1 表示剧本结束。' },
-      query: { type: 'string', description: '要在整本剧本中检索的关键词。' }
+      query: { type: 'string', description: '要在整本剧本中检索的关键词。' },
+      point: { type: 'integer', minimum: 1, description: '要定位的 1 起始剧本块号；只能保持或向前跳，总块数加 1 表示剧本结束。' }
     },
     additionalProperties: false
   }
 })
 
-function scriptResearchAttempt(script) {
+function scriptResearchAttempt(script, scriptWindow) {
   const total = script.chunks.length
-  let lastRead = null
+  const initial = Math.max(0, Math.min(total, Number(scriptWindow && scriptWindow.cursor) || 0))
+  let pointed = null
 
   function positionResult(position, extra) {
     if (position >= total) {
@@ -163,7 +165,18 @@ function scriptResearchAttempt(script) {
     const query = str(args.query).trim()
     const hasQuery = query !== ''
     const hasPosition = args.position !== undefined
-    if (hasQuery === hasPosition) throw new Error('读取剧本必须且只能提供 position 或 query')
+    const hasPoint = args.point !== undefined
+    if (Number(hasQuery) + Number(hasPosition) + Number(hasPoint) !== 1) throw new Error('读取剧本必须且只能提供 position、query 或 point')
+    if (hasPoint) {
+      const requested = Number(args.point)
+      if (!Number.isInteger(requested) || requested < 1 || requested > total + 1) throw new Error('剧本 point 必须是 1 到 ' + (total + 1) + ' 的整数')
+      pointed = Math.max(pointed === null ? initial : pointed, requested - 1)
+      return JSON.stringify(positionResult(pointed, {
+        pointedAt: pointed >= total ? null : pointed + 1,
+        pointedToEnd: pointed >= total,
+        ignoredBackward: requested - 1 < initial
+      }))
+    }
     if (hasQuery) {
       const needle = query.toLocaleLowerCase()
       const found = script.chunks.findIndex(function (chunk) { return str(chunk.text).toLocaleLowerCase().includes(needle) })
@@ -173,16 +186,14 @@ function scriptResearchAttempt(script) {
           ended: false, notFound: true, message: '没有找到包含该关键词的剧本块。', chunks: []
         })
       }
-      lastRead = found
       return JSON.stringify(positionResult(found, { matchedQuery: query }))
     }
     const requested = Number(args.position)
     if (!Number.isInteger(requested) || requested < 1 || requested > total + 1) throw new Error('读取剧本的 position 必须是 1 到 ' + (total + 1) + ' 的整数')
-    lastRead = requested - 1
-    return JSON.stringify(positionResult(lastRead))
+    return JSON.stringify(positionResult(requested - 1))
   }
 
-  return { onToolCall, lastReadPosition: function () { return lastRead } }
+  return { onToolCall, pointedPosition: function () { return pointed } }
 }
 
 export function createCandidateGenerator(options) {
@@ -226,7 +237,7 @@ export function createCandidateGenerator(options) {
       content: [{ type: 'text', text: request }],
       source: { kind: 'plugin', plugin: 'dsh-tavern' }
     }])
-    const research = scriptMode ? scriptResearchAttempt(script) : null
+    const research = scriptMode ? scriptResearchAttempt(script, scriptWindow) : null
     const callOptions = {
       sessionId: input.sessionId,
       selection,
@@ -240,7 +251,7 @@ export function createCandidateGenerator(options) {
       run = await model.runCandidate(Object.assign({}, callOptions, scriptMode ? {
         tools: [SCRIPT_READ_TOOL],
         onToolCall: research.onToolCall,
-        maxToolCalls: 8
+        maxToolCalls: 6
       } : { tools: [] }))
     } catch (error) {
       if (logger && typeof logger.error === 'function') logger.error('dsh-tavern: 候选项生成失败:', str(error && error.message || error))
@@ -261,11 +272,11 @@ export function createCandidateGenerator(options) {
     if (latest === undefined) throw new Error('聊天不存在: ' + chat.id)
     let scriptProjection
     if (scriptMode) {
-      const lastRead = research.lastReadPosition()
-      if (lastRead === script.chunks.length) {
+      const pointed = research.pointedPosition()
+      if (pointed === script.chunks.length) {
         latest.scriptState = scripts.transition({ script, state: latest.scriptState, event: { kind: 'end' } }).state
-      } else if (Number.isInteger(lastRead) && lastRead >= 0) {
-        latest.scriptState = scripts.transition({ script, state: latest.scriptState, event: { kind: 'focus', cursor: lastRead + 1 } }).state
+      } else if (Number.isInteger(pointed) && pointed >= 0) {
+        latest.scriptState = scripts.transition({ script, state: latest.scriptState, event: { kind: 'focus', cursor: pointed + 1 } }).state
       }
       const progress = scripts.inspect({ script, state: latest.scriptState, request: { kind: 'progress' } })
       scriptProjection = { cursor: progress.cursor, ended: progress.cursor >= progress.totalChunks }
