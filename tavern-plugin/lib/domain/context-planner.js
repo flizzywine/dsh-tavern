@@ -213,6 +213,10 @@ export function createContextPlanner(options = {}) {
         sections.push({ kind: 'script', required: true, text: '【本轮剧本参考' + position + '】\n' + input.scriptReference.text })
         sections.push({ kind: 'script', required: true, text: prompt('script-story') })
       }
+      sections.push({
+        kind: 'turn-direction', required: true,
+        text: '【本轮演出指引 · 用户期望看到的演出】\n上一条玩家消息是本轮需要在正文中落实的演出指引，不是已经发生的剧情，也不能把它当作上一段正文。请从当前现场自然展开，把核心内容演出来；不要直接拼接整段输入，也不要从输入结束处继续写。'
+      })
       return resultOf(sections, warnings, hasStoryTurn ? [{ kind: 'card-details', reason: '仅首轮注入完整人物卡细节' }] : [])
     }
 

@@ -25,6 +25,8 @@ test('正文直接生成成稿，不再进入第二轮精修', async () => {
   assert.doesNotMatch(context.text, /polish|精修|draftText|polishedText/iu)
   assert.match(context.text, /只输出小说正文/)
   assert.match(presetSource, /自动注入本轮所需上下文/)
+  assert.match(presetSource, /本轮演出指引/)
+  assert.match(presetSource, /不是已经发生的剧情/)
   assert.doesNotMatch(presetSource, /tavern_session|action=context|action=commit|assistantText/)
   assert.match(serverSource, /agent\/pre-step/)
   assert.match(serverSource, /agent\/turn-stopping/)

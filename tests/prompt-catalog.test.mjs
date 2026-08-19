@@ -21,7 +21,11 @@ const names = [
 test('固定提示词从独立 Markdown 文件完整加载', () => {
   for (const name of names) assert.ok(prompt(name).length > 20, name + ' 提示词为空')
   assert.match(prompt('story'), /小说续写引擎/)
-  assert.match(prompt('script-story'), /Guide ＞ 剧本 ＞ 世界一致性 ＞ 本轮玩家指令/)
+  assert.match(prompt('story'), /本轮演出指引/)
+  assert.match(prompt('story'), /不是已经发生的剧情/)
+  assert.match(prompt('story'), /不得直接沿用.*句式|不得.*直接拼接/)
+  assert.doesNotMatch(prompt('story'), /指令原文可以改写、拆散、融入叙述/)
+  assert.match(prompt('script-story'), /Guide ＞ 剧本 ＞ 世界一致性 ＞ 本轮演出指引/)
   assert.throws(() => prompt('missing'), /未知提示词/)
 })
 
