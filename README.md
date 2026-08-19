@@ -213,6 +213,12 @@ curl -fsSL https://raw.githubusercontent.com/flizzywine/dsh-tavern/main/install.
 
 脚本会完成下载、安装和启动，不需要 Git 或 `lsof`。
 
+### Android（第三方项目，仅作推荐）
+
+如希望在安卓设备上运行 DSH，可以关注第三方项目 [DSHA](https://github.com/qiannianhuanxiang/DSHA)。它提供无需 Termux、无需 ROOT 的安卓 DSH 运行环境，并通过内嵌 WebView 使用 Web UI。
+
+本项目作者没有安卓手机，尚未实际验证 dsh-tavern 能否在 DSHA 中正确安装和运行，因此这里只作推荐，不代表官方支持，也不保证兼容性。具体安装方式、设备要求和问题反馈请以 DSHA 项目说明为准。
+
 首次打开后，点击左侧栏底部的 **设置 → 模型**，填写模型提供方的 API 密钥；之后可以在输入框下方随时切换当前对话使用的模型。
 
 <details>
