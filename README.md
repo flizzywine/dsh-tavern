@@ -10,6 +10,12 @@ dsh-tavern 改用 Agent 的方式处理这些问题：掉格式就拆成多轮�
 
 ![dsh-tavern 游戏游玩界面：正文、输入区与右侧剧情状态](docs/images/demo/09-script-mode.png)
 
+## 在线界面预览
+
+[打开 dsh-tavern 在线预览](https://dsh-tavern-preview.vercel.app/)
+
+在线版复用项目的真实界面，仅用于查看功能与交互布局；它没有配置模型，无法生成回复或实际游玩。完整功能请按下方说明在本地安装。
+
 ## 候选项分轮生成：小功能，但最重要
 
 这是 dsh-tavern 最核心的设计。

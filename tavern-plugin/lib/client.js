@@ -236,6 +236,7 @@ body.dsh-tavern-shell-active button[aria-label="新建会话"], body.dsh-tavern-
 
 		function TavernSidebar(props) {
 			const collapsed = props.collapsed;
+			const previewOnly = new URLSearchParams(window.location.search).get("fixture") === "empty";
 			const current = props.useSessions(function (state) { return state.current; });
 			const summaries = props.useSessions(function (state) { return state.byId; });
 			const workspaceId = props.useWorkspaces(function (state) { return state.recentWorkspaceId || (state.items[0] && state.items[0].id); });
@@ -289,7 +290,10 @@ body.dsh-tavern-shell-active button[aria-label="新建会话"], body.dsh-tavern-
 			}
 			async function newConversation(card, requestedMode) {
 				const targetMode = requestedMode || (uiMode === "play" ? playModeOfCard(card) : "revision");
-				if (!workspaceId) { setError("当前没有可用的 Workspace"); return; }
+				if (!workspaceId) {
+					setError(previewOnly ? "没有模型配置，无法回复" : "当前没有可用的 Workspace");
+					return;
+				}
 				setBusy(true); setError("");
 				try {
 					const currentSummary = current ? summaries[current] : null;
@@ -443,6 +447,7 @@ body.dsh-tavern-shell-active button[aria-label="新建会话"], body.dsh-tavern-
 			const playPicker = h("div", { className: "dsh-tavern-card-picker" },
 				h("div", { className: "dsh-tavern-card-picker-head" }, h("span", null, "选择人物卡 · 开始游玩"), h("span", { className: "dsh-tavern-spacer" }), h("button", { className: "dsh-tavern-btn", onClick: function () { fileRef.current && fileRef.current.click(); } }, "导入人物卡"), h("button", { className: "dsh-tavern-btn", onClick: function () { setPicking(false); } }, "关闭")),
 				h("input", { ref: fileRef, type: "file", accept: ".png,.json", style: { display: "none" }, onChange: function (e) { const f = e.target.files && e.target.files[0]; if (f) importCard(f); e.target.value = ""; } }),
+				previewOnly ? h("div", { className: "dsh-tavern-dock-error" }, "没有模型配置，无法回复") : null,
 				cards.length ? h("div", { className: "dsh-tavern-side-empty", style: { padding: "4px 6px" } }, "已绑定剧本的人物卡将自动按剧本推进；未绑定的按自由故事推进。剧本绑定在“卡片模式”中管理。") : null,
 				cards.length ? cards.map(function (card) { return h("div", { key: card.id, className: "dsh-tavern-card-pick-wrap" },
 					h("button", { className: "dsh-tavern-card-pick", disabled: busy, onClick: function () { newConversation(card); } }, h("b", null, card.name), h("span", null, card.script ? ("剧本：" + card.script.title + " · " + card.script.chunkCount + " 块") : "自由故事（未绑定剧本）")),

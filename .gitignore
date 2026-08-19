@@ -1,9 +1,12 @@
 # 运行环境
 node_modules
 node_modules/
+.playwright-cli/
+.vercel/
 cordis.yml
 *.log
 .DS_Store
 
 # 用户数据（人物卡、聊天、剧本、素材、索引、设置、diff）
 data/
+.vercel

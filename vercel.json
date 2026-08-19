@@ -1,0 +1,8 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "functions": {
+    "server.mjs": {
+      "includeFiles": "{node_modules/@deepseek-ai/cordis-plugin-*/**,node_modules/@deepseek-ai/dsh-*/**}"
+    }
+  }
+}
