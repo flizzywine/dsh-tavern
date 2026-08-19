@@ -160,6 +160,10 @@ test('剧本候选注入人物卡但排除文风示例，剧本块放在动态�
   assert.ok(result.text.indexOf('黑麦镇常年下雨') < result.text.indexOf('多写动作'))
   assert.ok(result.text.indexOf('多写动作') < result.text.indexOf('右手按着剑柄'))
   assert.ok(result.text.indexOf('右手按着剑柄') < result.text.indexOf('两人沿石阶走近钟楼'))
+  assert.match(result.stableText, /剧本候选任务|名字: 阿芙拉|谨慎而直接|保持冷静|黑麦镇常年下雨/)
+  assert.doesNotMatch(result.stableText, /多写动作|右手按着剑柄|两人沿石阶走近钟楼/)
+  assert.match(result.dynamicText, /多写动作|右手按着剑柄|两人沿石阶走近钟楼/)
+  assert.doesNotMatch(result.dynamicText, /剧本候选任务|名字: 阿芙拉|谨慎而直接|保持冷静/)
 })
 
 test('世界书模型失败时用关键词确定性回退，不阻断正文规划', async () => {

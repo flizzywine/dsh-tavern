@@ -217,8 +217,9 @@ export function createContextPlanner(options = {}) {
     }
 
     if (input.purpose === 'candidate') {
-      const sections = [{ kind: 'candidate-task', required: true, text: str(input.task) }]
-      sections.push.apply(sections, cardSections({
+      const stableSections = [{ kind: 'candidate-task', required: true, text: str(input.task) }]
+      const dynamicSections = []
+      const plannedCardSections = cardSections({
         card: input.card,
         chat: input.chat,
         worldBookIds: [],
@@ -227,17 +228,24 @@ export function createContextPlanner(options = {}) {
         includeStyleExample: input.scriptWindow === null || input.scriptWindow === undefined,
         includeInstructions: true,
         stableFirst: true
-      }))
+      })
+      for (const section of plannedCardSections) {
+        if (section.kind === 'guide' || section.kind === 'posture') dynamicSections.push(section)
+        else stableSections.push(section)
+      }
       if (input.scriptWindow !== null && input.scriptWindow !== undefined) {
         const window = input.scriptWindow
-        sections.push({
+        dynamicSections.push({
           kind: 'script', required: true,
           text: '【剧本候选参考 · 游标 ' + Math.min(window.cursor + 1, window.total) + ' / ' + window.total + '】\n' + (window.ended
             ? '剧本已到结尾。按最近剧情自然收束，或给出一个新场景开头候选。'
             : window.chunks.map(function (chunk) { return '[' + chunk.id + ']\n' + chunk.text }).join('\n\n'))
         })
       }
-      return resultOf(sections, warnings, [{ kind: 'card-instruction', reason: '候选项不需要正文特殊指令' }])
+      const result = resultOf(stableSections.concat(dynamicSections), warnings, [{ kind: 'card-instruction', reason: '候选项不需要正文特殊指令' }])
+      result.stableText = stableSections.map(function (section) { return section.text }).filter(Boolean).join('\n\n')
+      result.dynamicText = dynamicSections.map(function (section) { return section.text }).filter(Boolean).join('\n\n')
+      return result
     }
 
     if (input.purpose === 'revision') {

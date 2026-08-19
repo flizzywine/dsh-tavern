@@ -42,10 +42,10 @@ test('候选项 RPC 只返回一份 candidates', () => {
   assert.match(dispatch, /return \{ candidates: candidates \}/)
   assert.doesNotMatch(dispatch, /choices: candidates\.choices/)
   assert.match(clientSource, /readyCandidatePanel\(props\.sessionId, props\.messageId, result\.candidates\)/)
-  assert.match(clientSource, /查看候选 Agent 运行轨迹/)
-  assert.match(clientSource, /body\.dsh-tavern-shell-active button\[aria-haspopup="tree"\] \{ display: none !important; \}/)
+  assert.match(clientSource, /查看剧情候选 Agent/)
+  assert.doesNotMatch(clientSource, /button\[aria-haspopup="tree"\] \{ display: none !important; \}/)
   assert.match(clientSource, /refreshSubagents\(panel\.sessionId\)/)
-  assert.match(clientSource, /openSubagent\(\{ parentSessionId: panel\.sessionId, childSessionId: panel\.traceSessionId, mode: "one-shot" \}\)/)
+  assert.match(clientSource, /openSubagent\(\{ parentSessionId: panel\.sessionId, childSessionId: panel\.traceSessionId, mode: panel\.traceMode \}\)/)
 })
 
 test('姿势结算限制为短 JSON 输出', () => {

@@ -107,10 +107,10 @@ function validatedChoices(source, scriptMode) {
   return choices
 }
 
-function buildMessages(chat, selection, now) {
+function buildMessages(chat, selection, now, limit = 6) {
   const source = (chat.messages || []).filter(function (message) {
     return message !== null && typeof message === 'object' && message.role === 'assistant' && str(message.text) !== ''
-  }).slice(-6)
+  }).slice(-Math.max(1, Number(limit) || 6))
   const messages = []
   for (let index = 0; index < source.length; index++) {
     const message = source[index]
@@ -228,10 +228,12 @@ export function createCandidateGenerator(options) {
     }
     const task = prompt(scriptMode ? 'candidate-script' : 'candidate-story')
     const context = await planner.plan({ purpose: 'candidate', card, chat, task, scriptWindow })
+    const candidateAgent = chat.candidateAgent !== null && typeof chat.candidateAgent === 'object' ? chat.candidateAgent : {}
+    const persistentSessionId = scriptMode ? str(candidateAgent.sessionId) : ''
     const guidance = str(input.guidance).trim().slice(0, 600)
     let request = '请按上述规则生成候选项。'
     if (guidance !== '') request += '\n\n【用户额外要求】\n' + guidance + '\n\n额外要求不改变 ' + (scriptMode ? '剧本走向、' : '') + (scriptMode ? 1 : 5) + ' 个候选及类型约束。'
-    const messages = buildMessages(chat, selection, now).concat([{
+    const messages = buildMessages(chat, selection, now, scriptMode && persistentSessionId !== '' ? 1 : 6).concat([{
       id: 'choices-' + now().toString(36),
       role: 'user',
       content: [{ type: 'text', text: request }],
@@ -243,8 +245,11 @@ export function createCandidateGenerator(options) {
       selection,
       temperature: 0.8,
       maxTokens: 4000,
-      system: context.text,
-      messages
+      system: scriptMode ? context.stableText : context.text,
+      turnContext: scriptMode ? context.dynamicText : '',
+      messages,
+      persistent: scriptMode,
+      persistentSessionId
     }
     let run
     try {
@@ -254,10 +259,26 @@ export function createCandidateGenerator(options) {
         maxToolCalls: 6
       } : { tools: [] }))
     } catch (error) {
+      const failedSessionId = scriptMode ? str(error && error.traceSessionId) : ''
+      if (failedSessionId !== '') {
+        const failedChat = await store.readChat(chat.id)
+        if (failedChat !== undefined) {
+          failedChat.candidateAgent = { sessionId: failedSessionId, mode: 'continuable', updatedAt: now() }
+          await store.writeChat(failedChat)
+        }
+      }
       if (logger && typeof logger.error === 'function') logger.error('dsh-tavern: 候选项生成失败:', str(error && error.message || error))
       throw error
     }
     const text = run.text
+    const traceSessionId = str(run.traceSessionId)
+    if (scriptMode && traceSessionId !== '') {
+      const agentChat = await store.readChat(chat.id)
+      if (agentChat !== undefined) {
+        agentChat.candidateAgent = { sessionId: traceSessionId, mode: 'continuable', updatedAt: now() }
+        await store.writeChat(agentChat)
+      }
+    }
     let choices
     try {
       choices = validatedChoices(parsedDecision(text).choices, scriptMode)
@@ -281,14 +302,14 @@ export function createCandidateGenerator(options) {
       const progress = scripts.inspect({ script, state: latest.scriptState, request: { kind: 'progress' } })
       scriptProjection = { cursor: progress.cursor, ended: progress.cursor >= progress.totalChunks }
     }
-    const traceSessionId = str(run.traceSessionId)
     latest.candidates = {
       messageId: str(input.messageId),
       choices,
       generatedAt: now(),
       script: scriptProjection,
       traceSessionId,
-      traceSessionIds: traceSessionId === '' ? [] : [traceSessionId]
+      traceSessionIds: traceSessionId === '' ? [] : [traceSessionId],
+      traceMode: scriptMode ? 'continuable' : 'one-shot'
     }
     await store.writeChat(latest)
     return {
@@ -296,7 +317,8 @@ export function createCandidateGenerator(options) {
       choices: latest.candidates.choices,
       generatedAt: latest.candidates.generatedAt,
       traceSessionId: latest.candidates.traceSessionId,
-      traceSessionIds: latest.candidates.traceSessionIds
+      traceSessionIds: latest.candidates.traceSessionIds,
+      traceMode: latest.candidates.traceMode
     }
   }
 
@@ -310,7 +332,7 @@ export function createCandidateGenerator(options) {
     if (choices.length === 0) return null
     const traceSessionIds = Array.isArray(chat.candidates.traceSessionIds) ? chat.candidates.traceSessionIds.map(str).filter(function (id) { return id !== '' }) : []
     const traceSessionId = str(chat.candidates.traceSessionId) || traceSessionIds[traceSessionIds.length - 1] || ''
-    return { messageId: str(chat.candidates.messageId), choices, generatedAt: Number(chat.candidates.generatedAt) || 0, traceSessionId, traceSessionIds }
+    return { messageId: str(chat.candidates.messageId), choices, generatedAt: Number(chat.candidates.generatedAt) || 0, traceSessionId, traceSessionIds, traceMode: chat.candidates.traceMode === 'continuable' ? 'continuable' : 'one-shot' }
   }
 
   return Object.freeze({ generate, find })

@@ -24,7 +24,7 @@ function script() {
   }
 }
 
-function harness({ mode = 'story', outputs, initialCandidates, messages, initialScriptCursor = 0, initialScriptEnded = false }) {
+function harness({ mode = 'story', outputs, initialCandidates, initialCandidateAgent, messages, initialScriptCursor = 0, initialScriptEnded = false }) {
   const continuity = createScriptContinuity()
   let scriptState = mode === 'script' ? continuity.start(script(), initialScriptCursor) : null
   if (initialScriptEnded) scriptState = continuity.transition({ script: script(), state: scriptState, event: { kind: 'end' } }).state
@@ -33,18 +33,27 @@ function harness({ mode = 'story', outputs, initialCandidates, messages, initial
     scriptState
   }
   if (initialCandidates !== undefined) chat.candidates = structuredClone(initialCandidates)
+  if (initialCandidateAgent !== undefined) chat.candidateAgent = structuredClone(initialCandidateAgent)
   const card = { id: 'card-1', name: '阿芙拉', description: '银发佣兵', tags: [] }
   let modelCalls = 0
   const modelRequests = []
   function remember(options) {
-    modelRequests.push({ system: options.system, messages: structuredClone(options.messages), tools: structuredClone(options.tools || []), maxTokens: options.maxTokens })
+    modelRequests.push({
+      system: options.system,
+      turnContext: options.turnContext,
+      messages: structuredClone(options.messages),
+      tools: structuredClone(options.tools || []),
+      maxTokens: options.maxTokens,
+      persistent: options.persistent,
+      persistentSessionId: options.persistentSessionId
+    })
   }
   async function nextOutput(options) {
     remember(options)
     const call = ++modelCalls
     const output = outputs[Math.min(call - 1, outputs.length - 1)]
     const text = typeof output === 'function' ? await output(options) : output
-    return { text, traceSessionId: 'candidate-trace-' + call }
+    return { text, traceSessionId: options.persistentSessionId || 'candidate-trace-' + call }
   }
   const store = {
     async chatForSession() { return structuredClone(chat) },
@@ -59,14 +68,21 @@ function harness({ mode = 'story', outputs, initialCandidates, messages, initial
   }
   const plannerCalls = []
   const planner = {
-    async plan(input) { plannerCalls.push(input); return { text: '候选项上下文', audit: { included: [], omitted: [], warnings: [], totalChars: 7 } } }
+    async plan(input) {
+      plannerCalls.push(input)
+      return { text: '候选项上下文', stableText: '稳定候选上下文', dynamicText: '本轮游标、Guide 与姿势', audit: { included: [], omitted: [], warnings: [], totalChars: 7 } }
+    }
   }
   const candidates = createCandidateGenerator({
     store, model, planner, prompt, scripts: continuity,
     waitUntilSettled: async () => {}, sleep: async () => {}, now: () => 123456,
     logger: { error() {} }
   })
-  return { candidates, continuity, plannerCalls, modelRequests, modelCalls: () => modelCalls, chat: () => structuredClone(chat) }
+  return {
+    candidates, continuity, plannerCalls, modelRequests, modelCalls: () => modelCalls,
+    chat: () => structuredClone(chat),
+    setMessages(next) { chat.messages = structuredClone(next) }
+  }
 }
 
 test('自由故事只保存完整的 4 action + 1 scene', async () => {
@@ -153,6 +169,34 @@ test('剧本候选可按数字自由读取远处剧本并直接定位游标', as
   assert.equal(run.modelRequests[0].tools[0].parameters.properties.action, undefined)
   assert.equal(result.traceSessionId, 'candidate-trace-1')
   assert.deepEqual(savedChat.messages, [{ role: 'assistant', text: '雨水敲着窗。' }])
+})
+
+test('剧本候选保存并复用持久 Agent，会话建立后每轮只追加最新正文', async () => {
+  const firstOutput = JSON.stringify({ choices: [{ type: 'action', text: '沿着雨夜脚印继续调查' }] })
+  const secondOutput = JSON.stringify({ choices: [{ type: 'action', text: '根据新线索转向钟楼入口' }] })
+  const run = harness({ mode: 'script', outputs: [firstOutput, secondOutput] })
+
+  const first = await run.candidates.generate({ sessionId: 'session-1', messageId: 'message-persistent-1' })
+  assert.equal(first.traceSessionId, 'candidate-trace-1')
+  assert.equal(first.traceMode, 'continuable')
+  assert.deepEqual(run.chat().candidateAgent, { sessionId: 'candidate-trace-1', mode: 'continuable', updatedAt: 123456 })
+  assert.equal(run.modelRequests[0].persistent, true)
+  assert.equal(run.modelRequests[0].persistentSessionId, '')
+  assert.equal(run.modelRequests[0].system, '稳定候选上下文')
+  assert.equal(run.modelRequests[0].turnContext, '本轮游标、Guide 与姿势')
+
+  run.setMessages([
+    { role: 'assistant', text: '雨水敲着窗。' },
+    { role: 'user', text: '查看脚印' },
+    { role: 'assistant', text: '她在泥水里发现了指向钟楼的新脚印。' }
+  ])
+  const second = await run.candidates.generate({ sessionId: 'session-1', messageId: 'message-persistent-2' })
+
+  assert.equal(second.traceSessionId, 'candidate-trace-1')
+  assert.equal(run.modelRequests[1].persistentSessionId, 'candidate-trace-1')
+  assert.equal(run.modelRequests[1].messages.length, 2)
+  assert.match(run.modelRequests[1].messages[0].content[0].text, /指向钟楼的新脚印/)
+  assert.doesNotMatch(JSON.stringify(run.modelRequests[1].messages), /雨水敲着窗/)
 })
 
 test('剧本候选未 point 时保持当前块，读取位置不改变游标', async () => {

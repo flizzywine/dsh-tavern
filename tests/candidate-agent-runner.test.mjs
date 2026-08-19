@@ -106,3 +106,86 @@ test('候选 Runner 使用独立 DSH Agent，查询超限后提示开始推理�
   assert.equal(disposed, true)
   assert.equal(runner.owns('candidate-session-1'), false)
 })
+
+test('剧本候选复用同一个可继续会话，并且每轮只读取本轮新增输出', async () => {
+  const parent = { id: 'parent-session', session: { header: { cwd: '/tmp/tavern', delegationDepth: 0 } } }
+  const events = []
+  const appended = []
+  const prompts = []
+  let createCalls = 0
+  let resumeCalls = 0
+  let disposeCalls = 0
+
+  async function open(options, response) {
+    const listeners = []
+    let work = Promise.resolve()
+    await options.setup({
+      systemPrompt: { section() {}, suppressRuntimeContext() {} },
+      tools: { restrict() {}, register() {} },
+      on(name, listener) { listeners.push({ name, listener }) }
+    })
+    const child = {
+      session: {
+        events,
+        append(type, data) {
+          appended.push({ type, data })
+          events.push({ type, data })
+        }
+      },
+      followup(message) {
+        prompts.push(message.content[0].text)
+        const preStep = listeners.find(function (entry) { return entry.name === 'agent/pre-step' })
+        work = Promise.resolve(preStep.listener({ agent: child }, async function () { return { kind: 'enter' } })).then(function () {
+          events.push({ type: 'assistant/message', data: { message: { content: [{ type: 'text', text: response }] } } })
+        })
+      },
+      async whenIdle() { await work }
+    }
+    return { agent: child, async dispose() { disposeCalls++ } }
+  }
+
+  const agents = {
+    get(id) { return id === parent.id ? parent : undefined },
+    async create(options) {
+      createCalls++
+      return open(options, '{"choices":[{"type":"action","text":"第一轮候选"}]}')
+    },
+    async resume(options) {
+      resumeCalls++
+      assert.equal(options.resumeSessionId, 'candidate-session-1')
+      return open(options, '{"choices":[{"type":"action","text":"第二轮候选"}]}')
+    }
+  }
+  const runner = createCandidateAgentRunner({ agents, id: () => 'candidate-session-1' })
+  const common = {
+    sessionId: parent.id,
+    selection: { provider: 'test', model: 'scripted' },
+    system: '稳定的人物卡与候选规则',
+    messages: [{ role: 'assistant', content: [{ type: 'text', text: '本轮正文' }] }],
+    tools: [],
+    persistent: true
+  }
+  const first = await runner.run(Object.assign({}, common, { turnContext: '游标 2，姿势 A' }))
+  const second = await runner.run(Object.assign({}, common, { persistentSessionId: first.traceSessionId, turnContext: '游标 3，姿势 B' }))
+
+  assert.equal(first.traceSessionId, 'candidate-session-1')
+  assert.equal(second.traceSessionId, 'candidate-session-1')
+  assert.match(first.text, /第一轮候选/)
+  assert.match(second.text, /第二轮候选/)
+  assert.equal(createCalls, 1)
+  assert.equal(resumeCalls, 1)
+  assert.equal(disposeCalls, 2)
+  assert.equal(appended.filter(function (event) { return event.type === 'subagent/descriptor' }).length, 1)
+  assert.deepEqual(appended[0].data, {
+    version: 2,
+    mode: 'continuable',
+    provider: 'dsh-tavern-candidate',
+    label: '剧情候选 Agent',
+    agentProvider: 'test',
+    agentModel: 'scripted',
+    persona: '稳定的人物卡与候选规则'
+  })
+  assert.match(prompts[0], /游标 2，姿势 A/)
+  assert.match(prompts[1], /游标 3，姿势 B/)
+  assert.doesNotMatch(prompts[1], /游标 2，姿势 A/)
+})
