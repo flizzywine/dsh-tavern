@@ -279,8 +279,8 @@ body.dsh-tavern-shell-active button[aria-label="新建会话"], body.dsh-tavern-
 				setUiMode(groupOfMode(item.mode));
 			}, [current, history]);
 			React.useEffect(function () {
-				if (!readyTavernSession || typeof props.openDetails !== "function") return;
-				props.openDetails();
+				if (!readyTavernSession || typeof props.openStatusTab !== "function") return;
+				props.openStatusTab(readyTavernSession);
 			}, [readyTavernSession]);
 			function openPicker(sub) {
 				setMenuSession(null);
@@ -793,6 +793,23 @@ body.dsh-tavern-shell-active button[aria-label="新建会话"], body.dsh-tavern-
 			);
 		}
 
+		function TavernStatusTab(props) {
+			const binding = props.sessions.binding(props.sessionId);
+			const h = React.createElement;
+			if (!binding) return h("aside", { className: "dsh-tavern-status" },
+				h("div", { className: "dsh-tavern-status-head" }, h("div", { className: "dsh-tavern-status-title" }, "酒馆状态")),
+				h("div", { className: "dsh-tavern-status-body" }, h("div", { className: "dsh-tavern-status-empty" }, "正在连接当前会话…"))
+			);
+			function useSession(selector) {
+				return React.useSyncExternalStore(
+					function (listener) { return binding.session.subscribe(listener); },
+					function () { return selector(binding.session.getSnapshot()); },
+					function () { return selector(binding.session.getSnapshot()); }
+				);
+			}
+			return h(TavernStatusPanel, { sessionId: props.sessionId, useSession: useSession });
+		}
+
 		const candidatePanel = { value: null, listeners: new Set() };
 		function setCandidatePanel(value) {
 			candidatePanel.value = value;
@@ -1223,11 +1240,20 @@ body.dsh-tavern-shell-active button[aria-label="新建会话"], body.dsh-tavern-
 			);
 		}
 
-		const inject = ["slots", "sessions", "workspaces", "layout", "connection"];
+		const inject = ["slots", "sessions", "workspaces", "layout", "connection", "betterSidebar"];
 
 		function apply(ctx) {
 			const slots = ctx.slots;
 			if (slots === undefined) return;
+			ctx.effect(() => ctx.betterSidebar.registerTab({
+				id: "dsh-tavern:status",
+				title: "酒馆状态",
+				order: 5,
+				single: true,
+				component: function (props) {
+					return React.createElement(TavernStatusTab, { sessions: ctx.sessions, sessionId: props.scope.sessionId });
+				}
+			}), "dsh-tavern: Better Sidebar status tab");
 			ctx.effect(function () {
 				document.body.classList.add("dsh-tavern-shell-active");
 				return function () { document.body.classList.remove("dsh-tavern-shell-active"); };
@@ -1248,13 +1274,9 @@ body.dsh-tavern-shell-active button[aria-label="新建会话"], body.dsh-tavern-
 					},
 					archiveSession: function (sessionId) { return ctx.workspaces.archiveSession(sessionId); },
 					toggleSidebar: function () { if (props.wide) ctx.layout.toggleSidebar(); else props.expandSidebar(); },
-					openDetails: function () { ctx.layout.openDetails(); }
+					openStatusTab: function (sessionId) { ctx.betterSidebar.openTab({ type: "dsh-tavern:status" }, { sessionId: sessionId }); }
 				})); }
 			)), "dsh-tavern: Tavern workspace browser");
-			ctx.effect(() => slots.inject("details", () => slots.register(
-				{ name: "details", priority: -1 },
-				function (props) { return React.createElement(TavernStatusPanel, props); }
-			)), "dsh-tavern: persistent status panel");
 			ctx.effect(() => slots.inject("conversation.input.dock", () => slots.register(
 				{ name: "conversation.input.dock", id: "dsh-tavern-candidate-actions", order: -130, label: "候选项操作" },
 				function (props) { return React.createElement(CandidateDockActions, props); }

@@ -34,6 +34,12 @@ test('Tavern no longer bundles dsh-codex-connect and removes it from existing pr
   assert.match(launcherSource, /delete dependencies\['dsh-codex-connect'\]/)
 })
 
+test('Tavern profile installs Better Sidebar as its right-panel foundation', () => {
+  assert.equal(rootManifest.dependencies['dsh-better-sidebar'], '0.13.1')
+  assert.ok(rootManifest.dsh.profile.bundles.includes('dsh-better-sidebar'))
+  assert.match(launcherSource, /'dsh-better-sidebar': source\.dependencies\['dsh-better-sidebar'\]/)
+})
+
 test('installers reuse existing pnpm and DSH and only install missing packages', () => {
   assert.match(windowsInstaller, /if \(-not \(Test-Command 'pnpm'\)\)/)
   assert.match(windowsInstaller, /if \(-not \(Test-Command 'dsh'\)\)/)

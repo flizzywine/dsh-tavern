@@ -126,10 +126,10 @@ mkdirSync(path.join(profileDir, 'node_modules'), { recursive: true })
 writeFileSync(path.join(profileDir, 'package.json'), `${JSON.stringify({
   name: 'dsh-profile-tavern-preview',
   private: true,
-  dependencies: {},
+  dependencies: { 'dsh-better-sidebar': '0.13.1' },
   dsh: {
     profile: {
-      bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app'],
+      bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', 'dsh-better-sidebar'],
     },
   },
 }, null, 2)}\n`)
@@ -140,6 +140,7 @@ copyFileSync(profilePatchPath, path.join(profileDir, 'cordis.patch.yml'))
 writeFileSync(path.join(profileDir, 'cordis.yml'), '[]\n')
 linkPackage('dsh-tavern-plugin', path.join(sourceRoot, 'tavern-plugin'))
 linkPackage('dsh-tavern-preview-plugin', path.join(sourceRoot, 'preview-plugin'))
+linkPackage('dsh-better-sidebar', path.join(sourceRoot, 'node_modules', 'dsh-better-sidebar'))
 
 // Vercel 实例的 /tmp 可能被后续请求复用；每次冷启动恢复同一份公开案例快照。
 rmSync(dataRoot, { recursive: true, force: true })

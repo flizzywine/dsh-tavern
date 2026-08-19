@@ -35,14 +35,17 @@ test('Tavern 只接管会话区域，保留 DSH 原生设置与模型配置入�
   assert.doesNotMatch(clientSource, /slots\.inject\("sidebar",/)
 })
 
-test('酒馆会话就绪后通过 DSH 原生布局打开状态栏，不再依赖定时重试', () => {
+test('酒馆状态页注册到 Better Sidebar，不再接管 DSH details', () => {
   const sidebar = between(clientSource, 'function TavernSidebar', 'function RevisionFieldsPanel')
 
   assert.match(sidebar, /readyTavernSession/)
   assert.match(sidebar, /summaries\[current\]\.blank === false/)
   assert.match(sidebar, /history\.some\(function \(entry\) \{ return entry\.sessionId === current; \}\)/)
-  assert.match(sidebar, /props\.openDetails\(\)/)
-  assert.doesNotMatch(clientSource, /ensureDetailsOpen|setTimeout\(props\.openDetails|1000 \* i/)
+  assert.match(sidebar, /props\.openStatusTab\(readyTavernSession\)/)
+  assert.match(clientSource, /ctx\.betterSidebar\.registerTab\(\{/)
+  assert.match(clientSource, /id: "dsh-tavern:status"/)
+  assert.match(clientSource, /ctx\.betterSidebar\.openTab\(\{ type: "dsh-tavern:status" \}/)
+  assert.doesNotMatch(clientSource, /slots\.inject\("details"|openDetails|ensureDetailsOpen/)
 })
 
 test('剧本预览只显示当前召回和后续块', () => {
