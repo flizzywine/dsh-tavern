@@ -198,7 +198,7 @@ export function createCardPreparation(options = {}) {
   function create(request) {
     if (request === null || typeof request !== 'object') throw new Error('缺少人物卡准备请求')
     if (request.kind === 'import') return canonical(importedObject(request.payload))
-    if (request.kind === 'extract') {
+    if (request.kind === 'draft') {
       const draft = request.draft !== null && typeof request.draft === 'object' ? request.draft : {}
       if (str(draft.name).trim() === '') throw new Error('草稿还没有角色名，请先在对话中确认')
       const player = str(request.player).trim()
@@ -206,7 +206,7 @@ export function createCardPreparation(options = {}) {
       if (/^你是/.test(str(draft.system_prompt).trim())) throw new Error('人物卡使用第二人称描述角色，与玩家身份冲突')
       const card = canonical(draft)
       const notes = str(card.creator_notes).trim()
-      const provenance = '[抽取生成] ' + (Array.isArray(request.sourceIds) ? request.sourceIds.join(',') : '') + '\n[玩家] ' + (player || '未确认（旧会话）')
+      const provenance = '[卡片工作台] ' + (Array.isArray(request.sourcePaths) ? request.sourcePaths.join(',') : (Array.isArray(request.sourceIds) ? request.sourceIds.join(',') : '')) + '\n[玩家] ' + (player || '未确认（旧会话）')
       card.creator_notes = notes === '' ? provenance : notes + '\n' + provenance
       return card
     }

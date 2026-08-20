@@ -1,3 +1,5 @@
+import { cardFieldCatalog } from './card-reading.js'
+
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
 }
@@ -28,27 +30,13 @@ function worldBookEntries(card) {
   return entries
 }
 
-function compactPromptObject(value) {
-  const source = value !== null && typeof value === 'object' ? value : {}
-  const result = {}
-  for (const key of Object.keys(source)) {
-    const item = source[key]
-    if (typeof item === 'string') {
-      if (item.trim() !== '') result[key] = item
-    } else if (Array.isArray(item)) {
-      if (item.length > 0) result[key] = item
-    } else if (item !== null && typeof item === 'object') {
-      if (Object.keys(item).length > 0) result[key] = item
-    } else if (item !== undefined && item !== null) {
-      result[key] = item
-    }
+function cardFieldCatalogText(card) {
+  const lines = ['name: ' + (str(card && card.name) || '未命名')]
+  for (const item of cardFieldCatalog(card)) {
+    if (item.field === 'name') continue
+    lines.push(item.field + ': ' + item.chars + ' 字' + (item.empty ? '（空）' : ''))
   }
-  return result
-}
-
-function promptObjectText(value) {
-  const compact = compactPromptObject(value)
-  return Object.keys(compact).length > 0 ? JSON.stringify(compact, null, 1) : '暂无已确认内容（未列出的字段为空）'
+  return lines.join('\n')
 }
 
 function worldBookOverviewText(overview) {
@@ -196,37 +184,37 @@ export function createContextPlanner(options = {}) {
       return result
     }
 
-    if (input.purpose === 'revision') {
-      const card = input.card || {}
-      const editable = {
-        name: card.name || '', description: card.description || '', personality: card.personality || '', scenario: card.scenario || '', first_mes: card.first_mes || '',
-        mes_example: card.mes_example || '', system_prompt: card.system_prompt || '', post_history_instructions: card.post_history_instructions || '', creator_notes: card.creator_notes || '',
-        tags: card.tags || [], alternate_greetings: card.alternate_greetings || []
-      }
+    if (input.purpose === 'card') {
+      const card = input.card || null
+      const workspace = input.workspace || {}
+      const draft = workspace.draft || {}
+      const current = card || draft
       const scriptInfo = input.scriptInfo
       const scriptHint = scriptInfo === null || scriptInfo === undefined
         ? ''
         : '\n\n本卡已绑定剧本《' + scriptInfo.title + '》，共 ' + scriptInfo.chunkCount + ' 块；需要核对内容时可调用 tavern_read_script。'
-      return resultOf([
-        { kind: 'card-revision', required: true, text: prompt('card-editor') + '\n' + promptObjectText(editable) + scriptHint },
-        { kind: 'world-book-overview', required: false, text: worldBookOverviewText(input.worldBookOverview) + '\n需要查看世界书正文时调用 tavern_read_worldbook。确认修改时调用 tavern_update_card，并在 worldBook 数组中提交逐条操作；不要在 fields 中重传整本世界书。支持 update、add、delete、rename。' }
-      ], warnings)
-    }
-
-    if (input.purpose === 'extract') {
-      const chat = input.chat || {}
-      const prepared = input.extractPrepared
-      const extract = chat.extract || {}
-      const draft = extract.draft || {}
-      const player = str(extract.player)
+      const prepared = input.sourcePrepared
+      const player = str(workspace.player)
       const sections = []
-      sections.push({ kind: 'extract-rules', required: true, text: prompt('card-extractor') })
-      sections.push({ kind: 'extract-player', required: true, text: '【玩家身份（{{user}}）】\n' + (player !== '' ? player + '\n已确认。mes_example、scenario、first_mes 中的 {{user}} 一律指这个身份；玩家行动和正文中的“你”也指这个身份。若用户要求修改玩家，确认后调用 tavern_update_card，并在 fields 中提交 {"player":"新的身份"}。' : '尚未确认，这是当前最优先事项：先在对话中请用户确认准备提炼谁，以及谁是玩家（{{user}}）。得到确认后调用 tavern_update_card，并在 fields 中提交 {"player":"玩家身份"}。') })
-      sections.push({ kind: 'extract-draft', required: true, text: '【当前草稿】\n' + promptObjectText(draft) })
+      sections.push({
+        kind: card === null ? 'card-draft' : 'card-current', required: true,
+        text: (card === null ? '【当前新卡草稿 · 字段目录】\n' : '【当前人物卡 · 字段目录】\n') + cardFieldCatalogText(current) + '\n字段正文尚未自动读取；根据当前任务调用 tavern_read_card 按字段、分段读取。' + scriptHint
+      })
+      const mountedResources = Array.isArray(workspace.mountedResources) ? workspace.mountedResources.filter(function (item) { return item !== null && typeof item === 'object' }) : []
+      if (mountedResources.length > 0) {
+        const kindLabel = { card: '人物卡', source: '素材', script: '剧本' }
+        sections.push({ kind: 'workspace-resources', required: true, text: '【挂载的 Tavern 资源 · 仅目录，正文尚未自动读取】\n' + mountedResources.map(function (item) { return '- [' + (kindLabel[item.kind] || item.kind) + '] ' + str(item.label) + ' · path=' + str(item.path) }).join('\n') + '\n人物卡、素材和剧本分别使用对应 Tavern 只读工具按需读取；没有实际读取的内容，不得声称已经读过。' })
+      }
+      if (player !== '' || (Array.isArray(workspace.sourcePaths) && workspace.sourcePaths.length > 0)) {
+        sections.push({ kind: 'card-player', required: true, text: '【玩家身份（{{user}}）】\n' + (player !== '' ? player + '\nmes_example、scenario、first_mes 中的 {{user}} 一律指这个身份。需要修改时在 fields 中提交 player。' : '尚未确认。需要制作新卡或处理玩家视角时，先请用户说明谁是玩家（{{user}}）。') })
+      }
+      if (card !== null) {
+        sections.push({ kind: 'world-book-overview', required: false, text: worldBookOverviewText(input.worldBookOverview) + '\n需要查看世界书正文时调用 tavern_read_worldbook。确认修改时调用 tavern_update_card，并在 worldBook 数组中提交逐条操作；不要在 fields 中重传整本世界书。支持 update、add、delete、rename。' })
+      }
       if (prepared !== null && typeof prepared === 'object' && Array.isArray(prepared.window) && prepared.window.length > 0) {
-        sections.push({ kind: 'extract-source', required: true, text: '【本轮素材 · 第 ' + (Number(prepared.cursorBefore) + 1) + '~' + (Number(prepared.cursorBefore) + prepared.window.length) + ' 块 / 共 ' + prepared.total + ' 块】\n' + prepared.window.map(function (chunk) { return '[' + chunk.title + '] ' + chunk.text }).join('\n\n') })
-      } else {
-        sections.push({ kind: 'extract-source', required: true, text: '【素材】全部素材已注入完毕（共 ' + (prepared !== null && typeof prepared === 'object' ? prepared.total : 0) + ' 块），可以定稿。' })
+        sections.push({ kind: 'card-source', required: true, text: '【本轮挂载素材 · 第 ' + (Number(prepared.cursorBefore) + 1) + '~' + (Number(prepared.cursorBefore) + prepared.window.length) + ' 块 / 共 ' + prepared.total + ' 块】\n' + prepared.window.map(function (chunk) { return '[' + chunk.title + '] ' + chunk.text }).join('\n\n') })
+      } else if (prepared !== null && typeof prepared === 'object' && Number(prepared.total) > 0) {
+        sections.push({ kind: 'card-source', required: true, text: '【挂载素材】已读取完毕（共 ' + prepared.total + ' 块）。' })
       }
       return resultOf(sections, warnings)
     }

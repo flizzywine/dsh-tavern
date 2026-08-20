@@ -230,19 +230,20 @@ export function createCandidateGenerator(options) {
     let chat = await store.chatForSession(input.sessionId)
     if (chat === undefined || chat === null) throw new Error('当前会话没有绑定人物卡')
     const mode = chat.mode || 'story'
-    if (mode === 'revision' || mode === 'extract') throw new Error('卡片模式不生成剧情候选项')
+    if (mode === 'card') throw new Error('卡片模式不生成剧情候选项')
     await waitUntilSettled(chat)
     chat = await store.readChat(chat.id)
     if (chat === undefined) throw new Error('聊天不存在')
-    const card = await store.readCard(chat.cardId)
-    if (card === undefined) throw new Error('角色卡不存在: ' + chat.cardId)
+    const cardPath = str(chat.cardPath || chat.cardId)
+    const card = await store.readCard(cardPath)
+    if (card === undefined) throw new Error('人物卡不存在: ' + cardPath)
     const selection = model.selection(input.sessionId)
     if (selection === null || selection === undefined) throw new Error('没有可用的模型配置')
     const scriptMode = mode === 'script'
     let script = null
     let scriptWindow = null
     if (scriptMode) {
-      script = await store.readScript(chat.cardId)
+      script = await store.readScript(cardPath)
       if (script === undefined || !Array.isArray(script.chunks) || script.chunks.length === 0) throw new Error('剧本文件不存在，请重新为人物卡导入剧本')
       scriptWindow = scripts.inspect({ script, state: chat.scriptState, request: { kind: 'choice' } })
     }

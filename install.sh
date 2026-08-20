@@ -9,6 +9,7 @@ APP_DIR=${DSH_TAVERN_APP_DIR:-${DSH_ROOT}/apps/dsh-tavern}
 RUNTIME_ROOT=${DSH_ROOT}/runtime
 RUNTIME_BIN=${RUNTIME_ROOT}/bin
 COMMAND_BIN=${HOME}/.local/bin
+REQUIRED_DSH_VERSION=0.1.0-rc.8
 TMP_BASE=${TMPDIR:-/tmp}
 TMP_BASE=${TMP_BASE%/}
 TEMP_DIR=$(mktemp -d "${TMP_BASE}/dsh-tavern-install.XXXXXX")
@@ -23,6 +24,21 @@ trap cleanup EXIT HUP INT TERM
 fail() {
   echo "安装失败：$1" >&2
   exit 1
+}
+
+dsh_version_is_compatible() {
+  DSH_CURRENT_VERSION=$1 node -e '
+    function parse(value) {
+      const match = String(value || "").trim().match(/^(\d+)\.(\d+)\.(\d+)(?:-rc\.(\d+))?$/)
+      return match ? [Number(match[1]), Number(match[2]), Number(match[3]), match[4] === undefined ? Infinity : Number(match[4])] : null
+    }
+    const current = parse(process.env.DSH_CURRENT_VERSION)
+    const required = parse("0.1.0-rc.8")
+    if (!current || !required) process.exit(1)
+    for (let index = 0; index < current.length; index += 1) {
+      if (current[index] !== required[index]) process.exit(current[index] > required[index] ? 0 : 1)
+    }
+  ' >/dev/null 2>&1
 }
 
 if ! command -v node >/dev/null 2>&1; then
@@ -41,9 +57,13 @@ fi
 
 set --
 if ! command -v pnpm >/dev/null 2>&1; then set -- "$@" pnpm; fi
-if ! command -v dsh >/dev/null 2>&1; then set -- "$@" @deepseek-ai/dsh; fi
+if ! command -v dsh >/dev/null 2>&1; then
+  set -- "$@" "@deepseek-ai/dsh@${REQUIRED_DSH_VERSION}"
+elif ! dsh_version_is_compatible "$(dsh --version 2>/dev/null || true)"; then
+  set -- "$@" "@deepseek-ai/dsh@${REQUIRED_DSH_VERSION}"
+fi
 if [ "$#" -gt 0 ]; then
-  echo "正在补齐：$*……"
+  echo "正在安装或升级：$*……"
   mkdir -p "${RUNTIME_ROOT}"
   npm install --global --prefix "${RUNTIME_ROOT}" "$@"
   PATH=${RUNTIME_BIN}:${PATH}
@@ -52,6 +72,7 @@ fi
 
 command -v pnpm >/dev/null 2>&1 || fail "安装后仍未找到 pnpm。"
 command -v dsh >/dev/null 2>&1 || fail "安装后仍未找到 DSH。"
+dsh_version_is_compatible "$(dsh --version 2>/dev/null || true)" || fail "DSH 版本仍低于 ${REQUIRED_DSH_VERSION}。"
 
 DSH_TAVERN_BIN_DIR=${COMMAND_BIN}
 export DSH_TAVERN_BIN_DIR

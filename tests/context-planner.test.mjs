@@ -208,11 +208,13 @@ test('候选项也根据最近剧情触发非常驻世界书', async () => {
   assert.doesNotMatch(result.text, /遥远王都|停用条目/)
 })
 
-test('卡片设定与素材抽取也通过同一规划 interface', async () => {
+test('卡片工作台在同一规划 interface 中组合人物卡、世界书和素材', async () => {
   const planner = createContextPlanner({ prompt, callModel: async () => '{"ids":[]}' })
-  const revision = await planner.plan({
-    purpose: 'revision',
+  const result = await planner.plan({
+    purpose: 'card',
     card: card(),
+    workspace: { player: '旅行者', draft: {}, sourcePaths: ['materials/素材.md'], mountedResources: [{ kind: 'card', path: 'cards/另一张卡.json', label: '另一张卡' }, { kind: 'source', path: 'materials/长篇小说.md', label: '长篇小说' }, { kind: 'script', path: 'scripts/银铃/剧本.txt', label: '银铃剧本' }] },
+    sourcePrepared: { cursorBefore: 0, total: 1, window: [{ title: '素材', text: '阿芙拉拔剑。' }] },
     scriptInfo: { title: '银铃', chunkCount: 3 },
     worldBookOverview: {
       name: '黑麦镇世界书', entryCount: 2,
@@ -222,20 +224,20 @@ test('卡片设定与素材抽取也通过同一规划 interface', async () => {
       ]
     }
   })
-  assert.match(revision.text, /人物卡设定对话/)
-  assert.match(revision.text, /剧本《银铃》/)
-  assert.match(revision.text, /世界书目录.*2 条/s)
-  assert.match(revision.text, /wb-1.*钟楼/s)
-  assert.match(revision.text, /tavern_read_worldbook/)
-  assert.match(revision.text, /tavern_update_card.*worldBook.*update.*add.*delete.*rename/s)
-  assert.doesNotMatch(revision.text, /钟楼藏着失踪商队的线索/)
-
-  const extraction = await planner.plan({
-    purpose: 'extract',
-    chat: { extract: { player: '旅行者', draft: { name: '阿芙拉' } } },
-    extractPrepared: { cursorBefore: 0, total: 1, window: [{ title: '素材', text: '阿芙拉拔剑。' }] }
-  })
-  assert.match(extraction.text, /玩家身份/)
-  assert.match(extraction.text, /人物卡可提炼字段/)
-  assert.match(extraction.text, /阿芙拉拔剑/)
+  assert.doesNotMatch(result.text, /You are a helpful software engineer assistant/)
+  assert.match(result.text, /剧本《银铃》/)
+  assert.match(result.text, /当前人物卡 · 字段目录/)
+  assert.match(result.text, /description: \d+ 字/)
+  assert.match(result.text, /tavern_read_card/)
+  assert.doesNotMatch(result.text, /银发佣兵|谨慎而直接|保持冷静/)
+  assert.match(result.text, /人物卡.*另一张卡.*path=cards\/另一张卡\.json/s)
+  assert.match(result.text, /素材.*长篇小说.*path=materials\/长篇小说\.md/s)
+  assert.match(result.text, /剧本.*银铃剧本.*path=scripts\/银铃\/剧本\.txt/s)
+  assert.match(result.text, /世界书目录.*2 条/s)
+  assert.match(result.text, /wb-1.*钟楼/s)
+  assert.match(result.text, /tavern_read_worldbook/)
+  assert.match(result.text, /tavern_update_card.*worldBook.*update.*add.*delete.*rename/s)
+  assert.match(result.text, /玩家身份/)
+  assert.match(result.text, /阿芙拉拔剑/)
+  assert.doesNotMatch(result.text, /钟楼藏着失踪商队的线索/)
 })

@@ -6,8 +6,11 @@ const NAMES = [
   'candidate-story',
   'candidate-script',
   'posture-settlement',
-  'card-editor',
-  'card-extractor'
+  'play-mode',
+  'card-mode',
+  'card-mode-greeting',
+  'card-task-edit',
+  'card-task-extract'
 ]
 
 const knownNames = new Set(NAMES)

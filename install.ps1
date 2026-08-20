@@ -6,6 +6,7 @@ $DshRoot = if ($env:DSH_HOME) { $env:DSH_HOME } else { Join-Path ([Environment]:
 $AppDir = if ($env:DSH_TAVERN_APP_DIR) { $env:DSH_TAVERN_APP_DIR } else { Join-Path $DshRoot 'apps\dsh-tavern' }
 $RuntimeRoot = Join-Path $DshRoot 'runtime'
 $CommandBin = Join-Path $DshRoot 'bin'
+$RequiredDshVersion = '0.1.0-rc.8'
 $TempDir = Join-Path ([IO.Path]::GetTempPath()) ("dsh-tavern-install-" + [Guid]::NewGuid().ToString('N'))
 
 function Test-Command([string]$Name) {
@@ -24,6 +25,18 @@ function Assert-LastCommand([string]$Message) {
   if ($LASTEXITCODE -ne 0) { throw $Message }
 }
 
+function Test-DshVersion([string]$Version) {
+  if ($Version.Trim() -notmatch '^(\d+)\.(\d+)\.(\d+)(?:-rc\.(\d+))?$') { return $false }
+  $RcVersion = if ($Matches[4]) { [int]$Matches[4] } else { [int]::MaxValue }
+  $Current = @([int]$Matches[1], [int]$Matches[2], [int]$Matches[3], $RcVersion)
+  $Required = @(0, 1, 0, 8)
+  for ($Index = 0; $Index -lt $Current.Count; $Index++) {
+    if ($Current[$Index] -gt $Required[$Index]) { return $true }
+    if ($Current[$Index] -lt $Required[$Index]) { return $false }
+  }
+  return $true
+}
+
 try {
   if (-not (Test-Command 'node')) {
     Start-Process 'https://nodejs.org/'
@@ -40,9 +53,16 @@ try {
 
   $MissingPackages = @()
   if (-not (Test-Command 'pnpm')) { $MissingPackages += 'pnpm' }
-  if (-not (Test-Command 'dsh')) { $MissingPackages += '@deepseek-ai/dsh' }
+  $DshCommand = Resolve-Command 'dsh'
+  if ($null -eq $DshCommand) {
+    $MissingPackages += "@deepseek-ai/dsh@$RequiredDshVersion"
+  }
+  else {
+    $DshVersionText = (& $DshCommand --version).Trim()
+    if (-not (Test-DshVersion $DshVersionText)) { $MissingPackages += "@deepseek-ai/dsh@$RequiredDshVersion" }
+  }
   if ($MissingPackages.Count -gt 0) {
-    Write-Host ("正在补齐：" + ($MissingPackages -join '、') + '……')
+    Write-Host ("正在安装或升级：" + ($MissingPackages -join '、') + '……')
     New-Item -ItemType Directory -Force -Path $RuntimeRoot | Out-Null
     & $NpmCommand install --global --prefix $RuntimeRoot @MissingPackages
     Assert-LastCommand 'pnpm 或 DeepSeek Harness 安装失败。'
@@ -50,7 +70,10 @@ try {
   }
   $PnpmCommand = Resolve-Command 'pnpm'
   if ($null -eq $PnpmCommand) { throw '安装后仍未找到 pnpm。' }
-  if (-not (Test-Command 'dsh')) { throw '安装后仍未找到 DSH。' }
+  $DshCommand = Resolve-Command 'dsh'
+  if ($null -eq $DshCommand) { throw '安装后仍未找到 DSH。' }
+  $DshVersionText = (& $DshCommand --version).Trim()
+  if (-not (Test-DshVersion $DshVersionText)) { throw "DSH 版本仍低于 $RequiredDshVersion。" }
 
   $env:DSH_TAVERN_BIN_DIR = $CommandBin
   $env:Path = "$CommandBin;$env:Path"

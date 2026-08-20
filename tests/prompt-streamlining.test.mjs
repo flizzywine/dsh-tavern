@@ -6,6 +6,8 @@ import { prompt } from '../tavern-plugin/lib/prompt-catalog.js'
 
 const clientSource = await readFile(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
 const serverSource = await readFile(new URL('../tavern-plugin/lib/index.js', import.meta.url), 'utf8')
+const orchestratorSource = await readFile(new URL('../tavern-plugin/lib/domain/turn-orchestration.js', import.meta.url), 'utf8')
+const tavernPresetSource = await readFile(new URL('../presets/tavern/agent.cordis.yml', import.meta.url), 'utf8')
 
 function between(source, start, end) {
   const from = source.indexOf(start)
@@ -20,7 +22,7 @@ test('模型选择只读取当前会话和 DSH 默认值', () => {
   assert.match(serverSource, /当前会话的模型选择器/)
 })
 
-test('素材抽取使用结构化卡片修改工具，不再传递 JSON 字符串', () => {
+test('卡片工作台使用结构化卡片修改工具，不再传递 JSON 字符串', () => {
   assert.doesNotMatch(serverSource, /draftPatch/)
   assert.doesNotMatch(serverSource, /cardPatch|worldBookPatch/)
   assert.match(serverSource, /name: 'tavern_update_card'/)
@@ -31,9 +33,32 @@ test('素材抽取使用结构化卡片修改工具，不再传递 JSON 字符�
 test('模型工具只保留按需读取和明确修改', () => {
   assert.doesNotMatch(serverSource, /name: 'tavern_session'|action=context|action=commit|assistantText.*description/)
   assert.match(serverSource, /name: 'tavern_read_script'/)
+  assert.match(serverSource, /name: 'tavern_read_card'/)
+  assert.match(serverSource, /name: 'tavern_read_source'/)
   assert.match(serverSource, /name: 'tavern_read_worldbook'/)
   assert.match(serverSource, /name: 'tavern_update_card'/)
   assert.doesNotMatch(serverSource, /additionalProperties: true \},\s*render/)
+})
+
+test('卡片 Agent 以极简模式工具为底座，游玩 Agent 不暴露文件工具', () => {
+  assert.match(tavernPresetSource, /@deepseek-ai\/dsh-tool-bash-persistent/)
+  assert.match(tavernPresetSource, /@deepseek-ai\/dsh-tool-pwsh-persistent/)
+  assert.match(tavernPresetSource, /@deepseek-ai\/dsh-tool-str-replace-editor/)
+  assert.match(tavernPresetSource, /disabled: !!js process\.platform === 'win32'/)
+  assert.match(tavernPresetSource, /disabled: !!js process\.platform !== 'win32'/)
+  assert.match(tavernPresetSource, /shellDialect: pwsh/)
+  assert.match(tavernPresetSource, /Run commands in a PowerShell shell/)
+  assert.match(tavernPresetSource, /Run commands in a bash shell/)
+  assert.match(tavernPresetSource, /State is persistent across command calls and discussions with the user\./)
+  assert.match(tavernPresetSource, /Please avoid commands that may produce a very large amount of output\./)
+  assert.match(tavernPresetSource, /text: ''/)
+  assert.doesNotMatch(tavernPresetSource, /complete: true/)
+  assert.match(serverSource, /text: prompt\(mode === 'card' \? 'card-mode' : 'play-mode'\)/)
+  assert.match(orchestratorSource, /if \(mode === 'card'\) return \[shellToolName, 'str_replace_editor', 'tavern_read_card', 'tavern_read_source', 'tavern_read_script', 'tavern_read_worldbook', 'tavern_update_card'\]/)
+  assert.doesNotMatch(orchestratorSource, /mode === 'revision'|mode === 'extract'/)
+  assert.doesNotMatch(orchestratorSource, /if \(mode === 'script'\) return \[[^\]]*'bash'/)
+  assert.match(serverSource, /controlledToolNames = new Set\(\['bash', 'pwsh', 'str_replace_editor', 'tavern_read_card', 'tavern_read_source', 'tavern_read_script', 'tavern_read_worldbook', 'tavern_update_card'\]\)/)
+  assert.doesNotMatch(serverSource, /name: 'tavern_bind_script'/)
 })
 
 test('候选项 RPC 只返回一份 candidates', () => {
@@ -91,4 +116,30 @@ test('无玩家输入的开场回合不进入正文结算', () => {
   assert.match(lifecycle, /const userText = userTextForTurn\(session, payload\.turn\)/)
   assert.match(lifecycle, /if \(userText === ''\) return/)
   assert.match(lifecycle, /userText,\s*assistantText:/)
+})
+
+test('只有人物卡开场白时不启动姿势结算', () => {
+  const sessionView = between(serverSource, 'async function sessionView', 'async function ensureNativeOpening')
+
+  assert.match(sessionView, /chat\.messages\.some\(function \(message\)/)
+  assert.match(sessionView, /message\.greeting !== true/)
+  assert.doesNotMatch(sessionView, /chat\.messages\.length > 0/)
+})
+
+test('开场白切换原地替换原生消息，并同步剧本对齐与酒馆记录', () => {
+  const startChat = between(serverSource, 'async function startChat', 'async function appendNativeOpening')
+  const switchOpening = between(serverSource, 'async function switchOpening', '// ---------- HTTP RPC')
+  const appendOpening = between(serverSource, 'async function appendNativeOpening', 'async function scriptPreviewOf')
+
+  assert.match(startChat, /resolveCardOpening\(card, selectedOpeningId\)/)
+  assert.match(startChat, /chat\.openingText = greeting/)
+  assert.match(startChat, /startAligned\(script, greeting, card\.script_start\)/)
+  assert.match(startChat, /text: greeting.*greeting: true/)
+  assert.match(appendOpening, /typeof chat\.openingText === 'string'/)
+  assert.match(appendOpening, /text = chat\.openingText/)
+  assert.match(switchOpening, /本轮正文开始后不能切换开场白/)
+  assert.match(switchOpening, /surfaceOp: \{ op: 'replace'/)
+  assert.match(switchOpening, /chat\.openingText = greeting/)
+  assert.match(switchOpening, /startAligned\(script, greeting, card\.script_start\)/)
+  assert.match(serverSource, /switchable: !hasStory/)
 })

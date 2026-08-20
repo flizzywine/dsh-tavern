@@ -13,8 +13,11 @@ const names = [
   'candidate-story',
   'candidate-script',
   'posture-settlement',
-  'card-editor',
-  'card-extractor'
+  'play-mode',
+  'card-mode',
+  'card-mode-greeting',
+  'card-task-edit',
+  'card-task-extract'
 ]
 
 test('固定提示词从独立 Markdown 文件完整加载', () => {
@@ -27,10 +30,23 @@ test('固定提示词从独立 Markdown 文件完整加载', () => {
   assert.match(prompt('script-story'), /Guide ＞ 剧本 ＞ 世界一致性 ＞ 本轮演出指引/)
   assert.match(prompt('candidate-script'), /tavern_read_script/)
   assert.match(prompt('candidate-script'), /tavern_point_script/)
-  assert.match(prompt('card-editor'), /目录＋按需读取/)
-  assert.match(prompt('card-editor'), /按编号或关键词调用 tavern_read_worldbook/)
-  assert.match(prompt('card-editor'), /全面审查世界书.*分批读取/s)
-  assert.match(prompt('card-editor'), /条目编号、关键词或想检查的问题/)
+  assert.match(prompt('play-mode'), /本轮演出指引/)
+  assert.ok(prompt('card-mode').startsWith('You are a helpful software engineer assistant.\n\n'))
+  assert.doesNotMatch(prompt('card-mode'), /你具备 DSH 极简模式/)
+  assert.match(prompt('card-mode'), /只是同一个 Agent 的不同起始任务，不是不同模式/)
+  assert.match(prompt('card-mode'), /保持 DSH 极简模式的工作方式/)
+  assert.match(prompt('card-mode'), /tavern_read_card/)
+  assert.match(prompt('card-mode'), /不要为了.*一次读取全部字段/)
+  assert.match(prompt('card-mode'), /“资源库”只列出 Tavern 人物卡、素材和剧本/)
+  assert.match(prompt('card-mode'), /“人物卡库”用于查看和明确编辑人物卡/)
+  assert.match(prompt('card-mode'), /tavern_read_source/)
+  assert.match(prompt('card-mode'), /tavern_read_worldbook/)
+  assert.match(prompt('card-mode-greeting'), /卡片工作台已就绪/)
+  assert.match(prompt('card-mode-greeting'), /右侧“资源库”/)
+  assert.doesNotMatch(prompt('card-mode-greeting'), /自定义 Files/)
+  assert.match(prompt('card-task-edit'), /明确确认后再保存最小变更/)
+  assert.match(prompt('card-task-extract'), /新开一个空白卡片工作台/)
+  assert.throws(() => prompt('card-task-bind-script'), /未知提示词/)
   assert.throws(() => prompt('worldbook-selector'), /未知提示词/)
   assert.throws(() => prompt('missing'), /未知提示词/)
 })
@@ -38,13 +54,13 @@ test('固定提示词从独立 Markdown 文件完整加载', () => {
 test('修改提示词文件后无需重启即可在下一次读取时生效', async (t) => {
   const directory = await mkdtemp(path.join(tmpdir(), 'dsh-tavern-prompts-'))
   t.after(async function () { await rm(directory, { recursive: true, force: true }) })
-  const file = path.join(directory, 'story.md')
-  await writeFile(file, '第一版提示词', 'utf8')
+  const file = path.join(directory, 'card-mode-greeting.md')
+  await writeFile(file, '第一版欢迎语', 'utf8')
   const readPrompt = createPromptCatalog(pathToFileURL(directory + path.sep))
 
-  assert.equal(readPrompt('story'), '第一版提示词')
-  await writeFile(file, '第二版提示词', 'utf8')
-  assert.equal(readPrompt('story'), '第二版提示词')
+  assert.equal(readPrompt('card-mode-greeting'), '第一版欢迎语')
+  await writeFile(file, '第二版欢迎语', 'utf8')
+  assert.equal(readPrompt('card-mode-greeting'), '第二版欢迎语')
 })
 
 test('业务模块不再内嵌固定角色提示词', async () => {

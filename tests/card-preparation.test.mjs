@@ -137,7 +137,7 @@ test('手动编辑与对话式 patch 使用同一个 update interface', () => {
   assert.deepEqual(unchanged.changedFields, [])
 })
 
-test('素材抽取 draft 的 player 不是人物卡字段，finalize 校验玩家与角色视角', () => {
+test('卡片工作台草稿的 player 不是人物卡字段，保存时校验玩家与角色视角', () => {
   const cards = moduleUnderTest()
   const draftChange = cards.update({
     kind: 'draft',
@@ -150,15 +150,15 @@ test('素材抽取 draft 的 player 不是人物卡字段，finalize 校验玩�
   assert.equal(draftChange.card.player, undefined)
 
   const finalized = cards.create({
-    kind: 'extract',
+    kind: 'draft',
     draft: draftChange.card,
     player: draftChange.player,
     sourceIds: ['src-1']
   })
   assert.match(finalized.creator_notes, /\[玩家\] 旅行者/)
 
-  assert.throws(() => cards.create({ kind: 'extract', draft: { name: '阿芙拉' }, player: '', sourceIds: [] }), /玩家.*没有确认/)
-  assert.throws(() => cards.create({ kind: 'extract', draft: { name: '阿芙拉', system_prompt: '你是阿芙拉' }, player: '旅行者', sourceIds: [] }), /第二人称|玩家身份冲突/)
+  assert.throws(() => cards.create({ kind: 'draft', draft: { name: '阿芙拉' }, player: '', sourceIds: [] }), /玩家.*没有确认/)
+  assert.throws(() => cards.create({ kind: 'draft', draft: { name: '阿芙拉', system_prompt: '你是阿芙拉' }, player: '旅行者', sourceIds: [] }), /第二人称|玩家身份冲突/)
 })
 
 test('未知 patch 字段明确失败，避免 Agent 输出被静默丢弃', () => {
