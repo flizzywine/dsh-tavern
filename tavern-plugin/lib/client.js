@@ -5,6 +5,7 @@ window.__ModuleLoader__.load({
 		var exports = module.exports;
 			Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
 			let React = require("react");
+			let { createPortal } = require("react-dom");
 
 			const TAVERN_CSS = `
 .dsh-tavern-spacer { flex: 1 1 auto; }
@@ -55,6 +56,14 @@ body.dsh-tavern-shell-active button[aria-label="新建会话"], body.dsh-tavern-
 .dsh-tavern-card-pick b { display: block; color: #a66b35; }
 .dsh-tavern-card-pick span { display: block; margin-top: 3px; color: var(--dsw-alias-label-secondary); font-size: 11px; line-height: 1.4; }
 .dsh-tavern-card-pick-wrap { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 5px; align-items: stretch; }
+.dsh-tavern-opening-switch-host { display: flex; flex-direction: column; align-items: stretch; width: 100%; box-sizing: border-box; padding: 0 12px 8px; }
+.dsh-tavern-opening-copy { white-space: pre-wrap; color: inherit; font: inherit; line-height: 1.75; }
+.dsh-tavern-opening-switch-wrap { display: flex; justify-content: center; padding-top: 6px; }
+.dsh-tavern-opening-switch { display: inline-flex; align-items: center; gap: 7px; padding: 3px 7px; border: 1px solid rgba(166,107,53,.38); border-radius: 999px; background: rgba(166,107,53,.08); color: var(--dsw-alias-label-secondary); font-size: 11px; }
+.dsh-tavern-opening-switch button { width: 24px; height: 24px; border: 0; border-radius: 50%; background: transparent; color: #a66b35; cursor: pointer; font-size: 17px; line-height: 1; }
+.dsh-tavern-opening-switch button:hover { background: rgba(166,107,53,.16); }
+.dsh-tavern-opening-switch button:disabled { color: var(--dsw-alias-label-tertiary); cursor: default; opacity: .45; }
+.dsh-tavern-opening-switch-error { margin-left: 4px; color: #c45f5f; }
 .dsh-tavern-script-file { align-self: center; white-space: nowrap; border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; background: transparent; color: var(--dsw-alias-label-secondary); padding: 6px 8px; cursor: pointer; font-size: 11px; }
 .dsh-tavern-script-file:hover { border-color: #a56d3c; color: #a66b35; }
 .dsh-tavern-choice-trigger { border: 1px solid rgba(166,107,53,.55); background: rgba(166,107,53,.10); color: #a66b35; cursor: pointer; padding: 3px 9px; border-radius: 7px; font-size: 12px; font-weight: 650; }
@@ -841,6 +850,76 @@ body.dsh-tavern-shell-active button[aria-label="新建会话"], body.dsh-tavern-
 			return h(TavernStatusPanel, { sessionId: props.sessionId, useSession: useSession });
 		}
 
+		function OpeningSwitcher(props) {
+			const [view, setView] = React.useState(null);
+			const [host, setHost] = React.useState(null);
+			const [busy, setBusy] = React.useState(false);
+			const [error, setError] = React.useState("");
+			const sessionState = props.useSession(function (snapshot) {
+				const nodes = snapshot.nodes || [];
+				const latest = nodes.length > 0 ? nodes[nodes.length - 1] : null;
+				return String(snapshot.running === true) + ":" + String(latest && (latest.messageId || latest.id) || nodes.length);
+			});
+			React.useEffect(function () {
+				let stopped = false;
+				rpc("getSession", {}, props.sessionId).then(function (result) {
+					if (!stopped) { setView(result.view || null); setError(""); }
+				}, function (err) { if (!stopped) setError(String(err && err.message || err)); });
+				return function () { stopped = true; };
+			}, [props.sessionId, sessionState]);
+			const opening = view && view.opening;
+			const visible = opening && opening.total > 1;
+			const canSwitch = visible && opening.switchable === true && !sessionState.startsWith("true:");
+			React.useEffect(function () {
+				if (!visible) { setHost(null); return; }
+				let container = null;
+				let owner = null;
+				let previousDisplay = "";
+				function restoreOwner() {
+					if (owner) owner.style.display = previousDisplay;
+					owner = null;
+				}
+				function attach() {
+					if (container && container.isConnected && owner && owner.isConnected) return;
+					if (container) container.remove();
+					restoreOwner();
+					owner = document.querySelector('[data-chat-flow-kind="assistant-step"]');
+					if (!owner) return;
+					previousDisplay = owner.style.display;
+					owner.style.display = "none";
+					container = document.createElement("div");
+					container.className = "dsh-tavern-opening-switch-host";
+					container.dataset.tavernOpeningSwitch = props.sessionId;
+					owner.insertAdjacentElement("afterend", container);
+					setHost(container);
+				}
+				attach();
+				const observer = new MutationObserver(attach);
+				observer.observe(document.body, { childList: true, subtree: true });
+				return function () { observer.disconnect(); if (container) container.remove(); restoreOwner(); };
+			}, [props.sessionId, !!visible]);
+			async function switchChoice(direction) {
+				if (busy) return;
+				setBusy(true); setError("");
+				try {
+					const result = await rpc("switchOpening", { direction: direction }, props.sessionId);
+					setView(result.view || null);
+				} catch (err) { setError(String(err && err.message || err)); }
+				finally { setBusy(false); }
+			}
+			if (!host || !visible) return null;
+			const h = React.createElement;
+			return createPortal(h(React.Fragment, null,
+				h("div", { className: "dsh-tavern-opening-copy" }, opening.text || ""),
+				canSwitch ? h("div", { className: "dsh-tavern-opening-switch-wrap" }, h("div", { className: "dsh-tavern-opening-switch" },
+					h("button", { type: "button", title: "上一条开场白", disabled: busy || !opening.canPrevious, onClick: function () { switchChoice("previous"); } }, "‹"),
+					h("span", null, "开场白：" + opening.index + "/" + opening.total),
+					h("button", { type: "button", title: "下一条开场白", disabled: busy || !opening.canNext, onClick: function () { switchChoice("next"); } }, "›"),
+					error ? h("span", { className: "dsh-tavern-opening-switch-error" }, error) : null
+				)) : null
+			), host);
+		}
+
 		const candidatePanel = { value: null, listeners: new Set() };
 		function setCandidatePanel(value) {
 			candidatePanel.value = value;
@@ -1308,6 +1387,10 @@ body.dsh-tavern-shell-active button[aria-label="新建会话"], body.dsh-tavern-
 					openStatusTab: function (sessionId) { ctx.betterSidebar.openTab({ type: "dsh-tavern:status" }, { sessionId: sessionId }); }
 				})); }
 			)), "dsh-tavern: Tavern workspace browser");
+			ctx.effect(() => slots.inject("conversation.input.dock", () => slots.register(
+				{ name: "conversation.input.dock", id: "dsh-tavern-opening-switch", order: -140, label: "切换开场白" },
+				function (props) { return React.createElement(OpeningSwitcher, props); }
+			)), "dsh-tavern: opening switch");
 			ctx.effect(() => slots.inject("conversation.input.dock", () => slots.register(
 				{ name: "conversation.input.dock", id: "dsh-tavern-candidate-actions", order: -130, label: "候选项操作" },
 				function (props) { return React.createElement(CandidateDockActions, props); }

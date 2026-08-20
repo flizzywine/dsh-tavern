@@ -92,3 +92,23 @@ test('无玩家输入的开场回合不进入正文结算', () => {
   assert.match(lifecycle, /if \(userText === ''\) return/)
   assert.match(lifecycle, /userText,\s*assistantText:/)
 })
+
+test('只有人物卡开场白时不启动姿势结算', () => {
+  const sessionView = between(serverSource, 'async function sessionView', 'async function ensureNativeOpening')
+  assert.match(sessionView, /message\.greeting !== true/)
+  assert.doesNotMatch(sessionView, /chat\.messages\.length > 0/)
+})
+
+test('人物卡原版与清理后的工作版分开保存', () => {
+  const importFlow = between(serverSource, 'async function importCard', 'async function listCards')
+  assert.match(importFlow, /originals\/cards/)
+  assert.match(importFlow, /cleanWorkspaceCardMacros\(card\)/)
+})
+
+test('开场白切换替换原生消息并同步酒馆记录', () => {
+  const flow = between(serverSource, 'async function switchOpening', '// ---------- HTTP RPC')
+  assert.match(flow, /本轮正文开始后不能切换开场白/)
+  assert.match(flow, /surfaceOp: \{ op: 'replace'/)
+  assert.match(flow, /chat\.openingText = greeting/)
+  assert.match(flow, /startAligned\(script, greeting, card\.script_start\)/)
+})
