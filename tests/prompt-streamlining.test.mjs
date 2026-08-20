@@ -105,10 +105,15 @@ test('人物卡原版与清理后的工作版分开保存', () => {
   assert.match(importFlow, /cleanWorkspaceCardMacros\(card\)/)
 })
 
-test('开场白切换替换原生消息并同步酒馆记录', () => {
-  const flow = between(serverSource, 'async function switchOpening', '// ---------- HTTP RPC')
-  assert.match(flow, /本轮正文开始后不能切换开场白/)
-  assert.match(flow, /surfaceOp: \{ op: 'replace'/)
-  assert.match(flow, /chat\.openingText = greeting/)
-  assert.match(flow, /startAligned\(script, greeting, card\.script_start\)/)
+test('游玩固定选择一个开场白，并用它对齐剧本', () => {
+  const startChat = between(serverSource, 'async function startChat', 'async function appendNativeOpening')
+  const appendOpening = between(serverSource, 'async function appendNativeOpening', 'async function scriptPreviewOf')
+
+  assert.match(startChat, /resolveCardOpening\(card\)/)
+  assert.match(startChat, /chat\.openingText = greeting/)
+  assert.match(startChat, /startAligned\(script, greeting, card\.script_start\)/)
+  assert.match(startChat, /text: greeting.*greeting: true/)
+  assert.match(appendOpening, /typeof chat\.openingText === 'string'/)
+  assert.match(appendOpening, /text = chat\.openingText/)
+  assert.doesNotMatch(serverSource, /switchOpening|openingViewOf|openingId|switchable: !hasStory/)
 })

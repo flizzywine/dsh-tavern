@@ -4,7 +4,7 @@ import { createBackgroundAgentRunner } from './background-agent-runner.js'
 import { createCandidateGenerator } from './domain/candidate-generation.js'
 import { createCardPreparation } from './domain/card-preparation.js'
 import { cleanWorkspaceCardMacros } from './domain/card-macros.js'
-import { cardOpeningChoices, resolveCardOpening } from './domain/card-openings.js'
+import { resolveCardOpening } from './domain/card-openings.js'
 import { createContextPlanner } from './domain/context-planner.js'
 import { createScriptContinuity } from './domain/script-continuity.js'
 import { createStoryTimeline } from './domain/story-timeline.js'
@@ -461,28 +461,7 @@ export function apply(ctx) {
       guides: Array.isArray(chat.guides) ? chat.guides : [],
       settleStatus: chat.settleStatus || 'idle',
       scriptProgress: scriptProgress,
-      opening: openingViewOf(chat, card),
       updatedAt: chat.updatedAt || 0
-    }
-  }
-  function openingViewOf(chat, card) {
-    const mode = chat.mode || 'story'
-    if (card === null || card === undefined || (mode !== 'story' && mode !== 'script')) return null
-    const choices = cardOpeningChoices(card)
-    if (choices.length <= 1) return null
-    const hasStory = (chat.messages || []).some(function (message) {
-      return message !== null && typeof message === 'object' && message.greeting !== true
-    })
-    let current = choices.findIndex(function (choice) { return choice.id === chat.openingId })
-    if (current < 0 && typeof chat.openingText === 'string') current = choices.findIndex(function (choice) { return renderCardText(choice.text, card) === chat.openingText })
-    if (current < 0) current = 0
-    return {
-      index: current + 1,
-      total: choices.length,
-      text: typeof chat.openingText === 'string' ? chat.openingText : renderCardText(choices[current].text, card),
-      switchable: !hasStory,
-      canPrevious: current > 0,
-      canNext: current + 1 < choices.length
     }
   }
   function revisionGreeting(cardName) {
@@ -506,12 +485,10 @@ export function apply(ctx) {
         return await view(current, card)
       }
     }
-    const selectedOpeningId = requestedMode === 'revision' ? '' : (cardOpeningChoices(card)[0]?.id || 'default')
     const greeting = requestedMode === 'revision'
       ? revisionGreeting(card.name)
-      : renderCardText(resolveCardOpening(card, selectedOpeningId), card)
+      : renderCardText(resolveCardOpening(card), card)
     const chat = newChat(card, requestedMode || 'story')
-    chat.openingId = selectedOpeningId
     chat.openingText = greeting
     if (chat.mode === 'script') {
       chat.scriptState = scriptContinuity.startAligned(script, greeting, card.script_start)
@@ -1248,72 +1225,6 @@ export function apply(ctx) {
     return result
   }
 
-  async function switchOpening(sessionId, direction) {
-    const chat = await chatForSession(sessionId)
-    if (chat === undefined) throw new Error('聊天不存在')
-    const mode = chat.mode || 'story'
-    if (mode !== 'story' && mode !== 'script') throw new Error('当前不是游玩对话')
-    const card = await readChatCard(chat)
-    const choices = cardOpeningChoices(card)
-    if (choices.length <= 1) throw new Error('人物卡没有可切换的备选开场白')
-
-    const agents = ctx.get('agents')
-    const agent = agents !== undefined ? agents.get(chat.sessionId) : undefined
-    if (agent === undefined || agent.session === undefined) throw new Error('无法访问 DSH 会话: ' + chat.sessionId)
-    const session = agent.session
-    const events = Array.isArray(session.events) ? session.events : []
-    const nodes = session.surface !== undefined && Array.isArray(session.surface.nodes) ? session.surface.nodes : []
-    const hasStory = (chat.messages || []).some(function (message) {
-      return message !== null && typeof message === 'object' && message.greeting !== true
-    })
-    const hasNativeUser = nodes.some(function (seq) { return events[seq] && events[seq].type === 'user/message' })
-    if (hasStory || hasNativeUser) throw new Error('本轮正文开始后不能切换开场白')
-
-    let current = choices.findIndex(function (choice) { return choice.id === chat.openingId })
-    if (current < 0 && typeof chat.openingText === 'string') current = choices.findIndex(function (choice) { return renderCardText(choice.text, card) === chat.openingText })
-    if (current < 0) current = 0
-    const step = direction === 'previous' ? -1 : (direction === 'next' ? 1 : 0)
-    const target = current + step
-    if (step === 0 || target < 0 || target >= choices.length) throw new Error('开场白已经到头了')
-
-    let openingSeq = -1
-    let openingEvent = null
-    for (const seq of nodes) {
-      const event = events[seq]
-      if (event && event.type === 'assistant/message') { openingSeq = Number(seq); openingEvent = event; break }
-    }
-    if (openingSeq < 0 || openingEvent === null) throw new Error('原生消息流中找不到开场白')
-    const source = openingEvent.data && openingEvent.data.message ? openingEvent.data.message.source : null
-    if (source === null || typeof source !== 'object') throw new Error('开场白缺少模型来源')
-
-    const selected = choices[target]
-    const greeting = renderCardText(resolveCardOpening(card, selected.id), card)
-    session.append('assistant/message', {
-      turn: Math.max(1, Number(openingEvent.data && openingEvent.data.turn) || 1),
-      step: Math.max(1, Number(openingEvent.data && openingEvent.data.step) || 1),
-      message: {
-        id: crypto.randomUUID(), role: 'assistant',
-        content: [{ type: 'text', text: greeting }], source
-      }
-    }, {
-      surfaceOp: { op: 'replace', start: openingSeq, end: openingSeq },
-      sourceEventSeqs: [openingSeq]
-    })
-
-    chat.openingId = selected.id
-    chat.openingText = greeting
-    const greetingIndex = (chat.messages || []).findIndex(function (message) { return message && message.greeting === true })
-    if (greetingIndex >= 0) chat.messages[greetingIndex] = Object.assign({}, chat.messages[greetingIndex], { text: greeting, ts: Date.now() })
-    else chat.messages.unshift({ role: 'assistant', text: greeting, ts: Date.now(), greeting: true })
-    if (mode === 'script') {
-      const script = await readScript(chat.cardId)
-      if (script === undefined || !Array.isArray(script.chunks)) throw new Error('剧本文件不存在，无法切换开场白')
-      chat.scriptState = scriptContinuity.startAligned(script, greeting, card.script_start)
-    }
-    await writeChat(chat)
-    return await view(chat, card)
-  }
-
   // ---------- HTTP RPC（客户端同源 fetch） ----------
   async function dispatch(method, args) {
     switch (method) {
@@ -1339,7 +1250,6 @@ export function apply(ctx) {
       case 'deleteChat': return await deleteChat(args && args.chatId)
       case 'startChat': return { view: await startChat(args && args.cardId, args && args.sessionId, args && args.mode) }
       case 'getSession': return { view: await sessionView(args && args.sessionId) }
-      case 'switchOpening': return { view: await switchOpening(args && args.sessionId, args && args.direction) }
       case 'ensureOpening': return { view: await ensureNativeOpening(args && args.sessionId) }
       case 'getChoices': return { candidates: await candidateGenerator.find({ sessionId: args && args.sessionId, messageId: args && args.messageId }) }
       case 'generateChoices': {

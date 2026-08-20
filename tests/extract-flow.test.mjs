@@ -35,13 +35,8 @@ test('Tavern 只接管会话区域，保留 DSH 原生设置与模型配置入�
   assert.doesNotMatch(clientSource, /slots\.inject\("sidebar",/)
 })
 
-test('多开场白在第一条消息下切换，正文开始后隐藏按钮', () => {
-  assert.match(clientSource, /function OpeningSwitcher/)
-  assert.match(clientSource, /data-chat-flow-kind="assistant-step"/)
-  assert.match(clientSource, /className: "dsh-tavern-opening-copy"/)
-  assert.match(clientSource, /"开场白：" \+ opening\.index \+ "\/" \+ opening\.total/)
-  assert.match(clientSource, /rpc\("switchOpening", \{ direction: direction \}/)
-  assert.match(clientSource, /opening\.switchable === true/)
+test('游玩不提供多开场白切换器', () => {
+  assert.doesNotMatch(clientSource, /OpeningSwitcher|OpeningTurnTail|switchOpening|dsh-tavern-opening|createPortal|MutationObserver/)
 })
 
 test('酒馆状态页注册到 Better Sidebar，不再接管 DSH details', () => {
