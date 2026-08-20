@@ -52,6 +52,7 @@ test('世界书常驻上下文只暴露目录，正文按编号或关键词读�
         name: '黑麦镇',
         entries: [
           { keys: ['钟楼'], content: '钟楼藏着失踪商队的线索。', enabled: true, constant: false },
+          { keys: ['废案'], content: '这条设定已经停用。', enabled: false, constant: true },
           { keys: ['酒馆'], content: '吧台下面藏着一把短弩。', enabled: true, constant: true }
         ]
       }
@@ -63,12 +64,15 @@ test('世界书常驻上下文只暴露目录，正文按编号或关键词读�
   assert.deepEqual(overview.entries[0], {
     ref: 'wb-0', keys: ['钟楼'], comment: '', enabled: true, constant: false, chars: 12
   })
+  assert.deepEqual(overview.entries.map((entry) => entry.ref), ['wb-0', 'wb-2'])
   assert.equal(JSON.stringify(overview).includes('失踪商队'), false)
 
-  const window = cards.present({ card, as: 'world-book-window', ref: 'wb-1' })
-  assert.equal(window.entries[0].ref, 'wb-1')
+  const window = cards.present({ card, as: 'world-book-window', ref: 'wb-2' })
+  assert.equal(window.total, 2)
+  assert.equal(window.entries[0].ref, 'wb-2')
   assert.equal(window.entries[0].entry.content, '吧台下面藏着一把短弩。')
   assert.equal(cards.present({ card, as: 'world-book-window', query: '失踪商队', limit: 1 }).entries[0].ref, 'wb-0')
+  assert.deepEqual(cards.present({ card, as: 'world-book-window', ref: 'wb-1' }).entries, [])
 })
 
 test('世界书按条目合并修改，不要求模型重传整本世界书', () => {

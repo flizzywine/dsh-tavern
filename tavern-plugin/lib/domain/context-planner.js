@@ -2,30 +2,6 @@ function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
 }
 
-function parseJsonLenient(text) {
-  if (text === undefined || text === null || text === '') return {}
-  let source = str(text).trim()
-  if (source.startsWith('```')) {
-    const newline = source.indexOf('\n')
-    if (newline >= 0) source = source.slice(newline + 1)
-    if (source.endsWith('```')) source = source.slice(0, -3)
-    source = source.trim()
-  }
-  try {
-    const value = JSON.parse(source)
-    if (value !== null && typeof value === 'object') return value
-  } catch (error) {}
-  const start = source.indexOf('{')
-  const end = source.lastIndexOf('}')
-  if (start >= 0 && end > start) {
-    try {
-      const value = JSON.parse(source.slice(start, end + 1))
-      if (value !== null && typeof value === 'object') return value
-    } catch (error) {}
-  }
-  return {}
-}
-
 function renderCardText(text, card) {
   return str(text).split('{{char}}').join(str(card && card.name)).split('{{user}}').join('你')
 }
@@ -44,7 +20,9 @@ function worldBookEntries(card) {
       text = str(entry.content)
     }
     if (text === '') continue
-    const keys = Array.isArray(entry.keys) && entry.keys.length > 0 ? entry.keys.join(',') : '设定'
+    const keys = Array.isArray(entry.keys)
+      ? entry.keys.map(function (key) { return str(key).trim() }).filter(Boolean)
+      : []
     entries.push({ id: 'wb-' + index, keys, text, constant: entry.constant === true })
   }
   return entries
@@ -79,9 +57,7 @@ function worldBookOverviewText(overview) {
   const lines = ['【世界书目录 · 《' + (str(overview.name) || '未命名') + '》· ' + (Number(overview.entryCount) || entries.length) + ' 条】']
   if (entries.length === 0) lines.push('无条目')
   for (const entry of entries) {
-    const labels = []
-    labels.push(entry.enabled === false ? '停用' : '启用')
-    labels.push(entry.constant === true ? '常驻' : '按需')
+    const labels = [entry.constant === true ? '常驻' : '关键词触发']
     const identity = Array.isArray(entry.keys) && entry.keys.length > 0 ? entry.keys.join('、') : (str(entry.comment) || '无关键词')
     lines.push('[' + str(entry.ref) + '] ' + labels.join('、') + '｜' + identity + '｜' + (Number(entry.chars) || 0) + ' 字')
   }
@@ -91,66 +67,35 @@ function worldBookOverviewText(overview) {
 export function createContextPlanner(options = {}) {
   if (typeof options.prompt !== 'function') throw new Error('缺少提示词目录')
   const prompt = options.prompt
-  const callModel = typeof options.callModel === 'function' ? options.callModel : async function () { return '{"ids":[]}' }
-  const now = typeof options.now === 'function' ? options.now : Date.now
-  const logger = options.logger || console
-  const selectionCache = new Map()
 
   async function selectWorldBookEntries(input, warnings) {
     const entries = worldBookEntries(input.card).filter(function (entry) { return entry.constant !== true })
     if (entries.length === 0) return []
-    const key = str(input.chat.id) + ':' + (Number(input.nativeTurn) || 0)
-    if (selectionCache.has(key)) return selectionCache.get(key)
-    let selectedIds = entries.length <= 3 ? entries.map(function (entry) { return entry.id }) : []
     const recent = (input.chat.messages || []).slice(-8).map(function (message) {
-      return (message.role === 'assistant' ? '正文' : '玩家') + ': ' + str(message.text)
+      return str(message.text)
     }).join('\n')
-    const recentText = recent + '\n' + str(input.userText).trim()
-    if (entries.length > 3) {
-      try {
-        const raw = await callModel({
-          sessionId: input.sessionId || input.chat.sessionId,
-          temperature: 0.1,
-          maxTokens: 400,
-          system: prompt('worldbook-selector'),
-          messages: [{
-            id: 'worldbook-select-' + now().toString(36),
-            role: 'user',
-            content: [{ type: 'text', text: '【最近剧情】\n' + (recent || '（只有开场白）') + '\n\n【玩家本轮输入】\n' + (str(input.userText).trim() || '（无）') + '\n\n【当前姿势】\n' + (input.chat.posture || '（无）') + '\n\n【可用条目】\n' + entries.map(function (entry) { return '[' + entry.id + '] keys: ' + entry.keys + '\n' + str(entry.text).slice(0, 160) }).join('\n\n') }],
-            source: { kind: 'plugin', plugin: 'dsh-tavern-worldbook' }
-          }]
-        })
-        const parsed = parseJsonLenient(raw)
-        const validIds = new Set(entries.map(function (entry) { return entry.id }))
-        selectedIds = (Array.isArray(parsed.ids) ? parsed.ids : []).map(function (id) { return str(id).trim() }).filter(function (id) { return validIds.has(id) }).slice(0, 3)
-      } catch (error) {
-        warnings.push({ code: 'WORLD_BOOK_MODEL_FAILED', message: str(error && error.message || error) })
-        if (logger && typeof logger.error === 'function') logger.error('dsh-tavern: 世界书条目检索失败，本轮使用确定性回退', str(error && error.message || error))
-        selectedIds = []
-      }
-      if (selectedIds.length === 0) {
-        const matched = []
-        for (const entry of entries) {
-          const keys = str(entry.keys).split(',')
-          if (keys.some(function (keyText) { const key = keyText.trim(); return key !== '' && recentText.includes(key) })) matched.push(entry.id)
-          if (matched.length >= 3) break
-        }
-        selectedIds = matched
-      }
-    }
-    if (selectionCache.size > 200) selectionCache.delete(selectionCache.keys().next().value)
-    selectionCache.set(key, selectedIds)
-    return selectedIds
+    const recentText = (recent + '\n' + str(input.userText).trim()).toLocaleLowerCase()
+    return entries.filter(function (entry) {
+      return entry.keys.some(function (keyText) {
+        const key = str(keyText).trim().toLocaleLowerCase()
+        return key !== '' && recentText.includes(key)
+      })
+    }).map(function (entry) { return entry.id })
   }
 
   function cardSections(input) {
     const sections = []
     const entries = worldBookEntries(input.card)
     const selectedIds = Array.isArray(input.worldBookIds) ? input.worldBookIds : []
-    const selected = entries.filter(function (entry) { return entry.constant === true || selectedIds.includes(entry.id) })
-    const worldBookSection = selected.length > 0
-      ? { kind: 'world-book', required: false, text: '【世界设定】\n' + selected.map(function (entry) { return renderCardText('[' + entry.keys + '] ' + entry.text, input.card) }).join('\n') }
-      : null
+    const constantEntries = entries.filter(function (entry) { return entry.constant === true })
+    const triggeredEntries = entries.filter(function (entry) { return entry.constant !== true && selectedIds.includes(entry.id) })
+    function worldBookSection(kind, selected) {
+      return selected.length > 0
+        ? { kind, required: false, text: '【世界设定】\n' + selected.map(function (entry) { return renderCardText('[' + (entry.keys.join('、') || '无触发词') + '] ' + entry.text, input.card) }).join('\n') }
+        : null
+    }
+    const constantWorldBookSection = worldBookSection('world-book', constantEntries)
+    const triggeredWorldBookSection = worldBookSection('world-book-triggered', triggeredEntries)
     const guides = Array.isArray(input.chat.guides) ? input.chat.guides.filter(function (item) { return item !== null && typeof item === 'object' && str(item.text).trim() !== '' }) : []
     const guideSection = guides.length > 0 ? { kind: 'guide', required: true, text: '【用户指导 Guide · 优先遵循】\n' + guides.map(function (item, index) { return (index + 1) + '. ' + str(item.text).trim() }).join('\n') } : null
     const postureSection = str(input.chat.posture) !== '' ? { kind: 'posture', required: true, text: '【现场 · 主要人物状态（每轮结算更新，务必与之一致）】\n' + input.chat.posture } : null
@@ -170,11 +115,13 @@ export function createContextPlanner(options = {}) {
     if (input.stableFirst === true) {
       sections.push.apply(sections, cardInfoSections)
       sections.push.apply(sections, instructionSections)
-      if (worldBookSection !== null) sections.push(worldBookSection)
+      if (constantWorldBookSection !== null) sections.push(constantWorldBookSection)
+      if (triggeredWorldBookSection !== null) sections.push(triggeredWorldBookSection)
       if (guideSection !== null) sections.push(guideSection)
       if (postureSection !== null) sections.push(postureSection)
     } else {
-      if (worldBookSection !== null) sections.push(worldBookSection)
+      if (constantWorldBookSection !== null) sections.push(constantWorldBookSection)
+      if (triggeredWorldBookSection !== null) sections.push(triggeredWorldBookSection)
       if (postureSection !== null) sections.push(postureSection)
       if (guideSection !== null) sections.push(guideSection)
       sections.push.apply(sections, cardInfoSections)
@@ -217,12 +164,13 @@ export function createContextPlanner(options = {}) {
     }
 
     if (input.purpose === 'candidate') {
+      const selectedIds = await selectWorldBookEntries(input, warnings)
       const stableSections = [{ kind: 'candidate-task', required: true, text: str(input.task) }]
       const dynamicSections = []
       const plannedCardSections = cardSections({
         card: input.card,
         chat: input.chat,
-        worldBookIds: [],
+        worldBookIds: selectedIds,
         includeName: true,
         includeDetails: true,
         includeStyleExample: input.scriptWindow === null || input.scriptWindow === undefined,
@@ -230,7 +178,7 @@ export function createContextPlanner(options = {}) {
         stableFirst: true
       })
       for (const section of plannedCardSections) {
-        if (section.kind === 'guide' || section.kind === 'posture') dynamicSections.push(section)
+        if (section.kind === 'guide' || section.kind === 'posture' || section.kind === 'world-book-triggered') dynamicSections.push(section)
         else stableSections.push(section)
       }
       if (input.scriptWindow !== null && input.scriptWindow !== undefined) {

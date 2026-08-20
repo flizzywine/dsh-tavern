@@ -116,14 +116,19 @@ body.dsh-tavern-shell-active button[aria-label="新建会话"], body.dsh-tavern-
 .dsh-tavern-card-field textarea.large { min-height: 130px; }
 .dsh-tavern-card-advanced { margin: 10px 0; }
 .dsh-tavern-card-advanced summary { cursor: pointer; color: var(--dsw-alias-label-secondary); font-size: 11px; font-weight: 700; }
-.dsh-tavern-worldbook { margin-top: 4px; }
+.dsh-tavern-worldbook { margin-bottom: 14px; padding: 10px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 10px; }
 .dsh-tavern-worldbook-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
 .dsh-tavern-worldbook-title { color: var(--dsw-alias-label-secondary); font-size: 10px; font-weight: 700; }
+.dsh-tavern-worldbook-actions { display: flex; gap: 5px; }
 .dsh-tavern-worldbook-add { border: 1px solid rgba(166,107,53,.55); border-radius: 7px; background: rgba(166,107,53,.10); color: #a66b35; padding: 4px 8px; cursor: pointer; font-size: 11px; font-weight: 650; }
 .dsh-tavern-worldbook-add:hover { background: rgba(166,107,53,.20); }
 .dsh-tavern-worldbook-empty { padding: 10px; border: 1px dashed var(--dsw-alias-border-l2); border-radius: 8px; color: var(--dsw-alias-label-secondary); font-size: 11px; line-height: 1.6; }
+.dsh-tavern-worldbook-group + .dsh-tavern-worldbook-group { margin-top: 12px; }
+.dsh-tavern-worldbook-group-title { margin-bottom: 6px; color: var(--dsw-alias-label-secondary); font-size: 11px; font-weight: 750; }
 .dsh-tavern-worldbook-entry { margin-bottom: 10px; padding: 9px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 9px; background: var(--dsw-alias-interactive-bg-hover); }
 .dsh-tavern-worldbook-entry-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; color: #a66b35; font-size: 11px; font-weight: 700; }
+.dsh-tavern-worldbook-entry-actions { display: flex; align-items: center; gap: 4px; }
+.dsh-tavern-worldbook-kind { border: 1px solid rgba(166,107,53,.45); border-radius: 999px; background: rgba(166,107,53,.08); color: #a66b35; cursor: pointer; padding: 2px 7px; font-size: 10px; }
 .dsh-tavern-worldbook-del { border: 0; border-radius: 6px; background: transparent; color: var(--dsw-alias-label-secondary); cursor: pointer; padding: 2px 6px; font-size: 11px; }
 .dsh-tavern-worldbook-del:hover { color: #c45f5f; background: rgba(196,95,95,.12); }
 .dsh-tavern-worldbook-entry .dsh-tavern-card-field { margin-bottom: 6px; }
@@ -547,9 +552,9 @@ body.dsh-tavern-shell-active button[aria-label="新建会话"], body.dsh-tavern-
 				entries[index] = Object.assign({}, entries[index] || {}, patch);
 				setBook(Object.assign({}, book, { entries: entries }));
 			}
-			function addBookEntry() {
+			function addBookEntry(constant) {
 				const book = draft.character_book || { meta: {}, entries: [] };
-				setBook(Object.assign({}, book, { entries: (book.entries || []).concat([{ keysText: "", content: "", comment: "", enabled: true, constant: false, position: "after_char", insertion_order: (book.entries || []).length, extensions: {} }]) }));
+				setBook(Object.assign({}, book, { entries: (book.entries || []).concat([{ keysText: "", content: "", comment: "", enabled: true, constant: constant === true, position: "after_char", insertion_order: (book.entries || []).length, extensions: {} }]) }));
 			}
 			function removeBookEntry(index) {
 				const book = draft.character_book;
@@ -602,6 +607,52 @@ body.dsh-tavern-shell-active button[aria-label="新建会话"], body.dsh-tavern-
 			}
 			function F(name, label, large) { return React.createElement("div", { className: "dsh-tavern-card-field" }, React.createElement("label", null, label), name === "name" || name === "tags" ? React.createElement("input", { value: draft[name] || "", onChange: function (e) { field(name, e.target.value); } }) : React.createElement("textarea", { className: large ? "large" : "", value: draft[name] || "", onChange: function (e) { field(name, e.target.value); } })); }
 			const h = React.createElement;
+			const rawWorldBookEntries = draft.character_book && Array.isArray(draft.character_book.entries) ? draft.character_book.entries : [];
+			const activeWorldBookEntries = rawWorldBookEntries.map(function (entry, index) { return { entry: entry, index: index }; }).filter(function (item) {
+				const entry = item.entry;
+				return entry && typeof entry === "object" && entry.enabled !== false;
+			});
+			const constantEntries = activeWorldBookEntries.filter(function (item) { return item.entry.constant === true; });
+			const triggeredEntries = activeWorldBookEntries.filter(function (item) { return item.entry.constant !== true; });
+			function worldBookEntry(item) {
+				const entry = item.entry;
+				const index = item.index;
+				const title = entry.comment || entry.keysText || "无触发词";
+				return h("div", { key: index, className: "dsh-tavern-worldbook-entry" },
+					h("div", { className: "dsh-tavern-worldbook-entry-head" },
+						h("span", null, title),
+						h("span", { className: "dsh-tavern-worldbook-entry-actions" },
+							h("button", { className: "dsh-tavern-worldbook-kind", onClick: function () { setBookEntry(index, { constant: entry.constant !== true }); } }, entry.constant === true ? "常驻" : "关键词触发"),
+							h("button", { className: "dsh-tavern-worldbook-del", onClick: function () { removeBookEntry(index); } }, "删除")
+						)
+					),
+					h("div", { className: "dsh-tavern-card-field" },
+						h("label", null, entry.constant === true ? "名称（常驻条目）" : "触发词（逗号分隔）"),
+						h("input", { value: entry.keysText || "", placeholder: "例如：宝玉、贾府、宝二爷", onChange: function (e) { setBookEntry(index, { keysText: e.target.value }); } })
+					),
+					h("div", { className: "dsh-tavern-card-field" },
+						h("label", null, "内容"),
+						h("textarea", { value: entry.content || "", placeholder: "这条世界书的内容", onChange: function (e) { setBookEntry(index, { content: e.target.value }); } })
+					)
+				);
+			}
+			function worldBookGroup(title, entries) {
+				return h("section", { className: "dsh-tavern-worldbook-group" },
+					h("div", { className: "dsh-tavern-worldbook-group-title" }, title + " · " + entries.length),
+					entries.length ? entries.map(worldBookEntry) : h("div", { className: "dsh-tavern-worldbook-empty" }, "暂无")
+				);
+			}
+			const worldBookPanel = h("div", { className: "dsh-tavern-worldbook" },
+				h("div", { className: "dsh-tavern-worldbook-head" },
+					h("span", { className: "dsh-tavern-worldbook-title" }, "世界书 · " + activeWorldBookEntries.length + " 个条目"),
+					h("span", { className: "dsh-tavern-worldbook-actions" },
+						h("button", { className: "dsh-tavern-worldbook-add", onClick: function () { addBookEntry(true); } }, "＋ 常驻"),
+						h("button", { className: "dsh-tavern-worldbook-add", onClick: function () { addBookEntry(false); } }, "＋ 关键词触发")
+					)
+				),
+				worldBookGroup("常驻", constantEntries),
+				worldBookGroup("关键词触发", triggeredEntries)
+			);
 			return h("aside", { className: "dsh-tavern-status" },
 				h("div", { className: "dsh-tavern-status-head" }, h("div", { className: "dsh-tavern-status-title" }, "卡片模式 · 字段编辑"), h("div", { className: "dsh-tavern-status-role" }, props.view.card.name), h("div", { className: "dsh-card-hint" }, "设定对话与手动编辑实时写回同一张卡"),
 					h("div", { className: "dsh-tavern-script-row" },
@@ -612,32 +663,8 @@ body.dsh-tavern-shell-active button[aria-label="新建会话"], body.dsh-tavern-
 					),
 					scriptError ? h("div", { className: "dsh-card-error" }, scriptError) : null
 				),
-				h("div", { className: "dsh-tavern-card-fields" }, F("name", "名称"), F("tags", "标签"), F("description", "角色描述", true), F("personality", "性格"), F("scenario", "场景设定"), F("first_mes", "开场白", true),
-					h("details", { className: "dsh-tavern-card-advanced" }, h("summary", null, "高级字段"), F("alternate_greetings", "备选开场白（--- 分隔）"), F("system_prompt", "系统提示"), F("post_history_instructions", "历史后指令"), F("mes_example", "对话示例", true), F("creator_notes", "创作者备注"),
-						h("div", { className: "dsh-tavern-worldbook" },
-							h("div", { className: "dsh-tavern-worldbook-head" },
-								h("span", { className: "dsh-tavern-worldbook-title" }, "世界书 · " + (draft.character_book && Array.isArray(draft.character_book.entries) ? draft.character_book.entries.length : 0) + " 个条目"),
-								h("button", { className: "dsh-tavern-worldbook-add", onClick: addBookEntry }, "＋ 添加条目")
-							),
-							(draft.character_book && draft.character_book.entries && draft.character_book.entries.length)
-								? draft.character_book.entries.map(function (entry, index) {
-									return h("div", { key: index, className: "dsh-tavern-worldbook-entry" },
-										h("div", { className: "dsh-tavern-worldbook-entry-head" },
-											h("span", null, "条目 " + (index + 1)),
-											h("button", { className: "dsh-tavern-worldbook-del", onClick: function () { removeBookEntry(index); } }, "删除")
-										),
-										h("div", { className: "dsh-tavern-card-field" },
-											h("label", null, "名称（触发词，逗号分隔）"),
-											h("input", { value: entry.keysText || "", placeholder: "例如：宝玉、贾府、宝二爷", onChange: function (e) { setBookEntry(index, { keysText: e.target.value }); } })
-										),
-										h("div", { className: "dsh-tavern-card-field" },
-											h("label", null, "内容"),
-											h("textarea", { value: entry.content || "", placeholder: "这条世界书的内容", onChange: function (e) { setBookEntry(index, { content: e.target.value }); } })
-										)
-									);
-								})
-								: h("div", { className: "dsh-tavern-worldbook-empty" }, "暂无世界书条目。点击“＋ 添加条目”后，可分别编辑每条的名称与内容；未展示的字段会原样保留。")
-						)),
+				h("div", { className: "dsh-tavern-card-fields" }, F("name", "名称"), F("tags", "标签"), F("description", "角色描述", true), F("personality", "性格"), F("scenario", "场景设定"), F("first_mes", "开场白", true), worldBookPanel,
+					h("details", { className: "dsh-tavern-card-advanced" }, h("summary", null, "高级字段"), F("alternate_greetings", "备选开场白（--- 分隔）"), F("system_prompt", "系统提示"), F("post_history_instructions", "历史后指令"), F("mes_example", "对话示例", true), F("creator_notes", "创作者备注")),
 					error ? h("div", { className: "dsh-card-error" }, error) : null,
 					h("div", { className: "dsh-tavern-card-save" }, h("button", { className: "dsh-card-primary", disabled: busy, onClick: save }, busy ? "保存中…" : "保存字段"))
 				)

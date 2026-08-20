@@ -12,7 +12,6 @@ const names = [
   'script-story',
   'candidate-story',
   'candidate-script',
-  'worldbook-selector',
   'posture-settlement',
   'card-editor',
   'card-extractor'
@@ -32,6 +31,7 @@ test('固定提示词从独立 Markdown 文件完整加载', () => {
   assert.match(prompt('card-editor'), /按编号或关键词调用 tavern_read_worldbook/)
   assert.match(prompt('card-editor'), /全面审查世界书.*分批读取/s)
   assert.match(prompt('card-editor'), /条目编号、关键词或想检查的问题/)
+  assert.throws(() => prompt('worldbook-selector'), /未知提示词/)
   assert.throws(() => prompt('missing'), /未知提示词/)
 })
 

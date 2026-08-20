@@ -19,7 +19,8 @@ function card() {
         { keys: ['钟楼'], content: '钟楼藏着失踪商队的线索。', enabled: true },
         { keys: ['无关'], content: '遥远王都的资料。', enabled: true },
         { keys: ['旧矿井'], content: '矿井已经封闭。', enabled: true },
-        { keys: ['河港'], content: '河港停着三艘货船。', enabled: true }
+        { keys: ['河港'], content: '河港停着三艘货船。', enabled: true },
+        { keys: ['废案'], content: '停用条目不应出现。', constant: true, enabled: false }
       ]
     }
   }
@@ -35,7 +36,7 @@ function chat(messages = [{ role: 'assistant', text: '开场', greeting: true }]
   }
 }
 
-test('正文首轮只选择必要世界书并完整替换人物卡模板变量', async () => {
+test('正文按触发词选择世界书且不调用模型，并完整替换人物卡模板变量', async () => {
   const calls = []
   const planner = createContextPlanner({
     prompt,
@@ -54,11 +55,11 @@ test('正文首轮只选择必要世界书并完整替换人物卡模板变量',
     scriptReference: { order: 7, text: '两人沿石阶进入钟楼。' }
   })
 
-  assert.equal(calls.length, 1)
-  assert.match(calls[0].system, /世界书条目检索器/)
+  assert.equal(calls.length, 0)
   assert.match(result.text, /黑麦镇常年下雨/)
   assert.match(result.text, /钟楼藏着失踪商队的线索/)
   assert.doesNotMatch(result.text, /遥远王都/)
+  assert.doesNotMatch(result.text, /停用条目/)
   assert.match(result.text, /阿芙拉 是银发佣兵/)
   assert.match(result.text, /你 在旅店遇见 阿芙拉/)
   assert.doesNotMatch(result.text, /文风示例|跟紧我/)
@@ -166,19 +167,45 @@ test('剧本候选注入人物卡但排除文风示例，剧本块放在动态�
   assert.doesNotMatch(result.dynamicText, /剧本候选任务|名字: 阿芙拉|谨慎而直接|保持冷静/)
 })
 
-test('世界书模型失败时用关键词确定性回退，不阻断正文规划', async () => {
-  const planner = createContextPlanner({ prompt, callModel: async () => { throw new Error('模型不可用') }, logger: { error() {} } })
+test('大量世界书条目只按触发词匹配，命中的条目不受三个上限限制', async () => {
+  let called = false
+  const planner = createContextPlanner({ prompt, callModel: async () => { called = true; throw new Error('不应调用模型') } })
+  const many = card()
+  many.character_book.entries = [
+    { keys: ['甲地'], content: '甲地设定', enabled: true },
+    { keys: ['乙地'], content: '乙地设定', enabled: true },
+    { keys: ['丙地'], content: '丙地设定', enabled: true },
+    { keys: ['丁地'], content: '丁地设定', enabled: true },
+    { keys: ['不命中'], content: '正文里提到甲地也不能反向触发', enabled: true },
+    { keys: ['停用'], content: '停用设定', enabled: false, constant: true }
+  ]
   const result = await planner.plan({
     purpose: 'body',
-    card: card(),
+    card: many,
     chat: chat(),
-    userText: '调查旧矿井',
+    userText: '依次调查甲地、乙地、丙地和丁地',
     sessionId: 'session-1',
     nativeTurn: 9
   })
 
-  assert.match(result.text, /矿井已经封闭/)
-  assert.ok(result.audit.warnings.some((item) => item.code === 'WORLD_BOOK_MODEL_FAILED'))
+  assert.equal(called, false)
+  assert.match(result.text, /甲地设定.*乙地设定.*丙地设定.*丁地设定/s)
+  assert.doesNotMatch(result.text, /反向触发|停用设定/)
+  assert.deepEqual(result.audit.warnings, [])
+})
+
+test('候选项也根据最近剧情触发非常驻世界书', async () => {
+  const planner = createContextPlanner({ prompt, callModel: async () => { throw new Error('不应调用模型') } })
+  const result = await planner.plan({
+    purpose: 'candidate',
+    card: card(),
+    chat: chat([{ role: 'assistant', text: '众人已经来到钟楼门前。' }]),
+    task: '生成候选项',
+    scriptWindow: null
+  })
+
+  assert.match(result.text, /钟楼藏着失踪商队的线索/)
+  assert.doesNotMatch(result.text, /遥远王都|停用条目/)
 })
 
 test('卡片设定与素材抽取也通过同一规划 interface', async () => {

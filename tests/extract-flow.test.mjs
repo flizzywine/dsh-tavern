@@ -59,3 +59,14 @@ test('剧本预览只显示当前召回和后续块', () => {
   assert.match(clientSource, /index === 0 \? "当前召回" : "后续"/)
   assert.doesNotMatch(clientSource, /上一块（已召回）|当前待召回|scriptPreview\.previous/)
 })
+
+test('卡片右栏在基本信息后展示世界书，隐藏停用条目并把常驻排在关键词触发前面', () => {
+  const panel = between(clientSource, 'function RevisionFieldsPanel', 'function ExtractPanel')
+
+  assert.match(panel, /entry\.enabled !== false/)
+  assert.match(panel, /constantEntries/)
+  assert.match(panel, /triggeredEntries/)
+  assert.match(panel, /"常驻"/)
+  assert.match(panel, /"关键词触发"/)
+  assert.ok(panel.indexOf('F("first_mes", "开场白", true)') < panel.indexOf('worldBookPanel,'))
+})

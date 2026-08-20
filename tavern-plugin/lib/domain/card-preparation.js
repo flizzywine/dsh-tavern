@@ -51,14 +51,18 @@ function worldBookRef(value, total) {
 function worldBookOverview(card) {
   const book = worldBookOf(card)
   if (book === null) return null
-  const entries = worldBookEntries(book)
+  const entries = worldBookEntries(book).map(function (entry, index) { return { entry, index } }).filter(function (item) {
+    const entry = item.entry
+    return entry !== null && typeof entry === 'object' && entry.enabled !== false
+  })
   return {
     name: str(book.name),
     entryCount: entries.length,
-    entries: entries.map(function (entry, index) {
+    entries: entries.map(function (item) {
+      const entry = item.entry
       const source = entry !== null && typeof entry === 'object' ? entry : {}
       return {
-        ref: 'wb-' + index,
+        ref: 'wb-' + item.index,
         keys: normalizedList(source.keys, 30),
         comment: str(source.comment || source.name).trim(),
         enabled: source.enabled !== false,
@@ -73,6 +77,10 @@ function worldBookWindow(card, request) {
   const book = worldBookOf(card)
   if (book === null) return null
   const entries = worldBookEntries(book)
+  const activeEntries = entries.map(function (entry, index) { return { entry, index } }).filter(function (item) {
+    const entry = item.entry
+    return entry !== null && typeof entry === 'object' && entry.enabled !== false
+  })
   const query = str(request.query).trim().toLowerCase()
   const ref = str(request.ref).trim()
   const rawLimit = Number(request.limit)
@@ -80,21 +88,22 @@ function worldBookWindow(card, request) {
   let selected = []
   if (ref !== '') {
     const index = worldBookRef(ref, entries.length)
-    selected = [{ index, entry: entries[index] }]
+    selected = activeEntries.filter(function (item) { return item.index === index })
   } else if (query !== '') {
-    for (let index = 0; index < entries.length && selected.length < limit; index++) {
-      const entry = entries[index] !== null && typeof entries[index] === 'object' ? entries[index] : {}
+    for (const item of activeEntries) {
+      if (selected.length >= limit) break
+      const entry = item.entry
       const haystack = [str(entry.comment), str(entry.name), normalizedList(entry.keys, 30).join(' '), entryContentText(entry)].join('\n').toLowerCase()
-      if (haystack.includes(query)) selected.push({ index, entry })
+      if (haystack.includes(query)) selected.push(item)
     }
   } else {
     const rawOffset = Number(request.offset)
-    const start = Number.isInteger(rawOffset) && rawOffset >= 1 ? Math.min(entries.length, rawOffset - 1) : 0
-    selected = entries.slice(start, start + limit).map(function (entry, relative) { return { index: start + relative, entry } })
+    const start = Number.isInteger(rawOffset) && rawOffset >= 1 ? Math.min(activeEntries.length, rawOffset - 1) : 0
+    selected = activeEntries.slice(start, start + limit)
   }
   return {
     name: str(book.name),
-    total: entries.length,
+    total: activeEntries.length,
     ref,
     query,
     entries: selected.map(function (item) { return { ref: 'wb-' + item.index, entry: clone(item.entry) } })
