@@ -20,17 +20,12 @@ test('卡片模式从空白工作台直接进入 Agent 对话', () => {
   assert.match(flow, /publishSessionMode\(sessionId, "card"\)/)
 })
 
-test('新开游玩直接进入对话，并在第一条开场白下临时切换', () => {
+test('新开游玩直接进入对话，不提供多开场白切换器', () => {
   const sidebar = between(clientSource, 'function TavernSidebar', 'function TavernResourcesTab')
 
   assert.doesNotMatch(sidebar, /getCardOpenings|openingChoices|openingCard|选择开场白/)
   assert.match(sidebar, /onClick: function \(\) \{ newConversation\(card\); \}/)
-  assert.match(clientSource, /function OpeningSwitcher/)
-  assert.match(clientSource, /createPortal/)
-  assert.match(clientSource, /data-chat-flow-kind="assistant-step"/)
-  assert.match(clientSource, /className: "dsh-tavern-opening-copy"/)
-  assert.match(clientSource, /"开场白：" \+ opening\.index \+ "\/" \+ opening\.total/)
-  assert.match(clientSource, /rpc\("switchOpening", \{ direction: direction \}/)
+  assert.doesNotMatch(clientSource, /OpeningSwitcher|OpeningTurnTail|switchOpening|dsh-tavern-opening|createPortal|MutationObserver/)
 })
 
 test('卡片模式通过修改、抽取和空白三个入口进入同一个 Agent', () => {

@@ -126,20 +126,15 @@ test('只有人物卡开场白时不启动姿势结算', () => {
   assert.doesNotMatch(sessionView, /chat\.messages\.length > 0/)
 })
 
-test('开场白切换原地替换原生消息，并同步剧本对齐与酒馆记录', () => {
+test('游玩固定选择一个开场白，并用它对齐剧本', () => {
   const startChat = between(serverSource, 'async function startChat', 'async function appendNativeOpening')
-  const switchOpening = between(serverSource, 'async function switchOpening', '// ---------- HTTP RPC')
   const appendOpening = between(serverSource, 'async function appendNativeOpening', 'async function scriptPreviewOf')
 
-  assert.match(startChat, /resolveCardOpening\(card, selectedOpeningId\)/)
+  assert.match(startChat, /resolveCardOpening\(card\)/)
   assert.match(startChat, /chat\.openingText = greeting/)
   assert.match(startChat, /startAligned\(script, greeting, card\.script_start\)/)
   assert.match(startChat, /text: greeting.*greeting: true/)
   assert.match(appendOpening, /typeof chat\.openingText === 'string'/)
   assert.match(appendOpening, /text = chat\.openingText/)
-  assert.match(switchOpening, /本轮正文开始后不能切换开场白/)
-  assert.match(switchOpening, /surfaceOp: \{ op: 'replace'/)
-  assert.match(switchOpening, /chat\.openingText = greeting/)
-  assert.match(switchOpening, /startAligned\(script, greeting, card\.script_start\)/)
-  assert.match(serverSource, /switchable: !hasStory/)
+  assert.doesNotMatch(serverSource, /switchOpening|openingViewOf|openingId|switchable: !hasStory/)
 })

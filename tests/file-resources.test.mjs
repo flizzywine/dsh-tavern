@@ -43,7 +43,7 @@ test('导入 EPUB 时原版保留二进制，工作版保存抽取正文', async
   } finally { await rm(root, { recursive: true, force: true }) }
 })
 
-test('人物卡原版保持不变，工作版删除不兼容宏与 HTML 整段', async () => {
+test('人物卡原版保持不变，工作版清理宏但完整保留 HTML', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-files-'))
   try {
     const store = createFileResourceStore({ dataRoot: root })
@@ -60,12 +60,11 @@ test('人物卡原版保持不变，工作版删除不兼容宏与 HTML 整段',
 
     assert.equal(await readFile(path.join(root, 'originals', cardPath), 'utf8'), rawText)
     const working = await store.readCard(cardPath)
-    assert.doesNotMatch(working.description, /必须更新状态|不要保留/)
-    assert.equal(working.description, '普通正文：角色。')
-    assert.equal(working.first_mes, '玩家 来到门前。抬头看门。')
-    assert.equal(working.character_book.entries[0].content, '')
-    assert.doesNotMatch(JSON.stringify(working), /\{\{|<\/?[a-z]/i)
-    assert.doesNotMatch(await readFile(path.join(root, 'resources', cardPath), 'utf8'), /setvar|getvar|random|<\/?[a-z]/i)
+    assert.equal(working.description, '<div></div><p></p><b>你好，角色。</b><style>不要保留</style>普通正文：角色。')
+    assert.equal(working.first_mes, '玩家 来到门前。<br>抬头看门。')
+    assert.equal(working.character_book.entries[0].content, '<section>设定  仍然有效。</section><script>不要执行</script>')
+    assert.doesNotMatch(JSON.stringify(working), /\{\{/)
+    assert.match(await readFile(path.join(root, 'resources', cardPath), 'utf8'), /<b>你好，角色。<\/b>|<script>不要执行<\/script>/)
   } finally { await rm(root, { recursive: true, force: true }) }
 })
 
