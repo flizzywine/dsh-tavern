@@ -1360,10 +1360,12 @@ export function apply(ctx) {
     if (session === undefined) return
     const sessionId = session.id
     if (backgroundAgentRunner.owns(sessionId)) return
+    const userText = userTextForTurn(session, payload.turn)
+    if (userText === '') return
     await turnOrchestrator.finalize({
       sessionId,
       turn: payload.turn,
-      userText: userTextForTurn(session, payload.turn),
+      userText,
       assistantText: assistantTextForTurn(session, payload.turn)
     })
   })

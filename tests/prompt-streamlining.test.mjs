@@ -84,3 +84,11 @@ test('后台 Agent 不进入前台正文上下文注入和工具过滤', () => {
   assert.match(lifecycle, /if \(backgroundAgentRunner\.owns\(sessionId\)\) return/)
   assert.match(lifecycle, /if \(backgroundAgentRunner\.owns\(agent\.session\.id\)\) return assembly/)
 })
+
+test('无玩家输入的开场回合不进入正文结算', () => {
+  const lifecycle = between(serverSource, '// ---------- DSH 回合生命周期 ----------', '// ---------- 模型可选工具 ----------')
+
+  assert.match(lifecycle, /const userText = userTextForTurn\(session, payload\.turn\)/)
+  assert.match(lifecycle, /if \(userText === ''\) return/)
+  assert.match(lifecycle, /userText,\s*assistantText:/)
+})

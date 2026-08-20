@@ -156,3 +156,12 @@ test('素材抽取通过同一修改工具更新草稿和玩家身份', async ()
   assert.equal(run.chat().extract.cursor, 1)
   assert.deepEqual(await run.orchestrator.visibleTools('session-1'), ['tavern_update_card'])
 })
+
+test('真实玩家回合缺少 prepare 时仍报 operation 错误', async () => {
+  const run = harness('story')
+
+  await assert.rejects(
+    run.orchestrator.finalize({ sessionId: 'session-1', turn: 1, userText: '向前走', assistantText: '正文' }),
+    /找不到本轮正文 operation/
+  )
+})
