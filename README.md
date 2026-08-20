@@ -10,12 +10,6 @@ dsh-tavern 改用 Agent 的方式处理这些问题：掉格式就拆成多轮�
 
 ![dsh-tavern 游戏游玩界面：正文、输入区与右侧剧情状态](docs/images/demo/09-script-mode.png)
 
-## 在线界面预览
-
-[打开 dsh-tavern 在线预览](https://dsh-tavern-preview.vercel.app/)
-
-在线版复用项目的真实界面，并初始化了“阿芙拉与失踪的银铃商队”公开案例。可以浏览剧本故事、自由故事、候选项、Guide、人物姿势、设定对话、素材抽取和人物卡字段；在线内容仅供功能预览，完整游玩请按下方说明在本地安装。
-
 右侧工作台使用开源项目 [DSH-better-sidebar](https://github.com/omdsh-dev/DSH-better-sidebar) 作为底座。酒馆状态会作为独立 Tab 加入工作台；工作台是否展开由用户控制，并按会话记忆，不再由 Tavern 强制展开。
 
 ## 候选项分轮生成：小功能，但最重要

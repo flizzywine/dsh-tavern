@@ -21,6 +21,7 @@ import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { parseDocument } from 'yaml'
 
 const PROFILE = 'tavern'
 const SCRIPT_PATH = fileURLToPath(import.meta.url)
@@ -30,6 +31,28 @@ const PROFILE_DIR = path.join(DSH_ROOT, 'profiles', PROFILE)
 const LOG_DIR = path.join(DSH_ROOT, 'logs')
 const LOG_FILE = path.join(LOG_DIR, 'tavern.log')
 const PID_FILE = path.join(LOG_DIR, 'tavern.pid.json')
+const SETTINGS_FILE = path.join(DSH_ROOT, 'settings.yaml')
+const TAVERN_SIDEBAR_DEFAULTS = {
+  openByDefault: true,
+  defaultWidthPercent: 30,
+  tabsEnabled: {
+    editor: false,
+    git: false,
+    subagent: false,
+    terminal: false,
+    browser: false,
+    diff: false,
+    'dsh-tavern:status': true,
+  },
+  viewersEnabled: {
+    image: false,
+    pdf: false,
+    markdown: false,
+    html: false,
+    code: false,
+    'binary-download': false,
+  },
+}
 const REQUIRED_SOURCE_FILES = [
   'package.json',
   'cordis.patch.yml',
@@ -41,6 +64,48 @@ const REQUIRED_SOURCE_FILES = [
 function fail(message) {
   console.error(message)
   process.exitCode = 1
+}
+
+function record(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value) ? value : {}
+}
+
+export function applySidebarDefaults(settings = {}) {
+  const document = record(settings)
+  const current = record(document['dsh-better-sidebar'])
+  return {
+    ...document,
+    'dsh-better-sidebar': {
+      ...TAVERN_SIDEBAR_DEFAULTS,
+      ...current,
+      tabsEnabled: {
+        ...TAVERN_SIDEBAR_DEFAULTS.tabsEnabled,
+        ...record(current.tabsEnabled),
+      },
+      viewersEnabled: {
+        ...TAVERN_SIDEBAR_DEFAULTS.viewersEnabled,
+        ...record(current.viewersEnabled),
+      },
+    },
+  }
+}
+
+export function ensureSidebarDefaults(settingsPath = SETTINGS_FILE) {
+  const source = existsSync(settingsPath) ? readFileSync(settingsPath, 'utf8') : ''
+  const yaml = parseDocument(source)
+  if (yaml.errors.length > 0) {
+    throw new Error(`无法读取 DSH 设置：${yaml.errors[0].message}`)
+  }
+  const current = record(yaml.toJS())
+  const next = applySidebarDefaults(current)
+  if (JSON.stringify(next) === JSON.stringify(current)) return false
+
+  yaml.set('dsh-better-sidebar', next['dsh-better-sidebar'])
+  mkdirSync(path.dirname(settingsPath), { recursive: true })
+  const temporary = `${settingsPath}.tmp-${process.pid}`
+  writeFileSync(temporary, yaml.toString(), 'utf8')
+  renameSync(temporary, settingsPath)
+  return true
 }
 
 function sleep(milliseconds) {
@@ -242,6 +307,7 @@ async function installProfile() {
 
   run('pnpm', ['--dir', path.join(SOURCE_ROOT, 'tavern-plugin'), 'install', '--ignore-workspace'])
   writeProfileManifest()
+  ensureSidebarDefaults()
   copyFileSync(path.join(SOURCE_ROOT, 'cordis.patch.yml'), path.join(PROFILE_DIR, 'cordis.patch.yml'))
   copyFileSync(path.join(SOURCE_ROOT, 'pnpm-workspace.yaml'), path.join(PROFILE_DIR, 'pnpm-workspace.yaml'))
   run('pnpm', ['--dir', PROFILE_DIR, 'install'])

@@ -794,7 +794,11 @@ body.dsh-tavern-shell-active button[aria-label="新建会话"], body.dsh-tavern-
 		}
 
 		function TavernStatusTab(props) {
-			const binding = props.sessions.binding(props.sessionId);
+			const binding = React.useSyncExternalStore(
+				function (listener) { return props.sessions.list.subscribe(listener); },
+				function () { return props.sessions.binding(props.sessionId); },
+				function () { return props.sessions.binding(props.sessionId); }
+			);
 			const h = React.createElement;
 			if (!binding) return h("aside", { className: "dsh-tavern-status" },
 				h("div", { className: "dsh-tavern-status-head" }, h("div", { className: "dsh-tavern-status-title" }, "酒馆状态")),

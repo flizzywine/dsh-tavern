@@ -3,12 +3,18 @@ import { readFile } from 'node:fs/promises'
 import net from 'node:net'
 import test from 'node:test'
 
-import { encodeWindowsPowerShellScript, isPortOpen, renderWindowsLauncher } from '../bin/dsh-tavern.mjs'
+import {
+  applySidebarDefaults,
+  encodeWindowsPowerShellScript,
+  isPortOpen,
+  renderWindowsLauncher,
+} from '../bin/dsh-tavern.mjs'
 
 const windowsInstaller = await readFile(new URL('../install.ps1', import.meta.url), 'utf8')
 const unixInstaller = await readFile(new URL('../install.sh', import.meta.url), 'utf8')
 const launcherSource = await readFile(new URL('../bin/dsh-tavern.mjs', import.meta.url), 'utf8')
 const rootManifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
+const profileWorkspace = await readFile(new URL('../pnpm-workspace.yaml', import.meta.url), 'utf8')
 
 test('Windows launcher quotes paths containing spaces and forwards arguments', () => {
   const launcher = renderWindowsLauncher('D:\\My Games\\dsh-tavern\\bin\\dsh-tavern.mjs')
@@ -38,6 +44,38 @@ test('Tavern profile installs Better Sidebar as its right-panel foundation', () 
   assert.equal(rootManifest.dependencies['dsh-better-sidebar'], '0.13.1')
   assert.ok(rootManifest.dsh.profile.bundles.includes('dsh-better-sidebar'))
   assert.match(launcherSource, /'dsh-better-sidebar': source\.dependencies\['dsh-better-sidebar'\]/)
+})
+
+test('Tavern profile does not auto-install Better Sidebar peer dependencies over DSH built-ins', () => {
+  assert.match(profileWorkspace, /^autoInstallPeers:\s*false$/m)
+})
+
+test('Tavern sidebar defaults keep only Tavern status and disable every file preview', () => {
+  const settings = applySidebarDefaults({
+    'unrelated-plugin': { enabled: true },
+    'dsh-better-sidebar': { openByDefault: false },
+  })
+
+  assert.deepEqual(settings['unrelated-plugin'], { enabled: true })
+  assert.equal(settings['dsh-better-sidebar'].openByDefault, false)
+  assert.equal(settings['dsh-better-sidebar'].defaultWidthPercent, 30)
+  assert.deepEqual(settings['dsh-better-sidebar'].tabsEnabled, {
+    editor: false,
+    git: false,
+    subagent: false,
+    terminal: false,
+    browser: false,
+    diff: false,
+    'dsh-tavern:status': true,
+  })
+  assert.deepEqual(settings['dsh-better-sidebar'].viewersEnabled, {
+    image: false,
+    pdf: false,
+    markdown: false,
+    html: false,
+    code: false,
+    'binary-download': false,
+  })
 })
 
 test('installers reuse existing pnpm and DSH and only install missing packages', () => {

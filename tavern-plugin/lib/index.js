@@ -1,5 +1,4 @@
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { mkdir, rm } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { createBackgroundAgentRunner } from './background-agent-runner.js'
 import { createCandidateGenerator } from './domain/candidate-generation.js'
@@ -23,11 +22,8 @@ export function apply(ctx) {
   }
   const agentDefaultModel = ctx.get('agentDefaultModel')
 
-  // 项目根：源码位于 <project>/tavern-plugin/lib/；预览部署使用独立临时数据目录。
+  // 项目根：源码位于 <project>/tavern-plugin/lib/，数据固定在 <project>/data/。
   const base = fileURLToPath(new URL('../../', import.meta.url))
-  const dataRoot = process.env.DSH_TAVERN_DATA_ROOT || (base + '/data')
-  const previewMode = process.env.DSH_TAVERN_PREVIEW === '1'
-  const previewNotice = '没有模型配置，无法回复'
 
   // ---------- profile 私有 preset ----------
   // rc.6 启动器会固定系统 roots，因此在独立 Tavern 进程内追加 profile 自带目录。
@@ -36,9 +32,7 @@ export function apply(ctx) {
   if (agentPresetsProxy === undefined) throw new Error('dsh-tavern: 缺少 agentPresets 服务')
   const agentPresets = agentPresetsProxy[Symbol.for('cordis.original')] || agentPresetsProxy
   const presetSourceDir = fileURLToPath(new URL('../../presets/', import.meta.url))
-  if (previewMode) {
-    agentPresets.resolvedRoots.splice(0, agentPresets.resolvedRoots.length, { path: presetSourceDir, trust: 'user' })
-  } else if (!agentPresets.resolvedRoots.some(function (root) { return root.path === presetSourceDir })) {
+  if (!agentPresets.resolvedRoots.some(function (root) { return root.path === presetSourceDir })) {
     agentPresets.resolvedRoots.unshift({ path: presetSourceDir, trust: 'user' })
   }
 
@@ -56,24 +50,20 @@ export function apply(ctx) {
     return new Promise(function (resolve) { setTimeout(resolve, ms) })
   }
   async function readJson(rel) {
-    const t = await fs.resolve(dataRoot + '/' + rel)
+    const t = await fs.resolve(base + '/data/' + rel)
     const info = await fs.stat(t)
     if (info === undefined) return undefined
     return JSON.parse(await fs.readText(t))
   }
   async function writeJson(rel, value) {
-    const t = await fs.resolve(dataRoot + '/' + rel)
+    const t = await fs.resolve(base + '/data/' + rel)
     await fs.writeText(t, JSON.stringify(value, null, 2))
   }
   async function rmFile(rel) {
-    if (previewMode) {
-      await rm(dataRoot + '/' + rel, { force: true })
-      return
-    }
     const shell = ctx.get('shell')
     if (shell === undefined) return
     try {
-      const spec = shell.resolve({ command: 'rm -f ' + JSON.stringify(dataRoot + '/' + rel), timeoutMs: 10000 })
+      const spec = shell.resolve({ command: 'rm -f ' + JSON.stringify(base + '/data/' + rel), timeoutMs: 10000 })
       await shell.run(spec)
     } catch (err) {
       console.error('dsh-tavern: rm 失败', err)
@@ -214,16 +204,12 @@ export function apply(ctx) {
   async function readCard(cardId) { return await readJson('cards/' + cardId + '.json') }
   async function readScript(cardId) { return await readJson('scripts/' + cardId + '.json') }
   async function ensureDataDir(name) {
-    const target = await fs.resolve(dataRoot + '/' + name)
+    const target = await fs.resolve(base + '/data/' + name)
     const info = await fs.stat(target)
     if (info !== undefined) return
-    if (previewMode) {
-      await mkdir(dataRoot + '/' + name, { recursive: true })
-      return
-    }
     const shell = ctx.get('shell')
     if (shell === undefined) throw new Error('无法创建数据目录: ' + name)
-    const spec = shell.resolve({ command: 'mkdir -p ' + JSON.stringify(dataRoot + '/' + name), timeoutMs: 10000 })
+    const spec = shell.resolve({ command: 'mkdir -p ' + JSON.stringify(base + '/data/' + name), timeoutMs: 10000 })
     await shell.run(spec)
   }
   async function writeScript(cardId, value) {
@@ -564,7 +550,7 @@ export function apply(ctx) {
     const card = isExtract ? null : await readChatCard(chat)
     const hasStory = Array.isArray(chat.messages) && chat.messages.length > 0
     const hasState = str(chat.posture) !== ''
-    if (!previewMode && (chat.mode || 'story') === 'story' && hasStory && !hasState && (chat.settleStatus || 'idle') === 'idle' && !settlementJobs.has(chat.id)) {
+    if ((chat.mode || 'story') === 'story' && hasStory && !hasState && (chat.settleStatus || 'idle') === 'idle' && !settlementJobs.has(chat.id)) {
       settlementJobs.add(chat.id)
       chat.settleStatus = 'running'
       chat.settleError = null
@@ -803,15 +789,6 @@ export function apply(ctx) {
     }
   }
   function queueSettlement(chatId) {
-    if (previewMode) {
-      void readChat(chatId).then(function (chat) {
-        if (chat === undefined) return
-        chat.settleStatus = 'done'
-        chat.settleError = null
-        return writeChat(chat)
-      })
-      return false
-    }
     if (settlementJobs.has(chatId)) return false
     settlementJobs.add(chatId)
     void runSettlement(chatId).finally(function () { settlementJobs.delete(chatId) })
@@ -1253,11 +1230,6 @@ export function apply(ctx) {
       case 'ensureOpening': return { view: await ensureNativeOpening(args && args.sessionId) }
       case 'getChoices': return { candidates: await candidateGenerator.find({ sessionId: args && args.sessionId, messageId: args && args.messageId }) }
       case 'generateChoices': {
-        if (previewMode) {
-          const candidates = await candidateGenerator.find({ sessionId: args && args.sessionId, messageId: args && args.messageId })
-          if (candidates !== null) return { candidates }
-          throw new Error(previewNotice)
-        }
         const candidates = await candidateGenerator.generate({ sessionId: args && args.sessionId, messageId: args && args.messageId, guidance: args && args.guidance })
         return { candidates: candidates }
       }
@@ -1268,10 +1240,7 @@ export function apply(ctx) {
       }
       case 'addGuide': return { guides: await addGuide(args && args.sessionId, args && args.text) }
       case 'deleteGuide': return { guides: await deleteGuide(args && args.sessionId, args && args.index) }
-      case 'regenBody': {
-        if (previewMode) throw new Error(previewNotice)
-        return { view: await regenBody(args && args.chatId, args && args.guidance, args && args.sessionId) }
-      }
+      case 'regenBody': return { view: await regenBody(args && args.chatId, args && args.guidance, args && args.sessionId) }
       case 'rollbackTurn': return { view: await rollbackTurn(args && args.sessionId, args && args.chatId) }
       default: throw new Error('未知方法: ' + method)
     }
@@ -1284,11 +1253,7 @@ export function apply(ctx) {
       path: '/api/dsh-tavern',
       handler: async (req, res) => {
         const origin = req.headers.origin
-        let allowedOrigin = typeof origin !== 'string' || origin === '' || /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin)
-        if (!allowedOrigin && previewMode) {
-          try { allowedOrigin = new URL(origin).host === str(req.headers.host) } catch (error) {}
-        }
-        if (!allowedOrigin) {
+        if (typeof origin === 'string' && origin !== '' && !/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin)) {
           res.writeHead(403)
           res.end('forbidden')
           return
