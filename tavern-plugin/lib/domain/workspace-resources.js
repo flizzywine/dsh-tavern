@@ -8,12 +8,24 @@ const RESOURCE_KINDS = Object.freeze(['card', 'source', 'script'])
 
 export function mentionedTavernResources(text) {
   const resources = []
-  const pattern = /@\[([^\]\r\n]*)\]\(tavern-file:([^\s)]+)\)/g
+  const mentions = []
+  const legacyPattern = /@\[([^\]\r\n]*)\]\(tavern-file:([^\s)]+)\)/g
+  const nativePattern = /@"([^"\r\n]+)"/g
   let match
-  while ((match = pattern.exec(str(text))) !== null) {
+  const input = str(text)
+  while ((match = legacyPattern.exec(input)) !== null) {
+    let decoded
+    try { decoded = decodeURIComponent(match[2]) } catch { continue }
+    mentions.push({ index: match.index, path: decoded, label: str(match[1]).trim() })
+  }
+  while ((match = nativePattern.exec(input)) !== null) {
+    mentions.push({ index: match.index, path: match[1], label: match[1].split('/').filter(Boolean).at(-1) || match[1] })
+  }
+  mentions.sort(function (a, b) { return a.index - b.index })
+  for (const mention of mentions) {
     let path
-    try { path = normalizeResourcePath(decodeURIComponent(match[2])) } catch { continue }
-    const resource = { kind: resourceKind(path), path, label: str(match[1]).trim() || path }
+    try { path = normalizeResourcePath(mention.path) } catch { continue }
+    const resource = { kind: resourceKind(path), path, label: mention.label || path }
     if (!resources.some(function (item) { return item.path === resource.path })) resources.push(resource)
   }
   return resources

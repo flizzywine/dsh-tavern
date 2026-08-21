@@ -17,6 +17,11 @@ test('卡片模式从空白工作台直接进入 Agent 对话', () => {
   const flow = between(clientSource, 'async function newCardConversation', 'function formatTime')
 
   assert.doesNotMatch(flow, /window\.prompt/)
+  assert.match(flow, /call\("getResourceWorkspace"\)/)
+  assert.match(serverSource, /case 'getResourceWorkspace': return \{ path: base \+ '\/data\/resources' \}/)
+  assert.match(flow, /props\.workspaces\.create\(\{ path: resourceRoot\.path \}\)/)
+  assert.match(flow, /props\.workspaces\.connectWorkspace\(resourceWorkspace\.workspaceId\)/)
+  assert.doesNotMatch(flow, /connectWorkspace\(workspaceId\)/)
   assert.match(flow, /call\("startChat", \{ path: card && card\.path \? card\.path : "", sessionId: sessionId, mode: "card" \}\)/)
   assert.match(flow, /publishSessionMode\(sessionId, "card"\)/)
 })
@@ -86,6 +91,16 @@ test('卡片任务只在创建对话时追加提示词，不占用输入框上�
   assert.doesNotMatch(clientSource, /choose\("bindScript"/)
 })
 
+test('空白工作台确认后自动创建人物卡，不再提供二次保存按钮', () => {
+  const draftPanel = between(clientSource, 'function CardDraftPanel', 'function TavernStatusPanel')
+  const sidebar = between(clientSource, 'function TavernSidebar', 'function TavernResourcesTab')
+
+  assert.match(draftPanel, /确认后自动创建人物卡文件/)
+  assert.doesNotMatch(draftPanel, /finalizeCard|保存为新人物卡|写入草稿/)
+  assert.match(sidebar, /const currentSummary = current \? summaries\[current\] : null;/)
+  assert.match(sidebar, /if \(!currentSummary \|\| currentSummary\.blank\) return;\s*notifyDataChanged\(\);/)
+})
+
 test('Tavern 只接管会话区域，保留 DSH 原生设置与模型配置入口', () => {
   assert.match(clientSource, /slots\.inject\("sidebar\.workspaces"/)
   assert.doesNotMatch(clientSource, /slots\.inject\("sidebar",/)
@@ -119,7 +134,9 @@ test('卡片模式预加载人物卡库和资源库，并让资源库保持选�
   assert.match(clientSource, /group\("资料", "source", resources\.resources/)
   assert.doesNotMatch(clientSource, /group\("素材", "source"/)
   assert.doesNotMatch(clientSource, /group\("剧本", "script"/)
-  assert.match(clientSource, /tavern-file:" \+ encodeURIComponent\(path\)/)
+  assert.match(clientSource, /const mention = "@\\\"" \+ safePath \+ "\\\""/)
+  assert.doesNotMatch(clientSource, /const mention = "@\["/)
+  assert.match(clientSource, /body\.dsh-tavern-shell-active \[data-ref-chip="file"\].*max-width: calc\(100% - 4px\).*text-overflow: ellipsis/s)
   assert.match(clientSource, /rpc\("importCard"/)
   assert.match(clientSource, /rpc\("importSource"/)
   assert.match(clientSource, /call\("importScript"/)

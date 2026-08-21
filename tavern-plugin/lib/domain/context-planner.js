@@ -198,7 +198,7 @@ export function createContextPlanner(options = {}) {
       const sections = []
       sections.push({
         kind: card === null ? 'card-draft' : 'card-current', required: true,
-        text: (card === null ? '【当前新卡草稿 · 字段目录】\n' : '【当前人物卡 · 字段目录】\n') + cardFieldCatalogText(current) + '\n字段正文尚未自动读取；根据当前任务调用 tavern_read_card 按字段、分段读取。' + scriptHint
+        text: (card === null ? '【待创建人物卡 · 字段目录】\n' : '【当前人物卡 · 字段目录】\n') + cardFieldCatalogText(current) + '\n字段正文尚未自动读取；根据当前任务调用 tavern_read_card 按字段、分段读取。' + scriptHint
       })
       const mountedResources = Array.isArray(workspace.mountedResources) ? workspace.mountedResources.filter(function (item) { return item !== null && typeof item === 'object' }) : []
       if (mountedResources.length > 0) {

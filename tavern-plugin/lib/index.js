@@ -854,7 +854,7 @@ export async function apply(ctx) {
     void runSettlement(chatId).finally(function () { settlementJobs.delete(chatId) })
     return true
   }
-  // ---------- 卡片工作台：挂载资料与新卡草稿 ----------
+  // ---------- 卡片工作台：挂载资料与新卡创建 ----------
   async function sourceWindowOf(chat) {
     const out = []
     for (const sourcePath of (chat.workspace && chat.workspace.sourcePaths) || []) {
@@ -936,17 +936,12 @@ export async function apply(ctx) {
     result.workspace = await workspaceViewOf(chat)
     return result
   }
-  async function finalizeCard(chatId) {
-    const chat = await readChat(chatId)
-    if (chat === undefined) throw new Error('聊天不存在: ' + chatId)
-    if ((chat.mode || 'story') !== 'card') throw new Error('当前不是卡片工作台会话')
-    if (str(chat.cardPath) !== '') throw new Error('当前工作台已经挂载正式人物卡')
-    const state = chat.workspace !== null && typeof chat.workspace === 'object' ? chat.workspace : {}
+  async function createWorkspaceCard(chat, state) {
     const draft = state.draft !== null && typeof state.draft === 'object' ? state.draft : {}
-    if (str(draft.name).trim() === '') throw new Error('草稿还没有角色名，请先在对话中确认')
+    if (str(draft.name).trim() === '') throw new Error('新人物卡还没有角色名，请先在对话中确认')
     const player = str(state.player)
-    if (player === '' && state.done !== true) throw new Error('玩家（{{user}}）身份还没有确认。请先在对话中告诉助手“玩家是XX”，确认后再保存。')
-    const card = cardPreparation.create({ kind: 'draft', draft: draft, player: player, sourcePaths: state.sourcePaths || [], allowMissingPlayer: state.done === true })
+    if (player === '') throw new Error('玩家（{{user}}）身份还没有确认。请先在对话中告诉助手“玩家是XX”。')
+    const card = cardPreparation.create({ kind: 'draft', draft: draft, player: player, sourcePaths: state.sourcePaths || state.sourceIds || [] })
     const cardPath = await fileResources.importCard({ name: card.name + '.json', text: JSON.stringify(card, null, 2) }, card)
     card.path = cardPath
     const idx = await readIndex()
@@ -954,6 +949,17 @@ export async function apply(ctx) {
       if (row.id === chat.id) { row.cardPath = cardPath; row.cardName = card.name }
     }
     await writeIndex(idx)
+    return { path: cardPath, card }
+  }
+  async function finalizeCard(chatId) {
+    const chat = await readChat(chatId)
+    if (chat === undefined) throw new Error('聊天不存在: ' + chatId)
+    if ((chat.mode || 'story') !== 'card') throw new Error('当前不是卡片工作台会话')
+    if (str(chat.cardPath) !== '') throw new Error('当前工作台已经挂载正式人物卡')
+    const state = chat.workspace !== null && typeof chat.workspace === 'object' ? chat.workspace : {}
+    const created = await createWorkspaceCard(chat, state)
+    const cardPath = created.path
+    const card = created.card
     chat.cardPath = cardPath
     chat.cardName = card.name
     chat.workspace.done = true
@@ -970,7 +976,8 @@ export async function apply(ctx) {
       readCard,
       readScript,
       writeChat,
-      updateCard
+      updateCard,
+      createCard: createWorkspaceCard
     },
     planner: contextPlanner,
     scripts: scriptContinuity,
@@ -1277,6 +1284,7 @@ export async function apply(ctx) {
         if (promptName === undefined) throw new Error('未知卡片任务: ' + task)
         return { task, text: prompt(promptName) }
       }
+      case 'getResourceWorkspace': return { path: base + '/data/resources' }
       case 'listResources': return await listTavernResources()
       case 'renameResource': return { resource: await renameResource(args && args.path, args && args.name) }
       case 'getScriptInfo': {
@@ -1454,7 +1462,7 @@ export async function apply(ctx) {
     void turnOrchestrator.discard({ sessionId: session.id, turn: event.data && event.data.turn })
   })
 
-  const controlledToolNames = new Set(['bash', 'pwsh', 'str_replace_editor', 'tavern_read_card', 'tavern_read_source', 'tavern_read_script', 'tavern_read_worldbook', 'tavern_update_card'])
+  const controlledToolNames = new Set(['bash', 'pwsh', 'str_replace_editor', 'tavern_read_card', 'tavern_read_script', 'tavern_read_worldbook', 'tavern_update_card'])
   ctx.on('system-prompt/assemble', async function (_assembly, context, next) {
     const assembly = await next()
     const agent = context && context.agent
@@ -1481,9 +1489,9 @@ export async function apply(ctx) {
 
     tools.register(defineTool({
       name: 'tavern_read_card',
-      description: '在卡片工作台中按字段、分段读取当前人物卡或新卡草稿。默认上下文只有字段目录，先按任务选择字段，不要一次读取全部字段。',
+      description: '在卡片工作台中按字段、分段读取当前人物卡或尚未创建的新卡设定。默认上下文只有字段目录，先按任务选择字段，不要一次读取全部字段。',
       parameters: {
-        path: { type: 'string', description: '可选的已挂载人物卡相对路径；省略时读取当前人物卡或草稿' },
+        path: { type: 'string', description: '可选的已挂载人物卡相对路径；省略时读取当前人物卡或尚未创建的新卡设定' },
         field: { type: 'string', required: true, enum: READABLE_CARD_FIELDS, description: '要读取的人物卡字段' },
         offset: { type: 'integer', description: '可选的 1 起始字符位置，默认 1' },
         limit: { type: 'integer', description: '本次最多读取字符数，默认 6000，最大 12000' }
@@ -1518,57 +1526,6 @@ export async function apply(ctx) {
           : (str(chat.cardPath) === '' ? ((chat.workspace && chat.workspace.draft) || {}) : await readChatCard(chat))
         if (card === undefined) throw new Error('人物卡资源不存在: ' + resourcePath)
         return readCardField(card, args)
-      }
-    }))
-
-    tools.register(defineTool({
-      name: 'tavern_read_source',
-      description: '在卡片工作台中检索或分块读取已挂载资料。不要一次读取整份大型资料。',
-      parameters: {
-        path: { type: 'string', required: true, description: '挂载目录中的资料相对路径' },
-        query: { type: 'string', description: '可选关键词；提供时检索匹配分块' },
-        offset: { type: 'integer', description: '不检索时从第几块开始，1 起始，默认 1' },
-        limit: { type: 'integer', description: '读取或返回 1~6 块，默认 3' }
-      },
-      output: {
-        schema: {
-          type: 'object', additionalProperties: false,
-          properties: {
-            found: { type: 'boolean', required: true },
-            message: { type: 'string', required: true },
-            title: { type: 'string', required: true },
-            totalChunks: { type: 'integer', required: true },
-            chunks: {
-              type: 'array', required: true,
-              items: {
-                type: 'object', additionalProperties: false,
-                properties: { number: { type: 'integer', required: true }, text: { type: 'string', required: true } }
-              }
-            }
-          }
-        },
-        render: function (_args, value) {
-          if (!value.found) return [{ type: 'text', text: value.message }]
-          return [{ type: 'text', text: '资料《' + value.title + '》· 共 ' + value.totalChunks + ' 块\n\n' + value.chunks.map(function (chunk) { return '[第 ' + chunk.number + ' 块]\n' + chunk.text }).join('\n\n') }]
-        }
-      },
-      isConcurrencySafe: function () { return true },
-      async execute(args, exec) {
-        const sessionId = exec && exec.agent && exec.agent.session ? exec.agent.session.id : ''
-        const chat = await chatForSession(sessionId)
-        if (chat === undefined) throw new Error('尚未选择人物卡。')
-        if ((chat.mode || 'story') !== 'card') throw new Error('资料只能在卡片工作台中读取')
-        const resourcePath = str(args.path).trim()
-        if (!mountedResource(chat, 'source', resourcePath)) throw new Error('该资料尚未挂载到当前对话')
-        const source = await readSource(resourcePath)
-        if (source === undefined || !Array.isArray(source.chunks)) return { found: false, message: '资料资源不存在。', title: '', totalChunks: 0, chunks: [] }
-        const limit = clampInt(Number(args.limit), 1, 6, 3)
-        const query = str(args.query).trim().toLocaleLowerCase()
-        const chunks = query !== ''
-          ? source.chunks.filter(function (chunk) { return str(chunk.text).toLocaleLowerCase().includes(query) }).slice(0, limit)
-          : source.chunks.slice(Math.max(0, (Number(args.offset) || 1) - 1), Math.max(0, (Number(args.offset) || 1) - 1) + limit)
-        if (chunks.length === 0) return { found: false, message: query !== '' ? '没有找到包含该关键词的资料分块。' : '指定范围没有资料内容。', title: str(source.title), totalChunks: source.chunks.length, chunks: [] }
-        return { found: true, message: '', title: str(source.title), totalChunks: source.chunks.length, chunks: chunks.map(function (chunk) { return { number: Number(chunk.order) + 1, text: str(chunk.text) } }) }
       }
     }))
 
@@ -1695,7 +1652,7 @@ export async function apply(ctx) {
 
     tools.register(defineTool({
       name: 'tavern_update_card',
-      description: '仅当用户明确要求或确认修改时，暂存最小的人物卡变更；本轮最终回复完成后自动保存。只讨论时不要调用。',
+      description: '仅当用户明确要求或确认修改时，提交最小的人物卡变更；本轮最终回复完成后自动保存。空白工作台会直接创建并绑定正式人物卡文件，必须同时具备角色名和玩家身份。只讨论时不要调用。',
       parameters: {
         fields: {
           type: 'object', additionalProperties: false,
@@ -1736,12 +1693,15 @@ export async function apply(ctx) {
             staged: { type: 'boolean', required: true },
             mode: { type: 'string', required: true, enum: ['card'] },
             changed: { type: 'boolean', required: true },
+            createsCard: { type: 'boolean', required: true },
             changedFields: { type: 'array', required: true, items: { type: 'string' } }
           }
         },
         render: function (_args, value) {
           const detail = value.changedFields.length > 0 ? '：' + value.changedFields.join('、') : ''
-          return [{ type: 'text', text: value.changed ? '变更已暂存，将随本轮回复保存' + detail : '提交内容与当前设定相同，无需改动' }]
+          if (value.createsCard) return [{ type: 'text', text: '本轮回复完成后将创建并绑定正式人物卡' + detail }]
+          if (!value.changed) return [{ type: 'text', text: '提交内容与当前设定相同，无需改动' }]
+          return [{ type: 'text', text: '本轮回复完成后将保存人物卡变更' + detail }]
         }
       },
       async execute(args, exec) {

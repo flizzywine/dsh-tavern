@@ -19,6 +19,7 @@ window.__ModuleLoader__.load({
 .dsh-tavern-sidebar { height: 100%; box-sizing: border-box; display: flex; flex-direction: column; padding: 12px; color: var(--dsw-alias-label-primary); background: var(--dsw-specific-sidebar-fill); }
 .dsh-tavern-sidebar.collapsed { padding: 12px 10px; align-items: center; }
 body.dsh-tavern-shell-active button[aria-label="新建会话"], body.dsh-tavern-shell-active button[aria-label="New session"] { display: none !important; }
+body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px); min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .dsh-tavern-side-head { height: 48px; display: flex; align-items: center; gap: 8px; flex: none; }
 .dsh-tavern-side-brand { flex: 1; min-width: 0; font-size: 16px; font-weight: 800; color: #9a622f; white-space: nowrap; overflow: hidden; }
 .dsh-tavern-side-icon { width: 34px; height: 34px; border: 0; border-radius: 9px; background: transparent; color: inherit; cursor: pointer; font-size: 17px; }
@@ -308,6 +309,7 @@ body.dsh-tavern-shell-active button[aria-label="新建会话"], body.dsh-tavern-
 			const [menuSession, setMenuSession] = React.useState(null);
 			const lastModeSession = React.useRef(null);
 			const fileRef = React.useRef(null);
+			const currentSummary = current ? summaries[current] : null;
 			const readyTavernSession = current && summaries[current] && summaries[current].blank === false && history.some(function (entry) { return entry.sessionId === current && isPlayMode(entry.mode); }) ? current : "";
 			const readyCardSession = current && summaries[current] && summaries[current].blank === false && history.some(function (entry) { return entry.sessionId === current && entry.mode === "card"; }) ? current : "";
 			function call(method, args) { return rpc(method, args); }
@@ -326,6 +328,10 @@ body.dsh-tavern-shell-active button[aria-label="新建会话"], body.dsh-tavern-
 				const timer = window.setInterval(refresh, 4000);
 				return function () { window.clearInterval(timer); window.removeEventListener("dsh-tavern-data-changed", onData); };
 			}, []);
+			React.useEffect(function () {
+				if (!currentSummary || currentSummary.blank) return;
+				notifyDataChanged();
+			}, [current, currentSummary]);
 			React.useEffect(function () {
 				if (!current || lastModeSession.current === current) return;
 				const item = history.filter(function (entry) { return entry.sessionId === current; })[0];
@@ -400,14 +406,15 @@ body.dsh-tavern-shell-active button[aria-label="新建会话"], body.dsh-tavern-
 				finally { setBusy(false); }
 			}
 			async function newCardConversation(card, task, label, selectedResources) {
-				if (!workspaceId) { setError("当前没有可用的 Workspace"); return; }
 				setBusy(true); setError("");
 				try {
 					const currentSummary = current ? summaries[current] : null;
 					if (current && currentSummary && currentSummary.blank) {
 						await props.workspaces.archiveSession(current);
 					}
-					const sessionId = await props.workspaces.connectWorkspace(workspaceId);
+					const resourceRoot = await call("getResourceWorkspace");
+					const resourceWorkspace = await props.workspaces.create({ path: resourceRoot.path });
+					const sessionId = await props.workspaces.connectWorkspace(resourceWorkspace.workspaceId);
 					await ensureTavernPreset(sessionId);
 					await call("startChat", { path: card && card.path ? card.path : "", sessionId: sessionId, mode: "card" });
 					setUiMode("card");
@@ -903,23 +910,10 @@ body.dsh-tavern-shell-active button[aria-label="新建会话"], body.dsh-tavern-
 		}
 
 		function CardDraftPanel(props) {
-			const [busy, setBusy] = React.useState(false);
-			const [error, setError] = React.useState("");
-			const [done, setDone] = React.useState(null);
 			const view = props.view;
 			const workspace = view.workspace || { sources: [], cursor: 0, totalChunks: 0, done: false, draft: {} };
 			const draft = workspace.draft || {};
 			const h = React.createElement;
-			async function finalize() {
-				setBusy(true); setError("");
-				try {
-					const result = await rpc("finalizeCard", { chatId: view.chatId });
-					setDone(result.view && result.view.finalizedCard ? result.view.finalizedCard : { name: draft.name || "新人物" });
-					window.dispatchEvent(new CustomEvent("dsh-tavern-session-changed", { detail: { sessionId: props.sessionId || "" } }));
-					window.dispatchEvent(new CustomEvent("dsh-tavern-data-changed"));
-				} catch (err) { setError(String(err && err.message || err)); }
-				finally { setBusy(false); }
-			}
 			function line(label, value) {
 				return value ? h("div", { className: "dsh-tavern-status-section" }, h("div", { className: "dsh-tavern-status-label" }, label), h("div", { className: "dsh-tavern-status-item" }, value)) : null;
 			}
@@ -927,7 +921,7 @@ body.dsh-tavern-shell-active button[aria-label="新建会话"], body.dsh-tavern-
 				h("div", { className: "dsh-tavern-status-head" },
 					h("div", { className: "dsh-tavern-status-title" }, "卡片工作台"),
 					h("div", { className: "dsh-tavern-status-role" }, draft.name || "未命名角色"),
-					h("div", { className: "dsh-card-hint" }, workspace.totalChunks ? ("资料阅读进度 " + Math.min(workspace.totalChunks, Math.max(workspace.cursor, 1)) + " / " + workspace.totalChunks + " 块 · 确认后的修改进入新卡草稿") : "空白工作台：直接说明目标，或从左侧添加人物卡和参考资料")
+					h("div", { className: "dsh-card-hint" }, workspace.totalChunks ? ("资料阅读进度 " + Math.min(workspace.totalChunks, Math.max(workspace.cursor, 1)) + " / " + workspace.totalChunks + " 块 · 确认后直接创建人物卡") : "空白工作台：直接说明目标，确认后自动创建人物卡文件")
 				),
 				h("div", { className: "dsh-tavern-status-body" },
 					h("div", { className: "dsh-tavern-status-section" },
@@ -941,10 +935,7 @@ body.dsh-tavern-shell-active button[aria-label="新建会话"], body.dsh-tavern-
 					line("性格", draft.personality),
 					line("开场情境", draft.scenario),
 					line("开场白", draft.first_mes),
-					line("对话示例", draft.mes_example),
-					error ? h("div", { className: "dsh-card-error" }, error) : null,
-					done ? h("div", { className: "dsh-tavern-status-now" }, "已保存为新人物卡：" + done.name + "。去“游玩”模式选卡开始新故事。") : null,
-					h("div", { className: "dsh-tavern-card-save" }, h("button", { className: "dsh-card-primary", disabled: busy || !draft.name || (!workspace.player && !workspace.done), onClick: finalize }, busy ? "保存中…" : "保存为新人物卡"))
+					line("对话示例", draft.mes_example)
 				)
 			);
 		}
@@ -1512,8 +1503,8 @@ body.dsh-tavern-shell-active button[aria-label="新建会话"], body.dsh-tavern-
 					const conversation = ctx.get("conversation");
 					if (!actx || !conversation) throw new Error("当前对话输入框不可用");
 					const input = conversation.input.for(actx);
-					const safeLabel = String(label || path).replace(/[\[\]\r\n]/g, " ").trim() || path;
-					const mention = "@[" + safeLabel + "](tavern-file:" + encodeURIComponent(path) + ")";
+					const safePath = String(path || "").replace(/\\/g, "/").replace(/["\r\n]/g, "");
+					const mention = "@\"" + safePath + "\"";
 					const draft = input.state.getSnapshot().draft;
 					input.setDraft(draft.trim() === "" ? mention : draft + (/\s$/.test(draft) ? "" : " ") + mention);
 				} catch (err) {

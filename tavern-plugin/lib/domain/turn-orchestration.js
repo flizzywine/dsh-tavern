@@ -159,10 +159,16 @@ export function createTurnOrchestrator(options) {
     let preview
     const cardPath = cardPathOf(chat)
     if (cardPath === '') {
-      if (combined.worldBook.length > 0) throw new Error('新卡草稿尚不能修改世界书，请先保存人物卡')
+      if (combined.worldBook.length > 0) throw new Error('新人物卡创建前不能修改世界书，请先创建人物卡')
       const state = object(chat.workspace)
       preview = cards.update({ kind: 'draft', card: object(state.draft), player: state.player, patch: combined.fields })
       if (preview.player !== str(state.player).trim() && !preview.changedFields.includes('player')) preview.changedFields.push('player')
+      cards.create({
+        kind: 'draft',
+        draft: preview.card,
+        player: preview.player,
+        sourcePaths: state.sourcePaths || state.sourceIds || []
+      })
     } else {
       const card = await store.readCard(cardPath)
       if (card === undefined) throw new Error('人物卡不存在: ' + cardPath)
@@ -171,7 +177,7 @@ export function createTurnOrchestrator(options) {
 
     stages[String(turn)] = combined
     await store.writeChat(chat)
-    return { staged: true, mode, changed: preview.changed, changedFields: preview.changedFields }
+    return { staged: true, mode, changed: preview.changed, createsCard: cardPath === '', changedFields: preview.changedFields }
   }
 
   async function finalize(input) {
@@ -190,20 +196,35 @@ export function createTurnOrchestrator(options) {
     if (mode === 'card' && cardPath === '') {
       const state = object(chat.workspace)
       let changed = false
-      if (Object.keys(object(stage.fields)).length > 0) {
+      const hasCardChanges = Object.keys(object(stage.fields)).length > 0
+      if (hasCardChanges) {
         const draftChange = cards.update({ kind: 'draft', card: object(state.draft), player: state.player, patch: stage.fields })
         state.draft = draftChange.card
         state.player = draftChange.player
         chat.workspace = state
         changed = draftChange.changed
       }
+      const created = hasCardChanges ? await store.createCard(chat, state) : null
+      if (created !== null) {
+        chat.cardPath = created.path
+        chat.cardName = created.card.name
+        state.done = true
+        changed = true
+      }
       workspace.commit(chat, turn)
       if (userText !== '') chat.messages.push({ role: 'user', text: userText, ts: now(), native: true })
       chat.messages.push({ role: 'assistant', text: assistantText, ts: now(), native: true, changed })
-      chat.cardName = str(state.draft && state.draft.name) || '卡片工作台'
+      chat.cardName = created === null ? (str(state.draft && state.draft.name) || '卡片工作台') : created.card.name
       rememberCommit(chat, turn, { mode, userText, changed }, null, now)
       await store.writeChat(chat)
-      return { saved: true, mode, changed, chatId: chat.id, cardName: chat.cardName }
+      return {
+        saved: true,
+        mode,
+        changed,
+        chatId: chat.id,
+        cardName: chat.cardName,
+        createdCard: created === null ? null : { path: created.path, name: created.card.name }
+      }
     }
 
     if (mode === 'card') {
@@ -303,7 +324,7 @@ export function createTurnOrchestrator(options) {
     if (chat === undefined) return []
     const mode = chat.mode || 'story'
     if (mode === 'script') return ['tavern_read_script']
-    if (mode === 'card') return [shellToolName, 'str_replace_editor', 'tavern_read_card', 'tavern_read_source', 'tavern_read_script', 'tavern_read_worldbook', 'tavern_update_card']
+    if (mode === 'card') return [shellToolName, 'str_replace_editor', 'tavern_read_card', 'tavern_read_worldbook', 'tavern_update_card']
     return []
   }
 

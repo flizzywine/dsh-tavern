@@ -200,7 +200,7 @@ export function createCardPreparation(options = {}) {
     if (request.kind === 'import') return canonical(importedObject(request.payload))
     if (request.kind === 'draft') {
       const draft = request.draft !== null && typeof request.draft === 'object' ? request.draft : {}
-      if (str(draft.name).trim() === '') throw new Error('草稿还没有角色名，请先在对话中确认')
+      if (str(draft.name).trim() === '') throw new Error('新人物卡还没有角色名，请先在对话中确认')
       const player = str(request.player).trim()
       if (player === '' && request.allowMissingPlayer !== true) throw new Error('玩家身份还没有确认，无法保存人物卡')
       if (/^你是/.test(str(draft.system_prompt).trim())) throw new Error('人物卡使用第二人称描述角色，与玩家身份冲突')
