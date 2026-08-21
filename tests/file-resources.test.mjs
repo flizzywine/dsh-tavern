@@ -14,7 +14,7 @@ test('资源相对路径就是身份，并拒绝目录逃逸', () => {
   assert.throws(() => safeResourceName('CON.txt'), /文件名不合法/)
 })
 
-test('导入素材同时保存原版和可编辑工作版', async () => {
+test('导入资料同时保存原版和可编辑工作版', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-files-'))
   try {
     const store = createFileResourceStore({ dataRoot: root })
@@ -91,32 +91,44 @@ test('同名导入拒绝覆盖', async () => {
   } finally { await rm(root, { recursive: true, force: true }) }
 })
 
-test('人物卡重命名同步移动原版与绑定剧本目录', async () => {
+test('人物卡绑定资料只保存路径引用，重命名任一端都会保持绑定', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-files-'))
   try {
     const store = createFileResourceStore({ dataRoot: root })
     const cardPath = await store.importCard({ name: '旧名.json', text: '{"name":"角色名"}' }, { name: '角色名', description: '' })
-    const scriptPath = await store.importText('script', { name: '故事.txt', text: '剧本正文' }, cardPath)
+    const materialPath = await store.importText('source', { name: '故事.txt', text: '剧本正文' })
+    await store.bindMaterial(cardPath, materialPath)
+    assert.equal(await store.scriptForCard(cardPath), materialPath)
+
     const renamed = await store.rename(cardPath, '新文件名.json')
     assert.equal(renamed.path, 'cards/新文件名.json')
-    assert.equal(renamed.scriptOldPath, scriptPath)
-    assert.equal(renamed.scriptPath, 'scripts/新文件名/故事.txt')
+    assert.equal(await store.scriptForCard(renamed.path), materialPath)
     assert.equal((await store.readCard(renamed.path)).name, '角色名')
     assert.equal(await readFile(path.join(root, 'originals/cards/新文件名.json'), 'utf8'), '{"name":"旧名"}'.replace('旧名', '角色名'))
-    assert.equal(await readFile(path.join(root, 'originals/scripts/新文件名/故事.txt'), 'utf8'), '剧本正文')
+
+    const renamedMaterial = await store.rename(materialPath, '新故事.txt')
+    assert.equal(await store.scriptForCard(renamed.path), renamedMaterial.path)
+    await assert.rejects(store.remove(renamedMaterial.path), /仍被人物卡绑定/)
+    await store.unbindMaterial(renamed.path)
+    assert.equal(await store.scriptForCard(renamed.path), undefined)
+    assert.equal(await store.readText(renamedMaterial.path), '剧本正文')
   } finally { await rm(root, { recursive: true, force: true }) }
 })
 
-test('明确更换剧本会同时替换工作版与原版', async () => {
+test('旧 scripts 副本迁移为资料引用，同名资料优先且旧副本可恢复', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-files-'))
   try {
     const store = createFileResourceStore({ dataRoot: root })
     const cardPath = await store.importCard({ name: '角色.json', text: '{"name":"角色"}' }, { name: '角色' })
-    await store.importText('script', { name: '旧剧本.txt', text: '旧正文' }, cardPath)
-    const next = await store.replaceScript(cardPath, { name: '新剧本.md', text: '新正文' })
-    assert.equal(next, 'scripts/角色/新剧本.md')
-    assert.equal(await store.readText(next), '新正文')
-    assert.equal(await readFile(path.join(root, 'originals', next), 'utf8'), '新正文')
-    await assert.rejects(readFile(path.join(root, 'resources/scripts/角色/旧剧本.txt')), /ENOENT/)
+    const materialPath = await store.importText('source', { name: '故事.txt', text: '资料正文' })
+    const legacyPath = await store.importText('script', { name: '故事.txt', text: '旧副本正文' }, cardPath)
+    await writeFile(path.join(root, '.file-resources-v1.json'), JSON.stringify({ schemaVersion: 2 }))
+
+    const marker = await store.migrateLegacy({ chats: [] }, async function () {}, async function () {}, async function () {}, async function () {})
+    assert.equal(marker.schemaVersion, 3)
+    assert.equal(await store.scriptForCard(cardPath), materialPath)
+    assert.equal(await store.readText(materialPath), '资料正文')
+    await assert.rejects(readFile(path.join(root, 'resources', legacyPath)), /ENOENT/)
+    assert.equal(await readFile(path.join(root, 'legacy-id-storage/script-copies/角色/故事.txt'), 'utf8'), '旧副本正文')
   } finally { await rm(root, { recursive: true, force: true }) }
 })

@@ -138,3 +138,13 @@ test('游玩固定选择一个开场白，并用它对齐剧本', () => {
   assert.match(appendOpening, /text = chat\.openingText/)
   assert.doesNotMatch(serverSource, /switchOpening|openingViewOf|openingId|switchable: !hasStory/)
 })
+
+test('新会话在落盘前等待 DSH Agent 可写，避免留下半初始化对话', () => {
+  const startChat = between(serverSource, 'async function startChat', 'async function appendNativeOpening')
+  const appendOpening = between(serverSource, 'async function appendNativeOpening', 'async function scriptPreviewOf')
+
+  assert.match(startChat, /const openingAgent = .*waitForAgentSession/)
+  assert.ok(startChat.indexOf('waitForAgentSession') < startChat.indexOf('await writeChat(chat)'))
+  assert.match(startChat, /appendNativeOpening\(sessionId, chat, card, openingAgent\)/)
+  assert.match(appendOpening, /readyAgent \|\| await waitForAgentSession/)
+})

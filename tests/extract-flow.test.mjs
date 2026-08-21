@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
 const clientSource = await readFile(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
+const serverSource = await readFile(new URL('../tavern-plugin/lib/index.js', import.meta.url), 'utf8')
 
 function between(source, start, end) {
   const from = source.indexOf(start)
@@ -20,6 +21,21 @@ test('卡片模式从空白工作台直接进入 Agent 对话', () => {
   assert.match(flow, /publishSessionMode\(sessionId, "card"\)/)
 })
 
+test('新建对话不会重复切换已经是 Tavern preset 的 Session', () => {
+  const sidebar = between(clientSource, 'function TavernSidebar', 'function TavernResourcesTab')
+  const guard = between(sidebar, 'async function ensureTavernPreset', 'async function newConversation')
+  const playFlow = between(sidebar, 'async function newConversation', 'async function importCard')
+  const cardFlow = between(sidebar, 'async function newCardConversation', 'function formatTime')
+
+  assert.match(guard, /props\.sessions\.list\.getSnapshot\(\)\.byId\[sessionId\]/)
+  assert.match(guard, /if \(summary && summary\.agentPreset === "tavern"\) return;/)
+  assert.match(guard, /agentPresets\.select/)
+  assert.match(playFlow, /await ensureTavernPreset\(sessionId\)/)
+  assert.match(cardFlow, /await ensureTavernPreset\(sessionId\)/)
+  assert.doesNotMatch(playFlow, /agentPresets\.select/)
+  assert.doesNotMatch(cardFlow, /agentPresets\.select/)
+})
+
 test('新开游玩直接进入对话，不提供多开场白切换器', () => {
   const sidebar = between(clientSource, 'function TavernSidebar', 'function TavernResourcesTab')
 
@@ -32,18 +48,39 @@ test('卡片模式通过修改、抽取和空白三个入口进入同一个 Agen
   const flow = between(clientSource, 'async function newCardConversation', 'function formatTime')
 
   assert.match(clientSource, /"修改人物卡"/)
-  assert.match(clientSource, /"从素材新建人物卡"/)
+  assert.match(clientSource, /"从资料新建人物卡"/)
   assert.match(clientSource, /"空白开始"/)
   assert.match(flow, /mode: "card"/)
-  assert.match(flow, /if \(task\) await props\.injectTaskPrompt\(sessionId, task, label\)/)
+  assert.match(flow, /if \(task\) await props\.injectTaskPrompt\(sessionId, task, label, \(selectedResources \|\| \[\]\)\.length > 0\)/)
   assert.doesNotMatch(clientSource, /startExtract|newExtractSession|"revision"|mode: "extract"/)
   assert.doesNotMatch(clientSource, /添加文件到当前对话|attachSourcesToCurrent|attachCardToCurrent/)
   assert.match(clientSource, /return values\[sessionId\] \|\| "";/)
 })
 
+test('从资料新建人物卡选择统一资料并自动追加全部引用', () => {
+  const sidebar = between(clientSource, 'function TavernSidebar', 'function TavernResourcesTab')
+  const flow = between(sidebar, 'async function newCardConversation', 'function formatTime')
+
+  assert.match(sidebar, /async function openSourcePicker\(\)/)
+  assert.match(sidebar, /call\("listResources"\)/)
+  assert.match(sidebar, /resources\.resources \|\| \[\]/)
+  assert.match(sidebar, /kind: "source"/)
+  assert.match(sidebar, /initialResourceGroup\("资料", initialResources\)/)
+  assert.doesNotMatch(sidebar, /initialResourceGroup\("素材"/)
+  assert.doesNotMatch(sidebar, /initialResourceGroup\("已绑定剧本"/)
+  assert.match(sidebar, /disabled: busy \|\| !chosenInitialResources\.length/)
+  assert.match(sidebar, /newCardConversation\(null, "extract", "从资料新建人物卡", chosenInitialResources\)/)
+  assert.match(flow, /\(selectedResources \|\| \[\]\)\.forEach/)
+  assert.match(flow, /props\.appendMention\(sessionId, resource\.kind, resource\.path, resource\.title\)/)
+  assert.match(sidebar, /先选择至少一项资料，再进入工作台/)
+  assert.doesNotMatch(sidebar, /newCardConversation\(null, "extract", "从素材新建人物卡"\);/)
+})
+
 test('卡片任务只在创建对话时追加提示词，不占用输入框上方区域', () => {
   assert.match(clientSource, /rpc\("getCardTaskPrompt", \{ task: task \}, sessionId\)/)
   assert.match(clientSource, /input\.setDraft\(taskText \+ supplement\)/)
+  assert.match(clientSource, /hasInitialResources \? "\\n\\n【初始资料】\\n" : ""/)
+  assert.doesNotMatch(clientSource, /【补充要求】/)
   assert.doesNotMatch(clientSource, /function CardTaskDockActions/)
   assert.doesNotMatch(clientSource, /id: "dsh-tavern-card-tasks"/)
   assert.doesNotMatch(clientSource, /choose\("bindScript"/)
@@ -67,21 +104,27 @@ test('酒馆状态页注册到 Better Sidebar，不再接管 DSH details', () =>
   assert.doesNotMatch(clientSource, /slots\.inject\("details"|openDetails|ensureDetailsOpen/)
 })
 
-test('卡片模式默认打开 Tavern 资源库，并保留原生文件查看入口', () => {
+test('卡片模式预加载人物卡库和资源库，并让资源库保持选中', () => {
   assert.match(clientSource, /readyCardSession/)
+  assert.match(clientSource, /props\.openCardLibraryTab\(readyCardSession\)/)
   assert.match(clientSource, /props\.openResourcesTab\(readyCardSession\)/)
+  assert.ok(clientSource.indexOf('props.openCardLibraryTab(readyCardSession)') < clientSource.indexOf('props.openResourcesTab(readyCardSession)'))
+  assert.match(clientSource, /openCardLibraryTab: function \(sessionId\) \{ ctx\.betterSidebar\.openTab\(\{ type: "dsh-tavern:cards" \}/)
+  assert.match(clientSource, /ctx\.betterSidebar\.updateTab\("dsh-tavern:cards", \{ meta: null \}\)/)
   assert.match(clientSource, /registerTab\(\{\s*id: "dsh-tavern:resources"/)
   assert.match(clientSource, /id: "dsh-tavern:resources",\s*title: "资源库"/)
   assert.match(clientSource, /openTab\(\{ type: "dsh-tavern:resources" \}/)
   assert.doesNotMatch(clientSource, /openTab\(\{ type: "editor", id: "dsh-tavern:files"/)
   assert.match(clientSource, /group\("人物卡", "card"/)
-  assert.match(clientSource, /group\("素材", "source"/)
-  assert.match(clientSource, /group\("剧本", "script"/)
+  assert.match(clientSource, /group\("资料", "source", resources\.resources/)
+  assert.doesNotMatch(clientSource, /group\("素材", "source"/)
+  assert.doesNotMatch(clientSource, /group\("剧本", "script"/)
   assert.match(clientSource, /tavern-file:" \+ encodeURIComponent\(path\)/)
   assert.match(clientSource, /rpc\("importCard"/)
   assert.match(clientSource, /rpc\("importSource"/)
-  assert.match(clientSource, /rpc\("importScript"/)
-  assert.match(clientSource, /选择剧本绑定的人物卡/)
+  assert.match(clientSource, /call\("importScript"/)
+  assert.match(clientSource, /已绑定：/)
+  assert.match(clientSource, /未绑定/)
   assert.match(clientSource, /ctx\.betterSidebar\.openFile\(\{ sessionId: props\.scope\.sessionId \}, path, title\)/)
   assert.match(clientSource, /props\.openResource\(item\.previewPath, label\)/)
   assert.match(clientSource, /function parseTextResourceFile/)
@@ -105,7 +148,10 @@ test('人物卡库通过列表进入详情并复用基本信息、剧本和世�
   assert.match(clientSource, /function CardLibraryTab/)
   assert.match(clientSource, /rpc\("getCard", \{ path: path \}\)/)
   assert.match(clientSource, /"基本信息"/)
-  assert.match(clientSource, /"绑定剧本"/)
+  assert.match(clientSource, /"选择已有资料"/)
+  assert.match(clientSource, /call\("bindScript"/)
+  assert.match(clientSource, /"导入新资料并绑定"/)
+  assert.match(serverSource, /Object\.assign\(\{\}, info, \{ path: script\.path \}\)/)
   assert.match(clientSource, /className: "dsh-tavern-script-hero"/)
   assert.match(clientSource, /绑定剧本后，新开的游玩对话会自动进入剧本模式/)
   assert.match(clientSource, /更换或解绑会影响所有使用这张人物卡的剧本对话/)

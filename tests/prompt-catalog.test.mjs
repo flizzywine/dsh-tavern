@@ -37,7 +37,7 @@ test('固定提示词从独立 Markdown 文件完整加载', () => {
   assert.match(prompt('card-mode'), /保持 DSH 极简模式的工作方式/)
   assert.match(prompt('card-mode'), /tavern_read_card/)
   assert.match(prompt('card-mode'), /不要为了.*一次读取全部字段/)
-  assert.match(prompt('card-mode'), /“资源库”只列出 Tavern 人物卡、素材和剧本/)
+  assert.match(prompt('card-mode'), /“资源库”只列出 Tavern 人物卡和资料/)
   assert.match(prompt('card-mode'), /“人物卡库”用于查看和明确编辑人物卡/)
   assert.match(prompt('card-mode'), /tavern_read_source/)
   assert.match(prompt('card-mode'), /tavern_read_worldbook/)

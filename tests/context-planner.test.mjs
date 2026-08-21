@@ -208,7 +208,7 @@ test('候选项也根据最近剧情触发非常驻世界书', async () => {
   assert.doesNotMatch(result.text, /遥远王都|停用条目/)
 })
 
-test('卡片工作台在同一规划 interface 中组合人物卡、世界书和素材', async () => {
+test('卡片工作台在同一规划 interface 中组合人物卡、世界书和资料', async () => {
   const planner = createContextPlanner({ prompt, callModel: async () => '{"ids":[]}' })
   const result = await planner.plan({
     purpose: 'card',
@@ -231,7 +231,7 @@ test('卡片工作台在同一规划 interface 中组合人物卡、世界书和
   assert.match(result.text, /tavern_read_card/)
   assert.doesNotMatch(result.text, /银发佣兵|谨慎而直接|保持冷静/)
   assert.match(result.text, /人物卡.*另一张卡.*path=cards\/另一张卡\.json/s)
-  assert.match(result.text, /素材.*长篇小说.*path=materials\/长篇小说\.md/s)
+  assert.match(result.text, /资料.*长篇小说.*path=materials\/长篇小说\.md/s)
   assert.match(result.text, /剧本.*银铃剧本.*path=scripts\/银铃\/剧本\.txt/s)
   assert.match(result.text, /世界书目录.*2 条/s)
   assert.match(result.text, /wb-1.*钟楼/s)

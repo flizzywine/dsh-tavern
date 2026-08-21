@@ -79,6 +79,7 @@ export function createFileResourceStore(options = {}) {
   const originalsRoot = path.join(dataRoot, 'originals')
   const legacyRoot = path.join(dataRoot, 'legacy-id-storage')
   const markerPath = path.join(dataRoot, '.file-resources-v1.json')
+  const bindingsPath = path.join(dataRoot, '.material-bindings.json')
 
   function absolute(relative, original = false) {
     const normalized = normalizeResourcePath(relative)
@@ -140,11 +141,59 @@ export function createFileResourceStore(options = {}) {
     return (await scanFiles(path.join(resourcesRoot, dir), '')).map(function (name) { return dir + '/' + name })
   }
 
-  async function scriptForCard(cardPath) {
+  async function readBindings() {
+    try {
+      const value = JSON.parse(await readFile(bindingsPath, 'utf8'))
+      return value !== null && typeof value === 'object' ? value : {}
+    } catch (error) {
+      if (error && error.code === 'ENOENT') return {}
+      throw error
+    }
+  }
+
+  async function writeBindings(bindings) {
+    await writeFile(bindingsPath, JSON.stringify(bindings, null, 2))
+  }
+
+  async function legacyScriptForCard(cardPath) {
     const normalized = normalizeResourcePath(cardPath, 'card')
     const stem = path.posix.basename(normalized, path.posix.extname(normalized))
     const prefix = 'scripts/' + stem + '/'
     return (await list('script')).find(function (item) { return item.startsWith(prefix) })
+  }
+
+  async function scriptForCard(cardPath) {
+    const normalized = normalizeResourcePath(cardPath, 'card')
+    const bindings = await readBindings()
+    const materialPath = bindings[normalized]
+    if (typeof materialPath === 'string' && await exists(absolute(materialPath))) return normalizeResourcePath(materialPath, 'source')
+    return await legacyScriptForCard(normalized)
+  }
+
+  async function bindMaterial(cardPath, materialPath) {
+    const card = normalizeResourcePath(cardPath, 'card')
+    const material = normalizeResourcePath(materialPath, 'source')
+    if (!await exists(absolute(card))) throw new Error('人物卡不存在: ' + card)
+    if (!await exists(absolute(material))) throw new Error('资料不存在: ' + material)
+    const bindings = await readBindings()
+    bindings[card] = material
+    await writeBindings(bindings)
+    return material
+  }
+
+  async function unbindMaterial(cardPath) {
+    const card = normalizeResourcePath(cardPath, 'card')
+    const bindings = await readBindings()
+    const materialPath = bindings[card]
+    delete bindings[card]
+    await writeBindings(bindings)
+    return typeof materialPath === 'string' ? materialPath : null
+  }
+
+  async function cardsForMaterial(materialPath) {
+    const material = normalizeResourcePath(materialPath, 'source')
+    const bindings = await readBindings()
+    return Object.keys(bindings).filter(function (cardPath) { return bindings[cardPath] === material })
   }
 
   async function importCard(payload, card) {
@@ -167,8 +216,8 @@ export function createFileResourceStore(options = {}) {
     await ensure()
     if (kind !== 'source' && kind !== 'script') throw new Error('文本资源类型不合法: ' + kind)
     const text = str(payload && payload.text).replace(/\r\n?/g, '\n').trim()
-    if (text === '') throw new Error(kind === 'source' ? '素材文件为空' : '剧本文件为空')
-    const name = extensionForText(payload && payload.name || (kind === 'source' ? '未命名素材.txt' : '未命名剧本.txt'))
+    if (text === '') throw new Error(kind === 'source' ? '资料文件为空' : '剧本文件为空')
+    const name = extensionForText(payload && payload.name || (kind === 'source' ? '未命名资料.txt' : '未命名剧本.txt'))
     const originalData = typeof (payload && payload.fileB64) === 'string' && payload.fileB64 !== ''
       ? Buffer.from(payload.fileB64, 'base64')
       : text
@@ -233,6 +282,10 @@ export function createFileResourceStore(options = {}) {
 
   async function remove(relative) {
     const normalized = normalizeResourcePath(relative)
+    if (resourceKind(normalized) === 'source') {
+      const boundCards = await cardsForMaterial(normalized)
+      if (boundCards.length) throw new Error('资料仍被人物卡绑定，请先解绑: ' + boundCards.join(', '))
+    }
     await rm(absolute(normalized), { force: true })
     const originalDir = path.dirname(absolute(normalized, true))
     const stem = path.basename(normalized, path.extname(normalized))
@@ -300,7 +353,73 @@ export function createFileResourceStore(options = {}) {
       }
       throw error
     }
+    const bindings = await readBindings()
+    let bindingsChanged = false
+    if (kind === 'card' && Object.prototype.hasOwnProperty.call(bindings, oldPath)) {
+      bindings[newPath] = bindings[oldPath]
+      delete bindings[oldPath]
+      bindingsChanged = true
+    } else if (kind === 'source') {
+      for (const cardPath of Object.keys(bindings)) {
+        if (bindings[cardPath] === oldPath) { bindings[cardPath] = newPath; bindingsChanged = true }
+      }
+    }
+    if (bindingsChanged) await writeBindings(bindings)
     return { oldPath, path: newPath, scriptOldPath, scriptPath }
+  }
+
+  async function migrateScriptBindings(index, readChat, writeChat) {
+    const bindings = await readBindings()
+    const replacements = new Map()
+    for (const cardPath of await list('card')) {
+      if (typeof bindings[cardPath] === 'string' && await exists(absolute(bindings[cardPath]))) continue
+      const legacyPath = await legacyScriptForCard(cardPath)
+      if (!legacyPath) continue
+      const materialPath = 'materials/' + path.posix.basename(legacyPath)
+      const oldWorking = absolute(legacyPath)
+      const oldOriginal = absolute(legacyPath, true)
+      const materialWorking = absolute(materialPath)
+      const materialOriginal = absolute(materialPath, true)
+      if (!await exists(materialWorking)) {
+        await mkdir(path.dirname(materialWorking), { recursive: true })
+        await rename(oldWorking, materialWorking)
+        if (await exists(oldOriginal)) {
+          await mkdir(path.dirname(materialOriginal), { recursive: true })
+          await rename(oldOriginal, materialOriginal)
+        }
+      } else {
+        const cardStem = path.posix.basename(cardPath, path.posix.extname(cardPath))
+        const archiveWorking = path.join(legacyRoot, 'script-copies', cardStem, path.posix.basename(legacyPath))
+        const archiveOriginal = path.join(legacyRoot, 'script-copies-originals', cardStem, path.posix.basename(legacyPath))
+        await mkdir(path.dirname(archiveWorking), { recursive: true })
+        await rename(oldWorking, archiveWorking)
+        if (await exists(oldOriginal)) {
+          await mkdir(path.dirname(archiveOriginal), { recursive: true })
+          await rename(oldOriginal, archiveOriginal)
+        }
+      }
+      bindings[cardPath] = materialPath
+      await writeBindings(bindings)
+      replacements.set(legacyPath, materialPath)
+      await rm(path.dirname(oldWorking), { recursive: true, force: true })
+      await rm(path.dirname(oldOriginal), { recursive: true, force: true })
+    }
+    await writeBindings(bindings)
+    if (replacements.size) {
+      for (const row of index.chats || []) {
+        const chat = await readChat(row.id)
+        if (!chat || !chat.workspace || !Array.isArray(chat.workspace.mountedResources)) continue
+        let changed = false
+        chat.workspace.mountedResources = chat.workspace.mountedResources.map(function (item) {
+          if (!item || !replacements.has(item.path)) return item
+          changed = true
+          const nextPath = replacements.get(item.path)
+          return Object.assign({}, item, { kind: 'source', path: nextPath, label: path.posix.basename(nextPath) })
+        })
+        if (changed) await writeChat(chat)
+      }
+    }
+    return Object.fromEntries(replacements)
   }
 
   async function migrateLegacy(index, readLegacyJson, writeIndex, readChat, writeChat) {
@@ -322,8 +441,13 @@ export function createFileResourceStore(options = {}) {
           }
         }
         marker.schemaVersion = 2
-        await writeFile(markerPath, JSON.stringify(marker, null, 2))
       }
+      if (Number(marker.schemaVersion) < 3) {
+        marker.materialBindings = await migrateScriptBindings(index, readChat, writeChat)
+        marker.schemaVersion = 3
+        marker.materialBindingsMigratedAt = Date.now()
+      }
+      await writeFile(markerPath, JSON.stringify(marker, null, 2))
       return marker
     }
     const cardMap = {}
@@ -391,9 +515,12 @@ export function createFileResourceStore(options = {}) {
       if (await exists(from) && !await exists(to)) await rename(from, to)
     }
     const result = { schemaVersion: 2, migratedAt: Date.now(), cardMap, sourceMap, scriptMap }
+    result.materialBindings = await migrateScriptBindings(nextIndex, readChat, writeChat)
+    result.schemaVersion = 3
+    result.materialBindingsMigratedAt = Date.now()
     await writeFile(markerPath, JSON.stringify(result, null, 2))
     return result
   }
 
-  return Object.freeze({ absolute, ensure, importCard, importText, list, migrateLegacy, readCard, readText, remove, rename: renameResource, replaceScript, scriptForCard, writeWorking })
+  return Object.freeze({ absolute, bindMaterial, cardsForMaterial, ensure, importCard, importText, list, migrateLegacy, readCard, readText, remove, rename: renameResource, replaceScript, scriptForCard, unbindMaterial, writeWorking })
 }

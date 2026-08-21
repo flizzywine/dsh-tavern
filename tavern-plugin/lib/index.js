@@ -2,6 +2,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import { fileURLToPath } from 'node:url'
 import { createBackgroundAgentRunner } from './background-agent-runner.js'
 import { createCandidateGenerator } from './domain/candidate-generation.js'
+import { waitForAgentSession } from './domain/agent-readiness.js'
 import { createCardPreparation } from './domain/card-preparation.js'
 import { resolveCardOpening } from './domain/card-openings.js'
 import { READABLE_CARD_FIELDS, readCardField } from './domain/card-reading.js'
@@ -222,7 +223,9 @@ export async function apply(ctx) {
     let scriptPath = str(scriptOrCardPath)
     if (scriptPath.startsWith('cards/')) scriptPath = await fileResources.scriptForCard(scriptPath)
     if (!scriptPath) return undefined
-    const source = await fileResources.readText(normalizeResourcePath(scriptPath, 'script'))
+    const kind = resourceKind(scriptPath)
+    if (kind !== 'source' && kind !== 'script') throw new Error('剧本引用必须指向资料文件')
+    const source = await fileResources.readText(normalizeResourcePath(scriptPath, kind))
     if (source === undefined) return undefined
     const chunks = splitNovelText(source, 500)
     return { path: scriptPath, title: scriptPath.split('/').pop(), sourceChars: source.length, chunkSize: 500, chunks }
@@ -245,19 +248,23 @@ export async function apply(ctx) {
     return Object.assign({}, source, { name, text })
   }
   async function importScript(cardPath, payload) {
-    const card = await readCard(cardPath)
-    if (card === undefined) throw new Error('人物卡不存在: ' + cardPath)
     const prepared = prepareTextImport(payload, '剧本文件为空')
-    const scriptPath = await fileResources.replaceScript(cardPath, prepared)
-    const script = await readScript(scriptPath)
-    return { path: scriptPath, title: script.title, sourceChars: script.sourceChars, chunkSize: 500, chunkCount: script.chunks.length, importedAt: Date.now() }
+    const existing = (await listSources()).find(function (source) { return source.title === prepared.name })
+    const materialPath = existing ? existing.path : await fileResources.importText('source', prepared)
+    await fileResources.bindMaterial(cardPath, materialPath)
+    const script = await readScript(cardPath)
+    return { path: script.path, title: script.title, sourceChars: script.sourceChars, chunkSize: 500, chunkCount: script.chunks.length, importedAt: Date.now() }
   }
-  async function deleteScript(cardOrScriptPath) {
-    const scriptPath = str(cardOrScriptPath).startsWith('cards/') ? await fileResources.scriptForCard(cardOrScriptPath) : normalizeResourcePath(cardOrScriptPath, 'script')
-    if (scriptPath) await fileResources.remove(scriptPath)
-    return { deleted: true }
+  async function bindScript(cardPath, materialPath) {
+    await fileResources.bindMaterial(cardPath, materialPath)
+    const script = await readScript(cardPath)
+    return { path: script.path, title: script.title, sourceChars: script.sourceChars, chunkSize: 500, chunkCount: script.chunks.length }
   }
-  // ---------- 抽取素材（独立于人物卡的 txt/md 小说库） ----------
+  async function deleteScript(cardPath) {
+    await fileResources.unbindMaterial(cardPath)
+    return { unbound: true }
+  }
+  // ---------- 通用资料（独立于人物卡的 txt/md/epub 库） ----------
   async function readSource(sourcePath) {
     const normalized = normalizeResourcePath(sourcePath, 'source')
     const source = await fileResources.readText(normalized)
@@ -271,7 +278,7 @@ export async function apply(ctx) {
     }))
   }
   async function importSource(payload) {
-    const prepared = prepareTextImport(payload, '素材文件为空')
+    const prepared = prepareTextImport(payload, '资料文件为空')
     const sourcePath = await fileResources.importText('source', prepared)
     const record = await readSource(sourcePath)
     return { path: sourcePath, title: record.title, sourceChars: record.sourceChars, chunkCount: record.chunks.length, importedAt: Date.now() }
@@ -354,9 +361,9 @@ export async function apply(ctx) {
     const sources = await listSources()
     return {
       cards: cards.map(function (card) { return { path: card.path, name: card.name } }),
-      sources: sources.map(function (source) { return { path: source.path, previewPath: fileResources.absolute(source.path), title: source.title, sourceChars: Number(source.sourceChars) || 0, chunkCount: Number(source.chunkCount) || 0 } }),
-      scripts: cards.filter(function (card) { return card.script !== null }).map(function (card) {
-        return { path: card.script.path, previewPath: fileResources.absolute(card.script.path), title: card.script.title, cardName: card.name, sourceChars: Number(card.script.sourceChars) || 0, chunkCount: Number(card.script.chunkCount) || 0 }
+      resources: sources.map(function (source) {
+        const boundCards = cards.filter(function (card) { return card.script !== null && card.script.path === source.path }).map(function (card) { return { path: card.path, name: card.name } })
+        return { path: source.path, previewPath: fileResources.absolute(source.path), title: source.title, sourceChars: Number(source.sourceChars) || 0, chunkCount: Number(source.chunkCount) || 0, boundCards }
       })
     }
   }
@@ -382,14 +389,13 @@ export async function apply(ctx) {
     return change
   }
   async function deleteCard(cardPath) {
-    const script = await readScript(cardPath)
     const idx = await readIndex()
     const dead = (idx.chats || []).filter(function (c) { return c.cardPath === cardPath })
     idx.chats = (idx.chats || []).filter(function (c) { return c.cardPath !== cardPath })
     await writeIndex(idx)
     for (let i = 0; i < dead.length; i++) await rmFile('chats/' + dead[i].id + '.json')
+    await fileResources.unbindMaterial(normalizeResourcePath(cardPath, 'card'))
     await fileResources.remove(normalizeResourcePath(cardPath, 'card'))
-    if (script) await fileResources.remove(script.path)
     return { deleted: true }
   }
   async function deleteChat(chatId) {
@@ -519,6 +525,9 @@ export async function apply(ctx) {
       }
     }
     const greeting = chatMode === 'card' ? prompt('card-mode-greeting') : renderCardText(resolveCardOpening(card), card)
+    // connectWorkspace 返回时，Agent 注册偶尔仍在异步完成。先等到原生会话可写，
+    // 再落盘 Tavern 对话，避免失败时留下只有映射、没有原生开场白的半初始化记录。
+    const openingAgent = typeof sessionId === 'string' && sessionId !== '' && greeting !== '' ? await waitForAgentSession({ registry: agentRegistry, sessionId: sessionId, sleep: sleep }) : undefined
     const chat = newChat(card, chatMode || 'story')
     chat.openingText = greeting
     if (chat.mode === 'script') {
@@ -535,14 +544,14 @@ export async function apply(ctx) {
       const map = await readSessionMap()
       map[sessionId] = chat.id
       await writeSessionMap(map)
-      await appendNativeOpening(sessionId, chat, card)
+      await appendNativeOpening(sessionId, chat, card, openingAgent)
     }
     const result = await view(chat, card)
     if (chatMode === 'card') result.workspace = await workspaceViewOf(chat)
     return result
   }
 
-  async function appendNativeOpening(sessionId, chat, card) {
+  async function appendNativeOpening(sessionId, chat, card, readyAgent) {
     if (chat.nativeOpeningAppended === true) return
     const mode = chat.mode || 'story'
     let text
@@ -557,9 +566,7 @@ export async function apply(ctx) {
       text = storedGreeting === undefined ? renderCardText(card.first_mes, card) : storedGreeting.text
     }
     if (text === '') return
-    const agents = ctx.get('agents')
-    const agent = agents !== undefined ? agents.get(sessionId) : undefined
-    if (agent === undefined || agent.session === undefined) throw new Error('无法写入 DSH 会话开场白: ' + sessionId)
+    const agent = readyAgent || await waitForAgentSession({ registry: agentRegistry, sessionId: sessionId, sleep: sleep })
     const selected = modelSelection(sessionId) || { provider: 'dsh-tavern', model: 'character-card' }
     const turn = 1
     const step = 1
@@ -847,13 +854,13 @@ export async function apply(ctx) {
     void runSettlement(chatId).finally(function () { settlementJobs.delete(chatId) })
     return true
   }
-  // ---------- 卡片工作台：挂载素材与新卡草稿 ----------
+  // ---------- 卡片工作台：挂载资料与新卡草稿 ----------
   async function sourceWindowOf(chat) {
     const out = []
     for (const sourcePath of (chat.workspace && chat.workspace.sourcePaths) || []) {
       const src = await readSource(sourcePath)
       if (src === undefined || !Array.isArray(src.chunks)) continue
-      const title = str(src.title) || '素材'
+      const title = str(src.title) || '资料'
       for (const chunk of src.chunks) {
         out.push({ chunkId: sourcePath + '/' + chunk.id, title: title, order: chunk.order, text: chunk.text })
       }
@@ -917,7 +924,7 @@ export async function apply(ctx) {
     if (chat === undefined || (chat.mode || 'story') !== 'card') throw new Error('当前不是卡片工作台会话')
     const available = new Set(await fileResources.list('source'))
     const incoming = (Array.isArray(sourcePaths) ? sourcePaths : []).map(str).filter(function (item) { return available.has(item) })
-    if (incoming.length === 0) throw new Error('没有选择可用素材')
+    if (incoming.length === 0) throw new Error('没有选择可用资料')
     const state = chat.workspace || emptyCardWorkspace()
     state.sourcePaths = Array.from(new Set((state.sourcePaths || []).concat(incoming)))
     state.cursor = 0
@@ -1274,10 +1281,12 @@ export async function apply(ctx) {
       case 'renameResource': return { resource: await renameResource(args && args.path, args && args.name) }
       case 'getScriptInfo': {
         const script = await readScript(args && args.path)
-        return { script: scriptContinuity.inspect({ script: script, state: null, request: { kind: 'info' } }) }
+        const info = scriptContinuity.inspect({ script: script, state: null, request: { kind: 'info' } })
+        return { script: script === undefined ? info : Object.assign({}, info, { path: script.path }) }
       }
       case 'importScript': return { script: await importScript(args && args.cardPath, args && args.payload) }
-      case 'deleteScript': return await deleteScript(args && args.path)
+      case 'bindScript': return { script: await bindScript(args && args.cardPath, args && args.path) }
+      case 'deleteScript': return await deleteScript(args && (args.cardPath || args.path))
       case 'listSources': return { sources: await listSources() }
       case 'importSource': return { source: await importSource(args && args.payload) }
       case 'deleteSource': return await deleteSource(args && args.path)
@@ -1514,9 +1523,9 @@ export async function apply(ctx) {
 
     tools.register(defineTool({
       name: 'tavern_read_source',
-      description: '在卡片工作台中检索或分块读取已挂载素材。不要一次读取整份大型素材。',
+      description: '在卡片工作台中检索或分块读取已挂载资料。不要一次读取整份大型资料。',
       parameters: {
-        path: { type: 'string', required: true, description: '挂载目录中的素材相对路径' },
+        path: { type: 'string', required: true, description: '挂载目录中的资料相对路径' },
         query: { type: 'string', description: '可选关键词；提供时检索匹配分块' },
         offset: { type: 'integer', description: '不检索时从第几块开始，1 起始，默认 1' },
         limit: { type: 'integer', description: '读取或返回 1~6 块，默认 3' }
@@ -1540,7 +1549,7 @@ export async function apply(ctx) {
         },
         render: function (_args, value) {
           if (!value.found) return [{ type: 'text', text: value.message }]
-          return [{ type: 'text', text: '素材《' + value.title + '》· 共 ' + value.totalChunks + ' 块\n\n' + value.chunks.map(function (chunk) { return '[第 ' + chunk.number + ' 块]\n' + chunk.text }).join('\n\n') }]
+          return [{ type: 'text', text: '资料《' + value.title + '》· 共 ' + value.totalChunks + ' 块\n\n' + value.chunks.map(function (chunk) { return '[第 ' + chunk.number + ' 块]\n' + chunk.text }).join('\n\n') }]
         }
       },
       isConcurrencySafe: function () { return true },
@@ -1548,17 +1557,17 @@ export async function apply(ctx) {
         const sessionId = exec && exec.agent && exec.agent.session ? exec.agent.session.id : ''
         const chat = await chatForSession(sessionId)
         if (chat === undefined) throw new Error('尚未选择人物卡。')
-        if ((chat.mode || 'story') !== 'card') throw new Error('素材只能在卡片工作台中读取')
+        if ((chat.mode || 'story') !== 'card') throw new Error('资料只能在卡片工作台中读取')
         const resourcePath = str(args.path).trim()
-        if (!mountedResource(chat, 'source', resourcePath)) throw new Error('该素材尚未挂载到当前对话')
+        if (!mountedResource(chat, 'source', resourcePath)) throw new Error('该资料尚未挂载到当前对话')
         const source = await readSource(resourcePath)
-        if (source === undefined || !Array.isArray(source.chunks)) return { found: false, message: '素材资源不存在。', title: '', totalChunks: 0, chunks: [] }
+        if (source === undefined || !Array.isArray(source.chunks)) return { found: false, message: '资料资源不存在。', title: '', totalChunks: 0, chunks: [] }
         const limit = clampInt(Number(args.limit), 1, 6, 3)
         const query = str(args.query).trim().toLocaleLowerCase()
         const chunks = query !== ''
           ? source.chunks.filter(function (chunk) { return str(chunk.text).toLocaleLowerCase().includes(query) }).slice(0, limit)
           : source.chunks.slice(Math.max(0, (Number(args.offset) || 1) - 1), Math.max(0, (Number(args.offset) || 1) - 1) + limit)
-        if (chunks.length === 0) return { found: false, message: query !== '' ? '没有找到包含该关键词的素材分块。' : '指定范围没有素材内容。', title: str(source.title), totalChunks: source.chunks.length, chunks: [] }
+        if (chunks.length === 0) return { found: false, message: query !== '' ? '没有找到包含该关键词的资料分块。' : '指定范围没有资料内容。', title: str(source.title), totalChunks: source.chunks.length, chunks: [] }
         return { found: true, message: '', title: str(source.title), totalChunks: source.chunks.length, chunks: chunks.map(function (chunk) { return { number: Number(chunk.order) + 1, text: str(chunk.text) } }) }
       }
     }))
@@ -1613,7 +1622,7 @@ export async function apply(ctx) {
         const requestedPath = str(args.path).trim()
         const resourcePath = mode === 'card' && requestedPath !== '' ? requestedPath : str(chat.cardPath)
         if (resourcePath === '') return { found: false, message: '当前工作台尚未挂载人物卡或剧本。', title: '', totalChunks: 0, from: 0, to: 0, cursor: 0, chunks: [] }
-        if (mode === 'card' && resourcePath !== str(chat.cardPath) && !mountedResource(chat, 'script', resourcePath)) throw new Error('该剧本尚未挂载到当前对话')
+        if (mode === 'card' && resourcePath !== str(chat.cardPath) && !mountedResource(chat, 'source', resourcePath) && !mountedResource(chat, 'script', resourcePath)) throw new Error('该资料尚未挂载到当前对话')
         const script = await readScript(resourcePath)
         if (script === undefined || !Array.isArray(script.chunks) || script.chunks.length === 0) return { found: false, message: '当前人物卡没有绑定剧本。', title: '', totalChunks: 0, from: 0, to: 0, cursor: 0, chunks: [] }
         const windowResult = scriptContinuity.inspect({
