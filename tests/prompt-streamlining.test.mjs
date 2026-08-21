@@ -6,6 +6,10 @@ import { prompt } from '../tavern-plugin/lib/prompt-catalog.js'
 
 const clientSource = await readFile(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
 const serverSource = await readFile(new URL('../tavern-plugin/lib/index.js', import.meta.url), 'utf8')
+const orchestratorSource = await readFile(new URL('../tavern-plugin/lib/domain/turn-orchestration.js', import.meta.url), 'utf8')
+const tavernPresetSource = await readFile(new URL('../presets/tavern/agent.cordis.yml', import.meta.url), 'utf8')
+const profileSource = await readFile(new URL('../package.json', import.meta.url), 'utf8')
+const profilePatchSource = await readFile(new URL('../cordis.patch.yml', import.meta.url), 'utf8')
 
 function between(source, start, end) {
   const from = source.indexOf(start)
@@ -20,10 +24,11 @@ test('模型选择只读取当前会话和 DSH 默认值', () => {
   assert.match(serverSource, /当前会话的模型选择器/)
 })
 
-test('素材抽取使用结构化卡片修改工具，不再传递 JSON 字符串', () => {
+test('卡片工作台使用结构化卡片修改工具，不再传递 JSON 字符串', () => {
   assert.doesNotMatch(serverSource, /draftPatch/)
   assert.doesNotMatch(serverSource, /cardPatch|worldBookPatch/)
   assert.match(serverSource, /name: 'tavern_update_card'/)
+  assert.match(serverSource, /name: 'tavern_restore_card'/)
   assert.match(serverSource, /fields: \{/)
   assert.match(serverSource, /worldBook: \{/)
 })
@@ -31,9 +36,38 @@ test('素材抽取使用结构化卡片修改工具，不再传递 JSON 字符�
 test('模型工具只保留按需读取和明确修改', () => {
   assert.doesNotMatch(serverSource, /name: 'tavern_session'|action=context|action=commit|assistantText.*description/)
   assert.match(serverSource, /name: 'tavern_read_script'/)
+  assert.match(serverSource, /name: 'tavern_read_card'/)
+  assert.doesNotMatch(serverSource, /name: 'tavern_read_source'/)
   assert.match(serverSource, /name: 'tavern_read_worldbook'/)
   assert.match(serverSource, /name: 'tavern_update_card'/)
   assert.doesNotMatch(serverSource, /additionalProperties: true \},\s*render/)
+})
+
+test('原版恢复工具只操作当前人物卡并要求固定确认文本', () => {
+  const restoreTool = between(serverSource, "name: 'tavern_restore_card'", "output:")
+
+  assert.match(restoreTool, /confirmation:/)
+  assert.match(restoreTool, /enum: \['确认从原版恢复'\]/)
+  assert.doesNotMatch(restoreTool, /path:/)
+  assert.match(serverSource, /restoreCurrentCard\(sessionId\)/)
+  assert.match(serverSource, /turnOrchestrator\.discard/)
+})
+
+test('卡片 Agent 以极简模式工具为底座，游玩 Agent 不暴露文件工具', () => {
+  assert.match(profileSource, /"@deepseek-ai\/dsh-base"/)
+  assert.doesNotMatch(tavernPresetSource, /dsh-tool-bash-persistent|dsh-tool-pwsh-persistent|dsh-terminal-bash|timeoutMs: 300000/)
+  assert.doesNotMatch(tavernPresetSource, /id: (?:bash|pwsh)-sandbox/)
+  assert.match(profilePatchSource, /id: bash-sandbox[\s\S]*?timeoutMs: 600000[\s\S]*?maxTimeoutMs: 600000/)
+  assert.match(profilePatchSource, /id: pwsh-sandbox[\s\S]*?timeoutMs: 600000[\s\S]*?maxTimeoutMs: 600000/)
+  assert.match(tavernPresetSource, /@deepseek-ai\/dsh-tool-str-replace-editor/)
+  assert.match(tavernPresetSource, /text: ''/)
+  assert.doesNotMatch(tavernPresetSource, /complete: true/)
+  assert.match(serverSource, /text: prompt\(mode === 'card' \? 'card-mode' : 'play-mode'\)/)
+  assert.match(orchestratorSource, /if \(mode === 'card'\) return \[shellToolName, 'str_replace_editor', 'tavern_read_card', 'tavern_read_worldbook', 'tavern_update_card', 'tavern_restore_card'\]/)
+  assert.doesNotMatch(orchestratorSource, /mode === 'revision'|mode === 'extract'/)
+  assert.doesNotMatch(orchestratorSource, /if \(mode === 'script'\) return \[[^\]]*'bash'/)
+  assert.match(serverSource, /controlledToolNames = new Set\(\['bash', 'pwsh', 'str_replace_editor', 'tavern_read_card', 'tavern_read_script', 'tavern_read_worldbook', 'tavern_update_card', 'tavern_restore_card'\]\)/)
+  assert.doesNotMatch(serverSource, /name: 'tavern_bind_script'/)
 })
 
 test('候选项 RPC 只返回一份 candidates', () => {
@@ -95,14 +129,10 @@ test('无玩家输入的开场回合不进入正文结算', () => {
 
 test('只有人物卡开场白时不启动姿势结算', () => {
   const sessionView = between(serverSource, 'async function sessionView', 'async function ensureNativeOpening')
+
+  assert.match(sessionView, /chat\.messages\.some\(function \(message\)/)
   assert.match(sessionView, /message\.greeting !== true/)
   assert.doesNotMatch(sessionView, /chat\.messages\.length > 0/)
-})
-
-test('人物卡原版与清理后的工作版分开保存', () => {
-  const importFlow = between(serverSource, 'async function importCard', 'async function listCards')
-  assert.match(importFlow, /originals\/cards/)
-  assert.match(importFlow, /cleanWorkspaceCardMacros\(card\)/)
 })
 
 test('游玩固定选择一个开场白，并用它对齐剧本', () => {
@@ -116,4 +146,14 @@ test('游玩固定选择一个开场白，并用它对齐剧本', () => {
   assert.match(appendOpening, /typeof chat\.openingText === 'string'/)
   assert.match(appendOpening, /text = chat\.openingText/)
   assert.doesNotMatch(serverSource, /switchOpening|openingViewOf|openingId|switchable: !hasStory/)
+})
+
+test('新会话在落盘前等待 DSH Agent 可写，避免留下半初始化对话', () => {
+  const startChat = between(serverSource, 'async function startChat', 'async function appendNativeOpening')
+  const appendOpening = between(serverSource, 'async function appendNativeOpening', 'async function scriptPreviewOf')
+
+  assert.match(startChat, /const openingAgent = .*waitForAgentSession/)
+  assert.ok(startChat.indexOf('waitForAgentSession') < startChat.indexOf('await writeChat(chat)'))
+  assert.match(startChat, /appendNativeOpening\(sessionId, chat, card, openingAgent\)/)
+  assert.match(appendOpening, /readyAgent \|\| await waitForAgentSession/)
 })

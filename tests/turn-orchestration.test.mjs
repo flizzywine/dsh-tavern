@@ -20,28 +20,36 @@ function script() {
   }
 }
 
-function harness(mode) {
+function harness(mode, options = {}) {
   const cards = createCardPreparation({ id: () => 'card-1', now: () => 1000 })
   const scripts = createScriptContinuity()
   let card = cards.create({ kind: 'import', payload: { name: '阿芙拉', description: '旧描述' } })
   let chat = {
-    id: 'chat-1', cardId: card.id, cardName: card.name, mode,
+    id: 'chat-1', cardId: options.draft ? '' : card.id, cardName: options.draft ? '卡片工作台' : card.name, mode,
     messages: [], posture: '站在窗边', guides: [], nativeCommits: {},
     scriptState: mode === 'script' ? scripts.start(script(), 0) : null,
-    extract: mode === 'extract' ? { draft: { name: '' }, player: '', cursor: 0, prepared: null } : null
+    workspace: mode === 'card' ? { mountedResources: [], sourceIds: options.draft ? ['src-1'] : [], draft: { name: '' }, player: '', cursor: 0, prepared: null } : null
   }
   const settlements = []
+  const createdCards = []
   const plannerCalls = []
   const timeline = createStoryTimeline({ id: (prefix) => prefix + '-' + Math.random().toString(36).slice(2), now: () => 2000 })
   const store = {
     async chatForSession() { return clone(chat) },
-    async readCard() { return clone(card) },
-    async readScript() { return mode === 'script' || mode === 'revision' ? clone(script()) : undefined },
+    async readCard() { return options.draft && !chat.cardPath ? undefined : clone(card) },
+    async readScript() { return mode === 'script' || (mode === 'card' && !options.draft) ? clone(script()) : undefined },
     async writeChat(value) { chat = clone(value) },
     async updateCard(_cardId, fields, revision, worldBook) {
       const change = cards.update({ kind: 'card', card, patch: fields, revision, worldBookOperations: worldBook })
       card = clone(change.card)
       return clone(change)
+    },
+    async createCard(_chat, state) {
+      card = cards.create({ kind: 'draft', draft: state.draft, player: state.player, sourcePaths: state.sourceIds || state.sourcePaths || [] })
+      const path = 'cards/' + card.name + '.json'
+      card.path = path
+      createdCards.push({ path, card: clone(card) })
+      return { path, card: clone(card) }
     }
   }
   const orchestrator = createTurnOrchestrator({
@@ -55,19 +63,20 @@ function harness(mode) {
     scripts,
     timeline,
     cards,
-    extract: {
+    workspace: {
       async prepare(value, turn) {
-        value.extract.prepared = { nativeTurn: turn, cursorBefore: value.extract.cursor, total: 1, window: [{ title: '素材', text: '拔剑。' }] }
-        return value.extract.prepared
+        value.workspace.prepared = { nativeTurn: turn, cursorBefore: value.workspace.cursor, total: 1, window: [{ title: '素材', text: '拔剑。' }] }
+        return value.workspace.prepared
       },
       commit(value, turn) {
-        if (value.extract.prepared && value.extract.prepared.nativeTurn === turn) {
-          value.extract.cursor = 1
-          value.extract.prepared = null
+        if (value.workspace.prepared && value.workspace.prepared.nativeTurn === turn) {
+          value.workspace.cursor = 1
+          value.workspace.prepared = null
         }
       }
     },
     queueSettlement: (chatId) => settlements.push(chatId),
+    shellToolName: options.shellToolName,
     now: () => 2000
   })
   return {
@@ -76,6 +85,7 @@ function harness(mode) {
     card: () => clone(card),
     plannerCalls,
     settlements,
+    createdCards,
     timeline,
     replaceChat(next) { chat = clone(next) }
   }
@@ -83,6 +93,7 @@ function harness(mode) {
 
 test('游玩回合由生命周期自动准备与提交，不再要求模型回传正文', async () => {
   const run = harness('story')
+  assert.equal(await run.orchestrator.modeFor('session-1'), 'story')
   const prepared = await run.orchestrator.prepare({ sessionId: 'session-1', turn: 2, userText: '推开窗' })
   assert.equal(prepared.text, 'context:body')
 
@@ -96,6 +107,15 @@ test('游玩回合由生命周期自动准备与提交，不再要求模型回�
 
   await run.orchestrator.finalize({ sessionId: 'session-1', turn: 2, userText: '推开窗', assistantText: '重复文本' })
   assert.equal(run.chat().messages.length, 2)
+})
+
+test('真实玩家回合缺少 prepare 时仍报 operation 错误', async () => {
+  const run = harness('story')
+
+  await assert.rejects(
+    run.orchestrator.finalize({ sessionId: 'session-1', turn: 1, userText: '向前走', assistantText: '正文' }),
+    /找不到本轮正文 operation/
+  )
 })
 
 test('剧本参考在准备时锁定，正文提交后游标前进一块，失败回合可清理', async () => {
@@ -132,8 +152,10 @@ test('正文替代先回到 checkpoint 再提交，剧本游标不会推进两�
 })
 
 test('卡片修改先校验暂存，只在最终回复完成后写入', async () => {
-  const run = harness('revision')
-  await run.orchestrator.prepare({ sessionId: 'session-1', turn: 5, userText: '确认改成新描述' })
+  const run = harness('card')
+  await run.orchestrator.prepare({ sessionId: 'session-1', turn: 5, userText: '参考 @[人物设定](tavern-file:materials%2F%E4%BA%BA%E7%89%A9%E8%AE%BE%E5%AE%9A.md)，确认改成新描述' })
+  assert.deepEqual(run.chat().workspace.mountedResources, [{ kind: 'source', path: 'materials/人物设定.md', label: '人物设定' }])
+  assert.deepEqual(run.plannerCalls.at(-1).workspace.mountedResources, [{ kind: 'source', path: 'materials/人物设定.md', label: '人物设定' }])
   const staged = await run.orchestrator.stageChanges({ sessionId: 'session-1', turn: 5, fields: { description: '新描述' } })
   assert.equal(staged.changed, true)
   assert.equal(run.card().description, '旧描述')
@@ -141,27 +163,70 @@ test('卡片修改先校验暂存，只在最终回复完成后写入', async ()
   await run.orchestrator.finalize({ sessionId: 'session-1', turn: 5, userText: '确认改成新描述', assistantText: '已经改好了。' })
   assert.equal(run.card().description, '新描述')
   assert.equal(run.chat().nativeCommits['5'].changed, true)
-  assert.deepEqual(await run.orchestrator.visibleTools('session-1'), ['tavern_read_script', 'tavern_read_worldbook', 'tavern_update_card'])
+  assert.deepEqual(await run.orchestrator.visibleTools('session-1'), [
+    'bash',
+    'str_replace_editor',
+    'tavern_read_card',
+    'tavern_read_worldbook',
+    'tavern_update_card',
+    'tavern_restore_card',
+  ])
 })
 
-test('素材抽取通过同一修改工具更新草稿和玩家身份', async () => {
-  const run = harness('extract')
+test('Windows 卡片模式暴露 PowerShell 而不是 Bash', async () => {
+  const run = harness('card', { shellToolName: 'pwsh' })
+  assert.deepEqual(await run.orchestrator.visibleTools('session-1'), [
+    'pwsh',
+    'str_replace_editor',
+    'tavern_read_card',
+    'tavern_read_worldbook',
+    'tavern_update_card',
+    'tavern_restore_card',
+  ])
+})
+
+test('空白卡片工作台确认完整设定后直接创建并绑定正式人物卡', async () => {
+  const run = harness('card', { draft: true })
   await run.orchestrator.prepare({ sessionId: 'session-1', turn: 6, userText: '确认角色和玩家' })
   await run.orchestrator.stageChanges({ sessionId: 'session-1', turn: 6, fields: { name: '阿芙拉', player: '旅行者' } })
-  assert.equal(run.chat().extract.draft.name, '')
+  assert.equal(run.chat().workspace.draft.name, '')
 
-  await run.orchestrator.finalize({ sessionId: 'session-1', turn: 6, userText: '确认角色和玩家', assistantText: '草稿已记录。' })
-  assert.equal(run.chat().extract.draft.name, '阿芙拉')
-  assert.equal(run.chat().extract.player, '旅行者')
-  assert.equal(run.chat().extract.cursor, 1)
-  assert.deepEqual(await run.orchestrator.visibleTools('session-1'), ['tavern_update_card'])
+  const saved = await run.orchestrator.finalize({ sessionId: 'session-1', turn: 6, userText: '确认角色和玩家', assistantText: '人物卡已创建。' })
+  assert.equal(run.chat().workspace.draft.name, '阿芙拉')
+  assert.equal(run.chat().workspace.player, '旅行者')
+  assert.equal(run.chat().workspace.cursor, 1)
+  assert.equal(run.chat().cardPath, 'cards/阿芙拉.json')
+  assert.equal(run.chat().cardName, '阿芙拉')
+  assert.deepEqual(run.createdCards.map((item) => item.path), ['cards/阿芙拉.json'])
+  assert.deepEqual(saved.createdCard, { path: 'cards/阿芙拉.json', name: '阿芙拉' })
+  const duplicate = await run.orchestrator.finalize({ sessionId: 'session-1', turn: 6, userText: '确认角色和玩家', assistantText: '重复回调' })
+  assert.equal(duplicate.duplicate, true)
+  assert.equal(run.createdCards.length, 1)
+  assert.deepEqual(await run.orchestrator.visibleTools('session-1'), ['bash', 'str_replace_editor', 'tavern_read_card', 'tavern_read_worldbook', 'tavern_update_card', 'tavern_restore_card'])
 })
 
-test('真实玩家回合缺少 prepare 时仍报 operation 错误', async () => {
-  const run = harness('story')
-
+test('空白工作台缺少新卡必填信息时不接受确认提交', async () => {
+  const run = harness('card', { draft: true })
   await assert.rejects(
-    run.orchestrator.finalize({ sessionId: 'session-1', turn: 1, userText: '向前走', assistantText: '正文' }),
-    /找不到本轮正文 operation/
+    run.orchestrator.stageChanges({ sessionId: 'session-1', turn: 7, fields: { name: '阿芙拉' } }),
+    /玩家身份还没有确认/
   )
+  assert.equal(run.createdCards.length, 0)
+})
+
+test('旧会话已有完整临时设定时，再次确认也会落成正式人物卡', async () => {
+  const run = harness('card', { draft: true })
+  const chat = run.chat()
+  chat.workspace.draft = { name: '阿芙拉', description: '旧会话已整理的设定' }
+  chat.workspace.player = '旅行者'
+  run.replaceChat(chat)
+
+  const staged = await run.orchestrator.stageChanges({ sessionId: 'session-1', turn: 8, fields: { name: '阿芙拉', description: '旧会话已整理的设定', player: '旅行者' } })
+  assert.equal(staged.changed, false)
+  assert.equal(staged.createsCard, true)
+  const saved = await run.orchestrator.finalize({ sessionId: 'session-1', turn: 8, userText: '确认创建人物卡', assistantText: '人物卡已创建。' })
+
+  assert.equal(saved.changed, true)
+  assert.equal(run.chat().cardPath, 'cards/阿芙拉.json')
+  assert.equal(run.createdCards.length, 1)
 })

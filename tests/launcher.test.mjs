@@ -1,13 +1,17 @@
 import assert from 'node:assert/strict'
-import { readFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
 import net from 'node:net'
 import test from 'node:test'
 
 import {
   applySidebarDefaults,
   encodeWindowsPowerShellScript,
+  ensureSidebarDefaults,
   isPortOpen,
   renderWindowsLauncher,
+  supportsDshVersion,
 } from '../bin/dsh-tavern.mjs'
 
 const windowsInstaller = await readFile(new URL('../install.ps1', import.meta.url), 'utf8')
@@ -41,7 +45,7 @@ test('Tavern no longer bundles dsh-codex-connect and removes it from existing pr
 })
 
 test('Tavern profile installs Better Sidebar as its right-panel foundation', () => {
-  assert.equal(rootManifest.dependencies['dsh-better-sidebar'], '0.13.1')
+  assert.equal(rootManifest.dependencies['dsh-better-sidebar'], '0.14.0')
   assert.ok(rootManifest.dsh.profile.bundles.includes('dsh-better-sidebar'))
   assert.match(launcherSource, /'dsh-better-sidebar': source\.dependencies\['dsh-better-sidebar'\]/)
 })
@@ -50,7 +54,7 @@ test('Tavern profile does not auto-install Better Sidebar peer dependencies over
   assert.match(profileWorkspace, /^autoInstallPeers:\s*false$/m)
 })
 
-test('Tavern sidebar defaults keep only Tavern status and disable every file preview', () => {
+test('Tavern sidebar defaults enable resource tabs, Files and text previews', () => {
   const settings = applySidebarDefaults({
     'unrelated-plugin': { enabled: true },
     'dsh-better-sidebar': { openByDefault: false },
@@ -60,29 +64,85 @@ test('Tavern sidebar defaults keep only Tavern status and disable every file pre
   assert.equal(settings['dsh-better-sidebar'].openByDefault, false)
   assert.equal(settings['dsh-better-sidebar'].defaultWidthPercent, 30)
   assert.deepEqual(settings['dsh-better-sidebar'].tabsEnabled, {
-    editor: false,
+    editor: true,
     git: false,
     subagent: false,
     terminal: false,
     browser: false,
     diff: false,
+    'dsh-tavern:resources': true,
+    'dsh-tavern:cards': true,
     'dsh-tavern:status': true,
   })
   assert.deepEqual(settings['dsh-better-sidebar'].viewersEnabled, {
     image: false,
     pdf: false,
-    markdown: false,
+    markdown: true,
     html: false,
-    code: false,
+    code: true,
     'binary-download': false,
   })
+  assert.equal(settings['dsh-tavern'].sidebarDefaultsVersion, 5)
 })
 
-test('installers reuse existing pnpm and DSH and only install missing packages', () => {
+test('Tavern sidebar restores native Files and text previews during version 5 migration', () => {
+  const settings = applySidebarDefaults({
+    'dsh-tavern': { sidebarDefaultsVersion: 4 },
+    'dsh-better-sidebar': { tabsEnabled: { editor: false, 'dsh-tavern:resources': false }, viewersEnabled: { markdown: false, code: false } },
+  })
+  assert.equal(settings['dsh-better-sidebar'].tabsEnabled.editor, true)
+  assert.equal(settings['dsh-better-sidebar'].tabsEnabled['dsh-tavern:resources'], false)
+  assert.equal(settings['dsh-better-sidebar'].tabsEnabled['dsh-tavern:cards'], true)
+  assert.equal(settings['dsh-better-sidebar'].viewersEnabled.markdown, true)
+  assert.equal(settings['dsh-better-sidebar'].viewersEnabled.code, true)
+})
+
+test('Tavern sidebar preserves user choices after version 5 migration', () => {
+  const settings = applySidebarDefaults({
+    'dsh-tavern': { sidebarDefaultsVersion: 5 },
+    'dsh-better-sidebar': { tabsEnabled: { editor: false }, viewersEnabled: { markdown: false, code: false } },
+  })
+  assert.equal(settings['dsh-better-sidebar'].tabsEnabled.editor, false)
+  assert.equal(settings['dsh-better-sidebar'].viewersEnabled.markdown, false)
+  assert.equal(settings['dsh-better-sidebar'].viewersEnabled.code, false)
+})
+
+test('Tavern sidebar migration marker、资源库与人物卡库设置写入 YAML', async (t) => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'dsh-tavern-settings-'))
+  t.after(async function () { await rm(directory, { recursive: true, force: true }) })
+  const settingsPath = path.join(directory, 'settings.yaml')
+  await writeFile(settingsPath, 'dsh-better-sidebar:\n  tabsEnabled:\n    editor: false\n', 'utf8')
+
+  assert.equal(ensureSidebarDefaults(settingsPath), true)
+  const written = await readFile(settingsPath, 'utf8')
+  assert.match(written, /dsh-tavern:\n  sidebarDefaultsVersion: 5/)
+  assert.match(written, /editor: true/)
+  assert.match(written, /dsh-tavern:resources: true/)
+  assert.match(written, /dsh-tavern:cards: true/)
+})
+
+test('Tavern applies sidebar migrations before every service start', () => {
+  assert.match(launcherSource, /async function startService\(\) \{\s*verifyProfile\(\)\s*ensureSidebarDefaults\(\)/)
+})
+
+test('DSH rc.8 is the minimum supported launcher version', () => {
+  assert.equal(supportsDshVersion('0.1.0-rc.7'), false)
+  assert.equal(supportsDshVersion('0.1.0-rc.8'), true)
+  assert.equal(supportsDshVersion('0.1.0-rc.9'), true)
+  assert.equal(supportsDshVersion('0.1.0'), true)
+  assert.equal(supportsDshVersion('0.2.0-rc.1'), true)
+  assert.equal(supportsDshVersion('unknown'), false)
+})
+
+test('installers reuse compatible DSH and upgrade older versions to rc.8', () => {
   assert.match(windowsInstaller, /if \(-not \(Test-Command 'pnpm'\)\)/)
-  assert.match(windowsInstaller, /if \(-not \(Test-Command 'dsh'\)\)/)
+  assert.match(windowsInstaller, /\$RequiredDshVersion = '0\.1\.0-rc\.8'/)
+  assert.match(windowsInstaller, /Test-DshVersion \$DshVersionText/)
+  assert.match(windowsInstaller, /@deepseek-ai\/dsh@\$RequiredDshVersion/)
   assert.match(unixInstaller, /if ! command -v pnpm/)
-  assert.match(unixInstaller, /if ! command -v dsh/)
+  assert.match(unixInstaller, /REQUIRED_DSH_VERSION=0\.1\.0-rc\.8/)
+  assert.match(unixInstaller, /dsh_version_is_compatible/)
+  assert.match(unixInstaller, /@deepseek-ai\/dsh@\$\{REQUIRED_DSH_VERSION\}/)
 })
 
 test('port probe distinguishes an open listener from a closed port', async () => {

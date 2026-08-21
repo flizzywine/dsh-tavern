@@ -5,3 +5,7 @@ nodeLinker: hoisted
 autoInstallPeers: false
 allowBuilds:
   node-pty: false
+minimumReleaseAgeExclude:
+  - '@deepseek-ai/dsh-subagent@0.1.0-rc.8'
+  - '@deepseek-ai/dsh-tools@0.1.0-rc.8'
+  - dsh-better-sidebar@0.14.0

@@ -24,6 +24,7 @@ import { fileURLToPath } from 'node:url'
 import { parseDocument } from 'yaml'
 
 const PROFILE = 'tavern'
+const MINIMUM_DSH_VERSION = '0.1.0-rc.8'
 const SCRIPT_PATH = fileURLToPath(import.meta.url)
 const SOURCE_ROOT = path.resolve(path.dirname(SCRIPT_PATH), '..')
 const DSH_ROOT = process.env.DSH_HOME || path.join(os.homedir(), '.dsh')
@@ -32,24 +33,27 @@ const LOG_DIR = path.join(DSH_ROOT, 'logs')
 const LOG_FILE = path.join(LOG_DIR, 'tavern.log')
 const PID_FILE = path.join(LOG_DIR, 'tavern.pid.json')
 const SETTINGS_FILE = path.join(DSH_ROOT, 'settings.yaml')
+const SIDEBAR_DEFAULTS_VERSION = 5
 const TAVERN_SIDEBAR_DEFAULTS = {
   openByDefault: true,
   defaultWidthPercent: 30,
   tabsEnabled: {
-    editor: false,
+    editor: true,
     git: false,
     subagent: false,
     terminal: false,
     browser: false,
     diff: false,
+    'dsh-tavern:resources': true,
+    'dsh-tavern:cards': true,
     'dsh-tavern:status': true,
   },
   viewersEnabled: {
     image: false,
     pdf: false,
-    markdown: false,
+    markdown: true,
     html: false,
-    code: false,
+    code: true,
     'binary-download': false,
   },
 }
@@ -73,19 +77,41 @@ function record(value) {
 export function applySidebarDefaults(settings = {}) {
   const document = record(settings)
   const current = record(document['dsh-better-sidebar'])
+  const tavernSettings = record(document['dsh-tavern'])
+  const currentDefaultsVersion = Number(tavernSettings.sidebarDefaultsVersion)
+  const migrateResourcesTab = !Number.isFinite(currentDefaultsVersion) || currentDefaultsVersion < 3
+  const migrateCardLibraryTab = !Number.isFinite(currentDefaultsVersion) || currentDefaultsVersion < 4
+  const migrateNativeFiles = !Number.isFinite(currentDefaultsVersion) || currentDefaultsVersion < 5
+  const tabsEnabled = {
+    ...TAVERN_SIDEBAR_DEFAULTS.tabsEnabled,
+    ...record(current.tabsEnabled),
+  }
+  if (migrateResourcesTab) {
+    tabsEnabled['dsh-tavern:resources'] = true
+  }
+  if (migrateCardLibraryTab) {
+    tabsEnabled['dsh-tavern:cards'] = true
+  }
+  const viewersEnabled = {
+    ...TAVERN_SIDEBAR_DEFAULTS.viewersEnabled,
+    ...record(current.viewersEnabled),
+  }
+  if (migrateNativeFiles) {
+    tabsEnabled.editor = true
+    viewersEnabled.markdown = true
+    viewersEnabled.code = true
+  }
   return {
     ...document,
+    'dsh-tavern': {
+      ...tavernSettings,
+      sidebarDefaultsVersion: SIDEBAR_DEFAULTS_VERSION,
+    },
     'dsh-better-sidebar': {
       ...TAVERN_SIDEBAR_DEFAULTS,
       ...current,
-      tabsEnabled: {
-        ...TAVERN_SIDEBAR_DEFAULTS.tabsEnabled,
-        ...record(current.tabsEnabled),
-      },
-      viewersEnabled: {
-        ...TAVERN_SIDEBAR_DEFAULTS.viewersEnabled,
-        ...record(current.viewersEnabled),
-      },
+      tabsEnabled,
+      viewersEnabled,
     },
   }
 }
@@ -100,6 +126,7 @@ export function ensureSidebarDefaults(settingsPath = SETTINGS_FILE) {
   const next = applySidebarDefaults(current)
   if (JSON.stringify(next) === JSON.stringify(current)) return false
 
+  yaml.set('dsh-tavern', next['dsh-tavern'])
   yaml.set('dsh-better-sidebar', next['dsh-better-sidebar'])
   mkdirSync(path.dirname(settingsPath), { recursive: true })
   const temporary = `${settingsPath}.tmp-${process.pid}`
@@ -160,6 +187,30 @@ function findDshCommand() {
   }
 
   throw new Error('找不到 dsh，请先安装 DeepSeek Harness，并重新打开终端。')
+}
+
+export function supportsDshVersion(value, minimum = MINIMUM_DSH_VERSION) {
+  function parse(version) {
+    const match = String(version || '').trim().match(/^(\d+)\.(\d+)\.(\d+)(?:-rc\.(\d+))?$/)
+    if (!match) return null
+    return [Number(match[1]), Number(match[2]), Number(match[3]), match[4] === undefined ? Number.POSITIVE_INFINITY : Number(match[4])]
+  }
+  const current = parse(value)
+  const required = parse(minimum)
+  if (current === null || required === null) return false
+  for (let index = 0; index < current.length; index += 1) {
+    if (current[index] !== required[index]) return current[index] > required[index]
+  }
+  return true
+}
+
+function requireDshVersion(command) {
+  const result = spawnSync(command, ['--version'], { encoding: 'utf8', shell: process.platform === 'win32' })
+  const version = result.status === 0 ? String(result.stdout || '').trim() : ''
+  if (!supportsDshVersion(version)) {
+    throw new Error(`DSH 版本过低，需要 ${MINIMUM_DSH_VERSION} 或更高版本（当前：${version || '无法识别'}）。请运行 npm install -g @deepseek-ai/dsh@${MINIMUM_DSH_VERSION}`)
+  }
+  return version
 }
 
 function requireCommand(command, installHint = '') {
@@ -295,6 +346,7 @@ function timestamp() {
 
 async function installProfile() {
   const dsh = findDshCommand()
+  requireDshVersion(dsh)
   requireCommand('node', '请安装 Node.js 22.19 或更高版本')
   requireCommand('pnpm', '请运行 npm install -g pnpm')
   verifySource()
@@ -307,11 +359,11 @@ async function installProfile() {
 
   run('pnpm', ['--dir', path.join(SOURCE_ROOT, 'tavern-plugin'), 'install', '--ignore-workspace'])
   writeProfileManifest()
-  ensureSidebarDefaults()
   copyFileSync(path.join(SOURCE_ROOT, 'cordis.patch.yml'), path.join(PROFILE_DIR, 'cordis.patch.yml'))
   copyFileSync(path.join(SOURCE_ROOT, 'pnpm-workspace.yaml'), path.join(PROFILE_DIR, 'pnpm-workspace.yaml'))
   run('pnpm', ['--dir', PROFILE_DIR, 'install'])
   runDsh(dsh, ['--profile', PROFILE, '--dump-config'], { stdio: 'ignore' })
+  ensureSidebarDefaults()
   installCommand()
 
   console.log('DSH Tavern 已安装。')
@@ -453,6 +505,7 @@ function runDsh(command, args, options = {}) {
 
 async function startService() {
   verifyProfile()
+  ensureSidebarDefaults()
   const state = await serviceState()
   if (state.record && state.portOpen) {
     console.log(`DSH Tavern 已经在运行：PID ${state.record.pid}。`)
@@ -466,6 +519,7 @@ async function startService() {
   }
 
   const dsh = findDshCommand()
+  requireDshVersion(dsh)
   mkdirSync(LOG_DIR, { recursive: true })
   const logDescriptor = openSync(LOG_FILE, 'a')
   let child

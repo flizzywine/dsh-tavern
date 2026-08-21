@@ -338,7 +338,7 @@ test('单次输出无效时不覆盖旧候选，也不改变剧本游标', async
 })
 
 test('卡片模式拒绝生成候选项', async () => {
-  const run = harness({ mode: 'revision', outputs: ['{}'] })
+  const run = harness({ mode: 'card', outputs: ['{}'] })
   await assert.rejects(() => run.candidates.generate({ sessionId: 'session-1', messageId: 'message-4' }), /卡片模式不生成剧情候选项/)
 })
 

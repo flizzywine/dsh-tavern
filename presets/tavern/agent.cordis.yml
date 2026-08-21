@@ -1,9 +1,24 @@
-# Tavern preset：回合上下文和状态提交由插件自动完成。
+# Tavern preset：最终系统提示词由插件按游玩／卡片会话装配。
 - id: persona
   name: '@deepseek-ai/dsh-persona'
   config:
-    text: |-
-      酒馆会在用户消息后自动注入本轮所需上下文。直接遵循该上下文回复，不提及内部协议。
-      游玩模式中，用户最新消息是用户期望在本轮正文中看到的“本轮演出指引”，不是已经发生的剧情，也不是可以直接拼接的正文原文。正文必须从当前现场自然展开并演出其核心意图，不能从输入结束处直接续写。
-    complete: true
+    text: ''
     includeRuntimeContext: false
+
+# 卡片模式复用 dsh-base 提供的一次性 bash／pwsh 与文件编辑能力；
+# 具体工具是否对当前会话可见，由 Tavern 按游玩/卡片模式过滤。
+- id: filesystem
+  name: cordis:group
+  group: true
+  isolate:
+    fs: true
+  config:
+    - id: fs-local
+      name: '@deepseek-ai/dsh-fs-local'
+      config:
+        cwd: !!js process.env.DSH_CWD ?? process.cwd()
+
+    - id: str-replace-editor
+      name: '@deepseek-ai/dsh-tool-str-replace-editor'
+      config:
+        maxOutputChars: 16000

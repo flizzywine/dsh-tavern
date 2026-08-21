@@ -1,6 +1,10 @@
+import { rememberTavernResources } from './workspace-resources.js'
+
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
 }
+
+function cardPathOf(chat) { return str(chat && (chat.cardPath || chat.cardId)) }
 
 function clone(value) {
   return value === undefined ? undefined : JSON.parse(JSON.stringify(value))
@@ -67,10 +71,11 @@ export function createTurnOrchestrator(options) {
   const planner = options.planner
   const scripts = options.scripts
   const cards = options.cards
-  const extract = options.extract
+  const workspace = options.workspace
   const timeline = options.timeline
   const now = typeof options.now === 'function' ? options.now : Date.now
   const queueSettlement = typeof options.queueSettlement === 'function' ? options.queueSettlement : function () {}
+  const shellToolName = options.shellToolName === 'pwsh' ? 'pwsh' : 'bash'
 
   async function prepare(input) {
     let chat = await store.chatForSession(input.sessionId)
@@ -93,26 +98,15 @@ export function createTurnOrchestrator(options) {
       chatChanged = true
     }
 
-    if (mode === 'extract') {
-      const prepared = await extract.prepare(chat, turn)
-      const plan = await planner.plan({ purpose: 'extract', chat, extractPrepared: prepared })
-      await store.writeChat(chat)
-      return {
-        ready: true,
-        mode,
-        cardName: (chat.extract && chat.extract.draft ? str(chat.extract.draft.name) : '') || '未命名角色',
-        text: plan.text
-      }
-    }
-
-    const card = await store.readCard(chat.cardId)
-    if (card === undefined) throw new Error('角色卡不存在: ' + chat.cardId)
+    const cardPath = cardPathOf(chat)
+    const card = cardPath === '' ? null : await store.readCard(cardPath)
+    if (cardPath !== '' && card === undefined) throw new Error('人物卡不存在: ' + cardPath)
     let scriptReference = null
     let scriptInfo = null
     let worldBookOverview = null
 
     if (mode === 'script') {
-      const script = await store.readScript(chat.cardId)
+      const script = await store.readScript(cardPath)
       if (script === undefined || !Array.isArray(script.chunks) || script.chunks.length === 0) throw new Error('剧本文件不存在，请重新为人物卡导入剧本')
       const existing = chat.scriptState && chat.scriptState.prepared
       if (existing !== null && existing !== undefined && Number(existing.nativeTurn) !== turn) {
@@ -130,15 +124,22 @@ export function createTurnOrchestrator(options) {
       }
     }
 
-    if (mode === 'revision') {
-      const script = await store.readScript(chat.cardId)
-      scriptInfo = scripts.inspect({ script, state: chat.scriptState, request: { kind: 'info' } })
-      worldBookOverview = cards.present({ card, as: 'world-book-overview' })
+    if (mode === 'card') {
+      const state = object(chat.workspace)
+      state.mountedResources = rememberTavernResources(state.mountedResources, userText)
+      chat.workspace = state
+      const prepared = (Array.isArray(state.sourcePaths) ? state.sourcePaths : state.sourceIds || []).length > 0 ? await workspace.prepare(chat, turn) : null
+      if (card !== null) {
+        const script = await store.readScript(cardPathOf(chat))
+        scriptInfo = scripts.inspect({ script, state: chat.scriptState, request: { kind: 'info' } })
+        worldBookOverview = cards.present({ card, as: 'world-book-overview' })
+      }
+      const plan = await planner.plan({ purpose: 'card', card, workspace: state, sourcePrepared: prepared, scriptInfo, worldBookOverview })
+      await store.writeChat(chat)
+      return { ready: true, mode, cardName: card === null ? (str(state.draft && state.draft.name) || '卡片工作台') : card.name, text: plan.text }
     }
 
-    const plan = mode === 'revision'
-      ? await planner.plan({ purpose: 'revision', card, scriptInfo, worldBookOverview })
-      : await planner.plan({ purpose: 'body', card, chat, userText, sessionId: input.sessionId, nativeTurn: turn, scriptReference })
+    const plan = await planner.plan({ purpose: 'body', card, chat, userText, sessionId: input.sessionId, nativeTurn: turn, scriptReference })
     if (chatChanged) await store.writeChat(chat)
     return { ready: true, mode, cardName: card.name, text: plan.text }
   }
@@ -147,7 +148,7 @@ export function createTurnOrchestrator(options) {
     const chat = await store.chatForSession(input.sessionId)
     if (chat === undefined) throw new Error('当前会话没有绑定人物卡')
     const mode = chat.mode || 'story'
-    if (mode !== 'revision' && mode !== 'extract') throw new Error('人物卡只能在卡片模式中修改')
+    if (mode !== 'card') throw new Error('人物卡只能在卡片模式中修改')
     const turn = Math.max(0, Number(input.turn) || 0)
     if (!turn) throw new Error('无法确定当前回合')
     clearStaleStages(chat, turn)
@@ -156,20 +157,27 @@ export function createTurnOrchestrator(options) {
     if (Object.keys(combined.fields).length === 0 && combined.worldBook.length === 0) throw new Error('没有提供需要修改的字段')
 
     let preview
-    if (mode === 'extract') {
-      if (combined.worldBook.length > 0) throw new Error('素材抽取阶段不能修改世界书')
-      const state = object(chat.extract)
+    const cardPath = cardPathOf(chat)
+    if (cardPath === '') {
+      if (combined.worldBook.length > 0) throw new Error('新人物卡创建前不能修改世界书，请先创建人物卡')
+      const state = object(chat.workspace)
       preview = cards.update({ kind: 'draft', card: object(state.draft), player: state.player, patch: combined.fields })
       if (preview.player !== str(state.player).trim() && !preview.changedFields.includes('player')) preview.changedFields.push('player')
+      cards.create({
+        kind: 'draft',
+        draft: preview.card,
+        player: preview.player,
+        sourcePaths: state.sourcePaths || state.sourceIds || []
+      })
     } else {
-      const card = await store.readCard(chat.cardId)
-      if (card === undefined) throw new Error('角色卡不存在: ' + chat.cardId)
+      const card = await store.readCard(cardPath)
+      if (card === undefined) throw new Error('人物卡不存在: ' + cardPath)
       preview = cards.update({ kind: 'card', card, patch: combined.fields, worldBookOperations: combined.worldBook })
     }
 
     stages[String(turn)] = combined
     await store.writeChat(chat)
-    return { staged: true, mode, changed: preview.changed, changedFields: preview.changedFields }
+    return { staged: true, mode, changed: preview.changed, createsCard: cardPath === '', changedFields: preview.changedFields }
   }
 
   async function finalize(input) {
@@ -184,36 +192,53 @@ export function createTurnOrchestrator(options) {
     const mode = chat.mode || 'story'
     const stage = takeStage(chat, turn)
 
-    if (mode === 'extract') {
-      const state = object(chat.extract)
+    const cardPath = cardPathOf(chat)
+    if (mode === 'card' && cardPath === '') {
+      const state = object(chat.workspace)
       let changed = false
-      if (Object.keys(object(stage.fields)).length > 0) {
+      const hasCardChanges = Object.keys(object(stage.fields)).length > 0
+      if (hasCardChanges) {
         const draftChange = cards.update({ kind: 'draft', card: object(state.draft), player: state.player, patch: stage.fields })
         state.draft = draftChange.card
         state.player = draftChange.player
-        chat.extract = state
+        chat.workspace = state
         changed = draftChange.changed
       }
-      extract.commit(chat, turn)
+      const created = hasCardChanges ? await store.createCard(chat, state) : null
+      if (created !== null) {
+        chat.cardPath = created.path
+        chat.cardName = created.card.name
+        state.done = true
+        changed = true
+      }
+      workspace.commit(chat, turn)
       if (userText !== '') chat.messages.push({ role: 'user', text: userText, ts: now(), native: true })
       chat.messages.push({ role: 'assistant', text: assistantText, ts: now(), native: true, changed })
-      chat.cardName = str(state.draft && state.draft.name) || '抽取中'
+      chat.cardName = created === null ? (str(state.draft && state.draft.name) || '卡片工作台') : created.card.name
       rememberCommit(chat, turn, { mode, userText, changed }, null, now)
       await store.writeChat(chat)
-      return { saved: true, mode, changed, chatId: chat.id, cardName: chat.cardName }
+      return {
+        saved: true,
+        mode,
+        changed,
+        chatId: chat.id,
+        cardName: chat.cardName,
+        createdCard: created === null ? null : { path: created.path, name: created.card.name }
+      }
     }
 
-    if (mode === 'revision') {
+    if (mode === 'card') {
       let changed = false
-      let savedCard = await store.readCard(chat.cardId)
-      if (savedCard === undefined) throw new Error('角色卡不存在: ' + chat.cardId)
+      let savedCard = await store.readCard(cardPath)
+      if (savedCard === undefined) throw new Error('人物卡不存在: ' + cardPath)
       if (Object.keys(object(stage.fields)).length > 0 || (Array.isArray(stage.worldBook) && stage.worldBook.length > 0)) {
-        const result = await store.updateCard(chat.cardId, object(stage.fields), {
+        const result = await store.updateCard(cardPath, object(stage.fields), {
           ts: now(), instruction: userText, summary: '通过卡片模式设定对话更新人物卡'
         }, Array.isArray(stage.worldBook) ? stage.worldBook : [])
         changed = result.changed
         savedCard = result.card
       }
+      workspace.commit(chat, turn)
       if (userText !== '') chat.messages.push({ role: 'user', text: userText, ts: now(), native: true })
       chat.messages.push({ role: 'assistant', text: assistantText, ts: now(), native: true, changed })
       chat.cardName = savedCard.name
@@ -230,7 +255,7 @@ export function createTurnOrchestrator(options) {
     let scriptReference = null
     let playScript = null
     if (mode === 'script') {
-      playScript = await store.readScript(chat.cardId)
+      playScript = await store.readScript(cardPathOf(chat))
       if (playScript === undefined || !Array.isArray(playScript.chunks) || playScript.chunks.length === 0) throw new Error('剧本文件不存在，请重新为人物卡导入剧本')
     }
     const completed = timeline.complete({
@@ -270,14 +295,14 @@ export function createTurnOrchestrator(options) {
       changed = true
     }
     if ((chat.mode || 'story') === 'script' && chat.scriptState && chat.scriptState.prepared && Number(chat.scriptState.prepared.nativeTurn) === turn) {
-      const script = await store.readScript(chat.cardId)
+      const script = await store.readScript(cardPathOf(chat))
       if (script !== undefined && Array.isArray(script.chunks)) {
         chat.scriptState = scripts.transition({ script, state: chat.scriptState, event: { kind: 'restore', revision: null, reference: chat.scriptState.prepared } }).state
         changed = true
       }
     }
-    if ((chat.mode || 'story') === 'extract' && chat.extract && chat.extract.prepared && Number(chat.extract.prepared.nativeTurn) === turn) {
-      chat.extract.prepared = null
+    if ((chat.mode || 'story') === 'card' && chat.workspace && chat.workspace.prepared && Number(chat.workspace.prepared.nativeTurn) === turn) {
+      chat.workspace.prepared = null
       changed = true
     }
     if ((chat.mode || 'story') === 'story' || (chat.mode || 'story') === 'script') {
@@ -299,10 +324,14 @@ export function createTurnOrchestrator(options) {
     if (chat === undefined) return []
     const mode = chat.mode || 'story'
     if (mode === 'script') return ['tavern_read_script']
-    if (mode === 'revision') return ['tavern_read_script', 'tavern_read_worldbook', 'tavern_update_card']
-    if (mode === 'extract') return ['tavern_update_card']
+    if (mode === 'card') return [shellToolName, 'str_replace_editor', 'tavern_read_card', 'tavern_read_worldbook', 'tavern_update_card', 'tavern_restore_card']
     return []
   }
 
-  return Object.freeze({ prepare, stageChanges, finalize, discard, visibleTools })
+  async function modeFor(sessionId) {
+    const chat = await store.chatForSession(sessionId)
+    return chat === undefined ? null : (chat.mode || 'story')
+  }
+
+  return Object.freeze({ prepare, stageChanges, finalize, discard, visibleTools, modeFor })
 }

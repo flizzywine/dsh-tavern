@@ -3,6 +3,14 @@
   config:
     host: 127.0.0.1
     port: 3081
+- id: bash-sandbox
+  config:
+    timeoutMs: 600000
+    maxTimeoutMs: 600000
+- id: pwsh-sandbox
+  config:
+    timeoutMs: 600000
+    maxTimeoutMs: 600000
 - id: agent-presets
   config:
     default: tavern

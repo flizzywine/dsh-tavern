@@ -2,10 +2,14 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import { fileURLToPath } from 'node:url'
 import { createBackgroundAgentRunner } from './background-agent-runner.js'
 import { createCandidateGenerator } from './domain/candidate-generation.js'
+import { waitForAgentSession } from './domain/agent-readiness.js'
 import { createCardPreparation } from './domain/card-preparation.js'
-import { cleanWorkspaceCardMacros } from './domain/card-macros.js'
 import { resolveCardOpening } from './domain/card-openings.js'
+import { READABLE_CARD_FIELDS, readCardField } from './domain/card-reading.js'
+import { projectCardMacros, projectCardText } from './domain/card-macros.js'
 import { createContextPlanner } from './domain/context-planner.js'
+import { extractEpubText } from './domain/epub-text.js'
+import { createFileResourceStore, normalizeResourcePath, resourceKind } from './domain/file-resources.js'
 import { createScriptContinuity } from './domain/script-continuity.js'
 import { createStoryTimeline } from './domain/story-timeline.js'
 import { createTurnOrchestrator } from './domain/turn-orchestration.js'
@@ -14,7 +18,7 @@ import { prompt } from './prompt-catalog.js'
 // dsh-tavern 宿主插件（profile 组合行）
 // RPC：同源 HTTP 路由 /api/dsh-tavern/<method>（客户端 fetch 调用）
 // DSH 生命周期负责回合状态；模型工具只处理按需读取和明确修改。
-export function apply(ctx) {
+export async function apply(ctx) {
   const fs = ctx.get('fs')
   const llm = ctx.get('llm')
   const agentRegistry = ctx.get('agents')
@@ -75,13 +79,8 @@ export function apply(ctx) {
     const m = mode || 'story'
     return m === 'story' || m === 'script' ? 'play' : 'card'
   }
-  function substChar(text, card, userLabel, charLabel) {
-    const u = userLabel === undefined ? '用户' : userLabel
-    const c = charLabel === undefined ? str(card.name) : charLabel
-    return str(text).split('{{char}}').join(c).split('{{user}}').join(u)
-  }
   function renderCardText(text, card) {
-    return substChar(text, card, '你', str(card.name))
+    return projectCardText(str(text))
   }
 
   const settlementJobs = new Set()
@@ -203,161 +202,216 @@ export function apply(ctx) {
     return (idx !== undefined && typeof idx === 'object') ? idx : { cards: [], chats: [] }
   }
   async function writeIndex(idx) { await writeJson('index.json', idx) }
-  async function readCard(cardId) {
-    const card = await readJson('cards/' + cardId + '.json')
-    if (card === undefined) return undefined
-    await ensureDataDir('originals/cards')
-    const originalTarget = await fs.resolve(base + '/data/originals/cards/' + cardId + '.json')
-    if (await fs.stat(originalTarget) === undefined) await writeJson('originals/cards/' + cardId + '.json', card)
-    const cleaned = cleanWorkspaceCardMacros(card)
-    if (JSON.stringify(cleaned) !== JSON.stringify(card)) await writeJson('cards/' + cardId + '.json', cleaned)
-    return cleaned
+  const fileResources = createFileResourceStore({ dataRoot: base + '/data' })
+  const cardTaskPrompts = Object.freeze({
+    edit: 'card-task-edit',
+    extract: 'card-task-extract'
+  })
+  async function readCard(cardPath) {
+    if (str(cardPath) === '') return undefined
+    const normalized = normalizeResourcePath(cardPath, 'card')
+    const card = await fileResources.readCard(normalized)
+    if (card !== undefined) card.path = normalized
+    return card
   }
-  async function readScript(cardId) { return await readJson('scripts/' + cardId + '.json') }
-  async function ensureDataDir(name) {
-    const target = await fs.resolve(base + '/data/' + name)
-    const info = await fs.stat(target)
-    if (info !== undefined) return
-    const shell = ctx.get('shell')
-    if (shell === undefined) throw new Error('无法创建数据目录: ' + name)
-    const spec = shell.resolve({ command: 'mkdir -p ' + JSON.stringify(base + '/data/' + name), timeoutMs: 10000 })
-    await shell.run(spec)
+  async function readScript(scriptOrCardPath) {
+    if (str(scriptOrCardPath) === '') return undefined
+    let scriptPath = str(scriptOrCardPath)
+    if (scriptPath.startsWith('cards/')) scriptPath = await fileResources.scriptForCard(scriptPath)
+    if (!scriptPath) return undefined
+    const kind = resourceKind(scriptPath)
+    if (kind !== 'source' && kind !== 'script') throw new Error('剧本引用必须指向资料文件')
+    const source = await fileResources.readText(normalizeResourcePath(scriptPath, kind))
+    if (source === undefined) return undefined
+    const chunks = splitNovelText(source, 500)
+    return { path: scriptPath, title: scriptPath.split('/').pop(), sourceChars: source.length, chunkSize: 500, chunks }
   }
-  async function writeScript(cardId, value) {
-    await ensureDataDir('scripts')
-    await writeJson('scripts/' + cardId + '.json', value)
-  }
-  async function importScript(cardId, payload) {
-    const card = await readCard(cardId)
-    if (card === undefined) throw new Error('角色卡不存在: ' + cardId)
-    const source = str(payload && payload.text).replace(/\r\n?/g, '\n').trim()
-    if (source === '') throw new Error('剧本文件为空')
-    const chunkSize = clampInt(Number(payload && payload.chunkSize), 300, 800, 500)
-    const chunks = splitNovelText(source, chunkSize)
-    if (chunks.length === 0) throw new Error('剧本无法分块')
-    const script = {
-      cardId: cardId,
-      title: str(payload && payload.name).trim() || card.name + '剧本',
-      sourceChars: source.length,
-      chunkSize: chunkSize,
-      chunks: chunks,
-      importedAt: Date.now()
+  function prepareTextImport(payload, emptyMessage) {
+    const source = payload !== null && typeof payload === 'object' ? payload : {}
+    const name = str(source.name).trim()
+    const isEpub = /\.epub$/i.test(name) || str(source.type).toLowerCase() === 'application/epub+zip'
+    let text
+    if (isEpub) {
+      const encoded = str(source.fileB64).replace(/\s+/g, '')
+      if (encoded === '') throw new Error('EPUB 文件内容为空')
+      if (!/^[a-z0-9+/]*={0,2}$/i.test(encoded) || encoded.length % 4 !== 0) throw new Error('EPUB 文件编码无效')
+      text = extractEpubText(Buffer.from(encoded, 'base64'))
+    } else {
+      text = str(source.text)
     }
-    await writeScript(cardId, script)
-    const info = { cardId: cardId, title: script.title, sourceChars: script.sourceChars, chunkSize: chunkSize, chunkCount: chunks.length, importedAt: script.importedAt }
-    const idx = await readIndex()
-    idx.cards = (idx.cards || []).map(function (item) { return item.id === cardId ? Object.assign({}, item, { script: info }) : item })
-    await writeIndex(idx)
-    return info
+    text = text.replace(/\r\n?/g, '\n').trim()
+    if (text === '') throw new Error(emptyMessage)
+    return Object.assign({}, source, { name, text })
   }
-  async function deleteScript(cardId) {
-    await rmFile('scripts/' + cardId + '.json')
-    const idx = await readIndex()
-    idx.cards = (idx.cards || []).map(function (item) {
-      if (item.id !== cardId) return item
-      const next = Object.assign({}, item)
-      delete next.script
-      return next
-    })
-    await writeIndex(idx)
-    return { deleted: true }
+  async function importScript(cardPath, payload) {
+    const prepared = prepareTextImport(payload, '剧本文件为空')
+    const existing = (await listSources()).find(function (source) { return source.title === prepared.name })
+    const materialPath = existing ? existing.path : await fileResources.importText('source', prepared)
+    await fileResources.bindMaterial(cardPath, materialPath)
+    const script = await readScript(cardPath)
+    return { path: script.path, title: script.title, sourceChars: script.sourceChars, chunkSize: 500, chunkCount: script.chunks.length, importedAt: Date.now() }
   }
-  // ---------- 抽取素材（独立于人物卡的 txt/md 小说库） ----------
-  async function readSource(sourceId) { return await readJson('sources/' + sourceId + '.json') }
-  async function writeSource(sourceId, value) {
-    await ensureDataDir('sources')
-    await writeJson('sources/' + sourceId + '.json', value)
+  async function bindScript(cardPath, materialPath) {
+    await fileResources.bindMaterial(cardPath, materialPath)
+    const script = await readScript(cardPath)
+    return { path: script.path, title: script.title, sourceChars: script.sourceChars, chunkSize: 500, chunkCount: script.chunks.length }
+  }
+  async function deleteScript(cardPath) {
+    await fileResources.unbindMaterial(cardPath)
+    return { unbound: true }
+  }
+  // ---------- 通用资料（独立于人物卡的 txt/md/epub 库） ----------
+  async function readSource(sourcePath) {
+    const normalized = normalizeResourcePath(sourcePath, 'source')
+    const source = await fileResources.readText(normalized)
+    if (source === undefined) return undefined
+    return { path: normalized, title: normalized.split('/').pop(), sourceChars: source.length, chunkSize: 500, chunks: splitNovelText(source, 500) }
   }
   async function listSources() {
-    const idx = await readIndex()
-    return (idx.sources || []).map(function (item) { return Object.assign({}, item) })
+    return await Promise.all((await fileResources.list('source')).map(async function (sourcePath) {
+      const source = await readSource(sourcePath)
+      return { path: sourcePath, title: source.title, sourceChars: source.sourceChars, chunkCount: source.chunks.length }
+    }))
   }
   async function importSource(payload) {
-    const source = str(payload && payload.text).replace(/\r\n?/g, '\n').trim()
-    if (source === '') throw new Error('素材文件为空')
-    const chunkSize = clampInt(Number(payload && payload.chunkSize), 300, 800, 500)
-    const chunks = splitNovelText(source, chunkSize)
-    if (chunks.length === 0) throw new Error('素材无法分块')
-    const record = {
-      id: uid('src'),
-      title: str(payload && payload.name).trim() || '未命名素材',
-      sourceChars: source.length,
-      chunkSize: chunkSize,
-      chunks: chunks,
-      importedAt: Date.now()
-    }
-    await writeSource(record.id, record)
-    const idx = await readIndex()
-    idx.sources = idx.sources || []
-    idx.sources.push({ id: record.id, title: record.title, sourceChars: record.sourceChars, chunkCount: chunks.length, importedAt: record.importedAt })
-    await writeIndex(idx)
-    return { id: record.id, title: record.title, sourceChars: record.sourceChars, chunkCount: chunks.length, importedAt: record.importedAt }
+    const prepared = prepareTextImport(payload, '资料文件为空')
+    const sourcePath = await fileResources.importText('source', prepared)
+    const record = await readSource(sourcePath)
+    return { path: sourcePath, title: record.title, sourceChars: record.sourceChars, chunkCount: record.chunks.length, importedAt: Date.now() }
   }
-  async function deleteSource(sourceId) {
-    await rmFile('sources/' + sourceId + '.json')
-    const idx = await readIndex()
-    idx.sources = (idx.sources || []).filter(function (item) { return item.id !== sourceId })
-    await writeIndex(idx)
+  async function deleteSource(sourcePath) {
+    await fileResources.remove(normalizeResourcePath(sourcePath, 'source'))
     return { deleted: true }
   }
-  async function readChat(chatId) { return await readJson('chats/' + chatId + '.json') }
+  async function renameResource(resourcePath, name) {
+    const oldPath = normalizeResourcePath(resourcePath)
+    const kind = resourceKind(oldPath)
+    const renamed = await fileResources.rename(oldPath, name)
+    const replacements = new Map([[renamed.oldPath, renamed.path]])
+    if (renamed.scriptOldPath && renamed.scriptPath) replacements.set(renamed.scriptOldPath, renamed.scriptPath)
+    const idx = await readIndex()
+    for (const row of idx.chats || []) {
+      const chat = await readChat(row.id)
+      if (chat === undefined) continue
+      let changed = false
+      if (replacements.has(chat.cardPath)) {
+        chat.cardPath = replacements.get(chat.cardPath)
+        row.cardPath = chat.cardPath
+        changed = true
+      }
+      if (chat.workspace && typeof chat.workspace === 'object') {
+        const nextSources = (chat.workspace.sourcePaths || []).map(function (item) { return replacements.get(item) || item })
+        if (JSON.stringify(nextSources) !== JSON.stringify(chat.workspace.sourcePaths || [])) { chat.workspace.sourcePaths = nextSources; changed = true }
+        const nextMounted = (chat.workspace.mountedResources || []).map(function (item) {
+          if (!item || !replacements.has(item.path)) return item
+          const nextPath = replacements.get(item.path)
+          const filename = nextPath.split('/').pop()
+          return Object.assign({}, item, { path: nextPath, label: filename.replace(/\.[^.]+$/, '') })
+        })
+        if (JSON.stringify(nextMounted) !== JSON.stringify(chat.workspace.mountedResources || [])) { chat.workspace.mountedResources = nextMounted; changed = true }
+      }
+      if (changed) await writeChat(chat)
+    }
+    await writeIndex(idx)
+    return { kind, path: renamed.path }
+  }
+  function emptyCardWorkspace() {
+    return { mountedResources: [], sourcePaths: [], cursor: 0, prepared: null, done: false, player: '', draft: { name: '', description: '', personality: '', scenario: '', first_mes: '', mes_example: '', system_prompt: '', post_history_instructions: '', creator_notes: '', tags: [], alternate_greetings: [] } }
+  }
+  function normalizeChat(chat) {
+    if (chat === undefined || chat === null || typeof chat !== 'object') return chat
+    if (chat.mode === 'revision' || chat.mode === 'extract') chat.mode = 'card'
+    if (typeof chat.cardPath !== 'string') chat.cardPath = ''
+    if (chat.mode === 'card') {
+      if (chat.workspace === null || typeof chat.workspace !== 'object') chat.workspace = chat.extract !== null && typeof chat.extract === 'object' ? chat.extract : emptyCardWorkspace()
+      if (!Array.isArray(chat.workspace.mountedResources)) chat.workspace.mountedResources = []
+      delete chat.extract
+      if (chat.cardName === '抽取中') chat.cardName = str(chat.workspace.draft && chat.workspace.draft.name) || '卡片工作台'
+    }
+    return chat
+  }
+  async function readChat(chatId) { return normalizeChat(await readJson('chats/' + chatId + '.json')) }
   async function writeChat(chat) {
     chat.updatedAt = Date.now()
     await writeJson('chats/' + chat.id + '.json', chat)
   }
   async function readChatCard(chat) {
-    const card = await readCard(chat.cardId)
-    if (card === undefined) throw new Error('角色卡不存在: ' + chat.cardId)
+    const card = await readCard(chat.cardPath)
+    if (card === undefined) throw new Error('人物卡不存在: ' + chat.cardPath)
     return card
   }
   async function importCard(payload) {
     const card = cardPreparation.create({ kind: 'import', payload: payload })
-    await ensureDataDir('originals/cards')
-    await writeJson('originals/cards/' + card.id + '.json', card)
-    const workingCard = cleanWorkspaceCardMacros(card)
-    await writeJson('cards/' + card.id + '.json', workingCard)
-    const idx = await readIndex()
-    idx.cards = idx.cards || []
-    idx.cards.push({ id: workingCard.id, name: workingCard.name, description: workingCard.description, tags: workingCard.tags, importedAt: workingCard.importedAt })
-    await writeIndex(idx)
-    return { id: workingCard.id, name: workingCard.name, description: workingCard.description, tags: workingCard.tags }
+    const cardPath = await fileResources.importCard(payload, card)
+    return { path: cardPath, name: card.name, description: card.description, tags: card.tags }
   }
   async function listCards() {
-    const idx = await readIndex()
-    return (idx.cards || []).map(function (item) { return { id: item.id, name: item.name, script: item.script || null } })
+    return await Promise.all((await fileResources.list('card')).map(async function (cardPath) {
+      const card = await readCard(cardPath)
+      const script = await readScript(cardPath)
+      return { path: cardPath, name: card.name, script: script === undefined ? null : { path: script.path, title: script.title, sourceChars: script.sourceChars, chunkCount: script.chunks.length } }
+    }))
   }
-  async function updateCard(cardId, patch, revision, worldBookOperations) {
-    const card = await readCard(cardId)
-    if (card === undefined) throw new Error('角色卡不存在: ' + cardId)
+  async function listTavernResources() {
+    const cards = await listCards()
+    const sources = await listSources()
+    return {
+      cards: cards.map(function (card) { return { path: card.path, name: card.name } }),
+      resources: sources.map(function (source) {
+        const boundCards = cards.filter(function (card) { return card.script !== null && card.script.path === source.path }).map(function (card) { return { path: card.path, name: card.name } })
+        return { path: source.path, previewPath: fileResources.absolute(source.path), title: source.title, sourceChars: Number(source.sourceChars) || 0, chunkCount: Number(source.chunkCount) || 0, boundCards }
+      })
+    }
+  }
+  async function updateCard(cardPath, patch, revision, worldBookOperations) {
+    const card = await readCard(cardPath)
+    if (card === undefined) throw new Error('人物卡不存在: ' + cardPath)
     const change = cardPreparation.update({ kind: 'card', card: card, patch: patch, revision: revision, worldBookOperations: worldBookOperations })
     const savedCard = change.card
     if (!change.changed) return change
-    await writeJson('cards/' + savedCard.id + '.json', savedCard)
+    delete savedCard.id
+    await fileResources.writeWorking(normalizeResourcePath(cardPath, 'card'), JSON.stringify(savedCard, null, 2))
+    savedCard.path = cardPath
+    await syncCardName(cardPath, savedCard.name)
+    return change
+  }
+  async function syncCardName(cardPath, cardName) {
     const idx = await readIndex()
-    idx.cards = (idx.cards || []).map(function (item) {
-      return item.id === savedCard.id ? Object.assign({}, item, { name: savedCard.name, description: savedCard.description, tags: savedCard.tags, updatedAt: savedCard.updatedAt }) : item
-    })
-    idx.chats = (idx.chats || []).map(function (item) { return item.cardId === savedCard.id ? Object.assign({}, item, { cardName: savedCard.name }) : item })
+    idx.chats = (idx.chats || []).map(function (item) { return item.cardPath === cardPath ? Object.assign({}, item, { cardName: cardName }) : item })
     await writeIndex(idx)
-    for (const item of (idx.chats || []).filter(function (entry) { return entry.cardId === savedCard.id })) {
+    for (const item of (idx.chats || []).filter(function (entry) { return entry.cardPath === cardPath })) {
       const linked = await readChat(item.id)
-      if (linked !== undefined && linked.cardName !== savedCard.name) {
-        linked.cardName = savedCard.name
+      if (linked !== undefined && linked.cardName !== cardName) {
+        linked.cardName = cardName
         await writeJson('chats/' + linked.id + '.json', linked)
       }
     }
-    return change
   }
-  async function deleteCard(cardId) {
+  async function restoreCurrentCard(sessionId) {
+    const chat = await chatForSession(sessionId)
+    if (chat === undefined) throw new Error('当前会话没有绑定人物卡')
+    if ((chat.mode || 'story') !== 'card') throw new Error('原版恢复只能在卡片模式中使用')
+    const cardPath = str(chat.cardPath)
+    if (cardPath === '') throw new Error('空白工作台没有可恢复的正式人物卡')
+    const restored = await fileResources.restoreCard(cardPath, function (payload) {
+      return cardPreparation.create({ kind: 'import', payload: payload })
+    })
+    await syncCardName(cardPath, restored.card.name)
+    return {
+      path: cardPath,
+      name: restored.card.name,
+      originalPath: restored.originalPath,
+      backupPath: restored.backupPath
+    }
+  }
+  async function deleteCard(cardPath) {
     const idx = await readIndex()
-    const dead = (idx.chats || []).filter(function (c) { return c.cardId === cardId })
-    idx.cards = (idx.cards || []).filter(function (c) { return c.id !== cardId })
-    idx.chats = (idx.chats || []).filter(function (c) { return c.cardId !== cardId })
+    const dead = (idx.chats || []).filter(function (c) { return c.cardPath === cardPath })
+    idx.chats = (idx.chats || []).filter(function (c) { return c.cardPath !== cardPath })
     await writeIndex(idx)
     for (let i = 0; i < dead.length; i++) await rmFile('chats/' + dead[i].id + '.json')
-    await rmFile('cards/' + cardId + '.json')
-    await rmFile('originals/cards/' + cardId + '.json')
-    await rmFile('scripts/' + cardId + '.json')
+    await fileResources.unbindMaterial(normalizeResourcePath(cardPath, 'card'))
+    await fileResources.remove(normalizeResourcePath(cardPath, 'card'))
     return { deleted: true }
   }
   async function deleteChat(chatId) {
@@ -376,14 +430,15 @@ export function apply(ctx) {
 
   // ---------- 聊天 ----------
   function newChat(card, mode) {
-    const chatMode = mode === 'revision' ? 'revision' : (mode === 'script' ? 'script' : (mode === 'extract' ? 'extract' : 'story'))
+    const chatMode = mode === 'card' ? 'card' : (mode === 'script' ? 'script' : 'story')
+    const hasCard = card !== null && card !== undefined && str(card.path) !== ''
     return {
       id: uid('chat'),
-      cardId: chatMode === 'extract' ? '' : card.id,
-      cardName: chatMode === 'extract' ? '抽取中' : card.name,
+      cardPath: hasCard ? card.path : '',
+      cardName: hasCard ? card.name : '卡片工作台',
       mode: chatMode,
       scriptState: chatMode === 'script' ? { cursor: 0, recalledChunkIds: [], prepared: null, lastReference: null, totalChunks: 0, title: '', scriptVersion: 0 } : null,
-      extract: chatMode === 'extract' ? { sourceIds: [], cursor: 0, prepared: null, done: false, player: '', draft: { name: '', description: '', personality: '', scenario: '', first_mes: '', mes_example: '', system_prompt: '', post_history_instructions: '', tags: [] } } : null,
+      workspace: chatMode === 'card' ? emptyCardWorkspace() : null,
       messages: [],
       posture: '',
       sessionId: '',
@@ -426,10 +481,10 @@ export function apply(ctx) {
   }
   function cardViewOf(card, chat) {
     if (card === null || card === undefined) {
-      const draft = chat.extract && chat.extract.draft ? chat.extract.draft : {}
+      const draft = chat.workspace && chat.workspace.draft ? chat.workspace.draft : {}
       return {
-        id: '',
-        name: str(draft.name) || '抽取中',
+        path: '',
+        name: str(draft.name) || '卡片工作台',
         description: str(draft.description),
         personality: str(draft.personality),
         scenario: str(draft.scenario),
@@ -443,12 +498,12 @@ export function apply(ctx) {
         character_book: null
       }
     }
-    return cardPreparation.present({ card: card, as: 'view' })
+    return Object.assign(cardPreparation.present({ card: card, as: 'view' }), { path: str(card.path || chat.cardPath) })
   }
   async function view(chat, card) {
     let scriptProgress = null
     if ((chat.mode || 'story') === 'script') {
-      const script = await readScript(chat.cardId)
+      const script = await readScript(chat.cardPath)
       if (script !== undefined && Array.isArray(script.chunks)) {
         scriptProgress = scriptContinuity.inspect({ script: script, state: chat.scriptState, request: { kind: 'progress' } })
       }
@@ -464,31 +519,32 @@ export function apply(ctx) {
       updatedAt: chat.updatedAt || 0
     }
   }
-  function revisionGreeting(cardName) {
-    return '我们现在进入“' + cardName + '”的人物卡设定对话（卡片模式）。可以先讨论、分析或比较方案；只有你明确确认修改时，我才会把变更写入人物卡。你想先调整哪一部分？'
-  }
-  async function startChat(cardId, sessionId, mode) {
-    const card = await readCard(cardId)
-    if (card === undefined) throw new Error('角色卡不存在: ' + cardId)
+  async function startChat(cardPath, sessionId, mode) {
+    const requestedMode = mode === 'card' || mode === 'revision' || mode === 'extract' ? 'card' : (mode === 'script' ? 'script' : (mode === 'story' ? 'story' : null))
+    const card = str(cardPath) === '' && requestedMode === 'card' ? null : await readCard(cardPath)
+    if (card === undefined) throw new Error('人物卡不存在: ' + cardPath)
     // 游玩模式内部仍是 story/script 两类：人物卡已绑定剧本时必须走剧本（script）。
-    const script = await readScript(cardId)
+    const script = card === null ? undefined : await readScript(cardPath)
     const hasScript = script !== undefined && Array.isArray(script.chunks) && script.chunks.length > 0
-    let requestedMode = mode === 'revision' ? 'revision' : (mode === 'script' ? 'script' : (mode === 'story' ? 'story' : null))
-    if (requestedMode === null || requestedMode === 'play') requestedMode = hasScript ? 'script' : 'story'
-    if (requestedMode === 'script' && !hasScript) throw new Error('该人物卡尚未绑定剧本文件，请先在卡片模式绑定剧本')
-    if (requestedMode === 'story' && hasScript) requestedMode = 'script'
+    let chatMode = requestedMode
+    if (chatMode === null || mode === 'play') chatMode = hasScript ? 'script' : 'story'
+    if (chatMode === 'script' && !hasScript) throw new Error('该人物卡尚未绑定剧本文件，请先在卡片模式绑定剧本')
+    if (chatMode === 'story' && hasScript) chatMode = 'script'
     if (typeof sessionId === 'string' && sessionId !== '') {
       const current = await chatForSession(sessionId)
       // 同一大模式（游玩/卡片）内复用当前会话；旧的自由故事会话不会被强行切换成剧本。
-      if (current !== undefined && current.cardId === cardId && groupOfMode(current.mode) === groupOfMode(requestedMode)) {
+      if (current !== undefined && current.cardPath === str(cardPath) && groupOfMode(current.mode) === groupOfMode(chatMode)) {
         await appendNativeOpening(sessionId, current, card)
-        return await view(current, card)
+        const currentView = await view(current, card)
+        if (chatMode === 'card') currentView.workspace = await workspaceViewOf(current)
+        return currentView
       }
     }
-    const greeting = requestedMode === 'revision'
-      ? revisionGreeting(card.name)
-      : renderCardText(resolveCardOpening(card), card)
-    const chat = newChat(card, requestedMode || 'story')
+    const greeting = chatMode === 'card' ? prompt('card-mode-greeting') : renderCardText(resolveCardOpening(card), card)
+    // connectWorkspace 返回时，Agent 注册偶尔仍在异步完成。先等到原生会话可写，
+    // 再落盘 Tavern 对话，避免失败时留下只有映射、没有原生开场白的半初始化记录。
+    const openingAgent = typeof sessionId === 'string' && sessionId !== '' && greeting !== '' ? await waitForAgentSession({ registry: agentRegistry, sessionId: sessionId, sleep: sleep }) : undefined
+    const chat = newChat(card, chatMode || 'story')
     chat.openingText = greeting
     if (chat.mode === 'script') {
       chat.scriptState = scriptContinuity.startAligned(script, greeting, card.script_start)
@@ -498,26 +554,25 @@ export function apply(ctx) {
     await writeChat(chat)
     const idx = await readIndex()
     idx.chats = idx.chats || []
-    idx.chats.push({ id: chat.id, cardId: card.id, cardName: card.name, updatedAt: chat.updatedAt })
+    idx.chats.push({ id: chat.id, cardPath: chat.cardPath, cardName: chat.cardName, updatedAt: chat.updatedAt })
     await writeIndex(idx)
     if (typeof sessionId === 'string' && sessionId !== '') {
       const map = await readSessionMap()
       map[sessionId] = chat.id
       await writeSessionMap(map)
-      await appendNativeOpening(sessionId, chat, card)
+      await appendNativeOpening(sessionId, chat, card, openingAgent)
     }
-    return await view(chat, card)
+    const result = await view(chat, card)
+    if (chatMode === 'card') result.workspace = await workspaceViewOf(chat)
+    return result
   }
 
-  async function appendNativeOpening(sessionId, chat, card) {
+  async function appendNativeOpening(sessionId, chat, card, readyAgent) {
     if (chat.nativeOpeningAppended === true) return
     const mode = chat.mode || 'story'
     let text
-    if (mode === 'revision') {
-      text = revisionGreeting(chat.cardName)
-    } else if (mode === 'extract') {
-      const first = Array.isArray(chat.messages) && chat.messages[0] ? chat.messages[0] : null
-      text = first !== null && str(first.text) !== '' ? str(first.text) : '卡片模式 · 素材抽取：我会根据所选素材为你提炼人物卡。'
+    if (mode === 'card') {
+      text = prompt('card-mode-greeting')
     } else if (typeof chat.openingText === 'string') {
       text = chat.openingText
     } else {
@@ -527,9 +582,7 @@ export function apply(ctx) {
       text = storedGreeting === undefined ? renderCardText(card.first_mes, card) : storedGreeting.text
     }
     if (text === '') return
-    const agents = ctx.get('agents')
-    const agent = agents !== undefined ? agents.get(sessionId) : undefined
-    if (agent === undefined || agent.session === undefined) throw new Error('无法写入 DSH 会话开场白: ' + sessionId)
+    const agent = readyAgent || await waitForAgentSession({ registry: agentRegistry, sessionId: sessionId, sleep: sleep })
     const selected = modelSelection(sessionId) || { provider: 'dsh-tavern', model: 'character-card' }
     const turn = 1
     const step = 1
@@ -560,15 +613,15 @@ export function apply(ctx) {
 
   async function scriptPreviewOf(chat) {
     if ((chat.mode || 'story') !== 'script') return null
-    const script = await readScript(chat.cardId)
+    const script = await readScript(chat.cardPath)
     if (script === undefined || !Array.isArray(script.chunks)) return null
     return scriptContinuity.inspect({ script: script, state: chat.scriptState, request: { kind: 'preview' } })
   }
   async function sessionView(sessionId) {
     const chat = await chatForSession(sessionId)
     if (chat === undefined) return null
-    const isExtract = (chat.mode || 'story') === 'extract'
-    const card = isExtract ? null : await readChatCard(chat)
+    const isCard = (chat.mode || 'story') === 'card'
+    const card = isCard && str(chat.cardPath) === '' ? null : await readChatCard(chat)
     const hasStory = Array.isArray(chat.messages) && chat.messages.some(function (message) {
       return message !== null && typeof message === 'object' && message.greeting !== true
     })
@@ -581,18 +634,18 @@ export function apply(ctx) {
       void runSettlement(chat.id).finally(function () { settlementJobs.delete(chat.id) })
     }
     const result = await view(chat, card)
-    if (isExtract) result.extract = await extractViewOf(chat)
+    if (isCard) result.workspace = await workspaceViewOf(chat)
     if ((chat.mode || 'story') === 'script') result.scriptPreview = await scriptPreviewOf(chat)
     return result
   }
   async function ensureNativeOpening(sessionId) {
     const chat = await chatForSession(sessionId)
     if (chat === undefined) return null
-    const isExtract = (chat.mode || 'story') === 'extract'
-    const card = isExtract ? null : await readChatCard(chat)
+    const isCard = (chat.mode || 'story') === 'card'
+    const card = isCard && str(chat.cardPath) === '' ? null : await readChatCard(chat)
     await appendNativeOpening(sessionId, chat, card)
     const result = await view(chat, card)
-    if (isExtract) result.extract = await extractViewOf(chat)
+    if (isCard) result.workspace = await workspaceViewOf(chat)
     return result
   }
   const candidateGenerator = createCandidateGenerator({
@@ -817,116 +870,119 @@ export function apply(ctx) {
     void runSettlement(chatId).finally(function () { settlementJobs.delete(chatId) })
     return true
   }
-  // ---------- 抽取模式：从素材提炼新人物卡 ----------
-  async function extractWindowOf(chat) {
-    const idx = await readIndex()
-    const meta = {}
-    for (const s of idx.sources || []) meta[s.id] = s
+  // ---------- 卡片工作台：挂载资料与新卡创建 ----------
+  async function sourceWindowOf(chat) {
     const out = []
-    for (const sourceId of (chat.extract && chat.extract.sourceIds) || []) {
-      const src = await readSource(sourceId)
+    for (const sourcePath of (chat.workspace && chat.workspace.sourcePaths) || []) {
+      const src = await readSource(sourcePath)
       if (src === undefined || !Array.isArray(src.chunks)) continue
-      const title = str(meta[sourceId] && meta[sourceId].title) || str(src.title) || '素材'
+      const title = str(src.title) || '资料'
       for (const chunk of src.chunks) {
-        out.push({ chunkId: sourceId + '/' + chunk.id, title: title, order: chunk.order, text: chunk.text })
+        out.push({ chunkId: sourcePath + '/' + chunk.id, title: title, order: chunk.order, text: chunk.text })
       }
     }
     return out
   }
-  async function prepareExtract(chat, nativeTurn) {
-    const ext = chat.extract
-    if (ext === null || typeof ext !== 'object') throw new Error('抽取状态不存在')
-    if (ext.prepared !== null && typeof ext.prepared === 'object' && Number(ext.prepared.nativeTurn) === Number(nativeTurn)) return ext.prepared
-    const all = await extractWindowOf(chat)
-    const cursor = Math.max(0, Number(ext.cursor) || 0)
+  async function prepareWorkspace(chat, nativeTurn) {
+    const state = chat.workspace
+    if (state === null || typeof state !== 'object') throw new Error('卡片工作台状态不存在')
+    if (state.prepared !== null && typeof state.prepared === 'object' && Number(state.prepared.nativeTurn) === Number(nativeTurn)) return state.prepared
+    const all = await sourceWindowOf(chat)
+    const cursor = Math.max(0, Number(state.cursor) || 0)
     const window = all.slice(cursor, cursor + 6)
-    ext.prepared = { nativeTurn: Number(nativeTurn) || 0, window: window, cursorBefore: cursor, total: all.length }
-    return ext.prepared
+    state.prepared = { nativeTurn: Number(nativeTurn) || 0, window: window, cursorBefore: cursor, total: all.length }
+    return state.prepared
   }
-  function commitExtract(chat, nativeTurn) {
-    const ext = chat.extract
-    if (ext === null || typeof ext !== 'object') return
-    const prepared = ext.prepared
+  function commitWorkspace(chat, nativeTurn) {
+    const state = chat.workspace
+    if (state === null || typeof state !== 'object') return
+    const prepared = state.prepared
     if (prepared !== null && typeof prepared === 'object' && Number(prepared.nativeTurn) === Number(nativeTurn)) {
-      ext.cursor = Math.min(prepared.total, (Number(prepared.cursorBefore) || 0) + prepared.window.length)
-      ext.prepared = null
+      state.cursor = Math.min(prepared.total, (Number(prepared.cursorBefore) || 0) + prepared.window.length)
+      state.prepared = null
     }
   }
-  async function extractViewOf(chat) {
-    const ext = chat.extract || {}
-    const idx = await readIndex()
-    const sources = ((ext.sourceIds || []).map(function (id) {
-      const item = (idx.sources || []).filter(function (s) { return s.id === id })[0]
-      return item === undefined ? null : { id: item.id, title: item.title, chunkCount: Number(item.chunkCount) || 0 }
-    })).filter(Boolean)
+  async function workspaceViewOf(chat) {
+    const state = chat.workspace || {}
+    const sources = (await Promise.all((state.sourcePaths || []).map(async function (sourcePath) {
+      const source = await readSource(sourcePath)
+      return source === undefined ? null : { path: sourcePath, title: source.title, chunkCount: source.chunks.length }
+    }))).filter(Boolean)
     const totalChunks = sources.reduce(function (n, s) { return n + s.chunkCount }, 0)
     return {
-      sourceIds: ext.sourceIds || [],
+      mountedResources: Array.isArray(state.mountedResources) ? state.mountedResources : [],
+      sourcePaths: state.sourcePaths || [],
       sources: sources,
-      cursor: Math.min(totalChunks, Math.max(0, Number(ext.cursor) || 0)),
+      cursor: Math.min(totalChunks, Math.max(0, Number(state.cursor) || 0)),
       totalChunks: totalChunks,
-      done: ext.done === true,
-      player: str(ext.player),
-      draft: ext.draft || {}
+      done: state.done === true,
+      player: str(state.player),
+      draft: state.draft || {}
     }
   }
-  async function startExtract(sourceIds, sessionId, player) {
-    const ids = (Array.isArray(sourceIds) ? sourceIds : []).filter(function (id) { return str(id) !== '' })
-    if (ids.length === 0) throw new Error('请先选择抽取素材')
-    const chat = newChat({ id: '', name: '抽取中' }, 'extract')
-    chat.extract.sourceIds = ids
-    chat.extract.player = str(player).trim()
-    if (typeof sessionId === 'string' && sessionId !== '') chat.sessionId = sessionId
-    const titles = []
-    const idx = await readIndex()
-    for (const id of ids) {
-      const item = (idx.sources || []).filter(function (s) { return s.id === id })[0]
-      if (item !== undefined) titles.push(item.title)
-    }
-    const playerNote = chat.extract.player !== ''
-      ? '已确认玩家（{{user}}）= ' + chat.extract.player + '。我会按这个身份处理对话示例与玩家视角；人物卡中的角色一律用第三人称，不会在 system_prompt 里写“你是角色”。你可以随时说“玩家改成……”。'
-      : '请直接在对话中告诉我两件事：准备提炼谁（或制作哪类人物卡），以及谁是玩家（{{user}}）。例如：“提炼阿芙拉，玩家是受雇调查商队失踪事件的旅行者。先分析，不要立即生成卡片。”'
-    const greeting = '卡片模式 · 素材抽取：已载入素材《' + titles.join('》《') + '》。我会根据你的要求从中提炼人物卡。' + playerNote
-    chat.messages.push({ role: 'assistant', text: greeting, ts: Date.now(), greeting: true })
+  async function attachCard(sessionId, cardPath) {
+    const chat = await chatForSession(sessionId)
+    if (chat === undefined || (chat.mode || 'story') !== 'card') throw new Error('当前不是卡片工作台会话')
+    const card = await readCard(cardPath)
+    if (card === undefined) throw new Error('人物卡不存在: ' + cardPath)
+    chat.cardPath = card.path
+    chat.cardName = card.name
     await writeChat(chat)
-    idx.chats = idx.chats || []
-    idx.chats.push({ id: chat.id, cardId: '', cardName: '抽取中', updatedAt: chat.updatedAt })
+    const idx = await readIndex()
+    idx.chats = (idx.chats || []).map(function (item) { return item.id === chat.id ? Object.assign({}, item, { cardPath: card.path, cardName: card.name }) : item })
     await writeIndex(idx)
-    if (typeof sessionId === 'string' && sessionId !== '') {
-      const map = await readSessionMap()
-      map[sessionId] = chat.id
-      await writeSessionMap(map)
-      await appendNativeOpening(sessionId, chat, null)
-    }
-    const result = await view(chat, null)
-    result.extract = await extractViewOf(chat)
+    const result = await view(chat, card)
+    result.workspace = await workspaceViewOf(chat)
     return result
   }
-  async function finalizeExtract(chatId) {
-    const chat = await readChat(chatId)
-    if (chat === undefined) throw new Error('聊天不存在: ' + chatId)
-    if ((chat.mode || 'story') !== 'extract') throw new Error('当前不是抽取会话')
-    const ext = chat.extract !== null && typeof chat.extract === 'object' ? chat.extract : {}
-    const draft = ext.draft !== null && typeof ext.draft === 'object' ? ext.draft : {}
-    if (str(draft.name).trim() === '') throw new Error('草稿还没有角色名，请先在对话中确认')
-    const player = str(ext.player)
-    if (player === '' && ext.done !== true) throw new Error('玩家（{{user}}）身份还没有确认。请先在对话中告诉助手“玩家是XX”，确认后再保存。')
-    const card = cardPreparation.create({ kind: 'extract', draft: draft, player: player, sourceIds: ext.sourceIds || [], allowMissingPlayer: ext.done === true })
-    await writeJson('cards/' + card.id + '.json', card)
+  async function attachSources(sessionId, sourcePaths) {
+    const chat = await chatForSession(sessionId)
+    if (chat === undefined || (chat.mode || 'story') !== 'card') throw new Error('当前不是卡片工作台会话')
+    const available = new Set(await fileResources.list('source'))
+    const incoming = (Array.isArray(sourcePaths) ? sourcePaths : []).map(str).filter(function (item) { return available.has(item) })
+    if (incoming.length === 0) throw new Error('没有选择可用资料')
+    const state = chat.workspace || emptyCardWorkspace()
+    state.sourcePaths = Array.from(new Set((state.sourcePaths || []).concat(incoming)))
+    state.cursor = 0
+    state.prepared = null
+    chat.workspace = state
+    await writeChat(chat)
+    const card = str(chat.cardPath) === '' ? null : await readChatCard(chat)
+    const result = await view(chat, card)
+    result.workspace = await workspaceViewOf(chat)
+    return result
+  }
+  async function createWorkspaceCard(chat, state) {
+    const draft = state.draft !== null && typeof state.draft === 'object' ? state.draft : {}
+    if (str(draft.name).trim() === '') throw new Error('新人物卡还没有角色名，请先在对话中确认')
+    const player = str(state.player)
+    if (player === '') throw new Error('玩家（{{user}}）身份还没有确认。请先在对话中告诉助手“玩家是XX”。')
+    const card = cardPreparation.create({ kind: 'draft', draft: draft, player: player, sourcePaths: state.sourcePaths || state.sourceIds || [] })
+    const cardPath = await fileResources.importCard({ name: card.name + '.json', text: JSON.stringify(card, null, 2) }, card)
+    card.path = cardPath
     const idx = await readIndex()
-    idx.cards = idx.cards || []
-    idx.cards.push({ id: card.id, name: card.name, description: card.description, tags: card.tags, importedAt: card.importedAt })
     for (const row of idx.chats || []) {
-      if (row.id === chat.id) { row.cardId = card.id; row.cardName = card.name }
+      if (row.id === chat.id) { row.cardPath = cardPath; row.cardName = card.name }
     }
     await writeIndex(idx)
-    chat.cardId = card.id
+    return { path: cardPath, card }
+  }
+  async function finalizeCard(chatId) {
+    const chat = await readChat(chatId)
+    if (chat === undefined) throw new Error('聊天不存在: ' + chatId)
+    if ((chat.mode || 'story') !== 'card') throw new Error('当前不是卡片工作台会话')
+    if (str(chat.cardPath) !== '') throw new Error('当前工作台已经挂载正式人物卡')
+    const state = chat.workspace !== null && typeof chat.workspace === 'object' ? chat.workspace : {}
+    const created = await createWorkspaceCard(chat, state)
+    const cardPath = created.path
+    const card = created.card
+    chat.cardPath = cardPath
     chat.cardName = card.name
-    chat.extract.done = true
+    chat.workspace.done = true
     await writeChat(chat)
     const result = await view(chat, card)
-    result.extract = await extractViewOf(chat)
-    result.finalizedCard = { id: card.id, name: card.name, description: card.description, tags: card.tags }
+    result.workspace = await workspaceViewOf(chat)
+    result.finalizedCard = { path: cardPath, name: card.name, description: card.description, tags: card.tags }
     return result
   }
 
@@ -936,19 +992,23 @@ export function apply(ctx) {
       readCard,
       readScript,
       writeChat,
-      updateCard
+      updateCard,
+      createCard: createWorkspaceCard
     },
     planner: contextPlanner,
     scripts: scriptContinuity,
     timeline: storyTimeline,
     cards: cardPreparation,
-    extract: {
-      prepare: prepareExtract,
-      commit: commitExtract
+    workspace: {
+      prepare: prepareWorkspace,
+      commit: commitWorkspace
     },
     queueSettlement,
-    now: Date.now
+    now: Date.now,
+    shellToolName: process.platform === 'win32' ? 'pwsh' : 'bash'
   })
+
+  await fileResources.migrateLegacy(await readIndex(), readJson, writeIndex, readChat, writeChat)
 
   // ---------- 重新生成正文（生成即替换，无确认） ----------
   async function regenBody(chatId, guidance, sessionId) {
@@ -1010,7 +1070,7 @@ export function apply(ctx) {
         candidates: null, settleStatus: 'idle', settleError: null, lastSettle: null, participants: {}
       }
       if ((chat.mode || 'story') === 'script') {
-        const script = await readScript(chat.cardId)
+        const script = await readScript(chat.cardPath)
         if (script === undefined || !Array.isArray(script.chunks)) throw new Error('剧本文件不存在，无法重新生成正文')
         const revision = before.scriptRevision && typeof before.scriptRevision === 'object' ? before.scriptRevision : null
         const reference = rollbackCommit && rollbackCommit.scriptReference && typeof rollbackCommit.scriptReference === 'object' ? rollbackCommit.scriptReference : null
@@ -1182,7 +1242,7 @@ export function apply(ctx) {
       participants: {}
     }
     if (mode === 'script' && storyTimeline.inspect({ chat }).checkpointCount === 0) {
-      const script = await readScript(chat.cardId)
+      const script = await readScript(chat.cardPath)
       if (script === undefined || !Array.isArray(script.chunks)) throw new Error('剧本文件不存在，无法回退剧本状态')
       const revision = before !== null && before.scriptRevision !== null && typeof before.scriptRevision === 'object'
         ? before.scriptRevision
@@ -1229,26 +1289,43 @@ export function apply(ctx) {
   async function dispatch(method, args) {
     switch (method) {
       case 'listCards': return { cards: await listCards() }
-      case 'getScriptInfo': {
-        const script = await readScript(args && args.cardId)
-        return { script: scriptContinuity.inspect({ script: script, state: null, request: { kind: 'info' } }) }
+      case 'getCard': {
+        const card = await readCard(args && args.path)
+        if (card === undefined) throw new Error('人物卡不存在: ' + (args && args.path))
+        return { card: Object.assign(cardPreparation.present({ card, as: 'view' }), { path: card.path }) }
       }
-      case 'importScript': return { script: await importScript(args && args.cardId, args && args.payload) }
-      case 'deleteScript': return await deleteScript(args && args.cardId)
+      case 'getCardTaskPrompt': {
+        const task = str(args && args.task)
+        const promptName = cardTaskPrompts[task]
+        if (promptName === undefined) throw new Error('未知卡片任务: ' + task)
+        return { task, text: prompt(promptName) }
+      }
+      case 'getResourceWorkspace': return { path: base + '/data/resources' }
+      case 'listResources': return await listTavernResources()
+      case 'renameResource': return { resource: await renameResource(args && args.path, args && args.name) }
+      case 'getScriptInfo': {
+        const script = await readScript(args && args.path)
+        const info = scriptContinuity.inspect({ script: script, state: null, request: { kind: 'info' } })
+        return { script: script === undefined ? info : Object.assign({}, info, { path: script.path }) }
+      }
+      case 'importScript': return { script: await importScript(args && args.cardPath, args && args.payload) }
+      case 'bindScript': return { script: await bindScript(args && args.cardPath, args && args.path) }
+      case 'deleteScript': return await deleteScript(args && (args.cardPath || args.path))
       case 'listSources': return { sources: await listSources() }
       case 'importSource': return { source: await importSource(args && args.payload) }
-      case 'deleteSource': return await deleteSource(args && args.sourceId)
-      case 'startExtract': return { view: await startExtract(args && args.sourceIds, args && args.sessionId, args && args.player) }
-      case 'finalizeExtract': return { view: await finalizeExtract(args && args.chatId) }
+      case 'deleteSource': return await deleteSource(args && args.path)
+      case 'attachCard': return { view: await attachCard(args && args.sessionId, args && args.path) }
+      case 'attachSources': return { view: await attachSources(args && args.sessionId, args && args.paths) }
+      case 'finalizeCard': return { view: await finalizeCard(args && args.chatId) }
       case 'updateCard': {
-        const change = await updateCard(args && args.cardId, args && args.patch)
+        const change = await updateCard(args && args.path, args && args.patch)
         return { card: change.card, changed: change.changed }
       }
       case 'listSessions': return { sessions: await listTavernSessions() }
       case 'importCard': return { card: await importCard(args && args.payload) }
-      case 'deleteCard': return await deleteCard(args && args.cardId)
+      case 'deleteCard': return await deleteCard(args && args.path)
       case 'deleteChat': return await deleteChat(args && args.chatId)
-      case 'startChat': return { view: await startChat(args && args.cardId, args && args.sessionId, args && args.mode) }
+      case 'startChat': return { view: await startChat(args && args.path, args && args.sessionId, args && args.mode) }
       case 'getSession': return { view: await sessionView(args && args.sessionId) }
       case 'ensureOpening': return { view: await ensureNativeOpening(args && args.sessionId) }
       case 'getChoices': return { candidates: await candidateGenerator.find({ sessionId: args && args.sessionId, messageId: args && args.messageId }) }
@@ -1257,8 +1334,8 @@ export function apply(ctx) {
         return { candidates: candidates }
       }
       case 'exportCard': {
-        const card = await readCard(args && args.cardId)
-        if (card === undefined) throw new Error('角色卡不存在: ' + (args && args.cardId))
+        const card = await readCard(args && args.path)
+        if (card === undefined) throw new Error('人物卡不存在: ' + (args && args.path))
         return { document: cardPreparation.present({ card: card, as: 'sillytavern-v3' }) }
       }
       case 'addGuide': return { guides: await addGuide(args && args.sessionId, args && args.text) }
@@ -1401,20 +1478,73 @@ export function apply(ctx) {
     void turnOrchestrator.discard({ sessionId: session.id, turn: event.data && event.data.turn })
   })
 
-  const tavernToolNames = new Set(['tavern_read_script', 'tavern_read_worldbook', 'tavern_update_card'])
+  const controlledToolNames = new Set(['bash', 'pwsh', 'str_replace_editor', 'tavern_read_card', 'tavern_read_script', 'tavern_read_worldbook', 'tavern_update_card', 'tavern_restore_card'])
   ctx.on('system-prompt/assemble', async function (_assembly, context, next) {
     const assembly = await next()
     const agent = context && context.agent
     if (agent === undefined || agent.session === undefined) return assembly
     if (backgroundAgentRunner.owns(agent.session.id)) return assembly
+    const mode = await turnOrchestrator.modeFor(agent.session.id)
     const visible = new Set(await turnOrchestrator.visibleTools(agent.session.id))
-    assembly.tools = assembly.tools.filter(function (schema) { return !tavernToolNames.has(schema.name) || visible.has(schema.name) })
+    assembly.sections = [{
+      name: 'tavern:mode-persona',
+      text: prompt(mode === 'card' ? 'card-mode' : 'play-mode')
+    }]
+    assembly.tools = assembly.tools.filter(function (schema) { return !controlledToolNames.has(schema.name) || visible.has(schema.name) })
     return assembly
   })
 
   // ---------- 模型可选工具 ----------
   const tools = ctx.get('tools')
   if (tools !== undefined) {
+    function mountedResource(chat, kind, resourcePath) {
+      return Array.isArray(chat && chat.workspace && chat.workspace.mountedResources) && chat.workspace.mountedResources.some(function (item) {
+        return item !== null && typeof item === 'object' && item.kind === kind && item.path === resourcePath
+      })
+    }
+
+    tools.register(defineTool({
+      name: 'tavern_read_card',
+      description: '在卡片工作台中按字段、分段读取当前人物卡或尚未创建的新卡设定。默认上下文只有字段目录，先按任务选择字段，不要一次读取全部字段。',
+      parameters: {
+        path: { type: 'string', description: '可选的已挂载人物卡相对路径；省略时读取当前人物卡或尚未创建的新卡设定' },
+        field: { type: 'string', required: true, enum: READABLE_CARD_FIELDS, description: '要读取的人物卡字段' },
+        offset: { type: 'integer', description: '可选的 1 起始字符位置，默认 1' },
+        limit: { type: 'integer', description: '本次最多读取字符数，默认 6000，最大 12000' }
+      },
+      output: {
+        schema: {
+          type: 'object', additionalProperties: false,
+          properties: {
+            field: { type: 'string', required: true },
+            text: { type: 'string', required: true },
+            totalChars: { type: 'integer', required: true },
+            from: { type: 'integer', required: true },
+            to: { type: 'integer', required: true },
+            done: { type: 'boolean', required: true }
+          }
+        },
+        render: function (_args, value) {
+          if (value.totalChars === 0) return [{ type: 'text', text: '人物卡字段 ' + value.field + ' 为空。' }]
+          return [{ type: 'text', text: '人物卡字段 ' + value.field + ' · 第 ' + value.from + '~' + value.to + ' 字 / 共 ' + value.totalChars + ' 字\n\n' + value.text }]
+        }
+      },
+      isConcurrencySafe: function () { return true },
+      async execute(args, exec) {
+        const sessionId = exec && exec.agent && exec.agent.session ? exec.agent.session.id : ''
+        const chat = await chatForSession(sessionId)
+        if (chat === undefined) throw new Error('尚未选择人物卡。')
+        if ((chat.mode || 'story') !== 'card') throw new Error('人物卡字段只能在卡片工作台中读取')
+        const resourcePath = str(args.path).trim()
+        if (resourcePath !== '' && resourcePath !== str(chat.cardPath) && !mountedResource(chat, 'card', resourcePath)) throw new Error('该人物卡尚未挂载到当前对话')
+        const card = resourcePath !== ''
+          ? await readCard(resourcePath)
+          : (str(chat.cardPath) === '' ? ((chat.workspace && chat.workspace.draft) || {}) : await readChatCard(chat))
+        if (card === undefined) throw new Error('人物卡资源不存在: ' + resourcePath)
+        return readCardField(projectCardMacros(card), args)
+      }
+    }))
+
     const scriptOutput = {
       type: 'object', additionalProperties: false,
       properties: {
@@ -1442,6 +1572,7 @@ export function apply(ctx) {
       name: 'tavern_read_script',
       description: '按需读取已绑定剧本。剧本游玩中优先读取当前游标附近；卡片设定中可检索整本剧本。',
       parameters: {
+        path: { type: 'string', description: '卡片工作台中可指定已挂载剧本相对路径；游玩模式省略并读取当前人物卡绑定剧本' },
         query: { type: 'string', description: '可选关键词；剧本游玩只检索当前游标前后 10 块' },
         offset: { type: 'integer', description: '可选的 1 起始块号' },
         limit: { type: 'integer', description: '连续读取块数；游玩最多 21，卡片设定最多 6' }
@@ -1460,8 +1591,12 @@ export function apply(ctx) {
         const chat = await chatForSession(sessionId)
         if (chat === undefined) return { found: false, message: '尚未选择人物卡。', title: '', totalChunks: 0, from: 0, to: 0, cursor: 0, chunks: [] }
         const mode = chat.mode || 'story'
-        if (mode !== 'script' && mode !== 'revision') throw new Error('当前模式不能读取剧本')
-        const script = await readScript(chat.cardId)
+        if (mode !== 'script' && mode !== 'card') throw new Error('当前模式不能读取剧本')
+        const requestedPath = str(args.path).trim()
+        const resourcePath = mode === 'card' && requestedPath !== '' ? requestedPath : str(chat.cardPath)
+        if (resourcePath === '') return { found: false, message: '当前工作台尚未挂载人物卡或剧本。', title: '', totalChunks: 0, from: 0, to: 0, cursor: 0, chunks: [] }
+        if (mode === 'card' && resourcePath !== str(chat.cardPath) && !mountedResource(chat, 'source', resourcePath) && !mountedResource(chat, 'script', resourcePath)) throw new Error('该资料尚未挂载到当前对话')
+        const script = await readScript(resourcePath)
         if (script === undefined || !Array.isArray(script.chunks) || script.chunks.length === 0) return { found: false, message: '当前人物卡没有绑定剧本。', title: '', totalChunks: 0, from: 0, to: 0, cursor: 0, chunks: [] }
         const windowResult = scriptContinuity.inspect({
           script,
@@ -1521,18 +1656,19 @@ export function apply(ctx) {
         const sessionId = exec && exec.agent && exec.agent.session ? exec.agent.session.id : ''
         const chat = await chatForSession(sessionId)
         if (chat === undefined) return { found: false, message: '尚未选择人物卡。', name: '', total: 0, entries: [] }
-        if ((chat.mode || 'story') !== 'revision') throw new Error('世界书只能在卡片设定对话中读取')
+        if ((chat.mode || 'story') !== 'card') throw new Error('世界书只能在卡片工作台中读取')
+        if (str(chat.cardPath) === '') return { found: false, message: '当前工作台尚未挂载人物卡。', name: '', total: 0, entries: [] }
         const card = await readChatCard(chat)
         const windowResult = cardPreparation.present({ card, as: 'world-book-window', ref: args.ref, query: args.query, offset: args.offset, limit: args.limit })
         if (windowResult === null) return { found: false, message: '当前人物卡没有世界书。', name: '', total: 0, entries: [] }
         if (windowResult.entries.length === 0) return { found: false, message: '没有找到符合条件的世界书条目。', name: windowResult.name, total: windowResult.total, entries: [] }
-        return { found: true, message: '', name: windowResult.name, total: windowResult.total, entries: windowResult.entries }
+        return { found: true, message: '', name: projectCardText(str(windowResult.name)), total: windowResult.total, entries: projectCardMacros(windowResult.entries) }
       }
     }))
 
     tools.register(defineTool({
       name: 'tavern_update_card',
-      description: '仅当用户明确要求或确认修改时，暂存最小的人物卡变更；本轮最终回复完成后自动保存。只讨论时不要调用。',
+      description: '仅当用户明确要求或确认修改时，提交最小的人物卡变更；本轮最终回复完成后自动保存。空白工作台会直接创建并绑定正式人物卡文件，必须同时具备角色名和玩家身份。只讨论时不要调用。',
       parameters: {
         fields: {
           type: 'object', additionalProperties: false,
@@ -1548,12 +1684,12 @@ export function apply(ctx) {
             creator_notes: { type: 'string' },
             tags: { type: 'array', items: { type: 'string' } },
             alternate_greetings: { type: 'array', items: { type: 'string' } },
-            player: { type: 'string', description: '仅素材抽取模式：{{user}} 的身份' }
+            player: { type: 'string', description: '新建人物卡时用于约束 {{user}} 视角的玩家身份' }
           }
         },
         worldBook: {
           type: 'array',
-          description: '仅人物卡设定模式：世界书逐条操作',
+          description: '当前工作台已挂载正式人物卡时可用：世界书逐条操作',
           items: {
             type: 'object', additionalProperties: false,
             properties: {
@@ -1571,14 +1707,17 @@ export function apply(ctx) {
           type: 'object', additionalProperties: false,
           properties: {
             staged: { type: 'boolean', required: true },
-            mode: { type: 'string', required: true, enum: ['revision', 'extract'] },
+            mode: { type: 'string', required: true, enum: ['card'] },
             changed: { type: 'boolean', required: true },
+            createsCard: { type: 'boolean', required: true },
             changedFields: { type: 'array', required: true, items: { type: 'string' } }
           }
         },
         render: function (_args, value) {
           const detail = value.changedFields.length > 0 ? '：' + value.changedFields.join('、') : ''
-          return [{ type: 'text', text: value.changed ? '变更已暂存，将随本轮回复保存' + detail : '提交内容与当前设定相同，无需改动' }]
+          if (value.createsCard) return [{ type: 'text', text: '本轮回复完成后将创建并绑定正式人物卡' + detail }]
+          if (!value.changed) return [{ type: 'text', text: '提交内容与当前设定相同，无需改动' }]
+          return [{ type: 'text', text: '本轮回复完成后将保存人物卡变更' + detail }]
         }
       },
       async execute(args, exec) {
@@ -1589,6 +1728,40 @@ export function apply(ctx) {
           fields: args.fields,
           worldBook: args.worldBook
         })
+      }
+    }))
+
+    tools.register(defineTool({
+      name: 'tavern_restore_card',
+      description: '灾难恢复工具：仅当用户明确要求将当前正式人物卡从 originals 原版整体恢复、已获知会覆盖全部工作版修改，并再次明确确认后使用。普通编辑、撤销、不确定或空白工作台严禁调用。恢复前会自动备份当前工作版。',
+      parameters: {
+        confirmation: {
+          type: 'string',
+          required: true,
+          enum: ['确认从原版恢复'],
+          description: '只能在用户已经明确确认整体覆盖后填写固定文本“确认从原版恢复”；不得由 Agent 代替用户确认'
+        }
+      },
+      output: {
+        schema: {
+          type: 'object', additionalProperties: false,
+          properties: {
+            path: { type: 'string', required: true },
+            name: { type: 'string', required: true },
+            originalPath: { type: 'string', required: true },
+            backupPath: { type: 'string', required: true }
+          }
+        },
+        render: function (_args, value) {
+          return [{ type: 'text', text: '人物卡《' + value.name + '》已从原版恢复并立即生效。恢复前工作版已备份到 ' + value.backupPath }]
+        }
+      },
+      async execute(args, exec) {
+        if (str(args && args.confirmation) !== '确认从原版恢复') throw new Error('原版恢复缺少明确确认')
+        const sessionId = exec && exec.agent && exec.agent.session ? exec.agent.session.id : ''
+        const turn = activeTurnOf(exec)
+        if (turn > 0) await turnOrchestrator.discard({ sessionId: sessionId, turn: turn })
+        return await restoreCurrentCard(sessionId)
       }
     }))
   }

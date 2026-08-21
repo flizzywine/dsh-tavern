@@ -1,6 +1,6 @@
 {
   "name": "dsh-profile-tavern",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "bin": {
     "dsh-tavern": "bin/dsh-tavern.mjs"
@@ -14,7 +14,7 @@
     "test": "node --test tests/*.test.mjs"
   },
   "dependencies": {
-    "dsh-better-sidebar": "0.13.1",
+    "dsh-better-sidebar": "0.14.0",
     "dsh-tavern-plugin": "link:./tavern-plugin",
     "yaml": "2.9.0"
   },
