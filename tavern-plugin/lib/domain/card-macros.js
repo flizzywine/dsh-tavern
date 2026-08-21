@@ -1,23 +1,19 @@
-function cleanText(text, characterName) {
+export function projectCardText(text) {
   return text.replace(/\{\{([\s\S]*?)\}\}/g, function (_group, body) {
-    const macro = body.trim().toLowerCase()
-    if (macro === 'char') return characterName
-    if (macro === 'user') return '玩家'
-    return ''
+    const macro = body.trim()
+    return macro.includes('::') ? '' : macro
   })
 }
 
-function cleanValue(value, characterName) {
-  if (typeof value === 'string') return cleanText(value, characterName)
-  if (Array.isArray(value)) return value.map(function (item) { return cleanValue(item, characterName) })
+function projectValue(value) {
+  if (typeof value === 'string') return projectCardText(value)
+  if (Array.isArray(value)) return value.map(projectValue)
   if (value === null || typeof value !== 'object') return value
   return Object.fromEntries(Object.entries(value).map(function (entry) {
-    return [entry[0], cleanValue(entry[1], characterName)]
+    return [entry[0], projectValue(entry[1])]
   }))
 }
 
-export function cleanWorkspaceCardMacros(card) {
-  const rawName = card !== null && typeof card === 'object' && typeof card.name === 'string' ? card.name : ''
-  const characterName = cleanText(rawName, '').trim() || '角色'
-  return cleanValue(card, characterName)
+export function projectCardMacros(card) {
+  return projectValue(card)
 }

@@ -24,6 +24,9 @@ test('卡片模式从空白工作台直接进入 Agent 对话', () => {
   assert.doesNotMatch(flow, /connectWorkspace\(workspaceId\)/)
   assert.match(flow, /call\("startChat", \{ path: card && card\.path \? card\.path : "", sessionId: sessionId, mode: "card" \}\)/)
   assert.match(flow, /publishSessionMode\(sessionId, "card"\)/)
+  assert.match(flow, /props\.openCardLibraryTab\(sessionId\)/)
+  assert.match(flow, /props\.openResourcesTab\(sessionId\)/)
+  assert.ok(flow.indexOf('props.openCardLibraryTab(sessionId)') < flow.indexOf('props.openResourcesTab(sessionId)'))
 })
 
 test('新建对话不会重复切换已经是 Tavern preset 的 Session', () => {
@@ -56,7 +59,7 @@ test('卡片模式通过修改、抽取和空白三个入口进入同一个 Agen
   assert.match(clientSource, /"从资料新建人物卡"/)
   assert.match(clientSource, /"空白开始"/)
   assert.match(flow, /mode: "card"/)
-  assert.match(flow, /if \(task\) await props\.injectTaskPrompt\(sessionId, task, label, \(selectedResources \|\| \[\]\)\.length > 0\)/)
+  assert.match(flow, /if \(task\) await props\.injectTaskPrompt\(sessionId, task, label, card, \(selectedResources \|\| \[\]\)\.length > 0\)/)
   assert.doesNotMatch(clientSource, /startExtract|newExtractSession|"revision"|mode: "extract"/)
   assert.doesNotMatch(clientSource, /添加文件到当前对话|attachSourcesToCurrent|attachCardToCurrent/)
   assert.match(clientSource, /return values\[sessionId\] \|\| "";/)
@@ -83,6 +86,9 @@ test('从资料新建人物卡选择统一资料并自动追加全部引用', ()
 
 test('卡片任务只在创建对话时追加提示词，不占用输入框上方区域', () => {
   assert.match(clientSource, /rpc\("getCardTaskPrompt", \{ task: task \}, sessionId\)/)
+  assert.match(clientSource, /【目标人物卡】/)
+  assert.match(clientSource, /card && card\.path/)
+  assert.match(clientSource, /@\\"/)
   assert.match(clientSource, /input\.setDraft\(taskText \+ supplement\)/)
   assert.match(clientSource, /hasInitialResources \? "\\n\\n【初始资料】\\n" : ""/)
   assert.doesNotMatch(clientSource, /【补充要求】/)
@@ -190,6 +196,26 @@ test('人物卡全部字段合并在默认展开的基本信息中，并位于�
   assert.ok(creatorNotes > alternateGreetings)
   assert.ok(worldBook > creatorNotes)
   assert.doesNotMatch(panel, /h\("summary", null, "高级字段"\)/)
+})
+
+test('常驻世界书条目不显示无效的名称输入框', () => {
+  assert.doesNotMatch(clientSource, /名称（常驻条目）/)
+  assert.match(clientSource, /entry\.constant === true \? null : editingWorldBookKey === index/)
+})
+
+test('非常驻条目按需展开触发词编辑并省略内容标签', () => {
+  assert.match(clientSource, /"触发：" \+ entry\.keysText : "＋ 设置触发词（未设置不加载）"/)
+  assert.match(clientSource, /setEditingWorldBookKey\(index\)/)
+  assert.match(clientSource, /placeholder: "触发词，逗号分隔"/)
+  assert.doesNotMatch(clientSource, /h\("label", null, "内容"\)/)
+})
+
+test('世界书按展示顺序排列并说明 DSH 常驻上限', () => {
+  assert.match(clientSource, /extensions && a\.entry\.extensions\.display_index/)
+  assert.match(clientSource, /常驻每轮自动加载，DSH 按展示顺序最多加载 10 条/)
+  assert.match(clientSource, /worldBookGroup\("常驻", constantEntries, constantEntries\.length > 10 \? "按展示顺序加载前 10 条"/)
+  assert.match(clientSource, /worldBookGroup\("非常驻", triggeredEntries\)/)
+  assert.doesNotMatch(clientSource, /关键词触发/)
 })
 
 test('酒馆状态页等待会话绑定就绪后自动刷新', () => {

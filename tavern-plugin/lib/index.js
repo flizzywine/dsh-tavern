@@ -6,6 +6,7 @@ import { waitForAgentSession } from './domain/agent-readiness.js'
 import { createCardPreparation } from './domain/card-preparation.js'
 import { resolveCardOpening } from './domain/card-openings.js'
 import { READABLE_CARD_FIELDS, readCardField } from './domain/card-reading.js'
+import { projectCardMacros, projectCardText } from './domain/card-macros.js'
 import { createContextPlanner } from './domain/context-planner.js'
 import { extractEpubText } from './domain/epub-text.js'
 import { createFileResourceStore, normalizeResourcePath, resourceKind } from './domain/file-resources.js'
@@ -78,13 +79,8 @@ export async function apply(ctx) {
     const m = mode || 'story'
     return m === 'story' || m === 'script' ? 'play' : 'card'
   }
-  function substChar(text, card, userLabel, charLabel) {
-    const u = userLabel === undefined ? '用户' : userLabel
-    const c = charLabel === undefined ? str(card.name) : charLabel
-    return str(text).split('{{char}}').join(c).split('{{user}}').join(u)
-  }
   function renderCardText(text, card) {
-    return substChar(text, card, '你', str(card.name))
+    return projectCardText(str(text))
   }
 
   const settlementJobs = new Set()
@@ -376,17 +372,37 @@ export async function apply(ctx) {
     delete savedCard.id
     await fileResources.writeWorking(normalizeResourcePath(cardPath, 'card'), JSON.stringify(savedCard, null, 2))
     savedCard.path = cardPath
+    await syncCardName(cardPath, savedCard.name)
+    return change
+  }
+  async function syncCardName(cardPath, cardName) {
     const idx = await readIndex()
-    idx.chats = (idx.chats || []).map(function (item) { return item.cardPath === cardPath ? Object.assign({}, item, { cardName: savedCard.name }) : item })
+    idx.chats = (idx.chats || []).map(function (item) { return item.cardPath === cardPath ? Object.assign({}, item, { cardName: cardName }) : item })
     await writeIndex(idx)
     for (const item of (idx.chats || []).filter(function (entry) { return entry.cardPath === cardPath })) {
       const linked = await readChat(item.id)
-      if (linked !== undefined && linked.cardName !== savedCard.name) {
-        linked.cardName = savedCard.name
+      if (linked !== undefined && linked.cardName !== cardName) {
+        linked.cardName = cardName
         await writeJson('chats/' + linked.id + '.json', linked)
       }
     }
-    return change
+  }
+  async function restoreCurrentCard(sessionId) {
+    const chat = await chatForSession(sessionId)
+    if (chat === undefined) throw new Error('当前会话没有绑定人物卡')
+    if ((chat.mode || 'story') !== 'card') throw new Error('原版恢复只能在卡片模式中使用')
+    const cardPath = str(chat.cardPath)
+    if (cardPath === '') throw new Error('空白工作台没有可恢复的正式人物卡')
+    const restored = await fileResources.restoreCard(cardPath, function (payload) {
+      return cardPreparation.create({ kind: 'import', payload: payload })
+    })
+    await syncCardName(cardPath, restored.card.name)
+    return {
+      path: cardPath,
+      name: restored.card.name,
+      originalPath: restored.originalPath,
+      backupPath: restored.backupPath
+    }
   }
   async function deleteCard(cardPath) {
     const idx = await readIndex()
@@ -1462,7 +1478,7 @@ export async function apply(ctx) {
     void turnOrchestrator.discard({ sessionId: session.id, turn: event.data && event.data.turn })
   })
 
-  const controlledToolNames = new Set(['bash', 'pwsh', 'str_replace_editor', 'tavern_read_card', 'tavern_read_script', 'tavern_read_worldbook', 'tavern_update_card'])
+  const controlledToolNames = new Set(['bash', 'pwsh', 'str_replace_editor', 'tavern_read_card', 'tavern_read_script', 'tavern_read_worldbook', 'tavern_update_card', 'tavern_restore_card'])
   ctx.on('system-prompt/assemble', async function (_assembly, context, next) {
     const assembly = await next()
     const agent = context && context.agent
@@ -1525,7 +1541,7 @@ export async function apply(ctx) {
           ? await readCard(resourcePath)
           : (str(chat.cardPath) === '' ? ((chat.workspace && chat.workspace.draft) || {}) : await readChatCard(chat))
         if (card === undefined) throw new Error('人物卡资源不存在: ' + resourcePath)
-        return readCardField(card, args)
+        return readCardField(projectCardMacros(card), args)
       }
     }))
 
@@ -1646,7 +1662,7 @@ export async function apply(ctx) {
         const windowResult = cardPreparation.present({ card, as: 'world-book-window', ref: args.ref, query: args.query, offset: args.offset, limit: args.limit })
         if (windowResult === null) return { found: false, message: '当前人物卡没有世界书。', name: '', total: 0, entries: [] }
         if (windowResult.entries.length === 0) return { found: false, message: '没有找到符合条件的世界书条目。', name: windowResult.name, total: windowResult.total, entries: [] }
-        return { found: true, message: '', name: windowResult.name, total: windowResult.total, entries: windowResult.entries }
+        return { found: true, message: '', name: projectCardText(str(windowResult.name)), total: windowResult.total, entries: projectCardMacros(windowResult.entries) }
       }
     }))
 
@@ -1712,6 +1728,40 @@ export async function apply(ctx) {
           fields: args.fields,
           worldBook: args.worldBook
         })
+      }
+    }))
+
+    tools.register(defineTool({
+      name: 'tavern_restore_card',
+      description: '灾难恢复工具：仅当用户明确要求将当前正式人物卡从 originals 原版整体恢复、已获知会覆盖全部工作版修改，并再次明确确认后使用。普通编辑、撤销、不确定或空白工作台严禁调用。恢复前会自动备份当前工作版。',
+      parameters: {
+        confirmation: {
+          type: 'string',
+          required: true,
+          enum: ['确认从原版恢复'],
+          description: '只能在用户已经明确确认整体覆盖后填写固定文本“确认从原版恢复”；不得由 Agent 代替用户确认'
+        }
+      },
+      output: {
+        schema: {
+          type: 'object', additionalProperties: false,
+          properties: {
+            path: { type: 'string', required: true },
+            name: { type: 'string', required: true },
+            originalPath: { type: 'string', required: true },
+            backupPath: { type: 'string', required: true }
+          }
+        },
+        render: function (_args, value) {
+          return [{ type: 'text', text: '人物卡《' + value.name + '》已从原版恢复并立即生效。恢复前工作版已备份到 ' + value.backupPath }]
+        }
+      },
+      async execute(args, exec) {
+        if (str(args && args.confirmation) !== '确认从原版恢复') throw new Error('原版恢复缺少明确确认')
+        const sessionId = exec && exec.agent && exec.agent.session ? exec.agent.session.id : ''
+        const turn = activeTurnOf(exec)
+        if (turn > 0) await turnOrchestrator.discard({ sessionId: sessionId, turn: turn })
+        return await restoreCurrentCard(sessionId)
       }
     }))
   }

@@ -1,11 +1,14 @@
 import { cardFieldCatalog } from './card-reading.js'
+import { projectCardText } from './card-macros.js'
+
+const MAX_CONSTANT_WORLD_BOOK_ENTRIES = 10
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
 }
 
 function renderCardText(text, card) {
-  return str(text).split('{{char}}').join(str(card && card.name)).split('{{user}}').join('你')
+  return projectCardText(str(text))
 }
 
 function worldBookEntries(card) {
@@ -25,9 +28,10 @@ function worldBookEntries(card) {
     const keys = Array.isArray(entry.keys)
       ? entry.keys.map(function (key) { return str(key).trim() }).filter(Boolean)
       : []
-    entries.push({ id: 'wb-' + index, keys, text, constant: entry.constant === true })
+    const displayIndex = Number(entry.extensions && entry.extensions.display_index)
+    entries.push({ id: 'wb-' + index, index, displayIndex: Number.isFinite(displayIndex) ? displayIndex : index, keys, text, constant: entry.constant === true })
   }
-  return entries
+  return entries.sort(function (a, b) { return a.displayIndex - b.displayIndex || a.index - b.index })
 }
 
 function cardFieldCatalogText(card) {
@@ -45,7 +49,7 @@ function worldBookOverviewText(overview) {
   const lines = ['【世界书目录 · 《' + (str(overview.name) || '未命名') + '》· ' + (Number(overview.entryCount) || entries.length) + ' 条】']
   if (entries.length === 0) lines.push('无条目')
   for (const entry of entries) {
-    const labels = [entry.constant === true ? '常驻' : '关键词触发']
+    const labels = [entry.constant === true ? '常驻' : '非常驻']
     const identity = Array.isArray(entry.keys) && entry.keys.length > 0 ? entry.keys.join('、') : (str(entry.comment) || '无关键词')
     lines.push('[' + str(entry.ref) + '] ' + labels.join('、') + '｜' + identity + '｜' + (Number(entry.chars) || 0) + ' 字')
   }
@@ -75,7 +79,7 @@ export function createContextPlanner(options = {}) {
     const sections = []
     const entries = worldBookEntries(input.card)
     const selectedIds = Array.isArray(input.worldBookIds) ? input.worldBookIds : []
-    const constantEntries = entries.filter(function (entry) { return entry.constant === true })
+    const constantEntries = entries.filter(function (entry) { return entry.constant === true }).slice(0, MAX_CONSTANT_WORLD_BOOK_ENTRIES)
     const triggeredEntries = entries.filter(function (entry) { return entry.constant !== true && selectedIds.includes(entry.id) })
     function worldBookSection(kind, selected) {
       return selected.length > 0
@@ -119,11 +123,14 @@ export function createContextPlanner(options = {}) {
   }
 
   function resultOf(sections, warnings, omitted = []) {
-    const text = sections.map(function (section) { return section.text }).filter(Boolean).join('\n\n')
+    const projected = sections.map(function (section) {
+      return Object.assign({}, section, { text: projectCardText(str(section.text)) })
+    })
+    const text = projected.map(function (section) { return section.text }).filter(Boolean).join('\n\n')
     return {
       text,
       audit: {
-        included: sections.map(function (section) { return { kind: section.kind, chars: section.text.length, required: section.required === true } }),
+        included: projected.map(function (section) { return { kind: section.kind, chars: section.text.length, required: section.required === true } }),
         omitted,
         warnings,
         totalChars: text.length
@@ -179,8 +186,8 @@ export function createContextPlanner(options = {}) {
         })
       }
       const result = resultOf(stableSections.concat(dynamicSections), warnings, [{ kind: 'card-instruction', reason: '候选项不需要正文特殊指令' }])
-      result.stableText = stableSections.map(function (section) { return section.text }).filter(Boolean).join('\n\n')
-      result.dynamicText = dynamicSections.map(function (section) { return section.text }).filter(Boolean).join('\n\n')
+      result.stableText = stableSections.map(function (section) { return projectCardText(str(section.text)) }).filter(Boolean).join('\n\n')
+      result.dynamicText = dynamicSections.map(function (section) { return projectCardText(str(section.text)) }).filter(Boolean).join('\n\n')
       return result
     }
 

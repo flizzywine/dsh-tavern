@@ -1,6 +1,5 @@
 import { access, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
-import { cleanWorkspaceCardMacros } from './card-macros.js'
 
 const KIND_DIR = Object.freeze({ card: 'cards', source: 'materials', script: 'scripts' })
 const WINDOWS_RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i
@@ -73,6 +72,38 @@ function originalCard(record, card, workingName) {
   return { name: workingName, data: JSON.stringify(snapshot, null, 2) }
 }
 
+function pngCardPayload(buffer, name) {
+  const signature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+  if (!Buffer.isBuffer(buffer) || buffer.length <= signature.length || !buffer.subarray(0, signature.length).equals(signature)) {
+    throw new Error('原版人物卡不是有效的 PNG: ' + name)
+  }
+  let offset = signature.length
+  while (offset + 12 <= buffer.length) {
+    const length = buffer.readUInt32BE(offset)
+    const type = buffer.toString('ascii', offset + 4, offset + 8)
+    const dataStart = offset + 8
+    const dataEnd = dataStart + length
+    if (dataEnd + 4 > buffer.length) throw new Error('原版人物卡 PNG 数据损坏: ' + name)
+    if (type === 'tEXt') {
+      const separator = buffer.indexOf(0, dataStart)
+      if (separator >= dataStart && separator < dataEnd) {
+        const keyword = buffer.toString('ascii', dataStart, separator)
+        if (keyword === 'chara' || keyword === 'ccv3') {
+          return {
+            kind: 'png',
+            name,
+            b64: buffer.toString('latin1', separator + 1, dataEnd),
+            fileB64: buffer.toString('base64')
+          }
+        }
+      }
+    }
+    if (type === 'IEND') break
+    offset = dataEnd + 4
+  }
+  throw new Error('原版人物卡 PNG 中没有 chara/ccv3 数据: ' + name)
+}
+
 export function createFileResourceStore(options = {}) {
   const dataRoot = path.resolve(str(options.dataRoot))
   const resourcesRoot = path.join(dataRoot, 'resources')
@@ -101,11 +132,52 @@ export function createFileResourceStore(options = {}) {
   async function writeWorking(relative, data) {
     const normalized = normalizeResourcePath(relative)
     const target = absolute(normalized)
-    const workingData = resourceKind(normalized) === 'card'
-      ? JSON.stringify(cleanWorkspaceCardMacros(JSON.parse(str(data))), null, 2)
-      : data
     await mkdir(path.dirname(target), { recursive: true })
-    await writeFile(target, workingData)
+    await writeFile(target, data)
+  }
+
+  async function restoreCard(relative, prepare) {
+    const normalized = normalizeResourcePath(relative, 'card')
+    if (typeof prepare !== 'function') throw new Error('缺少原版人物卡解析器')
+    const workingPath = absolute(normalized)
+    let current
+    try { current = await readFile(workingPath) } catch (error) {
+      if (error && error.code === 'ENOENT') throw new Error('人物卡工作版不存在: ' + normalized)
+      throw error
+    }
+
+    const stem = path.posix.basename(normalized, path.posix.extname(normalized))
+    const originalDir = path.dirname(absolute(normalized, true))
+    const candidates = (await readdir(originalDir, { withFileTypes: true })).filter(function (entry) {
+      if (!entry.isFile() || path.basename(entry.name, path.extname(entry.name)) !== stem) return false
+      const extension = path.extname(entry.name).toLowerCase()
+      return extension === '.json' || extension === '.png'
+    })
+    if (candidates.length === 0) throw new Error('找不到人物卡原版: ' + normalized)
+    if (candidates.length > 1) throw new Error('人物卡存在多个原版，无法确定恢复来源: ' + candidates.map(function (entry) { return entry.name }).join('、'))
+
+    const originalName = candidates[0].name
+    const originalPath = path.join(originalDir, originalName)
+    const originalData = await readFile(originalPath)
+    const payload = path.extname(originalName).toLowerCase() === '.png'
+      ? pngCardPayload(originalData, originalName)
+      : { kind: 'text', name: originalName, text: originalData.toString('utf8') }
+    const restored = await prepare(payload)
+    if (restored === null || typeof restored !== 'object' || Array.isArray(restored)) throw new Error('原版人物卡解析结果无效')
+    const saved = clone(restored)
+    delete saved.id
+    delete saved.path
+
+    const backupName = stem + '-before-original-restore-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8) + '.json'
+    const backupRelative = 'recovery/cards/' + backupName
+    await writeNew(path.join(dataRoot, ...backupRelative.split('/')), current)
+    try {
+      await writeFile(workingPath, JSON.stringify(saved, null, 2))
+    } catch (error) {
+      try { await writeFile(workingPath, current) } catch {}
+      throw error
+    }
+    return { card: saved, originalPath: 'originals/cards/' + originalName, backupPath: backupRelative }
   }
 
   async function readText(relative) {
@@ -117,10 +189,7 @@ export function createFileResourceStore(options = {}) {
     const normalized = normalizeResourcePath(relative, 'card')
     const text = await readText(normalized)
     if (text === undefined) return undefined
-    const card = JSON.parse(text)
-    const cleaned = cleanWorkspaceCardMacros(card)
-    if (JSON.stringify(cleaned) !== JSON.stringify(card)) await writeWorking(normalized, JSON.stringify(cleaned, null, 2))
-    return cleaned
+    return JSON.parse(text)
   }
 
   async function scanFiles(folder, prefix) {
@@ -205,7 +274,7 @@ export function createFileResourceStore(options = {}) {
     const originalData = payload && payload.kind === 'png' && payload.fileB64
       ? Buffer.from(payload.fileB64, 'base64')
       : (typeof (payload && payload.text) === 'string' ? payload.text : JSON.stringify(card, null, 2))
-    const saved = cleanWorkspaceCardMacros(clone(card))
+    const saved = clone(card)
     delete saved.id
     await writeNew(absolute('cards/' + originalName, true), originalData)
     try { await writeNew(absolute(relative), JSON.stringify(saved, null, 2)) } catch (error) { await rm(absolute('cards/' + originalName, true), { force: true }); throw error }
@@ -522,5 +591,5 @@ export function createFileResourceStore(options = {}) {
     return result
   }
 
-  return Object.freeze({ absolute, bindMaterial, cardsForMaterial, ensure, importCard, importText, list, migrateLegacy, readCard, readText, remove, rename: renameResource, replaceScript, scriptForCard, unbindMaterial, writeWorking })
+  return Object.freeze({ absolute, bindMaterial, cardsForMaterial, ensure, importCard, importText, list, migrateLegacy, readCard, readText, remove, rename: renameResource, replaceScript, restoreCard, scriptForCard, unbindMaterial, writeWorking })
 }

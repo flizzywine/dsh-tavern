@@ -157,6 +157,9 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 .dsh-tavern-worldbook-entry-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; color: #a66b35; font-size: 11px; font-weight: 700; }
 .dsh-tavern-worldbook-entry-actions { display: flex; align-items: center; gap: 4px; }
 .dsh-tavern-worldbook-kind { border: 1px solid rgba(166,107,53,.45); border-radius: 999px; background: rgba(166,107,53,.08); color: #a66b35; cursor: pointer; padding: 2px 7px; font-size: 10px; }
+.dsh-tavern-worldbook-trigger { display: block; max-width: 100%; margin: 0 0 6px; padding: 1px 0; overflow: hidden; border: 0; background: transparent; color: var(--dsw-alias-label-secondary); cursor: pointer; font-size: 10px; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
+.dsh-tavern-worldbook-trigger:hover { color: #a66b35; }
+.dsh-tavern-worldbook-note { margin: -2px 0 8px; color: var(--dsw-alias-label-secondary); font-size: 10px; line-height: 1.5; }
 .dsh-tavern-worldbook-del { border: 0; border-radius: 6px; background: transparent; color: var(--dsw-alias-label-secondary); cursor: pointer; padding: 2px 6px; font-size: 11px; }
 .dsh-tavern-worldbook-del:hover { color: #c45f5f; background: rgba(196,95,95,.12); }
 .dsh-tavern-worldbook-entry .dsh-tavern-card-field { margin-bottom: 6px; }
@@ -421,7 +424,9 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					publishSessionMode(sessionId, "card");
 					props.sessions.open(sessionId);
 					window.dispatchEvent(new CustomEvent("dsh-tavern-session-changed", { detail: { sessionId: sessionId } }));
-					if (task) await props.injectTaskPrompt(sessionId, task, label, (selectedResources || []).length > 0);
+					if (typeof props.openCardLibraryTab === "function") props.openCardLibraryTab(sessionId);
+					if (typeof props.openResourcesTab === "function") props.openResourcesTab(sessionId);
+					if (task) await props.injectTaskPrompt(sessionId, task, label, card, (selectedResources || []).length > 0);
 					(selectedResources || []).forEach(function (resource) { props.appendMention(sessionId, resource.kind, resource.path, resource.title); });
 					setPicking(false); setCardEntry("");
 					await refresh();
@@ -705,6 +710,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 
 		function CardFieldsPanel(props) {
 			const [draft, setDraft] = React.useState({});
+			const [editingWorldBookKey, setEditingWorldBookKey] = React.useState(null);
 			const [busy, setBusy] = React.useState(false);
 			const [error, setError] = React.useState("");
 			const [script, setScript] = React.useState(null);
@@ -836,6 +842,12 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const activeWorldBookEntries = rawWorldBookEntries.map(function (entry, index) { return { entry: entry, index: index }; }).filter(function (item) {
 				const entry = item.entry;
 				return entry && typeof entry === "object" && entry.enabled !== false;
+			}).sort(function (a, b) {
+				const aValue = Number(a.entry.extensions && a.entry.extensions.display_index);
+				const bValue = Number(b.entry.extensions && b.entry.extensions.display_index);
+				const aIndex = Number.isFinite(aValue) ? aValue : a.index;
+				const bIndex = Number.isFinite(bValue) ? bValue : b.index;
+				return aIndex - bIndex || a.index - b.index;
 			});
 			const constantEntries = activeWorldBookEntries.filter(function (item) { return item.entry.constant === true; });
 			const triggeredEntries = activeWorldBookEntries.filter(function (item) { return item.entry.constant !== true; });
@@ -847,23 +859,23 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					h("div", { className: "dsh-tavern-worldbook-entry-head" },
 						h("span", null, title),
 						h("span", { className: "dsh-tavern-worldbook-entry-actions" },
-							h("button", { className: "dsh-tavern-worldbook-kind", onClick: function () { setBookEntry(index, { constant: entry.constant !== true }); } }, entry.constant === true ? "常驻" : "关键词触发"),
+							h("button", { className: "dsh-tavern-worldbook-kind", onClick: function () { setBookEntry(index, { constant: entry.constant !== true }); } }, entry.constant === true ? "常驻" : "非常驻"),
 							h("button", { className: "dsh-tavern-worldbook-del", onClick: function () { removeBookEntry(index); } }, "删除")
 						)
 					),
+					entry.constant === true ? null : editingWorldBookKey === index
+						? h("div", { className: "dsh-tavern-card-field" },
+							h("input", { autoFocus: true, value: entry.keysText || "", placeholder: "触发词，逗号分隔", onChange: function (e) { setBookEntry(index, { keysText: e.target.value }); }, onBlur: function () { setEditingWorldBookKey(null); }, onKeyDown: function (e) { if (e.key === "Enter" || e.key === "Escape") e.currentTarget.blur(); } })
+						)
+						: h("button", { className: "dsh-tavern-worldbook-trigger", title: "点击编辑触发词", onClick: function () { setEditingWorldBookKey(index); } }, entry.keysText ? "触发：" + entry.keysText : "＋ 设置触发词（未设置不加载）"),
 					h("div", { className: "dsh-tavern-card-field" },
-						h("label", null, entry.constant === true ? "名称（常驻条目）" : "触发词（逗号分隔）"),
-						h("input", { value: entry.keysText || "", placeholder: "例如：宝玉、贾府、宝二爷", onChange: function (e) { setBookEntry(index, { keysText: e.target.value }); } })
-					),
-					h("div", { className: "dsh-tavern-card-field" },
-						h("label", null, "内容"),
 						h("textarea", { value: entry.content || "", placeholder: "这条世界书的内容", onChange: function (e) { setBookEntry(index, { content: e.target.value }); } })
 					)
 				);
 			}
-			function worldBookGroup(title, entries) {
+			function worldBookGroup(title, entries, note) {
 				return h("section", { className: "dsh-tavern-worldbook-group" },
-					h("div", { className: "dsh-tavern-worldbook-group-title" }, title + " · " + entries.length),
+					h("div", { className: "dsh-tavern-worldbook-group-title" }, title + " · " + entries.length + (note ? "（" + note + "）" : "")),
 					entries.length ? entries.map(worldBookEntry) : h("div", { className: "dsh-tavern-worldbook-empty" }, "暂无")
 				);
 			}
@@ -872,11 +884,12 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					h("span", { className: "dsh-tavern-worldbook-title" }, "世界书 · " + activeWorldBookEntries.length + " 个条目"),
 					h("span", { className: "dsh-tavern-worldbook-actions" },
 						h("button", { className: "dsh-tavern-worldbook-add", onClick: function () { addBookEntry(true); } }, "＋ 常驻"),
-						h("button", { className: "dsh-tavern-worldbook-add", onClick: function () { addBookEntry(false); } }, "＋ 关键词触发")
+						h("button", { className: "dsh-tavern-worldbook-add", onClick: function () { addBookEntry(false); } }, "＋ 非常驻")
 					)
 				),
-				worldBookGroup("常驻", constantEntries),
-				worldBookGroup("关键词触发", triggeredEntries)
+				h("div", { className: "dsh-tavern-worldbook-note" }, "常驻每轮自动加载，DSH 按展示顺序最多加载 10 条；非常驻命中触发词后加载，未设置触发词则不加载。"),
+				worldBookGroup("常驻", constantEntries, constantEntries.length > 10 ? "按展示顺序加载前 10 条" : ""),
+				worldBookGroup("非常驻", triggeredEntries)
 			);
 			const scriptPanel = h("div", { className: "dsh-tavern-script-row" },
 				h("div", { className: "dsh-tavern-script-info" }, script ? h("span", null, h("b", null, "当前剧本："), script.title + " · " + script.chunkCount + " 块 · " + script.sourceChars + " 字") : h("span", null, "未绑定剧本；游玩时按自由故事推进")),
@@ -1511,7 +1524,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					console.warn("dsh-tavern: resource mention failed", err);
 				}
 			}
-			async function injectTaskPrompt(sessionId, task, label, hasInitialResources) {
+			async function injectTaskPrompt(sessionId, task, label, card, hasInitialResources) {
 				const result = await rpc("getCardTaskPrompt", { task: task }, sessionId);
 				const actx = ctx.sessions.scope(sessionId);
 				const conversation = ctx.get("conversation");
@@ -1519,8 +1532,10 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				const input = conversation.input.for(actx);
 				const draft = String(input.state.getSnapshot().draft || "");
 				const supplement = draft;
+				const targetPath = card && card.path ? String(card.path).replace(/\\/g, "/").replace(/["\r\n]/g, "") : "";
+				const targetSection = targetPath ? "\n\n【目标人物卡】\n@\"" + targetPath + "\"" : "";
 				const materialSection = hasInitialResources ? "\n\n【初始资料】\n" : "";
-				const taskText = "【卡片任务：" + label + "】\n" + String(result && result.text || "").trim() + materialSection;
+				const taskText = "【卡片任务：" + label + "】" + targetSection + "\n\n" + String(result && result.text || "").trim() + materialSection;
 				input.setDraft(taskText + supplement);
 			}
 			ctx.effect(() => ctx.betterSidebar.registerTab({

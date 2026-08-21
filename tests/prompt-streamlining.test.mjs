@@ -8,6 +8,8 @@ const clientSource = await readFile(new URL('../tavern-plugin/lib/client.js', im
 const serverSource = await readFile(new URL('../tavern-plugin/lib/index.js', import.meta.url), 'utf8')
 const orchestratorSource = await readFile(new URL('../tavern-plugin/lib/domain/turn-orchestration.js', import.meta.url), 'utf8')
 const tavernPresetSource = await readFile(new URL('../presets/tavern/agent.cordis.yml', import.meta.url), 'utf8')
+const profileSource = await readFile(new URL('../package.json', import.meta.url), 'utf8')
+const profilePatchSource = await readFile(new URL('../cordis.patch.yml', import.meta.url), 'utf8')
 
 function between(source, start, end) {
   const from = source.indexOf(start)
@@ -26,6 +28,7 @@ test('卡片工作台使用结构化卡片修改工具，不再传递 JSON 字�
   assert.doesNotMatch(serverSource, /draftPatch/)
   assert.doesNotMatch(serverSource, /cardPatch|worldBookPatch/)
   assert.match(serverSource, /name: 'tavern_update_card'/)
+  assert.match(serverSource, /name: 'tavern_restore_card'/)
   assert.match(serverSource, /fields: \{/)
   assert.match(serverSource, /worldBook: \{/)
 })
@@ -40,24 +43,30 @@ test('模型工具只保留按需读取和明确修改', () => {
   assert.doesNotMatch(serverSource, /additionalProperties: true \},\s*render/)
 })
 
+test('原版恢复工具只操作当前人物卡并要求固定确认文本', () => {
+  const restoreTool = between(serverSource, "name: 'tavern_restore_card'", "output:")
+
+  assert.match(restoreTool, /confirmation:/)
+  assert.match(restoreTool, /enum: \['确认从原版恢复'\]/)
+  assert.doesNotMatch(restoreTool, /path:/)
+  assert.match(serverSource, /restoreCurrentCard\(sessionId\)/)
+  assert.match(serverSource, /turnOrchestrator\.discard/)
+})
+
 test('卡片 Agent 以极简模式工具为底座，游玩 Agent 不暴露文件工具', () => {
-  assert.match(tavernPresetSource, /@deepseek-ai\/dsh-tool-bash-persistent/)
-  assert.match(tavernPresetSource, /@deepseek-ai\/dsh-tool-pwsh-persistent/)
+  assert.match(profileSource, /"@deepseek-ai\/dsh-base"/)
+  assert.doesNotMatch(tavernPresetSource, /dsh-tool-bash-persistent|dsh-tool-pwsh-persistent|dsh-terminal-bash|timeoutMs: 300000/)
+  assert.doesNotMatch(tavernPresetSource, /id: (?:bash|pwsh)-sandbox/)
+  assert.match(profilePatchSource, /id: bash-sandbox[\s\S]*?timeoutMs: 600000[\s\S]*?maxTimeoutMs: 600000/)
+  assert.match(profilePatchSource, /id: pwsh-sandbox[\s\S]*?timeoutMs: 600000[\s\S]*?maxTimeoutMs: 600000/)
   assert.match(tavernPresetSource, /@deepseek-ai\/dsh-tool-str-replace-editor/)
-  assert.match(tavernPresetSource, /disabled: !!js process\.platform === 'win32'/)
-  assert.match(tavernPresetSource, /disabled: !!js process\.platform !== 'win32'/)
-  assert.match(tavernPresetSource, /shellDialect: pwsh/)
-  assert.match(tavernPresetSource, /Run commands in a PowerShell shell/)
-  assert.match(tavernPresetSource, /Run commands in a bash shell/)
-  assert.match(tavernPresetSource, /State is persistent across command calls and discussions with the user\./)
-  assert.match(tavernPresetSource, /Please avoid commands that may produce a very large amount of output\./)
   assert.match(tavernPresetSource, /text: ''/)
   assert.doesNotMatch(tavernPresetSource, /complete: true/)
   assert.match(serverSource, /text: prompt\(mode === 'card' \? 'card-mode' : 'play-mode'\)/)
-  assert.match(orchestratorSource, /if \(mode === 'card'\) return \[shellToolName, 'str_replace_editor', 'tavern_read_card', 'tavern_read_worldbook', 'tavern_update_card'\]/)
+  assert.match(orchestratorSource, /if \(mode === 'card'\) return \[shellToolName, 'str_replace_editor', 'tavern_read_card', 'tavern_read_worldbook', 'tavern_update_card', 'tavern_restore_card'\]/)
   assert.doesNotMatch(orchestratorSource, /mode === 'revision'|mode === 'extract'/)
   assert.doesNotMatch(orchestratorSource, /if \(mode === 'script'\) return \[[^\]]*'bash'/)
-  assert.match(serverSource, /controlledToolNames = new Set\(\['bash', 'pwsh', 'str_replace_editor', 'tavern_read_card', 'tavern_read_script', 'tavern_read_worldbook', 'tavern_update_card'\]\)/)
+  assert.match(serverSource, /controlledToolNames = new Set\(\['bash', 'pwsh', 'str_replace_editor', 'tavern_read_card', 'tavern_read_script', 'tavern_read_worldbook', 'tavern_update_card', 'tavern_restore_card'\]\)/)
   assert.doesNotMatch(serverSource, /name: 'tavern_bind_script'/)
 })
 

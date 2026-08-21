@@ -36,7 +36,7 @@ function chat(messages = [{ role: 'assistant', text: '开场', greeting: true }]
   }
 }
 
-test('正文按触发词选择世界书且不调用模型，并完整替换人物卡模板变量', async () => {
+test('正文按触发词选择世界书且不调用模型，并剥掉普通模板变量外壳', async () => {
   const calls = []
   const planner = createContextPlanner({
     prompt,
@@ -60,8 +60,8 @@ test('正文按触发词选择世界书且不调用模型，并完整替换人�
   assert.match(result.text, /钟楼藏着失踪商队的线索/)
   assert.doesNotMatch(result.text, /遥远王都/)
   assert.doesNotMatch(result.text, /停用条目/)
-  assert.match(result.text, /阿芙拉 是银发佣兵/)
-  assert.match(result.text, /你 在旅店遇见 阿芙拉/)
+  assert.match(result.text, /char 是银发佣兵/)
+  assert.match(result.text, /user 在旅店遇见 char/)
   assert.doesNotMatch(result.text, /文风示例|跟紧我/)
   assert.doesNotMatch(result.text, /\{\{char\}\}|\{\{user\}\}/)
   assert.match(result.text, /本轮剧本参考 · 第 8 块/)
@@ -88,7 +88,7 @@ test('自由故事首轮仍注入人物卡文风示例', async () => {
   })
 
   assert.match(result.text, /文风示例/)
-  assert.match(result.text, /阿芙拉 对 你 说：跟紧我/)
+  assert.match(result.text, /char 对 user 说：跟紧我/)
 })
 
 test('后续正文不重复首轮人物卡细节，但保留姿势、Guide 和特殊指令', async () => {
@@ -192,6 +192,20 @@ test('大量世界书条目只按触发词匹配，命中的条目不受三个�
   assert.match(result.text, /甲地设定.*乙地设定.*丙地设定.*丁地设定/s)
   assert.doesNotMatch(result.text, /反向触发|停用设定/)
   assert.deepEqual(result.audit.warnings, [])
+})
+
+test('常驻世界书按 display_index 只加载前十条', async () => {
+  const planner = createContextPlanner({ prompt, callModel: async () => '{"ids":[]}' })
+  const many = card()
+  many.character_book.entries = Array.from({ length: 12 }, function (_item, index) {
+    return { keys: [], content: '常驻-' + index, constant: true, enabled: true, extensions: { display_index: 11 - index } }
+  })
+  const result = await planner.plan({ purpose: 'body', card: many, chat: chat(), userText: '继续', scriptReference: null })
+  assert.match(result.text, /常驻-11/)
+  assert.match(result.text, /常驻-2/)
+  assert.doesNotMatch(result.text, /常驻-1(?:\D|$)/)
+  assert.doesNotMatch(result.text, /常驻-0(?:\D|$)/)
+  assert.ok(result.text.indexOf('常驻-11') < result.text.indexOf('常驻-10'))
 })
 
 test('候选项也根据最近剧情触发非常驻世界书', async () => {

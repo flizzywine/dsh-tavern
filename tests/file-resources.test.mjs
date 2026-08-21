@@ -5,6 +5,21 @@ import path from 'node:path'
 import test from 'node:test'
 
 import { createFileResourceStore, normalizeResourcePath, resourceUri, safeResourceName } from '../tavern-plugin/lib/domain/file-resources.js'
+import { createCardPreparation } from '../tavern-plugin/lib/domain/card-preparation.js'
+
+function pngCardBuffer(card) {
+  const signature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+  const payload = Buffer.from('chara\0' + Buffer.from(JSON.stringify(card), 'utf8').toString('base64'), 'latin1')
+  const chunk = Buffer.alloc(12 + payload.length)
+  chunk.writeUInt32BE(payload.length, 0)
+  chunk.write('tEXt', 4, 4, 'ascii')
+  payload.copy(chunk, 8)
+  chunk.writeUInt32BE(0, 8 + payload.length)
+  const end = Buffer.alloc(12)
+  end.writeUInt32BE(0, 0)
+  end.write('IEND', 4, 4, 'ascii')
+  return Buffer.concat([signature, chunk, end])
+}
 
 test('资源相对路径就是身份，并拒绝目录逃逸', () => {
   assert.equal(normalizeResourcePath('cards/阿芙拉.json', 'card'), 'cards/阿芙拉.json')
@@ -43,7 +58,7 @@ test('导入 EPUB 时原版保留二进制，工作版保存抽取正文', async
   } finally { await rm(root, { recursive: true, force: true }) }
 })
 
-test('人物卡原版保持不变，工作版清理宏但完整保留 HTML', async () => {
+test('人物卡原版和工作版都保持宏与 HTML 不变', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-files-'))
   try {
     const store = createFileResourceStore({ dataRoot: root })
@@ -60,15 +75,12 @@ test('人物卡原版保持不变，工作版清理宏但完整保留 HTML', asy
 
     assert.equal(await readFile(path.join(root, 'originals', cardPath), 'utf8'), rawText)
     const working = await store.readCard(cardPath)
-    assert.equal(working.description, '<div></div><p></p><b>你好，角色。</b><style>不要保留</style>普通正文：角色。')
-    assert.equal(working.first_mes, '玩家 来到门前。<br>抬头看门。')
-    assert.equal(working.character_book.entries[0].content, '<section>设定  仍然有效。</section><script>不要执行</script>')
-    assert.doesNotMatch(JSON.stringify(working), /\{\{/)
-    assert.match(await readFile(path.join(root, 'resources', cardPath), 'utf8'), /<b>你好，角色。<\/b>|<script>不要执行<\/script>/)
+    assert.deepEqual(working, rawCard)
+    assert.equal(await readFile(path.join(root, 'resources', cardPath), 'utf8'), JSON.stringify(rawCard, null, 2))
   } finally { await rm(root, { recursive: true, force: true }) }
 })
 
-test('读取旧工作区人物卡时就地清理遗留宏，不修改原版', async () => {
+test('读取旧工作区人物卡不会改写其中的宏', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-files-'))
   try {
     const store = createFileResourceStore({ dataRoot: root })
@@ -76,9 +88,50 @@ test('读取旧工作区人物卡时就地清理遗留宏，不修改原版', as
     const legacyWorking = JSON.stringify({ name: '旧卡', system_prompt: '{{setvar::rule::保留这条规则}} {{getvar::rule}}' })
     await writeFile(path.join(root, 'resources', cardPath), legacyWorking)
 
-    assert.equal((await store.readCard(cardPath)).system_prompt, ' ')
-    assert.doesNotMatch(await readFile(path.join(root, 'resources', cardPath), 'utf8'), /setvar|getvar/)
+    assert.equal((await store.readCard(cardPath)).system_prompt, '{{setvar::rule::保留这条规则}} {{getvar::rule}}')
+    assert.match(await readFile(path.join(root, 'resources', cardPath), 'utf8'), /setvar|getvar/)
     assert.equal(await readFile(path.join(root, 'originals', cardPath), 'utf8'), '{"name":"旧卡"}')
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
+
+test('从 JSON 原版恢复人物卡前备份当前工作版', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-files-'))
+  try {
+    const cards = createCardPreparation({ id: () => 'restored-card', now: () => 123 })
+    const store = createFileResourceStore({ dataRoot: root })
+    const original = { name: '原版角色', description: '原始设定', tags: ['原版'] }
+    const cardPath = await store.importCard({ name: '角色.json', text: JSON.stringify(original) }, original)
+    await store.writeWorking(cardPath, JSON.stringify({ name: '损坏角色', description: '灾难性错误' }))
+
+    const restored = await store.restoreCard(cardPath, function (payload) {
+      return cards.create({ kind: 'import', payload })
+    })
+
+    assert.equal((await store.readCard(cardPath)).name, '原版角色')
+    assert.equal((await store.readCard(cardPath)).description, '原始设定')
+    assert.match(await readFile(path.join(root, restored.backupPath), 'utf8'), /灾难性错误/)
+    assert.equal(await readFile(path.join(root, 'originals', cardPath), 'utf8'), JSON.stringify(original))
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
+
+test('PNG 原版恢复时重新提取内嵌人物卡数据', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-files-'))
+  try {
+    const cards = createCardPreparation({ id: () => 'restored-card', now: () => 456 })
+    const store = createFileResourceStore({ dataRoot: root })
+    const original = { spec: 'chara_card_v3', spec_version: '3.0', data: { name: 'PNG角色', description: 'PNG原始设定' } }
+    const png = pngCardBuffer(original)
+    const imported = cards.create({ kind: 'import', payload: { kind: 'png', b64: Buffer.from(JSON.stringify(original)).toString('base64') } })
+    const cardPath = await store.importCard({ kind: 'png', name: 'PNG角色.png', fileB64: png.toString('base64') }, imported)
+    await store.writeWorking(cardPath, JSON.stringify({ name: '损坏角色' }))
+
+    await store.restoreCard(cardPath, function (payload) {
+      return cards.create({ kind: 'import', payload })
+    })
+
+    assert.equal((await store.readCard(cardPath)).name, 'PNG角色')
+    assert.equal((await store.readCard(cardPath)).description, 'PNG原始设定')
+    assert.deepEqual(await readFile(path.join(root, 'originals/cards/PNG角色.png')), png)
   } finally { await rm(root, { recursive: true, force: true }) }
 })
 
