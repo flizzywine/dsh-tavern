@@ -279,10 +279,6 @@ export async function apply(ctx) {
     const record = await readSource(sourcePath)
     return { path: sourcePath, title: record.title, sourceChars: record.sourceChars, chunkCount: record.chunks.length, importedAt: Date.now() }
   }
-  async function deleteSource(sourcePath) {
-    await fileResources.remove(normalizeResourcePath(sourcePath, 'source'))
-    return { deleted: true }
-  }
   async function renameResource(resourcePath, name) {
     const oldPath = normalizeResourcePath(resourcePath)
     const kind = resourceKind(oldPath)
@@ -536,7 +532,7 @@ export async function apply(ctx) {
       if (current !== undefined && current.cardPath === str(cardPath) && groupOfMode(current.mode) === groupOfMode(chatMode)) {
         await appendNativeOpening(sessionId, current, card)
         const currentView = await view(current, card)
-        if (chatMode === 'card') currentView.workspace = await workspaceViewOf(current)
+        if (chatMode === 'card') currentView.workspace = workspaceViewOf(current)
         return currentView
       }
     }
@@ -563,7 +559,7 @@ export async function apply(ctx) {
       await appendNativeOpening(sessionId, chat, card, openingAgent)
     }
     const result = await view(chat, card)
-    if (chatMode === 'card') result.workspace = await workspaceViewOf(chat)
+    if (chatMode === 'card') result.workspace = workspaceViewOf(chat)
     return result
   }
 
@@ -634,7 +630,7 @@ export async function apply(ctx) {
       void runSettlement(chat.id).finally(function () { settlementJobs.delete(chat.id) })
     }
     const result = await view(chat, card)
-    if (isCard) result.workspace = await workspaceViewOf(chat)
+    if (isCard) result.workspace = workspaceViewOf(chat)
     if ((chat.mode || 'story') === 'script') result.scriptPreview = await scriptPreviewOf(chat)
     return result
   }
@@ -645,7 +641,7 @@ export async function apply(ctx) {
     const card = isCard && str(chat.cardPath) === '' ? null : await readChatCard(chat)
     await appendNativeOpening(sessionId, chat, card)
     const result = await view(chat, card)
-    if (isCard) result.workspace = await workspaceViewOf(chat)
+    if (isCard) result.workspace = workspaceViewOf(chat)
     return result
   }
   const candidateGenerator = createCandidateGenerator({
@@ -902,55 +898,11 @@ export async function apply(ctx) {
       state.prepared = null
     }
   }
-  async function workspaceViewOf(chat) {
+  function workspaceViewOf(chat) {
     const state = chat.workspace || {}
-    const sources = (await Promise.all((state.sourcePaths || []).map(async function (sourcePath) {
-      const source = await readSource(sourcePath)
-      return source === undefined ? null : { path: sourcePath, title: source.title, chunkCount: source.chunks.length }
-    }))).filter(Boolean)
-    const totalChunks = sources.reduce(function (n, s) { return n + s.chunkCount }, 0)
     return {
-      mountedResources: Array.isArray(state.mountedResources) ? state.mountedResources : [],
-      sourcePaths: state.sourcePaths || [],
-      sources: sources,
-      cursor: Math.min(totalChunks, Math.max(0, Number(state.cursor) || 0)),
-      totalChunks: totalChunks,
-      done: state.done === true,
-      player: str(state.player),
-      draft: state.draft || {}
+      mountedResources: Array.isArray(state.mountedResources) ? state.mountedResources : []
     }
-  }
-  async function attachCard(sessionId, cardPath) {
-    const chat = await chatForSession(sessionId)
-    if (chat === undefined || (chat.mode || 'story') !== 'card') throw new Error('当前不是卡片工作台会话')
-    const card = await readCard(cardPath)
-    if (card === undefined) throw new Error('人物卡不存在: ' + cardPath)
-    chat.cardPath = card.path
-    chat.cardName = card.name
-    await writeChat(chat)
-    const idx = await readIndex()
-    idx.chats = (idx.chats || []).map(function (item) { return item.id === chat.id ? Object.assign({}, item, { cardPath: card.path, cardName: card.name }) : item })
-    await writeIndex(idx)
-    const result = await view(chat, card)
-    result.workspace = await workspaceViewOf(chat)
-    return result
-  }
-  async function attachSources(sessionId, sourcePaths) {
-    const chat = await chatForSession(sessionId)
-    if (chat === undefined || (chat.mode || 'story') !== 'card') throw new Error('当前不是卡片工作台会话')
-    const available = new Set(await fileResources.list('source'))
-    const incoming = (Array.isArray(sourcePaths) ? sourcePaths : []).map(str).filter(function (item) { return available.has(item) })
-    if (incoming.length === 0) throw new Error('没有选择可用资料')
-    const state = chat.workspace || emptyCardWorkspace()
-    state.sourcePaths = Array.from(new Set((state.sourcePaths || []).concat(incoming)))
-    state.cursor = 0
-    state.prepared = null
-    chat.workspace = state
-    await writeChat(chat)
-    const card = str(chat.cardPath) === '' ? null : await readChatCard(chat)
-    const result = await view(chat, card)
-    result.workspace = await workspaceViewOf(chat)
-    return result
   }
   async function createWorkspaceCard(chat, state) {
     const draft = state.draft !== null && typeof state.draft === 'object' ? state.draft : {}
@@ -967,25 +919,6 @@ export async function apply(ctx) {
     await writeIndex(idx)
     return { path: cardPath, card }
   }
-  async function finalizeCard(chatId) {
-    const chat = await readChat(chatId)
-    if (chat === undefined) throw new Error('聊天不存在: ' + chatId)
-    if ((chat.mode || 'story') !== 'card') throw new Error('当前不是卡片工作台会话')
-    if (str(chat.cardPath) !== '') throw new Error('当前工作台已经挂载正式人物卡')
-    const state = chat.workspace !== null && typeof chat.workspace === 'object' ? chat.workspace : {}
-    const created = await createWorkspaceCard(chat, state)
-    const cardPath = created.path
-    const card = created.card
-    chat.cardPath = cardPath
-    chat.cardName = card.name
-    chat.workspace.done = true
-    await writeChat(chat)
-    const result = await view(chat, card)
-    result.workspace = await workspaceViewOf(chat)
-    result.finalizedCard = { path: cardPath, name: card.name, description: card.description, tags: card.tags }
-    return result
-  }
-
   const turnOrchestrator = createTurnOrchestrator({
     store: {
       chatForSession,
@@ -1311,12 +1244,7 @@ export async function apply(ctx) {
       case 'importScript': return { script: await importScript(args && args.cardPath, args && args.payload) }
       case 'bindScript': return { script: await bindScript(args && args.cardPath, args && args.path) }
       case 'deleteScript': return await deleteScript(args && (args.cardPath || args.path))
-      case 'listSources': return { sources: await listSources() }
       case 'importSource': return { source: await importSource(args && args.payload) }
-      case 'deleteSource': return await deleteSource(args && args.path)
-      case 'attachCard': return { view: await attachCard(args && args.sessionId, args && args.path) }
-      case 'attachSources': return { view: await attachSources(args && args.sessionId, args && args.paths) }
-      case 'finalizeCard': return { view: await finalizeCard(args && args.chatId) }
       case 'updateCard': {
         const change = await updateCard(args && args.path, args && args.patch)
         return { card: change.card, changed: change.changed }

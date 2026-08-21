@@ -98,11 +98,10 @@ test('卡片任务只在创建对话时追加提示词，不占用输入框上�
 })
 
 test('空白工作台确认后自动创建人物卡，不再提供二次保存按钮', () => {
-  const draftPanel = between(clientSource, 'function CardDraftPanel', 'function TavernStatusPanel')
   const sidebar = between(clientSource, 'function TavernSidebar', 'function TavernResourcesTab')
 
-  assert.match(draftPanel, /确认后自动创建人物卡文件/)
-  assert.doesNotMatch(draftPanel, /finalizeCard|保存为新人物卡|写入草稿/)
+  assert.doesNotMatch(clientSource, /CardDraftPanel|finalizeCard|保存为新人物卡|写入草稿/)
+  assert.doesNotMatch(serverSource, /case 'finalizeCard'/)
   assert.match(sidebar, /const currentSummary = current \? summaries\[current\] : null;/)
   assert.match(sidebar, /if \(!currentSummary \|\| currentSummary\.blank\) return;\s*notifyDataChanged\(\);/)
 })

@@ -32,7 +32,6 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 .dsh-tavern-picker-tabs { display: flex; gap: 6px; margin: 2px 0 8px; }
 .dsh-tavern-picker-tabs button { flex: 1; border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; background: transparent; color: var(--dsw-alias-label-secondary); padding: 6px 8px; cursor: pointer; font-size: 12px; }
 .dsh-tavern-picker-tabs button.active { border-color: #a66b35; color: #a66b35; background: rgba(166,107,53,.10); font-weight: 700; }
-.dsh-tavern-source-on { border-color: #a66b35 !important; background: rgba(166,107,53,.10) !important; }
 .dsh-tavern-side-title { margin: 16px 4px 7px; color: var(--dsw-alias-label-secondary); font-size: 12px; }
 .dsh-tavern-side-list { min-height: 0; flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
 .dsh-tavern-side-row { position: relative; display: flex; align-items: center; border: 0; border-radius: 8px; background: transparent; color: inherit; }
@@ -918,37 +917,6 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					h("details", { className: "dsh-tavern-card-advanced" }, h("summary", null, "世界书 · " + activeWorldBookEntries.length + " 条"), worldBookPanel),
 					error ? h("div", { className: "dsh-card-error" }, error) : null,
 					h("div", { className: "dsh-tavern-card-save" }, h("button", { className: "dsh-card-primary", disabled: busy, onClick: save }, busy ? "保存中…" : "保存字段"))
-				)
-			);
-		}
-
-		function CardDraftPanel(props) {
-			const view = props.view;
-			const workspace = view.workspace || { sources: [], cursor: 0, totalChunks: 0, done: false, draft: {} };
-			const draft = workspace.draft || {};
-			const h = React.createElement;
-			function line(label, value) {
-				return value ? h("div", { className: "dsh-tavern-status-section" }, h("div", { className: "dsh-tavern-status-label" }, label), h("div", { className: "dsh-tavern-status-item" }, value)) : null;
-			}
-			return h("aside", { className: "dsh-tavern-status" },
-				h("div", { className: "dsh-tavern-status-head" },
-					h("div", { className: "dsh-tavern-status-title" }, "卡片工作台"),
-					h("div", { className: "dsh-tavern-status-role" }, draft.name || "未命名角色"),
-					h("div", { className: "dsh-card-hint" }, workspace.totalChunks ? ("资料阅读进度 " + Math.min(workspace.totalChunks, Math.max(workspace.cursor, 1)) + " / " + workspace.totalChunks + " 块 · 确认后直接创建人物卡") : "空白工作台：直接说明目标，确认后自动创建人物卡文件")
-				),
-				h("div", { className: "dsh-tavern-status-body" },
-					h("div", { className: "dsh-tavern-status-section" },
-						h("div", { className: "dsh-tavern-status-label" }, "资料"),
-						(workspace.sources || []).map(function (s) { return h("div", { key: s.id, className: "dsh-tavern-status-item" }, s.title + "（" + s.chunkCount + " 块）"); })
-					),
-					line("玩家（{{user}}）", workspace.player || "未确认：制作新卡前请在对话里告诉助手谁是玩家"),
-					line("角色名", draft.name),
-					line("标签", (draft.tags || []).length ? draft.tags.join("、") : ""),
-					line("角色描述", draft.description),
-					line("性格", draft.personality),
-					line("开场情境", draft.scenario),
-					line("开场白", draft.first_mes),
-					line("对话示例", draft.mes_example)
 				)
 			);
 		}
