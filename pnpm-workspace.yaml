@@ -5,6 +5,9 @@ nodeLinker: hoisted
 autoInstallPeers: false
 allowBuilds:
   node-pty: false
+minimumReleaseAge: 10080
+blockExoticSubdeps: true
+trustPolicy: no-downgrade
 minimumReleaseAgeExclude:
   - '@deepseek-ai/dsh-subagent@0.1.0-rc.8'
   - '@deepseek-ai/dsh-tools@0.1.0-rc.8'
