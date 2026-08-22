@@ -36,7 +36,7 @@ function chat(messages = [{ role: 'assistant', text: '开场', greeting: true }]
   }
 }
 
-test('正文按触发词选择世界书且不调用模型，并剥掉普通模板变量外壳', async () => {
+test('正文按触发词选择世界书且不调用模型，并解析人物卡环境宏', async () => {
   const calls = []
   const planner = createContextPlanner({
     prompt,
@@ -60,8 +60,8 @@ test('正文按触发词选择世界书且不调用模型，并剥掉普通模�
   assert.match(result.text, /钟楼藏着失踪商队的线索/)
   assert.doesNotMatch(result.text, /遥远王都/)
   assert.doesNotMatch(result.text, /停用条目/)
-  assert.match(result.text, /char 是银发佣兵/)
-  assert.match(result.text, /user 在旅店遇见 char/)
+  assert.match(result.text, /阿芙拉 是银发佣兵/)
+  assert.match(result.text, /User 在旅店遇见 阿芙拉/)
   assert.doesNotMatch(result.text, /文风示例|跟紧我/)
   assert.doesNotMatch(result.text, /\{\{char\}\}|\{\{user\}\}/)
   assert.match(result.text, /本轮剧本参考 · 第 8 块/)
@@ -88,7 +88,7 @@ test('自由故事首轮仍注入人物卡文风示例', async () => {
   })
 
   assert.match(result.text, /文风示例/)
-  assert.match(result.text, /char 对 user 说：跟紧我/)
+  assert.match(result.text, /阿芙拉 对 User 说：跟紧我/)
 })
 
 test('后续正文不重复首轮人物卡细节，但保留姿势、Guide 和特殊指令', async () => {
@@ -138,6 +138,28 @@ test('自由故事候选按稳定到动态的顺序注入完整人物卡约束',
   assert.ok(result.text.indexOf('保持冷静') < result.text.indexOf('黑麦镇常年下雨'))
   assert.ok(result.text.indexOf('黑麦镇常年下雨') < result.text.indexOf('多写动作'))
   assert.ok(result.text.indexOf('多写动作') < result.text.indexOf('右手按着剑柄'))
+})
+
+test('命运候选在进入后台 Agent 前解析默认值宏并移除人物卡 HTML', async () => {
+  const planner = createContextPlanner({ prompt, callModel: async () => '{"ids":[]}' })
+  const fate = card()
+  fate.system_prompt = '当前阶段（{{getvar::stage || 1}}）。\n<style>.panel{color:red}</style><div class="panel">阶段 {{.stage}}</div>'
+  const current = Object.assign(chat(), {
+    macroState: { userName: 'User', local: { stage: 2 }, global: {} }
+  })
+  const before = structuredClone(current.macroState)
+
+  const result = await planner.plan({
+    purpose: 'candidate',
+    card: fate,
+    chat: current,
+    task: '生成候选项',
+    scriptWindow: null
+  })
+
+  assert.match(result.text, /当前阶段（2）/)
+  assert.doesNotMatch(result.text, /\{\{|<style|class="panel"/)
+  assert.deepEqual(current.macroState, before)
 })
 
 test('剧本候选注入人物卡但排除文风示例，剧本块放在动态上下文末尾', async () => {

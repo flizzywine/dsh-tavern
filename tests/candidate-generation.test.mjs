@@ -25,17 +25,19 @@ function script() {
   }
 }
 
-function harness({ mode = 'story', outputs, initialCandidates, initialCandidateAgent, messages, initialScriptCursor = 0, initialScriptEnded = false }) {
+function harness({ mode = 'story', outputs, initialCandidates, initialCandidateAgent, messages, initialScriptCursor = 0, initialScriptEnded = false, scriptData, cardData, macroState }) {
   const continuity = createScriptContinuity()
-  let scriptState = mode === 'script' ? continuity.start(script(), initialScriptCursor) : null
-  if (initialScriptEnded) scriptState = continuity.transition({ script: script(), state: scriptState, event: { kind: 'end' } }).state
+  const activeScript = scriptData || script()
+  let scriptState = mode === 'script' ? continuity.start(activeScript, initialScriptCursor) : null
+  if (initialScriptEnded) scriptState = continuity.transition({ script: activeScript, state: scriptState, event: { kind: 'end' } }).state
   let chat = {
     id: 'chat-1', cardId: 'card-1', mode, messages: messages || [{ role: 'assistant', text: '雨水敲着窗。' }],
-    scriptState
+    scriptState,
+    macroState: macroState || { userName: 'User', local: {}, global: {} }
   }
   if (initialCandidates !== undefined) chat.candidates = structuredClone(initialCandidates)
   if (initialCandidateAgent !== undefined) chat.candidateAgent = structuredClone(initialCandidateAgent)
-  const card = { id: 'card-1', name: '阿芙拉', description: '银发佣兵', tags: [] }
+  const card = cardData || { id: 'card-1', name: '阿芙拉', description: '银发佣兵', tags: [] }
   let modelCalls = 0
   const modelRequests = []
   function remember(options) {
@@ -61,7 +63,7 @@ function harness({ mode = 'story', outputs, initialCandidates, initialCandidateA
     async chatForSession() { return structuredClone(chat) },
     async readChat() { return structuredClone(chat) },
     async readCard() { return structuredClone(card) },
-    async readScript() { return mode === 'script' ? structuredClone(script()) : undefined },
+    async readScript() { return mode === 'script' ? structuredClone(activeScript) : undefined },
     async writeChat(next) { chat = structuredClone(next) }
   }
   const model = {
@@ -104,7 +106,7 @@ test('自由故事只保存完整的 4 action + 1 scene', async () => {
   assert.equal(result.traceSessionId, 'candidate-trace-1')
   assert.equal(result.traceMode, 'continuable')
   assert.equal(run.modelRequests[0].persistent, true)
-  assert.equal(run.modelRequests[0].maxTokens, 4000)
+  assert.equal(run.modelRequests[0].maxTokens, undefined)
   assert.equal(run.plannerCalls[0].purpose, 'candidate')
   assert.match(run.plannerCalls[0].task, /剧情候选项生成器/)
 
@@ -294,6 +296,27 @@ test('剧本候选搜索到远处内容后不自动提交该位置', async () =>
   await run.candidates.generate({ sessionId: 'session-1', messageId: 'message-sequential-read' })
   const progress = run.continuity.inspect({ script: script(), state: run.chat().scriptState, request: { kind: 'progress' } })
   assert.equal(progress.cursor, 0)
+})
+
+test('后台剧本读取工具也只返回宏解析后的纯文本投影', async () => {
+  const scriptWithUi = script()
+  scriptWithUi.chunks[0].text = '阶段 {{getvar::stage || 1}}。\n<style>.panel{color:red}</style><div class="panel">阶段 {{.stage}}</div>'
+  const run = harness({
+    mode: 'script',
+    scriptData: scriptWithUi,
+    macroState: { userName: 'User', local: { stage: 2 }, global: {} },
+    outputs: [async function (options) {
+      const result = JSON.parse(await options.onToolCall({
+        name: 'tavern_read_script',
+        arguments: { position: 1 }
+      }))
+      assert.equal(result.chunks[0].text, '阶段 2。')
+      assert.doesNotMatch(result.chunks[0].text, /\{\{|<style|<div/)
+      return JSON.stringify({ choices: [{ type: 'action', text: '按照当前阶段继续推进既定剧情内容' }] })
+    }]
+  })
+
+  await run.candidates.generate({ sessionId: 'session-1', messageId: 'message-projected-script' })
 })
 
 test('剧本读取与游标定位使用两个独立工具', async () => {

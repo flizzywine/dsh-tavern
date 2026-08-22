@@ -91,6 +91,10 @@ export function createStoryTimeline(options = {}) {
   function snapshot(chat) {
     return clone({
       messages: Array.isArray(chat.messages) ? chat.messages : [],
+      presentation: chat.presentation === undefined ? null : chat.presentation,
+      presentationWarnings: Array.isArray(chat.presentationWarnings) ? chat.presentationWarnings : [],
+      macroState: chat.macroState === undefined ? null : chat.macroState,
+      runtimeInputs: chat.runtimeInputs === undefined ? null : chat.runtimeInputs,
       posture: str(chat.posture),
       scriptState: chat.scriptState === undefined ? null : chat.scriptState,
       candidates: chat.candidates === undefined ? null : chat.candidates,
@@ -104,6 +108,10 @@ export function createStoryTimeline(options = {}) {
   function restore(chat, state) {
     const source = object(state)
     chat.messages = clone(Array.isArray(source.messages) ? source.messages : [])
+    chat.presentation = clone(source.presentation === undefined ? null : source.presentation)
+    chat.presentationWarnings = clone(Array.isArray(source.presentationWarnings) ? source.presentationWarnings : [])
+    if (Object.hasOwn(source, 'macroState')) chat.macroState = clone(source.macroState)
+    if (Object.hasOwn(source, 'runtimeInputs')) chat.runtimeInputs = clone(source.runtimeInputs)
     chat.posture = str(source.posture)
     chat.scriptState = clone(source.scriptState === undefined ? null : source.scriptState)
     chat.candidates = clone(source.candidates === undefined ? null : source.candidates)

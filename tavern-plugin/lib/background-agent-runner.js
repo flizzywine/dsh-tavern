@@ -34,6 +34,29 @@ function finalText(events, startAt) {
   return ''
 }
 
+function terminalError(events, startAt) {
+  for (let index = (events || []).length - 1; index >= Math.max(0, Number(startAt) || 0); index--) {
+    const event = events[index]
+    if (event === null || typeof event !== 'object' || event.type !== 'turn/end') continue
+    const reason = event.data && event.data.reason
+    if (reason !== null && typeof reason === 'object' && reason.kind === 'max-tokens') {
+      return new Error('后台 Agent 输出达到模型 token 上限，正式结果尚未生成')
+    }
+    if (reason === null || typeof reason !== 'object' || reason.kind !== 'error') continue
+    const detail = reason.error
+    const message = str(detail && detail.message || detail).trim()
+    if (message !== '') return new Error(message)
+  }
+  return null
+}
+
+export function maximumBackgroundTokens(selection) {
+  const provider = str(selection && selection.provider).trim().toLowerCase()
+  const model = str(selection && selection.model).trim().toLowerCase()
+  if (provider === 'deepseek-official' && (model === 'deepseek-v4-flash' || model === 'deepseek-v4-pro')) return 384000
+  return undefined
+}
+
 function traceError(error, traceSessionId, task) {
   const wrapped = new Error(str(error && error.message || error) || (task === 'settlement' ? '后台状态结算失败' : '后台候选生成失败'), { cause: error })
   wrapped.traceSessionId = traceSessionId
@@ -112,17 +135,19 @@ export function createBackgroundAgentRunner(options) {
         }
         return decision
       })
+      childCtx.systemPrompt.variable('tavern_background_task', function () { return str(input.system) })
       childCtx.systemPrompt.section({
         name: 'deployment:persona',
         order: 0,
         complete: true,
-        text: '你是与前台正文生成隔离的酒馆后台 Agent。你会在同一个剧情分支中依次承担状态结算与候选生成；严格按本轮任务输出，不得把某类任务的输出格式混入另一类任务。最新权威状态优先于 Session 中的旧动态状态。\n\n【本轮任务规则】\n' + str(input.system)
+        text: '你是与前台正文生成隔离的酒馆后台 Agent。你会在同一个剧情分支中依次承担状态结算与候选生成；严格按本轮任务输出，不得把某类任务的输出格式混入另一类任务。最新权威状态优先于 Session 中的旧动态状态。\n\n【本轮任务规则】\n{{tavern_background_task}}'
       })
       if (input.boundaryPrompt !== null && typeof input.boundaryPrompt === 'object' && str(input.boundaryPrompt.text) !== '') {
+        childCtx.systemPrompt.variable('tavern_boundary_prompt', function () { return str(input.boundaryPrompt.text) })
         childCtx.systemPrompt.section({
           name: 'tavern:boundary-prompt',
           order: 10,
-          text: input.boundaryPrompt.text
+          text: '{{tavern_boundary_prompt}}'
         })
       }
       childCtx.systemPrompt.suppressRuntimeContext()
@@ -169,10 +194,14 @@ export function createBackgroundAgentRunner(options) {
     const traceSessionId = requestedSessionId || makeId()
     const descriptor = descriptorFor(input, persistent)
     const parentDepth = Number(parent.session.header && parent.session.header.delegationDepth)
+    const requestedMaxTokens = Number(input.maxTokens)
+    const maxTokens = Number.isSafeInteger(requestedMaxTokens) && requestedMaxTokens > 0
+      ? requestedMaxTokens
+      : maximumBackgroundTokens(input.selection)
     const agentOptions = {
       provider: input.selection.provider,
       model: input.selection.model,
-      maxTokens: Number(input.maxTokens) || 4000,
+      ...(maxTokens === undefined ? {} : { maxTokens }),
       ...(input.selection.reasoningEffort === undefined ? {} : { reasoningEffort: input.selection.reasoningEffort })
     }
     let handle
@@ -219,7 +248,11 @@ export function createBackgroundAgentRunner(options) {
       })
       await handle.agent.whenIdle()
       const text = finalText(handle.agent.session.events, eventStart)
-      if (text === '') throw new Error(input.task === 'settlement' ? '后台 Agent 没有返回结算文本' : '后台 Agent 没有返回候选文本')
+      if (text === '') {
+        const underlying = terminalError(handle.agent.session.events, eventStart)
+        if (underlying !== null) throw underlying
+        throw new Error(input.task === 'settlement' ? '后台 Agent 没有返回结算文本' : '后台 Agent 没有返回候选文本')
+      }
       return { text, traceSessionId, persistent, traceBoundary: completedBoundary(handle.agent.session.events) }
     } catch (error) {
       throw traceError(error, traceSessionId, input.task)

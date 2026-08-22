@@ -98,8 +98,7 @@ test('姿势结算限制为短 JSON 输出', () => {
   assert.doesNotMatch(input, /slice\(-4\)/)
   assert.match(systemPrompt, /只输出 JSON/)
   assert.match(systemPrompt, /位置、姿势、动作/)
-  assert.match(flow, /maxTokens: 3000/)
-  assert.doesNotMatch(flow, /maxTokens: 400/)
+  assert.doesNotMatch(flow, /maxTokens:/)
   assert.match(flow, /attempt < 2/)
   assert.match(flow, /姿势 JSON 无效/)
   assert.match(flow, /text\.slice\(0, 200\)/)
@@ -128,7 +127,8 @@ test('后台 Agent 不进入前台正文上下文注入和工具过滤', () => {
 test('破甲方案注入前台与后台的全部模型任务，但不写入人物卡', () => {
   assert.match(serverSource, /name: 'tavern:boundary-prompt'/)
   assert.match(serverSource, /operation: mode === 'card' \? 'card' : 'body'/)
-  assert.match(serverSource, /resolveBoundaryPrompt: boundaryPrompts\.resolve/)
+  assert.match(serverSource, /resolveBoundaryPrompt: resolveProjectedBoundaryPrompt/)
+  assert.match(serverSource, /tavern_boundary_prompt: boundaryPrompt\.text/)
   assert.match(serverSource, /onBoundaryPromptInjected: boundaryPrompts\.recordInjection/)
   assert.doesNotMatch(serverSource, /card\.boundaryPrompt|card\.boundary_prompt/)
 })
@@ -139,6 +139,12 @@ test('无玩家输入的开场回合不进入正文结算', () => {
   assert.match(lifecycle, /const userText = userTextForTurn\(session, payload\.turn\)/)
   assert.match(lifecycle, /if \(userText === ''\) return/)
   assert.match(lifecycle, /userText,\s*assistantText:/)
+})
+
+test('游玩 Agent 接收解析后的玩家输入，不接收原始 Tavern 宏代码', () => {
+  const lifecycle = between(serverSource, '// ---------- DSH 回合生命周期 ----------', '// ---------- 模型可选工具 ----------')
+
+  assert.match(lifecycle, /replaceTurnInput\(scopedDecision\.messages, prepared\.userText\)/)
 })
 
 test('只有人物卡开场白时不启动姿势结算', () => {
@@ -153,13 +159,28 @@ test('游玩固定选择一个开场白，并用它对齐剧本', () => {
   const startChat = between(serverSource, 'async function startChat', 'async function appendNativeOpening')
   const appendOpening = between(serverSource, 'async function appendNativeOpening', 'async function scriptPreviewOf')
 
+  assert.match(serverSource, /policy: 'opening-preview'/)
   assert.match(startChat, /resolveCardOpening\(card, openingId\)/)
+  assert.match(startChat, /policy: 'opening-commit'/)
+  assert.doesNotMatch(startChat, /openingProjection\.presentationOnly.*throw/)
+  assert.match(startChat, /openingProjection\.presentationOnly \? '\\u00a0' : openingProjection\.agentText/)
   assert.match(startChat, /chat\.openingText = greeting/)
+  assert.match(startChat, /chat\.presentation = \{ html: openingProjection\.presentationHtml/)
   assert.match(startChat, /startAligned\(script, greeting, card\.script_start\)/)
   assert.match(startChat, /text: greeting.*greeting: true/)
   assert.match(appendOpening, /typeof chat\.openingText === 'string'/)
-  assert.match(appendOpening, /text = chat\.openingText/)
+  assert.match(appendOpening, /projectReplyPresentation\(text\)/)
   assert.doesNotMatch(serverSource, /switchOpening|openingViewOf|switchable: !hasStory/)
+})
+
+test('游玩回复把 HTML 从 DSH Surface 与正文历史中拆出', () => {
+  const lifecycle = between(serverSource, "ctx.on('agent/turn-stopping'", "ctx.on('session/event'")
+  const replaceReply = between(serverSource, 'function replaceAssistantReply', '// ---------- DSH 回合生命周期 ----------')
+
+  assert.match(serverSource, /projectReply: projectReplyPresentation/)
+  assert.match(lifecycle, /saved\.reply\.presentationHtml/)
+  assert.match(lifecycle, /replaceAssistantReply\(session, assistant, saved\.reply\.bodyText\)/)
+  assert.match(replaceReply, /surfaceOp: \{ op: 'replace', start: result\.index, end: result\.index \}/)
 })
 
 test('新会话在落盘前等待 DSH Agent 可写，避免留下半初始化对话', () => {

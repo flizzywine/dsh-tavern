@@ -136,6 +136,7 @@ Tavern Profile 是 CLI 与 DSH Desktop 共用的宿主 seam，本身不声明 We
 | 模块 | 接口 | 职责 |
 | --- | --- | --- |
 | Context Planner | `plan` | 为正文、候选或卡片任务选择并组合最少上下文，同时返回注入审计 |
+| Runtime Content Projection | `projectRuntimeContent` | 在外部 Tavern 内容进入游玩 Agent 前解析宏、分离 HTML 与任务文本；卡片准备仍保留完整 raw |
 | Script Continuity | `start`、`transition`、`inspect` | 维护剧本游标、回合参考、提交与回退 |
 | Story Timeline | `apply`、`complete`、`inspect` | 统一正文、候选、回退、替代与结算，拒绝迟到结果 |
 | Candidate Generator | `generate`、`find` | 运行候选任务、校验结果并保存到权威剧情 revision |
@@ -156,6 +157,9 @@ Tavern Profile 是 CLI 与 DSH Desktop 共用的宿主 seam，本身不声明 We
 5. 当前候选、状态结算等任务共享一个持续存在的后台子 Agent，并以不同任务模式限制各自可提交的结果；只有出现明确的职责隔离需求时才扩展更多子 Agent。
 6. 领域模块不依赖 DSH 或文件系统；依赖通过接口传入，行为测试与生产调用跨越同一个 seam。
 7. 自由游玩不暴露 Tavern 文件或 Skill 工具；剧本游玩只开放剧本读取；卡片模式只开放当前准备任务需要的读取、修改和按需 Skill 加载。
+8. 人物卡、世界书、剧本、Guide、破甲提示词和玩家输入等外部内容进入游玩 Agent 前，必须经过统一运行时投影。读取型宏按当前上下文解析；会修改变量的宏只在明确的权威生命周期执行一次；HTML 进入展示层，不进入正文或后台任务。卡片模式编辑的是原始内容，不执行这条投影。
+9. 开场白选择是运行时投影的特殊预览边界：选择阶段使用隔离变量渲染并保留完整正文与 HTML；用户确认后才重新从原始开场白解析一次、提交变量，并将剧情正文写入 Agent、HTML 写入酒馆状态。纯展示页也是有效开场白，可以创建会话；没有正文时使用一个不可见空白字符维持原生开场消息结构，不把 HTML 送入 Agent。
+10. 后台任务不使用插件自定的小型统一输出上限。已知模型按官方最大输出能力运行；未知模型交由 DSH 适配器选择上限，且保留当前会话选择的推理等级。
 
 ## 源码地图
 
@@ -176,6 +180,8 @@ tavern-plugin/lib/
     ├── epub-text.js
     ├── file-resources.js
     ├── preset-reading.js
+    ├── runtime-content-projection.js
+    ├── tavern-macro-engine.js
     ├── boundary-prompts.js
     ├── script-continuity.js
     ├── story-timeline.js

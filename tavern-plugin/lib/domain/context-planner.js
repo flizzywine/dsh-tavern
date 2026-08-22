@@ -1,5 +1,5 @@
 import { cardFieldCatalog } from './card-reading.js'
-import { projectCardText } from './card-macros.js'
+import { projectRuntimeContent } from './runtime-content-projection.js'
 
 const MAX_CONSTANT_WORLD_BOOK_ENTRIES = 10
 
@@ -7,8 +7,22 @@ function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
 }
 
-function renderCardText(text, card) {
-  return projectCardText(str(text))
+function playProjector(input, warnings) {
+  let macroState = {
+    userName: str(input.chat && input.chat.macroState && input.chat.macroState.userName) || 'User',
+    local: Object.assign({}, input.chat && input.chat.macroState && input.chat.macroState.local || {}),
+    global: Object.assign({}, input.chat && input.chat.macroState && input.chat.macroState.global || {})
+  }
+  return function (text) {
+    const result = projectRuntimeContent(text, {
+      policy: 'play',
+      charName: str(input.card && input.card.name),
+      macroState
+    })
+    macroState = result.macroState
+    warnings.push.apply(warnings, result.warnings)
+    return result.agentText
+  }
 }
 
 function worldBookEntries(card) {
@@ -75,7 +89,7 @@ export function createContextPlanner(options = {}) {
     }).map(function (entry) { return entry.id })
   }
 
-  function cardSections(input) {
+  function cardSections(input, projectText) {
     const sections = []
     const entries = worldBookEntries(input.card)
     const selectedIds = Array.isArray(input.worldBookIds) ? input.worldBookIds : []
@@ -83,26 +97,28 @@ export function createContextPlanner(options = {}) {
     const triggeredEntries = entries.filter(function (entry) { return entry.constant !== true && selectedIds.includes(entry.id) })
     function worldBookSection(kind, selected) {
       return selected.length > 0
-        ? { kind, required: false, text: '【世界设定】\n' + selected.map(function (entry) { return renderCardText('[' + (entry.keys.join('、') || '无触发词') + '] ' + entry.text, input.card) }).join('\n') }
+        ? { kind, required: false, text: '【世界设定】\n' + selected.map(function (entry) { return projectText('[' + (entry.keys.join('、') || '无触发词') + '] ' + entry.text) }).filter(Boolean).join('\n') }
         : null
     }
     const constantWorldBookSection = worldBookSection('world-book', constantEntries)
     const triggeredWorldBookSection = worldBookSection('world-book-triggered', triggeredEntries)
     const guides = Array.isArray(input.chat.guides) ? input.chat.guides.filter(function (item) { return item !== null && typeof item === 'object' && str(item.text).trim() !== '' }) : []
-    const guideSection = guides.length > 0 ? { kind: 'guide', required: true, text: '【用户指导 Guide · 优先遵循】\n' + guides.map(function (item, index) { return (index + 1) + '. ' + str(item.text).trim() }).join('\n') } : null
-    const postureSection = str(input.chat.posture) !== '' ? { kind: 'posture', required: true, text: '【现场 · 主要人物状态（每轮结算更新，务必与之一致）】\n' + input.chat.posture } : null
+    const projectedGuides = guides.map(function (item) { return projectText(str(item.text).trim()) }).filter(Boolean)
+    const guideSection = projectedGuides.length > 0 ? { kind: 'guide', required: true, text: '【用户指导 Guide · 优先遵循】\n' + projectedGuides.map(function (text, index) { return (index + 1) + '. ' + text }).join('\n') } : null
+    const projectedPosture = projectText(input.chat.posture)
+    const postureSection = projectedPosture !== '' ? { kind: 'posture', required: true, text: '【现场 · 主要人物状态（每轮结算更新，务必与之一致）】\n' + projectedPosture } : null
     const cardInfoSections = []
     const instructionSections = []
     if (input.includeName !== false) cardInfoSections.push({ kind: 'card', required: true, text: '【故事设定 · 人物卡】\n名字: ' + str(input.card.name) })
     if (input.includeDetails === true) {
-      if (str(input.card.description) !== '') cardInfoSections.push({ kind: 'card', required: false, text: '设定: ' + renderCardText(input.card.description, input.card) })
-      if (str(input.card.personality) !== '') cardInfoSections.push({ kind: 'card', required: false, text: '主要人物性格: ' + renderCardText(input.card.personality, input.card) })
-      if (str(input.card.scenario) !== '') cardInfoSections.push({ kind: 'card', required: false, text: '开场情境: ' + renderCardText(input.card.scenario, input.card) })
-      if (input.includeStyleExample !== false && str(input.card.mes_example) !== '') cardInfoSections.push({ kind: 'card', required: false, text: '【文风示例】\n' + renderCardText(input.card.mes_example, input.card) })
+      if (str(input.card.description) !== '') cardInfoSections.push({ kind: 'card', required: false, text: '设定: ' + projectText(input.card.description) })
+      if (str(input.card.personality) !== '') cardInfoSections.push({ kind: 'card', required: false, text: '主要人物性格: ' + projectText(input.card.personality) })
+      if (str(input.card.scenario) !== '') cardInfoSections.push({ kind: 'card', required: false, text: '开场情境: ' + projectText(input.card.scenario) })
+      if (input.includeStyleExample !== false && str(input.card.mes_example) !== '') cardInfoSections.push({ kind: 'card', required: false, text: '【文风示例】\n' + projectText(input.card.mes_example) })
     }
     if (input.includeInstructions !== false) {
-      if (str(input.card.post_history_instructions) !== '') instructionSections.push({ kind: 'card-instruction', required: true, text: '【附加要求】\n' + renderCardText(input.card.post_history_instructions, input.card) })
-      if (str(input.card.system_prompt) !== '') instructionSections.push({ kind: 'card-instruction', required: true, text: '【特殊指令】\n' + renderCardText(input.card.system_prompt, input.card) })
+      if (str(input.card.post_history_instructions) !== '') instructionSections.push({ kind: 'card-instruction', required: true, text: '【附加要求】\n' + projectText(input.card.post_history_instructions) })
+      if (str(input.card.system_prompt) !== '') instructionSections.push({ kind: 'card-instruction', required: true, text: '【特殊指令】\n' + projectText(input.card.system_prompt) })
     }
     if (input.stableFirst === true) {
       sections.push.apply(sections, cardInfoSections)
@@ -122,10 +138,8 @@ export function createContextPlanner(options = {}) {
     return sections
   }
 
-  function resultOf(sections, warnings, omitted = [], expandCardMacros = true) {
-    const projected = sections.map(function (section) {
-      return Object.assign({}, section, { text: expandCardMacros ? projectCardText(str(section.text)) : str(section.text) })
-    })
+  function resultOf(sections, warnings, omitted = []) {
+    const projected = sections.map(function (section) { return Object.assign({}, section, { text: str(section.text) }) })
     const text = projected.map(function (section) { return section.text }).filter(Boolean).join('\n\n')
     return {
       text,
@@ -141,6 +155,7 @@ export function createContextPlanner(options = {}) {
   async function plan(input) {
     const warnings = []
     if (input.purpose === 'body') {
+      const projectText = playProjector(input, warnings)
       const selectedIds = await selectWorldBookEntries(input, warnings)
       const sections = [{
         kind: 'base', required: true,
@@ -148,17 +163,18 @@ export function createContextPlanner(options = {}) {
       }]
       const hasStoryTurn = (input.chat.messages || []).some(function (message) { return message !== null && typeof message === 'object' && message.greeting !== true })
       const hasScript = (input.chat.mode || 'story') === 'script' || (input.scriptReference !== null && input.scriptReference !== undefined)
-      sections.push.apply(sections, cardSections({ card: input.card, chat: input.chat, worldBookIds: selectedIds, includeName: false, includeDetails: !hasStoryTurn, includeStyleExample: !hasScript, includeInstructions: true }))
+      sections.push.apply(sections, cardSections({ card: input.card, chat: input.chat, worldBookIds: selectedIds, includeName: false, includeDetails: !hasStoryTurn, includeStyleExample: !hasScript, includeInstructions: true }, projectText))
       if (input.scriptReference !== null && input.scriptReference !== undefined && str(input.scriptReference.text) !== '') {
         const order = Number(input.scriptReference.order)
         const position = Number.isInteger(order) && order >= 0 ? ' · 第 ' + (order + 1) + ' 块' : ''
-        sections.push({ kind: 'script', required: true, text: '【本轮剧本参考' + position + '】\n' + input.scriptReference.text })
+        sections.push({ kind: 'script', required: true, text: '【本轮剧本参考' + position + '】\n' + projectText(input.scriptReference.text) })
         sections.push({ kind: 'script', required: true, text: prompt('script-story') })
       }
       return resultOf(sections, warnings, hasStoryTurn ? [{ kind: 'card-details', reason: '仅首轮注入完整人物卡细节' }] : [])
     }
 
     if (input.purpose === 'candidate') {
+      const projectText = playProjector(input, warnings)
       const selectedIds = await selectWorldBookEntries(input, warnings)
       const stableSections = [{ kind: 'candidate-task', required: true, text: str(input.task) }]
       const dynamicSections = []
@@ -171,7 +187,7 @@ export function createContextPlanner(options = {}) {
         includeStyleExample: input.scriptWindow === null || input.scriptWindow === undefined,
         includeInstructions: true,
         stableFirst: true
-      })
+      }, projectText)
       for (const section of plannedCardSections) {
         if (section.kind === 'guide' || section.kind === 'posture' || section.kind === 'world-book-triggered') dynamicSections.push(section)
         else stableSections.push(section)
@@ -182,12 +198,12 @@ export function createContextPlanner(options = {}) {
           kind: 'script', required: true,
           text: '【剧本候选参考 · 游标 ' + Math.min(window.cursor + 1, window.total) + ' / ' + window.total + '】\n' + (window.ended
             ? '剧本已到结尾。按最近剧情自然收束，或给出一个新场景开头候选。'
-            : window.chunks.map(function (chunk) { return '[' + chunk.id + ']\n' + chunk.text }).join('\n\n'))
+            : window.chunks.map(function (chunk) { return '[' + chunk.id + ']\n' + projectText(chunk.text) }).join('\n\n'))
         })
       }
       const result = resultOf(stableSections.concat(dynamicSections), warnings, [{ kind: 'card-instruction', reason: '候选项不需要正文特殊指令' }])
-      result.stableText = stableSections.map(function (section) { return projectCardText(str(section.text)) }).filter(Boolean).join('\n\n')
-      result.dynamicText = dynamicSections.map(function (section) { return projectCardText(str(section.text)) }).filter(Boolean).join('\n\n')
+      result.stableText = stableSections.map(function (section) { return str(section.text) }).filter(Boolean).join('\n\n')
+      result.dynamicText = dynamicSections.map(function (section) { return str(section.text) }).filter(Boolean).join('\n\n')
       return result
     }
 
@@ -223,7 +239,7 @@ export function createContextPlanner(options = {}) {
       } else if (prepared !== null && typeof prepared === 'object' && Number(prepared.total) > 0) {
         sections.push({ kind: 'card-source', required: true, text: '【挂载资料】已读取完毕（共 ' + prepared.total + ' 块）。' })
       }
-      return resultOf(sections, warnings, [], false)
+      return resultOf(sections, warnings)
     }
 
     throw new Error('未知上下文用途: ' + str(input.purpose))

@@ -4,6 +4,8 @@ import test from 'node:test'
 import { createCardPreparation } from '../tavern-plugin/lib/domain/card-preparation.js'
 import { createScriptContinuity } from '../tavern-plugin/lib/domain/script-continuity.js'
 import { createStoryTimeline } from '../tavern-plugin/lib/domain/story-timeline.js'
+import { renderTavernMacros } from '../tavern-plugin/lib/domain/tavern-macro-engine.js'
+import { projectReplyPresentation } from '../tavern-plugin/lib/domain/reply-presentation.js'
 import { createTurnOrchestrator } from '../tavern-plugin/lib/domain/turn-orchestration.js'
 
 function clone(value) {
@@ -28,6 +30,7 @@ function harness(mode, options = {}) {
   let chat = {
     id: 'chat-1', cardPath: options.draft ? '' : 'cards/阿芙拉.json', cardName: options.draft ? '卡片工作台' : card.name, mode,
     messages: [], posture: '站在窗边', guides: [], nativeCommits: {},
+    macroState: { userName: 'User', local: {}, global: {} },
     scriptState: mode === 'script' ? scripts.start(script(), 0) : null,
     workspace: mode === 'card' ? { mountedResources: [], sourceIds: options.draft ? ['src-1'] : [], draft: { name: '' }, player: '', cursor: 0, prepared: null } : null
   }
@@ -79,6 +82,18 @@ function harness(mode, options = {}) {
       }
     },
     queueSettlement: (chatId) => settlements.push(chatId),
+    renderMacros: options.macros === true ? function (text, value) {
+      const result = renderTavernMacros(text, {
+        charName: value.cardName,
+        userName: value.macroState.userName,
+        localVariables: value.macroState.local,
+        globalVariables: value.macroState.global
+      })
+      value.macroState.local = result.localVariables
+      value.macroState.global = result.globalVariables
+      return result.text
+    } : undefined,
+    projectReply: projectReplyPresentation,
     shellToolName: options.shellToolName,
     now: () => 2000
   })
@@ -113,6 +128,35 @@ test('游玩回合由生命周期自动准备与提交，不再要求模型回�
   assert.equal(run.chat().messages.length, 2)
 })
 
+test('游玩正文只保存纯文本并把 HTML 展示状态纳入剧情 checkpoint', async () => {
+  const run = harness('story')
+  await run.orchestrator.prepare({ sessionId: 'session-1', turn: 2, userText: '推开窗' })
+  await run.orchestrator.finalize({
+    sessionId: 'session-1', turn: 2, userText: '推开窗',
+    assistantText: '雨水扑进房间。\n\n<details><summary>状态</summary></details>'
+  })
+
+  assert.equal(run.chat().messages.at(-1).text, '雨水扑进房间。')
+  assert.equal(run.chat().presentation.html, '<details><summary>状态</summary></details>')
+
+  const rolled = run.timeline.apply({ chat: run.chat(), intent: { kind: 'turn.rollback' } })
+  assert.equal(rolled.chat.presentation, null)
+})
+
+test('游玩回复先执行人物卡宏再拆分 HTML', async () => {
+  const run = harness('story', { macros: true })
+  await run.orchestrator.prepare({ sessionId: 'session-1', turn: 2, userText: '查看状态' })
+  const saved = await run.orchestrator.finalize({
+    sessionId: 'session-1', turn: 2, userText: '查看状态',
+    assistantText: '她抬起头。\n\n<style>.status{color:red}</style><div class="status">阶段 {{incvar::stage}}</div>'
+  })
+
+  assert.equal(run.chat().messages.at(-1).text, '她抬起头。')
+  assert.equal(run.chat().presentation.html, '<style>.status{color:red}</style><div class="status">阶段 1</div>')
+  assert.deepEqual(run.chat().macroState.local, { stage: 1 })
+  assert.equal(saved.reply.bodyText, '她抬起头。')
+})
+
 test('真实玩家回合缺少 prepare 时仍报 operation 错误', async () => {
   const run = harness('story')
 
@@ -120,6 +164,16 @@ test('真实玩家回合缺少 prepare 时仍报 operation 错误', async () => 
     run.orchestrator.finalize({ sessionId: 'session-1', turn: 1, userText: '向前走', assistantText: '正文' }),
     /找不到本轮正文 operation/
   )
+})
+
+test('玩家输入中的酒馆变量宏在正文回合准备时执行并持久化', async () => {
+  const run = harness('story', { macros: true })
+  const first = await run.orchestrator.prepare({ sessionId: 'session-1', turn: 2, userText: '{{incvar::stage}}继续前进' })
+  const retried = await run.orchestrator.prepare({ sessionId: 'session-1', turn: 2, userText: '{{incvar::stage}}继续前进' })
+
+  assert.equal(first.userText, '1继续前进')
+  assert.equal(retried.userText, '1继续前进')
+  assert.deepEqual(run.chat().macroState.local, { stage: 1 })
 })
 
 test('剧本参考在准备时锁定，正文提交后游标前进一块，失败回合可清理', async () => {

@@ -61,6 +61,18 @@ function mergeStage(previous, fields, worldBook, rawOperations) {
   }
 }
 
+function rememberRuntimeInput(chat, turn, source, text) {
+  if (chat.runtimeInputs === null || typeof chat.runtimeInputs !== 'object' || Array.isArray(chat.runtimeInputs)) chat.runtimeInputs = {}
+  chat.runtimeInputs[String(turn)] = { source, text }
+  const keys = Object.keys(chat.runtimeInputs).map(Number).filter(Number.isFinite).sort(function (a, b) { return b - a })
+  for (const oldTurn of keys.slice(40)) delete chat.runtimeInputs[String(oldTurn)]
+}
+
+function runtimeInputFor(chat, turn, source) {
+  const value = chat.runtimeInputs && chat.runtimeInputs[String(turn)]
+  return value !== null && typeof value === 'object' && str(value.source) === source ? str(value.text) : null
+}
+
 /**
  * Own one Tavern turn from context preparation through final state commit.
  * DSH lifecycle adapters call this small interface; model tools only stage
@@ -76,6 +88,10 @@ export function createTurnOrchestrator(options) {
   const timeline = options.timeline
   const now = typeof options.now === 'function' ? options.now : Date.now
   const queueSettlement = typeof options.queueSettlement === 'function' ? options.queueSettlement : function () {}
+  const renderMacros = typeof options.renderMacros === 'function' ? options.renderMacros : null
+  const projectReply = typeof options.projectReply === 'function'
+    ? options.projectReply
+    : function (text) { return { bodyText: str(text), presentationHtml: '', warnings: [] } }
   const shellToolName = options.shellToolName === 'pwsh' ? 'pwsh' : 'bash'
 
   async function prepare(input) {
@@ -90,6 +106,7 @@ export function createTurnOrchestrator(options) {
     }
     const turn = Math.max(0, Number(input.turn) || 0)
     const userText = str(input.userText).trim()
+    let runtimeUserText = userText
     const mode = chat.mode || 'story'
     let chatChanged = clearStaleStages(chat, turn)
 
@@ -97,6 +114,14 @@ export function createTurnOrchestrator(options) {
       const begun = timeline.apply({ chat, intent: { kind: 'body.begin', turn, userText } })
       chat = begun.chat
       chatChanged = true
+      const cachedRuntimeInput = runtimeInputFor(chat, turn, userText)
+      if (cachedRuntimeInput !== null) {
+        runtimeUserText = cachedRuntimeInput
+      } else {
+        if (renderMacros !== null && userText.includes('{{')) runtimeUserText = renderMacros(userText, chat)
+        rememberRuntimeInput(chat, turn, userText, runtimeUserText)
+        chatChanged = true
+      }
     }
 
     const cardPath = cardPathOf(chat)
@@ -118,7 +143,7 @@ export function createTurnOrchestrator(options) {
       if (prior && prior.scriptReference) {
         scriptReference = prior.scriptReference
       } else {
-        const prepared = scripts.transition({ script, state: chat.scriptState, event: { kind: 'prepare', userText, nativeTurn: turn } })
+        const prepared = scripts.transition({ script, state: chat.scriptState, event: { kind: 'prepare', userText: runtimeUserText, nativeTurn: turn } })
         chat.scriptState = prepared.state
         scriptReference = prepared.reference
         chatChanged = chatChanged || prepared.changed
@@ -140,9 +165,9 @@ export function createTurnOrchestrator(options) {
       return { ready: true, mode, cardName: card === null ? (str(state.draft && state.draft.name) || '卡片工作台') : card.name, text: plan.text }
     }
 
-    const plan = await planner.plan({ purpose: 'body', card, chat, userText, sessionId: input.sessionId, nativeTurn: turn, scriptReference })
+    const plan = await planner.plan({ purpose: 'body', card, chat, userText: runtimeUserText, sessionId: input.sessionId, nativeTurn: turn, scriptReference })
     if (chatChanged) await store.writeChat(chat)
-    return { ready: true, mode, cardName: card.name, text: plan.text }
+    return { ready: true, mode, cardName: card.name, text: plan.text, userText: runtimeUserText }
   }
 
   async function stageChanges(input) {
@@ -188,9 +213,16 @@ export function createTurnOrchestrator(options) {
     const prior = commitFor(chat, turn)
     if (prior !== null) return { saved: true, duplicate: true, mode: chat.mode || 'story', changed: prior.changed === true }
     const userText = str(input.userText).trim()
-    const assistantText = str(input.assistantText).trim()
-    if (assistantText === '') throw new Error('本轮最终回复为空，无法保存酒馆状态')
     const mode = chat.mode || 'story'
+    let assistantText = str(input.assistantText).trim()
+    let reply = { bodyText: assistantText, presentationHtml: '', warnings: [] }
+    if (mode === 'story' || mode === 'script') {
+      if (renderMacros !== null && assistantText.includes('{{')) assistantText = renderMacros(assistantText, chat)
+      reply = projectReply(assistantText)
+      assistantText = str(reply.bodyText).trim()
+    }
+    if (assistantText === '') throw new Error('本轮最终回复为空，无法保存酒馆状态')
+    const presentation = str(reply.presentationHtml) === '' ? {} : { html: reply.presentationHtml, warnings: reply.warnings }
     const stage = takeStage(chat, turn)
 
     const cardPath = cardPathOf(chat)
@@ -273,6 +305,14 @@ export function createTurnOrchestrator(options) {
         }
         if (userText !== '') draft.messages.push({ role: 'user', text: userText, ts: now(), native: true })
         draft.messages.push({ role: 'assistant', text: assistantText, ts: now(), native: true })
+        if (str(presentation.html) !== '') {
+          draft.presentation = {
+            html: str(presentation.html), source: 'reply', turn,
+            warnings: Array.isArray(presentation.warnings) ? clone(presentation.warnings) : [],
+            updatedAt: now()
+          }
+        }
+        draft.presentationWarnings = Array.isArray(reply.warnings) ? clone(reply.warnings) : []
         draft.settleStatus = 'running'
         draft.settleError = null
         rememberCommit(draft, turn, { mode, userText, scriptReference }, before, now)
@@ -282,7 +322,7 @@ export function createTurnOrchestrator(options) {
     if (completed.value.status !== 'committed') throw new Error('正文生成期间剧情状态已变化，本轮结果已作废')
     await store.writeChat(chat)
     if (chat.regenInProgress !== true) queueSettlement(chat.id)
-    return { saved: true, mode, changed: false, chatId: chat.id, cardName: chat.cardName }
+    return { saved: true, mode, changed: false, chatId: chat.id, cardName: chat.cardName, reply }
   }
 
   async function discard(input) {

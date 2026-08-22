@@ -1,3 +1,5 @@
+import { projectRuntimeContent } from './runtime-content-projection.js'
+
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
 }
@@ -150,7 +152,7 @@ const SCRIPT_POINT_TOOL = Object.freeze({
   }
 })
 
-function scriptResearchAttempt(script, scriptWindow) {
+function scriptResearchAttempt(script, scriptWindow, card, chat) {
   const total = script.chunks.length
   const initial = Math.max(0, Math.min(total, Number(scriptWindow && scriptWindow.cursor) || 0))
   let pointed = null
@@ -163,9 +165,14 @@ function scriptResearchAttempt(script, scriptWindow) {
       }, extra || {})
     }
     const chunk = script.chunks[position]
+    const projected = projectRuntimeContent(chunk.text, {
+      policy: 'play',
+      charName: str(card && card.name),
+      macroState: chat && chat.macroState
+    })
     return Object.assign({
       title: str(script.title), totalChunks: total, position: position + 1,
-      ended: false, chunks: [{ id: chunk.id, number: position + 1, text: str(chunk.text) }]
+      ended: false, chunks: [{ id: chunk.id, number: position + 1, text: projected.agentText }]
     }, extra || {})
   }
 
@@ -265,13 +272,12 @@ export function createCandidateGenerator(options) {
       content: [{ type: 'text', text: request }],
       source: { kind: 'plugin', plugin: 'dsh-tavern' }
     }])
-    const research = scriptMode ? scriptResearchAttempt(script, scriptWindow) : null
+    const research = scriptMode ? scriptResearchAttempt(script, scriptWindow, card, chat) : null
     const callOptions = {
       sessionId: input.sessionId,
       task: 'candidate',
       selection,
       temperature: 0.8,
-      maxTokens: 4000,
       system: scriptMode ? context.stableText : context.text,
       turnContext: scriptMode ? context.dynamicText : '',
       messages,

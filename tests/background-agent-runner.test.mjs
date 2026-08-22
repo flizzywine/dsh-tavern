@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { createBackgroundAgentRunner } from '../tavern-plugin/lib/background-agent-runner.js'
+import { createBackgroundAgentRunner, maximumBackgroundTokens } from '../tavern-plugin/lib/background-agent-runner.js'
+
+test('DeepSeek V4 后台任务采用官方最大输出，其他模型交给适配器', () => {
+  assert.equal(maximumBackgroundTokens({ provider: 'deepseek-official', model: 'deepseek-v4-flash' }), 384000)
+  assert.equal(maximumBackgroundTokens({ provider: 'deepseek-official', model: 'deepseek-v4-pro' }), 384000)
+  assert.equal(maximumBackgroundTokens({ provider: 'test', model: 'scripted' }), undefined)
+})
 
 test('后台 Runner 执行候选任务，查询超限后提示开始推理而不终止回合', async () => {
   const parent = {
@@ -11,6 +17,7 @@ test('后台 Runner 执行候选任务，查询超限后提示开始推理而不
   const events = []
   const registered = []
   const sections = []
+  const variables = []
   const restrictions = []
   const listeners = []
   const appended = []
@@ -56,6 +63,7 @@ test('后台 Runner 执行候选任务，查询超限后提示开始推理而不
       await options.setup({
         systemPrompt: {
           section(value) { sections.push(value) },
+          variable(name, provider) { variables.push({ name, provider }) },
           suppressRuntimeContext() {}
         },
         tools: {
@@ -105,8 +113,13 @@ test('后台 Runner 执行候选任务，查询超限后提示开始推理而不
   assert.equal(createCalls[0].meta.origin, 'subagent')
   assert.equal(createCalls[0].agentOptions.maxTokens, 4000)
   assert.equal(sections[0].complete, true)
+  assert.doesNotMatch(sections[0].text, /候选系统提示/)
+  assert.match(sections[0].text, /\{\{tavern_background_task\}\}/)
+  assert.equal(variables.find(function (entry) { return entry.name === 'tavern_background_task' }).provider(), '候选系统提示')
   assert.equal(sections[1].name, 'tavern:boundary-prompt')
-  assert.equal(sections[1].text, '全局破甲提示')
+  assert.doesNotMatch(sections[1].text, /全局破甲提示/)
+  assert.match(sections[1].text, /\{\{tavern_boundary_prompt\}\}/)
+  assert.equal(variables.find(function (entry) { return entry.name === 'tavern_boundary_prompt' }).provider(), '全局破甲提示')
   assert.deepEqual(injections, [{ sessionId: parent.id, filename: '测试破甲.md', operation: 'candidate', turn: 3 }])
   assert.deepEqual(restrictions, [{ allow: [] }])
   assert.equal(registered[0].name, 'tavern_read_script')
@@ -145,7 +158,7 @@ test('状态结算与候选生成复用同一个后台会话，并且每轮只�
     const listeners = []
     let work = Promise.resolve()
     await options.setup({
-      systemPrompt: { section() {}, suppressRuntimeContext() {} },
+      systemPrompt: { section() {}, variable() {}, suppressRuntimeContext() {} },
       tools: { restrict() {}, register() {} },
       on(name, listener) { listeners.push({ name, listener }) }
     })
@@ -237,7 +250,7 @@ test('回退后在同一个后台 Agent 中遮蔽 checkpoint 之后的 Surface',
       assert.equal(options.resumeSessionId, 'old-candidate')
       const listeners = []
       await options.setup({
-        systemPrompt: { section() {}, suppressRuntimeContext() {} },
+        systemPrompt: { section() {}, variable() {}, suppressRuntimeContext() {} },
         tools: { restrict() {}, register() {} },
         on(name, listener) { listeners.push({ name, listener }) }
       })
@@ -284,4 +297,75 @@ test('回退后在同一个后台 Agent 中遮蔽 checkpoint 之后的 Surface',
   assert.deepEqual(appendCalls[0].data.message.content, [])
   assert.deepEqual(appendCalls[0].options.surfaceOp, { op: 'replace', start: 3, end: 4 })
   assert.deepEqual(appendCalls[0].options.sourceEventSeqs, [3, 4])
+})
+
+test('后台回合没有回复时透传 DSH 的真实终止错误', async () => {
+  const parent = { id: 'parent-session', session: { header: { cwd: '/tmp/tavern', delegationDepth: 0 } } }
+  const events = []
+  let work = Promise.resolve()
+  const child = {
+    session: { events, append() {} },
+    followup() {
+      work = Promise.resolve().then(function () {
+        events.push({
+          type: 'turn/end',
+          data: { turn: 1, reason: { kind: 'error', error: { message: 'malformed prompt variable reference "{{getvar::stage || 1}}"' } } }
+        })
+      })
+    },
+    async whenIdle() { await work }
+  }
+  const agents = {
+    get(id) { return id === parent.id ? parent : undefined },
+    async create(options) {
+      await options.setup({
+        systemPrompt: { section() {}, variable() {}, suppressRuntimeContext() {} },
+        tools: { restrict() {}, register() {} },
+        on() {}
+      })
+      return { agent: child, async dispose() {} }
+    }
+  }
+  const runner = createBackgroundAgentRunner({ agents, id: () => 'background-error' })
+
+  await assert.rejects(() => runner.run({
+    sessionId: parent.id,
+    selection: { provider: 'test', model: 'scripted' },
+    system: '候选规则', messages: [], tools: [], persistent: true, task: 'candidate'
+  }), /malformed prompt variable reference/)
+})
+
+test('后台回合耗尽输出 token 时返回真实终止原因', async () => {
+  const parent = { id: 'parent-session', session: { header: { cwd: '/tmp/tavern', delegationDepth: 0 } } }
+  const events = []
+  let work = Promise.resolve()
+  const child = {
+    session: { events, append() {} },
+    followup() {
+      work = Promise.resolve().then(function () {
+        events.push({ type: 'turn/end', data: { turn: 1, reason: { kind: 'max-tokens' } } })
+      })
+    },
+    async whenIdle() { await work }
+  }
+  const agents = {
+    get(id) { return id === parent.id ? parent : undefined },
+    async create(options) {
+      assert.equal(options.agentOptions.maxTokens, 384000)
+      assert.equal(options.agentOptions.reasoningEffort, 'high')
+      await options.setup({
+        systemPrompt: { section() {}, variable() {}, suppressRuntimeContext() {} },
+        tools: { restrict() {}, register() {} },
+        on() {}
+      })
+      return { agent: child, async dispose() {} }
+    }
+  }
+  const runner = createBackgroundAgentRunner({ agents, id: () => 'background-max-tokens' })
+
+  await assert.rejects(() => runner.run({
+    sessionId: parent.id,
+    selection: { provider: 'deepseek-official', model: 'deepseek-v4-flash', reasoningEffort: 'high' },
+    system: '候选规则', messages: [], tools: [], persistent: true, task: 'candidate'
+  }), /输出达到模型 token 上限/)
 })

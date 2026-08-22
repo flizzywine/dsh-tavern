@@ -10,11 +10,12 @@ import { createCardDeletion } from './domain/card-deletion.js'
 import { createCardPreparation } from './domain/card-preparation.js'
 import { cardOpeningChoices, resolveCardOpening } from './domain/card-openings.js'
 import { READABLE_CARD_FIELDS, readCardField } from './domain/card-reading.js'
-import { projectCardText } from './domain/card-macros.js'
 import { createContextPlanner } from './domain/context-planner.js'
 import { extractEpubText } from './domain/epub-text.js'
 import { createFileResourceStore, normalizeResourcePath, resourceKind } from './domain/file-resources.js'
 import { inspectPreset } from './domain/preset-reading.js'
+import { projectReplyPresentation } from './domain/reply-presentation.js'
+import { projectRuntimeContent } from './domain/runtime-content-projection.js'
 import { createScriptContinuity } from './domain/script-continuity.js'
 import { filterSkillMessages } from './domain/skill-visibility.js'
 import { createStoryTimeline } from './domain/story-timeline.js'
@@ -83,8 +84,16 @@ export async function apply(ctx) {
     const m = mode || 'story'
     return m === 'story' || m === 'script' ? 'play' : 'card'
   }
-  function renderCardText(text, card) {
-    return projectCardText(str(text))
+  function renderCardText(text, card, macroState = {}) {
+    const result = projectRuntimeContent(text, {
+      policy: 'play',
+      charName: str(card && card.name),
+      macroState
+    })
+    macroState.userName = result.macroState.userName
+    macroState.local = result.macroState.local
+    macroState.global = result.macroState.global
+    return result.renderedText
   }
 
   const settlementJobs = new Set()
@@ -133,7 +142,7 @@ export async function apply(ctx) {
     let system = opts.system
     let boundaryPrompt = null
     try {
-      boundaryPrompt = await boundaryPrompts.resolve({ sessionId: opts.sessionId, operation: opts.operation || 'model-call' })
+      boundaryPrompt = await resolveProjectedBoundaryPrompt({ sessionId: opts.sessionId, operation: opts.operation || 'model-call' })
       if (boundaryPrompt !== null) system = [system, boundaryPrompt.text].filter(function (item) { return typeof item === 'string' && item !== '' }).join('\n\n')
     } catch (error) {
       console.error('dsh-tavern: 模型调用读取破甲方案失败，继续以未注入方式运行', error)
@@ -394,6 +403,10 @@ export async function apply(ctx) {
     if (chat === undefined || chat === null || typeof chat !== 'object') return chat
     if (chat.mode === 'revision' || chat.mode === 'extract') chat.mode = 'card'
     if (typeof chat.cardPath !== 'string') chat.cardPath = ''
+    if (chat.macroState === null || typeof chat.macroState !== 'object') chat.macroState = { userName: 'User', local: {}, global: {} }
+    if (typeof chat.macroState.userName !== 'string' || chat.macroState.userName === '') chat.macroState.userName = 'User'
+    if (chat.macroState.local === null || typeof chat.macroState.local !== 'object') chat.macroState.local = {}
+    if (chat.macroState.global === null || typeof chat.macroState.global !== 'object') chat.macroState.global = {}
     if (chat.mode === 'card') {
       if (chat.workspace === null || typeof chat.workspace !== 'object') chat.workspace = chat.extract !== null && typeof chat.extract === 'object' ? chat.extract : emptyCardWorkspace()
       if (!Array.isArray(chat.workspace.mountedResources)) chat.workspace.mountedResources = []
@@ -429,7 +442,16 @@ export async function apply(ctx) {
     const card = await readCard(cardPath)
     if (card === undefined) throw new Error('人物卡不存在: ' + cardPath)
     return cardOpeningChoices(card).map(function (opening) {
-      return { id: opening.id, text: renderCardText(opening.text, card) }
+      const preview = projectRuntimeContent(opening.text, {
+        policy: 'opening-preview',
+        charName: str(card.name),
+        macroState: { userName: 'User', local: {}, global: {} }
+      })
+      return {
+        id: opening.id,
+        text: preview.renderedText,
+        presentationOnly: preview.presentationOnly
+      }
     })
   }
   async function listTavernResources() {
@@ -523,6 +545,7 @@ export async function apply(ctx) {
       sessionId: '',
       guides: [],
       boundaryPrompt: { enabled: false, filename: '' },
+      macroState: { userName: 'User', local: {}, global: {} },
       settleStatus: 'idle',
       settleError: null,
       lastSettle: null,
@@ -594,10 +617,18 @@ export async function apply(ctx) {
       card: cardViewOf(card, chat),
       posture: chat.posture || '',
       guides: Array.isArray(chat.guides) ? chat.guides : [],
+      presentation: presentationViewOf(chat),
+      presentationWarnings: Array.isArray(chat.presentationWarnings) ? chat.presentationWarnings : [],
       settleStatus: chat.settleStatus || 'idle',
       scriptProgress: scriptProgress,
       updatedAt: chat.updatedAt || 0
     }
+  }
+  function presentationViewOf(chat) {
+    if (chat && chat.presentation && typeof chat.presentation === 'object' && str(chat.presentation.html) !== '') return chat.presentation
+    const legacy = projectReplyPresentation(chat && chat.openingText)
+    if (legacy.presentationHtml === '') return null
+    return { html: legacy.presentationHtml, source: 'opening', turn: 1, warnings: legacy.warnings, updatedAt: Number(chat && chat.createdAt) || 0 }
   }
   async function startChat(cardPath, sessionId, mode, openingId) {
     const requestedMode = mode === 'card' || mode === 'revision' || mode === 'extract' ? 'card' : (mode === 'script' ? 'script' : (mode === 'story' ? 'story' : null))
@@ -620,12 +651,30 @@ export async function apply(ctx) {
         return currentView
       }
     }
-    const greeting = chatMode === 'card' ? prompt('card-mode-greeting') : renderCardText(resolveCardOpening(card, openingId), card)
+    const macroState = { userName: 'User', local: {}, global: {} }
+    const openingProjection = chatMode === 'card'
+      ? { agentText: prompt('card-mode-greeting'), presentationHtml: '', presentationOnly: false, warnings: [], macroState }
+      : projectRuntimeContent(resolveCardOpening(card, openingId), {
+          policy: 'opening-commit',
+          charName: str(card.name),
+          macroState
+        })
+    macroState.userName = openingProjection.macroState.userName
+    macroState.local = openingProjection.macroState.local
+    macroState.global = openingProjection.macroState.global
+    // 纯 HTML 开场仍是有效开场。用不换行空格维持原生 Session 的开场
+    // 消息结构，展示 HTML 则继续留在独立的酒馆状态侧栏。
+    const greeting = openingProjection.presentationOnly ? '\u00a0' : openingProjection.agentText
     // connectWorkspace 返回时，Agent 注册偶尔仍在异步完成。先等到原生会话可写，
     // 再落盘 Tavern 对话，避免失败时留下只有映射、没有原生开场白的半初始化记录。
     const openingAgent = typeof sessionId === 'string' && sessionId !== '' && greeting !== '' ? await waitForAgentSession({ registry: agentRegistry, sessionId: sessionId, sleep: sleep }) : undefined
     const chat = newChat(card, chatMode || 'story')
+    chat.macroState = macroState
     chat.openingText = greeting
+    chat.presentationWarnings = openingProjection.warnings
+    if (openingProjection.presentationHtml !== '') {
+      chat.presentation = { html: openingProjection.presentationHtml, source: 'opening', turn: 1, warnings: openingProjection.warnings, updatedAt: Date.now() }
+    }
     if (chat.mode === 'script') {
       chat.scriptState = scriptContinuity.startAligned(script, greeting, card.script_start)
     }
@@ -659,7 +708,14 @@ export async function apply(ctx) {
       const storedGreeting = Array.isArray(chat.messages) ? chat.messages.find(function (message) {
         return message !== null && typeof message === 'object' && message.greeting === true && typeof message.text === 'string'
       }) : undefined
-      text = storedGreeting === undefined ? renderCardText(card.first_mes, card) : storedGreeting.text
+      text = storedGreeting === undefined ? renderCardText(card.first_mes, card, chat.macroState) : storedGreeting.text
+    }
+    if (mode !== 'card') {
+      const projection = projectReplyPresentation(text)
+      text = projection.bodyText
+      if (projection.presentationHtml !== '' && (!chat.presentation || str(chat.presentation.html) === '')) {
+        chat.presentation = { html: projection.presentationHtml, source: 'opening', turn: 1, warnings: projection.warnings, updatedAt: Date.now() }
+      }
     }
     if (text === '') return
     const agent = readyAgent || await waitForAgentSession({ registry: agentRegistry, sessionId: sessionId, sleep: sleep })
@@ -738,10 +794,22 @@ export async function apply(ctx) {
     writeChat,
     now: Date.now
   })
+  async function resolveProjectedBoundaryPrompt(input) {
+    const selected = await boundaryPrompts.resolve(input)
+    if (selected === null) return null
+    const chat = await chatForSession(input.sessionId)
+    const card = chat === undefined ? null : await readChatCard(chat).catch(function () { return null })
+    const projected = projectRuntimeContent(selected.text, {
+      policy: 'play',
+      charName: str(card && card.name || chat && chat.cardName),
+      macroState: chat && chat.macroState
+    })
+    return Object.assign({}, selected, { text: projected.agentText, warnings: projected.warnings })
+  }
   const contextPlanner = createContextPlanner({ prompt: prompt, callModel: callModel, now: Date.now, logger: console })
   const backgroundAgentRunner = createBackgroundAgentRunner({
     agents: agentRegistry,
-    resolveBoundaryPrompt: boundaryPrompts.resolve,
+    resolveBoundaryPrompt: resolveProjectedBoundaryPrompt,
     onBoundaryPromptInjected: boundaryPrompts.recordInjection
   })
   const candidateGenerator = createCandidateGenerator({
@@ -892,7 +960,6 @@ export async function apply(ctx) {
               turnContext: '',
               tools: [],
               temperature: 0.2,
-              maxTokens: 3000,
               sessionId: snapshot.sessionId
             })
             text = run.text
@@ -1037,6 +1104,10 @@ export async function apply(ctx) {
       prepare: prepareWorkspace,
       commit: commitWorkspace
     },
+    renderMacros: function (text, chat) {
+      return renderCardText(text, { name: chat.cardName }, chat.macroState)
+    },
+    projectReply: projectReplyPresentation,
     queueSettlement,
     now: Date.now,
     shellToolName: process.platform === 'win32' ? 'pwsh' : 'bash'
@@ -1367,7 +1438,20 @@ export async function apply(ctx) {
       case 'importCard': return { card: await importCard(args && args.payload) }
       case 'deleteCard': return await deleteCard(args && args.path)
       case 'deleteChat': return await deleteChat(args && args.chatId)
-      case 'startChat': return { view: await startChat(args && args.path, args && args.sessionId, args && args.mode, args && args.openingId) }
+      case 'startChat': {
+        try {
+          return { view: await startChat(args && args.path, args && args.sessionId, args && args.mode, args && args.openingId) }
+        } catch (error) {
+          console.error('dsh-tavern: 创建对话失败', {
+            cardPath: str(args && args.path),
+            sessionId: str(args && args.sessionId),
+            mode: str(args && args.mode),
+            openingId: str(args && args.openingId),
+            error: str(error && error.message || error)
+          })
+          throw error
+        }
+      }
       case 'getSession': return { view: await sessionView(args && args.sessionId) }
       case 'listBoundaryPrompts': return { files: await boundaryPrompts.list(), selection: await boundaryPrompts.selection(args && args.sessionId) }
       case 'deleteBoundaryPrompt': return await boundaryPrompts.remove(args && args.filename)
@@ -1468,16 +1552,46 @@ export async function apply(ctx) {
     return ''
   }
 
-  function assistantTextForTurn(session, turn) {
+  function assistantResultForTurn(session, turn) {
     const events = Array.isArray(session && session.events) ? session.events : []
     const start = turnStartIndex(session, turn)
     for (let index = events.length - 1; index > start; index--) {
       const event = events[index]
       if (!event || event.type !== 'assistant/message' || Number(event.data && event.data.turn) !== Number(turn)) continue
       const text = contentText(event.data && event.data.message)
-      if (text !== '') return text
+      if (text !== '') return { index, event, text }
     }
-    return ''
+    return null
+  }
+
+  function replaceTurnInput(messages, text) {
+    const result = Array.isArray(messages) ? messages.slice() : []
+    for (let index = result.length - 1; index >= 0; index--) {
+      const message = result[index]
+      if (!isTurnInput(message)) continue
+      result[index] = Object.assign({}, message, {
+        content: [{ type: 'text', text: str(text).trim() || '（玩家已更新酒馆运行状态）' }]
+      })
+      break
+    }
+    return result
+  }
+
+  function replaceAssistantReply(session, result, bodyText) {
+    if (result === null || result.text === bodyText) return
+    const previous = result.event && result.event.data && result.event.data.message
+    if (previous === null || typeof previous !== 'object') return
+    session.append('assistant/message', {
+      turn: Number(result.event.data && result.event.data.turn) || 0,
+      step: Number(result.event.data && result.event.data.step) || 1,
+      message: Object.assign({}, previous, {
+        id: crypto.randomUUID(),
+        content: [{ type: 'text', text: bodyText }]
+      })
+    }, {
+      surfaceOp: { op: 'replace', start: result.index, end: result.index },
+      sourceEventSeqs: [result.index]
+    })
   }
 
   // ---------- DSH 回合生命周期 ----------
@@ -1492,6 +1606,9 @@ export async function apply(ctx) {
     if (Number(payload.step) !== 1) return scopedDecision
     const userText = payload.messages.filter(isTurnInput).map(contentText).filter(Boolean).join('\n').trim()
     const prepared = await turnOrchestrator.prepare({ sessionId, turn: payload.turn, userText })
+    const agentMessages = mode === 'story' || mode === 'script'
+      ? replaceTurnInput(scopedDecision.messages, prepared.userText)
+      : scopedDecision.messages
     const contextMessage = {
       id: crypto.randomUUID(),
       role: 'user',
@@ -1501,7 +1618,7 @@ export async function apply(ctx) {
         sections: [{ name: 'tavern:turn', text: prepared.text }]
       }
     }
-    return { kind: 'enter', messages: scopedDecision.messages.concat([contextMessage]) }
+    return { kind: 'enter', messages: agentMessages.concat([contextMessage]) }
   })
 
   ctx.on('agent/turn-stopping', async function (payload) {
@@ -1511,12 +1628,14 @@ export async function apply(ctx) {
     if (backgroundAgentRunner.owns(sessionId)) return
     const userText = userTextForTurn(session, payload.turn)
     if (userText === '') return
-    await turnOrchestrator.finalize({
+    const assistant = assistantResultForTurn(session, payload.turn)
+    const saved = await turnOrchestrator.finalize({
       sessionId,
       turn: payload.turn,
       userText,
-      assistantText: assistantTextForTurn(session, payload.turn)
+      assistantText: assistant === null ? '' : assistant.text
     })
+    if (saved.reply && saved.reply.presentationHtml !== '') replaceAssistantReply(session, assistant, saved.reply.bodyText)
   })
 
   ctx.on('session/event', function (session, event) {
@@ -1544,9 +1663,10 @@ export async function apply(ctx) {
       if (workspaceContext !== '') sections.push({ name: 'tavern:resource-workspace', text: workspaceContext })
     }
     try {
-      const boundaryPrompt = await boundaryPrompts.resolve({ sessionId: agent.session.id, operation: mode === 'card' ? 'card' : 'body' })
+      const boundaryPrompt = await resolveProjectedBoundaryPrompt({ sessionId: agent.session.id, operation: mode === 'card' ? 'card' : 'body' })
       if (boundaryPrompt !== null) {
-        sections.push({ name: 'tavern:boundary-prompt', text: boundaryPrompt.text })
+        assembly.variables = Object.assign({}, assembly.variables, { tavern_boundary_prompt: boundaryPrompt.text })
+        sections.push({ name: 'tavern:boundary-prompt', text: '{{tavern_boundary_prompt}}' })
         const phase = agent.phase
         await boundaryPrompts.recordInjection({
           sessionId: agent.session.id,
@@ -1753,11 +1873,18 @@ export async function apply(ctx) {
             from: 0, to: 0, cursor: Number(windowResult.cursor) || 0, chunks: []
           }
         }
-        return {
-          found: true, message: '', title: str(windowResult.title), totalChunks: Number(windowResult.total) || 0,
-          from: Number(windowResult.from) || 0, to: Number(windowResult.to) || 0, cursor: Number(windowResult.cursor) || 0,
-          chunks: windowResult.chunks.map(function (chunk) { return { id: str(chunk.id), number: Number(chunk.order) + 1, text: str(chunk.text) } })
-        }
+            return {
+              found: true, message: '', title: str(windowResult.title), totalChunks: Number(windowResult.total) || 0,
+              from: Number(windowResult.from) || 0, to: Number(windowResult.to) || 0, cursor: Number(windowResult.cursor) || 0,
+              chunks: windowResult.chunks.map(function (chunk) {
+                const projected = projectRuntimeContent(chunk.text, {
+                  policy: mode === 'card' ? 'source' : 'play',
+                  charName: str(chat.cardName),
+                  macroState: chat.macroState
+                })
+                return { id: str(chunk.id), number: Number(chunk.order) + 1, text: projected.agentText }
+              })
+            }
       }
     }))
 
