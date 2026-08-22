@@ -209,7 +209,7 @@ export function createContextPlanner(options = {}) {
       })
       const mountedResources = Array.isArray(workspace.mountedResources) ? workspace.mountedResources.filter(function (item) { return item !== null && typeof item === 'object' }) : []
       if (mountedResources.length > 0) {
-        const kindLabel = { card: '人物卡', source: '资料', script: '剧本资料' }
+        const kindLabel = { card: '人物卡', preset: '预设', source: '资料', script: '剧本资料' }
         sections.push({ kind: 'workspace-resources', required: true, text: '【挂载的 Tavern 资源 · 仅目录，正文尚未自动读取】\n' + mountedResources.map(function (item) { return '- [' + (kindLabel[item.kind] || item.kind) + '] ' + str(item.label) + ' · path=' + str(item.path) }).join('\n') + '\n人物卡和资料使用对应 Tavern 只读工具按需读取；没有实际读取的内容，不得声称已经读过。' })
       }
       if (player !== '' || (Array.isArray(workspace.sourcePaths) && workspace.sourcePaths.length > 0)) {

@@ -1,8 +1,10 @@
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { createBackgroundAgentRunner } from './background-agent-runner.js'
 import { createCandidateGenerator } from './domain/candidate-generation.js'
 import { waitForAgentSession } from './domain/agent-readiness.js'
+import { createBoundaryPromptModule } from './domain/boundary-prompts.js'
 import { createCardPreparation } from './domain/card-preparation.js'
 import { resolveCardOpening } from './domain/card-openings.js'
 import { READABLE_CARD_FIELDS, readCardField } from './domain/card-reading.js'
@@ -10,9 +12,13 @@ import { projectCardMacros, projectCardText } from './domain/card-macros.js'
 import { createContextPlanner } from './domain/context-planner.js'
 import { extractEpubText } from './domain/epub-text.js'
 import { createFileResourceStore, normalizeResourcePath, resourceKind } from './domain/file-resources.js'
+import { inspectPreset } from './domain/preset-reading.js'
 import { createScriptContinuity } from './domain/script-continuity.js'
+import { filterSkillMessages } from './domain/skill-visibility.js'
 import { createStoryTimeline } from './domain/story-timeline.js'
+import { createTavernSkillModule } from './domain/tavern-skills.js'
 import { createTurnOrchestrator } from './domain/turn-orchestration.js'
+import { resourceWorkspaceContext } from './domain/workspace-resources.js'
 import { prompt } from './prompt-catalog.js'
 
 // dsh-tavern 宿主插件（profile 组合行）
@@ -30,6 +36,10 @@ export async function apply(ctx) {
 
   // 项目根：源码位于 <project>/tavern-plugin/lib/，数据固定在 <project>/data/。
   const base = fileURLToPath(new URL('../../', import.meta.url))
+  const tavernSkills = createTavernSkillModule({
+    directory: base + '/data/skills',
+    builtInDirectory: base + '/presets/tavern/skills'
+  })
 
   // ---------- profile 私有 preset ----------
   // rc.6 启动器会固定系统 roots，因此在独立 Tavern 进程内追加 profile 自带目录。
@@ -126,7 +136,15 @@ export async function apply(ctx) {
     if (typeof opts.temperature === 'number' && sel.provider !== 'openai-codex') cfg.temperature = opts.temperature
     if (typeof opts.maxTokens === 'number') cfg.maxTokens = opts.maxTokens
     const prepared = await llm.prepareCall(cfg)
-    const options = Object.assign({}, prepared.config, { messages: opts.messages, system: opts.system })
+    let system = opts.system
+    let boundaryPrompt = null
+    try {
+      boundaryPrompt = await boundaryPrompts.resolve({ sessionId: opts.sessionId, operation: opts.operation || 'model-call' })
+      if (boundaryPrompt !== null) system = [system, boundaryPrompt.text].filter(function (item) { return typeof item === 'string' && item !== '' }).join('\n\n')
+    } catch (error) {
+      console.error('dsh-tavern: 模型调用读取破甲方案失败，继续以未注入方式运行', error)
+    }
+    const options = Object.assign({}, prepared.config, { messages: opts.messages, system })
     let text = ''
     let finish = null
     try {
@@ -146,10 +164,12 @@ export async function apply(ctx) {
     }
     const out = text.trim()
     if (out === '') throw new Error('模型返回为空')
+    if (boundaryPrompt !== null) {
+      try { await boundaryPrompts.recordInjection({ sessionId: opts.sessionId, filename: boundaryPrompt.filename, operation: opts.operation || 'model-call', turn: opts.turn }) }
+      catch (error) { console.error('dsh-tavern: 记录模型调用破甲注入失败', error) }
+    }
     return out
   }
-  const contextPlanner = createContextPlanner({ prompt: prompt, callModel: callModel, now: Date.now, logger: console })
-  const backgroundAgentRunner = createBackgroundAgentRunner({ agents: agentRegistry })
 
   // ---------- 角色卡 ----------
   function splitNovelText(source, requestedSize) {
@@ -205,7 +225,8 @@ export async function apply(ctx) {
   const fileResources = createFileResourceStore({ dataRoot: base + '/data' })
   const cardTaskPrompts = Object.freeze({
     edit: 'card-task-edit',
-    extract: 'card-task-extract'
+    extract: 'card-task-extract',
+    boundary: 'card-task-boundary'
   })
   async function readCard(cardPath) {
     if (str(cardPath) === '') return undefined
@@ -231,17 +252,19 @@ export async function apply(ctx) {
     const name = str(source.name).trim()
     const isEpub = /\.epub$/i.test(name) || str(source.type).toLowerCase() === 'application/epub+zip'
     let text
+    let originalText
     if (isEpub) {
       const encoded = str(source.fileB64).replace(/\s+/g, '')
       if (encoded === '') throw new Error('EPUB 文件内容为空')
       if (!/^[a-z0-9+/]*={0,2}$/i.test(encoded) || encoded.length % 4 !== 0) throw new Error('EPUB 文件编码无效')
       text = extractEpubText(Buffer.from(encoded, 'base64'))
     } else {
-      text = str(source.text)
+      originalText = str(source.text)
+      text = originalText
     }
     text = text.replace(/\r\n?/g, '\n').trim()
     if (text === '') throw new Error(emptyMessage)
-    return Object.assign({}, source, { name, text })
+    return Object.assign({}, source, { name, text, ...(originalText === undefined ? {} : { originalText }) })
   }
   async function importScript(cardPath, payload) {
     const prepared = prepareTextImport(payload, '剧本文件为空')
@@ -279,6 +302,37 @@ export async function apply(ctx) {
     const record = await readSource(sourcePath)
     return { path: sourcePath, title: record.title, sourceChars: record.sourceChars, chunkCount: record.chunks.length, importedAt: Date.now() }
   }
+  async function readPreset(presetPath) {
+    const normalized = normalizeResourcePath(presetPath, 'preset')
+    const text = await fileResources.readText(normalized)
+    if (text === undefined) return undefined
+    return Object.assign({ path: normalized, previewPath: fileResources.absolute(normalized) }, inspectPreset(text, normalized))
+  }
+  async function listPresets() {
+    return await Promise.all((await fileResources.list('preset')).map(async function (presetPath) {
+      const preset = await readPreset(presetPath)
+      return {
+        path: preset.path,
+        previewPath: preset.previewPath,
+        title: preset.title,
+        valid: preset.valid,
+        recognized: preset.recognized,
+        promptCount: preset.promptCount,
+        enabledCount: preset.enabledCount,
+        regexCount: preset.regexCount,
+        enabledRegexCount: preset.enabledRegexCount,
+        warning: preset.warning,
+        error: preset.error
+      }
+    }))
+  }
+  async function importPreset(payload) {
+    const prepared = prepareTextImport(payload, '预设文件为空')
+    const inspected = inspectPreset(prepared.text, prepared.name)
+    if (!inspected.valid) throw new Error(inspected.error)
+    const presetPath = await fileResources.importText('preset', prepared)
+    return await readPreset(presetPath)
+  }
   async function renameResource(resourcePath, name) {
     const oldPath = normalizeResourcePath(resourcePath)
     const kind = resourceKind(oldPath)
@@ -311,6 +365,24 @@ export async function apply(ctx) {
     await writeIndex(idx)
     return { kind, path: renamed.path }
   }
+  async function deleteLibraryResource(resourcePath, expectedKind) {
+    const normalized = normalizeResourcePath(resourcePath, expectedKind)
+    await fileResources.remove(normalized)
+    const idx = await readIndex()
+    for (const row of idx.chats || []) {
+      const chat = await readChat(row.id)
+      if (chat === undefined || !chat.workspace || typeof chat.workspace !== 'object') continue
+      const nextSources = (chat.workspace.sourcePaths || []).filter(function (item) { return item !== normalized })
+      const nextMounted = (chat.workspace.mountedResources || []).filter(function (item) { return !item || item.path !== normalized })
+      if (JSON.stringify(nextSources) === JSON.stringify(chat.workspace.sourcePaths || []) && JSON.stringify(nextMounted) === JSON.stringify(chat.workspace.mountedResources || [])) continue
+      chat.workspace.sourcePaths = nextSources
+      chat.workspace.mountedResources = nextMounted
+      await writeChat(chat)
+    }
+    return { removed: normalized }
+  }
+  async function deleteResource(resourcePath) { return await deleteLibraryResource(resourcePath, 'source') }
+  async function deletePreset(resourcePath) { return await deleteLibraryResource(resourcePath, 'preset') }
   function emptyCardWorkspace() {
     return { mountedResources: [], sourcePaths: [], cursor: 0, prepared: null, done: false, player: '', draft: { name: '', description: '', personality: '', scenario: '', first_mes: '', mes_example: '', system_prompt: '', post_history_instructions: '', creator_notes: '', tags: [], alternate_greetings: [] } }
   }
@@ -352,7 +424,6 @@ export async function apply(ctx) {
     const cards = await listCards()
     const sources = await listSources()
     return {
-      cards: cards.map(function (card) { return { path: card.path, name: card.name } }),
       resources: sources.map(function (source) {
         const boundCards = cards.filter(function (card) { return card.script !== null && card.script.path === source.path }).map(function (card) { return { path: card.path, name: card.name } })
         return { path: source.path, previewPath: fileResources.absolute(source.path), title: source.title, sourceChars: Number(source.sourceChars) || 0, chunkCount: Number(source.chunkCount) || 0, boundCards }
@@ -439,6 +510,7 @@ export async function apply(ctx) {
       posture: '',
       sessionId: '',
       guides: [],
+      boundaryPrompt: { enabled: false, filename: '' },
       settleStatus: 'idle',
       settleError: null,
       lastSettle: null,
@@ -644,6 +716,22 @@ export async function apply(ctx) {
     if (isCard) result.workspace = workspaceViewOf(chat)
     return result
   }
+  const boundaryPrompts = createBoundaryPromptModule({
+    directory: base + '/data/boundary-prompts',
+    defaults: [{
+      filename: 'DeepSeek-V4-Flash-推荐.md',
+      text: await readFile(base + '/defaults/boundary-prompts/DeepSeek-V4-Flash-推荐.md', 'utf8')
+    }],
+    readChat: chatForSession,
+    writeChat,
+    now: Date.now
+  })
+  const contextPlanner = createContextPlanner({ prompt: prompt, callModel: callModel, now: Date.now, logger: console })
+  const backgroundAgentRunner = createBackgroundAgentRunner({
+    agents: agentRegistry,
+    resolveBoundaryPrompt: boundaryPrompts.resolve,
+    onBoundaryPromptInjected: boundaryPrompts.recordInjection
+  })
   const candidateGenerator = createCandidateGenerator({
     store: {
       chatForSession: chatForSession,
@@ -1235,7 +1323,15 @@ export async function apply(ctx) {
       }
       case 'getResourceWorkspace': return { path: base + '/data/resources' }
       case 'listResources': return await listTavernResources()
+      case 'listPresets': return { presets: await listPresets() }
+      case 'getPreset': {
+        const preset = await readPreset(args && args.path)
+        if (preset === undefined) throw new Error('预设不存在: ' + (args && args.path))
+        return { preset }
+      }
       case 'renameResource': return { resource: await renameResource(args && args.path, args && args.name) }
+      case 'deleteResource': return await deleteResource(args && args.path)
+      case 'deletePreset': return await deletePreset(args && args.path)
       case 'getScriptInfo': {
         const script = await readScript(args && args.path)
         const info = scriptContinuity.inspect({ script: script, state: null, request: { kind: 'info' } })
@@ -1245,6 +1341,7 @@ export async function apply(ctx) {
       case 'bindScript': return { script: await bindScript(args && args.cardPath, args && args.path) }
       case 'deleteScript': return await deleteScript(args && (args.cardPath || args.path))
       case 'importSource': return { source: await importSource(args && args.payload) }
+      case 'importPreset': return { preset: await importPreset(args && args.payload) }
       case 'updateCard': {
         const change = await updateCard(args && args.path, args && args.patch)
         return { card: change.card, changed: change.changed }
@@ -1255,6 +1352,9 @@ export async function apply(ctx) {
       case 'deleteChat': return await deleteChat(args && args.chatId)
       case 'startChat': return { view: await startChat(args && args.path, args && args.sessionId, args && args.mode) }
       case 'getSession': return { view: await sessionView(args && args.sessionId) }
+      case 'listBoundaryPrompts': return { files: await boundaryPrompts.list(), selection: await boundaryPrompts.selection(args && args.sessionId) }
+      case 'deleteBoundaryPrompt': return await boundaryPrompts.remove(args && args.filename)
+      case 'selectBoundaryPrompt': return { selection: await boundaryPrompts.select({ sessionId: args && args.sessionId, enabled: args && args.enabled, filename: args && args.filename }) }
       case 'ensureOpening': return { view: await ensureNativeOpening(args && args.sessionId) }
       case 'getChoices': return { candidates: await candidateGenerator.find({ sessionId: args && args.sessionId, messageId: args && args.messageId }) }
       case 'generateChoices': {
@@ -1368,7 +1468,11 @@ export async function apply(ctx) {
     const sessionId = payload.agent && payload.agent.session ? payload.agent.session.id : ''
     if (backgroundAgentRunner.owns(sessionId)) return next()
     const decision = await next()
-    if (decision.kind === 'reject' || Number(payload.step) !== 1) return decision
+    if (decision.kind === 'reject') return decision
+    const mode = await turnOrchestrator.modeFor(sessionId)
+    const visibleMessages = filterSkillMessages(decision.messages, mode)
+    const scopedDecision = visibleMessages === decision.messages ? decision : { ...decision, messages: visibleMessages }
+    if (Number(payload.step) !== 1) return scopedDecision
     const userText = payload.messages.filter(isTurnInput).map(contentText).filter(Boolean).join('\n').trim()
     const prepared = await turnOrchestrator.prepare({ sessionId, turn: payload.turn, userText })
     const contextMessage = {
@@ -1380,7 +1484,7 @@ export async function apply(ctx) {
         sections: [{ name: 'tavern:turn', text: prepared.text }]
       }
     }
-    return { kind: 'enter', messages: decision.messages.concat([contextMessage]) }
+    return { kind: 'enter', messages: scopedDecision.messages.concat([contextMessage]) }
   })
 
   ctx.on('agent/turn-stopping', async function (payload) {
@@ -1406,7 +1510,7 @@ export async function apply(ctx) {
     void turnOrchestrator.discard({ sessionId: session.id, turn: event.data && event.data.turn })
   })
 
-  const controlledToolNames = new Set(['bash', 'pwsh', 'str_replace_editor', 'tavern_read_card', 'tavern_read_script', 'tavern_read_worldbook', 'tavern_update_card', 'tavern_restore_card'])
+  const controlledToolNames = new Set(['bash', 'pwsh', 'str_replace_editor', 'skill', 'tavern_save_skill', 'tavern_read_card', 'tavern_read_script', 'tavern_read_worldbook', 'tavern_read_boundary_prompt', 'tavern_update_boundary_prompt', 'tavern_update_card', 'tavern_restore_card'])
   ctx.on('system-prompt/assemble', async function (_assembly, context, next) {
     const assembly = await next()
     const agent = context && context.agent
@@ -1414,10 +1518,30 @@ export async function apply(ctx) {
     if (backgroundAgentRunner.owns(agent.session.id)) return assembly
     const mode = await turnOrchestrator.modeFor(agent.session.id)
     const visible = new Set(await turnOrchestrator.visibleTools(agent.session.id))
-    assembly.sections = [{
+    const sections = [{
       name: 'tavern:mode-persona',
       text: prompt(mode === 'card' ? 'card-mode' : 'play-mode')
     }]
+    if (mode === 'card') {
+      const workspaceContext = resourceWorkspaceContext(agent.session.header && agent.session.header.cwd)
+      if (workspaceContext !== '') sections.push({ name: 'tavern:resource-workspace', text: workspaceContext })
+    }
+    try {
+      const boundaryPrompt = await boundaryPrompts.resolve({ sessionId: agent.session.id, operation: mode === 'card' ? 'card' : 'body' })
+      if (boundaryPrompt !== null) {
+        sections.push({ name: 'tavern:boundary-prompt', text: boundaryPrompt.text })
+        const phase = agent.phase
+        await boundaryPrompts.recordInjection({
+          sessionId: agent.session.id,
+          filename: boundaryPrompt.filename,
+          operation: mode === 'card' ? 'card' : 'body',
+          turn: phase && phase.kind === 'running' ? phase.turn : 0
+        })
+      }
+    } catch (error) {
+      console.error('dsh-tavern: 破甲方案注入失败，继续以未注入方式运行', error)
+    }
+    assembly.sections = sections
     assembly.tools = assembly.tools.filter(function (schema) { return !controlledToolNames.has(schema.name) || visible.has(schema.name) })
     return assembly
   })
@@ -1430,6 +1554,40 @@ export async function apply(ctx) {
         return item !== null && typeof item === 'object' && item.kind === kind && item.path === resourcePath
       })
     }
+
+    tools.register(defineTool({
+      name: 'tavern_save_skill',
+      description: '仅当用户明确要求创建或修改 Tavern Skill 时，把结构化内容安全保存到用户 Skill 目录。不能覆盖内置 Skill；修改同名用户 Skill 必须明确 overwrite=true。',
+      parameters: {
+        name: { type: 'string', required: true, description: 'kebab-case Skill 名称' },
+        description: { type: 'string', required: true, description: '用于 Skill 自动发现的一句话简介，说明做什么以及何时使用' },
+        body: { type: 'string', required: true, description: '不含 YAML frontmatter 的完整 Markdown 指令正文' },
+        modelInvocable: { type: 'boolean', description: '是否允许 Agent 自动发现，默认 true' },
+        userInvocable: { type: 'boolean', description: '是否允许用户显式调用，默认 true' },
+        overwrite: { type: 'boolean', description: '同名用户 Skill 已存在且用户明确要求修改时设为 true' }
+      },
+      output: {
+        schema: {
+          type: 'object', additionalProperties: false,
+          properties: {
+            name: { type: 'string', required: true },
+            chars: { type: 'integer', required: true },
+            overwritten: { type: 'boolean', required: true },
+            saved: { type: 'boolean', required: true }
+          }
+        },
+        render: function (_args, value) {
+          return [{ type: 'text', text: 'Tavern Skill 已' + (value.overwritten ? '更新' : '创建') + '：' + value.name + ' · ' + value.chars + ' 字；已进入 Skill 目录，不会自动执行。' }]
+        }
+      },
+      async execute(args, exec) {
+        const sessionId = exec && exec.agent && exec.agent.session ? exec.agent.session.id : ''
+        const chat = await chatForSession(sessionId)
+        if (chat === undefined || (chat.mode || 'story') !== 'card') throw new Error('Tavern Skill 只能在卡片工作台中创建或修改')
+        const saved = await tavernSkills.write(args)
+        return { name: saved.name, chars: saved.chars, overwritten: saved.overwritten, saved: true }
+      }
+    }))
 
     tools.register(defineTool({
       name: 'tavern_read_card',
@@ -1591,6 +1749,87 @@ export async function apply(ctx) {
         if (windowResult === null) return { found: false, message: '当前人物卡没有世界书。', name: '', total: 0, entries: [] }
         if (windowResult.entries.length === 0) return { found: false, message: '没有找到符合条件的世界书条目。', name: windowResult.name, total: windowResult.total, entries: [] }
         return { found: true, message: '', name: projectCardText(str(windowResult.name)), total: windowResult.total, entries: projectCardMacros(windowResult.entries) }
+      }
+    }))
+
+    tools.register(defineTool({
+      name: 'tavern_read_boundary_prompt',
+      description: '在卡片工作台中列出破甲提示词文件，或读取指定 Markdown 文件的完整正文。',
+      parameters: {
+        filename: { type: 'string', description: '可选文件名，例如 DeepSeek-V4-Flash-推荐.md；省略时只列目录' }
+      },
+      output: {
+        schema: {
+          type: 'object', additionalProperties: false,
+          properties: {
+            found: { type: 'boolean', required: true },
+            message: { type: 'string', required: true },
+            files: {
+              type: 'array', required: true,
+              items: {
+                type: 'object', additionalProperties: false,
+                properties: {
+                  filename: { type: 'string', required: true },
+                  chars: { type: 'integer', required: true },
+                  text: { type: 'string', required: true }
+                }
+              }
+            }
+          }
+        },
+        render: function (_args, value) {
+          if (!value.found) return [{ type: 'text', text: value.message }]
+          return [{ type: 'text', text: value.files.map(function (file) {
+            return file.text === '' ? file.filename + ' · ' + file.chars + ' 字' : file.filename + ' · ' + file.chars + ' 字\n\n' + file.text
+          }).join('\n\n') }]
+        }
+      },
+      isConcurrencySafe: function () { return true },
+      async execute(args, exec) {
+        const sessionId = exec && exec.agent && exec.agent.session ? exec.agent.session.id : ''
+        const chat = await chatForSession(sessionId)
+        if (chat === undefined || (chat.mode || 'story') !== 'card') throw new Error('破甲提示词只能在卡片工作台中读取')
+        const filename = str(args.filename).trim()
+        if (filename !== '') {
+          const file = await boundaryPrompts.read(filename)
+          return file === null
+            ? { found: false, message: '破甲文件不存在: ' + filename, files: [] }
+            : { found: true, message: '', files: [{ filename: file.filename, chars: file.chars, text: file.text }] }
+        }
+        const files = await boundaryPrompts.list()
+        return files.length === 0
+          ? { found: false, message: '破甲目录中还没有 Markdown 文件。', files: [] }
+          : { found: true, message: '', files: files.map(function (file) { return { filename: file.filename, chars: file.chars, text: '' } }) }
+      }
+    }))
+
+    tools.register(defineTool({
+      name: 'tavern_update_boundary_prompt',
+      description: '仅当用户明确要求保存时，在专用目录创建或修改一个破甲 Markdown 文件。分析、讨论或导入预设时不要调用；修改同名文件必须明确 overwrite=true。',
+      parameters: {
+        name: { type: 'string', required: true, description: '文件名；可以省略 .md，推荐模型直接写在文件名中' },
+        text: { type: 'string', required: true, description: '确认后的完整提示词正文，将按原样保存' },
+        overwrite: { type: 'boolean', description: '同名文件已存在且用户明确要求修改时设为 true' }
+      },
+      output: {
+        schema: {
+          type: 'object', additionalProperties: false,
+          properties: {
+            filename: { type: 'string', required: true },
+            chars: { type: 'integer', required: true },
+            saved: { type: 'boolean', required: true }
+          }
+        },
+        render: function (_args, value) {
+          return [{ type: 'text', text: '破甲提示词已保存并立即出现在侧栏：' + value.filename + ' · ' + value.chars + ' 字；不会自动启用。' }]
+        }
+      },
+      async execute(args, exec) {
+        const sessionId = exec && exec.agent && exec.agent.session ? exec.agent.session.id : ''
+        const chat = await chatForSession(sessionId)
+        if (chat === undefined || (chat.mode || 'story') !== 'card') throw new Error('破甲提示词只能在卡片工作台中修改')
+        const file = await boundaryPrompts.write({ name: args.name, text: args.text, overwrite: args.overwrite === true })
+        return { filename: file.filename, chars: file.chars, saved: true }
       }
     }))
 

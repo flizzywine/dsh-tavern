@@ -68,7 +68,17 @@ test('后台 Runner 执行候选任务，查询超限后提示开始推理而不
     }
   }
   const calls = []
-  runner = createBackgroundAgentRunner({ agents, id: () => 'candidate-session-1' })
+  const injections = []
+  runner = createBackgroundAgentRunner({
+    agents,
+    id: () => 'candidate-session-1',
+    resolveBoundaryPrompt: async ({ sessionId, operation }) => {
+      assert.equal(sessionId, parent.id)
+      assert.equal(operation, 'candidate')
+      return { filename: '测试破甲.md', text: '全局破甲提示' }
+    },
+    onBoundaryPromptInjected: async (value) => { injections.push(value) }
+  })
   const result = await runner.run({
     sessionId: parent.id,
     selection: { provider: 'test', model: 'scripted' },
@@ -84,7 +94,9 @@ test('后台 Runner 执行候选任务，查询超限后提示开始推理而不
     async onToolCall(call) { calls.push(call); return '{"position":2}' },
     maxToolCalls: 6,
     temperature: 0.8,
-    maxTokens: 4000
+    maxTokens: 4000,
+    task: 'candidate',
+    turn: 3
   })
 
   assert.equal(result.traceSessionId, 'candidate-session-1')
@@ -93,6 +105,9 @@ test('后台 Runner 执行候选任务，查询超限后提示开始推理而不
   assert.equal(createCalls[0].meta.origin, 'subagent')
   assert.equal(createCalls[0].agentOptions.maxTokens, 4000)
   assert.equal(sections[0].complete, true)
+  assert.equal(sections[1].name, 'tavern:boundary-prompt')
+  assert.equal(sections[1].text, '全局破甲提示')
+  assert.deepEqual(injections, [{ sessionId: parent.id, filename: '测试破甲.md', operation: 'candidate', turn: 3 }])
   assert.deepEqual(restrictions, [{ allow: [] }])
   assert.equal(registered[0].name, 'tavern_read_script')
   assert.equal(registered[1].name, 'tavern_point_script')
