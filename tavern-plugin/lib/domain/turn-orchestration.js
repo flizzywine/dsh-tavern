@@ -53,10 +53,11 @@ function takeStage(chat, turn) {
   return stage
 }
 
-function mergeStage(previous, fields, worldBook) {
+function mergeStage(previous, fields, worldBook, rawOperations) {
   return {
     fields: Object.assign({}, object(previous.fields), clone(object(fields))),
-    worldBook: (Array.isArray(previous.worldBook) ? clone(previous.worldBook) : []).concat(Array.isArray(worldBook) ? clone(worldBook) : [])
+    worldBook: (Array.isArray(previous.worldBook) ? clone(previous.worldBook) : []).concat(Array.isArray(worldBook) ? clone(worldBook) : []),
+    rawOperations: (Array.isArray(previous.rawOperations) ? clone(previous.rawOperations) : []).concat(Array.isArray(rawOperations) ? clone(rawOperations) : [])
   }
 }
 
@@ -153,13 +154,13 @@ export function createTurnOrchestrator(options) {
     if (!turn) throw new Error('无法确定当前回合')
     clearStaleStages(chat, turn)
     const stages = stagedMap(chat)
-    const combined = mergeStage(object(stages[String(turn)]), input.fields, input.worldBook)
-    if (Object.keys(combined.fields).length === 0 && combined.worldBook.length === 0) throw new Error('没有提供需要修改的字段')
+    const combined = mergeStage(object(stages[String(turn)]), input.fields, input.worldBook, input.rawOperations)
+    if (Object.keys(combined.fields).length === 0 && combined.worldBook.length === 0 && combined.rawOperations.length === 0) throw new Error('没有提供需要修改的字段')
 
     let preview
     const cardPath = cardPathOf(chat)
     if (cardPath === '') {
-      if (combined.worldBook.length > 0) throw new Error('新人物卡创建前不能修改世界书，请先创建人物卡')
+      if (combined.worldBook.length > 0 || combined.rawOperations.length > 0) throw new Error('新人物卡创建前不能修改世界书或 raw，请先创建人物卡')
       const state = object(chat.workspace)
       preview = cards.update({ kind: 'draft', card: object(state.draft), player: state.player, patch: combined.fields })
       if (preview.player !== str(state.player).trim() && !preview.changedFields.includes('player')) preview.changedFields.push('player')
@@ -172,7 +173,7 @@ export function createTurnOrchestrator(options) {
     } else {
       const card = await store.readCard(cardPath)
       if (card === undefined) throw new Error('人物卡不存在: ' + cardPath)
-      preview = cards.update({ kind: 'card', card, patch: combined.fields, worldBookOperations: combined.worldBook })
+      preview = cards.update({ kind: 'card', card, patch: combined.fields, worldBookOperations: combined.worldBook, rawOperations: combined.rawOperations })
     }
 
     stages[String(turn)] = combined
@@ -231,10 +232,10 @@ export function createTurnOrchestrator(options) {
       let changed = false
       let savedCard = await store.readCard(cardPath)
       if (savedCard === undefined) throw new Error('人物卡不存在: ' + cardPath)
-      if (Object.keys(object(stage.fields)).length > 0 || (Array.isArray(stage.worldBook) && stage.worldBook.length > 0)) {
+      if (Object.keys(object(stage.fields)).length > 0 || (Array.isArray(stage.worldBook) && stage.worldBook.length > 0) || (Array.isArray(stage.rawOperations) && stage.rawOperations.length > 0)) {
         const result = await store.updateCard(cardPath, object(stage.fields), {
           ts: now(), instruction: userText, summary: '通过卡片模式设定对话更新人物卡'
-        }, Array.isArray(stage.worldBook) ? stage.worldBook : [])
+        }, Array.isArray(stage.worldBook) ? stage.worldBook : [], Array.isArray(stage.rawOperations) ? stage.rawOperations : [])
         changed = result.changed
         savedCard = result.card
       }
@@ -324,7 +325,7 @@ export function createTurnOrchestrator(options) {
     if (chat === undefined) return []
     const mode = chat.mode || 'story'
     if (mode === 'script') return ['tavern_read_script']
-    if (mode === 'card') return [shellToolName, 'str_replace_editor', 'skill', 'tavern_save_skill', 'tavern_read_card', 'tavern_read_worldbook', 'tavern_read_boundary_prompt', 'tavern_update_boundary_prompt', 'tavern_update_card', 'tavern_restore_card']
+    if (mode === 'card') return [shellToolName, 'str_replace_editor', 'skill', 'tavern_save_skill', 'tavern_read_card', 'tavern_read_card_raw', 'tavern_read_worldbook', 'tavern_read_boundary_prompt', 'tavern_update_boundary_prompt', 'tavern_update_card', 'tavern_restore_card']
     return []
   }
 

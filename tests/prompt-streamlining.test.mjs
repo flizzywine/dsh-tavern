@@ -68,10 +68,10 @@ test('卡片 Agent 以极简模式工具为底座，游玩 Agent 不暴露文件
   assert.match(serverSource, /text: prompt\(mode === 'card' \? 'card-mode' : 'play-mode'\)/)
   assert.match(serverSource, /resourceWorkspaceContext\(agent\.session\.header && agent\.session\.header\.cwd\)/)
   assert.match(serverSource, /name: 'tavern:resource-workspace'/)
-  assert.match(orchestratorSource, /if \(mode === 'card'\) return \[shellToolName, 'str_replace_editor', 'skill', 'tavern_save_skill', 'tavern_read_card', 'tavern_read_worldbook', 'tavern_read_boundary_prompt', 'tavern_update_boundary_prompt', 'tavern_update_card', 'tavern_restore_card'\]/)
+  assert.match(orchestratorSource, /if \(mode === 'card'\) return \[shellToolName, 'str_replace_editor', 'skill', 'tavern_save_skill', 'tavern_read_card', 'tavern_read_card_raw', 'tavern_read_worldbook', 'tavern_read_boundary_prompt', 'tavern_update_boundary_prompt', 'tavern_update_card', 'tavern_restore_card'\]/)
   assert.doesNotMatch(orchestratorSource, /mode === 'revision'|mode === 'extract'/)
   assert.doesNotMatch(orchestratorSource, /if \(mode === 'script'\) return \[[^\]]*'bash'/)
-  assert.match(serverSource, /controlledToolNames = new Set\(\['bash', 'pwsh', 'str_replace_editor', 'skill', 'tavern_save_skill', 'tavern_read_card', 'tavern_read_script', 'tavern_read_worldbook', 'tavern_read_boundary_prompt', 'tavern_update_boundary_prompt', 'tavern_update_card', 'tavern_restore_card'\]\)/)
+  assert.match(serverSource, /controlledToolNames = new Set\(\['bash', 'pwsh', 'str_replace_editor', 'skill', 'tavern_save_skill', 'tavern_read_card', 'tavern_read_card_raw', 'tavern_read_script', 'tavern_read_worldbook', 'tavern_read_boundary_prompt', 'tavern_update_boundary_prompt', 'tavern_update_card', 'tavern_restore_card'\]\)/)
   assert.match(serverSource, /name: 'tavern_save_skill'/)
   assert.doesNotMatch(serverSource, /name: 'tavern_bind_script'/)
 })
@@ -153,13 +153,13 @@ test('游玩固定选择一个开场白，并用它对齐剧本', () => {
   const startChat = between(serverSource, 'async function startChat', 'async function appendNativeOpening')
   const appendOpening = between(serverSource, 'async function appendNativeOpening', 'async function scriptPreviewOf')
 
-  assert.match(startChat, /resolveCardOpening\(card\)/)
+  assert.match(startChat, /resolveCardOpening\(card, openingId\)/)
   assert.match(startChat, /chat\.openingText = greeting/)
   assert.match(startChat, /startAligned\(script, greeting, card\.script_start\)/)
   assert.match(startChat, /text: greeting.*greeting: true/)
   assert.match(appendOpening, /typeof chat\.openingText === 'string'/)
   assert.match(appendOpening, /text = chat\.openingText/)
-  assert.doesNotMatch(serverSource, /switchOpening|openingViewOf|openingId|switchable: !hasStory/)
+  assert.doesNotMatch(serverSource, /switchOpening|openingViewOf|switchable: !hasStory/)
 })
 
 test('新会话在落盘前等待 DSH Agent 可写，避免留下半初始化对话', () => {

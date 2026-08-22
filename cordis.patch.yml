@@ -1,4 +1,10 @@
 # 独立酒馆 Profile：端口由 CLI 或 Desktop 宿主管理。
+- id: session-persistence-jsonl
+  config:
+    root: !!js dshHomePath('profile-data', 'tavern', 'sessions')
+- id: storage-json
+  config:
+    root: !!js dshHomePath('profile-data', 'tavern', 'storages')
 - id: bash-sandbox
   config:
     timeoutMs: 600000

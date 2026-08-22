@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
@@ -131,6 +131,32 @@ test('读取旧工作区人物卡不会改写其中的宏', async () => {
   } finally { await rm(root, { recursive: true, force: true }) }
 })
 
+test('旧工作版首次迁移时合并原版 raw，并备份迁移前文件', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-files-'))
+  try {
+    const cards = createCardPreparation({ id: () => 'migrated-card', now: () => 789 })
+    const store = createFileResourceStore({ dataRoot: root })
+    const original = {
+      spec: 'chara_card_v3', spec_version: '3.0',
+      data: { name: '原名', description: '原始描述', extensions: { regex_scripts: [{ scriptName: '状态栏' }] } }
+    }
+    const cardPath = await store.importCard({ name: '迁移卡.json', text: JSON.stringify(original) }, { name: '原名', description: '原始描述' })
+    await store.writeWorking(cardPath, JSON.stringify({ name: '新名', description: '用户修改', importedAt: 123 }))
+
+    const migrated = await store.ensureCardWorkspace(cardPath, function (working, payload) {
+      return cards.migrate({ working, payload })
+    })
+    assert.equal(cards.project(migrated).name, '新名')
+    assert.equal(migrated.raw.data.description, '用户修改')
+    assert.deepEqual(migrated.raw.data.extensions, original.data.extensions)
+    assert.equal(migrated.meta.importedAt, 123)
+    const recovery = await readdir(path.join(root, 'recovery', 'cards'))
+    assert.equal(recovery.length, 1)
+    assert.match(await readFile(path.join(root, 'recovery', 'cards', recovery[0]), 'utf8'), /用户修改/)
+    assert.equal(await readFile(path.join(root, 'originals', cardPath), 'utf8'), JSON.stringify(original))
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
+
 test('从 JSON 原版恢复人物卡前备份当前工作版', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-files-'))
   try {
@@ -144,8 +170,8 @@ test('从 JSON 原版恢复人物卡前备份当前工作版', async () => {
       return cards.create({ kind: 'import', payload })
     })
 
-    assert.equal((await store.readCard(cardPath)).name, '原版角色')
-    assert.equal((await store.readCard(cardPath)).description, '原始设定')
+    assert.equal(cards.project(await store.readCard(cardPath)).name, '原版角色')
+    assert.equal(cards.project(await store.readCard(cardPath)).description, '原始设定')
     assert.match(await readFile(path.join(root, restored.backupPath), 'utf8'), /灾难性错误/)
     assert.equal(await readFile(path.join(root, 'originals', cardPath), 'utf8'), JSON.stringify(original))
   } finally { await rm(root, { recursive: true, force: true }) }
@@ -166,8 +192,8 @@ test('PNG 原版恢复时重新提取内嵌人物卡数据', async () => {
       return cards.create({ kind: 'import', payload })
     })
 
-    assert.equal((await store.readCard(cardPath)).name, 'PNG角色')
-    assert.equal((await store.readCard(cardPath)).description, 'PNG原始设定')
+    assert.equal(cards.project(await store.readCard(cardPath)).name, 'PNG角色')
+    assert.equal(cards.project(await store.readCard(cardPath)).description, 'PNG原始设定')
     assert.deepEqual(await readFile(path.join(root, 'originals/cards/PNG角色.png')), png)
   } finally { await rm(root, { recursive: true, force: true }) }
 })

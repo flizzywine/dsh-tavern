@@ -137,6 +137,46 @@ export function createFileResourceStore(options = {}) {
     await writeFile(target, data)
   }
 
+  async function originalCardPayload(normalized) {
+    const stem = path.posix.basename(normalized, path.posix.extname(normalized))
+    const originalDir = path.dirname(absolute(normalized, true))
+    let entries
+    try { entries = await readdir(originalDir, { withFileTypes: true }) } catch (error) {
+      if (error && error.code === 'ENOENT') return null
+      throw error
+    }
+    const candidates = entries.filter(function (entry) {
+      if (!entry.isFile() || path.basename(entry.name, path.extname(entry.name)) !== stem) return false
+      const extension = path.extname(entry.name).toLowerCase()
+      return extension === '.json' || extension === '.png'
+    })
+    if (candidates.length === 0) return null
+    if (candidates.length > 1) throw new Error('人物卡存在多个原版，无法确定来源: ' + candidates.map(function (entry) { return entry.name }).join('、'))
+    const originalName = candidates[0].name
+    const originalData = await readFile(path.join(originalDir, originalName))
+    return path.extname(originalName).toLowerCase() === '.png'
+      ? pngCardPayload(originalData, originalName)
+      : { kind: 'text', name: originalName, text: originalData.toString('utf8') }
+  }
+
+  async function ensureCardWorkspace(relative, migrate) {
+    const normalized = normalizeResourcePath(relative, 'card')
+    if (typeof migrate !== 'function') throw new Error('缺少人物卡工作区迁移器')
+    const workingPath = absolute(normalized)
+    const currentText = await readFile(workingPath, 'utf8')
+    const current = JSON.parse(currentText)
+    const next = await migrate(current, await originalCardPayload(normalized))
+    if (JSON.stringify(next) === JSON.stringify(current)) return current
+    const stem = path.posix.basename(normalized, path.posix.extname(normalized))
+    const backupName = stem + '-before-workspace-migration-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8) + '.json'
+    await writeNew(path.join(dataRoot, 'recovery', 'cards', backupName), currentText)
+    try { await writeFile(workingPath, JSON.stringify(next, null, 2)) } catch (error) {
+      try { await writeFile(workingPath, currentText) } catch {}
+      throw error
+    }
+    return next
+  }
+
   async function restoreCard(relative, prepare) {
     const normalized = normalizeResourcePath(relative, 'card')
     if (typeof prepare !== 'function') throw new Error('缺少原版人物卡解析器')
@@ -148,21 +188,8 @@ export function createFileResourceStore(options = {}) {
     }
 
     const stem = path.posix.basename(normalized, path.posix.extname(normalized))
-    const originalDir = path.dirname(absolute(normalized, true))
-    const candidates = (await readdir(originalDir, { withFileTypes: true })).filter(function (entry) {
-      if (!entry.isFile() || path.basename(entry.name, path.extname(entry.name)) !== stem) return false
-      const extension = path.extname(entry.name).toLowerCase()
-      return extension === '.json' || extension === '.png'
-    })
-    if (candidates.length === 0) throw new Error('找不到人物卡原版: ' + normalized)
-    if (candidates.length > 1) throw new Error('人物卡存在多个原版，无法确定恢复来源: ' + candidates.map(function (entry) { return entry.name }).join('、'))
-
-    const originalName = candidates[0].name
-    const originalPath = path.join(originalDir, originalName)
-    const originalData = await readFile(originalPath)
-    const payload = path.extname(originalName).toLowerCase() === '.png'
-      ? pngCardPayload(originalData, originalName)
-      : { kind: 'text', name: originalName, text: originalData.toString('utf8') }
+    const payload = await originalCardPayload(normalized)
+    if (payload === null) throw new Error('找不到人物卡原版: ' + normalized)
     const restored = await prepare(payload)
     if (restored === null || typeof restored !== 'object' || Array.isArray(restored)) throw new Error('原版人物卡解析结果无效')
     const saved = clone(restored)
@@ -178,7 +205,7 @@ export function createFileResourceStore(options = {}) {
       try { await writeFile(workingPath, current) } catch {}
       throw error
     }
-    return { card: saved, originalPath: 'originals/cards/' + originalName, backupPath: backupRelative }
+    return { card: saved, originalPath: 'originals/cards/' + payload.name, backupPath: backupRelative }
   }
 
   async function readText(relative) {
@@ -268,7 +295,7 @@ export function createFileResourceStore(options = {}) {
 
   async function importCard(payload, card) {
     await ensure()
-    const rawName = safeResourceName(payload && payload.name || card.name + '.json')
+    const rawName = safeResourceName(payload && payload.name || '未命名人物卡.json')
     const workingName = path.parse(rawName).name + '.json'
     const relative = 'cards/' + workingName
     const originalName = payload && payload.kind === 'png' ? path.parse(rawName).name + '.png' : workingName
@@ -638,5 +665,5 @@ export function createFileResourceStore(options = {}) {
     return result
   }
 
-  return Object.freeze({ absolute, bindMaterial, cardsForMaterial, ensure, importCard, importText, list, migrateLegacy, readCard, readText, remove, rename: renameResource, replaceScript, restoreCard, scriptForCard, unbindMaterial, writeWorking })
+  return Object.freeze({ absolute, bindMaterial, cardsForMaterial, ensure, ensureCardWorkspace, importCard, importText, list, migrateLegacy, readCard, readText, remove, rename: renameResource, replaceScript, restoreCard, scriptForCard, unbindMaterial, writeWorking })
 }

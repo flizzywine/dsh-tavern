@@ -61,13 +61,21 @@ test('Tavern no longer bundles dsh-codex-connect and removes it from existing pr
 })
 
 test('Tavern profile installs Better Sidebar as its right-panel foundation', () => {
-  assert.equal(rootManifest.dependencies['dsh-better-sidebar'], '0.14.0')
+  assert.equal(rootManifest.dependencies['dsh-better-sidebar'], '0.15.0')
   assert.ok(rootManifest.dsh.profile.bundles.includes('dsh-better-sidebar'))
   assert.match(launcherSource, /'dsh-better-sidebar': source\.dependencies\['dsh-better-sidebar'\]/)
 })
 
 test('Tavern profile does not auto-install Better Sidebar peer dependencies over DSH built-ins', () => {
   assert.match(profileWorkspace, /^autoInstallPeers:\s*false$/m)
+})
+
+test('Tavern profile isolates conversations from other DSH profiles on fresh installs', () => {
+  assert.match(profilePatch, /id: session-persistence-jsonl[\s\S]*dshHomePath\('profile-data', 'tavern', 'sessions'\)/)
+  assert.match(profilePatch, /id: storage-json[\s\S]*dshHomePath\('profile-data', 'tavern', 'storages'\)/)
+  assert.match(launcherSource, /copyFileSync\(path\.join\(SOURCE_ROOT, 'cordis\.patch\.yml'\), path\.join\(PROFILE_DIR, 'cordis\.patch\.yml'\)\)/)
+  assert.match(unixInstaller, /node "\$\{APP_DIR\}\/bin\/dsh-tavern\.mjs" install --host "\$\{INSTALL_HOST\}"/)
+  assert.match(windowsInstaller, /Join-Path \$AppDir 'bin\\dsh-tavern\.mjs'\) install --host \$InstallHost/)
 })
 
 test('Tavern sidebar defaults enable resource tabs, Files and text previews', () => {
