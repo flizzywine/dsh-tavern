@@ -86,6 +86,9 @@ mkdir -p "${APP_DIR}"
 # 覆盖程序文件但不删除旧目录，因此未被发布包跟踪的 data/ 用户数据会保留。
 cp -R "${SOURCE_DIR}/." "${APP_DIR}/"
 
+echo "正在安装程序依赖……"
+pnpm --dir "${APP_DIR}" install --frozen-lockfile
+
 echo "正在配置 Tavern……"
 DSH_HOME=${DSH_ROOT} node "${APP_DIR}/bin/dsh-tavern.mjs" install --host "${INSTALL_HOST}"
 

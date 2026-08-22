@@ -100,6 +100,10 @@ try {
   # 覆盖程序文件但不删除旧目录，因此未被发布包跟踪的 data\ 用户数据会保留。
   Get-ChildItem -LiteralPath $SourceDir.FullName -Force | Copy-Item -Destination $AppDir -Recurse -Force
 
+  Write-Host '正在安装程序依赖……'
+  & $PnpmCommand --dir $AppDir install --frozen-lockfile
+  Assert-LastCommand '程序依赖安装失败。'
+
   Write-Host '正在配置 Tavern……'
   & node (Join-Path $AppDir 'bin\dsh-tavern.mjs') install --host $InstallHost
   Assert-LastCommand 'Tavern profile 安装失败。'

@@ -182,6 +182,18 @@ test('Desktop 安装复用内置运行时，不启动独立 3081 服务', () => 
   assert.match(launcherSource, /请重启 DSH Desktop/)
 })
 
+test('一键安装先安装下载包依赖，再运行 Tavern 安装器', () => {
+  const unixDependencies = unixInstaller.indexOf('pnpm --dir "${APP_DIR}" install --frozen-lockfile')
+  const unixLauncher = unixInstaller.indexOf('node "${APP_DIR}/bin/dsh-tavern.mjs" install')
+  assert.ok(unixDependencies >= 0)
+  assert.ok(unixDependencies < unixLauncher)
+
+  const windowsDependencies = windowsInstaller.indexOf('& $PnpmCommand --dir $AppDir install --frozen-lockfile')
+  const windowsLauncher = windowsInstaller.indexOf("& node (Join-Path $AppDir 'bin\\dsh-tavern.mjs') install")
+  assert.ok(windowsDependencies >= 0)
+  assert.ok(windowsDependencies < windowsLauncher)
+})
+
 test('共享 Profile 不固定端口，CLI Adapter 启动时显式使用 3081', () => {
   assert.doesNotMatch(profilePatch, /^\s*(?:host|port):/m)
   assert.match(launcherSource, /spawn\(dsh, \['--profile', PROFILE, '--host', CLI_HOST, '--port', String\(CLI_PORT\), '--no-open'\]/)
