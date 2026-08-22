@@ -12,6 +12,7 @@ import {
   extractDshVersion,
   isPortOpen,
   parseInstallHost,
+  parseUpdateOptions,
   renderWindowsLauncher,
 } from '../bin/dsh-tavern.mjs'
 
@@ -47,6 +48,17 @@ test('从 CLI 输出识别 DSH 预发布版本', () => {
 test('Windows update script carries a UTF-8 BOM for Windows PowerShell 5.1', () => {
   assert.equal(encodeWindowsPowerShellScript("Write-Host '模型设置'"), "\uFEFFWrite-Host '模型设置'")
   assert.equal(encodeWindowsPowerShellScript("\uFEFFWrite-Host '模型设置'"), "\uFEFFWrite-Host '模型设置'")
+})
+
+test('UI 更新参数明确传递宿主、状态文件和启动延迟', () => {
+  assert.deepEqual(parseUpdateOptions(['--host', 'desktop', '--status-file', '/tmp/update.json', '--delay=800']), {
+    host: 'desktop',
+    statusFile: '/tmp/update.json',
+    delay: 800,
+  })
+  assert.deepEqual(parseUpdateOptions([]), { host: 'cli', statusFile: '', delay: 0 })
+  assert.throws(() => parseUpdateOptions(['--host', 'other']), /不支持的安装宿主/)
+  assert.throws(() => parseUpdateOptions(['--status-file', 'relative.json']), /绝对路径/)
 })
 
 test('Windows installer compares Node versions without native argument quoting', () => {
@@ -200,6 +212,10 @@ test('一键安装直接启动 Tavern，不通过包管理器托管后台进程'
 
   assert.match(windowsInstaller, /& node \(Join-Path \$AppDir 'bin\\dsh-tavern\.mjs'\) start/)
   assert.doesNotMatch(windowsInstaller, /& \$PnpmCommand --dir \$AppDir run start:tavern/)
+})
+
+test('命令行启动器向共享 Profile 标记当前运行宿主', () => {
+  assert.match(launcherSource, /DSH_TAVERN_RUNTIME_HOST: 'cli'/)
 })
 
 test('共享 Profile 不固定端口，CLI Adapter 启动时显式使用 3081', () => {

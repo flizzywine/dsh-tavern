@@ -69,6 +69,32 @@ test('完整 raw 是可编辑工作数据，未知扩展在投影、修改和导
   assert.deepEqual(exported.data.extensions, source.data.extensions)
 })
 
+test('人物卡详情用稳定投影展示字段，同时从完整工作 raw 解析扩展', () => {
+  const cards = moduleUnderTest()
+  const workspace = cards.create({
+    kind: 'import',
+    payload: {
+      spec: 'chara_card_v3',
+      spec_version: '3.0',
+      data: {
+        name: '命运',
+        description: '稳定字段',
+        extensions: {
+          regex_scripts: [{ scriptName: '状态栏', findRegex: '/<status>/', replaceString: '<aside>' }],
+          depth_prompt: { depth: 4, role: 'system', prompt: '保持设定' }
+        }
+      }
+    }
+  })
+
+  const detail = cards.present({ card: workspace, as: 'detail' })
+
+  assert.equal(detail.name, '命运')
+  assert.equal(detail.description, '稳定字段')
+  assert.equal(detail.extensions.regexScripts.length, 1)
+  assert.deepEqual(detail.extensions.otherExtensions.map((item) => item.name), ['depth_prompt'])
+})
+
 test('raw 扩展按 JSON Pointer 分段读取并做最小修改', () => {
   const cards = moduleUnderTest()
   const workspace = cards.create({

@@ -139,6 +139,22 @@ test('酒馆状态页注册到 Better Sidebar，不再接管 DSH details', () =>
   assert.doesNotMatch(clientSource, /slots\.inject\("details"|openDetails|ensureDetailsOpen/)
 })
 
+test('左侧栏提供一键更新并展示 CLI 与 Desktop 的不同完成提示', () => {
+  const sidebar = between(clientSource, 'function TavernSidebar', 'function TavernResourcesTab')
+
+  assert.match(sidebar, /call\("getUpdateStatus"/)
+  assert.match(sidebar, /call\("startUpdate"/)
+  assert.match(sidebar, /更新到最新版/)
+  assert.match(sidebar, /更新期间会短暂断开/)
+  assert.match(sidebar, /请重启 DSH Desktop/)
+  assert.match(sidebar, /更新完成，请刷新页面/)
+  assert.match(sidebar, /未知方法:\s*getUpdateStatus/)
+  assert.match(sidebar, /请重启 DSH Desktop 以加载新版插件/)
+  assert.match(sidebar, /重启 Desktop 后可用/)
+  assert.match(serverSource, /case 'getUpdateStatus'/)
+  assert.match(serverSource, /case 'startUpdate'/)
+})
+
 test('破甲侧栏只负责文件查看、选择、删除和当前会话开关', () => {
   const panel = between(clientSource, 'function BoundaryPromptTab', 'function TavernStatusPanel')
 
@@ -218,6 +234,17 @@ test('人物卡库可以查看详情，并在当前卡片对话中引用人物�
   assert.match(clientSource, /loadCard\(requestedPath\)/)
 })
 
+test('删除对话时把缺失 Session 视为已经归档，并继续清理 Tavern 对话', () => {
+  const sidebar = between(clientSource, 'function TavernSidebar', 'function TavernResourcesTab')
+  const deletion = between(sidebar, 'async function deleteConversation', 'async function exportCard')
+
+  assert.match(sidebar, /function isMissingSessionArchiveError\(error\)/)
+  assert.match(deletion, /catch \(archiveError\)/)
+  assert.match(deletion, /if \(!isMissingSessionArchiveError\(archiveError\)\) throw archiveError/)
+  assert.ok(deletion.indexOf('props.archiveSession(item.sessionId)') < deletion.indexOf('call("deleteChat", { chatId: item.chatId })'))
+  assert.match(deletion, /props\.sessions\.clear\(\)/)
+})
+
 test('人物卡库通过列表进入详情并复用基本信息、剧本和世界书编辑', () => {
   assert.match(clientSource, /id: "dsh-tavern:cards",\s*title: "人物卡库"/)
   assert.match(clientSource, /function CardLibraryTab/)
@@ -228,6 +255,8 @@ test('人物卡库通过列表进入详情并复用基本信息、剧本和世�
   assert.match(clientSource, /"导入新资料并绑定"/)
   assert.match(serverSource, /Object\.assign\(\{\}, info, \{ path: script\.path \}\)/)
   assert.match(clientSource, /className: "dsh-tavern-script-hero"/)
+  assert.match(clientSource, /h\("details", \{ className: "dsh-tavern-script-hero" \}/)
+  assert.match(clientSource, /script \? \("剧本模式 · " \+ script\.title\) : "剧本模式 · 未绑定"/)
   assert.match(clientSource, /绑定剧本后，新开的游玩对话会自动进入剧本模式/)
   assert.match(clientSource, /更换或解绑会影响所有使用这张人物卡的剧本对话/)
   assert.match(clientSource, /"世界书 · " \+ activeWorldBookEntries\.length/)

@@ -479,6 +479,9 @@ export function createCardPreparation(options = {}) {
     editable.character_book = clone(card.character_book || null)
     if (request.as === 'editable') return editable
     if (request.as === 'view') return Object.assign({ id: card.id }, editable)
+    if (request.as === 'detail') {
+      return Object.assign({ id: card.id }, editable, { extensions: inspectCardExtensions(request.card) })
+    }
     if (request.as === 'raw' || request.as === 'sillytavern-v3') return clone(rawOf(request.card))
     throw new Error('未知人物卡展示类型: ' + str(request.as))
   }

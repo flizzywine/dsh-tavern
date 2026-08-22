@@ -48,6 +48,12 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 .dsh-tavern-side-row-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
 .dsh-tavern-side-row-meta { margin-top: 3px; display: flex; gap: 6px; color: var(--dsw-alias-label-secondary); font-size: 11px; }
 .dsh-tavern-side-empty { padding: 18px 8px; color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 1.6; text-align: center; }
+.dsh-tavern-update { flex: none; margin-top: 8px; padding-top: 9px; border-top: 1px solid var(--dsw-alias-border-l2); }
+.dsh-tavern-update-button { width: 100%; height: 32px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; background: transparent; color: var(--dsw-alias-label-secondary); cursor: pointer; font-size: 11px; }
+.dsh-tavern-update-button:hover { border-color: #a66b35; color: #a66b35; background: rgba(166,107,53,.08); }
+.dsh-tavern-update-button:disabled { opacity: .55; cursor: default; }
+.dsh-tavern-update-status { margin-top: 5px; color: var(--dsw-alias-label-tertiary); font-size: 10px; line-height: 1.45; white-space: pre-wrap; }
+.dsh-tavern-update-status.error { color: #c45f5f; }
 .dsh-tavern-picker-overlay { position: fixed; z-index: 1000; inset: 0; display: flex; align-items: center; justify-content: center; box-sizing: border-box; padding: 24px; background: rgba(20,18,24,.42); backdrop-filter: blur(2px); }
 .dsh-tavern-card-picker { width: min(860px, calc(100vw - 48px)); max-height: min(80vh, 760px); overflow: auto; box-sizing: border-box; padding: 20px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 16px; background: var(--dsw-specific-sidebar-fill); box-shadow: 0 22px 64px rgba(0,0,0,.30); }
 .dsh-tavern-card-picker-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-weight: 700; }
@@ -232,7 +238,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 .dsh-tavern-script-info { flex: 1; min-width: 150px; line-height: 1.5; }
 .dsh-tavern-script-info b { color: #a66b35; }
 .dsh-tavern-script-hero { flex: none; margin: 10px 12px 0; padding: 12px; border: 1px solid rgba(166,107,53,.48); border-radius: 11px; background: rgba(166,107,53,.10); }
-.dsh-tavern-script-hero-title { color: #9a622f; font-size: 13px; font-weight: 800; }
+.dsh-tavern-script-hero-title { color: #9a622f; font-size: 13px; font-weight: 800; cursor: pointer; }
 .dsh-tavern-script-hero-help { margin-top: 6px; color: var(--dsw-alias-label-secondary); font-size: 11px; line-height: 1.6; }
 .dsh-tavern-script-hero .dsh-tavern-script-row { border-top-color: rgba(166,107,53,.28); }
 .dsh-tavern-script-primary { border: 0; border-radius: 8px; padding: 6px 10px; background: #a66b35; color: #fff; cursor: pointer; font-size: 11px; font-weight: 700; }
@@ -374,12 +380,16 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const [cardEntry, setCardEntry] = React.useState("");
 			const [openingPicker, setOpeningPicker] = React.useState(null);
 			const [menuSession, setMenuSession] = React.useState(null);
+			const [updateStatus, setUpdateStatus] = React.useState({ phase: "loading", host: "cli" });
 			const lastModeSession = React.useRef(null);
 			const fileRef = React.useRef(null);
 			const currentSummary = current ? summaries[current] : null;
 			const readyTavernSession = current && summaries[current] && summaries[current].blank === false && history.some(function (entry) { return entry.sessionId === current && isPlayMode(entry.mode); }) ? current : "";
 			const readyCardSession = current && summaries[current] && summaries[current].blank === false && history.some(function (entry) { return entry.sessionId === current && entry.mode === "card"; }) ? current : "";
 			function call(method, args) { return rpc(method, args); }
+			function isMissingUpdateApiError(error) {
+				return String(error && error.message || error || "").indexOf("未知方法: getUpdateStatus") >= 0;
+			}
 			function notifyDataChanged() {
 				window.dispatchEvent(new CustomEvent("dsh-tavern-data-changed"));
 			}
@@ -394,6 +404,24 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				window.addEventListener("dsh-tavern-data-changed", onData);
 				const timer = window.setInterval(refresh, 4000);
 				return function () { window.clearInterval(timer); window.removeEventListener("dsh-tavern-data-changed", onData); };
+			}, []);
+			React.useEffect(function () {
+				let stopped = false;
+				let received = false;
+				async function refreshUpdateStatus() {
+					try {
+						const result = await call("getUpdateStatus");
+						if (!stopped && result && result.status) { received = true; setUpdateStatus(result.status); }
+					} catch (err) {
+						if (!stopped && !received) {
+							if (isMissingUpdateApiError(err)) setUpdateStatus({ phase: "restart-required", host: "desktop" });
+							else setUpdateStatus({ phase: "failed", host: "cli", error: String(err && err.message || err) });
+						}
+					}
+				}
+				refreshUpdateStatus();
+				const timer = window.setInterval(refreshUpdateStatus, 2500);
+				return function () { stopped = true; window.clearInterval(timer); };
 			}, []);
 			React.useEffect(function () {
 				if (!currentSummary || currentSummary.blank) return;
@@ -543,16 +571,23 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				catch (err) { setError(String(err && err.message || err)); }
 				finally { setBusy(false); }
 			}
+			function isMissingSessionArchiveError(error) {
+				const message = String(error && error.message || error || "").toLowerCase();
+				return message.indexOf("session-not-found") >= 0 || (message.indexOf("cannot archive session") >= 0 && message.indexOf("no such session") >= 0);
+			}
 			async function deleteConversation(item, currentTitle) {
 				setMenuSession(null);
 				if (!window.confirm("确定删除对话“" + (currentTitle || item.cardName + "的新对话") + "”吗？\n删除后将从酒馆历史中移除。")) return;
 				setBusy(true); setError("");
 				try {
-					await props.archiveSession(item.sessionId);
+					try { await props.archiveSession(item.sessionId); }
+					catch (archiveError) { if (!isMissingSessionArchiveError(archiveError)) throw archiveError; }
 					await call("deleteChat", { chatId: item.chatId });
-					const next = history.filter(function (entry) { return entry.sessionId !== item.sessionId && groupOfMode(entry.mode) === uiMode; })[0];
-					if (next) props.sessions.open(next.sessionId);
-					else { props.sessions.clear(); openPicker("cards"); }
+					if (current === item.sessionId) {
+						const next = history.filter(function (entry) { return entry.sessionId !== item.sessionId && groupOfMode(entry.mode) === uiMode; })[0];
+						if (next) props.sessions.open(next.sessionId);
+						else { props.sessions.clear(); openPicker("cards"); }
+					}
 					await refresh();
 				} catch (err) { setError(String(err && err.message || err)); }
 				finally { setBusy(false); }
@@ -567,6 +602,16 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					document.body.appendChild(a); a.click(); a.remove();
 					URL.revokeObjectURL(url);
 				} catch (err) { setError(String(err && err.message || err)); }
+			}
+			async function startUpdate() {
+				if (!window.confirm("更新期间会短暂断开，人物卡、资料和对话数据不会受到影响。\n确定更新到 GitHub 最新版吗？")) return;
+				setUpdateStatus({ phase: "running", host: updateStatus.host || "cli", startedAt: Date.now() });
+				try {
+					const result = await call("startUpdate");
+					if (result && result.status) setUpdateStatus(result.status);
+				} catch (err) {
+					setUpdateStatus({ phase: "failed", host: updateStatus.host || "cli", error: String(err && err.message || err) });
+				}
 			}
 			const h = React.createElement;
 			if (collapsed) return h("div", { className: "dsh-tavern-sidebar collapsed" },
@@ -610,7 +655,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				h("input", { ref: fileRef, type: "file", accept: ".png,.json", style: { display: "none" }, onChange: function (e) { const f = e.target.files && e.target.files[0]; if (f) importCard(f); e.target.value = ""; } }),
 				cards.length ? h(React.Fragment, null, h("div", { className: "dsh-tavern-side-empty", style: { padding: "4px 6px" } }, "已绑定剧本的人物卡将自动按剧本推进；未绑定的按自由故事推进。剧本绑定在“卡片模式”中管理。"), cards.map(function (card) { return h("div", { key: card.path, className: "dsh-tavern-card-pick-wrap" },
 					h("button", { className: "dsh-tavern-card-pick", disabled: busy, onClick: function () { preparePlayConversation(card); } }, h("b", null, card.name), h("span", null, card.script ? ("剧本：" + card.script.title + " · " + card.script.chunkCount + " 块") : "自由故事（未绑定剧本）")),
-					h("button", { className: "dsh-tavern-script-file", disabled: busy, title: "删除人物卡及其所有对话", onClick: function () { if (window.confirm("删除人物卡“" + card.name + "”吗？\n工作版、原版及相关对话都会删除。")) call("deleteCard", { path: card.path }).then(refresh, function (err) { setError(String(err && err.message || err)); }); } }, "删除"),
+					h("button", { className: "dsh-tavern-script-file", disabled: busy, title: "从人物卡库删除", onClick: function () { if (window.confirm("从人物卡库删除“" + card.name + "”吗？\n人物卡工作版和原版都会删除，已有对话会保留。")) call("deleteCard", { path: card.path }).then(refresh, function (err) { setError(String(err && err.message || err)); }); } }, "删除"),
 					h("button", { className: "dsh-tavern-script-file", disabled: busy, title: "导出为 SillyTavern 兼容 JSON", onClick: function () { exportCard(card); } }, "导出")
 				); })) : h("div", { className: "dsh-tavern-empty" }, "还没有人物卡。\n点“导入人物卡”添加 PNG/JSON 卡片。")
 			));
@@ -645,6 +690,15 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					h("button", { className: "dsh-tavern-card-pick", disabled: busy, onClick: function () { newCardConversation(null); } }, h("b", null, "空白开始"), h("span", null, "不追加任务提示词，自由使用完整卡片 Agent"))
 				)
 			);
+			const updateMessage = updateStatus.phase === "running"
+				? "正在下载并安装，期间页面可能暂时断开…"
+				: updateStatus.phase === "restart-required"
+					? "请重启 DSH Desktop 以加载新版插件。"
+				: updateStatus.phase === "completed"
+					? (updateStatus.host === "desktop" ? "更新完成，请重启 DSH Desktop。" : "更新完成，请刷新页面。")
+					: updateStatus.phase === "failed"
+						? (updateStatus.error || "更新失败，请稍后重试。")
+						: (updateStatus.host === "desktop" ? "Desktop 版 · 仅更新 dsh-tavern" : "命令行版 · 仅更新 dsh-tavern");
 			return h("div", { className: "dsh-tavern-sidebar", style: { position: "relative", width: props.embedded ? "100%" : props.width + "px" } },
 				h("div", { className: "dsh-tavern-side-head" }, h("div", { className: "dsh-tavern-side-brand" }, "🍺 DSH Tavern"), props.embedded ? null : h("button", { className: "dsh-tavern-side-icon", title: "收起侧栏", onClick: props.toggleSidebar }, "◧")),
 				h("div", { className: "dsh-tavern-mode-switch" }, h("button", { className: uiMode === "play" ? "active" : "", onClick: function () { switchMode("play"); } }, "游玩"), h("button", { className: uiMode === "card" ? "active" : "", onClick: function () { switchMode("card"); } }, "卡片")),
@@ -652,6 +706,10 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				h("div", { className: "dsh-tavern-side-title" }, uiMode === "play" ? "游玩历史" : "卡片历史"),
 				h("div", { className: "dsh-tavern-side-list" }, rows.length ? rows : h("div", { className: "dsh-tavern-side-empty" }, uiMode === "play" ? "还没有游玩对话。\n选择人物卡开始；绑定剧本的卡会按剧本推进。" : "还没有卡片工作台对话。\n可以空白开始，再按需添加人物卡和资料。")),
 				error ? h("div", { className: "dsh-tavern-dock-error" }, error) : null,
+				h("div", { className: "dsh-tavern-update" },
+					h("button", { className: "dsh-tavern-update-button", disabled: updateStatus.phase === "running" || updateStatus.phase === "loading" || updateStatus.phase === "restart-required", onClick: startUpdate }, updateStatus.phase === "running" ? "正在更新…" : (updateStatus.phase === "restart-required" ? "重启 Desktop 后可用" : "更新到最新版")),
+					h("div", { className: "dsh-tavern-update-status" + (updateStatus.phase === "failed" ? " error" : "") }, updateMessage)
+				),
 				picking ? h("div", { className: "dsh-tavern-picker-overlay", onMouseDown: function (event) { if (event.target === event.currentTarget) closePicker(); } }, uiMode === "play" ? playPicker : cardPicker) : null
 			);
 		}
@@ -902,7 +960,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				finally { setBusy(false); }
 			}
 			async function deleteCardFile() {
-				if (!card || !window.confirm("删除人物卡“" + card.name + "”吗？\n工作版、原版及相关对话都会删除。")) return;
+				if (!card || !window.confirm("从人物卡库删除“" + card.name + "”吗？\n人物卡工作版和原版都会删除，已有对话会保留。")) return;
 				setBusy(true); setError("");
 				try { await rpc("deleteCard", { path: card.path }); setSelectedPath(""); setCard(null); window.dispatchEvent(new CustomEvent("dsh-tavern-data-changed")); await refreshCards(); }
 				catch (err) { setError(String(err && err.message || err)); }
@@ -1198,8 +1256,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				h("button", { className: "dsh-tavern-script-file", disabled: scriptBusy, onClick: function () { scriptFileRef.current && scriptFileRef.current.click(); } }, "导入新资料并绑定"),
 				script ? h("button", { className: "dsh-tavern-script-file", disabled: scriptBusy, onClick: deleteScript }, "解绑") : null
 			);
-			const scriptHero = h("section", { className: "dsh-tavern-script-hero" },
-				h("div", { className: "dsh-tavern-script-hero-title" }, "剧本模式"),
+			const scriptHero = h("details", { className: "dsh-tavern-script-hero" },
+				h("summary", { className: "dsh-tavern-script-hero-title" }, script ? ("剧本模式 · " + script.title) : "剧本模式 · 未绑定"),
 				h("div", { className: "dsh-tavern-script-hero-help" }, "绑定剧本后，新开的游玩对话会自动进入剧本模式。Agent 按剧情进度分段读取当前片段并围绕它续写，每轮完成后推进阅读位置；不会一次载入整本剧本，也不要求玩家照原文行动。更换或解绑会影响所有使用这张人物卡的剧本对话。"),
 				scriptPanel,
 				scriptError ? h("div", { className: "dsh-card-error" }, scriptError) : null

@@ -381,7 +381,8 @@ export function createFileResourceStore(options = {}) {
 
   async function remove(relative) {
     const normalized = normalizeResourcePath(relative)
-    if (resourceKind(normalized) === 'source') {
+    const kind = resourceKind(normalized)
+    if (kind === 'source') {
       const boundCards = await cardsForMaterial(normalized)
       if (boundCards.length) throw new Error('资料仍被人物卡绑定，请先解绑: ' + boundCards.join(', '))
     }
@@ -391,6 +392,17 @@ export function createFileResourceStore(options = {}) {
     if (await exists(originalDir)) {
       for (const name of await readdir(originalDir)) {
         if (path.basename(name, path.extname(name)) === stem) await rm(path.join(originalDir, name), { force: true })
+      }
+    }
+    if (kind === 'card') {
+      const recoveryDir = path.join(dataRoot, 'recovery', 'cards')
+      if (await exists(recoveryDir)) {
+        const prefix = stem + '-before-'
+        for (const name of await readdir(recoveryDir)) {
+          if (name.startsWith(prefix) && path.extname(name) === '.json') {
+            await rm(path.join(recoveryDir, name), { force: true })
+          }
+        }
       }
     }
   }

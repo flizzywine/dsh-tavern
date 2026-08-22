@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
@@ -114,6 +114,26 @@ test('人物卡原版和工作版都保持宏与 HTML 不变', async () => {
     const working = await store.readCard(cardPath)
     assert.deepEqual(working, rawCard)
     assert.equal(await readFile(path.join(root, 'resources', cardPath), 'utf8'), JSON.stringify(rawCard, null, 2))
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
+
+test('删除人物卡直接移除工作版和 PNG 原版', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-files-'))
+  try {
+    const store = createFileResourceStore({ dataRoot: root })
+    const rawCard = { name: '暂存测试', description: '正文' }
+    const png = pngCardBuffer(rawCard)
+    const cardPath = await store.importCard({ name: '暂存测试.png', kind: 'png', fileB64: png.toString('base64') }, rawCard)
+    const workingPath = path.join(root, 'resources', cardPath)
+    const originalPath = path.join(root, 'originals/cards/暂存测试.png')
+    const recoveryPath = path.join(root, 'recovery/cards/暂存测试-before-workspace-migration-1-test.json')
+    await mkdir(path.dirname(recoveryPath), { recursive: true })
+    await writeFile(recoveryPath, JSON.stringify(rawCard))
+
+    await store.remove(cardPath)
+    await assert.rejects(() => readFile(workingPath), /ENOENT/)
+    await assert.rejects(() => readFile(originalPath), /ENOENT/)
+    await assert.rejects(() => readFile(recoveryPath), /ENOENT/)
   } finally { await rm(root, { recursive: true, force: true }) }
 })
 

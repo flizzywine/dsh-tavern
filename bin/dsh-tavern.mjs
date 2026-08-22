@@ -302,6 +302,34 @@ export function encodeWindowsPowerShellScript(source) {
   return `\uFEFF${source.replace(/^\uFEFF/, '')}`
 }
 
+export function parseUpdateOptions(args) {
+  let host = 'cli'
+  let statusFile = ''
+  let delay = 0
+  for (let index = 0; index < args.length; index += 1) {
+    const value = args[index]
+    if (value === '--host') host = args[++index]
+    else if (value.startsWith('--host=')) host = value.slice('--host='.length)
+    else if (value === '--status-file') statusFile = args[++index]
+    else if (value.startsWith('--status-file=')) statusFile = value.slice('--status-file='.length)
+    else if (value === '--delay') delay = Number(args[++index])
+    else if (value.startsWith('--delay=')) delay = Number(value.slice('--delay='.length))
+    else throw new Error(`无法识别的更新参数：${value}`)
+  }
+  if (!INSTALL_HOSTS.has(host)) throw new Error(`不支持的安装宿主：${host}`)
+  if (statusFile !== '' && !path.isAbsolute(statusFile)) throw new Error('更新状态文件必须使用绝对路径')
+  if (!Number.isInteger(delay) || delay < 0 || delay > 5000) throw new Error('更新延迟必须是 0 到 5000 毫秒的整数')
+  return { host, statusFile, delay }
+}
+
+function writeUpdateStatus(file, value) {
+  if (file === '') return
+  mkdirSync(path.dirname(file), { recursive: true })
+  const temporary = `${file}.tmp-${process.pid}`
+  writeFileSync(temporary, `${JSON.stringify(value, null, 2)}\n`, 'utf8')
+  renameSync(temporary, file)
+}
+
 function pathEntries() {
   return (process.env.PATH || '').split(path.delimiter).map((entry) => path.resolve(entry).toLowerCase())
 }
@@ -604,6 +632,7 @@ async function startService() {
     child = spawn(dsh, ['--profile', PROFILE, '--host', CLI_HOST, '--port', String(CLI_PORT), '--no-open'], {
       cwd: SOURCE_ROOT,
       detached: true,
+      env: { ...process.env, DSH_TAVERN_RUNTIME_HOST: 'cli' },
       shell: process.platform === 'win32',
       windowsHide: true,
       stdio: ['ignore', logDescriptor, logDescriptor],
@@ -635,8 +664,10 @@ async function startService() {
   throw new Error(`DSH Tavern 启动超时，日志：${LOG_FILE}`)
 }
 
-async function updateApplication() {
+async function updateApplication(options = { host: 'cli', statusFile: '', delay: 0 }) {
+  if (options.delay > 0) await sleep(options.delay)
   console.log('正在更新 DSH Tavern……')
+  writeUpdateStatus(options.statusFile, { phase: 'running', host: options.host, startedAt: Date.now() })
   const extension = process.platform === 'win32' ? 'ps1' : 'sh'
   const installer = path.join(SOURCE_ROOT, `install.${extension}`)
   if (!existsSync(installer)) throw new Error(`当前安装缺少更新程序：${installer}`)
@@ -651,9 +682,21 @@ async function updateApplication() {
     const args = process.platform === 'win32'
       ? ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', temporary]
       : [temporary]
-    const result = spawnSync(command, args, { stdio: 'inherit' })
+    const capture = options.statusFile !== ''
+    const result = spawnSync(command, args, {
+      encoding: capture ? 'utf8' : undefined,
+      env: { ...process.env, DSH_TAVERN_HOST: options.host },
+      stdio: capture ? 'pipe' : 'inherit',
+    })
     if (result.error) throw new Error(`无法运行更新程序：${result.error.message}`)
-    if (result.status !== 0) throw new Error('更新失败，请查看上方错误信息。')
+    if (result.status !== 0) {
+      const details = capture ? String(result.stderr || result.stdout || '').trim().split('\n').slice(-12).join('\n') : ''
+      throw new Error(`更新失败${details ? `：${details}` : '，请查看上方错误信息。'}`)
+    }
+    writeUpdateStatus(options.statusFile, { phase: 'completed', host: options.host, completedAt: Date.now(), requiresRestart: options.host === 'desktop' })
+  } catch (error) {
+    writeUpdateStatus(options.statusFile, { phase: 'failed', host: options.host, failedAt: Date.now(), error: String(error?.message || error) })
+    throw error
   } finally {
     if (existsSync(temporary)) unlinkSync(temporary)
   }
@@ -670,7 +713,7 @@ async function main() {
       await installProfile(parseInstallHost(process.argv.slice(3)))
       break
     case 'update':
-      await updateApplication()
+      await updateApplication(parseUpdateOptions(process.argv.slice(3)))
       break
     case 'start':
       await startService()

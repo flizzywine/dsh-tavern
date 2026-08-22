@@ -2,9 +2,11 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { createBackgroundAgentRunner } from './background-agent-runner.js'
+import { createApplicationUpdater } from './application-updater.js'
 import { createCandidateGenerator } from './domain/candidate-generation.js'
 import { waitForAgentSession } from './domain/agent-readiness.js'
 import { createBoundaryPromptModule } from './domain/boundary-prompts.js'
+import { createCardDeletion } from './domain/card-deletion.js'
 import { createCardPreparation } from './domain/card-preparation.js'
 import { cardOpeningChoices, resolveCardOpening } from './domain/card-openings.js'
 import { READABLE_CARD_FIELDS, readCardField } from './domain/card-reading.js'
@@ -20,23 +22,25 @@ import { resolveTavernDataRoot } from './domain/tavern-data.js'
 import { createTavernSkillModule } from './domain/tavern-skills.js'
 import { createTurnOrchestrator } from './domain/turn-orchestration.js'
 import { resourceWorkspaceContext } from './domain/workspace-resources.js'
+import { createProfileDataStore } from './profile-data-store.js'
 import { prompt } from './prompt-catalog.js'
 
 // dsh-tavern 宿主插件（profile 组合行）
 // RPC：同源 HTTP 路由 /api/dsh-tavern/<method>（客户端 fetch 调用）
 // DSH 生命周期负责回合状态；模型工具只处理按需读取和明确修改。
 export async function apply(ctx) {
-  const fs = ctx.get('fs')
   const llm = ctx.get('llm')
   const agentRegistry = ctx.get('agents')
-  if (fs === undefined || llm === undefined || agentRegistry === undefined) {
-    console.error('dsh-tavern: 缺少 fs、llm 或 agents 服务')
+  if (llm === undefined || agentRegistry === undefined) {
+    console.error('dsh-tavern: 缺少 llm 或 agents 服务')
     return
   }
   const agentDefaultModel = ctx.get('agentDefaultModel')
 
   const sourceRoot = fileURLToPath(new URL('../../', import.meta.url))
   const dataRoot = resolveTavernDataRoot()
+  const profileData = createProfileDataStore({ dataRoot })
+  const applicationUpdater = createApplicationUpdater({ dataRoot, sourceRoot })
   const tavernSkills = createTavernSkillModule({
     directory: dataRoot + '/skills',
     builtInDirectory: sourceRoot + '/presets/tavern/skills'
@@ -67,24 +71,13 @@ export async function apply(ctx) {
     return new Promise(function (resolve) { setTimeout(resolve, ms) })
   }
   async function readJson(rel) {
-    const t = await fs.resolve(dataRoot + '/' + rel)
-    const info = await fs.stat(t)
-    if (info === undefined) return undefined
-    return JSON.parse(await fs.readText(t))
+    return await profileData.readJson(rel)
   }
   async function writeJson(rel, value) {
-    const t = await fs.resolve(dataRoot + '/' + rel)
-    await fs.writeText(t, JSON.stringify(value, null, 2))
+    await profileData.writeJson(rel, value)
   }
   async function rmFile(rel) {
-    const shell = ctx.get('shell')
-    if (shell === undefined) return
-    try {
-      const spec = shell.resolve({ command: 'rm -f ' + JSON.stringify(dataRoot + '/' + rel), timeoutMs: 10000 })
-      await shell.run(spec)
-    } catch (err) {
-      console.error('dsh-tavern: rm 失败', err)
-    }
+    await profileData.remove(rel)
   }
   function groupOfMode(mode) {
     const m = mode || 'story'
@@ -224,6 +217,7 @@ export async function apply(ctx) {
   }
   async function writeIndex(idx) { await writeJson('index.json', idx) }
   const fileResources = createFileResourceStore({ dataRoot })
+  const cardDeletion = createCardDeletion({ resources: fileResources })
   const cardTaskPrompts = Object.freeze({
     edit: 'card-task-edit',
     extract: 'card-task-extract',
@@ -497,14 +491,7 @@ export async function apply(ctx) {
     }
   }
   async function deleteCard(cardPath) {
-    const idx = await readIndex()
-    const dead = (idx.chats || []).filter(function (c) { return c.cardPath === cardPath })
-    idx.chats = (idx.chats || []).filter(function (c) { return c.cardPath !== cardPath })
-    await writeIndex(idx)
-    for (let i = 0; i < dead.length; i++) await rmFile('chats/' + dead[i].id + '.json')
-    await fileResources.unbindMaterial(normalizeResourcePath(cardPath, 'card'))
-    await fileResources.remove(normalizeResourcePath(cardPath, 'card'))
-    return { deleted: true }
+    return await cardDeletion.remove(cardPath)
   }
   async function deleteChat(chatId) {
     const idx = await readIndex()
@@ -1336,11 +1323,14 @@ export async function apply(ctx) {
   async function dispatch(method, args) {
     switch (method) {
       case 'listCards': return { cards: await listCards() }
+      case 'getUpdateStatus': return { status: await applicationUpdater.status() }
+      case 'startUpdate': return { status: await applicationUpdater.start() }
       case 'getCardOpenings': return { openings: await getCardOpenings(args && args.path) }
       case 'getCard': {
-        const card = await readCard(args && args.path)
-        if (card === undefined) throw new Error('人物卡不存在: ' + (args && args.path))
-        return { card: Object.assign(cardPreparation.present({ card, as: 'view' }), { path: card.path, extensions: cardPreparation.present({ card, as: 'card-extensions' }) }) }
+        const cardPath = normalizeResourcePath(args && args.path, 'card')
+        const workspace = await readCardWorkspace(cardPath)
+        if (workspace === undefined) throw new Error('人物卡不存在: ' + cardPath)
+        return { card: Object.assign(cardPreparation.present({ card: workspace, as: 'detail' }), { path: cardPath }) }
       }
       case 'getCardTaskPrompt': {
         const task = str(args && args.task)
