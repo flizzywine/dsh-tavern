@@ -1,5 +1,7 @@
 # 卡片工作台文风 Skill 设计稿
 
+> 状态：Tavern 专属、卡片模式限定的 DSH 原生 Skill 加载机制、通用创建 Skill 和文风抽取 Skill 已实现；文风库、导入、选择、直接应用和 UI 仍是待实现设计。
+
 ## 1. 目标
 
 为卡片 Agent 提供可复用的文风参考。用户可以选择内置文风、导入自定义文风，或让 Agent 根据样文创建新文风 Skill。
@@ -32,7 +34,7 @@ Skill 是卡片 Agent 的临时工作方法，不属于 SillyTavern 人物卡格
 
 ### 2.3 与全局 DSH Skill 隔离
 
-文风 Skill 使用兼容 DSH 的 `SKILL.md` 格式，但由 Tavern 自己发现和加载，不直接接入 DSH 的全局 Skill 目录。
+文风 Skill 使用 DSH 原生 `SKILL.md` 格式、注册表和按需加载工具，但通过 Tavern preset 的隔离文件提供方发现，不扫描 DSH 的项目目录或用户全局目录。
 
 原因是用户的全局 Skill 还可能包含编程、办公等能力。卡片 Agent 不应看到这些无关目录，也不应让文风 Skill 获得通用工具或额外权限。
 
@@ -123,9 +125,9 @@ user-invocable: false
 ## 5. 存储
 
 ```text
-tavern-plugin/style-skills/       内置 Skill，随插件发布，只读
-data/style-skills/                用户导入或创建的工作版本
-data/originals/style-skills/      用户 Skill 首次导入时的原始版本
+presets/tavern/skills/            内置 Skill，随项目发布，只读
+data/skills/                      用户导入或创建的工作版本
+data/originals/skills/            用户 Skill 首次导入时的原始版本（待实现）
 ```
 
 内置 Skill 由项目版本管理。用户 Skill 沿用卡片工作台“原始版本不可变、工作版本可编辑”的原则。

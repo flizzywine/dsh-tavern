@@ -10,7 +10,8 @@ const NAMES = [
   'card-mode',
   'card-mode-greeting',
   'card-task-edit',
-  'card-task-extract'
+  'card-task-extract',
+  'card-task-boundary'
 ]
 
 const knownNames = new Set(NAMES)

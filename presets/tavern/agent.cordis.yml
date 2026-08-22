@@ -22,3 +22,17 @@
       name: '@deepseek-ai/dsh-tool-str-replace-editor'
       config:
         maxOutputChars: 16000
+
+# 卡片工作台复用 DSH 原生 Skill 目录和按需加载工具。
+# 只扫描 Tavern 自己的内置目录与用户数据目录，不暴露全局 DSH Skills；
+# 是否对模型可见，仍由 Tavern 按当前会话模式过滤。
+- id: skill-filesystem
+  name: '@deepseek-ai/dsh-skill-filesystem'
+  config:
+    includeDefaultRoots: false
+    customSkillDirs:
+      - !!js "process.getBuiltinModule('node:url').fileURLToPath(new URL('../../data/skills/', baseUrl))"
+    bundledSkillDir: !!js "process.getBuiltinModule('node:url').fileURLToPath(new URL('skills/', baseUrl))"
+
+- id: tool-skill
+  name: '@deepseek-ai/dsh-tool-skill'

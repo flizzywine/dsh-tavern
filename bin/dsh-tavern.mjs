@@ -33,7 +33,7 @@ const LOG_DIR = path.join(DSH_ROOT, 'logs')
 const LOG_FILE = path.join(LOG_DIR, 'tavern.log')
 const PID_FILE = path.join(LOG_DIR, 'tavern.pid.json')
 const SETTINGS_FILE = path.join(DSH_ROOT, 'settings.yaml')
-const SIDEBAR_DEFAULTS_VERSION = 5
+const SIDEBAR_DEFAULTS_VERSION = 7
 const TAVERN_SIDEBAR_DEFAULTS = {
   openByDefault: true,
   defaultWidthPercent: 30,
@@ -45,8 +45,10 @@ const TAVERN_SIDEBAR_DEFAULTS = {
     browser: false,
     diff: false,
     'dsh-tavern:resources': true,
+    'dsh-tavern:presets': true,
     'dsh-tavern:cards': true,
     'dsh-tavern:status': true,
+    'dsh-tavern:boundary-prompts': true,
   },
   viewersEnabled: {
     image: false,
@@ -63,6 +65,7 @@ const REQUIRED_SOURCE_FILES = [
   'pnpm-workspace.yaml',
   path.join('tavern-plugin', 'package.json'),
   path.join('presets', 'tavern', 'preset.yml'),
+  path.join('defaults', 'boundary-prompts', 'DeepSeek-V4-Flash-推荐.md'),
 ]
 
 function fail(message) {
@@ -82,6 +85,8 @@ export function applySidebarDefaults(settings = {}) {
   const migrateResourcesTab = !Number.isFinite(currentDefaultsVersion) || currentDefaultsVersion < 3
   const migrateCardLibraryTab = !Number.isFinite(currentDefaultsVersion) || currentDefaultsVersion < 4
   const migrateNativeFiles = !Number.isFinite(currentDefaultsVersion) || currentDefaultsVersion < 5
+  const migrateBoundaryPromptsTab = !Number.isFinite(currentDefaultsVersion) || currentDefaultsVersion < 6
+  const migratePresetsTab = !Number.isFinite(currentDefaultsVersion) || currentDefaultsVersion < 7
   const tabsEnabled = {
     ...TAVERN_SIDEBAR_DEFAULTS.tabsEnabled,
     ...record(current.tabsEnabled),
@@ -91,6 +96,12 @@ export function applySidebarDefaults(settings = {}) {
   }
   if (migrateCardLibraryTab) {
     tabsEnabled['dsh-tavern:cards'] = true
+  }
+  if (migrateBoundaryPromptsTab) {
+    tabsEnabled['dsh-tavern:boundary-prompts'] = true
+  }
+  if (migratePresetsTab) {
+    tabsEnabled['dsh-tavern:presets'] = true
   }
   const viewersEnabled = {
     ...TAVERN_SIDEBAR_DEFAULTS.viewersEnabled,
@@ -353,7 +364,7 @@ async function installProfile() {
 
   mkdirSync(PROFILE_DIR, { recursive: true })
   mkdirSync(LOG_DIR, { recursive: true })
-  for (const directory of ['cards', 'chats', 'scripts', 'sources', 'diffs']) {
+  for (const directory of ['cards', 'chats', 'scripts', 'sources', 'skills', 'diffs']) {
     mkdirSync(path.join(SOURCE_ROOT, 'data', directory), { recursive: true })
   }
 

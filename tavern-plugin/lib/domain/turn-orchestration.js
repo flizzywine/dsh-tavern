@@ -324,7 +324,7 @@ export function createTurnOrchestrator(options) {
     if (chat === undefined) return []
     const mode = chat.mode || 'story'
     if (mode === 'script') return ['tavern_read_script']
-    if (mode === 'card') return [shellToolName, 'str_replace_editor', 'tavern_read_card', 'tavern_read_worldbook', 'tavern_update_card', 'tavern_restore_card']
+    if (mode === 'card') return [shellToolName, 'str_replace_editor', 'skill', 'tavern_save_skill', 'tavern_read_card', 'tavern_read_worldbook', 'tavern_read_boundary_prompt', 'tavern_update_boundary_prompt', 'tavern_update_card', 'tavern_restore_card']
     return []
   }
 

@@ -118,6 +118,13 @@ export function createBackgroundAgentRunner(options) {
         complete: true,
         text: '你是与前台正文生成隔离的酒馆后台 Agent。你会在同一个剧情分支中依次承担状态结算与候选生成；严格按本轮任务输出，不得把某类任务的输出格式混入另一类任务。最新权威状态优先于 Session 中的旧动态状态。\n\n【本轮任务规则】\n' + str(input.system)
       })
+      if (input.boundaryPrompt !== null && typeof input.boundaryPrompt === 'object' && str(input.boundaryPrompt.text) !== '') {
+        childCtx.systemPrompt.section({
+          name: 'tavern:boundary-prompt',
+          order: 10,
+          text: input.boundaryPrompt.text
+        })
+      }
       childCtx.systemPrompt.suppressRuntimeContext()
       childCtx.tools.restrict({ allow: [] })
       if (typeof input.temperature === 'number' && input.selection.provider !== 'openai-codex') {
@@ -151,6 +158,12 @@ export function createBackgroundAgentRunner(options) {
   async function execute(input) {
     const parent = agents.get(input.sessionId)
     if (parent === undefined || parent.session === undefined) throw new Error('无法创建后台 Agent：前台会话不可用')
+    let boundaryPrompt = null
+    if (typeof options.resolveBoundaryPrompt === 'function') {
+      try { boundaryPrompt = await options.resolveBoundaryPrompt({ sessionId: input.sessionId, operation: input.task || 'background' }) }
+      catch (error) { console.error('dsh-tavern: 后台任务读取破甲方案失败，继续以未注入方式运行', error) }
+    }
+    const runtimeInput = Object.assign({}, input, { boundaryPrompt })
     const persistent = input.persistent === true
     const requestedSessionId = str(input.persistentSessionId)
     const traceSessionId = requestedSessionId || makeId()
@@ -169,7 +182,7 @@ export function createBackgroundAgentRunner(options) {
         handle = await agents.resume({
           resumeSessionId: traceSessionId,
           agentOptions,
-          setup: setupFor(input, descriptor, false)
+          setup: setupFor(runtimeInput, descriptor, false)
         })
         rewindSurface(handle.agent.session, input.rewindTo)
       } else {
@@ -184,7 +197,7 @@ export function createBackgroundAgentRunner(options) {
           sessionId: traceSessionId,
           meta,
           agentOptions,
-          setup: setupFor(input, descriptor, true)
+          setup: setupFor(runtimeInput, descriptor, true)
         })
       }
     } catch (error) {
@@ -193,6 +206,10 @@ export function createBackgroundAgentRunner(options) {
     activeSessions.add(traceSessionId)
 
     try {
+      if (boundaryPrompt !== null && typeof options.onBoundaryPromptInjected === 'function') {
+        try { await options.onBoundaryPromptInjected({ sessionId: input.sessionId, filename: boundaryPrompt.filename, operation: input.task || 'background', turn: input.turn }) }
+        catch (error) { console.error('dsh-tavern: 记录后台破甲注入失败', error) }
+      }
       const eventStart = Array.isArray(handle.agent.session.events) ? handle.agent.session.events.length : 0
       handle.agent.followup({
         id: crypto.randomUUID(),

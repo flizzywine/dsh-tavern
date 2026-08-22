@@ -1,7 +1,8 @@
 import { access, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
+import { inspectPreset } from './preset-reading.js'
 
-const KIND_DIR = Object.freeze({ card: 'cards', source: 'materials', script: 'scripts' })
+const KIND_DIR = Object.freeze({ card: 'cards', preset: 'presets', source: 'materials', script: 'scripts' })
 const WINDOWS_RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i
 
 function str(value) {
@@ -51,7 +52,7 @@ export function resourceUri(value) {
 function extensionForText(name, fallback = '.txt') {
   const safe = safeResourceName(name)
   const ext = path.extname(safe).toLowerCase()
-  return ext === '.txt' || ext === '.md' || ext === '.epub' ? safe : safe + fallback
+  return ext === '.txt' || ext === '.md' || ext === '.json' || ext === '.epub' ? safe : safe + fallback
 }
 
 function rawText(record) {
@@ -283,15 +284,17 @@ export function createFileResourceStore(options = {}) {
 
   async function importText(kind, payload, cardPath) {
     await ensure()
-    if (kind !== 'source' && kind !== 'script') throw new Error('文本资源类型不合法: ' + kind)
+    if (kind !== 'source' && kind !== 'preset' && kind !== 'script') throw new Error('文本资源类型不合法: ' + kind)
     const text = str(payload && payload.text).replace(/\r\n?/g, '\n').trim()
-    if (text === '') throw new Error(kind === 'source' ? '资料文件为空' : '剧本文件为空')
-    const name = extensionForText(payload && payload.name || (kind === 'source' ? '未命名资料.txt' : '未命名剧本.txt'))
+    if (text === '') throw new Error(kind === 'source' ? '资料文件为空' : (kind === 'preset' ? '预设文件为空' : '剧本文件为空'))
+    let name = extensionForText(payload && payload.name || (kind === 'source' ? '未命名资料.txt' : (kind === 'preset' ? '未命名预设.json' : '未命名剧本.txt')))
+    if (kind === 'preset' && path.extname(name).toLowerCase() !== '.json') name = path.parse(name).name + '.json'
     const originalData = typeof (payload && payload.fileB64) === 'string' && payload.fileB64 !== ''
       ? Buffer.from(payload.fileB64, 'base64')
-      : text
+      : (typeof (payload && payload.originalText) === 'string' ? payload.originalText : text)
     let relative
     if (kind === 'source') relative = 'materials/' + name
+    else if (kind === 'preset') relative = 'presets/' + name
     else {
       const normalizedCard = normalizeResourcePath(cardPath, 'card')
       const stem = path.posix.basename(normalizedCard, path.posix.extname(normalizedCard))
@@ -491,6 +494,42 @@ export function createFileResourceStore(options = {}) {
     return Object.fromEntries(replacements)
   }
 
+  async function migratePresetMaterials(index, readChat, writeChat) {
+    const replacements = new Map()
+    for (const materialPath of await list('source')) {
+      if (path.posix.extname(materialPath).toLowerCase() !== '.json') continue
+      const text = await readText(materialPath)
+      if (text === undefined || !inspectPreset(text, materialPath).recognized) continue
+      const presetPath = 'presets/' + path.posix.basename(materialPath)
+      if (await exists(absolute(presetPath)) || await exists(absolute(presetPath, true))) continue
+      const moves = [{ from: absolute(materialPath), to: absolute(presetPath) }]
+      if (await exists(absolute(materialPath, true))) moves.push({ from: absolute(materialPath, true), to: absolute(presetPath, true) })
+      for (const move of moves) {
+        await mkdir(path.dirname(move.to), { recursive: true })
+        await rename(move.from, move.to)
+      }
+      replacements.set(materialPath, presetPath)
+    }
+    if (replacements.size > 0) {
+      for (const row of index.chats || []) {
+        const chat = await readChat(row.id)
+        if (!chat || !chat.workspace || typeof chat.workspace !== 'object') continue
+        let changed = false
+        const nextSources = (chat.workspace.sourcePaths || []).filter(function (item) { return !replacements.has(item) })
+        if (JSON.stringify(nextSources) !== JSON.stringify(chat.workspace.sourcePaths || [])) { chat.workspace.sourcePaths = nextSources; changed = true }
+        const nextMounted = (chat.workspace.mountedResources || []).map(function (item) {
+          if (!item || !replacements.has(item.path)) return item
+          changed = true
+          const nextPath = replacements.get(item.path)
+          return Object.assign({}, item, { kind: 'preset', path: nextPath })
+        })
+        chat.workspace.mountedResources = nextMounted
+        if (changed) await writeChat(chat)
+      }
+    }
+    return Object.fromEntries(replacements)
+  }
+
   async function migrateLegacy(index, readLegacyJson, writeIndex, readChat, writeChat) {
     await ensure()
     if (await exists(markerPath)) {
@@ -515,6 +554,11 @@ export function createFileResourceStore(options = {}) {
         marker.materialBindings = await migrateScriptBindings(index, readChat, writeChat)
         marker.schemaVersion = 3
         marker.materialBindingsMigratedAt = Date.now()
+      }
+      if (Number(marker.schemaVersion) < 4) {
+        marker.presetMaterials = await migratePresetMaterials(index, readChat, writeChat)
+        marker.schemaVersion = 4
+        marker.presetMaterialsMigratedAt = Date.now()
       }
       await writeFile(markerPath, JSON.stringify(marker, null, 2))
       return marker
@@ -587,6 +631,9 @@ export function createFileResourceStore(options = {}) {
     result.materialBindings = await migrateScriptBindings(nextIndex, readChat, writeChat)
     result.schemaVersion = 3
     result.materialBindingsMigratedAt = Date.now()
+    result.presetMaterials = await migratePresetMaterials(nextIndex, readChat, writeChat)
+    result.schemaVersion = 4
+    result.presetMaterialsMigratedAt = Date.now()
     await writeFile(markerPath, JSON.stringify(result, null, 2))
     return result
   }

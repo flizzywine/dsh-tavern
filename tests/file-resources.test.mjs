@@ -42,6 +42,43 @@ test('导入资料同时保存原版和可编辑工作版', async () => {
   } finally { await rm(root, { recursive: true, force: true }) }
 })
 
+test('导入预设时进入独立目录并保留文件名和原始排版', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-files-'))
+  try {
+    const store = createFileResourceStore({ dataRoot: root })
+    const original = '{\r\n  "prompts": ["A", "B"]\r\n}\r\n'
+    const resourcePath = await store.importText('preset', {
+      name: '酒馆预设-DeepSeek.json',
+      text: original.replace(/\r\n?/g, '\n').trim(),
+      originalText: original,
+    })
+    assert.equal(resourcePath, 'presets/酒馆预设-DeepSeek.json')
+    assert.equal(await readFile(path.join(root, 'originals', resourcePath), 'utf8'), original)
+    assert.equal(await readFile(path.join(root, 'resources', resourcePath), 'utf8'), '{\n  "prompts": ["A", "B"]\n}')
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
+
+test('标准酒馆预设从资料库迁移到预设库并同步对话引用', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-files-'))
+  try {
+    const store = createFileResourceStore({ dataRoot: root })
+    const presetText = JSON.stringify({ prompts: [{ identifier: 'main', name: '主提示词', role: 'system', content: '正文' }], prompt_order: [{ order: [{ identifier: 'main', enabled: true }] }] })
+    const oldPath = await store.importText('source', { name: '旧预设.json', text: presetText })
+    await store.importText('source', { name: '普通数据.json', text: '{"items":[1,2]}' })
+    await writeFile(path.join(root, '.file-resources-v1.json'), JSON.stringify({ schemaVersion: 3 }))
+    const chat = { id: 'chat-1', workspace: { sourcePaths: [oldPath], mountedResources: [{ kind: 'source', path: oldPath, label: '旧预设' }] } }
+
+    const marker = await store.migrateLegacy({ chats: [{ id: chat.id }] }, async function () {}, async function () {}, async function () { return chat }, async function (next) { Object.assign(chat, next) })
+
+    assert.equal(marker.schemaVersion, 4)
+    assert.equal(await store.readText('presets/旧预设.json'), presetText)
+    assert.equal(await store.readText('materials/旧预设.json'), undefined)
+    assert.equal(await store.readText('materials/普通数据.json'), '{"items":[1,2]}')
+    assert.deepEqual(chat.workspace.sourcePaths, [])
+    assert.deepEqual(chat.workspace.mountedResources, [{ kind: 'preset', path: 'presets/旧预设.json', label: '旧预设' }])
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
+
 test('导入 EPUB 时原版保留二进制，工作版保存抽取正文', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-files-'))
   try {
@@ -178,7 +215,7 @@ test('旧 scripts 副本迁移为资料引用，同名资料优先且旧副本�
     await writeFile(path.join(root, '.file-resources-v1.json'), JSON.stringify({ schemaVersion: 2 }))
 
     const marker = await store.migrateLegacy({ chats: [] }, async function () {}, async function () {}, async function () {}, async function () {})
-    assert.equal(marker.schemaVersion, 3)
+    assert.equal(marker.schemaVersion, 4)
     assert.equal(await store.scriptForCard(cardPath), materialPath)
     assert.equal(await store.readText(materialPath), '资料正文')
     await assert.rejects(readFile(path.join(root, 'resources', legacyPath)), /ENOENT/)

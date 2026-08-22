@@ -2,9 +2,22 @@ function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
 }
 
+export function resourceWorkspaceContext(value) {
+  const root = str(value).trim()
+  if (root === '') return ''
+  return [
+    '【当前 Tavern 资源工作区】',
+    '- 资源根目录：' + JSON.stringify(root),
+    '- 资源在 Tavern 界面、结构化引用和 Tavern 工具参数中仍使用 `materials/...`、`presets/...`、`cards/...` 等相对路径。',
+    '- 调用 `str_replace_editor` 时，其 `path` 参数必须使用绝对路径：将上面的资源根目录与资源相对路径连接。',
+    '- 不得把相对路径简单加 `/`，不得猜测 `/materials`、`/presets`、`/cards`；不得访问资源根目录之外的文件。',
+    '- shell 工具默认位于当前资源工作区，可继续使用相对路径。'
+  ].join('\n')
+}
+
 import { normalizeResourcePath, resourceKind } from './file-resources.js'
 
-const RESOURCE_KINDS = Object.freeze(['card', 'source', 'script'])
+const RESOURCE_KINDS = Object.freeze(['card', 'preset', 'source', 'script'])
 
 export function mentionedTavernResources(text) {
   const resources = []
