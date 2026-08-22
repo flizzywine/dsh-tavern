@@ -44,11 +44,21 @@ test('新建对话不会重复切换已经是 Tavern preset 的 Session', () => 
   assert.doesNotMatch(cardFlow, /agentPresets\.select/)
 })
 
-test('新开游玩直接进入对话，不提供多开场白切换器', () => {
+test('新开游玩在创建 Session 前选择开场白，创建后不提供切换器', () => {
   const sidebar = between(clientSource, 'function TavernSidebar', 'function TavernResourcesTab')
+  const prepareFlow = between(sidebar, 'async function preparePlayConversation', 'async function importCard')
 
-  assert.doesNotMatch(sidebar, /getCardOpenings|openingChoices|openingCard|选择开场白/)
-  assert.match(sidebar, /onClick: function \(\) \{ newConversation\(card\); \}/)
+  assert.match(sidebar, /getCardOpenings/)
+  assert.match(sidebar, /选择开场白/)
+  assert.match(sidebar, /上一条开场白/)
+  assert.match(sidebar, /下一条开场白/)
+  assert.match(sidebar, /以此开场/)
+  assert.match(sidebar, /preparePlayConversation\(card\)/)
+  assert.doesNotMatch(prepareFlow, /connectWorkspace|startChat/)
+  assert.match(sidebar, /newConversation\(openingPicker\.card, null, selectedOpening\.id\)/)
+  assert.match(sidebar, /openingId: openingId \|\| ""/)
+  assert.match(sidebar, /dsh-tavern-picker-overlay/)
+  assert.match(sidebar, /role: "dialog"/)
   assert.doesNotMatch(clientSource, /OpeningSwitcher|OpeningTurnTail|switchOpening|dsh-tavern-opening|createPortal|MutationObserver/)
 })
 

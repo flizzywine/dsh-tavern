@@ -6,7 +6,7 @@ import { createCandidateGenerator } from './domain/candidate-generation.js'
 import { waitForAgentSession } from './domain/agent-readiness.js'
 import { createBoundaryPromptModule } from './domain/boundary-prompts.js'
 import { createCardPreparation } from './domain/card-preparation.js'
-import { resolveCardOpening } from './domain/card-openings.js'
+import { cardOpeningChoices, resolveCardOpening } from './domain/card-openings.js'
 import { READABLE_CARD_FIELDS, readCardField } from './domain/card-reading.js'
 import { projectCardMacros, projectCardText } from './domain/card-macros.js'
 import { createContextPlanner } from './domain/context-planner.js'
@@ -420,6 +420,13 @@ export async function apply(ctx) {
       return { path: cardPath, name: card.name, script: script === undefined ? null : { path: script.path, title: script.title, sourceChars: script.sourceChars, chunkCount: script.chunks.length } }
     }))
   }
+  async function getCardOpenings(cardPath) {
+    const card = await readCard(cardPath)
+    if (card === undefined) throw new Error('人物卡不存在: ' + cardPath)
+    return cardOpeningChoices(card).map(function (opening) {
+      return { id: opening.id, text: renderCardText(opening.text, card) }
+    })
+  }
   async function listTavernResources() {
     const cards = await listCards()
     const sources = await listSources()
@@ -587,7 +594,7 @@ export async function apply(ctx) {
       updatedAt: chat.updatedAt || 0
     }
   }
-  async function startChat(cardPath, sessionId, mode) {
+  async function startChat(cardPath, sessionId, mode, openingId) {
     const requestedMode = mode === 'card' || mode === 'revision' || mode === 'extract' ? 'card' : (mode === 'script' ? 'script' : (mode === 'story' ? 'story' : null))
     const card = str(cardPath) === '' && requestedMode === 'card' ? null : await readCard(cardPath)
     if (card === undefined) throw new Error('人物卡不存在: ' + cardPath)
@@ -608,7 +615,7 @@ export async function apply(ctx) {
         return currentView
       }
     }
-    const greeting = chatMode === 'card' ? prompt('card-mode-greeting') : renderCardText(resolveCardOpening(card), card)
+    const greeting = chatMode === 'card' ? prompt('card-mode-greeting') : renderCardText(resolveCardOpening(card, openingId), card)
     // connectWorkspace 返回时，Agent 注册偶尔仍在异步完成。先等到原生会话可写，
     // 再落盘 Tavern 对话，避免失败时留下只有映射、没有原生开场白的半初始化记录。
     const openingAgent = typeof sessionId === 'string' && sessionId !== '' && greeting !== '' ? await waitForAgentSession({ registry: agentRegistry, sessionId: sessionId, sleep: sleep }) : undefined
@@ -1310,6 +1317,7 @@ export async function apply(ctx) {
   async function dispatch(method, args) {
     switch (method) {
       case 'listCards': return { cards: await listCards() }
+      case 'getCardOpenings': return { openings: await getCardOpenings(args && args.path) }
       case 'getCard': {
         const card = await readCard(args && args.path)
         if (card === undefined) throw new Error('人物卡不存在: ' + (args && args.path))
@@ -1350,7 +1358,7 @@ export async function apply(ctx) {
       case 'importCard': return { card: await importCard(args && args.payload) }
       case 'deleteCard': return await deleteCard(args && args.path)
       case 'deleteChat': return await deleteChat(args && args.chatId)
-      case 'startChat': return { view: await startChat(args && args.path, args && args.sessionId, args && args.mode) }
+      case 'startChat': return { view: await startChat(args && args.path, args && args.sessionId, args && args.mode, args && args.openingId) }
       case 'getSession': return { view: await sessionView(args && args.sessionId) }
       case 'listBoundaryPrompts': return { files: await boundaryPrompts.list(), selection: await boundaryPrompts.selection(args && args.sessionId) }
       case 'deleteBoundaryPrompt': return await boundaryPrompts.remove(args && args.filename)
