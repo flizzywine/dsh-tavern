@@ -114,13 +114,24 @@ dsh-tavern 使用尽可能少而精的提示词，把流程和状态交给程序
 
 提供桌面版和命令行版两种安装方式。两者使用同一套 Tavern Profile 和数据，请勿同时运行。
 
-### 桌面版（推荐）
+### DSH Desktop 桌面版（推荐）
 
-适合不想安装 Node.js、DSH 或使用命令行管理服务的用户。目前支持 **DSH Desktop 2.0.2 及以上版本**。
+适合不想单独安装 Node.js、pnpm、DSH，也不想使用命令管理启动和停止的用户。目前支持 **DSH Desktop 2.0.2 及以上版本**。DSH Desktop 当前提供 Windows x64 和 macOS 安装包，暂不支持 Linux。
 
-1. 从 [DSH Desktop Releases](https://github.com/anywhere-labs/deepseek-harness-desktop/releases) 下载并安装 DSH Desktop；
-2. 启动 Desktop，从系统托盘菜单选择 **Open DSH Terminal**；
-3. 在打开的终端中运行对应命令。
+#### 第一步：安装 DSH Desktop
+
+DSH Desktop 已经内置运行所需的 Node.js、pnpm 和 DSH，新用户不需要再安装其他运行环境。
+
+- Windows x64：下载 [DSH Desktop 安装程序](https://www.dshdesktop.cn/api/downloads/windows)，双击运行并按提示完成安装；
+- macOS（Intel / Apple Silicon）：下载 [DSH Desktop DMG](https://www.dshdesktop.cn/api/downloads/mac)，打开后将 **DSH Desktop** 拖入 **Applications（应用程序）**。
+
+也可以前往 [DSH Desktop 项目页](https://github.com/anywhere-labs/deepseek-harness-desktop) 查看最新说明。安装完成后启动 DSH Desktop，等待默认界面正常打开。
+
+#### 第二步：安装 dsh-tavern
+
+1. 在系统托盘（macOS 菜单栏）找到 DSH Desktop 图标；
+2. 选择 **Open DSH Terminal**；
+3. 在打开的专用终端中运行对应命令。
 
 Windows：
 
@@ -134,9 +145,16 @@ macOS：
 curl -fsSL https://raw.githubusercontent.com/flizzywine/dsh-tavern/main/install.sh | DSH_TAVERN_HOST=desktop sh
 ```
 
-安装完成后，完全退出并重新打开 DSH Desktop，再从托盘的 **Profile** 菜单切换到 **tavern**。
+安装完成后，完全退出并重新打开 DSH Desktop，再从托盘的 **Profile** 菜单选择 **tavern**。Desktop 会自动重启并进入 dsh-tavern。
 
-Desktop 自带运行环境并负责 Tavern 的端口、启动和停止，不需要运行 `dsh-tavern start`。更新 dsh-tavern 时，先切回 **desktop** Profile，然后在 DSH Terminal 中重新运行上面的安装命令。
+#### 日常使用
+
+- 启动：直接打开 DSH Desktop，并确认托盘的 **Profile** 当前为 **tavern**；
+- 配置模型：进入 Tavern 后，在左侧栏底部打开 **设置 → 模型**，填写模型服务的 API 密钥；
+- 停止：从托盘菜单选择 **退出**。只关闭窗口通常只是隐藏到托盘，不会结束后台服务；
+- 切回普通 DSH Desktop：从托盘的 **Profile** 菜单选择 **desktop**；
+- 更新 dsh-tavern：先切换到 **desktop** Profile，从托盘打开 **Open DSH Terminal**，重新运行上面的安装命令，然后重启 Desktop；
+- 无需运行 `dsh-tavern start`、`stop` 或 `restart`。Desktop 会自动管理进程和动态端口，也不需要手动打开 `3081` 地址。
 
 ### 命令行版
 
