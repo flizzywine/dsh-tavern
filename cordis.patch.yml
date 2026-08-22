@@ -3,6 +3,12 @@
   config:
     host: 127.0.0.1
     port: 3081
+- id: session-persistence-jsonl
+  config:
+    root: !!js dshHomePath('profile-data', 'tavern', 'sessions')
+- id: storage-json
+  config:
+    root: !!js dshHomePath('profile-data', 'tavern', 'storages')
 - id: bash-sandbox
   config:
     timeoutMs: 600000

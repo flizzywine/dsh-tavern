@@ -250,6 +250,13 @@ test('人物卡全部字段合并在默认展开的基本信息中，并位于�
   assert.doesNotMatch(panel, /h\("summary", null, "高级字段"\)/)
 })
 
+test('人物卡详情只提交用户实际改动，避免投影往返覆盖完整 raw', () => {
+  const panel = between(clientSource, 'function CardFieldsPanel', 'function TavernStatusPanel')
+  assert.match(panel, /const baseline = \{/)
+  assert.match(panel, /JSON\.stringify\(next\[key\]\) !== JSON\.stringify\(baseline\[key\]\)/)
+  assert.match(panel, /call\("updateCard", \{ path: cardPath, patch: patch \}\)/)
+})
+
 test('常驻世界书条目不显示无效的名称输入框', () => {
   assert.doesNotMatch(clientSource, /名称（常驻条目）/)
   assert.match(clientSource, /entry\.constant === true \? null : editingWorldBookKey === index/)

@@ -11,12 +11,12 @@ import {
   ensureSidebarDefaults,
   isPortOpen,
   renderWindowsLauncher,
-  supportsDshVersion,
 } from '../bin/dsh-tavern.mjs'
 
 const windowsInstaller = await readFile(new URL('../install.ps1', import.meta.url), 'utf8')
 const unixInstaller = await readFile(new URL('../install.sh', import.meta.url), 'utf8')
 const launcherSource = await readFile(new URL('../bin/dsh-tavern.mjs', import.meta.url), 'utf8')
+const profilePatch = await readFile(new URL('../cordis.patch.yml', import.meta.url), 'utf8')
 const rootManifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
 const profileWorkspace = await readFile(new URL('../pnpm-workspace.yaml', import.meta.url), 'utf8')
 
@@ -45,13 +45,21 @@ test('Tavern no longer bundles dsh-codex-connect and removes it from existing pr
 })
 
 test('Tavern profile installs Better Sidebar as its right-panel foundation', () => {
-  assert.equal(rootManifest.dependencies['dsh-better-sidebar'], '0.14.0')
+  assert.equal(rootManifest.dependencies['dsh-better-sidebar'], '0.15.0')
   assert.ok(rootManifest.dsh.profile.bundles.includes('dsh-better-sidebar'))
   assert.match(launcherSource, /'dsh-better-sidebar': source\.dependencies\['dsh-better-sidebar'\]/)
 })
 
 test('Tavern profile does not auto-install Better Sidebar peer dependencies over DSH built-ins', () => {
   assert.match(profileWorkspace, /^autoInstallPeers:\s*false$/m)
+})
+
+test('Tavern profile isolates conversations from other DSH profiles on fresh installs', () => {
+  assert.match(profilePatch, /id: session-persistence-jsonl[\s\S]*dshHomePath\('profile-data', 'tavern', 'sessions'\)/)
+  assert.match(profilePatch, /id: storage-json[\s\S]*dshHomePath\('profile-data', 'tavern', 'storages'\)/)
+  assert.match(launcherSource, /copyFileSync\(path\.join\(SOURCE_ROOT, 'cordis\.patch\.yml'\), path\.join\(PROFILE_DIR, 'cordis\.patch\.yml'\)\)/)
+  assert.match(unixInstaller, /pnpm --dir "\$\{APP_DIR\}" run install:tavern/)
+  assert.match(windowsInstaller, /& \$PnpmCommand --dir \$AppDir run install:tavern/)
 })
 
 test('Tavern sidebar defaults enable resource tabs, Files and text previews', () => {
@@ -138,24 +146,14 @@ test('Tavern applies sidebar migrations before every service start', () => {
   assert.match(launcherSource, /async function startService\(\) \{\s*verifyProfile\(\)\s*ensureSidebarDefaults\(\)/)
 })
 
-test('DSH rc.8 is the minimum supported launcher version', () => {
-  assert.equal(supportsDshVersion('0.1.0-rc.7'), false)
-  assert.equal(supportsDshVersion('0.1.0-rc.8'), true)
-  assert.equal(supportsDshVersion('0.1.0-rc.9'), true)
-  assert.equal(supportsDshVersion('0.1.0'), true)
-  assert.equal(supportsDshVersion('0.2.0-rc.1'), true)
-  assert.equal(supportsDshVersion('unknown'), false)
-})
-
-test('installers reuse compatible DSH and upgrade older versions to rc.8', () => {
+test('installers accept the installed DSH host without pinning its release', () => {
   assert.match(windowsInstaller, /if \(-not \(Test-Command 'pnpm'\)\)/)
-  assert.match(windowsInstaller, /\$RequiredDshVersion = '0\.1\.0-rc\.8'/)
-  assert.match(windowsInstaller, /Test-DshVersion \$DshVersionText/)
-  assert.match(windowsInstaller, /@deepseek-ai\/dsh@\$RequiredDshVersion/)
+  assert.doesNotMatch(windowsInstaller, /RequiredDshVersion|Test-DshVersion/)
+  assert.match(windowsInstaller, /@deepseek-ai\/dsh'/)
   assert.match(unixInstaller, /if ! command -v pnpm/)
-  assert.match(unixInstaller, /REQUIRED_DSH_VERSION=0\.1\.0-rc\.8/)
-  assert.match(unixInstaller, /dsh_version_is_compatible/)
-  assert.match(unixInstaller, /@deepseek-ai\/dsh@\$\{REQUIRED_DSH_VERSION\}/)
+  assert.doesNotMatch(unixInstaller, /REQUIRED_DSH_VERSION|dsh_version_is_compatible/)
+  assert.match(unixInstaller, /"@deepseek-ai\/dsh"/)
+  assert.doesNotMatch(launcherSource, /MINIMUM_DSH_VERSION|supportsDshVersion|requireDshVersion/)
 })
 
 test('port probe distinguishes an open listener from a closed port', async () => {

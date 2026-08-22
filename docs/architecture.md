@@ -135,7 +135,7 @@ DSH 负责通用 Agent 基础设施：会话、模型选择、工具调用、消
 | Script Continuity | `start`、`transition`、`inspect` | 维护剧本游标、回合参考、提交与回退 |
 | Story Timeline | `apply`、`complete`、`inspect` | 统一正文、候选、回退、替代与结算，拒绝迟到结果 |
 | Candidate Generator | `generate`、`find` | 运行候选任务、校验结果并保存到权威剧情 revision |
-| Card Preparation | `create`、`update`、`present` | 统一人物卡导入、草稿、修改和 SillyTavern 导出的字段政策 |
+| Card Preparation | `create`、`migrate`、`project`、`update`、`present` | 管理完整工作 raw、稳定业务投影、受控修改和无损导出 |
 | Turn Orchestrator | `prepare`、`stageChanges`、`finalize`、`discard`、`visibleTools` | 把 DSH 回合生命周期转换为上下文准备和原子状态提交 |
 | File Resources | `list`、`read`、`import`、`rename`、`restore` | 管理人物卡和资料的工作版、原版、路径身份与绑定关系 |
 | Preset Reading | `inspectPreset` | 把不同 SillyTavern JSON 预设投影为统一的只读摘要和有序提示词条目，不改写原文件 |
@@ -148,7 +148,7 @@ DSH 负责通用 Agent 基础设施：会话、模型选择、工具调用、消
 1. Context Planner 决定本轮注入什么；宿主适配器只声明用途。
 2. Script Continuity 是剧本游标的唯一写入口。阅读不推进；成功正文推进一块；候选只能保持或向前定位。
 3. Story Timeline 是正文、候选和派生状态的唯一真相。每项后台工作绑定 `{branchId, revision}`，依据过期就不能提交。
-4. Card Preparation 统一所有人物卡字段政策；未知字段明确失败，不能静默丢弃。
+4. 人物卡分为不可变原版、可编辑工作 raw 和稳定业务投影。Card Preparation 是 raw 与投影之间的唯一边界；标准字段、世界书和 JSON Pointer 扩展修改最终都写回工作 raw，未知字段不得因导入、编辑或导出而丢失。
 5. 当前候选、状态结算等任务共享一个持续存在的后台子 Agent，并以不同任务模式限制各自可提交的结果；只有出现明确的职责隔离需求时才扩展更多子 Agent。
 6. 领域模块不依赖 DSH 或文件系统；依赖通过接口传入，行为测试与生产调用跨越同一个 seam。
 7. 自由游玩不暴露 Tavern 文件或 Skill 工具；剧本游玩只开放剧本读取；卡片模式只开放当前准备任务需要的读取、修改和按需 Skill 加载。

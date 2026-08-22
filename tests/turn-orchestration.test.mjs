@@ -23,9 +23,10 @@ function script() {
 function harness(mode, options = {}) {
   const cards = createCardPreparation({ id: () => 'card-1', now: () => 1000 })
   const scripts = createScriptContinuity()
-  let card = cards.create({ kind: 'import', payload: { name: '阿芙拉', description: '旧描述' } })
+  let cardWorkspace = cards.create({ kind: 'import', payload: { name: '阿芙拉', description: '旧描述' } })
+  let card = cards.project(cardWorkspace)
   let chat = {
-    id: 'chat-1', cardId: options.draft ? '' : card.id, cardName: options.draft ? '卡片工作台' : card.name, mode,
+    id: 'chat-1', cardPath: options.draft ? '' : 'cards/阿芙拉.json', cardName: options.draft ? '卡片工作台' : card.name, mode,
     messages: [], posture: '站在窗边', guides: [], nativeCommits: {},
     scriptState: mode === 'script' ? scripts.start(script(), 0) : null,
     workspace: mode === 'card' ? { mountedResources: [], sourceIds: options.draft ? ['src-1'] : [], draft: { name: '' }, player: '', cursor: 0, prepared: null } : null
@@ -39,13 +40,15 @@ function harness(mode, options = {}) {
     async readCard() { return options.draft && !chat.cardPath ? undefined : clone(card) },
     async readScript() { return mode === 'script' || (mode === 'card' && !options.draft) ? clone(script()) : undefined },
     async writeChat(value) { chat = clone(value) },
-    async updateCard(_cardId, fields, revision, worldBook) {
-      const change = cards.update({ kind: 'card', card, patch: fields, revision, worldBookOperations: worldBook })
-      card = clone(change.card)
-      return clone(change)
+    async updateCard(_cardId, fields, revision, worldBook, rawOperations) {
+      const change = cards.update({ kind: 'card', card: cardWorkspace, patch: fields, revision, worldBookOperations: worldBook, rawOperations })
+      cardWorkspace = clone(change.card)
+      card = clone(change.view)
+      return { ...clone(change), card: clone(card) }
     },
     async createCard(_chat, state) {
-      card = cards.create({ kind: 'draft', draft: state.draft, player: state.player, sourcePaths: state.sourceIds || state.sourcePaths || [] })
+      cardWorkspace = cards.create({ kind: 'draft', draft: state.draft, player: state.player, sourcePaths: state.sourceIds || state.sourcePaths || [] })
+      card = cards.project(cardWorkspace)
       const path = 'cards/' + card.name + '.json'
       card.path = path
       createdCards.push({ path, card: clone(card) })
@@ -83,6 +86,7 @@ function harness(mode, options = {}) {
     orchestrator,
     chat: () => clone(chat),
     card: () => clone(card),
+    cardWorkspace: () => clone(cardWorkspace),
     plannerCalls,
     settlements,
     createdCards,
@@ -169,12 +173,25 @@ test('卡片修改先校验暂存，只在最终回复完成后写入', async ()
     'skill',
     'tavern_save_skill',
     'tavern_read_card',
+    'tavern_read_card_raw',
     'tavern_read_worldbook',
     'tavern_read_boundary_prompt',
     'tavern_update_boundary_prompt',
     'tavern_update_card',
     'tavern_restore_card',
   ])
+})
+
+test('卡片 raw 扩展修改先暂存，最终回复后才写入工作 raw', async () => {
+  const run = harness('card')
+  await run.orchestrator.stageChanges({
+    sessionId: 'session-1', turn: 9,
+    rawOperations: [{ op: 'set', path: '/extensions/regex_scripts', value: [{ scriptName: '状态栏' }] }]
+  })
+  assert.equal(run.cardWorkspace().raw.extensions, undefined)
+
+  await run.orchestrator.finalize({ sessionId: 'session-1', turn: 9, userText: '加入正则', assistantText: '已经加入。' })
+  assert.deepEqual(run.cardWorkspace().raw.extensions.regex_scripts, [{ scriptName: '状态栏' }])
 })
 
 test('Windows 卡片模式暴露 PowerShell 而不是 Bash', async () => {
@@ -185,6 +202,7 @@ test('Windows 卡片模式暴露 PowerShell 而不是 Bash', async () => {
     'skill',
     'tavern_save_skill',
     'tavern_read_card',
+    'tavern_read_card_raw',
     'tavern_read_worldbook',
     'tavern_read_boundary_prompt',
     'tavern_update_boundary_prompt',
@@ -210,7 +228,7 @@ test('空白卡片工作台确认完整设定后直接创建并绑定正式人�
   const duplicate = await run.orchestrator.finalize({ sessionId: 'session-1', turn: 6, userText: '确认角色和玩家', assistantText: '重复回调' })
   assert.equal(duplicate.duplicate, true)
   assert.equal(run.createdCards.length, 1)
-  assert.deepEqual(await run.orchestrator.visibleTools('session-1'), ['bash', 'str_replace_editor', 'skill', 'tavern_save_skill', 'tavern_read_card', 'tavern_read_worldbook', 'tavern_read_boundary_prompt', 'tavern_update_boundary_prompt', 'tavern_update_card', 'tavern_restore_card'])
+  assert.deepEqual(await run.orchestrator.visibleTools('session-1'), ['bash', 'str_replace_editor', 'skill', 'tavern_save_skill', 'tavern_read_card', 'tavern_read_card_raw', 'tavern_read_worldbook', 'tavern_read_boundary_prompt', 'tavern_update_boundary_prompt', 'tavern_update_card', 'tavern_restore_card'])
 })
 
 test('空白工作台缺少新卡必填信息时不接受确认提交', async () => {

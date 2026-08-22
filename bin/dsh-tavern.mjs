@@ -24,7 +24,6 @@ import { fileURLToPath } from 'node:url'
 import { parseDocument } from 'yaml'
 
 const PROFILE = 'tavern'
-const MINIMUM_DSH_VERSION = '0.1.0-rc.8'
 const SCRIPT_PATH = fileURLToPath(import.meta.url)
 const SOURCE_ROOT = path.resolve(path.dirname(SCRIPT_PATH), '..')
 const DSH_ROOT = process.env.DSH_HOME || path.join(os.homedir(), '.dsh')
@@ -200,30 +199,6 @@ function findDshCommand() {
   throw new Error('找不到 dsh，请先安装 DeepSeek Harness，并重新打开终端。')
 }
 
-export function supportsDshVersion(value, minimum = MINIMUM_DSH_VERSION) {
-  function parse(version) {
-    const match = String(version || '').trim().match(/^(\d+)\.(\d+)\.(\d+)(?:-rc\.(\d+))?$/)
-    if (!match) return null
-    return [Number(match[1]), Number(match[2]), Number(match[3]), match[4] === undefined ? Number.POSITIVE_INFINITY : Number(match[4])]
-  }
-  const current = parse(value)
-  const required = parse(minimum)
-  if (current === null || required === null) return false
-  for (let index = 0; index < current.length; index += 1) {
-    if (current[index] !== required[index]) return current[index] > required[index]
-  }
-  return true
-}
-
-function requireDshVersion(command) {
-  const result = spawnSync(command, ['--version'], { encoding: 'utf8', shell: process.platform === 'win32' })
-  const version = result.status === 0 ? String(result.stdout || '').trim() : ''
-  if (!supportsDshVersion(version)) {
-    throw new Error(`DSH 版本过低，需要 ${MINIMUM_DSH_VERSION} 或更高版本（当前：${version || '无法识别'}）。请运行 npm install -g @deepseek-ai/dsh@${MINIMUM_DSH_VERSION}`)
-  }
-  return version
-}
-
 function requireCommand(command, installHint = '') {
   if (!commandExists(command)) {
     throw new Error(`缺少命令：${command}${installHint ? `。${installHint}` : ''}`)
@@ -357,7 +332,6 @@ function timestamp() {
 
 async function installProfile() {
   const dsh = findDshCommand()
-  requireDshVersion(dsh)
   requireCommand('node', '请安装 Node.js 22.19 或更高版本')
   requireCommand('pnpm', '请运行 npm install -g pnpm')
   verifySource()
@@ -368,7 +342,7 @@ async function installProfile() {
     mkdirSync(path.join(SOURCE_ROOT, 'data', directory), { recursive: true })
   }
 
-  run('pnpm', ['--dir', path.join(SOURCE_ROOT, 'tavern-plugin'), 'install', '--ignore-workspace'])
+  run('pnpm', ['--dir', path.join(SOURCE_ROOT, 'tavern-plugin'), 'install'])
   writeProfileManifest()
   copyFileSync(path.join(SOURCE_ROOT, 'cordis.patch.yml'), path.join(PROFILE_DIR, 'cordis.patch.yml'))
   copyFileSync(path.join(SOURCE_ROOT, 'pnpm-workspace.yaml'), path.join(PROFILE_DIR, 'pnpm-workspace.yaml'))
@@ -530,7 +504,6 @@ async function startService() {
   }
 
   const dsh = findDshCommand()
-  requireDshVersion(dsh)
   mkdirSync(LOG_DIR, { recursive: true })
   const logDescriptor = openSync(LOG_FILE, 'a')
   let child

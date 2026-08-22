@@ -228,10 +228,19 @@ export async function apply(ctx) {
     extract: 'card-task-extract',
     boundary: 'card-task-boundary'
   })
-  async function readCard(cardPath) {
+  async function readCardWorkspace(cardPath) {
     if (str(cardPath) === '') return undefined
     const normalized = normalizeResourcePath(cardPath, 'card')
-    const card = await fileResources.readCard(normalized)
+    const existing = await fileResources.readCard(normalized)
+    if (existing === undefined) return undefined
+    return await fileResources.ensureCardWorkspace(normalized, function (working, payload) {
+      return cardPreparation.migrate({ working, payload })
+    })
+  }
+  async function readCard(cardPath) {
+    const normalized = str(cardPath) === '' ? '' : normalizeResourcePath(cardPath, 'card')
+    const workspace = await readCardWorkspace(normalized)
+    const card = workspace === undefined ? undefined : cardPreparation.project(workspace)
     if (card !== undefined) card.path = normalized
     return card
   }
@@ -409,8 +418,9 @@ export async function apply(ctx) {
     return card
   }
   async function importCard(payload) {
-    const card = cardPreparation.create({ kind: 'import', payload: payload })
-    const cardPath = await fileResources.importCard(payload, card)
+    const workspace = cardPreparation.create({ kind: 'import', payload: payload })
+    const cardPath = await fileResources.importCard(payload, workspace)
+    const card = cardPreparation.project(workspace)
     return { path: cardPath, name: card.name, description: card.description, tags: card.tags }
   }
   async function listCards() {
@@ -437,17 +447,23 @@ export async function apply(ctx) {
       })
     }
   }
-  async function updateCard(cardPath, patch, revision, worldBookOperations) {
-    const card = await readCard(cardPath)
-    if (card === undefined) throw new Error('人物卡不存在: ' + cardPath)
-    const change = cardPreparation.update({ kind: 'card', card: card, patch: patch, revision: revision, worldBookOperations: worldBookOperations })
-    const savedCard = change.card
-    if (!change.changed) return change
-    delete savedCard.id
-    await fileResources.writeWorking(normalizeResourcePath(cardPath, 'card'), JSON.stringify(savedCard, null, 2))
+  async function updateCard(cardPath, patch, revision, worldBookOperations, rawOperations) {
+    const workspace = await readCardWorkspace(cardPath)
+    if (workspace === undefined) throw new Error('人物卡不存在: ' + cardPath)
+    const change = cardPreparation.update({ kind: 'card', card: workspace, patch: patch, revision: revision, worldBookOperations: worldBookOperations, rawOperations: rawOperations })
+    const savedWorkspace = change.card
+    if (!change.changed) {
+      const unchangedCard = change.view
+      unchangedCard.path = cardPath
+      unchangedCard.extensions = cardPreparation.present({ card: savedWorkspace, as: 'card-extensions' })
+      return Object.assign({}, change, { card: unchangedCard })
+    }
+    await fileResources.writeWorking(normalizeResourcePath(cardPath, 'card'), JSON.stringify(savedWorkspace, null, 2))
+    const savedCard = change.view
     savedCard.path = cardPath
+    savedCard.extensions = cardPreparation.present({ card: savedWorkspace, as: 'card-extensions' })
     await syncCardName(cardPath, savedCard.name)
-    return change
+    return Object.assign({}, change, { card: savedCard })
   }
   async function syncCardName(cardPath, cardName) {
     const idx = await readIndex()
@@ -470,10 +486,11 @@ export async function apply(ctx) {
     const restored = await fileResources.restoreCard(cardPath, function (payload) {
       return cardPreparation.create({ kind: 'import', payload: payload })
     })
-    await syncCardName(cardPath, restored.card.name)
+    const restoredCard = cardPreparation.project(restored.card)
+    await syncCardName(cardPath, restoredCard.name)
     return {
       path: cardPath,
-      name: restored.card.name,
+      name: restoredCard.name,
       originalPath: restored.originalPath,
       backupPath: restored.backupPath
     }
@@ -1004,8 +1021,9 @@ export async function apply(ctx) {
     if (str(draft.name).trim() === '') throw new Error('新人物卡还没有角色名，请先在对话中确认')
     const player = str(state.player)
     if (player === '') throw new Error('玩家（{{user}}）身份还没有确认。请先在对话中告诉助手“玩家是XX”。')
-    const card = cardPreparation.create({ kind: 'draft', draft: draft, player: player, sourcePaths: state.sourcePaths || state.sourceIds || [] })
-    const cardPath = await fileResources.importCard({ name: card.name + '.json', text: JSON.stringify(card, null, 2) }, card)
+    const workspace = cardPreparation.create({ kind: 'draft', draft: draft, player: player, sourcePaths: state.sourcePaths || state.sourceIds || [] })
+    const card = cardPreparation.project(workspace)
+    const cardPath = await fileResources.importCard({ name: card.name + '.json', text: JSON.stringify(workspace.raw, null, 2) }, workspace)
     card.path = cardPath
     const idx = await readIndex()
     for (const row of idx.chats || []) {
@@ -1321,7 +1339,7 @@ export async function apply(ctx) {
       case 'getCard': {
         const card = await readCard(args && args.path)
         if (card === undefined) throw new Error('人物卡不存在: ' + (args && args.path))
-        return { card: Object.assign(cardPreparation.present({ card, as: 'view' }), { path: card.path }) }
+        return { card: Object.assign(cardPreparation.present({ card, as: 'view' }), { path: card.path, extensions: cardPreparation.present({ card, as: 'card-extensions' }) }) }
       }
       case 'getCardTaskPrompt': {
         const task = str(args && args.task)
@@ -1370,9 +1388,9 @@ export async function apply(ctx) {
         return { candidates: candidates }
       }
       case 'exportCard': {
-        const card = await readCard(args && args.path)
-        if (card === undefined) throw new Error('人物卡不存在: ' + (args && args.path))
-        return { document: cardPreparation.present({ card: card, as: 'sillytavern-v3' }) }
+        const workspace = await readCardWorkspace(args && args.path)
+        if (workspace === undefined) throw new Error('人物卡不存在: ' + (args && args.path))
+        return { document: cardPreparation.present({ card: workspace, as: 'raw' }) }
       }
       case 'addGuide': return { guides: await addGuide(args && args.sessionId, args && args.text) }
       case 'deleteGuide': return { guides: await deleteGuide(args && args.sessionId, args && args.index) }
@@ -1518,7 +1536,7 @@ export async function apply(ctx) {
     void turnOrchestrator.discard({ sessionId: session.id, turn: event.data && event.data.turn })
   })
 
-  const controlledToolNames = new Set(['bash', 'pwsh', 'str_replace_editor', 'skill', 'tavern_save_skill', 'tavern_read_card', 'tavern_read_script', 'tavern_read_worldbook', 'tavern_read_boundary_prompt', 'tavern_update_boundary_prompt', 'tavern_update_card', 'tavern_restore_card'])
+  const controlledToolNames = new Set(['bash', 'pwsh', 'str_replace_editor', 'skill', 'tavern_save_skill', 'tavern_read_card', 'tavern_read_card_raw', 'tavern_read_script', 'tavern_read_worldbook', 'tavern_read_boundary_prompt', 'tavern_update_boundary_prompt', 'tavern_update_card', 'tavern_restore_card'])
   ctx.on('system-prompt/assemble', async function (_assembly, context, next) {
     const assembly = await next()
     const agent = context && context.agent
@@ -1636,6 +1654,45 @@ export async function apply(ctx) {
           : (str(chat.cardPath) === '' ? ((chat.workspace && chat.workspace.draft) || {}) : await readChatCard(chat))
         if (card === undefined) throw new Error('人物卡资源不存在: ' + resourcePath)
         return readCardField(projectCardMacros(card), args)
+      }
+    }))
+
+    tools.register(defineTool({
+      name: 'tavern_read_card_raw',
+      description: '在卡片工作台中按 JSON Pointer 分段读取完整工作 raw。只在标准字段工具无法覆盖正则、脚本、MVU 或未知扩展时使用；pointer 为空可查看根结构。',
+      parameters: {
+        path: { type: 'string', description: '可选的已挂载人物卡相对路径；省略时读取当前人物卡' },
+        pointer: { type: 'string', description: 'JSON Pointer，例如 /data/extensions/regex_scripts；V1 卡可使用 /extensions。省略时读取根节点' },
+        offset: { type: 'integer', description: '可选的 1 起始字符位置，默认 1' },
+        limit: { type: 'integer', description: '本次最多读取字符数，默认 6000，最大 12000' }
+      },
+      output: {
+        schema: {
+          type: 'object', additionalProperties: false,
+          properties: {
+            pointer: { type: 'string', required: true },
+            text: { type: 'string', required: true },
+            totalChars: { type: 'integer', required: true },
+            from: { type: 'integer', required: true },
+            to: { type: 'integer', required: true },
+            done: { type: 'boolean', required: true }
+          }
+        },
+        render: function (_args, value) {
+          return [{ type: 'text', text: '人物卡 raw ' + (value.pointer || '/') + ' · 第 ' + value.from + '~' + value.to + ' 字 / 共 ' + value.totalChars + ' 字\n\n' + value.text }]
+        }
+      },
+      isConcurrencySafe: function () { return true },
+      async execute(args, exec) {
+        const sessionId = exec && exec.agent && exec.agent.session ? exec.agent.session.id : ''
+        const chat = await chatForSession(sessionId)
+        if (chat === undefined || (chat.mode || 'story') !== 'card') throw new Error('人物卡 raw 只能在卡片工作台中读取')
+        const resourcePath = str(args.path).trim() || str(chat.cardPath)
+        if (resourcePath === '') throw new Error('空白工作台还没有正式人物卡 raw')
+        if (resourcePath !== str(chat.cardPath) && !mountedResource(chat, 'card', resourcePath)) throw new Error('该人物卡尚未挂载到当前对话')
+        const workspace = await readCardWorkspace(resourcePath)
+        if (workspace === undefined) throw new Error('人物卡资源不存在: ' + resourcePath)
+        return cardPreparation.present({ card: workspace, as: 'raw-section', pointer: args.pointer, offset: args.offset, limit: args.limit })
       }
     }))
 
@@ -1875,6 +1932,18 @@ export async function apply(ctx) {
               entry: { type: 'object', additionalProperties: true }
             }
           }
+        },
+        rawOperations: {
+          type: 'array',
+          description: '仅用于标准字段和世界书工具无法覆盖的扩展字段；按 JSON Pointer 对完整工作 raw 做最小 set/delete 修改',
+          items: {
+            type: 'object', additionalProperties: false,
+            properties: {
+              op: { type: 'string', required: true, enum: ['set', 'delete'] },
+              path: { type: 'string', required: true, description: 'JSON Pointer，例如 /data/extensions/regex_scripts/0/disabled' },
+              value: { type: 'json', description: 'set 操作的新值；delete 时省略' }
+            }
+          }
         }
       },
       output: {
@@ -1901,7 +1970,8 @@ export async function apply(ctx) {
           sessionId,
           turn: activeTurnOf(exec),
           fields: args.fields,
-          worldBook: args.worldBook
+          worldBook: args.worldBook,
+          rawOperations: args.rawOperations
         })
       }
     }))
