@@ -169,6 +169,14 @@ test('破甲侧栏只负责文件查看、选择、删除和当前会话开关',
   assert.doesNotMatch(panel, /人物卡.*写入|updateCard/)
 })
 
+test('卡片编辑读取保留人物卡宏，只在游玩投影中展开', () => {
+  const cardReader = between(serverSource, "name: 'tavern_read_card'", "name: 'tavern_read_card_raw'")
+  const worldBookReader = between(serverSource, "name: 'tavern_read_worldbook'", "name: 'tavern_read_boundary_prompt'")
+
+  assert.doesNotMatch(cardReader, /projectCardMacros|projectCardText/)
+  assert.doesNotMatch(worldBookReader, /projectCardMacros|projectCardText/)
+})
+
 test('预设库独立导入并按原始顺序只读展示提示词条目', () => {
   const panel = between(clientSource, 'function PresetLibraryTab', 'function CardLibraryTab')
 
@@ -232,6 +240,15 @@ test('人物卡库可以查看详情，并在当前卡片对话中引用人物�
   assert.match(clientSource, /在对话中引用/)
   assert.match(clientSource, /requestedPath/)
   assert.match(clientSource, /loadCard\(requestedPath\)/)
+})
+
+test('人物卡 Agent 保存后重新读取已打开的详情，未变化时不重置表单', () => {
+  const library = between(clientSource, 'function CardLibraryTab', 'function CardFieldsPanel')
+  const listener = between(library, 'function onData()', 'window.addEventListener("dsh-tavern-data-changed"')
+
+  assert.match(listener, /loadCard\(selectedPath\)/)
+  assert.match(library, /setCard\(function \(current\)/)
+  assert.match(library, /JSON\.stringify\(current\) === JSON\.stringify\(next\) \? current : next/)
 })
 
 test('删除对话时把缺失 Session 视为已经归档，并继续清理 Tavern 对话', () => {

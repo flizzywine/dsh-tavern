@@ -122,9 +122,9 @@ export function createContextPlanner(options = {}) {
     return sections
   }
 
-  function resultOf(sections, warnings, omitted = []) {
+  function resultOf(sections, warnings, omitted = [], expandCardMacros = true) {
     const projected = sections.map(function (section) {
-      return Object.assign({}, section, { text: projectCardText(str(section.text)) })
+      return Object.assign({}, section, { text: expandCardMacros ? projectCardText(str(section.text)) : str(section.text) })
     })
     const text = projected.map(function (section) { return section.text }).filter(Boolean).join('\n\n')
     return {
@@ -223,7 +223,7 @@ export function createContextPlanner(options = {}) {
       } else if (prepared !== null && typeof prepared === 'object' && Number(prepared.total) > 0) {
         sections.push({ kind: 'card-source', required: true, text: '【挂载资料】已读取完毕（共 ' + prepared.total + ' 块）。' })
       }
-      return resultOf(sections, warnings)
+      return resultOf(sections, warnings, [], false)
     }
 
     throw new Error('未知上下文用途: ' + str(input.purpose))

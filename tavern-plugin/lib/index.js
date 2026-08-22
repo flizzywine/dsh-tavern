@@ -10,7 +10,7 @@ import { createCardDeletion } from './domain/card-deletion.js'
 import { createCardPreparation } from './domain/card-preparation.js'
 import { cardOpeningChoices, resolveCardOpening } from './domain/card-openings.js'
 import { READABLE_CARD_FIELDS, readCardField } from './domain/card-reading.js'
-import { projectCardMacros, projectCardText } from './domain/card-macros.js'
+import { projectCardText } from './domain/card-macros.js'
 import { createContextPlanner } from './domain/context-planner.js'
 import { extractEpubText } from './domain/epub-text.js'
 import { createFileResourceStore, normalizeResourcePath, resourceKind } from './domain/file-resources.js'
@@ -1644,7 +1644,7 @@ export async function apply(ctx) {
           ? await readCard(resourcePath)
           : (str(chat.cardPath) === '' ? ((chat.workspace && chat.workspace.draft) || {}) : await readChatCard(chat))
         if (card === undefined) throw new Error('人物卡资源不存在: ' + resourcePath)
-        return readCardField(projectCardMacros(card), args)
+        return readCardField(card, args)
       }
     }))
 
@@ -1804,7 +1804,7 @@ export async function apply(ctx) {
         const windowResult = cardPreparation.present({ card, as: 'world-book-window', ref: args.ref, query: args.query, offset: args.offset, limit: args.limit })
         if (windowResult === null) return { found: false, message: '当前人物卡没有世界书。', name: '', total: 0, entries: [] }
         if (windowResult.entries.length === 0) return { found: false, message: '没有找到符合条件的世界书条目。', name: windowResult.name, total: windowResult.total, entries: [] }
-        return { found: true, message: '', name: projectCardText(str(windowResult.name)), total: windowResult.total, entries: projectCardMacros(windowResult.entries) }
+        return { found: true, message: '', name: str(windowResult.name), total: windowResult.total, entries: windowResult.entries }
       }
     }))
 

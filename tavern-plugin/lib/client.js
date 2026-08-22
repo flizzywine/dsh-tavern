@@ -926,11 +926,20 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			function loadCard(path) {
 				if (!path) { setSelectedPath(""); setCard(null); return Promise.resolve(); }
 				setSelectedPath(path); setError("");
-				return rpc("getCard", { path: path }).then(function (result) { setCard(result.card || null); }, function (err) { setError(String(err && err.message || err)); setCard(null); });
+				return rpc("getCard", { path: path }).then(function (result) {
+					const next = result.card || null;
+					setCard(function (current) { return JSON.stringify(current) === JSON.stringify(next) ? current : next; });
+				}, function (err) { setError(String(err && err.message || err)); setCard(null); });
 			}
 			React.useEffect(function () {
 				refreshCards();
-				function onData() { refreshCards().then(function (items) { if (selectedPath && !items.some(function (item) { return item.path === selectedPath; })) { setSelectedPath(""); setCard(null); } }); }
+				function onData() {
+					refreshCards().then(function (items) {
+						if (!selectedPath) return;
+						if (!items.some(function (item) { return item.path === selectedPath; })) { setSelectedPath(""); setCard(null); return; }
+						loadCard(selectedPath);
+					});
+				}
 				window.addEventListener("dsh-tavern-data-changed", onData);
 				return function () { window.removeEventListener("dsh-tavern-data-changed", onData); };
 			}, [selectedPath]);

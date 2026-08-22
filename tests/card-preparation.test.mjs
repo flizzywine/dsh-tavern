@@ -42,6 +42,26 @@ test('SillyTavern v3 导入与导出共享字段政策，并保持 world book �
   assert.deepEqual(exported.data.character_book.entries[0].extensions, { depth: 4 })
 })
 
+test('人物卡工作 raw 在普通字段修改后仍保留 user 和 char 宏', () => {
+  const cards = moduleUnderTest()
+  const workspace = cards.create({
+    kind: 'import',
+    payload: {
+      spec: 'chara_card_v3',
+      spec_version: '3.0',
+      data: { name: '测试卡', description: '{{char}} 看向 {{user}}。旧描述。' }
+    }
+  })
+  const changed = cards.update({
+    kind: 'card',
+    card: workspace,
+    patch: { description: '{{char}} 看向 {{user}}。新描述。' }
+  })
+
+  assert.equal(changed.card.raw.data.description, '{{char}} 看向 {{user}}。新描述。')
+  assert.equal(cards.present({ card: changed.card, as: 'raw' }).data.description, '{{char}} 看向 {{user}}。新描述。')
+})
+
 test('完整 raw 是可编辑工作数据，未知扩展在投影、修改和导出后保持不变', () => {
   const cards = moduleUnderTest()
   const source = {
