@@ -194,6 +194,14 @@ test('一键安装先安装下载包依赖，再运行 Tavern 安装器', () => 
   assert.ok(windowsDependencies < windowsLauncher)
 })
 
+test('一键安装直接启动 Tavern，不通过包管理器托管后台进程', () => {
+  assert.match(unixInstaller, /DSH_HOME=\$\{DSH_ROOT\} node "\$\{APP_DIR\}\/bin\/dsh-tavern\.mjs" start/)
+  assert.doesNotMatch(unixInstaller, /pnpm --dir "\$\{APP_DIR\}" run start:tavern/)
+
+  assert.match(windowsInstaller, /& node \(Join-Path \$AppDir 'bin\\dsh-tavern\.mjs'\) start/)
+  assert.doesNotMatch(windowsInstaller, /& \$PnpmCommand --dir \$AppDir run start:tavern/)
+})
+
 test('共享 Profile 不固定端口，CLI Adapter 启动时显式使用 3081', () => {
   assert.doesNotMatch(profilePatch, /^\s*(?:host|port):/m)
   assert.match(launcherSource, /spawn\(dsh, \['--profile', PROFILE, '--host', CLI_HOST, '--port', String\(CLI_PORT\), '--no-open'\]/)

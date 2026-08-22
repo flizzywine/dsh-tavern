@@ -96,7 +96,7 @@ if [ "${INSTALL_HOST}" = "desktop" ]; then
   echo "DSH Tavern Desktop 版安装完成。"
   echo "请重启 DSH Desktop，再从托盘的 Profile 菜单切换到 tavern。"
 else
-  DSH_HOME=${DSH_ROOT} pnpm --dir "${APP_DIR}" run start:tavern
+  DSH_HOME=${DSH_ROOT} node "${APP_DIR}/bin/dsh-tavern.mjs" start
   case ${SHELL:-} in
     */zsh) SHELL_PROFILE=${HOME}/.zprofile ;;
     *) SHELL_PROFILE=${HOME}/.profile ;;
