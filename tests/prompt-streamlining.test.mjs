@@ -179,7 +179,7 @@ test('游玩回复把 HTML 从 DSH Surface 与正文历史中拆出', () => {
 
   assert.match(serverSource, /projectReply: projectReplyPresentation/)
   assert.match(lifecycle, /saved\.reply\.presentationHtml/)
-  assert.match(lifecycle, /replaceAssistantReply\(session, assistant, saved\.reply\.bodyText\)/)
+  assert.match(lifecycle, /replaceAssistantReply\(session, assistant, saved\.reply\.bodyText \|\| '\\u00a0'\)/)
   assert.match(replaceReply, /surfaceOp: \{ op: 'replace', start: result\.index, end: result\.index \}/)
 })
 

@@ -34,8 +34,9 @@ function findPresentationSuffix(source) {
  * projection. Only complete, high-confidence block HTML is extracted; inline
  * prose markup and malformed fragments remain in the story with a warning.
  */
-export function projectReplyPresentation(value) {
-  let body = str(value)
+export function projectReplyPresentation(value, options = {}) {
+  const sourceText = str(value)
+  let body = sourceText
   const html = []
   const warnings = []
 
@@ -56,9 +57,20 @@ export function projectReplyPresentation(value) {
     warnings.push('检测到未闭合或无法安全分离的 HTML，已保留在正文中')
   }
 
+  const regex = renderTavernRegexDisplay(body, options.regexScripts, options)
+  if (regex.changed) {
+    body = regex.bodyText
+    html.push(regex.text)
+  }
+  warnings.push.apply(warnings, regex.warnings)
+
   return {
+    sourceText,
     bodyText: cleanBody(body),
     presentationHtml: html.join('\n'),
-    warnings
+    warnings,
+    regexApplied: regex.changed,
+    appliedRegexes: regex.applied
   }
 }
+import { renderTavernRegexDisplay } from './tavern-regex-display.js'

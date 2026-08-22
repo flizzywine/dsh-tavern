@@ -7,7 +7,7 @@ function str(value) {
 
 function macroSnapshot(value = {}) {
   return {
-    userName: str(value.userName) || 'User',
+    userName: str(value.userName) || '你',
     local: Object.assign({}, value.local && typeof value.local === 'object' ? value.local : {}),
     global: Object.assign({}, value.global && typeof value.global === 'object' ? value.global : {})
   }

@@ -3,6 +3,11 @@ import test from 'node:test'
 
 import { renderTavernMacros } from '../tavern-plugin/lib/domain/tavern-macro-engine.js'
 
+test('没有玩家名时把 user 宏解析为第二人称“你”', () => {
+  const result = renderTavernMacros('{{user}}走到门口。', { charName: '命运' })
+  assert.equal(result.text, '你走到门口。')
+})
+
 test('解析 user 和 char 环境宏而不修改原始文本', () => {
   const raw = '{{char}} 看向 {{ user }}。'
   const result = renderTavernMacros(raw, { charName: '命运', userName: '陈锋' })

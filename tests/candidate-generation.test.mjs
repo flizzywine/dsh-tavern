@@ -380,3 +380,13 @@ test('候选项只读取最近 6 段正文，不注入历史用户输入', async
   assert.match(JSON.stringify(sent), /history-19/)
   assert.doesNotMatch(JSON.stringify(sent), /history-(8|10|12|14|16|18)"/)
 })
+
+test('候选项使用被展示正则移走的内部源文本', async () => {
+  const run = harness({
+    outputs: [JSON.stringify({ choices: storyChoices })],
+    messages: [{ role: 'assistant', text: '\u00a0', sourceText: '叶天邪走进白伊甸校园。' }]
+  })
+  await run.candidates.generate({ sessionId: 'session-1', messageId: 'message-projected' })
+
+  assert.match(JSON.stringify(run.modelRequests[0].messages), /叶天邪走进白伊甸校园/)
+})

@@ -248,6 +248,10 @@ export async function apply(ctx) {
     if (card !== undefined) card.path = normalized
     return card
   }
+  async function readCardExtensions(cardPath) {
+    const workspace = await readCardWorkspace(cardPath)
+    return workspace === undefined ? undefined : cardPreparation.present({ card: workspace, as: 'card-extensions' })
+  }
   async function readScript(scriptOrCardPath) {
     if (str(scriptOrCardPath) === '') return undefined
     let scriptPath = str(scriptOrCardPath)
@@ -403,8 +407,8 @@ export async function apply(ctx) {
     if (chat === undefined || chat === null || typeof chat !== 'object') return chat
     if (chat.mode === 'revision' || chat.mode === 'extract') chat.mode = 'card'
     if (typeof chat.cardPath !== 'string') chat.cardPath = ''
-    if (chat.macroState === null || typeof chat.macroState !== 'object') chat.macroState = { userName: 'User', local: {}, global: {} }
-    if (typeof chat.macroState.userName !== 'string' || chat.macroState.userName === '') chat.macroState.userName = 'User'
+    if (chat.macroState === null || typeof chat.macroState !== 'object') chat.macroState = { userName: '你', local: {}, global: {} }
+    if (typeof chat.macroState.userName !== 'string' || chat.macroState.userName === '' || chat.macroState.userName === 'User') chat.macroState.userName = '你'
     if (chat.macroState.local === null || typeof chat.macroState.local !== 'object') chat.macroState.local = {}
     if (chat.macroState.global === null || typeof chat.macroState.global !== 'object') chat.macroState.global = {}
     if (chat.mode === 'card') {
@@ -438,14 +442,14 @@ export async function apply(ctx) {
       return { path: cardPath, name: card.name, script: script === undefined ? null : { path: script.path, title: script.title, sourceChars: script.sourceChars, chunkCount: script.chunks.length } }
     }))
   }
-  async function getCardOpenings(cardPath) {
+  async function getCardOpenings(cardPath, userName) {
     const card = await readCard(cardPath)
     if (card === undefined) throw new Error('人物卡不存在: ' + cardPath)
     return cardOpeningChoices(card).map(function (opening) {
       const preview = projectRuntimeContent(opening.text, {
         policy: 'opening-preview',
         charName: str(card.name),
-        macroState: { userName: 'User', local: {}, global: {} }
+        macroState: { userName: str(userName).trim() || '你', local: {}, global: {} }
       })
       return {
         id: opening.id,
@@ -545,7 +549,7 @@ export async function apply(ctx) {
       sessionId: '',
       guides: [],
       boundaryPrompt: { enabled: false, filename: '' },
-      macroState: { userName: 'User', local: {}, global: {} },
+      macroState: { userName: '你', local: {}, global: {} },
       settleStatus: 'idle',
       settleError: null,
       lastSettle: null,
@@ -618,11 +622,27 @@ export async function apply(ctx) {
       posture: chat.posture || '',
       guides: Array.isArray(chat.guides) ? chat.guides : [],
       presentation: presentationViewOf(chat),
+      replyProjections: replyProjectionsOf(chat),
       presentationWarnings: Array.isArray(chat.presentationWarnings) ? chat.presentationWarnings : [],
       settleStatus: chat.settleStatus || 'idle',
       scriptProgress: scriptProgress,
       updatedAt: chat.updatedAt || 0
     }
+  }
+  function replyProjectionsOf(chat) {
+    const messages = Array.isArray(chat && chat.messages) ? chat.messages : []
+    const projectedIndexes = []
+    for (let index = 0; index < messages.length; index += 1) {
+      const message = messages[index]
+      if (message && message.role === 'assistant' && message.sourceText !== undefined && str(message.sourceText) !== str(message.text)) projectedIndexes.push(index)
+    }
+    const latestProjectedIndex = projectedIndexes.length > 0 ? projectedIndexes[projectedIndexes.length - 1] : -1
+    const legacyTurn = chat && chat.presentation && chat.presentation.source === 'reply' ? Number(chat.presentation.turn) : 0
+    return projectedIndexes.map(function (index) {
+      const message = messages[index]
+      const turn = Number(message.turn) || (index === latestProjectedIndex ? legacyTurn : 0)
+      return { turn: turn, text: str(message.text) }
+    }).filter(function (projection) { return projection.turn > 0 })
   }
   function presentationViewOf(chat) {
     if (chat && chat.presentation && typeof chat.presentation === 'object' && str(chat.presentation.html) !== '') return chat.presentation
@@ -630,7 +650,7 @@ export async function apply(ctx) {
     if (legacy.presentationHtml === '') return null
     return { html: legacy.presentationHtml, source: 'opening', turn: 1, warnings: legacy.warnings, updatedAt: Number(chat && chat.createdAt) || 0 }
   }
-  async function startChat(cardPath, sessionId, mode, openingId) {
+  async function startChat(cardPath, sessionId, mode, openingId, userName) {
     const requestedMode = mode === 'card' || mode === 'revision' || mode === 'extract' ? 'card' : (mode === 'script' ? 'script' : (mode === 'story' ? 'story' : null))
     const card = str(cardPath) === '' && requestedMode === 'card' ? null : await readCard(cardPath)
     if (card === undefined) throw new Error('人物卡不存在: ' + cardPath)
@@ -651,7 +671,7 @@ export async function apply(ctx) {
         return currentView
       }
     }
-    const macroState = { userName: 'User', local: {}, global: {} }
+    const macroState = { userName: str(userName).trim().slice(0, 80) || '你', local: {}, global: {} }
     const openingProjection = chatMode === 'card'
       ? { agentText: prompt('card-mode-greeting'), presentationHtml: '', presentationOnly: false, warnings: [], macroState }
       : projectRuntimeContent(resolveCardOpening(card, openingId), {
@@ -817,6 +837,7 @@ export async function apply(ctx) {
       chatForSession: chatForSession,
       readChat: readChat,
       readCard: readCard,
+      readCardExtensions: readCardExtensions,
       readScript: readScript,
       writeChat: writeChat
     },
@@ -888,7 +909,7 @@ export async function apply(ctx) {
     for (let i = 0; i < msgs.length; i++) {
       const m = msgs[i]
       if (m === null || typeof m !== 'object' || str(m.text) === '') continue
-      lines.push((m.role === 'assistant' ? '正文' : '玩家') + ': ' + str(m.text))
+      lines.push((m.role === 'assistant' ? '正文' : '玩家') + ': ' + (str(m.sourceText) || str(m.text)))
     }
     return lines.join('\n')
   }
@@ -1091,6 +1112,7 @@ export async function apply(ctx) {
     store: {
       chatForSession,
       readCard,
+      readCardExtensions,
       readScript,
       writeChat,
       updateCard,
@@ -1396,7 +1418,7 @@ export async function apply(ctx) {
       case 'listCards': return { cards: await listCards() }
       case 'getUpdateStatus': return { status: await applicationUpdater.status() }
       case 'startUpdate': return { status: await applicationUpdater.start() }
-      case 'getCardOpenings': return { openings: await getCardOpenings(args && args.path) }
+      case 'getCardOpenings': return { openings: await getCardOpenings(args && args.path, args && args.userName) }
       case 'getCard': {
         const cardPath = normalizeResourcePath(args && args.path, 'card')
         const workspace = await readCardWorkspace(cardPath)
@@ -1440,7 +1462,7 @@ export async function apply(ctx) {
       case 'deleteChat': return await deleteChat(args && args.chatId)
       case 'startChat': {
         try {
-          return { view: await startChat(args && args.path, args && args.sessionId, args && args.mode, args && args.openingId) }
+          return { view: await startChat(args && args.path, args && args.sessionId, args && args.mode, args && args.openingId, args && args.userName) }
         } catch (error) {
           console.error('dsh-tavern: 创建对话失败', {
             cardPath: str(args && args.path),
@@ -1635,7 +1657,7 @@ export async function apply(ctx) {
       userText,
       assistantText: assistant === null ? '' : assistant.text
     })
-    if (saved.reply && saved.reply.presentationHtml !== '') replaceAssistantReply(session, assistant, saved.reply.bodyText)
+    if (saved.reply && saved.reply.presentationHtml !== '') replaceAssistantReply(session, assistant, saved.reply.bodyText || '\u00a0')
   })
 
   ctx.on('session/event', function (session, event) {

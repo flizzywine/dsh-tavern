@@ -27,6 +27,7 @@ window.__ModuleLoader__.load({
 .dsh-tavern-error-meta time { margin-left: auto; color: var(--dsw-alias-label-secondary); font-weight: 400; }
 .dsh-tavern-error-message { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; line-height: 1.55; }
 .dsh-tavern-error-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 8px; }
+.dsh-tavern-projected-reply { box-sizing: border-box; width: 100%; padding: 0 24px 20px; color: var(--dsw-alias-label-primary); font-size: inherit; line-height: 1.8; white-space: pre-wrap; overflow-wrap: anywhere; }
 .dsh-tavern-sidebar { height: 100%; box-sizing: border-box; display: flex; flex-direction: column; padding: 12px; color: var(--dsw-alias-label-primary); background: var(--dsw-specific-sidebar-fill); }
 .dsh-tavern-sidebar.collapsed { padding: 12px 10px; align-items: center; }
 body.dsh-tavern-shell-active button[aria-label="新建会话"], body.dsh-tavern-shell-active button[aria-label="New session"] { display: none !important; }
@@ -77,11 +78,15 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 .dsh-tavern-greeting-preview { display: block; width: 100%; height: min(52vh, 560px); box-sizing: border-box; margin: 8px 0; border: 1px solid var(--dsw-alias-border-l2); border-radius: 10px; background: #fff; }
 .dsh-tavern-greeting-nav { display: grid; grid-template-columns: auto 1fr auto; gap: 8px; align-items: center; }
 .dsh-tavern-greeting-count { color: var(--dsw-alias-label-secondary); text-align: center; font-size: 12px; }
+.dsh-tavern-player-name { display: grid; grid-template-columns: auto minmax(180px, 320px); gap: 10px; align-items: center; margin: 10px 0 8px; color: var(--dsw-alias-label-secondary); font-size: 12px; }
+.dsh-tavern-player-name input { width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 9px; background: var(--dsw-specific-input-major); color: var(--dsw-alias-label-primary); font: inherit; outline: none; }
+.dsh-tavern-player-name input:focus { border-color: #a66b35; }
 @media (max-width: 640px) {
   .dsh-tavern-picker-overlay { align-items: stretch; padding: 12px; }
   .dsh-tavern-card-picker { width: 100%; max-height: none; padding: 14px; border-radius: 14px; }
   .dsh-tavern-card-pick-wrap { grid-template-columns: minmax(0, 1fr) auto auto; }
   .dsh-tavern-greeting-preview { max-height: 60vh; }
+  .dsh-tavern-player-name { grid-template-columns: 1fr; gap: 5px; }
 }
 .dsh-tavern-picker-group { margin-top: 10px; color: var(--dsw-alias-label-secondary); font-size: 11px; font-weight: 700; }
 .dsh-tavern-picker-foot { position: sticky; bottom: -10px; display: flex; justify-content: flex-end; margin: 10px -10px -10px; padding: 10px; border-top: 1px solid var(--dsw-alias-border-l2); background: var(--dsw-specific-sidebar-fill); }
@@ -93,6 +98,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 .dsh-tavern-candidate-error-banner { width: 100%; max-width: var(--dsh-composer-card-max-width, 780px); box-sizing: border-box; margin: 0 auto; padding: 8px 12px; border: 1px solid rgba(196,95,95,.45); border-radius: 10px; background: rgba(196,95,95,.10); color: #c45f5f; font-size: 12px; line-height: 1.5; }
 .dsh-tavern-choice-error { padding: 5px; color: #c45f5f; font-size: 12px; }
 .dsh-tavern-question { width: 100%; max-width: var(--dsh-composer-card-max-width, 780px); box-sizing: border-box; margin: 0 auto; padding: 12px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 14px; background: var(--dsw-specific-tip, var(--dsw-specific-sidebar-fill)); box-shadow: var(--dsw-shadow-lv1); }
+.dsh-tavern-candidate-question { max-width: 680px; }
 .dsh-tavern-question.collapsed { padding: 9px 12px; box-shadow: none; }
 .dsh-tavern-question-head { display: flex; align-items: center; gap: 8px; margin-bottom: 9px; font-weight: 750; cursor: pointer; }
 .dsh-tavern-question.collapsed .dsh-tavern-question-head { margin-bottom: 0; }
@@ -357,6 +363,10 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			});
 		}
 
+		function isIgnoredTavernError(value) {
+			return /failed to fetch/i.test(String(value && value.message || value || "").trim());
+		}
+
 		const tavernErrorHub = (function () {
 			const storageKey = "dsh-tavern:error-history:v1";
 			function loadItems() {
@@ -378,6 +388,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				getSnapshot: function () { return items.slice(); },
 				subscribe: function (listener) { listeners.add(listener); return function () { listeners.delete(listener); }; },
 				report: function (source, error) {
+					if (isIgnoredTavernError(error)) return;
 					const message = String(error && error.message || error || "").trim();
 					if (!message) return;
 					const scope = String(source || "DSH Tavern");
@@ -405,9 +416,9 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const lastReported = React.useRef("");
 			const setError = React.useCallback(function (value) {
 				const message = String(value && value.message || value || "");
-				setLocalError(message);
-				if (message && message !== lastReported.current) tavernErrorHub.report(source, message);
-				lastReported.current = message;
+				setLocalError(isIgnoredTavernError(message) ? "" : message);
+				if (!isIgnoredTavernError(message) && message && message !== lastReported.current) tavernErrorHub.report(source, message);
+				lastReported.current = isIgnoredTavernError(message) ? "" : message;
 			}, [source]);
 			return [error, setError];
 		}
@@ -559,6 +570,26 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				setUiMode(groupOfMode(item.mode));
 			}, [current, history]);
 			React.useEffect(function () {
+				if (!openingPicker || !openingPicker.card) return;
+				let stopped = false;
+				const cardPath = openingPicker.card.path;
+				const userName = String(openingPicker.userName || "你").trim() || "你";
+				const timer = window.setTimeout(async function () {
+					try {
+						const response = await call("getCardOpenings", { path: cardPath, userName: userName });
+						if (stopped) return;
+						setOpeningPicker(function (current) {
+							if (!current || current.card.path !== cardPath || (String(current.userName || "你").trim() || "你") !== userName) return current;
+							const openings = response.openings || [];
+							const selected = current.openings && current.openings[current.index];
+							const selectedIndex = selected ? openings.findIndex(function (item) { return item.id === selected.id; }) : -1;
+							return Object.assign({}, current, { openings: openings, index: selectedIndex >= 0 ? selectedIndex : 0 });
+						});
+					} catch (err) { if (!stopped) setError(String(err && err.message || err)); }
+				}, 250);
+				return function () { stopped = true; window.clearTimeout(timer); };
+			}, [openingPicker && openingPicker.card && openingPicker.card.path, openingPicker && openingPicker.userName]);
+			React.useEffect(function () {
 				if (!readyTavernSession || typeof props.openStatusTab !== "function") return;
 				props.openStatusTab(readyTavernSession);
 			}, [readyTavernSession]);
@@ -614,7 +645,14 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				try { await props.workspaces.archiveSession(current); }
 				catch (archiveError) { if (!isMissingSessionArchiveError(archiveError)) throw archiveError; }
 			}
-			async function newConversation(card, requestedMode, openingId) {
+			async function waitForSessionSummary(sessionId) {
+				const expiresAt = Date.now() + 8000;
+				while (!props.sessions.list.getSnapshot().byId[sessionId]) {
+					if (Date.now() >= expiresAt) throw new Error("DSH Session 列表同步超时，请刷新页面后重试：" + sessionId);
+					await new Promise(function (resolve) { window.setTimeout(resolve, 50); });
+				}
+			}
+			async function newConversation(card, requestedMode, openingId, userName) {
 				const targetMode = requestedMode || (uiMode === "play" ? playModeOfCard(card) : "card");
 				if (!workspaceId) { setError("当前没有可用的 Workspace"); return; }
 				setBusy(true); setError("");
@@ -623,10 +661,14 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					await archiveCurrentBlankSession();
 					phase = "创建 DSH Session";
 					const sessionId = await props.workspaces.connectWorkspace(workspaceId);
+					phase = "等待 DSH Session 就绪";
+					await waitForSessionSummary(sessionId);
 					phase = "切换到酒馆模式";
 					await ensureTavernPreset(sessionId);
 					phase = "写入人物卡开场白";
-					await call("startChat", { path: card.path, sessionId: sessionId, mode: targetMode, openingId: openingId || "" });
+					const resolvedUserName = String(userName || "你").trim() || "你";
+					await call("startChat", { path: card.path, sessionId: sessionId, mode: targetMode, openingId: openingId || "", userName: resolvedUserName });
+					if (targetMode !== "card") window.localStorage.setItem("dsh-tavern-player-name", resolvedUserName);
 					setUiMode(groupOfMode(targetMode));
 					publishSessionMode(sessionId, targetMode);
 					props.sessions.open(sessionId);
@@ -639,14 +681,10 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			async function preparePlayConversation(card) {
 				setBusy(true); setError("");
 				try {
-					const response = await call("getCardOpenings", { path: card.path });
+					const userName = window.localStorage.getItem("dsh-tavern-player-name") || "你";
+					const response = await call("getCardOpenings", { path: card.path, userName: userName });
 					const openings = response.openings || [];
-					if (openings.length <= 1) {
-						setBusy(false);
-						await newConversation(card, null, openings.length === 1 ? openings[0].id : "");
-						return;
-					}
-					setOpeningPicker({ card: card, openings: openings, index: 0 });
+					setOpeningPicker({ card: card, openings: openings, index: 0, userName: userName });
 				} catch (err) { setError(String(err && err.message || err)); }
 				finally { setBusy(false); }
 			}
@@ -666,6 +704,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					const resourceWorkspace = await props.workspaces.create({ path: resourceRoot.path });
 					phase = "创建 DSH Session";
 					const sessionId = await props.workspaces.connectWorkspace(resourceWorkspace.workspaceId);
+					phase = "等待 DSH Session 就绪";
+					await waitForSessionSummary(sessionId);
 					phase = "切换到酒馆模式";
 					await ensureTavernPreset(sessionId);
 					phase = "创建卡片工作台对话";
@@ -781,22 +821,23 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const selectedOpening = openingPicker && openingPicker.openings[openingPicker.index];
 			const pickerError = error ? h("div", { className: "dsh-tavern-picker-error", role: "alert" }, error) : null;
 			const openingChoice = openingPicker ? h(React.Fragment, null,
-				h("div", { className: "dsh-tavern-card-picker-head" }, h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { setOpeningPicker(null); } }, "← 返回"), h("span", null, openingPicker.card.name + " · 选择开场白"), h("span", { className: "dsh-tavern-spacer" }), h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { setOpeningPicker(null); setPicking(false); } }, "关闭")),
-					h("div", { className: "dsh-tavern-greeting-nav" },
+				h("div", { className: "dsh-tavern-card-picker-head" }, h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { setOpeningPicker(null); } }, "← 返回"), h("span", null, openingPicker.card.name + " · 游戏准备"), h("span", { className: "dsh-tavern-spacer" }), h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { setOpeningPicker(null); setPicking(false); } }, "关闭")),
+				h("label", { className: "dsh-tavern-player-name" }, h("span", null, "玩家称呼（{{user}}）"), h("input", { value: openingPicker.userName || "你", maxLength: 80, autoFocus: true, placeholder: "你", disabled: busy, onChange: function (event) { setOpeningPicker(Object.assign({}, openingPicker, { userName: event.target.value })); } })),
+				openingPicker.openings.length > 1 ? h("div", { className: "dsh-tavern-greeting-nav" },
 					h("button", { className: "dsh-tavern-btn", disabled: busy, "aria-label": "上一条开场白", onClick: function () { setOpeningPicker(Object.assign({}, openingPicker, { index: (openingPicker.index - 1 + openingPicker.openings.length) % openingPicker.openings.length })); } }, "←"),
 					h("div", { className: "dsh-tavern-greeting-count" }, (openingPicker.index + 1) + " / " + openingPicker.openings.length),
 					h("button", { className: "dsh-tavern-btn", disabled: busy, "aria-label": "下一条开场白", onClick: function () { setOpeningPicker(Object.assign({}, openingPicker, { index: (openingPicker.index + 1) % openingPicker.openings.length })); } }, "→")
-				),
-				h("iframe", {
+				) : (openingPicker.openings.length === 0 ? h("div", { className: "dsh-tavern-side-empty" }, "这张人物卡没有开场白，将从空白场景开始。") : null),
+				selectedOpening && openingPicker.openings.length > 1 ? h("iframe", {
 					className: "dsh-tavern-greeting-preview",
 					title: selectedOpening ? openingPicker.card.name + "开场白预览" : "开场白预览",
 					sandbox: "allow-scripts allow-forms allow-modals allow-downloads allow-popups allow-popups-to-escape-sandbox",
 					referrerPolicy: "no-referrer",
-					srcDoc: buildOpeningPreviewDocument(selectedOpening ? selectedOpening.text : "")
-				}),
-				h("div", { className: "dsh-tavern-picker-foot" }, h("button", { className: "dsh-tavern-question-primary", disabled: busy || !selectedOpening, onClick: function () { if (selectedOpening) newConversation(openingPicker.card, null, selectedOpening.id); } }, "以此开场"))
+					srcDoc: buildOpeningPreviewDocument(selectedOpening.text)
+				}) : null,
+				h("div", { className: "dsh-tavern-picker-foot" }, h("button", { className: "dsh-tavern-question-primary", disabled: busy || (openingPicker.openings.length > 0 && !selectedOpening), onClick: function () { newConversation(openingPicker.card, null, selectedOpening ? selectedOpening.id : "", openingPicker.userName || "你"); } }, selectedOpening && openingPicker.openings.length > 1 ? "以此开场" : "开始游戏"))
 			) : null;
-			const playPicker = h("div", { className: "dsh-tavern-card-picker", role: "dialog", "aria-modal": "true", "aria-label": openingPicker ? "选择开场白" : "选择人物卡开始游玩" }, pickerError, openingPicker ? openingChoice : h(React.Fragment, null,
+			const playPicker = h("div", { className: "dsh-tavern-card-picker", role: "dialog", "aria-modal": "true", "aria-label": openingPicker ? "游戏准备" : "选择人物卡开始游玩" }, pickerError, openingPicker ? openingChoice : h(React.Fragment, null,
 				h("div", { className: "dsh-tavern-card-picker-head" }, h("span", null, "选择人物卡 · 开始游玩"), h("span", { className: "dsh-tavern-spacer" }), h("button", { className: "dsh-tavern-btn", onClick: function () { fileRef.current && fileRef.current.click(); } }, "导入人物卡"), h("button", { className: "dsh-tavern-btn", onClick: closePicker }, "关闭")),
 				h("input", { ref: fileRef, type: "file", accept: ".png,.json", style: { display: "none" }, onChange: function (e) { const f = e.target.files && e.target.files[0]; if (f) importCard(f); e.target.value = ""; } }),
 				cards.length ? h(React.Fragment, null, h("div", { className: "dsh-tavern-side-empty", style: { padding: "4px 6px" } }, "已绑定剧本的人物卡将自动按剧本推进；未绑定的按自由故事推进。剧本绑定在“卡片模式”中管理。"), cards.map(function (card) { return h("div", { key: card.path, className: "dsh-tavern-card-pick-wrap" },
@@ -1790,6 +1831,64 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			} catch (err) {}
 		}
 
+		const replyProjectionCache = Object.create(null);
+		function setReplyProjections(sessionId, projections) {
+			replyProjectionCache[sessionId] = Array.isArray(projections) ? projections : [];
+		}
+		function applyReplyProjections(sessionId) {
+			const projections = replyProjectionCache[sessionId] || [];
+			const byTurn = new Map(projections.map(function (projection) { return [String(projection.turn), projection]; }));
+			const marker = String(sessionId || "");
+			const oldProjected = document.querySelectorAll('.dsh-tavern-projected-reply[data-session-id="' + CSS.escape(marker) + '"]');
+			for (let index = 0; index < oldProjected.length; index += 1) {
+				const node = oldProjected[index];
+				if (!byTurn.has(String(node.getAttribute("data-turn")))) node.remove();
+			}
+			const oldHidden = document.querySelectorAll('[data-dsh-tavern-projection-hidden="' + CSS.escape(marker) + '"]');
+			for (let index = 0; index < oldHidden.length; index += 1) {
+				const node = oldHidden[index];
+				if (!byTurn.has(String(node.getAttribute("data-dsh-tavern-projection-turn")))) {
+					node.style.display = "";
+					node.removeAttribute("data-dsh-tavern-projection-hidden");
+					node.removeAttribute("data-dsh-tavern-projection-turn");
+				}
+			}
+			const tails = document.querySelectorAll('[data-chat-flow-kind="turn-tail"]');
+			for (let index = 0; index < tails.length; index += 1) {
+				const tail = tails[index];
+				const turn = tailTurnOf(tail);
+				const projection = byTurn.get(String(turn));
+				if (!projection) continue;
+				let sibling = tail.previousElementSibling;
+				let projected = null;
+				while (sibling) {
+					const kind = sibling.getAttribute("data-chat-flow-kind");
+					if (kind === "user" || kind === "turn-tail") break;
+					const previous = sibling.previousElementSibling;
+					if (sibling.classList.contains("dsh-tavern-projected-reply")) projected = sibling;
+					else {
+						sibling.style.display = "none";
+						sibling.setAttribute("data-dsh-tavern-projection-hidden", marker);
+						sibling.setAttribute("data-dsh-tavern-projection-turn", String(turn));
+					}
+					sibling = previous;
+				}
+				const text = String(projection.text || "");
+				if (text.trim() === "") {
+					if (projected) projected.remove();
+					continue;
+				}
+				if (!projected) {
+					projected = document.createElement("div");
+					projected.className = "dsh-tavern-projected-reply";
+					projected.setAttribute("data-session-id", marker);
+					projected.setAttribute("data-turn", String(turn));
+					tail.parentNode.insertBefore(projected, tail);
+				}
+				projected.textContent = projection.text;
+			}
+		}
+
 		function CandidateAction(props) {
 			const [busy, setBusy] = React.useState(false);
 			const [rolling, setRolling] = React.useState(false);
@@ -1895,12 +1994,19 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				setExpanded(panel !== null && panel.phase === "error");
 			}, [panel, sessionMode]);
 			React.useEffect(function () {
+				let active = true;
+				rpc("getSession", {}, props.sessionId).then(function (result) {
+					if (!active) return;
+					setReplyProjections(props.sessionId, result && result.view && result.view.replyProjections);
+					applyReplyProjections(props.sessionId);
+				}, function () {});
 				applyHiddenTurns(props.sessionId);
 				applyRolledBackTurns(props.sessionId);
 				applyHiddenRegenUserTurns(props.sessionId);
-				const timer = window.setInterval(function () { applyHiddenTurns(props.sessionId); applyRolledBackTurns(props.sessionId); applyHiddenRegenUserTurns(props.sessionId); }, 1500);
-				return function () { window.clearInterval(timer); };
-			}, [props.sessionId]);
+				applyReplyProjections(props.sessionId);
+				const timer = window.setInterval(function () { applyHiddenTurns(props.sessionId); applyRolledBackTurns(props.sessionId); applyHiddenRegenUserTurns(props.sessionId); applyReplyProjections(props.sessionId); }, 1500);
+				return function () { active = false; window.clearInterval(timer); };
+			}, [props.sessionId, latestMessageId, running]);
 			if (panel && panel.sessionId === props.sessionId && panel.phase === "error") {
 				return React.createElement("div", { className: "dsh-tavern-choice-error dsh-tavern-candidate-error-banner" },
 					"候选项生成失败：" + (panel.error || "未知错误") + "。请点上方“生成候选项”重试。"
@@ -1914,7 +2020,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const isScript = sessionMode === "script";
 			const heading = "接下来的行动";
 			const summary = panel.phase === "loading" ? "正在生成…" : (panel.error ? "生成失败" : (isScript ? "1 个候选 · 跟随剧本，只有一个推荐候选项" : count + " 个候选项"));
-			return h("div", { className: "dsh-tavern-question" + (expanded ? "" : " collapsed") },
+			return h("div", { className: "dsh-tavern-question dsh-tavern-candidate-question" + (expanded ? "" : " collapsed") },
 				h("div", { className: "dsh-tavern-question-head", onClick: function () { setExpanded(!expanded); } }, h("span", null, heading), h("span", { className: "dsh-tavern-question-sub" }, summary), h("button", { className: "dsh-tavern-question-close", title: expanded ? "收起" : "展开", onClick: function (event) { event.stopPropagation(); setExpanded(!expanded); } }, expanded ? "⌃" : "⌄")),
 				expanded && panel.phase === "loading" ? h("div", { className: "dsh-tavern-question-sub" }, "正在生成候选项…") : null,
 				expanded && panel.error ? h("div", { className: "dsh-tavern-choice-error" }, "候选项生成失败，请点回复下方的“生成候选项”重试") : null,

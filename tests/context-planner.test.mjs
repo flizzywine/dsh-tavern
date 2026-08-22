@@ -61,7 +61,8 @@ test('正文按触发词选择世界书且不调用模型，并解析人物卡�
   assert.doesNotMatch(result.text, /遥远王都/)
   assert.doesNotMatch(result.text, /停用条目/)
   assert.match(result.text, /阿芙拉 是银发佣兵/)
-  assert.match(result.text, /User 在旅店遇见 阿芙拉/)
+  assert.match(result.text, /你 表示玩家。/)
+  assert.match(result.text, /你 在旅店遇见 阿芙拉/)
   assert.doesNotMatch(result.text, /文风示例|跟紧我/)
   assert.doesNotMatch(result.text, /\{\{char\}\}|\{\{user\}\}/)
   assert.match(result.text, /本轮剧本参考 · 第 8 块/)
@@ -73,6 +74,24 @@ test('正文按触发词选择世界书且不调用模型，并解析人物卡�
   assert.doesNotMatch(result.text, /不要为通顺牺牲剧本/)
   assert.ok(result.audit.totalChars > 0)
   assert.ok(result.audit.included.some((item) => item.kind === 'world-book'))
+})
+
+test('人物卡角色描述声明 user 表示玩家并在进入 Agent 前解析宏', async () => {
+  const planner = createContextPlanner({ prompt, callModel: async () => '{"ids":[]}' })
+  const current = chat()
+  current.macroState = { userName: '叶天邪', local: {}, global: {} }
+  const result = await planner.plan({
+    purpose: 'body',
+    card: card(),
+    chat: current,
+    userText: '进入校园',
+    sessionId: 'session-1',
+    nativeTurn: 2,
+    scriptReference: null
+  })
+
+  assert.match(result.text, /设定: 阿芙拉 是银发佣兵。\n叶天邪 表示玩家。/)
+  assert.doesNotMatch(result.text, /\{\{user\}\}/)
 })
 
 test('自由故事首轮仍注入人物卡文风示例', async () => {
@@ -88,7 +107,7 @@ test('自由故事首轮仍注入人物卡文风示例', async () => {
   })
 
   assert.match(result.text, /文风示例/)
-  assert.match(result.text, /阿芙拉 对 User 说：跟紧我/)
+  assert.match(result.text, /阿芙拉 对 你 说：跟紧我/)
 })
 
 test('后续正文不重复首轮人物卡细节，但保留姿势、Guide 和特殊指令', async () => {
@@ -111,6 +130,24 @@ test('后续正文不重复首轮人物卡细节，但保留姿势、Guide 和�
   assert.match(result.text, /右手按着剑柄/)
   assert.match(result.text, /多写动作/)
   assert.match(result.text, /避免替玩家决定/)
+})
+
+test('展示正则移走可见正文后，下一轮仍注入内部源文本保持连续', async () => {
+  const planner = createContextPlanner({ prompt, callModel: async () => '{"ids":[]}' })
+  const result = await planner.plan({
+    purpose: 'body',
+    card: card(),
+    chat: chat([
+      { role: 'user', text: '进入校园' },
+      { role: 'assistant', text: '\u00a0', sourceText: '【时间】：09:00\n叶天邪走进校门。' }
+    ]),
+    userText: '继续前进',
+    sessionId: 'session-1',
+    nativeTurn: 3
+  })
+
+  assert.match(result.text, /上一轮正文源文本/)
+  assert.match(result.text, /叶天邪走进校门/)
 })
 
 test('自由故事候选按稳定到动态的顺序注入完整人物卡约束', async () => {

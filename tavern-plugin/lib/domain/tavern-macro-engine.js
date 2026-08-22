@@ -153,7 +153,7 @@ export function renderTavernMacros(text, context = {}) {
   const global = variableStore(context.globalVariables)
   const env = {
     content: str(text),
-    names: { user: str(context.userName) || 'User', char: str(context.charName) },
+    names: { user: str(context.userName) || '你', char: str(context.charName) },
     character: {},
     system: { model: '' },
     functions: { postProcess: value => value },

@@ -218,9 +218,19 @@ export function createTurnOrchestrator(options) {
     let reply = { bodyText: assistantText, presentationHtml: '', warnings: [] }
     if (mode === 'story' || mode === 'script') {
       if (renderMacros !== null && assistantText.includes('{{')) assistantText = renderMacros(assistantText, chat)
-      reply = projectReply(assistantText)
+      const extensions = typeof store.readCardExtensions === 'function'
+        ? await store.readCardExtensions(cardPathOf(chat))
+        : null
+      reply = projectReply(assistantText, {
+        regexScripts: extensions && extensions.regexScripts,
+        placement: 2,
+        isMarkdown: true,
+        isEdit: false,
+        depth: 0
+      })
       assistantText = str(reply.bodyText).trim()
     }
+    if (assistantText === '' && str(reply.presentationHtml) !== '') assistantText = '\u00a0'
     if (assistantText === '') throw new Error('本轮最终回复为空，无法保存酒馆状态')
     const presentation = str(reply.presentationHtml) === '' ? {} : { html: reply.presentationHtml, warnings: reply.warnings }
     const stage = takeStage(chat, turn)
@@ -304,7 +314,9 @@ export function createTurnOrchestrator(options) {
           before.scriptRevision = committed.revision
         }
         if (userText !== '') draft.messages.push({ role: 'user', text: userText, ts: now(), native: true })
-        draft.messages.push({ role: 'assistant', text: assistantText, ts: now(), native: true })
+        const assistantMessage = { role: 'assistant', text: assistantText, ts: now(), native: true, turn: turn }
+        if (reply.regexApplied === true && str(reply.sourceText) !== assistantText) assistantMessage.sourceText = str(reply.sourceText)
+        draft.messages.push(assistantMessage)
         if (str(presentation.html) !== '') {
           draft.presentation = {
             html: str(presentation.html), source: 'reply', turn,

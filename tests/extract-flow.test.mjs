@@ -44,22 +44,40 @@ test('新建对话不会重复切换已经是 Tavern preset 的 Session', () => 
   assert.doesNotMatch(cardFlow, /agentPresets\.select/)
 })
 
-test('新开游玩在创建 Session 前选择开场白，创建后不提供切换器', () => {
+test('新建游玩和卡片对话等待前端 Session 列表就绪后再继续', () => {
+  const sidebar = between(clientSource, 'function TavernSidebar', 'function TavernResourcesTab')
+  const waitFlow = between(sidebar, 'async function waitForSessionSummary', 'async function newConversation')
+  const playFlow = between(sidebar, 'async function newConversation', 'async function importCard')
+  const cardFlow = between(sidebar, 'async function newCardConversation', 'function formatTime')
+
+  assert.match(waitFlow, /props\.sessions\.list\.getSnapshot\(\)\.byId\[sessionId\]/)
+  assert.match(waitFlow, /DSH Session 列表同步超时/)
+  assert.match(playFlow, /await waitForSessionSummary\(sessionId\)/)
+  assert.match(cardFlow, /await waitForSessionSummary\(sessionId\)/)
+  assert.ok(playFlow.indexOf('await waitForSessionSummary(sessionId)') < playFlow.indexOf('call("startChat"'))
+  assert.ok(cardFlow.indexOf('await waitForSessionSummary(sessionId)') < cardFlow.indexOf('call("startChat"'))
+})
+
+test('新开游玩在创建 Session 前完成游戏准备，创建后不提供开场白切换器', () => {
   const sidebar = between(clientSource, 'function TavernSidebar', 'function TavernResourcesTab')
   const prepareFlow = between(sidebar, 'async function preparePlayConversation', 'async function importCard')
 
   assert.match(sidebar, /getCardOpenings/)
-  assert.match(sidebar, /选择开场白/)
   assert.match(sidebar, /上一条开场白/)
   assert.match(sidebar, /下一条开场白/)
   assert.match(sidebar, /以此开场/)
+  assert.match(sidebar, /游戏准备/)
+  assert.match(sidebar, /玩家称呼（\{\{user\}\}）/)
+  assert.match(sidebar, /dsh-tavern-player-name/)
   assert.match(sidebar, /preparePlayConversation\(card\)/)
   assert.doesNotMatch(prepareFlow, /connectWorkspace|startChat/)
-  assert.match(sidebar, /newConversation\(openingPicker\.card, null, selectedOpening\.id\)/)
+  assert.match(sidebar, /newConversation\(openingPicker\.card, null, selectedOpening \? selectedOpening\.id : "", openingPicker\.userName \|\| "你"\)/)
   assert.match(sidebar, /openingId: openingId \|\| ""/)
+  assert.match(sidebar, /userName: resolvedUserName/)
   assert.match(sidebar, /dsh-tavern-picker-overlay/)
   assert.match(sidebar, /role: "dialog"/)
 	assert.match(sidebar, /h\("iframe"/)
+	assert.match(sidebar, /selectedOpening && openingPicker\.openings\.length > 1 \? h\("iframe"/)
 	assert.match(sidebar, /srcDoc: buildOpeningPreviewDocument/)
 	assert.match(sidebar, /sandbox: "allow-scripts allow-forms allow-modals allow-downloads allow-popups allow-popups-to-escape-sandbox"/)
 	assert.doesNotMatch(sidebar, /展示页不可作为开场/)
@@ -117,6 +135,22 @@ test('Tavern 错误面板只保留最新错误，左侧栏连接恢复后撤销�
   assert.match(clientSource, /tavernErrorHub\.report\("候选项生成", err\)/)
   assert.match(clientSource, /tavernErrorHub\.report\("正文重新生成", err\)/)
   assert.match(clientSource, /tavernErrorHub\.report\("插件更新", err\)/)
+  assert.match(clientSource, /function isIgnoredTavernError\(value\)/)
+  assert.match(errorHub, /if \(isIgnoredTavernError\(error\)\) return/)
+  assert.match(clientSource, /setLocalError\(isIgnoredTavernError\(message\) \? "" : message\)/)
+})
+
+test('正则清理后的回复投影替换原生对话显示', () => {
+  const view = between(serverSource, 'async function view(chat, card)', 'function presentationViewOf')
+  const projection = between(clientSource, 'function applyReplyProjections', 'function CandidateAction')
+  const question = between(clientSource, 'function CandidateQuestion', 'function CandidateGuidePanel')
+
+  assert.match(serverSource, /function replyProjectionsOf\(chat\)/)
+  assert.match(view, /replyProjections: replyProjectionsOf\(chat\)/)
+  assert.match(projection, /sibling\.style\.display = "none"/)
+  assert.match(projection, /projected\.textContent = projection\.text/)
+  assert.match(question, /rpc\("getSession", \{\}, props\.sessionId\)/)
+  assert.match(question, /applyReplyProjections\(props\.sessionId\)/)
 })
 
 test('新建对话把缺失的当前空 Session 视为已归档', () => {
@@ -304,6 +338,7 @@ test('卡片模式预加载四个库，并让资料库保持选中', () => {
   assert.match(clientSource, /const mention = "@\\\"" \+ safePath \+ "\\\""/)
   assert.doesNotMatch(clientSource, /const mention = "@\["/)
   assert.match(clientSource, /body\.dsh-tavern-shell-active \[data-ref-chip="file"\].*max-width: calc\(100% - 4px\).*text-overflow: ellipsis/s)
+  assert.match(clientSource, /\.dsh-tavern-candidate-question \{ max-width: 680px; \}/)
   assert.match(clientSource, /rpc\("importSource"/)
   assert.match(clientSource, /已绑定：/)
   assert.match(clientSource, /未绑定/)

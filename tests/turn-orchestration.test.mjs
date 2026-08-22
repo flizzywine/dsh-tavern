@@ -41,6 +41,7 @@ function harness(mode, options = {}) {
   const store = {
     async chatForSession() { return clone(chat) },
     async readCard() { return options.draft && !chat.cardPath ? undefined : clone(card) },
+    async readCardExtensions() { return clone(options.extensions || { regexScripts: [] }) },
     async readScript() { return mode === 'script' || (mode === 'card' && !options.draft) ? clone(script()) : undefined },
     async writeChat(value) { chat = clone(value) },
     async updateCard(_cardId, fields, revision, worldBook, rawOperations) {
@@ -141,6 +142,27 @@ test('游玩正文只保存纯文本并把 HTML 展示状态纳入剧情 checkpo
 
   const rolled = run.timeline.apply({ chat: run.chat(), intent: { kind: 'turn.rollback' } })
   assert.equal(rolled.chat.presentation, null)
+})
+
+test('人物卡展示正则把命中内容移出正文并保留内部源文本', async () => {
+  const run = harness('story', {
+    extensions: {
+      regexScripts: [{
+        id: 'status', name: '状态面板', findRegex: '\\[状态\\]([\\s\\S]*)', replaceString: '<aside>$1</aside>',
+        placement: [2], enabled: true, markdownOnly: true, promptOnly: false, runOnEdit: true
+      }]
+    }
+  })
+  await run.orchestrator.prepare({ sessionId: 'session-1', turn: 2, userText: '查看状态' })
+  const saved = await run.orchestrator.finalize({
+    sessionId: 'session-1', turn: 2, userText: '查看状态', assistantText: '[状态]体力 100'
+  })
+
+  assert.equal(saved.reply.bodyText, '')
+  assert.equal(run.chat().messages.at(-1).text, '\u00a0')
+  assert.equal(run.chat().messages.at(-1).sourceText, '[状态]体力 100')
+  assert.equal(run.chat().messages.at(-1).turn, 2)
+  assert.equal(run.chat().presentation.html, '<aside>体力 100</aside>')
 })
 
 test('游玩回复先执行人物卡宏再拆分 HTML', async () => {

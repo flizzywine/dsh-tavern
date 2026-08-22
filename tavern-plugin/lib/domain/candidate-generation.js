@@ -4,6 +4,10 @@ function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
 }
 
+function messageText(message) {
+  return str(message && message.sourceText) || str(message && message.text)
+}
+
 function parseJsonLenient(text) {
   if (text === undefined || text === null || text === '') return {}
   let source = str(text).trim()
@@ -111,7 +115,7 @@ function validatedChoices(source, scriptMode) {
 
 function buildMessages(chat, selection, now, limit = 6) {
   const source = (chat.messages || []).filter(function (message) {
-    return message !== null && typeof message === 'object' && message.role === 'assistant' && str(message.text) !== ''
+    return message !== null && typeof message === 'object' && message.role === 'assistant' && messageText(message) !== ''
   }).slice(-Math.max(1, Number(limit) || 6))
   const messages = []
   for (let index = 0; index < source.length; index++) {
@@ -119,7 +123,7 @@ function buildMessages(chat, selection, now, limit = 6) {
     messages.push({
       id: 'm' + index + '-' + now().toString(36),
       role: 'assistant',
-      content: [{ type: 'text', text: str(message.text) }],
+      content: [{ type: 'text', text: messageText(message) }],
       source: { kind: 'model', provider: selection.provider, model: selection.model }
     })
   }

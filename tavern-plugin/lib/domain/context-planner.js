@@ -7,9 +7,13 @@ function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
 }
 
+function messageText(message) {
+  return str(message && message.sourceText) || str(message && message.text)
+}
+
 function playProjector(input, warnings) {
   let macroState = {
-    userName: str(input.chat && input.chat.macroState && input.chat.macroState.userName) || 'User',
+    userName: str(input.chat && input.chat.macroState && input.chat.macroState.userName) || '你',
     local: Object.assign({}, input.chat && input.chat.macroState && input.chat.macroState.local || {}),
     global: Object.assign({}, input.chat && input.chat.macroState && input.chat.macroState.global || {})
   }
@@ -78,7 +82,7 @@ export function createContextPlanner(options = {}) {
     const entries = worldBookEntries(input.card).filter(function (entry) { return entry.constant !== true })
     if (entries.length === 0) return []
     const recent = (input.chat.messages || []).slice(-8).map(function (message) {
-      return str(message.text)
+      return messageText(message)
     }).join('\n')
     const recentText = (recent + '\n' + str(input.userText).trim()).toLocaleLowerCase()
     return entries.filter(function (entry) {
@@ -111,7 +115,7 @@ export function createContextPlanner(options = {}) {
     const instructionSections = []
     if (input.includeName !== false) cardInfoSections.push({ kind: 'card', required: true, text: '【故事设定 · 人物卡】\n名字: ' + str(input.card.name) })
     if (input.includeDetails === true) {
-      if (str(input.card.description) !== '') cardInfoSections.push({ kind: 'card', required: false, text: '设定: ' + projectText(input.card.description) })
+      cardInfoSections.push({ kind: 'card', required: false, text: '设定: ' + projectText([str(input.card.description), '{{user}} 表示玩家。'].filter(Boolean).join('\n')) })
       if (str(input.card.personality) !== '') cardInfoSections.push({ kind: 'card', required: false, text: '主要人物性格: ' + projectText(input.card.personality) })
       if (str(input.card.scenario) !== '') cardInfoSections.push({ kind: 'card', required: false, text: '开场情境: ' + projectText(input.card.scenario) })
       if (input.includeStyleExample !== false && str(input.card.mes_example) !== '') cardInfoSections.push({ kind: 'card', required: false, text: '【文风示例】\n' + projectText(input.card.mes_example) })
@@ -161,6 +165,15 @@ export function createContextPlanner(options = {}) {
         kind: 'base', required: true,
         text: prompt('story')
       }]
+      const projectedReply = (input.chat.messages || []).slice().reverse().find(function (message) {
+        return message && message.role === 'assistant' && str(message.sourceText) !== '' && str(message.sourceText) !== str(message.text)
+      })
+      if (projectedReply !== undefined) {
+        sections.push({
+          kind: 'previous-source', required: true,
+          text: '【上一轮正文源文本 · 展示正则已从可见正文移除，续写时保持剧情连续】\n' + str(projectedReply.sourceText)
+        })
+      }
       const hasStoryTurn = (input.chat.messages || []).some(function (message) { return message !== null && typeof message === 'object' && message.greeting !== true })
       const hasScript = (input.chat.mode || 'story') === 'script' || (input.scriptReference !== null && input.scriptReference !== undefined)
       sections.push.apply(sections, cardSections({ card: input.card, chat: input.chat, worldBookIds: selectedIds, includeName: false, includeDetails: !hasStoryTurn, includeStyleExample: !hasScript, includeInstructions: true }, projectText))
