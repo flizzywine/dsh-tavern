@@ -112,9 +112,37 @@ dsh-tavern 使用尽可能少而精的提示词，把流程和状态交给程序
 
 ## 安装与启动
 
-需要 Node.js 22.19 或更高版本。
+提供桌面版和命令行版两种安装方式。两者使用同一套 Tavern Profile 和数据，请勿同时运行。
 
-### Windows
+### 桌面版（推荐）
+
+适合不想安装 Node.js、DSH 或使用命令行管理服务的用户。目前支持 **DSH Desktop 2.0.2 及以上版本**。
+
+1. 从 [DSH Desktop Releases](https://github.com/anywhere-labs/deepseek-harness-desktop/releases) 下载并安装 DSH Desktop；
+2. 启动 Desktop，从系统托盘菜单选择 **Open DSH Terminal**；
+3. 在打开的终端中运行对应命令。
+
+Windows：
+
+```powershell
+$env:DSH_TAVERN_HOST='desktop'; irm https://raw.githubusercontent.com/flizzywine/dsh-tavern/main/install.ps1 | iex
+```
+
+macOS：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/flizzywine/dsh-tavern/main/install.sh | DSH_TAVERN_HOST=desktop sh
+```
+
+安装完成后，完全退出并重新打开 DSH Desktop，再从托盘的 **Profile** 菜单切换到 **tavern**。
+
+Desktop 自带运行环境并负责 Tavern 的端口、启动和停止，不需要运行 `dsh-tavern start`。更新 dsh-tavern 时，先切回 **desktop** Profile，然后在 DSH Terminal 中重新运行上面的安装命令。
+
+### 命令行版
+
+适合希望通过浏览器访问、自己管理服务的用户。需要 Node.js 22.19 或更高版本。
+
+#### Windows
 
 打开 PowerShell，运行：
 
@@ -122,7 +150,7 @@ dsh-tavern 使用尽可能少而精的提示词，把流程和状态交给程序
 irm https://raw.githubusercontent.com/flizzywine/dsh-tavern/main/install.ps1 | iex
 ```
 
-### macOS / Linux / WSL2
+#### macOS / Linux / WSL2
 
 打开终端，运行：
 
@@ -134,7 +162,7 @@ curl -fsSL https://raw.githubusercontent.com/flizzywine/dsh-tavern/main/install.
 
 首次使用时，在左侧栏底部打开 **设置 → 模型**，填写模型服务的 API 密钥。
 
-### 手动下载代码包
+#### 手动下载代码包
 
 如果一键命令无法访问 `raw.githubusercontent.com`：
 
@@ -147,7 +175,7 @@ curl -fsSL https://raw.githubusercontent.com/flizzywine/dsh-tavern/main/install.
 npm install -g pnpm @deepseek-ai/dsh
 ```
 
-5. 安装并启动 dsh-tavern：
+5. 命令行版安装并启动：
 
 ```bash
 pnpm run install:tavern
@@ -155,6 +183,14 @@ pnpm run start:tavern
 ```
 
 然后打开 <http://127.0.0.1:3081>。
+
+如果使用 DSH Desktop，请从托盘打开 **DSH Terminal**，在解压目录运行：
+
+```bash
+node ./bin/dsh-tavern.mjs install --host desktop
+```
+
+然后重启 Desktop，并切换到 **tavern** Profile。
 
 ### Android（实验性，不保证可用）
 
@@ -176,7 +212,7 @@ https://github.com/flizzywine/dsh-tavern
 - 终止 DSH 进程后，3080 端口的启动器可以重新拉起，但 3081 端口的酒馆模式需要通过命令或让 AI 再次启动；
 - 手机界面和运行稳定性尚未完善。
 
-### 启动、停止与更新
+### 命令行版的启动、停止与更新
 
 安装完成后，新开一个终端或 PowerShell。
 
@@ -204,7 +240,9 @@ dsh-tavern restart
 dsh-tavern update
 ```
 
-dsh-tavern 是运行在 DSH 上的插件项目，不包含 DSH 本体。DSH 本体可以按其自身方式正常更新，通常不会影响本项目的使用，除非 DSH 进行了不兼容的破坏性更新。更新 DSH 本体不需要运行 `dsh-tavern update`；这个命令只用于更新 dsh-tavern 的插件内容。
+dsh-tavern 是运行在 DSH 上的插件项目，不包含 DSH 本体。DSH 本体可以按其自身方式正常更新，通常不会影响本项目的使用，除非 DSH 进行了不兼容的破坏性更新。更新 DSH 本体不需要运行 `dsh-tavern update`；这个命令只用于更新 dsh-tavern 的插件内容。Desktop 版不使用这些启停命令，由 DSH Desktop 统一管理。
+
+用户数据统一保存在 DSH 的 Tavern Profile 数据目录中，不再跟随源码文件夹。旧版本升级时会自动备份并迁移原 `data` 目录，因此更换安装目录、切换 Desktop/命令行版或使用 Git worktree，不会再产生彼此独立的对话库。
 
 ## 人物卡兼容性反馈
 

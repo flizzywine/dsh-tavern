@@ -9,14 +9,16 @@ import {
   applySidebarDefaults,
   encodeWindowsPowerShellScript,
   ensureSidebarDefaults,
+  extractDshVersion,
   isPortOpen,
+  parseInstallHost,
   renderWindowsLauncher,
-  supportsDshVersion,
 } from '../bin/dsh-tavern.mjs'
 
 const windowsInstaller = await readFile(new URL('../install.ps1', import.meta.url), 'utf8')
 const unixInstaller = await readFile(new URL('../install.sh', import.meta.url), 'utf8')
 const launcherSource = await readFile(new URL('../bin/dsh-tavern.mjs', import.meta.url), 'utf8')
+const profilePatch = await readFile(new URL('../cordis.patch.yml', import.meta.url), 'utf8')
 const rootManifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
 const profileWorkspace = await readFile(new URL('../pnpm-workspace.yaml', import.meta.url), 'utf8')
 
@@ -26,6 +28,20 @@ test('Windows launcher quotes paths containing spaces and forwards arguments', (
     launcher,
     '@echo off\r\nnode "D:\\My Games\\dsh-tavern\\bin\\dsh-tavern.mjs" %*\r\n',
   )
+})
+
+test('安装宿主默认使用 CLI，并明确接受 Desktop', () => {
+  assert.equal(parseInstallHost([]), 'cli')
+  assert.equal(parseInstallHost(['--host', 'desktop']), 'desktop')
+  assert.equal(parseInstallHost(['--host=cli']), 'cli')
+  assert.throws(() => parseInstallHost(['--host', 'unknown']), /不支持的安装宿主/)
+  assert.throws(() => parseInstallHost(['--unknown']), /无法识别的安装参数/)
+})
+
+test('从 CLI 输出识别 DSH 预发布版本', () => {
+  assert.equal(extractDshVersion('0.1.0-rc.7'), '0.1.0-rc.7')
+  assert.equal(extractDshVersion('DeepSeek Harness 0.1.1-rc.2\n'), '0.1.1-rc.2')
+  assert.throws(() => extractDshVersion('unknown'), /无法识别当前 DSH 版本/)
 })
 
 test('Windows update script carries a UTF-8 BOM for Windows PowerShell 5.1', () => {
@@ -138,24 +154,43 @@ test('Tavern applies sidebar migrations before every service start', () => {
   assert.match(launcherSource, /async function startService\(\) \{\s*verifyProfile\(\)\s*ensureSidebarDefaults\(\)/)
 })
 
-test('DSH rc.8 is the minimum supported launcher version', () => {
-  assert.equal(supportsDshVersion('0.1.0-rc.7'), false)
-  assert.equal(supportsDshVersion('0.1.0-rc.8'), true)
-  assert.equal(supportsDshVersion('0.1.0-rc.9'), true)
-  assert.equal(supportsDshVersion('0.1.0'), true)
-  assert.equal(supportsDshVersion('0.2.0-rc.1'), true)
-  assert.equal(supportsDshVersion('unknown'), false)
+test('installers accept the installed DSH host without pinning its release', () => {
+  assert.match(windowsInstaller, /if \(\$InstallHost -eq 'cli' -and -not \(Test-Command 'pnpm'\)\)/)
+  assert.doesNotMatch(windowsInstaller, /RequiredDshVersion|Test-DshVersion/)
+  assert.match(windowsInstaller, /@deepseek-ai\/dsh'/)
+  assert.match(unixInstaller, /if ! command -v pnpm/)
+  assert.doesNotMatch(unixInstaller, /REQUIRED_DSH_VERSION|dsh_version_is_compatible/)
+  assert.match(unixInstaller, /"@deepseek-ai\/dsh"/)
+  assert.doesNotMatch(launcherSource, /MINIMUM_DSH_VERSION|supportsDshVersion|requireDshVersion/)
 })
 
-test('installers reuse compatible DSH and upgrade older versions to rc.8', () => {
-  assert.match(windowsInstaller, /if \(-not \(Test-Command 'pnpm'\)\)/)
-  assert.match(windowsInstaller, /\$RequiredDshVersion = '0\.1\.0-rc\.8'/)
-  assert.match(windowsInstaller, /Test-DshVersion \$DshVersionText/)
-  assert.match(windowsInstaller, /@deepseek-ai\/dsh@\$RequiredDshVersion/)
-  assert.match(unixInstaller, /if ! command -v pnpm/)
-  assert.match(unixInstaller, /REQUIRED_DSH_VERSION=0\.1\.0-rc\.8/)
-  assert.match(unixInstaller, /dsh_version_is_compatible/)
-  assert.match(unixInstaller, /@deepseek-ai\/dsh@\$\{REQUIRED_DSH_VERSION\}/)
+test('Desktop 安装复用内置运行时，不启动独立 3081 服务', () => {
+  assert.match(unixInstaller, /INSTALL_HOST=\$\{DSH_TAVERN_HOST:-cli\}/)
+  assert.match(unixInstaller, /install --host "\$\{INSTALL_HOST\}"/)
+  assert.match(unixInstaller, /if \[ "\$\{INSTALL_HOST\}" = "desktop" \]/)
+  assert.match(windowsInstaller, /\$InstallHost = if \(\$env:DSH_TAVERN_HOST\)/)
+  assert.match(windowsInstaller, /install --host \$InstallHost/)
+  assert.match(launcherSource, /if \(host === 'cli'\) installCommand\(\)/)
+  assert.match(launcherSource, /请重启 DSH Desktop/)
+})
+
+test('共享 Profile 不固定端口，CLI Adapter 启动时显式使用 3081', () => {
+  assert.doesNotMatch(profilePatch, /^\s*(?:host|port):/m)
+  assert.match(launcherSource, /spawn\(dsh, \['--profile', PROFILE, '--host', CLI_HOST, '--port', String\(CLI_PORT\), '--no-open'\]/)
+})
+
+test('Tavern 依赖安装时与当前宿主 DSH 版本对齐', () => {
+  assert.match(launcherSource, /extractDshVersion\(runDsh\(dsh, \['--version'\]/)
+  assert.match(launcherSource, /workspace\.setIn\(\['overrides', '@deepseek-ai\/dsh-subagent'\], dshVersion\)/)
+  assert.match(launcherSource, /workspace\.setIn\(\['overrides', '@deepseek-ai\/dsh-tools'\], dshVersion\)/)
+  assert.match(launcherSource, /install', '--lockfile=false'/)
+})
+
+test('升级后用户数据固定在 Profile 目录，并在安装时迁移旧源码数据', () => {
+  assert.match(launcherSource, /resolveTavernDataRoot\(\{ dshHome: DSH_ROOT \}\)/)
+  assert.match(launcherSource, /migrateLegacyTavernData\(\{/)
+  assert.match(launcherSource, /backupRoot: path\.join\(DSH_ROOT, 'backups', 'dsh-tavern-data-upgrade'\)/)
+  assert.doesNotMatch(launcherSource, /mkdirSync\(path\.join\(SOURCE_ROOT, 'data'/)
 })
 
 test('port probe distinguishes an open listener from a closed port', async () => {

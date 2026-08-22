@@ -22,9 +22,12 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseDocument } from 'yaml'
+import { migrateLegacyTavernData, resolveTavernDataRoot } from '../tavern-plugin/lib/domain/tavern-data.js'
 
 const PROFILE = 'tavern'
-const MINIMUM_DSH_VERSION = '0.1.0-rc.8'
+const INSTALL_HOSTS = new Set(['cli', 'desktop'])
+const CLI_HOST = '127.0.0.1'
+const CLI_PORT = 3081
 const SCRIPT_PATH = fileURLToPath(import.meta.url)
 const SOURCE_ROOT = path.resolve(path.dirname(SCRIPT_PATH), '..')
 const DSH_ROOT = process.env.DSH_HOME || path.join(os.homedir(), '.dsh')
@@ -171,6 +174,29 @@ function run(command, args, options = {}) {
   return options.capture ? result.stdout.trim() : ''
 }
 
+export function extractDshVersion(output) {
+  const match = String(output || '').match(/\b(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)\b/)
+  if (!match) throw new Error('无法识别当前 DSH 版本。')
+  return match[1]
+}
+
+export function parseInstallHost(args = []) {
+  let host = 'cli'
+  for (let index = 0; index < args.length; index += 1) {
+    const argument = args[index]
+    if (argument === '--host') {
+      host = args[index + 1]
+      index += 1
+    } else if (argument.startsWith('--host=')) {
+      host = argument.slice('--host='.length)
+    } else {
+      throw new Error(`无法识别的安装参数：${argument}`)
+    }
+  }
+  if (!INSTALL_HOSTS.has(host)) throw new Error(`不支持的安装宿主：${host || '空值'}`)
+  return host
+}
+
 function commandExists(command) {
   const probe = process.platform === 'win32' ? ['where', [command]] : ['sh', ['-c', `command -v ${command}`]]
   return spawnSync(probe[0], probe[1], { stdio: 'ignore' }).status === 0
@@ -200,30 +226,6 @@ function findDshCommand() {
   throw new Error('找不到 dsh，请先安装 DeepSeek Harness，并重新打开终端。')
 }
 
-export function supportsDshVersion(value, minimum = MINIMUM_DSH_VERSION) {
-  function parse(version) {
-    const match = String(version || '').trim().match(/^(\d+)\.(\d+)\.(\d+)(?:-rc\.(\d+))?$/)
-    if (!match) return null
-    return [Number(match[1]), Number(match[2]), Number(match[3]), match[4] === undefined ? Number.POSITIVE_INFINITY : Number(match[4])]
-  }
-  const current = parse(value)
-  const required = parse(minimum)
-  if (current === null || required === null) return false
-  for (let index = 0; index < current.length; index += 1) {
-    if (current[index] !== required[index]) return current[index] > required[index]
-  }
-  return true
-}
-
-function requireDshVersion(command) {
-  const result = spawnSync(command, ['--version'], { encoding: 'utf8', shell: process.platform === 'win32' })
-  const version = result.status === 0 ? String(result.stdout || '').trim() : ''
-  if (!supportsDshVersion(version)) {
-    throw new Error(`DSH 版本过低，需要 ${MINIMUM_DSH_VERSION} 或更高版本（当前：${version || '无法识别'}）。请运行 npm install -g @deepseek-ai/dsh@${MINIMUM_DSH_VERSION}`)
-  }
-  return version
-}
-
 function requireCommand(command, installHint = '') {
   if (!commandExists(command)) {
     throw new Error(`缺少命令：${command}${installHint ? `。${installHint}` : ''}`)
@@ -239,14 +241,7 @@ function verifySource() {
   }
 }
 
-function readPort() {
-  const patchPath = path.join(PROFILE_DIR, 'cordis.patch.yml')
-  if (!existsSync(patchPath)) return 3081
-  const match = readFileSync(patchPath, 'utf8').match(/^\s*port:\s*(\d+)\s*$/m)
-  return match ? Number(match[1]) : 3081
-}
-
-function writeProfileManifest() {
+function writeProfileManifest(host, dshVersion) {
   const source = JSON.parse(readFileSync(path.join(SOURCE_ROOT, 'package.json'), 'utf8'))
   const targetPath = path.join(PROFILE_DIR, 'package.json')
   let current = {}
@@ -273,11 +268,30 @@ function writeProfileManifest() {
     private: true,
     dependencies,
     dsh: source.dsh,
-    dshTavern: { source: SOURCE_ROOT },
+    dshTavern: { source: SOURCE_ROOT, dataRoot: resolveTavernDataRoot({ dshHome: DSH_ROOT }), host, dshVersion },
   }
   const temporary = `${targetPath}.tmp-${process.pid}`
   writeFileSync(temporary, `${JSON.stringify(next, null, 2)}\n`)
   renameSync(temporary, targetPath)
+}
+
+function installPluginDependencies(dshVersion) {
+  const pluginDirectory = path.join(SOURCE_ROOT, 'tavern-plugin')
+  const workspacePath = path.join(pluginDirectory, 'pnpm-workspace.yaml')
+  const original = readFileSync(workspacePath, 'utf8')
+  const workspace = parseDocument(original)
+  if (workspace.errors.length > 0) throw new Error(`无法读取插件 workspace：${workspace.errors[0].message}`)
+  workspace.setIn(['overrides', '@deepseek-ai/dsh-subagent'], dshVersion)
+  workspace.setIn(['overrides', '@deepseek-ai/dsh-tools'], dshVersion)
+  const temporary = `${workspacePath}.tmp-${process.pid}`
+  try {
+    writeFileSync(temporary, workspace.toString(), 'utf8')
+    renameSync(temporary, workspacePath)
+    run('pnpm', ['--dir', pluginDirectory, 'install', '--lockfile=false'])
+  } finally {
+    if (existsSync(temporary)) unlinkSync(temporary)
+    writeFileSync(workspacePath, original, 'utf8')
+  }
 }
 
 export function renderWindowsLauncher(scriptPath) {
@@ -355,31 +369,83 @@ function timestamp() {
   return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`
 }
 
-async function installProfile() {
+function installedCommandSource() {
+  if (process.platform === 'win32') return null
+  const commandPath = path.join(process.env.DSH_TAVERN_BIN_DIR || path.join(os.homedir(), '.local', 'bin'), 'dsh-tavern')
+  try {
+    const target = readlinkSync(commandPath)
+    const script = path.resolve(path.dirname(commandPath), target)
+    return path.resolve(path.dirname(script), '..')
+  } catch {
+    return null
+  }
+}
+
+function existingProfileSource() {
+  const manifest = path.join(PROFILE_DIR, 'package.json')
+  if (!existsSync(manifest)) return null
+  try {
+    const source = JSON.parse(readFileSync(manifest, 'utf8'))?.dshTavern?.source
+    return typeof source === 'string' && source !== '' ? path.resolve(source) : null
+  } catch {
+    return null
+  }
+}
+
+function legacyDataRoots() {
+  const roots = []
+  const seen = new Set()
+  function add(candidate, explicitData = false) {
+    if (typeof candidate !== 'string' || candidate === '') return
+    const data = path.resolve(explicitData ? candidate : path.join(candidate, 'data'))
+    if (seen.has(data) || !existsSync(data)) return
+    seen.add(data)
+    roots.push({ path: data, label: path.basename(path.dirname(data)) })
+  }
+  add(installedCommandSource())
+  add(existingProfileSource())
+  add(SOURCE_ROOT)
+  for (const candidate of (process.env.DSH_TAVERN_LEGACY_DATA || '').split(path.delimiter)) add(candidate, true)
+  return roots
+}
+
+async function installProfile(host = 'cli') {
   const dsh = findDshCommand()
-  requireDshVersion(dsh)
   requireCommand('node', '请安装 Node.js 22.19 或更高版本')
   requireCommand('pnpm', '请运行 npm install -g pnpm')
   verifySource()
+  const dshVersion = extractDshVersion(runDsh(dsh, ['--version'], { capture: true }))
 
   mkdirSync(PROFILE_DIR, { recursive: true })
   mkdirSync(LOG_DIR, { recursive: true })
+  const dataRoot = resolveTavernDataRoot({ dshHome: DSH_ROOT })
+  const migration = await migrateLegacyTavernData({
+    targetRoot: dataRoot,
+    backupRoot: path.join(DSH_ROOT, 'backups', 'dsh-tavern-data-upgrade'),
+    legacyRoots: legacyDataRoots(),
+  })
   for (const directory of ['cards', 'chats', 'scripts', 'sources', 'skills', 'diffs']) {
-    mkdirSync(path.join(SOURCE_ROOT, 'data', directory), { recursive: true })
+    mkdirSync(path.join(dataRoot, directory), { recursive: true })
   }
+  if (migration.migratedSources > 0) console.log(`已迁移 ${migration.migratedSources} 处旧数据；冲突保留 ${migration.conflicts} 个。`)
 
-  run('pnpm', ['--dir', path.join(SOURCE_ROOT, 'tavern-plugin'), 'install', '--ignore-workspace'])
-  writeProfileManifest()
+  installPluginDependencies(dshVersion)
+  writeProfileManifest(host, dshVersion)
   copyFileSync(path.join(SOURCE_ROOT, 'cordis.patch.yml'), path.join(PROFILE_DIR, 'cordis.patch.yml'))
   copyFileSync(path.join(SOURCE_ROOT, 'pnpm-workspace.yaml'), path.join(PROFILE_DIR, 'pnpm-workspace.yaml'))
   run('pnpm', ['--dir', PROFILE_DIR, 'install'])
   runDsh(dsh, ['--profile', PROFILE, '--dump-config'], { stdio: 'ignore' })
   ensureSidebarDefaults()
-  installCommand()
+  if (host === 'cli') installCommand()
 
   console.log('DSH Tavern 已安装。')
-  console.log('启动：dsh-tavern start')
-  if (process.platform === 'win32') {
+  console.log(`已与当前 DSH ${dshVersion} 对齐依赖。`)
+  if (host === 'desktop') {
+    console.log('请重启 DSH Desktop，然后从托盘的 Profile 菜单切换到 tavern。')
+  } else {
+    console.log('启动：dsh-tavern start')
+  }
+  if (host === 'cli' && process.platform === 'win32') {
     console.log('如果当前 PowerShell 尚未识别新命令，也可以在仓库目录运行：pnpm run start:tavern')
   }
 }
@@ -433,7 +499,7 @@ export function isPortOpen(port, host = '127.0.0.1', timeout = 300) {
 }
 
 async function serviceState() {
-  const port = readPort()
+  const port = CLI_PORT
   const record = readPidRecord()
   const pidAlive = Boolean(record && isProcessAlive(record.pid))
   const portOpen = await isPortOpen(port)
@@ -512,6 +578,7 @@ function runDsh(command, args, options = {}) {
   const result = spawnSync(command, args, { encoding: 'utf8', shell: process.platform === 'win32', ...options })
   if (result.error) throw new Error(`无法运行 dsh：${result.error.message}`)
   if (result.status !== 0) throw new Error('dsh 配置验证失败。')
+  return options.capture ? result.stdout.trim() : ''
 }
 
 async function startService() {
@@ -530,12 +597,11 @@ async function startService() {
   }
 
   const dsh = findDshCommand()
-  requireDshVersion(dsh)
   mkdirSync(LOG_DIR, { recursive: true })
   const logDescriptor = openSync(LOG_FILE, 'a')
   let child
   try {
-    child = spawn(dsh, ['--profile', PROFILE], {
+    child = spawn(dsh, ['--profile', PROFILE, '--host', CLI_HOST, '--port', String(CLI_PORT), '--no-open'], {
       cwd: SOURCE_ROOT,
       detached: true,
       shell: process.platform === 'win32',
@@ -594,14 +660,14 @@ async function updateApplication() {
 }
 
 function usage() {
-  console.log('用法：dsh-tavern {install|update|start|stop|restart|status}')
+  console.log('用法：dsh-tavern install [--host cli|desktop] | {update|start|stop|restart|status}')
 }
 
 async function main() {
   const action = process.argv[2] || 'status'
   switch (action) {
     case 'install':
-      await installProfile()
+      await installProfile(parseInstallHost(process.argv.slice(3)))
       break
     case 'update':
       await updateApplication()

@@ -18,7 +18,7 @@ test('卡片模式从空白工作台直接进入 Agent 对话', () => {
 
   assert.doesNotMatch(flow, /window\.prompt/)
   assert.match(flow, /call\("getResourceWorkspace"\)/)
-  assert.match(serverSource, /case 'getResourceWorkspace': return \{ path: base \+ '\/data\/resources' \}/)
+  assert.match(serverSource, /case 'getResourceWorkspace': return \{ path: dataRoot \+ '\/resources' \}/)
   assert.match(flow, /props\.workspaces\.create\(\{ path: resourceRoot\.path \}\)/)
   assert.match(flow, /props\.workspaces\.connectWorkspace\(resourceWorkspace\.workspaceId\)/)
   assert.doesNotMatch(flow, /connectWorkspace\(workspaceId\)/)

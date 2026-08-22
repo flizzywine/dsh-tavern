@@ -1,8 +1,4 @@
-# 独立酒馆 profile：使用 3081，启动后直接显示酒馆整页界面。
-- id: webserver
-  config:
-    host: 127.0.0.1
-    port: 3081
+# 独立酒馆 Profile：端口由 CLI 或 Desktop 宿主管理。
 - id: bash-sandbox
   config:
     timeoutMs: 600000

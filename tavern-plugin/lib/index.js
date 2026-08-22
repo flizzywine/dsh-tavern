@@ -16,6 +16,7 @@ import { inspectPreset } from './domain/preset-reading.js'
 import { createScriptContinuity } from './domain/script-continuity.js'
 import { filterSkillMessages } from './domain/skill-visibility.js'
 import { createStoryTimeline } from './domain/story-timeline.js'
+import { resolveTavernDataRoot } from './domain/tavern-data.js'
 import { createTavernSkillModule } from './domain/tavern-skills.js'
 import { createTurnOrchestrator } from './domain/turn-orchestration.js'
 import { resourceWorkspaceContext } from './domain/workspace-resources.js'
@@ -34,11 +35,11 @@ export async function apply(ctx) {
   }
   const agentDefaultModel = ctx.get('agentDefaultModel')
 
-  // 项目根：源码位于 <project>/tavern-plugin/lib/，数据固定在 <project>/data/。
-  const base = fileURLToPath(new URL('../../', import.meta.url))
+  const sourceRoot = fileURLToPath(new URL('../../', import.meta.url))
+  const dataRoot = resolveTavernDataRoot()
   const tavernSkills = createTavernSkillModule({
-    directory: base + '/data/skills',
-    builtInDirectory: base + '/presets/tavern/skills'
+    directory: dataRoot + '/skills',
+    builtInDirectory: sourceRoot + '/presets/tavern/skills'
   })
 
   // ---------- profile 私有 preset ----------
@@ -66,20 +67,20 @@ export async function apply(ctx) {
     return new Promise(function (resolve) { setTimeout(resolve, ms) })
   }
   async function readJson(rel) {
-    const t = await fs.resolve(base + '/data/' + rel)
+    const t = await fs.resolve(dataRoot + '/' + rel)
     const info = await fs.stat(t)
     if (info === undefined) return undefined
     return JSON.parse(await fs.readText(t))
   }
   async function writeJson(rel, value) {
-    const t = await fs.resolve(base + '/data/' + rel)
+    const t = await fs.resolve(dataRoot + '/' + rel)
     await fs.writeText(t, JSON.stringify(value, null, 2))
   }
   async function rmFile(rel) {
     const shell = ctx.get('shell')
     if (shell === undefined) return
     try {
-      const spec = shell.resolve({ command: 'rm -f ' + JSON.stringify(base + '/data/' + rel), timeoutMs: 10000 })
+      const spec = shell.resolve({ command: 'rm -f ' + JSON.stringify(dataRoot + '/' + rel), timeoutMs: 10000 })
       await shell.run(spec)
     } catch (err) {
       console.error('dsh-tavern: rm 失败', err)
@@ -222,7 +223,7 @@ export async function apply(ctx) {
     return (idx !== undefined && typeof idx === 'object') ? idx : { cards: [], chats: [] }
   }
   async function writeIndex(idx) { await writeJson('index.json', idx) }
-  const fileResources = createFileResourceStore({ dataRoot: base + '/data' })
+  const fileResources = createFileResourceStore({ dataRoot })
   const cardTaskPrompts = Object.freeze({
     edit: 'card-task-edit',
     extract: 'card-task-extract',
@@ -717,10 +718,10 @@ export async function apply(ctx) {
     return result
   }
   const boundaryPrompts = createBoundaryPromptModule({
-    directory: base + '/data/boundary-prompts',
+    directory: dataRoot + '/boundary-prompts',
     defaults: [{
       filename: 'DeepSeek-V4-Flash-推荐.md',
-      text: await readFile(base + '/defaults/boundary-prompts/DeepSeek-V4-Flash-推荐.md', 'utf8')
+      text: await readFile(sourceRoot + '/defaults/boundary-prompts/DeepSeek-V4-Flash-推荐.md', 'utf8')
     }],
     readChat: chatForSession,
     writeChat,
@@ -1321,7 +1322,7 @@ export async function apply(ctx) {
         if (promptName === undefined) throw new Error('未知卡片任务: ' + task)
         return { task, text: prompt(promptName) }
       }
-      case 'getResourceWorkspace': return { path: base + '/data/resources' }
+      case 'getResourceWorkspace': return { path: dataRoot + '/resources' }
       case 'listResources': return await listTavernResources()
       case 'listPresets': return { presets: await listPresets() }
       case 'getPreset': {

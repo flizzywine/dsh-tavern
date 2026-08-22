@@ -2,6 +2,12 @@
 
 set -eu
 
+INSTALL_HOST=${DSH_TAVERN_HOST:-cli}
+case ${INSTALL_HOST} in
+  cli|desktop) ;;
+  *) echo "安装失败：不支持的安装宿主 ${INSTALL_HOST}" >&2; exit 1 ;;
+esac
+
 REPOSITORY=${DSH_TAVERN_REPOSITORY:-flizzywine/dsh-tavern}
 ARCHIVE_URL=${DSH_TAVERN_ARCHIVE_URL:-https://github.com/${REPOSITORY}/archive/refs/heads/main.tar.gz}
 DSH_ROOT=${DSH_HOME:-${HOME}/.dsh}
@@ -9,7 +15,6 @@ APP_DIR=${DSH_TAVERN_APP_DIR:-${DSH_ROOT}/apps/dsh-tavern}
 RUNTIME_ROOT=${DSH_ROOT}/runtime
 RUNTIME_BIN=${RUNTIME_ROOT}/bin
 COMMAND_BIN=${HOME}/.local/bin
-REQUIRED_DSH_VERSION=0.1.0-rc.8
 TMP_BASE=${TMPDIR:-/tmp}
 TMP_BASE=${TMP_BASE%/}
 TEMP_DIR=$(mktemp -d "${TMP_BASE}/dsh-tavern-install.XXXXXX")
@@ -26,21 +31,6 @@ fail() {
   exit 1
 }
 
-dsh_version_is_compatible() {
-  DSH_CURRENT_VERSION=$1 node -e '
-    function parse(value) {
-      const match = String(value || "").trim().match(/^(\d+)\.(\d+)\.(\d+)(?:-rc\.(\d+))?$/)
-      return match ? [Number(match[1]), Number(match[2]), Number(match[3]), match[4] === undefined ? Infinity : Number(match[4])] : null
-    }
-    const current = parse(process.env.DSH_CURRENT_VERSION)
-    const required = parse("0.1.0-rc.8")
-    if (!current || !required) process.exit(1)
-    for (let index = 0; index < current.length; index += 1) {
-      if (current[index] !== required[index]) process.exit(current[index] > required[index] ? 0 : 1)
-    }
-  ' >/dev/null 2>&1
-}
-
 if ! command -v node >/dev/null 2>&1; then
   echo "需要先安装 Node.js 22.19 或更高版本：https://nodejs.org/" >&2
   if command -v open >/dev/null 2>&1; then open https://nodejs.org/ >/dev/null 2>&1 || true; fi
@@ -51,31 +41,32 @@ if ! node -e 'const [a,b]=process.versions.node.split(".").map(Number);process.e
   fail "Node.js 版本过低，需要 22.19 或更高版本（当前：$(node --version)）。"
 fi
 
-if ! command -v npm >/dev/null 2>&1; then
+if [ "${INSTALL_HOST}" = "cli" ] && ! command -v npm >/dev/null 2>&1; then
   fail "未找到 npm，请重新安装 Node.js。"
 fi
 
-set --
-if ! command -v pnpm >/dev/null 2>&1; then set -- "$@" pnpm; fi
-if ! command -v dsh >/dev/null 2>&1; then
-  set -- "$@" "@deepseek-ai/dsh@${REQUIRED_DSH_VERSION}"
-elif ! dsh_version_is_compatible "$(dsh --version 2>/dev/null || true)"; then
-  set -- "$@" "@deepseek-ai/dsh@${REQUIRED_DSH_VERSION}"
-fi
-if [ "$#" -gt 0 ]; then
-  echo "正在安装或升级：$*……"
-  mkdir -p "${RUNTIME_ROOT}"
-  npm install --global --prefix "${RUNTIME_ROOT}" "$@"
-  PATH=${RUNTIME_BIN}:${PATH}
-  export PATH
+if [ "${INSTALL_HOST}" = "cli" ]; then
+  set --
+  if ! command -v pnpm >/dev/null 2>&1; then set -- "$@" pnpm; fi
+  if ! command -v dsh >/dev/null 2>&1; then
+    set -- "$@" "@deepseek-ai/dsh"
+  fi
+  if [ "$#" -gt 0 ]; then
+    echo "正在安装或升级：$*……"
+    mkdir -p "${RUNTIME_ROOT}"
+    npm install --global --prefix "${RUNTIME_ROOT}" "$@"
+    PATH=${RUNTIME_BIN}:${PATH}
+    export PATH
+  fi
 fi
 
-command -v pnpm >/dev/null 2>&1 || fail "安装后仍未找到 pnpm。"
-command -v dsh >/dev/null 2>&1 || fail "安装后仍未找到 DSH。"
-dsh_version_is_compatible "$(dsh --version 2>/dev/null || true)" || fail "DSH 版本仍低于 ${REQUIRED_DSH_VERSION}。"
+command -v pnpm >/dev/null 2>&1 || fail "未找到 pnpm。Desktop 版请从 DSH Desktop 托盘打开 DSH Terminal 后运行本命令。"
+command -v dsh >/dev/null 2>&1 || fail "未找到 DSH。Desktop 版请从 DSH Desktop 托盘打开 DSH Terminal 后运行本命令。"
 
-DSH_TAVERN_BIN_DIR=${COMMAND_BIN}
-export DSH_TAVERN_BIN_DIR
+if [ "${INSTALL_HOST}" = "cli" ]; then
+  DSH_TAVERN_BIN_DIR=${COMMAND_BIN}
+  export DSH_TAVERN_BIN_DIR
+fi
 
 command -v curl >/dev/null 2>&1 || fail "未找到 curl。"
 command -v tar >/dev/null 2>&1 || fail "未找到 tar。"
@@ -87,7 +78,7 @@ tar -xzf "${TEMP_DIR}/app.tar.gz" -C "${TEMP_DIR}/extract"
 SOURCE_DIR=$(find "${TEMP_DIR}/extract" -mindepth 1 -maxdepth 1 -type d | head -n 1)
 [ -n "${SOURCE_DIR}" ] && [ -f "${SOURCE_DIR}/package.json" ] || fail "下载内容不完整。"
 
-if [ -f "${APP_DIR}/bin/dsh-tavern.mjs" ]; then
+if [ "${INSTALL_HOST}" = "cli" ] && [ -f "${APP_DIR}/bin/dsh-tavern.mjs" ]; then
   DSH_HOME=${DSH_ROOT} node "${APP_DIR}/bin/dsh-tavern.mjs" stop >/dev/null 2>&1 || true
 fi
 
@@ -96,24 +87,28 @@ mkdir -p "${APP_DIR}"
 cp -R "${SOURCE_DIR}/." "${APP_DIR}/"
 
 echo "正在配置 Tavern……"
-DSH_HOME=${DSH_ROOT} pnpm --dir "${APP_DIR}" run install:tavern
-DSH_HOME=${DSH_ROOT} pnpm --dir "${APP_DIR}" run start:tavern
+DSH_HOME=${DSH_ROOT} node "${APP_DIR}/bin/dsh-tavern.mjs" install --host "${INSTALL_HOST}"
 
-case ${SHELL:-} in
-  */zsh) SHELL_PROFILE=${HOME}/.zprofile ;;
-  *) SHELL_PROFILE=${HOME}/.profile ;;
-esac
-PATH_LINE='export PATH="$HOME/.local/bin:$PATH"'
-if [ ! -f "${SHELL_PROFILE}" ] || ! grep -F "${PATH_LINE}" "${SHELL_PROFILE}" >/dev/null 2>&1; then
-  printf '\n# DSH Tavern\n%s\n' "${PATH_LINE}" >>"${SHELL_PROFILE}"
-fi
-
-echo "DSH Tavern 安装完成：http://127.0.0.1:3081"
-echo "以后可以使用：dsh-tavern {start|stop|restart|status|update}（新终端生效）"
-if [ "${DSH_TAVERN_NO_OPEN:-0}" != "1" ]; then
-  if command -v open >/dev/null 2>&1; then
-    open http://127.0.0.1:3081 >/dev/null 2>&1 || true
-  elif command -v xdg-open >/dev/null 2>&1; then
-    xdg-open http://127.0.0.1:3081 >/dev/null 2>&1 || true
+if [ "${INSTALL_HOST}" = "desktop" ]; then
+  echo "DSH Tavern Desktop 版安装完成。"
+  echo "请重启 DSH Desktop，再从托盘的 Profile 菜单切换到 tavern。"
+else
+  DSH_HOME=${DSH_ROOT} pnpm --dir "${APP_DIR}" run start:tavern
+  case ${SHELL:-} in
+    */zsh) SHELL_PROFILE=${HOME}/.zprofile ;;
+    *) SHELL_PROFILE=${HOME}/.profile ;;
+  esac
+  PATH_LINE='export PATH="$HOME/.local/bin:$PATH"'
+  if [ ! -f "${SHELL_PROFILE}" ] || ! grep -F "${PATH_LINE}" "${SHELL_PROFILE}" >/dev/null 2>&1; then
+    printf '\n# DSH Tavern\n%s\n' "${PATH_LINE}" >>"${SHELL_PROFILE}"
+  fi
+  echo "DSH Tavern 安装完成：http://127.0.0.1:3081"
+  echo "以后可以使用：dsh-tavern {start|stop|restart|status|update}（新终端生效）"
+  if [ "${DSH_TAVERN_NO_OPEN:-0}" != "1" ]; then
+    if command -v open >/dev/null 2>&1; then
+      open http://127.0.0.1:3081 >/dev/null 2>&1 || true
+    elif command -v xdg-open >/dev/null 2>&1; then
+      xdg-open http://127.0.0.1:3081 >/dev/null 2>&1 || true
+    fi
   fi
 fi

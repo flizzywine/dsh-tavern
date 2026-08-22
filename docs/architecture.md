@@ -119,6 +119,10 @@ _避免使用_：全局 DSH Skill、游玩提示词、人物卡字段
 
 DSH 负责通用 Agent 基础设施：会话、模型选择、工具调用、消息流和 Web 宿主。dsh-tavern 不复制这些能力，只提供文字游戏领域逻辑。
 
+Tavern Profile 是 CLI 与 DSH Desktop 共用的宿主 seam，本身不声明 Web 端口。CLI Adapter 启动时显式使用 3081，并负责独立进程和启停命令；Desktop Adapter 只安装 Profile，由 Desktop 负责动态端口、窗口、进程与 Profile 切换。两种入口不分叉领域代码。安装时读取宿主 DSH 版本，并让 Tavern 直接依赖的 DSH 子包与宿主保持同版，避免混合运行时。
+
+用户可写数据固定存放在 `$DSH_HOME/profile-data/tavern/data`，不跟随源码目录、更新位置或 Git worktree。源码只保存内置提示词、默认配置和程序文件。升级安装会先完整备份旧源码目录中的 `data`，再合并到固定目录；普通文件冲突不覆盖主数据，而是保留到 `migration-conflicts/` 供人工检查。
+
 - `tavern-plugin/lib/index.js` 是宿主适配器，把 DSH 生命周期、HTTP 和文件存储接到领域模块。
 - `tavern-plugin/lib/client.js` 是 Web 适配器，提供游玩、人物卡库、预设库、破甲库、资料库和酒馆状态界面。
 - `tavern-plugin/lib/prompt-catalog.js` 是提示词文件适配器。领域模块通过注入的 `prompt` 读取固定提示词，不直接依赖文件系统。
@@ -175,6 +179,7 @@ tavern-plugin/lib/
     ├── boundary-prompts.js
     ├── script-continuity.js
     ├── story-timeline.js
+    ├── tavern-data.js
     ├── turn-orchestration.js
     └── workspace-resources.js
 ```
