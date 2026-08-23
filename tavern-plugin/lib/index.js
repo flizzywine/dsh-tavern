@@ -524,12 +524,7 @@ export async function apply(ctx) {
     const idx = await readIndex()
     idx.chats = (idx.chats || []).filter(function (c) { return c.id !== chatId })
     await writeIndex(idx)
-    const map = await readSessionMap()
-    let changed = false
-    for (const key of Object.keys(map)) {
-      if (map[key] === chatId) { delete map[key]; changed = true }
-    }
-    if (changed) await writeSessionMap(map)
+    await unlinkChatSessions(chatId)
     await rmFile('chats/' + chatId + '.json')
     return { deleted: true }
   }
@@ -564,28 +559,65 @@ export async function apply(ctx) {
     const value = await readJson('sessions.json')
     return value !== undefined && value !== null && typeof value === 'object' ? value : {}
   }
-  async function writeSessionMap(value) {
-    await writeJson('sessions.json', value)
+  function normalizeSessionMap(value) {
+    return value !== undefined && value !== null && typeof value === 'object' && !Array.isArray(value) ? value : {}
+  }
+  async function linkSession(sessionId, chatId) {
+    await profileData.updateJson('sessions.json', function (value) {
+      const map = Object.assign({}, normalizeSessionMap(value))
+      if (map[sessionId] === chatId) return undefined
+      map[sessionId] = chatId
+      return map
+    })
+  }
+  async function unlinkSession(sessionId, chatId) {
+    await profileData.updateJson('sessions.json', function (value) {
+      const map = Object.assign({}, normalizeSessionMap(value))
+      if (map[sessionId] !== chatId) return undefined
+      delete map[sessionId]
+      return map
+    })
+  }
+  async function unlinkChatSessions(chatId) {
+    await profileData.updateJson('sessions.json', function (value) {
+      const map = Object.assign({}, normalizeSessionMap(value))
+      let changed = false
+      for (const key of Object.keys(map)) {
+        if (map[key] === chatId) {
+          delete map[key]
+          changed = true
+        }
+      }
+      return changed ? map : undefined
+    })
   }
   async function chatForSession(sessionId) {
     if (typeof sessionId !== 'string' || sessionId === '') return undefined
-    const map = await readSessionMap()
-    if (typeof map[sessionId] === 'string') {
-      const mapped = await readChat(map[sessionId])
-      if (mapped !== undefined) return mapped
-      delete map[sessionId]
-      await writeSessionMap(map)
-    }
-    const idx = await readIndex()
-    for (const item of (idx.chats || [])) {
-      const chat = await readChat(item.id)
-      if (chat !== undefined && chat.sessionId === sessionId) {
-        map[sessionId] = chat.id
-        await writeSessionMap(map)
-        return chat
+    let found
+    await profileData.updateJson('sessions.json', async function (value) {
+      const map = Object.assign({}, normalizeSessionMap(value))
+      let changed = false
+      if (typeof map[sessionId] === 'string') {
+        const mapped = await readChat(map[sessionId])
+        if (mapped !== undefined) {
+          found = mapped
+          return undefined
+        }
+        delete map[sessionId]
+        changed = true
       }
-    }
-    return undefined
+      const idx = await readIndex()
+      for (const item of (idx.chats || [])) {
+        const chat = await readChat(item.id)
+        if (chat !== undefined && chat.sessionId === sessionId) {
+          map[sessionId] = chat.id
+          found = chat
+          return map
+        }
+      }
+      return changed ? map : undefined
+    })
+    return found
   }
   function cardViewOf(card, chat) {
     if (card === null || card === undefined) {
@@ -702,17 +734,28 @@ export async function apply(ctx) {
     }
     if (typeof sessionId === 'string') chat.sessionId = sessionId
     if (greeting !== '') chat.messages.push({ role: 'assistant', text: greeting, ts: Date.now(), greeting: true })
-    await writeChat(chat)
-    const idx = await readIndex()
-    idx.chats = idx.chats || []
-    idx.chats.push({ id: chat.id, cardPath: chat.cardPath, cardName: chat.cardName, updatedAt: chat.updatedAt })
-    await writeIndex(idx)
-    if (typeof sessionId === 'string' && sessionId !== '') {
-      const map = await readSessionMap()
-      map[sessionId] = chat.id
-      await writeSessionMap(map)
-      await appendNativeOpening(sessionId, chat, card, openingAgent)
+    const hasSession = typeof sessionId === 'string' && sessionId !== ''
+    let sessionLinked = false
+    let published = false
+    try {
+      await writeChat(chat)
+      if (hasSession) {
+        await linkSession(sessionId, chat.id)
+        sessionLinked = true
+      }
+      const idx = await readIndex()
+      idx.chats = idx.chats || []
+      idx.chats.push({ id: chat.id, cardPath: chat.cardPath, cardName: chat.cardName, updatedAt: chat.updatedAt })
+      await writeIndex(idx)
+      published = true
+    } catch (error) {
+      if (!published) {
+        if (sessionLinked) await unlinkSession(sessionId, chat.id).catch(function () {})
+        await rmFile('chats/' + chat.id + '.json').catch(function () {})
+      }
+      throw error
     }
+    if (hasSession) await appendNativeOpening(sessionId, chat, card, openingAgent)
     const result = await view(chat, card)
     if (chatMode === 'card') result.workspace = workspaceViewOf(chat)
     return result

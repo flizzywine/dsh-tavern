@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { access, mkdtemp, readFile, rm } from 'node:fs/promises'
+import { access, mkdtemp, readFile, rename, rm } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
@@ -33,6 +33,53 @@ test('Profile 数据存储拒绝绝对路径和目录逃逸', async () => {
     await assert.rejects(() => store.writeJson('../outside.json', {}), /路径不合法/)
     await assert.rejects(() => store.readJson('/tmp/outside.json'), /路径不合法/)
     await assert.rejects(() => store.remove('chats/../../outside.json'), /路径不合法/)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('Windows 临时占用目标文件时重试原子替换', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-profile-data-'))
+  let renameCalls = 0
+  try {
+    const store = createProfileDataStore({
+      dataRoot: root,
+      rename: async (source, target) => {
+        renameCalls += 1
+        if (renameCalls === 1) {
+          const error = new Error('目标文件暂时被占用')
+          error.code = 'EPERM'
+          throw error
+        }
+        await rename(source, target)
+      },
+      sleep: async () => {}
+    })
+
+    await store.writeJson('sessions.json', { session: 'chat-1' })
+
+    assert.equal(renameCalls, 2)
+    assert.deepEqual(await store.readJson('sessions.json'), { session: 'chat-1' })
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('并发更新同一个 JSON 文件时不会互相覆盖', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-profile-data-'))
+  try {
+    const store = createProfileDataStore({ dataRoot: root })
+    await store.writeJson('sessions.json', { count: 0 })
+
+    await Promise.all([
+      store.updateJson('sessions.json', async (value) => {
+        await new Promise((resolve) => setTimeout(resolve, 10))
+        return { count: value.count + 1 }
+      }),
+      store.updateJson('sessions.json', (value) => ({ count: value.count + 1 }))
+    ])
+
+    assert.deepEqual(await store.readJson('sessions.json'), { count: 2 })
   } finally {
     await rm(root, { recursive: true, force: true })
   }

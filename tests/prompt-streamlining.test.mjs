@@ -183,12 +183,15 @@ test('游玩回复把 HTML 从 DSH Surface 与正文历史中拆出', () => {
   assert.match(replaceReply, /surfaceOp: \{ op: 'replace', start: result\.index, end: result\.index \}/)
 })
 
-test('新会话在落盘前等待 DSH Agent 可写，避免留下半初始化对话', () => {
+test('新会话等待 Agent 并先建立 Session 映射，再发布索引', () => {
   const startChat = between(serverSource, 'async function startChat', 'async function appendNativeOpening')
   const appendOpening = between(serverSource, 'async function appendNativeOpening', 'async function scriptPreviewOf')
 
   assert.match(startChat, /const openingAgent = .*waitForAgentSession/)
   assert.ok(startChat.indexOf('waitForAgentSession') < startChat.indexOf('await writeChat(chat)'))
+  assert.ok(startChat.indexOf('await linkSession(sessionId, chat.id)') < startChat.indexOf('await writeIndex(idx)'))
+  assert.match(startChat, /await unlinkSession\(sessionId, chat\.id\)\.catch/)
+  assert.match(startChat, /await rmFile\('chats\/' \+ chat\.id \+ '\.json'\)\.catch/)
   assert.match(startChat, /appendNativeOpening\(sessionId, chat, card, openingAgent\)/)
   assert.match(appendOpening, /readyAgent \|\| await waitForAgentSession/)
 })
