@@ -1,4 +1,5 @@
 import { projectAgentContent } from './runtime-content-projection.js'
+import { createBackgroundTaskCoordinator } from './background-task-coordinator.js'
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
@@ -232,6 +233,7 @@ export function createCandidateGenerator(options) {
   const planner = options.planner
   const scripts = options.scripts
   const timeline = options.timeline
+  const tasks = options.tasks || createBackgroundTaskCoordinator({ store, timeline })
   const waitUntilSettled = typeof options.waitUntilSettled === 'function' ? options.waitUntilSettled : async function () {}
   const now = typeof options.now === 'function' ? options.now : Date.now
   const logger = options.logger || console
@@ -262,15 +264,14 @@ export function createCandidateGenerator(options) {
     }
     const task = prompt(scriptMode ? 'candidate-script' : 'candidate-story')
     const context = await planner.plan({ purpose: 'candidate', card, chat, task, scriptWindow })
-    const begun = timeline.apply({ chat, intent: { kind: 'agent.begin', role: 'candidate' } })
-    chat = begun.chat
-    await store.writeChat(chat)
-    const participantRequest = begun.value.participant || {}
+    const taskRun = await tasks.begin(chat, 'candidate')
+    chat = taskRun.chat
+    const participantRequest = taskRun.participantRequest
     const persistentSessionId = str(participantRequest.sessionId)
     const guidance = str(input.guidance).trim().slice(0, 600)
     let request = '请按上述规则生成候选项。'
     if (guidance !== '') request += '\n\n【用户额外要求】\n' + guidance + '\n\n额外要求不改变 ' + (scriptMode ? '剧本走向、' : '') + (scriptMode ? 1 : 5) + ' 个候选及类型约束。'
-    const backgroundAlreadySynced = persistentSessionId !== '' && Number(participantRequest.syncedRevision) === Number(begun.value.basedOn.revision)
+    const backgroundAlreadySynced = persistentSessionId !== '' && Number(participantRequest.syncedRevision) === Number(taskRun.basedOn.revision)
     const recentMessages = backgroundAlreadySynced ? [] : buildMessages(chat, selection, now, persistentSessionId !== '' ? 1 : 6)
     const messages = recentMessages.concat([{
       id: 'choices-' + now().toString(36),
@@ -299,21 +300,13 @@ export function createCandidateGenerator(options) {
         maxToolCalls: 6
       } : { tools: [] }))
     } catch (error) {
-      const failedChat = await store.readChat(chat.id)
-      if (failedChat !== undefined) {
-        const failed = timeline.complete({ chat: failedChat, operationId: begun.value.operationId, basedOn: begun.value.basedOn, outcome: { status: 'failed' } })
-        await store.writeChat(failed.chat)
-      }
+      await taskRun.fail(error)
       if (logger && typeof logger.error === 'function') logger.error('dsh-tavern: 候选项生成失败:', str(error && error.message || error))
       throw error
     }
     const text = run.text
     const traceSessionId = str(run.traceSessionId)
-    const participant = traceSessionId !== '' ? {
-      sessionId: traceSessionId,
-      lifetime: 'chat',
-      boundary: Number.isSafeInteger(run.traceBoundary) ? run.traceBoundary : null
-    } : null
+    const participant = taskRun.participant(run)
     let choices
     try {
       choices = validatedChoices(parsedDecision(text).choices, scriptMode)
@@ -322,26 +315,13 @@ export function createCandidateGenerator(options) {
         logger.error('dsh-tavern: 候选项输出无效:', str(error && error.message || error))
         logger.error('dsh-tavern: 候选项原始输出:', str(text).slice(0, 1200))
       }
-      const invalidChat = await store.readChat(chat.id)
-      if (invalidChat !== undefined) {
-        const recorded = timeline.complete({
-          chat: invalidChat,
-          operationId: begun.value.operationId,
-          basedOn: begun.value.basedOn,
-          outcome: { status: 'success', stateChanged: false, participant }
-        })
-        await store.writeChat(recorded.chat)
-      }
+      await taskRun.commit({ stateChanged: false, participant })
       throw error
     }
-    const latest = await store.readChat(chat.id)
-    if (latest === undefined) throw new Error('聊天不存在: ' + chat.id)
     let savedCandidates = null
-    const completed = timeline.complete({
-      chat: latest,
-      operationId: begun.value.operationId,
-      basedOn: begun.value.basedOn,
-      outcome: { status: 'success', stateChanged: true, participant },
+    const completed = await taskRun.commit({
+      stateChanged: true,
+      participant,
       apply(draft) {
         let scriptProjection
         if (scriptMode) {
@@ -357,13 +337,13 @@ export function createCandidateGenerator(options) {
         draft.candidates = {
           messageId: str(input.messageId), choices, generatedAt: now(), script: scriptProjection,
           traceSessionId, traceSessionIds: traceSessionId === '' ? [] : [traceSessionId],
-          traceMode: 'continuable', basedOn: begun.value.basedOn
+          traceMode: 'continuable', basedOn: taskRun.basedOn
         }
         savedCandidates = draft.candidates
       }
     })
-    if (completed.value.status !== 'committed') throw new Error('剧情状态已变化，本次候选项已作废，请重新生成')
-    await store.writeChat(completed.chat)
+    if (completed.status === 'missing') throw new Error('聊天不存在: ' + chat.id)
+    if (completed.status !== 'committed') throw new Error('剧情状态已变化，本次候选项已作废，请重新生成')
     return {
       messageId: savedCandidates.messageId,
       choices: savedCandidates.choices,

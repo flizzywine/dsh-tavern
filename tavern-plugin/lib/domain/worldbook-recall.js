@@ -1,4 +1,5 @@
 import { projectAgentContent } from './runtime-content-projection.js'
+import { createBackgroundTaskCoordinator } from './background-task-coordinator.js'
 
 const DIRECT_LIMIT = 200
 const MATCH_LIMIT = 24
@@ -212,6 +213,7 @@ export function prepareWorldBookRecall(input = {}) {
 export function createWorldBookRecall(options = {}) {
   const store = options.store
   const timeline = options.timeline
+  const tasks = options.tasks || createBackgroundTaskCoordinator({ store, timeline })
   const model = options.model
   const prompt = options.prompt
   const now = typeof options.now === 'function' ? options.now : Date.now
@@ -229,10 +231,9 @@ export function createWorldBookRecall(options = {}) {
     })
     if (prepared.kind !== 'agent') return { chat, context: prepared.context, mode: prepared.kind, totalChars: prepared.totalChars }
 
-    const begun = timeline.apply({ chat, intent: { kind: 'agent.begin', role: 'worldbook' } })
-    chat = begun.chat
-    await store.writeChat(chat)
-    let traceSessionId = str(begun.value.participant && begun.value.participant.sessionId)
+    const taskRun = await tasks.begin(chat, 'worldbook')
+    chat = taskRun.chat
+    let traceSessionId = str(taskRun.participantRequest.sessionId)
     let traceBoundary = null
     let context = ''
     let error = null
@@ -267,7 +268,7 @@ export function createWorldBookRecall(options = {}) {
         },
         persistent: true,
         persistentSessionId: traceSessionId,
-        rewindTo: begun.value.participant && begun.value.participant.rewindTo
+        rewindTo: taskRun.participantRequest.rewindTo
       })
       traceSessionId = str(run.traceSessionId)
       traceBoundary = Number.isSafeInteger(run.traceBoundary) ? run.traceBoundary : null
@@ -279,18 +280,10 @@ export function createWorldBookRecall(options = {}) {
       if (logger && typeof logger.error === 'function') logger.error('dsh-tavern: 世界书召回失败，已跳过:', str(caught && caught.message || caught))
     }
 
-    const latest = await store.readChat(chat.id)
-    if (latest === undefined) return { chat, context: '', mode: 'agent', totalChars: prepared.totalChars, error: '聊天不存在' }
-    const participant = traceSessionId === '' ? null : {
-      sessionId: traceSessionId,
-      lifetime: 'chat',
-      boundary: traceBoundary
-    }
-    const completed = timeline.complete({
-      chat: latest,
-      operationId: begun.value.operationId,
-      basedOn: begun.value.basedOn,
-      outcome: { status: 'success', stateChanged: false, participant },
+    const participant = taskRun.participant({ traceSessionId, traceBoundary })
+    const completed = await taskRun.commit({
+      stateChanged: false,
+      participant,
       apply(draft) {
         draft.worldBookError = error === null ? null : str(error && error.message || error)
         draft.lastWorldBookRecall = {
@@ -305,8 +298,8 @@ export function createWorldBookRecall(options = {}) {
         if (readRefs.size > 0) draft.worldBookReads = prepared.recordReads(draft.worldBookReads, readRefs, input.turn)
       }
     })
-    await store.writeChat(completed.chat)
-    if (completed.value.status !== 'committed') return { chat: completed.chat, context: '', mode: 'stale', totalChars: prepared.totalChars }
+    if (completed.status === 'missing') return { chat, context: '', mode: 'agent', totalChars: prepared.totalChars, error: '聊天不存在' }
+    if (completed.status !== 'committed') return { chat: completed.chat, context: '', mode: 'stale', totalChars: prepared.totalChars }
     return {
       chat: completed.chat,
       context: error === null ? context : '',

@@ -31,7 +31,11 @@ import { createTurnOrchestrator } from './domain/turn-orchestration.js'
 import { resourceWorkspaceContext } from './domain/workspace-resources.js'
 import { inspectWorldBookDocument, prepareWorldBookImport, updateWorldBookDocument } from './domain/worldbook-resource.js'
 import { createWorldBookRecall } from './domain/worldbook-recall.js'
-import { createSettlementAfterTurnEndScheduler, isOpeningAwaitingSettlement } from './domain/settlement-lifecycle.js'
+import {
+  createBackgroundTaskCoordinator,
+  createSettlementAfterTurnEndScheduler,
+  isOpeningAwaitingSettlement
+} from './domain/background-task-coordinator.js'
 import { createProfileDataStore } from './profile-data-store.js'
 import { prompt } from './prompt-catalog.js'
 
@@ -955,9 +959,14 @@ export async function apply(ctx) {
     },
     resolveRuntimePresetSnapshot: async function () { return null }
   })
+  const backgroundTasks = createBackgroundTaskCoordinator({
+    store: { readChat, writeChat },
+    timeline: storyTimeline
+  })
   const worldBookRecall = createWorldBookRecall({
     store: { readChat, writeChat },
     timeline: storyTimeline,
+    tasks: backgroundTasks,
     model: {
       selection: modelSelection,
       run: backgroundAgentRunner.run
@@ -1019,6 +1028,7 @@ export async function apply(ctx) {
     prompt: prompt,
     scripts: scriptContinuity,
     timeline: storyTimeline,
+    tasks: backgroundTasks,
     waitUntilSettled: async function (chat) {
       let current = await readChat(chat.id)
       if (current === undefined) return
@@ -1192,10 +1202,9 @@ export async function apply(ctx) {
       if (snapshot === undefined) return
       snapshot = await prepareNextWorldBookContext(snapshot)
       if (snapshot === null) return
-      const begun = storyTimeline.apply({ chat: snapshot, intent: { kind: 'agent.begin', role: 'settlement' } })
-      snapshot = begun.chat
-      await writeChat(snapshot)
-      let backgroundSessionId = str(begun.value.participant && begun.value.participant.sessionId)
+      const taskRun = await backgroundTasks.begin(snapshot, 'settlement')
+      snapshot = taskRun.chat
+      let backgroundSessionId = str(taskRun.participantRequest.sessionId)
       let backgroundBoundary = null
       try {
         await readChatCard(snapshot)
@@ -1210,7 +1219,7 @@ export async function apply(ctx) {
               task: 'settlement',
               persistent: true,
               persistentSessionId: backgroundSessionId,
-              rewindTo: begun.value.participant && begun.value.participant.rewindTo,
+              rewindTo: taskRun.participantRequest.rewindTo,
               selection,
               messages: [{
                 id: 'settle-' + Date.now().toString(36),
@@ -1239,18 +1248,10 @@ export async function apply(ctx) {
           }
         }
         if (lastError !== null) throw lastError
-        const latest = await readChat(chatId)
-        if (latest === undefined) return
         let stat = { postureUpdated: false }
-        const completed = storyTimeline.complete({
-          chat: latest,
-          operationId: begun.value.operationId,
-          basedOn: begun.value.basedOn,
-          outcome: {
-            status: 'success',
-            stateChanged: true,
-            participant: { sessionId: backgroundSessionId, boundary: backgroundBoundary, lifetime: 'chat' }
-          },
+        const completed = await taskRun.commit({
+          stateChanged: true,
+          participant: taskRun.participant({ sessionId: backgroundSessionId, boundary: backgroundBoundary }),
           apply(draft) {
             stat = applySettlement(draft, result)
             draft.settleStatus = 'done'
@@ -1258,8 +1259,8 @@ export async function apply(ctx) {
             draft.lastSettle = { ts: Date.now(), posture: stat.postureUpdated, raw: text.slice(0, 200) }
           }
         })
-        await writeChat(completed.chat)
-        if (completed.value.status === 'stale') {
+        if (completed.status === 'missing') return
+        if (completed.status === 'stale') {
           if ((completed.chat.settleStatus || 'idle') === 'running') continue
           return
         }
@@ -1267,24 +1268,16 @@ export async function apply(ctx) {
         console.log('dsh-tavern: 结算原始输出:', text.slice(0, 200))
         return
       } catch (err) {
-        const latest = await readChat(chatId)
-        if (latest === undefined) return
-        const failed = storyTimeline.complete({
-          chat: latest,
-          operationId: begun.value.operationId,
-          basedOn: begun.value.basedOn,
-          outcome: {
-            status: 'success',
-            stateChanged: false,
-            participant: backgroundSessionId === '' ? null : { sessionId: backgroundSessionId, boundary: backgroundBoundary, lifetime: 'chat' }
-          },
+        const failed = await taskRun.commit({
+          stateChanged: false,
+          participant: taskRun.participant({ sessionId: backgroundSessionId, boundary: backgroundBoundary }),
           apply(draft) {
             draft.settleStatus = 'error'
             draft.settleError = str(err && err.message || err)
           }
         })
-        await writeChat(failed.chat)
-        if (failed.value.status === 'stale' && (failed.chat.settleStatus || 'idle') === 'running') continue
+        if (failed.status === 'missing') return
+        if (failed.status === 'stale' && (failed.chat.settleStatus || 'idle') === 'running') continue
         console.error('dsh-tavern: 结算失败', chatId, str(err && err.message || err))
         return
       }

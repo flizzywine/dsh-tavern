@@ -106,7 +106,8 @@ test('姿势结算限制为短 JSON 输出', () => {
   assert.match(flow, /backgroundAgentRunner\.run/)
   assert.match(flow, /task: 'settlement'/)
   assert.match(flow, /persistent: true/)
-  assert.match(flow, /participant: \{ sessionId: backgroundSessionId/)
+  assert.match(flow, /backgroundTasks\.begin\(snapshot, 'settlement'\)/)
+  assert.match(flow, /taskRun\.participant\(\{ sessionId: backgroundSessionId, boundary: backgroundBoundary \}\)/)
 })
 
 test('达到输出 token 上限时不把截断内容当作成功', () => {
