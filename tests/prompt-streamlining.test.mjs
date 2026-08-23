@@ -6,6 +6,7 @@ import { prompt } from '../tavern-plugin/lib/prompt-catalog.js'
 
 const clientSource = await readFile(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
 const serverSource = await readFile(new URL('../tavern-plugin/lib/index.js', import.meta.url), 'utf8')
+const backgroundRunnerSource = await readFile(new URL('../tavern-plugin/lib/background-agent-runner.js', import.meta.url), 'utf8')
 const orchestratorSource = await readFile(new URL('../tavern-plugin/lib/domain/turn-orchestration.js', import.meta.url), 'utf8')
 const tavernPresetSource = await readFile(new URL('../presets/tavern/agent.cordis.yml', import.meta.url), 'utf8')
 const profileSource = await readFile(new URL('../package.json', import.meta.url), 'utf8')
@@ -68,10 +69,10 @@ test('卡片 Agent 以极简模式工具为底座，游玩 Agent 不暴露文件
   assert.match(serverSource, /text: prompt\(mode === 'card' \? 'card-mode' : 'play-mode'\)/)
   assert.match(serverSource, /resourceWorkspaceContext\(agent\.session\.header && agent\.session\.header\.cwd\)/)
   assert.match(serverSource, /name: 'tavern:resource-workspace'/)
-  assert.match(orchestratorSource, /if \(mode === 'card'\) return \[shellToolName, 'str_replace_editor', 'skill', 'tavern_save_skill', 'tavern_read_card', 'tavern_read_card_raw', 'tavern_read_worldbook', 'tavern_read_boundary_prompt', 'tavern_update_boundary_prompt', 'tavern_update_card', 'tavern_restore_card'\]/)
+  assert.match(orchestratorSource, /if \(mode === 'card'\) return \[shellToolName, 'str_replace_editor', 'skill', 'tavern_save_skill', 'tavern_read_card', 'tavern_read_card_raw', 'tavern_read_worldbook', 'tavern_update_card', 'tavern_restore_card'\]/)
   assert.doesNotMatch(orchestratorSource, /mode === 'revision'|mode === 'extract'/)
   assert.doesNotMatch(orchestratorSource, /if \(mode === 'script'\) return \[[^\]]*'bash'/)
-  assert.match(serverSource, /controlledToolNames = new Set\(\['bash', 'pwsh', 'str_replace_editor', 'skill', 'tavern_save_skill', 'tavern_read_card', 'tavern_read_card_raw', 'tavern_read_script', 'tavern_read_worldbook', 'tavern_read_boundary_prompt', 'tavern_update_boundary_prompt', 'tavern_update_card', 'tavern_restore_card'\]\)/)
+  assert.match(serverSource, /controlledToolNames = new Set\(\['bash', 'pwsh', 'str_replace_editor', 'skill', 'tavern_save_skill', 'tavern_read_card', 'tavern_read_card_raw', 'tavern_read_script', 'tavern_read_worldbook', 'tavern_update_card', 'tavern_restore_card'\]\)/)
   assert.match(serverSource, /name: 'tavern_save_skill'/)
   assert.doesNotMatch(serverSource, /name: 'tavern_bind_script'/)
 })
@@ -124,13 +125,15 @@ test('后台 Agent 不进入前台正文上下文注入和工具过滤', () => {
   assert.match(lifecycle, /if \(backgroundAgentRunner\.owns\(agent\.session\.id\)\) return assembly/)
 })
 
-test('破甲方案注入前台与后台的全部模型任务，但不写入人物卡', () => {
-  assert.match(serverSource, /name: 'tavern:boundary-prompt'/)
-  assert.match(serverSource, /operation: mode === 'card' \? 'card' : 'body'/)
-  assert.match(serverSource, /resolveBoundaryPrompt: resolveProjectedBoundaryPrompt/)
-  assert.match(serverSource, /tavern_boundary_prompt: boundaryPrompt\.text/)
-  assert.match(serverSource, /onBoundaryPromptInjected: boundaryPrompts\.recordInjection/)
-  assert.doesNotMatch(serverSource, /card\.boundaryPrompt|card\.boundary_prompt/)
+test('运行时预设快照在新对话创建时固定，并注入前台与后台系统提示词最前面', () => {
+  const startChat = between(serverSource, 'async function startChat', 'async function appendNativeOpening')
+  assert.match(startChat, /rawRuntimePresetSnapshot = await runtimePresets\.snapshot\(\)/)
+  assert.match(startChat, /resolveRuntimePresetMacros\(rawRuntimePresetSnapshot/)
+  assert.match(startChat, /chat\.runtimePresetSnapshot = runtimePresetSnapshot/)
+  assert.match(serverSource, /name: 'tavern:runtime-preset', order: -1000/)
+  assert.match(serverSource, /resolveRuntimePresetSnapshot:/)
+  assert.match(backgroundRunnerSource, /const completePrompt = runtimePresetText === '' \? backgroundPersona : '\{\{tavern_runtime_preset\}\}\\n\\n' \+ backgroundPersona/)
+  assert.doesNotMatch(serverSource, /boundaryPrompts|resolveProjectedBoundaryPrompt/)
 })
 
 test('无玩家输入的开场回合不进入正文结算', () => {

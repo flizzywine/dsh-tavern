@@ -110,7 +110,6 @@ test('Tavern sidebar defaults enable resource tabs, Files and text previews', ()
     'dsh-tavern:presets': true,
     'dsh-tavern:cards': true,
     'dsh-tavern:status': true,
-    'dsh-tavern:boundary-prompts': true,
   })
   assert.deepEqual(settings['dsh-better-sidebar'].viewersEnabled, {
     image: false,
@@ -120,7 +119,7 @@ test('Tavern sidebar defaults enable resource tabs, Files and text previews', ()
     code: true,
     'binary-download': false,
   })
-  assert.equal(settings['dsh-tavern'].sidebarDefaultsVersion, 7)
+  assert.equal(settings['dsh-tavern'].sidebarDefaultsVersion, 8)
 })
 
 test('Tavern sidebar restores native Files and text previews during version 5 migration', () => {
@@ -143,18 +142,18 @@ test('Tavern sidebar preserves user choices after version 5 migration', () => {
   assert.equal(settings['dsh-better-sidebar'].tabsEnabled.editor, false)
   assert.equal(settings['dsh-better-sidebar'].viewersEnabled.markdown, false)
   assert.equal(settings['dsh-better-sidebar'].viewersEnabled.code, false)
-  assert.equal(settings['dsh-better-sidebar'].tabsEnabled['dsh-tavern:boundary-prompts'], true)
+  assert.equal(settings['dsh-better-sidebar'].tabsEnabled['dsh-tavern:boundary-prompts'], undefined)
 })
 
-test('Tavern sidebar preserves user choices after version 7 migration', () => {
+test('Tavern sidebar version 8 migration removes the retired boundary prompt tab', () => {
   const settings = applySidebarDefaults({
     'dsh-tavern': { sidebarDefaultsVersion: 7 },
     'dsh-better-sidebar': { tabsEnabled: { 'dsh-tavern:boundary-prompts': false } },
   })
-  assert.equal(settings['dsh-better-sidebar'].tabsEnabled['dsh-tavern:boundary-prompts'], false)
+  assert.equal(settings['dsh-better-sidebar'].tabsEnabled['dsh-tavern:boundary-prompts'], undefined)
 })
 
-test('Tavern sidebar migration marker与四个库设置写入 YAML', async (t) => {
+test('Tavern sidebar migration marker与三个库设置写入 YAML', async (t) => {
   const directory = await mkdtemp(path.join(tmpdir(), 'dsh-tavern-settings-'))
   t.after(async function () { await rm(directory, { recursive: true, force: true }) })
   const settingsPath = path.join(directory, 'settings.yaml')
@@ -162,12 +161,12 @@ test('Tavern sidebar migration marker与四个库设置写入 YAML', async (t) =
 
   assert.equal(ensureSidebarDefaults(settingsPath), true)
   const written = await readFile(settingsPath, 'utf8')
-  assert.match(written, /dsh-tavern:\n  sidebarDefaultsVersion: 7/)
+  assert.match(written, /dsh-tavern:\n  sidebarDefaultsVersion: 8/)
   assert.match(written, /editor: true/)
   assert.match(written, /dsh-tavern:resources: true/)
   assert.match(written, /dsh-tavern:cards: true/)
   assert.match(written, /dsh-tavern:presets: true/)
-  assert.match(written, /dsh-tavern:boundary-prompts: true/)
+  assert.doesNotMatch(written, /dsh-tavern:boundary-prompts/)
 })
 
 test('Tavern applies sidebar migrations before every service start', () => {

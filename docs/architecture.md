@@ -124,7 +124,7 @@ Tavern Profile 是 CLI 与 DSH Desktop 共用的宿主 seam，本身不声明 We
 用户可写数据固定存放在 `$DSH_HOME/profile-data/tavern/data`，不跟随源码目录、更新位置或 Git worktree。源码只保存内置提示词、默认配置和程序文件。升级安装会先完整备份旧源码目录中的 `data`，再合并到固定目录；普通文件冲突不覆盖主数据，而是保留到 `migration-conflicts/` 供人工检查。
 
 - `tavern-plugin/lib/index.js` 是宿主适配器，把 DSH 生命周期、HTTP 和文件存储接到领域模块。
-- `tavern-plugin/lib/client.js` 是 Web 适配器，提供游玩、人物卡库、预设库、破甲库、资料库和酒馆状态界面。
+- `tavern-plugin/lib/client.js` 是 Web 适配器，提供游玩、人物卡库、预设管理器、资料库和酒馆状态界面。
 - `tavern-plugin/lib/prompt-catalog.js` 是提示词文件适配器。领域模块通过注入的 `prompt` 读取固定提示词，不直接依赖文件系统。
 - Tavern preset 复用 DSH 原生 Skill 注册表、文件提供方和加载工具，但只扫描 `presets/tavern/skills/` 与 `data/skills/`；全局 Skills、游玩模式和后台任务均不进入这条能力边界。
 - `Tavern Skill Module` 是用户 Skill 的唯一写入口，校验名称和正文、原子保存文件、保护内置 Skill，并要求同名覆盖具有明确意图。
@@ -144,7 +144,7 @@ Tavern Profile 是 CLI 与 DSH Desktop 共用的宿主 seam，本身不声明 We
 | Turn Orchestrator | `prepare`、`stageChanges`、`finalize`、`discard`、`visibleTools` | 把 DSH 回合生命周期转换为上下文准备和原子状态提交 |
 | File Resources | `list`、`read`、`import`、`rename`、`restore` | 管理人物卡和资料的工作版、原版、路径身份与绑定关系 |
 | Preset Reading | `inspectPreset` | 把不同 SillyTavern JSON 预设投影为统一的只读摘要和有序提示词条目，不改写原文件 |
-| Boundary Prompts | `list`、`read`、`write`、`select`、`resolve` | 以 Markdown 文件管理破甲提示词，并为当前会话解析唯一的全局注入内容 |
+| Runtime Presets | `register`、`view`、`toggle`、`snapshot`、`savePlan`、`applyPlan` | 保存 Profile 全局条目开关与可复用配置方案，按确定顺序逐字组合，并为新对话生成不可变提示词快照 |
 
 `Background Agent Runner` 是 DSH 适配器。当前实现恢复同一个持续存在的后台子 Agent，并以候选或状态结算等不同任务模式运行；任务共享剧情理解，但保持不同的结果权限。架构允许未来按需接入更多持续存在的后台子 Agent。前台上下文注入和工具过滤会跳过后台 Activation。
 
@@ -157,7 +157,7 @@ Tavern Profile 是 CLI 与 DSH Desktop 共用的宿主 seam，本身不声明 We
 5. 当前候选、状态结算等任务共享一个持续存在的后台子 Agent，并以不同任务模式限制各自可提交的结果；只有出现明确的职责隔离需求时才扩展更多子 Agent。
 6. 领域模块不依赖 DSH 或文件系统；依赖通过接口传入，行为测试与生产调用跨越同一个 seam。
 7. 自由游玩不暴露 Tavern 文件或 Skill 工具；剧本游玩只开放剧本读取；卡片模式只开放当前准备任务需要的读取、修改和按需 Skill 加载。
-8. 人物卡、世界书、剧本、Guide、破甲提示词和玩家输入等外部内容进入游玩 Agent 前，必须经过统一运行时投影。读取型宏按当前上下文解析；会修改变量的宏只在明确的权威生命周期执行一次；HTML 进入展示层，不进入正文或后台任务。卡片模式编辑的是原始内容，不执行这条投影。
+8. 人物卡、世界书、剧本、Guide 和玩家输入等外部内容进入游玩 Agent 前，必须经过统一运行时投影。读取型宏按当前上下文解析；会修改变量的宏只在明确的权威生命周期执行一次；HTML 进入展示层，不进入正文或后台任务。卡片模式编辑的是原始内容，不执行这条投影。
 9. 开场白选择是运行时投影的特殊预览边界：选择阶段使用隔离变量渲染并保留完整正文与 HTML；用户确认后才重新从原始开场白解析一次、提交变量，并将剧情正文写入 Agent、HTML 写入酒馆状态。纯展示页也是有效开场白，可以创建会话；没有正文时使用一个不可见空白字符维持原生开场消息结构，不把 HTML 送入 Agent。
 10. 后台任务不使用插件自定的小型统一输出上限。已知模型按官方最大输出能力运行；未知模型交由 DSH 适配器选择上限，且保留当前会话选择的推理等级。
 
@@ -180,9 +180,9 @@ tavern-plugin/lib/
     ├── epub-text.js
     ├── file-resources.js
     ├── preset-reading.js
+    ├── runtime-presets.js
     ├── runtime-content-projection.js
     ├── tavern-macro-engine.js
-    ├── boundary-prompts.js
     ├── script-continuity.js
     ├── story-timeline.js
     ├── tavern-data.js

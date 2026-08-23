@@ -76,16 +76,14 @@ test('后台 Runner 执行候选任务，查询超限后提示开始推理而不
     }
   }
   const calls = []
-  const injections = []
   runner = createBackgroundAgentRunner({
     agents,
     id: () => 'candidate-session-1',
-    resolveBoundaryPrompt: async ({ sessionId, operation }) => {
+    resolveRuntimePresetSnapshot: async ({ sessionId, operation }) => {
       assert.equal(sessionId, parent.id)
       assert.equal(operation, 'candidate')
-      return { filename: '测试破甲.md', text: '全局破甲提示' }
-    },
-    onBoundaryPromptInjected: async (value) => { injections.push(value) }
+      return { digest: 'snapshot-1', text: '外部预设提示 {{future::macro}}' }
+    }
   })
   const result = await runner.run({
     sessionId: parent.id,
@@ -113,14 +111,13 @@ test('后台 Runner 执行候选任务，查询超限后提示开始推理而不
   assert.equal(createCalls[0].meta.origin, 'subagent')
   assert.equal(createCalls[0].agentOptions.maxTokens, 4000)
   assert.equal(sections[0].complete, true)
+  assert.equal(sections.length, 1)
+  assert.ok(sections[0].text.startsWith('{{tavern_runtime_preset}}\n\n'))
+  assert.doesNotMatch(sections[0].text, /future::macro/)
   assert.doesNotMatch(sections[0].text, /候选系统提示/)
   assert.match(sections[0].text, /\{\{tavern_background_task\}\}/)
   assert.equal(variables.find(function (entry) { return entry.name === 'tavern_background_task' }).provider(), '候选系统提示')
-  assert.equal(sections[1].name, 'tavern:boundary-prompt')
-  assert.doesNotMatch(sections[1].text, /全局破甲提示/)
-  assert.match(sections[1].text, /\{\{tavern_boundary_prompt\}\}/)
-  assert.equal(variables.find(function (entry) { return entry.name === 'tavern_boundary_prompt' }).provider(), '全局破甲提示')
-  assert.deepEqual(injections, [{ sessionId: parent.id, filename: '测试破甲.md', operation: 'candidate', turn: 3 }])
+  assert.equal(variables.find(function (entry) { return entry.name === 'tavern_runtime_preset' }).provider(), '外部预设提示 {{future::macro}}')
   assert.deepEqual(restrictions, [{ allow: [] }])
   assert.equal(registered[0].name, 'tavern_read_script')
   assert.equal(registered[1].name, 'tavern_point_script')
@@ -143,6 +140,198 @@ test('后台 Runner 执行候选任务，查询超限后提示开始推理而不
   assert.equal(concludeCalls, 0)
   assert.equal(disposed, true)
   assert.equal(runner.owns('candidate-session-1'), false)
+})
+
+test('后台 Agent 的正文输入与最终输出都执行实时预设正则', async () => {
+  const parent = { id: 'parent-session', session: { header: { cwd: '/tmp/tavern', delegationDepth: 0 } } }
+  const events = []
+  const prompts = []
+  const appended = []
+  let work = Promise.resolve()
+  const child = {
+    session: {
+      events,
+      append(type, data, options) {
+        const event = { seq: events.length, type, data, ...options }
+        events.push(event)
+        appended.push({ type, data, options, event })
+        return event
+      }
+    },
+    followup(message) {
+      prompts.push(message.content[0].text)
+      work = Promise.resolve().then(function () {
+        events.push({
+          seq: 0,
+          type: 'assistant/message',
+          data: {
+            turn: 1,
+            step: 1,
+            message: {
+              id: 'raw-background-reply',
+              role: 'assistant',
+              source: { kind: 'model', provider: 'test', model: 'scripted' },
+              content: [{ type: 'text', text: '{"choices":[{"type":"action","text":"去钟楼"}]}\n<Reference_Example>后台冗余输出</Reference_Example>' }]
+            }
+          }
+        })
+      })
+    },
+    async whenIdle() { await work }
+  }
+  const agents = {
+    get(id) { return id === parent.id ? parent : undefined },
+    async create(options) {
+      await options.setup({
+        systemPrompt: { section() {}, variable() {}, suppressRuntimeContext() {} },
+        tools: { restrict() {}, register() {} },
+        on() {}
+      })
+      return { agent: child, async dispose() {} }
+    }
+  }
+  const runner = createBackgroundAgentRunner({
+    agents,
+    id: () => 'background-regex',
+    resolveRuntimePresetSnapshot: async function () {
+      return {
+        text: '',
+        regexScripts: [{
+          id: 'remove-reference-example',
+          name: '删除 Reference Example',
+          enabled: true,
+          placement: [2],
+          promptOnly: true,
+          markdownOnly: true,
+          findRegex: '/<Reference_Example>[\\s\\S]*?<\\/Reference_Example>/g',
+          replaceString: ''
+        }]
+      }
+    }
+  })
+
+  const result = await runner.run({
+    sessionId: parent.id,
+    selection: { provider: 'test', model: 'scripted' },
+    system: '候选规则',
+    messages: [{
+      role: 'assistant',
+      content: [{ type: 'text', text: '雨水敲窗。<Reference_Example>正文冗余内容</Reference_Example>' }]
+    }],
+    tools: [],
+    task: 'candidate'
+  })
+
+  assert.doesNotMatch(prompts[0], /正文冗余内容/)
+  assert.equal(result.text, '{"choices":[{"type":"action","text":"去钟楼"}]}')
+  assert.equal(events[0].data.message.content[0].text.includes('后台冗余输出'), true, '原始事件保持不变')
+  assert.equal(appended.length, 3)
+  assert.equal(appended[0].data.message.content[0].text, result.text)
+  assert.deepEqual(appended[0].options.surfaceOp, { op: 'replace', start: 0, end: 0 })
+  assert.deepEqual(appended[0].options.sourceEventSeqs, [0])
+  assert.equal(appended[1].data.message.content[0].text, result.text, '前端接受追加事件并更新既有步骤')
+  assert.equal(appended[1].options.surfaceOp, 'append')
+  assert.deepEqual(appended[2].data.message.content, [], '追加事件随后以空消息从模型 Surface 中移除')
+  assert.deepEqual(appended[2].options.surfaceOp, { op: 'replace', start: 2, end: 2 })
+  assert.deepEqual(appended[2].options.sourceEventSeqs, [2])
+})
+
+test('恢复后台 Session 时重新投影历史输入与输出并持久化 Surface', async () => {
+  const events = [
+    {
+      seq: 0,
+      type: 'user/message',
+      data: {
+        id: 'old-input', role: 'user', source: { kind: 'plugin', plugin: 'dsh-tavern' },
+        content: [{ type: 'text', text: '【最近正文】正文<Reference_Example>旧输入冗余</Reference_Example>' }]
+      },
+      surfaceOp: 'append'
+    },
+    {
+      seq: 1,
+      type: 'assistant/message',
+      data: {
+        turn: 1, step: 1,
+        message: {
+          id: 'old-output', role: 'assistant', source: { kind: 'model', provider: 'test', model: 'scripted' },
+          content: [{ type: 'text', text: '{"posture":"坐在桌边"}<Reference_Example>旧输出冗余</Reference_Example>' }]
+        }
+      },
+      surfaceOp: 'append'
+    },
+    {
+      seq: 2,
+      type: 'assistant/message',
+      data: {
+        turn: 1, step: 1,
+        message: {
+          id: 'old-model-projection', role: 'assistant', source: { kind: 'model', provider: 'test', model: 'scripted' },
+          content: [{ type: 'text', text: '{"posture":"坐在桌边"}' }]
+        }
+      },
+      surfaceOp: { op: 'replace', start: 1, end: 1 },
+      sourceEventSeqs: [1]
+    }
+  ]
+  const appended = []
+  const session = {
+    events,
+    surface: { nodes: [0, 2] },
+    append(type, data, options) {
+      const event = { seq: events.length, type, data, ...options }
+      events.push(event)
+      appended.push({ type, data, options, event })
+      return event
+    }
+  }
+  let resumed = 0
+  let disposed = 0
+  let flushed = 0
+  const runner = createBackgroundAgentRunner({
+    agents: {
+      get() { return undefined },
+      async resume(options) {
+        resumed++
+        assert.equal(options.resumeSessionId, 'old-background')
+        return { agent: { session, async whenIdle() {} }, async dispose() { disposed++ } }
+      }
+    },
+    async flushSession(value) {
+      assert.equal(value, session)
+      flushed++
+    }
+  })
+  const regexScripts = [{
+    id: 'remove-reference-example', enabled: true, placement: [2], promptOnly: true, markdownOnly: true,
+    findRegex: '/<Reference_Example>[\\s\\S]*?<\\/Reference_Example>/g', replaceString: ''
+  }]
+
+  const result = await runner.reproject({ sessionId: 'old-background', regexScripts })
+
+  assert.deepEqual(result, { changed: 2, sessionId: 'old-background' })
+  assert.equal(resumed, 1)
+  assert.equal(flushed, 1)
+  assert.equal(disposed, 1)
+  assert.equal(events[0].data.content[0].text.includes('旧输入冗余'), true, '原始输入事件保持不变')
+  assert.equal(events[1].data.message.content[0].text.includes('旧输出冗余'), true, '原始输出事件保持不变')
+  assert.equal(appended[0].type, 'user/message')
+  assert.equal(appended[0].data.content[0].text, '【最近正文】正文')
+  assert.deepEqual(appended[0].options, { surfaceOp: { op: 'replace', start: 0, end: 0 }, sourceEventSeqs: [0] })
+  assert.equal(appended[1].type, 'assistant/message')
+  assert.equal(appended[1].data.message.content[0].text, '{"posture":"坐在桌边"}')
+  assert.deepEqual(appended[1].options, { surfaceOp: { op: 'replace', start: 2, end: 2 }, sourceEventSeqs: [2] })
+  assert.equal(appended[2].type, 'assistant/message')
+  assert.equal(appended[2].data.message.content[0].text, '{"posture":"坐在桌边"}', '历史输出追加干净文本供前端刷新')
+  assert.deepEqual(appended[2].options, { surfaceOp: 'append' })
+  assert.equal(appended[3].type, 'assistant/message')
+  assert.deepEqual(appended[3].data.message.content, [])
+  assert.deepEqual(appended[3].options, { surfaceOp: { op: 'replace', start: 5, end: 5 }, sourceEventSeqs: [5] })
+
+  session.surface.nodes = [3, 4, 6]
+  const repeated = await runner.reproject({ sessionId: 'old-background', regexScripts })
+  assert.deepEqual(repeated, { changed: 0, sessionId: 'old-background' }, '刷新后的投影和 UI 墓碑不会被重复处理')
+  assert.equal(appended.length, 4)
+  assert.equal(flushed, 1)
 })
 
 test('状态结算与候选生成复用同一个后台会话，并且每轮只读取本轮新增输入', async () => {

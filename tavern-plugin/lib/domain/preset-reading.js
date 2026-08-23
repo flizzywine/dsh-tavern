@@ -81,10 +81,11 @@ export function inspectPreset(text, filename = '') {
     }
   }
 
-  const records = new Map()
+  const records = []
+  const recordsByIdentifier = new Map()
   prompts.forEach(function (prompt, index) {
     const identifier = str(prompt.identifier).trim() || 'prompt-' + (index + 1)
-    records.set(identifier, {
+    const record = {
       identifier,
       name: str(prompt.name).trim() || identifier,
       role: normalizedRole(prompt.role),
@@ -95,7 +96,11 @@ export function inspectPreset(text, filename = '') {
       ordered: false,
       injectionPosition: Number.isFinite(Number(prompt.injection_position)) ? Number(prompt.injection_position) : null,
       injectionDepth: Number.isFinite(Number(prompt.injection_depth)) ? Number(prompt.injection_depth) : null
-    })
+    }
+    records.push(record)
+    const matches = recordsByIdentifier.get(identifier) || []
+    matches.push(record)
+    recordsByIdentifier.set(identifier, matches)
   })
 
   const orders = object !== null && Array.isArray(object.prompt_order) ? object.prompt_order : []
@@ -105,18 +110,27 @@ export function inspectPreset(text, filename = '') {
   for (const item of (selectedOrder && selectedOrder.order) || []) {
     if (item === null || typeof item !== 'object') continue
     const identifier = str(item.identifier).trim()
-    if (identifier === '' || used.has(identifier)) continue
-    const record = records.get(identifier)
+    if (identifier === '') continue
+    const matches = recordsByIdentifier.get(identifier) || []
+    const record = matches.find(function (candidate) { return !used.has(candidate) })
     if (record === undefined) {
       entries.push({ identifier, name: identifier, role: 'system', content: '', enabled: item.enabled !== false, marker: true, systemPrompt: true, ordered: true, injectionPosition: null, injectionDepth: null })
     } else {
       entries.push(Object.assign({}, record, { enabled: item.enabled !== false, ordered: true }))
     }
-    used.add(identifier)
+    if (record !== undefined) used.add(record)
   }
-  for (const record of records.values()) {
-    if (used.has(record.identifier)) continue
+  for (const record of records) {
+    if (used.has(record)) continue
     entries.push(record)
+  }
+
+  const occurrences = new Map()
+  for (const entry of entries) {
+    const occurrence = (occurrences.get(entry.identifier) || 0) + 1
+    occurrences.set(entry.identifier, occurrence)
+    entry.entryKey = entry.identifier + '#' + occurrence
+    entry.injectable = entry.content.trim() !== ''
   }
 
   return {

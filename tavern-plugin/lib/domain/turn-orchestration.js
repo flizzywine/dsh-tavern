@@ -89,6 +89,13 @@ export function createTurnOrchestrator(options) {
   const now = typeof options.now === 'function' ? options.now : Date.now
   const queueSettlement = typeof options.queueSettlement === 'function' ? options.queueSettlement : function () {}
   const renderMacros = typeof options.renderMacros === 'function' ? options.renderMacros : null
+  const resolvePresetRegexScripts = typeof options.resolvePresetRegexScripts === 'function'
+    ? options.resolvePresetRegexScripts
+    : async function (chat) {
+        return Array.isArray(chat.runtimePresetSnapshot && chat.runtimePresetSnapshot.regexScripts)
+          ? chat.runtimePresetSnapshot.regexScripts
+          : []
+      }
   const projectReply = typeof options.projectReply === 'function'
     ? options.projectReply
     : function (text) { return { bodyText: str(text), presentationHtml: '', warnings: [] } }
@@ -221,8 +228,9 @@ export function createTurnOrchestrator(options) {
       const extensions = typeof store.readCardExtensions === 'function'
         ? await store.readCardExtensions(cardPathOf(chat))
         : null
+      const presetRegexScripts = await resolvePresetRegexScripts(chat)
       reply = projectReply(assistantText, {
-        regexScripts: extensions && extensions.regexScripts,
+        regexScripts: (Array.isArray(extensions && extensions.regexScripts) ? extensions.regexScripts : []).concat(presetRegexScripts),
         placement: 2,
         isMarkdown: true,
         isEdit: false,
@@ -315,7 +323,7 @@ export function createTurnOrchestrator(options) {
         }
         if (userText !== '') draft.messages.push({ role: 'user', text: userText, ts: now(), native: true })
         const assistantMessage = { role: 'assistant', text: assistantText, ts: now(), native: true, turn: turn }
-        if (reply.regexApplied === true && str(reply.sourceText) !== assistantText) assistantMessage.sourceText = str(reply.sourceText)
+        if (str(reply.sourceText) !== assistantText) assistantMessage.sourceText = str(reply.sourceText)
         draft.messages.push(assistantMessage)
         if (str(presentation.html) !== '') {
           draft.presentation = {
@@ -377,7 +385,7 @@ export function createTurnOrchestrator(options) {
     if (chat === undefined) return []
     const mode = chat.mode || 'story'
     if (mode === 'script') return ['tavern_read_script']
-    if (mode === 'card') return [shellToolName, 'str_replace_editor', 'skill', 'tavern_save_skill', 'tavern_read_card', 'tavern_read_card_raw', 'tavern_read_worldbook', 'tavern_read_boundary_prompt', 'tavern_update_boundary_prompt', 'tavern_update_card', 'tavern_restore_card']
+    if (mode === 'card') return [shellToolName, 'str_replace_editor', 'skill', 'tavern_save_skill', 'tavern_read_card', 'tavern_read_card_raw', 'tavern_read_worldbook', 'tavern_update_card', 'tavern_restore_card']
     return []
   }
 

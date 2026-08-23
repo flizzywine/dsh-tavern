@@ -30,6 +30,7 @@ function harness(mode, options = {}) {
   let chat = {
     id: 'chat-1', cardPath: options.draft ? '' : 'cards/阿芙拉.json', cardName: options.draft ? '卡片工作台' : card.name, mode,
     messages: [], posture: '站在窗边', guides: [], nativeCommits: {},
+    runtimePresetSnapshot: clone(options.runtimePresetSnapshot || null),
     macroState: { userName: 'User', local: {}, global: {} },
     scriptState: mode === 'script' ? scripts.start(script(), 0) : null,
     workspace: mode === 'card' ? { mountedResources: [], sourceIds: options.draft ? ['src-1'] : [], draft: { name: '' }, player: '', cursor: 0, prepared: null } : null
@@ -94,6 +95,7 @@ function harness(mode, options = {}) {
       value.macroState.global = result.globalVariables
       return result.text
     } : undefined,
+    resolvePresetRegexScripts: options.resolvePresetRegexScripts,
     projectReply: projectReplyPresentation,
     shellToolName: options.shellToolName,
     now: () => 2000
@@ -163,6 +165,31 @@ test('人物卡展示正则把命中内容移出正文并保留内部源文本',
   assert.equal(run.chat().messages.at(-1).sourceText, '她继续向前走。\n\n[状态]体力 100')
   assert.equal(run.chat().messages.at(-1).turn, 2)
   assert.equal(run.chat().presentation.html, '<aside>体力 100</aside>')
+})
+
+test('旧对话保留提示词快照，新回复使用实时预设正则', async () => {
+  let liveRegexScripts = []
+  const run = harness('story', {
+    runtimePresetSnapshot: {
+      text: '固定提示词',
+      regexScripts: [{
+        id: 'old-status', name: '旧快照正则', findRegex: '<old>([\\s\\S]*?)<\\/old>', replaceString: '<aside>$1</aside>',
+        placement: [2], enabled: true, markdownOnly: true, promptOnly: false, runOnEdit: false
+      }]
+    },
+    resolvePresetRegexScripts: async function () { return liveRegexScripts }
+  })
+  liveRegexScripts = [{
+    id: 'preset-status', name: '实时预设状态面板', findRegex: '<status>([\\s\\S]*?)<\\/status>', replaceString: '<aside>$1</aside>',
+    placement: [2], enabled: true, markdownOnly: true, promptOnly: false, runOnEdit: false
+  }]
+  await run.orchestrator.prepare({ sessionId: 'session-1', turn: 2, userText: '查看状态' })
+  const saved = await run.orchestrator.finalize({
+    sessionId: 'session-1', turn: 2, userText: '查看状态', assistantText: '她继续向前走。\n\n<status>体力 80</status>'
+  })
+
+  assert.equal(saved.reply.bodyText, '她继续向前走。')
+  assert.equal(run.chat().presentation.html, '<aside>体力 80</aside>')
 })
 
 test('游玩回复先执行人物卡宏再拆分 HTML', async () => {
@@ -251,8 +278,6 @@ test('卡片修改先校验暂存，只在最终回复完成后写入', async ()
     'tavern_read_card',
     'tavern_read_card_raw',
     'tavern_read_worldbook',
-    'tavern_read_boundary_prompt',
-    'tavern_update_boundary_prompt',
     'tavern_update_card',
     'tavern_restore_card',
   ])
@@ -280,8 +305,6 @@ test('Windows 卡片模式暴露 PowerShell 而不是 Bash', async () => {
     'tavern_read_card',
     'tavern_read_card_raw',
     'tavern_read_worldbook',
-    'tavern_read_boundary_prompt',
-    'tavern_update_boundary_prompt',
     'tavern_update_card',
     'tavern_restore_card',
   ])
@@ -304,7 +327,7 @@ test('空白卡片工作台确认完整设定后直接创建并绑定正式人�
   const duplicate = await run.orchestrator.finalize({ sessionId: 'session-1', turn: 6, userText: '确认角色和玩家', assistantText: '重复回调' })
   assert.equal(duplicate.duplicate, true)
   assert.equal(run.createdCards.length, 1)
-  assert.deepEqual(await run.orchestrator.visibleTools('session-1'), ['bash', 'str_replace_editor', 'skill', 'tavern_save_skill', 'tavern_read_card', 'tavern_read_card_raw', 'tavern_read_worldbook', 'tavern_read_boundary_prompt', 'tavern_update_boundary_prompt', 'tavern_update_card', 'tavern_restore_card'])
+  assert.deepEqual(await run.orchestrator.visibleTools('session-1'), ['bash', 'str_replace_editor', 'skill', 'tavern_save_skill', 'tavern_read_card', 'tavern_read_card_raw', 'tavern_read_worldbook', 'tavern_update_card', 'tavern_restore_card'])
 })
 
 test('空白工作台缺少新卡必填信息时不接受确认提交', async () => {

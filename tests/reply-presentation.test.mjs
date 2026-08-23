@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { projectReplyPresentation } from '../tavern-plugin/lib/domain/reply-presentation.js'
+import { projectReplyHistory, projectReplyPresentation } from '../tavern-plugin/lib/domain/reply-presentation.js'
 
 test('命运开场白把叙事正文与状态 HTML 分离', () => {
   const source = '叶天邪转身走进巷道。\n\n<style>.xt{color:#fff}</style>\n<details open><summary>邪天·状态面板</summary><div class="xt">Lv 1</div></details>'
@@ -38,4 +38,24 @@ test('普通行内 HTML 和不完整标签不从正文中误删', () => {
   assert.equal(malformed.bodyText, '正文后出现了 <div class="status">未闭合')
   assert.equal(malformed.presentationHtml, '')
   assert.equal(malformed.warnings.length, 1)
+})
+
+test('历史回复使用原文重新投影，关闭正则后恢复原始展示', () => {
+  const rule = {
+    id: 'reference', name: '删除参考块', findRegex: '/<Reference_Example>[\\s\\S]*?<\\/Reference_Example>/g', replaceString: '',
+    placement: [2], enabled: true, markdownOnly: true, promptOnly: false, runOnEdit: false
+  }
+  const source = '正文。\n\n<Reference_Example>辅助内容</Reference_Example>'
+  const enabled = projectReplyHistory([
+    { role: 'assistant', turn: 2, text: source }
+  ], { regexScripts: [rule], placement: 2, isMarkdown: true })
+
+  assert.deepEqual(enabled.projections, [{ turn: 2, text: '正文。' }])
+
+  const disabled = projectReplyHistory([
+    { role: 'assistant', turn: 2, text: '正文。', sourceText: source }
+  ], { regexScripts: [], placement: 2, isMarkdown: true })
+
+  assert.deepEqual(disabled.projections, [{ turn: 2, text: source }])
+  assert.equal(disabled.presentation, null)
 })
