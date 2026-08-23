@@ -124,7 +124,7 @@ Tavern Profile 是 CLI 与 DSH Desktop 共用的宿主 seam，本身不声明 We
 用户可写数据固定存放在 `$DSH_HOME/profile-data/tavern/data`，不跟随源码目录、更新位置或 Git worktree。源码只保存内置提示词、默认配置和程序文件。升级安装会先完整备份旧源码目录中的 `data`，再合并到固定目录；普通文件冲突不覆盖主数据，而是保留到 `migration-conflicts/` 供人工检查。
 
 - `tavern-plugin/lib/index.js` 是宿主适配器，把 DSH 生命周期、HTTP 和文件存储接到领域模块。
-- `tavern-plugin/lib/client.js` 是 Web 适配器，提供游玩、人物卡库、预设管理器、资料库和酒馆状态界面。
+- `tavern-plugin/lib/client.js` 是 Web 宿主适配器。受 DSH 浏览器模块加载边界限制，纵向产品能力暂以文件内 Feature Module 存在；每个模块同时拥有自己的 UI 状态、RPC 调用和注册逻辑，只向宿主暴露 `register`。
 - `tavern-plugin/lib/prompt-catalog.js` 是提示词文件适配器。领域模块通过注入的 `prompt` 读取固定提示词，不直接依赖文件系统。
 - Tavern preset 复用 DSH 原生 Skill 注册表、文件提供方和加载工具，但只扫描 `presets/tavern/skills/` 与 `data/skills/`；全局 Skills、游玩模式和后台任务均不进入这条能力边界。
 - `Tavern Skill Module` 是用户 Skill 的唯一写入口，校验名称和正文、原子保存文件、保护内置 Skill，并要求同名覆盖具有明确意图。
@@ -136,15 +136,22 @@ Tavern Profile 是 CLI 与 DSH Desktop 共用的宿主 seam，本身不声明 We
 | 模块 | 接口 | 职责 |
 | --- | --- | --- |
 | Context Planner | `plan` | 为正文、候选或卡片任务选择并组合最少上下文，同时返回注入审计 |
-| Runtime Content Projection | `projectRuntimeContent` | 在外部 Tavern 内容进入游玩 Agent 前解析宏、分离 HTML 与任务文本；卡片准备仍保留完整 raw |
+| Runtime Content Projection | `preserveRuntimeSource`、`projectAgentContent`、`projectOpeningPreview`、`projectOpeningCommit`、`projectRuntimeReply`、`projectBackgroundInput`、`projectBackgroundOutput` | 按具体场景解析宏、分离 HTML、应用展示正则；卡片准备仍保留完整 raw，调用方不能绕过投影边界 |
 | Script Continuity | `start`、`transition`、`inspect` | 维护剧本游标、回合参考、提交与回退 |
 | Story Timeline | `apply`、`complete`、`inspect` | 统一正文、候选、回退、替代与结算，拒绝迟到结果 |
 | Candidate Generator | `generate`、`find` | 运行候选任务、校验结果并保存到权威剧情 revision |
 | Card Preparation | `create`、`migrate`、`project`、`update`、`present` | 管理完整工作 raw、稳定业务投影、受控修改和无损导出 |
 | Turn Orchestrator | `prepare`、`stageChanges`、`finalize`、`discard`、`visibleTools` | 把 DSH 回合生命周期转换为上下文准备和原子状态提交 |
 | File Resources | `list`、`read`、`import`、`rename`、`restore` | 管理人物卡和资料的工作版、原版、路径身份与绑定关系 |
+| World Book Library | `catalog`、`get`、`binding`、`bound`、`bind`、`unbind`、`import`、`update`、`export`、`remove` | 统一人物卡内置世界书与独立世界书的身份、读取、绑定、编辑和存储适配 |
+| Tavern Conversation Registry | `links`、`resolve`、`publish`、`remove` | 原子维护 DSH Session、Tavern 对话索引和对话文件之间的对应关系 |
+| Background Task Coordinator | `begin` | 串行化同一对话的后台任务，统一任务开始、完成、失败及前台可用状态 |
+| Live Tavern View | `getSnapshot`、`subscribe`、`invalidate` | 向 Web UI 提供单一的实时 Tavern 视图缓存、刷新和重试入口 |
+| Conversation Lifecycle | `start` | 把新建游玩或卡片工作台拆成可诊断的顺序阶段，并统一失败位置 |
 | Preset Reading | `inspectPreset` | 把不同 SillyTavern JSON 预设投影为统一的只读摘要和有序提示词条目，不改写原文件 |
-| Runtime Presets | `register`、`view`、`toggle`、`snapshot`、`savePlan`、`applyPlan` | 保存 Profile 全局条目开关与可复用配置方案，按确定顺序逐字组合，并为新对话生成不可变提示词快照 |
+| Runtime Presets（实验兼容层） | `register`、`view`、`toggle`、`snapshot`、`savePlan`、`applyPlan` | 保留预设导入、阅读、开关和方案数据模型，供未来兼容模式使用；当前运行时注入与正则执行明确禁用，不影响游玩 |
+
+Web 端按产品能力划分为 Tavern Shell、Play Controls、Card Library、World Book Library、Resources Library 和 Preset Library 六个 Feature Module。它们不是机械拆文件：每个模块从界面、状态到注册形成完整 seam，删除某一模块即可同时移除该能力及其宿主注册，`apply()` 只负责组合这些接口。
 
 `Background Agent Runner` 是 DSH 适配器。当前实现恢复同一个持续存在的后台子 Agent，并以候选或状态结算等不同任务模式运行；任务共享剧情理解，但保持不同的结果权限。架构允许未来按需接入更多持续存在的后台子 Agent。前台上下文注入和工具过滤会跳过后台 Activation。
 
@@ -160,19 +167,22 @@ Tavern Profile 是 CLI 与 DSH Desktop 共用的宿主 seam，本身不声明 We
 8. 人物卡、世界书、剧本、Guide 和玩家输入等外部内容进入游玩 Agent 前，必须经过统一运行时投影。读取型宏按当前上下文解析；会修改变量的宏只在明确的权威生命周期执行一次；HTML 进入展示层，不进入正文或后台任务。卡片模式编辑的是原始内容，不执行这条投影。
 9. 开场白选择是运行时投影的特殊预览边界：选择阶段使用隔离变量渲染并保留完整正文与 HTML；用户确认后才重新从原始开场白解析一次、提交变量，并将剧情正文写入 Agent、HTML 写入酒馆状态。纯展示页也是有效开场白，可以创建会话；没有正文时使用一个不可见空白字符维持原生开场消息结构，不把 HTML 送入 Agent。
 10. 后台任务不使用插件自定的小型统一输出上限。已知模型按官方最大输出能力运行；未知模型交由 DSH 适配器选择上限，且保留当前会话选择的推理等级。
+11. 外部预设兼容代码属于保留中的实验 seam，不得因当前禁用而删除；在完成酒馆预设编译语义验证前，提示词注入和预设正则均不得进入正式运行链路。
 
 ## 源码地图
 
 ```text
 tavern-plugin/lib/
-├── client.js                     Web 适配器
+├── client.js                     Web 宿主适配器与纵向 Feature Modules
 ├── index.js                      DSH、HTTP 与存储适配器
 ├── background-agent-runner.js    后台 Agent 适配器
 ├── prompt-catalog.js             提示词文件适配器
 └── domain/
     ├── agent-readiness.js
+    ├── background-task-coordinator.js
     ├── candidate-generation.js
-    ├── card-macros.js
+    ├── card-deletion.js
+    ├── card-extension-reading.js
     ├── card-openings.js
     ├── card-preparation.js
     ├── card-reading.js
@@ -180,14 +190,22 @@ tavern-plugin/lib/
     ├── epub-text.js
     ├── file-resources.js
     ├── preset-reading.js
+    ├── reply-presentation.js
     ├── runtime-presets.js
     ├── runtime-content-projection.js
-    ├── tavern-macro-engine.js
     ├── script-continuity.js
+    ├── skill-visibility.js
     ├── story-timeline.js
+    ├── tavern-conversation-registry.js
     ├── tavern-data.js
+    ├── tavern-macro-engine.js
+    ├── tavern-regex-display.js
+    ├── tavern-skills.js
     ├── turn-orchestration.js
-    └── workspace-resources.js
+    ├── workspace-resources.js
+    ├── worldbook-library.js
+    ├── worldbook-recall.js
+    └── worldbook-resource.js
 ```
 
 跨 Agent 同步见[剧情时间线设计](design/agent-timeline.md)，剧本进度见[剧本游标设计](design/script-cursor.md)。权威决策记录在 [`adr/`](adr/)；产品取舍以[产品设计原则](product-design.md)为准，本文件的“领域语言”章节是术语权威来源。

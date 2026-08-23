@@ -229,9 +229,9 @@ const result = await worldbookRecall.recall({
 
 ## 实现落点
 
-1. `worldbook-resource.js` 负责兼容格式投影与编辑写回。
-2. `file-resources.js` 负责人物卡与世界书的一对一绑定持久化。
-3. `worldbook-recall.js` 负责阈值、关键词、标题目录、读取预算和召回结果。
+1. `worldbook-resource.js` 只负责 SillyTavern 世界书格式投影与无损编辑写回。
+2. `worldbook-library.js` 是世界书库的唯一业务入口，内部适配人物卡内置世界书、独立文件和一对一绑定持久化；调用方不再按来源分支。
+3. `worldbook-recall.js` 只通过 World Book Library 取得已绑定世界书，并负责阈值、关键词、标题目录、读取预算和召回结果。
 4. `worldbook-recall.md` 是后台任务的稳定提示词。
 5. `index.js` 在正文提交后的后台结算开头执行召回；`turn-orchestration.js` 只读取已保存的下一轮上下文；`context-planner.js` 负责注入。
 6. 世界书、状态结算和候选复用同一后台 participant。
