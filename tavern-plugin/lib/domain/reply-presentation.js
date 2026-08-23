@@ -60,7 +60,7 @@ export function projectReplyPresentation(value, options = {}) {
   const regex = renderTavernRegexDisplay(body, options.regexScripts, options)
   if (regex.changed) {
     body = regex.bodyText
-    html.push(regex.text)
+    if (regex.presentationText !== '') html.push(regex.presentationText)
   }
   warnings.push.apply(warnings, regex.warnings)
 

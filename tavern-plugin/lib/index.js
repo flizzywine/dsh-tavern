@@ -454,6 +454,7 @@ export async function apply(ctx) {
       return {
         id: opening.id,
         text: preview.renderedText,
+        usesUser: /\{\{\s*user\s*\}\}/i.test(opening.text),
         presentationOnly: preview.presentationOnly
       }
     })
@@ -618,6 +619,7 @@ export async function apply(ctx) {
     return {
       chatId: chat.id,
       mode: chat.mode || 'story',
+      playerName: str(chat.macroState && chat.macroState.userName).trim() || '你',
       card: cardViewOf(card, chat),
       posture: chat.posture || '',
       guides: Array.isArray(chat.guides) ? chat.guides : [],
@@ -896,6 +898,16 @@ export async function apply(ctx) {
     chat.updatedAt = Date.now()
     await writeChat(chat)
     return chat.guides
+  }
+  async function setPlayerName(sessionId, userName) {
+    const chat = await chatForSession(sessionId)
+    if (chat === undefined) throw new Error('当前会话没有绑定人物卡')
+    if ((chat.mode || 'story') === 'card') throw new Error('卡片工作台不使用玩家称呼')
+    const name = str(userName).trim().slice(0, 80) || '你'
+    if (chat.macroState === null || typeof chat.macroState !== 'object') chat.macroState = { userName: name, local: {}, global: {} }
+    else chat.macroState.userName = name
+    await writeChat(chat)
+    return name
   }
 
   // ---------- 后台结算 ----------
@@ -1475,6 +1487,7 @@ export async function apply(ctx) {
         }
       }
       case 'getSession': return { view: await sessionView(args && args.sessionId) }
+      case 'setPlayerName': return { playerName: await setPlayerName(args && args.sessionId, args && args.userName) }
       case 'listBoundaryPrompts': return { files: await boundaryPrompts.list(), selection: await boundaryPrompts.selection(args && args.sessionId) }
       case 'deleteBoundaryPrompt': return await boundaryPrompts.remove(args && args.filename)
       case 'selectBoundaryPrompt': return { selection: await boundaryPrompts.select({ sessionId: args && args.sessionId, enabled: args && args.enabled, filename: args && args.filename }) }

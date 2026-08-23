@@ -62,7 +62,7 @@ const campusReply = `【时间】：09:00
 【状态】：好奇`
 
 test('女子校园展示正则按原始顺序渲染正文、候选项和重复人物卡片', () => {
-  const result = renderTavernRegexDisplay(campusReply, campusScripts(), {
+  const result = renderTavernRegexDisplay('未匹配的正文前言。\n\n' + campusReply, campusScripts(), {
     placement: 2,
     isMarkdown: true,
     depth: 0
@@ -74,10 +74,11 @@ test('女子校园展示正则按原始顺序渲染正文、候选项和重复�
   assert.match(result.text, /<section class="options">/)
   assert.equal((result.text.match(/<aside class="girl">/g) || []).length, 2)
   assert.doesNotMatch(result.text, /\/A选项：|\[在场女生\]/)
+  assert.match(result.bodyText, /未匹配的正文前言/)
   assert.equal(result.warnings.length, 0)
 })
 
-test('display-only 正则把命中内容移出正文并生成独立 HTML 投影', () => {
+test('display-only 正则不得吃掉整轮正文', () => {
   const result = projectReplyPresentation(campusReply, {
     regexScripts: campusScripts(),
     placement: 2,
@@ -85,10 +86,10 @@ test('display-only 正则把命中内容移出正文并生成独立 HTML 投影'
     depth: 0
   })
 
-  assert.equal(result.bodyText, '')
+  assert.equal(result.bodyText, campusReply)
   assert.equal(result.sourceText, campusReply)
-  assert.match(result.presentationHtml, /<article>/)
-  assert.match(result.presentationHtml, /<aside class="girl">/)
+  assert.equal(result.presentationHtml, '')
+  assert.match(result.warnings.join('\n'), /覆盖了整轮正文/)
 })
 
 test('正则未命中的内容继续留在正文', () => {
@@ -101,7 +102,33 @@ test('正则未命中的内容继续留在正文', () => {
 
   assert.equal(result.bodyText, '序章说明\n\n尾声说明')
   assert.equal(result.sourceText, source)
-  assert.equal(result.presentationHtml, '序章说明\n<strong>校园</strong>\n尾声说明')
+  assert.equal(result.presentationHtml, '<strong>校园</strong>')
+})
+
+test('展示区只包含正则替换产物，不复制未命中的正文', () => {
+  const source = '海风吹过广场。\n<status>体力 90</status>\n她继续向前走。'
+  const result = projectReplyPresentation(source, {
+    regexScripts: [displayScript('状态栏', '/<status>(.*?)<\\/status>/s', '<aside>$1</aside>')],
+    placement: 2,
+    isMarkdown: true
+  })
+
+  assert.equal(result.bodyText, '海风吹过广场。\n\n她继续向前走。')
+  assert.equal(result.presentationHtml, '<aside>体力 90</aside>')
+  assert.doesNotMatch(result.presentationHtml, /海风吹过广场|她继续向前走/)
+})
+
+test('两位数捕获组不会被拆成第一组加数字', () => {
+  const result = renderTavernRegexDisplay('前言\nabcdefghijklm\n尾声', [
+    displayScript(
+      '人物详情',
+      '/(a)(b)(c)(d)(e)(f)(g)(h)(i)(j)(k)(l)(m)/',
+      '<aside>$1|$10|$11|$12|$13</aside>'
+    )
+  ], { placement: 2, isMarkdown: true })
+
+  assert.equal(result.presentationText, '<aside>a|j|k|l|m</aside>')
+  assert.equal(result.bodyText, '前言\n\n尾声')
 })
 
 test('损坏规则只产生诊断，后续规则继续执行', () => {

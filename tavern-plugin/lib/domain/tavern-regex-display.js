@@ -40,10 +40,16 @@ function replacementFor(script) {
     const match = str(args[0])
     let replacement = str(script.replaceString).replace(/\{\{match\}\}/gi, match)
     const tail = args.length > 0 && args.at(-1) !== null && typeof args.at(-1) === 'object' ? 3 : 2
-    for (let index = 1; index < args.length - tail; index++) {
-      const value = str(args[index])
-      replacement = replacement.replace(new RegExp('\\$' + index, 'g'), value)
-    }
+    const captures = args.slice(1, args.length - tail).map(str)
+    replacement = replacement.replace(/\$(\d{1,2})/g, function (token, digits) {
+      const index = Number(digits)
+      if (index >= 1 && index <= captures.length) return captures[index - 1]
+      if (digits.length === 2) {
+        const fallback = Number(digits[0])
+        if (fallback >= 1 && fallback <= captures.length) return captures[fallback - 1] + digits[1]
+      }
+      return token
+    })
     for (const trim of trims) replacement = replacement.split(trim).join('')
     return replacement
   }
@@ -69,6 +75,17 @@ export function renderTavernRegexDisplay(value, scripts, options = {}) {
   let bodyText = sourceText
   const warnings = []
   const applied = []
+  const presentationParts = []
+
+  function presentationToken(index) {
+    return '\uE000DSH_TAVERN_REGEX_' + index + '\uE001'
+  }
+
+  function restorePresentationTokens(value) {
+    return str(value).replace(/\uE000DSH_TAVERN_REGEX_(\d+)\uE001/g, function (token, index) {
+      return presentationParts[Number(index)] || ''
+    })
+  }
 
   for (const [index, script] of (Array.isArray(scripts) ? scripts : []).entries()) {
     if (!enabledFor(script, options)) continue
@@ -76,7 +93,13 @@ export function renderTavernRegexDisplay(value, scripts, options = {}) {
     try {
       const displayRegex = regexFromString(script.findRegex)
       const bodyRegex = regexFromString(script.findRegex)
-      const displayed = replaceAndCount(text, displayRegex, replacementFor(script))
+      const buildReplacement = replacementFor(script)
+      const displayed = replaceAndCount(text, displayRegex, function () {
+        const replacement = buildReplacement.apply(null, arguments)
+        const token = presentationToken(presentationParts.length)
+        presentationParts.push(replacement)
+        return token
+      })
       if (displayed.count === 0) continue
       text = displayed.text
       bodyText = replaceAndCount(bodyText, bodyRegex, function () { return '' }).text
@@ -86,10 +109,26 @@ export function renderTavernRegexDisplay(value, scripts, options = {}) {
     }
   }
 
+  if (applied.length > 0 && sourceText.trim() !== '' && bodyText.trim() === '') {
+    warnings.push('显示正则覆盖了整轮正文，已忽略本轮展示结果')
+    return {
+      sourceText,
+      text: sourceText,
+      bodyText: sourceText,
+      presentationText: '',
+      changed: false,
+      applied: [],
+      warnings
+    }
+  }
+
+  const presentationTokens = text.match(/\uE000DSH_TAVERN_REGEX_\d+\uE001/g) || []
+
   return {
     sourceText,
-    text,
+    text: restorePresentationTokens(text),
     bodyText,
+    presentationText: presentationTokens.map(restorePresentationTokens).filter(Boolean).join('\n'),
     changed: applied.length > 0,
     applied,
     warnings

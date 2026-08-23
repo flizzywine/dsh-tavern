@@ -155,12 +155,12 @@ test('人物卡展示正则把命中内容移出正文并保留内部源文本',
   })
   await run.orchestrator.prepare({ sessionId: 'session-1', turn: 2, userText: '查看状态' })
   const saved = await run.orchestrator.finalize({
-    sessionId: 'session-1', turn: 2, userText: '查看状态', assistantText: '[状态]体力 100'
+    sessionId: 'session-1', turn: 2, userText: '查看状态', assistantText: '她继续向前走。\n\n[状态]体力 100'
   })
 
-  assert.equal(saved.reply.bodyText, '')
-  assert.equal(run.chat().messages.at(-1).text, '\u00a0')
-  assert.equal(run.chat().messages.at(-1).sourceText, '[状态]体力 100')
+  assert.equal(saved.reply.bodyText, '她继续向前走。')
+  assert.equal(run.chat().messages.at(-1).text, '她继续向前走。')
+  assert.equal(run.chat().messages.at(-1).sourceText, '她继续向前走。\n\n[状态]体力 100')
   assert.equal(run.chat().messages.at(-1).turn, 2)
   assert.equal(run.chat().presentation.html, '<aside>体力 100</aside>')
 })

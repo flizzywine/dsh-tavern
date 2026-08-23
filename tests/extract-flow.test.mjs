@@ -15,6 +15,7 @@ function between(source, start, end) {
 
 test('卡片模式从空白工作台直接进入 Agent 对话', () => {
   const flow = between(clientSource, 'async function newCardConversation', 'function formatTime')
+  const recovery = between(clientSource, 'async function finishPendingOpen', 'async function retryPendingOpen')
 
   assert.doesNotMatch(flow, /window\.prompt/)
   assert.match(flow, /call\("getResourceWorkspace"\)/)
@@ -23,10 +24,12 @@ test('卡片模式从空白工作台直接进入 Agent 对话', () => {
   assert.match(flow, /props\.workspaces\.connectWorkspace\(resourceWorkspace\.workspaceId\)/)
   assert.doesNotMatch(flow, /connectWorkspace\(workspaceId\)/)
   assert.match(flow, /call\("startChat", \{ path: card && card\.path \? card\.path : "", sessionId: sessionId, mode: "card" \}\)/)
-  assert.match(flow, /publishSessionMode\(sessionId, "card"\)/)
-  assert.match(flow, /props\.openCardLibraryTab\(sessionId\)/)
-  assert.match(flow, /props\.openResourcesTab\(sessionId\)/)
-  assert.ok(flow.indexOf('props.openCardLibraryTab(sessionId)') < flow.indexOf('props.openResourcesTab(sessionId)'))
+  assert.match(flow, /setPendingOpen\(pending\)/)
+  assert.match(flow, /await finishPendingOpen\(pending\)/)
+  assert.match(recovery, /publishSessionMode\(pending\.sessionId, pending\.targetMode\)/)
+  assert.match(recovery, /props\.openCardLibraryTab\(pending\.sessionId\)/)
+  assert.match(recovery, /props\.openResourcesTab\(pending\.sessionId\)/)
+  assert.ok(recovery.indexOf('props.openCardLibraryTab(pending.sessionId)') < recovery.indexOf('props.openResourcesTab(pending.sessionId)'))
 })
 
 test('新建对话不会重复切换已经是 Tavern preset 的 Session', () => {
@@ -58,6 +61,35 @@ test('新建游玩和卡片对话等待前端 Session 列表就绪后再继续',
   assert.ok(cardFlow.indexOf('await waitForSessionSummary(sessionId)') < cardFlow.indexOf('call("startChat"'))
 })
 
+test('已创建 Session 在前端列表短暂不同步时刷新并重连同一个 Session', () => {
+  const sidebar = between(clientSource, 'function TavernSidebar', 'function TavernResourcesTab')
+  const waitFlow = between(sidebar, 'async function waitForSessionSummary', 'function isUnknownSessionSelectError')
+  const openFlow = between(sidebar, 'async function openSessionWhenReady', 'async function finishPendingOpen')
+
+  assert.match(waitFlow, /props\.sessions\.binding\(sessionId\)/)
+  assert.match(openFlow, /typeof props\.sessions\.refresh === "function"/)
+  assert.match(openFlow, /isUnknownSessionSelectError\(error\)/)
+  assert.match(openFlow, /await waitForSessionSummary\(sessionId\)/)
+  assert.match(openFlow, /props\.sessions\.open\(sessionId\)/)
+  assert.doesNotMatch(openFlow, /connectWorkspace|startChat/)
+})
+
+test('游玩中可修改玩家称呼，signal timeout 只刷新状态且不自动重发', () => {
+  const player = between(clientSource, 'function TavernPlayerNameAction', 'function TavernSignalTimeoutNotice')
+  const timeout = between(clientSource, 'function TavernSignalTimeoutNotice', 'function TavernStatusPanel')
+
+  assert.match(serverSource, /async function setPlayerName\(sessionId, userName\)/)
+  assert.match(serverSource, /playerName: str\(chat\.macroState && chat\.macroState\.userName\)\.trim\(\) \|\| '你'/)
+  assert.match(serverSource, /case 'setPlayerName'/)
+  assert.match(player, /rpc\("setPlayerName", \{ userName: next \}, props\.sessionId\)/)
+  assert.match(player, /仅影响之后生成的内容/)
+  assert.match(clientSource, /id: "dsh-tavern-player-name"/)
+  assert.match(timeout, /signal timeout/i)
+  assert.match(timeout, /props\.refreshSessions/)
+  assert.match(timeout, /系统不会自动重发/)
+  assert.doesNotMatch(timeout, /sendPrompt|submit|retryPrompt/)
+})
+
 test('新开游玩在创建 Session 前完成游戏准备，创建后不提供开场白切换器', () => {
   const sidebar = between(clientSource, 'function TavernSidebar', 'function TavernResourcesTab')
   const prepareFlow = between(sidebar, 'async function preparePlayConversation', 'async function importCard')
@@ -67,7 +99,10 @@ test('新开游玩在创建 Session 前完成游戏准备，创建后不提供�
   assert.match(sidebar, /下一条开场白/)
   assert.match(sidebar, /以此开场/)
   assert.match(sidebar, /游戏准备/)
-  assert.match(sidebar, /玩家称呼（\{\{user\}\}）/)
+	  assert.match(sidebar, /故事中的玩家称呼（可选）/)
+	  assert.match(sidebar, /selectedOpening && selectedOpening\.usesUser/)
+	  assert.match(sidebar, /不填则使用“你”/)
+	  assert.match(serverSource, /usesUser: \/\\\{\\\{\\s\*user\\s\*\\\}\\\}\/i\.test\(opening\.text\)/)
   assert.match(sidebar, /dsh-tavern-player-name/)
   assert.match(sidebar, /preparePlayConversation\(card\)/)
   assert.doesNotMatch(prepareFlow, /connectWorkspace|startChat/)
@@ -88,7 +123,8 @@ test('开场白创建失败时在选择弹窗内持续显示具体阶段和错�
   const refresh = between(sidebar, 'function refresh()', 'React.useEffect(function ()')
   const playFlow = between(sidebar, 'async function newConversation', 'async function preparePlayConversation')
 
-  assert.match(sidebar, /const pickerError = error \? h\("div", \{ className: "dsh-tavern-picker-error", role: "alert" \}, error\) : null/)
+  assert.match(sidebar, /const pickerError = error \? h\("div", \{ className: "dsh-tavern-picker-error", role: "alert" \}/)
+  assert.match(sidebar, /重新连接已创建的 Session/)
   assert.match(sidebar, /const playPicker = h\("div",[^\n]+pickerError/)
   assert.match(sidebar, /!picking && error \? h\("div", \{ className: "dsh-tavern-dock-error", role: "alert" \}/)
   assert.doesNotMatch(refresh, /setError\(""\)/)
@@ -176,13 +212,15 @@ test('创建对话失败时服务端记录请求边界但不记录开场白正�
 
 test('卡片模式通过修改、抽取人物卡、抽取破甲和空白四个入口进入同一个 Agent', () => {
   const flow = between(clientSource, 'async function newCardConversation', 'function formatTime')
+  const recovery = between(clientSource, 'async function finishPendingOpen', 'async function retryPendingOpen')
 
   assert.match(clientSource, /"修改人物卡"/)
   assert.match(clientSource, /"从资料新建人物卡"/)
   assert.match(clientSource, /"从预设提取破甲"/)
   assert.match(clientSource, /"空白开始"/)
   assert.match(flow, /mode: "card"/)
-  assert.match(flow, /if \(task\) await props\.injectTaskPrompt\(sessionId, task, label, card, \(selectedResources \|\| \[\]\)\.length > 0\)/)
+  assert.match(flow, /task: task, label: label, card: card, selectedResources: selectedResources \|\| \[\]/)
+  assert.match(recovery, /if \(pending\.task\) await props\.injectTaskPrompt\(pending\.sessionId, pending\.task, pending\.label, pending\.card, \(pending\.selectedResources \|\| \[\]\)\.length > 0\)/)
   assert.doesNotMatch(clientSource, /startExtract|newExtractSession|"revision"|mode: "extract"/)
   assert.doesNotMatch(clientSource, /attachSourcesToCurrent|attachCardToCurrent/)
   assert.match(clientSource, /return values\[sessionId\] \|\| "";/)
@@ -190,7 +228,7 @@ test('卡片模式通过修改、抽取人物卡、抽取破甲和空白四个�
 
 test('人物卡抽取使用资料库，破甲抽取使用预设库，并自动追加引用', () => {
   const sidebar = between(clientSource, 'function TavernSidebar', 'function TavernResourcesTab')
-  const flow = between(sidebar, 'async function newCardConversation', 'function formatTime')
+  const recovery = between(sidebar, 'async function finishPendingOpen', 'async function retryPendingOpen')
 
   assert.match(sidebar, /async function openResourcePicker\(task\)/)
   assert.match(sidebar, /task === "boundary" \? "listPresets" : "listResources"/)
@@ -201,8 +239,9 @@ test('人物卡抽取使用资料库，破甲抽取使用预设库，并自动�
   assert.match(sidebar, /disabled: busy \|\| !chosenInitialResources\.length/)
   assert.match(sidebar, /newCardConversation\(null, "extract", "从资料新建人物卡", chosenInitialResources\)/)
   assert.match(sidebar, /newCardConversation\(null, "boundary", "从预设提取破甲", chosenInitialResources\)/)
-  assert.match(flow, /\(selectedResources \|\| \[\]\)\.forEach/)
-  assert.match(flow, /props\.appendMention\(sessionId, resource\.kind, resource\.path, resource\.title\)/)
+  assert.match(recovery, /\(pending\.selectedResources \|\| \[\]\)\.forEach/)
+  assert.match(recovery, /props\.appendMention\(pending\.sessionId, resource\.kind, resource\.path, resource\.title\)/)
+  assert.match(recovery, /pending\.task === "boundary"[\s\S]+props\.openPresetLibraryTab\(pending\.sessionId\)/)
   assert.match(sidebar, /先选择至少一项预设，再进入工作台/)
   assert.doesNotMatch(sidebar, /newCardConversation\(null, "extract", "从素材新建人物卡"\);/)
 })
@@ -246,7 +285,7 @@ test('酒馆状态页注册到 Better Sidebar，不再接管 DSH details', () =>
   assert.match(sidebar, /summaries\[current\]\.blank === false/)
   assert.match(sidebar, /history\.some\(function \(entry\) \{ return entry\.sessionId === current && isPlayMode\(entry\.mode\); \}\)/)
   assert.match(sidebar, /props\.openStatusTab\(readyTavernSession\)/)
-  assert.match(sidebar, /props\.openStatusTab\(sessionId\)/)
+  assert.match(sidebar, /props\.openStatusTab\(pending\.sessionId\)/)
   assert.match(clientSource, /ctx\.betterSidebar\.registerTab\(\{/)
   assert.match(clientSource, /id: "dsh-tavern:status"/)
   assert.match(clientSource, /patch: \{ panelOpen: true \}/)
