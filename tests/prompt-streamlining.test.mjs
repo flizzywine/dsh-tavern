@@ -162,9 +162,9 @@ test('游玩固定选择一个开场白，并用它对齐剧本', () => {
   const startChat = between(serverSource, 'async function startChat', 'async function appendNativeOpening')
   const appendOpening = between(serverSource, 'async function appendNativeOpening', 'async function scriptPreviewOf')
 
-  assert.match(serverSource, /policy: 'opening-preview'/)
+  assert.match(serverSource, /projectOpeningPreview\(opening\.text/)
   assert.match(startChat, /resolveCardOpening\(card, openingId\)/)
-  assert.match(startChat, /policy: 'opening-commit'/)
+  assert.match(startChat, /projectOpeningCommit\(resolveCardOpening\(card, openingId\)/)
   assert.doesNotMatch(startChat, /openingProjection\.presentationOnly.*throw/)
   assert.match(startChat, /openingProjection\.presentationOnly \? '\\u00a0' : openingProjection\.agentText/)
   assert.match(startChat, /chat\.openingText = greeting/)
@@ -172,7 +172,7 @@ test('游玩固定选择一个开场白，并用它对齐剧本', () => {
   assert.match(startChat, /startAligned\(script, greeting, card\.script_start\)/)
   assert.match(startChat, /text: greeting.*greeting: true/)
   assert.match(appendOpening, /typeof chat\.openingText === 'string'/)
-  assert.match(appendOpening, /projectReplyPresentation\(text\)/)
+  assert.match(appendOpening, /projectRuntimeReply\(text\)/)
   assert.doesNotMatch(serverSource, /switchOpening|openingViewOf|switchable: !hasStory/)
 })
 
@@ -180,7 +180,7 @@ test('游玩回复把 HTML 从 DSH Surface 与正文历史中拆出', () => {
   const lifecycle = between(serverSource, "ctx.on('agent/turn-stopping'", "ctx.on('session/event'")
   const replaceReply = between(serverSource, 'function replaceAssistantReply', '// ---------- DSH 回合生命周期 ----------')
 
-  assert.match(serverSource, /projectReply: projectReplyPresentation/)
+  assert.match(serverSource, /projectReply: projectRuntimeReply/)
   assert.match(lifecycle, /saved\.reply\.presentationHtml/)
   assert.match(lifecycle, /replaceAssistantReply\(session, assistant, saved\.reply\.bodyText \|\| '\\u00a0'\)/)
   assert.match(replaceReply, /surfaceOp: \{ op: 'replace', start: result\.index, end: result\.index \}/)

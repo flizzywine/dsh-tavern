@@ -200,7 +200,7 @@ test('正则清理后的回复投影替换原生对话显示，并在配置变�
   const question = between(clientSource, 'function CandidateQuestion', 'function CandidateGuidePanel')
 
   assert.match(serverSource, /function replyProjectionsOf\(chat\)/)
-  assert.match(view, /projectReplyHistory\(chat\.messages/)
+  assert.match(view, /projectRuntimeReplyHistory\(chat\.messages/)
   assert.match(view, /replyProjections: replyDisplay\.projections/)
   assert.match(projection, /sibling\.style\.display = "none"/)
   assert.match(projection, /projected\.textContent = projection\.text/)

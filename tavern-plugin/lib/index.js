@@ -13,8 +13,14 @@ import { extractEpubText } from './domain/epub-text.js'
 import { createFileResourceStore, normalizeResourcePath, resourceKind } from './domain/file-resources.js'
 import { inspectPreset } from './domain/preset-reading.js'
 import { createRuntimePresetModule } from './domain/runtime-presets.js'
-import { projectReplyHistory, projectReplyPresentation } from './domain/reply-presentation.js'
-import { projectRuntimeContent } from './domain/runtime-content-projection.js'
+import {
+  preserveRuntimeSource,
+  projectAgentContent,
+  projectOpeningCommit,
+  projectOpeningPreview,
+  projectRuntimeReply,
+  projectRuntimeReplyHistory
+} from './domain/runtime-content-projection.js'
 import { createScriptContinuity } from './domain/script-continuity.js'
 import { filterSkillMessages } from './domain/skill-visibility.js'
 import { createStoryTimeline } from './domain/story-timeline.js'
@@ -88,8 +94,7 @@ export async function apply(ctx) {
     return m === 'story' || m === 'script' ? 'play' : 'card'
   }
   function renderCardText(text, card, macroState = {}) {
-    const result = projectRuntimeContent(text, {
-      policy: 'play',
+    const result = projectAgentContent(text, {
       charName: str(card && card.name),
       macroState
     })
@@ -607,8 +612,7 @@ export async function apply(ctx) {
     const card = await readCard(cardPath)
     if (card === undefined) throw new Error('人物卡不存在: ' + cardPath)
     return cardOpeningChoices(card).map(function (opening) {
-      const preview = projectRuntimeContent(opening.text, {
-        policy: 'opening-preview',
+      const preview = projectOpeningPreview(opening.text, {
         charName: str(card.name),
         macroState: { userName: str(userName).trim() || '你', local: {}, global: {} }
       })
@@ -745,7 +749,7 @@ export async function apply(ctx) {
     let replyDisplay = { projections: replyProjectionsOf(chat), presentation: null, latestSourceBacked: false }
     if ((chat.mode || 'story') === 'story' || (chat.mode || 'story') === 'script') {
       const extensions = await readCardExtensions(chat.cardPath)
-      replyDisplay = projectReplyHistory(chat.messages, {
+      replyDisplay = projectRuntimeReplyHistory(chat.messages, {
         regexScripts: Array.isArray(extensions && extensions.regexScripts) ? extensions.regexScripts : [],
         placement: 2,
         isMarkdown: true,
@@ -791,7 +795,7 @@ export async function apply(ctx) {
   }
   function presentationViewOf(chat) {
     if (chat && chat.presentation && typeof chat.presentation === 'object' && str(chat.presentation.html) !== '') return chat.presentation
-    const legacy = projectReplyPresentation(chat && chat.openingText)
+    const legacy = projectRuntimeReply(chat && chat.openingText)
     if (legacy.presentationHtml === '') return null
     return { html: legacy.presentationHtml, source: 'opening', turn: 1, warnings: legacy.warnings, updatedAt: Number(chat && chat.createdAt) || 0 }
   }
@@ -819,8 +823,7 @@ export async function apply(ctx) {
     const macroState = { userName: str(userName).trim().slice(0, 80) || '你', local: {}, global: {} }
     const openingProjection = chatMode === 'card'
       ? { agentText: prompt('card-mode-greeting'), presentationHtml: '', presentationOnly: false, warnings: [], macroState }
-      : projectRuntimeContent(resolveCardOpening(card, openingId), {
-          policy: 'opening-commit',
+      : projectOpeningCommit(resolveCardOpening(card, openingId), {
           charName: str(card.name),
           macroState
         })
@@ -870,7 +873,7 @@ export async function apply(ctx) {
       text = storedGreeting === undefined ? renderCardText(card.first_mes, card, chat.macroState) : storedGreeting.text
     }
     if (mode !== 'card') {
-      const projection = projectReplyPresentation(text)
+      const projection = projectRuntimeReply(text)
       text = projection.bodyText
       if (projection.presentationHtml !== '' && (!chat.presentation || str(chat.presentation.html) === '')) {
         chat.presentation = { html: projection.presentationHtml, source: 'opening', turn: 1, warnings: projection.warnings, updatedAt: Date.now() }
@@ -1374,7 +1377,7 @@ export async function apply(ctx) {
     renderMacros: function (text, chat) {
       return renderCardText(text, { name: chat.cardName }, chat.macroState)
     },
-    projectReply: projectReplyPresentation,
+    projectReply: projectRuntimeReply,
     resolvePresetRegexScripts: async function (chat) {
       return []
     },
@@ -2207,11 +2210,8 @@ export async function apply(ctx) {
               found: true, message: '', title: str(windowResult.title), totalChunks: Number(windowResult.total) || 0,
               from: Number(windowResult.from) || 0, to: Number(windowResult.to) || 0, cursor: Number(windowResult.cursor) || 0,
               chunks: windowResult.chunks.map(function (chunk) {
-                const projected = projectRuntimeContent(chunk.text, {
-                  policy: mode === 'card' ? 'source' : 'play',
-                  charName: str(chat.cardName),
-                  macroState: chat.macroState
-                })
+                const project = mode === 'card' ? preserveRuntimeSource : projectAgentContent
+                const projected = project(chunk.text, { charName: str(chat.cardName), macroState: chat.macroState })
                 return { id: str(chunk.id), number: Number(chunk.order) + 1, text: projected.agentText }
               })
             }

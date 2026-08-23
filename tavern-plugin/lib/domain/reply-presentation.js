@@ -1,3 +1,5 @@
+import { renderTavernRegexDisplay } from './tavern-regex-display.js'
+
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
 }
@@ -106,4 +108,3 @@ export function projectReplyHistory(messages, options = {}) {
   }
   return { projections, presentation, latestSourceBacked }
 }
-import { renderTavernRegexDisplay } from './tavern-regex-display.js'

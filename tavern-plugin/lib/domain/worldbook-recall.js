@@ -1,4 +1,4 @@
-import { projectRuntimeContent } from './runtime-content-projection.js'
+import { projectAgentContent } from './runtime-content-projection.js'
 
 const DIRECT_LIMIT = 200
 const MATCH_LIMIT = 24
@@ -74,8 +74,7 @@ function projector(card, chat) {
     global: clone(chat && chat.macroState && chat.macroState.global || {})
   }
   return function project(text) {
-    const result = projectRuntimeContent(text, {
-      policy: 'play',
+    const result = projectAgentContent(text, {
       charName: str(card && card.name),
       macroState
     })

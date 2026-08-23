@@ -1,4 +1,4 @@
-import { projectRuntimeContent } from './runtime-content-projection.js'
+import { projectAgentContent } from './runtime-content-projection.js'
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
@@ -169,8 +169,7 @@ function scriptResearchAttempt(script, scriptWindow, card, chat) {
       }, extra || {})
     }
     const chunk = script.chunks[position]
-    const projected = projectRuntimeContent(chunk.text, {
-      policy: 'play',
+    const projected = projectAgentContent(chunk.text, {
       charName: str(card && card.name),
       macroState: chat && chat.macroState
     })

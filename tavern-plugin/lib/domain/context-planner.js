@@ -1,5 +1,5 @@
 import { cardFieldCatalog } from './card-reading.js'
-import { projectRuntimeContent } from './runtime-content-projection.js'
+import { projectAgentContent } from './runtime-content-projection.js'
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
@@ -12,8 +12,7 @@ function playProjector(input, warnings) {
     global: Object.assign({}, input.chat && input.chat.macroState && input.chat.macroState.global || {})
   }
   return function (text) {
-    const result = projectRuntimeContent(text, {
-      policy: 'play',
+    const result = projectAgentContent(text, {
       charName: str(input.card && input.card.name),
       macroState
     })

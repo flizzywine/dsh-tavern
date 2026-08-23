@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { renderTavernMacros } from './tavern-macro-engine.js'
+import { resolveRuntimeMacroText } from './runtime-content-projection.js'
 
 function emptyState() {
   return { version: 4, activePreset: '', presetOrder: [], entries: {}, regexes: {}, plans: [], lastError: null, updatedAt: 0 }
@@ -81,11 +81,9 @@ export function resolveRuntimePresetMacros(snapshot, options = {}) {
     global: Object.assign({}, options.macroState?.global && typeof options.macroState.global === 'object' ? options.macroState.global : {})
   }
   if (snapshot === null || typeof snapshot !== 'object') return { snapshot: null, macroState, diagnostics: [] }
-  const rendered = renderTavernMacros(snapshot.text, {
+  const rendered = resolveRuntimeMacroText(snapshot.text, {
     charName: typeof options.charName === 'string' ? options.charName : '',
-    userName: macroState.userName,
-    localVariables: macroState.local,
-    globalVariables: macroState.global
+    macroState
   })
   const resolved = Object.assign({}, snapshot, {
     text: rendered.text,
@@ -95,8 +93,8 @@ export function resolveRuntimePresetMacros(snapshot, options = {}) {
     snapshot: resolved,
     macroState: {
       userName: macroState.userName,
-      local: rendered.localVariables,
-      global: rendered.globalVariables
+      local: rendered.macroState.local,
+      global: rendered.macroState.global
     },
     diagnostics: rendered.diagnostics
   }

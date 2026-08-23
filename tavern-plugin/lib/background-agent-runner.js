@@ -1,5 +1,5 @@
 import { snapshotSubagentDescriptor } from '@deepseek-ai/dsh-subagent'
-import { applyTavernRegexText } from './domain/tavern-regex-display.js'
+import { projectBackgroundInput, projectBackgroundOutput } from './domain/runtime-content-projection.js'
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
@@ -18,12 +18,7 @@ function projectBackgroundMessages(messages, regexScripts) {
       : (message.role === 'assistant' ? 2 : 1)
     const content = Array.isArray(message.content) ? message.content.map(function (block) {
       if (block === null || typeof block !== 'object' || block.type !== 'text') return block
-      const projected = applyTavernRegexText(block.text, regexScripts, {
-        placement,
-        isMarkdown: false,
-        isEdit: false,
-        depth: 0
-      })
+      const projected = projectBackgroundInput(block.text, regexScripts, placement)
       return Object.assign({}, block, { text: projected.text })
     }) : message.content
     return Object.assign({}, message, { content })
@@ -169,12 +164,9 @@ function projectHistoricalSurface(session, regexScripts) {
     const rawText = contentText(sourceContent)
     const currentText = contentText(visibleContent)
     if (rawText === '' && currentText === '') continue
-    const projected = applyTavernRegexText(rawText, regexScripts, {
-      placement: 2,
-      isMarkdown: source.type === 'assistant/message',
-      isEdit: false,
-      depth: 0
-    }).text.trim()
+    const projected = (source.type === 'assistant/message'
+      ? projectBackgroundOutput(rawText, regexScripts)
+      : projectBackgroundInput(rawText, regexScripts, 2)).text.trim()
     const displayed = projected === '' ? '\u00a0' : projected
     if (source.type === 'assistant/message') {
       const uiText = latestUiAssistantText(events, source)
@@ -407,12 +399,7 @@ export function createBackgroundAgentRunner(options) {
         }
         throw new Error(input.task === 'settlement' ? '后台 Agent 没有返回结算文本' : '后台 Agent 没有返回候选文本')
       }
-      const projectedResult = applyTavernRegexText(rawResult.text, runtimeRegexScripts, {
-        placement: 2,
-        isMarkdown: true,
-        isEdit: false,
-        depth: 0
-      })
+      const projectedResult = projectBackgroundOutput(rawResult.text, runtimeRegexScripts)
       const text = projectedResult.text.trim()
       if (text === '' && input.task !== 'worldbook') throw new Error('已启用的预设正则清空了后台 Agent 输出')
       replaceBackgroundSurface(handle.agent.session, rawResult, text)
