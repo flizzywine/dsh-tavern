@@ -14,6 +14,7 @@ import {
   parseInstallHost,
   parseUpdateOptions,
   renderWindowsLauncher,
+  resolveServicePort,
 } from '../bin/dsh-tavern.mjs'
 
 const windowsInstaller = await readFile(new URL('../install.ps1', import.meta.url), 'utf8')
@@ -37,6 +38,13 @@ test('安装宿主默认使用 CLI，并明确接受 Desktop', () => {
   assert.equal(parseInstallHost(['--host=cli']), 'cli')
   assert.throws(() => parseInstallHost(['--host', 'unknown']), /不支持的安装宿主/)
   assert.throws(() => parseInstallHost(['--unknown']), /无法识别的安装参数/)
+})
+
+test('命令行启动端口默认 3081，安卓环境可显式使用 3088', () => {
+  assert.equal(resolveServicePort(undefined), 3081)
+  assert.equal(resolveServicePort('3088'), 3088)
+  assert.throws(() => resolveServicePort('0'), /1 到 65535/)
+  assert.throws(() => resolveServicePort('not-a-port'), /1 到 65535/)
 })
 
 test('从 CLI 输出识别 DSH 预发布版本', () => {

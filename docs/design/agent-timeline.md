@@ -67,7 +67,7 @@ await timeline.inspect(query)
 {
   status: 'pending',
   operationId,
-  role: 'body | candidate | settlement',
+  role: 'body | worldbook | candidate | settlement',
   basedOn: { branchId, revision },
   snapshot,
   participant
@@ -78,11 +78,11 @@ await timeline.inspect(query)
 
 - `ensure`
 - `body.begin`
-- `agent.begin`（role 可为 `candidate`、`settlement` 或未来角色）
+- `agent.begin`（role 可为 `worldbook`、`candidate`、`settlement` 或未来角色）
 - `turn.rollback`
 - `replacement.abort`
 
-正文、候选和结算的成功或失败统一通过 `complete` 提交。正文替代目前由“恢复 checkpoint → `body.begin` → `complete`”组合完成；如果模型失败，`replacement.abort` 恢复原内容但仍创建新 branch/revision，避免 ABA。
+正文、世界书召回、候选和结算的成功或失败统一通过 `complete` 提交。正文替代目前由“恢复 checkpoint → `body.begin` → `complete`”组合完成；如果模型失败，`replacement.abort` 恢复原内容但仍创建新 branch/revision，避免 ABA。
 
 宿主 RPC 可以继续使用 `rollbackTurn`、`regenBody` 等易懂名称，但只能翻译 intent，不能自行修改剧情状态。
 

@@ -1,14 +1,8 @@
 import { cardFieldCatalog } from './card-reading.js'
 import { projectRuntimeContent } from './runtime-content-projection.js'
 
-const MAX_CONSTANT_WORLD_BOOK_ENTRIES = 10
-
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
-}
-
-function messageText(message) {
-  return str(message && message.sourceText) || str(message && message.text)
 }
 
 function playProjector(input, warnings) {
@@ -27,29 +21,6 @@ function playProjector(input, warnings) {
     warnings.push.apply(warnings, result.warnings)
     return result.agentText
   }
-}
-
-function worldBookEntries(card) {
-  const book = card && card.character_book
-  if (book === null || book === undefined || !Array.isArray(book.entries)) return []
-  const entries = []
-  for (let index = 0; index < book.entries.length; index++) {
-    const entry = book.entries[index]
-    if (entry === null || typeof entry !== 'object' || entry.enabled === false) continue
-    let text = ''
-    if (Array.isArray(entry.content)) {
-      text = entry.content.map(function (item) { return item !== null && typeof item === 'object' ? str(item.content) : str(item) }).filter(Boolean).join('\n')
-    } else {
-      text = str(entry.content)
-    }
-    if (text === '') continue
-    const keys = Array.isArray(entry.keys)
-      ? entry.keys.map(function (key) { return str(key).trim() }).filter(Boolean)
-      : []
-    const displayIndex = Number(entry.extensions && entry.extensions.display_index)
-    entries.push({ id: 'wb-' + index, index, displayIndex: Number.isFinite(displayIndex) ? displayIndex : index, keys, text, constant: entry.constant === true })
-  }
-  return entries.sort(function (a, b) { return a.displayIndex - b.displayIndex || a.index - b.index })
 }
 
 function cardFieldCatalogText(card) {
@@ -78,34 +49,10 @@ export function createContextPlanner(options = {}) {
   if (typeof options.prompt !== 'function') throw new Error('缺少提示词目录')
   const prompt = options.prompt
 
-  async function selectWorldBookEntries(input, warnings) {
-    const entries = worldBookEntries(input.card).filter(function (entry) { return entry.constant !== true })
-    if (entries.length === 0) return []
-    const recent = (input.chat.messages || []).slice(-8).map(function (message) {
-      return messageText(message)
-    }).join('\n')
-    const recentText = (recent + '\n' + str(input.userText).trim()).toLocaleLowerCase()
-    return entries.filter(function (entry) {
-      return entry.keys.some(function (keyText) {
-        const key = str(keyText).trim().toLocaleLowerCase()
-        return key !== '' && recentText.includes(key)
-      })
-    }).map(function (entry) { return entry.id })
-  }
-
   function cardSections(input, projectText) {
     const sections = []
-    const entries = worldBookEntries(input.card)
-    const selectedIds = Array.isArray(input.worldBookIds) ? input.worldBookIds : []
-    const constantEntries = entries.filter(function (entry) { return entry.constant === true }).slice(0, MAX_CONSTANT_WORLD_BOOK_ENTRIES)
-    const triggeredEntries = entries.filter(function (entry) { return entry.constant !== true && selectedIds.includes(entry.id) })
-    function worldBookSection(kind, selected) {
-      return selected.length > 0
-        ? { kind, required: false, text: '【世界设定】\n' + selected.map(function (entry) { return projectText('[' + (entry.keys.join('、') || '无触发词') + '] ' + entry.text) }).filter(Boolean).join('\n') }
-        : null
-    }
-    const constantWorldBookSection = worldBookSection('world-book', constantEntries)
-    const triggeredWorldBookSection = worldBookSection('world-book-triggered', triggeredEntries)
+    const projectedWorldBook = projectText(input.worldBookContext)
+    const worldBookSection = projectedWorldBook === '' ? null : { kind: 'world-book', required: false, text: '【本轮世界书上下文】\n' + projectedWorldBook }
     const guides = Array.isArray(input.chat.guides) ? input.chat.guides.filter(function (item) { return item !== null && typeof item === 'object' && str(item.text).trim() !== '' }) : []
     const projectedGuides = guides.map(function (item) { return projectText(str(item.text).trim()) }).filter(Boolean)
     const guideSection = projectedGuides.length > 0 ? { kind: 'guide', required: true, text: '【用户指导 Guide · 优先遵循】\n' + projectedGuides.map(function (text, index) { return (index + 1) + '. ' + text }).join('\n') } : null
@@ -127,13 +74,11 @@ export function createContextPlanner(options = {}) {
     if (input.stableFirst === true) {
       sections.push.apply(sections, cardInfoSections)
       sections.push.apply(sections, instructionSections)
-      if (constantWorldBookSection !== null) sections.push(constantWorldBookSection)
-      if (triggeredWorldBookSection !== null) sections.push(triggeredWorldBookSection)
+      if (worldBookSection !== null) sections.push(worldBookSection)
       if (guideSection !== null) sections.push(guideSection)
       if (postureSection !== null) sections.push(postureSection)
     } else {
-      if (constantWorldBookSection !== null) sections.push(constantWorldBookSection)
-      if (triggeredWorldBookSection !== null) sections.push(triggeredWorldBookSection)
+      if (worldBookSection !== null) sections.push(worldBookSection)
       if (postureSection !== null) sections.push(postureSection)
       if (guideSection !== null) sections.push(guideSection)
       sections.push.apply(sections, cardInfoSections)
@@ -160,7 +105,6 @@ export function createContextPlanner(options = {}) {
     const warnings = []
     if (input.purpose === 'body') {
       const projectText = playProjector(input, warnings)
-      const selectedIds = await selectWorldBookEntries(input, warnings)
       const sections = [{
         kind: 'base', required: true,
         text: prompt('story')
@@ -176,7 +120,7 @@ export function createContextPlanner(options = {}) {
       }
       const hasStoryTurn = (input.chat.messages || []).some(function (message) { return message !== null && typeof message === 'object' && message.greeting !== true })
       const hasScript = (input.chat.mode || 'story') === 'script' || (input.scriptReference !== null && input.scriptReference !== undefined)
-      sections.push.apply(sections, cardSections({ card: input.card, chat: input.chat, worldBookIds: selectedIds, includeName: false, includeDetails: !hasStoryTurn, includeStyleExample: !hasScript, includeInstructions: true }, projectText))
+      sections.push.apply(sections, cardSections({ card: input.card, chat: input.chat, worldBookContext: input.worldBookContext, includeName: false, includeDetails: !hasStoryTurn, includeStyleExample: !hasScript, includeInstructions: true }, projectText))
       if (input.scriptReference !== null && input.scriptReference !== undefined && str(input.scriptReference.text) !== '') {
         const order = Number(input.scriptReference.order)
         const position = Number.isInteger(order) && order >= 0 ? ' · 第 ' + (order + 1) + ' 块' : ''
@@ -188,13 +132,12 @@ export function createContextPlanner(options = {}) {
 
     if (input.purpose === 'candidate') {
       const projectText = playProjector(input, warnings)
-      const selectedIds = await selectWorldBookEntries(input, warnings)
       const stableSections = [{ kind: 'candidate-task', required: true, text: str(input.task) }]
       const dynamicSections = []
       const plannedCardSections = cardSections({
         card: input.card,
         chat: input.chat,
-        worldBookIds: selectedIds,
+        worldBookContext: '',
         includeName: true,
         includeDetails: true,
         includeStyleExample: input.scriptWindow === null || input.scriptWindow === undefined,
@@ -202,7 +145,7 @@ export function createContextPlanner(options = {}) {
         stableFirst: true
       }, projectText)
       for (const section of plannedCardSections) {
-        if (section.kind === 'guide' || section.kind === 'posture' || section.kind === 'world-book-triggered') dynamicSections.push(section)
+        if (section.kind === 'guide' || section.kind === 'posture') dynamicSections.push(section)
         else stableSections.push(section)
       }
       if (input.scriptWindow !== null && input.scriptWindow !== undefined) {

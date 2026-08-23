@@ -2,7 +2,7 @@ import { access, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'n
 import path from 'node:path'
 import { inspectPreset } from './preset-reading.js'
 
-const KIND_DIR = Object.freeze({ card: 'cards', preset: 'presets', source: 'materials', script: 'scripts' })
+const KIND_DIR = Object.freeze({ card: 'cards', preset: 'presets', source: 'materials', script: 'scripts', worldbook: 'worldbooks' })
 const WINDOWS_RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i
 
 function str(value) {
@@ -112,6 +112,7 @@ export function createFileResourceStore(options = {}) {
   const legacyRoot = path.join(dataRoot, 'legacy-id-storage')
   const markerPath = path.join(dataRoot, '.file-resources-v1.json')
   const bindingsPath = path.join(dataRoot, '.material-bindings.json')
+  const worldBookBindingsPath = path.join(dataRoot, '.worldbook-bindings.json')
 
   function absolute(relative, original = false) {
     const normalized = normalizeResourcePath(relative)
@@ -252,6 +253,55 @@ export function createFileResourceStore(options = {}) {
     await writeFile(bindingsPath, JSON.stringify(bindings, null, 2))
   }
 
+  async function readWorldBookBindings() {
+    try {
+      const value = JSON.parse(await readFile(worldBookBindingsPath, 'utf8'))
+      return value !== null && typeof value === 'object' && !Array.isArray(value) ? value : {}
+    } catch (error) {
+      if (error && error.code === 'ENOENT') return {}
+      throw error
+    }
+  }
+
+  async function writeWorldBookBindings(bindings) {
+    await writeFile(worldBookBindingsPath, JSON.stringify(bindings, null, 2))
+  }
+
+  async function worldBookBindingForCard(cardPath) {
+    const card = normalizeResourcePath(cardPath, 'card')
+    const bindings = await readWorldBookBindings()
+    if (!Object.prototype.hasOwnProperty.call(bindings, card)) return { kind: 'default' }
+    const value = bindings[card]
+    if (value === null) return { kind: 'none' }
+    if (typeof value !== 'string') return { kind: 'none' }
+    const worldBookPath = normalizeResourcePath(value, 'worldbook')
+    return { kind: 'standalone', path: worldBookPath, available: await exists(absolute(worldBookPath)) }
+  }
+
+  async function bindWorldBook(cardPath, worldBookPath) {
+    const card = normalizeResourcePath(cardPath, 'card')
+    if (!await exists(absolute(card))) throw new Error('人物卡不存在: ' + card)
+    const bindings = await readWorldBookBindings()
+    if (worldBookPath === undefined || worldBookPath === null || str(worldBookPath) === '') {
+      delete bindings[card]
+      await writeWorldBookBindings(bindings)
+      return { kind: 'default' }
+    }
+    const worldBook = normalizeResourcePath(worldBookPath, 'worldbook')
+    if (!await exists(absolute(worldBook))) throw new Error('世界书不存在: ' + worldBook)
+    bindings[card] = worldBook
+    await writeWorldBookBindings(bindings)
+    return { kind: 'standalone', path: worldBook, available: true }
+  }
+
+  async function unbindWorldBook(cardPath) {
+    const card = normalizeResourcePath(cardPath, 'card')
+    const bindings = await readWorldBookBindings()
+    bindings[card] = null
+    await writeWorldBookBindings(bindings)
+    return { kind: 'none' }
+  }
+
   async function legacyScriptForCard(cardPath) {
     const normalized = normalizeResourcePath(cardPath, 'card')
     const stem = path.posix.basename(normalized, path.posix.extname(normalized))
@@ -333,6 +383,19 @@ export function createFileResourceStore(options = {}) {
     return relative
   }
 
+  async function importWorldBook(payload, working) {
+    await ensure()
+    const rawName = safeResourceName(payload && payload.name || '未命名世界书.json')
+    const name = path.parse(rawName).name + '.json'
+    const relative = 'worldbooks/' + name
+    const originalData = typeof (payload && payload.originalText) === 'string'
+      ? payload.originalText
+      : (typeof (payload && payload.text) === 'string' ? payload.text : JSON.stringify(working, null, 2))
+    await writeNew(absolute(relative, true), originalData)
+    try { await writeNew(absolute(relative), JSON.stringify(working, null, 2)) } catch (error) { await rm(absolute(relative, true), { force: true }); throw error }
+    return relative
+  }
+
   async function replaceScript(cardPath, payload) {
     const current = await scriptForCard(cardPath)
     if (!current) return await importText('script', payload, cardPath)
@@ -405,6 +468,23 @@ export function createFileResourceStore(options = {}) {
         }
       }
     }
+    if (kind === 'card' || kind === 'worldbook') {
+      const worldBookBindings = await readWorldBookBindings()
+      let changed = false
+      if (kind === 'card' && Object.prototype.hasOwnProperty.call(worldBookBindings, normalized)) {
+        delete worldBookBindings[normalized]
+        changed = true
+      }
+      if (kind === 'worldbook') {
+        for (const cardPath of Object.keys(worldBookBindings)) {
+          if (worldBookBindings[cardPath] === normalized) {
+            worldBookBindings[cardPath] = null
+            changed = true
+          }
+        }
+      }
+      if (changed) await writeWorldBookBindings(worldBookBindings)
+    }
   }
 
   async function renameResource(relative, requestedName) {
@@ -476,6 +556,18 @@ export function createFileResourceStore(options = {}) {
       }
     }
     if (bindingsChanged) await writeBindings(bindings)
+    const worldBookBindings = await readWorldBookBindings()
+    let worldBookBindingsChanged = false
+    if (kind === 'card' && Object.prototype.hasOwnProperty.call(worldBookBindings, oldPath)) {
+      worldBookBindings[newPath] = worldBookBindings[oldPath]
+      delete worldBookBindings[oldPath]
+      worldBookBindingsChanged = true
+    } else if (kind === 'worldbook') {
+      for (const cardPath of Object.keys(worldBookBindings)) {
+        if (worldBookBindings[cardPath] === oldPath) { worldBookBindings[cardPath] = newPath; worldBookBindingsChanged = true }
+      }
+    }
+    if (worldBookBindingsChanged) await writeWorldBookBindings(worldBookBindings)
     return { oldPath, path: newPath, scriptOldPath, scriptPath }
   }
 
@@ -677,5 +769,5 @@ export function createFileResourceStore(options = {}) {
     return result
   }
 
-  return Object.freeze({ absolute, bindMaterial, cardsForMaterial, ensure, ensureCardWorkspace, importCard, importText, list, migrateLegacy, readCard, readText, remove, rename: renameResource, replaceScript, restoreCard, scriptForCard, unbindMaterial, writeWorking })
+  return Object.freeze({ absolute, bindMaterial, bindWorldBook, cardsForMaterial, ensure, ensureCardWorkspace, importCard, importText, importWorldBook, list, migrateLegacy, readCard, readText, remove, rename: renameResource, replaceScript, restoreCard, scriptForCard, unbindMaterial, unbindWorldBook, worldBookBindingForCard, writeWorking })
 }

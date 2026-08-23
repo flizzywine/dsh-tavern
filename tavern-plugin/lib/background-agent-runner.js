@@ -40,7 +40,8 @@ function backgroundPrompt(messages, turnContext, task) {
     const role = message && message.role === 'assistant' ? '正文' : '用户'
     return '[' + role + ']\n' + messageText(message)
   }).filter(function (text) { return text.trim() !== '' }).join('\n\n')
-  sections.push('【最近剧情与本次任务】\n任务类型：' + (task === 'settlement' ? '状态结算' : '候选生成') + '\n' + recent)
+  const taskName = task === 'settlement' ? '状态结算' : (task === 'worldbook' ? '世界书召回' : '候选生成')
+  sections.push('【最近剧情与本次任务】\n任务类型：' + taskName + '\n' + recent)
   return sections.join('\n\n')
 }
 
@@ -218,7 +219,8 @@ export function maximumBackgroundTokens(selection) {
 }
 
 function traceError(error, traceSessionId, task) {
-  const wrapped = new Error(str(error && error.message || error) || (task === 'settlement' ? '后台状态结算失败' : '后台候选生成失败'), { cause: error })
+  const fallback = task === 'settlement' ? '后台状态结算失败' : (task === 'worldbook' ? '后台世界书召回失败' : '后台候选生成失败')
+  const wrapped = new Error(str(error && error.message || error) || fallback, { cause: error })
   wrapped.traceSessionId = traceSessionId
   return wrapped
 }
@@ -277,14 +279,14 @@ export function createBackgroundAgentRunner(options) {
       label: '酒馆后台 Agent',
       agentProvider: input.selection.provider,
       agentModel: input.selection.model,
-      persona: '共享剧情背景，承担状态结算与候选生成任务。'
+      persona: '共享剧情背景，承担世界书召回、状态结算与候选生成任务。'
     })
   }
 
   function setupFor(input, descriptor, appendDescriptor) {
     const tools = Array.isArray(input.tools) ? input.tools : []
     const maxToolCalls = Number.isInteger(input.maxToolCalls) && input.maxToolCalls > 0 ? input.maxToolCalls : 8
-    const backgroundPersona = '你是与前台正文生成隔离的酒馆后台 Agent。你会在同一个剧情分支中依次承担状态结算与候选生成；严格按本轮任务输出，不得把某类任务的输出格式混入另一类任务。最新权威状态优先于 Session 中的旧动态状态。\n\n【本轮任务规则】\n{{tavern_background_task}}'
+    const backgroundPersona = '你是与前台正文生成隔离的酒馆后台 Agent。你会在同一个剧情分支中依次承担世界书召回、状态结算与候选生成；严格按本轮任务输出，不得把某类任务的输出格式混入另一类任务。最新权威状态优先于 Session 中的旧动态状态。\n\n【本轮任务规则】\n{{tavern_background_task}}'
     let toolCallCount = 0
     let descriptorAppended = !appendDescriptor
     return function (childCtx) {
@@ -323,7 +325,10 @@ export function createBackgroundAgentRunner(options) {
             if (tool.countsTowardLimit !== false) {
               toolCallCount++
               if (toolCallCount > maxToolCalls) {
-                return JSON.stringify({ message: '已达到剧本查询上限，请停止查询，基于已有材料开始推理并输出最终候选。' })
+                const message = input.task === 'worldbook'
+                  ? '已达到世界书读取上限，请基于已有信息直接输出本轮需要补充的设定；没有需要补充的信息时输出空内容。'
+                  : '已达到剧本查询上限，请停止查询，基于已有材料开始推理并输出最终候选。'
+                return JSON.stringify({ message })
               }
             }
             return str(await input.onToolCall({ name: tool.name, arguments: args }))
@@ -397,6 +402,9 @@ export function createBackgroundAgentRunner(options) {
       if (rawResult === null) {
         const underlying = terminalError(handle.agent.session.events, eventStart)
         if (underlying !== null) throw underlying
+        if (input.task === 'worldbook') {
+          return { text: '', traceSessionId, persistent, traceBoundary: completedBoundary(handle.agent.session.events) }
+        }
         throw new Error(input.task === 'settlement' ? '后台 Agent 没有返回结算文本' : '后台 Agent 没有返回候选文本')
       }
       const projectedResult = applyTavernRegexText(rawResult.text, runtimeRegexScripts, {
@@ -406,7 +414,7 @@ export function createBackgroundAgentRunner(options) {
         depth: 0
       })
       const text = projectedResult.text.trim()
-      if (text === '') throw new Error('已启用的预设正则清空了后台 Agent 输出')
+      if (text === '' && input.task !== 'worldbook') throw new Error('已启用的预设正则清空了后台 Agent 输出')
       replaceBackgroundSurface(handle.agent.session, rawResult, text)
       return { text, traceSessionId, persistent, traceBoundary: completedBoundary(handle.agent.session.events) }
     } catch (error) {

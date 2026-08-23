@@ -397,13 +397,46 @@ test('状态结算与候选生成复用同一个后台会话，并且每轮只�
     label: '酒馆后台 Agent',
     agentProvider: 'test',
     agentModel: 'scripted',
-    persona: '共享剧情背景，承担状态结算与候选生成任务。'
+    persona: '共享剧情背景，承担世界书召回、状态结算与候选生成任务。'
   })
   assert.match(prompts[0], /游标 2，姿势 A/)
   assert.match(prompts[0], /任务类型：状态结算/)
   assert.match(prompts[1], /游标 3，姿势 B/)
   assert.match(prompts[1], /任务类型：候选生成/)
   assert.doesNotMatch(prompts[1], /游标 2，姿势 A/)
+})
+
+test('世界书召回允许后台 Agent 返回空内容', async () => {
+  const parent = { id: 'parent-session', session: { header: { cwd: '/tmp/tavern', delegationDepth: 0 } } }
+  const events = []
+  const child = {
+    session: { events, append(type, data) { events.push({ type, data }) } },
+    followup() {},
+    async whenIdle() {}
+  }
+  const runner = createBackgroundAgentRunner({
+    agents: {
+      get(id) { return id === parent.id ? parent : undefined },
+      async create(options) {
+        await options.setup({
+          systemPrompt: { section() {}, variable() {}, suppressRuntimeContext() {} },
+          tools: { restrict() {}, register() {} },
+          on() {}
+        })
+        return { agent: child, async dispose() {} }
+      }
+    },
+    id: () => 'worldbook-session-1'
+  })
+
+  const result = await runner.run({
+    sessionId: parent.id,
+    selection: { provider: 'test', model: 'scripted' },
+    system: '世界书召回规则', messages: [], tools: [], task: 'worldbook', persistent: true
+  })
+
+  assert.equal(result.text, '')
+  assert.equal(result.traceSessionId, 'worldbook-session-1')
 })
 
 test('回退后在同一个后台 Agent 中遮蔽 checkpoint 之后的 Surface', async () => {

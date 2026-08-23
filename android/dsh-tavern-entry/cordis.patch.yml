@@ -1,0 +1,6 @@
+# dsh-tavern-entry bundle patch: one browser-plugin row over the web-app layer.
+# Applied after dsh-web-app's insert, so it appends the tavern-entry client
+# plugin to the browser roster.
+- insert:
+    - id: dsh-tavern-entry
+      name: 'dsh-tavern-entry'

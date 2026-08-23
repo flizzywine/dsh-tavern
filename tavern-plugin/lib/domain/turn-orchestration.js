@@ -86,6 +86,7 @@ export function createTurnOrchestrator(options) {
   const cards = options.cards
   const workspace = options.workspace
   const timeline = options.timeline
+  const worldBookRecall = options.worldBookRecall
   const now = typeof options.now === 'function' ? options.now : Date.now
   const queueSettlement = typeof options.queueSettlement === 'function' ? options.queueSettlement : function () {}
   const renderMacros = typeof options.renderMacros === 'function' ? options.renderMacros : null
@@ -172,7 +173,39 @@ export function createTurnOrchestrator(options) {
       return { ready: true, mode, cardName: card === null ? (str(state.draft && state.draft.name) || '卡片工作台') : card.name, text: plan.text }
     }
 
-    const plan = await planner.plan({ purpose: 'body', card, chat, userText: runtimeUserText, sessionId: input.sessionId, nativeTurn: turn, scriptReference })
+    let worldBookContext = ''
+    if (worldBookRecall && typeof worldBookRecall.recall === 'function') {
+      if (chatChanged) {
+        await store.writeChat(chat)
+        chatChanged = false
+      }
+      try {
+        const worldBook = typeof store.readBoundWorldBook === 'function' ? await store.readBoundWorldBook(cardPath, card) : null
+        const recalled = await worldBookRecall.recall({
+          sessionId: input.sessionId,
+          turn,
+          chat,
+          card,
+          worldBook,
+          playerText: runtimeUserText
+        })
+        chat = recalled.chat
+        worldBookContext = str(recalled.context).trim()
+        if (recalled.mode !== 'agent') {
+          chat.worldBookError = null
+          chat.lastWorldBookRecall = {
+            ts: now(), turn, mode: recalled.mode, totalChars: Number(recalled.totalChars) || 0,
+            contextChars: Array.from(worldBookContext).length, empty: worldBookContext === '', failed: false
+          }
+          chatChanged = true
+        }
+      } catch (error) {
+        chat.worldBookError = str(error && error.message || error)
+        chat.lastWorldBookRecall = { ts: now(), turn, mode: 'error', totalChars: 0, contextChars: 0, empty: true, failed: true }
+        chatChanged = true
+      }
+    }
+    const plan = await planner.plan({ purpose: 'body', card, chat, userText: runtimeUserText, sessionId: input.sessionId, nativeTurn: turn, scriptReference, worldBookContext })
     if (chatChanged) await store.writeChat(chat)
     return { ready: true, mode, cardName: card.name, text: plan.text, userText: runtimeUserText }
   }

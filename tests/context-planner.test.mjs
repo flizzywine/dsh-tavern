@@ -36,15 +36,8 @@ function chat(messages = [{ role: 'assistant', text: '开场', greeting: true }]
   }
 }
 
-test('正文按触发词选择世界书且不调用模型，并解析人物卡环境宏', async () => {
-  const calls = []
-  const planner = createContextPlanner({
-    prompt,
-    callModel: async (options) => {
-      calls.push(options)
-      return '{"ids":["wb-1"]}'
-    }
-  })
+test('正文只注入召回模块准备的世界书上下文，并解析人物卡环境宏', async () => {
+  const planner = createContextPlanner({ prompt })
   const result = await planner.plan({
     purpose: 'body',
     card: card(),
@@ -52,10 +45,10 @@ test('正文按触发词选择世界书且不调用模型，并解析人物卡�
     userText: '去钟楼看看',
     sessionId: 'session-1',
     nativeTurn: 2,
-    scriptReference: { order: 7, text: '两人沿石阶进入钟楼。' }
+    scriptReference: { order: 7, text: '两人沿石阶进入钟楼。' },
+    worldBookContext: '黑麦镇常年下雨。\n钟楼藏着失踪商队的线索。'
   })
 
-  assert.equal(calls.length, 0)
   assert.match(result.text, /黑麦镇常年下雨/)
   assert.match(result.text, /钟楼藏着失踪商队的线索/)
   assert.doesNotMatch(result.text, /遥远王都/)
@@ -150,7 +143,7 @@ test('展示正则移走可见正文后，下一轮仍注入内部源文本保�
   assert.match(result.text, /叶天邪走进校门/)
 })
 
-test('自由故事候选按稳定到动态的顺序注入完整人物卡约束', async () => {
+test('自由故事候选按稳定到动态的顺序注入完整人物卡约束，但不自行注入世界书', async () => {
   const planner = createContextPlanner({ prompt, callModel: async () => '{"ids":[]}' })
   const task = '候选任务：只输出 JSON。'
   const result = await planner.plan({
@@ -167,13 +160,11 @@ test('自由故事候选按稳定到动态的顺序注入完整人物卡约束',
   assert.match(result.text, /银发佣兵|谨慎而直接|旅店遇见|跟紧我/)
   assert.match(result.text, /保持冷静|避免替玩家决定/)
   assert.match(result.text, /多写动作/)
-  assert.match(result.text, /黑麦镇常年下雨/)
+  assert.doesNotMatch(result.text, /黑麦镇常年下雨/)
   assert.doesNotMatch(result.text, /钟楼藏着失踪商队的线索/)
   assert.equal(result.audit.included.some((item) => item.kind === 'card'), true)
-  assert.ok(result.text.indexOf('候选任务') < result.text.indexOf('黑麦镇常年下雨'))
-  assert.ok(result.text.indexOf('谨慎而直接') < result.text.indexOf('黑麦镇常年下雨'))
-  assert.ok(result.text.indexOf('保持冷静') < result.text.indexOf('黑麦镇常年下雨'))
-  assert.ok(result.text.indexOf('黑麦镇常年下雨') < result.text.indexOf('多写动作'))
+  assert.ok(result.text.indexOf('候选任务') < result.text.indexOf('谨慎而直接'))
+  assert.ok(result.text.indexOf('保持冷静') < result.text.indexOf('多写动作'))
   assert.ok(result.text.indexOf('多写动作') < result.text.indexOf('右手按着剑柄'))
 })
 
@@ -216,59 +207,31 @@ test('剧本候选注入人物卡但排除文风示例，剧本块放在动态�
   assert.match(result.text, /名字: 阿芙拉|谨慎而直接|保持冷静/)
   assert.doesNotMatch(result.text, /文风示例|跟紧我/)
   assert.ok(result.text.indexOf('剧本候选任务') < result.text.indexOf('谨慎而直接'))
-  assert.ok(result.text.indexOf('谨慎而直接') < result.text.indexOf('黑麦镇常年下雨'))
-  assert.ok(result.text.indexOf('黑麦镇常年下雨') < result.text.indexOf('多写动作'))
+  assert.ok(result.text.indexOf('谨慎而直接') < result.text.indexOf('多写动作'))
   assert.ok(result.text.indexOf('多写动作') < result.text.indexOf('右手按着剑柄'))
   assert.ok(result.text.indexOf('右手按着剑柄') < result.text.indexOf('两人沿石阶走近钟楼'))
-  assert.match(result.stableText, /剧本候选任务|名字: 阿芙拉|谨慎而直接|保持冷静|黑麦镇常年下雨/)
+  assert.match(result.stableText, /剧本候选任务|名字: 阿芙拉|谨慎而直接|保持冷静/)
   assert.doesNotMatch(result.stableText, /多写动作|右手按着剑柄|两人沿石阶走近钟楼/)
   assert.match(result.dynamicText, /多写动作|右手按着剑柄|两人沿石阶走近钟楼/)
   assert.doesNotMatch(result.dynamicText, /剧本候选任务|名字: 阿芙拉|谨慎而直接|保持冷静/)
 })
 
-test('大量世界书条目只按触发词匹配，命中的条目不受三个上限限制', async () => {
-  let called = false
-  const planner = createContextPlanner({ prompt, callModel: async () => { called = true; throw new Error('不应调用模型') } })
-  const many = card()
-  many.character_book.entries = [
-    { keys: ['甲地'], content: '甲地设定', enabled: true },
-    { keys: ['乙地'], content: '乙地设定', enabled: true },
-    { keys: ['丙地'], content: '丙地设定', enabled: true },
-    { keys: ['丁地'], content: '丁地设定', enabled: true },
-    { keys: ['不命中'], content: '正文里提到甲地也不能反向触发', enabled: true },
-    { keys: ['停用'], content: '停用设定', enabled: false, constant: true }
-  ]
+test('没有召回结果时，正文规划器不会回退读取人物卡内的世界书', async () => {
+  const planner = createContextPlanner({ prompt })
   const result = await planner.plan({
     purpose: 'body',
-    card: many,
+    card: card(),
     chat: chat(),
-    userText: '依次调查甲地、乙地、丙地和丁地',
+    userText: '去钟楼看看',
     sessionId: 'session-1',
     nativeTurn: 9
   })
 
-  assert.equal(called, false)
-  assert.match(result.text, /甲地设定.*乙地设定.*丙地设定.*丁地设定/s)
-  assert.doesNotMatch(result.text, /反向触发|停用设定/)
-  assert.deepEqual(result.audit.warnings, [])
+  assert.doesNotMatch(result.text, /黑麦镇常年下雨|钟楼藏着失踪商队的线索/)
 })
 
-test('常驻世界书按 display_index 只加载前十条', async () => {
-  const planner = createContextPlanner({ prompt, callModel: async () => '{"ids":[]}' })
-  const many = card()
-  many.character_book.entries = Array.from({ length: 12 }, function (_item, index) {
-    return { keys: [], content: '常驻-' + index, constant: true, enabled: true, extensions: { display_index: 11 - index } }
-  })
-  const result = await planner.plan({ purpose: 'body', card: many, chat: chat(), userText: '继续', scriptReference: null })
-  assert.match(result.text, /常驻-11/)
-  assert.match(result.text, /常驻-2/)
-  assert.doesNotMatch(result.text, /常驻-1(?:\D|$)/)
-  assert.doesNotMatch(result.text, /常驻-0(?:\D|$)/)
-  assert.ok(result.text.indexOf('常驻-11') < result.text.indexOf('常驻-10'))
-})
-
-test('候选项也根据最近剧情触发非常驻世界书', async () => {
-  const planner = createContextPlanner({ prompt, callModel: async () => { throw new Error('不应调用模型') } })
+test('候选项不会根据最近剧情自行触发世界书', async () => {
+  const planner = createContextPlanner({ prompt })
   const result = await planner.plan({
     purpose: 'candidate',
     card: card(),
@@ -277,8 +240,7 @@ test('候选项也根据最近剧情触发非常驻世界书', async () => {
     scriptWindow: null
   })
 
-  assert.match(result.text, /钟楼藏着失踪商队的线索/)
-  assert.doesNotMatch(result.text, /遥远王都|停用条目/)
+  assert.doesNotMatch(result.text, /钟楼藏着失踪商队的线索|遥远王都|停用条目/)
 })
 
 test('卡片工作台在同一规划 interface 中组合人物卡、世界书和资料', async () => {

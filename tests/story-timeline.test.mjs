@@ -97,7 +97,7 @@ test('同一 operation 协议可扩展到状态结算，迟到结算不能覆盖
   assert.equal(late.chat.posture, '门边站立')
 })
 
-test('候选与状态结算是同一后台 Agent 的不同任务，共用 participant', () => {
+test('世界书、候选与状态结算是同一后台 Agent 的不同任务，共用 participant', () => {
   const { timeline, chat } = harness()
   let current = beginAndCommitBody(timeline, chat, 1, '推门', '门开了。')
   let begun = timeline.apply({ chat: current, intent: { kind: 'agent.begin', role: 'settlement' } })
@@ -108,6 +108,17 @@ test('候选与状态结算是同一后台 Agent 的不同任务，共用 partic
     basedOn: begun.value.basedOn,
     outcome: { status: 'success', stateChanged: true, participant: { sessionId: 'background-1', boundary: 20, lifetime: 'chat' } },
     apply(draft) { draft.posture = '门内站立' }
+  })
+  current = completed.chat
+
+  begun = timeline.apply({ chat: current, intent: { kind: 'agent.begin', role: 'worldbook' } })
+  assert.equal(begun.value.participant.role, 'background')
+  assert.equal(begun.value.participant.sessionId, 'background-1')
+  completed = timeline.complete({
+    chat: begun.chat,
+    operationId: begun.value.operationId,
+    basedOn: begun.value.basedOn,
+    outcome: { status: 'success', stateChanged: false, participant: { sessionId: 'background-1', boundary: 21, lifetime: 'chat' } }
   })
   current = completed.chat
 

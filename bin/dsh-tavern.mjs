@@ -27,7 +27,7 @@ import { migrateLegacyTavernData, resolveTavernDataRoot } from '../tavern-plugin
 const PROFILE = 'tavern'
 const INSTALL_HOSTS = new Set(['cli', 'desktop'])
 const CLI_HOST = '127.0.0.1'
-const CLI_PORT = 3081
+const CLI_PORT = resolveServicePort(process.env.DSH_TAVERN_PORT)
 const SCRIPT_PATH = fileURLToPath(import.meta.url)
 const SOURCE_ROOT = path.resolve(path.dirname(SCRIPT_PATH), '..')
 const DSH_ROOT = process.env.DSH_HOME || path.join(os.homedir(), '.dsh')
@@ -68,6 +68,15 @@ const REQUIRED_SOURCE_FILES = [
   path.join('tavern-plugin', 'package.json'),
   path.join('presets', 'tavern', 'preset.yml'),
 ]
+
+export function resolveServicePort(value, fallback = 3081) {
+  if (value === undefined || value === null || String(value).trim() === '') return fallback
+  const port = Number(value)
+  if (!Number.isSafeInteger(port) || port < 1 || port > 65535) {
+    throw new Error(`DSH_TAVERN_PORT 必须是 1 到 65535 之间的整数，当前值：${value}`)
+  }
+  return port
+}
 
 function fail(message) {
   console.error(message)

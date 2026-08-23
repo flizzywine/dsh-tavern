@@ -44,6 +44,7 @@ function harness(mode, options = {}) {
     async readCard() { return options.draft && !chat.cardPath ? undefined : clone(card) },
     async readCardExtensions() { return clone(options.extensions || { regexScripts: [] }) },
     async readScript() { return mode === 'script' || (mode === 'card' && !options.draft) ? clone(script()) : undefined },
+    async readBoundWorldBook() { return clone(options.boundWorldBook || null) },
     async writeChat(value) { chat = clone(value) },
     async updateCard(_cardId, fields, revision, worldBook, rawOperations) {
       const change = cards.update({ kind: 'card', card: cardWorkspace, patch: fields, revision, worldBookOperations: worldBook, rawOperations })
@@ -68,6 +69,7 @@ function harness(mode, options = {}) {
         return { text: 'context:' + input.purpose }
       }
     },
+    worldBookRecall: options.worldBookRecall,
     scripts,
     timeline,
     cards,
@@ -129,6 +131,38 @@ test('游玩回合由生命周期自动准备与提交，不再要求模型回�
 
   await run.orchestrator.finalize({ sessionId: 'session-1', turn: 2, userText: '推开窗', assistantText: '重复文本' })
   assert.equal(run.chat().messages.length, 2)
+})
+
+test('世界书召回先于正文规划执行，并把结果只交给本轮正文', async () => {
+  const order = []
+  const run = harness('story', {
+    boundWorldBook: { source: { kind: 'card', cardPath: 'cards/阿芙拉.json' }, view: { entries: [] } },
+    worldBookRecall: {
+      async recall(input) {
+        order.push('recall')
+        assert.equal(input.playerText, '推开窗')
+        assert.equal(input.worldBook.source.kind, 'card')
+        return { chat: input.chat, context: '钟楼只有午夜会响。', mode: 'agent', totalChars: 300 }
+      }
+    }
+  })
+  const originalPlan = run.orchestrator
+  await originalPlan.prepare({ sessionId: 'session-1', turn: 2, userText: '推开窗' })
+  order.push('planned')
+
+  assert.equal(run.plannerCalls.at(-1).worldBookContext, '钟楼只有午夜会响。')
+  assert.deepEqual(order, ['recall', 'planned'])
+})
+
+test('世界书读取或召回失败不阻断正文规划', async () => {
+  const run = harness('story', {
+    worldBookRecall: { async recall() { throw new Error('世界书暂时不可用') } }
+  })
+  const prepared = await run.orchestrator.prepare({ sessionId: 'session-1', turn: 2, userText: '继续' })
+
+  assert.equal(prepared.text, 'context:body')
+  assert.equal(run.plannerCalls.at(-1).worldBookContext, '')
+  assert.equal(run.chat().worldBookError, '世界书暂时不可用')
 })
 
 test('游玩正文只保存纯文本并把 HTML 展示状态纳入剧情 checkpoint', async () => {

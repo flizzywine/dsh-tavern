@@ -42,6 +42,56 @@ test('导入资料同时保存原版和可编辑工作版', async () => {
   } finally { await rm(root, { recursive: true, force: true }) }
 })
 
+test('导入世界书分别保存不可变原版和 JSON 工作版', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-worldbook-files-'))
+  try {
+    const store = createFileResourceStore({ dataRoot: root })
+    const originalText = '{\n  "entries": {}\n}\n'
+    const resourcePath = await store.importWorldBook({ name: '王都.json', originalText }, { name: '王都', entries: {} })
+    assert.equal(resourcePath, 'worldbooks/王都.json')
+    assert.equal(await readFile(path.join(root, 'originals', resourcePath), 'utf8'), originalText)
+    assert.deepEqual(JSON.parse(await readFile(path.join(root, 'resources', resourcePath), 'utf8')), { name: '王都', entries: {} })
+    assert.deepEqual(await store.list('worldbook'), ['worldbooks/王都.json'])
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
+
+test('人物卡世界书默认使用内置书，并可解绑或改绑独立世界书', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-worldbook-bindings-'))
+  try {
+    const store = createFileResourceStore({ dataRoot: root })
+    const cardPath = await store.importCard({ name: '角色.json', text: '{}' }, { name: '角色', character_book: { entries: [] } })
+    const worldBookPath = await store.importWorldBook({ name: '王都.json', originalText: '{"entries":{}}' }, { name: '王都', entries: {} })
+
+    assert.deepEqual(await store.worldBookBindingForCard(cardPath), { kind: 'default' })
+    assert.deepEqual(await store.unbindWorldBook(cardPath), { kind: 'none' })
+    assert.deepEqual(await store.worldBookBindingForCard(cardPath), { kind: 'none' })
+    assert.deepEqual(await store.bindWorldBook(cardPath, worldBookPath), { kind: 'standalone', path: worldBookPath, available: true })
+    assert.deepEqual(await store.worldBookBindingForCard(cardPath), { kind: 'standalone', path: worldBookPath, available: true })
+    assert.deepEqual(await store.bindWorldBook(cardPath, null), { kind: 'default' })
+    assert.deepEqual(await store.worldBookBindingForCard(cardPath), { kind: 'default' })
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
+
+test('人物卡或世界书重命名与删除会同步绑定关系', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-worldbook-binding-moves-'))
+  try {
+    const store = createFileResourceStore({ dataRoot: root })
+    const cardPath = await store.importCard({ name: '角色.json', text: '{}' }, { name: '角色' })
+    const worldBookPath = await store.importWorldBook({ name: '旧世界书.json', originalText: '{"entries":{}}' }, { name: '旧世界书', entries: {} })
+    await store.bindWorldBook(cardPath, worldBookPath)
+
+    const renamedCard = (await store.rename(cardPath, '新角色')).path
+    const renamedWorldBook = (await store.rename(worldBookPath, '新世界书')).path
+    assert.deepEqual(await store.worldBookBindingForCard(renamedCard), { kind: 'standalone', path: renamedWorldBook, available: true })
+
+    await store.remove(renamedWorldBook)
+    assert.deepEqual(await store.worldBookBindingForCard(renamedCard), { kind: 'none' })
+    await store.bindWorldBook(renamedCard, null)
+    await store.remove(renamedCard)
+    assert.deepEqual(JSON.parse(await readFile(path.join(root, '.worldbook-bindings.json'), 'utf8')), {})
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
+
 test('导入预设时进入独立目录并保留文件名和原始排版', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-files-'))
   try {

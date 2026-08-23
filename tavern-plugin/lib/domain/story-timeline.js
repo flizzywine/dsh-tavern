@@ -15,7 +15,7 @@ function sameBasedOn(left, right) {
 }
 
 function participantRole(role) {
-  return role === 'candidate' || role === 'settlement' ? 'background' : role
+  return role === 'candidate' || role === 'settlement' || role === 'worldbook' ? 'background' : role
 }
 
 function participantLifetime(value) {

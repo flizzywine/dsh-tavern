@@ -198,6 +198,21 @@ test('候选项列表限制高度并独立滚动，底部操作保持在滚动�
   assert.ok(question.indexOf('className: "dsh-tavern-question-body"') < question.indexOf('className: "dsh-tavern-question-foot"'))
 })
 
+test('人物卡详情支持查看、绑定和解绑唯一世界书', () => {
+  const panel = between(clientSource, 'function CardFieldsPanel', 'function TavernPlayerNameAction')
+  const dispatch = between(serverSource, 'async function dispatch', 'const webServer')
+
+  assert.match(dispatch, /case 'getWorldBookBinding'/)
+  assert.match(dispatch, /case 'bindWorldBook'/)
+  assert.match(dispatch, /case 'unbindWorldBook'/)
+  assert.match(panel, /call\("getWorldBookBinding", \{ cardPath: cardPath \}\)/)
+  assert.match(panel, /call\("listWorldBooks"\)/)
+  assert.match(panel, /"人物卡自带世界书"/)
+  assert.match(panel, /call\("bindWorldBook", \{ cardPath: cardPath, source: source \}\)/)
+  assert.match(panel, /call\("unbindWorldBook", \{ cardPath: cardPath \}\)/)
+  assert.match(panel, /"打开世界书库"/)
+})
+
 test('新建对话把缺失的当前空 Session 视为已归档', () => {
   const sidebar = between(clientSource, 'function TavernSidebar', 'function TavernResourcesTab')
   const archiveBlank = between(sidebar, 'async function archiveCurrentBlankSession', 'async function newConversation')
@@ -367,17 +382,19 @@ test('实验预设库只保留导入和阅读，运行时效果全部禁用', ()
   assert.doesNotMatch(panel, /updatePreset|exportPreset|dragstart|draggable/)
 })
 
-test('卡片模式预加载三个库，并让资料库保持选中', () => {
+test('卡片模式预加载人物卡、预设、世界书和资料四个库', () => {
   assert.match(clientSource, /readyCardSession/)
   assert.match(clientSource, /props\.openCardLibraryTab\(readyCardSession\)/)
   assert.match(clientSource, /props\.openResourcesTab\(readyCardSession\)/)
   assert.match(clientSource, /props\.openPresetLibraryTab\(readyCardSession\)/)
+  assert.match(clientSource, /props\.openWorldBookLibraryTab\(readyCardSession\)/)
   assert.doesNotMatch(clientSource, /openBoundaryLibraryTab/)
   assert.ok(clientSource.indexOf('props.openCardLibraryTab(readyCardSession)') < clientSource.indexOf('props.openResourcesTab(readyCardSession)'))
   assert.match(clientSource, /openCardLibraryTab: function \(sessionId\) \{ ctx\.betterSidebar\.openTab\(\{ type: "dsh-tavern:cards" \}/)
   assert.match(clientSource, /ctx\.betterSidebar\.updateTab\("dsh-tavern:cards", \{ meta: null \}\)/)
   assert.match(clientSource, /registerTab\(\{\s*id: "dsh-tavern:resources"/)
   assert.match(clientSource, /id: "dsh-tavern:resources",\s*title: "资料库"/)
+  assert.match(clientSource, /id: "dsh-tavern:worldbooks",\s*title: "世界书库"/)
   assert.match(clientSource, /function reconcileLibraryTabTitles\(\)/)
   assert.match(clientSource, /"dsh-tavern:resources": "资料库"/)
   assert.match(clientSource, /subscribeState\(reconcileLibraryTabTitles\)/)
@@ -431,7 +448,7 @@ test('删除对话时把缺失 Session 视为已经归档，并继续清理 Tave
   assert.match(deletion, /props\.sessions\.clear\(\)/)
 })
 
-test('人物卡库通过列表进入详情并复用基本信息、剧本和世界书编辑', () => {
+test('人物卡库通过列表进入详情，世界书编辑跳转到独立世界书库', () => {
   assert.match(clientSource, /id: "dsh-tavern:cards",\s*title: "人物卡库"/)
   assert.match(clientSource, /function CardLibraryTab/)
   assert.match(clientSource, /rpc\("getCard", \{ path: path \}\)/)
@@ -445,7 +462,10 @@ test('人物卡库通过列表进入详情并复用基本信息、剧本和世�
   assert.match(clientSource, /script \? \("剧本模式 · " \+ script\.title\) : "剧本模式 · 未绑定"/)
   assert.match(clientSource, /绑定剧本后，新开的游玩对话会自动进入剧本模式/)
   assert.match(clientSource, /更换或解绑会影响所有使用这张人物卡的剧本对话/)
-  assert.match(clientSource, /"世界书 · " \+ activeWorldBookEntries\.length/)
+  assert.match(clientSource, /"世界书 · " \+ worldBookEntries\.length/)
+  assert.match(clientSource, /"打开世界书库"/)
+  assert.match(clientSource, /props\.onOpenWorldBook\(cardPath\)/)
+  assert.match(clientSource, /worldBookSource: \{ kind: "card", cardPath: cardPath \}/)
   assert.match(clientSource, /"重命名文件"/)
   assert.match(clientSource, /"导出"/)
   assert.match(clientSource, /"删除"/)
@@ -472,24 +492,17 @@ test('人物卡详情只提交用户实际改动，避免投影往返覆盖完�
   assert.match(panel, /call\("updateCard", \{ path: cardPath, patch: patch \}\)/)
 })
 
-test('常驻世界书条目不显示无效的名称输入框', () => {
-  assert.doesNotMatch(clientSource, /名称（常驻条目）/)
-  assert.match(clientSource, /entry\.constant === true \? null : editingWorldBookKey === index/)
-})
-
-test('非常驻条目按需展开触发词编辑并省略内容标签', () => {
-  assert.match(clientSource, /"触发：" \+ entry\.keysText : "＋ 设置触发词（未设置不加载）"/)
-  assert.match(clientSource, /setEditingWorldBookKey\(index\)/)
-  assert.match(clientSource, /placeholder: "触发词，逗号分隔"/)
-  assert.doesNotMatch(clientSource, /h\("label", null, "内容"\)/)
-})
-
-test('世界书按展示顺序排列并说明 DSH 常驻上限', () => {
-  assert.match(clientSource, /extensions && a\.entry\.extensions\.display_index/)
-  assert.match(clientSource, /常驻每轮自动加载，DSH 按展示顺序最多加载 10 条/)
-  assert.match(clientSource, /worldBookGroup\("常驻", constantEntries, constantEntries\.length > 10 \? "按展示顺序加载前 10 条"/)
-  assert.match(clientSource, /worldBookGroup\("非常驻", triggeredEntries\)/)
-  assert.doesNotMatch(clientSource, /关键词触发/)
+test('世界书库统一编辑独立世界书与人物卡内置世界书', () => {
+  const cardPanel = between(clientSource, 'function CardFieldsPanel', 'function TavernStatusPanel')
+  const library = between(clientSource, 'function WorldBookEditor', 'function CardLibraryTab')
+  assert.doesNotMatch(cardPanel, /setBookEntry|addBookEntry|editingWorldBookKey/)
+  assert.match(cardPanel, /人物卡有自带世界书时默认绑定自带内容/)
+  assert.match(library, /function WorldBookLibraryTab/)
+  assert.match(library, /group\("独立世界书"/)
+  assert.match(library, /group\("人物卡内置世界书"/)
+  assert.match(library, /rpc\("importWorldBook"/)
+  assert.match(library, /rpc\("updateWorldBook"/)
+  assert.match(library, /未知字段与 extensions 会原样保留/)
 })
 
 test('酒馆状态页等待会话绑定就绪后自动刷新', () => {
@@ -501,7 +514,10 @@ test('酒馆状态页等待会话绑定就绪后自动刷新', () => {
 
 test('酒馆状态只服务游玩模式，卡片工作台面板暂不复用该侧栏', () => {
   const status = between(clientSource, 'function TavernStatusPanel', 'function TavernStatusTab')
+  const view = between(serverSource, 'async function view(chat, card)', 'function presentationViewOf')
   assert.match(status, /if \(view\.mode === "card"\) return null;/)
+  assert.match(view, /worldBookError: chat\.worldBookError \|\| null/)
+  assert.match(status, /世界书召回失败：/)
 })
 
 test('剧本预览只显示当前召回和后续块', () => {

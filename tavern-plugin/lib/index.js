@@ -22,6 +22,8 @@ import { resolveTavernDataRoot } from './domain/tavern-data.js'
 import { createTavernSkillModule } from './domain/tavern-skills.js'
 import { createTurnOrchestrator } from './domain/turn-orchestration.js'
 import { resourceWorkspaceContext } from './domain/workspace-resources.js'
+import { inspectWorldBookDocument, prepareWorldBookImport, updateWorldBookDocument } from './domain/worldbook-resource.js'
+import { createWorldBookRecall } from './domain/worldbook-recall.js'
 import { createProfileDataStore } from './profile-data-store.js'
 import { prompt } from './prompt-catalog.js'
 
@@ -306,6 +308,121 @@ export async function apply(ctx) {
     const record = await readSource(sourcePath)
     return { path: sourcePath, title: record.title, sourceChars: record.sourceChars, chunkCount: record.chunks.length, importedAt: Date.now() }
   }
+  async function readStandaloneWorldBook(worldBookPath) {
+    const normalized = normalizeResourcePath(worldBookPath, 'worldbook')
+    const text = await fileResources.readText(normalized)
+    if (text === undefined) return undefined
+    let document
+    try { document = JSON.parse(text) } catch (error) { throw new Error('世界书工作版 JSON 损坏: ' + error.message) }
+    return { path: normalized, document, view: inspectWorldBookDocument(document, { filename: normalized.split('/').pop() }) }
+  }
+  async function listWorldBooks() {
+    const standalone = await Promise.all((await fileResources.list('worldbook')).map(async function (worldBookPath) {
+      const record = await readStandaloneWorldBook(worldBookPath)
+      return { kind: 'standalone', path: record.path, name: record.view.displayName, entryCount: record.view.entryCount, enabledCount: record.view.enabledCount, diagnostics: record.view.diagnostics.length }
+    }))
+    const embedded = []
+    for (const cardPath of await fileResources.list('card')) {
+      const card = await readCard(cardPath)
+      if (!card || !card.character_book || typeof card.character_book !== 'object') continue
+      const view = inspectWorldBookDocument(card.character_book, { filename: card.name })
+      embedded.push({ kind: 'card', cardPath, cardName: card.name, name: view.displayName, entryCount: view.entryCount, enabledCount: view.enabledCount, diagnostics: view.diagnostics.length })
+    }
+    return { standalone, embedded }
+  }
+  async function getWorldBook(locator) {
+    const source = locator && typeof locator === 'object' ? locator : {}
+    if (source.kind === 'card') {
+      const cardPath = normalizeResourcePath(source.cardPath, 'card')
+      const card = await readCard(cardPath)
+      if (card === undefined) throw new Error('人物卡不存在: ' + cardPath)
+      const document = card.character_book && typeof card.character_book === 'object' ? card.character_book : { name: card.name + '世界书', entries: [], extensions: {} }
+      return { source: { kind: 'card', cardPath, cardName: card.name }, view: inspectWorldBookDocument(document, { filename: card.name }) }
+    }
+    const record = await readStandaloneWorldBook(source.path)
+    if (record === undefined) throw new Error('世界书不存在: ' + str(source.path))
+    return { source: { kind: 'standalone', path: record.path }, view: record.view }
+  }
+  async function worldBookBinding(cardPath) {
+    const normalized = normalizeResourcePath(cardPath, 'card')
+    const card = await readCard(normalized)
+    if (card === undefined) throw new Error('人物卡不存在: ' + normalized)
+    const binding = await fileResources.worldBookBindingForCard(normalized)
+    if (binding.kind === 'none') return { kind: 'none', source: null, name: '', available: true }
+    if (binding.kind === 'standalone') {
+      if (binding.available !== true) return { kind: 'standalone', source: { kind: 'standalone', path: binding.path }, name: '', available: false }
+      const record = await readStandaloneWorldBook(binding.path)
+      if (record === undefined) return { kind: 'standalone', source: { kind: 'standalone', path: binding.path }, name: '', available: false }
+      return { kind: 'standalone', source: { kind: 'standalone', path: binding.path }, name: record.view.displayName, available: true }
+    }
+    if (card.character_book && typeof card.character_book === 'object') {
+      const view = inspectWorldBookDocument(card.character_book, { filename: card.name })
+      return { kind: 'embedded', source: { kind: 'card', cardPath: normalized }, name: view.displayName, available: true }
+    }
+    return { kind: 'none', source: null, name: '', available: true }
+  }
+  async function boundWorldBook(cardPath, card) {
+    const binding = await worldBookBinding(cardPath)
+    if (binding.kind === 'none') return null
+    if (binding.available !== true) throw new Error('绑定的世界书不存在，请重新绑定或解绑')
+    if (binding.kind === 'embedded') {
+      const current = card || await readCard(cardPath)
+      return { source: binding.source, view: inspectWorldBookDocument(current.character_book, { filename: current.name }) }
+    }
+    return await getWorldBook(binding.source)
+  }
+  async function bindWorldBook(cardPath, locator) {
+    const normalized = normalizeResourcePath(cardPath, 'card')
+    const card = await readCard(normalized)
+    if (card === undefined) throw new Error('人物卡不存在: ' + normalized)
+    const source = locator && typeof locator === 'object' ? locator : {}
+    if (source.kind === 'card') {
+      if (str(source.cardPath) !== '' && normalizeResourcePath(source.cardPath, 'card') !== normalized) throw new Error('只能绑定人物卡自身携带的世界书')
+      if (!card.character_book || typeof card.character_book !== 'object') throw new Error('该人物卡没有自带世界书')
+      await fileResources.bindWorldBook(normalized, null)
+    } else if (source.kind === 'standalone') await fileResources.bindWorldBook(normalized, source.path)
+    else throw new Error('世界书绑定来源无效')
+    return await worldBookBinding(normalized)
+  }
+  async function unbindWorldBook(cardPath) {
+    await fileResources.unbindWorldBook(cardPath)
+    return await worldBookBinding(cardPath)
+  }
+  async function importWorldBook(payload) {
+    const prepared = prepareWorldBookImport(payload)
+    const worldBookPath = await fileResources.importWorldBook(prepared, prepared.working)
+    const record = await readStandaloneWorldBook(worldBookPath)
+    return { kind: 'standalone', path: worldBookPath, name: record.view.displayName, entryCount: record.view.entryCount }
+  }
+  async function updateWorldBook(locator, request) {
+    const source = locator && typeof locator === 'object' ? locator : {}
+    if (source.kind === 'card') {
+      const cardPath = normalizeResourcePath(source.cardPath, 'card')
+      const card = await readCard(cardPath)
+      if (card === undefined) throw new Error('人物卡不存在: ' + cardPath)
+      const current = card.character_book && typeof card.character_book === 'object' ? card.character_book : { name: card.name + '世界书', entries: [], extensions: {} }
+      const changed = updateWorldBookDocument(current, request)
+      await updateCard(cardPath, { character_book: changed.document })
+      return await getWorldBook({ kind: 'card', cardPath })
+    }
+    const record = await readStandaloneWorldBook(source.path)
+    if (record === undefined) throw new Error('世界书不存在: ' + str(source.path))
+    const changed = updateWorldBookDocument(record.document, request)
+    await fileResources.writeWorking(record.path, JSON.stringify(changed.document, null, 2))
+    return await getWorldBook({ kind: 'standalone', path: record.path })
+  }
+  async function exportWorldBook(locator) {
+    const source = locator && typeof locator === 'object' ? locator : {}
+    if (source.kind === 'card') {
+      const card = await readCard(source.cardPath)
+      if (card === undefined) throw new Error('人物卡不存在: ' + str(source.cardPath))
+      return { name: str(card.character_book && card.character_book.name) || card.name + '世界书', document: structuredClone(card.character_book || { entries: [], extensions: {} }) }
+    }
+    const record = await readStandaloneWorldBook(source.path)
+    if (record === undefined) throw new Error('世界书不存在: ' + str(source.path))
+    return { name: record.view.displayName, document: structuredClone(record.document) }
+  }
+  async function deleteWorldBook(worldBookPath) { return await deleteLibraryResource(worldBookPath, 'worldbook') }
   async function readPreset(presetPath) {
     const normalized = normalizeResourcePath(presetPath, 'preset')
     const text = await fileResources.readText(normalized)
@@ -702,6 +819,8 @@ export async function apply(ctx) {
       presentation: livePresentation,
       replyProjections: replyDisplay.projections,
       presentationWarnings: Array.isArray(chat.presentationWarnings) ? chat.presentationWarnings : [],
+      worldBookError: chat.worldBookError || null,
+      lastWorldBookRecall: chat.lastWorldBookRecall || null,
       settleStatus: chat.settleStatus || 'idle',
       scriptProgress: scriptProgress,
       updatedAt: chat.updatedAt || 0
@@ -904,6 +1023,17 @@ export async function apply(ctx) {
       await sessions.flush(session)
     },
     resolveRuntimePresetSnapshot: async function () { return null }
+  })
+  const worldBookRecall = createWorldBookRecall({
+    store: { readChat, writeChat },
+    timeline: storyTimeline,
+    model: {
+      selection: modelSelection,
+      run: backgroundAgentRunner.run
+    },
+    prompt,
+    now: Date.now,
+    logger: console
   })
   function presetPathForChat(chat) {
     if (!chat || typeof chat !== 'object') return ''
@@ -1234,11 +1364,13 @@ export async function apply(ctx) {
       readCard,
       readCardExtensions,
       readScript,
+      readBoundWorldBook: boundWorldBook,
       writeChat,
       updateCard,
       createCard: createWorkspaceCard
     },
     planner: contextPlanner,
+    worldBookRecall,
     scripts: scriptContinuity,
     timeline: storyTimeline,
     cards: cardPreparation,
@@ -1562,6 +1694,15 @@ export async function apply(ctx) {
       }
       case 'getResourceWorkspace': return { path: dataRoot + '/resources' }
       case 'listResources': return await listTavernResources()
+      case 'listWorldBooks': return await listWorldBooks()
+      case 'getWorldBook': return await getWorldBook(args && args.source)
+      case 'getWorldBookBinding': return { binding: await worldBookBinding(args && args.cardPath) }
+      case 'bindWorldBook': return { binding: await bindWorldBook(args && args.cardPath, args && args.source) }
+      case 'unbindWorldBook': return { binding: await unbindWorldBook(args && args.cardPath) }
+      case 'importWorldBook': return { worldBook: await importWorldBook(args && args.payload) }
+      case 'updateWorldBook': return await updateWorldBook(args && args.source, args && args.update)
+      case 'exportWorldBook': return { worldBook: await exportWorldBook(args && args.source) }
+      case 'deleteWorldBook': return await deleteWorldBook(args && args.path)
       case 'listPresets': {
         const presets = await listPresets()
         const runtimePresetState = await runtimePresets.state()

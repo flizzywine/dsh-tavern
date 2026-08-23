@@ -9,7 +9,7 @@
 ## 设计与决策
 
 - [`adr/`](adr/)：已经接受的关键架构决策。
-- [`design/`](design/)：剧情时间线、剧本游标、状态栏、文风 Skill、[运行时预设](design/preset-library.md)、[高 ROI 酒馆兼容功能](design/high-roi-sillytavern-compatibility.md)和[SillyTavern 生态翻译](design/sillytavern-translation.md)设计。
+- [`design/`](design/)：剧情时间线、剧本游标、状态栏、文风 Skill、[世界书召回](design/worldbook-recall.md)、[运行时预设](design/preset-library.md)、[高 ROI 酒馆兼容功能](design/high-roi-sillytavern-compatibility.md)和[SillyTavern 生态翻译](design/sillytavern-translation.md)设计。
 - [`specs/`](specs/)：产品规格。
 - [`reviews/`](reviews/)：历史审查及实施记录，不作为当前架构入口。
 
