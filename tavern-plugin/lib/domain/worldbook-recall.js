@@ -4,17 +4,18 @@ const DIRECT_LIMIT = 200
 const MATCH_LIMIT = 24
 const READ_ENTRY_LIMIT = 8
 const CONTEXT_LIMIT = 2500
+const READ_COOLDOWN_TURNS = 10
 
 const WORLD_BOOK_READ_TOOL = Object.freeze({
   name: 'tavern_read_worldbook_entries',
-  description: '按条目引用读取本轮常驻世界书正文。只读取当前目录中确实可能与本轮或紧接后续剧情相关的条目；最多调用 2 次、合计读取 8 条。',
+  description: '按条目引用读取世界书正文。优先读取当前标题目录；此前已读但处于隐藏期的条目仍可按引用或准确标题重读。最多调用 2 次、合计读取 8 条。',
   parameters: {
     type: 'object',
     properties: {
       entries: {
         type: 'array', minItems: 1, maxItems: READ_ENTRY_LIMIT,
         items: { type: 'string' },
-        description: '常驻目录中的条目引用。'
+        description: '条目的纯引用，例如 entry:12。当前目录未展示但此前读过的条目，也可凭记忆中的引用重读。'
       }
     },
     required: ['entries'],
@@ -32,6 +33,34 @@ function clone(value) {
 
 function charCount(value) {
   return Array.from(str(value).trim()).length
+}
+
+function fingerprint(value) {
+  const text = str(value)
+  let hash = 2166136261
+  for (let index = 0; index < text.length; index++) {
+    hash ^= text.charCodeAt(index)
+    hash = Math.imul(hash, 16777619)
+  }
+  return text.length.toString(36) + ':' + (hash >>> 0).toString(36)
+}
+
+function readRecord(chat, entry) {
+  const reads = chat && chat.worldBookReads
+  if (reads === null || typeof reads !== 'object' || Array.isArray(reads)) return null
+  const record = reads[str(entry && entry.ref)]
+  return record !== null && typeof record === 'object' && !Array.isArray(record) ? record : null
+}
+
+function isCoolingDown(chat, entry, turn) {
+  const record = readRecord(chat, entry)
+  if (record === null) return false
+  const readTurn = Number(record && record.turn)
+  const currentTurn = Number(turn)
+  if (!Number.isSafeInteger(readTurn) || !Number.isSafeInteger(currentTurn)) return false
+  if (str(record.fingerprint) !== fingerprint(entry && entry.content)) return false
+  const elapsed = currentTurn - readTurn
+  return elapsed >= 0 && elapsed <= READ_COOLDOWN_TURNS
 }
 
 function messageText(message) {
@@ -55,12 +84,15 @@ function projector(card, chat) {
   }
 }
 
-function recentStory(chat) {
-  return (Array.isArray(chat && chat.messages) ? chat.messages : []).slice(-8).map(function (message) {
+function latestBody(chat) {
+  const messages = Array.isArray(chat && chat.messages) ? chat.messages : []
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index]
+    if (!message || message.role !== 'assistant') continue
     const text = messageText(message).trim()
-    if (text === '') return ''
-    return (message.role === 'assistant' ? '正文' : '玩家') + '：' + text
-  }).filter(Boolean).join('\n')
+    if (text !== '') return text
+  }
+  return ''
 }
 
 function keywordsOf(entry) {
@@ -70,37 +102,32 @@ function keywordsOf(entry) {
     .filter(Boolean)
 }
 
-function matchedEntries(entries, playerText, story) {
-  const current = str(playerText).toLocaleLowerCase()
-  const history = str(story).toLocaleLowerCase()
+function matchedEntries(entries, body) {
+  const current = str(body).toLocaleLowerCase()
   return entries.map(function (entry, index) {
     const keys = keywordsOf(entry)
-    const currentHits = keys.filter(function (key) { return current.includes(key.toLocaleLowerCase()) }).length
-    const historyHits = keys.filter(function (key) { return history.includes(key.toLocaleLowerCase()) }).length
-    return { entry, index, currentHits, historyHits, hits: currentHits + historyHits }
+    const hits = keys.filter(function (key) { return current.includes(key.toLocaleLowerCase()) }).length
+    return { entry, index, hits }
   }).filter(function (item) {
     return item.hits > 0
   }).sort(function (left, right) {
-    return Number(right.currentHits > 0) - Number(left.currentHits > 0) || right.hits - left.hits || right.historyHits - left.historyHits || left.index - right.index
+    return right.hits - left.hits || left.index - right.index
   }).slice(0, MATCH_LIMIT).map(function (item) { return item.entry })
 }
 
 function taskText(prepared) {
-  const sections = [
-    '【当前玩家行动】\n' + (prepared.playerText || '（无）'),
-    '【当前与历史正文】\n' + (prepared.story || '（无）')
-  ]
+  const sections = ['【最新一轮正文】\n' + (prepared.body || '（无）')]
   if (prepared.constantCatalog.length > 0) {
     sections.push('【常驻条目标题目录】\n' + prepared.constantCatalog.map(function (entry) {
       return '[' + entry.ref + '] ' + entry.title
     }).join('\n'))
   }
-  if (prepared.triggeredEntries.length > 0) {
-    sections.push('【程序关键词命中的非常驻条目】\n' + prepared.triggeredEntries.map(function (entry) {
-      return '[' + entry.ref + '] ' + entry.title + '\n' + entry.content
-    }).join('\n\n'))
+  if (prepared.triggeredCatalog.length > 0) {
+    sections.push('【关键词命中的非常驻条目标题目录】\n' + prepared.triggeredCatalog.map(function (entry) {
+      return '[' + entry.ref + '] ' + entry.title
+    }).join('\n'))
   } else {
-    sections.push('【程序关键词命中的非常驻条目】\n（无）')
+    sections.push('【关键词命中的非常驻条目标题目录】\n（无）')
   }
   return sections.join('\n\n')
 }
@@ -121,29 +148,62 @@ export function prepareWorldBookRecall(input = {}) {
       totalChars
     }
   }
-  const story = str(input.recentStory) || recentStory(input.chat)
+  const body = str(input.latestBody) || latestBody(input.chat)
   const constantEntries = entries.filter(function (entry) { return entry.constant === true })
-  const triggered = matchedEntries(entries.filter(function (entry) { return entry.constant !== true }), input.playerText, story)
-  const constantByRef = new Map(constantEntries.map(function (entry) { return [str(entry.ref), entry] }))
+  const triggeredEntries = matchedEntries(entries.filter(function (entry) { return entry.constant !== true }), body)
+  const coolingEntries = entries.filter(function (entry) { return isCoolingDown(input.chat, entry, input.turn) })
+  const visibleConstantEntries = constantEntries.filter(function (entry) { return !isCoolingDown(input.chat, entry, input.turn) })
+  const visibleTriggeredEntries = triggeredEntries.filter(function (entry) { return !isCoolingDown(input.chat, entry, input.turn) })
+  const visibleEntries = visibleConstantEntries.concat(visibleTriggeredEntries)
+  const readableEntries = visibleEntries.concat(coolingEntries.filter(function (entry) { return !visibleEntries.includes(entry) }))
+  const entryByRef = new Map(readableEntries.map(function (entry) { return [str(entry.ref), entry] }))
+  const refByTitle = new Map()
+  for (const entry of readableEntries) {
+    const title = str(entry.title).trim() || '未命名条目'
+    refByTitle.set(title, refByTitle.has(title) ? null : str(entry.ref))
+  }
+  function resolveEntryRefs(values) {
+    const requested = Array.from(new Set(Array.isArray(values) ? values.map(function (value) { return str(value).trim() }).filter(Boolean) : []))
+    if (requested.length === 0) throw new Error('至少提供一个世界书条目引用')
+    const invalid = []
+    const resolved = []
+    for (const value of requested) {
+      let ref = entryByRef.has(value) ? value : ''
+      if (ref === '') {
+        const bracketed = value.match(/^\[([^\]]+)\]/)
+        if (bracketed && entryByRef.has(bracketed[1].trim())) ref = bracketed[1].trim()
+      }
+      if (ref === '' && refByTitle.has(value) && refByTitle.get(value) !== null) ref = refByTitle.get(value)
+      if (ref === '') invalid.push(value)
+      else if (!resolved.includes(ref)) resolved.push(ref)
+    }
+    if (invalid.length > 0) throw new Error('世界书条目不在本轮标题目录中: ' + invalid.join(', '))
+    return resolved
+  }
   const prepared = {
     kind: 'agent',
     context: '',
     totalChars,
-    playerText: str(input.playerText).trim(),
-    story,
-    constantCatalog: constantEntries.map(function (entry) { return { ref: str(entry.ref), title: str(entry.title).trim() || '未命名条目' } }),
-    triggeredEntries: triggered.map(function (entry) {
-      return { ref: str(entry.ref), title: str(entry.title).trim() || '未命名条目', content: project(entry.content) }
+    body,
+    constantCatalog: visibleConstantEntries.map(function (entry) { return { ref: str(entry.ref), title: str(entry.title).trim() || '未命名条目' } }),
+    triggeredCatalog: visibleTriggeredEntries.map(function (entry) {
+      return { ref: str(entry.ref), title: str(entry.title).trim() || '未命名条目' }
     }),
-    readConstantEntries(refs) {
-      const requested = Array.from(new Set(Array.isArray(refs) ? refs.map(str) : []))
-      if (requested.length === 0) throw new Error('至少提供一个世界书条目引用')
-      const invalid = requested.filter(function (ref) { return !constantByRef.has(ref) })
-      if (invalid.length > 0) throw new Error('世界书条目不在本轮常驻目录中: ' + invalid.join(', '))
-      return requested.map(function (ref) {
-        const entry = constantByRef.get(ref)
+    resolveEntryRefs,
+    readEntries(refs) {
+      return resolveEntryRefs(refs).map(function (ref) {
+        const entry = entryByRef.get(ref)
         return { ref, title: str(entry.title).trim() || '未命名条目', content: project(entry.content) }
       })
+    },
+    recordReads(existing, refs, turn) {
+      const next = clone(existing !== null && typeof existing === 'object' && !Array.isArray(existing) ? existing : {})
+      for (const ref of refs) {
+        const entry = entryByRef.get(ref)
+        if (entry === undefined) continue
+        next[ref] = { turn: Number(turn) || 0, fingerprint: fingerprint(entry.content) }
+      }
+      return next
     }
   }
   prepared.taskText = taskText(prepared)
@@ -165,8 +225,8 @@ export function createWorldBookRecall(options = {}) {
       worldBook: input.worldBook,
       card: input.card,
       chat,
-      playerText: input.playerText,
-      recentStory: input.recentStory
+      turn: input.turn,
+      latestBody: input.latestBody
     })
     if (prepared.kind !== 'agent') return { chat, context: prepared.context, mode: prepared.kind, totalChars: prepared.totalChars }
 
@@ -177,7 +237,7 @@ export function createWorldBookRecall(options = {}) {
     let traceBoundary = null
     let context = ''
     let error = null
-    let readCount = 0
+    const readRefs = new Set()
     try {
       const selection = model.selection(input.sessionId)
       if (selection === null || selection === undefined) throw new Error('没有可用的模型配置')
@@ -199,10 +259,12 @@ export function createWorldBookRecall(options = {}) {
         async onToolCall(call) {
           if (!call || call.name !== WORLD_BOOK_READ_TOOL.name) throw new Error('未知世界书召回工具')
           const refs = call.arguments && call.arguments.entries
-          const unique = Array.from(new Set(Array.isArray(refs) ? refs.map(str) : []))
-          readCount += unique.length
-          if (readCount > READ_ENTRY_LIMIT) throw new Error('本轮最多读取 ' + READ_ENTRY_LIMIT + ' 条常驻世界书条目')
-          return JSON.stringify({ entries: prepared.readConstantEntries(unique) })
+          const resolved = prepared.resolveEntryRefs(refs)
+          const nextRefs = new Set(readRefs)
+          for (const ref of resolved) nextRefs.add(ref)
+          if (nextRefs.size > READ_ENTRY_LIMIT) throw new Error('本轮最多读取 ' + READ_ENTRY_LIMIT + ' 条世界书条目')
+          for (const ref of resolved) readRefs.add(ref)
+          return JSON.stringify({ entries: prepared.readEntries(resolved) })
         },
         persistent: true,
         persistentSessionId: traceSessionId,
@@ -241,6 +303,7 @@ export function createWorldBookRecall(options = {}) {
           empty: context === '',
           failed: error !== null
         }
+        if (readRefs.size > 0) draft.worldBookReads = prepared.recordReads(draft.worldBookReads, readRefs, input.turn)
       }
     })
     await store.writeChat(completed.chat)
@@ -261,5 +324,6 @@ export const WORLD_BOOK_RECALL_LIMITS = Object.freeze({
   directChars: DIRECT_LIMIT,
   matchedEntries: MATCH_LIMIT,
   readEntries: READ_ENTRY_LIMIT,
+  readCooldownTurns: READ_COOLDOWN_TURNS,
   contextChars: CONTEXT_LIMIT
 })

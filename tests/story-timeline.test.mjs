@@ -49,7 +49,12 @@ test('回退恢复完整 checkpoint，但创建新 branch 且 revision 不倒退
   const { timeline, chat } = harness()
   const first = beginAndCommitBody(timeline, chat, 1, '推门', '门开了。')
   first.posture = '站在屋内'
+  first.preparedWorldBookContext = '钟楼只在午夜开放。'
+  first.preparedWorldBook = { turn: 1, mode: 'agent' }
+  first.worldBookReads = { 'entry:1': { turn: 1, fingerprint: 'old' } }
   const second = beginAndCommitBody(timeline, first, 2, '上楼', '钟声响了。')
+  second.preparedWorldBookContext = '这条属于第二轮之后，不应保留。'
+  second.worldBookReads['entry:2'] = { turn: 2, fingerprint: 'new' }
   const beforeRollback = timeline.inspect({ chat: second })
 
   const rolled = timeline.apply({ chat: second, intent: { kind: 'turn.rollback' } })
@@ -60,6 +65,9 @@ test('回退恢复完整 checkpoint，但创建新 branch 且 revision 不倒退
   assert.deepEqual(rolled.chat.messages.map((message) => message.text), ['推门', '门开了。'])
   assert.equal(rolled.chat.scriptState.cursor, 1)
   assert.equal(rolled.chat.posture, '站在屋内')
+  assert.equal(rolled.chat.preparedWorldBookContext, '钟楼只在午夜开放。')
+  assert.deepEqual(rolled.chat.preparedWorldBook, { turn: 1, mode: 'agent' })
+  assert.deepEqual(rolled.chat.worldBookReads, { 'entry:1': { turn: 1, fingerprint: 'old' } })
   assert.equal(after.checkpointCount, 1)
 })
 

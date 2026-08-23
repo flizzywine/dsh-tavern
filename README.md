@@ -62,9 +62,9 @@ dsh-tavern 改用 Agent 架构。前台主 Agent 专注正文生成，后台 Age
 
 直接导入人物卡，即可开始游玩
 
-#### 支持 Android 手机（实验性，不保证一定可用）
+#### 多平台支持
 
-借助 [DSHA](https://github.com/qiannianhuanxiang/DSHA)，可以尝试在 Android 手机上部署和运行 dsh-tavern。目前手机端的后台保活、界面适配和运行稳定性仍不完善，具体操作与限制见下方 Android 安装说明。
+dsh-tavern 支持 Windows、macOS、Linux 和 Android。Windows 与 macOS 可使用 DSH Desktop 客户端，也可以通过命令行运行；Linux 使用命令行运行；Android 可借助 [DSHA](https://github.com/qiannianhuanxiang/DSHA) 实验性部署，目前不保证稳定可用。
 
 #### 速度快、消耗低
 

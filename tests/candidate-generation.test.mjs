@@ -25,7 +25,7 @@ function script() {
   }
 }
 
-function harness({ mode = 'story', outputs, initialCandidates, initialCandidateAgent, messages, initialScriptCursor = 0, initialScriptEnded = false, scriptData, cardData, macroState }) {
+function harness({ mode = 'story', outputs, initialCandidates, initialCandidateAgent, initialSettleStatus, messages, initialScriptCursor = 0, initialScriptEnded = false, scriptData, cardData, macroState, waitUntilSettled }) {
   const continuity = createScriptContinuity()
   const activeScript = scriptData || script()
   let scriptState = mode === 'script' ? continuity.start(activeScript, initialScriptCursor) : null
@@ -33,6 +33,7 @@ function harness({ mode = 'story', outputs, initialCandidates, initialCandidateA
   let chat = {
     id: 'chat-1', cardId: 'card-1', mode, messages: messages || [{ role: 'assistant', text: '雨水敲着窗。' }],
     scriptState,
+    settleStatus: initialSettleStatus || 'idle',
     macroState: macroState || { userName: 'User', local: {}, global: {} }
   }
   if (initialCandidates !== undefined) chat.candidates = structuredClone(initialCandidates)
@@ -80,7 +81,7 @@ function harness({ mode = 'story', outputs, initialCandidates, initialCandidateA
   const candidates = createCandidateGenerator({
     store, model, planner, prompt, scripts: continuity,
     timeline: createStoryTimeline({ id: (prefix) => prefix + '-' + Math.random().toString(36).slice(2), now: () => 123456 }),
-    waitUntilSettled: async () => {}, sleep: async () => {}, now: () => 123456,
+    waitUntilSettled: waitUntilSettled || (async () => {}), sleep: async () => {}, now: () => 123456,
     logger: { error() {} }
   })
   return {
@@ -93,6 +94,39 @@ function harness({ mode = 'story', outputs, initialCandidates, initialCandidateA
     mutateChat(change) { change(chat) }
   }
 }
+
+test('开场白后的首次候选会先等待完整后台结算，再规划候选', async () => {
+  const order = []
+  const run = harness({
+    outputs: [JSON.stringify({ choices: storyChoices })],
+    messages: [{ role: 'assistant', text: '雨水敲着窗。', greeting: true }],
+    async waitUntilSettled(chat) {
+      assert.equal(chat.messages[0].greeting, true)
+      order.push('settlement')
+    }
+  })
+  const originalPlan = run.plannerCalls
+  await run.candidates.generate({ sessionId: 'session-1', messageId: 'opening' })
+  if (originalPlan.length > 0) order.push('candidate')
+
+  assert.deepEqual(order, ['settlement', 'candidate'])
+})
+
+test('后台结算运行时立即拒绝候选生成，不等待也不调用模型', async () => {
+  let waits = 0
+  const run = harness({
+    outputs: [JSON.stringify({ choices: storyChoices })],
+    initialSettleStatus: 'running',
+    async waitUntilSettled() { waits++ }
+  })
+
+  await assert.rejects(
+    run.candidates.generate({ sessionId: 'session-1', messageId: 'message-running' }),
+    /后台结算尚未完成/
+  )
+  assert.equal(waits, 0)
+  assert.equal(run.modelCalls(), 0)
+})
 
 test('自由故事只保存完整的 4 action + 1 scene', async () => {
   const truncatedButRecoverable = '{"choices":[' + storyChoices.map((item) => JSON.stringify(item)).join(',')

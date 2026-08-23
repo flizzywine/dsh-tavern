@@ -86,9 +86,7 @@ export function createTurnOrchestrator(options) {
   const cards = options.cards
   const workspace = options.workspace
   const timeline = options.timeline
-  const worldBookRecall = options.worldBookRecall
   const now = typeof options.now === 'function' ? options.now : Date.now
-  const queueSettlement = typeof options.queueSettlement === 'function' ? options.queueSettlement : function () {}
   const renderMacros = typeof options.renderMacros === 'function' ? options.renderMacros : null
   const resolvePresetRegexScripts = typeof options.resolvePresetRegexScripts === 'function'
     ? options.resolvePresetRegexScripts
@@ -173,38 +171,9 @@ export function createTurnOrchestrator(options) {
       return { ready: true, mode, cardName: card === null ? (str(state.draft && state.draft.name) || '卡片工作台') : card.name, text: plan.text }
     }
 
-    let worldBookContext = ''
-    if (worldBookRecall && typeof worldBookRecall.recall === 'function') {
-      if (chatChanged) {
-        await store.writeChat(chat)
-        chatChanged = false
-      }
-      try {
-        const worldBook = typeof store.readBoundWorldBook === 'function' ? await store.readBoundWorldBook(cardPath, card) : null
-        const recalled = await worldBookRecall.recall({
-          sessionId: input.sessionId,
-          turn,
-          chat,
-          card,
-          worldBook,
-          playerText: runtimeUserText
-        })
-        chat = recalled.chat
-        worldBookContext = str(recalled.context).trim()
-        if (recalled.mode !== 'agent') {
-          chat.worldBookError = null
-          chat.lastWorldBookRecall = {
-            ts: now(), turn, mode: recalled.mode, totalChars: Number(recalled.totalChars) || 0,
-            contextChars: Array.from(worldBookContext).length, empty: worldBookContext === '', failed: false
-          }
-          chatChanged = true
-        }
-      } catch (error) {
-        chat.worldBookError = str(error && error.message || error)
-        chat.lastWorldBookRecall = { ts: now(), turn, mode: 'error', totalChars: 0, contextChars: 0, empty: true, failed: true }
-        chatChanged = true
-      }
-    }
+    // 世界书召回属于上一轮正文后的后台结算。正文准备只读取已经
+    // 保存好的下一轮上下文，玩家输入和候选项选择都不能在此触发召回。
+    const worldBookContext = str(chat.preparedWorldBookContext).trim()
     const plan = await planner.plan({ purpose: 'body', card, chat, userText: runtimeUserText, sessionId: input.sessionId, nativeTurn: turn, scriptReference, worldBookContext })
     if (chatChanged) await store.writeChat(chat)
     return { ready: true, mode, cardName: card.name, text: plan.text, userText: runtimeUserText }
@@ -335,7 +304,11 @@ export function createTurnOrchestrator(options) {
       return item.kind === 'body' && item.status === 'running' && Number(item.turn) === turn
     })
     if (operation === undefined) throw new Error('找不到本轮正文 operation，请重新生成本轮正文')
-    const before = { posture: chat.posture || '' }
+    const before = {
+      posture: chat.posture || '',
+      preparedWorldBookContext: str(chat.preparedWorldBookContext),
+      preparedWorldBook: clone(chat.preparedWorldBook === undefined ? null : chat.preparedWorldBook)
+    }
     let scriptReference = null
     let playScript = null
     if (mode === 'script') {
@@ -374,7 +347,6 @@ export function createTurnOrchestrator(options) {
     chat = completed.chat
     if (completed.value.status !== 'committed') throw new Error('正文生成期间剧情状态已变化，本轮结果已作废')
     await store.writeChat(chat)
-    if (chat.regenInProgress !== true) queueSettlement(chat.id)
     return { saved: true, mode, changed: false, chatId: chat.id, cardName: chat.cardName, reply }
   }
 

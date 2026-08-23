@@ -101,6 +101,9 @@ export function createStoryTimeline(options = {}) {
       settleStatus: str(chat.settleStatus) || 'idle',
       settleError: chat.settleError === undefined ? null : chat.settleError,
       lastSettle: chat.lastSettle === undefined ? null : chat.lastSettle,
+      preparedWorldBookContext: str(chat.preparedWorldBookContext),
+      preparedWorldBook: chat.preparedWorldBook === undefined ? null : chat.preparedWorldBook,
+      worldBookReads: chat.worldBookReads === undefined ? null : chat.worldBookReads,
       participants: chat.timeline.participants
     })
   }
@@ -118,6 +121,9 @@ export function createStoryTimeline(options = {}) {
     chat.settleStatus = str(source.settleStatus) || 'idle'
     chat.settleError = clone(source.settleError === undefined ? null : source.settleError)
     chat.lastSettle = clone(source.lastSettle === undefined ? null : source.lastSettle)
+    chat.preparedWorldBookContext = str(source.preparedWorldBookContext)
+    chat.preparedWorldBook = clone(source.preparedWorldBook === undefined ? null : source.preparedWorldBook)
+    chat.worldBookReads = clone(source.worldBookReads === undefined ? null : source.worldBookReads)
   }
 
   function trimOperations(timeline) {

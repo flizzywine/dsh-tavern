@@ -242,6 +242,9 @@ export function createCandidateGenerator(options) {
     if (chat === undefined || chat === null) throw new Error('当前会话没有绑定人物卡')
     const mode = chat.mode || 'story'
     if (mode === 'card') throw new Error('卡片模式不生成剧情候选项')
+    if ((chat.settleStatus || 'idle') === 'running') {
+      throw new Error('后台结算尚未完成，请等待结算完成后再生成候选项')
+    }
     await waitUntilSettled(chat)
     chat = await store.readChat(chat.id)
     if (chat === undefined) throw new Error('聊天不存在')

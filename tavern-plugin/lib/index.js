@@ -24,6 +24,7 @@ import { createTurnOrchestrator } from './domain/turn-orchestration.js'
 import { resourceWorkspaceContext } from './domain/workspace-resources.js'
 import { inspectWorldBookDocument, prepareWorldBookImport, updateWorldBookDocument } from './domain/worldbook-resource.js'
 import { createWorldBookRecall } from './domain/worldbook-recall.js'
+import { createSettlementAfterTurnEndScheduler, isOpeningAwaitingSettlement } from './domain/settlement-lifecycle.js'
 import { createProfileDataStore } from './profile-data-store.js'
 import { prompt } from './prompt-catalog.js'
 
@@ -97,7 +98,7 @@ export async function apply(ctx) {
     return result.renderedText
   }
 
-  const settlementJobs = new Set()
+  const settlementJobs = new Map()
   const scriptContinuity = createScriptContinuity()
   const storyTimeline = createStoryTimeline({ id: uid, now: Date.now })
   const cardPreparation = createCardPreparation({ id: function () { return uid('card') }, now: Date.now })
@@ -695,6 +696,8 @@ export async function apply(ctx) {
       settleStatus: 'idle',
       settleError: null,
       lastSettle: null,
+      preparedWorldBookContext: '',
+      preparedWorldBook: null,
       nativeCommits: {},
       pendingCardChanges: {},
       createdAt: Date.now(),
@@ -993,11 +996,10 @@ export async function apply(ctx) {
     })
     const hasState = str(chat.posture) !== ''
     if ((chat.mode || 'story') === 'story' && hasStory && !hasState && (chat.settleStatus || 'idle') === 'idle' && !settlementJobs.has(chat.id)) {
-      settlementJobs.add(chat.id)
       chat.settleStatus = 'running'
       chat.settleError = null
       await writeChat(chat)
-      void runSettlement(chat.id).finally(function () { settlementJobs.delete(chat.id) })
+      void queueSettlement(chat.id)
     }
     const result = await view(chat, card)
     if (isCard) result.workspace = workspaceViewOf(chat)
@@ -1089,7 +1091,14 @@ export async function apply(ctx) {
     scripts: scriptContinuity,
     timeline: storyTimeline,
     waitUntilSettled: async function (chat) {
-      for (let index = 0; index < 40 && settlementJobs.has(chat.id); index++) await sleep(250)
+      let current = await readChat(chat.id)
+      if (current === undefined) return
+      if (isOpeningAwaitingSettlement(current)) {
+        current.settleStatus = 'running'
+        current.settleError = null
+        await writeChat(current)
+      }
+      if ((current.settleStatus || 'idle') === 'running') await queueSettlement(current.id)
     },
     sleep: sleep,
     now: Date.now,
@@ -1196,10 +1205,64 @@ export async function apply(ctx) {
     // 旧数据保留在 chat 文件中，但不做任何更新。
     return { postureUpdated: postureUpdated }
   }
+  function settlementTurn(chat) {
+    const messages = Array.isArray(chat && chat.messages) ? chat.messages : []
+    for (let index = messages.length - 1; index >= 0; index--) {
+      const message = messages[index]
+      if (message && message.role === 'assistant' && Number.isFinite(Number(message.turn))) return Number(message.turn)
+    }
+    return 0
+  }
+  async function prepareNextWorldBookContext(snapshot) {
+    let chat = snapshot
+    let context = ''
+    let mode = 'skip'
+    let totalChars = 0
+    let error = null
+    try {
+      const card = await readChatCard(chat)
+      const worldBook = await boundWorldBook(chat.cardPath, card)
+      const recalled = await worldBookRecall.recall({
+        sessionId: chat.sessionId,
+        turn: settlementTurn(chat),
+        chat,
+        card,
+        worldBook
+      })
+      chat = recalled.chat
+      context = str(recalled.context).trim()
+      mode = str(recalled.mode) || 'skip'
+      totalChars = Number(recalled.totalChars) || 0
+      error = str(recalled.error).trim() || null
+    } catch (caught) {
+      error = str(caught && caught.message || caught)
+      mode = 'error'
+    }
+    const latest = await readChat(chat.id)
+    if (latest === undefined) return null
+    latest.preparedWorldBookContext = error === null ? context : ''
+    latest.preparedWorldBook = {
+      ts: Date.now(),
+      turn: settlementTurn(latest),
+      mode,
+      totalChars,
+      contextChars: error === null ? Array.from(context).length : 0,
+      empty: error !== null || context === '',
+      failed: error !== null
+    }
+    if (mode !== 'agent') {
+      latest.worldBookError = error
+      latest.lastWorldBookRecall = Object.assign({}, latest.preparedWorldBook)
+    }
+    await writeChat(latest)
+    return latest
+  }
   async function runSettlement(chatId) {
     while (true) {
       let snapshot = await readChat(chatId)
       if (snapshot === undefined) return
+      snapshot = await prepareNextWorldBookContext(snapshot)
+      if (snapshot === null) return
       const begun = storyTimeline.apply({ chat: snapshot, intent: { kind: 'agent.begin', role: 'settlement' } })
       snapshot = begun.chat
       await writeChat(snapshot)
@@ -1299,11 +1362,17 @@ export async function apply(ctx) {
     }
   }
   function queueSettlement(chatId) {
-    if (settlementJobs.has(chatId)) return false
-    settlementJobs.add(chatId)
-    void runSettlement(chatId).finally(function () { settlementJobs.delete(chatId) })
-    return true
+    const existing = settlementJobs.get(chatId)
+    if (existing !== undefined) return existing
+    const job = runSettlement(chatId).finally(function () { settlementJobs.delete(chatId) })
+    settlementJobs.set(chatId, job)
+    return job
   }
+  const scheduleSettlementAfterTurnEnd = createSettlementAfterTurnEndScheduler({
+    readChatForSession: chatForSession,
+    queueSettlement,
+    logger: console
+  })
   // ---------- 卡片工作台：挂载资料与新卡创建 ----------
   async function sourceWindowOf(chat) {
     const out = []
@@ -1364,13 +1433,11 @@ export async function apply(ctx) {
       readCard,
       readCardExtensions,
       readScript,
-      readBoundWorldBook: boundWorldBook,
       writeChat,
       updateCard,
       createCard: createWorkspaceCard
     },
     planner: contextPlanner,
-    worldBookRecall,
     scripts: scriptContinuity,
     timeline: storyTimeline,
     cards: cardPreparation,
@@ -1385,7 +1452,6 @@ export async function apply(ctx) {
     resolvePresetRegexScripts: async function (chat) {
       return []
     },
-    queueSettlement,
     now: Date.now,
     shellToolName: process.platform === 'win32' ? 'pwsh' : 'bash'
   })
@@ -1455,7 +1521,10 @@ export async function apply(ctx) {
       const before = rollbackCommit && rollbackCommit.before && typeof rollbackCommit.before === 'object' ? rollbackCommit.before : {}
       legacyBefore = {
         messages: msgs0.slice(0, oldAssistantIndex - 1), posture: str(before.posture), scriptState: chat.scriptState,
-        candidates: null, settleStatus: 'idle', settleError: null, lastSettle: null, participants: {}
+        candidates: null, settleStatus: 'idle', settleError: null, lastSettle: null,
+        preparedWorldBookContext: str(before.preparedWorldBookContext),
+        preparedWorldBook: before.preparedWorldBook || null,
+        participants: {}
       }
       if ((chat.mode || 'story') === 'script') {
         const script = await readScript(chat.cardPath)
@@ -1985,7 +2054,10 @@ export async function apply(ctx) {
     if (!event || event.type !== 'turn/end') return
     if (backgroundAgentRunner.owns(session.id)) return
     const reason = event.data && event.data.reason ? event.data.reason.kind : ''
-    if (reason === 'completed' || reason === 'max-tokens') return
+    if (reason === 'completed' || reason === 'max-tokens') {
+      scheduleSettlementAfterTurnEnd({ sessionId: session.id, reason })
+      return
+    }
     void turnOrchestrator.discard({ sessionId: session.id, turn: event.data && event.data.turn })
   })
 

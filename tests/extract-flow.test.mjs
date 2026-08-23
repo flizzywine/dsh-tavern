@@ -198,6 +198,15 @@ test('候选项列表限制高度并独立滚动，底部操作保持在滚动�
   assert.ok(question.indexOf('className: "dsh-tavern-question-body"') < question.indexOf('className: "dsh-tavern-question-foot"'))
 })
 
+test('后台结算期间禁用候选项按钮，完成后自动恢复', () => {
+  const action = between(clientSource, 'function CandidateAction', 'function CandidateDockActions')
+
+  assert.match(action, /rpc\("getSession", \{\}, props\.sessionId\)/)
+  assert.match(action, /settlementStatus === "running"/)
+  assert.match(action, /disabled:.*settling/s)
+  assert.match(action, /"后台结算中…"/)
+})
+
 test('人物卡详情支持查看、绑定和解绑唯一世界书', () => {
   const panel = between(clientSource, 'function CardFieldsPanel', 'function TavernPlayerNameAction')
   const dispatch = between(serverSource, 'async function dispatch', 'const webServer')
@@ -512,11 +521,49 @@ test('世界书库统一编辑独立世界书与人物卡内置世界书', () =>
   assert.match(library, /未知字段与 extensions 会原样保留/)
 })
 
+test('世界书条目的低频匹配开关默认收进兼容字段', () => {
+  const editor = between(clientSource, 'function WorldBookEditor', 'function WorldBookLibraryTab')
+  const compatibility = editor.indexOf('h("details", null, h("summary", null, "兼容字段")')
+
+  assert.ok(compatibility >= 0)
+  for (const label of ['"二级触发词"', '"启用"', '"使用二级条件"', '"区分大小写"', '"整词匹配"']) {
+    assert.ok(editor.indexOf(label) > compatibility)
+  }
+  assert.doesNotMatch(editor.slice(compatibility, compatibility + 80), /open:/)
+})
+
+test('世界书条目默认只显示标题，新建条目初始展开', () => {
+  const editor = between(clientSource, 'function WorldBookEditor', 'function WorldBookLibraryTab')
+  const row = between(editor, 'function entryRow', 'return h("div", { className: "dsh-tavern-library" }')
+
+  assert.match(row, /return h\("details", \{ key: entry\.ref, className: "dsh-tavern-worldbook-entry", defaultOpen: String\(entry\.ref\)\.startsWith\("new:"\) \}/)
+  assert.match(row, /h\("summary", \{ className: "dsh-tavern-worldbook-entry-head" \}, entry\.comment \|\| entry\.title \|\| "未命名条目"\)/)
+  assert.ok(row.indexOf('dsh-tavern-worldbook-entry-body') < row.indexOf('"标题 / 备注"'))
+  assert.ok(row.indexOf('dsh-tavern-worldbook-entry-body') < row.indexOf('"内容"'))
+})
+
+test('世界书条目删除位于展开区底部并要求二次确认', () => {
+  const editor = between(clientSource, 'function WorldBookEditor', 'function WorldBookLibraryTab')
+  const row = between(editor, 'function entryRow', 'return h("div", { className: "dsh-tavern-library" }')
+
+  assert.match(editor, /window\.confirm\(/)
+  assert.match(editor, /"删除世界书条目“" \+ title/)
+  assert.match(editor, /保存世界书后才会正式删除/)
+  assert.match(row, /className: "dsh-tavern-worldbook-danger-zone"/)
+  assert.match(row, /"删除条目"/)
+  assert.ok(row.indexOf('"兼容字段"') < row.indexOf('dsh-tavern-worldbook-danger-zone'))
+})
+
 test('酒馆状态页等待会话绑定就绪后自动刷新', () => {
   const statusTab = between(clientSource, 'function TavernStatusTab', 'const candidatePanel')
+  const statusPanel = between(clientSource, 'function TavernStatusPanel', 'function TavernStatusTab')
 
   assert.match(statusTab, /props\.sessions\.list\.subscribe/)
   assert.match(statusTab, /props\.sessions\.binding\(props\.sessionId\)/)
+  assert.match(statusPanel, /setLoadState\("retrying"\)/)
+  assert.match(statusPanel, /window\.setTimeout\(load, 1500\)/)
+  assert.match(statusPanel, /正在重新连接酒馆状态/)
+  assert.match(statusPanel, /重新加载/)
 })
 
 test('酒馆状态只服务游玩模式，卡片工作台面板暂不复用该侧栏', () => {

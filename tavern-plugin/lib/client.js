@@ -238,8 +238,10 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 .dsh-tavern-worldbook-group + .dsh-tavern-worldbook-group { margin-top: 12px; }
 .dsh-tavern-worldbook-group-title { margin-bottom: 6px; color: var(--dsw-alias-label-secondary); font-size: 11px; font-weight: 750; }
 .dsh-tavern-worldbook-entry { margin-bottom: 10px; padding: 9px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 9px; background: var(--dsw-alias-interactive-bg-hover); }
-.dsh-tavern-worldbook-entry-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; color: #a66b35; font-size: 11px; font-weight: 700; }
+.dsh-tavern-worldbook-entry-head { color: #a66b35; cursor: pointer; font-size: 11px; font-weight: 700; }
+.dsh-tavern-worldbook-entry-body { padding-top: 9px; }
 .dsh-tavern-worldbook-entry-actions { display: flex; align-items: center; gap: 4px; }
+.dsh-tavern-worldbook-danger-zone { display: flex; justify-content: flex-end; margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--dsw-alias-border-l2); }
 .dsh-tavern-worldbook-kind { border: 1px solid rgba(166,107,53,.45); border-radius: 999px; background: rgba(166,107,53,.08); color: #a66b35; cursor: pointer; padding: 2px 7px; font-size: 10px; }
 .dsh-tavern-worldbook-trigger { display: block; max-width: 100%; margin: 0 0 6px; padding: 1px 0; overflow: hidden; border: 0; background: transparent; color: var(--dsw-alias-label-secondary); cursor: pointer; font-size: 10px; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
 .dsh-tavern-worldbook-trigger:hover { color: #a66b35; }
@@ -1278,6 +1280,9 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				setDraft(Object.assign({}, draft, { entries: entries }));
 			}
 			function removeEntry(index) {
+				const entry = (draft.entries || [])[index];
+				const title = entry && (entry.comment || entry.title) || "未命名条目";
+				if (!window.confirm("删除世界书条目“" + title + "”？\n保存世界书后才会正式删除。")) return;
 				setDraft(Object.assign({}, draft, { entries: (draft.entries || []).filter(function (_entry, itemIndex) { return itemIndex !== index; }) }));
 			}
 			function entryPatch(entry) {
@@ -1315,25 +1320,23 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			function parseList(value) { return String(value || "").split(/[,，\n]/).map(function (item) { return item.trim(); }).filter(Boolean); }
 			function numeric(value, fallback) { const number = Number(value); return Number.isFinite(number) ? number : fallback; }
 			function entryRow(entry, index) {
-				return h("div", { key: entry.ref, className: "dsh-tavern-worldbook-entry" },
-					h("div", { className: "dsh-tavern-worldbook-entry-head" },
-						h("span", null, entry.comment || entry.title || "未命名条目"),
-						h("span", { className: "dsh-tavern-worldbook-entry-actions" },
-							h("button", { className: "dsh-tavern-worldbook-kind", onClick: function () { updateEntry(index, { constant: !entry.constant }); } }, entry.constant ? "常驻" : "非常驻"),
-							h("button", { className: "dsh-tavern-worldbook-del", onClick: function () { removeEntry(index); } }, "删除")
-						)
-					),
-					h("div", { className: "dsh-tavern-card-field" }, h("label", null, "标题 / 备注"), h("input", { value: entry.comment || "", onChange: function (event) { updateEntry(index, { comment: event.target.value, title: event.target.value }); } })),
-					entry.constant ? null : h("div", { className: "dsh-tavern-card-field" }, h("label", null, "主触发词"), h("input", { value: textList(entry.primaryKeys), placeholder: "逗号分隔；支持 /pattern/flags", onChange: function (event) { updateEntry(index, { primaryKeys: parseList(event.target.value) }); } })),
-					entry.constant ? null : h("div", { className: "dsh-tavern-card-field" }, h("label", null, "二级触发词"), h("input", { value: textList(entry.secondaryKeys), placeholder: "逗号分隔", onChange: function (event) { updateEntry(index, { secondaryKeys: parseList(event.target.value) }); } })),
-					h("div", { className: "dsh-tavern-card-field" }, h("label", null, "内容"), h("textarea", { className: "large", value: entry.content || "", onChange: function (event) { updateEntry(index, { content: event.target.value }); } })),
-					h("div", { className: "dsh-tavern-worldbook-checks" },
-						h("label", null, h("input", { type: "checkbox", checked: entry.enabled !== false, onChange: function (event) { updateEntry(index, { enabled: event.target.checked }); } }), "启用"),
-						h("label", null, h("input", { type: "checkbox", checked: entry.selective === true, onChange: function (event) { updateEntry(index, { selective: event.target.checked }); } }), "使用二级条件"),
-						h("label", null, h("input", { type: "checkbox", checked: entry.caseSensitive === true, onChange: function (event) { updateEntry(index, { caseSensitive: event.target.checked }); } }), "区分大小写"),
-						h("label", null, h("input", { type: "checkbox", checked: entry.matchWholeWords === true, onChange: function (event) { updateEntry(index, { matchWholeWords: event.target.checked }); } }), "整词匹配")
-					),
-					h("details", null, h("summary", null, "兼容字段"),
+				return h("details", { key: entry.ref, className: "dsh-tavern-worldbook-entry", defaultOpen: String(entry.ref).startsWith("new:") },
+					h("summary", { className: "dsh-tavern-worldbook-entry-head" }, entry.comment || entry.title || "未命名条目"),
+					h("div", { className: "dsh-tavern-worldbook-entry-body" },
+						h("div", { className: "dsh-tavern-worldbook-entry-actions" },
+							h("button", { className: "dsh-tavern-worldbook-kind", onClick: function () { updateEntry(index, { constant: !entry.constant }); } }, entry.constant ? "常驻" : "非常驻")
+						),
+						h("div", { className: "dsh-tavern-card-field" }, h("label", null, "标题 / 备注"), h("input", { value: entry.comment || "", onChange: function (event) { updateEntry(index, { comment: event.target.value, title: event.target.value }); } })),
+						entry.constant ? null : h("div", { className: "dsh-tavern-card-field" }, h("label", null, "主触发词"), h("input", { value: textList(entry.primaryKeys), placeholder: "逗号分隔；支持 /pattern/flags", onChange: function (event) { updateEntry(index, { primaryKeys: parseList(event.target.value) }); } })),
+						h("div", { className: "dsh-tavern-card-field" }, h("label", null, "内容"), h("textarea", { className: "large", value: entry.content || "", onChange: function (event) { updateEntry(index, { content: event.target.value }); } })),
+						h("details", null, h("summary", null, "兼容字段"),
+							entry.constant ? null : h("div", { className: "dsh-tavern-card-field" }, h("label", null, "二级触发词"), h("input", { value: textList(entry.secondaryKeys), placeholder: "逗号分隔", onChange: function (event) { updateEntry(index, { secondaryKeys: parseList(event.target.value) }); } })),
+							h("div", { className: "dsh-tavern-worldbook-checks" },
+							h("label", null, h("input", { type: "checkbox", checked: entry.enabled !== false, onChange: function (event) { updateEntry(index, { enabled: event.target.checked }); } }), "启用"),
+							h("label", null, h("input", { type: "checkbox", checked: entry.selective === true, onChange: function (event) { updateEntry(index, { selective: event.target.checked }); } }), "使用二级条件"),
+							h("label", null, h("input", { type: "checkbox", checked: entry.caseSensitive === true, onChange: function (event) { updateEntry(index, { caseSensitive: event.target.checked }); } }), "区分大小写"),
+							h("label", null, h("input", { type: "checkbox", checked: entry.matchWholeWords === true, onChange: function (event) { updateEntry(index, { matchWholeWords: event.target.checked }); } }), "整词匹配")
+						),
 						h("div", { className: "dsh-tavern-worldbook-grid" },
 							h("label", null, "排序", h("input", { type: "number", value: entry.order, onChange: function (event) { updateEntry(index, { order: numeric(event.target.value, 100) }); } })),
 							h("label", null, "展示顺序", h("input", { type: "number", value: entry.displayIndex, onChange: function (event) { updateEntry(index, { displayIndex: numeric(event.target.value, index) }); } })),
@@ -1347,6 +1350,10 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 							h("label", null, h("input", { type: "checkbox", checked: entry.vectorized === true, onChange: function (event) { updateEntry(index, { vectorized: event.target.checked }); } }), "向量候选"),
 							h("label", null, h("input", { type: "checkbox", checked: entry.excludeRecursion === true, onChange: function (event) { updateEntry(index, { excludeRecursion: event.target.checked }); } }), "不被递归触发"),
 							h("label", null, h("input", { type: "checkbox", checked: entry.preventRecursion === true, onChange: function (event) { updateEntry(index, { preventRecursion: event.target.checked }); } }), "不触发递归")
+						)
+						),
+						h("div", { className: "dsh-tavern-worldbook-danger-zone" },
+							h("button", { className: "dsh-tavern-worldbook-del", onClick: function () { removeEntry(index); } }, "删除条目")
 						)
 					)
 				);
@@ -1770,6 +1777,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 
 			function TavernStatusPanel(props) {
 			const [view, setView] = React.useState(null);
+			const [loadState, setLoadState] = React.useState("loading");
+			const [reloadVersion, setReloadVersion] = React.useState(0);
 			const [error, setError] = usePersistentError("酒馆状态");
 			const [guideDraft, setGuideDraft] = React.useState("");
 			const [guideBusy, setGuideBusy] = React.useState(false);
@@ -1782,21 +1791,43 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				}
 				return String(snapshot.running) + ":" + latest;
 			});
+			React.useEffect(function () { setView(null); setLoadState("loading"); }, [props.sessionId]);
 			React.useEffect(function () {
 				let stopped = false;
 				let timer = null;
+				let loading = false;
+				let reloadRequested = false;
+				setLoadState("loading");
+				function schedule(delay) {
+					if (stopped) return;
+					if (timer) window.clearTimeout(timer);
+					timer = window.setTimeout(load, delay);
+				}
 				async function load() {
+					if (stopped) return;
+					if (loading) { reloadRequested = true; return; }
+					loading = true;
 					try {
 						const result = await rpc("getSession", {}, props.sessionId);
 						if (stopped) return;
-						setView(result.view || null); setError("");
-						if (result.view && result.view.settleStatus === "running") timer = window.setTimeout(load, 1400);
-					} catch (err) { if (!stopped) setError(String(err && err.message || err)); }
+						setView(result.view || null); setError(""); setLoadState("ready");
+						if (result.view && result.view.settleStatus === "running") schedule(1400);
+					} catch (err) {
+						if (!stopped) {
+							setError(String(err && err.message || err));
+							setLoadState("retrying");
+							timer = window.setTimeout(load, 1500);
+						}
+					} finally {
+						loading = false;
+						if (!stopped && reloadRequested) { reloadRequested = false; schedule(0); }
+					}
 				}
 				load();
-				window.addEventListener("dsh-tavern-data-changed", load);
-				return function () { stopped = true; if (timer) window.clearTimeout(timer); window.removeEventListener("dsh-tavern-data-changed", load); };
-			}, [props.sessionId, stateKey]);
+				function handleDataChanged() { schedule(0); }
+				window.addEventListener("dsh-tavern-data-changed", handleDataChanged);
+				return function () { stopped = true; if (timer) window.clearTimeout(timer); window.removeEventListener("dsh-tavern-data-changed", handleDataChanged); };
+			}, [props.sessionId, stateKey, reloadVersion]);
 			async function addGuide() {
 				const text = guideDraft.trim();
 				if (!text) return;
@@ -1819,10 +1850,13 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const h = React.createElement;
 			if (!view) return h("aside", { className: "dsh-tavern-status" },
 				h("div", { className: "dsh-tavern-status-head" }, h("div", { className: "dsh-tavern-status-title" }, "状态栏")),
-				h("div", { className: "dsh-tavern-status-body" }, h("div", { className: "dsh-tavern-status-empty" }, error || "选择人物卡后，这里会显示持续状态。"))
+				h("div", { className: "dsh-tavern-status-body" },
+					h("div", { className: "dsh-tavern-status-empty" }, loadState === "retrying" ? "正在重新连接酒馆状态…" : (error || (loadState === "loading" ? "正在加载酒馆状态…" : "选择人物卡后，这里会显示持续状态。"))),
+					loadState === "retrying" ? h("button", { className: "dsh-tavern-btn", onClick: function () { setReloadVersion(function (value) { return value + 1; }); } }, "重新加载") : null
+				)
 			);
 			if (view.mode === "card") return null;
-			const statusText = view.settleStatus === "running" ? "正在整理本轮姿势" : (view.settleStatus === "error" ? "状态整理失败" : "姿势已同步");
+			const statusText = view.settleStatus === "running" ? "正在执行后台结算" : (view.settleStatus === "error" ? "后台结算失败" : "后台结算已完成");
 			return h("aside", { className: "dsh-tavern-status" },
 				h("div", { className: "dsh-tavern-status-head" },
 					h("div", { className: "dsh-tavern-status-title" }, "酒馆状态"),
@@ -2127,8 +2161,10 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		function CandidateAction(props) {
 			const [busy, setBusy] = React.useState(false);
 			const [rolling, setRolling] = React.useState(false);
+			const [settlementStatus, setSettlementStatus] = React.useState("unknown");
 			const candidatePanelState = useCandidatePanel();
 			const sessionMode = useTavernSessionMode(props.sessionId);
+			const frontRunning = props.useSession(function (snapshot) { return snapshot.running === true; });
 			const latestMessageId = props.useSession(function (snapshot) {
 				const nodes = snapshot.nodes || [];
 				for (let index = nodes.length - 1; index >= 0; index -= 1) {
@@ -2136,8 +2172,37 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				}
 				return null;
 			});
+			React.useEffect(function () {
+				let stopped = false;
+				let timer = null;
+				function schedule(delay) {
+					if (stopped) return;
+					if (timer) window.clearTimeout(timer);
+					timer = window.setTimeout(load, delay);
+				}
+				async function load() {
+					try {
+						const result = await rpc("getSession", {}, props.sessionId);
+						if (stopped) return;
+						const status = String(result && result.view && result.view.settleStatus || "idle");
+						setSettlementStatus(status);
+						if (status === "running") schedule(1200);
+					} catch (err) {
+						if (!stopped) schedule(1500);
+					}
+				}
+				load();
+				function handleDataChanged() { schedule(0); }
+				window.addEventListener("dsh-tavern-data-changed", handleDataChanged);
+				return function () {
+					stopped = true;
+					if (timer) window.clearTimeout(timer);
+					window.removeEventListener("dsh-tavern-data-changed", handleDataChanged);
+				};
+			}, [props.sessionId, latestMessageId, frontRunning]);
+			const settling = settlementStatus === "running";
 			async function generate(force, guidance) {
-				if (busy) return;
+				if (busy || settling) return;
 				setBusy(true);
 				setCandidatePanel({ sessionId: props.sessionId, messageId: props.messageId, phase: "loading", choices: [], error: "" });
 				try {
@@ -2176,7 +2241,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const hasLoadingPanel = candidatePanelState !== null && candidatePanelState.sessionId === props.sessionId && candidatePanelState.messageId === props.messageId && candidatePanelState.phase === "loading";
 			if (!isPlayMode(sessionMode) || latestMessageId !== props.messageId) return null;
 			return h(React.Fragment, null,
-				h("button", { className: "dsh-tavern-choice-trigger", disabled: busy || rolling || hasLoadingPanel, title: hasReadyPanel ? "重新生成候选项（可先填写意见）" : (isScript ? "手动生成候选项；由于跟随剧本，只有一个推荐候选项" : "手动生成候选项"), onClick: function () {
+				h("button", { className: "dsh-tavern-choice-trigger", disabled: busy || rolling || hasLoadingPanel || settling, title: settling ? "后台结算完成后才能生成候选项" : (hasReadyPanel ? "重新生成候选项（可先填写意见）" : (isScript ? "手动生成候选项；由于跟随剧本，只有一个推荐候选项" : "手动生成候选项")), onClick: function () {
 					setRegenPanel(null);
 					if (hasReadyPanel) {
 						const previous = candidatePanelState;
@@ -2185,7 +2250,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					} else {
 						generate(false);
 					}
-				} }, (busy || hasLoadingPanel) ? "生成中…" : (hasReadyPanel ? "重新生成候选项" : "生成候选项")),
+				} }, settling ? "后台结算中…" : ((busy || hasLoadingPanel) ? "生成中…" : (hasReadyPanel ? "重新生成候选项" : "生成候选项"))),
 				h("button", { className: "dsh-tavern-choice-trigger", title: "重新生成正文（可填指导意见，生成后直接替换）", onClick: function (event) {
 					const tail = event && event.currentTarget ? event.currentTarget.closest('[data-chat-flow-kind="turn-tail"]') : null;
 					setCandidatePanel(null);
