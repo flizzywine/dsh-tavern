@@ -190,6 +190,14 @@ test('正则清理后的回复投影替换原生对话显示，并在配置变�
   assert.match(question, /dsh-tavern-data-changed/)
 })
 
+test('候选项列表限制高度并独立滚动，底部操作保持在滚动区外', () => {
+  const question = between(clientSource, 'function CandidateQuestion', 'function CandidateGuidePanel')
+
+  assert.match(clientSource, /\.dsh-tavern-question-body \{ max-height: min\(360px, 45vh\); overflow-y: auto;/)
+  assert.match(question, /className: "dsh-tavern-question-body"/)
+  assert.ok(question.indexOf('className: "dsh-tavern-question-body"') < question.indexOf('className: "dsh-tavern-question-foot"'))
+})
+
 test('新建对话把缺失的当前空 Session 视为已归档', () => {
   const sidebar = between(clientSource, 'function TavernSidebar', 'function TavernResourcesTab')
   const archiveBlank = between(sidebar, 'async function archiveCurrentBlankSession', 'async function newConversation')
