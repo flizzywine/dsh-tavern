@@ -367,6 +367,81 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			});
 		}
 
+		function createLiveTavernViewModule(options) {
+			if (!options || typeof options.load !== "function") throw new Error("Live Tavern View 缺少 load adapter");
+			const records = new Map();
+			const scheduleTimer = typeof options.schedule === "function" ? options.schedule : function (run, delay) { return window.setTimeout(run, delay); };
+			const cancelTimer = typeof options.cancel === "function" ? options.cancel : function (timer) { window.clearTimeout(timer); };
+			function initialState() { return { phase: "idle", view: null, error: "", updatedAt: 0 }; }
+			function recordFor(sessionId) {
+				const id = String(sessionId || "");
+				if (!records.has(id)) records.set(id, { id: id, state: initialState(), listeners: new Set(), timer: null, loading: false, reloadRequested: false });
+				return records.get(id);
+			}
+			function publish(record, state) {
+				record.state = state;
+				record.listeners.forEach(function (listener) { listener(state); });
+			}
+			function schedule(record, delay) {
+				if (record.listeners.size === 0) return;
+				if (record.timer !== null) cancelTimer(record.timer);
+				record.timer = scheduleTimer(function () {
+					record.timer = null;
+					void refresh(record);
+				}, delay);
+			}
+			async function refresh(record) {
+				if (record.listeners.size === 0) return;
+				if (record.loading) { record.reloadRequested = true; return; }
+				record.loading = true;
+				if (record.state.view === null) publish(record, Object.assign({}, record.state, { phase: "loading", error: "" }));
+				try {
+					const result = await options.load(record.id);
+					const view = result && result.view ? result.view : null;
+					publish(record, { phase: "ready", view: view, error: "", updatedAt: Date.now() });
+					if (view && view.settleStatus === "running") schedule(record, 200);
+				} catch (error) {
+					publish(record, { phase: "retrying", view: record.state.view, error: String(error && error.message || error || ""), updatedAt: record.state.updatedAt });
+					schedule(record, 1500);
+				} finally {
+					record.loading = false;
+					if (record.reloadRequested) { record.reloadRequested = false; schedule(record, 0); }
+				}
+			}
+			function invalidate(sessionId) {
+				const targets = sessionId === undefined || sessionId === null || sessionId === "" ? Array.from(records.values()) : [recordFor(sessionId)];
+				targets.forEach(function (record) {
+					if (record.loading) record.reloadRequested = true;
+					else schedule(record, 0);
+				});
+			}
+			return {
+				getSnapshot: function (sessionId) { return recordFor(sessionId).state; },
+				subscribe: function (sessionId, listener) {
+					const record = recordFor(sessionId);
+					record.listeners.add(listener);
+					listener(record.state);
+					schedule(record, 0);
+					return function () {
+						record.listeners.delete(listener);
+						if (record.listeners.size === 0 && record.timer !== null) { cancelTimer(record.timer); record.timer = null; }
+					};
+				},
+				invalidate: invalidate
+			};
+		}
+
+		const liveTavernView = createLiveTavernViewModule({
+			load: function (sessionId) { return rpc("getSession", {}, sessionId); }
+		});
+
+		function useLiveTavernView(sessionId, revision) {
+			const [state, setState] = React.useState(function () { return liveTavernView.getSnapshot(sessionId); });
+			React.useEffect(function () { return liveTavernView.subscribe(sessionId, setState); }, [sessionId]);
+			React.useEffect(function () { liveTavernView.invalidate(sessionId); }, [sessionId, revision]);
+			return state;
+		}
+
 		function isIgnoredTavernError(value) {
 			return /failed to fetch/i.test(String(value && value.message || value || "").trim());
 		}
@@ -1843,9 +1918,6 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			}
 
 			function TavernStatusPanel(props) {
-			const [view, setView] = React.useState(null);
-			const [loadState, setLoadState] = React.useState("loading");
-			const [reloadVersion, setReloadVersion] = React.useState(0);
 			const [error, setError] = usePersistentError("酒馆状态");
 			const [guideDraft, setGuideDraft] = React.useState("");
 			const [guideBusy, setGuideBusy] = React.useState(false);
@@ -1858,50 +1930,19 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				}
 				return String(snapshot.running) + ":" + latest;
 			});
-			React.useEffect(function () { setView(null); setLoadState("loading"); }, [props.sessionId]);
+			const liveState = useLiveTavernView(props.sessionId, stateKey);
+			const view = liveState.view;
+			const loadState = liveState.phase;
 			React.useEffect(function () {
-				let stopped = false;
-				let timer = null;
-				let loading = false;
-				let reloadRequested = false;
-				setLoadState("loading");
-				function schedule(delay) {
-					if (stopped) return;
-					if (timer) window.clearTimeout(timer);
-					timer = window.setTimeout(load, delay);
-				}
-				async function load() {
-					if (stopped) return;
-					if (loading) { reloadRequested = true; return; }
-					loading = true;
-					try {
-						const result = await rpc("getSession", {}, props.sessionId);
-						if (stopped) return;
-						setView(result.view || null); setError(""); setLoadState("ready");
-						if (result.view && result.view.settleStatus === "running") schedule(1400);
-					} catch (err) {
-						if (!stopped) {
-							setError(String(err && err.message || err));
-							setLoadState("retrying");
-							timer = window.setTimeout(load, 1500);
-						}
-					} finally {
-						loading = false;
-						if (!stopped && reloadRequested) { reloadRequested = false; schedule(0); }
-					}
-				}
-				load();
-				function handleDataChanged() { schedule(0); }
-				window.addEventListener("dsh-tavern-data-changed", handleDataChanged);
-				return function () { stopped = true; if (timer) window.clearTimeout(timer); window.removeEventListener("dsh-tavern-data-changed", handleDataChanged); };
-			}, [props.sessionId, stateKey, reloadVersion]);
+				setError(liveState.error || "");
+			}, [liveState.error]);
 			async function addGuide() {
 				const text = guideDraft.trim();
 				if (!text) return;
 				setGuideBusy(true); setGuideError("");
 				try {
-					const result = await rpc("addGuide", { text: text }, props.sessionId);
-					setView(Object.assign({}, view, { guides: result.guides || [] }));
+					await rpc("addGuide", { text: text }, props.sessionId);
+					liveTavernView.invalidate(props.sessionId);
 					setGuideDraft("");
 				} catch (err) { setGuideError(String(err && err.message || err)); }
 				finally { setGuideBusy(false); }
@@ -1909,8 +1950,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			async function removeGuide(index) {
 				setGuideBusy(true); setGuideError("");
 				try {
-					const result = await rpc("deleteGuide", { index: index }, props.sessionId);
-					setView(Object.assign({}, view, { guides: result.guides || [] }));
+					await rpc("deleteGuide", { index: index }, props.sessionId);
+					liveTavernView.invalidate(props.sessionId);
 				} catch (err) { setGuideError(String(err && err.message || err)); }
 				finally { setGuideBusy(false); }
 			}
@@ -1919,7 +1960,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				h("div", { className: "dsh-tavern-status-head" }, h("div", { className: "dsh-tavern-status-title" }, "状态栏")),
 				h("div", { className: "dsh-tavern-status-body" },
 					h("div", { className: "dsh-tavern-status-empty" }, loadState === "retrying" ? "正在重新连接酒馆状态…" : (error || (loadState === "loading" ? "正在加载酒馆状态…" : "选择人物卡后，这里会显示持续状态。"))),
-					loadState === "retrying" ? h("button", { className: "dsh-tavern-btn", onClick: function () { setReloadVersion(function (value) { return value + 1; }); } }, "重新加载") : null
+					loadState === "retrying" ? h("button", { className: "dsh-tavern-btn", onClick: function () { liveTavernView.invalidate(props.sessionId); } }, "重新加载") : null
 				)
 			);
 			if (view.mode === "card") return null;
@@ -2228,7 +2269,6 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		function CandidateAction(props) {
 			const [busy, setBusy] = React.useState(false);
 			const [rolling, setRolling] = React.useState(false);
-			const [settlementStatus, setSettlementStatus] = React.useState("unknown");
 			const candidatePanelState = useCandidatePanel();
 			const sessionMode = useTavernSessionMode(props.sessionId);
 			const frontRunning = props.useSession(function (snapshot) { return snapshot.running === true; });
@@ -2239,37 +2279,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				}
 				return null;
 			});
-			React.useEffect(function () {
-				// CandidateAction 会挂载在每一轮回复后；只有最新一轮需要观察后台结算。
-				// 否则历史轮次会同时轮询 getSession，既制造重复请求，也会拖慢最新按钮恢复。
-				if (latestMessageId !== props.messageId) return;
-				let stopped = false;
-				let timer = null;
-				function schedule(delay) {
-					if (stopped) return;
-					if (timer) window.clearTimeout(timer);
-					timer = window.setTimeout(load, delay);
-				}
-				async function load() {
-					try {
-						const result = await rpc("getSession", {}, props.sessionId);
-						if (stopped) return;
-						const status = String(result && result.view && result.view.settleStatus || "idle");
-						setSettlementStatus(status);
-						if (status === "running") schedule(200);
-					} catch (err) {
-						if (!stopped) schedule(500);
-					}
-				}
-				load();
-				function handleDataChanged() { schedule(0); }
-				window.addEventListener("dsh-tavern-data-changed", handleDataChanged);
-				return function () {
-					stopped = true;
-					if (timer) window.clearTimeout(timer);
-					window.removeEventListener("dsh-tavern-data-changed", handleDataChanged);
-				};
-			}, [props.sessionId, latestMessageId, frontRunning]);
+			const liveState = useLiveTavernView(props.sessionId, String(frontRunning) + ":" + String(latestMessageId || ""));
+			const settlementStatus = String(liveState.view && liveState.view.settleStatus || "unknown");
 			const settling = settlementStatus === "running";
 			async function generate(force, guidance) {
 				if (busy || settling) return;
@@ -2357,6 +2368,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				}
 				return null;
 			});
+			const liveState = useLiveTavernView(props.sessionId, String(running) + ":" + String(latestMessageId || ""));
 			const [selected, setSelected] = React.useState(-1);
 			const [expanded, setExpanded] = React.useState(false);
 			React.useEffect(function () {
@@ -2364,23 +2376,23 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				setExpanded(panel !== null && panel.phase === "error");
 			}, [panel, sessionMode]);
 			React.useEffect(function () {
-				let active = true;
-				function refreshReplyProjections() {
-					rpc("getSession", {}, props.sessionId).then(function (result) {
-						if (!active) return;
-						setReplyProjections(props.sessionId, result && result.view && result.view.replyProjections);
-						applyReplyProjections(props.sessionId);
-					}, function () {});
+				setReplyProjections(props.sessionId, liveState.view && liveState.view.replyProjections);
+				let frame = null;
+				function applyProjectionState() {
+					frame = null;
+					applyHiddenTurns(props.sessionId);
+					applyRolledBackTurns(props.sessionId);
+					applyHiddenRegenUserTurns(props.sessionId);
+					applyReplyProjections(props.sessionId);
 				}
-				refreshReplyProjections();
-				applyHiddenTurns(props.sessionId);
-				applyRolledBackTurns(props.sessionId);
-				applyHiddenRegenUserTurns(props.sessionId);
-				applyReplyProjections(props.sessionId);
-				window.addEventListener("dsh-tavern-data-changed", refreshReplyProjections);
-				const timer = window.setInterval(function () { applyHiddenTurns(props.sessionId); applyRolledBackTurns(props.sessionId); applyHiddenRegenUserTurns(props.sessionId); applyReplyProjections(props.sessionId); }, 1500);
-				return function () { active = false; window.clearInterval(timer); window.removeEventListener("dsh-tavern-data-changed", refreshReplyProjections); };
-			}, [props.sessionId, latestMessageId, running]);
+				function scheduleProjection() {
+					if (frame === null) frame = window.requestAnimationFrame(applyProjectionState);
+				}
+				scheduleProjection();
+				const observer = new window.MutationObserver(scheduleProjection);
+				observer.observe(document.body, { childList: true, subtree: true });
+				return function () { observer.disconnect(); if (frame !== null) window.cancelAnimationFrame(frame); };
+			}, [props.sessionId, latestMessageId, running, liveState.updatedAt]);
 			if (panel && panel.sessionId === props.sessionId && panel.phase === "error") {
 				return React.createElement("div", { className: "dsh-tavern-choice-error dsh-tavern-candidate-error-banner" },
 					"候选项生成失败：" + (panel.error || "未知错误") + "。请点上方“生成候选项”重试。"
@@ -2656,6 +2668,11 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				document.body.classList.add("dsh-tavern-shell-active");
 				return function () { document.body.classList.remove("dsh-tavern-shell-active"); };
 			}, "dsh-tavern: shell marker");
+			ctx.effect(function () {
+				function invalidateLiveView() { liveTavernView.invalidate(); }
+				window.addEventListener("dsh-tavern-data-changed", invalidateLiveView);
+				return function () { window.removeEventListener("dsh-tavern-data-changed", invalidateLiveView); };
+			}, "dsh-tavern: live Tavern view invalidation");
 			ctx.effect(() => slots.inject("sidebar.workspaces", () => slots.register(
 				{ name: "sidebar.workspaces", priority: -1 },
 				function (props) { return React.createElement(TavernSidebar, Object.assign({}, props, {
@@ -2711,6 +2728,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		exports.apply = apply;
 		exports.inject = inject;
 		exports.buildOpeningPreviewDocument = buildOpeningPreviewDocument;
+		exports.createLiveTavernViewModule = createLiveTavernViewModule;
 		return module.exports;
 	}
 });

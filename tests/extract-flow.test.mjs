@@ -198,9 +198,10 @@ test('正则清理后的回复投影替换原生对话显示，并在配置变�
   assert.match(view, /replyProjections: replyDisplay\.projections/)
   assert.match(projection, /sibling\.style\.display = "none"/)
   assert.match(projection, /projected\.textContent = projection\.text/)
-  assert.match(question, /rpc\("getSession", \{\}, props\.sessionId\)/)
+  assert.match(question, /useLiveTavernView\(props\.sessionId/)
   assert.match(question, /applyReplyProjections\(props\.sessionId\)/)
-  assert.match(question, /dsh-tavern-data-changed/)
+  assert.match(question, /MutationObserver\(scheduleProjection\)/)
+  assert.doesNotMatch(question, /rpc\("getSession"/)
 })
 
 test('候选项列表限制高度并独立滚动，底部操作保持在滚动区外', () => {
@@ -213,15 +214,12 @@ test('候选项列表限制高度并独立滚动，底部操作保持在滚动�
 
 test('后台结算期间禁用候选项按钮，完成后自动恢复', () => {
   const action = between(clientSource, 'function CandidateAction', 'function CandidateDockActions')
-  const settlementEffect = between(action, 'React.useEffect(function () {', 'const settling =')
 
-  assert.match(action, /rpc\("getSession", \{\}, props\.sessionId\)/)
+  assert.match(action, /useLiveTavernView\(props\.sessionId/)
   assert.match(action, /settlementStatus === "running"/)
   assert.match(action, /disabled:.*settling/s)
   assert.match(action, /"后台结算中…"/)
-  assert.match(settlementEffect, /if \(latestMessageId !== props\.messageId\) return/)
-  assert.match(settlementEffect, /status === "running"\) schedule\(200\)/)
-  assert.doesNotMatch(settlementEffect, /schedule\(1200\)/)
+  assert.doesNotMatch(action, /rpc\("getSession"/)
 })
 
 test('人物卡详情支持查看、绑定和解绑唯一世界书', () => {
@@ -577,8 +575,9 @@ test('酒馆状态页等待会话绑定就绪后自动刷新', () => {
 
   assert.match(statusTab, /props\.sessions\.list\.subscribe/)
   assert.match(statusTab, /props\.sessions\.binding\(props\.sessionId\)/)
-  assert.match(statusPanel, /setLoadState\("retrying"\)/)
-  assert.match(statusPanel, /window\.setTimeout\(load, 1500\)/)
+  assert.match(statusPanel, /useLiveTavernView\(props\.sessionId, stateKey\)/)
+  assert.match(statusPanel, /loadState = liveState\.phase/)
+  assert.doesNotMatch(statusPanel, /rpc\("getSession"/)
   assert.match(statusPanel, /正在重新连接酒馆状态/)
   assert.match(statusPanel, /重新加载/)
 })
