@@ -2245,6 +2245,9 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				return null;
 			});
 			React.useEffect(function () {
+				// CandidateAction 会挂载在每一轮回复后；只有最新一轮需要观察后台结算。
+				// 否则历史轮次会同时轮询 getSession，既制造重复请求，也会拖慢最新按钮恢复。
+				if (latestMessageId !== props.messageId) return;
 				let stopped = false;
 				let timer = null;
 				function schedule(delay) {
@@ -2258,9 +2261,9 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 						if (stopped) return;
 						const status = String(result && result.view && result.view.settleStatus || "idle");
 						setSettlementStatus(status);
-						if (status === "running") schedule(1200);
+						if (status === "running") schedule(200);
 					} catch (err) {
-						if (!stopped) schedule(1500);
+						if (!stopped) schedule(500);
 					}
 				}
 				load();

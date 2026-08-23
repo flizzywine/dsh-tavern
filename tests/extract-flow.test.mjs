@@ -213,11 +213,15 @@ test('候选项列表限制高度并独立滚动，底部操作保持在滚动�
 
 test('后台结算期间禁用候选项按钮，完成后自动恢复', () => {
   const action = between(clientSource, 'function CandidateAction', 'function CandidateDockActions')
+  const settlementEffect = between(action, 'React.useEffect(function () {', 'const settling =')
 
   assert.match(action, /rpc\("getSession", \{\}, props\.sessionId\)/)
   assert.match(action, /settlementStatus === "running"/)
   assert.match(action, /disabled:.*settling/s)
   assert.match(action, /"后台结算中…"/)
+  assert.match(settlementEffect, /if \(latestMessageId !== props\.messageId\) return/)
+  assert.match(settlementEffect, /status === "running"\) schedule\(200\)/)
+  assert.doesNotMatch(settlementEffect, /schedule\(1200\)/)
 })
 
 test('人物卡详情支持查看、绑定和解绑唯一世界书', () => {
