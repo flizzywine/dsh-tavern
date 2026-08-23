@@ -20,6 +20,7 @@ import { filterSkillMessages } from './domain/skill-visibility.js'
 import { createStoryTimeline } from './domain/story-timeline.js'
 import { resolveTavernDataRoot } from './domain/tavern-data.js'
 import { createTavernSkillModule } from './domain/tavern-skills.js'
+import { createTavernConversationRegistry } from './domain/tavern-conversation-registry.js'
 import { createTurnOrchestrator } from './domain/turn-orchestration.js'
 import { resourceWorkspaceContext } from './domain/workspace-resources.js'
 import { inspectWorldBookDocument, prepareWorldBookImport, updateWorldBookDocument } from './domain/worldbook-resource.js'
@@ -571,6 +572,19 @@ export async function apply(ctx) {
     chat.updatedAt = Date.now()
     await writeJson('chats/' + chat.id + '.json', chat)
   }
+  const conversationRegistry = createTavernConversationRegistry({
+    store: {
+      readLinks: async function () { return await readJson('sessions.json') },
+      updateLinks: async function (updater) { return await profileData.updateJson('sessions.json', updater) },
+      readIndex,
+      writeIndex,
+      readChat,
+      writeChat,
+      removeChat: async function (chatId) { await rmFile('chats/' + chatId + '.json') }
+    }
+  })
+  async function readSessionMap() { return await conversationRegistry.links() }
+  async function chatForSession(sessionId) { return await conversationRegistry.resolve(sessionId) }
   async function readChatCard(chat) {
     const card = await readCard(chat.cardPath)
     if (card === undefined) throw new Error('人物卡不存在: ' + chat.cardPath)
@@ -668,12 +682,7 @@ export async function apply(ctx) {
     return await cardDeletion.remove(cardPath)
   }
   async function deleteChat(chatId) {
-    const idx = await readIndex()
-    idx.chats = (idx.chats || []).filter(function (c) { return c.id !== chatId })
-    await writeIndex(idx)
-    await unlinkChatSessions(chatId)
-    await rmFile('chats/' + chatId + '.json')
-    return { deleted: true }
+    return await conversationRegistry.remove(chatId)
   }
 
   // ---------- 聊天 ----------
@@ -703,70 +712,6 @@ export async function apply(ctx) {
       createdAt: Date.now(),
       updatedAt: Date.now()
     }
-  }
-  async function readSessionMap() {
-    const value = await readJson('sessions.json')
-    return value !== undefined && value !== null && typeof value === 'object' ? value : {}
-  }
-  function normalizeSessionMap(value) {
-    return value !== undefined && value !== null && typeof value === 'object' && !Array.isArray(value) ? value : {}
-  }
-  async function linkSession(sessionId, chatId) {
-    await profileData.updateJson('sessions.json', function (value) {
-      const map = Object.assign({}, normalizeSessionMap(value))
-      if (map[sessionId] === chatId) return undefined
-      map[sessionId] = chatId
-      return map
-    })
-  }
-  async function unlinkSession(sessionId, chatId) {
-    await profileData.updateJson('sessions.json', function (value) {
-      const map = Object.assign({}, normalizeSessionMap(value))
-      if (map[sessionId] !== chatId) return undefined
-      delete map[sessionId]
-      return map
-    })
-  }
-  async function unlinkChatSessions(chatId) {
-    await profileData.updateJson('sessions.json', function (value) {
-      const map = Object.assign({}, normalizeSessionMap(value))
-      let changed = false
-      for (const key of Object.keys(map)) {
-        if (map[key] === chatId) {
-          delete map[key]
-          changed = true
-        }
-      }
-      return changed ? map : undefined
-    })
-  }
-  async function chatForSession(sessionId) {
-    if (typeof sessionId !== 'string' || sessionId === '') return undefined
-    let found
-    await profileData.updateJson('sessions.json', async function (value) {
-      const map = Object.assign({}, normalizeSessionMap(value))
-      let changed = false
-      if (typeof map[sessionId] === 'string') {
-        const mapped = await readChat(map[sessionId])
-        if (mapped !== undefined) {
-          found = mapped
-          return undefined
-        }
-        delete map[sessionId]
-        changed = true
-      }
-      const idx = await readIndex()
-      for (const item of (idx.chats || [])) {
-        const chat = await readChat(item.id)
-        if (chat !== undefined && chat.sessionId === sessionId) {
-          map[sessionId] = chat.id
-          found = chat
-          return map
-        }
-      }
-      return changed ? map : undefined
-    })
-    return found
   }
   function cardViewOf(card, chat) {
     if (card === null || card === undefined) {
@@ -903,26 +848,7 @@ export async function apply(ctx) {
     if (typeof sessionId === 'string') chat.sessionId = sessionId
     if (greeting !== '') chat.messages.push({ role: 'assistant', text: greeting, ts: Date.now(), greeting: true })
     const hasSession = typeof sessionId === 'string' && sessionId !== ''
-    let sessionLinked = false
-    let published = false
-    try {
-      await writeChat(chat)
-      if (hasSession) {
-        await linkSession(sessionId, chat.id)
-        sessionLinked = true
-      }
-      const idx = await readIndex()
-      idx.chats = idx.chats || []
-      idx.chats.push({ id: chat.id, cardPath: chat.cardPath, cardName: chat.cardName, updatedAt: chat.updatedAt })
-      await writeIndex(idx)
-      published = true
-    } catch (error) {
-      if (!published) {
-        if (sessionLinked) await unlinkSession(sessionId, chat.id).catch(function () {})
-        await rmFile('chats/' + chat.id + '.json').catch(function () {})
-      }
-      throw error
-    }
+    await conversationRegistry.publish(chat)
     if (hasSession) await appendNativeOpening(sessionId, chat, card, openingAgent)
     const result = await view(chat, card)
     if (chatMode === 'card') result.workspace = workspaceViewOf(chat)

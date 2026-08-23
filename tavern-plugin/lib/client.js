@@ -442,6 +442,39 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			return state;
 		}
 
+		function createConversationLifecycleModule(options) {
+			for (const method of ["archiveCurrent", "resolveWorkspace", "connectWorkspace", "waitForSession", "ensurePreset", "createChat", "rememberPending", "finishOpen"]) {
+				if (!options || typeof options[method] !== "function") throw new Error("Conversation Lifecycle 缺少 " + method + " adapter");
+			}
+			return {
+				start: async function (request) {
+					let phase = "清理当前空白对话";
+					try {
+						await options.archiveCurrent();
+						phase = request.kind === "card" ? "准备卡片工作区" : "准备游玩工作区";
+						const workspaceId = await options.resolveWorkspace(request);
+						phase = "创建 DSH Session";
+						const sessionId = await options.connectWorkspace(workspaceId);
+						phase = "等待 DSH Session 就绪";
+						await options.waitForSession(sessionId);
+						phase = "切换到酒馆模式";
+						await options.ensurePreset(sessionId);
+						phase = request.kind === "card" ? "创建卡片工作台对话" : "写入人物卡开场白";
+						await options.createChat(request, sessionId);
+						phase = "同步并打开 DSH Session";
+						const pending = Object.assign({}, request.pending || {}, { sessionId: sessionId, targetMode: request.targetMode });
+						options.rememberPending(pending);
+						await options.finishOpen(pending);
+						return { sessionId: sessionId, pending: pending };
+					} catch (error) {
+						const failure = error instanceof Error ? error : new Error(String(error || "创建对话失败"));
+						failure.phase = phase;
+						throw failure;
+					}
+				}
+			};
+		}
+
 		function isIgnoredTavernError(value) {
 			return /failed to fetch/i.test(String(value && value.message || value || "").trim());
 		}
@@ -763,6 +796,32 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				setOpeningPicker(null); setPicking(false); setCardEntry("");
 				await refresh();
 			}
+			const conversationLifecycle = createConversationLifecycleModule({
+				archiveCurrent: archiveCurrentBlankSession,
+				resolveWorkspace: async function (request) {
+					if (request.kind !== "card") {
+						if (!workspaceId) throw new Error("当前没有可用的 Workspace");
+						return workspaceId;
+					}
+					const resourceRoot = await call("getResourceWorkspace");
+					const resourceWorkspace = await props.workspaces.create({ path: resourceRoot.path });
+					return resourceWorkspace.workspaceId;
+				},
+				connectWorkspace: function (targetWorkspaceId) { return props.workspaces.connectWorkspace(targetWorkspaceId); },
+				waitForSession: waitForSessionSummary,
+				ensurePreset: ensureTavernPreset,
+				createChat: function (request, sessionId) {
+					return call("startChat", {
+						path: request.card && request.card.path ? request.card.path : "",
+						sessionId: sessionId,
+						mode: request.targetMode,
+						openingId: request.openingId || "",
+						userName: request.userName || "你"
+					});
+				},
+				rememberPending: setPendingOpen,
+				finishOpen: finishPendingOpen
+			});
 			async function retryPendingOpen() {
 				if (!pendingOpen) return;
 				setBusy(true); setError("");
@@ -772,26 +831,12 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			}
 			async function newConversation(card, requestedMode, openingId, userName) {
 				const targetMode = requestedMode || (uiMode === "play" ? playModeOfCard(card) : "card");
-				if (!workspaceId) { setError("当前没有可用的 Workspace"); return; }
 				setBusy(true); setError("");
-				let phase = "清理当前空白对话";
 				try {
-					await archiveCurrentBlankSession();
-					phase = "创建 DSH Session";
-					const sessionId = await props.workspaces.connectWorkspace(workspaceId);
-					phase = "等待 DSH Session 就绪";
-					await waitForSessionSummary(sessionId);
-					phase = "切换到酒馆模式";
-					await ensureTavernPreset(sessionId);
-					phase = "写入人物卡开场白";
 					const resolvedUserName = String(userName || "你").trim() || "你";
-					await call("startChat", { path: card.path, sessionId: sessionId, mode: targetMode, openingId: openingId || "", userName: resolvedUserName });
+					await conversationLifecycle.start({ kind: "play", targetMode: targetMode, card: card, openingId: openingId || "", userName: resolvedUserName });
 					if (targetMode !== "card") window.localStorage.setItem("dsh-tavern-player-name", resolvedUserName);
-					phase = "同步并打开 DSH Session";
-					const pending = { sessionId: sessionId, targetMode: targetMode };
-					setPendingOpen(pending);
-					await finishPendingOpen(pending);
-				} catch (err) { setError(phase + "失败：" + String(err && err.message || err)); }
+				} catch (err) { setError(String(err && err.phase || "创建对话") + "失败：" + String(err && err.message || err)); }
 				finally { setBusy(false); }
 			}
 			async function preparePlayConversation(card) {
@@ -812,25 +857,12 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			}
 			async function newCardConversation(card, task, label, selectedResources) {
 				setBusy(true); setError("");
-				let phase = "清理当前空白对话";
 				try {
-					await archiveCurrentBlankSession();
-					phase = "准备卡片工作区";
-					const resourceRoot = await call("getResourceWorkspace");
-					const resourceWorkspace = await props.workspaces.create({ path: resourceRoot.path });
-					phase = "创建 DSH Session";
-					const sessionId = await props.workspaces.connectWorkspace(resourceWorkspace.workspaceId);
-					phase = "等待 DSH Session 就绪";
-					await waitForSessionSummary(sessionId);
-					phase = "切换到酒馆模式";
-					await ensureTavernPreset(sessionId);
-					phase = "创建卡片工作台对话";
-					await call("startChat", { path: card && card.path ? card.path : "", sessionId: sessionId, mode: "card" });
-					phase = "同步并打开 DSH Session";
-					const pending = { sessionId: sessionId, targetMode: "card", task: task, label: label, card: card, selectedResources: selectedResources || [] };
-					setPendingOpen(pending);
-					await finishPendingOpen(pending);
-				} catch (err) { setError(phase + "失败：" + String(err && err.message || err)); }
+					await conversationLifecycle.start({
+						kind: "card", targetMode: "card", card: card,
+						pending: { task: task, label: label, card: card, selectedResources: selectedResources || [] }
+					});
+				} catch (err) { setError(String(err && err.phase || "创建对话") + "失败：" + String(err && err.message || err)); }
 				finally { setBusy(false); }
 			}
 			function formatTime(ts) {
@@ -2729,6 +2761,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		exports.inject = inject;
 		exports.buildOpeningPreviewDocument = buildOpeningPreviewDocument;
 		exports.createLiveTavernViewModule = createLiveTavernViewModule;
+		exports.createConversationLifecycleModule = createConversationLifecycleModule;
 		return module.exports;
 	}
 });

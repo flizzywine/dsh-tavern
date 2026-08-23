@@ -186,15 +186,14 @@ test('游玩回复把 HTML 从 DSH Surface 与正文历史中拆出', () => {
   assert.match(replaceReply, /surfaceOp: \{ op: 'replace', start: result\.index, end: result\.index \}/)
 })
 
-test('新会话等待 Agent 并先建立 Session 映射，再发布索引', () => {
+test('新会话等待 Agent 后通过 Conversation Registry 原子发布', () => {
   const startChat = between(serverSource, 'async function startChat', 'async function appendNativeOpening')
   const appendOpening = between(serverSource, 'async function appendNativeOpening', 'async function scriptPreviewOf')
 
   assert.match(startChat, /const openingAgent = .*waitForAgentSession/)
-  assert.ok(startChat.indexOf('waitForAgentSession') < startChat.indexOf('await writeChat(chat)'))
-  assert.ok(startChat.indexOf('await linkSession(sessionId, chat.id)') < startChat.indexOf('await writeIndex(idx)'))
-  assert.match(startChat, /await unlinkSession\(sessionId, chat\.id\)\.catch/)
-  assert.match(startChat, /await rmFile\('chats\/' \+ chat\.id \+ '\.json'\)\.catch/)
+  assert.ok(startChat.indexOf('waitForAgentSession') < startChat.indexOf('await conversationRegistry.publish(chat)'))
+  assert.match(startChat, /await conversationRegistry\.publish\(chat\)/)
+  assert.doesNotMatch(startChat, /linkSession|unlinkSession|writeIndex\(idx\)/)
   assert.match(startChat, /appendNativeOpening\(sessionId, chat, card, openingAgent\)/)
   assert.match(appendOpening, /readyAgent \|\| await waitForAgentSession/)
 })
