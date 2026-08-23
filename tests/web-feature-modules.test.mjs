@@ -109,3 +109,25 @@ test('游玩控制 Feature module 统一注册状态栏与对话控制面板', f
     'conversation.input.dock'
   ])
 })
+
+test('酒馆 Shell Feature module 封装工作区入口并只暴露注册 interface', function () {
+  const feature = browser.createTavernShellFeatureModule()
+  const injectedSlots = []
+  const ctx = {
+    effect(activate, label) { if (label === 'dsh-tavern: shell marker') return; return activate() },
+    sessions: {},
+    workspaces: {},
+    layout: {},
+    betterSidebar: {},
+    get() { return {} }
+  }
+  const slots = {
+    inject(name, activate) { injectedSlots.push(name); return activate() },
+    register() { return function () {} }
+  }
+
+  feature.register({ ctx, slots, appendMention() {}, injectTaskPrompt() {} })
+
+  assert.deepEqual(Object.keys(feature), ['register'])
+  assert.deepEqual(injectedSlots, ['sidebar.workspaces'])
+})

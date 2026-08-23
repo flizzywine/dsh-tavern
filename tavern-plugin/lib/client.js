@@ -611,6 +611,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				+ '</head><body>' + content + preserveMixedTextLines + '</body></html>';
 		}
 
+		function createTavernShellFeatureModule() {
 		function TavernSidebar(props) {
 			const collapsed = props.collapsed;
 			const current = props.useSessions(function (state) { return state.current; });
@@ -1048,6 +1049,43 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				picking ? h("div", { className: "dsh-tavern-picker-overlay", onMouseDown: function (event) { if (event.target === event.currentTarget) closePicker(); } }, uiMode === "play" ? playPicker : cardPicker) : null
 			));
 		}
+
+		function register(input) {
+			const ctx = input.ctx;
+			const slots = input.slots;
+			ctx.effect(function () {
+				document.body.classList.add("dsh-tavern-shell-active");
+				return function () { document.body.classList.remove("dsh-tavern-shell-active"); };
+			}, "dsh-tavern: shell marker");
+			ctx.effect(() => slots.inject("sidebar.workspaces", () => slots.register(
+				{ name: "sidebar.workspaces", priority: -1 },
+				function (props) { return React.createElement(TavernSidebar, Object.assign({}, props, {
+					collapsed: !props.wide,
+					embedded: true,
+					sessions: ctx.sessions,
+					workspaces: ctx.workspaces,
+					connection: ctx.get("connection"),
+					renameSession: async function (sessionId, title) {
+						const session = ctx.sessions.binding(sessionId)?.session;
+						if (session === undefined) throw new Error("找不到该对话");
+						const result = await session.rename(title);
+						if (!result.ok) throw new Error(result.error.message);
+					},
+					archiveSession: function (sessionId) { return ctx.workspaces.archiveSession(sessionId); },
+					toggleSidebar: function () { if (props.wide) ctx.layout.toggleSidebar(); else props.expandSidebar(); },
+					openStatusTab: function (sessionId) { ctx.betterSidebar.openTab({ type: "dsh-tavern:status" }, { sessionId: sessionId }); },
+					openCardLibraryTab: function (sessionId) { ctx.betterSidebar.openTab({ type: "dsh-tavern:cards" }, { sessionId: sessionId }); ctx.betterSidebar.updateTab("dsh-tavern:cards", { meta: null }); },
+					openPresetLibraryTab: function (sessionId) { ctx.betterSidebar.openTab({ type: "dsh-tavern:presets" }, { sessionId: sessionId }); },
+					openWorldBookLibraryTab: function (sessionId) { ctx.betterSidebar.openTab({ type: "dsh-tavern:worldbooks" }, { sessionId: sessionId }); },
+					openResourcesTab: function (sessionId) { ctx.betterSidebar.openTab({ type: "dsh-tavern:resources" }, { sessionId: sessionId }); },
+					appendMention: input.appendMention,
+					injectTaskPrompt: input.injectTaskPrompt
+				})); }
+			)), "dsh-tavern: Tavern workspace browser");
+		}
+		return Object.freeze({ register: register });
+		}
+		const tavernShellFeature = createTavernShellFeatureModule();
 
 		function createResourcesLibraryFeatureModule() {
 		function TavernResourcesTab(props) {
@@ -2779,39 +2817,11 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				return ctx.betterSidebar.subscribeState(reconcileLibraryTabTitles);
 			}, "dsh-tavern: reconcile persisted library tab titles");
 			ctx.effect(function () {
-				document.body.classList.add("dsh-tavern-shell-active");
-				return function () { document.body.classList.remove("dsh-tavern-shell-active"); };
-			}, "dsh-tavern: shell marker");
-			ctx.effect(function () {
 				function invalidateLiveView() { liveTavernView.invalidate(); }
 				window.addEventListener("dsh-tavern-data-changed", invalidateLiveView);
 				return function () { window.removeEventListener("dsh-tavern-data-changed", invalidateLiveView); };
 			}, "dsh-tavern: live Tavern view invalidation");
-			ctx.effect(() => slots.inject("sidebar.workspaces", () => slots.register(
-				{ name: "sidebar.workspaces", priority: -1 },
-				function (props) { return React.createElement(TavernSidebar, Object.assign({}, props, {
-					collapsed: !props.wide,
-					embedded: true,
-					sessions: ctx.sessions,
-					workspaces: ctx.workspaces,
-					connection: ctx.get("connection"),
-					renameSession: async function (sessionId, title) {
-						const session = ctx.sessions.binding(sessionId)?.session;
-						if (session === undefined) throw new Error("找不到该对话");
-						const result = await session.rename(title);
-						if (!result.ok) throw new Error(result.error.message);
-					},
-					archiveSession: function (sessionId) { return ctx.workspaces.archiveSession(sessionId); },
-					toggleSidebar: function () { if (props.wide) ctx.layout.toggleSidebar(); else props.expandSidebar(); },
-					openStatusTab: function (sessionId) { ctx.betterSidebar.openTab({ type: "dsh-tavern:status" }, { sessionId: sessionId }); },
-					openCardLibraryTab: function (sessionId) { ctx.betterSidebar.openTab({ type: "dsh-tavern:cards" }, { sessionId: sessionId }); ctx.betterSidebar.updateTab("dsh-tavern:cards", { meta: null }); },
-					openPresetLibraryTab: function (sessionId) { ctx.betterSidebar.openTab({ type: "dsh-tavern:presets" }, { sessionId: sessionId }); },
-					openWorldBookLibraryTab: function (sessionId) { ctx.betterSidebar.openTab({ type: "dsh-tavern:worldbooks" }, { sessionId: sessionId }); },
-					openResourcesTab: function (sessionId) { ctx.betterSidebar.openTab({ type: "dsh-tavern:resources" }, { sessionId: sessionId }); },
-					appendMention: appendMention,
-					injectTaskPrompt: injectTaskPrompt
-				})); }
-			)), "dsh-tavern: Tavern workspace browser");
+			tavernShellFeature.register({ ctx: ctx, slots: slots, appendMention: appendMention, injectTaskPrompt: injectTaskPrompt });
 		}
 
 		exports.apply = apply;
@@ -2824,6 +2834,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		exports.createWorldBookLibraryFeatureModule = createWorldBookLibraryFeatureModule;
 		exports.createCardLibraryFeatureModule = createCardLibraryFeatureModule;
 		exports.createPlayControlsFeatureModule = createPlayControlsFeatureModule;
+		exports.createTavernShellFeatureModule = createTavernShellFeatureModule;
 		return module.exports;
 	}
 });
