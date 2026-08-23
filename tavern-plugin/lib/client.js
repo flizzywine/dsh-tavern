@@ -1903,6 +1903,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		}
 		const cardLibraryFeature = createCardLibraryFeatureModule();
 
+		function createPlayControlsFeatureModule() {
 			function TavernPlayerNameAction(props) {
 				const [view, setView] = React.useState(null);
 				const [busy, setBusy] = React.useState(false);
@@ -2661,6 +2662,49 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				body
 			);
 		}
+		function register(input) {
+			const ctx = input.ctx;
+			const slots = input.slots;
+			ctx.effect(() => ctx.betterSidebar.registerTab({
+				id: "dsh-tavern:status",
+				title: "酒馆状态",
+				order: 7,
+				single: true,
+				createTab: function () {
+					return { tab: { id: "dsh-tavern:status", type: "dsh-tavern:status", title: "酒馆状态" }, patch: { panelOpen: true } };
+				},
+				component: function (props) {
+					return React.createElement(TavernStatusTab, { sessions: ctx.sessions, sessionId: props.scope.sessionId });
+				}
+			}), "dsh-tavern: Better Sidebar status tab");
+			ctx.effect(() => slots.inject("conversation.session.header.actions", () => slots.register(
+				{ name: "conversation.session.header.actions", id: "dsh-tavern-player-name", order: 15 },
+				TavernPlayerNameAction
+			)), "dsh-tavern: player name header action");
+			ctx.effect(() => slots.inject("conversation.input.dock", () => slots.register(
+				{ name: "conversation.input.dock", id: "dsh-tavern-signal-timeout", order: -140, label: "发送状态" },
+				function (props) { return React.createElement(TavernSignalTimeoutNotice, Object.assign({}, props, { refreshSessions: function () { return typeof ctx.sessions.refresh === "function" ? ctx.sessions.refresh() : Promise.resolve(); } })); }
+			)), "dsh-tavern: signal timeout reconciliation");
+			ctx.effect(() => slots.inject("conversation.input.dock", () => slots.register(
+				{ name: "conversation.input.dock", id: "dsh-tavern-candidate-actions", order: -130, label: "候选项操作" },
+				function (props) { return React.createElement(CandidateDockActions, props); }
+			)), "dsh-tavern: candidate dock actions");
+			ctx.effect(() => slots.inject("conversation.input.dock", () => slots.register(
+				{ name: "conversation.input.dock", id: "dsh-tavern-question", order: -120, label: "下一步行动" },
+				function (props) { return React.createElement(CandidateQuestion, Object.assign({}, props, { sessions: ctx.sessions })); }
+			)), "dsh-tavern: candidate question panel");
+			ctx.effect(() => slots.inject("conversation.input.dock", () => slots.register(
+				{ name: "conversation.input.dock", id: "dsh-tavern-candidate-guide", order: -115, label: "重新生成候选项" },
+				function (props) { return React.createElement(CandidateGuidePanel, props); }
+			)), "dsh-tavern: candidate guide panel");
+			ctx.effect(() => slots.inject("conversation.input.dock", () => slots.register(
+				{ name: "conversation.input.dock", id: "dsh-tavern-regen", order: -110, label: "重新生成正文" },
+				function (props) { return React.createElement(RegenPanel, props); }
+			)), "dsh-tavern: regen body panel");
+		}
+		return Object.freeze({ register: register });
+		}
+		const playControlsFeature = createPlayControlsFeatureModule();
 
 		const inject = ["slots", "sessions", "workspaces", "layout", "connection", "betterSidebar"];
 
@@ -2724,18 +2768,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				const taskText = "【卡片任务：" + label + "】" + targetSection + "\n\n" + String(result && result.text || "").trim() + materialSection;
 				input.setDraft(taskText + supplement);
 			}
-			ctx.effect(() => ctx.betterSidebar.registerTab({
-				id: "dsh-tavern:status",
-				title: "酒馆状态",
-				order: 7,
-				single: true,
-				createTab: function () {
-					return { tab: { id: "dsh-tavern:status", type: "dsh-tavern:status", title: "酒馆状态" }, patch: { panelOpen: true } };
-				},
-				component: function (props) {
-					return React.createElement(TavernStatusTab, { sessions: ctx.sessions, sessionId: props.scope.sessionId });
-				}
-			}), "dsh-tavern: Better Sidebar status tab");
+			playControlsFeature.register({ ctx: ctx, slots: slots });
 			presetLibraryFeature.register({ ctx: ctx, appendMention: appendMention });
 			resourcesLibraryFeature.register({ ctx: ctx, appendMention: appendMention });
 			worldBookLibraryFeature.register({ ctx: ctx });
@@ -2779,31 +2812,6 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					injectTaskPrompt: injectTaskPrompt
 				})); }
 			)), "dsh-tavern: Tavern workspace browser");
-			ctx.effect(() => slots.inject("conversation.session.header.actions", () => slots.register(
-				{ name: "conversation.session.header.actions", id: "dsh-tavern-player-name", order: 15 },
-				TavernPlayerNameAction
-			)), "dsh-tavern: player name header action");
-			ctx.effect(() => slots.inject("conversation.input.dock", () => slots.register(
-				{ name: "conversation.input.dock", id: "dsh-tavern-signal-timeout", order: -140, label: "发送状态" },
-				function (props) { return React.createElement(TavernSignalTimeoutNotice, Object.assign({}, props, { refreshSessions: function () { return typeof ctx.sessions.refresh === "function" ? ctx.sessions.refresh() : Promise.resolve(); } })); }
-			)), "dsh-tavern: signal timeout reconciliation");
-			ctx.effect(() => slots.inject("conversation.input.dock", () => slots.register(
-				{ name: "conversation.input.dock", id: "dsh-tavern-candidate-actions", order: -130, label: "候选项操作" },
-				function (props) { return React.createElement(CandidateDockActions, props); }
-			)), "dsh-tavern: candidate dock actions");
-			ctx.effect(() => slots.inject("conversation.input.dock", () => slots.register(
-				{ name: "conversation.input.dock", id: "dsh-tavern-question", order: -120, label: "下一步行动" },
-				function (props) { return React.createElement(CandidateQuestion, Object.assign({}, props, { sessions: ctx.sessions })); }
-			)), "dsh-tavern: candidate question panel");
-			ctx.effect(() => slots.inject("conversation.input.dock", () => slots.register(
-				{ name: "conversation.input.dock", id: "dsh-tavern-candidate-guide", order: -115, label: "重新生成候选项" },
-				function (props) { return React.createElement(CandidateGuidePanel, props); }
-			)), "dsh-tavern: candidate guide panel");
-			ctx.effect(() => slots.inject("conversation.input.dock", () => slots.register(
-				{ name: "conversation.input.dock", id: "dsh-tavern-regen", order: -110, label: "重新生成正文" },
-				function (props) { return React.createElement(RegenPanel, props); }
-			)), "dsh-tavern: regen body panel");
-
 		}
 
 		exports.apply = apply;
@@ -2815,6 +2823,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		exports.createPresetLibraryFeatureModule = createPresetLibraryFeatureModule;
 		exports.createWorldBookLibraryFeatureModule = createWorldBookLibraryFeatureModule;
 		exports.createCardLibraryFeatureModule = createCardLibraryFeatureModule;
+		exports.createPlayControlsFeatureModule = createPlayControlsFeatureModule;
 		return module.exports;
 	}
 });

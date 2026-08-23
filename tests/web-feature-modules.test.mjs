@@ -81,3 +81,31 @@ test('人物卡库 Feature module 封装目录、详情与世界书入口', func
   assert.equal(registration.title, '人物卡库')
   assert.equal(typeof registration.component, 'function')
 })
+
+test('游玩控制 Feature module 统一注册状态栏与对话控制面板', function () {
+  const feature = browser.createPlayControlsFeatureModule()
+  const tabs = []
+  const injectedSlots = []
+  const ctx = {
+    sessions: {},
+    effect(activate) { return activate() },
+    betterSidebar: { registerTab(value) { tabs.push(value); return function () {} } }
+  }
+  const slots = {
+    inject(name, activate) { injectedSlots.push(name); return activate() },
+    register() { return function () {} }
+  }
+
+  feature.register({ ctx, slots })
+
+  assert.deepEqual(Object.keys(feature), ['register'])
+  assert.equal(tabs[0].id, 'dsh-tavern:status')
+  assert.deepEqual(injectedSlots, [
+    'conversation.session.header.actions',
+    'conversation.input.dock',
+    'conversation.input.dock',
+    'conversation.input.dock',
+    'conversation.input.dock',
+    'conversation.input.dock'
+  ])
+})
