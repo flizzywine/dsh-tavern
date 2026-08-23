@@ -319,11 +319,3 @@ export function createWorldBookRecall(options = {}) {
 
   return Object.freeze({ recall })
 }
-
-export const WORLD_BOOK_RECALL_LIMITS = Object.freeze({
-  directChars: DIRECT_LIMIT,
-  matchedEntries: MATCH_LIMIT,
-  readEntries: READ_ENTRY_LIMIT,
-  readCooldownTurns: READ_COOLDOWN_TURNS,
-  contextChars: CONTEXT_LIMIT
-})
