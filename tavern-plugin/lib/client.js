@@ -1147,6 +1147,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		}
 		const resourcesLibraryFeature = createResourcesLibraryFeatureModule();
 
+		function createPresetLibraryFeatureModule() {
 		function PresetLibraryTab(props) {
 			const presetEffectsDisabled = true;
 			const [presets, setPresets] = React.useState([]);
@@ -1380,6 +1381,24 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				)
 			);
 		}
+		function register(input) {
+			const ctx = input.ctx;
+			const appendMention = input.appendMention;
+			return ctx.effect(() => ctx.betterSidebar.registerTab({
+				id: "dsh-tavern:presets",
+				title: "预设库",
+				order: 4,
+				single: true,
+				component: function (props) {
+					return React.createElement(PresetLibraryTab, Object.assign({}, props, {
+						appendMention: function (kind, path, label) { appendMention(props.scope.sessionId, kind, path, label); }
+					}));
+				}
+			}), "dsh-tavern: Better Sidebar preset library tab");
+		}
+		return Object.freeze({ register: register });
+		}
+		const presetLibraryFeature = createPresetLibraryFeatureModule();
 
 		function WorldBookEditor(props) {
 			const initial = props.record && props.record.view ? props.record.view : { displayName: "", description: "", entries: [], diagnostics: [] };
@@ -2680,15 +2699,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					return React.createElement(TavernStatusTab, { sessions: ctx.sessions, sessionId: props.scope.sessionId });
 				}
 			}), "dsh-tavern: Better Sidebar status tab");
-			ctx.effect(() => ctx.betterSidebar.registerTab({
-				id: "dsh-tavern:presets",
-				title: "预设库",
-				order: 4,
-				single: true,
-				component: function (props) {
-					return React.createElement(PresetLibraryTab, Object.assign({}, props, { appendMention: function (kind, path, label) { appendMention(props.scope.sessionId, kind, path, label); } }));
-				}
-			}), "dsh-tavern: Better Sidebar preset library tab");
+			presetLibraryFeature.register({ ctx: ctx, appendMention: appendMention });
 			resourcesLibraryFeature.register({ ctx: ctx, appendMention: appendMention });
 			ctx.effect(() => ctx.betterSidebar.registerTab({
 				id: "dsh-tavern:worldbooks",
@@ -2776,6 +2787,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		exports.createLiveTavernViewModule = createLiveTavernViewModule;
 		exports.createConversationLifecycleModule = createConversationLifecycleModule;
 		exports.createResourcesLibraryFeatureModule = createResourcesLibraryFeatureModule;
+		exports.createPresetLibraryFeatureModule = createPresetLibraryFeatureModule;
 		return module.exports;
 	}
 });

@@ -33,3 +33,19 @@ test('资料库 Feature module 只向宿主暴露注册 interface', function () 
   assert.equal(typeof registration.component, 'function')
   assert.deepEqual(effects, ['dsh-tavern: Better Sidebar resources tab'])
 })
+
+test('预设库 Feature module 封装实验预设 UI 并只暴露注册 interface', function () {
+  const feature = browser.createPresetLibraryFeatureModule()
+  let registration
+  const ctx = {
+    effect(activate) { return activate() },
+    betterSidebar: { registerTab(value) { registration = value; return function () {} } }
+  }
+
+  feature.register({ ctx, appendMention() {} })
+
+  assert.deepEqual(Object.keys(feature), ['register'])
+  assert.equal(registration.id, 'dsh-tavern:presets')
+  assert.equal(registration.title, '预设库')
+  assert.equal(typeof registration.component, 'function')
+})
