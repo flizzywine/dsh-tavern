@@ -1555,6 +1555,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		}
 		const worldBookLibraryFeature = createWorldBookLibraryFeatureModule();
 
+		function createCardLibraryFeatureModule() {
 		function CardLibraryTab(props) {
 			const [cards, setCards] = React.useState([]);
 			const [selectedPath, setSelectedPath] = React.useState("");
@@ -1879,6 +1880,28 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				)
 			);
 		}
+		function register(input) {
+			const ctx = input.ctx;
+			const appendMention = input.appendMention;
+			return ctx.effect(() => ctx.betterSidebar.registerTab({
+				id: "dsh-tavern:cards",
+				title: "人物卡库",
+				order: 3,
+				single: true,
+				component: function (props) {
+					return React.createElement(CardLibraryTab, Object.assign({}, props, {
+						appendMention: function (path, label) { appendMention(props.scope.sessionId, "card", path, label); },
+						openWorldBook: function (source) {
+							ctx.betterSidebar.openTab({ type: "dsh-tavern:worldbooks" }, { sessionId: props.scope.sessionId });
+							ctx.betterSidebar.updateTab("dsh-tavern:worldbooks", { meta: { worldBookSource: source } });
+						}
+					}));
+				}
+			}), "dsh-tavern: Better Sidebar card library tab");
+		}
+		return Object.freeze({ register: register });
+		}
+		const cardLibraryFeature = createCardLibraryFeatureModule();
 
 			function TavernPlayerNameAction(props) {
 				const [view, setView] = React.useState(null);
@@ -2716,13 +2739,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			presetLibraryFeature.register({ ctx: ctx, appendMention: appendMention });
 			resourcesLibraryFeature.register({ ctx: ctx, appendMention: appendMention });
 			worldBookLibraryFeature.register({ ctx: ctx });
-			ctx.effect(() => ctx.betterSidebar.registerTab({
-				id: "dsh-tavern:cards",
-				title: "人物卡库",
-				order: 3,
-				single: true,
-				component: function (props) { return React.createElement(CardLibraryTab, Object.assign({}, props, { appendMention: function (path, label) { appendMention(props.scope.sessionId, "card", path, label); }, openWorldBook: function (source) { ctx.betterSidebar.openTab({ type: "dsh-tavern:worldbooks" }, { sessionId: props.scope.sessionId }); ctx.betterSidebar.updateTab("dsh-tavern:worldbooks", { meta: { worldBookSource: source } }); } })); }
-			}), "dsh-tavern: Better Sidebar card library tab");
+			cardLibraryFeature.register({ ctx: ctx, appendMention: appendMention });
 			ctx.effect(function () {
 				reconcileLibraryTabTitles();
 				if (typeof ctx.betterSidebar.subscribeState !== "function") return;
@@ -2797,6 +2814,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		exports.createResourcesLibraryFeatureModule = createResourcesLibraryFeatureModule;
 		exports.createPresetLibraryFeatureModule = createPresetLibraryFeatureModule;
 		exports.createWorldBookLibraryFeatureModule = createWorldBookLibraryFeatureModule;
+		exports.createCardLibraryFeatureModule = createCardLibraryFeatureModule;
 		return module.exports;
 	}
 });

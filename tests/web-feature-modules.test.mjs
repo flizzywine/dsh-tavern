@@ -65,3 +65,19 @@ test('世界书库 Feature module 封装目录与编辑器并只暴露注册 int
   assert.equal(registration.title, '世界书库')
   assert.equal(typeof registration.component, 'function')
 })
+
+test('人物卡库 Feature module 封装目录、详情与世界书入口', function () {
+  const feature = browser.createCardLibraryFeatureModule()
+  let registration
+  const ctx = {
+    effect(activate) { return activate() },
+    betterSidebar: { registerTab(value) { registration = value; return function () {} } }
+  }
+
+  feature.register({ ctx, appendMention() {} })
+
+  assert.deepEqual(Object.keys(feature), ['register'])
+  assert.equal(registration.id, 'dsh-tavern:cards')
+  assert.equal(registration.title, '人物卡库')
+  assert.equal(typeof registration.component, 'function')
+})
