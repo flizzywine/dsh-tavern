@@ -22,8 +22,11 @@ function enabledFor(script, options) {
   if (!script || script.enabled === false) return false
   const placement = Number(options.placement === undefined ? 2 : options.placement)
   if (!Array.isArray(script.placement) || !script.placement.map(Number).includes(placement)) return false
-  if (options.isMarkdown === true && script.promptOnly === true) return false
-  if (options.isMarkdown !== true && script.markdownOnly === true) return false
+  // SillyTavern treats these as ephemerality targets, not mutually exclusive
+  // modes. Enabling both applies to display and outgoing prompt without
+  // changing the stored chat text.
+  if (options.isMarkdown === true && script.promptOnly === true && script.markdownOnly !== true) return false
+  if (options.isMarkdown !== true && script.markdownOnly === true && script.promptOnly !== true) return false
   if (options.isEdit === true && script.runOnEdit !== true) return false
   const currentDepth = Number(options.depth) || 0
   const minimum = depth(script.minDepth)
@@ -62,6 +65,27 @@ function replaceAndCount(source, regex, replacement) {
     return replacement.apply(null, arguments)
   })
   return { text, count }
+}
+
+/** Apply enabled Tavern regex replacements to one ephemeral text projection. */
+export function applyTavernRegexText(value, scripts, options = {}) {
+  const sourceText = str(value)
+  let text = sourceText
+  const warnings = []
+  const applied = []
+  for (const [index, script] of (Array.isArray(scripts) ? scripts : []).entries()) {
+    if (!enabledFor(script, options)) continue
+    const label = str(script.name || script.id) || '正则 ' + (index + 1)
+    try {
+      const replaced = replaceAndCount(text, regexFromString(script.findRegex), replacementFor(script))
+      if (replaced.count === 0) continue
+      text = replaced.text
+      applied.push({ index, id: str(script.id), name: label, matches: replaced.count })
+    } catch (error) {
+      warnings.push(label + '：' + str(error && error.message || error))
+    }
+  }
+  return { sourceText, text, changed: applied.length > 0, applied, warnings }
 }
 
 /**

@@ -166,7 +166,6 @@ test('Tavern 错误面板只保留最新错误，左侧栏连接恢复后撤销�
   assert.match(clientSource, /usePersistentError\("人物卡详情"\)/)
   assert.match(clientSource, /usePersistentError\("剧本管理"\)/)
   assert.match(clientSource, /usePersistentError\("Guide"\)/)
-  assert.match(clientSource, /usePersistentError\("破甲库"\)/)
   assert.match(clientSource, /usePersistentError\("酒馆状态"\)/)
   assert.match(clientSource, /tavernErrorHub\.report\("候选项生成", err\)/)
   assert.match(clientSource, /tavernErrorHub\.report\("正文重新生成", err\)/)
@@ -176,17 +175,19 @@ test('Tavern 错误面板只保留最新错误，左侧栏连接恢复后撤销�
   assert.match(clientSource, /setLocalError\(isIgnoredTavernError\(message\) \? "" : message\)/)
 })
 
-test('正则清理后的回复投影替换原生对话显示', () => {
+test('正则清理后的回复投影替换原生对话显示，并在配置变化后重算历史', () => {
   const view = between(serverSource, 'async function view(chat, card)', 'function presentationViewOf')
   const projection = between(clientSource, 'function applyReplyProjections', 'function CandidateAction')
   const question = between(clientSource, 'function CandidateQuestion', 'function CandidateGuidePanel')
 
   assert.match(serverSource, /function replyProjectionsOf\(chat\)/)
-  assert.match(view, /replyProjections: replyProjectionsOf\(chat\)/)
+  assert.match(view, /projectReplyHistory\(chat\.messages/)
+  assert.match(view, /replyProjections: replyDisplay\.projections/)
   assert.match(projection, /sibling\.style\.display = "none"/)
   assert.match(projection, /projected\.textContent = projection\.text/)
   assert.match(question, /rpc\("getSession", \{\}, props\.sessionId\)/)
   assert.match(question, /applyReplyProjections\(props\.sessionId\)/)
+  assert.match(question, /dsh-tavern-data-changed/)
 })
 
 test('新建对话把缺失的当前空 Session 视为已归档', () => {
@@ -210,13 +211,13 @@ test('创建对话失败时服务端记录请求边界但不记录开场白正�
   assert.doesNotMatch(dispatch, /greeting|openingText/)
 })
 
-test('卡片模式通过修改、抽取人物卡、抽取破甲和空白四个入口进入同一个 Agent', () => {
+test('卡片模式通过修改人物卡、新建人物卡、修改资料和空白四个入口进入同一个 Agent', () => {
   const flow = between(clientSource, 'async function newCardConversation', 'function formatTime')
   const recovery = between(clientSource, 'async function finishPendingOpen', 'async function retryPendingOpen')
 
   assert.match(clientSource, /"修改人物卡"/)
   assert.match(clientSource, /"从资料新建人物卡"/)
-  assert.match(clientSource, /"从预设提取破甲"/)
+  assert.match(clientSource, /"修改资料"/)
   assert.match(clientSource, /"空白开始"/)
   assert.match(flow, /mode: "card"/)
   assert.match(flow, /task: task, label: label, card: card, selectedResources: selectedResources \|\| \[\]/)
@@ -226,23 +227,23 @@ test('卡片模式通过修改、抽取人物卡、抽取破甲和空白四个�
   assert.match(clientSource, /return values\[sessionId\] \|\| "";/)
 })
 
-test('人物卡抽取使用资料库，破甲抽取使用预设库，并自动追加引用', () => {
+test('人物卡抽取与资料修改都使用资料库，并自动追加引用', () => {
   const sidebar = between(clientSource, 'function TavernSidebar', 'function TavernResourcesTab')
   const recovery = between(sidebar, 'async function finishPendingOpen', 'async function retryPendingOpen')
 
   assert.match(sidebar, /async function openResourcePicker\(task\)/)
-  assert.match(sidebar, /task === "boundary" \? "listPresets" : "listResources"/)
-  assert.match(sidebar, /kind: task === "boundary" \? "preset" : "source"/)
-  assert.match(sidebar, /initialResourceGroup\(cardEntry === "boundary" \? "预设" : "资料", initialResources\)/)
+  assert.match(sidebar, /const response = await call\("listResources"\)/)
+  assert.match(sidebar, /kind: "source"/)
+  assert.match(sidebar, /initialResourceGroup\("资料", initialResources\)/)
   assert.doesNotMatch(sidebar, /initialResourceGroup\("素材"/)
   assert.doesNotMatch(sidebar, /initialResourceGroup\("已绑定剧本"/)
   assert.match(sidebar, /disabled: busy \|\| !chosenInitialResources\.length/)
   assert.match(sidebar, /newCardConversation\(null, "extract", "从资料新建人物卡", chosenInitialResources\)/)
-  assert.match(sidebar, /newCardConversation\(null, "boundary", "从预设提取破甲", chosenInitialResources\)/)
+  assert.match(sidebar, /newCardConversation\(null, "material", "修改资料", chosenInitialResources\)/)
   assert.match(recovery, /\(pending\.selectedResources \|\| \[\]\)\.forEach/)
   assert.match(recovery, /props\.appendMention\(pending\.sessionId, resource\.kind, resource\.path, resource\.title\)/)
-  assert.match(recovery, /pending\.task === "boundary"[\s\S]+props\.openPresetLibraryTab\(pending\.sessionId\)/)
-  assert.match(sidebar, /先选择至少一项预设，再进入工作台/)
+  assert.doesNotMatch(recovery, /pending\.task === "boundary"/)
+  assert.match(sidebar, /先选择至少一项资料，再进入工作台修改工作版/)
   assert.doesNotMatch(sidebar, /newCardConversation\(null, "extract", "从素材新建人物卡"\);/)
 })
 
@@ -252,7 +253,7 @@ test('卡片任务只在创建对话时追加提示词，不占用输入框上�
   assert.match(clientSource, /card && card\.path/)
   assert.match(clientSource, /@\\"/)
   assert.match(clientSource, /input\.setDraft\(taskText \+ supplement\)/)
-  assert.match(clientSource, /task === "boundary" \? "\\n\\n【初始预设】\\n" : "\\n\\n【初始资料】\\n"/)
+  assert.match(clientSource, /hasInitialResources \? "\\n\\n【初始资料】\\n" : ""/)
   assert.doesNotMatch(clientSource, /【补充要求】/)
   assert.doesNotMatch(clientSource, /function CardTaskDockActions/)
   assert.doesNotMatch(clientSource, /id: "dsh-tavern-card-tasks"/)
@@ -311,29 +312,23 @@ test('左侧栏提供一键更新并展示 CLI 与 Desktop 的不同完成提示
   assert.match(serverSource, /case 'startUpdate'/)
 })
 
-test('破甲侧栏只负责文件查看、选择、删除和当前会话开关', () => {
-  const panel = between(clientSource, 'function BoundaryPromptTab', 'function TavernStatusPanel')
-
-  assert.match(clientSource, /id: "dsh-tavern:boundary-prompts"/)
-  assert.match(clientSource, /title: "破甲库"/)
-  assert.match(panel, /rpc\("listBoundaryPrompts"/)
-  assert.match(panel, /rpc\("selectBoundaryPrompt"/)
-  assert.match(panel, /rpc\("deleteBoundaryPrompt"/)
-  assert.match(panel, /当前会话的所有模型任务/)
-  assert.match(panel, /制作、提取和修改请进入卡片工作台/)
-  assert.doesNotMatch(panel, /saveBoundaryPrompt|inspectBoundaryPreset|importBoundaryPreset|导入酒馆预设/)
-  assert.doesNotMatch(panel, /人物卡.*写入|updateCard/)
+test('旧破甲侧栏、RPC 和卡片入口已删除', () => {
+  assert.doesNotMatch(clientSource, /BoundaryPromptTab|listBoundaryPrompts|从预设提取破甲/)
+  assert.equal((clientSource.match(/dsh-tavern:boundary-prompts/g) || []).length, 1)
+  assert.doesNotMatch(serverSource, /createBoundaryPromptModule|listBoundaryPrompts|tavern_update_boundary_prompt/)
+  assert.match(clientSource, /tab\.type === "dsh-tavern:boundary-prompts".*retiredTabs\.push/)
+  assert.match(clientSource, /betterSidebar\.closeTab\(tabId/)
 })
 
 test('卡片编辑读取保留人物卡宏，只在游玩投影中展开', () => {
   const cardReader = between(serverSource, "name: 'tavern_read_card'", "name: 'tavern_read_card_raw'")
-  const worldBookReader = between(serverSource, "name: 'tavern_read_worldbook'", "name: 'tavern_read_boundary_prompt'")
+  const worldBookReader = between(serverSource, "name: 'tavern_read_worldbook'", "name: 'tavern_update_card'")
 
   assert.doesNotMatch(cardReader, /projectCardMacros|projectCardText/)
   assert.doesNotMatch(worldBookReader, /projectCardMacros|projectCardText/)
 })
 
-test('预设库独立导入并按原始顺序只读展示提示词条目', () => {
+test('实验预设库只保留导入和阅读，运行时效果全部禁用', () => {
   const panel = between(clientSource, 'function PresetLibraryTab', 'function CardLibraryTab')
 
   assert.match(clientSource, /id: "dsh-tavern:presets"/)
@@ -344,23 +339,32 @@ test('预设库独立导入并按原始顺序只读展示提示词条目', () =>
   assert.match(panel, /rpc\("deletePreset"/)
   assert.match(panel, /SYSTEM|role\.toUpperCase/)
   assert.match(panel, /占位/)
-  assert.match(panel, /已启用|已关闭/)
+  assert.match(panel, /rpc\("disableAllPresets"/)
+  assert.match(panel, /提示词注入和预设正则匹配均已禁用/)
+  assert.match(panel, /不产生任何运行时效果/)
+  assert.match(panel, /presetEffectsDisabled/)
   assert.match(panel, /正则脚本/)
+  assert.match(panel, /运行时状态/)
+  assert.match(panel, /已禁用/)
   assert.match(panel, /regexScripts/)
   assert.match(panel, /查找正则/)
   assert.match(panel, /替换内容/)
   assert.match(serverSource, /regexCount: preset\.regexCount/)
   assert.match(serverSource, /enabledRegexCount: preset\.enabledRegexCount/)
+  assert.match(serverSource, /case 'savePresetPlan'/)
+  assert.match(serverSource, /case 'applyPresetPlan'/)
+  assert.match(serverSource, /不能应用配置方案/)
   assert.match(panel, /props\.appendMention\("preset", item\.path, item\.title\)/)
+  assert.ok(panel.indexOf('"提示词条目 · "') < panel.indexOf('"正则脚本 · "'))
   assert.doesNotMatch(panel, /updatePreset|exportPreset|dragstart|draggable/)
 })
 
-test('卡片模式预加载四个库，并让资料库保持选中', () => {
+test('卡片模式预加载三个库，并让资料库保持选中', () => {
   assert.match(clientSource, /readyCardSession/)
   assert.match(clientSource, /props\.openCardLibraryTab\(readyCardSession\)/)
   assert.match(clientSource, /props\.openResourcesTab\(readyCardSession\)/)
   assert.match(clientSource, /props\.openPresetLibraryTab\(readyCardSession\)/)
-  assert.match(clientSource, /props\.openBoundaryLibraryTab\(readyCardSession\)/)
+  assert.doesNotMatch(clientSource, /openBoundaryLibraryTab/)
   assert.ok(clientSource.indexOf('props.openCardLibraryTab(readyCardSession)') < clientSource.indexOf('props.openResourcesTab(readyCardSession)'))
   assert.match(clientSource, /openCardLibraryTab: function \(sessionId\) \{ ctx\.betterSidebar\.openTab\(\{ type: "dsh-tavern:cards" \}/)
   assert.match(clientSource, /ctx\.betterSidebar\.updateTab\("dsh-tavern:cards", \{ meta: null \}\)/)

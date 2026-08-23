@@ -1,11 +1,9 @@
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { createBackgroundAgentRunner } from './background-agent-runner.js'
 import { createApplicationUpdater } from './application-updater.js'
 import { createCandidateGenerator } from './domain/candidate-generation.js'
 import { waitForAgentSession } from './domain/agent-readiness.js'
-import { createBoundaryPromptModule } from './domain/boundary-prompts.js'
 import { createCardDeletion } from './domain/card-deletion.js'
 import { createCardPreparation } from './domain/card-preparation.js'
 import { cardOpeningChoices, resolveCardOpening } from './domain/card-openings.js'
@@ -14,7 +12,8 @@ import { createContextPlanner } from './domain/context-planner.js'
 import { extractEpubText } from './domain/epub-text.js'
 import { createFileResourceStore, normalizeResourcePath, resourceKind } from './domain/file-resources.js'
 import { inspectPreset } from './domain/preset-reading.js'
-import { projectReplyPresentation } from './domain/reply-presentation.js'
+import { createRuntimePresetModule } from './domain/runtime-presets.js'
+import { projectReplyHistory, projectReplyPresentation } from './domain/reply-presentation.js'
 import { projectRuntimeContent } from './domain/runtime-content-projection.js'
 import { createScriptContinuity } from './domain/script-continuity.js'
 import { filterSkillMessages } from './domain/skill-visibility.js'
@@ -139,15 +138,7 @@ export async function apply(ctx) {
     if (typeof opts.temperature === 'number' && sel.provider !== 'openai-codex') cfg.temperature = opts.temperature
     if (typeof opts.maxTokens === 'number') cfg.maxTokens = opts.maxTokens
     const prepared = await llm.prepareCall(cfg)
-    let system = opts.system
-    let boundaryPrompt = null
-    try {
-      boundaryPrompt = await resolveProjectedBoundaryPrompt({ sessionId: opts.sessionId, operation: opts.operation || 'model-call' })
-      if (boundaryPrompt !== null) system = [system, boundaryPrompt.text].filter(function (item) { return typeof item === 'string' && item !== '' }).join('\n\n')
-    } catch (error) {
-      console.error('dsh-tavern: 模型调用读取破甲方案失败，继续以未注入方式运行', error)
-    }
-    const options = Object.assign({}, prepared.config, { messages: opts.messages, system })
+    const options = Object.assign({}, prepared.config, { messages: opts.messages, system: opts.system })
     let text = ''
     let finish = null
     try {
@@ -167,10 +158,6 @@ export async function apply(ctx) {
     }
     const out = text.trim()
     if (out === '') throw new Error('模型返回为空')
-    if (boundaryPrompt !== null) {
-      try { await boundaryPrompts.recordInjection({ sessionId: opts.sessionId, filename: boundaryPrompt.filename, operation: opts.operation || 'model-call', turn: opts.turn }) }
-      catch (error) { console.error('dsh-tavern: 记录模型调用破甲注入失败', error) }
-    }
     return out
   }
 
@@ -230,7 +217,7 @@ export async function apply(ctx) {
   const cardTaskPrompts = Object.freeze({
     edit: 'card-task-edit',
     extract: 'card-task-extract',
-    boundary: 'card-task-boundary'
+    material: 'card-task-material'
   })
   async function readCardWorkspace(cardPath) {
     if (str(cardPath) === '') return undefined
@@ -325,35 +312,62 @@ export async function apply(ctx) {
     if (text === undefined) return undefined
     return Object.assign({ path: normalized, previewPath: fileResources.absolute(normalized) }, inspectPreset(text, normalized))
   }
+  const runtimePresets = createRuntimePresetModule({
+    listPaths: async function () { return await fileResources.list('preset') },
+    readPreset,
+    readState: async function () { return await readJson('runtime-presets.json') },
+    updateState: async function (updater) { return await profileData.updateJson('runtime-presets.json', updater) },
+    now: Date.now
+  })
   async function listPresets() {
-    return await Promise.all((await fileResources.list('preset')).map(async function (presetPath) {
-      const preset = await readPreset(presetPath)
-      return {
+    const result = []
+    const inspectedPresets = []
+    for (const presetPath of await fileResources.list('preset')) {
+      const inspected = await readPreset(presetPath)
+      if (inspected.valid && (inspected.recognized || inspected.regexCount > 0)) await runtimePresets.register(presetPath)
+      inspectedPresets.push({ path: presetPath, inspected })
+    }
+    const runtimeState = await runtimePresets.state()
+    const order = new Map(runtimeState.presetOrder.map(function (path, index) { return [path, index] }))
+    inspectedPresets.sort(function (left, right) {
+      const leftOrder = order.has(left.path) ? order.get(left.path) : Number.MAX_SAFE_INTEGER
+      const rightOrder = order.has(right.path) ? order.get(right.path) : Number.MAX_SAFE_INTEGER
+      return leftOrder - rightOrder
+    })
+    for (const record of inspectedPresets) {
+      const presetPath = record.path
+      const inspected = record.inspected
+      const preset = inspected.valid && (inspected.recognized || inspected.regexCount > 0) ? await runtimePresets.view(presetPath) : inspected
+      result.push({
         path: preset.path,
         previewPath: preset.previewPath,
         title: preset.title,
         valid: preset.valid,
         recognized: preset.recognized,
         promptCount: preset.promptCount,
-        enabledCount: preset.enabledCount,
+        enabledCount: preset.enabledCount || 0,
+        enabledCharacters: preset.enabledCharacters || 0,
         regexCount: preset.regexCount,
-        enabledRegexCount: preset.enabledRegexCount,
+        enabledRegexCount: preset.enabledRegexCount || 0,
         warning: preset.warning,
         error: preset.error
-      }
-    }))
+      })
+    }
+    return result
   }
   async function importPreset(payload) {
     const prepared = prepareTextImport(payload, '预设文件为空')
     const inspected = inspectPreset(prepared.text, prepared.name)
     if (!inspected.valid) throw new Error(inspected.error)
     const presetPath = await fileResources.importText('preset', prepared)
-    return await readPreset(presetPath)
+    if (inspected.recognized || inspected.regexCount > 0) await runtimePresets.register(presetPath)
+    return inspected.recognized || inspected.regexCount > 0 ? await runtimePresets.view(presetPath) : await readPreset(presetPath)
   }
   async function renameResource(resourcePath, name) {
     const oldPath = normalizeResourcePath(resourcePath)
     const kind = resourceKind(oldPath)
     const renamed = await fileResources.rename(oldPath, name)
+    if (kind === 'preset') await runtimePresets.rename(renamed.oldPath, renamed.path)
     const replacements = new Map([[renamed.oldPath, renamed.path]])
     if (renamed.scriptOldPath && renamed.scriptPath) replacements.set(renamed.scriptOldPath, renamed.scriptPath)
     const idx = await readIndex()
@@ -365,6 +379,16 @@ export async function apply(ctx) {
         chat.cardPath = replacements.get(chat.cardPath)
         row.cardPath = chat.cardPath
         changed = true
+      }
+      if (kind === 'preset') {
+        if (chat.runtimePresetPath === renamed.oldPath) { chat.runtimePresetPath = renamed.path; changed = true }
+        if (chat.runtimePresetSnapshot && typeof chat.runtimePresetSnapshot === 'object') {
+          const snapshot = chat.runtimePresetSnapshot
+          if (snapshot.presetPath === renamed.oldPath) { snapshot.presetPath = renamed.path; changed = true }
+          for (const source of (snapshot.sources || []).concat(snapshot.regexSources || [])) {
+            if (source && source.path === renamed.oldPath) { source.path = renamed.path; changed = true }
+          }
+        }
       }
       if (chat.workspace && typeof chat.workspace === 'object') {
         const nextSources = (chat.workspace.sourcePaths || []).map(function (item) { return replacements.get(item) || item })
@@ -399,7 +423,12 @@ export async function apply(ctx) {
     return { removed: normalized }
   }
   async function deleteResource(resourcePath) { return await deleteLibraryResource(resourcePath, 'source') }
-  async function deletePreset(resourcePath) { return await deleteLibraryResource(resourcePath, 'preset') }
+  async function deletePreset(resourcePath) {
+    const normalized = normalizeResourcePath(resourcePath, 'preset')
+    const result = await deleteLibraryResource(normalized, 'preset')
+    await runtimePresets.remove(normalized)
+    return result
+  }
   function emptyCardWorkspace() {
     return { mountedResources: [], sourcePaths: [], cursor: 0, prepared: null, done: false, player: '', draft: { name: '', description: '', personality: '', scenario: '', first_mes: '', mes_example: '', system_prompt: '', post_history_instructions: '', creator_notes: '', tags: [], alternate_greetings: [] } }
   }
@@ -544,7 +573,7 @@ export async function apply(ctx) {
       posture: '',
       sessionId: '',
       guides: [],
-      boundaryPrompt: { enabled: false, filename: '' },
+      runtimePresetSnapshot: null,
       macroState: { userName: '你', local: {}, global: {} },
       settleStatus: 'idle',
       settleError: null,
@@ -648,6 +677,21 @@ export async function apply(ctx) {
         scriptProgress = scriptContinuity.inspect({ script: script, state: chat.scriptState, request: { kind: 'progress' } })
       }
     }
+    let replyDisplay = { projections: replyProjectionsOf(chat), presentation: null, latestSourceBacked: false }
+    if ((chat.mode || 'story') === 'story' || (chat.mode || 'story') === 'script') {
+      const extensions = await readCardExtensions(chat.cardPath)
+      replyDisplay = projectReplyHistory(chat.messages, {
+        regexScripts: Array.isArray(extensions && extensions.regexScripts) ? extensions.regexScripts : [],
+        placement: 2,
+        isMarkdown: true,
+        isEdit: false,
+        depth: 0
+      })
+    }
+    const storedPresentation = presentationViewOf(chat)
+    const livePresentation = replyDisplay.presentation !== null
+      ? replyDisplay.presentation
+      : (replyDisplay.latestSourceBacked && storedPresentation && storedPresentation.source === 'reply' ? null : storedPresentation)
     return {
       chatId: chat.id,
       mode: chat.mode || 'story',
@@ -655,8 +699,8 @@ export async function apply(ctx) {
       card: cardViewOf(card, chat),
       posture: chat.posture || '',
       guides: Array.isArray(chat.guides) ? chat.guides : [],
-      presentation: presentationViewOf(chat),
-      replyProjections: replyProjectionsOf(chat),
+      presentation: livePresentation,
+      replyProjections: replyDisplay.projections,
       presentationWarnings: Array.isArray(chat.presentationWarnings) ? chat.presentationWarnings : [],
       settleStatus: chat.settleStatus || 'idle',
       scriptProgress: scriptProgress,
@@ -723,6 +767,8 @@ export async function apply(ctx) {
     // 再落盘 Tavern 对话，避免失败时留下只有映射、没有原生开场白的半初始化记录。
     const openingAgent = typeof sessionId === 'string' && sessionId !== '' && greeting !== '' ? await waitForAgentSession({ registry: agentRegistry, sessionId: sessionId, sleep: sleep }) : undefined
     const chat = newChat(card, chatMode || 'story')
+    chat.runtimePresetSnapshot = null
+    chat.runtimePresetPath = ''
     chat.macroState = macroState
     chat.openingText = greeting
     chat.presentationWarnings = openingProjection.warnings
@@ -849,34 +895,52 @@ export async function apply(ctx) {
     if (isCard) result.workspace = workspaceViewOf(chat)
     return result
   }
-  const boundaryPrompts = createBoundaryPromptModule({
-    directory: dataRoot + '/boundary-prompts',
-    defaults: [{
-      filename: 'DeepSeek-V4-Flash-推荐.md',
-      text: await readFile(sourceRoot + '/defaults/boundary-prompts/DeepSeek-V4-Flash-推荐.md', 'utf8')
-    }],
-    readChat: chatForSession,
-    writeChat,
-    now: Date.now
-  })
-  async function resolveProjectedBoundaryPrompt(input) {
-    const selected = await boundaryPrompts.resolve(input)
-    if (selected === null) return null
-    const chat = await chatForSession(input.sessionId)
-    const card = chat === undefined ? null : await readChatCard(chat).catch(function () { return null })
-    const projected = projectRuntimeContent(selected.text, {
-      policy: 'play',
-      charName: str(card && card.name || chat && chat.cardName),
-      macroState: chat && chat.macroState
-    })
-    return Object.assign({}, selected, { text: projected.agentText, warnings: projected.warnings })
-  }
   const contextPlanner = createContextPlanner({ prompt: prompt, callModel: callModel, now: Date.now, logger: console })
   const backgroundAgentRunner = createBackgroundAgentRunner({
     agents: agentRegistry,
-    resolveBoundaryPrompt: resolveProjectedBoundaryPrompt,
-    onBoundaryPromptInjected: boundaryPrompts.recordInjection
+    flushSession: async function (session) {
+      const sessions = ctx.get('sessions')
+      if (sessions === undefined) throw new Error('dsh-tavern: 缺少 sessions 服务')
+      await sessions.flush(session)
+    },
+    resolveRuntimePresetSnapshot: async function () { return null }
   })
+  function presetPathForChat(chat) {
+    if (!chat || typeof chat !== 'object') return ''
+    const snapshot = chat.runtimePresetSnapshot
+    const direct = str(chat.runtimePresetPath) || str(snapshot && snapshot.presetPath)
+    if (direct !== '') return direct
+    for (const source of (snapshot && snapshot.sources || []).concat(snapshot && snapshot.regexSources || [])) {
+      const path = str(source && source.path)
+      if (path !== '') return path
+    }
+    return ''
+  }
+  let backgroundHistoryProjection = Promise.resolve()
+  function reprojectBackgroundHistories(presetPath) {
+    const path = str(presetPath)
+    const run = backgroundHistoryProjection.catch(function () {}).then(async function () {
+      const sessionMap = await readSessionMap()
+      const chatIds = Array.from(new Set(Object.values(sessionMap).map(str).filter(Boolean)))
+      let changed = 0
+      for (const chatId of chatIds) {
+        const chat = await readChat(chatId)
+        if (!chat || presetPathForChat(chat) !== path) continue
+        const participant = chat.timeline && chat.timeline.participants && chat.timeline.participants.background
+        const backgroundSessionId = str(participant && participant.sessionId) || str(chat.candidateAgent && chat.candidateAgent.sessionId)
+        if (backgroundSessionId === '') continue
+        try {
+          const result = await backgroundAgentRunner.reproject({ sessionId: backgroundSessionId, regexScripts: [] })
+          changed += Number(result.changed) || 0
+        } catch (error) {
+          console.warn('dsh-tavern: 后台历史正则投影失败，已跳过 ' + backgroundSessionId + ':', str(error && error.message || error))
+        }
+      }
+      return changed
+    })
+    backgroundHistoryProjection = run
+    return run
+  }
   const candidateGenerator = createCandidateGenerator({
     store: {
       chatForSession: chatForSession,
@@ -1029,6 +1093,7 @@ export async function apply(ctx) {
               messages: [{
                 id: 'settle-' + Date.now().toString(36),
                 role: 'user',
+                regexPlacement: 2,
                 content: [{ type: 'text', text: settleUserText(snapshot) }],
                 source: { kind: 'plugin', plugin: 'dsh-tavern' }
               }],
@@ -1185,12 +1250,21 @@ export async function apply(ctx) {
       return renderCardText(text, { name: chat.cardName }, chat.macroState)
     },
     projectReply: projectReplyPresentation,
+    resolvePresetRegexScripts: async function (chat) {
+      return []
+    },
     queueSettlement,
     now: Date.now,
     shellToolName: process.platform === 'win32' ? 'pwsh' : 'bash'
   })
 
   await fileResources.migrateLegacy(await readIndex(), readJson, writeIndex, readChat, writeChat)
+  const startupPresetState = await runtimePresets.state()
+  if (str(startupPresetState.activePreset) !== '') {
+    void reprojectBackgroundHistories(startupPresetState.activePreset).catch(function (error) {
+      console.warn('dsh-tavern: 启动时刷新后台历史失败:', str(error && error.message || error))
+    })
+  }
 
   // ---------- 重新生成正文（生成即替换，无确认） ----------
   async function regenBody(chatId, guidance, sessionId) {
@@ -1488,11 +1562,64 @@ export async function apply(ctx) {
       }
       case 'getResourceWorkspace': return { path: dataRoot + '/resources' }
       case 'listResources': return await listTavernResources()
-      case 'listPresets': return { presets: await listPresets() }
+      case 'listPresets': {
+        const presets = await listPresets()
+        const runtimePresetState = await runtimePresets.state()
+        const presetPlans = await runtimePresets.plans()
+        const activePreset = presets.find(function (preset) { return preset.path === runtimePresetState.activePreset })
+        return {
+          presets,
+          runtimePresetState,
+          presetPlans,
+          activePreset: runtimePresetState.activePreset || '',
+          activePresetTitle: activePreset && activePreset.title || '',
+          enabledCount: activePreset && activePreset.enabledCount || 0,
+          enabledCharacters: activePreset && activePreset.enabledCharacters || 0,
+          enabledRegexCount: activePreset && activePreset.enabledRegexCount || 0
+        }
+      }
       case 'getPreset': {
-        const preset = await readPreset(args && args.path)
+        const inspected = await readPreset(args && args.path)
+        const preset = inspected && inspected.valid && (inspected.recognized || inspected.regexCount > 0) ? await runtimePresets.view(inspected.path) : inspected
         if (preset === undefined) throw new Error('预设不存在: ' + (args && args.path))
         return { preset }
+      }
+      case 'togglePresetEntry': {
+        if (args && args.enabled === true) throw new Error('预设实验模块当前仅支持导入和查看，提示词注入已禁用')
+        await runtimePresets.toggle({ path: args && args.path, entryKey: args && args.entryKey, enabled: args && args.enabled === true })
+        return { preset: await runtimePresets.view(args && args.path) }
+      }
+      case 'selectPreset': {
+        if (str(args && args.path) !== '') throw new Error('预设实验模块当前没有运行时效果，不能启用预设')
+        await runtimePresets.select(args && args.path || '')
+        return { selected: args && args.path || '' }
+      }
+      case 'togglePresetRegex': {
+        if (args && args.enabled === true) throw new Error('预设实验模块当前仅支持导入和查看，预设正则匹配已禁用')
+        await runtimePresets.toggleRegex({ path: args && args.path, regexKey: args && args.regexKey, enabled: args && args.enabled === true })
+        const historicalChanges = await reprojectBackgroundHistories(args && args.path)
+        return { preset: await runtimePresets.view(args && args.path), historicalChanges }
+      }
+      case 'disablePreset': {
+        await runtimePresets.disablePreset(args && args.path)
+        return { preset: await runtimePresets.view(args && args.path) }
+      }
+      case 'disableAllPresets': {
+        await runtimePresets.disableAll()
+        return { disabled: true }
+      }
+      case 'savePresetPlan': {
+        return { plan: await runtimePresets.savePlan({ id: args && args.id, name: args && args.name }) }
+      }
+      case 'applyPresetPlan': {
+        throw new Error('预设实验模块当前没有运行时效果，不能应用配置方案')
+      }
+      case 'renamePresetPlan': {
+        return { plan: await runtimePresets.renamePlan(args && args.id, args && args.name) }
+      }
+      case 'deletePresetPlan': {
+        await runtimePresets.removePlan(args && args.id)
+        return { deleted: true }
       }
       case 'renameResource': return { resource: await renameResource(args && args.path, args && args.name) }
       case 'deleteResource': return await deleteResource(args && args.path)
@@ -1531,9 +1658,6 @@ export async function apply(ctx) {
       }
       case 'getSession': return { view: await sessionView(args && args.sessionId) }
       case 'setPlayerName': return { playerName: await setPlayerName(args && args.sessionId, args && args.userName) }
-      case 'listBoundaryPrompts': return { files: await boundaryPrompts.list(), selection: await boundaryPrompts.selection(args && args.sessionId) }
-      case 'deleteBoundaryPrompt': return await boundaryPrompts.remove(args && args.filename)
-      case 'selectBoundaryPrompt': return { selection: await boundaryPrompts.select({ sessionId: args && args.sessionId, enabled: args && args.enabled, filename: args && args.filename }) }
       case 'ensureOpening': return { view: await ensureNativeOpening(args && args.sessionId) }
       case 'getChoices': return { candidates: await candidateGenerator.find({ sessionId: args && args.sessionId, messageId: args && args.messageId }) }
       case 'generateChoices': {
@@ -1724,7 +1848,7 @@ export async function apply(ctx) {
     void turnOrchestrator.discard({ sessionId: session.id, turn: event.data && event.data.turn })
   })
 
-  const controlledToolNames = new Set(['bash', 'pwsh', 'str_replace_editor', 'skill', 'tavern_save_skill', 'tavern_read_card', 'tavern_read_card_raw', 'tavern_read_script', 'tavern_read_worldbook', 'tavern_read_boundary_prompt', 'tavern_update_boundary_prompt', 'tavern_update_card', 'tavern_restore_card'])
+  const controlledToolNames = new Set(['bash', 'pwsh', 'str_replace_editor', 'skill', 'tavern_save_skill', 'tavern_read_card', 'tavern_read_card_raw', 'tavern_read_script', 'tavern_read_worldbook', 'tavern_update_card', 'tavern_restore_card'])
   ctx.on('system-prompt/assemble', async function (_assembly, context, next) {
     const assembly = await next()
     const agent = context && context.agent
@@ -1732,29 +1856,14 @@ export async function apply(ctx) {
     if (backgroundAgentRunner.owns(agent.session.id)) return assembly
     const mode = await turnOrchestrator.modeFor(agent.session.id)
     const visible = new Set(await turnOrchestrator.visibleTools(agent.session.id))
-    const sections = [{
+    const sections = []
+    sections.push({
       name: 'tavern:mode-persona',
       text: prompt(mode === 'card' ? 'card-mode' : 'play-mode')
-    }]
+    })
     if (mode === 'card') {
       const workspaceContext = resourceWorkspaceContext(agent.session.header && agent.session.header.cwd)
       if (workspaceContext !== '') sections.push({ name: 'tavern:resource-workspace', text: workspaceContext })
-    }
-    try {
-      const boundaryPrompt = await resolveProjectedBoundaryPrompt({ sessionId: agent.session.id, operation: mode === 'card' ? 'card' : 'body' })
-      if (boundaryPrompt !== null) {
-        assembly.variables = Object.assign({}, assembly.variables, { tavern_boundary_prompt: boundaryPrompt.text })
-        sections.push({ name: 'tavern:boundary-prompt', text: '{{tavern_boundary_prompt}}' })
-        const phase = agent.phase
-        await boundaryPrompts.recordInjection({
-          sessionId: agent.session.id,
-          filename: boundaryPrompt.filename,
-          operation: mode === 'card' ? 'card' : 'body',
-          turn: phase && phase.kind === 'running' ? phase.turn : 0
-        })
-      }
-    } catch (error) {
-      console.error('dsh-tavern: 破甲方案注入失败，继续以未注入方式运行', error)
     }
     assembly.sections = sections
     assembly.tools = assembly.tools.filter(function (schema) { return !controlledToolNames.has(schema.name) || visible.has(schema.name) })
@@ -2010,87 +2119,6 @@ export async function apply(ctx) {
         if (windowResult === null) return { found: false, message: '当前人物卡没有世界书。', name: '', total: 0, entries: [] }
         if (windowResult.entries.length === 0) return { found: false, message: '没有找到符合条件的世界书条目。', name: windowResult.name, total: windowResult.total, entries: [] }
         return { found: true, message: '', name: str(windowResult.name), total: windowResult.total, entries: windowResult.entries }
-      }
-    }))
-
-    tools.register(defineTool({
-      name: 'tavern_read_boundary_prompt',
-      description: '在卡片工作台中列出破甲提示词文件，或读取指定 Markdown 文件的完整正文。',
-      parameters: {
-        filename: { type: 'string', description: '可选文件名，例如 DeepSeek-V4-Flash-推荐.md；省略时只列目录' }
-      },
-      output: {
-        schema: {
-          type: 'object', additionalProperties: false,
-          properties: {
-            found: { type: 'boolean', required: true },
-            message: { type: 'string', required: true },
-            files: {
-              type: 'array', required: true,
-              items: {
-                type: 'object', additionalProperties: false,
-                properties: {
-                  filename: { type: 'string', required: true },
-                  chars: { type: 'integer', required: true },
-                  text: { type: 'string', required: true }
-                }
-              }
-            }
-          }
-        },
-        render: function (_args, value) {
-          if (!value.found) return [{ type: 'text', text: value.message }]
-          return [{ type: 'text', text: value.files.map(function (file) {
-            return file.text === '' ? file.filename + ' · ' + file.chars + ' 字' : file.filename + ' · ' + file.chars + ' 字\n\n' + file.text
-          }).join('\n\n') }]
-        }
-      },
-      isConcurrencySafe: function () { return true },
-      async execute(args, exec) {
-        const sessionId = exec && exec.agent && exec.agent.session ? exec.agent.session.id : ''
-        const chat = await chatForSession(sessionId)
-        if (chat === undefined || (chat.mode || 'story') !== 'card') throw new Error('破甲提示词只能在卡片工作台中读取')
-        const filename = str(args.filename).trim()
-        if (filename !== '') {
-          const file = await boundaryPrompts.read(filename)
-          return file === null
-            ? { found: false, message: '破甲文件不存在: ' + filename, files: [] }
-            : { found: true, message: '', files: [{ filename: file.filename, chars: file.chars, text: file.text }] }
-        }
-        const files = await boundaryPrompts.list()
-        return files.length === 0
-          ? { found: false, message: '破甲目录中还没有 Markdown 文件。', files: [] }
-          : { found: true, message: '', files: files.map(function (file) { return { filename: file.filename, chars: file.chars, text: '' } }) }
-      }
-    }))
-
-    tools.register(defineTool({
-      name: 'tavern_update_boundary_prompt',
-      description: '仅当用户明确要求保存时，在专用目录创建或修改一个破甲 Markdown 文件。分析、讨论或导入预设时不要调用；修改同名文件必须明确 overwrite=true。',
-      parameters: {
-        name: { type: 'string', required: true, description: '文件名；可以省略 .md，推荐模型直接写在文件名中' },
-        text: { type: 'string', required: true, description: '确认后的完整提示词正文，将按原样保存' },
-        overwrite: { type: 'boolean', description: '同名文件已存在且用户明确要求修改时设为 true' }
-      },
-      output: {
-        schema: {
-          type: 'object', additionalProperties: false,
-          properties: {
-            filename: { type: 'string', required: true },
-            chars: { type: 'integer', required: true },
-            saved: { type: 'boolean', required: true }
-          }
-        },
-        render: function (_args, value) {
-          return [{ type: 'text', text: '破甲提示词已保存并立即出现在侧栏：' + value.filename + ' · ' + value.chars + ' 字；不会自动启用。' }]
-        }
-      },
-      async execute(args, exec) {
-        const sessionId = exec && exec.agent && exec.agent.session ? exec.agent.session.id : ''
-        const chat = await chatForSession(sessionId)
-        if (chat === undefined || (chat.mode || 'story') !== 'card') throw new Error('破甲提示词只能在卡片工作台中修改')
-        const file = await boundaryPrompts.write({ name: args.name, text: args.text, overwrite: args.overwrite === true })
-        return { filename: file.filename, chars: file.chars, saved: true }
       }
     }))
 

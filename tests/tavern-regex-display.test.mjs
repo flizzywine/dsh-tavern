@@ -155,3 +155,20 @@ test('非展示规则、禁用规则和不匹配 placement 的规则不会执行
   assert.equal(result.changed, false)
   assert.equal(result.text, '进入校园')
 })
+
+test('promptOnly 与 markdownOnly 遵循酒馆的四种临时处理组合', () => {
+  const cases = [
+    { promptOnly: false, markdownOnly: false, display: true, prompt: true },
+    { promptOnly: true, markdownOnly: false, display: false, prompt: true },
+    { promptOnly: false, markdownOnly: true, display: true, prompt: false },
+    { promptOnly: true, markdownOnly: true, display: true, prompt: true }
+  ]
+
+  for (const item of cases) {
+    const script = { ...displayScript('测试规则', '校园', '<b>校园</b>'), promptOnly: item.promptOnly, markdownOnly: item.markdownOnly }
+    const display = renderTavernRegexDisplay('进入校园以后', [script], { placement: 2, isMarkdown: true })
+    const prompt = renderTavernRegexDisplay('进入校园以后', [script], { placement: 2, isMarkdown: false })
+    assert.equal(display.changed, item.display, JSON.stringify(item) + ' display')
+    assert.equal(prompt.changed, item.prompt, JSON.stringify(item) + ' prompt')
+  }
+})

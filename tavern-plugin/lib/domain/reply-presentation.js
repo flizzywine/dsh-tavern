@@ -73,4 +73,37 @@ export function projectReplyPresentation(value, options = {}) {
     appliedRegexes: regex.applied
   }
 }
+
+/** Rebuild the visible transcript from authoritative reply sources. */
+export function projectReplyHistory(messages, options = {}) {
+  const projections = []
+  let presentation = null
+  let inferredTurn = 1
+  let latestSourceBacked = false
+  for (const message of Array.isArray(messages) ? messages : []) {
+    if (message === null || typeof message !== 'object') continue
+    if (message.role === 'user') {
+      inferredTurn += 1
+      continue
+    }
+    if (message.role !== 'assistant' || message.greeting === true) continue
+    const turn = Math.max(0, Number(message.turn) || inferredTurn)
+    if (turn === 0) continue
+    const hasSource = Object.prototype.hasOwnProperty.call(message, 'sourceText')
+    const source = hasSource ? str(message.sourceText) : str(message.text)
+    const projected = projectReplyPresentation(source, options)
+    if (hasSource || projected.bodyText !== cleanBody(source)) projections.push({ turn, text: projected.bodyText })
+    if (projected.presentationHtml !== '') {
+      presentation = {
+        html: projected.presentationHtml,
+        source: 'reply',
+        turn,
+        warnings: projected.warnings,
+        updatedAt: Number(message.ts) || 0
+      }
+    }
+    latestSourceBacked = hasSource
+  }
+  return { projections, presentation, latestSourceBacked }
+}
 import { renderTavernRegexDisplay } from './tavern-regex-display.js'

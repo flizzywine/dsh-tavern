@@ -37,6 +37,8 @@ test('兼容缺少 prompt_order 和合法但未知的 JSON', () => {
   assert.equal(unordered.recognized, true)
   assert.equal(unordered.entries.length, 1)
   assert.equal(unordered.entries[0].identifier, 'prompt-1')
+  assert.equal(unordered.entries[0].entryKey, 'prompt-1#1')
+  assert.equal(unordered.entries[0].injectable, true)
   assert.equal(unordered.entries[0].role, 'system')
 
   const unknown = inspectPreset('{"custom_format":true}', '其他预设.json')
@@ -44,6 +46,19 @@ test('兼容缺少 prompt_order 和合法但未知的 JSON', () => {
   assert.equal(unknown.recognized, false)
   assert.deepEqual(unknown.rootKeys, ['custom_format'])
   assert.match(unknown.warning, /尚未识别/)
+})
+
+test('重复 identifier 获得稳定且互不冲突的条目标识', () => {
+  const result = inspectPreset(JSON.stringify({
+    prompts: [
+      { identifier: 'same', content: '第一条' },
+      { identifier: 'same', content: '第二条' },
+      { identifier: 'placeholder', marker: true, content: '' }
+    ]
+  }), '重复标识.json')
+
+  assert.deepEqual(result.entries.map(function (entry) { return entry.entryKey }), ['same#1', 'same#2', 'placeholder#1'])
+  assert.deepEqual(result.entries.map(function (entry) { return entry.injectable }), [true, true, false])
 })
 
 test('损坏 JSON 返回可展示错误而不抛出解析异常', () => {

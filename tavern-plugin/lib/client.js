@@ -160,6 +160,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 .dsh-tavern-preset-row-main span { display: block; margin-top: 3px; color: var(--dsw-alias-label-secondary); font-size: 10px; }
 .dsh-tavern-preset-detail { flex: 1; min-height: 0; overflow-y: auto; padding: 10px 12px 24px; }
 .dsh-tavern-preset-summary { margin-bottom: 10px; padding: 9px 10px; border: 1px solid rgba(166,107,53,.35); border-radius: 9px; background: rgba(166,107,53,.08); color: var(--dsw-alias-label-secondary); font-size: 11px; line-height: 1.5; }
+.dsh-tavern-preset-selector { display: grid; grid-template-columns: auto minmax(0,1fr); align-items: center; gap: 8px; margin-bottom: 10px; padding: 9px 10px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 9px; background: var(--dsw-specific-input-major); font-size: 11px; }
+.dsh-tavern-preset-selector select { min-width: 0; width: 100%; height: 28px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 6px; padding: 0 7px; background: var(--dsw-specific-input-major); color: inherit; }
 .dsh-tavern-preset-section-title { margin: 14px 2px 7px; color: var(--dsw-alias-label-secondary); font-size: 11px; font-weight: 800; letter-spacing: .04em; }
 .dsh-tavern-prompt-row { margin-bottom: 7px; border: 1px solid var(--dsw-alias-border-l2); border-left: 4px solid #5b9cff; border-radius: 9px; background: var(--dsw-specific-input-major); overflow: hidden; }
 .dsh-tavern-prompt-row.role-user { border-left-color: #35c76f; }
@@ -176,6 +178,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 .dsh-tavern-prompt-state { display: flex; align-items: center; gap: 5px; color: var(--dsw-alias-label-secondary); font-size: 9px; white-space: nowrap; }
 .dsh-tavern-prompt-state::before { width: 8px; height: 8px; border: 2px solid #23bd63; border-radius: 999px; content: ""; }
 .dsh-tavern-prompt-state.off::before { border-color: #91a0b5; }
+.dsh-tavern-prompt-source-state { color: var(--dsw-alias-label-secondary); font-size: 9px; line-height: 1.4; text-align: right; white-space: nowrap; }
 .dsh-tavern-prompt-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
 .dsh-tavern-prompt-tag { padding: 1px 5px; border-radius: 4px; background: rgba(237,151,20,.14); color: #c77800; font-size: 9px; }
 .dsh-tavern-prompt-content { margin: 0; padding: 10px 12px; border-top: 1px solid var(--dsw-alias-border-l2); color: var(--dsw-alias-label-secondary); font: 10px/1.55 ui-monospace, monospace; white-space: pre-wrap; word-break: break-word; }
@@ -190,19 +193,6 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 .dsh-tavern-mvu-kind { color: #a66b35; font-weight: 750; }
 .dsh-tavern-mvu-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dsh-tavern-mvu-state { color: var(--dsw-alias-label-tertiary); white-space: nowrap; }
-.dsh-tavern-boundary { height: 100%; box-sizing: border-box; display: flex; flex-direction: column; color: var(--dsw-alias-label-primary); background: var(--dsw-specific-sidebar-fill); }
-.dsh-tavern-boundary-body { flex: 1; min-height: 0; overflow-y: auto; padding: 12px 14px 24px; }
-.dsh-tavern-boundary-current { margin-bottom: 14px; padding: 11px; border: 1px solid rgba(166,107,53,.35); border-radius: 10px; background: rgba(166,107,53,.08); }
-.dsh-tavern-boundary-toggle { display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 700; }
-.dsh-tavern-boundary-current select { box-sizing: border-box; width: 100%; margin-top: 9px; padding: 7px 8px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 7px; background: var(--dsw-specific-input-major); color: inherit; }
-.dsh-tavern-boundary-status { margin-top: 7px; color: var(--dsw-alias-label-secondary); font-size: 10px; line-height: 1.5; }
-.dsh-tavern-boundary-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
-.dsh-tavern-boundary-row { margin-bottom: 8px; padding: 9px 10px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 9px; background: var(--dsw-alias-interactive-bg-hover); }
-.dsh-tavern-boundary-row.active { border-color: rgba(166,107,53,.65); }
-.dsh-tavern-boundary-row-head { display: flex; align-items: center; gap: 7px; }
-.dsh-tavern-boundary-row-head b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #a66b35; font-size: 12px; }
-.dsh-tavern-boundary-meta { margin-top: 5px; color: var(--dsw-alias-label-secondary); font-size: 10px; line-height: 1.5; white-space: pre-wrap; }
-.dsh-tavern-boundary-preview { max-height: 220px; overflow: auto; margin: 8px 0; padding: 8px; border-radius: 7px; background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-secondary); font: 10px/1.5 ui-monospace, monospace; white-space: pre-wrap; word-break: break-word; }
 .dsh-tavern-status-head { flex: none; padding: 16px 16px 12px; border-bottom: 1px solid var(--dsw-alias-border-l2); }
 .dsh-tavern-status-title { font-size: 15px; font-weight: 800; }
 .dsh-tavern-status-role { margin-top: 5px; color: #a66b35; font-size: 13px; font-weight: 700; }
@@ -604,7 +594,6 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				if (!readyCardSession) return;
 				if (typeof props.openCardLibraryTab === "function") props.openCardLibraryTab(readyCardSession);
 				if (typeof props.openPresetLibraryTab === "function") props.openPresetLibraryTab(readyCardSession);
-				if (typeof props.openBoundaryLibraryTab === "function") props.openBoundaryLibraryTab(readyCardSession);
 				if (typeof props.openResourcesTab === "function") props.openResourcesTab(readyCardSession);
 			}, [readyCardSession]);
 			function openPicker() {
@@ -622,11 +611,11 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			async function openResourcePicker(task) {
 				setBusy(true); setError("");
 				try {
-					const response = await call(task === "boundary" ? "listPresets" : "listResources");
-					const resources = task === "boundary" ? (response.presets || []) : (response.resources || []);
-					setInitialResources(resources.map(function (item) { return Object.assign({}, item, { kind: task === "boundary" ? "preset" : "source" }); }));
+					const response = await call("listResources");
+					const resources = response.resources || [];
+					setInitialResources(resources.map(function (item) { return Object.assign({}, item, { kind: "source" }); }));
 					setSelectedInitialResources({});
-					setCardEntry(task === "boundary" ? "boundary" : "extract");
+					setCardEntry(task);
 				} catch (err) { setError(String(err && err.message || err)); }
 				finally { setBusy(false); }
 			}
@@ -682,9 +671,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				if (pending.targetMode === "card") {
 					if (typeof props.openCardLibraryTab === "function") props.openCardLibraryTab(pending.sessionId);
 					if (typeof props.openPresetLibraryTab === "function") props.openPresetLibraryTab(pending.sessionId);
-					if (typeof props.openBoundaryLibraryTab === "function") props.openBoundaryLibraryTab(pending.sessionId);
 					if (typeof props.openResourcesTab === "function") props.openResourcesTab(pending.sessionId);
-					if (pending.task === "boundary" && typeof props.openPresetLibraryTab === "function") props.openPresetLibraryTab(pending.sessionId);
 					if (pending.task) await props.injectTaskPrompt(pending.sessionId, pending.task, pending.label, pending.card, (pending.selectedResources || []).length > 0);
 					(pending.selectedResources || []).forEach(function (resource) { props.appendMention(pending.sessionId, resource.kind, resource.path, resource.title); });
 				} else if (typeof props.openStatusTab === "function") props.openStatusTab(pending.sessionId);
@@ -905,19 +892,19 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				);
 			}
 			const initialResourcePicker = initialResources.length ? h(React.Fragment, null,
-				initialResourceGroup(cardEntry === "boundary" ? "预设" : "资料", initialResources),
+				initialResourceGroup("资料", initialResources),
 				h("div", { className: "dsh-tavern-picker-foot" }, h("button", { className: "dsh-tavern-question-primary", disabled: busy || !chosenInitialResources.length, onClick: function () {
-					if (cardEntry === "boundary") newCardConversation(null, "boundary", "从预设提取破甲", chosenInitialResources);
+					if (cardEntry === "material") newCardConversation(null, "material", "修改资料", chosenInitialResources);
 					else newCardConversation(null, "extract", "从资料新建人物卡", chosenInitialResources);
 				} }, "用已选 " + chosenInitialResources.length + " 项开始"))
-			) : h("div", { className: "dsh-tavern-empty" }, cardEntry === "boundary" ? "预设库暂无内容。请先从右侧预设库导入。" : "资料库暂无内容。请先空白开始，再从右侧资料库导入。");
+			) : h("div", { className: "dsh-tavern-empty" }, "资料库暂无内容。请先从右侧资料库导入。");
 			const cardPicker = h("div", { className: "dsh-tavern-card-picker", role: "dialog", "aria-modal": "true", "aria-label": "选择卡片工作台起始任务" }, pickerError,
-				h("div", { className: "dsh-tavern-card-picker-head" }, cardEntry ? h("button", { className: "dsh-tavern-btn", onClick: function () { setCardEntry(""); } }, "← 返回") : h("span", null, "选择起始任务"), cardEntry === "extract" || cardEntry === "boundary" ? h("span", null, cardEntry === "boundary" ? "选择初始预设（至少 1 项）" : "选择初始资料（至少 1 项）") : null, h("span", { className: "dsh-tavern-spacer" }), cardEntry === "edit" ? h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { fileRef.current && fileRef.current.click(); } }, "导入人物卡") : null, h("button", { className: "dsh-tavern-btn", onClick: closePicker }, "关闭")),
+				h("div", { className: "dsh-tavern-card-picker-head" }, cardEntry ? h("button", { className: "dsh-tavern-btn", onClick: function () { setCardEntry(""); } }, "← 返回") : h("span", null, "选择起始任务"), cardEntry === "extract" || cardEntry === "material" ? h("span", null, "选择初始资料（至少 1 项）") : null, h("span", { className: "dsh-tavern-spacer" }), cardEntry === "edit" ? h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { fileRef.current && fileRef.current.click(); } }, "导入人物卡") : null, h("button", { className: "dsh-tavern-btn", onClick: closePicker }, "关闭")),
 				h("input", { ref: fileRef, type: "file", accept: ".png,.json", style: { display: "none" }, onChange: function (e) { const f = e.target.files && e.target.files[0]; if (f) importCard(f); e.target.value = ""; } }),
-				cardEntry === "edit" ? cardEditRows : cardEntry === "extract" || cardEntry === "boundary" ? initialResourcePicker : h(React.Fragment, null,
+				cardEntry === "edit" ? cardEditRows : cardEntry === "extract" || cardEntry === "material" ? initialResourcePicker : h(React.Fragment, null,
 					h("button", { className: "dsh-tavern-card-pick", disabled: busy, onClick: function () { setCardEntry("edit"); } }, h("b", null, "修改人物卡"), h("span", null, "先选择人物卡，再追加修改任务提示词")),
 					h("button", { className: "dsh-tavern-card-pick", disabled: busy, onClick: function () { openResourcePicker("extract"); } }, h("b", null, "从资料新建人物卡"), h("span", null, "先选择至少一项资料，再进入工作台")),
-					h("button", { className: "dsh-tavern-card-pick", disabled: busy, onClick: function () { openResourcePicker("boundary"); } }, h("b", null, "从预设提取破甲"), h("span", null, "先选择至少一项预设，再进入工作台")),
+					h("button", { className: "dsh-tavern-card-pick", disabled: busy, onClick: function () { openResourcePicker("material"); } }, h("b", null, "修改资料"), h("span", null, "先选择至少一项资料，再进入工作台修改工作版")),
 					h("button", { className: "dsh-tavern-card-pick", disabled: busy, onClick: function () { newCardConversation(null); } }, h("b", null, "空白开始"), h("span", null, "不追加任务提示词，自由使用完整卡片 Agent"))
 				)
 			);
@@ -1023,14 +1010,27 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		}
 
 		function PresetLibraryTab(props) {
+			const presetEffectsDisabled = true;
 			const [presets, setPresets] = React.useState([]);
 			const [preset, setPreset] = React.useState(null);
+			const [runtimeSummary, setRuntimeSummary] = React.useState({ activePreset: "", activePresetTitle: "", enabledCount: 0, enabledCharacters: 0, enabledRegexCount: 0, lastError: null });
+			const [presetPlans, setPresetPlans] = React.useState([]);
+			const [selectedPlanId, setSelectedPlanId] = React.useState("");
+			const [tutorialOpen, setTutorialOpen] = React.useState(function () { return window.localStorage.getItem("dsh-tavern-preset-tutorial") !== "closed"; });
 			const [busy, setBusy] = React.useState(false);
 			const [error, setError] = usePersistentError("预设库");
 			const importInput = React.useRef(null);
 			const sessionMode = useTavernSessionMode(props.scope.sessionId);
 			function refresh() {
-				return rpc("listPresets", {}, props.scope.sessionId).then(function (result) { setPresets(result.presets || []); setError(""); return result.presets || []; }, function (err) { setError(String(err && err.message || err)); return []; });
+				return rpc("listPresets", {}, props.scope.sessionId).then(function (result) {
+					setPresets(result.presets || []);
+					const plans = result.presetPlans || [];
+					setPresetPlans(plans);
+					setSelectedPlanId(function (current) { return plans.some(function (plan) { return plan.id === current; }) ? current : (plans[0] && plans[0].id || ""); });
+					setRuntimeSummary({ activePreset: result.activePreset || "", activePresetTitle: result.activePresetTitle || "", enabledCount: result.enabledCount || 0, enabledCharacters: result.enabledCharacters || 0, enabledRegexCount: result.enabledRegexCount || 0, lastError: result.runtimePresetState && result.runtimePresetState.lastError || null });
+					setError("");
+					return result.presets || [];
+				}, function (err) { setError(String(err && err.message || err)); return []; });
 			}
 			function loadPreset(path) {
 				setError("");
@@ -1068,6 +1068,104 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				} catch (err) { setError(String(err && err.message || err)); }
 				finally { setBusy(false); }
 			}
+			async function toggleEntry(entry, enabled) {
+				if (enabled && !window.confirm("外部预设内容可能破坏系统正常行为，请谨慎开启。\n\n确认勾选“" + entry.name + "”？")) return;
+				setBusy(true); setError("");
+				try {
+					const result = await rpc("togglePresetEntry", { path: preset.path, entryKey: entry.entryKey, enabled: enabled }, props.scope.sessionId);
+					setPreset(result.preset || null);
+					await refresh();
+				} catch (err) { setError(String(err && err.message || err)); }
+				finally { setBusy(false); }
+			}
+			async function selectPreset(path) {
+				if (path && !window.confirm("外部预设内容可能破坏系统正常行为，请谨慎开启。\n\n确认启用这个预设？")) {
+					setRuntimeSummary(function (current) { return Object.assign({}, current); });
+					return;
+				}
+				setBusy(true); setError("");
+				try {
+					await rpc("selectPreset", { path: path }, props.scope.sessionId);
+					await refresh();
+					if (preset) await loadPreset(preset.path);
+				} catch (err) { setError(String(err && err.message || err)); }
+				finally { setBusy(false); }
+			}
+			async function toggleRegex(script, enabled) {
+				if (enabled && !window.confirm("外部预设内容可能破坏系统正常行为，请谨慎开启。\n\n确认勾选正则“" + script.name + "”？")) return;
+				setBusy(true); setError("");
+				try {
+					const result = await rpc("togglePresetRegex", { path: preset.path, regexKey: script.regexKey, enabled: enabled }, props.scope.sessionId);
+					setPreset(result.preset || null);
+					window.dispatchEvent(new CustomEvent("dsh-tavern-data-changed"));
+					await refresh();
+				} catch (err) { setError(String(err && err.message || err)); }
+				finally { setBusy(false); }
+			}
+			async function disableCurrentPreset() {
+				setBusy(true); setError("");
+				try { const result = await rpc("disablePreset", { path: preset.path }, props.scope.sessionId); setPreset(result.preset || null); window.dispatchEvent(new CustomEvent("dsh-tavern-data-changed")); await refresh(); }
+				catch (err) { setError(String(err && err.message || err)); }
+				finally { setBusy(false); }
+			}
+			async function disableAllPresets() {
+				setBusy(true); setError("");
+				try { await rpc("disableAllPresets", {}, props.scope.sessionId); if (preset) await loadPreset(preset.path); window.dispatchEvent(new CustomEvent("dsh-tavern-data-changed")); await refresh(); }
+				catch (err) { setError(String(err && err.message || err)); }
+				finally { setBusy(false); }
+			}
+			async function saveCurrentPlan() {
+				const suggested = runtimeSummary.activePresetTitle ? runtimeSummary.activePresetTitle + " · 配置" : "常用配置";
+				const name = window.prompt("保存当前配置为方案", suggested);
+				if (name === null || !name.trim()) return;
+				setBusy(true); setError("");
+				try {
+					const result = await rpc("savePresetPlan", { name: name.trim() }, props.scope.sessionId);
+					setSelectedPlanId(result.plan.id);
+					await refresh();
+				} catch (err) { setError(String(err && err.message || err)); }
+				finally { setBusy(false); }
+			}
+			async function applySelectedPlan() {
+				const plan = presetPlans.find(function (item) { return item.id === selectedPlanId; });
+				if (!plan) return;
+				if (!plan.valid) { setError(plan.error || "配置方案已失效"); return; }
+				if (!window.confirm("应用配置方案“" + plan.name + "”吗？\n提示词需新建对话后生效，正则会立即生效。")) return;
+				setBusy(true); setError("");
+				try {
+					await rpc("applyPresetPlan", { id: plan.id }, props.scope.sessionId);
+					window.dispatchEvent(new CustomEvent("dsh-tavern-data-changed"));
+					await refresh();
+					if (preset) await loadPreset(plan.presetPath);
+				} catch (err) { setError(String(err && err.message || err)); }
+				finally { setBusy(false); }
+			}
+			async function overwriteSelectedPlan() {
+				const plan = presetPlans.find(function (item) { return item.id === selectedPlanId; });
+				if (!plan || !window.confirm("用当前配置覆盖方案“" + plan.name + "”吗？")) return;
+				setBusy(true); setError("");
+				try { await rpc("savePresetPlan", { id: plan.id, name: plan.name }, props.scope.sessionId); await refresh(); }
+				catch (err) { setError(String(err && err.message || err)); }
+				finally { setBusy(false); }
+			}
+			async function renameSelectedPlan() {
+				const plan = presetPlans.find(function (item) { return item.id === selectedPlanId; });
+				if (!plan) return;
+				const name = window.prompt("重命名配置方案", plan.name);
+				if (name === null || !name.trim() || name.trim() === plan.name) return;
+				setBusy(true); setError("");
+				try { await rpc("renamePresetPlan", { id: plan.id, name: name.trim() }, props.scope.sessionId); await refresh(); }
+				catch (err) { setError(String(err && err.message || err)); }
+				finally { setBusy(false); }
+			}
+			async function deleteSelectedPlan() {
+				const plan = presetPlans.find(function (item) { return item.id === selectedPlanId; });
+				if (!plan || !window.confirm("删除配置方案“" + plan.name + "”吗？\n不会删除预设文件。")) return;
+				setBusy(true); setError("");
+				try { await rpc("deletePresetPlan", { id: plan.id }, props.scope.sessionId); await refresh(); }
+				catch (err) { setError(String(err && err.message || err)); }
+				finally { setBusy(false); }
+			}
 			React.useEffect(function () {
 				refresh();
 				function onData() { refresh(); }
@@ -1079,11 +1177,24 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				const entries = preset.entries || [];
 				const regexScripts = preset.regexScripts || [];
 				return h("div", { className: "dsh-tavern-presets" },
-					h("div", { className: "dsh-tavern-status-head" }, h("button", { className: "dsh-tavern-btn", onClick: function () { setPreset(null); } }, "← 返回预设库"), h("div", { className: "dsh-tavern-status-title" }, preset.title)),
+					h("div", { className: "dsh-tavern-status-head" }, h("button", { className: "dsh-tavern-btn", onClick: function () { setPreset(null); } }, "← 返回预设库"), h("div", { className: "dsh-tavern-status-title" }, preset.title), (preset.enabledCount || preset.enabledRegexCount) ? h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: disableCurrentPreset }, "清空此预设勾选") : null),
 					h("div", { className: "dsh-tavern-preset-detail" },
 						error ? h("div", { className: "dsh-tavern-dock-error" }, error) : null,
-						h("div", { className: "dsh-tavern-preset-summary" }, preset.recognized ? (preset.promptCount + " 个提示词条目 · " + preset.enabledCount + " 个启用 · " + preset.regexCount + " 条正则脚本 · " + preset.enabledRegexCount + " 条启用 · 只读展示") : "暂未识别提示词结构 · 原始 JSON 已完整保留", preset.warning ? h("div", null, preset.warning) : null),
-						regexScripts.length ? h("div", { className: "dsh-tavern-preset-section-title" }, "正则脚本 · " + regexScripts.length) : null,
+						h("div", { className: "dsh-tavern-preset-summary" }, preset.runtimeManaged ? (preset.promptCount + " 个提示词条目 · " + preset.regexCount + " 条正则脚本") : "暂未识别可执行内容 · 原始 JSON 已完整保留", h("div", null, "当前仅供阅读：提示词注入和预设正则匹配均已禁用，不产生运行时效果。"), preset.warning ? h("div", null, preset.warning) : null),
+						entries.length ? h("div", { className: "dsh-tavern-preset-section-title" }, "提示词条目 · " + entries.length) : null,
+						entries.map(function (entry) {
+							const role = String(entry.role || "system");
+							const snippet = String(entry.content || "").replace(/\s+/g, " ").trim() || (entry.marker ? "由 SillyTavern 在运行时注入内容" : "空条目");
+							return h("details", { key: entry.entryKey, className: "dsh-tavern-prompt-row role-" + role },
+								h("summary", { className: "dsh-tavern-prompt-head" },
+									h("span", { className: "dsh-tavern-prompt-role" }, role.toUpperCase()),
+									h("span", { className: "dsh-tavern-prompt-title" }, h("b", null, entry.name), h("span", null, snippet), h("span", { className: "dsh-tavern-prompt-tags" }, entry.marker ? h("span", { className: "dsh-tavern-prompt-tag" }, "占位") : null, entry.ordered === false ? h("span", { className: "dsh-tavern-prompt-tag" }, "未编排") : null)),
+									h("label", { className: "dsh-tavern-prompt-state off", title: "实验模块暂不执行提示词注入", onClick: function (event) { event.stopPropagation(); } }, h("input", { type: "checkbox", checked: false, disabled: presetEffectsDisabled }), "已禁用")
+								),
+								h("pre", { className: "dsh-tavern-prompt-content" }, entry.content || (entry.marker ? "[" + entry.name + "]" : "（空）"))
+							);
+						}),
+						regexScripts.length ? h("div", { className: "dsh-tavern-preset-section-title" }, "正则脚本 · " + regexScripts.length + " · 运行时已禁用") : null,
 						regexScripts.map(function (script, index) {
 							const snippet = String(script.findRegex || "").replace(/\s+/g, " ").trim() || "空查找规则";
 							const placement = script.placement && script.placement.length ? script.placement.join(", ") : "未设置";
@@ -1101,7 +1212,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 								h("summary", { className: "dsh-tavern-prompt-head" },
 									h("span", { className: "dsh-tavern-prompt-role" }, "REGEX"),
 									h("span", { className: "dsh-tavern-prompt-title" }, h("b", null, script.name), h("span", null, snippet), h("span", { className: "dsh-tavern-prompt-tags" }, h("span", { className: "dsh-tavern-prompt-tag" }, "位置 " + placement), script.promptOnly ? h("span", { className: "dsh-tavern-prompt-tag" }, "仅提示词") : null, script.markdownOnly ? h("span", { className: "dsh-tavern-prompt-tag" }, "仅 Markdown") : null, script.runOnEdit ? h("span", { className: "dsh-tavern-prompt-tag" }, "编辑时运行") : null)),
-									h("span", { className: "dsh-tavern-prompt-state" + (script.enabled ? "" : " off") }, script.enabled ? "已启用" : "已关闭")
+									h("label", { className: "dsh-tavern-prompt-state off", title: "实验模块暂不执行预设正则", onClick: function (event) { event.stopPropagation(); } }, h("input", { type: "checkbox", checked: false, disabled: presetEffectsDisabled }), "已禁用")
 								),
 								h("div", { className: "dsh-tavern-regex-body" },
 									h("div", { className: "dsh-tavern-regex-label" }, "查找正则"),
@@ -1111,28 +1222,19 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 									h("div", { className: "dsh-tavern-regex-meta" }, metadata)
 								)
 							);
-						}),
-						entries.length ? h("div", { className: "dsh-tavern-preset-section-title" }, "提示词条目 · " + entries.length) : null,
-						entries.map(function (entry) {
-							const role = String(entry.role || "system");
-							const snippet = String(entry.content || "").replace(/\s+/g, " ").trim() || (entry.marker ? "由 SillyTavern 在运行时注入内容" : "空条目");
-							return h("details", { key: entry.identifier, className: "dsh-tavern-prompt-row role-" + role },
-								h("summary", { className: "dsh-tavern-prompt-head" },
-									h("span", { className: "dsh-tavern-prompt-role" }, role.toUpperCase()),
-									h("span", { className: "dsh-tavern-prompt-title" }, h("b", null, entry.name), h("span", null, snippet), h("span", { className: "dsh-tavern-prompt-tags" }, entry.marker ? h("span", { className: "dsh-tavern-prompt-tag" }, "占位") : null, entry.ordered === false ? h("span", { className: "dsh-tavern-prompt-tag" }, "未编排") : null)),
-									h("span", { className: "dsh-tavern-prompt-state" + (entry.enabled ? "" : " off") }, entry.enabled ? "已启用" : "已关闭")
-								),
-								h("pre", { className: "dsh-tavern-prompt-content" }, entry.content || (entry.marker ? "[" + entry.name + "]" : "（空）"))
-							);
 						})
 					)
 				);
 			}
-			return h("div", { className: "dsh-tavern-presets" },
-				h("div", { className: "dsh-tavern-status-head" }, h("div", { className: "dsh-tavern-status-title" }, "预设库"), h("div", { className: "dsh-tavern-question-sub" }, "SillyTavern 预设 · 点击查看条目"), h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { importInput.current && importInput.current.click(); } }, "导入预设"), h("input", { ref: importInput, type: "file", accept: ".json,application/json", style: { display: "none" }, onChange: function (event) { const file = event.target.files && event.target.files[0]; importPresetFile(file); event.target.value = ""; } })),
-				h("div", { className: "dsh-tavern-preset-list" }, error ? h("div", { className: "dsh-tavern-dock-error" }, error) : null,
-					presets.length ? presets.map(function (item) { return h("div", { key: item.path, className: "dsh-tavern-preset-row" }, h("div", { className: "dsh-tavern-preset-row-head" },
-						h("button", { className: "dsh-tavern-preset-row-main", onClick: function () { loadPreset(item.path); } }, h("b", null, item.title), h("span", null, item.recognized ? (item.promptCount + " 个提示词 · " + item.enabledCount + " 个启用" + (item.regexCount ? " · " + item.regexCount + " 条正则" : "")) : "结构待识别")),
+				return h("div", { className: "dsh-tavern-presets" },
+					h("div", { className: "dsh-tavern-status-head" }, h("div", { className: "dsh-tavern-status-title" }, "预设库（实验）"), h("div", { className: "dsh-tavern-question-sub" }, "仅用于导入、阅读和研究 SillyTavern 预设"), (runtimeSummary.enabledCount || runtimeSummary.enabledRegexCount || runtimeSummary.activePreset) ? h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: disableAllPresets }, "清除旧实验配置") : null, h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { importInput.current && importInput.current.click(); } }, "导入预设"), h("input", { ref: importInput, type: "file", accept: ".json,application/json", style: { display: "none" }, onChange: function (event) { const file = event.target.files && event.target.files[0]; importPresetFile(file); event.target.value = ""; } })),
+						h("div", { className: "dsh-tavern-preset-list" }, error ? h("div", { className: "dsh-tavern-dock-error" }, error) : null,
+						runtimeSummary.lastError ? h("div", { className: "dsh-tavern-dock-error" }, runtimeSummary.lastError.message || String(runtimeSummary.lastError)) : null,
+						h("div", { className: "dsh-tavern-dock-error" }, "实验模块：提示词注入和预设正则匹配均已禁用，不产生任何运行时效果。"),
+					h("label", { className: "dsh-tavern-preset-selector" }, h("b", null, "运行时状态"), h("select", { value: "", disabled: presetEffectsDisabled }, h("option", { value: "" }, "已禁用"))),
+						h("details", { open: tutorialOpen, className: "dsh-tavern-preset-summary", onToggle: function (event) { const open = event.currentTarget.open; setTutorialOpen(open); window.localStorage.setItem("dsh-tavern-preset-tutorial", open ? "open" : "closed"); } }, h("summary", null, "实验说明"), h("p", null, "当前只保留预设导入、阅读和研究能力。提示词不会注入模型请求，预设正则也不会处理正文或后台 Agent 输出。"), h("p", null, "后续将先通过独立兼容模式复刻并验证 SillyTavern 的预设编译能力，再决定如何接入正式游玩流程。")),
+					presets.length ? presets.map(function (item, index) { return h("div", { key: item.path, className: "dsh-tavern-preset-row" }, h("div", { className: "dsh-tavern-preset-row-head" },
+						h("button", { className: "dsh-tavern-preset-row-main", onClick: function () { loadPreset(item.path); } }, h("b", null, (runtimeSummary.activePreset === item.path ? "✓ " : "") + item.title), h("span", null, item.recognized || item.regexCount ? ("顺序 " + (index + 1) + " · " + item.promptCount + " 个提示词 / 已勾选 " + item.enabledCount + " 个" + (item.regexCount ? " · " + item.regexCount + " 条正则 / 已勾选 " + item.enabledRegexCount + " 条" : "")) : "结构待识别")),
 						h("button", { className: "dsh-tavern-resource-at", disabled: busy, onClick: function () { renamePreset(item); } }, "重命名"),
 						h("button", { className: "dsh-tavern-resource-at", disabled: busy, onClick: function () { deletePresetFile(item); } }, "删除"),
 						sessionMode === "card" ? h("button", { className: "dsh-tavern-resource-at", title: "在对话中引用", onClick: function () { props.appendMention("preset", item.path, item.title); } }, "在对话中引用") : null
@@ -1520,65 +1622,6 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			);
 		}
 
-		function BoundaryPromptTab(props) {
-			const h = React.createElement;
-			const [files, setFiles] = React.useState([]);
-			const [selection, setSelection] = React.useState({ enabled: false, filename: "", file: null, lastInjection: null });
-			const [busy, setBusy] = React.useState(false);
-			const [error, setError] = usePersistentError("破甲库");
-			async function load() {
-				try {
-					const result = await rpc("listBoundaryPrompts", {}, props.sessionId);
-					setFiles(result.files || []);
-					setSelection(result.selection || { enabled: false, filename: "", file: null, lastInjection: null });
-					setError("");
-				} catch (err) { setError(String(err && err.message || err)); }
-			}
-			React.useEffect(function () {
-				load();
-				const timer = window.setInterval(load, 3000);
-				return function () { window.clearInterval(timer); };
-			}, [props.sessionId]);
-			async function choose(filename, enabled) {
-				setBusy(true); setError("");
-				try {
-					const result = await rpc("selectBoundaryPrompt", { filename: filename, enabled: enabled }, props.sessionId);
-					setSelection(result.selection);
-				} catch (err) { setError(String(err && err.message || err)); }
-				finally { setBusy(false); }
-			}
-			async function remove(file) {
-				if (!window.confirm("删除破甲文件“" + file.filename + "”？其他会话若正在使用它，将自动停止注入。")) return;
-				setBusy(true); setError("");
-				try { await rpc("deleteBoundaryPrompt", { filename: file.filename }, props.sessionId); await load(); }
-				catch (err) { setError(String(err && err.message || err)); }
-				finally { setBusy(false); }
-			}
-			const injected = selection.lastInjection && selection.lastInjection.filename === selection.filename;
-			return h("aside", { className: "dsh-tavern-boundary" },
-				h("div", { className: "dsh-tavern-status-head" },
-					h("div", { className: "dsh-tavern-status-title" }, "破甲库"),
-					h("div", { className: "dsh-tavern-question-sub" }, "这里只负责当前会话的选择和开关；启用后注入当前会话的所有模型任务。制作、提取和修改请进入卡片工作台。")
-				),
-				h("div", { className: "dsh-tavern-boundary-body" },
-					h("section", { className: "dsh-tavern-boundary-current" },
-						h("label", { className: "dsh-tavern-boundary-toggle" }, h("input", { type: "checkbox", checked: selection.enabled === true, disabled: busy || !selection.filename, onChange: function (event) { choose(selection.filename, event.target.checked); } }), "为当前会话启用破甲"),
-						h("select", { value: selection.filename || "", disabled: busy, onChange: function (event) { choose(event.target.value, selection.enabled); } },
-							h("option", { value: "" }, "选择一个文件"),
-							files.map(function (file) { return h("option", { key: file.filename, value: file.filename }, file.filename); })
-						),
-						h("div", { className: "dsh-tavern-boundary-status" }, selection.enabled ? (injected ? "已启用 · 最近一次模型任务已注入" : "已启用 · 将从下一次模型任务开始注入") : "当前关闭，不会注入任何破甲内容")
-					),
-					files.length ? files.map(function (file) { return h("details", { key: file.filename, className: "dsh-tavern-boundary-row" + (file.filename === selection.filename ? " active" : "") },
-						h("summary", { className: "dsh-tavern-boundary-row-head" }, h("b", null, file.filename), h("span", { className: "dsh-tavern-boundary-meta" }, file.chars + " 字")),
-						h("pre", { className: "dsh-tavern-boundary-preview" }, file.text),
-						h("button", { className: "dsh-tavern-worldbook-del", disabled: busy, onClick: function () { remove(file); } }, "删除文件")
-					); }) : h("div", { className: "dsh-tavern-status-empty" }, "还没有破甲文件。请在卡片工作台中制作。"),
-					error ? h("div", { className: "dsh-card-error" }, error) : null
-				)
-			);
-		}
-
 			function TavernPlayerNameAction(props) {
 				const [view, setView] = React.useState(null);
 				const [busy, setBusy] = React.useState(false);
@@ -1656,7 +1699,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					} catch (err) { if (!stopped) setError(String(err && err.message || err)); }
 				}
 				load();
-				return function () { stopped = true; if (timer) window.clearTimeout(timer); };
+				window.addEventListener("dsh-tavern-data-changed", load);
+				return function () { stopped = true; if (timer) window.clearTimeout(timer); window.removeEventListener("dsh-tavern-data-changed", load); };
 			}, [props.sessionId, stateKey]);
 			async function addGuide() {
 				const text = guideDraft.trim();
@@ -2090,17 +2134,21 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			}, [panel, sessionMode]);
 			React.useEffect(function () {
 				let active = true;
-				rpc("getSession", {}, props.sessionId).then(function (result) {
-					if (!active) return;
-					setReplyProjections(props.sessionId, result && result.view && result.view.replyProjections);
-					applyReplyProjections(props.sessionId);
-				}, function () {});
+				function refreshReplyProjections() {
+					rpc("getSession", {}, props.sessionId).then(function (result) {
+						if (!active) return;
+						setReplyProjections(props.sessionId, result && result.view && result.view.replyProjections);
+						applyReplyProjections(props.sessionId);
+					}, function () {});
+				}
+				refreshReplyProjections();
 				applyHiddenTurns(props.sessionId);
 				applyRolledBackTurns(props.sessionId);
 				applyHiddenRegenUserTurns(props.sessionId);
 				applyReplyProjections(props.sessionId);
+				window.addEventListener("dsh-tavern-data-changed", refreshReplyProjections);
 				const timer = window.setInterval(function () { applyHiddenTurns(props.sessionId); applyRolledBackTurns(props.sessionId); applyHiddenRegenUserTurns(props.sessionId); applyReplyProjections(props.sessionId); }, 1500);
-				return function () { active = false; window.clearInterval(timer); };
+				return function () { active = false; window.clearInterval(timer); window.removeEventListener("dsh-tavern-data-changed", refreshReplyProjections); };
 			}, [props.sessionId, latestMessageId, running]);
 			if (panel && panel.sessionId === props.sessionId && panel.phase === "error") {
 				return React.createElement("div", { className: "dsh-tavern-choice-error dsh-tavern-candidate-error-banner" },
@@ -2269,12 +2317,13 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			if (slots === undefined) return;
 			function reconcileLibraryTabTitles() {
 				if (!ctx.betterSidebar || typeof ctx.betterSidebar.getSnapshot !== "function" || typeof ctx.betterSidebar.updateTab !== "function") return;
-				const state = ctx.betterSidebar.getSnapshot().state;
+				const snapshot = ctx.betterSidebar.getSnapshot();
+				const state = snapshot.state;
 				if (!state) return;
+				const retiredTabs = [];
 				const expectedTitles = {
 					"dsh-tavern:cards": "人物卡库",
 					"dsh-tavern:presets": "预设库",
-					"dsh-tavern:boundary-prompts": "破甲库",
 					"dsh-tavern:resources": "资料库"
 				};
 				function visit(node) {
@@ -2284,12 +2333,14 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 						return;
 					}
 					(node.tabs || []).forEach(function (tab) {
+						if (tab.type === "dsh-tavern:boundary-prompts") { retiredTabs.push(tab.id); return; }
 						const title = expectedTitles[tab.type];
 						if (title && tab.title !== title) ctx.betterSidebar.updateTab(tab.id, { title: title });
 					});
 				}
 				visit(state.splits);
 				visit(state.bottomSplits);
+				if (typeof ctx.betterSidebar.closeTab === "function") retiredTabs.forEach(function (tabId) { ctx.betterSidebar.closeTab(tabId, snapshot.sessionId ? { sessionId: snapshot.sessionId } : undefined); });
 			}
 			function appendMention(sessionId, kind, path, label) {
 				try {
@@ -2316,7 +2367,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				const supplement = draft;
 				const targetPath = card && card.path ? String(card.path).replace(/\\/g, "/").replace(/["\r\n]/g, "") : "";
 				const targetSection = targetPath ? "\n\n【目标人物卡】\n@\"" + targetPath + "\"" : "";
-				const materialSection = hasInitialResources ? (task === "boundary" ? "\n\n【初始预设】\n" : "\n\n【初始资料】\n") : "";
+				const materialSection = hasInitialResources ? "\n\n【初始资料】\n" : "";
 				const taskText = "【卡片任务：" + label + "】" + targetSection + "\n\n" + String(result && result.text || "").trim() + materialSection;
 				input.setDraft(taskText + supplement);
 			}
@@ -2332,15 +2383,6 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					return React.createElement(TavernStatusTab, { sessions: ctx.sessions, sessionId: props.scope.sessionId });
 				}
 			}), "dsh-tavern: Better Sidebar status tab");
-			ctx.effect(() => ctx.betterSidebar.registerTab({
-				id: "dsh-tavern:boundary-prompts",
-				title: "破甲库",
-				order: 5,
-				single: true,
-				component: function (props) {
-					return React.createElement(BoundaryPromptTab, { sessionId: props.scope.sessionId });
-				}
-			}), "dsh-tavern: Better Sidebar boundary prompt tab");
 			ctx.effect(() => ctx.betterSidebar.registerTab({
 				id: "dsh-tavern:presets",
 				title: "预设库",
@@ -2394,7 +2436,6 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					openStatusTab: function (sessionId) { ctx.betterSidebar.openTab({ type: "dsh-tavern:status" }, { sessionId: sessionId }); },
 					openCardLibraryTab: function (sessionId) { ctx.betterSidebar.openTab({ type: "dsh-tavern:cards" }, { sessionId: sessionId }); ctx.betterSidebar.updateTab("dsh-tavern:cards", { meta: null }); },
 					openPresetLibraryTab: function (sessionId) { ctx.betterSidebar.openTab({ type: "dsh-tavern:presets" }, { sessionId: sessionId }); },
-					openBoundaryLibraryTab: function (sessionId) { ctx.betterSidebar.openTab({ type: "dsh-tavern:boundary-prompts" }, { sessionId: sessionId }); },
 					openResourcesTab: function (sessionId) { ctx.betterSidebar.openTab({ type: "dsh-tavern:resources" }, { sessionId: sessionId }); },
 					appendMention: appendMention,
 					injectTaskPrompt: injectTaskPrompt

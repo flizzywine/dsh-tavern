@@ -18,7 +18,7 @@ const names = [
   'card-mode-greeting',
   'card-task-edit',
   'card-task-extract',
-  'card-task-boundary'
+  'card-task-material'
 ]
 
 test('固定提示词从独立 Markdown 文件完整加载', () => {
@@ -38,7 +38,7 @@ test('固定提示词从独立 Markdown 文件完整加载', () => {
   assert.match(prompt('card-mode'), /保持 DSH 极简模式的工作方式/)
   assert.match(prompt('card-mode'), /tavern_read_card/)
   assert.match(prompt('card-mode'), /tavern_read_card_raw.*JSON Pointer/)
-  assert.match(prompt('card-mode'), /“人物卡库”管理人物卡.*“预设库”.*“破甲库”.*“资料库”/)
+  assert.match(prompt('card-mode'), /“人物卡库”管理人物卡.*“预设库”.*“资料库”/)
   assert.match(prompt('card-mode'), /人物卡字段、世界书和 raw 扩展都通过 tavern_update_card 修改/)
   assert.doesNotMatch(prompt('card-mode'), /tavern_read_source/)
   assert.doesNotMatch(prompt('card-mode'), /tavern_read_script/)
@@ -46,7 +46,7 @@ test('固定提示词从独立 Markdown 文件完整加载', () => {
   assert.match(prompt('card-mode'), /materials\//)
   assert.match(prompt('card-mode'), /str_replace_editor\.path.*绝对路径/)
   assert.match(prompt('card-mode'), /不能猜测 `\/materials\/\.\.\.`、`\/presets\/\.\.\.`、`\/cards\/\.\.\.`/)
-  assert.match(prompt('card-mode'), /读取 `materials\/` 中的资料或 `presets\/` 中的预设时，原生文件工具只用于读取/)
+  assert.match(prompt('card-mode'), /`presets\/` 只读；`materials\/` 的工作文件只有在用户明确要求或确认后才可用原生文件工具修改/)
   assert.match(prompt('card-mode'), /人物卡工作文件只通过 Tavern 工具读写/)
   assert.match(prompt('card-mode'), /rawOperations/)
   assert.match(prompt('card-mode'), /用户看到最终回复时，修改已经保存并生效/)
@@ -60,11 +60,11 @@ test('固定提示词从独立 Markdown 文件完整加载', () => {
   assert.match(prompt('card-mode-greeting'), /右侧“人物卡库”/)
   assert.match(prompt('card-mode-greeting'), /“资料库”/)
   assert.match(prompt('card-mode-greeting'), /“预设库”/)
-  assert.match(prompt('card-mode-greeting'), /“破甲库”/)
   assert.doesNotMatch(prompt('card-mode-greeting'), /自定义 Files/)
   assert.match(prompt('card-task-edit'), /明确确认后再保存最小变更/)
   assert.match(prompt('card-task-extract'), /新开一个空白卡片工作台/)
-  assert.match(prompt('card-task-boundary'), /tavern_update_boundary_prompt/)
+  assert.match(prompt('card-task-material'), /修改资料/)
+  assert.match(prompt('card-task-material'), /不改动导入时保留的原始备份/)
   assert.throws(() => prompt('card-task-bind-script'), /未知提示词/)
   assert.throws(() => prompt('worldbook-selector'), /未知提示词/)
   assert.throws(() => prompt('missing'), /未知提示词/)
