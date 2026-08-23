@@ -1753,6 +1753,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			function TavernSignalTimeoutNotice(props) {
 				const promptError = props.useSession(function (snapshot) { return snapshot.promptError || null; });
 				const running = props.useSession(function (snapshot) { return snapshot.running === true; });
+				const [stalled, setStalled] = React.useState(false);
+				const [reloading, setReloading] = React.useState(false);
 				const latestRole = props.useSession(function (snapshot) {
 					const nodes = snapshot.nodes || [];
 					for (let index = nodes.length - 1; index >= 0; index -= 1) {
@@ -1761,9 +1763,79 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					return "";
 				});
 				const isTimeout = promptError && /signal timeout/i.test(String(promptError.error && promptError.error.message || ""));
+				const submitting = props.input && props.input.phase === "submitting";
+				const reconnectDraftKey = "dsh-tavern:reconnect-draft:v1";
+				const reconnectGuardKey = "dsh-tavern:reconnect-guard:v1";
+				function saveReconnectDraft() {
+					const draft = String(props.input && props.input.draft || "");
+					try {
+						window.sessionStorage.setItem(reconnectDraftKey, JSON.stringify({ sessionId: props.sessionId, draft: draft }));
+						window.sessionStorage.setItem(reconnectGuardKey, JSON.stringify({ sessionId: props.sessionId, at: Date.now() }));
+					} catch (_err) {}
+				}
+				function reloadPreservingDraft() {
+					if (reloading) return;
+					setReloading(true);
+					saveReconnectDraft();
+					window.location.reload();
+				}
+				React.useEffect(function () {
+					let stored = null;
+					try { stored = JSON.parse(window.sessionStorage.getItem(reconnectDraftKey) || "null"); } catch (_err) {}
+					if (!stored || stored.sessionId !== props.sessionId || !stored.draft) return;
+					let stopped = false;
+					let attempts = 0;
+					function restore() {
+						if (stopped) return;
+						const textarea = document.querySelector('[data-composer-card] textarea, textarea[placeholder="给智能体发消息"]');
+						if (textarea && !textarea.value) {
+							const descriptor = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value");
+							if (descriptor && descriptor.set) descriptor.set.call(textarea, stored.draft);
+							else textarea.value = stored.draft;
+							textarea.dispatchEvent(new Event("input", { bubbles: true }));
+							window.sessionStorage.removeItem(reconnectDraftKey);
+							return;
+						}
+						if (textarea && textarea.value === stored.draft) {
+							window.sessionStorage.removeItem(reconnectDraftKey);
+							return;
+						}
+						attempts += 1;
+						if (attempts < 40) window.setTimeout(restore, 100);
+					}
+					restore();
+					return function () { stopped = true; };
+				}, [props.sessionId]);
+				React.useEffect(function () {
+					if (!submitting) { setStalled(false); return; }
+					let stopped = false;
+					const timer = window.setTimeout(function () {
+						rpc("getSessionConnection", {}, props.sessionId).then(function () {
+							if (!stopped) setStalled(true);
+						}, function () {
+							if (!stopped) setStalled(true);
+						});
+					}, 12000);
+					return function () { stopped = true; window.clearTimeout(timer); };
+				}, [submitting, props.sessionId]);
+				React.useEffect(function () {
+					if (!stalled) return;
+					let guarded = false;
+					try {
+						const guard = JSON.parse(window.sessionStorage.getItem(reconnectGuardKey) || "null");
+						guarded = Boolean(guard && guard.sessionId === props.sessionId && Date.now() - guard.at < 60000);
+					} catch (_err) {}
+					if (guarded) return;
+					const timer = window.setTimeout(reloadPreservingDraft, 800);
+					return function () { window.clearTimeout(timer); };
+				}, [stalled]);
 				React.useEffect(function () {
 					if (isTimeout && typeof props.refreshSessions === "function") Promise.resolve(props.refreshSessions()).catch(function () {});
 				}, [isTimeout]);
+				if (stalled) return React.createElement("div", { className: "dsh-tavern-timeout-banner", role: "alert" },
+					React.createElement("span", null, "DSH Session 连接已失效，正在保留输入并重新连接。系统不会自动发送。"),
+					React.createElement("button", { disabled: reloading, onClick: reloadPreservingDraft }, reloading ? "重新连接中…" : "立即重新连接")
+				);
 				if (!isTimeout) return null;
 				const accepted = running || latestRole === "user";
 				const message = accepted

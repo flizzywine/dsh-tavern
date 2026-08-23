@@ -87,7 +87,20 @@ test('游玩中可修改玩家称呼，signal timeout 只刷新状态且不自�
   assert.match(timeout, /signal timeout/i)
   assert.match(timeout, /props\.refreshSessions/)
   assert.match(timeout, /系统不会自动重发/)
-  assert.doesNotMatch(timeout, /sendPrompt|submit|retryPrompt/)
+  assert.doesNotMatch(timeout, /sendPrompt\(|retryPrompt\(|\.submit\(/)
+})
+
+test('DSH Session 失联时保留输入并重载恢复，但绝不自动发送', () => {
+  const timeout = between(clientSource, 'function TavernSignalTimeoutNotice', 'function TavernStatusPanel')
+
+  assert.match(serverSource, /case 'getSessionConnection'/)
+  assert.match(serverSource, /agentRegistry\.get\(str\(args && args\.sessionId\)\)/)
+  assert.match(timeout, /rpc\("getSessionConnection", \{\}, props\.sessionId\)/)
+  assert.match(timeout, /sessionStorage\.setItem/)
+  assert.match(timeout, /window\.location\.reload\(\)/)
+  assert.match(timeout, /dispatchEvent\(new Event\("input"/)
+  assert.match(timeout, /DSH Session 连接已失效/)
+  assert.doesNotMatch(timeout, /sendPrompt\(|retryPrompt\(|\.submit\(/)
 })
 
 test('新开游玩在创建 Session 前完成游戏准备，创建后不提供开场白切换器', () => {
