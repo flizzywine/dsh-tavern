@@ -1049,6 +1049,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			));
 		}
 
+		function createResourcesLibraryFeatureModule() {
 		function TavernResourcesTab(props) {
 			const [resources, setResources] = React.useState({ resources: [] });
 			const [view, setView] = React.useState(null);
@@ -1125,6 +1126,26 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				h("div", { className: "dsh-tavern-resource-body" }, error ? h("div", { className: "dsh-tavern-dock-error" }, error) : null, group("资料", "source", resources.resources || [], sourceActions))
 			);
 		}
+		function register(input) {
+			const ctx = input.ctx;
+			const appendMention = input.appendMention;
+			return ctx.effect(() => ctx.betterSidebar.registerTab({
+				id: "dsh-tavern:resources",
+				title: "资料库",
+				order: 6,
+				single: true,
+				component: function (props) {
+					return React.createElement(TavernResourcesTab, {
+						sessionId: props.scope.sessionId,
+						appendMention: function (kind, path, label) { appendMention(props.scope.sessionId, kind, path, label); },
+						openResource: function (path, title) { if (path) ctx.betterSidebar.openFile({ sessionId: props.scope.sessionId }, path, title); }
+					});
+				}
+			}), "dsh-tavern: Better Sidebar resources tab");
+		}
+		return Object.freeze({ register: register });
+		}
+		const resourcesLibraryFeature = createResourcesLibraryFeatureModule();
 
 		function PresetLibraryTab(props) {
 			const presetEffectsDisabled = true;
@@ -2668,15 +2689,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					return React.createElement(PresetLibraryTab, Object.assign({}, props, { appendMention: function (kind, path, label) { appendMention(props.scope.sessionId, kind, path, label); } }));
 				}
 			}), "dsh-tavern: Better Sidebar preset library tab");
-			ctx.effect(() => ctx.betterSidebar.registerTab({
-				id: "dsh-tavern:resources",
-				title: "资料库",
-				order: 6,
-				single: true,
-				component: function (props) {
-					return React.createElement(TavernResourcesTab, { sessionId: props.scope.sessionId, appendMention: function (kind, path, label) { appendMention(props.scope.sessionId, kind, path, label); }, openResource: function (path, title) { if (path) ctx.betterSidebar.openFile({ sessionId: props.scope.sessionId }, path, title); } });
-				}
-			}), "dsh-tavern: Better Sidebar resources tab");
+			resourcesLibraryFeature.register({ ctx: ctx, appendMention: appendMention });
 			ctx.effect(() => ctx.betterSidebar.registerTab({
 				id: "dsh-tavern:worldbooks",
 				title: "世界书库",
@@ -2762,6 +2775,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		exports.buildOpeningPreviewDocument = buildOpeningPreviewDocument;
 		exports.createLiveTavernViewModule = createLiveTavernViewModule;
 		exports.createConversationLifecycleModule = createConversationLifecycleModule;
+		exports.createResourcesLibraryFeatureModule = createResourcesLibraryFeatureModule;
 		return module.exports;
 	}
 });
