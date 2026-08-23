@@ -1010,6 +1010,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		}
 
 		function PresetLibraryTab(props) {
+			const presetEffectsDisabled = true;
 			const [presets, setPresets] = React.useState([]);
 			const [preset, setPreset] = React.useState(null);
 			const [runtimeSummary, setRuntimeSummary] = React.useState({ activePreset: "", activePresetTitle: "", enabledCount: 0, enabledCharacters: 0, enabledRegexCount: 0, lastError: null });
@@ -1179,7 +1180,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					h("div", { className: "dsh-tavern-status-head" }, h("button", { className: "dsh-tavern-btn", onClick: function () { setPreset(null); } }, "← 返回预设库"), h("div", { className: "dsh-tavern-status-title" }, preset.title), (preset.enabledCount || preset.enabledRegexCount) ? h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: disableCurrentPreset }, "清空此预设勾选") : null),
 					h("div", { className: "dsh-tavern-preset-detail" },
 						error ? h("div", { className: "dsh-tavern-dock-error" }, error) : null,
-						h("div", { className: "dsh-tavern-preset-summary" }, preset.runtimeManaged ? (preset.promptCount + " 个提示词条目 · 已勾选 " + preset.enabledCount + " 个 / " + preset.enabledCharacters + " 字 · " + preset.regexCount + " 条正则脚本 · 已勾选 " + preset.enabledRegexCount + " 条") : "暂未识别可执行内容 · 原始 JSON 已完整保留", h("div", null, preset.runtimeActive ? "当前用于新建对话。" : "当前不用于新建对话；已绑定此预设的旧对话仍保留原提示词，并实时使用这里的正则配置。"), h("div", null, "所有内容导入后默认关闭，可按需勾选。预设的提示词修改需新建对话后生效；预设的正则修改会立即生效。"), preset.warning ? h("div", null, preset.warning) : null),
+						h("div", { className: "dsh-tavern-preset-summary" }, preset.runtimeManaged ? (preset.promptCount + " 个提示词条目 · " + preset.regexCount + " 条正则脚本") : "暂未识别可执行内容 · 原始 JSON 已完整保留", h("div", null, "当前仅供阅读：提示词注入和预设正则匹配均已禁用，不产生运行时效果。"), preset.warning ? h("div", null, preset.warning) : null),
 						entries.length ? h("div", { className: "dsh-tavern-preset-section-title" }, "提示词条目 · " + entries.length) : null,
 						entries.map(function (entry) {
 							const role = String(entry.role || "system");
@@ -1188,12 +1189,12 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 								h("summary", { className: "dsh-tavern-prompt-head" },
 									h("span", { className: "dsh-tavern-prompt-role" }, role.toUpperCase()),
 									h("span", { className: "dsh-tavern-prompt-title" }, h("b", null, entry.name), h("span", null, snippet), h("span", { className: "dsh-tavern-prompt-tags" }, entry.marker ? h("span", { className: "dsh-tavern-prompt-tag" }, "占位") : null, entry.ordered === false ? h("span", { className: "dsh-tavern-prompt-tag" }, "未编排") : null)),
-									h("label", { className: "dsh-tavern-prompt-state" + (entry.runtimeEnabled ? "" : " off"), title: entry.injectable ? "选择是否在启用此预设时注入新对话" : "空条目或占位条目不可注入", onClick: function (event) { event.stopPropagation(); } }, h("input", { type: "checkbox", checked: entry.runtimeEnabled === true, disabled: busy || !entry.injectable, onChange: function (event) { toggleEntry(entry, event.target.checked); } }), entry.runtimeEnabled ? "已勾选" : "未勾选")
+									h("label", { className: "dsh-tavern-prompt-state off", title: "实验模块暂不执行提示词注入", onClick: function (event) { event.stopPropagation(); } }, h("input", { type: "checkbox", checked: false, disabled: presetEffectsDisabled }), "已禁用")
 								),
 								h("pre", { className: "dsh-tavern-prompt-content" }, entry.content || (entry.marker ? "[" + entry.name + "]" : "（空）"))
 							);
 						}),
-						regexScripts.length ? h("div", { className: "dsh-tavern-preset-section-title" }, "正则脚本 · " + regexScripts.length + " · 已勾选 " + preset.enabledRegexCount + " 条") : null,
+						regexScripts.length ? h("div", { className: "dsh-tavern-preset-section-title" }, "正则脚本 · " + regexScripts.length + " · 运行时已禁用") : null,
 						regexScripts.map(function (script, index) {
 							const snippet = String(script.findRegex || "").replace(/\s+/g, " ").trim() || "空查找规则";
 							const placement = script.placement && script.placement.length ? script.placement.join(", ") : "未设置";
@@ -1211,7 +1212,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 								h("summary", { className: "dsh-tavern-prompt-head" },
 									h("span", { className: "dsh-tavern-prompt-role" }, "REGEX"),
 									h("span", { className: "dsh-tavern-prompt-title" }, h("b", null, script.name), h("span", null, snippet), h("span", { className: "dsh-tavern-prompt-tags" }, h("span", { className: "dsh-tavern-prompt-tag" }, "位置 " + placement), script.promptOnly ? h("span", { className: "dsh-tavern-prompt-tag" }, "仅提示词") : null, script.markdownOnly ? h("span", { className: "dsh-tavern-prompt-tag" }, "仅 Markdown") : null, script.runOnEdit ? h("span", { className: "dsh-tavern-prompt-tag" }, "编辑时运行") : null)),
-									h("label", { className: "dsh-tavern-prompt-state" + (script.runtimeEnabled ? "" : " off"), title: "选择是否对使用此预设的对话展示执行", onClick: function (event) { event.stopPropagation(); } }, h("input", { type: "checkbox", checked: script.runtimeEnabled === true, disabled: busy || !script.findRegex, onChange: function (event) { toggleRegex(script, event.target.checked); } }), script.runtimeEnabled ? "已勾选" : "未勾选")
+									h("label", { className: "dsh-tavern-prompt-state off", title: "实验模块暂不执行预设正则", onClick: function (event) { event.stopPropagation(); } }, h("input", { type: "checkbox", checked: false, disabled: presetEffectsDisabled }), "已禁用")
 								),
 								h("div", { className: "dsh-tavern-regex-body" },
 									h("div", { className: "dsh-tavern-regex-label" }, "查找正则"),
@@ -1225,25 +1226,13 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					)
 				);
 			}
-			return h("div", { className: "dsh-tavern-presets" },
-				h("div", { className: "dsh-tavern-status-head" }, h("div", { className: "dsh-tavern-status-title" }, "预设库"), h("div", { className: "dsh-tavern-question-sub" }, "导入、阅读并按需启用 SillyTavern 预设内容"), (runtimeSummary.enabledCount || runtimeSummary.enabledRegexCount) ? h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: disableAllPresets }, "清空全部勾选") : null, h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { importInput.current && importInput.current.click(); } }, "导入预设"), h("input", { ref: importInput, type: "file", accept: ".json,application/json", style: { display: "none" }, onChange: function (event) { const file = event.target.files && event.target.files[0]; importPresetFile(file); event.target.value = ""; } })),
-					h("div", { className: "dsh-tavern-preset-list" }, error ? h("div", { className: "dsh-tavern-dock-error" }, error) : null,
-					runtimeSummary.lastError ? h("div", { className: "dsh-tavern-dock-error" }, runtimeSummary.lastError.message || String(runtimeSummary.lastError)) : null,
-					h("label", { className: "dsh-tavern-preset-selector" }, h("b", null, "当前启用预设"), h("select", { value: runtimeSummary.activePreset, disabled: busy, onChange: function (event) { selectPreset(event.target.value); } }, h("option", { value: "" }, "不启用外部预设"), presets.filter(function (item) { return item.recognized || item.regexCount; }).map(function (item) { return h("option", { key: item.path, value: item.path }, item.title); }))),
-					h("div", { className: "dsh-tavern-preset-summary" },
-						h("b", null, "预设配置方案"),
-						h("div", { className: "dsh-tavern-resource-actions" },
-							h("select", { value: selectedPlanId, disabled: busy || presetPlans.length === 0, onChange: function (event) { setSelectedPlanId(event.target.value); } }, presetPlans.length ? presetPlans.map(function (plan) { return h("option", { key: plan.id, value: plan.id }, (plan.valid ? "" : "⚠ ") + plan.name); }) : h("option", { value: "" }, "尚未保存方案")),
-							h("button", { className: "dsh-tavern-btn", disabled: busy || !runtimeSummary.activePreset, onClick: saveCurrentPlan }, "保存当前配置"),
-							h("button", { className: "dsh-tavern-btn", disabled: busy || !selectedPlanId, onClick: applySelectedPlan }, "应用"),
-							h("button", { className: "dsh-tavern-btn", disabled: busy || !selectedPlanId || !runtimeSummary.activePreset, onClick: overwriteSelectedPlan }, "覆盖"),
-							h("button", { className: "dsh-tavern-btn", disabled: busy || !selectedPlanId, onClick: renameSelectedPlan }, "重命名"),
-							h("button", { className: "dsh-tavern-btn", disabled: busy || !selectedPlanId, onClick: deleteSelectedPlan }, "删除")
-						),
-						selectedPlanId ? (function () { const plan = presetPlans.find(function (item) { return item.id === selectedPlanId; }); return plan && (plan.error || plan.warning) ? h("div", { className: plan.valid ? "dsh-tavern-question-sub" : "dsh-tavern-dock-error" }, plan.error || plan.warning) : null; })() : null
-					),
-					h("details", { open: tutorialOpen, className: "dsh-tavern-preset-summary", onToggle: function (event) { const open = event.currentTarget.open; setTutorialOpen(open); window.localStorage.setItem("dsh-tavern-preset-tutorial", open ? "open" : "closed"); } }, h("summary", null, "使用建议"), h("p", null, "内置系统提示词已经具有一定的破限能力，请先尝试不开启外部预设游玩。"), h("p", null, "所有外部预设内容导入后默认关闭。请选择一份当前启用预设，再按需勾选其中的内容；同一时间只有一份预设生效。"), h("p", null, "外部预设可能改变系统正常行为；请只勾选少量必要内容。预设的提示词修改需新建对话后生效；预设的正则修改会立即生效。")),
-					h("div", { className: "dsh-tavern-preset-summary" }, runtimeSummary.activePreset ? ("当前启用“" + runtimeSummary.activePresetTitle + "”：" + runtimeSummary.enabledCount + " 个提示词条目 / " + runtimeSummary.enabledCharacters + " 字，" + runtimeSummary.enabledRegexCount + " 条正则。") : "建议尽量不要开启任何外部预设，以避免破坏系统正常行为。"),
+				return h("div", { className: "dsh-tavern-presets" },
+					h("div", { className: "dsh-tavern-status-head" }, h("div", { className: "dsh-tavern-status-title" }, "预设库（实验）"), h("div", { className: "dsh-tavern-question-sub" }, "仅用于导入、阅读和研究 SillyTavern 预设"), (runtimeSummary.enabledCount || runtimeSummary.enabledRegexCount || runtimeSummary.activePreset) ? h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: disableAllPresets }, "清除旧实验配置") : null, h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { importInput.current && importInput.current.click(); } }, "导入预设"), h("input", { ref: importInput, type: "file", accept: ".json,application/json", style: { display: "none" }, onChange: function (event) { const file = event.target.files && event.target.files[0]; importPresetFile(file); event.target.value = ""; } })),
+						h("div", { className: "dsh-tavern-preset-list" }, error ? h("div", { className: "dsh-tavern-dock-error" }, error) : null,
+						runtimeSummary.lastError ? h("div", { className: "dsh-tavern-dock-error" }, runtimeSummary.lastError.message || String(runtimeSummary.lastError)) : null,
+						h("div", { className: "dsh-tavern-dock-error" }, "实验模块：提示词注入和预设正则匹配均已禁用，不产生任何运行时效果。"),
+					h("label", { className: "dsh-tavern-preset-selector" }, h("b", null, "运行时状态"), h("select", { value: "", disabled: presetEffectsDisabled }, h("option", { value: "" }, "已禁用"))),
+						h("details", { open: tutorialOpen, className: "dsh-tavern-preset-summary", onToggle: function (event) { const open = event.currentTarget.open; setTutorialOpen(open); window.localStorage.setItem("dsh-tavern-preset-tutorial", open ? "open" : "closed"); } }, h("summary", null, "实验说明"), h("p", null, "当前只保留预设导入、阅读和研究能力。提示词不会注入模型请求，预设正则也不会处理正文或后台 Agent 输出。"), h("p", null, "后续将先通过独立兼容模式复刻并验证 SillyTavern 的预设编译能力，再决定如何接入正式游玩流程。")),
 					presets.length ? presets.map(function (item, index) { return h("div", { key: item.path, className: "dsh-tavern-preset-row" }, h("div", { className: "dsh-tavern-preset-row-head" },
 						h("button", { className: "dsh-tavern-preset-row-main", onClick: function () { loadPreset(item.path); } }, h("b", null, (runtimeSummary.activePreset === item.path ? "✓ " : "") + item.title), h("span", null, item.recognized || item.regexCount ? ("顺序 " + (index + 1) + " · " + item.promptCount + " 个提示词 / 已勾选 " + item.enabledCount + " 个" + (item.regexCount ? " · " + item.regexCount + " 条正则 / 已勾选 " + item.enabledRegexCount + " 条" : "")) : "结构待识别")),
 						h("button", { className: "dsh-tavern-resource-at", disabled: busy, onClick: function () { renamePreset(item); } }, "重命名"),

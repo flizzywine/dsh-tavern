@@ -284,11 +284,7 @@ export function createBackgroundAgentRunner(options) {
   function setupFor(input, descriptor, appendDescriptor) {
     const tools = Array.isArray(input.tools) ? input.tools : []
     const maxToolCalls = Number.isInteger(input.maxToolCalls) && input.maxToolCalls > 0 ? input.maxToolCalls : 8
-    const runtimePresetText = input.runtimePresetSnapshot !== null && typeof input.runtimePresetSnapshot === 'object'
-      ? str(input.runtimePresetSnapshot.text).trim()
-      : ''
     const backgroundPersona = '你是与前台正文生成隔离的酒馆后台 Agent。你会在同一个剧情分支中依次承担状态结算与候选生成；严格按本轮任务输出，不得把某类任务的输出格式混入另一类任务。最新权威状态优先于 Session 中的旧动态状态。\n\n【本轮任务规则】\n{{tavern_background_task}}'
-    const completePrompt = runtimePresetText === '' ? backgroundPersona : '{{tavern_runtime_preset}}\n\n' + backgroundPersona
     let toolCallCount = 0
     let descriptorAppended = !appendDescriptor
     return function (childCtx) {
@@ -301,12 +297,11 @@ export function createBackgroundAgentRunner(options) {
         return decision
       })
       childCtx.systemPrompt.variable('tavern_background_task', function () { return str(input.system) })
-      if (runtimePresetText !== '') childCtx.systemPrompt.variable('tavern_runtime_preset', function () { return runtimePresetText })
       childCtx.systemPrompt.section({
         name: 'deployment:persona',
         order: 0,
         complete: true,
-        text: completePrompt
+        text: backgroundPersona
       })
       childCtx.systemPrompt.suppressRuntimeContext()
       childCtx.tools.restrict({ allow: [] })
@@ -341,13 +336,8 @@ export function createBackgroundAgentRunner(options) {
   async function execute(input) {
     const parent = agents.get(input.sessionId)
     if (parent === undefined || parent.session === undefined) throw new Error('无法创建后台 Agent：前台会话不可用')
-    const runtimePresetSnapshot = typeof options.resolveRuntimePresetSnapshot === 'function'
-      ? await options.resolveRuntimePresetSnapshot({ sessionId: input.sessionId, operation: input.task || 'background' })
-      : null
-    const runtimeInput = Object.assign({}, input, { runtimePresetSnapshot })
-    const runtimeRegexScripts = Array.isArray(runtimePresetSnapshot && runtimePresetSnapshot.regexScripts)
-      ? runtimePresetSnapshot.regexScripts
-      : []
+    const runtimeInput = Object.assign({}, input, { runtimePresetSnapshot: null })
+    const runtimeRegexScripts = []
     const persistent = input.persistent === true
     const requestedSessionId = str(input.persistentSessionId)
     const traceSessionId = requestedSessionId || makeId()

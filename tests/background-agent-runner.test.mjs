@@ -23,6 +23,7 @@ test('后台 Runner 执行候选任务，查询超限后提示开始推理而不
   const appended = []
   const cappedResults = []
   let pointResult = ''
+  let requestMessages = []
   let concludeCalls = 0
   let disposed = false
   let work = Promise.resolve()
@@ -39,7 +40,8 @@ test('后台 Runner 执行候选任务，查询超限后提示开始推理而不
         assert.match(message.content[0].text, /雨水敲窗/)
         const preStep = listeners.find(function (entry) { return entry.name === 'agent/pre-step' })
         assert.ok(preStep)
-        await preStep.listener({ agent: child }, async function () { return { kind: 'enter' } })
+        const decision = await preStep.listener({ agent: child }, async function () { return { kind: 'enter', messages: [] } })
+        requestMessages = decision.messages
         pointResult = await registered[1].execute({ position: 3 })
         for (let index = 1; index <= 7; index++) {
           cappedResults.push(await registered[0].execute({ position: index }, {
@@ -76,15 +78,7 @@ test('后台 Runner 执行候选任务，查询超限后提示开始推理而不
     }
   }
   const calls = []
-  runner = createBackgroundAgentRunner({
-    agents,
-    id: () => 'candidate-session-1',
-    resolveRuntimePresetSnapshot: async ({ sessionId, operation }) => {
-      assert.equal(sessionId, parent.id)
-      assert.equal(operation, 'candidate')
-      return { digest: 'snapshot-1', text: '外部预设提示 {{future::macro}}' }
-    }
-  })
+  runner = createBackgroundAgentRunner({ agents, id: () => 'candidate-session-1' })
   const result = await runner.run({
     sessionId: parent.id,
     selection: { provider: 'test', model: 'scripted' },
@@ -112,12 +106,13 @@ test('后台 Runner 执行候选任务，查询超限后提示开始推理而不
   assert.equal(createCalls[0].agentOptions.maxTokens, 4000)
   assert.equal(sections[0].complete, true)
   assert.equal(sections.length, 1)
-  assert.ok(sections[0].text.startsWith('{{tavern_runtime_preset}}\n\n'))
+  assert.doesNotMatch(sections[0].text, /tavern_runtime_preset/)
   assert.doesNotMatch(sections[0].text, /future::macro/)
   assert.doesNotMatch(sections[0].text, /候选系统提示/)
   assert.match(sections[0].text, /\{\{tavern_background_task\}\}/)
   assert.equal(variables.find(function (entry) { return entry.name === 'tavern_background_task' }).provider(), '候选系统提示')
-  assert.equal(variables.find(function (entry) { return entry.name === 'tavern_runtime_preset' }).provider(), '外部预设提示 {{future::macro}}')
+  assert.equal(variables.some(function (entry) { return entry.name === 'tavern_runtime_preset' }), false)
+  assert.deepEqual(requestMessages, [])
   assert.deepEqual(restrictions, [{ allow: [] }])
   assert.equal(registered[0].name, 'tavern_read_script')
   assert.equal(registered[1].name, 'tavern_point_script')
@@ -142,7 +137,7 @@ test('后台 Runner 执行候选任务，查询超限后提示开始推理而不
   assert.equal(runner.owns('candidate-session-1'), false)
 })
 
-test('后台 Agent 的正文输入与最终输出都执行实时预设正则', async () => {
+test('后台 Agent 忽略实验预设的提示词与正则配置', async () => {
   const parent = { id: 'parent-session', session: { header: { cwd: '/tmp/tavern', delegationDepth: 0 } } }
   const events = []
   const prompts = []
@@ -222,18 +217,10 @@ test('后台 Agent 的正文输入与最终输出都执行实时预设正则', a
     task: 'candidate'
   })
 
-  assert.doesNotMatch(prompts[0], /正文冗余内容/)
-  assert.equal(result.text, '{"choices":[{"type":"action","text":"去钟楼"}]}')
+  assert.match(prompts[0], /正文冗余内容/)
+  assert.match(result.text, /后台冗余输出/)
   assert.equal(events[0].data.message.content[0].text.includes('后台冗余输出'), true, '原始事件保持不变')
-  assert.equal(appended.length, 3)
-  assert.equal(appended[0].data.message.content[0].text, result.text)
-  assert.deepEqual(appended[0].options.surfaceOp, { op: 'replace', start: 0, end: 0 })
-  assert.deepEqual(appended[0].options.sourceEventSeqs, [0])
-  assert.equal(appended[1].data.message.content[0].text, result.text, '前端接受追加事件并更新既有步骤')
-  assert.equal(appended[1].options.surfaceOp, 'append')
-  assert.deepEqual(appended[2].data.message.content, [], '追加事件随后以空消息从模型 Surface 中移除')
-  assert.deepEqual(appended[2].options.surfaceOp, { op: 'replace', start: 2, end: 2 })
-  assert.deepEqual(appended[2].options.sourceEventSeqs, [2])
+  assert.equal(appended.length, 0, '预设正则停用后不写入展示投影')
 })
 
 test('恢复后台 Session 时重新投影历史输入与输出并持久化 Surface', async () => {

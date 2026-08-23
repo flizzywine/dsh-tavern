@@ -12,7 +12,7 @@ import { createContextPlanner } from './domain/context-planner.js'
 import { extractEpubText } from './domain/epub-text.js'
 import { createFileResourceStore, normalizeResourcePath, resourceKind } from './domain/file-resources.js'
 import { inspectPreset } from './domain/preset-reading.js'
-import { createRuntimePresetModule, resolveRuntimePresetMacros } from './domain/runtime-presets.js'
+import { createRuntimePresetModule } from './domain/runtime-presets.js'
 import { projectReplyHistory, projectReplyPresentation } from './domain/reply-presentation.js'
 import { projectRuntimeContent } from './domain/runtime-content-projection.js'
 import { createScriptContinuity } from './domain/script-continuity.js'
@@ -138,11 +138,7 @@ export async function apply(ctx) {
     if (typeof opts.temperature === 'number' && sel.provider !== 'openai-codex') cfg.temperature = opts.temperature
     if (typeof opts.maxTokens === 'number') cfg.maxTokens = opts.maxTokens
     const prepared = await llm.prepareCall(cfg)
-    let system = opts.system
-    const chat = await chatForSession(opts.sessionId)
-    const runtimePresetSnapshot = chat && chat.runtimePresetSnapshot
-    if (runtimePresetSnapshot && str(runtimePresetSnapshot.text) !== '') system = runtimePresetSnapshot.text + '\n\n' + system
-    const options = Object.assign({}, prepared.config, { messages: opts.messages, system })
+    const options = Object.assign({}, prepared.config, { messages: opts.messages, system: opts.system })
     let text = ''
     let finish = null
     try {
@@ -684,11 +680,8 @@ export async function apply(ctx) {
     let replyDisplay = { projections: replyProjectionsOf(chat), presentation: null, latestSourceBacked: false }
     if ((chat.mode || 'story') === 'story' || (chat.mode || 'story') === 'script') {
       const extensions = await readCardExtensions(chat.cardPath)
-      const livePresetRegexes = await runtimePresets.regexScriptsFor(Object.assign({}, chat.runtimePresetSnapshot || {}, {
-        presetPath: str(chat.runtimePresetPath) || str(chat.runtimePresetSnapshot && chat.runtimePresetSnapshot.presetPath)
-      }))
       replyDisplay = projectReplyHistory(chat.messages, {
-        regexScripts: (Array.isArray(extensions && extensions.regexScripts) ? extensions.regexScripts : []).concat(livePresetRegexes),
+        regexScripts: Array.isArray(extensions && extensions.regexScripts) ? extensions.regexScripts : [],
         placement: 2,
         isMarkdown: true,
         isEdit: false,
@@ -772,19 +765,10 @@ export async function apply(ctx) {
     const greeting = openingProjection.presentationOnly ? '\u00a0' : openingProjection.agentText
     // connectWorkspace 返回时，Agent 注册偶尔仍在异步完成。先等到原生会话可写，
     // 再落盘 Tavern 对话，避免失败时留下只有映射、没有原生开场白的半初始化记录。
-    const rawRuntimePresetSnapshot = await runtimePresets.snapshot()
-    const resolvedRuntimePreset = resolveRuntimePresetMacros(rawRuntimePresetSnapshot, {
-      charName: str(card && card.name),
-      macroState
-    })
-    const runtimePresetSnapshot = resolvedRuntimePreset.snapshot
-    macroState.userName = resolvedRuntimePreset.macroState.userName
-    macroState.local = resolvedRuntimePreset.macroState.local
-    macroState.global = resolvedRuntimePreset.macroState.global
     const openingAgent = typeof sessionId === 'string' && sessionId !== '' && greeting !== '' ? await waitForAgentSession({ registry: agentRegistry, sessionId: sessionId, sleep: sleep }) : undefined
     const chat = newChat(card, chatMode || 'story')
-    chat.runtimePresetSnapshot = runtimePresetSnapshot
-    chat.runtimePresetPath = runtimePresetSnapshot && runtimePresetSnapshot.presetPath || (await runtimePresets.state()).activePreset || ''
+    chat.runtimePresetSnapshot = null
+    chat.runtimePresetPath = ''
     chat.macroState = macroState
     chat.openingText = greeting
     chat.presentationWarnings = openingProjection.warnings
@@ -919,16 +903,7 @@ export async function apply(ctx) {
       if (sessions === undefined) throw new Error('dsh-tavern: 缺少 sessions 服务')
       await sessions.flush(session)
     },
-    resolveRuntimePresetSnapshot: async function (input) {
-      const chat = await chatForSession(input.sessionId)
-      if (!chat) return null
-      const snapshot = chat.runtimePresetSnapshot || null
-      const reference = Object.assign({}, snapshot || {}, {
-        presetPath: str(chat.runtimePresetPath) || str(snapshot && snapshot.presetPath)
-      })
-      const regexScripts = await runtimePresets.regexScriptsFor(reference)
-      return Object.assign({}, snapshot || {}, { regexScripts })
-    }
+    resolveRuntimePresetSnapshot: async function () { return null }
   })
   function presetPathForChat(chat) {
     if (!chat || typeof chat !== 'object') return ''
@@ -954,10 +929,8 @@ export async function apply(ctx) {
         const participant = chat.timeline && chat.timeline.participants && chat.timeline.participants.background
         const backgroundSessionId = str(participant && participant.sessionId) || str(chat.candidateAgent && chat.candidateAgent.sessionId)
         if (backgroundSessionId === '') continue
-        const reference = Object.assign({}, chat.runtimePresetSnapshot || {}, { presetPath: path })
-        const regexScripts = await runtimePresets.regexScriptsFor(reference)
         try {
-          const result = await backgroundAgentRunner.reproject({ sessionId: backgroundSessionId, regexScripts })
+          const result = await backgroundAgentRunner.reproject({ sessionId: backgroundSessionId, regexScripts: [] })
           changed += Number(result.changed) || 0
         } catch (error) {
           console.warn('dsh-tavern: 后台历史正则投影失败，已跳过 ' + backgroundSessionId + ':', str(error && error.message || error))
@@ -1278,10 +1251,7 @@ export async function apply(ctx) {
     },
     projectReply: projectReplyPresentation,
     resolvePresetRegexScripts: async function (chat) {
-      const reference = Object.assign({}, chat.runtimePresetSnapshot || {}, {
-        presetPath: str(chat.runtimePresetPath) || str(chat.runtimePresetSnapshot && chat.runtimePresetSnapshot.presetPath)
-      })
-      return await runtimePresets.regexScriptsFor(reference)
+      return []
     },
     queueSettlement,
     now: Date.now,
@@ -1615,14 +1585,17 @@ export async function apply(ctx) {
         return { preset }
       }
       case 'togglePresetEntry': {
+        if (args && args.enabled === true) throw new Error('预设实验模块当前仅支持导入和查看，提示词注入已禁用')
         await runtimePresets.toggle({ path: args && args.path, entryKey: args && args.entryKey, enabled: args && args.enabled === true })
         return { preset: await runtimePresets.view(args && args.path) }
       }
       case 'selectPreset': {
+        if (str(args && args.path) !== '') throw new Error('预设实验模块当前没有运行时效果，不能启用预设')
         await runtimePresets.select(args && args.path || '')
         return { selected: args && args.path || '' }
       }
       case 'togglePresetRegex': {
+        if (args && args.enabled === true) throw new Error('预设实验模块当前仅支持导入和查看，预设正则匹配已禁用')
         await runtimePresets.toggleRegex({ path: args && args.path, regexKey: args && args.regexKey, enabled: args && args.enabled === true })
         const historicalChanges = await reprojectBackgroundHistories(args && args.path)
         return { preset: await runtimePresets.view(args && args.path), historicalChanges }
@@ -1639,7 +1612,7 @@ export async function apply(ctx) {
         return { plan: await runtimePresets.savePlan({ id: args && args.id, name: args && args.name }) }
       }
       case 'applyPresetPlan': {
-        return { plan: await runtimePresets.applyPlan(args && args.id) }
+        throw new Error('预设实验模块当前没有运行时效果，不能应用配置方案')
       }
       case 'renamePresetPlan': {
         return { plan: await runtimePresets.renamePlan(args && args.id, args && args.name) }
@@ -1884,10 +1857,6 @@ export async function apply(ctx) {
     const mode = await turnOrchestrator.modeFor(agent.session.id)
     const visible = new Set(await turnOrchestrator.visibleTools(agent.session.id))
     const sections = []
-    const chat = await chatForSession(agent.session.id)
-    if (chat && chat.runtimePresetSnapshot && str(chat.runtimePresetSnapshot.text) !== '') {
-      sections.push({ name: 'tavern:runtime-preset', order: -1000, text: chat.runtimePresetSnapshot.text })
-    }
     sections.push({
       name: 'tavern:mode-persona',
       text: prompt(mode === 'card' ? 'card-mode' : 'play-mode')
