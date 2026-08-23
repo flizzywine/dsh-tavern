@@ -1400,6 +1400,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		}
 		const presetLibraryFeature = createPresetLibraryFeatureModule();
 
+		function createWorldBookLibraryFeatureModule() {
 		function WorldBookEditor(props) {
 			const initial = props.record && props.record.view ? props.record.view : { displayName: "", description: "", entries: [], diagnostics: [] };
 			const [draft, setDraft] = React.useState(function () { return JSON.parse(JSON.stringify(initial)); });
@@ -1540,6 +1541,19 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			function group(title, items) { return h("section", { className: "dsh-tavern-resource-group" }, h("div", { className: "dsh-tavern-resource-group-title" }, h("span", null, title + " · " + items.length)), items.length ? items.map(row) : h("div", { className: "dsh-tavern-status-empty" }, "暂无")); }
 			return h("div", { className: "dsh-tavern-library" }, h("div", { className: "dsh-tavern-status-head" }, h("div", { className: "dsh-tavern-status-title" }, "世界书库"), h("div", { className: "dsh-tavern-question-sub" }, "独立世界书与人物卡内置世界书共用编辑界面"), h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { importInput.current && importInput.current.click(); } }, "导入世界书"), h("input", { ref: importInput, type: "file", accept: ".json,application/json", style: { display: "none" }, onChange: function (event) { const file = event.target.files && event.target.files[0]; importFile(file); event.target.value = ""; } })), h("div", { className: "dsh-tavern-resource-body" }, error ? h("div", { className: "dsh-tavern-dock-error" }, error) : null, group("独立世界书", catalog.standalone || []), group("人物卡内置世界书", catalog.embedded || [])));
 		}
+		function register(input) {
+			const ctx = input.ctx;
+			return ctx.effect(() => ctx.betterSidebar.registerTab({
+				id: "dsh-tavern:worldbooks",
+				title: "世界书库",
+				order: 5,
+				single: true,
+				component: function (props) { return React.createElement(WorldBookLibraryTab, props); }
+			}), "dsh-tavern: Better Sidebar worldbook library tab");
+		}
+		return Object.freeze({ register: register });
+		}
+		const worldBookLibraryFeature = createWorldBookLibraryFeatureModule();
 
 		function CardLibraryTab(props) {
 			const [cards, setCards] = React.useState([]);
@@ -2701,13 +2715,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			}), "dsh-tavern: Better Sidebar status tab");
 			presetLibraryFeature.register({ ctx: ctx, appendMention: appendMention });
 			resourcesLibraryFeature.register({ ctx: ctx, appendMention: appendMention });
-			ctx.effect(() => ctx.betterSidebar.registerTab({
-				id: "dsh-tavern:worldbooks",
-				title: "世界书库",
-				order: 5,
-				single: true,
-				component: function (props) { return React.createElement(WorldBookLibraryTab, props); }
-			}), "dsh-tavern: Better Sidebar worldbook library tab");
+			worldBookLibraryFeature.register({ ctx: ctx });
 			ctx.effect(() => ctx.betterSidebar.registerTab({
 				id: "dsh-tavern:cards",
 				title: "人物卡库",
@@ -2788,6 +2796,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		exports.createConversationLifecycleModule = createConversationLifecycleModule;
 		exports.createResourcesLibraryFeatureModule = createResourcesLibraryFeatureModule;
 		exports.createPresetLibraryFeatureModule = createPresetLibraryFeatureModule;
+		exports.createWorldBookLibraryFeatureModule = createWorldBookLibraryFeatureModule;
 		return module.exports;
 	}
 });
