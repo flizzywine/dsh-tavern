@@ -103,11 +103,3 @@ export function projectBackgroundInput(value, scripts, placement = 1) {
 export function projectBackgroundOutput(value, scripts) {
   return applyTavernRegexText(value, scripts, { placement: 2, isMarkdown: true, isEdit: false, depth: 0 })
 }
-
-/** Backward-compatible adapter; runtime callers should use a named scenario interface. */
-export function projectRuntimeContent(value, options = {}) {
-  if (options.policy === 'source') return preserveRuntimeSource(value, options)
-  if (options.policy === 'opening-preview') return projectOpeningPreview(value, options)
-  if (options.policy === 'opening-commit') return projectOpeningCommit(value, options)
-  return projectAgentContent(value, options)
-}

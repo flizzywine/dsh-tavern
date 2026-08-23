@@ -8,7 +8,6 @@ import {
   projectAgentContent,
   projectOpeningCommit,
   projectOpeningPreview,
-  projectRuntimeContent,
   resolveRuntimeMacroText
 } from '../tavern-plugin/lib/domain/runtime-content-projection.js'
 
@@ -69,11 +68,6 @@ test('确认开场白后才分离正文与 HTML，并识别纯展示页', () => 
   assert.equal(mixed.presentationOnly, false)
   assert.equal(page.agentText, '')
   assert.equal(page.presentationOnly, true)
-})
-
-test('旧 policy adapter 保持兼容，但内部调用使用具名场景 interface', () => {
-  const legacy = projectRuntimeContent('{{user}}出发。', { policy: 'play', macroState: { userName: '陈锋' } })
-  assert.equal(legacy.agentText, '陈锋出发。')
 })
 
 test('预设宏解析保留提示词结构，后台输入输出采用各自固定正则语义', () => {
