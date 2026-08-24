@@ -1835,6 +1835,12 @@ export async function apply(ctx) {
       }
       case 'getResourceWorkspace': return { path: dataRoot + '/resources' }
       case 'listResources': return await listTavernResources()
+      case 'getResource': {
+        const resourcePath = normalizeResourcePath(args && args.path, 'source')
+        const text = await fileResources.readText(resourcePath)
+        if (text === undefined) throw new Error('剧本不存在: ' + resourcePath)
+        return { path: resourcePath, text }
+      }
       case 'listWorldBooks': return await worldBooks.catalog()
       case 'getWorldBook': return await worldBooks.get(args && args.source)
       case 'getWorldBookBinding': return { binding: await worldBooks.binding(args && args.cardPath) }
