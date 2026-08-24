@@ -941,8 +941,6 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				return /sessions\.select: unknown session/i.test(String(error && error.message || error || ""));
 			}
 			async function openSessionWhenReady(sessionId) {
-				if (typeof props.sessions.refresh === "function") await props.sessions.refresh();
-				await waitForSessionSummary(sessionId);
 				try { props.sessions.open(sessionId); }
 				catch (error) {
 					if (!isUnknownSessionSelectError(error)) throw error;

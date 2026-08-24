@@ -75,6 +75,8 @@ test('已创建 Session 在前端列表短暂不同步时刷新并重连同一�
   assert.match(openFlow, /isUnknownSessionSelectError\(error\)/)
   assert.match(openFlow, /await waitForSessionSummary\(sessionId\)/)
   assert.match(openFlow, /props\.sessions\.open\(sessionId\)/)
+  const normalPath = openFlow.slice(0, openFlow.indexOf('catch (error)'))
+  assert.doesNotMatch(normalPath, /sessions\.refresh|waitForSessionSummary/)
   assert.doesNotMatch(openFlow, /connectWorkspace|startChat/)
 })
 
