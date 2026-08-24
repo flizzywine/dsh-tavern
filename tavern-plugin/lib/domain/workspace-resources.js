@@ -17,12 +17,13 @@ export function resourceWorkspaceContext(value) {
 
 import { normalizeResourcePath, resourceKind } from './file-resources.js'
 
-const RESOURCE_KINDS = Object.freeze(['card', 'preset', 'source', 'script'])
+const RESOURCE_KINDS = Object.freeze(['card', 'preset', 'source', 'script', 'worldbook'])
 
 export function mentionedTavernResources(text) {
   const resources = []
   const mentions = []
   const legacyPattern = /@\[([^\]\r\n]*)\]\(tavern-file:([^\s)]+)\)/g
+  const worldBookPattern = /@\[([^\]\r\n]*)\]\(tavern-worldbook:([^\s)]+)\)/g
   const nativePattern = /@"([^"\r\n]+)"/g
   let match
   const input = str(text)
@@ -31,6 +32,11 @@ export function mentionedTavernResources(text) {
     try { decoded = decodeURIComponent(match[2]) } catch { continue }
     mentions.push({ index: match.index, path: decoded, label: str(match[1]).trim() })
   }
+  while ((match = worldBookPattern.exec(input)) !== null) {
+    let decoded
+    try { decoded = decodeURIComponent(match[2]) } catch { continue }
+    mentions.push({ index: match.index, path: decoded, label: str(match[1]).trim(), kind: 'worldbook' })
+  }
   while ((match = nativePattern.exec(input)) !== null) {
     mentions.push({ index: match.index, path: match[1], label: match[1].split('/').filter(Boolean).at(-1) || match[1] })
   }
@@ -38,8 +44,9 @@ export function mentionedTavernResources(text) {
   for (const mention of mentions) {
     let path
     try { path = normalizeResourcePath(mention.path) } catch { continue }
-    const resource = { kind: resourceKind(path), path, label: mention.label || path }
-    if (!resources.some(function (item) { return item.path === resource.path })) resources.push(resource)
+    const resource = { kind: mention.kind || resourceKind(path), path, label: mention.label || path }
+    if (resource.kind === 'worldbook' && resourceKind(path) !== 'worldbook' && resourceKind(path) !== 'card') continue
+    if (!resources.some(function (item) { return item.kind === resource.kind && item.path === resource.path })) resources.push(resource)
   }
   return resources
 }
@@ -50,10 +57,13 @@ export function rememberTavernResources(existing, text) {
     if (item === null || typeof item !== 'object') continue
     const kind = str(item.kind)
     let path
-    try { path = normalizeResourcePath(item.path, kind) } catch { continue }
+    try {
+      path = kind === 'worldbook' ? normalizeResourcePath(item.path) : normalizeResourcePath(item.path, kind)
+      if (kind === 'worldbook' && resourceKind(path) !== 'worldbook' && resourceKind(path) !== 'card') continue
+    } catch { continue }
     if (!RESOURCE_KINDS.includes(kind)) continue
     const resource = { kind, path, label: str(item.label).trim() || path }
-    const previous = resources.find(function (entry) { return entry.path === path })
+    const previous = resources.find(function (entry) { return entry.kind === kind && entry.path === path })
     if (previous === undefined) resources.push(resource)
     else if (resource.label !== path) previous.label = resource.label
   }

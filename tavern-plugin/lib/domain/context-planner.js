@@ -194,14 +194,14 @@ export function createContextPlanner(options = {}) {
       })
       const mountedResources = Array.isArray(workspace.mountedResources) ? workspace.mountedResources.filter(function (item) { return item !== null && typeof item === 'object' }) : []
       if (mountedResources.length > 0) {
-        const kindLabel = { card: '人物卡', preset: '预设', source: '资料', script: '剧本资料' }
-        sections.push({ kind: 'workspace-resources', required: true, text: '【挂载的 Tavern 资源 · 仅目录，正文尚未自动读取】\n' + mountedResources.map(function (item) { return '- [' + (kindLabel[item.kind] || item.kind) + '] ' + str(item.label) + ' · path=' + str(item.path) }).join('\n') + '\n人物卡和资料使用对应 Tavern 只读工具按需读取；没有实际读取的内容，不得声称已经读过。' })
+        const kindLabel = { card: '人物卡', preset: '预设', source: '资料', script: '剧本资料', worldbook: '世界书' }
+        sections.push({ kind: 'workspace-resources', required: true, text: '【挂载的 Tavern 资源 · 仅目录，正文尚未自动读取】\n' + mountedResources.map(function (item) { return '- [' + (kindLabel[item.kind] || item.kind) + '] ' + str(item.label) + ' · path=' + str(item.path) }).join('\n') + '\n人物卡、世界书、预设和资料使用对应 Tavern 只读工具按需读取；没有实际读取的内容，不得声称已经读过。' })
       }
       if (player !== '' || (Array.isArray(workspace.sourcePaths) && workspace.sourcePaths.length > 0)) {
         sections.push({ kind: 'card-player', required: true, text: '【玩家身份（{{user}}）】\n' + (player !== '' ? player + '\nmes_example、scenario、first_mes 中的 {{user}} 一律指这个身份。需要修改时在 fields 中提交 player。' : '尚未确认。需要制作新卡或处理玩家视角时，先请用户说明谁是玩家（{{user}}）。') })
       }
       if (card !== null) {
-        sections.push({ kind: 'world-book-overview', required: false, text: worldBookOverviewText(input.worldBookOverview) + '\n需要查看世界书正文时调用 tavern_read_worldbook。确认修改时调用 tavern_update_card，并在 worldBook 数组中提交逐条操作；不要在 fields 中重传整本世界书。支持 update、add、delete、rename。' })
+        sections.push({ kind: 'world-book-overview', required: false, text: worldBookOverviewText(input.worldBookOverview) + '\n需要查看世界书正文时调用 tavern_read_worldbook。确认修改时调用 tavern_update_worldbook 提交逐条操作；不要重传整本世界书。支持 update、add、delete。' })
       }
       if (prepared !== null && typeof prepared === 'object' && Array.isArray(prepared.window) && prepared.window.length > 0) {
         sections.push({ kind: 'card-source', required: true, text: '【本轮挂载资料 · 第 ' + (Number(prepared.cursorBefore) + 1) + '~' + (Number(prepared.cursorBefore) + prepared.window.length) + ' 块 / 共 ' + prepared.total + ' 块】\n' + prepared.window.map(function (chunk) { return '[' + chunk.title + '] ' + chunk.text }).join('\n\n') })

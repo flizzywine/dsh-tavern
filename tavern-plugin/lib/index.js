@@ -15,6 +15,7 @@ import { extractEpubText } from './domain/epub-text.js'
 import { createFileResourceStore, normalizeResourcePath, resourceKind } from './domain/file-resources.js'
 import { createForegroundHandoff } from './domain/foreground-handoff.js'
 import { inspectPreset } from './domain/preset-reading.js'
+import { createPresetEditor } from './domain/preset-editor.js'
 import { createRuntimePresetModule } from './domain/runtime-presets.js'
 import {
   preserveRuntimeSource,
@@ -234,7 +235,9 @@ export async function apply(ctx) {
   const cardTaskPrompts = Object.freeze({
     edit: 'card-task-edit',
     extract: 'card-task-extract',
-    material: 'card-task-material'
+    material: 'card-task-material',
+    worldbook: 'card-task-worldbook',
+    preset: 'card-task-preset'
   })
   async function readCardWorkspace(cardPath) {
     if (str(cardPath) === '') return undefined
@@ -329,6 +332,11 @@ export async function apply(ctx) {
     if (text === undefined) return undefined
     return Object.assign({ path: normalized, previewPath: fileResources.absolute(normalized) }, inspectPreset(text, normalized))
   }
+  const presetEditor = createPresetEditor({
+    normalizePath: normalizeResourcePath,
+    readText: async function (path) { return await fileResources.readText(path) },
+    writeText: async function (path, text) { return await fileResources.writeWorking(path, text) }
+  })
   const runtimePresets = createRuntimePresetModule({
     listPaths: async function () { return await fileResources.list('preset') },
     readPreset,
@@ -2145,7 +2153,7 @@ export async function apply(ctx) {
     foregroundHandoff.end({ sessionId: session.id, turn: event.data && event.data.turn, reason })
   })
 
-  const controlledToolNames = new Set(['bash', 'pwsh', 'str_replace_editor', 'skill', 'tavern_save_skill', 'tavern_read_card', 'tavern_read_card_raw', 'tavern_read_script', 'tavern_read_worldbook', 'tavern_update_card', 'tavern_restore_card'])
+  const controlledToolNames = new Set(['bash', 'pwsh', 'str_replace_editor', 'skill', 'tavern_save_skill', 'tavern_read_card', 'tavern_read_card_raw', 'tavern_read_script', 'tavern_read_worldbook', 'tavern_update_worldbook', 'tavern_read_preset', 'tavern_update_preset', 'tavern_update_card', 'tavern_restore_card'])
   ctx.on('system-prompt/assemble', async function (_assembly, context, next) {
     const assembly = await next()
     const agent = context && context.agent
@@ -2375,8 +2383,9 @@ export async function apply(ctx) {
 
     tools.register(defineTool({
       name: 'tavern_read_worldbook',
-      description: '在卡片设定对话中按编号、关键词或分页读取世界书正文。',
+      description: '在卡片设定对话中按编号、关键词或分页读取已引用的世界书正文。省略 path 时读取当前人物卡绑定的世界书。',
       parameters: {
+        path: { type: 'string', description: '已引用世界书的相对路径；独立世界书为 worldbooks/...，人物卡内置世界书为 cards/...' },
         ref: { type: 'string', description: '目录中的条目编号，例如 wb-0' },
         query: { type: 'string', description: '可选关键词' },
         offset: { type: 'integer', description: '可选的 1 起始条目序号' },
@@ -2411,12 +2420,149 @@ export async function apply(ctx) {
         const chat = await chatForSession(sessionId)
         if (chat === undefined) return { found: false, message: '尚未选择人物卡。', name: '', total: 0, entries: [] }
         if ((chat.mode || 'story') !== 'card') throw new Error('世界书只能在卡片工作台中读取')
-        if (str(chat.cardPath) === '') return { found: false, message: '当前工作台尚未挂载人物卡。', name: '', total: 0, entries: [] }
-        const card = await readChatCard(chat)
-        const windowResult = cardPreparation.present({ card, as: 'world-book-window', ref: args.ref, query: args.query, offset: args.offset, limit: args.limit })
-        if (windowResult === null) return { found: false, message: '当前人物卡没有世界书。', name: '', total: 0, entries: [] }
-        if (windowResult.entries.length === 0) return { found: false, message: '没有找到符合条件的世界书条目。', name: windowResult.name, total: windowResult.total, entries: [] }
-        return { found: true, message: '', name: str(windowResult.name), total: windowResult.total, entries: windowResult.entries }
+        const requestedPath = str(args.path).trim()
+        let record
+        if (requestedPath !== '') {
+          const normalized = normalizeResourcePath(requestedPath)
+          const kind = resourceKind(normalized)
+          if (kind !== 'worldbook' && kind !== 'card') throw new Error('世界书引用路径类型不正确')
+          if (!mountedResource(chat, 'worldbook', normalized) && normalized !== str(chat.cardPath)) throw new Error('该世界书尚未挂载到当前对话')
+          record = await worldBooks.get(kind === 'card' ? { kind: 'card', cardPath: normalized } : { kind: 'standalone', path: normalized })
+        } else {
+          if (str(chat.cardPath) === '') return { found: false, message: '当前工作台尚未引用世界书。', name: '', total: 0, entries: [] }
+          record = await worldBooks.bound(chat.cardPath, await readChatCard(chat))
+          if (record === null) return { found: false, message: '当前人物卡没有世界书。', name: '', total: 0, entries: [] }
+        }
+        const allEntries = Array.isArray(record.view.entries) ? record.view.entries : []
+        const query = str(args.query).trim().toLowerCase()
+        const ref = str(args.ref).trim()
+        const filtered = allEntries.filter(function (entry) {
+          if (ref !== '') return str(entry.ref) === ref
+          if (query === '') return true
+          return JSON.stringify(entry).toLowerCase().includes(query)
+        })
+        const offset = Math.max(1, Number(args.offset) || 1)
+        const limit = Math.min(10, Math.max(1, Number(args.limit) || 3))
+        const entries = filtered.slice(offset - 1, offset - 1 + limit).map(function (entry) { return { ref: str(entry.ref), entry } })
+        if (entries.length === 0) return { found: false, message: '没有找到符合条件的世界书条目。', name: str(record.view.displayName), total: allEntries.length, entries: [] }
+        return { found: true, message: '', name: str(record.view.displayName), total: allEntries.length, entries }
+      }
+    }))
+
+    tools.register(defineTool({
+      name: 'tavern_update_worldbook',
+      description: '仅在用户明确确认后，对已引用世界书提交条目级最小修改。支持独立世界书和人物卡内置世界书；不要重写整本世界书。',
+      parameters: {
+        path: { type: 'string', required: true, description: '已引用世界书路径；worldbooks/... 或携带内置世界书的 cards/...' },
+        name: { type: 'string', description: '可选的新世界书名称' },
+        description: { type: 'string', description: '可选的新世界书说明' },
+        operations: {
+          type: 'array', required: true,
+          items: {
+            type: 'object', additionalProperties: false,
+            properties: {
+              op: { type: 'string', required: true, enum: ['update', 'add', 'delete'] },
+              ref: { type: 'string' },
+              patch: { type: 'object', additionalProperties: true },
+              entry: { type: 'object', additionalProperties: true }
+            }
+          }
+        }
+      },
+      output: {
+        schema: {
+          type: 'object', additionalProperties: false,
+          properties: {
+            path: { type: 'string', required: true },
+            name: { type: 'string', required: true },
+            entryCount: { type: 'integer', required: true },
+            saved: { type: 'boolean', required: true }
+          }
+        },
+        render: function (_args, value) { return [{ type: 'text', text: '世界书《' + value.name + '》已修改并生效 · ' + value.entryCount + ' 条' }] }
+      },
+      async execute(args, exec) {
+        const sessionId = exec && exec.agent && exec.agent.session ? exec.agent.session.id : ''
+        const chat = await chatForSession(sessionId)
+        if (chat === undefined || (chat.mode || 'story') !== 'card') throw new Error('世界书只能在卡片工作台中修改')
+        const normalized = normalizeResourcePath(args.path)
+        const kind = resourceKind(normalized)
+        if (kind !== 'worldbook' && kind !== 'card') throw new Error('世界书引用路径类型不正确')
+        if (!mountedResource(chat, 'worldbook', normalized)) throw new Error('该世界书尚未挂载到当前对话')
+        const source = kind === 'card' ? { kind: 'card', cardPath: normalized } : { kind: 'standalone', path: normalized }
+        const request = { operations: args.operations }
+        if (Object.prototype.hasOwnProperty.call(args, 'name')) request.name = args.name
+        if (Object.prototype.hasOwnProperty.call(args, 'description')) request.description = args.description
+        const result = await worldBooks.update(source, request)
+        return { path: normalized, name: str(result.view.displayName), entryCount: Number(result.view.entryCount) || 0, saved: true }
+      }
+    }))
+
+    tools.register(defineTool({
+      name: 'tavern_read_preset',
+      description: '按 JSON Pointer 分段读取已引用预设的原始工作 JSON。目标预设只用于编辑，不会应用到当前 Agent。',
+      parameters: {
+        path: { type: 'string', required: true, description: '已引用的 presets/... 相对路径' },
+        pointer: { type: 'string', description: 'JSON Pointer，例如 /prompts/0；省略时读取根节点' },
+        offset: { type: 'integer', description: '可选的 1 起始字符位置' },
+        limit: { type: 'integer', description: '本次最多读取字符数，默认 6000，最大 12000' }
+      },
+      output: {
+        schema: {
+          type: 'object', additionalProperties: false,
+          properties: {
+            path: { type: 'string', required: true }, pointer: { type: 'string', required: true }, text: { type: 'string', required: true },
+            totalChars: { type: 'integer', required: true }, from: { type: 'integer', required: true }, to: { type: 'integer', required: true }, done: { type: 'boolean', required: true }
+          }
+        },
+        render: function (_args, value) { return [{ type: 'text', text: '预设 ' + value.path + ' · ' + (value.pointer || '/') + ' · 第 ' + value.from + '~' + value.to + ' 字 / 共 ' + value.totalChars + ' 字\n\n' + value.text }] }
+      },
+      isConcurrencySafe: function () { return true },
+      async execute(args, exec) {
+        const sessionId = exec && exec.agent && exec.agent.session ? exec.agent.session.id : ''
+        const chat = await chatForSession(sessionId)
+        if (chat === undefined || (chat.mode || 'story') !== 'card') throw new Error('预设只能在卡片工作台中读取')
+        const normalized = normalizeResourcePath(args.path, 'preset')
+        if (!mountedResource(chat, 'preset', normalized)) throw new Error('该预设尚未挂载到当前对话')
+        return await presetEditor.read(normalized, args)
+      }
+    }))
+
+    tools.register(defineTool({
+      name: 'tavern_update_preset',
+      description: '仅在用户明确确认后，按 JSON Pointer 修改已引用预设的最小路径并重新校验。不会应用或运行目标预设。',
+      parameters: {
+        path: { type: 'string', required: true, description: '已引用的 presets/... 相对路径' },
+        operations: {
+          type: 'array', required: true,
+          items: {
+            type: 'object', additionalProperties: false,
+            properties: {
+              op: { type: 'string', required: true, enum: ['set', 'delete'] },
+              path: { type: 'string', required: true, description: 'JSON Pointer，例如 /prompts/0/content' },
+              value: { type: 'json', description: 'set 操作的新值；delete 时省略' }
+            }
+          }
+        }
+      },
+      output: {
+        schema: {
+          type: 'object', additionalProperties: false,
+          properties: {
+            path: { type: 'string', required: true }, changed: { type: 'array', required: true, items: { type: 'string' } },
+            valid: { type: 'boolean', required: true }, recognized: { type: 'boolean', required: true }, promptCount: { type: 'integer', required: true },
+            regexCount: { type: 'integer', required: true }, warning: { type: 'string', required: true }
+          }
+        },
+        render: function (_args, value) { return [{ type: 'text', text: '预设已修改并通过 JSON 校验；变更 ' + value.changed.length + ' 个路径。目标预设仍未应用。' + (value.warning ? '\n诊断：' + value.warning : '') }] }
+      },
+      async execute(args, exec) {
+        const sessionId = exec && exec.agent && exec.agent.session ? exec.agent.session.id : ''
+        const chat = await chatForSession(sessionId)
+        if (chat === undefined || (chat.mode || 'story') !== 'card') throw new Error('预设只能在卡片工作台中修改')
+        const normalized = normalizeResourcePath(args.path, 'preset')
+        if (!mountedResource(chat, 'preset', normalized)) throw new Error('该预设尚未挂载到当前对话')
+        return await presetEditor.update(normalized, args.operations)
       }
     }))
 

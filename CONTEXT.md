@@ -10,7 +10,7 @@ Tavern Chat 中唯一权威的剧情记录。它用单调递增的 revision、br
 
 ## Background Agent
 
-每个 Tavern Chat 共享的单一持久 Agent。它串行执行世界书召回、状态结算与候选生成，不直接拥有剧情权威。
+每个 Tavern Chat 共享的单一持久 Agent。它串行执行状态结算与候选生成，不直接拥有剧情权威。世界书由 Tavern 本地确定性投影，不进入后台 Agent。
 
 ## Background Operation
 
@@ -18,7 +18,7 @@ Background Agent 基于特定 Story Timeline branch/revision 执行的一项工�
 
 ## Background Cycle
 
-Foreground Turn 成功后必须依次完成的一组 Background Operation：世界书召回，然后状态结算。Cycle 完成前，下一次 Foreground Turn 与候选生成不可开始。
+Foreground Turn 成功后产生的状态结算 Background Operation。世界书关键词匹配在本地完成，不创建 Background Operation，也不阻止下一次 Foreground Turn。
 
 ## Background Activity
 

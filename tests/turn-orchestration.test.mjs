@@ -307,6 +307,9 @@ test('卡片修改先校验暂存，只在最终回复完成后写入', async ()
     'tavern_read_card',
     'tavern_read_card_raw',
     'tavern_read_worldbook',
+    'tavern_update_worldbook',
+    'tavern_read_preset',
+    'tavern_update_preset',
     'tavern_update_card',
     'tavern_restore_card',
   ])
@@ -334,6 +337,9 @@ test('Windows 卡片模式暴露 PowerShell 而不是 Bash', async () => {
     'tavern_read_card',
     'tavern_read_card_raw',
     'tavern_read_worldbook',
+    'tavern_update_worldbook',
+    'tavern_read_preset',
+    'tavern_update_preset',
     'tavern_update_card',
     'tavern_restore_card',
   ])
@@ -356,7 +362,7 @@ test('空白卡片工作台确认完整设定后直接创建并绑定正式人�
   const duplicate = await run.orchestrator.finalize({ sessionId: 'session-1', turn: 6, userText: '确认角色和玩家', assistantText: '重复回调' })
   assert.equal(duplicate.duplicate, true)
   assert.equal(run.createdCards.length, 1)
-  assert.deepEqual(await run.orchestrator.visibleTools('session-1'), ['bash', 'str_replace_editor', 'skill', 'tavern_save_skill', 'tavern_read_card', 'tavern_read_card_raw', 'tavern_read_worldbook', 'tavern_update_card', 'tavern_restore_card'])
+  assert.deepEqual(await run.orchestrator.visibleTools('session-1'), ['bash', 'str_replace_editor', 'skill', 'tavern_save_skill', 'tavern_read_card', 'tavern_read_card_raw', 'tavern_read_worldbook', 'tavern_update_worldbook', 'tavern_read_preset', 'tavern_update_preset', 'tavern_update_card', 'tavern_restore_card'])
 })
 
 test('空白工作台缺少新卡必填信息时不接受确认提交', async () => {

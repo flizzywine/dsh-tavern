@@ -889,9 +889,20 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			async function openResourcePicker(task) {
 				setBusy(true); setError("");
 				try {
-					const response = await call("listResources");
-					const resources = response.resources || [];
-					setInitialResources(resources.map(function (item) { return Object.assign({}, item, { kind: "source" }); }));
+					let resources = [];
+					if (task === "worldbook") {
+						const response = await call("listWorldBooks");
+						resources = (response.standalone || []).concat(response.embedded || []).map(function (item) {
+							return { kind: "worldbook", path: item.kind === "card" ? item.cardPath : item.path, title: item.name, detail: item.kind === "card" ? "人物卡内置 · " + item.cardName : "独立世界书" };
+						});
+					} else if (task === "preset") {
+						const response = await call("listPresets");
+						resources = (response.presets || []).map(function (item) { return { kind: "preset", path: item.path, title: item.title, detail: "仅编辑，无法使用" }; });
+					} else {
+						const response = await call("listResources");
+						resources = (response.resources || []).map(function (item) { return Object.assign({}, item, { kind: "source" }); });
+					}
+					setInitialResources(resources);
 					setSelectedInitialResources({});
 					setCardEntry(task);
 				} catch (err) { setError(String(err && err.message || err)); }
@@ -900,7 +911,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			function toggleInitialResource(item) {
 				const key = item.kind + ":" + item.path;
 				setSelectedInitialResources(function (current) {
-					const next = Object.assign({}, current);
+					const next = cardEntry === "worldbook" || cardEntry === "preset" ? {} : Object.assign({}, current);
 					if (next[key]) delete next[key];
 					else next[key] = { kind: item.kind, path: item.path, title: item.title };
 					return next;
@@ -1165,24 +1176,29 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					items.length ? items.map(function (item) {
 						const key = item.kind + ":" + item.path;
 						const selected = !!selectedInitialResources[key];
-						return h("button", { key: item.kind + ":" + item.path, className: "dsh-tavern-card-pick" + (selected ? " selected" : ""), "aria-pressed": selected ? "true" : "false", disabled: busy, onClick: function () { toggleInitialResource(item); } }, h("b", null, (selected ? "✓ " : "") + item.title), h("span", null, item.chunkCount ? item.chunkCount + " 块" : "可作为人物卡参考资料"));
+						return h("button", { key: item.kind + ":" + item.path, className: "dsh-tavern-card-pick" + (selected ? " selected" : ""), "aria-pressed": selected ? "true" : "false", disabled: busy, onClick: function () { toggleInitialResource(item); } }, h("b", null, (selected ? "✓ " : "") + item.title), h("span", null, item.detail || (item.chunkCount ? item.chunkCount + " 块" : "可作为人物卡参考资料")));
 					}) : h("div", { className: "dsh-tavern-side-empty", style: { padding: "8px" } }, "暂无")
 				);
 			}
+			const initialResourceTitle = cardEntry === "worldbook" ? "世界书" : cardEntry === "preset" ? "预设" : "资料";
 			const initialResourcePicker = initialResources.length ? h(React.Fragment, null,
-				initialResourceGroup("资料", initialResources),
+				initialResourceGroup(initialResourceTitle, initialResources),
 				h("div", { className: "dsh-tavern-picker-foot" }, h("button", { className: "dsh-tavern-question-primary", disabled: busy || !chosenInitialResources.length, onClick: function () {
 					if (cardEntry === "material") newCardConversation(null, "material", "修改资料", chosenInitialResources);
+					else if (cardEntry === "worldbook") newCardConversation(null, "worldbook", "修改世界书", chosenInitialResources);
+					else if (cardEntry === "preset") newCardConversation(null, "preset", "修改预设", chosenInitialResources);
 					else newCardConversation(null, "extract", "从资料新建人物卡", chosenInitialResources);
 				} }, "用已选 " + chosenInitialResources.length + " 项开始"))
-			) : h("div", { className: "dsh-tavern-empty" }, "资料库暂无内容。请先从右侧资料库导入。");
+			) : h("div", { className: "dsh-tavern-empty" }, initialResourceTitle + "库暂无可选内容。请先从右侧" + initialResourceTitle + "库导入。");
 			const cardPicker = h("div", { className: "dsh-tavern-card-picker", role: "dialog", "aria-modal": "true", "aria-label": "选择卡片工作台起始任务" }, pickerError,
-				h("div", { className: "dsh-tavern-card-picker-head" }, cardEntry ? h("button", { className: "dsh-tavern-btn", onClick: function () { setCardEntry(""); } }, "← 返回") : h("span", null, "选择起始任务"), cardEntry === "extract" || cardEntry === "material" ? h("span", null, "选择初始资料（至少 1 项）") : null, h("span", { className: "dsh-tavern-spacer" }), cardEntry === "edit" ? h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { fileRef.current && fileRef.current.click(); } }, "导入人物卡") : null, h("button", { className: "dsh-tavern-btn", onClick: closePicker }, "关闭")),
+				h("div", { className: "dsh-tavern-card-picker-head" }, cardEntry ? h("button", { className: "dsh-tavern-btn", onClick: function () { setCardEntry(""); } }, "← 返回") : h("span", null, "选择起始任务"), cardEntry === "extract" || cardEntry === "material" ? h("span", null, "选择初始资料（至少 1 项）") : cardEntry === "worldbook" || cardEntry === "preset" ? h("span", null, "选择一个编辑目标") : null, h("span", { className: "dsh-tavern-spacer" }), cardEntry === "edit" ? h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { fileRef.current && fileRef.current.click(); } }, "导入人物卡") : null, h("button", { className: "dsh-tavern-btn", onClick: closePicker }, "关闭")),
 				h("input", { ref: fileRef, type: "file", accept: ".png,.json", style: { display: "none" }, onChange: function (e) { const f = e.target.files && e.target.files[0]; if (f) importCard(f); e.target.value = ""; } }),
-				cardEntry === "edit" ? cardEditRows : cardEntry === "extract" || cardEntry === "material" ? initialResourcePicker : h(React.Fragment, null,
+				cardEntry === "edit" ? cardEditRows : cardEntry === "extract" || cardEntry === "material" || cardEntry === "worldbook" || cardEntry === "preset" ? initialResourcePicker : h(React.Fragment, null,
 					h("button", { className: "dsh-tavern-card-pick", disabled: busy, onClick: function () { setCardEntry("edit"); } }, h("b", null, "修改人物卡"), h("span", null, "先选择人物卡，再追加修改任务提示词")),
 					h("button", { className: "dsh-tavern-card-pick", disabled: busy, onClick: function () { openResourcePicker("extract"); } }, h("b", null, "从资料新建人物卡"), h("span", null, "先选择至少一项资料，再进入工作台")),
 					h("button", { className: "dsh-tavern-card-pick", disabled: busy, onClick: function () { openResourcePicker("material"); } }, h("b", null, "修改资料"), h("span", null, "先选择至少一项资料，再进入工作台修改工作版")),
+					h("button", { className: "dsh-tavern-card-pick", disabled: busy, onClick: function () { openResourcePicker("worldbook"); } }, h("b", null, "修改世界书"), h("span", null, "先选择一本世界书，再进入工作台按条目修改")),
+					h("button", { className: "dsh-tavern-card-pick", disabled: busy, onClick: function () { openResourcePicker("preset"); } }, h("b", null, "修改预设"), h("span", null, "先选择一个预设；仅编辑，无法使用")),
 					h("button", { className: "dsh-tavern-card-pick", disabled: busy, onClick: function () { newCardConversation(null); } }, h("b", null, "空白开始"), h("span", null, "不追加任务提示词，自由使用完整卡片 Agent"))
 				)
 			);
@@ -1721,6 +1737,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const [error, setError] = usePersistentError("世界书库");
 			const importInput = React.useRef(null);
 			const requestedSource = props.tab && props.tab.meta && props.tab.meta.worldBookSource ? props.tab.meta.worldBookSource : null;
+			const sessionMode = useTavernSessionMode(props.scope.sessionId);
 			const h = React.createElement;
 			function refresh() { return rpc("listWorldBooks", {}, props.scope.sessionId).then(function (result) { setCatalog(result || { standalone: [], embedded: [] }); setError(""); return result; }, function (err) { setError(String(err && err.message || err)); }); }
 			function load(source) { if (!source) { setRecord(null); return Promise.resolve(); } return rpc("getWorldBook", { source: source }, props.scope.sessionId).then(function (result) { setRecord(result); setError(""); }, function (err) { setRecord(null); setError(String(err && err.message || err)); }); }
@@ -1735,7 +1752,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				const actions = h("div", { className: "dsh-tavern-library-head-actions" }, h("button", { className: "dsh-tavern-btn", onClick: exportFile }, "导出"), record.source.kind === "standalone" ? h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: rename }, "重命名文件") : null, record.source.kind === "standalone" ? h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: remove }, "删除") : null);
 				return h(WorldBookEditor, { record: record, sessionId: props.scope.sessionId, onBack: clear, actions: actions, onSaved: function (result) { setRecord(result); refresh(); } });
 			}
-			function row(item) { const source = item.kind === "card" ? { kind: "card", cardPath: item.cardPath } : { kind: "standalone", path: item.path }; return h("button", { key: item.path || item.cardPath, className: "dsh-tavern-library-card", onClick: function () { load(source); } }, h("b", null, item.name), h("span", null, item.entryCount + " 条 · " + item.enabledCount + " 条启用" + (item.diagnostics ? " · " + item.diagnostics + " 个诊断" : "")), item.cardName ? h("span", null, "来自人物卡：" + item.cardName) : null); }
+			function row(item) { const source = item.kind === "card" ? { kind: "card", cardPath: item.cardPath } : { kind: "standalone", path: item.path }; const resourcePath = item.kind === "card" ? item.cardPath : item.path; return h("div", { key: resourcePath, className: "dsh-tavern-card-pick-wrap" }, h("button", { className: "dsh-tavern-library-card", onClick: function () { load(source); } }, h("b", null, item.name), h("span", null, item.entryCount + " 条 · " + item.enabledCount + " 条启用" + (item.diagnostics ? " · " + item.diagnostics + " 个诊断" : "")), item.cardName ? h("span", null, "来自人物卡：" + item.cardName) : null), sessionMode === "card" ? h("button", { className: "dsh-tavern-resource-at", title: "在对话中引用", onClick: function () { props.appendMention("worldbook", resourcePath, item.name); } }, "在对话中引用") : null); }
 			function group(title, items) { return h("section", { className: "dsh-tavern-resource-group" }, h("div", { className: "dsh-tavern-resource-group-title" }, h("span", null, title + " · " + items.length)), items.length ? items.map(row) : h("div", { className: "dsh-tavern-status-empty" }, "暂无")); }
 			return h("div", { className: "dsh-tavern-library" }, h("div", { className: "dsh-tavern-status-head" }, h("div", { className: "dsh-tavern-status-title" }, "世界书库"), h("div", { className: "dsh-tavern-question-sub" }, "独立世界书与人物卡内置世界书共用编辑界面"), h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { importInput.current && importInput.current.click(); } }, "导入世界书"), h("input", { ref: importInput, type: "file", accept: ".json,application/json", style: { display: "none" }, onChange: function (event) { const file = event.target.files && event.target.files[0]; importFile(file); event.target.value = ""; } })), h("div", { className: "dsh-tavern-resource-body" },
 				h("div", { className: "dsh-tavern-worldbook-note" }, "常驻条目随人物卡进入稳定前缀；非常驻条目按关键词确定性匹配，每轮最多注入 3 条，实际注入后冷却 10 个剧情回合。世界书不再调用后台 Agent。尚未支持的酒馆字段仍会原样保留。"),
@@ -1743,12 +1760,13 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		}
 		function register(input) {
 			const ctx = input.ctx;
+			const appendMention = input.appendMention;
 			return ctx.effect(() => ctx.betterSidebar.registerTab({
 				id: "dsh-tavern:worldbooks",
 				title: "世界书库",
 				order: 5,
 				single: true,
-				component: function (props) { return React.createElement(WorldBookLibraryTab, props); }
+				component: function (props) { return React.createElement(WorldBookLibraryTab, Object.assign({}, props, { appendMention: function (kind, path, label) { appendMention(props.scope.sessionId, kind, path, label); } })); }
 			}), "dsh-tavern: Better Sidebar worldbook library tab");
 		}
 		return Object.freeze({ register: register });
@@ -2891,7 +2909,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					if (!actx || !conversation) throw new Error("当前对话输入框不可用");
 					const input = conversation.input.for(actx);
 					const safePath = String(path || "").replace(/\\/g, "/").replace(/["\r\n]/g, "");
-					const mention = "@\"" + safePath + "\"";
+					const safeLabel = String(label || safePath.split("/").pop() || "世界书").replace(/[\]\r\n]/g, "");
+					const mention = kind === "worldbook" ? "@[" + safeLabel + "](tavern-worldbook:" + encodeURIComponent(safePath) + ")" : "@\"" + safePath + "\"";
 					const draft = input.state.getSnapshot().draft;
 					input.setDraft(draft.trim() === "" ? mention : draft + (/\s$/.test(draft) ? "" : " ") + mention);
 				} catch (err) {
@@ -2909,14 +2928,14 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				const supplement = draft;
 				const targetPath = card && card.path ? String(card.path).replace(/\\/g, "/").replace(/["\r\n]/g, "") : "";
 				const targetSection = targetPath ? "\n\n【目标人物卡】\n@\"" + targetPath + "\"" : "";
-				const materialSection = hasInitialResources ? "\n\n【初始资料】\n" : "";
-				const taskText = "【卡片任务：" + label + "】" + targetSection + "\n\n" + String(result && result.text || "").trim() + materialSection;
+				const resourceSection = hasInitialResources ? (task === "worldbook" || task === "preset" ? "\n\n【编辑目标】\n" : "\n\n【初始资料】\n") : "";
+				const taskText = "【卡片任务：" + label + "】" + targetSection + "\n\n" + String(result && result.text || "").trim() + resourceSection;
 				input.setDraft(taskText + supplement);
 			}
 			playControlsFeature.register({ ctx: ctx, slots: slots });
 			presetLibraryFeature.register({ ctx: ctx, appendMention: appendMention });
 			resourcesLibraryFeature.register({ ctx: ctx, appendMention: appendMention });
-			worldBookLibraryFeature.register({ ctx: ctx });
+			worldBookLibraryFeature.register({ ctx: ctx, appendMention: appendMention });
 			cardLibraryFeature.register({ ctx: ctx, appendMention: appendMention });
 			ctx.effect(function () {
 				reconcileLibraryTabTitles();

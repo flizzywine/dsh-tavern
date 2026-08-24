@@ -30,6 +30,16 @@ test('继续读取历史 tavern-file 结构化资源引用', () => {
   ])
 })
 
+test('独立与人物卡内置世界书使用明确类型引用，不会退化为整张人物卡', () => {
+  assert.deepEqual(mentionedTavernResources('参考 @[通用设定](tavern-worldbook:worldbooks%2F%E9%80%9A%E7%94%A8.json) @[红楼梦](tavern-worldbook:cards%2F%E7%BA%A2%E6%A5%BC%E6%A2%A6.json)'), [
+    { kind: 'worldbook', path: 'worldbooks/通用.json', label: '通用设定' },
+    { kind: 'worldbook', path: 'cards/红楼梦.json', label: '红楼梦' },
+  ])
+  assert.deepEqual(rememberTavernResources([], '@[红楼梦](tavern-worldbook:cards%2F%E7%BA%A2%E6%A5%BC%E6%A2%A6.json)'), [
+    { kind: 'worldbook', path: 'cards/红楼梦.json', label: '红楼梦' },
+  ])
+})
+
 test('挂载资源按真实相对路径持久去重', () => {
   assert.deepEqual(rememberTavernResources([{ kind: 'card', path: 'cards/阿芙拉.json', label: '旧名' }], '@[阿芙拉](tavern-file:cards%2F%E9%98%BF%E8%8A%99%E6%8B%89.json) @[银铃](tavern-file:scripts%2F%E9%98%BF%E8%8A%99%E6%8B%89%2F%E9%93%B6%E9%93%83.txt)'), [
     { kind: 'card', path: 'cards/阿芙拉.json', label: '阿芙拉' },

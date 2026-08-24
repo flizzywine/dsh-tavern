@@ -281,7 +281,7 @@ test('卡片工作台在同一规划 interface 中组合人物卡、世界书和
   assert.match(result.text, /世界书目录.*2 条/s)
   assert.match(result.text, /wb-1.*钟楼/s)
   assert.match(result.text, /tavern_read_worldbook/)
-  assert.match(result.text, /tavern_update_card.*worldBook.*update.*add.*delete.*rename/s)
+  assert.match(result.text, /tavern_update_worldbook.*update.*add.*delete/s)
   assert.match(result.text, /玩家身份/)
   assert.match(result.text, /\{\{user\}\}/)
   assert.match(result.text, /阿芙拉拔剑/)

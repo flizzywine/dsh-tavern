@@ -289,13 +289,16 @@ test('创建对话失败时服务端记录请求边界但不记录开场白正�
   assert.doesNotMatch(dispatch, /greeting|openingText/)
 })
 
-test('卡片模式通过修改人物卡、新建人物卡、修改资料和空白四个入口进入同一个 Agent', () => {
+test('卡片模式通过人物卡、资料、世界书、预设和空白入口进入同一个 Agent', () => {
   const flow = between(clientSource, 'async function newCardConversation', 'function formatTime')
   const recovery = between(clientSource, 'async function finishPendingOpen', 'async function retryPendingOpen')
 
   assert.match(clientSource, /"修改人物卡"/)
   assert.match(clientSource, /"从资料新建人物卡"/)
   assert.match(clientSource, /"修改资料"/)
+  assert.match(clientSource, /"修改世界书"/)
+  assert.match(clientSource, /"修改预设"/)
+  assert.match(clientSource, /仅编辑，无法使用/)
   assert.match(clientSource, /"空白开始"/)
 	assert.match(flow, /kind: "card", targetMode: "card"/)
   assert.match(flow, /task: task, label: label, card: card, selectedResources: selectedResources \|\| \[\]/)
@@ -305,6 +308,26 @@ test('卡片模式通过修改人物卡、新建人物卡、修改资料和空�
   assert.match(clientSource, /return values\[sessionId\] \|\| "";/)
 })
 
+test('世界书与预设起始任务先选择一个目标并自动追加类型引用', () => {
+  const sidebar = between(clientSource, 'function TavernSidebar', 'function TavernResourcesTab')
+
+  assert.match(sidebar, /call\("listWorldBooks"\)/)
+  assert.match(sidebar, /call\("listPresets"\)/)
+  assert.match(sidebar, /newCardConversation\(null, "worldbook", "修改世界书"/)
+  assert.match(sidebar, /newCardConversation\(null, "preset", "修改预设"/)
+  assert.match(sidebar, /kind: "worldbook"/)
+  assert.match(sidebar, /kind: "preset"/)
+})
+
+test('世界书库在卡片对话中可引用独立或内置世界书', () => {
+  const panel = between(clientSource, 'function createWorldBookLibraryFeatureModule', 'const worldBookLibraryFeature')
+
+  assert.match(panel, /props\.appendMention\("worldbook"/)
+  assert.match(panel, /在对话中引用/)
+  assert.match(panel, /sessionMode === "card"/)
+  assert.match(clientSource, /tavern-worldbook:/)
+})
+
 test('人物卡抽取与资料修改都使用资料库，并自动追加引用', () => {
   const sidebar = between(clientSource, 'function TavernSidebar', 'function TavernResourcesTab')
   const recovery = between(sidebar, 'async function finishPendingOpen', 'async function retryPendingOpen')
@@ -312,7 +335,7 @@ test('人物卡抽取与资料修改都使用资料库，并自动追加引用',
   assert.match(sidebar, /async function openResourcePicker\(task\)/)
   assert.match(sidebar, /const response = await call\("listResources"\)/)
   assert.match(sidebar, /kind: "source"/)
-  assert.match(sidebar, /initialResourceGroup\("资料", initialResources\)/)
+  assert.match(sidebar, /initialResourceGroup\(initialResourceTitle, initialResources\)/)
   assert.doesNotMatch(sidebar, /initialResourceGroup\("素材"/)
   assert.doesNotMatch(sidebar, /initialResourceGroup\("已绑定剧本"/)
   assert.match(sidebar, /disabled: busy \|\| !chosenInitialResources\.length/)
@@ -331,7 +354,9 @@ test('卡片任务只在创建对话时追加提示词，不占用输入框上�
   assert.match(clientSource, /card && card\.path/)
   assert.match(clientSource, /@\\"/)
   assert.match(clientSource, /input\.setDraft\(taskText \+ supplement\)/)
-  assert.match(clientSource, /hasInitialResources \? "\\n\\n【初始资料】\\n" : ""/)
+  assert.match(clientSource, /task === "worldbook" \|\| task === "preset"/)
+  assert.match(clientSource, /【初始资料】/)
+  assert.match(clientSource, /【编辑目标】/)
   assert.doesNotMatch(clientSource, /【补充要求】/)
   assert.doesNotMatch(clientSource, /function CardTaskDockActions/)
   assert.doesNotMatch(clientSource, /id: "dsh-tavern-card-tasks"/)
@@ -406,7 +431,7 @@ test('卡片编辑读取保留人物卡宏，只在游玩投影中展开', () =>
   assert.doesNotMatch(worldBookReader, /projectCardMacros|projectCardText/)
 })
 
-test('实验预设库只保留导入和阅读，运行时效果全部禁用', () => {
+test('实验预设库允许安全编辑，但运行时效果全部禁用', () => {
   const panel = between(clientSource, 'function PresetLibraryTab', 'function CardLibraryTab')
 
   assert.match(clientSource, /id: "dsh-tavern:presets"/)
@@ -434,7 +459,10 @@ test('实验预设库只保留导入和阅读，运行时效果全部禁用', ()
   assert.match(serverSource, /不能应用配置方案/)
   assert.match(panel, /props\.appendMention\("preset", item\.path, item\.title\)/)
   assert.ok(panel.indexOf('"提示词条目 · "') < panel.indexOf('"正则脚本 · "'))
-  assert.doesNotMatch(panel, /updatePreset|exportPreset|dragstart|draggable/)
+  assert.doesNotMatch(panel, /exportPreset|dragstart|draggable/)
+  assert.match(serverSource, /name: 'tavern_read_preset'/)
+  assert.match(serverSource, /name: 'tavern_update_preset'/)
+  assert.match(serverSource, /name: 'tavern_update_worldbook'/)
 })
 
 test('卡片模式预加载人物卡、预设、世界书和资料四个库', () => {
@@ -458,8 +486,8 @@ test('卡片模式预加载人物卡、预设、世界书和资料四个库', ()
   assert.match(clientSource, /group\("资料", "source", resources\.resources/)
   assert.doesNotMatch(clientSource, /group\("素材", "source"/)
   assert.doesNotMatch(clientSource, /group\("剧本", "script"/)
-  assert.match(clientSource, /const mention = "@\\\"" \+ safePath \+ "\\\""/)
-  assert.doesNotMatch(clientSource, /const mention = "@\["/)
+  assert.match(clientSource, /kind === "worldbook".*tavern-worldbook:/)
+  assert.match(clientSource, /: "@\\\"" \+ safePath \+ "\\\""/)
   assert.match(clientSource, /body\.dsh-tavern-shell-active \[data-ref-chip="file"\].*max-width: calc\(100% - 4px\).*text-overflow: ellipsis/s)
   assert.match(clientSource, /\.dsh-tavern-candidate-question \{ max-width: 680px; \}/)
   assert.match(clientSource, /rpc\("importSource"/)
