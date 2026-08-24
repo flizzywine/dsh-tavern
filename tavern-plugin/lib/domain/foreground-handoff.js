@@ -19,6 +19,19 @@ export function createForegroundHandoff(options = {}) {
     return await turns.finalize(input)
   }
 
+  async function prepare(input) {
+    if (typeof turns.prepare !== 'function') throw new Error('Foreground Handoff 缺少 prepare adapter')
+    const chat = await store.chatForSession(input.sessionId)
+    const activity = chat === undefined ? { busy: false, role: '' } : tasks.activity(chat)
+    if (activity.busy) {
+      const error = new Error('后台 Agent 正在执行 ' + activity.role + '，完成后才能发送正文')
+      error.code = 'BACKGROUND_BUSY'
+      error.activity = activity
+      throw error
+    }
+    return await turns.prepare(input)
+  }
+
   function later(work, label) {
     defer(function () {
       Promise.resolve().then(work).catch(function (error) {
@@ -56,5 +69,5 @@ export function createForegroundHandoff(options = {}) {
     }
   }
 
-  return Object.freeze({ finalize, end, recover })
+  return Object.freeze({ prepare, finalize, end, recover })
 }

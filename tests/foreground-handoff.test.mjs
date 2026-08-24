@@ -42,6 +42,22 @@ test('失败回合只清理 Foreground Turn，不启动后台工作', async () =
   assert.deepEqual(queued, [])
 })
 
+test('权威 Background Activity busy 时服务端拒绝开始下一轮正文', async () => {
+  let prepared = false
+  const handoff = createForegroundHandoff({
+    turns: { async prepare() { prepared = true }, async finalize() {}, async discard() {} },
+    store: { async chatForSession() { return { id: 'chat-1' } } },
+    tasks: { activity() { return { phase: 'pending', busy: true, role: 'settlement' } } },
+    async queueBackground() {},
+    logger: { error() {} }
+  })
+
+  await assert.rejects(handoff.prepare({ sessionId: 'session-1', turn: 2, userText: '继续' }), function (error) {
+    return error && error.code === 'BACKGROUND_BUSY'
+  })
+  assert.equal(prepared, false)
+})
+
 test('启动时恢复所有遗留 Background Cycle，并重新排队', async () => {
   const recovered = []
   const queued = []

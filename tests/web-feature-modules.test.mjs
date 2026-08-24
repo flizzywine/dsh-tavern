@@ -106,6 +106,7 @@ test('游玩控制 Feature module 统一注册状态栏与对话控制面板', f
     'conversation.input.dock',
     'conversation.input.dock',
     'conversation.input.dock',
+    'conversation.input.dock',
     'conversation.input.dock'
   ])
 })

@@ -372,6 +372,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		function createLiveTavernViewModule(options) {
 			if (!options || typeof options.load !== "function") throw new Error("Live Tavern View 缺少 load adapter");
 			const records = new Map();
+			const shouldPoll = typeof options.shouldPoll === "function" ? options.shouldPoll : function (view) { return view && view.settleStatus === "running"; };
 			const scheduleTimer = typeof options.schedule === "function" ? options.schedule : function (run, delay) { return window.setTimeout(run, delay); };
 			const cancelTimer = typeof options.cancel === "function" ? options.cancel : function (timer) { window.clearTimeout(timer); };
 			const loadTimeoutMs = Number(options.loadTimeoutMs) > 0 ? Number(options.loadTimeoutMs) : 0;
@@ -421,10 +422,10 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					finally { if (deadlineTimer !== null) cancelTimer(deadlineTimer); }
 					const view = result && result.view ? result.view : null;
 					publish(record, { phase: "ready", view: view, error: "", updatedAt: Date.now() });
-					if (view && view.settleStatus === "running") schedule(record, 200);
+					if (shouldPoll(view)) schedule(record, 200);
 				} catch (error) {
 					publish(record, { phase: "retrying", view: record.state.view, error: deadlineExpired ? "" : String(error && error.message || error || ""), updatedAt: record.state.updatedAt });
-					schedule(record, record.state.view && record.state.view.settleStatus === "running" ? 300 : 1500);
+					schedule(record, shouldPoll(record.state.view) ? 300 : 1500);
 				} finally {
 					record.loading = false;
 					if (record.reloadRequested) { record.reloadRequested = false; schedule(record, 0); }
@@ -439,6 +440,10 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			}
 			return {
 				getSnapshot: function (sessionId) { return recordFor(sessionId).state; },
+				setView: function (sessionId, view) {
+					const record = recordFor(sessionId);
+					publish(record, { phase: "ready", view: view, error: "", updatedAt: Date.now() });
+				},
 				subscribe: function (sessionId, listener) {
 					const record = recordFor(sessionId);
 					record.listeners.add(listener);
@@ -455,14 +460,59 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 
 		const liveTavernView = createLiveTavernViewModule({
 			loadTimeoutMs: 2000,
-			load: function (sessionId, request) { return rpc("getSession", {}, sessionId, request); }
+			load: function (sessionId, request) { return rpc("getSession", {}, sessionId, request); },
+			shouldPoll: function (view) { return !!(view && view.activity && view.activity.busy); }
 		});
-		const settlementActivity = createLiveTavernViewModule({
+		const tavernActivity = createLiveTavernViewModule({
 			loadTimeoutMs: 2000,
 			load: function (sessionId, request) {
 				return rpc("getSessionActivity", {}, sessionId, request).then(function (result) { return { view: result && result.activity ? result.activity : null }; });
-			}
+			},
+			shouldPoll: function (view) { return !!(view && view.busy); }
 		});
+
+		function describeTavernActivity(value) {
+			const activity = value && typeof value === "object" ? value : {};
+			const busy = activity.busy === true;
+			const role = String(activity.role || "");
+			let label = "生成候选项";
+			let blockReason = "";
+			if (busy && role === "candidate") { label = "生成中…"; blockReason = "正在生成候选项，请稍候…"; }
+			else if (busy && role === "worldbook") { label = "后台结算中…"; blockReason = "正在准备下一轮世界书，请稍候…"; }
+			else if (busy) { label = "后台结算中…"; blockReason = "后台结算中，请稍候…"; }
+			return { phase: String(activity.phase || "idle"), busy: busy, role: role, label: label, blockReason: blockReason };
+		}
+
+		function createComposerGate() {
+			const claims = new Map();
+			function sync(conversation, sessionId) {
+				const blocks = conversation && conversation.blocks;
+				if (!blocks || typeof blocks.set !== "function" || typeof blocks.storeFor !== "function") return;
+				const sessionClaims = claims.get(sessionId) || new Map();
+				const reason = sessionClaims.get("connection") || sessionClaims.get("activity") || "";
+				if (reason) blocks.set(sessionId, { source: "dsh-tavern-composer-gate", reason: reason });
+				else {
+					const current = blocks.storeFor(sessionId).getSnapshot();
+					if (current && current.source === "dsh-tavern-composer-gate") blocks.set(sessionId, undefined);
+				}
+			}
+			return Object.freeze({
+				set: function (conversation, sessionId, owner, reason) {
+					if (!claims.has(sessionId)) claims.set(sessionId, new Map());
+					claims.get(sessionId).set(owner, reason);
+					sync(conversation, sessionId);
+				},
+				clear: function (conversation, sessionId, owner) {
+					const sessionClaims = claims.get(sessionId);
+					if (sessionClaims) {
+						sessionClaims.delete(owner);
+						if (sessionClaims.size === 0) claims.delete(sessionId);
+					}
+					sync(conversation, sessionId);
+				}
+			});
+		}
+		const composerGate = createComposerGate();
 
 		function useLiveTavernView(sessionId, revision) {
 			const [state, setState] = React.useState(function () { return liveTavernView.getSnapshot(sessionId); });
@@ -471,10 +521,10 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			return state;
 		}
 
-		function useSettlementActivity(sessionId, revision) {
-			const [state, setState] = React.useState(function () { return settlementActivity.getSnapshot(sessionId); });
-			React.useEffect(function () { return settlementActivity.subscribe(sessionId, setState); }, [sessionId]);
-			React.useEffect(function () { settlementActivity.invalidate(sessionId); }, [sessionId, revision]);
+		function useTavernActivity(sessionId, revision) {
+			const [state, setState] = React.useState(function () { return tavernActivity.getSnapshot(sessionId); });
+			React.useEffect(function () { return tavernActivity.subscribe(sessionId, setState); }, [sessionId]);
+			React.useEffect(function () { tavernActivity.invalidate(sessionId); }, [sessionId, revision]);
 			return state;
 		}
 
@@ -1996,6 +2046,22 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		}
 
 		function createPlayControlsFeatureModule() {
+			function TavernActivityGate(props) {
+				const revision = props.useSession(function (snapshot) {
+					const nodes = snapshot.nodes || [];
+					const latest = nodes.length > 0 ? nodes[nodes.length - 1] : null;
+					return String(snapshot.running === true) + ":" + String(latest && latest.messageId || "");
+				});
+				const state = useTavernActivity(props.sessionId, revision);
+				const activity = describeTavernActivity(state.view);
+				React.useEffect(function () {
+					if (activity.busy) composerGate.set(props.conversation, props.sessionId, "activity", activity.blockReason);
+					else composerGate.clear(props.conversation, props.sessionId, "activity");
+					return function () { composerGate.clear(props.conversation, props.sessionId, "activity"); };
+				}, [props.sessionId, props.conversation, activity.busy, activity.blockReason]);
+				return null;
+			}
+
 			function TavernPlayerNameAction(props) {
 				const [view, setView] = React.useState(null);
 				const [busy, setBusy] = React.useState(false);
@@ -2043,15 +2109,9 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				const composerBlockReason = "正在恢复 Session，请稍候…";
 				const accepted = running || latestRole === "user";
 				React.useEffect(function () {
-					const blocks = props.conversation && props.conversation.blocks;
-					if (!blocks || typeof blocks.set !== "function" || typeof blocks.storeFor !== "function") return;
-					function clearOwnBlock() {
-						const current = blocks.storeFor(props.sessionId).getSnapshot();
-						if (current && current.reason === composerBlockReason) blocks.set(props.sessionId, undefined);
-					}
-					if (connectionPhase === "ready") clearOwnBlock();
-					else blocks.set(props.sessionId, { reason: composerBlockReason });
-					return clearOwnBlock;
+					if (connectionPhase === "ready") composerGate.clear(props.conversation, props.sessionId, "connection");
+					else composerGate.set(props.conversation, props.sessionId, "connection", composerBlockReason);
+					return function () { composerGate.clear(props.conversation, props.sessionId, "connection"); };
 				}, [props.sessionId, props.conversation, connectionPhase]);
 				function saveReconnectDraft(restoreDraft) {
 					const draft = String(props.input && props.input.draft || "");
@@ -2518,21 +2578,19 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				}
 				return null;
 			});
-			const activityState = useSettlementActivity(props.sessionId, String(frontRunning) + ":" + String(latestMessageId || ""));
-			const activity = activityState.view;
-			const settlementStatus = String(activity && activity.settleStatus || "unknown");
-			const settling = settlementStatus === "running";
+			const activityState = useTavernActivity(props.sessionId, String(frontRunning) + ":" + String(latestMessageId || ""));
+			const activity = describeTavernActivity(activityState.view);
 			const reconciledActivityRef = React.useRef("");
 			React.useEffect(function () {
-				if (!activity || settlementStatus === "running" || settlementStatus === "unknown") return;
-				const revision = settlementStatus + ":" + String(activity.updatedAt || 0);
+				if (!activityState.view || activity.busy) return;
+				const revision = activity.phase + ":" + String(activityState.view.updatedAt || 0);
 				if (reconciledActivityRef.current === revision) return;
 				reconciledActivityRef.current = revision;
 				liveTavernView.invalidate(props.sessionId);
 				if (typeof props.refreshSessions === "function") Promise.resolve(props.refreshSessions()).catch(function () {});
-			}, [props.sessionId, props.refreshSessions, settlementStatus, activity && activity.updatedAt]);
+			}, [props.sessionId, props.refreshSessions, activity.phase, activity.busy, activityState.view && activityState.view.updatedAt]);
 			async function generate(force, guidance) {
-				if (busy || settling) return;
+				if (busy || activity.busy) return;
 				setBusy(true);
 				setCandidatePanel({ sessionId: props.sessionId, messageId: props.messageId, phase: "loading", choices: [], error: "" });
 				try {
@@ -2543,10 +2601,12 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 							return;
 						}
 					}
-					const result = await rpc("generateChoices", { messageId: props.messageId, guidance: guidance || "" }, props.sessionId);
+					const request = rpc("generateChoices", { messageId: props.messageId, guidance: guidance || "" }, props.sessionId);
+					tavernActivity.setView(props.sessionId, { phase: "running", busy: true, role: "candidate", updatedAt: Date.now() });
+					const result = await request;
 					setCandidatePanel(readyCandidatePanel(props.sessionId, props.messageId, result.candidates));
 				} catch (err) { tavernErrorHub.report("候选项生成", err); setCandidatePanel({ sessionId: props.sessionId, messageId: props.messageId, phase: "error", choices: [], error: String(err && err.message || err) }); }
-				finally { liveTavernView.invalidate(props.sessionId); setBusy(false); }
+				finally { tavernActivity.invalidate(props.sessionId); liveTavernView.invalidate(props.sessionId); setBusy(false); }
 			}
 			async function rollback() {
 				if (rolling) return;
@@ -2571,7 +2631,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const hasLoadingPanel = candidatePanelState !== null && candidatePanelState.sessionId === props.sessionId && candidatePanelState.messageId === props.messageId && candidatePanelState.phase === "loading";
 			if (!isPlayMode(sessionMode) || latestMessageId !== props.messageId) return null;
 			return h(React.Fragment, null,
-				h("button", { className: "dsh-tavern-choice-trigger", disabled: busy || rolling || hasLoadingPanel || settling, title: settling ? "后台结算完成后才能生成候选项" : (hasReadyPanel ? "重新生成候选项（可先填写意见）" : (isScript ? "手动生成候选项；由于跟随剧本，只有一个推荐候选项" : "手动生成候选项")), onClick: function () {
+				h("button", { className: "dsh-tavern-choice-trigger", disabled: busy || rolling || hasLoadingPanel || activity.busy, title: activity.busy ? activity.blockReason : (hasReadyPanel ? "重新生成候选项（可先填写意见）" : (isScript ? "手动生成候选项；由于跟随剧本，只有一个推荐候选项" : "手动生成候选项")), onClick: function () {
 					setRegenPanel(null);
 					if (hasReadyPanel) {
 						const previous = candidatePanelState;
@@ -2580,13 +2640,13 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					} else {
 						generate(false);
 					}
-				} }, settling ? "后台结算中…" : ((busy || hasLoadingPanel) ? "生成中…" : (hasReadyPanel ? "重新生成候选项" : "生成候选项"))),
-				h("button", { className: "dsh-tavern-choice-trigger", title: "重新生成正文（可填指导意见，生成后直接替换）", onClick: function (event) {
+				} }, activity.busy ? activity.label : ((busy || hasLoadingPanel) ? "生成中…" : (hasReadyPanel ? "重新生成候选项" : "生成候选项"))),
+				h("button", { className: "dsh-tavern-choice-trigger", disabled: activity.busy, title: "重新生成正文（可填指导意见，生成后直接替换）", onClick: function (event) {
 					const tail = event && event.currentTarget ? event.currentTarget.closest('[data-chat-flow-kind="turn-tail"]') : null;
 					setCandidatePanel(null);
 					setRegenPanel({ sessionId: props.sessionId, phase: "input", guidance: "", text: "", error: "", tail: tail });
 				} }, "重新生成正文"),
-				h("button", { className: "dsh-tavern-choice-trigger", disabled: rolling, title: "删除最近一次用户输入和这段 LLM 输出", onClick: rollback }, rolling ? "回退中…" : "回退本轮")
+				h("button", { className: "dsh-tavern-choice-trigger", disabled: rolling || activity.busy, title: "删除最近一次用户输入和这段 LLM 输出", onClick: rollback }, rolling ? "回退中…" : "回退本轮")
 			);
 		}
 
@@ -2821,6 +2881,10 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				TavernPlayerNameAction
 			)), "dsh-tavern: player name header action");
 			ctx.effect(() => slots.inject("conversation.input.dock", () => slots.register(
+				{ name: "conversation.input.dock", id: "dsh-tavern-activity-gate", order: -150, label: "后台活动" },
+				function (props) { return React.createElement(TavernActivityGate, Object.assign({}, props, { conversation: ctx.get("conversation") })); }
+			)), "dsh-tavern: authoritative activity gate");
+			ctx.effect(() => slots.inject("conversation.input.dock", () => slots.register(
 				{ name: "conversation.input.dock", id: "dsh-tavern-signal-timeout", order: -140, label: "发送状态" },
 				function (props) { return React.createElement(TavernSignalTimeoutNotice, Object.assign({}, props, {
 					connection: ctx.get("connection"),
@@ -2935,6 +2999,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		exports.inject = inject;
 		exports.buildOpeningPreviewDocument = buildOpeningPreviewDocument;
 		exports.createLiveTavernViewModule = createLiveTavernViewModule;
+		exports.describeTavernActivity = describeTavernActivity;
+		exports.createComposerGate = createComposerGate;
 		exports.createConversationLifecycleModule = createConversationLifecycleModule;
 		exports.createResourcesLibraryFeatureModule = createResourcesLibraryFeatureModule;
 		exports.createPresetLibraryFeatureModule = createPresetLibraryFeatureModule;

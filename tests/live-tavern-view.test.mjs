@@ -38,7 +38,8 @@ test('多个调用者通过同一 interface 订阅时只发出一次加载', asy
   const timers = fakeTimers()
   let loads = 0
   const module = createLiveTavernViewModule({
-    load: async function () { loads += 1; return { view: { settleStatus: 'idle', marker: loads } } },
+    load: async function () { loads += 1; return { view: { busy: false, marker: loads } } },
+    shouldPoll(view) { return view && view.busy === true },
     schedule: timers.schedule,
     cancel: timers.cancel
   })
@@ -57,11 +58,12 @@ test('多个调用者通过同一 interface 订阅时只发出一次加载', asy
   stopLeft(); stopRight()
 })
 
-test('后台结算运行时由 module 统一快速轮询，完成后停止', async function () {
+test('后台 Activity busy 时由 module 统一快速轮询，完成后停止', async function () {
   const timers = fakeTimers()
-  const statuses = ['running', 'idle']
+  const statuses = [true, false]
   const module = createLiveTavernViewModule({
-    load: async function () { return { view: { settleStatus: statuses.shift() || 'idle' } } },
+    load: async function () { return { view: { busy: statuses.shift() || false } } },
+    shouldPoll(view) { return view && view.busy === true },
     schedule: timers.schedule,
     cancel: timers.cancel
   })
@@ -70,7 +72,7 @@ test('后台结算运行时由 module 统一快速轮询，完成后停止', asy
   await timers.runNext()
   assert.deepEqual(timers.activeDelays(), [200])
   await timers.runNext()
-  assert.equal(module.getSnapshot('session-2').view.settleStatus, 'idle')
+  assert.equal(module.getSnapshot('session-2').view.busy, false)
   assert.deepEqual(timers.activeDelays(), [])
   stop()
 })
@@ -83,8 +85,9 @@ test('失效通知在加载中到达时只排队一次后续刷新', async funct
     load: function () {
       loads += 1
       if (loads === 1) return new Promise(function (resolve) { resolveLoad = resolve })
-      return Promise.resolve({ view: { settleStatus: 'idle', marker: loads } })
+      return Promise.resolve({ view: { busy: false, marker: loads } })
     },
+    shouldPoll(view) { return view && view.busy === true },
     schedule: timers.schedule,
     cancel: timers.cancel
   })
@@ -92,7 +95,7 @@ test('失效通知在加载中到达时只排队一次后续刷新', async funct
   const first = timers.runNext()
   module.invalidate('session-3')
   module.invalidate('session-3')
-  resolveLoad({ view: { settleStatus: 'idle', marker: 1 } })
+  resolveLoad({ view: { busy: false, marker: 1 } })
   await first
 
   assert.deepEqual(timers.activeDelays(), [0])
@@ -110,7 +113,7 @@ test('结算轮询请求悬挂时按时取消，并继续轮询直到完成', as
     loadTimeoutMs: 2000,
     load: async function (_sessionId, request) {
       loads += 1
-      if (loads === 1) return { view: { settleStatus: 'running' } }
+      if (loads === 1) return { view: { busy: true } }
       if (loads === 2) {
         return await new Promise(function (_resolve, reject) {
           request.signal.addEventListener('abort', function () {
@@ -119,8 +122,9 @@ test('结算轮询请求悬挂时按时取消，并继续轮询直到完成', as
           })
         })
       }
-      return { view: { settleStatus: 'done' } }
+      return { view: { busy: false } }
     },
+    shouldPoll(view) { return view && view.busy === true },
     schedule: timers.schedule,
     cancel: timers.cancel
   })
@@ -137,7 +141,7 @@ test('结算轮询请求悬挂时按时取消，并继续轮询直到完成', as
   await timers.runNext()
 
   assert.equal(loads, 3)
-  assert.equal(module.getSnapshot('session-stalled').view.settleStatus, 'done')
+  assert.equal(module.getSnapshot('session-stalled').view.busy, false)
   assert.deepEqual(timers.activeDelays(), [])
   stop()
 })
@@ -150,11 +154,12 @@ test('候选 Agent 长时间生成时状态查询只在内部重试，不产生�
     loadTimeoutMs: 2000,
     load: async function (_sessionId, request) {
       loads += 1
-      if (!generating) return { view: { settleStatus: 'done' } }
+      if (!generating) return { view: { busy: false } }
       return await new Promise(function (_resolve, reject) {
         request.signal.addEventListener('abort', function () { reject(new Error('aborted')) })
       })
     },
+    shouldPoll(view) { return view && view.busy === true },
     schedule: timers.schedule,
     cancel: timers.cancel
   })
@@ -177,7 +182,7 @@ test('候选 Agent 长时间生成时状态查询只在内部重试，不产生�
   await timers.runNext()
   assert.equal(loads, 5)
   assert.equal(module.getSnapshot('session-generating').phase, 'ready')
-  assert.equal(module.getSnapshot('session-generating').view.settleStatus, 'done')
+  assert.equal(module.getSnapshot('session-generating').view.busy, false)
   assert.equal(module.getSnapshot('session-generating').error, '')
   stop()
 })

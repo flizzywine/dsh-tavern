@@ -669,6 +669,7 @@ export async function apply(ctx) {
     const livePresentation = replyDisplay.presentation !== null
       ? replyDisplay.presentation
       : (replyDisplay.latestSourceBacked && storedPresentation && storedPresentation.source === 'reply' ? null : storedPresentation)
+    const activity = backgroundTasks.activity(chat)
     return {
       chatId: chat.id,
       mode: chat.mode || 'story',
@@ -681,7 +682,8 @@ export async function apply(ctx) {
       presentationWarnings: Array.isArray(chat.presentationWarnings) ? chat.presentationWarnings : [],
       worldBookError: chat.worldBookError || null,
       lastWorldBookRecall: chat.lastWorldBookRecall || null,
-      settleStatus: chat.settleStatus || 'idle',
+      activity,
+      settleStatus: activity.busy ? 'running' : (activity.phase === 'failed' && activity.role === 'settlement' ? 'error' : 'done'),
       scriptProgress: scriptProgress,
       updatedAt: chat.updatedAt || 0
     }
@@ -834,7 +836,6 @@ export async function apply(ctx) {
       role: activity.role,
       operationId: activity.operationId,
       basedOn: activity.basedOn,
-      settleStatus: activity.busy ? 'running' : (activity.phase === 'failed' && activity.role === 'settlement' ? 'error' : 'done'),
       updatedAt: activity.updatedAt || chat.updatedAt || 0
     }
   }
@@ -1859,7 +1860,7 @@ export async function apply(ctx) {
     const scopedDecision = visibleMessages === decision.messages ? decision : { ...decision, messages: visibleMessages }
     if (Number(payload.step) !== 1) return scopedDecision
     const userText = payload.messages.filter(isTurnInput).map(contentText).filter(Boolean).join('\n').trim()
-    const prepared = await turnOrchestrator.prepare({ sessionId, turn: payload.turn, userText })
+    const prepared = await foregroundHandoff.prepare({ sessionId, turn: payload.turn, userText })
     const agentMessages = mode === 'story' || mode === 'script'
       ? replaceTurnInput(scopedDecision.messages, prepared.userText)
       : scopedDecision.messages
