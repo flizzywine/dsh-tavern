@@ -1,0 +1,31 @@
+# dsh-tavern-plugin bundle：项目管理配置随版本升级；Profile patch 只保留用户覆盖。
+- id: session-persistence-jsonl
+  config:
+    root: !!js dshHomePath('profile-data', 'tavern', 'sessions')
+- id: storage-json
+  config:
+    root: !!js dshHomePath('profile-data', 'tavern', 'storages')
+- id: bash-sandbox
+  config:
+    timeoutMs: 600000
+    maxTimeoutMs: 600000
+- id: pwsh-sandbox
+  config:
+    timeoutMs: 600000
+    maxTimeoutMs: 600000
+- id: agent-presets
+  config:
+    default: tavern
+    includeUserRoot: false
+- insert:
+    - id: dsh-tavern
+      name: dsh-tavern-plugin
+      inject:
+        - fs
+        - llm
+        - webServer
+        - tools
+        - agentDefaultModel
+        - sandboxPolicy
+        - shell
+        - agentPresets

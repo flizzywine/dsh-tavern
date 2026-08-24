@@ -11,7 +11,7 @@ const orchestratorSource = await readFile(new URL('../tavern-plugin/lib/domain/t
 const plannerSource = await readFile(new URL('../tavern-plugin/lib/domain/context-planner.js', import.meta.url), 'utf8')
 const tavernPresetSource = await readFile(new URL('../presets/tavern/agent.cordis.yml', import.meta.url), 'utf8')
 const profileSource = await readFile(new URL('../package.json', import.meta.url), 'utf8')
-const profilePatchSource = await readFile(new URL('../cordis.patch.yml', import.meta.url), 'utf8')
+const profilePatchSource = await readFile(new URL('../tavern-plugin/cordis.patch.yml', import.meta.url), 'utf8')
 
 function between(source, start, end) {
   const from = source.indexOf(start)

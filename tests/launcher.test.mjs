@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import net from 'node:net'
 import test from 'node:test'
+import { parseDocument } from 'yaml'
 
 import {
   applySidebarDefaults,
@@ -25,7 +26,10 @@ const windowsInstaller = await readFile(new URL('../install.ps1', import.meta.ur
 const unixInstaller = await readFile(new URL('../install.sh', import.meta.url), 'utf8')
 const launcherSource = await readFile(new URL('../bin/dsh-tavern.mjs', import.meta.url), 'utf8')
 const profilePatch = await readFile(new URL('../cordis.patch.yml', import.meta.url), 'utf8')
+const managedProfilePatch = await readFile(new URL('../tavern-plugin/cordis.patch.yml', import.meta.url), 'utf8')
+const profileConfigurationSource = await readFile(new URL('../bin/profile-configuration.mjs', import.meta.url), 'utf8')
 const rootManifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
+const tavernPluginManifest = JSON.parse(await readFile(new URL('../tavern-plugin/package.json', import.meta.url), 'utf8'))
 const profileWorkspace = await readFile(new URL('../pnpm-workspace.yaml', import.meta.url), 'utf8')
 
 test('Windows launcher quotes paths containing spaces and forwards arguments', () => {
@@ -114,13 +118,14 @@ test('Windows installer compares Node versions without native argument quoting',
 test('Tavern no longer bundles dsh-codex-connect and removes it from existing profiles', () => {
   assert.equal(rootManifest.dependencies['dsh-codex-connect'], undefined)
   assert.doesNotMatch(JSON.stringify(rootManifest.dsh.profile.bundles), /dsh-codex-connect/)
-  assert.match(launcherSource, /delete dependencies\['dsh-codex-connect'\]/)
+  assert.match(profileConfigurationSource, /LEGACY_MANAGED_BUNDLES[\s\S]*'dsh-codex-connect'/)
+  assert.match(profileConfigurationSource, /LEGACY_MANAGED_DEPENDENCIES[\s\S]*'dsh-codex-connect'/)
 })
 
 test('Tavern profile installs Better Sidebar as its right-panel foundation', () => {
   assert.equal(rootManifest.dependencies['dsh-better-sidebar'], '0.15.0')
   assert.ok(rootManifest.dsh.profile.bundles.includes('dsh-better-sidebar'))
-  assert.match(launcherSource, /'dsh-better-sidebar': source\.dependencies\['dsh-better-sidebar'\]/)
+  assert.match(profileConfigurationSource, /managedDependencies/)
 })
 
 test('Tavern profile does not auto-install Better Sidebar peer dependencies over DSH built-ins', () => {
@@ -128,9 +133,12 @@ test('Tavern profile does not auto-install Better Sidebar peer dependencies over
 })
 
 test('Tavern profile isolates conversations from other DSH profiles on fresh installs', () => {
-  assert.match(profilePatch, /id: session-persistence-jsonl[\s\S]*dshHomePath\('profile-data', 'tavern', 'sessions'\)/)
-  assert.match(profilePatch, /id: storage-json[\s\S]*dshHomePath\('profile-data', 'tavern', 'storages'\)/)
-  assert.match(launcherSource, /copyFileSync\(path\.join\(SOURCE_ROOT, 'cordis\.patch\.yml'\), path\.join\(PROFILE_DIR, 'cordis\.patch\.yml'\)\)/)
+  assert.match(managedProfilePatch, /id: session-persistence-jsonl[\s\S]*dshHomePath\('profile-data', 'tavern', 'sessions'\)/)
+  assert.match(managedProfilePatch, /id: storage-json[\s\S]*dshHomePath\('profile-data', 'tavern', 'storages'\)/)
+  assert.deepEqual(parseDocument(profilePatch).toJS(), [])
+  assert.ok(rootManifest.dsh.profile.bundles.includes('dsh-tavern-plugin'))
+  assert.equal(tavernPluginManifest.dsh.bundle.patch, './cordis.patch.yml')
+  assert.match(launcherSource, /prepareProfilePatch/)
   assert.match(unixInstaller, /node "\$\{APP_DIR\}\/bin\/dsh-tavern\.mjs" install --host "\$\{INSTALL_HOST\}"/)
   assert.match(windowsInstaller, /Join-Path \$AppDir 'bin\\dsh-tavern\.mjs'\) install --host \$InstallHost/)
 })

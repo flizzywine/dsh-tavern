@@ -23,6 +23,12 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseDocument } from 'yaml'
 import { migrateLegacyTavernData, resolveTavernDataRoot } from '../tavern-plugin/lib/domain/tavern-data.js'
+import {
+  beginProfileConfigurationUpdate,
+  loadProfileManifest,
+  mergeProfileManifest,
+  prepareProfilePatch,
+} from './profile-configuration.mjs'
 
 const PROFILE = 'tavern'
 const INSTALL_HOSTS = new Set(['cli', 'desktop', 'android'])
@@ -66,8 +72,10 @@ const TAVERN_SIDEBAR_DEFAULTS = {
 const REQUIRED_SOURCE_FILES = [
   'package.json',
   'cordis.patch.yml',
+  path.join('config', 'legacy-profile-patch-v0.6.yml'),
   'pnpm-workspace.yaml',
   path.join('tavern-plugin', 'package.json'),
+  path.join('tavern-plugin', 'cordis.patch.yml'),
   path.join('presets', 'tavern', 'preset.yml'),
 ]
 
@@ -281,38 +289,29 @@ function verifySource() {
   }
 }
 
-function writeProfileManifest(host, dshVersion) {
+function prepareProfileConfiguration(host, dshVersion) {
   const source = JSON.parse(readFileSync(path.join(SOURCE_ROOT, 'package.json'), 'utf8'))
-  const targetPath = path.join(PROFILE_DIR, 'package.json')
-  let current = {}
-
-  if (existsSync(targetPath)) {
-    current = JSON.parse(readFileSync(targetPath, 'utf8'))
-    if (current.name && current.name !== 'dsh-profile-tavern') {
-      throw new Error(`目标 profile 已属于其他项目：${current.name}`)
-    }
+  const current = loadProfileManifest({ profileDir: PROFILE_DIR })
+  if (current.name && current.name !== 'dsh-profile-tavern') {
+    throw new Error(`目标 profile 已属于其他项目：${current.name}`)
   }
 
-  const pluginPath = path.join(SOURCE_ROOT, 'tavern-plugin').replaceAll(path.sep, '/')
-  const dependencies = {
-    ...(current.dependencies || {}),
-    'dsh-better-sidebar': source.dependencies['dsh-better-sidebar'],
-    'dsh-tavern-plugin': `link:${pluginPath}`,
-  }
-  delete dependencies['@deepseek-ai/dsh-tools']
-  delete dependencies['dsh-codex-connect']
-
-  const next = {
-    ...current,
-    name: 'dsh-profile-tavern',
-    private: true,
-    dependencies,
-    dsh: source.dsh,
-    dshTavern: { source: SOURCE_ROOT, dataRoot: resolveTavernDataRoot({ dshHome: DSH_ROOT }), host, dshVersion },
-  }
-  const temporary = `${targetPath}.tmp-${process.pid}`
-  writeFileSync(temporary, `${JSON.stringify(next, null, 2)}\n`)
-  renameSync(temporary, targetPath)
+  const pluginPath = path.join(SOURCE_ROOT, 'tavern-plugin')
+  const manifest = mergeProfileManifest({
+    source,
+    current,
+    pluginPath,
+    dataRoot: resolveTavernDataRoot({ dshHome: DSH_ROOT }),
+    host,
+    dshVersion,
+  })
+  const patchText = prepareProfilePatch({
+    profileDir: PROFILE_DIR,
+    templateText: readFileSync(path.join(SOURCE_ROOT, 'cordis.patch.yml'), 'utf8'),
+    legacyManagedText: readFileSync(path.join(SOURCE_ROOT, 'config', 'legacy-profile-patch-v0.6.yml'), 'utf8'),
+    profileConfigurationVersion: current.dshTavern && current.dshTavern.profileConfigurationVersion,
+  })
+  return { manifest, patchText }
 }
 
 function installPluginDependencies(dshVersion) {
@@ -498,12 +497,25 @@ async function installProfile(host = 'cli') {
   if (migration.migratedSources > 0) console.log(`已迁移 ${migration.migratedSources} 处旧数据；冲突保留 ${migration.conflicts} 个。`)
 
   installPluginDependencies(dshVersion)
-  writeProfileManifest(host, dshVersion)
-  copyFileSync(path.join(SOURCE_ROOT, 'cordis.patch.yml'), path.join(PROFILE_DIR, 'cordis.patch.yml'))
-  copyFileSync(path.join(SOURCE_ROOT, 'pnpm-workspace.yaml'), path.join(PROFILE_DIR, 'pnpm-workspace.yaml'))
-  run('pnpm', ['--dir', PROFILE_DIR, 'install'])
-  runDsh(dsh, ['--profile', PROFILE, '--dump-config'], { stdio: 'ignore' })
-  ensureSidebarDefaults()
+  const configuration = prepareProfileConfiguration(host, dshVersion)
+  const transaction = beginProfileConfigurationUpdate({
+    profileDir: PROFILE_DIR,
+    manifest: configuration.manifest,
+    patchText: configuration.patchText,
+  })
+  for (const backup of Object.values(transaction.backups)) {
+    if (backup !== null) console.log(`已备份原配置：${backup}`)
+  }
+  try {
+    copyFileSync(path.join(SOURCE_ROOT, 'pnpm-workspace.yaml'), path.join(PROFILE_DIR, 'pnpm-workspace.yaml'))
+    run('pnpm', ['--dir', PROFILE_DIR, 'install'])
+    runDsh(dsh, ['--profile', PROFILE, '--dump-config'], { stdio: 'ignore' })
+    ensureSidebarDefaults()
+    transaction.commit()
+  } catch (error) {
+    transaction.rollback()
+    throw error
+  }
   if (host === 'cli') installCommand()
 
   console.log('DSH Tavern 已安装。')

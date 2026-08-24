@@ -1,0 +1,31 @@
+# dsh-tavern 0.6 及更早版本写入 Profile 用户层的项目配置；仅用于一次性迁移。
+- id: session-persistence-jsonl
+  config:
+    root: !!js dshHomePath('profile-data', 'tavern', 'sessions')
+- id: storage-json
+  config:
+    root: !!js dshHomePath('profile-data', 'tavern', 'storages')
+- id: bash-sandbox
+  config:
+    timeoutMs: 600000
+    maxTimeoutMs: 600000
+- id: pwsh-sandbox
+  config:
+    timeoutMs: 600000
+    maxTimeoutMs: 600000
+- id: agent-presets
+  config:
+    default: tavern
+    includeUserRoot: false
+- insert:
+    - id: dsh-tavern
+      name: dsh-tavern-plugin
+      inject:
+        - fs
+        - llm
+        - webServer
+        - tools
+        - agentDefaultModel
+        - sandboxPolicy
+        - shell
+        - agentPresets
