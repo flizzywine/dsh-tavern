@@ -1710,7 +1710,7 @@ export async function apply(ctx) {
         }
       }
       case 'getSession': return { view: await sessionView(args && args.sessionId) }
-      case 'getSessionActivity': return { activity: await sessionActivity(args && args.sessionId) }
+      case 'getSessionActivity': return { activity: await sessionActivity(args && args.sessionId), runtimeGeneration }
       case 'getBackgroundOperation': return { operation: await sessionOperation(args && args.sessionId, args && args.operationId) }
       case 'getSessionConnection': {
         const agent = agentRegistry.get(str(args && args.sessionId))

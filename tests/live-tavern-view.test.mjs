@@ -6,7 +6,7 @@ import vm from 'node:vm'
 async function loadFactory() {
   const source = await readFile(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
   let descriptor
-  const sandbox = { window: { __ModuleLoader__: { load(value) { descriptor = value } } }, console, AbortController }
+  const sandbox = { window: { __ModuleLoader__: { load(value) { descriptor = value } }, setInterval, clearInterval }, console, AbortController }
   vm.runInNewContext(source, sandbox)
   return descriptor.factory(function () { return {} }).createLiveTavernViewModule
 }
@@ -28,7 +28,27 @@ function fakeTimers() {
       await new Promise(function (resolve) { setImmediate(resolve) })
       return timer.delay
     },
+    dropAll() { pending.forEach(function (item) { item.cancelled = true }) },
     activeDelays() { return pending.filter(function (item) { return !item.cancelled }).map(function (item) { return item.delay }) }
+  }
+}
+
+function fakeIntervals() {
+  const active = []
+  return {
+    start(run, delay) {
+      const interval = { run, delay, cancelled: false }
+      active.push(interval)
+      return interval
+    },
+    stop(interval) { interval.cancelled = true },
+    async tick() {
+      const interval = active.find(function (item) { return !item.cancelled })
+      assert.ok(interval, 'expected an active watchdog')
+      interval.run()
+      await new Promise(function (resolve) { setImmediate(resolve) })
+      return interval.delay
+    }
   }
 }
 
@@ -74,6 +94,30 @@ test('后台 Activity busy 时由 module 统一快速轮询，完成后停止', 
   await timers.runNext()
   assert.equal(module.getSnapshot('session-2').view.busy, false)
   assert.deepEqual(timers.activeDelays(), [])
+  stop()
+})
+
+test('后台已空闲但主轮询定时器丢失时，watchdog 会恢复权威查询并解除 busy', async function () {
+  const timers = fakeTimers()
+  const watchdog = fakeIntervals()
+  const statuses = [true, false]
+  const module = createLiveTavernViewModule({
+    load: async function () { return { view: { busy: statuses.shift() || false } } },
+    shouldPoll(view) { return view && view.busy === true },
+    schedule: timers.schedule,
+    cancel: timers.cancel,
+    startWatchdog: watchdog.start,
+    stopWatchdog: watchdog.stop,
+    watchdogIntervalMs: 1000
+  })
+  const stop = module.subscribe('session-watchdog', function () {})
+
+  await timers.runNext()
+  assert.equal(module.getSnapshot('session-watchdog').view.busy, true)
+  timers.dropAll()
+
+  assert.equal(await watchdog.tick(), 1000)
+  assert.equal(module.getSnapshot('session-watchdog').view.busy, false)
   stop()
 })
 

@@ -375,11 +375,14 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const shouldPoll = typeof options.shouldPoll === "function" ? options.shouldPoll : function (view) { return view && view.settleStatus === "running"; };
 			const scheduleTimer = typeof options.schedule === "function" ? options.schedule : function (run, delay) { return window.setTimeout(run, delay); };
 			const cancelTimer = typeof options.cancel === "function" ? options.cancel : function (timer) { window.clearTimeout(timer); };
+			const startWatchdog = typeof options.startWatchdog === "function" ? options.startWatchdog : function (run, delay) { return window.setInterval(run, delay); };
+			const stopWatchdog = typeof options.stopWatchdog === "function" ? options.stopWatchdog : function (timer) { window.clearInterval(timer); };
+			const watchdogIntervalMs = Number(options.watchdogIntervalMs) > 0 ? Number(options.watchdogIntervalMs) : 1000;
 			const loadTimeoutMs = Number(options.loadTimeoutMs) > 0 ? Number(options.loadTimeoutMs) : 0;
 			function initialState() { return { phase: "idle", view: null, error: "", updatedAt: 0 }; }
 			function recordFor(sessionId) {
 				const id = String(sessionId || "");
-				if (!records.has(id)) records.set(id, { id: id, state: initialState(), listeners: new Set(), timer: null, loading: false, reloadRequested: false, optimisticBusy: false });
+				if (!records.has(id)) records.set(id, { id: id, state: initialState(), listeners: new Set(), timer: null, watchdog: null, loading: false, reloadRequested: false, optimisticBusy: false });
 				return records.get(id);
 			}
 			function publish(record, state) {
@@ -463,9 +466,17 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					record.listeners.add(listener);
 					listener(record.state);
 					schedule(record, 0);
+					if (record.watchdog === null) {
+						record.watchdog = startWatchdog(function () {
+							if (record.listeners.size > 0 && shouldPoll(record.state.view)) void refresh(record);
+						}, watchdogIntervalMs);
+					}
 					return function () {
 						record.listeners.delete(listener);
-						if (record.listeners.size === 0 && record.timer !== null) { cancelTimer(record.timer); record.timer = null; }
+						if (record.listeners.size === 0) {
+							if (record.timer !== null) { cancelTimer(record.timer); record.timer = null; }
+							if (record.watchdog !== null) { stopWatchdog(record.watchdog); record.watchdog = null; }
+						}
 					};
 				},
 				invalidate: invalidate
@@ -477,10 +488,22 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			load: function (sessionId, request) { return rpc("getSession", {}, sessionId, request); },
 			shouldPoll: function (view) { return !!(view && view.activity && view.activity.busy); }
 		});
+		const runtimeVersionGuard = createRuntimeVersionGuard({
+			storage: window.sessionStorage || window.localStorage || { getItem: function () { return null; }, setItem: function () {}, removeItem: function () {} },
+			reload: function (input) {
+				const target = new URL(window.location.href);
+				target.searchParams.set("tavern-boot", input.generation);
+				window.location.replace(target.toString());
+			}
+		});
 		const tavernActivity = createLiveTavernViewModule({
 			loadTimeoutMs: 2000,
 			load: function (sessionId, request) {
-				return rpc("getSessionActivity", {}, sessionId, request).then(function (result) { return { view: result && result.activity ? result.activity : null }; });
+				return rpc("getSessionActivity", {}, sessionId, request).then(function (result) {
+					const textarea = document.querySelector('[data-composer-card] textarea, textarea[placeholder="给智能体发消息"]');
+					runtimeVersionGuard.observe({ sessionId: sessionId, generation: result && result.runtimeGeneration, draft: textarea && textarea.value || "" });
+					return { view: result && result.activity ? result.activity : null };
+				});
 			},
 			shouldPoll: function (view) { return !!(view && view.busy); }
 		});
@@ -2060,6 +2083,32 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			return { kind: "none" };
 		}
 
+		function createRuntimeVersionGuard(options) {
+			if (!options || !options.storage || typeof options.reload !== "function") throw new Error("Runtime Version Guard 缺少存储或重载 adapter");
+			const storage = options.storage;
+			const generationKey = "dsh-tavern:runtime-generation:v1";
+			const draftKey = "dsh-tavern:reconnect-draft:v1";
+			let reloadingGeneration = "";
+			function read(key) { try { return storage.getItem(key); } catch (_err) { return null; } }
+			function write(key, value) { try { storage.setItem(key, value); } catch (_err) {} }
+			function remove(key) { try { storage.removeItem(key); } catch (_err) {} }
+			function observe(input) {
+				const generation = String(input && input.generation || "");
+				if (!generation) return false;
+				const previous = String(read(generationKey) || "");
+				if (!previous) { write(generationKey, generation); return false; }
+				if (previous === generation || reloadingGeneration === generation) return false;
+				reloadingGeneration = generation;
+				write(generationKey, generation);
+				const draft = String(input && input.draft || "");
+				if (draft) write(draftKey, JSON.stringify({ sessionId: String(input && input.sessionId || ""), draft: draft }));
+				else remove(draftKey);
+				options.reload({ generation: generation });
+				return true;
+			}
+			return Object.freeze({ observe: observe });
+		}
+
 		function createRuntimeConnectionCoordinator(options) {
 			if (!options || typeof options.probe !== "function" || typeof options.warm !== "function" || typeof options.reload !== "function" || !options.storage) {
 				throw new Error("Runtime Connection Coordinator 缺少连接、存储或重载 adapter");
@@ -3124,6 +3173,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		exports.createLiveTavernViewModule = createLiveTavernViewModule;
 		exports.describeTavernActivity = describeTavernActivity;
 		exports.createComposerGate = createComposerGate;
+		exports.createRuntimeVersionGuard = createRuntimeVersionGuard;
 		exports.createRuntimeConnectionCoordinator = createRuntimeConnectionCoordinator;
 		exports.createCandidateGenerationCoordinator = createCandidateGenerationCoordinator;
 		exports.createConversationLifecycleModule = createConversationLifecycleModule;

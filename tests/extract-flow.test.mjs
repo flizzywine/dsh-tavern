@@ -233,7 +233,7 @@ test('后台结算期间禁用候选项按钮，完成后自动恢复', () => {
   const guide = between(clientSource, 'function CandidateGuidePanel', 'function RegenPanel')
   const activity = between(serverSource, 'async function sessionActivity', 'async function sessionView')
 
-  assert.match(serverSource, /case 'getSessionActivity': return \{ activity: await sessionActivity/)
+  assert.match(serverSource, /case 'getSessionActivity': return \{ activity: await sessionActivity.*runtimeGeneration/)
   assert.match(serverSource, /case 'getBackgroundOperation': return \{ operation: await sessionOperation/)
   assert.match(serverSource, /case 'startChoices'/)
   assert.match(activity, /const activity = backgroundTasks\.activity\(chat\)/)

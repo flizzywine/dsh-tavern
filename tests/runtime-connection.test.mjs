@@ -8,10 +8,12 @@ async function loadFactory() {
   let descriptor
   const sandbox = { window: { __ModuleLoader__: { load(value) { descriptor = value } } }, console }
   vm.runInNewContext(source, sandbox)
-  return descriptor.factory(function () { return {} }).createRuntimeConnectionCoordinator
+  return descriptor.factory(function () { return {} })
 }
 
-const createRuntimeConnectionCoordinator = await loadFactory()
+const client = await loadFactory()
+const createRuntimeConnectionCoordinator = client.createRuntimeConnectionCoordinator
+const createRuntimeVersionGuard = client.createRuntimeVersionGuard
 function plain(value) { return JSON.parse(JSON.stringify(value)) }
 
 function storage() {
@@ -78,6 +80,21 @@ test('服务代次变化时由 coordinator 原子保存草稿并请求重载', a
   assert.deepEqual(plain(result), { phase: 'reloading', retryImmediately: false })
   assert.deepEqual(plain(reloaded), [{ generation: 'runtime-b' }])
   assert.match(sessionStorage.getItem('dsh-tavern:reconnect-draft:v1'), /推开房门/)
+})
+
+test('Activity 链发现服务代次变化时独立保存草稿并请求带版本重载', function () {
+  const sessionStorage = storage()
+  sessionStorage.setItem('dsh-tavern:runtime-generation:v1', 'runtime-a')
+  const reloaded = []
+  const guard = createRuntimeVersionGuard({
+    storage: sessionStorage,
+    reload(input) { reloaded.push(input) }
+  })
+
+  assert.equal(guard.observe({ sessionId: 'session-1', generation: 'runtime-b', draft: '继续调查' }), true)
+  assert.deepEqual(plain(reloaded), [{ generation: 'runtime-b' }])
+  assert.match(sessionStorage.getItem('dsh-tavern:reconnect-draft:v1'), /继续调查/)
+  assert.equal(guard.observe({ sessionId: 'session-1', generation: 'runtime-b', draft: '不会重复重载' }), false)
 })
 
 test('首次探测就是冷 Session 且正在发送时，也先保护草稿再重载', async function () {
