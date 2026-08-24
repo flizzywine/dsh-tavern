@@ -4,3 +4,5 @@
 - insert:
     - id: dsh-tavern-entry
       name: 'dsh-tavern-entry'
+      inject:
+        - webServer

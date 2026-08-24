@@ -4,6 +4,8 @@ import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 
+import { createApplicationUpdater } from '../../tavern-plugin/lib/application-updater.js'
+
 const DEFAULT_TAVERN_PORT = 3088
 const START_DELAY_MS = 4000
 const HEALTH_INTERVAL_MS = 60000
@@ -52,41 +54,102 @@ function isPortOpen(port, timeoutMs = 1200) {
   })
 }
 
-async function ensureTavern(config) {
-  try {
-    if (await isPortOpen(config.port)) return
-    const launcher = path.join(config.appDir, 'bin', 'dsh-tavern.mjs')
-    if (!existsSync(launcher)) {
-      console.error(`dsh-tavern-entry: 找不到启动器：${launcher}`)
-      return
+export function createEntryManager(options = {}) {
+  const config = resolveEntryConfig(options.env || process.env, options.home || os.homedir())
+  const launcher = path.join(config.appDir, 'bin', 'dsh-tavern.mjs')
+  const portProbe = options.portProbe || isPortOpen
+  const spawnProcess = options.spawnProcess || spawn
+  const updater = createApplicationUpdater({
+    dataRoot: path.join(config.dshHome, 'profile-data', 'tavern', 'data'),
+    sourceRoot: config.appDir,
+    dshHome: config.dshHome,
+    execPath: options.execPath || process.execPath,
+    runtimeHost: 'android',
+    spawnProcess,
+    now: options.now,
+  })
+
+  async function status() {
+    return {
+      installed: existsSync(launcher),
+      online: await portProbe(config.port),
+      update: await updater.status(),
     }
-    const child = spawn(process.execPath, [launcher, 'start'], {
+  }
+
+  async function ensureStarted() {
+    if (await portProbe(config.port)) return true
+    if (!existsSync(launcher)) return false
+    const child = spawnProcess(process.execPath, [launcher, 'start'], {
       cwd: config.appDir,
       detached: true,
       env: {
         ...process.env,
         DSH_HOME: config.dshHome,
         DSH_TAVERN_PORT: String(config.port),
+        DSH_TAVERN_RUNTIME_HOST: 'android',
       },
       stdio: 'ignore',
     })
-    child.once('error', (error) => {
-      console.error('dsh-tavern-entry: 拉起 tavern 失败', error)
-    })
+    child.once('error', (error) => console.error('dsh-tavern-entry: 拉起 tavern 失败', error))
     child.unref()
-  } catch (error) {
-    console.error('dsh-tavern-entry: 检查 tavern 失败', error)
+    return true
   }
+
+  async function update() {
+    if (!existsSync(launcher)) throw new Error('尚未安装 DSH Tavern，请先运行安卓一键安装')
+    const update = await updater.start()
+    return { installed: true, online: await portProbe(config.port), update }
+  }
+
+  return Object.freeze({ ensureStarted, status, update })
+}
+
+function sendJson(res, status, value) {
+  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' })
+  res.end(JSON.stringify(value))
 }
 
 export function apply(ctx) {
-  const config = resolveEntryConfig()
-  const startup = setTimeout(() => void ensureTavern(config), START_DELAY_MS)
-  const health = setInterval(() => void ensureTavern(config), HEALTH_INTERVAL_MS)
+  const manager = createEntryManager()
+  function ensureStarted() {
+    void manager.ensureStarted().catch((error) => console.error('dsh-tavern-entry: 检查 tavern 失败', error))
+  }
+  const startup = setTimeout(ensureStarted, START_DELAY_MS)
+  const health = setInterval(ensureStarted, HEALTH_INTERVAL_MS)
   if (typeof startup.unref === 'function') startup.unref()
   if (typeof health.unref === 'function') health.unref()
   ctx.effect(() => () => {
     clearTimeout(startup)
     clearInterval(health)
   }, 'dsh-tavern-entry: Android tavern watchdog')
+
+  const webServer = ctx.get('webServer')
+  if (webServer !== undefined) {
+    ctx.effect(() => webServer.register({
+      kind: 'prefix',
+      path: '/api/dsh-tavern-android',
+      handler: async (req, res) => {
+        const origin = req.headers.origin
+        if (typeof origin === 'string' && origin !== '' && !/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin)) {
+          sendJson(res, 403, { error: 'forbidden' })
+          return
+        }
+        try {
+          const pathname = decodeURIComponent(new URL(req.url || '/', 'http://x').pathname)
+          if (req.method === 'GET' && pathname === '/api/dsh-tavern-android/status') {
+            sendJson(res, 200, await manager.status())
+            return
+          }
+          if (req.method === 'POST' && pathname === '/api/dsh-tavern-android/update') {
+            sendJson(res, 202, await manager.update())
+            return
+          }
+          sendJson(res, 404, { error: 'not found' })
+        } catch (error) {
+          sendJson(res, 500, { error: String(error && error.message || error) })
+        }
+      },
+    }), 'dsh-tavern-entry: Android tavern management')
+  }
 }

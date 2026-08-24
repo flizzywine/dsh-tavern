@@ -190,14 +190,20 @@ node ./bin/dsh-tavern.mjs install --host desktop
 
 ### Android（实验性，不保证可用）
 
-借助 [DSHA](https://github.com/qiannianhuanxiang/DSHA)，可以尝试在 Android 手机上运行本项目。项目提供实验性的一键脚本，使用独立的 3088 端口，并包含手机适配和自动拉起组件。
+借助 [DSHA](https://github.com/qiannianhuanxiang/DSHA)，可以在 Android 手机上实验性运行本项目。首次安装只需要：
 
-1. 安装 DSHA，在应用中添加模型 API；
-2. 打开 DSHA 的“创造模式”；
-3. 把 dsh-tavern 仓库地址发给 AI，让它克隆项目并运行 `bash android/install.sh`；
-4. 安装完成后重启 DSHA，通过 <http://127.0.0.1:3088> 打开酒馆。
+1. 安装 DSHA，配置模型并成功启动一次；
+2. 打开“创造模式”，把下面一句话发给 AI：
 
-完整指令、更新方法与已知限制见 [Android 安装说明](docs/android-install.md)。
+```text
+请运行这条命令安装 DSH Tavern，完成后告诉我结果：curl -fsSL https://raw.githubusercontent.com/flizzywine/dsh-tavern/main/android/setup.sh | bash
+```
+
+3. 安装完成后重启 DSHA，点击侧栏里的 **酒馆工作台**。
+
+以后更新直接点击酒馆左侧栏底部的 **更新到最新版**。如果酒馆打不开，可在 DSHA 的 **酒馆工作台**入口点击 **更新/修复**。
+
+详细排错见 [Android 安装说明](docs/android-install.md)。
 
 ### 命令行版的启动、停止与更新
 
