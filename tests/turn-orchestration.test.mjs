@@ -160,7 +160,7 @@ test('没有世界书关键词结果时正文直接使用空上下文', async ()
   assert.equal(run.chat().worldBookError, undefined)
 })
 
-test('游玩正文只保存纯文本并把 HTML 展示状态纳入剧情 checkpoint', async () => {
+test('游玩正文不再拆走 HTML，三层回复随剧情消息一起保存', async () => {
   const run = harness('story')
   await run.orchestrator.prepare({ sessionId: 'session-1', turn: 2, userText: '推开窗' })
   await run.orchestrator.finalize({
@@ -168,14 +168,19 @@ test('游玩正文只保存纯文本并把 HTML 展示状态纳入剧情 checkpo
     assistantText: '雨水扑进房间。\n\n<details><summary>状态</summary></details>'
   })
 
-  assert.equal(run.chat().messages.at(-1).text, '雨水扑进房间。')
-  assert.equal(run.chat().presentation.html, '<details><summary>状态</summary></details>')
+  const message = run.chat().messages.at(-1)
+  assert.equal(message.text, '雨水扑进房间。\n\n<details><summary>状态</summary></details>')
+  assert.equal(message.sourceText, message.text)
+  assert.equal(message.displayText, message.text)
+  assert.equal(message.displayMode, 'html')
+  assert.equal(message.projectionVersion, 1)
+  assert.equal(run.chat().presentation, undefined)
 
   const rolled = run.timeline.apply({ chat: run.chat(), intent: { kind: 'turn.rollback' } })
   assert.equal(rolled.chat.presentation, null)
 })
 
-test('人物卡展示正则把命中内容移出正文并保留内部源文本', async () => {
+test('人物卡展示正则只改变 displayText，Session 与原始消息保持完整', async () => {
   const run = harness('story', {
     extensions: {
       regexScripts: [{
@@ -189,11 +194,35 @@ test('人物卡展示正则把命中内容移出正文并保留内部源文本',
     sessionId: 'session-1', turn: 2, userText: '查看状态', assistantText: '她继续向前走。\n\n[状态]体力 100'
   })
 
-  assert.equal(saved.reply.bodyText, '她继续向前走。')
-  assert.equal(run.chat().messages.at(-1).text, '她继续向前走。')
+  assert.equal(saved.reply.sessionText, '她继续向前走。\n\n[状态]体力 100')
+  assert.equal(saved.reply.displayText, '她继续向前走。\n\n<aside>体力 100</aside>')
+  assert.equal(run.chat().messages.at(-1).text, '她继续向前走。\n\n[状态]体力 100')
   assert.equal(run.chat().messages.at(-1).sourceText, '她继续向前走。\n\n[状态]体力 100')
+  assert.equal(run.chat().messages.at(-1).displayText, '她继续向前走。\n\n<aside>体力 100</aside>')
   assert.equal(run.chat().messages.at(-1).turn, 2)
-  assert.equal(run.chat().presentation.html, '<aside>体力 100</aside>')
+  assert.equal(run.chat().presentation, undefined)
+})
+
+test('人物卡 promptOnly 正则写入 Session，但展示投影仍保留原始状态块', async () => {
+  const run = harness('story', {
+    extensions: {
+      regexScripts: [{
+        id: 'draft', name: '移除草稿', findRegex: '/<draft_notes>[\\s\\S]*?<\\/draft_notes>\\s*/', replaceString: '',
+        placement: [2], enabled: true, markdownOnly: false, promptOnly: true, runOnEdit: false
+      }]
+    }
+  })
+  await run.orchestrator.prepare({ sessionId: 'session-1', turn: 2, userText: '继续' })
+  const saved = await run.orchestrator.finalize({
+    sessionId: 'session-1', turn: 2, userText: '继续',
+    assistantText: '<draft_notes>内部推演</draft_notes>\n正文。'
+  })
+
+  assert.equal(saved.reply.sourceText, '<draft_notes>内部推演</draft_notes>\n正文。')
+  assert.equal(saved.reply.sessionText, '正文。')
+  assert.equal(saved.reply.displayText, '<draft_notes>内部推演</draft_notes>\n正文。')
+  assert.equal(run.chat().messages.at(-1).text, '正文。')
+  assert.equal(run.chat().messages.at(-1).displayText, '<draft_notes>内部推演</draft_notes>\n正文。')
 })
 
 test('旧对话保留提示词快照，新回复使用实时预设正则', async () => {
@@ -217,11 +246,12 @@ test('旧对话保留提示词快照，新回复使用实时预设正则', async
     sessionId: 'session-1', turn: 2, userText: '查看状态', assistantText: '她继续向前走。\n\n<status>体力 80</status>'
   })
 
-  assert.equal(saved.reply.bodyText, '她继续向前走。')
-  assert.equal(run.chat().presentation.html, '<aside>体力 80</aside>')
+  assert.equal(saved.reply.sessionText, '她继续向前走。\n\n<status>体力 80</status>')
+  assert.equal(saved.reply.displayText, '她继续向前走。\n\n<aside>体力 80</aside>')
+  assert.equal(run.chat().presentation, undefined)
 })
 
-test('游玩回复先执行人物卡宏再拆分 HTML', async () => {
+test('游玩回复先执行人物卡宏，再分别保存原文、Session 和展示投影', async () => {
   const run = harness('story', { macros: true })
   await run.orchestrator.prepare({ sessionId: 'session-1', turn: 2, userText: '查看状态' })
   const saved = await run.orchestrator.finalize({
@@ -229,10 +259,15 @@ test('游玩回复先执行人物卡宏再拆分 HTML', async () => {
     assistantText: '她抬起头。\n\n<style>.status{color:red}</style><div class="status">阶段 {{incvar::stage}}</div>'
   })
 
-  assert.equal(run.chat().messages.at(-1).text, '她抬起头。')
-  assert.equal(run.chat().presentation.html, '<style>.status{color:red}</style><div class="status">阶段 1</div>')
+  const message = run.chat().messages.at(-1)
+  assert.equal(message.sourceText, '她抬起头。\n\n<style>.status{color:red}</style><div class="status">阶段 {{incvar::stage}}</div>')
+  assert.equal(message.projectionText, '她抬起头。\n\n<style>.status{color:red}</style><div class="status">阶段 1</div>')
+  assert.equal(message.text, message.projectionText)
+  assert.equal(message.displayText, message.projectionText)
+  assert.equal(message.displayMode, 'html')
+  assert.equal(run.chat().presentation, undefined)
   assert.deepEqual(run.chat().macroState.local, { stage: 1 })
-  assert.equal(saved.reply.bodyText, '她抬起头。')
+  assert.equal(saved.reply.sessionText, message.projectionText)
 })
 
 test('真实玩家回合缺少 prepare 时仍报 operation 错误', async () => {

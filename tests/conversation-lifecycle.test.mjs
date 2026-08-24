@@ -43,14 +43,14 @@ test('游玩对话通过一个 interface 严格完成创建生命周期', async 
 test('卡片工作台保留任务元数据直到打开完成', async function () {
   let opened
   const { module } = harness({ finishOpen: async function (pending) { opened = pending } })
-  const pending = { task: 'extract', label: '从资料新建人物卡', selectedResources: [{ path: 'a.md' }] }
+  const pending = { task: 'extract', label: '从剧本新建人物卡', selectedResources: [{ path: 'a.md' }] }
 
   await module.start({ kind: 'card', targetMode: 'card', pending })
 
   assert.equal(opened.sessionId, 'session-1')
   assert.equal(opened.targetMode, 'card')
   assert.equal(opened.task, 'extract')
-  assert.equal(opened.label, '从资料新建人物卡')
+  assert.equal(opened.label, '从剧本新建人物卡')
   assert.equal(opened.selectedResources.length, 1)
 })
 

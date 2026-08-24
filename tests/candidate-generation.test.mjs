@@ -427,7 +427,7 @@ test('剧本候选搜索到远处内容后不自动提交该位置', async () =>
   assert.equal(progress.cursor, 0)
 })
 
-test('后台剧本读取工具也只返回宏解析后的纯文本投影', async () => {
+test('后台剧本读取工具解析宏但不再擅自删除剧本内的 HTML', async () => {
   const scriptWithUi = script()
   scriptWithUi.chunks[0].text = '阶段 {{getvar::stage || 1}}。\n<style>.panel{color:red}</style><div class="panel">阶段 {{.stage}}</div>'
   const run = harness({
@@ -439,8 +439,8 @@ test('后台剧本读取工具也只返回宏解析后的纯文本投影', async
         name: 'tavern_read_script',
         arguments: { position: 1 }
       }))
-      assert.equal(result.chunks[0].text, '阶段 2。')
-      assert.doesNotMatch(result.chunks[0].text, /\{\{|<style|<div/)
+      assert.equal(result.chunks[0].text, '阶段 2。\n<style>.panel{color:red}</style><div class="panel">阶段 2</div>')
+      assert.doesNotMatch(result.chunks[0].text, /\{\{/)
       return JSON.stringify({ choices: [{ type: 'action', text: '按照当前阶段继续推进既定剧情内容' }] })
     }]
   })

@@ -321,8 +321,10 @@ export function createFileResourceStore(options = {}) {
     const card = normalizeResourcePath(cardPath, 'card')
     const material = normalizeResourcePath(materialPath, 'source')
     if (!await exists(absolute(card))) throw new Error('人物卡不存在: ' + card)
-    if (!await exists(absolute(material))) throw new Error('资料不存在: ' + material)
+    if (!await exists(absolute(material))) throw new Error('剧本不存在: ' + material)
     const bindings = await readBindings()
+    const boundCard = Object.keys(bindings).find(function (candidate) { return candidate !== card && bindings[candidate] === material })
+    if (boundCard !== undefined) throw new Error('剧本已绑定人物卡：' + boundCard)
     bindings[card] = material
     await writeBindings(bindings)
     return material
@@ -363,8 +365,8 @@ export function createFileResourceStore(options = {}) {
     await ensure()
     if (kind !== 'source' && kind !== 'preset' && kind !== 'script') throw new Error('文本资源类型不合法: ' + kind)
     const text = str(payload && payload.text).replace(/\r\n?/g, '\n').trim()
-    if (text === '') throw new Error(kind === 'source' ? '资料文件为空' : (kind === 'preset' ? '预设文件为空' : '剧本文件为空'))
-    let name = extensionForText(payload && payload.name || (kind === 'source' ? '未命名资料.txt' : (kind === 'preset' ? '未命名预设.json' : '未命名剧本.txt')))
+    if (text === '') throw new Error(kind === 'source' ? '剧本文件为空' : (kind === 'preset' ? '预设文件为空' : '剧本文件为空'))
+    let name = extensionForText(payload && payload.name || (kind === 'source' ? '未命名剧本.txt' : (kind === 'preset' ? '未命名预设.json' : '未命名剧本.txt')))
     if (kind === 'preset' && path.extname(name).toLowerCase() !== '.json') name = path.parse(name).name + '.json'
     const originalData = typeof (payload && payload.fileB64) === 'string' && payload.fileB64 !== ''
       ? Buffer.from(payload.fileB64, 'base64')
@@ -447,7 +449,7 @@ export function createFileResourceStore(options = {}) {
     const kind = resourceKind(normalized)
     if (kind === 'source') {
       const boundCards = await cardsForMaterial(normalized)
-      if (boundCards.length) throw new Error('资料仍被人物卡绑定，请先解绑: ' + boundCards.join(', '))
+      if (boundCards.length) throw new Error('剧本仍被人物卡绑定，请先解绑: ' + boundCards.join(', '))
     }
     await rm(absolute(normalized), { force: true })
     const originalDir = path.dirname(absolute(normalized, true))

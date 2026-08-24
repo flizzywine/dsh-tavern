@@ -13,7 +13,7 @@ async function clientExports() {
 
 const browser = await clientExports()
 
-test('资料库 Feature module 只向宿主暴露注册 interface', function () {
+test('剧本库 Feature module 只向宿主暴露注册 interface', function () {
   const feature = browser.createResourcesLibraryFeatureModule()
   let registration
   const effects = []
@@ -29,7 +29,7 @@ test('资料库 Feature module 只向宿主暴露注册 interface', function () 
 
   assert.deepEqual(Object.keys(feature), ['register'])
   assert.equal(registration.id, 'dsh-tavern:resources')
-  assert.equal(registration.title, '资料库')
+  assert.equal(registration.title, '剧本库')
   assert.equal(typeof registration.component, 'function')
   assert.deepEqual(effects, ['dsh-tavern: Better Sidebar resources tab'])
 })

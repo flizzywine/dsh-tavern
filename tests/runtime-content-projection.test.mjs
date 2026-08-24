@@ -11,15 +11,17 @@ import {
   resolveRuntimeMacroText
 } from '../tavern-plugin/lib/domain/runtime-content-projection.js'
 
-test('游玩投影统一解析宏、分离 HTML，且不修改传入的权威变量', () => {
+test('游玩投影统一解析宏但不拆走 HTML，且不修改传入的权威变量', () => {
   const state = { userName: '陈锋', local: { stage: 2 }, global: {} }
   const result = projectAgentContent(
     '当前阶段 {{getvar::stage || 1}}。\n<style>.panel{color:red}</style><div class="panel">阶段 {{.stage}}</div>',
     { charName: '命运', macroState: state }
   )
 
-  assert.equal(result.agentText, '当前阶段 2。')
-  assert.match(result.presentationHtml, /阶段 2/)
+  assert.equal(result.agentText, '当前阶段 2。\n<style>.panel{color:red}</style><div class="panel">阶段 2</div>')
+  assert.equal(result.displayText, result.agentText)
+  assert.equal(result.displayMode, 'html')
+  assert.equal(result.presentationHtml, '')
   assert.deepEqual(result.macroState.local, { stage: 2 })
   assert.deepEqual(state, { userName: '陈锋', local: { stage: 2 }, global: {} })
 })
@@ -32,6 +34,7 @@ test('卡片编辑与资料阅读使用源码投影，不执行宏也不拆 HTML
   })
 
   assert.equal(result.agentText, source)
+  assert.equal(result.displayText, source)
   assert.equal(result.presentationHtml, '')
   assert.deepEqual(result.macroState.local, { stage: 1 })
 })
@@ -54,20 +57,24 @@ test('开场白预览保留完整渲染结果，不提前剥离 HTML 或提交�
   )
 
   assert.match(result.agentText, /^2序章<style>/)
-  assert.equal(result.bodyText, '2序章')
-  assert.match(result.presentationHtml, /阶段 2/)
+  assert.equal(result.bodyText, result.agentText)
+  assert.equal(result.displayText, result.agentText)
+  assert.equal(result.displayMode, 'html')
+  assert.equal(result.presentationHtml, '')
   assert.equal(result.presentationOnly, false)
   assert.deepEqual(state.local, { stage: 1 })
 })
 
-test('确认开场白后才分离正文与 HTML，并识别纯展示页', () => {
+test('确认开场白后仍保留正文与 HTML 的原始顺序', () => {
   const mixed = projectOpeningCommit('序章<div class="panel">状态</div>')
   const page = projectOpeningCommit('<div class="cover">封面</div>')
 
-  assert.equal(mixed.agentText, '序章')
+  assert.equal(mixed.agentText, '序章<div class="panel">状态</div>')
+  assert.equal(mixed.displayText, mixed.agentText)
   assert.equal(mixed.presentationOnly, false)
-  assert.equal(page.agentText, '')
-  assert.equal(page.presentationOnly, true)
+  assert.equal(page.agentText, '<div class="cover">封面</div>')
+  assert.equal(page.displayText, page.agentText)
+  assert.equal(page.presentationOnly, false)
 })
 
 test('Agent 投影剥离解析失败后残留的宏花括号，但保留源码和诊断', () => {

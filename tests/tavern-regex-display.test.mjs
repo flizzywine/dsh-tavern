@@ -1,162 +1,69 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { projectReplyPresentation } from '../tavern-plugin/lib/domain/reply-presentation.js'
-import { renderTavernRegexDisplay } from '../tavern-plugin/lib/domain/tavern-regex-display.js'
+import { applyTavernRegexText } from '../tavern-plugin/lib/domain/tavern-regex-display.js'
 
-const girlPattern = String.raw`\[在场女生\]\s*\r?\n【名字】[：:]\s*(.*?)\r?\n【状态】[：:]\s*(.*?)(?=\r?\n\[在场女生\]|$)`
-
-function displayScript(name, findRegex, replaceString) {
+function script(name, findRegex, replaceString, flags = {}) {
   return {
     name,
     findRegex,
     replaceString,
-    trimStrings: [],
-    placement: [1, 2],
-    enabled: true,
-    markdownOnly: true,
-    promptOnly: false,
-    runOnEdit: true,
-    substituteRegex: 0,
-    minDepth: null,
-    maxDepth: null
+    trimStrings: flags.trimStrings || [],
+    placement: flags.placement || [1, 2],
+    enabled: flags.enabled !== false,
+    markdownOnly: flags.markdownOnly === true,
+    promptOnly: flags.promptOnly === true,
+    runOnEdit: flags.runOnEdit === true,
+    minDepth: flags.minDepth ?? null,
+    maxDepth: flags.maxDepth ?? null
   }
 }
 
-function campusScripts(girlSlots = 15) {
-  return [
-    displayScript(
-      '选项-白伊甸校园',
-      String.raw`/A选项：\s*([\s\S]*?)\n/B选项：\s*([\s\S]*?)\n/C选项：\s*([\s\S]*?)\n/D选项：\s*([\s\S]*?)(?=\n\s*\[在场女生\])`,
-      '<section class="options"><button>$1</button><button>$2</button><button>$3</button><button>$4</button></section>'
-    ),
-    displayScript(
-      '正文-白伊甸校园',
-      String.raw`【时间】[：:]\s*(.*?)\n【天气】[：:]\s*(.*?)\n【地点】[：:]\s*(.*?)\n【日期】[：:]\s*(.*?)\n【星期】[：:]\s*(.*?)\n([\s\S]+?)\n\s*———+\s*(?:\n|$)`,
-      '<article><header>$1 · $2 · $3 · $4 · $5</header><main>$6</main></article>'
-    ),
-    ...Array.from({ length: girlSlots }, (_, index) => displayScript(
-      '在场女生' + (index + 1),
-      girlPattern,
-      '<aside class="girl"><b>$1</b><span>$2</span></aside>'
-    ))
-  ]
-}
-
-const campusReply = `【时间】：09:00
-【天气】：晴
-【地点】：白伊甸校园
-【日期】：2210-07-01
-【星期】：星期一
-叶天邪走进校门。
-——————————————
-/A选项：前往教室
-/B选项：留在校门
-/C选项：询问学生
-/D选项：查看地图
-[在场女生]
-【名字】：白石凛
-【状态】：警惕
-[在场女生]
-【名字】：月岛葵
-【状态】：好奇`
-
-test('女子校园展示正则按原始顺序渲染正文、候选项和重复人物卡片', () => {
-  const result = renderTavernRegexDisplay('未匹配的正文前言。\n\n' + campusReply, campusScripts(), {
-    placement: 2,
-    isMarkdown: true,
-    depth: 0
-  })
-
-  assert.equal(result.changed, true)
-  assert.equal(result.applied.length, 4)
-  assert.match(result.text, /<article>/)
-  assert.match(result.text, /<section class="options">/)
-  assert.equal((result.text.match(/<aside class="girl">/g) || []).length, 2)
-  assert.doesNotMatch(result.text, /\/A选项：|\[在场女生\]/)
-  assert.match(result.bodyText, /未匹配的正文前言/)
-  assert.equal(result.warnings.length, 0)
-})
-
-test('display-only 正则不得吃掉整轮正文', () => {
-  const result = projectReplyPresentation(campusReply, {
-    regexScripts: campusScripts(),
-    placement: 2,
-    isMarkdown: true,
-    depth: 0
-  })
-
-  assert.equal(result.bodyText, campusReply)
-  assert.equal(result.sourceText, campusReply)
-  assert.equal(result.presentationHtml, '')
-  assert.match(result.warnings.join('\n'), /覆盖了整轮正文/)
-})
-
-test('正则未命中的内容继续留在正文', () => {
-  const source = '序章说明\n校园\n尾声说明'
-  const result = projectReplyPresentation(source, {
-    regexScripts: [displayScript('校园展示', '校园', '<strong>校园</strong>')],
-    placement: 2,
-    isMarkdown: true
-  })
-
-  assert.equal(result.bodyText, '序章说明\n\n尾声说明')
-  assert.equal(result.sourceText, source)
-  assert.equal(result.presentationHtml, '<strong>校园</strong>')
-})
-
-test('展示区只包含正则替换产物，不复制未命中的正文', () => {
-  const source = '海风吹过广场。\n<status>体力 90</status>\n她继续向前走。'
-  const result = projectReplyPresentation(source, {
-    regexScripts: [displayScript('状态栏', '/<status>(.*?)<\\/status>/s', '<aside>$1</aside>')],
-    placement: 2,
-    isMarkdown: true
-  })
-
-  assert.equal(result.bodyText, '海风吹过广场。\n\n她继续向前走。')
-  assert.equal(result.presentationHtml, '<aside>体力 90</aside>')
-  assert.doesNotMatch(result.presentationHtml, /海风吹过广场|她继续向前走/)
-})
-
-test('两位数捕获组不会被拆成第一组加数字', () => {
-  const result = renderTavernRegexDisplay('前言\nabcdefghijklm\n尾声', [
-    displayScript(
-      '人物详情',
-      '/(a)(b)(c)(d)(e)(f)(g)(h)(i)(j)(k)(l)(m)/',
-      '<aside>$1|$10|$11|$12|$13</aside>'
-    )
+test('正则按数组顺序修改同一份字符串并保持未命中内容的位置', () => {
+  const result = applyTavernRegexText('前言\n<status>体力 90</status>\n尾声', [
+    script('状态', '/<status>(.*?)<\\/status>/s', '<aside>$1</aside>', { markdownOnly: true }),
+    script('体力', '体力', 'HP', { markdownOnly: true })
   ], { placement: 2, isMarkdown: true })
 
-  assert.equal(result.presentationText, '<aside>a|j|k|l|m</aside>')
-  assert.equal(result.bodyText, '前言\n\n尾声')
+  assert.equal(result.text, '前言\n<aside>HP 90</aside>\n尾声')
+  assert.deepEqual(result.applied.map(item => item.name), ['状态', '体力'])
+})
+
+test('两位数捕获组、match token 和 trimStrings 保持酒馆替换语义', () => {
+  const result = applyTavernRegexText('abcdefghijklm', [
+    script('捕获组', '/(a)(b)(c)(d)(e)(f)(g)(h)(i)(j)(k)(l)(m)/', '{{match}}|$1|$10|$13', {
+      trimStrings: ['abc']
+    })
+  ], { placement: 2, isMarkdown: true })
+
+  assert.equal(result.text, 'defghijklm|a|j|m')
 })
 
 test('损坏规则只产生诊断，后续规则继续执行', () => {
-  const scripts = [
-    displayScript('损坏规则', '/[/', '<b>bad</b>'),
-    displayScript('可用规则', '校园', '<strong>校园</strong>')
-  ]
-  const result = renderTavernRegexDisplay('进入校园', scripts, { placement: 2, isMarkdown: true })
+  const result = applyTavernRegexText('进入校园', [
+    script('损坏规则', '/[/', '<b>bad</b>'),
+    script('可用规则', '校园', '学院')
+  ], { placement: 2, isMarkdown: true })
 
-  assert.equal(result.changed, true)
-  assert.equal(result.text, '进入<strong>校园</strong>')
+  assert.equal(result.text, '进入学院')
   assert.equal(result.warnings.length, 1)
   assert.match(result.warnings[0], /损坏规则/)
 })
 
-test('非展示规则、禁用规则和不匹配 placement 的规则不会执行', () => {
+test('placement、depth、runOnEdit、禁用状态共同决定规则是否执行', () => {
   const scripts = [
-    { ...displayScript('仅提示词', '校园', 'PROMPT'), markdownOnly: false, promptOnly: true },
-    { ...displayScript('已禁用', '校园', 'DISABLED'), enabled: false },
-    { ...displayScript('仅用户输入', '校园', 'USER'), placement: [1] }
+    script('禁用', '校园', '禁用', { enabled: false }),
+    script('用户输入', '校园', '用户', { placement: [1] }),
+    script('深度', '校园', '深度', { minDepth: 2, maxDepth: 4 }),
+    script('编辑', '校园', '编辑', { runOnEdit: true })
   ]
-  const result = renderTavernRegexDisplay('进入校园', scripts, { placement: 2, isMarkdown: true })
 
-  assert.equal(result.changed, false)
-  assert.equal(result.text, '进入校园')
+  assert.equal(applyTavernRegexText('校园', scripts, { placement: 2, isMarkdown: true, depth: 1 }).text, '编辑')
+  assert.equal(applyTavernRegexText('校园', scripts, { placement: 2, isMarkdown: true, depth: 3 }).text, '深度')
+  assert.equal(applyTavernRegexText('校园', scripts, { placement: 2, isMarkdown: true, depth: 1, isEdit: true }).text, '编辑')
 })
 
-test('promptOnly 与 markdownOnly 遵循酒馆的四种临时处理组合', () => {
+test('promptOnly 与 markdownOnly 遵循四种目标组合', () => {
   const cases = [
     { promptOnly: false, markdownOnly: false, display: true, prompt: true },
     { promptOnly: true, markdownOnly: false, display: false, prompt: true },
@@ -165,9 +72,9 @@ test('promptOnly 与 markdownOnly 遵循酒馆的四种临时处理组合', () =
   ]
 
   for (const item of cases) {
-    const script = { ...displayScript('测试规则', '校园', '<b>校园</b>'), promptOnly: item.promptOnly, markdownOnly: item.markdownOnly }
-    const display = renderTavernRegexDisplay('进入校园以后', [script], { placement: 2, isMarkdown: true })
-    const prompt = renderTavernRegexDisplay('进入校园以后', [script], { placement: 2, isMarkdown: false })
+    const rule = script('测试规则', '校园', '学院', item)
+    const display = applyTavernRegexText('校园', [rule], { placement: 2, isMarkdown: true })
+    const prompt = applyTavernRegexText('校园', [rule], { placement: 2, isMarkdown: false })
     assert.equal(display.changed, item.display, JSON.stringify(item) + ' display')
     assert.equal(prompt.changed, item.prompt, JSON.stringify(item) + ' prompt')
   }

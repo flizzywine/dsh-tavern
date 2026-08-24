@@ -18,9 +18,9 @@ const names = [
   'card-mode-greeting',
   'card-task-edit',
   'card-task-extract',
-  'card-task-material'
-  ,'card-task-worldbook'
-  ,'card-task-preset'
+  'card-task-script',
+  'card-task-worldbook',
+  'card-task-preset'
 ]
 
 test('固定提示词从独立 Markdown 文件完整加载', () => {
@@ -40,7 +40,7 @@ test('固定提示词从独立 Markdown 文件完整加载', () => {
   assert.match(prompt('card-mode'), /保持 DSH 极简模式的工作方式/)
   assert.match(prompt('card-mode'), /tavern_read_card/)
   assert.match(prompt('card-mode'), /tavern_read_card_raw.*JSON Pointer/)
-  assert.match(prompt('card-mode'), /“人物卡库”管理人物卡.*“预设库”.*“世界书库”.*“资料库”/)
+  assert.match(prompt('card-mode'), /“人物卡库”管理人物卡.*“预设库”.*“世界书库”.*“剧本库”/)
   assert.match(prompt('card-mode'), /世界书通过 tavern_update_worldbook/)
   assert.match(prompt('card-mode'), /预设通过 tavern_update_preset/)
   assert.doesNotMatch(prompt('card-mode'), /tavern_read_source/)
@@ -61,13 +61,13 @@ test('固定提示词从独立 Markdown 文件完整加载', () => {
   assert.doesNotMatch(prompt('card-mode'), /可修改字段：/)
   assert.match(prompt('card-mode-greeting'), /卡片工作台已就绪/)
   assert.match(prompt('card-mode-greeting'), /右侧“人物卡库”/)
-  assert.match(prompt('card-mode-greeting'), /“资料库”/)
+  assert.match(prompt('card-mode-greeting'), /“剧本库”/)
   assert.match(prompt('card-mode-greeting'), /“预设库”/)
   assert.doesNotMatch(prompt('card-mode-greeting'), /自定义 Files/)
   assert.match(prompt('card-task-edit'), /明确确认后再保存最小变更/)
   assert.match(prompt('card-task-extract'), /新开一个空白卡片工作台/)
-  assert.match(prompt('card-task-material'), /修改资料/)
-  assert.match(prompt('card-task-material'), /不改动导入时保留的原始备份/)
+  assert.match(prompt('card-task-script'), /修改剧本/)
+  assert.match(prompt('card-task-script'), /不改动导入时保留的原始备份/)
   assert.match(prompt('card-task-worldbook'), /修改世界书/)
   assert.match(prompt('card-task-worldbook'), /确认/)
   assert.match(prompt('card-task-preset'), /修改预设/)

@@ -168,15 +168,16 @@ test('游玩固定选择一个开场白，并用它对齐剧本', () => {
 
   assert.match(serverSource, /projectOpeningPreview\(opening\.text/)
   assert.match(startChat, /resolveCardOpening\(card, openingId\)/)
-  assert.match(startChat, /projectOpeningCommit\(resolveCardOpening\(card, openingId\)/)
+  assert.match(startChat, /projectOpeningCommit\(openingSourceText/)
   assert.doesNotMatch(startChat, /openingProjection\.presentationOnly.*throw/)
-  assert.match(startChat, /openingProjection\.presentationOnly \? '\\u00a0' : openingProjection\.agentText/)
+  assert.match(startChat, /const greeting = openingProjection\.sessionText/)
   assert.match(startChat, /chat\.openingText = greeting/)
-  assert.match(startChat, /chat\.presentation = \{ html: openingProjection\.presentationHtml/)
+  assert.doesNotMatch(startChat, /chat\.presentation =/)
   assert.match(startChat, /startAligned\(script, greeting, card\.script_start\)/)
-  assert.match(startChat, /text: greeting.*greeting: true/)
+  assert.match(startChat, /sourceText: openingSourceText/)
+  assert.match(startChat, /displayText: openingProjection\.displayText/)
   assert.match(appendOpening, /typeof chat\.openingText === 'string'/)
-  assert.match(appendOpening, /projectRuntimeReply\(text\)/)
+  assert.doesNotMatch(appendOpening, /projectRuntimeReply\(text\)/)
   assert.doesNotMatch(serverSource, /switchOpening|openingViewOf|switchable: !hasStory/)
 })
 
@@ -199,13 +200,13 @@ test('人物卡基本信息固定为游戏会话前缀，不随正文每轮重�
   assert.doesNotMatch(bodyPlanner, /hasStoryTurn/)
 })
 
-test('游玩回复把 HTML 从 DSH Surface 与正文历史中拆出', () => {
+test('游玩回复把 prompt 投影写回 DSH Session，同时保留完整展示投影', () => {
   const lifecycle = between(serverSource, "ctx.on('agent/turn-stopping'", "ctx.on('session/event'")
   const replaceReply = between(serverSource, 'function replaceAssistantReply', '// ---------- DSH 回合生命周期 ----------')
 
   assert.match(serverSource, /projectReply: projectRuntimeReply/)
-  assert.match(lifecycle, /saved\.reply\.presentationHtml/)
-  assert.match(lifecycle, /replaceAssistantReply\(session, assistant, saved\.reply\.bodyText \|\| '\\u00a0'\)/)
+  assert.match(lifecycle, /if \(saved\.reply\) replaceAssistantReply\(session, assistant, saved\.reply\.sessionText\)/)
+  assert.doesNotMatch(lifecycle, /presentationHtml|\\u00a0/)
   assert.match(replaceReply, /surfaceOp: \{ op: 'replace', start: result\.index, end: result\.index \}/)
 })
 

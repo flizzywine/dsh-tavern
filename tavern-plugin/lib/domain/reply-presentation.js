@@ -1,110 +1,120 @@
-import { renderTavernRegexDisplay } from './tavern-regex-display.js'
+import { applyTavernRegexText } from './tavern-regex-display.js'
+import { marked } from 'marked'
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
 }
 
-function cleanBody(value) {
-  return str(value).replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim()
+function withoutFencedCode(value) {
+  return str(value).replace(/```[^\r\n]*\r?\n[\s\S]*?\r?\n```/g, '')
 }
 
-function isCompletePresentationHtml(value) {
-  const text = str(value).trim()
-  if (text === '') return false
-  if (/^(?:<!doctype\s+html\b|<html\b)/i.test(text)) return /<\/html\s*>\s*$/i.test(text)
-  if (/^<style\b/i.test(text)) return /<\/style\s*>/i.test(text) && /<\/?(?:details|div|section|aside|table|form)\b/i.test(text)
-  if (/^<details\b/i.test(text)) return /<\/details\s*>\s*$/i.test(text)
-  const root = text.match(/^<(div|section|aside|table|form)\b/i)
-  if (root === null) return false
-  return new RegExp('<\\/' + root[1] + '\\s*>\\s*$', 'i').test(text) && /\b(?:style|class|id)\s*=/i.test(text)
+/** Classify a display projection without moving or rewriting any content. */
+export function displayModeOf(value) {
+  const visible = withoutFencedCode(value)
+  return /<!--[\s\S]*?-->|<\/?[a-z][\w:-]*(?:\s[^<>]*?)?>/i.test(visible) ? 'html' : 'markdown'
 }
 
-function findPresentationSuffix(source) {
-  const starts = []
-  const marker = /<(?:!doctype\s+html\b|html\b|style\b|details\b|div\b|section\b|aside\b|table\b|form\b)/gi
-  let match
-  while ((match = marker.exec(source)) !== null) starts.push(match.index)
-  for (const index of starts) {
-    const candidate = source.slice(index).trim()
-    if (isCompletePresentationHtml(candidate)) return { index, html: candidate }
+function compileDisplayHtml(value) {
+  try {
+    return { html: marked.parse(str(value), { async: false, breaks: true, gfm: true }), warning: '' }
+  } catch (error) {
+    return { html: '', warning: '展示：Markdown/HTML 编译失败：' + str(error && error.message ? error.message : error) }
   }
-  return null
+}
+
+function targetOptions(options, isMarkdown) {
+  return {
+    placement: options.placement,
+    isMarkdown,
+    isEdit: options.isEdit,
+    depth: options.depth
+  }
 }
 
 /**
- * Split one model reply into authoritative story text and an optional UI
- * projection. Only complete, high-confidence block HTML is extracted; inline
- * prose markup and malformed fragments remain in the story with a warning.
+ * Project one authoritative model reply independently for Session and display.
+ * Regex execution only transforms strings; it never extracts HTML or changes
+ * where matched content belongs in the message.
  */
-export function projectReplyPresentation(value, options = {}) {
+export function projectReplyLayers(value, options = {}) {
   const sourceText = str(value)
-  let body = sourceText
-  const html = []
-  const warnings = []
-
-  const regex = renderTavernRegexDisplay(body, options.regexScripts, options)
-  if (regex.changed) {
-    body = regex.bodyText
-    if (regex.presentationText !== '') html.push(regex.presentationText)
-  }
-  warnings.push.apply(warnings, regex.warnings)
-
-  body = body.replace(/```(?:html)?[ \t]*\r?\n([\s\S]*?)\r?\n```/gi, function (whole, content) {
-    const candidate = str(content).trim()
-    if (!isCompletePresentationHtml(candidate)) return whole
-    html.push(candidate)
-    return ''
-  })
-
-  const suffix = findPresentationSuffix(body)
-  if (suffix !== null) {
-    html.push(suffix.html)
-    body = body.slice(0, suffix.index)
-  }
-
-  if (html.length === 0 && /<(?:!doctype\s+html\b|html\b|style\b|details\b|div\b|section\b|aside\b|table\b|form\b)/i.test(body)) {
-    warnings.push('检测到未闭合或无法安全分离的 HTML，已保留在正文中')
-  }
+  const projectionText = Object.prototype.hasOwnProperty.call(options, 'projectionText')
+    ? str(options.projectionText)
+    : sourceText
+  const scripts = Array.isArray(options.regexScripts) ? options.regexScripts : []
+  const session = applyTavernRegexText(projectionText, scripts, targetOptions(options, false))
+  const display = applyTavernRegexText(projectionText, scripts, targetOptions(options, true))
+  const displayMode = displayModeOf(display.text)
+  const compiled = displayMode === 'html' ? compileDisplayHtml(display.text) : { html: '', warning: '' }
 
   return {
     sourceText,
-    bodyText: cleanBody(body),
-    presentationHtml: html.join('\n'),
-    warnings,
-    regexApplied: regex.changed,
-    appliedRegexes: regex.applied
+    projectionText,
+    sessionText: session.text,
+    displayText: display.text,
+    displayMode,
+    displayHtml: compiled.html,
+    applied: {
+      session: session.applied,
+      display: display.applied
+    },
+    warnings: session.warnings.map(function (warning) { return 'Session：' + warning })
+      .concat(display.warnings.map(function (warning) { return '展示：' + warning }))
+      .concat(compiled.warning === '' ? [] : [compiled.warning])
   }
 }
 
-/** Rebuild the visible transcript from authoritative reply sources. */
+/** Rebuild per-turn display projections from authoritative reply sources. */
 export function projectReplyHistory(messages, options = {}) {
   const projections = []
-  let presentation = null
   let inferredTurn = 1
   let latestSourceBacked = false
+
   for (const message of Array.isArray(messages) ? messages : []) {
     if (message === null || typeof message !== 'object') continue
     if (message.role === 'user') {
       inferredTurn += 1
       continue
     }
-    if (message.role !== 'assistant' || message.greeting === true) continue
-    const turn = Math.max(0, Number(message.turn) || inferredTurn)
+    if (message.role !== 'assistant') continue
+
+    const turn = Math.max(0, Number(message.turn) || (message.greeting === true ? 1 : inferredTurn))
     if (turn === 0) continue
     const hasSource = Object.prototype.hasOwnProperty.call(message, 'sourceText')
-    const source = hasSource ? str(message.sourceText) : str(message.text)
-    const projected = projectReplyPresentation(source, options)
-    if (hasSource || projected.bodyText !== cleanBody(source)) projections.push({ turn, text: projected.bodyText })
-    if (projected.presentationHtml !== '') {
-      presentation = {
-        html: projected.presentationHtml,
-        source: 'reply',
+    const sourceText = hasSource ? str(message.sourceText) : str(message.text)
+    const projectionText = Object.prototype.hasOwnProperty.call(message, 'projectionText')
+      ? str(message.projectionText)
+      : sourceText
+    const projected = projectReplyLayers(sourceText, Object.assign({}, options, { projectionText }))
+    const sessionText = str(message.text)
+
+    if (projected.displayText !== sessionText || projected.displayMode === 'html') {
+      projections.push({
+        version: 1,
         turn,
-        warnings: projected.warnings,
-        updatedAt: Number(message.ts) || 0
-      }
+        text: projected.displayText,
+        mode: projected.displayMode,
+        html: projected.displayHtml,
+        warnings: projected.warnings
+      })
     }
     latestSourceBacked = hasSource
   }
-  return { projections, presentation, latestSourceBacked }
+
+  return { projections, presentation: null, latestSourceBacked }
+}
+
+/**
+ * Transitional old-shape adapter. New callers should use projectReplyLayers().
+ * presentationHtml stays empty because HTML now remains inside displayText.
+ */
+export function projectReplyPresentation(value, options = {}) {
+  const layers = projectReplyLayers(value, options)
+  return Object.assign({}, layers, {
+    bodyText: layers.sessionText,
+    presentationHtml: '',
+    regexApplied: layers.applied.display.length > 0,
+    appliedRegexes: layers.applied.display
+  })
 }

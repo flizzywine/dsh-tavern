@@ -301,6 +301,22 @@ test('人物卡绑定资料只保存路径引用，重命名任一端都会保�
   } finally { await rm(root, { recursive: true, force: true }) }
 })
 
+test('一份剧本只能绑定一张人物卡', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-files-'))
+  try {
+    const store = createFileResourceStore({ dataRoot: root })
+    const firstCard = await store.importCard({ name: '甲.json', text: '{"name":"甲"}' }, { name: '甲' })
+    const secondCard = await store.importCard({ name: '乙.json', text: '{"name":"乙"}' }, { name: '乙' })
+    const scriptPath = await store.importText('source', { name: '故事.txt', text: '剧本正文' })
+
+    await store.bindMaterial(firstCard, scriptPath)
+
+    await assert.rejects(store.bindMaterial(secondCard, scriptPath), /剧本已绑定人物卡：cards\/甲\.json/)
+    assert.equal(await store.scriptForCard(firstCard), scriptPath)
+    assert.equal(await store.scriptForCard(secondCard), undefined)
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
+
 test('旧 scripts 副本迁移为资料引用，同名资料优先且旧副本可恢复', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-files-'))
   try {

@@ -236,7 +236,8 @@ export async function apply(ctx) {
   const cardTaskPrompts = Object.freeze({
     edit: 'card-task-edit',
     extract: 'card-task-extract',
-    material: 'card-task-material',
+    script: 'card-task-script',
+    material: 'card-task-script',
     worldbook: 'card-task-worldbook',
     preset: 'card-task-preset'
   })
@@ -266,7 +267,7 @@ export async function apply(ctx) {
     if (scriptPath.startsWith('cards/')) scriptPath = await fileResources.scriptForCard(scriptPath)
     if (!scriptPath) return undefined
     const kind = resourceKind(scriptPath)
-    if (kind !== 'source' && kind !== 'script') throw new Error('剧本引用必须指向资料文件')
+    if (kind !== 'source' && kind !== 'script') throw new Error('剧本引用必须指向剧本文件')
     const source = await fileResources.readText(normalizeResourcePath(scriptPath, kind))
     if (source === undefined) return undefined
     const chunks = splitNovelText(source, 500)
@@ -308,7 +309,7 @@ export async function apply(ctx) {
     await fileResources.unbindMaterial(cardPath)
     return { unbound: true }
   }
-  // ---------- 通用资料（独立于人物卡的 txt/md/epub 库） ----------
+  // ---------- 剧本（可独立保存，也可与人物卡一对一绑定） ----------
   async function readSource(sourcePath) {
     const normalized = normalizeResourcePath(sourcePath, 'source')
     const source = await fileResources.readText(normalized)
@@ -322,7 +323,7 @@ export async function apply(ctx) {
     }))
   }
   async function importSource(payload) {
-    const prepared = prepareTextImport(payload, '资料文件为空')
+    const prepared = prepareTextImport(payload, '剧本文件为空')
     const sourcePath = await fileResources.importText('source', prepared)
     const record = await readSource(sourcePath)
     return { path: sourcePath, title: record.title, sourceChars: record.sourceChars, chunkCount: record.chunks.length, importedAt: Date.now() }
@@ -685,11 +686,8 @@ export async function apply(ctx) {
         isEdit: false,
         depth: 0
       })
+      replyDisplay.projections = withLegacyPresentationProjection(chat, replyDisplay.projections)
     }
-    const storedPresentation = presentationViewOf(chat)
-    const livePresentation = replyDisplay.presentation !== null
-      ? replyDisplay.presentation
-      : (replyDisplay.latestSourceBacked && storedPresentation && storedPresentation.source === 'reply' ? null : storedPresentation)
     const activity = backgroundTasks.activity(chat)
     return {
       chatId: chat.id,
@@ -698,7 +696,7 @@ export async function apply(ctx) {
       card: cardViewOf(card, chat),
       posture: chat.posture || '',
       guides: Array.isArray(chat.guides) ? chat.guides : [],
-      presentation: livePresentation,
+      presentation: null,
       replyProjections: replyDisplay.projections,
       presentationWarnings: Array.isArray(chat.presentationWarnings) ? chat.presentationWarnings : [],
       worldBookError: chat.worldBookError || null,
@@ -711,24 +709,52 @@ export async function apply(ctx) {
   }
   function replyProjectionsOf(chat) {
     const messages = Array.isArray(chat && chat.messages) ? chat.messages : []
-    const projectedIndexes = []
+    const projections = []
     for (let index = 0; index < messages.length; index += 1) {
       const message = messages[index]
-      if (message && message.role === 'assistant' && message.sourceText !== undefined && str(message.sourceText) !== str(message.text)) projectedIndexes.push(index)
+      if (!message || message.role !== 'assistant') continue
+      const displayText = Object.prototype.hasOwnProperty.call(message, 'displayText') ? str(message.displayText) : str(message.text)
+      const mode = str(message.displayMode) || 'markdown'
+      if (displayText === str(message.text) && mode !== 'html') continue
+      const turn = Math.max(0, Number(message.turn) || (message.greeting === true ? 1 : 0))
+      if (turn === 0) continue
+      projections.push({
+        version: Math.max(1, Number(message.projectionVersion) || 1),
+        turn,
+        text: displayText,
+        mode,
+        html: str(message.displayHtml),
+        warnings: Array.isArray(message.projectionWarnings) ? message.projectionWarnings : []
+      })
     }
-    const latestProjectedIndex = projectedIndexes.length > 0 ? projectedIndexes[projectedIndexes.length - 1] : -1
-    const legacyTurn = chat && chat.presentation && chat.presentation.source === 'reply' ? Number(chat.presentation.turn) : 0
-    return projectedIndexes.map(function (index) {
-      const message = messages[index]
-      const turn = Number(message.turn) || (index === latestProjectedIndex ? legacyTurn : 0)
-      return { turn: turn, text: str(message.text) }
-    }).filter(function (projection) { return projection.turn > 0 })
+    return projections
   }
-  function presentationViewOf(chat) {
-    if (chat && chat.presentation && typeof chat.presentation === 'object' && str(chat.presentation.html) !== '') return chat.presentation
-    const legacy = projectRuntimeReply(chat && chat.openingText)
-    if (legacy.presentationHtml === '') return null
-    return { html: legacy.presentationHtml, source: 'opening', turn: 1, warnings: legacy.warnings, updatedAt: Number(chat && chat.createdAt) || 0 }
+  function withLegacyPresentationProjection(chat, projections) {
+    const result = Array.isArray(projections) ? projections.slice() : []
+    const legacy = chat && chat.presentation
+    if (!legacy || typeof legacy !== 'object' || str(legacy.html) === '') return result
+    const turn = Math.max(1, Number(legacy.turn) || (legacy.source === 'opening' ? 1 : 0))
+    if (result.some(function (projection) { return Number(projection.turn) === turn })) return result
+    const messages = Array.isArray(chat.messages) ? chat.messages : []
+    let target = null
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const message = messages[index]
+      if (!message || message.role !== 'assistant' || Object.prototype.hasOwnProperty.call(message, 'sourceText')) continue
+      const messageTurn = Math.max(0, Number(message.turn) || (message.greeting === true ? 1 : 0))
+      if (messageTurn === turn || (turn > 1 && target === null)) target = message
+      if (messageTurn === turn) break
+    }
+    if (target === null) return result
+    const projected = projectRuntimeReply(str(target.text) + '\n\n' + str(legacy.html))
+    result.push({
+      version: 1,
+      turn,
+      text: projected.displayText,
+      mode: projected.displayMode,
+      html: projected.displayHtml,
+      warnings: ['旧会话兼容：正文与历史人物卡界面已在原消息位置合并显示。'].concat(projected.warnings)
+    })
+    return result.sort(function (left, right) { return Number(left.turn) - Number(right.turn) })
   }
   async function startChat(cardPath, sessionId, mode, openingId, userName) {
     const requestedMode = mode === 'card' || mode === 'revision' || mode === 'extract' ? 'card' : (mode === 'script' ? 'script' : (mode === 'story' ? 'story' : null))
@@ -753,18 +779,22 @@ export async function apply(ctx) {
       }
     }
     const macroState = { userName: str(userName).trim().slice(0, 80) || '你', local: {}, global: {} }
+    const openingSourceText = chatMode === 'card' ? prompt('card-mode-greeting') : resolveCardOpening(card, openingId)
+    const openingExtensions = chatMode === 'card' ? null : await readCardExtensions(cardPath)
     const openingProjection = chatMode === 'card'
-      ? { agentText: prompt('card-mode-greeting'), presentationHtml: '', presentationOnly: false, warnings: [], macroState }
-      : projectOpeningCommit(resolveCardOpening(card, openingId), {
+      ? { agentText: openingSourceText, renderedText: openingSourceText, sessionText: openingSourceText, displayText: openingSourceText, displayMode: 'markdown', displayHtml: '', warnings: [], macroState }
+      : projectOpeningCommit(openingSourceText, {
           charName: str(card.name),
-          macroState
+          macroState,
+          regexScripts: Array.isArray(openingExtensions && openingExtensions.regexScripts) ? openingExtensions.regexScripts : [],
+          regexPlacement: 2,
+          isEdit: false,
+          depth: 0
         })
     macroState.userName = openingProjection.macroState.userName
     macroState.local = openingProjection.macroState.local
     macroState.global = openingProjection.macroState.global
-    // 纯 HTML 开场仍是有效开场。用不换行空格维持原生 Session 的开场
-    // 消息结构，展示 HTML 则继续留在独立的酒馆状态侧栏。
-    const greeting = openingProjection.presentationOnly ? '\u00a0' : openingProjection.agentText
+    const greeting = openingProjection.sessionText
     // connectWorkspace 返回时，Agent 注册偶尔仍在异步完成。先等到原生会话可写，
     // 再落盘 Tavern 对话，避免失败时留下只有映射、没有原生开场白的半初始化记录。
     const openingAgent = typeof sessionId === 'string' && sessionId !== '' && greeting !== '' ? await waitForAgentSession({ registry: agentRegistry, sessionId: sessionId, sleep: sleep }) : undefined
@@ -778,14 +808,24 @@ export async function apply(ctx) {
     }
     chat.openingText = greeting
     chat.presentationWarnings = openingProjection.warnings
-    if (openingProjection.presentationHtml !== '') {
-      chat.presentation = { html: openingProjection.presentationHtml, source: 'opening', turn: 1, warnings: openingProjection.warnings, updatedAt: Date.now() }
-    }
     if (chat.mode === 'script') {
       chat.scriptState = scriptContinuity.startAligned(script, greeting, card.script_start)
     }
     if (typeof sessionId === 'string') chat.sessionId = sessionId
-    if (greeting !== '') chat.messages.push({ role: 'assistant', text: greeting, ts: Date.now(), greeting: true })
+    if (greeting !== '') chat.messages.push({
+      role: 'assistant',
+      text: greeting,
+      sourceText: openingSourceText,
+      projectionText: openingProjection.renderedText,
+      displayText: openingProjection.displayText,
+      displayMode: openingProjection.displayMode,
+      displayHtml: openingProjection.displayHtml,
+      projectionVersion: 1,
+      projectionWarnings: openingProjection.warnings,
+      ts: Date.now(),
+      greeting: true,
+      turn: 1
+    })
     const hasSession = typeof sessionId === 'string' && sessionId !== ''
     await conversationRegistry.publish(chat)
     if (hasSession) await appendNativeOpening(sessionId, chat, card, openingAgent)
@@ -807,13 +847,6 @@ export async function apply(ctx) {
         return message !== null && typeof message === 'object' && message.greeting === true && typeof message.text === 'string'
       }) : undefined
       text = storedGreeting === undefined ? renderCardText(card.first_mes, card, chat.macroState) : storedGreeting.text
-    }
-    if (mode !== 'card') {
-      const projection = projectRuntimeReply(text)
-      text = projection.bodyText
-      if (projection.presentationHtml !== '' && (!chat.presentation || str(chat.presentation.html) === '')) {
-        chat.presentation = { html: projection.presentationHtml, source: 'opening', turn: 1, warnings: projection.warnings, updatedAt: Date.now() }
-      }
     }
     if (text === '') return
     const agent = readyAgent || await waitForAgentSession({ registry: agentRegistry, sessionId: sessionId, sleep: sleep })
@@ -1398,13 +1431,13 @@ export async function apply(ctx) {
     void queueSettlement(chat.id)
     return false
   }
-  // ---------- 卡片工作台：挂载资料与新卡创建 ----------
+  // ---------- 卡片工作台：挂载剧本与新卡创建 ----------
   async function sourceWindowOf(chat) {
     const out = []
     for (const sourcePath of (chat.workspace && chat.workspace.sourcePaths) || []) {
       const src = await readSource(sourcePath)
       if (src === undefined || !Array.isArray(src.chunks)) continue
-      const title = str(src.title) || '资料'
+      const title = str(src.title) || '剧本'
       for (const chunk of src.chunks) {
         out.push({ chunkId: sourcePath + '/' + chunk.id, title: title, order: chunk.order, text: chunk.text })
       }
@@ -2162,7 +2195,7 @@ export async function apply(ctx) {
       userText,
       assistantText: assistant === null ? '' : assistant.text
     })
-    if (saved.reply && saved.reply.presentationHtml !== '') replaceAssistantReply(session, assistant, saved.reply.bodyText || '\u00a0')
+    if (saved.reply) replaceAssistantReply(session, assistant, saved.reply.sessionText)
   })
 
   ctx.on('session/event', function (session, event) {
@@ -2372,7 +2405,7 @@ export async function apply(ctx) {
         const requestedPath = str(args.path).trim()
         const resourcePath = mode === 'card' && requestedPath !== '' ? requestedPath : str(chat.cardPath)
         if (resourcePath === '') return { found: false, message: '当前工作台尚未挂载人物卡或剧本。', title: '', totalChunks: 0, from: 0, to: 0, cursor: 0, chunks: [] }
-        if (mode === 'card' && resourcePath !== str(chat.cardPath) && !mountedResource(chat, 'source', resourcePath) && !mountedResource(chat, 'script', resourcePath)) throw new Error('该资料尚未挂载到当前对话')
+        if (mode === 'card' && resourcePath !== str(chat.cardPath) && !mountedResource(chat, 'source', resourcePath) && !mountedResource(chat, 'script', resourcePath)) throw new Error('该剧本尚未挂载到当前对话')
         const script = await readScript(resourcePath)
         if (script === undefined || !Array.isArray(script.chunks) || script.chunks.length === 0) return { found: false, message: '当前人物卡没有绑定剧本。', title: '', totalChunks: 0, from: 0, to: 0, cursor: 0, chunks: [] }
         const windowResult = scriptContinuity.inspect({

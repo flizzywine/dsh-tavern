@@ -1,7 +1,11 @@
-import { projectReplyPresentation } from './reply-presentation.js'
-
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
+}
+
+function stripLegacyPresentationSuffix(value) {
+  const text = str(value)
+  const style = text.search(/(?:^|\n)\s*<style\b/i)
+  return style < 0 ? text : text.slice(0, style)
 }
 
 function cleanMessageText(value) {
@@ -30,7 +34,7 @@ export function createConversationTextExport(chat, options = {}) {
     if (message.role === 'user') {
       text = cleanMessageText(message.text)
     } else if (message.role === 'assistant') {
-      text = cleanMessageText(projectReplyPresentation(message.text).bodyText)
+      text = cleanMessageText(stripLegacyPresentationSuffix(message.text))
     } else {
       continue
     }

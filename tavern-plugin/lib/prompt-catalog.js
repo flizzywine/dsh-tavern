@@ -11,7 +11,7 @@ const NAMES = [
   'card-mode-greeting',
   'card-task-edit',
   'card-task-extract',
-  'card-task-material',
+  'card-task-script',
   'card-task-worldbook',
   'card-task-preset'
 ]

@@ -1,4 +1,4 @@
-import { projectReplyHistory, projectReplyPresentation } from './reply-presentation.js'
+import { projectReplyHistory, projectReplyLayers } from './reply-presentation.js'
 import { renderTavernMacros } from './tavern-macro-engine.js'
 import { applyTavernRegexText } from './tavern-regex-display.js'
 
@@ -41,20 +41,24 @@ export function sanitizeAgentProjectionText(value) {
 function contentProjection(value, options, preview, sanitizeForAgent) {
   const rendered = macroProjection(value, options)
   const renderedText = sanitizeForAgent ? sanitizeAgentProjectionText(rendered.text) : rendered.text
-  const presentation = projectReplyPresentation(renderedText, {
+  const layers = projectReplyLayers(renderedText, {
     regexScripts: options && options.regexScripts,
     placement: options && options.regexPlacement,
-    isMarkdown: options && options.isMarkdown,
     isEdit: options && options.isEdit,
     depth: options && options.depth
   })
   return {
-    agentText: preview ? renderedText : presentation.bodyText,
-    bodyText: presentation.bodyText,
+    agentText: preview ? renderedText : layers.sessionText,
+    bodyText: layers.sessionText,
     renderedText,
-    presentationHtml: presentation.presentationHtml,
-    presentationOnly: presentation.presentationHtml !== '' && presentation.bodyText === '',
-    warnings: presentation.warnings,
+    sessionText: layers.sessionText,
+    displayText: layers.displayText,
+    displayMode: layers.displayMode,
+    displayHtml: layers.displayHtml,
+    presentationHtml: '',
+    presentationOnly: false,
+    warnings: layers.warnings,
+    applied: layers.applied,
     diagnostics: rendered.diagnostics,
     macroState: rendered.macroState
   }
@@ -65,6 +69,7 @@ export function preserveRuntimeSource(value, options = {}) {
   const raw = str(value)
   return {
     agentText: raw, bodyText: raw, renderedText: raw,
+    sessionText: raw, displayText: raw, displayMode: 'markdown', displayHtml: '',
     presentationHtml: '', presentationOnly: false,
     warnings: [], diagnostics: [], macroState: macroSnapshot(options.macroState)
   }
@@ -92,7 +97,7 @@ export function resolveRuntimeMacroText(value, options = {}) {
 
 /** Project one model reply for visible story/UI presentation. */
 export function projectRuntimeReply(value, options = {}) {
-  return projectReplyPresentation(value, options)
+  return projectReplyLayers(value, options)
 }
 
 /** Rebuild visible history from authoritative reply sources. */

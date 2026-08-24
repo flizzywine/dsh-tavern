@@ -31,3 +31,7 @@ Story Timeline 中 Background Operation 生命周期的只读投影，用于回�
 ## Projection
 
 从权威领域状态派生、可随时重建的只读表示。DSH Session Surface、Background Activity、Tavern 状态视图和浏览器交互状态都是 Projection。
+
+## Script
+
+用于引导故事主线的叙事资源，可以是小说、剧情大纲或故事素材。Script 可以暂未绑定；一份 Script 最多绑定一张人物卡，一张人物卡最多绑定一份 Script。

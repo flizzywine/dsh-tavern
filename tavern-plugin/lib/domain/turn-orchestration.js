@@ -223,26 +223,34 @@ export function createTurnOrchestrator(options) {
     if (prior !== null) return { saved: true, duplicate: true, mode: chat.mode || 'story', changed: prior.changed === true }
     const userText = str(input.userText).trim()
     const mode = chat.mode || 'story'
-    let assistantText = str(input.assistantText).trim()
-    let reply = { bodyText: assistantText, presentationHtml: '', warnings: [] }
+    const sourceText = str(input.assistantText).trim()
+    let assistantText = sourceText
+    let reply = {
+      sourceText,
+      projectionText: sourceText,
+      sessionText: sourceText,
+      displayText: sourceText,
+      displayMode: 'markdown',
+      displayHtml: '',
+      warnings: []
+    }
     if (mode === 'story' || mode === 'script') {
       if (renderMacros !== null && assistantText.includes('{{')) assistantText = renderMacros(assistantText, chat)
       const extensions = typeof store.readCardExtensions === 'function'
         ? await store.readCardExtensions(cardPathOf(chat))
         : null
       const presetRegexScripts = await resolvePresetRegexScripts(chat)
-      reply = projectReply(assistantText, {
+      const projectionText = assistantText
+      reply = projectReply(sourceText, {
+        projectionText,
         regexScripts: (Array.isArray(extensions && extensions.regexScripts) ? extensions.regexScripts : []).concat(presetRegexScripts),
         placement: 2,
-        isMarkdown: true,
         isEdit: false,
         depth: 0
       })
-      assistantText = str(reply.bodyText).trim()
+      assistantText = str(reply.sessionText).trim()
     }
-    if (assistantText === '' && str(reply.presentationHtml) !== '') assistantText = '\u00a0'
     if (assistantText === '') throw new Error('本轮最终回复为空，无法保存酒馆状态')
-    const presentation = str(reply.presentationHtml) === '' ? {} : { html: reply.presentationHtml, warnings: reply.warnings }
     const stage = takeStage(chat, turn)
 
     const cardPath = cardPathOf(chat)
@@ -328,16 +336,21 @@ export function createTurnOrchestrator(options) {
           before.scriptRevision = committed.revision
         }
         if (userText !== '') draft.messages.push({ role: 'user', text: userText, ts: now(), native: true })
-        const assistantMessage = { role: 'assistant', text: assistantText, ts: now(), native: true, turn: turn }
-        if (str(reply.sourceText) !== assistantText) assistantMessage.sourceText = str(reply.sourceText)
-        draft.messages.push(assistantMessage)
-        if (str(presentation.html) !== '') {
-          draft.presentation = {
-            html: str(presentation.html), source: 'reply', turn,
-            warnings: Array.isArray(presentation.warnings) ? clone(presentation.warnings) : [],
-            updatedAt: now()
-          }
+        const assistantMessage = {
+          role: 'assistant',
+          text: assistantText,
+          sourceText: str(reply.sourceText),
+          projectionText: str(reply.projectionText),
+          displayText: str(reply.displayText),
+          displayMode: reply.displayMode === 'html' ? 'html' : 'markdown',
+          displayHtml: str(reply.displayHtml),
+          projectionVersion: 1,
+          projectionWarnings: Array.isArray(reply.warnings) ? clone(reply.warnings) : [],
+          ts: now(),
+          native: true,
+          turn: turn
         }
+        draft.messages.push(assistantMessage)
         draft.presentationWarnings = Array.isArray(reply.warnings) ? clone(reply.warnings) : []
         rememberCommit(draft, turn, { mode, userText, scriptReference }, before, now)
       }

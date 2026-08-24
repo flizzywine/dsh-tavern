@@ -178,7 +178,7 @@ test('自由故事候选按稳定到动态的顺序注入完整人物卡约束�
   assert.ok(result.text.indexOf('多写动作') < result.text.indexOf('右手按着剑柄'))
 })
 
-test('命运候选在进入后台 Agent 前解析默认值宏并移除人物卡 HTML', async () => {
+test('命运候选在进入后台 Agent 前解析默认值宏但保留人物卡原始 HTML', async () => {
   const planner = createContextPlanner({ prompt, callModel: async () => '{"ids":[]}' })
   const fate = card()
   fate.system_prompt = '当前阶段（{{getvar::stage || 1}}）。\n<style>.panel{color:red}</style><div class="panel">阶段 {{.stage}}</div>'
@@ -196,7 +196,8 @@ test('命运候选在进入后台 Agent 前解析默认值宏并移除人物卡 
   })
 
   assert.match(result.text, /当前阶段（2）/)
-  assert.doesNotMatch(result.text, /\{\{|<style|class="panel"/)
+  assert.doesNotMatch(result.text, /\{\{/)
+  assert.match(result.text, /<style>\.panel\{color:red\}<\/style><div class="panel">阶段 2<\/div>/)
   assert.deepEqual(current.macroState, before)
 })
 

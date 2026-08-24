@@ -179,7 +179,7 @@ test('Tavern 错误面板只保留最新错误，左侧栏连接恢复后撤销�
   assert.match(clientSource, /usePersistentError\("左侧栏操作"\)/)
   assert.match(sidebar, /tavernErrorHub\.resolve\("左侧栏"\)/)
   assert.match(sidebar, /tavernErrorHub\.report\("左侧栏", err\)/)
-  assert.match(clientSource, /usePersistentError\("资料库"\)/)
+  assert.match(clientSource, /usePersistentError\("剧本库"\)/)
   assert.match(clientSource, /usePersistentError\("预设库"\)/)
   assert.match(clientSource, /usePersistentError\("人物卡库"\)/)
   assert.match(clientSource, /usePersistentError\("人物卡详情"\)/)
@@ -195,20 +195,18 @@ test('Tavern 错误面板只保留最新错误，左侧栏连接恢复后撤销�
   assert.match(clientSource, /setLocalError\(visible\)/)
 })
 
-test('正则清理后的回复投影替换原生对话显示，并在配置变化后重算历史', () => {
-  const view = between(serverSource, 'async function view(chat, card)', 'function presentationViewOf')
-  const projection = between(clientSource, 'function applyReplyProjections', 'function CandidateAction')
-  const question = between(clientSource, 'function CandidateQuestion', 'function CandidateGuidePanel')
+test('展示投影通过正式 assistant-step renderer 渲染，并在配置变化后重算历史', () => {
+  const view = between(serverSource, 'async function view(chat, card)', 'function replyProjectionsOf')
+  const renderer = between(clientSource, 'function createTavernAssistantRendererFeatureModule', 'function createTavernShellFeatureModule')
 
   assert.match(serverSource, /function replyProjectionsOf\(chat\)/)
   assert.match(view, /projectRuntimeReplyHistory\(chat\.messages/)
   assert.match(view, /replyProjections: replyDisplay\.projections/)
-  assert.match(projection, /sibling\.style\.display = "none"/)
-  assert.match(projection, /projected\.textContent = projection\.text/)
-  assert.match(question, /useLiveTavernView\(props\.sessionId/)
-  assert.match(question, /applyReplyProjections\(props\.sessionId\)/)
-  assert.match(question, /MutationObserver\(scheduleProjection\)/)
-  assert.doesNotMatch(question, /rpc\("getSession"/)
+  assert.match(renderer, /key: "assistant-step"/)
+  assert.match(renderer, /priority: -1/)
+  assert.match(renderer, /useLiveTavernView\(props\.sessionId/)
+  assert.match(renderer, /tavernProjectionForTurn\(liveState\.view, turn\)/)
+  assert.doesNotMatch(clientSource, /function applyReplyProjections|dsh-tavern-projected-reply/)
 })
 
 test('候选项列表限制高度并独立滚动，底部操作保持在滚动区外', () => {
@@ -291,13 +289,13 @@ test('创建对话失败时服务端记录请求边界但不记录开场白正�
   assert.doesNotMatch(dispatch, /greeting|openingText/)
 })
 
-test('卡片模式通过人物卡、资料、世界书、预设和空白入口进入同一个 Agent', () => {
+test('卡片模式通过人物卡、剧本、世界书、预设和空白入口进入同一个 Agent', () => {
   const flow = between(clientSource, 'async function newCardConversation', 'function formatTime')
   const recovery = between(clientSource, 'async function finishPendingOpen', 'async function retryPendingOpen')
 
   assert.match(clientSource, /"修改人物卡"/)
-  assert.match(clientSource, /"从资料新建人物卡"/)
-  assert.match(clientSource, /"修改资料"/)
+  assert.match(clientSource, /"从剧本新建人物卡"/)
+  assert.match(clientSource, /"修改剧本"/)
   assert.match(clientSource, /"修改世界书"/)
   assert.match(clientSource, /"修改预设"/)
   assert.match(clientSource, /仅编辑，无法使用/)
@@ -330,7 +328,7 @@ test('世界书库在卡片对话中可引用独立或内置世界书', () => {
   assert.match(clientSource, /tavern-worldbook:/)
 })
 
-test('人物卡抽取与资料修改都使用资料库，并自动追加引用', () => {
+test('人物卡抽取与剧本修改都使用剧本库，并自动追加引用', () => {
   const sidebar = between(clientSource, 'function TavernSidebar', 'function TavernResourcesTab')
   const recovery = between(sidebar, 'async function finishPendingOpen', 'async function retryPendingOpen')
 
@@ -341,12 +339,12 @@ test('人物卡抽取与资料修改都使用资料库，并自动追加引用',
   assert.doesNotMatch(sidebar, /initialResourceGroup\("素材"/)
   assert.doesNotMatch(sidebar, /initialResourceGroup\("已绑定剧本"/)
   assert.match(sidebar, /disabled: busy \|\| !chosenInitialResources\.length/)
-  assert.match(sidebar, /newCardConversation\(null, "extract", "从资料新建人物卡", chosenInitialResources\)/)
-  assert.match(sidebar, /newCardConversation\(null, "material", "修改资料", chosenInitialResources\)/)
+  assert.match(sidebar, /newCardConversation\(null, "extract", "从剧本新建人物卡", chosenInitialResources\)/)
+  assert.match(sidebar, /newCardConversation\(null, "script", "修改剧本", chosenInitialResources\)/)
   assert.match(recovery, /\(pending\.selectedResources \|\| \[\]\)\.forEach/)
   assert.match(recovery, /props\.appendMention\(pending\.sessionId, resource\.kind, resource\.path, resource\.title\)/)
   assert.doesNotMatch(recovery, /pending\.task === "boundary"/)
-  assert.match(sidebar, /先选择至少一项资料，再进入工作台修改工作版/)
+  assert.match(sidebar, /先选择一份剧本，再进入工作台修改工作版/)
   assert.doesNotMatch(sidebar, /newCardConversation\(null, "extract", "从素材新建人物卡"\);/)
 })
 
@@ -357,7 +355,7 @@ test('卡片任务只在创建对话时追加提示词，不占用输入框上�
   assert.match(clientSource, /@\\"/)
   assert.match(clientSource, /input\.setDraft\(taskText \+ supplement\)/)
   assert.match(clientSource, /task === "worldbook" \|\| task === "preset"/)
-  assert.match(clientSource, /【初始资料】/)
+  assert.match(clientSource, /【初始剧本】/)
   assert.match(clientSource, /【编辑目标】/)
   assert.doesNotMatch(clientSource, /【补充要求】/)
   assert.doesNotMatch(clientSource, /function CardTaskDockActions/)
@@ -395,8 +393,8 @@ test('酒馆状态页注册到 Better Sidebar，不再接管 DSH details', () =>
   assert.match(clientSource, /ctx\.betterSidebar\.registerTab\(\{/)
   assert.match(clientSource, /id: "dsh-tavern:status"/)
   assert.match(clientSource, /patch: \{ panelOpen: true \}/)
-  assert.match(clientSource, /className: "dsh-tavern-status-presentation"/)
-  assert.match(clientSource, /buildOpeningPreviewDocument\(view\.presentation\.html\)/)
+  assert.doesNotMatch(clientSource, /className: "dsh-tavern-status-presentation"/)
+  assert.doesNotMatch(clientSource, /buildOpeningPreviewDocument\(view\.presentation\.html\)/)
   assert.match(clientSource, /ctx\.betterSidebar\.openTab\(\{ type: "dsh-tavern:status" \}/)
   assert.doesNotMatch(clientSource, /slots\.inject\("details"|openDetails|ensureDetailsOpen/)
 })
@@ -469,7 +467,7 @@ test('实验预设库允许安全编辑，但运行时效果全部禁用', () =>
   assert.match(serverSource, /name: 'tavern_update_worldbook'/)
 })
 
-test('卡片模式预加载人物卡、预设、世界书和资料四个库', () => {
+test('卡片模式预加载人物卡、预设、世界书和剧本四个库', () => {
   assert.match(clientSource, /readyCardSession/)
   assert.match(clientSource, /props\.openCardLibraryTab\(readyCardSession\)/)
   assert.match(clientSource, /props\.openResourcesTab\(readyCardSession\)/)
@@ -480,14 +478,14 @@ test('卡片模式预加载人物卡、预设、世界书和资料四个库', ()
   assert.match(clientSource, /openCardLibraryTab: function \(sessionId\) \{ ctx\.betterSidebar\.openTab\(\{ type: "dsh-tavern:cards" \}/)
   assert.match(clientSource, /ctx\.betterSidebar\.updateTab\("dsh-tavern:cards", \{ meta: null \}\)/)
   assert.match(clientSource, /registerTab\(\{\s*id: "dsh-tavern:resources"/)
-  assert.match(clientSource, /id: "dsh-tavern:resources",\s*title: "资料库"/)
+  assert.match(clientSource, /id: "dsh-tavern:resources",\s*title: "剧本库"/)
   assert.match(clientSource, /id: "dsh-tavern:worldbooks",\s*title: "世界书库"/)
   assert.match(clientSource, /function reconcileLibraryTabTitles\(\)/)
-  assert.match(clientSource, /"dsh-tavern:resources": "资料库"/)
+  assert.match(clientSource, /"dsh-tavern:resources": "剧本库"/)
   assert.match(clientSource, /subscribeState\(reconcileLibraryTabTitles\)/)
   assert.match(clientSource, /openTab\(\{ type: "dsh-tavern:resources" \}/)
   assert.doesNotMatch(clientSource, /openTab\(\{ type: "editor", id: "dsh-tavern:files"/)
-  assert.match(clientSource, /group\("资料", "source", resources\.resources/)
+  assert.match(clientSource, /group\("剧本", "source", resources\.resources/)
   assert.doesNotMatch(clientSource, /group\("素材", "source"/)
   assert.doesNotMatch(clientSource, /group\("剧本", "script"/)
   assert.match(clientSource, /kind === "worldbook".*tavern-worldbook:/)
@@ -502,6 +500,17 @@ test('卡片模式预加载人物卡、预设、世界书和资料四个库', ()
   assert.match(clientSource, /function parseTextResourceFile/)
   assert.match(clientSource, /\.txt,\.md,\.json,\.epub/)
   assert.match(clientSource, /application\/epub\+zip/)
+})
+
+test('剧本库可以把未绑定剧本绑定给未绑定人物卡，并可直接解绑', () => {
+  const library = between(clientSource, 'function TavernResourcesTab', 'function register(input)')
+
+  assert.match(library, /rpc\("listCards"/)
+  assert.match(library, /card\.script == null/)
+  assert.match(library, /rpc\("bindScript", \{ cardPath: cardPath, path: item\.path \}/)
+  assert.match(library, /rpc\("deleteScript", \{ cardPath: boundCard\.path \}/)
+  assert.match(library, /"绑定人物卡"/)
+  assert.match(library, /"解绑"/)
 })
 
 test('人物卡库可以查看详情，并在当前卡片对话中引用人物卡', () => {
@@ -555,9 +564,9 @@ test('人物卡库通过列表进入详情，世界书编辑跳转到独立世�
   assert.match(clientSource, /function CardLibraryTab/)
   assert.match(clientSource, /rpc\("getCard", \{ path: path \}\)/)
   assert.match(clientSource, /"基本信息"/)
-  assert.match(clientSource, /"选择已有资料"/)
+  assert.match(clientSource, /"选择已有剧本"/)
   assert.match(clientSource, /call\("bindScript"/)
-  assert.match(clientSource, /"导入新资料并绑定"/)
+  assert.match(clientSource, /"导入新剧本并绑定"/)
   assert.match(serverSource, /Object\.assign\(\{\}, info, \{ path: script\.path \}\)/)
   assert.match(clientSource, /className: "dsh-tavern-script-hero"/)
   assert.match(clientSource, /h\("details", \{ className: "dsh-tavern-script-hero" \}/)
@@ -658,7 +667,7 @@ test('酒馆状态页等待会话绑定就绪后自动刷新', () => {
 
 test('酒馆状态只服务游玩模式，卡片工作台面板暂不复用该侧栏', () => {
   const status = between(clientSource, 'function TavernStatusPanel', 'function TavernStatusTab')
-  const view = between(serverSource, 'async function view(chat, card)', 'function presentationViewOf')
+  const view = between(serverSource, 'async function view(chat, card)', 'function replyProjectionsOf')
   assert.match(status, /if \(view\.mode === "card"\) return null;/)
   assert.match(view, /worldBookError: chat\.worldBookError \|\| null/)
   assert.match(status, /世界书召回失败：/)

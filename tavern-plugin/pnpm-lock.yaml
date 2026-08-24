@@ -14,8 +14,29 @@ importers:
       '@deepseek-ai/dsh-tools':
         specifier: '>=0.1.0-rc.7'
         version: 0.1.0-rc.8(119bc70f73f8eddebfaa6b47561adeb3)
+      chevrotain:
+        specifier: ^11.2.0
+        version: 11.2.0
+      marked:
+        specifier: 16.3.0
+        version: 16.3.0
 
 packages:
+
+  '@chevrotain/cst-dts-gen@11.2.0':
+    resolution: {integrity: sha512-ssJFvn/UXhQQeICw3SR/fZPmYVj+JM2mP+Lx7bZ51cOeHaMWOKp3AUMuyM3QR82aFFXTfcAp67P5GpPjGmbZWQ==}
+
+  '@chevrotain/gast@11.2.0':
+    resolution: {integrity: sha512-c+KoD6eSI1xjAZZoNUW+V0l13UEn+a4ShmUrjIKs1BeEWCji0Kwhmqn5FSx1K4BhWL7IQKlV7wLR4r8lLArORQ==}
+
+  '@chevrotain/regexp-to-ast@11.2.0':
+    resolution: {integrity: sha512-lG73pBFqbXODTbXhdZwv0oyUaI+3Irm+uOv5/W79lI3g5hasYaJnVJOm3H2NkhA0Ef4XLBU4Scr7TJDJwgFkAw==}
+
+  '@chevrotain/types@11.2.0':
+    resolution: {integrity: sha512-vBMSj/lz/LqolbGQEHB0tlpW5BnljHVtp+kzjQfQU+5BtGMTuZCPVgaAjtKvQYXnHb/8i/02Kii00y0tsuwfsw==}
+
+  '@chevrotain/utils@11.2.0':
+    resolution: {integrity: sha512-+7whECg4yNWHottjvr2To2BRxL4XJVjIyyv5J4+bJ0iMOVU8j/8n1qPDLZS/90W/BObDR8VNL46lFbzY/Hosmw==}
 
   '@deepseek-ai/cordis@4.0.1':
     resolution: {integrity: sha512-YBdskTU2Po1kru3GgcUWUbkTsPMA9LkSQDAY8rBkFJeajdgcQad3QPJZE26JyK99Xb6HaASvoXg2DSUTeN/0Nw==}
@@ -180,10 +201,38 @@ packages:
   '@standard-schema/spec@1.1.0':
     resolution: {integrity: sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==}
 
+  chevrotain@11.2.0:
+    resolution: {integrity: sha512-mHCHTxM51nCklUw9RzRVc0DLjAh/SAUPM4k/zMInlTIo25ldWXOZoPt7XEIk/LwoT4lFVmJcu9g5MHtx371x3A==}
+
+  lodash-es@4.17.23:
+    resolution: {integrity: sha512-kVI48u3PZr38HdYz98UmfPnXl2DXrpdctLrFLCd3kOx1xUkOmpFPx7gCWWM5MPkL/fD8zb+Ph0QzjGFs4+hHWg==}
+
+  marked@16.3.0:
+    resolution: {integrity: sha512-K3UxuKu6l6bmA5FUwYho8CfJBlsUWAooKtdGgMcERSpF7gcBUrCGsLH7wDaaNOzwq18JzSUDyoEb/YsrqMac3w==}
+    engines: {node: '>= 20'}
+    hasBin: true
+
   zod@4.4.3:
     resolution: {integrity: sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ==}
 
 snapshots:
+
+  '@chevrotain/cst-dts-gen@11.2.0':
+    dependencies:
+      '@chevrotain/gast': 11.2.0
+      '@chevrotain/types': 11.2.0
+      lodash-es: 4.17.23
+
+  '@chevrotain/gast@11.2.0':
+    dependencies:
+      '@chevrotain/types': 11.2.0
+      lodash-es: 4.17.23
+
+  '@chevrotain/regexp-to-ast@11.2.0': {}
+
+  '@chevrotain/types@11.2.0': {}
+
+  '@chevrotain/utils@11.2.0': {}
 
   '@deepseek-ai/cordis@4.0.1':
     dependencies:
@@ -309,5 +358,18 @@ snapshots:
       '@standard-schema/spec': 1.1.0
 
   '@standard-schema/spec@1.1.0': {}
+
+  chevrotain@11.2.0:
+    dependencies:
+      '@chevrotain/cst-dts-gen': 11.2.0
+      '@chevrotain/gast': 11.2.0
+      '@chevrotain/regexp-to-ast': 11.2.0
+      '@chevrotain/types': 11.2.0
+      '@chevrotain/utils': 11.2.0
+      lodash-es: 4.17.23
+
+  lodash-es@4.17.23: {}
+
+  marked@16.3.0: {}
 
   zod@4.4.3: {}
