@@ -54,6 +54,22 @@ test('后台结果已落盘时，同步会原子修复丢失的完成通知', as
   assert.equal(app.read().taskMailbox.tasks[task.taskId].status, 'succeeded')
 })
 
+test('已完成任务的重复读取不会虚假增加文件版本', async function () {
+  const app = harness()
+  const task = await app.mailbox.submit('chat-1', {
+    requestId: 'request-stable', kind: 'candidate', input: { sessionId: 'session-1', messageId: 'message-stable' }
+  })
+  const current = app.read()
+  current.candidates = { requestId: 'request-stable', messageId: 'message-stable', choices: [{ type: 'action', text: '完成' }] }
+  app.write(current)
+
+  const first = await app.mailbox.sync('chat-1', { taskId: task.taskId })
+  const second = await app.mailbox.sync('chat-1', { taskId: task.taskId })
+
+  assert.equal(second.mailboxVersion, first.mailboxVersion)
+  assert.equal(second.task.version, first.task.version)
+})
+
 test('服务重启时排队任务可继续，无结果的运行任务明确中断而不永久锁住', async function () {
   const app = harness()
   const queued = await app.mailbox.submit('chat-1', {

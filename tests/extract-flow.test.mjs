@@ -78,9 +78,8 @@ test('已创建 Session 在前端列表短暂不同步时刷新并重连同一�
   assert.doesNotMatch(openFlow, /connectWorkspace|startChat/)
 })
 
-test('游玩中可修改玩家称呼，signal timeout 只刷新状态且不自动重发', () => {
-  const player = between(clientSource, 'function TavernPlayerNameAction', 'function TavernSignalTimeoutNotice')
-  const timeout = between(clientSource, 'function TavernSignalTimeoutNotice', 'function TavernStatusPanel')
+test('游玩中可修改玩家称呼，Tavern 不接管正文发送状态', () => {
+  const player = between(clientSource, 'function TavernPlayerNameAction', 'function TavernStatusPanel')
 
   assert.match(serverSource, /async function setPlayerName\(sessionId, userName\)/)
   assert.match(serverSource, /playerName: str\(chat\.macroState && chat\.macroState\.userName\)\.trim\(\) \|\| '你'/)
@@ -88,30 +87,21 @@ test('游玩中可修改玩家称呼，signal timeout 只刷新状态且不自�
   assert.match(player, /rpc\("setPlayerName", \{ userName: next \}, props\.sessionId\)/)
   assert.match(player, /仅影响之后生成的内容/)
   assert.match(clientSource, /id: "dsh-tavern-player-name"/)
-  assert.match(timeout, /signal timeout/i)
-  assert.match(timeout, /props\.refreshSessions/)
-  assert.match(timeout, /系统不会自动重发/)
-  assert.doesNotMatch(timeout, /sendPrompt\(|retryPrompt\(|\.submit\(/)
+  assert.doesNotMatch(clientSource, /TavernSignalTimeoutNotice/)
+  assert.doesNotMatch(clientSource, /dsh-tavern-signal-timeout/)
 })
 
-test('DSH Session 与后台 Activity 使用同一协调快照，失联恢复绝不自动发送', () => {
-  const timeout = between(clientSource, 'function TavernSignalTimeoutNotice', 'function TavernStatusPanel')
-
+test('后台协调快照不参与 Session 恢复、页面重载或正文锁定', () => {
   assert.doesNotMatch(serverSource, /case 'getSessionConnection'/)
   assert.match(serverSource, /case 'syncSession'/)
   assert.match(serverSource, /runtimeGeneration/)
   assert.match(serverSource, /agentRegistry\.get\(str\(args && args\.sessionId\)\)/)
-  assert.doesNotMatch(timeout, /probe:/)
-  assert.match(timeout, /snapshot: coordinationState\.view/)
-  assert.match(timeout, /props\.connection\.api\.sessions\.models\(\{ sessionId: sessionId \}\)/)
-  assert.match(timeout, /connectionPhase === "recovering" \|\| connectionPhase === "reloading"/)
-  assert.match(timeout, /正在恢复 Session/)
-  assert.match(clientSource, /sync\.runtimeGeneration/)
-  assert.match(timeout, /storage: window\.sessionStorage/)
-  assert.match(timeout, /window\.location\.reload\(\)/)
-  assert.match(timeout, /dispatchEvent\(new Event\("input"/)
-  assert.match(timeout, /DSH Session 连接已失效/)
-  assert.doesNotMatch(timeout, /sendPrompt\(|retryPrompt\(|\.submit\(/)
+  assert.doesNotMatch(clientSource, /createComposerGate/)
+  assert.doesNotMatch(clientSource, /createRuntimeVersionGuard/)
+  assert.doesNotMatch(clientSource, /createRuntimeConnectionCoordinator/)
+  assert.doesNotMatch(clientSource, /conversation\.blocks/)
+  assert.doesNotMatch(clientSource, /dsh-tavern:runtime-generation:v1/)
+  assert.doesNotMatch(clientSource, /dsh-tavern:reconnect-draft:v1/)
 })
 
 test('新开游玩在创建 Session 前完成游戏准备，创建后不提供开场白切换器', () => {
@@ -242,6 +232,8 @@ test('后台结算期间禁用候选项按钮，完成后自动恢复', () => {
   assert.doesNotMatch(clientSource, /dsh-tavern-activity-gate/)
   assert.match(action, /useTavernCoordination\(props\.sessionId/)
   assert.match(action, /disabled:.*activity\.busy/s)
+  assert.match(action, /disabled: false, title: "重新生成正文/)
+  assert.match(action, /disabled: rolling, title: "删除最近一次用户输入/)
   assert.match(clientSource, /"后台结算中…"/)
   assert.match(action, /props\.refreshSessions\(\)/)
   assert.match(action, /submitCandidateTask\(props\.sessionId, props\.messageId, guidance\)/)
@@ -249,8 +241,8 @@ test('后台结算期间禁用候选项按钮，完成后自动恢复', () => {
   assert.doesNotMatch(clientSource, /rpc\("generateChoices"/)
   assert.match(submit, /rpc\("submitTask"/)
   assert.match(submit, /tavernCoordination\.setView\(sessionId/)
-  assert.match(coordination, /rpc\("syncSession"/)
-  assert.match(coordination, /view\.task && view\.task\.busy/)
+  assert.match(coordination, /new window\.EventSource/)
+  assert.doesNotMatch(coordination, /rpc\("syncSession"|setTimeout|setInterval/)
   assert.doesNotMatch(serverSource, /case 'generateChoices'/)
   assert.doesNotMatch(action, /rpc\("getSession"/)
 })

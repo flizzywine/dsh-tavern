@@ -182,10 +182,14 @@ test('游玩固定选择一个开场白，并用它对齐剧本', () => {
 
 test('人物卡基本信息固定为游戏会话前缀，不随正文每轮重建', () => {
   const startChat = between(serverSource, 'async function startChat', 'async function appendNativeOpening')
+  const ensureSnapshot = between(serverSource, 'async function ensurePlayCardSnapshot', 'const backgroundAgentRunner')
   const systemAssembly = between(serverSource, "ctx.on('system-prompt/assemble'", '// ---------- 模型可选工具 ----------')
   const bodyPlanner = between(plannerSource, "if (input.purpose === 'body')", "if (input.purpose === 'candidate')")
 
   assert.match(startChat, /chat\.cardContextSnapshot = \(await contextPlanner\.plan\(\{ purpose: 'play-card-snapshot'/)
+  assert.match(ensureSnapshot, /sanitizeAgentProjectionText\(existing\)/)
+  assert.match(ensureSnapshot, /chat\.cardContextSnapshot = sanitized/)
+  assert.match(ensureSnapshot, /await writeChat\(chat\)/)
   assert.match(systemAssembly, /name: 'tavern:card-snapshot'/)
   assert.match(bodyPlanner, /includeDetails: false/)
   assert.match(bodyPlanner, /includeSystemPrompt: false/)

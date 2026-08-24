@@ -70,6 +70,18 @@ test('确认开场白后才分离正文与 HTML，并识别纯展示页', () => 
   assert.equal(page.presentationOnly, true)
 })
 
+test('Agent 投影剥离解析失败后残留的宏花括号，但保留源码和诊断', () => {
+  const source = '世界书带{{if}}宏按阶段门控。'
+  const projected = projectAgentContent(source)
+  const opening = projectOpeningCommit(source)
+  const preserved = preserveRuntimeSource(source)
+
+  assert.equal(projected.agentText, '世界书带if宏按阶段门控。')
+  assert.equal(opening.agentText, '世界书带if宏按阶段门控。')
+  assert.equal(preserved.agentText, source)
+  assert.ok(projected.diagnostics.some((item) => /Macro "if"/.test(item.message)))
+})
+
 test('预设宏解析保留提示词结构，后台输入输出采用各自固定正则语义', () => {
   const macro = resolveRuntimeMacroText('<section>{{user}}</section>', { macroState: { userName: '陈锋' } })
   assert.equal(macro.text, '<section>陈锋</section>')

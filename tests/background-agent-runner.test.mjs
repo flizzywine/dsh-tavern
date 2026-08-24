@@ -321,7 +321,7 @@ test('恢复后台 Session 时重新投影历史输入与输出并持久化 Surf
   assert.equal(flushed, 1)
 })
 
-test('状态结算与候选生成复用同一个后台会话，并且每轮只读取本轮新增输入', async () => {
+test('状态结算与候选生成复用同一个常驻后台 Agent，并且每轮只读取本轮新增输入', async () => {
   const parent = { id: 'parent-session', session: { header: { cwd: '/tmp/tavern', delegationDepth: 0 } } }
   const events = []
   const appended = []
@@ -330,7 +330,7 @@ test('状态结算与候选生成复用同一个后台会话，并且每轮只�
   let resumeCalls = 0
   let disposeCalls = 0
 
-  async function open(options, response) {
+  async function open(options, responses) {
     const listeners = []
     let work = Promise.resolve()
     await options.setup({
@@ -348,6 +348,7 @@ test('状态结算与候选生成复用同一个后台会话，并且每轮只�
       },
       followup(message) {
         prompts.push(message.content[0].text)
+        const response = responses[prompts.length - 1]
         const preStep = listeners.find(function (entry) { return entry.name === 'agent/pre-step' })
         work = Promise.resolve(preStep.listener({ agent: child }, async function () { return { kind: 'enter' } })).then(function () {
           events.push({ type: 'assistant/message', data: { message: { content: [{ type: 'text', text: response }] } } })
@@ -362,7 +363,10 @@ test('状态结算与候选生成复用同一个后台会话，并且每轮只�
     get(id) { return id === parent.id ? parent : undefined },
     async create(options) {
       createCalls++
-      return open(options, '{"choices":[{"type":"action","text":"第一轮候选"}]}')
+      return open(options, [
+        '{"choices":[{"type":"action","text":"第一轮候选"}]}',
+        '{"choices":[{"type":"action","text":"第二轮候选"}]}'
+      ])
     },
     async resume(options) {
       resumeCalls++
@@ -387,8 +391,9 @@ test('状态结算与候选生成复用同一个后台会话，并且每轮只�
   assert.match(first.text, /第一轮候选/)
   assert.match(second.text, /第二轮候选/)
   assert.equal(createCalls, 1)
-  assert.equal(resumeCalls, 1)
-  assert.equal(disposeCalls, 2)
+  assert.equal(resumeCalls, 0)
+  assert.equal(disposeCalls, 0)
+  assert.equal(runner.owns('candidate-session-1'), true)
   assert.equal(appended.filter(function (event) { return event.type === 'subagent/descriptor' }).length, 1)
   assert.deepEqual(appended[0].data, {
     version: 2,
@@ -404,6 +409,66 @@ test('状态结算与候选生成复用同一个后台会话，并且每轮只�
   assert.match(prompts[1], /游标 3，姿势 B/)
   assert.match(prompts[1], /任务类型：候选生成/)
   assert.doesNotMatch(prompts[1], /游标 2，姿势 A/)
+
+  await runner.dispose()
+  assert.equal(disposeCalls, 1)
+  assert.equal(runner.owns('candidate-session-1'), false)
+})
+
+test('常驻后台 Agent 每轮只挂载本轮工具', async () => {
+  const parent = { id: 'parent-session', session: { header: { cwd: '/tmp/tavern', delegationDepth: 0 } } }
+  const events = []
+  const activeTools = new Set()
+  const observedTools = []
+  const child = {
+    session: { events, append(type, data) { events.push({ type, data }) } },
+    followup() {
+      observedTools.push(Array.from(activeTools))
+      events.push({ type: 'assistant/message', data: { message: { content: [{ type: 'text', text: '完成' }] } } })
+    },
+    async whenIdle() {}
+  }
+  let disposed = 0
+  const runner = createBackgroundAgentRunner({
+    agents: {
+      get(id) { return id === parent.id ? parent : undefined },
+      async create(options) {
+        await options.setup({
+          systemPrompt: { section() {}, variable() {}, suppressRuntimeContext() {} },
+          tools: {
+            restrict() {},
+            register(definition) {
+              activeTools.add(definition.name)
+              return function () { activeTools.delete(definition.name) }
+            }
+          },
+          on() {}
+        })
+        return { agent: child, async dispose() { disposed++ } }
+      }
+    },
+    id: () => 'resident-tools'
+  })
+
+  const first = await runner.run({
+    sessionId: parent.id,
+    selection: { provider: 'test', model: 'scripted' },
+    system: '世界书规则', messages: [], task: 'worldbook', persistent: true,
+    tools: [{ name: 'tavern_read_worldbook_entries', description: '读取', parameters: { type: 'object' }, async onToolCall() {} }],
+    async onToolCall() { return '{}' }
+  })
+  await runner.run({
+    sessionId: parent.id,
+    persistentSessionId: first.traceSessionId,
+    selection: { provider: 'test', model: 'scripted' },
+    system: '结算规则', messages: [], task: 'settlement', persistent: true, tools: []
+  })
+
+  assert.deepEqual(observedTools, [['tavern_read_worldbook_entries'], []])
+  assert.deepEqual(Array.from(activeTools), [])
+  assert.equal(disposed, 0)
+  await runner.dispose()
+  assert.equal(disposed, 1)
 })
 
 test('世界书召回允许后台 Agent 返回空内容', async () => {

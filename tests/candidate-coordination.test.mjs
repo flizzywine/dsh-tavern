@@ -23,12 +23,13 @@ test('候选生成先持久任务信箱，HTTP 请求不等待 Agent 完成', fu
   assert.match(dispatch, /case 'submitTask'/)
 })
 
-test('前端只通过统一同步快照消费任务结果，不再竞争读取 Operation 和 candidates', function () {
+test('前端只通过 SSE 消费统一快照，不再定时轮询或竞争读取结果', function () {
   const coordination = between(clientSource, 'const tavernCoordination', 'function describeTavernActivity')
   const submit = between(clientSource, 'async function submitCandidateTask', 'const regenPanel')
 
-  assert.match(coordination, /rpc\("syncSession"/)
-  assert.match(coordination, /view\.task && view\.task\.busy/)
+  assert.match(coordination, /new window\.EventSource/)
+  assert.match(coordination, /\/api\/dsh-tavern\/events/)
+  assert.doesNotMatch(coordination, /rpc\("syncSession"|setTimeout|setInterval/)
   assert.match(submit, /rpc\("submitTask"/)
   assert.doesNotMatch(submit, /getBackgroundOperation|getChoices|startChoices|Promise\.race/)
   assert.doesNotMatch(clientSource, /createCandidateGenerationCoordinator/)
@@ -43,6 +44,14 @@ test('Session、世界书、结算与候选使用同一持久同步快照', func
   assert.match(serverSync, /liveSession/)
   assert.match(clientSync, /tasks\.background/)
   assert.match(clientSync, /tasks\.candidate/)
+})
+
+test('服务器轮询持久文件并通过 SSE 发送完整快照', function () {
+  assert.match(serverSource, /createCoordinationEventPublisher/)
+  assert.match(serverSource, /pollIntervalMs: 250/)
+  assert.match(serverSource, /'Content-Type': 'text\/event-stream; charset=utf-8'/)
+  assert.match(serverSource, /coordinationEvents\.subscribe\(sessionId/)
+  assert.match(serverSource, /data: ' \+ JSON\.stringify\(snapshot\)/)
 })
 
 test('后台完成而提醒丢失时，页面依据持久 task.result 直接恢复候选面板', function () {

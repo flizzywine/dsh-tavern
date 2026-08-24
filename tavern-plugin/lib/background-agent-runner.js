@@ -222,6 +222,8 @@ export function createBackgroundAgentRunner(options) {
   const agents = options.agents
   const makeId = typeof options.id === 'function' ? options.id : function () { return 'background-' + crypto.randomUUID() }
   const activeSessions = new Set()
+  const residentHandles = new Map()
+  const residentSessionByParent = new Map()
   const queues = new Map()
 
   function completedBoundary(events) {
@@ -275,13 +277,11 @@ export function createBackgroundAgentRunner(options) {
     })
   }
 
-  function setupFor(input, descriptor, appendDescriptor) {
-    const tools = Array.isArray(input.tools) ? input.tools : []
-    const maxToolCalls = Number.isInteger(input.maxToolCalls) && input.maxToolCalls > 0 ? input.maxToolCalls : 8
+  function setupFor(state, descriptor, appendDescriptor) {
     const backgroundPersona = '你是与前台正文生成隔离的酒馆后台 Agent。你会在同一个剧情分支中依次承担世界书召回、状态结算与候选生成；严格按本轮任务输出，不得把某类任务的输出格式混入另一类任务。最新权威状态优先于 Session 中的旧动态状态。\n\n【本轮任务规则】\n{{tavern_background_task}}'
-    let toolCallCount = 0
     let descriptorAppended = !appendDescriptor
     return function (childCtx) {
+      state.ctx = childCtx
       childCtx.on('agent/pre-step', async function ({ agent }, next) {
         const decision = await next()
         if (!descriptorAppended && decision.kind === 'enter') {
@@ -290,7 +290,7 @@ export function createBackgroundAgentRunner(options) {
         }
         return decision
       })
-      childCtx.systemPrompt.variable('tavern_background_task', function () { return str(input.system) })
+      childCtx.systemPrompt.variable('tavern_background_task', function () { return str(state.input && state.input.system) })
       childCtx.systemPrompt.section({
         name: 'deployment:persona',
         order: 0,
@@ -299,13 +299,21 @@ export function createBackgroundAgentRunner(options) {
       })
       childCtx.systemPrompt.suppressRuntimeContext()
       childCtx.tools.restrict({ allow: [] })
-      if (typeof input.temperature === 'number' && input.selection.provider !== 'openai-codex') {
-        childCtx.on('agent/request', async function (_payload, next) {
-          return Object.assign({}, await next(), { temperature: input.temperature })
-        })
-      }
-      for (const tool of tools) {
-        childCtx.tools.register({
+      childCtx.on('agent/request', async function (_payload, next) {
+        const input = state.input || {}
+        const request = await next()
+        if (typeof input.temperature !== 'number' || input.selection && input.selection.provider === 'openai-codex') return request
+        return Object.assign({}, request, { temperature: input.temperature })
+      })
+    }
+  }
+
+  function installTaskTools(state, input) {
+    const tools = Array.isArray(input.tools) ? input.tools : []
+    const maxToolCalls = Number.isInteger(input.maxToolCalls) && input.maxToolCalls > 0 ? input.maxToolCalls : 8
+    let toolCallCount = 0
+    const disposers = tools.map(function (tool) {
+      return state.ctx.tools.register({
           name: tool.name,
           description: tool.description,
           parameters: tool.parameters,
@@ -326,7 +334,9 @@ export function createBackgroundAgentRunner(options) {
             return str(await input.onToolCall({ name: tool.name, arguments: args }))
           }
         })
-      }
+    }).filter(function (dispose) { return typeof dispose === 'function' })
+    return async function () {
+      for (let index = disposers.length - 1; index >= 0; index--) await disposers[index]()
     }
   }
 
@@ -337,7 +347,8 @@ export function createBackgroundAgentRunner(options) {
     const runtimeRegexScripts = []
     const persistent = input.persistent === true
     const requestedSessionId = str(input.persistentSessionId)
-    const traceSessionId = requestedSessionId || makeId()
+    const residentSessionId = str(residentSessionByParent.get(str(input.sessionId)))
+    const traceSessionId = requestedSessionId || (persistent ? residentSessionId : '') || makeId()
     const descriptor = descriptorFor(input, persistent)
     const parentDepth = Number(parent.session.header && parent.session.header.delegationDepth)
     const requestedMaxTokens = Number(input.maxTokens)
@@ -350,35 +361,50 @@ export function createBackgroundAgentRunner(options) {
       ...(maxTokens === undefined ? {} : { maxTokens }),
       ...(input.selection.reasoningEffort === undefined ? {} : { reasoningEffort: input.selection.reasoningEffort })
     }
-    let handle
-    try {
-      if (requestedSessionId !== '') {
-        if (typeof agents.resume !== 'function') throw new Error('当前 DSH 不支持恢复持久后台 Agent')
-        handle = await agents.resume({
-          resumeSessionId: traceSessionId,
-          agentOptions,
-          setup: setupFor(runtimeInput, descriptor, false)
-        })
-        rewindSurface(handle.agent.session, input.rewindTo)
-      } else {
-        const meta = {
-          parentSession: parent.id,
-          origin: 'subagent',
-          delegationDepth: Number.isSafeInteger(parentDepth) && parentDepth >= 0 ? parentDepth + 1 : 1
-        }
-        const cwd = str(parent.session.header && parent.session.header.cwd)
-        if (cwd !== '') meta.cwd = cwd
-        handle = await agents.create({
-          sessionId: traceSessionId,
-          meta,
-          agentOptions,
-          setup: setupFor(runtimeInput, descriptor, true)
-        })
-      }
-    } catch (error) {
-      throw traceError(error, traceSessionId, input.task)
+    let resident = persistent ? residentHandles.get(traceSessionId) : undefined
+    if (resident !== undefined && resident.parentSessionId !== str(input.sessionId)) {
+      throw new Error('同一个常驻后台 Agent 不能绑定到不同前台会话')
     }
+    let handle = resident && resident.handle
+    let state = resident && resident.state
+    if (handle === undefined) {
+      state = { input: runtimeInput, ctx: null }
+      try {
+        if (requestedSessionId !== '') {
+          if (typeof agents.resume !== 'function') throw new Error('当前 DSH 不支持恢复持久后台 Agent')
+          handle = await agents.resume({
+            resumeSessionId: traceSessionId,
+            agentOptions,
+            setup: setupFor(state, descriptor, false)
+          })
+        } else {
+          const meta = {
+            parentSession: parent.id,
+            origin: 'subagent',
+            delegationDepth: Number.isSafeInteger(parentDepth) && parentDepth >= 0 ? parentDepth + 1 : 1
+          }
+          const cwd = str(parent.session.header && parent.session.header.cwd)
+          if (cwd !== '') meta.cwd = cwd
+          handle = await agents.create({
+            sessionId: traceSessionId,
+            meta,
+            agentOptions,
+            setup: setupFor(state, descriptor, true)
+          })
+        }
+      } catch (error) {
+        throw traceError(error, traceSessionId, input.task)
+      }
+      if (persistent) {
+        resident = { handle, state, parentSessionId: str(input.sessionId) }
+        residentHandles.set(traceSessionId, resident)
+        residentSessionByParent.set(str(input.sessionId), traceSessionId)
+      }
+    }
+    state.input = runtimeInput
+    rewindSurface(handle.agent.session, input.rewindTo)
     activeSessions.add(traceSessionId)
+    const removeTaskTools = installTaskTools(state, runtimeInput)
 
     try {
       const eventStart = Array.isArray(handle.agent.session.events) ? handle.agent.session.events.length : 0
@@ -408,9 +434,10 @@ export function createBackgroundAgentRunner(options) {
       throw traceError(error, traceSessionId, input.task)
     } finally {
       try {
-        await handle.dispose()
+        await removeTaskTools()
       } finally {
         activeSessions.delete(traceSessionId)
+        if (!persistent) await handle.dispose()
       }
     }
   }
@@ -427,7 +454,18 @@ export function createBackgroundAgentRunner(options) {
   }
 
   function owns(sessionId) {
-    return activeSessions.has(str(sessionId))
+    const id = str(sessionId)
+    return activeSessions.has(id) || residentHandles.has(id)
+  }
+
+  async function dispose() {
+    const residents = Array.from(residentHandles.values())
+    residentHandles.clear()
+    residentSessionByParent.clear()
+    activeSessions.clear()
+    const settled = await Promise.allSettled(residents.map(function (resident) { return resident.handle.dispose() }))
+    const failures = settled.filter(function (result) { return result.status === 'rejected' }).map(function (result) { return result.reason })
+    if (failures.length > 0) throw new AggregateError(failures, '常驻后台 Agent 释放失败')
   }
 
   async function reproject(input) {
@@ -455,5 +493,5 @@ export function createBackgroundAgentRunner(options) {
     }
   }
 
-  return Object.freeze({ run, owns, reproject })
+  return Object.freeze({ run, owns, reproject, dispose })
 }

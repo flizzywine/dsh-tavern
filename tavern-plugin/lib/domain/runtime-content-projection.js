@@ -33,9 +33,15 @@ function macroProjection(value, options = {}) {
   }
 }
 
-function contentProjection(value, options, preview) {
+/** Remove failed/unknown Tavern macro delimiters before text crosses into DSH. */
+export function sanitizeAgentProjectionText(value) {
+  return str(value).replaceAll('{{', '').replaceAll('}}', '')
+}
+
+function contentProjection(value, options, preview, sanitizeForAgent) {
   const rendered = macroProjection(value, options)
-  const presentation = projectReplyPresentation(rendered.text, {
+  const renderedText = sanitizeForAgent ? sanitizeAgentProjectionText(rendered.text) : rendered.text
+  const presentation = projectReplyPresentation(renderedText, {
     regexScripts: options && options.regexScripts,
     placement: options && options.regexPlacement,
     isMarkdown: options && options.isMarkdown,
@@ -43,9 +49,9 @@ function contentProjection(value, options, preview) {
     depth: options && options.depth
   })
   return {
-    agentText: preview ? rendered.text : presentation.bodyText,
+    agentText: preview ? renderedText : presentation.bodyText,
     bodyText: presentation.bodyText,
-    renderedText: rendered.text,
+    renderedText,
     presentationHtml: presentation.presentationHtml,
     presentationOnly: presentation.presentationHtml !== '' && presentation.bodyText === '',
     warnings: presentation.warnings,
@@ -66,17 +72,17 @@ export function preserveRuntimeSource(value, options = {}) {
 
 /** Resolve Tavern macros and remove presentation-only content before Agent input. */
 export function projectAgentContent(value, options = {}) {
-  return contentProjection(value, options, false)
+  return contentProjection(value, options, false, true)
 }
 
 /** Render a chooser preview while keeping the complete rendered opening. */
 export function projectOpeningPreview(value, options = {}) {
-  return contentProjection(value, options, true)
+  return contentProjection(value, options, true, false)
 }
 
 /** Commit an opening as story text plus an isolated presentation projection. */
 export function projectOpeningCommit(value, options = {}) {
-  return contentProjection(value, options, false)
+  return contentProjection(value, options, false, true)
 }
 
 /** Resolve macros only, for compatibility assets whose structure must stay intact. */

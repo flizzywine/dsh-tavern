@@ -14,7 +14,7 @@ async function loadPolicy() {
 const browserModule = await loadPolicy()
 const describeTavernActivity = browserModule.describeTavernActivity
 
-test('Browser Activity 只在后台真正运行时控制正文输入与候选按钮', function () {
+test('Browser Activity 只描述候选项生成是否繁忙', function () {
   assert.deepEqual(JSON.parse(JSON.stringify(describeTavernActivity({ phase: 'pending', busy: false, role: 'worldbook' }))), {
     phase: 'pending', busy: false, role: 'worldbook', label: '生成候选项', blockReason: ''
   })
@@ -26,25 +26,11 @@ test('Browser Activity 只在后台真正运行时控制正文输入与候选按
   })
 })
 
-test('空闲或失败 Activity 不锁住正文输入', function () {
+test('空闲或失败 Activity 不阻止候选项生成', function () {
   assert.equal(describeTavernActivity(null).busy, false)
   assert.equal(describeTavernActivity({ phase: 'failed', busy: false, role: 'settlement' }).blockReason, '')
 })
 
-test('Composer Gate 只管理 Session 恢复，不接受后台 Activity 锁', function () {
-	let snapshot
-	let writes = 0
-	const blocks = {
-		set(_sessionId, value) { writes += 1; snapshot = value },
-		storeFor() { return { getSnapshot() { return snapshot } } }
-	}
-  const conversation = { blocks }
-  const gate = browserModule.createComposerGate()
-
-	gate.set(conversation, 'session-1', 'connection', '正在恢复 Session，请稍候…')
-  assert.equal(snapshot.reason, '正在恢复 Session，请稍候…')
-	gate.clear(conversation, 'session-1', 'connection')
-	assert.equal(snapshot, undefined)
-	gate.clear(conversation, 'session-1', 'connection')
-	assert.equal(writes, 2, '已清空的 owner 不应再次通知宿主')
+test('Tavern 不提供正文 Composer Gate', function () {
+  assert.equal(browserModule.createComposerGate, undefined)
 })

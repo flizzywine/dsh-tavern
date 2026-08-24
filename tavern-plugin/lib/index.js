@@ -9,6 +9,7 @@ import { createCardPreparation } from './domain/card-preparation.js'
 import { cardOpeningChoices, resolveCardOpening } from './domain/card-openings.js'
 import { READABLE_CARD_FIELDS, readCardField } from './domain/card-reading.js'
 import { createContextPlanner } from './domain/context-planner.js'
+import { createCoordinationEventPublisher } from './domain/coordination-event-publisher.js'
 import { createDurableTaskMailbox } from './domain/durable-task-mailbox.js'
 import { extractEpubText } from './domain/epub-text.js'
 import { createFileResourceStore, normalizeResourcePath, resourceKind } from './domain/file-resources.js'
@@ -21,7 +22,8 @@ import {
   projectOpeningCommit,
   projectOpeningPreview,
   projectRuntimeReply,
-  projectRuntimeReplyHistory
+  projectRuntimeReplyHistory,
+  sanitizeAgentProjectionText
 } from './domain/runtime-content-projection.js'
 import { createScriptContinuity } from './domain/script-continuity.js'
 import { filterSkillMessages } from './domain/skill-visibility.js'
@@ -879,11 +881,18 @@ export async function apply(ctx) {
   async function ensurePlayCardSnapshot(chat, card) {
     if (chat === undefined || groupOfMode(chat.mode) !== 'play') return ''
     const existing = str(chat.cardContextSnapshot)
-    if (existing !== '') return existing
+    if (existing !== '') {
+      const sanitized = sanitizeAgentProjectionText(existing)
+      if (sanitized !== existing) {
+        chat.cardContextSnapshot = sanitized
+        await writeChat(chat)
+      }
+      return sanitized
+    }
     if (cardSnapshotBuilds.has(chat.id)) return await cardSnapshotBuilds.get(chat.id)
     const build = (async function () {
       const resolvedCard = card === undefined ? await readChatCard(chat) : card
-      const snapshot = (await contextPlanner.plan({ purpose: 'play-card-snapshot', card: resolvedCard, chat: chat })).text
+      const snapshot = sanitizeAgentProjectionText((await contextPlanner.plan({ purpose: 'play-card-snapshot', card: resolvedCard, chat: chat })).text)
       chat.cardContextSnapshot = snapshot
       await writeChat(chat)
       return snapshot
@@ -904,6 +913,7 @@ export async function apply(ctx) {
     },
     resolveRuntimePresetSnapshot: async function () { return null }
   })
+  ctx.effect(() => () => backgroundAgentRunner.dispose(), 'dsh-tavern: dispose resident background agents')
   const backgroundTasks = createBackgroundTaskCoordinator({
     store: { readChat, writeChat },
     timeline: storyTimeline
@@ -1924,6 +1934,12 @@ export async function apply(ctx) {
     }
   }
 
+  const coordinationEvents = createCoordinationEventPublisher({
+    load: async function (sessionId) { return await sessionSync(sessionId, { kind: 'candidate' }) },
+    pollIntervalMs: 250,
+    onError(error) { console.warn('dsh-tavern: 协调文件读取失败，将继续重试:', str(error && error.message || error)) }
+  })
+
   const webServer = ctx.get('webServer')
   if (webServer !== undefined) {
     ctx.effect(() => webServer.register({
@@ -1938,6 +1954,44 @@ export async function apply(ctx) {
         }
         try {
           const pathname = decodeURIComponent(new URL(req.url ?? '/', 'http://x').pathname)
+          if (req.method === 'GET' && pathname === '/api/dsh-tavern/events') {
+            const target = new URL(req.url ?? '/', 'http://x')
+            const sessionId = str(target.searchParams.get('sessionId'))
+            if (sessionId === '') {
+              res.writeHead(400)
+              res.end('missing sessionId')
+              return
+            }
+            res.writeHead(200, {
+              'Content-Type': 'text/event-stream; charset=utf-8',
+              'Cache-Control': 'no-cache, no-transform',
+              'Connection': 'keep-alive',
+              'X-Accel-Buffering': 'no'
+            })
+            res.write('retry: 1000\n\n')
+            let closed = false
+            const stop = coordinationEvents.subscribe(sessionId, function (snapshot, eventId) {
+              if (closed) return
+              try {
+                res.write('id: ' + str(eventId).replace(/[\r\n]/g, '') + '\n')
+                res.write('data: ' + JSON.stringify(snapshot) + '\n\n')
+              } catch (_error) { close() }
+            })
+            const heartbeat = setInterval(function () {
+              if (!closed) res.write(': heartbeat\n\n')
+            }, 10000)
+            if (heartbeat && typeof heartbeat.unref === 'function') heartbeat.unref()
+            function close() {
+              if (closed) return
+              closed = true
+              clearInterval(heartbeat)
+              stop()
+              if (!res.writableEnded) res.end()
+            }
+            req.once('close', close)
+            res.once('close', close)
+            return
+          }
           const method = pathname.slice('/api/dsh-tavern'.length + 1)
           if (req.method !== 'POST') {
             res.writeHead(405)

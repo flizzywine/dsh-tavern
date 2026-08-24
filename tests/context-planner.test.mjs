@@ -83,6 +83,20 @@ test('游戏稳定前缀声明 user 表示玩家并在进入 Agent 前解析宏'
   assert.doesNotMatch(result.text, /\{\{user\}\}/)
 })
 
+test('游戏稳定前缀不把失败宏留给 DSH 再次解析', async () => {
+  const planner = createContextPlanner({ prompt, callModel: async () => '{"ids":[]}' })
+  const currentCard = card()
+  currentCard.system_prompt = '世界书带{{if}}宏按阶段门控。'
+  const result = await planner.plan({
+    purpose: 'play-card-snapshot',
+    card: currentCard,
+    chat: chat()
+  })
+
+  assert.match(result.text, /世界书带if宏按阶段门控/)
+  assert.doesNotMatch(result.text, /\{\{|\}\}/)
+})
+
 test('游戏稳定前缀注入人物卡文风示例', async () => {
   const planner = createContextPlanner({ prompt, callModel: async () => '{"ids":[]}' })
   const result = await planner.plan({

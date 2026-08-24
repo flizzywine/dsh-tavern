@@ -490,20 +490,10 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			load: function (sessionId, request) { return rpc("getSession", {}, sessionId, request); },
 			shouldPoll: function (view) { return !!(view && view.activity && view.activity.busy); }
 		});
-		const runtimeVersionGuard = createRuntimeVersionGuard({
-			storage: window.sessionStorage || window.localStorage || { getItem: function () { return null; }, setItem: function () {}, removeItem: function () {} },
-			reload: function (input) {
-				const target = new URL(window.location.href);
-				target.searchParams.set("tavern-boot", input.generation);
-				window.location.replace(target.toString());
-			}
-		});
 		function coordinationView(result, sessionId) {
 			const sync = result && result.sync ? result.sync : (result || {});
 			const tasks = sync.tasks && typeof sync.tasks === "object" ? sync.tasks : {};
 			const background = tasks.background || null;
-			const textarea = document.querySelector('[data-composer-card] textarea, textarea[placeholder="给智能体发消息"]');
-			runtimeVersionGuard.observe({ sessionId: sessionId, generation: sync.runtimeGeneration, draft: textarea && textarea.value || "" });
 			return {
 				runtimeGeneration: String(sync.runtimeGeneration || ""),
 				liveSession: sync.liveSession === true,
@@ -513,13 +503,76 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				mailboxVersion: Number(sync.mailboxVersion) || 0
 			};
 		}
-		const tavernCoordination = createLiveTavernViewModule({
-			loadTimeoutMs: 2000,
-			idlePollIntervalMs: 2000,
-			load: function (sessionId, request) {
-				return rpc("syncSession", { kind: "candidate" }, sessionId, request).then(function (result) { return { view: coordinationView(result, sessionId) }; });
-			},
-			shouldPoll: function (view) { return !view || view.liveSession === false || !!(view.activity && view.activity.busy) || !!(view.task && view.task.busy); }
+
+		function createTavernCoordinationEventModule(options) {
+			if (!options || typeof options.connect !== "function") throw new Error("Tavern Coordination Event 缺少 SSE adapter");
+			const records = new Map();
+			function initialState() { return { phase: "connecting", view: null, error: "", updatedAt: 0 }; }
+			function recordFor(sessionId) {
+				const id = String(sessionId || "");
+				if (!records.has(id)) records.set(id, { id: id, state: initialState(), listeners: new Set(), connection: null });
+				return records.get(id);
+			}
+			function publish(record, state) {
+				record.state = state;
+				record.listeners.forEach(function (listener) { listener(state); });
+			}
+			function disconnect(record) {
+				if (record.connection && typeof record.connection.close === "function") record.connection.close();
+				record.connection = null;
+			}
+			function connect(record) {
+				if (record.listeners.size === 0 || record.connection !== null) return;
+				record.connection = options.connect(record.id, {
+					message: function (view) {
+						publish(record, { phase: "ready", view: view || null, error: "", updatedAt: Date.now() });
+					},
+					error: function (error) {
+						publish(record, { phase: "retrying", view: record.state.view, error: String(error && error.message || ""), updatedAt: record.state.updatedAt });
+					}
+				});
+			}
+			function invalidate(sessionId) {
+				const targets = sessionId === undefined || sessionId === null || sessionId === "" ? Array.from(records.values()) : [recordFor(sessionId)];
+				targets.forEach(function (record) {
+					disconnect(record);
+					if (record.listeners.size > 0) {
+						publish(record, { phase: "connecting", view: record.state.view, error: "", updatedAt: record.state.updatedAt });
+						connect(record);
+					}
+				});
+			}
+			return {
+				getSnapshot: function (sessionId) { return recordFor(sessionId).state; },
+				setView: function (sessionId, view) {
+					const record = recordFor(sessionId);
+					publish(record, { phase: "ready", view: view || null, error: "", updatedAt: Date.now() });
+				},
+				subscribe: function (sessionId, listener) {
+					const record = recordFor(sessionId);
+					record.listeners.add(listener);
+					listener(record.state);
+					connect(record);
+					return function () {
+						record.listeners.delete(listener);
+						if (record.listeners.size === 0) disconnect(record);
+					};
+				},
+				invalidate: invalidate
+			};
+		}
+
+		const tavernCoordination = createTavernCoordinationEventModule({
+			connect: function (sessionId, handlers) {
+				const target = "/api/dsh-tavern/events?sessionId=" + encodeURIComponent(sessionId) + "&kind=candidate";
+				const source = new window.EventSource(target);
+				source.onmessage = function (event) {
+					try { handlers.message(coordinationView({ sync: JSON.parse(event.data) }, sessionId)); }
+					catch (error) { handlers.error(error); }
+				};
+				source.onerror = function () { handlers.error(new Error("Tavern SSE 正在重连")); };
+				return { close: function () { source.close(); } };
+			}
 		});
 
 		function describeTavernActivity(value) {
@@ -533,37 +586,6 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			else if (busy) { label = "后台结算中…"; blockReason = "后台结算中，请稍候…"; }
 			return { phase: String(activity.phase || "idle"), busy: busy, role: role, label: label, blockReason: blockReason };
 		}
-
-		function createComposerGate() {
-			const claims = new Map();
-			function sync(conversation, sessionId) {
-				const blocks = conversation && conversation.blocks;
-				if (!blocks || typeof blocks.set !== "function" || typeof blocks.storeFor !== "function") return;
-				const sessionClaims = claims.get(sessionId) || new Map();
-				const reason = sessionClaims.get("connection") || sessionClaims.get("activity") || "";
-				const current = blocks.storeFor(sessionId).getSnapshot();
-				if (reason) {
-					if (current && current.source === "dsh-tavern-composer-gate" && current.reason === reason) return;
-					blocks.set(sessionId, { source: "dsh-tavern-composer-gate", reason: reason });
-				} else if (current && current.source === "dsh-tavern-composer-gate") blocks.set(sessionId, undefined);
-			}
-			return Object.freeze({
-				set: function (conversation, sessionId, owner, reason) {
-					if (!claims.has(sessionId)) claims.set(sessionId, new Map());
-					claims.get(sessionId).set(owner, reason);
-					sync(conversation, sessionId);
-				},
-				clear: function (conversation, sessionId, owner) {
-					const sessionClaims = claims.get(sessionId);
-					if (sessionClaims) {
-						sessionClaims.delete(owner);
-						if (sessionClaims.size === 0) claims.delete(sessionId);
-					}
-					sync(conversation, sessionId);
-				}
-			});
-		}
-		const composerGate = createComposerGate();
 
 		function useLiveTavernView(sessionId, revision) {
 			const [state, setState] = React.useState(function () { return liveTavernView.getSnapshot(sessionId); });
@@ -2082,109 +2104,6 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		}
 		const cardLibraryFeature = createCardLibraryFeatureModule();
 
-		function decideRuntimeConnectionAction(previousGeneration, result, submitting, accepted) {
-			const generation = String(result && result.runtimeGeneration || "");
-			if (!generation) return { kind: "none" };
-			if (!previousGeneration) {
-				if (result.liveSession === false && submitting) return { kind: "reload", generation: generation, restoreDraft: !accepted };
-				if (result.liveSession === false) return { kind: "warm", generation: generation };
-				return { kind: "remember", generation: generation };
-			}
-			if (previousGeneration !== generation || (submitting && result.liveSession === false)) {
-				return { kind: "reload", generation: generation, restoreDraft: !submitting || !accepted };
-			}
-			if (result.liveSession === false) return { kind: "warm", generation: generation };
-			return { kind: "none" };
-		}
-
-		function createRuntimeVersionGuard(options) {
-			if (!options || !options.storage || typeof options.reload !== "function") throw new Error("Runtime Version Guard 缺少存储或重载 adapter");
-			const storage = options.storage;
-			const generationKey = "dsh-tavern:runtime-generation:v1";
-			const draftKey = "dsh-tavern:reconnect-draft:v1";
-			let reloadingGeneration = "";
-			function read(key) { try { return storage.getItem(key); } catch (_err) { return null; } }
-			function write(key, value) { try { storage.setItem(key, value); } catch (_err) {} }
-			function remove(key) { try { storage.removeItem(key); } catch (_err) {} }
-			function observe(input) {
-				const generation = String(input && input.generation || "");
-				if (!generation) return false;
-				const previous = String(read(generationKey) || "");
-				if (!previous) { write(generationKey, generation); return false; }
-				if (previous === generation || reloadingGeneration === generation) return false;
-				reloadingGeneration = generation;
-				write(generationKey, generation);
-				const draft = String(input && input.draft || "");
-				if (draft) write(draftKey, JSON.stringify({ sessionId: String(input && input.sessionId || ""), draft: draft }));
-				else remove(draftKey);
-				options.reload({ generation: generation });
-				return true;
-			}
-			return Object.freeze({ observe: observe });
-		}
-
-		function createRuntimeConnectionCoordinator(options) {
-			if (!options || typeof options.warm !== "function" || typeof options.reload !== "function" || !options.storage) {
-				throw new Error("Runtime Connection Coordinator 缺少连接、存储或重载 adapter");
-			}
-			const storage = options.storage;
-			const generationKey = "dsh-tavern:runtime-generation:v1";
-			const draftKey = "dsh-tavern:reconnect-draft:v1";
-			const warmups = new Map();
-			function read(key) { try { return storage.getItem(key); } catch (_err) { return null; } }
-			function write(key, value) { try { storage.setItem(key, value); } catch (_err) {} }
-			function remove(key) { try { storage.removeItem(key); } catch (_err) {} }
-			function beginWarm(sessionId, generation) {
-				const key = String(generation || "") + ":" + String(sessionId || "");
-				if (warmups.has(key)) return;
-				let load;
-				try { load = Promise.resolve(options.warm(sessionId)); }
-				catch (error) { load = Promise.reject(error); }
-				const tracked = load.catch(function () {}).then(function () {
-					if (warmups.get(key) === tracked) warmups.delete(key);
-				});
-				warmups.set(key, tracked);
-			}
-			function reconcile(input) {
-				const result = input && input.snapshot;
-				const previous = String(read(generationKey) || "");
-				const action = decideRuntimeConnectionAction(previous, result, input.submitting === true, input.accepted === true);
-				if (action.kind === "none" && !result) return { phase: "checking" };
-				if (action.kind === "remember") {
-					write(generationKey, action.generation);
-					return { phase: "ready" };
-				}
-				if (action.kind === "warm") {
-					write(generationKey, action.generation);
-					beginWarm(input.sessionId, action.generation);
-					return { phase: "recovering" };
-				}
-				if (action.kind === "reload") {
-					write(generationKey, action.generation);
-					const draft = String(input.draft || "");
-					if (action.restoreDraft && draft) write(draftKey, JSON.stringify({ sessionId: input.sessionId, draft: draft }));
-					else remove(draftKey);
-					options.reload({ generation: action.generation });
-					return { phase: "reloading" };
-				}
-				return { phase: "ready" };
-			}
-			function restore(sessionId, applyDraft) {
-				let pending = null;
-				try { pending = JSON.parse(read(draftKey) || "null"); } catch (_err) {}
-				if (!pending || pending.sessionId !== sessionId || !pending.draft || typeof applyDraft !== "function") return false;
-				if (applyDraft(String(pending.draft)) !== true) return false;
-				remove(draftKey);
-				return true;
-			}
-			function hasPendingDraft(sessionId) {
-				let pending = null;
-				try { pending = JSON.parse(read(draftKey) || "null"); } catch (_err) {}
-				return !!(pending && pending.sessionId === sessionId && pending.draft);
-			}
-			return Object.freeze({ reconcile: reconcile, restore: restore, hasPendingDraft: hasPendingDraft });
-		}
-
 		function createPlayControlsFeatureModule() {
 			function TavernPlayerNameAction(props) {
 				const [view, setView] = React.useState(null);
@@ -2210,90 +2129,6 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					finally { setBusy(false); }
 				}
 				return React.createElement("button", { className: "dsh-tavern-player-action", disabled: busy, title: "修改之后内容中的玩家称呼", onClick: renamePlayer }, "玩家：" + (view.playerName || "你"));
-			}
-
-			function TavernSignalTimeoutNotice(props) {
-				const promptError = props.useSession(function (snapshot) { return snapshot.promptError || null; });
-				const running = props.useSession(function (snapshot) { return snapshot.running === true; });
-				const [connectionPhase, setConnectionPhase] = React.useState("checking");
-				const latestRole = props.useSession(function (snapshot) {
-					const nodes = snapshot.nodes || [];
-					for (let index = nodes.length - 1; index >= 0; index -= 1) {
-						if (nodes[index].kind === "assistant" || nodes[index].kind === "user") return nodes[index].kind;
-					}
-					return "";
-				});
-				const isTimeout = promptError && /signal timeout/i.test(String(promptError.error && promptError.error.message || ""));
-				const submitting = props.input && props.input.phase === "submitting";
-				const composerBlockReason = "正在恢复 Session，请稍候…";
-				const accepted = running || latestRole === "user";
-				const coordinationState = useTavernCoordination(props.sessionId, String(running) + ":" + latestRole);
-				const draftRef = React.useRef("");
-				draftRef.current = String(props.input && props.input.draft || "");
-				const connectionCoordinator = React.useMemo(function () {
-					return createRuntimeConnectionCoordinator({
-						storage: window.sessionStorage,
-						warm: function (sessionId) { return props.connection.api.sessions.models({ sessionId: sessionId }); },
-						reload: function () { window.location.reload(); }
-					});
-				}, [props.connection]);
-				React.useEffect(function () {
-					if (connectionPhase === "recovering" || connectionPhase === "reloading") composerGate.set(props.conversation, props.sessionId, "connection", composerBlockReason);
-					else composerGate.clear(props.conversation, props.sessionId, "connection");
-				}, [props.sessionId, connectionPhase]);
-				React.useEffect(function () {
-					return function () { composerGate.clear(props.conversation, props.sessionId, "connection"); };
-				}, [props.sessionId]);
-				React.useEffect(function () {
-					if (!connectionCoordinator.hasPendingDraft(props.sessionId)) return;
-					let stopped = false;
-					let attempts = 0;
-					function restore() {
-						if (stopped) return;
-						if (connectionCoordinator.restore(props.sessionId, function (draft) {
-							const textarea = document.querySelector('[data-composer-card] textarea, textarea[placeholder="给智能体发消息"]');
-							if (!textarea) return false;
-							if (!textarea.value) {
-								const descriptor = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value");
-								if (descriptor && descriptor.set) descriptor.set.call(textarea, draft);
-								else textarea.value = draft;
-								textarea.dispatchEvent(new Event("input", { bubbles: true }));
-							}
-							return textarea.value === draft;
-						})) return;
-						attempts += 1;
-						if (attempts < 40) window.setTimeout(restore, 100);
-					}
-					restore();
-					return function () { stopped = true; };
-				}, [props.sessionId, connectionCoordinator]);
-				React.useEffect(function () {
-					const result = connectionCoordinator.reconcile({
-						sessionId: props.sessionId,
-						submitting: submitting,
-						accepted: accepted,
-						draft: draftRef.current,
-						snapshot: coordinationState.view
-					});
-					setConnectionPhase(result.phase);
-				}, [props.sessionId, submitting, accepted, connectionCoordinator, coordinationState.updatedAt]);
-				React.useEffect(function () {
-					if (isTimeout && typeof props.refreshSessions === "function") Promise.resolve(props.refreshSessions()).catch(function () {});
-				}, [isTimeout]);
-				if (connectionPhase === "reloading") return React.createElement("div", { className: "dsh-tavern-timeout-banner", role: "alert" },
-					React.createElement("span", null, "DSH Session 连接已失效，正在核对本轮状态并重新连接。系统不会自动发送。")
-				);
-				if (connectionPhase === "recovering") return React.createElement("div", { className: "dsh-tavern-timeout-banner", role: "status" },
-					React.createElement("span", null, "正在恢复 Session，完成后即可发送。草稿会保留，系统不会自动发送。")
-				);
-				if (!isTimeout) return null;
-				const message = accepted
-					? "发送连接超时，但 Session 已出现新回合，继续等待即可；系统不会重复发送。"
-					: "发送连接超时，结果尚不能确认。请先刷新 Session 状态；若仍未出现新回合，再手动重试。系统不会自动重发。";
-				return React.createElement("div", { className: "dsh-tavern-timeout-banner", role: "status" },
-					React.createElement("span", null, message),
-					React.createElement("button", { onClick: function () { if (typeof props.refreshSessions === "function") Promise.resolve(props.refreshSessions()).catch(function () {}); } }, "刷新状态")
-				);
 			}
 
 			function TavernStatusPanel(props) {
@@ -2755,12 +2590,12 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 						generate(false);
 					}
 				} }, activity.busy ? activity.label : ((busy || taskBusy) ? "生成中…" : (hasReadyPanel ? "重新生成候选项" : "生成候选项"))),
-				h("button", { className: "dsh-tavern-choice-trigger", disabled: activity.busy, title: "重新生成正文（可填指导意见，生成后直接替换）", onClick: function (event) {
+				h("button", { className: "dsh-tavern-choice-trigger", disabled: false, title: "重新生成正文（可填指导意见，生成后直接替换）", onClick: function (event) {
 					const tail = event && event.currentTarget ? event.currentTarget.closest('[data-chat-flow-kind="turn-tail"]') : null;
 					setCandidatePanel(null);
 					setRegenPanel({ sessionId: props.sessionId, phase: "input", guidance: "", text: "", error: "", tail: tail });
 				} }, "重新生成正文"),
-				h("button", { className: "dsh-tavern-choice-trigger", disabled: rolling || activity.busy, title: "删除最近一次用户输入和这段 LLM 输出", onClick: rollback }, rolling ? "回退中…" : "回退本轮")
+				h("button", { className: "dsh-tavern-choice-trigger", disabled: rolling, title: "删除最近一次用户输入和这段 LLM 输出", onClick: rollback }, rolling ? "回退中…" : "回退本轮")
 			);
 		}
 
@@ -2995,14 +2830,6 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				TavernPlayerNameAction
 			)), "dsh-tavern: player name header action");
 			ctx.effect(() => slots.inject("conversation.input.dock", () => slots.register(
-				{ name: "conversation.input.dock", id: "dsh-tavern-signal-timeout", order: -140, label: "发送状态" },
-				function (props) { return React.createElement(TavernSignalTimeoutNotice, Object.assign({}, props, {
-					connection: ctx.get("connection"),
-					conversation: ctx.get("conversation"),
-					refreshSessions: function () { return typeof ctx.sessions.refresh === "function" ? ctx.sessions.refresh() : Promise.resolve(); }
-				})); }
-			)), "dsh-tavern: signal timeout reconciliation");
-			ctx.effect(() => slots.inject("conversation.input.dock", () => slots.register(
 				{ name: "conversation.input.dock", id: "dsh-tavern-candidate-actions", order: -130, label: "候选项操作" },
 				function (props) { return React.createElement(CandidateDockActions, Object.assign({}, props, {
 					refreshSessions: function () { return typeof ctx.sessions.refresh === "function" ? ctx.sessions.refresh() : Promise.resolve(); }
@@ -3109,10 +2936,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		exports.inject = inject;
 		exports.buildOpeningPreviewDocument = buildOpeningPreviewDocument;
 		exports.createLiveTavernViewModule = createLiveTavernViewModule;
+		exports.createTavernCoordinationEventModule = createTavernCoordinationEventModule;
 		exports.describeTavernActivity = describeTavernActivity;
-		exports.createComposerGate = createComposerGate;
-		exports.createRuntimeVersionGuard = createRuntimeVersionGuard;
-		exports.createRuntimeConnectionCoordinator = createRuntimeConnectionCoordinator;
 		exports.createConversationLifecycleModule = createConversationLifecycleModule;
 		exports.createResourcesLibraryFeatureModule = createResourcesLibraryFeatureModule;
 		exports.createPresetLibraryFeatureModule = createPresetLibraryFeatureModule;

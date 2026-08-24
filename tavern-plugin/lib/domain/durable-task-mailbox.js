@@ -37,6 +37,12 @@ function publicTask(task) {
   }
 }
 
+function sameValue(left, right) {
+  if (left === right) return true
+  if ((left === null || typeof left !== 'object') || (right === null || typeof right !== 'object')) return false
+  return JSON.stringify(left) === JSON.stringify(right)
+}
+
 /** Persistent command/result mailbox. HTTP and browser state are projections of this file-backed record. */
 export function createDurableTaskMailbox(options = {}) {
   const store = options.store
@@ -74,6 +80,12 @@ export function createDurableTaskMailbox(options = {}) {
     const status = patch.status === undefined ? str(task.status) : str(patch.status)
     if (!VALID.has(status)) throw new Error('未知任务状态: ' + status)
     if (TERMINAL.has(str(task.status)) && status !== str(task.status)) return false
+    const changed = status !== str(task.status) ||
+      (patch.stage !== undefined && str(patch.stage) !== str(task.stage)) ||
+      (patch.operationId !== undefined && str(patch.operationId) !== str(task.operationId)) ||
+      (patch.result !== undefined && !sameValue(patch.result, task.result)) ||
+      (patch.error !== undefined && str(patch.error) !== str(task.error))
+    if (!changed) return false
     task.status = status
     if (patch.stage !== undefined) task.stage = str(patch.stage)
     if (patch.operationId !== undefined) task.operationId = str(patch.operationId)
