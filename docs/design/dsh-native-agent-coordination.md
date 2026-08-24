@@ -7,7 +7,7 @@
 
 dsh-tavern 只需要保证一件事：
 
-> 每个 Tavern 对话绑定同一个持久后台 Agent。世界书召回、状态结算和候选生成持续发送给这个 Agent，使它保留同一份身份、Session 轨迹和上下文。
+> 每个 Tavern 对话绑定同一个持久后台 Agent。状态结算和候选生成持续发送给这个 Agent，使它保留同一份身份、Session 轨迹和上下文。
 
 这里的“持续存在”同时包括 Session 身份和进程内 Agent handle：
 
@@ -29,7 +29,7 @@ dsh-tavern 只需要保证一件事：
 本文中的：
 
 - **前台 Agent**：负责与用户对话和生成正文的 Agent；
-- **后台 Agent**：负责世界书召回、派生状态结算和候选生成的持久 Agent。
+- **后台 Agent**：负责派生状态结算和候选生成的持久 Agent。世界书由 Tavern 确定性规则 Module 处理，不进入后台 Session。
 
 它不是“浏览器前端与 Host 后端”的简称。WebUI 状态展示是外围能力，不决定 Agent 通信是否正确。
 
@@ -69,7 +69,7 @@ Tavern 不保存第二个“后台 Agent 是否在线”字段。进程中的常
 - `Background Agent Runner`：管理同一后台 Session 的创建、恢复、任务投递和本轮结果；
 - `Foreground Handoff`：在前台下一轮开始前等待后台周期，并把已提交的领域快照交给 Turn Orchestrator。
 
-世界书、结算和候选只通过 `Background Task Coordinator` 建立 operation，再调用同一个 `Background Agent Runner.run()`。Runner 内部负责：
+结算和候选只通过 `Background Task Coordinator` 建立 operation，再调用同一个 `Background Agent Runner.run()`。Runner 内部负责：
 
 1. 读取 Story Timeline participant；
 2. Runner 已有该 participant 的常驻 handle 时直接复用；
@@ -81,7 +81,7 @@ Tavern 不保存第二个“后台 Agent 是否在线”字段。进程中的常
 8. 最终通过 `Story Timeline.complete()` 幂等提交；
 9. 本轮工具解绑后让 Agent 保持 idle，不释放 handle；仅在 Tavern 插件或 Host 退出时统一释放。
 
-创建、恢复、投递、等待、结果定位和错误归一化全部隐藏在 Runner 内。世界书、结算和候选调用方不得分别管理 Agent 生命周期。
+创建、恢复、投递、等待、结果定位和错误归一化全部隐藏在 Runner 内。结算和候选调用方不得分别管理 Agent 生命周期。
 
 ## 常驻生命周期
 
@@ -116,7 +116,7 @@ Story Timeline participant 至少保存：
 约束：
 
 - 每个 Tavern chat 只有一个 `background` participant；
-- `worldbook`、`settlement`、`candidate` 共用它；
+- `settlement`、`candidate` 共用它；
 - 正常推进不得因任务 role 不同而创建新 Session；
 - 只有 participant 尚未创建时才能生成新的 Session ID；
 - 普通失败不得删除 participant；
@@ -153,7 +153,6 @@ basedOn.revision
 
 结果分别交给：
 
-- `worldbook` → Worldbook Recall；
 - `settlement` → 派生状态结算；
 - `candidate` → Candidate Generator；
 - 最后统一由 `Story Timeline.complete()` 提交。
@@ -170,7 +169,7 @@ basedOn.revision
 后台 Agent 完成
   → 对应领域 Module 解析并校验
   → Story Timeline.complete() 提交
-  → 保存世界书上下文或结算状态
+  → 保存结算状态
   → 玩家发起下一轮
   → agent/pre-step
   → Foreground Handoff 等待尚未完成的后台周期
@@ -180,7 +179,7 @@ basedOn.revision
 
 只投影前台真正需要的领域事实：
 
-- `worldbook`：`preparedWorldBookContext` 中已经筛选的本轮相关设定；
+- 世界书：由确定性 Worldbook Module 保存的 `preparedWorldBookContext`，不经过后台 Agent；
 - `settlement`：`posture` 等已经提交的权威状态；
 - `candidate`：不注入前台 Agent，只供玩家选择；
 - 后台原始回复、完整 transcript、调试信息：不注入。
@@ -241,7 +240,7 @@ WebUI 可以继续读取 Tavern 持久 operation 的派生状态。SSE、RPC 或
 ### 第一阶段：锁定统一通信入口
 
 - 常驻、创建、恢复、投递、等待和结果定位统一由 `Background Agent Runner` 负责；
-- 世界书、结算和候选通过 `Background Task Coordinator` 建立 operation；
+- 结算和候选通过 `Background Task Coordinator` 建立 operation；
 - 禁止调用方绕过 Runner 分别管理 Agent 生命周期。
 
 ### 第二阶段：固定持久 participant
@@ -258,11 +257,11 @@ WebUI 可以继续读取 Tavern 持久 operation 的派生状态。SSE、RPC 或
 - 将持久任务信箱中仍有价值的 request 幂等信息并入 operation；
 - UI 同步只读取派生结果，不参与任务执行。
 
-迁移采用替换，不让世界书、结算和候选长期各自维护一套 Agent 生命周期。
+迁移采用替换，不让结算和候选长期各自维护一套 Agent 生命周期。
 
 ## 验收矩阵
 
-- 同一 Tavern chat 连续执行世界书、结算和候选，三个任务使用同一后台 Session ID；
+- 同一 Tavern chat 连续执行结算和候选，两个任务使用同一后台 Session ID；
 - 新 Tavern chat 创建自己的后台 Session，不与其他 chat 混用；
 - 后台 Agent 第一次创建或恢复后保持常驻，连续任务之间不再 resume 或 dispose；
 - Tavern 插件或 Host 退出时，常驻 Agent 统一释放；
@@ -279,7 +278,7 @@ WebUI 可以继续读取 Tavern 持久 operation 的派生状态。SSE、RPC 或
 ## 最终不变量
 
 1. 一个 Tavern chat 在 Tavern 进程生命周期内对应一个常驻后台 Agent handle，并始终绑定同一个持久 Session。
-2. 世界书、结算和候选持续与这个后台 Agent 通信。
+2. 结算和候选持续与这个后台 Agent 通信；世界书保持 Tavern 本地确定性投影。
 3. 单项任务完成后 Agent 进入 idle 而不释放；只有 Tavern 插件或 Host 退出时才释放，重启后从原 Session 恢复一次。
 4. 剧情事实由 Story Timeline 决定，Agent Session 不反向覆盖剧情。
 5. 后台结果只能通过 operation 校验后提交。

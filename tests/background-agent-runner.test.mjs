@@ -453,8 +453,8 @@ test('常驻后台 Agent 每轮只挂载本轮工具', async () => {
   const first = await runner.run({
     sessionId: parent.id,
     selection: { provider: 'test', model: 'scripted' },
-    system: '世界书规则', messages: [], task: 'worldbook', persistent: true,
-    tools: [{ name: 'tavern_read_worldbook_entries', description: '读取', parameters: { type: 'object' }, async onToolCall() {} }],
+    system: '候选规则', messages: [], task: 'candidate', persistent: true,
+    tools: [{ name: 'tavern_read_script', description: '读取', parameters: { type: 'object' }, async onToolCall() {} }],
     async onToolCall() { return '{}' }
   })
   await runner.run({
@@ -464,44 +464,11 @@ test('常驻后台 Agent 每轮只挂载本轮工具', async () => {
     system: '结算规则', messages: [], task: 'settlement', persistent: true, tools: []
   })
 
-  assert.deepEqual(observedTools, [['tavern_read_worldbook_entries'], []])
+  assert.deepEqual(observedTools, [['tavern_read_script'], []])
   assert.deepEqual(Array.from(activeTools), [])
   assert.equal(disposed, 0)
   await runner.dispose()
   assert.equal(disposed, 1)
-})
-
-test('世界书召回允许后台 Agent 返回空内容', async () => {
-  const parent = { id: 'parent-session', session: { header: { cwd: '/tmp/tavern', delegationDepth: 0 } } }
-  const events = []
-  const child = {
-    session: { events, append(type, data) { events.push({ type, data }) } },
-    followup() {},
-    async whenIdle() {}
-  }
-  const runner = createBackgroundAgentRunner({
-    agents: {
-      get(id) { return id === parent.id ? parent : undefined },
-      async create(options) {
-        await options.setup({
-          systemPrompt: { section() {}, variable() {}, suppressRuntimeContext() {} },
-          tools: { restrict() {}, register() {} },
-          on() {}
-        })
-        return { agent: child, async dispose() {} }
-      }
-    },
-    id: () => 'worldbook-session-1'
-  })
-
-  const result = await runner.run({
-    sessionId: parent.id,
-    selection: { provider: 'test', model: 'scripted' },
-    system: '世界书召回规则', messages: [], tools: [], task: 'worldbook', persistent: true
-  })
-
-  assert.equal(result.text, '')
-  assert.equal(result.traceSessionId, 'worldbook-session-1')
 })
 
 test('回退后在同一个后台 Agent 中遮蔽 checkpoint 之后的 Surface', async () => {

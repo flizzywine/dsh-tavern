@@ -5,7 +5,7 @@ import { createContextPlanner } from '../tavern-plugin/lib/domain/context-planne
 import { createForegroundHandoff } from '../tavern-plugin/lib/domain/foreground-handoff.js'
 import { prompt } from '../tavern-plugin/lib/prompt-catalog.js'
 
-test('后台先提交领域快照，前台下一轮只读取世界书与结算结果', async () => {
+test('本地世界书投影与后台结算完成后，前台只读取领域快照', async () => {
   const order = []
   const chat = {
     id: 'chat-1',
@@ -37,7 +37,7 @@ test('后台先提交领域快照，前台下一轮只读取世界书与结算�
       async discard() {}
     },
     store: { async chatForSession() { return chat } },
-    tasks: { activity() { return { phase: 'pending', busy: false, role: 'worldbook' } } },
+    tasks: { activity() { return { phase: 'pending', busy: false, role: 'settlement' } } },
     async queueBackground() {
       order.push('background')
       chat.preparedWorldBookContext = '钟楼只在午夜开放。'

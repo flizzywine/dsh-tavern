@@ -73,12 +73,15 @@ test('游戏稳定前缀声明 user 表示玩家并在进入 Agent 前解析宏'
   const result = await planner.plan({
     purpose: 'play-card-snapshot',
     card: card(),
-    chat: current
+    chat: current,
+    worldBookContext: '{{char}} 的故乡黑麦镇常年下雨。',
+    worldBookLabel: '常驻世界书'
   })
 
   assert.match(result.text, /名字: 阿芙拉/)
   assert.match(result.text, /设定: 阿芙拉 是银发佣兵。\n叶天邪 表示玩家。/)
   assert.match(result.text, /谨慎而直接|叶天邪 在旅店遇见 阿芙拉|文风示例|保持冷静/)
+  assert.match(result.text, /【常驻世界书】\n阿芙拉 的故乡黑麦镇常年下雨/)
   assert.doesNotMatch(result.text, /避免替玩家决定/)
   assert.doesNotMatch(result.text, /\{\{user\}\}/)
 })

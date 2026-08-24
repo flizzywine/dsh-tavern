@@ -34,7 +34,7 @@ import { createTavernConversationRegistry } from './domain/tavern-conversation-r
 import { createTurnOrchestrator } from './domain/turn-orchestration.js'
 import { resourceWorkspaceContext } from './domain/workspace-resources.js'
 import { createWorldBookLibrary } from './domain/worldbook-library.js'
-import { createWorldBookRecall } from './domain/worldbook-recall.js'
+import { constantWorldBookContext, prepareWorldBookRecall } from './domain/worldbook-recall.js'
 import {
   createBackgroundTaskCoordinator,
   isOpeningAwaitingSettlement
@@ -617,6 +617,7 @@ export async function apply(ctx) {
       guides: [],
       runtimePresetSnapshot: null,
       cardContextSnapshot: '',
+      cardContextSnapshotVersion: 0,
       macroState: { userName: '你', local: {}, global: {} },
       settleStatus: 'idle',
       settleError: null,
@@ -756,7 +757,8 @@ export async function apply(ctx) {
     chat.runtimePresetPath = ''
     chat.macroState = macroState
     if (groupOfMode(chat.mode) === 'play') {
-      chat.cardContextSnapshot = (await contextPlanner.plan({ purpose: 'play-card-snapshot', card: card, chat: chat })).text
+      chat.cardContextSnapshot = await buildPlayCardSnapshot(chat, card)
+      chat.cardContextSnapshotVersion = 2
     }
     chat.openingText = greeting
     chat.presentationWarnings = openingProjection.warnings
@@ -878,10 +880,27 @@ export async function apply(ctx) {
   }
   const contextPlanner = createContextPlanner({ prompt: prompt, callModel: callModel, now: Date.now, logger: console })
   const cardSnapshotBuilds = new Map()
+  async function stableWorldBookContext(chat, card) {
+    try {
+      const worldBook = await worldBooks.bound(chat.cardPath, card)
+      return constantWorldBookContext({ worldBook }).context
+    } catch (error) {
+      console.warn('dsh-tavern: 常驻世界书读取失败，已跳过:', str(error && error.message || error))
+      return ''
+    }
+  }
+  async function buildPlayCardSnapshot(chat, card) {
+    const constantContext = await stableWorldBookContext(chat, card)
+    return sanitizeAgentProjectionText((await contextPlanner.plan({
+      purpose: 'play-card-snapshot', card, chat,
+      worldBookContext: constantContext,
+      worldBookLabel: '常驻世界书'
+    })).text)
+  }
   async function ensurePlayCardSnapshot(chat, card) {
     if (chat === undefined || groupOfMode(chat.mode) !== 'play') return ''
     const existing = str(chat.cardContextSnapshot)
-    if (existing !== '') {
+    if (existing !== '' && Number(chat.cardContextSnapshotVersion) >= 2) {
       const sanitized = sanitizeAgentProjectionText(existing)
       if (sanitized !== existing) {
         chat.cardContextSnapshot = sanitized
@@ -892,8 +911,9 @@ export async function apply(ctx) {
     if (cardSnapshotBuilds.has(chat.id)) return await cardSnapshotBuilds.get(chat.id)
     const build = (async function () {
       const resolvedCard = card === undefined ? await readChatCard(chat) : card
-      const snapshot = sanitizeAgentProjectionText((await contextPlanner.plan({ purpose: 'play-card-snapshot', card: resolvedCard, chat: chat })).text)
+      const snapshot = await buildPlayCardSnapshot(chat, resolvedCard)
       chat.cardContextSnapshot = snapshot
+      chat.cardContextSnapshotVersion = 2
       await writeChat(chat)
       return snapshot
     })()
@@ -917,18 +937,6 @@ export async function apply(ctx) {
   const backgroundTasks = createBackgroundTaskCoordinator({
     store: { readChat, writeChat },
     timeline: storyTimeline
-  })
-  const worldBookRecall = createWorldBookRecall({
-    store: { readChat, writeChat },
-    timeline: storyTimeline,
-    tasks: backgroundTasks,
-    model: {
-      selection: modelSelection,
-      run: backgroundAgentRunner.run
-    },
-    prompt,
-    now: Date.now,
-    logger: console
   })
   function presetPathForChat(chat) {
     if (!chat || typeof chat !== 'object') return ''
@@ -995,7 +1003,7 @@ export async function apply(ctx) {
         shouldRun = true
       }
       const activity = backgroundTasks.activity(current)
-      if ((activity.role === 'worldbook' || activity.role === 'settlement') && (activity.phase === 'pending' || activity.phase === 'running')) shouldRun = true
+      if (activity.role === 'settlement' && (activity.phase === 'pending' || activity.phase === 'running')) shouldRun = true
       if (shouldRun) await queueSettlement(current.id)
     },
     sleep: sleep,
@@ -1230,60 +1238,49 @@ export async function apply(ctx) {
     return 0
   }
   async function prepareNextWorldBookContext(snapshot) {
-    let chat = snapshot
-    let context = ''
-    let mode = 'skip'
-    let totalChars = 0
+    const turn = settlementTurn(snapshot)
+    const inspected = storyTimeline.inspect({ chat: snapshot })
+    if (snapshot.preparedWorldBook && Number(snapshot.preparedWorldBook.revision) === Number(inspected.revision)) return snapshot
+    let prepared = null
     let error = null
     try {
-      const card = await readChatCard(chat)
-      const worldBook = await worldBooks.bound(chat.cardPath, card)
-      const recalled = await worldBookRecall.recall({
-        sessionId: chat.sessionId,
-        turn: settlementTurn(chat),
-        chat,
-        card,
-        worldBook
-      })
-      chat = recalled.chat
-      context = str(recalled.context).trim()
-      mode = str(recalled.mode) || 'skip'
-      totalChars = Number(recalled.totalChars) || 0
-      error = str(recalled.error).trim() || null
+      const card = await readChatCard(snapshot)
+      const worldBook = await worldBooks.bound(snapshot.cardPath, card)
+      prepared = prepareWorldBookRecall({ turn, chat: snapshot, card, worldBook })
     } catch (caught) {
       error = str(caught && caught.message || caught)
-      mode = 'error'
+      prepared = prepareWorldBookRecall({ turn, chat: snapshot, card: null, worldBook: null })
     }
-    const latest = await readChat(chat.id)
+    const latest = await readChat(snapshot.id)
     if (latest === undefined) return null
-    latest.preparedWorldBookContext = error === null ? context : ''
+    const current = storyTimeline.inspect({ chat: latest })
+    if (current.branchId !== inspected.branchId || Number(current.revision) !== Number(inspected.revision)) return latest
+    const context = error === null ? str(prepared.context).trim() : ''
+    latest.preparedWorldBookContext = context
     latest.preparedWorldBook = {
       ts: Date.now(),
-      turn: settlementTurn(latest),
-      mode,
-      totalChars,
-      contextChars: error === null ? Array.from(context).length : 0,
+      turn,
+      branchId: current.branchId,
+      revision: current.revision,
+      mode: error === null ? str(prepared.kind) : 'error',
+      refs: error === null ? prepared.refs : [],
+      totalChars: Number(prepared.totalChars) || 0,
+      contextChars: Array.from(context).length,
       empty: error !== null || context === '',
       failed: error !== null
     }
-    if (mode !== 'agent') {
-      latest.worldBookError = error
-      latest.lastWorldBookRecall = Object.assign({}, latest.preparedWorldBook)
-    }
+    if (error === null) latest.worldBookReads = prepared.recordReads(latest.worldBookReads)
+    latest.worldBookError = error
+    latest.lastWorldBookRecall = Object.assign({}, latest.preparedWorldBook)
     await writeChat(latest)
-    if (mode === 'agent') return latest
-    const skipped = await backgroundTasks.skip(latest, 'worldbook')
-    return skipped.chat
+    return latest
   }
   async function runSettlement(chatId) {
     while (true) {
       let snapshot = await readChat(chatId)
       if (snapshot === undefined) return
-      const pending = backgroundTasks.activity(snapshot)
-      if (pending.phase !== 'pending' || pending.role === 'worldbook') {
-        snapshot = await prepareNextWorldBookContext(snapshot)
-        if (snapshot === null) return
-      }
+      snapshot = await prepareNextWorldBookContext(snapshot)
+      if (snapshot === null) return
       const taskRun = await backgroundTasks.begin(snapshot, 'settlement')
       snapshot = taskRun.chat
       let backgroundSessionId = str(taskRun.participantRequest.sessionId)
@@ -1380,7 +1377,7 @@ export async function apply(ctx) {
       shouldRun = true
     }
     const activity = backgroundTasks.activity(chat)
-    if ((activity.role === 'worldbook' || activity.role === 'settlement') && (activity.phase === 'pending' || activity.phase === 'running')) shouldRun = true
+    if (activity.role === 'settlement' && (activity.phase === 'pending' || activity.phase === 'running')) shouldRun = true
     if (!shouldRun) return true
     void queueSettlement(chat.id)
     return false

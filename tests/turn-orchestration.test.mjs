@@ -135,7 +135,7 @@ test('游玩回合由生命周期自动准备与提交，不再要求模型回�
   assert.deepEqual(run.settlements, [])
 })
 
-test('正文准备只读取后台已保存的下一轮世界书上下文，不再触发召回', async () => {
+test('正文准备只读取本地已保存的下一轮世界书上下文，不再触发匹配', async () => {
   let recallCalls = 0
   const run = harness('story', {
     preparedWorldBookContext: '钟楼只有午夜会响。',
@@ -149,7 +149,7 @@ test('正文准备只读取后台已保存的下一轮世界书上下文，不�
   assert.equal(recallCalls, 0)
 })
 
-test('没有后台世界书结果时正文直接使用空上下文', async () => {
+test('没有世界书关键词结果时正文直接使用空上下文', async () => {
   const run = harness('story', {
     worldBookRecall: { async recall() { throw new Error('世界书暂时不可用') } }
   })

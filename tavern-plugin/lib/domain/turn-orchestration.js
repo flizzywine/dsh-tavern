@@ -171,8 +171,8 @@ export function createTurnOrchestrator(options) {
       return { ready: true, mode, cardName: card === null ? (str(state.draft && state.draft.name) || '卡片工作台') : card.name, text: plan.text }
     }
 
-    // 世界书召回属于上一轮正文后的后台结算。正文准备只读取已经
-    // 保存好的下一轮上下文，玩家输入和候选项选择都不能在此触发召回。
+    // 世界书关键词匹配在上一轮正文提交后本地完成。正文准备只读取已经
+    // 保存好的下一轮上下文，玩家输入和候选项选择都不能在此重新触发匹配。
     const worldBookContext = str(chat.preparedWorldBookContext).trim()
     const plan = await planner.plan({ purpose: 'body', card, chat, userText: runtimeUserText, sessionId: input.sessionId, nativeTurn: turn, scriptReference, worldBookContext })
     if (chatChanged) await store.writeChat(chat)

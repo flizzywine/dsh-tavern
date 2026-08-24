@@ -15,7 +15,7 @@ function sameBasedOn(left, right) {
 }
 
 function participantRole(role) {
-  return role === 'candidate' || role === 'settlement' || role === 'worldbook' ? 'background' : role
+  return role === 'candidate' || role === 'settlement' ? 'background' : role
 }
 
 function participantLifetime(value) {
@@ -243,20 +243,9 @@ export function createStoryTimeline(options = {}) {
       requestId, basedOn: basedOn(chat), createdAt: now()
     }
     chat.timeline.operations[operation.id] = operation
-    if (role === 'worldbook' || role === 'settlement') updateBackground(chat, 'running', role)
+    if (role === 'settlement') updateBackground(chat, 'running', role)
     trimOperations(chat.timeline)
     return Object.assign(operationValue(operation, participantRequest(chat, role)), { created: true })
-  }
-
-  function skipAgent(chat, intent) {
-    const role = str(intent.role).trim()
-    const background = backgroundBody(chat)
-    if (background === undefined) return { status: 'ignored', role }
-    const current = object(background.background)
-    if (current.phase !== 'pending' || current.role !== role) return { status: 'ignored', role: current.role }
-    if (role === 'worldbook') updateBackground(chat, 'pending', 'settlement')
-    else updateBackground(chat, 'completed', role)
-    return { status: 'applied', role }
   }
 
   function recoverBackground(chat) {
@@ -267,7 +256,7 @@ export function createStoryTimeline(options = {}) {
       operation.status = 'interrupted'
       operation.completedAt = now()
       changed = true
-      if (operation.role === 'worldbook' || operation.role === 'settlement') interruptedRole = operation.role
+      if (operation.role === 'settlement') interruptedRole = operation.role
     }
     const background = backgroundBody(chat)
     if (background !== undefined && interruptedRole !== '') {
@@ -336,7 +325,6 @@ export function createStoryTimeline(options = {}) {
     if (intent.kind === 'ensure') value = { status: 'applied', branchId: chat.timeline.branchId, revision: chat.timeline.revision }
     else if (intent.kind === 'body.begin') value = beginBody(chat, intent)
     else if (intent.kind === 'agent.begin') value = beginAgent(chat, intent)
-    else if (intent.kind === 'agent.skip') value = skipAgent(chat, intent)
     else if (intent.kind === 'background.recover') value = recoverBackground(chat)
     else if (intent.kind === 'turn.rollback') value = rollback(chat, intent)
     else if (intent.kind === 'replacement.abort') {
@@ -380,7 +368,7 @@ export function createStoryTimeline(options = {}) {
     if (outcome.status !== 'success') {
       operation.status = 'failed'
       operation.completedAt = now()
-      if (operation.kind === 'agent' && (operation.role === 'worldbook' || operation.role === 'settlement')) {
+      if (operation.kind === 'agent' && operation.role === 'settlement') {
         updateBackground(chat, 'failed', operation.role)
       }
       return { chat, value: { status: 'failed', branchId: chat.timeline.branchId, revision: chat.timeline.revision } }
@@ -398,7 +386,7 @@ export function createStoryTimeline(options = {}) {
       chat.candidates = null
       chat.timeline.revision++
       operation.committedBranchId = chat.timeline.branchId
-      operation.background = { phase: 'pending', role: 'worldbook', updatedAt: now() }
+      operation.background = { phase: 'pending', role: 'settlement', updatedAt: now() }
     } else if (outcome.stateChanged === true) {
       chat.timeline.revision++
     }
@@ -429,7 +417,6 @@ export function createStoryTimeline(options = {}) {
     operation.status = 'completed'
     operation.completedAt = now()
     operation.committedRevision = chat.timeline.revision
-    if (operation.kind === 'agent' && operation.role === 'worldbook') updateBackground(chat, 'pending', 'settlement')
     if (operation.kind === 'agent' && operation.role === 'settlement') updateBackground(chat, 'completed', 'settlement')
     chat.timeline.updatedAt = now()
     return { chat, value: { status: 'committed', branchId: chat.timeline.branchId, revision: chat.timeline.revision } }

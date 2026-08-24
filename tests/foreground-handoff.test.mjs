@@ -10,7 +10,7 @@ test('Foreground Turn 完成后保留待处理 Cycle，不自动启动后台工�
   const handoff = createForegroundHandoff({
     turns: { async finalize(input) { return { saved: true, chatId: chat.id, input } }, async discard() {} },
     store: { async chatForSession() { return chat } },
-    tasks: { activity() { return { phase: 'pending', busy: true, role: 'worldbook' } } },
+    tasks: { activity() { return { phase: 'pending', busy: true, role: 'settlement' } } },
     async queueBackground(chatId) { queued.push(chatId) },
     defer(run) { deferred.push(run) },
     logger: { error() {} }
@@ -66,7 +66,7 @@ test('启动时只把遗留 Background Cycle 恢复为待处理，不自动排�
     store: { async readChat(id) { return chats.get(id) } },
     tasks: {
       activity() { return { phase: 'idle', busy: false, role: '' } },
-      async recover(chat) { recovered.push(chat.id); return { chat, activity: { phase: chat.id === 'chat-1' ? 'pending' : 'idle', busy: false, role: 'worldbook' } } }
+      async recover(chat) { recovered.push(chat.id); return { chat, activity: { phase: chat.id === 'chat-1' ? 'pending' : 'idle', busy: false, role: 'settlement' } } }
     },
     async queueBackground(chatId) { queued.push(chatId) },
     logger: { error() {} }

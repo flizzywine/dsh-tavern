@@ -105,7 +105,7 @@ test('同一 operation 协议可扩展到状态结算，迟到结算不能覆盖
   assert.equal(late.chat.posture, '门边站立')
 })
 
-test('世界书、候选与状态结算是同一后台 Agent 的不同任务，共用 participant', () => {
+test('世界书不创建 Agent operation，候选与状态结算共用后台 participant', () => {
   const { timeline, chat } = harness()
   let current = beginAndCommitBody(timeline, chat, 1, '推门', '门开了。')
   let begun = timeline.apply({ chat: current, intent: { kind: 'agent.begin', role: 'settlement' } })
@@ -119,17 +119,6 @@ test('世界书、候选与状态结算是同一后台 Agent 的不同任务，�
   })
   current = completed.chat
 
-  begun = timeline.apply({ chat: current, intent: { kind: 'agent.begin', role: 'worldbook' } })
-  assert.equal(begun.value.participant.role, 'background')
-  assert.equal(begun.value.participant.sessionId, 'background-1')
-  completed = timeline.complete({
-    chat: begun.chat,
-    operationId: begun.value.operationId,
-    basedOn: begun.value.basedOn,
-    outcome: { status: 'success', stateChanged: false, participant: { sessionId: 'background-1', boundary: 21, lifetime: 'chat' } }
-  })
-  current = completed.chat
-
   begun = timeline.apply({ chat: current, intent: { kind: 'agent.begin', role: 'candidate' } })
   assert.equal(begun.value.role, 'candidate')
   assert.equal(begun.value.participant.role, 'background')
@@ -137,6 +126,7 @@ test('世界书、候选与状态结算是同一后台 Agent 的不同任务，�
   assert.equal(begun.value.participant.syncedRevision, begun.value.basedOn.revision)
   assert.equal(timeline.inspect({ chat: begun.chat }).participants.candidate, undefined)
   assert.equal(timeline.inspect({ chat: begun.chat }).participants.settlement, undefined)
+  assert.equal(Object.values(timeline.inspect({ chat: begun.chat }).operations).some(function (operation) { return operation.role === 'worldbook' }), false)
 })
 
 test('后台 participant 在正常推进时复用，回退后仍使用同一 Session 并请求 Surface 回退', () => {

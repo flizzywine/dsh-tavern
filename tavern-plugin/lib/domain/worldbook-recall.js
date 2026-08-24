@@ -1,28 +1,5 @@
-import { projectAgentContent } from './runtime-content-projection.js'
-import { createBackgroundTaskCoordinator } from './background-task-coordinator.js'
-
-const DIRECT_LIMIT = 200
-const MATCH_LIMIT = 24
-const READ_ENTRY_LIMIT = 8
-const CONTEXT_LIMIT = 2500
+const DYNAMIC_ENTRY_LIMIT = 3
 const READ_COOLDOWN_TURNS = 10
-
-const WORLD_BOOK_READ_TOOL = Object.freeze({
-  name: 'tavern_read_worldbook_entries',
-  description: '按条目引用读取世界书正文。优先读取当前标题目录；此前已读但处于隐藏期的条目仍可按引用或准确标题重读。最多调用 2 次、合计读取 8 条。',
-  parameters: {
-    type: 'object',
-    properties: {
-      entries: {
-        type: 'array', minItems: 1, maxItems: READ_ENTRY_LIMIT,
-        items: { type: 'string' },
-        description: '条目的纯引用，例如 entry:12。当前目录未展示但此前读过的条目，也可凭记忆中的引用重读。'
-      }
-    },
-    required: ['entries'],
-    additionalProperties: false
-  }
-})
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
@@ -46,6 +23,80 @@ function fingerprint(value) {
   return text.length.toString(36) + ':' + (hash >>> 0).toString(36)
 }
 
+function enabledEntries(worldBook) {
+  const view = worldBook && worldBook.view
+  if (view === null || typeof view !== 'object') return []
+  return (Array.isArray(view.entries) ? view.entries : []).filter(function (entry) {
+    return entry && entry.enabled !== false && str(entry.content).trim() !== ''
+  })
+}
+
+function tavernOrder(entries) {
+  return entries.map(function (entry, index) { return { entry, index } }).sort(function (left, right) {
+    const order = (Number(right.entry.order) || 0) - (Number(left.entry.order) || 0)
+    if (order !== 0) return order
+    const display = (Number(left.entry.displayIndex) || 0) - (Number(right.entry.displayIndex) || 0)
+    return display !== 0 ? display : left.index - right.index
+  }).map(function (item) { return item.entry })
+}
+
+function latestBody(chat) {
+  const messages = Array.isArray(chat && chat.messages) ? chat.messages : []
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index]
+    if (!message || message.role !== 'assistant') continue
+    const text = (str(message.sourceText) || str(message.text)).trim()
+    if (text !== '') return text
+  }
+  return ''
+}
+
+function regexKey(value) {
+  const match = /^\/(.*)\/([dgimsuvy]*)$/.exec(str(value))
+  if (!match) return null
+  try {
+    return new RegExp(match[1], match[2].replaceAll('g', '').replaceAll('y', ''))
+  } catch (_error) {
+    return null
+  }
+}
+
+function literalMatch(text, key, entry) {
+  const sensitive = entry.caseSensitive === true
+  const source = sensitive ? text : text.toLocaleLowerCase()
+  const needle = sensitive ? key : key.toLocaleLowerCase()
+  if (needle === '') return false
+  if (entry.matchWholeWords !== true) return source.includes(needle)
+  const escaped = needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  try {
+    return new RegExp('(^|[^\\p{L}\\p{N}_])' + escaped + '(?=$|[^\\p{L}\\p{N}_])', 'u').test(source)
+  } catch (_error) {
+    return source.includes(needle)
+  }
+}
+
+function keyMatch(text, value, entry) {
+  const key = str(value).trim()
+  if (key === '') return false
+  const regex = regexKey(key)
+  if (regex !== null) return regex.test(text)
+  return literalMatch(text, key, entry)
+}
+
+function keywordMatch(entry, body) {
+  const primary = (Array.isArray(entry.primaryKeys) ? entry.primaryKeys : []).filter(function (key) { return str(key).trim() !== '' })
+  if (primary.length === 0 || !primary.some(function (key) { return keyMatch(body, key, entry) })) return false
+  const secondary = (Array.isArray(entry.secondaryKeys) ? entry.secondaryKeys : []).filter(function (key) { return str(key).trim() !== '' })
+  if (entry.selective !== true || secondary.length === 0) return true
+  const matches = secondary.map(function (key) { return keyMatch(body, key, entry) })
+  switch (Number(entry.selectiveLogic) || 0) {
+    case 1: return !matches.every(Boolean)
+    case 2: return !matches.some(Boolean)
+    case 3: return matches.every(Boolean)
+    default: return matches.some(Boolean)
+  }
+}
+
 function readRecord(chat, entry) {
   const reads = chat && chat.worldBookReads
   if (reads === null || typeof reads !== 'object' || Array.isArray(reads)) return null
@@ -55,259 +106,56 @@ function readRecord(chat, entry) {
 
 function isCoolingDown(chat, entry, turn) {
   const record = readRecord(chat, entry)
-  if (record === null) return false
-  const readTurn = Number(record && record.turn)
+  if (record === null || str(record.fingerprint) !== fingerprint(entry && entry.content)) return false
+  const readTurn = Number(record.turn)
   const currentTurn = Number(turn)
   if (!Number.isSafeInteger(readTurn) || !Number.isSafeInteger(currentTurn)) return false
-  if (str(record.fingerprint) !== fingerprint(entry && entry.content)) return false
   const elapsed = currentTurn - readTurn
-  return elapsed >= 0 && elapsed <= READ_COOLDOWN_TURNS
+  return elapsed > 0 && elapsed <= READ_COOLDOWN_TURNS
 }
 
-function messageText(message) {
-  return str(message && message.sourceText) || str(message && message.text)
-}
-
-function projector(card, chat) {
-  let macroState = {
-    userName: str(chat && chat.macroState && chat.macroState.userName) || '你',
-    local: clone(chat && chat.macroState && chat.macroState.local || {}),
-    global: clone(chat && chat.macroState && chat.macroState.global || {})
-  }
-  return function project(text) {
-    const result = projectAgentContent(text, {
-      charName: str(card && card.name),
-      macroState
-    })
-    macroState = result.macroState
-    return result.agentText.trim()
+function readRecorder(entries, turn) {
+  return function recordReads(existing) {
+    const next = clone(existing !== null && typeof existing === 'object' && !Array.isArray(existing) ? existing : {})
+    for (const entry of entries) {
+      next[str(entry.ref)] = { turn: Number(turn) || 0, fingerprint: fingerprint(entry.content) }
+    }
+    return next
   }
 }
 
-function latestBody(chat) {
-  const messages = Array.isArray(chat && chat.messages) ? chat.messages : []
-  for (let index = messages.length - 1; index >= 0; index--) {
-    const message = messages[index]
-    if (!message || message.role !== 'assistant') continue
-    const text = messageText(message).trim()
-    if (text !== '') return text
+/** Constant Tavern entries are part of the stable play prefix and never enter cooldown. */
+export function constantWorldBookContext(input = {}) {
+  const entries = tavernOrder(enabledEntries(input.worldBook).filter(function (entry) { return entry.constant === true }))
+  return {
+    context: entries.map(function (entry) { return str(entry.content).trim() }).filter(Boolean).join('\n\n'),
+    refs: entries.map(function (entry) { return str(entry.ref) }),
+    count: entries.length,
+    totalChars: entries.reduce(function (total, entry) { return total + charCount(entry.content) }, 0)
   }
-  return ''
 }
 
-function keywordsOf(entry) {
-  return (Array.isArray(entry.primaryKeys) ? entry.primaryKeys : [])
-    .concat(Array.isArray(entry.secondaryKeys) ? entry.secondaryKeys : [])
-    .map(function (value) { return str(value).trim() })
-    .filter(Boolean)
-}
-
-function matchedEntries(entries, body) {
-  const current = str(body).toLocaleLowerCase()
-  return entries.map(function (entry, index) {
-    const keys = keywordsOf(entry)
-    const hits = keys.filter(function (key) { return current.includes(key.toLocaleLowerCase()) }).length
-    return { entry, index, hits }
-  }).filter(function (item) {
-    return item.hits > 0
-  }).sort(function (left, right) {
-    return right.hits - left.hits || left.index - right.index
-  }).slice(0, MATCH_LIMIT).map(function (item) { return item.entry })
-}
-
-function taskText(prepared) {
-  const sections = ['【最新一轮正文】\n' + (prepared.body || '（无）')]
-  if (prepared.constantCatalog.length > 0) {
-    sections.push('【常驻条目标题目录】\n' + prepared.constantCatalog.map(function (entry) {
-      return '[' + entry.ref + '] ' + entry.title
-    }).join('\n'))
-  }
-  if (prepared.triggeredCatalog.length > 0) {
-    sections.push('【关键词命中的非常驻条目标题目录】\n' + prepared.triggeredCatalog.map(function (entry) {
-      return '[' + entry.ref + '] ' + entry.title
-    }).join('\n'))
-  } else {
-    sections.push('【关键词命中的非常驻条目标题目录】\n（无）')
-  }
-  return sections.join('\n\n')
-}
-
+/** Deterministically activate at most three non-constant entries for the next foreground turn. */
 export function prepareWorldBookRecall(input = {}) {
-  const view = input.worldBook && input.worldBook.view
-  if (view === null || typeof view !== 'object') return { kind: 'skip', context: '', totalChars: 0, reason: 'unbound' }
-  const entries = (Array.isArray(view.entries) ? view.entries : []).filter(function (entry) {
-    return entry && entry.enabled !== false && str(entry.content).trim() !== ''
-  })
-  const totalChars = entries.reduce(function (total, entry) { return total + charCount(entry.content) }, 0)
-  if (totalChars === 0) return { kind: 'skip', context: '', totalChars, reason: 'empty' }
-  const project = projector(input.card, input.chat)
-  if (totalChars <= DIRECT_LIMIT) {
-    return {
-      kind: 'direct',
-      context: entries.map(function (entry) { return project(entry.content) }).filter(Boolean).join('\n\n'),
-      totalChars
-    }
+  const all = enabledEntries(input.worldBook)
+  const emptyRecorder = readRecorder([], input.turn)
+  if (!input.worldBook || !input.worldBook.view) {
+    return { kind: 'skip', context: '', refs: [], totalChars: 0, reason: 'unbound', recordReads: emptyRecorder }
   }
+  if (all.length === 0) {
+    return { kind: 'skip', context: '', refs: [], totalChars: 0, reason: 'empty', recordReads: emptyRecorder }
+  }
+  const totalChars = all.reduce(function (total, entry) { return total + charCount(entry.content) }, 0)
   const body = str(input.latestBody) || latestBody(input.chat)
-  const constantEntries = entries.filter(function (entry) { return entry.constant === true })
-  const triggeredEntries = matchedEntries(entries.filter(function (entry) { return entry.constant !== true }), body)
-  const coolingEntries = entries.filter(function (entry) { return isCoolingDown(input.chat, entry, input.turn) })
-  const visibleConstantEntries = constantEntries.filter(function (entry) { return !isCoolingDown(input.chat, entry, input.turn) })
-  const visibleTriggeredEntries = triggeredEntries.filter(function (entry) { return !isCoolingDown(input.chat, entry, input.turn) })
-  const visibleEntries = visibleConstantEntries.concat(visibleTriggeredEntries)
-  const readableEntries = visibleEntries.concat(coolingEntries.filter(function (entry) { return !visibleEntries.includes(entry) }))
-  const entryByRef = new Map(readableEntries.map(function (entry) { return [str(entry.ref), entry] }))
-  const refByTitle = new Map()
-  for (const entry of readableEntries) {
-    const title = str(entry.title).trim() || '未命名条目'
-    refByTitle.set(title, refByTitle.has(title) ? null : str(entry.ref))
-  }
-  function resolveEntryRefs(values) {
-    const requested = Array.from(new Set(Array.isArray(values) ? values.map(function (value) { return str(value).trim() }).filter(Boolean) : []))
-    if (requested.length === 0) throw new Error('至少提供一个世界书条目引用')
-    const invalid = []
-    const resolved = []
-    for (const value of requested) {
-      let ref = entryByRef.has(value) ? value : ''
-      if (ref === '') {
-        const bracketed = value.match(/^\[([^\]]+)\]/)
-        if (bracketed && entryByRef.has(bracketed[1].trim())) ref = bracketed[1].trim()
-      }
-      if (ref === '' && refByTitle.has(value) && refByTitle.get(value) !== null) ref = refByTitle.get(value)
-      if (ref === '') invalid.push(value)
-      else if (!resolved.includes(ref)) resolved.push(ref)
-    }
-    if (invalid.length > 0) throw new Error('世界书条目不在本轮标题目录中: ' + invalid.join(', '))
-    return resolved
-  }
-  const prepared = {
-    kind: 'agent',
-    context: '',
+  const selected = tavernOrder(all.filter(function (entry) {
+    return entry.constant !== true && !isCoolingDown(input.chat, entry, input.turn) && keywordMatch(entry, body)
+  })).slice(0, DYNAMIC_ENTRY_LIMIT)
+  return {
+    kind: 'keywords',
+    context: selected.map(function (entry) { return str(entry.content).trim() }).filter(Boolean).join('\n\n'),
+    refs: selected.map(function (entry) { return str(entry.ref) }),
     totalChars,
-    body,
-    constantCatalog: visibleConstantEntries.map(function (entry) { return { ref: str(entry.ref), title: str(entry.title).trim() || '未命名条目' } }),
-    triggeredCatalog: visibleTriggeredEntries.map(function (entry) {
-      return { ref: str(entry.ref), title: str(entry.title).trim() || '未命名条目' }
-    }),
-    resolveEntryRefs,
-    readEntries(refs) {
-      return resolveEntryRefs(refs).map(function (ref) {
-        const entry = entryByRef.get(ref)
-        return { ref, title: str(entry.title).trim() || '未命名条目', content: project(entry.content) }
-      })
-    },
-    recordReads(existing, refs, turn) {
-      const next = clone(existing !== null && typeof existing === 'object' && !Array.isArray(existing) ? existing : {})
-      for (const ref of refs) {
-        const entry = entryByRef.get(ref)
-        if (entry === undefined) continue
-        next[ref] = { turn: Number(turn) || 0, fingerprint: fingerprint(entry.content) }
-      }
-      return next
-    }
+    matchedCount: selected.length,
+    recordReads: readRecorder(selected, input.turn)
   }
-  prepared.taskText = taskText(prepared)
-  return prepared
-}
-
-export function createWorldBookRecall(options = {}) {
-  const store = options.store
-  const timeline = options.timeline
-  const tasks = options.tasks || createBackgroundTaskCoordinator({ store, timeline })
-  const model = options.model
-  const prompt = options.prompt
-  const now = typeof options.now === 'function' ? options.now : Date.now
-  const logger = options.logger || console
-  if (!store || !timeline || !model || typeof prompt !== 'function') throw new Error('缺少世界书召回依赖')
-
-  async function recall(input) {
-    let chat = input.chat
-    const prepared = prepareWorldBookRecall({
-      worldBook: input.worldBook,
-      card: input.card,
-      chat,
-      turn: input.turn,
-      latestBody: input.latestBody
-    })
-    if (prepared.kind !== 'agent') return { chat, context: prepared.context, mode: prepared.kind, totalChars: prepared.totalChars }
-
-    const taskRun = await tasks.begin(chat, 'worldbook')
-    chat = taskRun.chat
-    let traceSessionId = str(taskRun.participantRequest.sessionId)
-    let traceBoundary = null
-    let context = ''
-    let error = null
-    const readRefs = new Set()
-    try {
-      const selection = model.selection(input.sessionId)
-      if (selection === null || selection === undefined) throw new Error('没有可用的模型配置')
-      const run = await model.run({
-        sessionId: input.sessionId,
-        task: 'worldbook',
-        selection,
-        temperature: 0.2,
-        system: prompt('worldbook-recall'),
-        turnContext: '',
-        messages: [{
-          id: 'worldbook-' + now().toString(36),
-          role: 'user',
-          content: [{ type: 'text', text: prepared.taskText }],
-          source: { kind: 'plugin', plugin: 'dsh-tavern' }
-        }],
-        tools: [WORLD_BOOK_READ_TOOL],
-        maxToolCalls: 2,
-        async onToolCall(call) {
-          if (!call || call.name !== WORLD_BOOK_READ_TOOL.name) throw new Error('未知世界书召回工具')
-          const refs = call.arguments && call.arguments.entries
-          const resolved = prepared.resolveEntryRefs(refs)
-          const nextRefs = new Set(readRefs)
-          for (const ref of resolved) nextRefs.add(ref)
-          if (nextRefs.size > READ_ENTRY_LIMIT) throw new Error('本轮最多读取 ' + READ_ENTRY_LIMIT + ' 条世界书条目')
-          for (const ref of resolved) readRefs.add(ref)
-          return JSON.stringify({ entries: prepared.readEntries(resolved) })
-        },
-        persistent: true,
-        persistentSessionId: traceSessionId,
-        rewindTo: taskRun.participantRequest.rewindTo
-      })
-      traceSessionId = str(run.traceSessionId)
-      traceBoundary = Number.isSafeInteger(run.traceBoundary) ? run.traceBoundary : null
-      context = str(run.text).trim()
-      if (charCount(context) > CONTEXT_LIMIT) throw new Error('世界书召回结果超过 ' + CONTEXT_LIMIT + ' 字')
-    } catch (caught) {
-      error = caught
-      if (traceSessionId === '') traceSessionId = str(caught && caught.traceSessionId)
-      if (logger && typeof logger.error === 'function') logger.error('dsh-tavern: 世界书召回失败，已跳过:', str(caught && caught.message || caught))
-    }
-
-    const participant = taskRun.participant({ traceSessionId, traceBoundary })
-    const completed = await taskRun.commit({
-      stateChanged: false,
-      participant,
-      apply(draft) {
-        draft.worldBookError = error === null ? null : str(error && error.message || error)
-        draft.lastWorldBookRecall = {
-          ts: now(),
-          turn: Number(input.turn) || 0,
-          mode: 'agent',
-          totalChars: prepared.totalChars,
-          contextChars: charCount(context),
-          empty: context === '',
-          failed: error !== null
-        }
-        if (readRefs.size > 0) draft.worldBookReads = prepared.recordReads(draft.worldBookReads, readRefs, input.turn)
-      }
-    })
-    if (completed.status === 'missing') return { chat, context: '', mode: 'agent', totalChars: prepared.totalChars, error: '聊天不存在' }
-    if (completed.status !== 'committed') return { chat: completed.chat, context: '', mode: 'stale', totalChars: prepared.totalChars }
-    return {
-      chat: completed.chat,
-      context: error === null ? context : '',
-      mode: 'agent',
-      totalChars: prepared.totalChars,
-      error: error === null ? null : str(error && error.message || error)
-    }
-  }
-
-  return Object.freeze({ recall })
 }

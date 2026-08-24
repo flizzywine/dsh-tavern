@@ -175,17 +175,6 @@ export function createBackgroundTaskCoordinator(options = {}) {
     return Object.freeze(task)
   }
 
-  async function skip(chat, role) {
-    const chatId = str(chat && chat.id)
-    return await serialize(chatId, async function () {
-      const latest = await store.readChat(chatId)
-      const source = latest === undefined ? chat : latest
-      const next = timeline.apply({ chat: source, intent: { kind: 'agent.skip', role } })
-      await store.writeChat(next.chat)
-      return { chat: next.chat, status: next.value.status, activity: activity(next.chat) }
-    })
-  }
-
   async function recover(chat) {
     const chatId = str(chat && chat.id)
     return await serialize(chatId, async function () {
@@ -197,5 +186,5 @@ export function createBackgroundTaskCoordinator(options = {}) {
     })
   }
 
-  return Object.freeze({ activity, operation, begin, skip, recover })
+  return Object.freeze({ activity, operation, begin, recover })
 }

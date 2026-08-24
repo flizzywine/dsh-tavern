@@ -23,7 +23,7 @@ export function createForegroundHandoff(options = {}) {
     if (typeof turns.prepare !== 'function') throw new Error('Foreground Handoff 缺少 prepare adapter')
     const chat = await store.chatForSession(input.sessionId)
     const activity = chat === undefined ? { phase: 'idle', busy: false, role: '' } : tasks.activity(chat)
-    if (chat !== undefined && (activity.role === 'worldbook' || activity.role === 'settlement') && (activity.phase === 'pending' || activity.phase === 'running')) {
+    if (chat !== undefined && activity.role === 'settlement' && (activity.phase === 'pending' || activity.phase === 'running')) {
       await queueBackground(chat.id)
     }
     return await turns.prepare(input)

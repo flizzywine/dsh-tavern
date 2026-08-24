@@ -51,7 +51,8 @@ export function createContextPlanner(options = {}) {
   function cardSections(input, projectText) {
     const sections = []
     const projectedWorldBook = projectText(input.worldBookContext)
-    const worldBookSection = projectedWorldBook === '' ? null : { kind: 'world-book', required: false, text: '【本轮世界书上下文】\n' + projectedWorldBook }
+    const worldBookLabel = str(input.worldBookLabel) || '本轮世界书上下文'
+    const worldBookSection = projectedWorldBook === '' ? null : { kind: 'world-book', required: false, text: '【' + worldBookLabel + '】\n' + projectedWorldBook }
     const guides = Array.isArray(input.chat.guides) ? input.chat.guides.filter(function (item) { return item !== null && typeof item === 'object' && str(item.text).trim() !== '' }) : []
     const projectedGuides = guides.map(function (item) { return projectText(str(item.text).trim()) }).filter(Boolean)
     const guideSection = projectedGuides.length > 0 ? { kind: 'guide', required: true, text: '【用户指导 Guide · 优先遵循】\n' + projectedGuides.map(function (text, index) { return (index + 1) + '. ' + text }).join('\n') } : null
@@ -107,7 +108,8 @@ export function createContextPlanner(options = {}) {
       return resultOf(cardSections({
         card: input.card,
         chat: input.chat,
-        worldBookContext: '',
+        worldBookContext: input.worldBookContext,
+        worldBookLabel: input.worldBookLabel,
         includeName: true,
         includeDetails: true,
         includeStyleExample: true,

@@ -15,8 +15,8 @@ const browserModule = await loadPolicy()
 const describeTavernActivity = browserModule.describeTavernActivity
 
 test('Browser Activity 只描述候选项生成是否繁忙', function () {
-  assert.deepEqual(JSON.parse(JSON.stringify(describeTavernActivity({ phase: 'pending', busy: false, role: 'worldbook' }))), {
-    phase: 'pending', busy: false, role: 'worldbook', label: '生成候选项', blockReason: ''
+  assert.deepEqual(JSON.parse(JSON.stringify(describeTavernActivity({ phase: 'pending', busy: false, role: 'settlement' }))), {
+    phase: 'pending', busy: false, role: 'settlement', label: '生成候选项', blockReason: ''
   })
   assert.deepEqual(JSON.parse(JSON.stringify(describeTavernActivity({ phase: 'running', busy: true, role: 'settlement' }))), {
     phase: 'running', busy: true, role: 'settlement', label: '后台结算中…', blockReason: '后台结算中，请稍候…'

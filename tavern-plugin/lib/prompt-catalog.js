@@ -6,7 +6,6 @@ const NAMES = [
   'candidate-story',
   'candidate-script',
   'posture-settlement',
-  'worldbook-recall',
   'play-mode',
   'card-mode',
   'card-mode-greeting',
