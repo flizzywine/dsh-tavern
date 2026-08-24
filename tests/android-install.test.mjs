@@ -103,15 +103,21 @@ test('Android 安装脚本增量配置两个 Profile，失败不会伪装成成�
   assert.doesNotMatch(installer, /tavern-plugin\/lib\/client\.js/)
 })
 
-test('Android setup 是唯一公开入口，自动完成首次克隆或安全更新', () => {
+test('Android setup 是唯一公开入口，优先 Git 并提供压缩包回退', () => {
   assert.match(setup, /^#!\/usr\/bin\/env bash\nset -euo pipefail/m)
   assert.match(setup, /DSH_TAVERN_ANDROID_APP_DIR/)
   assert.match(setup, /https:\/\/github\.com\/flizzywine\/dsh-tavern\.git/)
   assert.match(setup, /git clone/)
   assert.match(setup, /git -C "\$\{APP_DIR\}" fetch origin main/)
   assert.match(setup, /git -C "\$\{APP_DIR\}" merge --ff-only origin\/main/)
+  assert.match(setup, /https:\/\/codeload\.github\.com\/flizzywine\/dsh-tavern\/tar\.gz\/refs\/heads\/main/)
+  assert.match(setup, /curl -fL/)
+  assert.match(setup, /tar -xzf/)
+  assert.match(setup, /\.dsh-tavern-tarball-source/)
+  assert.match(setup, /rollback_source/)
   assert.match(setup, /android\/install\.sh/)
   assert.doesNotMatch(setup, /reset --hard|git clean|git checkout/)
+  assert.doesNotMatch(setup, /rm -rf/)
 })
 
 test('Android setup 通过同一命令完成首次安装和后续更新', async (t) => {
@@ -120,6 +126,9 @@ test('Android setup 通过同一命令完成首次安装和后续更新', async 
   const source = path.join(directory, 'source')
   const dshHome = path.join(directory, 'dsh-home')
   await mkdir(path.join(source, 'android'), { recursive: true })
+  await mkdir(path.join(source, 'bin'), { recursive: true })
+  await writeFile(path.join(source, 'package.json'), JSON.stringify({ name: 'dsh-profile-tavern' }), 'utf8')
+  await writeFile(path.join(source, 'bin', 'dsh-tavern.mjs'), '', 'utf8')
   await writeFile(path.join(source, 'android', 'install.sh'), '#!/usr/bin/env bash\nset -euo pipefail\nprintf "installed\\n" >> "${DSH_HOME}/setup-runs"\n', 'utf8')
   for (const args of [
     ['init', '-b', 'main'],
@@ -152,6 +161,103 @@ test('Android setup 通过同一命令完成首次安装和后续更新', async 
   assert.notEqual(protectedUpdate.status, 0)
   assert.match(protectedUpdate.stderr, /存在未提交修改/)
   assert.equal(await readFile(path.join(dshHome, 'apps', 'dsh-tavern', 'version.txt'), 'utf8'), 'user change\n')
+})
+
+test('Git 下载失败时通过 tarball 安装更新，保留旧数据并在安装失败时回滚', async (t) => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'dsh-android-tarball-'))
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  const dshHome = path.join(directory, 'dsh-home')
+  const archive = path.join(directory, 'dsh-tavern.tar.gz')
+  const sourceParent = path.join(directory, 'archive-source')
+  const source = path.join(sourceParent, 'dsh-tavern-main')
+
+  async function writeArchive(version, installExit = 0) {
+    await rm(sourceParent, { recursive: true, force: true })
+    await mkdir(path.join(source, 'android'), { recursive: true })
+    await mkdir(path.join(source, 'bin'), { recursive: true })
+    await writeFile(path.join(source, 'package.json'), JSON.stringify({ name: 'dsh-profile-tavern', version }), 'utf8')
+    await writeFile(path.join(source, 'version.txt'), version + '\n', 'utf8')
+    await writeFile(path.join(source, 'bin', 'dsh-tavern.mjs'), '', 'utf8')
+    await writeFile(path.join(source, 'android', 'install.sh'), `#!/usr/bin/env bash\nprintf "${version}\\n" >> "\${DSH_HOME}/setup-runs"\nexit ${installExit}\n`, 'utf8')
+    if (version === 'v1') await writeFile(path.join(source, 'removed-in-v2.txt'), 'old\n', 'utf8')
+    const packed = spawnSync('tar', ['-czf', archive, '-C', sourceParent, 'dsh-tavern-main'], { encoding: 'utf8' })
+    assert.equal(packed.status, 0, packed.stderr)
+  }
+
+  const environment = {
+    ...process.env,
+    DSH_HOME: dshHome,
+    DSH_TAVERN_REPOSITORY: path.join(directory, 'missing-git-repository'),
+    DSH_TAVERN_TARBALL_URL: `file://${archive}`,
+  }
+  const setupPath = new URL('../android/setup.sh', import.meta.url).pathname
+  const appDir = path.join(dshHome, 'apps', 'dsh-tavern')
+
+  await writeArchive('v1')
+  const first = spawnSync('bash', [setupPath], { env: environment, encoding: 'utf8' })
+  assert.equal(first.status, 0, first.stderr)
+  assert.match(first.stdout, /改用 GitHub 压缩包/)
+  assert.equal(await readFile(path.join(appDir, 'version.txt'), 'utf8'), 'v1\n')
+  await mkdir(path.join(appDir, 'data'), { recursive: true })
+  await writeFile(path.join(appDir, 'data', 'legacy.txt'), '用户数据\n', 'utf8')
+
+  await writeArchive('v2')
+  const second = spawnSync('bash', [setupPath], { env: environment, encoding: 'utf8' })
+  assert.equal(second.status, 0, second.stderr)
+  assert.equal(await readFile(path.join(appDir, 'version.txt'), 'utf8'), 'v2\n')
+  assert.equal(await readFile(path.join(appDir, 'data', 'legacy.txt'), 'utf8'), '用户数据\n')
+  await assert.rejects(access(path.join(appDir, 'removed-in-v2.txt')))
+
+  await writeArchive('broken', 7)
+  const failed = spawnSync('bash', [setupPath], { env: environment, encoding: 'utf8' })
+  assert.notEqual(failed.status, 0)
+  assert.match(failed.stderr, /源码已恢复到更新前版本/)
+  assert.equal(await readFile(path.join(appDir, 'version.txt'), 'utf8'), 'v2\n')
+  assert.equal(await readFile(path.join(appDir, 'data', 'legacy.txt'), 'utf8'), '用户数据\n')
+})
+
+test('Git 仓库 fetch 失败时切换为 tarball 更新', async (t) => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'dsh-android-fetch-fallback-'))
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  const source = path.join(directory, 'git-source')
+  const dshHome = path.join(directory, 'dsh-home')
+  const archiveParent = path.join(directory, 'archive-source')
+  const archiveSource = path.join(archiveParent, 'dsh-tavern-main')
+  const archive = path.join(directory, 'dsh-tavern.tar.gz')
+  const setupPath = new URL('../android/setup.sh', import.meta.url).pathname
+  const appDir = path.join(dshHome, 'apps', 'dsh-tavern')
+
+  for (const root of [source, archiveSource]) {
+    await mkdir(path.join(root, 'android'), { recursive: true })
+    await mkdir(path.join(root, 'bin'), { recursive: true })
+    await writeFile(path.join(root, 'package.json'), JSON.stringify({ name: 'dsh-profile-tavern' }), 'utf8')
+    await writeFile(path.join(root, 'bin', 'dsh-tavern.mjs'), '', 'utf8')
+    await writeFile(path.join(root, 'android', 'install.sh'), '#!/usr/bin/env bash\nprintf "installed\\n" >> "${DSH_HOME}/setup-runs"\n', 'utf8')
+  }
+  await writeFile(path.join(source, 'version.txt'), 'git-v1\n', 'utf8')
+  await writeFile(path.join(archiveSource, 'version.txt'), 'tarball-v2\n', 'utf8')
+  for (const args of [['init', '-b', 'main'], ['config', 'user.email', 'test@example.com'], ['config', 'user.name', 'Test'], ['add', '.'], ['commit', '-m', 'initial']]) {
+    const result = spawnSync('git', args, { cwd: source, encoding: 'utf8' })
+    assert.equal(result.status, 0, result.stderr)
+  }
+  const packed = spawnSync('tar', ['-czf', archive, '-C', archiveParent, 'dsh-tavern-main'], { encoding: 'utf8' })
+  assert.equal(packed.status, 0, packed.stderr)
+
+  const baseEnvironment = { ...process.env, DSH_HOME: dshHome, DSH_TAVERN_REPOSITORY: source, DSH_TAVERN_TARBALL_URL: `file://${archive}` }
+  const first = spawnSync('bash', [setupPath], { env: baseEnvironment, encoding: 'utf8' })
+  assert.equal(first.status, 0, first.stderr)
+  assert.equal(await readFile(path.join(appDir, 'version.txt'), 'utf8'), 'git-v1\n')
+
+  const mockBin = path.join(directory, 'mock-bin')
+  const realGit = spawnSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).stdout.trim()
+  await mkdir(mockBin, { recursive: true })
+  await writeFile(path.join(mockBin, 'git'), `#!/usr/bin/env bash\nif [ "\$1" = "-C" ] && [ "\$3" = "fetch" ]; then exit 1; fi\nexec "${realGit}" "\$@"\n`, { encoding: 'utf8', mode: 0o755 })
+  const second = spawnSync('bash', [setupPath], { env: { ...baseEnvironment, PATH: `${mockBin}${path.delimiter}${process.env.PATH}` }, encoding: 'utf8' })
+  assert.equal(second.status, 0, second.stderr)
+  assert.match(second.stdout, /改用 GitHub 压缩包/)
+  assert.equal(await readFile(path.join(appDir, 'version.txt'), 'utf8'), 'tarball-v2\n')
+  await access(path.join(appDir, '.dsh-tavern-tarball-source'))
+  await assert.rejects(access(path.join(appDir, '.git')))
 })
 
 test('Android 更新复用 setup，不维护第二套安装逻辑', () => {
