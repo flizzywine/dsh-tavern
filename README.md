@@ -66,6 +66,10 @@ dsh-tavern 改用 Agent 架构。前台主 Agent 专注正文生成，后台 Age
 
 dsh-tavern 支持 Windows、macOS、Linux 和 Android。Windows 与 macOS 可使用 DSH Desktop 客户端，也可以通过命令行运行；Linux 使用命令行运行；Android 可借助 [DSHA](https://github.com/qiannianhuanxiang/DSHA) 实验性部署，目前不保证稳定可用。
 
+#### 自由安装插件
+
+Tavern Profile 保持开放。你可以自行编写、安装和组合 DSH 插件；更新 dsh-tavern 时，用户添加的插件与配置会被保留，不会被安装程序整体覆盖。
+
 #### 速度快、消耗低
 
 dsh-tavern 只在需要时注入必要上下文，并把不同任务拆成短而明确的调用，减少无效的 Token 消耗和等待时间。
