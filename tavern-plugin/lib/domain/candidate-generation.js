@@ -95,7 +95,7 @@ function choiceType(value) {
   return null
 }
 
-function validatedChoices(source, scriptMode) {
+function validatedChoices(source, scriptMode, logger) {
   const choices = []
   for (const item of Array.isArray(source) ? source : []) {
     if (item === null || typeof item !== 'object') continue
@@ -105,13 +105,21 @@ function validatedChoices(source, scriptMode) {
     choices.push({ type, text })
   }
   if (scriptMode) {
-    if (choices.length !== 1) throw new Error('模型没有返回恰好 1 个有效候选项')
-    return choices
+    if (choices.length === 0) throw new Error('模型没有返回至少 1 个有效候选项')
+    if (choices.length > 1 && logger && typeof logger.warn === 'function') {
+      logger.warn(`dsh-tavern: 模型候选项返回 ${choices.length} 个剧本候选，已裁剪为 1 个。`)
+    }
+    return choices.slice(0, 1)
   }
-  if (choices.length !== 5 || choices.filter(function (choice) { return choice.type === 'action' }).length !== 4 || choices.filter(function (choice) { return choice.type === 'scene' }).length !== 1) {
-    throw new Error('模型没有返回恰好 4 个行动候选和 1 个场景候选')
+  const actions = choices.filter(function (choice) { return choice.type === 'action' })
+  const scenes = choices.filter(function (choice) { return choice.type === 'scene' })
+  if (actions.length < 4 || scenes.length < 1) {
+    throw new Error('模型没有返回至少 4 个行动候选和 1 个场景候选')
   }
-  return choices
+  if ((actions.length > 4 || scenes.length > 1) && logger && typeof logger.warn === 'function') {
+    logger.warn(`dsh-tavern: 模型候选项返回 ${actions.length} 个行动候选和 ${scenes.length} 个场景候选，已裁剪为 4 + 1。`)
+  }
+  return actions.slice(0, 4).concat(scenes.slice(0, 1))
 }
 
 function buildMessages(chat, selection, now, limit = 6) {
@@ -330,7 +338,7 @@ export function createCandidateGenerator(options) {
       const participant = taskRun.participant(run)
       let choices
       try {
-        choices = validatedChoices(parsedDecision(text).choices, scriptMode)
+        choices = validatedChoices(parsedDecision(text).choices, scriptMode, logger)
       } catch (error) {
         if (logger && typeof logger.error === 'function') {
           logger.error('dsh-tavern: 候选项输出无效:', str(error && error.message || error))

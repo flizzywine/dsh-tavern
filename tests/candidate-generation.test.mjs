@@ -72,6 +72,7 @@ function harness({ mode = 'story', outputs, initialCandidates, initialCandidateA
     async runCandidate(options) { return await nextOutput(options) }
   }
   const plannerCalls = []
+  const warnings = []
   const planner = {
     async plan(input) {
       plannerCalls.push(input)
@@ -82,10 +83,10 @@ function harness({ mode = 'story', outputs, initialCandidates, initialCandidateA
     store, model, planner, prompt, scripts: continuity,
     timeline: createStoryTimeline({ id: (prefix) => prefix + '-' + Math.random().toString(36).slice(2), now: () => 123456 }),
     waitUntilSettled: waitUntilSettled || (async () => {}), sleep: async () => {}, now: () => 123456,
-    logger: { error() {} }
+    logger: { error() {}, warn(message) { warnings.push(String(message)) } }
   })
   return {
-    candidates, continuity, plannerCalls, modelRequests, modelCalls: () => modelCalls,
+    candidates, continuity, plannerCalls, modelRequests, warnings, modelCalls: () => modelCalls,
     chat: () => structuredClone(chat),
     setMessages(next) {
       chat.messages = structuredClone(next)
@@ -186,13 +187,70 @@ test('自由故事只保存完整的 4 action + 1 scene', async () => {
   assert.equal(await run.candidates.find({ sessionId: 'session-1', messageId: 'old-message' }), null)
 })
 
+test('自由故事过滤无效项后按类型顺序裁剪超额候选', async () => {
+  const output = [
+    { type: 'scene', text: '第一个场景' },
+    { type: 'action', text: '行动一' },
+    { type: 'action', text: '行动一' },
+    { type: 'action', text: '行动二' },
+    { type: 'scene', text: '第二个场景' },
+    { type: 'action', text: '行动三' },
+    { type: 'action', text: '行动四' },
+    { type: 'action', text: '行动五' },
+    { type: 'action', text: '   ' },
+    { type: 'unknown', text: '无效类型' },
+  ]
+  const run = harness({ outputs: [JSON.stringify({ choices: output })] })
+
+  const result = await run.candidates.generate({ sessionId: 'session-1', messageId: 'message-extra' })
+
+  assert.deepEqual(result.choices, [
+    { type: 'action', text: '行动一' },
+    { type: 'action', text: '行动二' },
+    { type: 'action', text: '行动三' },
+    { type: 'action', text: '行动四' },
+    { type: 'scene', text: '第一个场景' },
+  ])
+  assert.equal(run.modelCalls(), 1)
+  assert.match(run.warnings.join('\n'), /候选项.*裁剪/)
+})
+
+test('剧本模式存在多个有效候选时只保留第一个', async () => {
+  const run = harness({
+    mode: 'script',
+    outputs: [JSON.stringify({ choices: [
+      { type: 'action', text: '沿着剧本继续调查' },
+      { type: 'scene', text: '提前切换到下一幕' },
+    ] })],
+  })
+
+  const result = await run.candidates.generate({ sessionId: 'session-1', messageId: 'script-extra' })
+
+  assert.deepEqual(result.choices, [{ type: 'action', text: '沿着剧本继续调查' }])
+  assert.equal(run.modelCalls(), 1)
+  assert.match(run.warnings.join('\n'), /候选项.*裁剪/)
+})
+
 test('候选输出无效时不自动创建第二个 Agent', async () => {
   const invalid = JSON.stringify({ choices: storyChoices.slice(0, 4) })
   const valid = JSON.stringify({ choices: storyChoices })
   const run = harness({ outputs: [invalid, valid] })
 
-  await assert.rejects(() => run.candidates.generate({ sessionId: 'session-1', messageId: 'message-no-retry' }), /恰好 4 个行动候选/)
+  await assert.rejects(() => run.candidates.generate({ sessionId: 'session-1', messageId: 'message-no-retry' }), /至少 4 个行动候选/)
   assert.equal(run.modelCalls(), 1)
+})
+
+test('自由故事候选总数超额但缺少必需类型时仍然失败', async () => {
+  const onlyActions = storyChoices.slice(0, 4).concat([{ type: 'action', text: '第五个行动' }])
+  const tooFewActions = storyChoices.slice(0, 3).concat([
+    { type: 'scene', text: '第一个场景' },
+    { type: 'scene', text: '第二个场景' },
+  ])
+  const noSceneRun = harness({ outputs: [JSON.stringify({ choices: onlyActions })] })
+  const tooFewActionsRun = harness({ outputs: [JSON.stringify({ choices: tooFewActions })] })
+
+  await assert.rejects(() => noSceneRun.candidates.generate({ sessionId: 'session-1', messageId: 'no-scene' }), /至少 4 个行动候选和 1 个场景候选/)
+  await assert.rejects(() => tooFewActionsRun.candidates.generate({ sessionId: 'session-1', messageId: 'too-few-actions' }), /至少 4 个行动候选和 1 个场景候选/)
 })
 
 test('候选生成期间时间线变化，迟到候选与 point 都不会落盘', async () => {
