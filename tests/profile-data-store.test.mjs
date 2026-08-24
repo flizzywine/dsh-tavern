@@ -26,6 +26,24 @@ test('Profile 数据存储可在工作区外原子读写并删除 JSON', async (
   }
 })
 
+test('Profile 数据存储用文件版本判断内容是否需要重新读取', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-profile-data-'))
+  try {
+    const store = createProfileDataStore({ dataRoot: root })
+    assert.equal(await store.version('chats/chat-1.json'), '')
+
+    await store.writeJson('chats/chat-1.json', { id: 'chat-1', turns: [] })
+    const first = await store.version('chats/chat-1.json')
+    assert.notEqual(first, '')
+    assert.equal(await store.version('chats/chat-1.json'), first)
+
+    await store.writeJson('chats/chat-1.json', { id: 'chat-1', turns: ['updated'] })
+    assert.notEqual(await store.version('chats/chat-1.json'), first)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test('Profile 数据存储拒绝绝对路径和目录逃逸', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-profile-data-'))
   try {

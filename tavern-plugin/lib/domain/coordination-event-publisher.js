@@ -30,12 +30,20 @@ export function createCoordinationEventPublisher(options = {}) {
     let stopped = false
     let loading = false
     let lastId = ''
+    let hasVersion = false
+    let lastVersion
     async function poll() {
       if (stopped || loading) return
       loading = true
       try {
+        const version = typeof options.readVersion === 'function' ? await options.readVersion(str(sessionId)) : undefined
+        if (hasVersion && Object.is(version, lastVersion)) return
         const snapshot = await options.load(str(sessionId))
         if (stopped || snapshot === null || snapshot === undefined) return
+        if (typeof options.readVersion === 'function') {
+          lastVersion = version
+          hasVersion = true
+        }
         const eventId = coordinationEventId(snapshot)
         if (eventId === lastId) return
         lastId = eventId

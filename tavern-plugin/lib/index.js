@@ -1939,7 +1939,17 @@ export async function apply(ctx) {
     }
   }
 
+  async function coordinationVersion(sessionId) {
+    const normalizedSessionId = str(sessionId)
+    const links = await readSessionMap()
+    const chatId = str(links && links[normalizedSessionId])
+    const liveSession = Boolean(agentRegistry.get(normalizedSessionId) && agentRegistry.get(normalizedSessionId).session)
+    const chatVersion = chatId === '' ? '' : await profileData.version('chats/' + chatId + '.json')
+    return [runtimeGeneration, liveSession ? '1' : '0', chatId, chatVersion].join(':')
+  }
+
   const coordinationEvents = createCoordinationEventPublisher({
+    readVersion: async function (sessionId) { return await coordinationVersion(sessionId) },
     load: async function (sessionId) { return await sessionSync(sessionId, { kind: 'candidate' }) },
     pollIntervalMs: 250,
     onError(error) { console.warn('dsh-tavern: 协调文件读取失败，将继续重试:', str(error && error.message || error)) }

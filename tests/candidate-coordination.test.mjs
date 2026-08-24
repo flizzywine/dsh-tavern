@@ -46,8 +46,10 @@ test('Session、世界书、结算与候选使用同一持久同步快照', func
   assert.match(clientSync, /tasks\.candidate/)
 })
 
-test('服务器轮询持久文件并通过 SSE 发送完整快照', function () {
+test('服务器先检查轻量文件版本，再通过 SSE 发送变化后的完整快照', function () {
   assert.match(serverSource, /createCoordinationEventPublisher/)
+  assert.match(serverSource, /readVersion: async function/)
+  assert.match(serverSource, /profileData\.version\('chats\/'/)
   assert.match(serverSource, /pollIntervalMs: 250/)
   assert.match(serverSource, /'Content-Type': 'text\/event-stream; charset=utf-8'/)
   assert.match(serverSource, /coordinationEvents\.subscribe\(sessionId/)

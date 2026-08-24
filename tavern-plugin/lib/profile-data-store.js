@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 
 const TRANSIENT_RENAME_ERRORS = new Set(['EACCES', 'EBUSY', 'EPERM'])
@@ -67,6 +67,17 @@ export function createProfileDataStore(options) {
   }
 
   return {
+    async version(relativePath) {
+      const target = resolveSafePath(dataRoot, relativePath)
+      try {
+        const info = await stat(target, { bigint: true })
+        return [info.dev, info.ino, info.size, info.mtimeNs].join(':')
+      } catch (error) {
+        if (error?.code === 'ENOENT') return ''
+        throw error
+      }
+    },
+
     async readJson(relativePath) {
       const target = resolveSafePath(dataRoot, relativePath)
       return readTarget(target)
