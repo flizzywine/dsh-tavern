@@ -11,6 +11,7 @@ import { READABLE_CARD_FIELDS, readCardField } from './domain/card-reading.js'
 import { createContextPlanner } from './domain/context-planner.js'
 import { extractEpubText } from './domain/epub-text.js'
 import { createFileResourceStore, normalizeResourcePath, resourceKind } from './domain/file-resources.js'
+import { createForegroundHandoff } from './domain/foreground-handoff.js'
 import { inspectPreset } from './domain/preset-reading.js'
 import { createRuntimePresetModule } from './domain/runtime-presets.js'
 import {
@@ -33,7 +34,6 @@ import { createWorldBookLibrary } from './domain/worldbook-library.js'
 import { createWorldBookRecall } from './domain/worldbook-recall.js'
 import {
   createBackgroundTaskCoordinator,
-  createSettlementAfterTurnEndScheduler,
   isOpeningAwaitingSettlement
 } from './domain/background-task-coordinator.js'
 import { createProfileDataStore } from './profile-data-store.js'
@@ -843,16 +843,6 @@ export async function apply(ctx) {
     if (chat === undefined) return null
     const isCard = (chat.mode || 'story') === 'card'
     const card = isCard && str(chat.cardPath) === '' ? null : await readChatCard(chat)
-    const hasStory = Array.isArray(chat.messages) && chat.messages.some(function (message) {
-      return message !== null && typeof message === 'object' && message.greeting !== true
-    })
-    const hasState = str(chat.posture) !== ''
-    if ((chat.mode || 'story') === 'story' && hasStory && !hasState && (chat.settleStatus || 'idle') === 'idle' && !settlementJobs.has(chat.id)) {
-      chat.settleStatus = 'running'
-      chat.settleError = null
-      await writeChat(chat)
-      void queueSettlement(chat.id)
-    }
     const result = await view(chat, card)
     if (isCard) result.workspace = workspaceViewOf(chat)
     if ((chat.mode || 'story') === 'script') result.scriptPreview = await scriptPreviewOf(chat)
@@ -1113,14 +1103,19 @@ export async function apply(ctx) {
       latest.lastWorldBookRecall = Object.assign({}, latest.preparedWorldBook)
     }
     await writeChat(latest)
-    return latest
+    if (mode === 'agent') return latest
+    const skipped = await backgroundTasks.skip(latest, 'worldbook')
+    return skipped.chat
   }
   async function runSettlement(chatId) {
     while (true) {
       let snapshot = await readChat(chatId)
       if (snapshot === undefined) return
-      snapshot = await prepareNextWorldBookContext(snapshot)
-      if (snapshot === null) return
+      const pending = backgroundTasks.activity(snapshot)
+      if (pending.phase !== 'pending' || pending.role === 'worldbook') {
+        snapshot = await prepareNextWorldBookContext(snapshot)
+        if (snapshot === null) return
+      }
       const taskRun = await backgroundTasks.begin(snapshot, 'settlement')
       snapshot = taskRun.chat
       let backgroundSessionId = str(taskRun.participantRequest.sessionId)
@@ -1180,7 +1175,7 @@ export async function apply(ctx) {
         })
         if (completed.status === 'missing') return
         if (completed.status === 'stale') {
-          if ((completed.chat.settleStatus || 'idle') === 'running') continue
+          if (backgroundTasks.activity(completed.chat).busy) continue
           return
         }
         console.log('dsh-tavern: 结算完成', chatId, '姿势', stat.postureUpdated ? '已更新' : '未更新')
@@ -1188,15 +1183,12 @@ export async function apply(ctx) {
         return
       } catch (err) {
         const failed = await taskRun.commit({
+          status: 'failed',
           stateChanged: false,
-          participant: taskRun.participant({ sessionId: backgroundSessionId, boundary: backgroundBoundary }),
-          apply(draft) {
-            draft.settleStatus = 'error'
-            draft.settleError = str(err && err.message || err)
-          }
+          participant: taskRun.participant({ sessionId: backgroundSessionId, boundary: backgroundBoundary })
         })
         if (failed.status === 'missing') return
-        if (failed.status === 'stale' && (failed.chat.settleStatus || 'idle') === 'running') continue
+        if (failed.status === 'stale' && backgroundTasks.activity(failed.chat).busy) continue
         console.error('dsh-tavern: 结算失败', chatId, str(err && err.message || err))
         return
       }
@@ -1209,11 +1201,6 @@ export async function apply(ctx) {
     settlementJobs.set(chatId, job)
     return job
   }
-  const scheduleSettlementAfterTurnEnd = createSettlementAfterTurnEndScheduler({
-    readChatForSession: chatForSession,
-    queueSettlement,
-    logger: console
-  })
   // ---------- 卡片工作台：挂载资料与新卡创建 ----------
   async function sourceWindowOf(chat) {
     const out = []
@@ -1296,8 +1283,17 @@ export async function apply(ctx) {
     now: Date.now,
     shellToolName: process.platform === 'win32' ? 'pwsh' : 'bash'
   })
+  const foregroundHandoff = createForegroundHandoff({
+    turns: turnOrchestrator,
+    store: { chatForSession, readChat },
+    tasks: backgroundTasks,
+    queueBackground: queueSettlement,
+    logger: console
+  })
 
   await fileResources.migrateLegacy(await readIndex(), readJson, writeIndex, readChat, writeChat)
+  const recoveredIndex = await readIndex()
+  await foregroundHandoff.recover((recoveredIndex.chats || []).map(function (row) { return row.id }))
   const startupPresetState = await runtimePresets.state()
   if (str(startupPresetState.activePreset) !== '') {
     void reprojectBackgroundHistories(startupPresetState.activePreset).catch(function (error) {
@@ -1887,7 +1883,7 @@ export async function apply(ctx) {
     const userText = userTextForTurn(session, payload.turn)
     if (userText === '') return
     const assistant = assistantResultForTurn(session, payload.turn)
-    const saved = await turnOrchestrator.finalize({
+    const saved = await foregroundHandoff.finalize({
       sessionId,
       turn: payload.turn,
       userText,
@@ -1900,11 +1896,7 @@ export async function apply(ctx) {
     if (!event || event.type !== 'turn/end') return
     if (backgroundAgentRunner.owns(session.id)) return
     const reason = event.data && event.data.reason ? event.data.reason.kind : ''
-    if (reason === 'completed' || reason === 'max-tokens') {
-      scheduleSettlementAfterTurnEnd({ sessionId: session.id, reason })
-      return
-    }
-    void turnOrchestrator.discard({ sessionId: session.id, turn: event.data && event.data.turn })
+    foregroundHandoff.end({ sessionId: session.id, turn: event.data && event.data.turn, reason })
   })
 
   const controlledToolNames = new Set(['bash', 'pwsh', 'str_replace_editor', 'skill', 'tavern_save_skill', 'tavern_read_card', 'tavern_read_card_raw', 'tavern_read_script', 'tavern_read_worldbook', 'tavern_update_card', 'tavern_restore_card'])

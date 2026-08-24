@@ -141,6 +141,23 @@ export function createStoryTimeline(options = {}) {
     }
   }
 
+  function backgroundBody(chat) {
+    return Object.values(chat.timeline.operations).filter(function (operation) {
+      if (operation.kind !== 'body' || operation.status !== 'completed') return false
+      if (str(object(operation.background).phase) === '') return false
+      return str(operation.committedBranchId || operation.basedOn && operation.basedOn.branchId) === chat.timeline.branchId
+    }).sort(function (left, right) {
+      return (Number(right.completedAt) || 0) - (Number(left.completedAt) || 0)
+    })[0]
+  }
+
+  function updateBackground(chat, phase, role) {
+    const operation = backgroundBody(chat)
+    if (operation === undefined) return null
+    operation.background = { phase, role, updatedAt: now() }
+    return operation
+  }
+
   function beginBody(chat, intent) {
     const turn = Math.max(0, Number(intent.turn) || 0)
     const userText = str(intent.userText).trim()
@@ -212,8 +229,37 @@ export function createStoryTimeline(options = {}) {
       basedOn: basedOn(chat), createdAt: now()
     }
     chat.timeline.operations[operation.id] = operation
+    if (role === 'worldbook' || role === 'settlement') updateBackground(chat, 'running', role)
     trimOperations(chat.timeline)
     return operationValue(operation, participantRequest(chat, role))
+  }
+
+  function skipAgent(chat, intent) {
+    const role = str(intent.role).trim()
+    const background = backgroundBody(chat)
+    if (background === undefined) return { status: 'ignored', role }
+    const current = object(background.background)
+    if (current.phase !== 'pending' || current.role !== role) return { status: 'ignored', role: current.role }
+    if (role === 'worldbook') updateBackground(chat, 'pending', 'settlement')
+    else updateBackground(chat, 'completed', role)
+    return { status: 'applied', role }
+  }
+
+  function recoverBackground(chat) {
+    let interruptedRole = ''
+    let changed = false
+    for (const operation of Object.values(chat.timeline.operations)) {
+      if (operation.kind !== 'agent' || operation.status !== 'running') continue
+      operation.status = 'interrupted'
+      operation.completedAt = now()
+      changed = true
+      if (operation.role === 'worldbook' || operation.role === 'settlement') interruptedRole = operation.role
+    }
+    const background = backgroundBody(chat)
+    if (background !== undefined && interruptedRole !== '') {
+      background.background = { phase: 'pending', role: interruptedRole, updatedAt: now() }
+    }
+    return { status: changed ? 'recovered' : 'unchanged', role: interruptedRole }
   }
 
   function rollback(chat, intent) {
@@ -276,6 +322,8 @@ export function createStoryTimeline(options = {}) {
     if (intent.kind === 'ensure') value = { status: 'applied', branchId: chat.timeline.branchId, revision: chat.timeline.revision }
     else if (intent.kind === 'body.begin') value = beginBody(chat, intent)
     else if (intent.kind === 'agent.begin') value = beginAgent(chat, intent)
+    else if (intent.kind === 'agent.skip') value = skipAgent(chat, intent)
+    else if (intent.kind === 'background.recover') value = recoverBackground(chat)
     else if (intent.kind === 'turn.rollback') value = rollback(chat, intent)
     else if (intent.kind === 'replacement.abort') {
       const currentRevision = chat.timeline.revision
@@ -318,6 +366,9 @@ export function createStoryTimeline(options = {}) {
     if (outcome.status !== 'success') {
       operation.status = 'failed'
       operation.completedAt = now()
+      if (operation.kind === 'agent' && (operation.role === 'worldbook' || operation.role === 'settlement')) {
+        updateBackground(chat, 'failed', operation.role)
+      }
       return { chat, value: { status: 'failed', branchId: chat.timeline.branchId, revision: chat.timeline.revision } }
     }
     if (typeof input.apply === 'function') input.apply(chat)
@@ -332,6 +383,8 @@ export function createStoryTimeline(options = {}) {
       chat.timeline.checkpoints = chat.timeline.checkpoints.slice(-40)
       chat.candidates = null
       chat.timeline.revision++
+      operation.committedBranchId = chat.timeline.branchId
+      operation.background = { phase: 'pending', role: 'worldbook', updatedAt: now() }
     } else if (outcome.stateChanged === true) {
       chat.timeline.revision++
     }
@@ -362,6 +415,8 @@ export function createStoryTimeline(options = {}) {
     operation.status = 'completed'
     operation.completedAt = now()
     operation.committedRevision = chat.timeline.revision
+    if (operation.kind === 'agent' && operation.role === 'worldbook') updateBackground(chat, 'pending', 'settlement')
+    if (operation.kind === 'agent' && operation.role === 'settlement') updateBackground(chat, 'completed', 'settlement')
     chat.timeline.updatedAt = now()
     return { chat, value: { status: 'committed', branchId: chat.timeline.branchId, revision: chat.timeline.revision } }
   }

@@ -339,8 +339,6 @@ export function createTurnOrchestrator(options) {
           }
         }
         draft.presentationWarnings = Array.isArray(reply.warnings) ? clone(reply.warnings) : []
-        draft.settleStatus = 'running'
-        draft.settleError = null
         rememberCommit(draft, turn, { mode, userText, scriptReference }, before, now)
       }
     })

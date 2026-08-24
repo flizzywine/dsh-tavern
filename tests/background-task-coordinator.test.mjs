@@ -4,9 +4,7 @@ import { createStoryTimeline } from '../tavern-plugin/lib/domain/story-timeline.
 
 import {
   createBackgroundTaskCoordinator,
-  createSettlementAfterTurnEndScheduler,
-  isOpeningAwaitingSettlement,
-  shouldStartSettlementAfterTurnEnd
+  isOpeningAwaitingSettlement
 } from '../tavern-plugin/lib/domain/background-task-coordinator.js'
 
 function coordinatorHarness() {
@@ -79,6 +77,80 @@ test('同一 Tavern Chat 的后台 operation 严格串行，不会用新任务�
   assert.equal(operations[0].role, 'worldbook')
 })
 
+test('Foreground Turn 提交后形成持久 Background Cycle，并依次开放世界书与状态结算', async () => {
+  const harness = coordinatorHarness()
+  const begunBody = harness.timeline.apply({ chat: harness.current(), intent: { kind: 'body.begin', turn: 1, userText: '向前走' } })
+  const completedBody = harness.timeline.complete({
+    chat: begunBody.chat,
+    operationId: begunBody.value.operationId,
+    basedOn: begunBody.value.basedOn,
+    outcome: { status: 'success' }
+  })
+  Object.assign(harness.current(), completedBody.chat)
+
+  assert.equal(harness.coordinator.activity(harness.current()).phase, 'pending')
+  assert.equal(harness.coordinator.activity(harness.current()).role, 'worldbook')
+
+  const worldbook = await harness.coordinator.begin(harness.current(), 'worldbook')
+  const afterWorldbook = await worldbook.commit({ stateChanged: false })
+  assert.equal(harness.coordinator.activity(afterWorldbook.chat).phase, 'pending')
+  assert.equal(harness.coordinator.activity(afterWorldbook.chat).role, 'settlement')
+
+  await assert.rejects(harness.coordinator.begin(afterWorldbook.chat, 'candidate'), function (error) {
+    return error && error.code === 'BACKGROUND_BUSY'
+  })
+
+  const settlement = await harness.coordinator.begin(afterWorldbook.chat, 'settlement')
+  const afterSettlement = await settlement.commit({ stateChanged: true })
+  assert.equal(harness.coordinator.activity(afterSettlement.chat).phase, 'idle')
+  assert.equal(harness.coordinator.activity(afterSettlement.chat).busy, false)
+})
+
+test('进程重启把遗留 running operation 恢复为同一 Cycle 的 pending 任务', async () => {
+  const harness = coordinatorHarness()
+  const begunBody = harness.timeline.apply({ chat: harness.current(), intent: { kind: 'body.begin', turn: 1, userText: '向前走' } })
+  const completedBody = harness.timeline.complete({ chat: begunBody.chat, operationId: begunBody.value.operationId, basedOn: begunBody.value.basedOn, outcome: { status: 'success' } })
+  Object.assign(harness.current(), completedBody.chat)
+  const worldbook = await harness.coordinator.begin(harness.current(), 'worldbook')
+
+  const recovered = await harness.coordinator.recover(worldbook.chat)
+
+  assert.equal(recovered.activity.phase, 'pending')
+  assert.equal(recovered.activity.role, 'worldbook')
+  const interrupted = Object.values(harness.timeline.inspect({ chat: recovered.chat }).operations).find(function (operation) {
+    return operation.kind === 'agent' && operation.role === 'worldbook'
+  })
+  assert.equal(interrupted.status, 'interrupted')
+  await harness.coordinator.begin(recovered.chat, 'worldbook')
+})
+
+test('世界书无需 Agent 时显式推进到结算阶段，重启不会重跑世界书', async () => {
+  const harness = coordinatorHarness()
+  const begunBody = harness.timeline.apply({ chat: harness.current(), intent: { kind: 'body.begin', turn: 1, userText: '向前走' } })
+  const completedBody = harness.timeline.complete({ chat: begunBody.chat, operationId: begunBody.value.operationId, basedOn: begunBody.value.basedOn, outcome: { status: 'success' } })
+  Object.assign(harness.current(), completedBody.chat)
+
+  const skipped = await harness.coordinator.skip(harness.current(), 'worldbook')
+  assert.equal(skipped.activity.phase, 'pending')
+  assert.equal(skipped.activity.role, 'settlement')
+
+  const settlement = await harness.coordinator.begin(skipped.chat, 'settlement')
+  const recovered = await harness.coordinator.recover(settlement.chat)
+  assert.equal(recovered.activity.phase, 'pending')
+  assert.equal(recovered.activity.role, 'settlement')
+  await harness.coordinator.begin(recovered.chat, 'settlement')
+})
+
+test('重启会持久关闭遗留候选 operation，但不会误排结算', async () => {
+  const harness = coordinatorHarness()
+  const candidate = await harness.coordinator.begin(harness.current(), 'candidate')
+  const recovered = await harness.coordinator.recover(candidate.chat)
+
+  assert.equal(recovered.status, 'recovered')
+  assert.equal(recovered.activity.busy, false)
+  assert.equal(Object.values(harness.current().timeline.operations)[0].status, 'interrupted')
+})
+
 test('后台模型失败由 coordinator 关闭 operation，任务 module 只负责上报失败', async () => {
   const harness = coordinatorHarness()
   const task = await harness.coordinator.begin(harness.current(), 'candidate')
@@ -106,31 +178,4 @@ test('只有尚未结算的纯开场白会在首次生成候选前补跑后台�
       { role: 'assistant', text: '第一轮正文' }
     ]
   }), false)
-})
-
-test('正文只在前台 turn/end 成功送达后启动后台结算', () => {
-  const story = { mode: 'story', settleStatus: 'running' }
-  assert.equal(shouldStartSettlementAfterTurnEnd(story, 'completed'), true)
-  assert.equal(shouldStartSettlementAfterTurnEnd(story, 'max-tokens'), true)
-  assert.equal(shouldStartSettlementAfterTurnEnd(story, ''), false)
-  assert.equal(shouldStartSettlementAfterTurnEnd(story, 'failed'), false)
-  assert.equal(shouldStartSettlementAfterTurnEnd({ mode: 'card', settleStatus: 'running' }, 'completed'), false)
-  assert.equal(shouldStartSettlementAfterTurnEnd({ mode: 'story', settleStatus: 'done' }, 'completed'), false)
-})
-
-test('后台结算被推迟到 turn/end 事件处理完成后的下一任务', async () => {
-  const queued = []
-  const deferred = []
-  const schedule = createSettlementAfterTurnEndScheduler({
-    async readChatForSession() { return { id: 'chat-1', mode: 'story', settleStatus: 'running' } },
-    async queueSettlement(chatId) { queued.push(chatId) },
-    defer(task) { deferred.push(task) }
-  })
-
-  assert.equal(schedule({ sessionId: 'session-1', reason: 'completed' }), true)
-  assert.deepEqual(queued, [])
-  assert.equal(deferred.length, 1)
-  deferred[0]()
-  await new Promise(function (resolve) { setImmediate(resolve) })
-  assert.deepEqual(queued, ['chat-1'])
 })

@@ -151,12 +151,12 @@ test('游玩 Agent 接收解析后的玩家输入，不接收原始 Tavern 宏�
   assert.match(lifecycle, /replaceTurnInput\(scopedDecision\.messages, prepared\.userText\)/)
 })
 
-test('只有人物卡开场白时不启动姿势结算', () => {
+test('读取 Session View 不启动后台工作，开场回合由玩家输入边界过滤', () => {
   const sessionView = between(serverSource, 'async function sessionView', 'async function ensureNativeOpening')
+  const lifecycle = between(serverSource, '// ---------- DSH 回合生命周期 ----------', '// ---------- 模型可选工具 ----------')
 
-  assert.match(sessionView, /chat\.messages\.some\(function \(message\)/)
-  assert.match(sessionView, /message\.greeting !== true/)
-  assert.doesNotMatch(sessionView, /chat\.messages\.length > 0/)
+  assert.doesNotMatch(sessionView, /queueSettlement|writeChat|settleStatus/)
+  assert.match(lifecycle, /if \(userText === ''\) return/)
 })
 
 test('游玩固定选择一个开场白，并用它对齐剧本', () => {

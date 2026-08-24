@@ -16,13 +16,6 @@ export function isOpeningAwaitingSettlement(chat) {
   })
 }
 
-export function shouldStartSettlementAfterTurnEnd(chat, reason) {
-  if (reason !== 'completed' && reason !== 'max-tokens') return false
-  const mode = chat && chat.mode || 'story'
-  if (mode !== 'story' && mode !== 'script') return false
-  return (chat && chat.settleStatus || 'idle') === 'running'
-}
-
 /** Coordinate one timeline-bound task without owning task-specific model work. */
 export function createBackgroundTaskCoordinator(options = {}) {
   const store = options.store
@@ -44,14 +37,35 @@ export function createBackgroundTaskCoordinator(options = {}) {
 
   function activity(chat) {
     const inspected = timeline.inspect({ chat })
-    const operations = Object.values(inspected.operations || {}).filter(function (operation) {
+    const allOperations = Object.values(inspected.operations || {})
+    const operations = allOperations.filter(function (operation) {
       return operation && operation.kind === 'agent'
     }).sort(function (left, right) {
       return (Number(right.createdAt) || 0) - (Number(left.createdAt) || 0)
     })
     const running = operations.find(function (operation) { return operation.status === 'running' })
+    const body = allOperations.filter(function (operation) {
+      return operation && operation.kind === 'body' && operation.status === 'completed' && operation.background &&
+        str(operation.committedBranchId || operation.basedOn && operation.basedOn.branchId) === inspected.branchId
+    }).sort(function (left, right) {
+      return (Number(right.completedAt) || 0) - (Number(left.completedAt) || 0)
+    })[0]
+    const background = body && body.background
+    if (running === undefined && background && (background.phase === 'pending' || background.phase === 'running')) {
+      return {
+        phase: background.phase,
+        busy: true,
+        role: str(background.role),
+        operationId: str(body.id),
+        basedOn: { branchId: inspected.branchId, revision: Number(body.committedRevision) || inspected.revision },
+        updatedAt: Number(background.updatedAt) || Number(body.completedAt) || 0
+      }
+    }
     const current = running || operations[0]
     if (current === undefined) {
+      if (background && background.phase === 'failed') {
+        return { phase: 'failed', busy: false, role: str(background.role), operationId: str(body.id), basedOn: null, updatedAt: Number(background.updatedAt) || 0 }
+      }
       return { phase: 'idle', busy: false, role: '', operationId: '', basedOn: null, updatedAt: Number(inspected.updatedAt) || 0 }
     }
     return {
@@ -70,7 +84,9 @@ export function createBackgroundTaskCoordinator(options = {}) {
       const latest = await store.readChat(chatId)
       const source = latest === undefined ? chat : latest
       const currentActivity = activity(source)
-      if (currentActivity.busy) {
+      const requestedRole = str(role)
+      const expectedPending = currentActivity.phase === 'pending' && currentActivity.role === requestedRole
+      if (currentActivity.busy && !expectedPending) {
         const error = new Error('后台 Agent 正在执行 ' + currentActivity.role + '，请等待完成')
         error.code = 'BACKGROUND_BUSY'
         error.activity = currentActivity
@@ -121,29 +137,27 @@ export function createBackgroundTaskCoordinator(options = {}) {
     return Object.freeze(task)
   }
 
-  return Object.freeze({ activity, begin })
-}
-
-export function createSettlementAfterTurnEndScheduler(options = {}) {
-  const readChatForSession = options.readChatForSession
-  const queueSettlement = options.queueSettlement
-  const defer = typeof options.defer === 'function' ? options.defer : setImmediate
-  const logger = options.logger || console
-  if (typeof readChatForSession !== 'function' || typeof queueSettlement !== 'function') {
-    throw new Error('缺少回合结束后的结算调度依赖')
-  }
-  return function schedule(input = {}) {
-    const reason = input.reason || ''
-    if (reason !== 'completed' && reason !== 'max-tokens') return false
-    defer(function () {
-      Promise.resolve().then(async function () {
-        const chat = await readChatForSession(input.sessionId)
-        if (!shouldStartSettlementAfterTurnEnd(chat, reason)) return
-        await queueSettlement(chat.id)
-      }).catch(function (error) {
-        logger.error('dsh-tavern: 回合结束后启动后台结算失败', error && error.message || error)
-      })
+  async function skip(chat, role) {
+    const chatId = str(chat && chat.id)
+    return await serialize(chatId, async function () {
+      const latest = await store.readChat(chatId)
+      const source = latest === undefined ? chat : latest
+      const next = timeline.apply({ chat: source, intent: { kind: 'agent.skip', role } })
+      await store.writeChat(next.chat)
+      return { chat: next.chat, status: next.value.status, activity: activity(next.chat) }
     })
-    return true
   }
+
+  async function recover(chat) {
+    const chatId = str(chat && chat.id)
+    return await serialize(chatId, async function () {
+      const latest = await store.readChat(chatId)
+      const source = latest === undefined ? chat : latest
+      const next = timeline.apply({ chat: source, intent: { kind: 'background.recover' } })
+      if (next.value.status !== 'unchanged') await store.writeChat(next.chat)
+      return { chat: next.chat, status: next.value.status, activity: activity(next.chat) }
+    })
+  }
+
+  return Object.freeze({ activity, begin, skip, recover })
 }
