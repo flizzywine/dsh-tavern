@@ -35,6 +35,8 @@ const PROFILE_DIR = path.join(DSH_ROOT, 'profiles', PROFILE)
 const LOG_DIR = path.join(DSH_ROOT, 'logs')
 const LOG_FILE = path.join(LOG_DIR, 'tavern.log')
 const PID_FILE = path.join(LOG_DIR, 'tavern.pid.json')
+const FRONTEND_BOOTSTRAP_FILE = path.join(LOG_DIR, 'tavern.frontend-bootstrap.json')
+const FRONTEND_BOOTSTRAP_VERSION = 1
 const SETTINGS_FILE = path.join(DSH_ROOT, 'settings.yaml')
 const SIDEBAR_DEFAULTS_VERSION = 8
 const TAVERN_SIDEBAR_DEFAULTS = {
@@ -76,6 +78,39 @@ export function resolveServicePort(value, fallback = 3081) {
     throw new Error(`DSH_TAVERN_PORT 必须是 1 到 65535 之间的整数，当前值：${value}`)
   }
   return port
+}
+
+export function restartBrowserTarget(port, runtimeGeneration) {
+  return `http://127.0.0.1:${port}/?tavern-boot=${encodeURIComponent(String(runtimeGeneration))}`
+}
+
+export function browserOpenCommand(url, platform = process.platform) {
+  if (platform === 'darwin') return { command: 'open', args: [url] }
+  if (platform === 'win32') return { command: 'cmd', args: ['/d', '/s', '/c', 'start', '', url] }
+  return { command: 'xdg-open', args: [url] }
+}
+
+function openBrowserTarget(url) {
+  const target = browserOpenCommand(url)
+  const child = spawn(target.command, target.args, { detached: true, stdio: 'ignore', windowsHide: true })
+  child.on('error', function () {})
+  child.unref()
+}
+
+export function needsFrontendBootstrap(record, requiredVersion = FRONTEND_BOOTSTRAP_VERSION) {
+  return !record || Number(record.version) < requiredVersion
+}
+
+function bootstrapFrontendOnce(state) {
+  let record = null
+  try { record = JSON.parse(readFileSync(FRONTEND_BOOTSTRAP_FILE, 'utf8')) } catch {}
+  if (!needsFrontendBootstrap(record)) return false
+  const target = restartBrowserTarget(state.port, state.runtimeGeneration)
+  openBrowserTarget(target)
+  mkdirSync(LOG_DIR, { recursive: true })
+  writeFileSync(FRONTEND_BOOTSTRAP_FILE, `${JSON.stringify({ version: FRONTEND_BOOTSTRAP_VERSION, target, completedAt: new Date().toISOString() }, null, 2)}\n`)
+  console.log(`已一次性打开新版前端：${target}`)
+  return true
 }
 
 function fail(message) {
@@ -656,7 +691,7 @@ async function startService() {
     if (await isPortOpen(state.port)) {
       console.log(`DSH Tavern 已启动：PID ${child.pid}，http://127.0.0.1:${state.port}`)
       console.log(`日志：${LOG_FILE}`)
-      return
+      return { port: state.port, runtimeGeneration: `${child.pid}-${Date.now()}` }
     }
     if (!isProcessAlive(child.pid)) {
       removePidRecord()
@@ -728,8 +763,10 @@ async function main() {
       break
     case 'restart':
       await stopService()
-      await startService()
-      console.log(`浏览器旧页面仍会保留旧版前端；代码更新后请按 ${process.platform === 'darwin' ? 'Cmd' : 'Ctrl'} + Shift + R 强制刷新。`)
+      {
+        const state = await startService()
+        if (!bootstrapFrontendOnce(state)) console.log('浏览器页面会自动识别本次后台重启并恢复连接。')
+      }
       break
     case 'status':
       await statusService()

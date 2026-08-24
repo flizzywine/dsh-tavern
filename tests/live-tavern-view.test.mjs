@@ -6,7 +6,7 @@ import vm from 'node:vm'
 async function loadFactory() {
   const source = await readFile(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
   let descriptor
-  const sandbox = { window: { __ModuleLoader__: { load(value) { descriptor = value } } }, console }
+  const sandbox = { window: { __ModuleLoader__: { load(value) { descriptor = value } } }, console, AbortController }
   vm.runInNewContext(source, sandbox)
   return descriptor.factory(function () { return {} }).createLiveTavernViewModule
 }
@@ -99,5 +99,44 @@ test('失效通知在加载中到达时只排队一次后续刷新', async funct
   await timers.runNext()
   assert.equal(loads, 2)
   assert.equal(module.getSnapshot('session-3').view.marker, 2)
+  stop()
+})
+
+test('结算轮询请求悬挂时按时取消，并继续轮询直到完成', async function () {
+  const timers = fakeTimers()
+  let loads = 0
+  let aborted = false
+  const module = createLiveTavernViewModule({
+    loadTimeoutMs: 2000,
+    load: async function (_sessionId, request) {
+      loads += 1
+      if (loads === 1) return { view: { settleStatus: 'running' } }
+      if (loads === 2) {
+        return await new Promise(function (_resolve, reject) {
+          request.signal.addEventListener('abort', function () {
+            aborted = true
+            reject(new Error('aborted'))
+          })
+        })
+      }
+      return { view: { settleStatus: 'done' } }
+    },
+    schedule: timers.schedule,
+    cancel: timers.cancel
+  })
+  const stop = module.subscribe('session-stalled', function () {})
+
+  await timers.runNext()
+  assert.deepEqual(timers.activeDelays(), [200])
+  await timers.runNext()
+  assert.deepEqual(timers.activeDelays(), [2000])
+  await timers.runNext()
+  assert.equal(aborted, true)
+  assert.deepEqual(timers.activeDelays(), [300])
+  await timers.runNext()
+
+  assert.equal(loads, 3)
+  assert.equal(module.getSnapshot('session-stalled').view.settleStatus, 'done')
+  assert.deepEqual(timers.activeDelays(), [])
   stop()
 })

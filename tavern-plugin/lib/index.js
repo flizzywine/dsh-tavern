@@ -75,6 +75,7 @@ export async function apply(ctx) {
   function uid(prefix) {
     return prefix + '-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8)
   }
+  const runtimeGeneration = uid('runtime')
   function str(v) {
     return typeof v === 'string' ? v : (v === undefined || v === null ? '' : String(v))
   }
@@ -1694,7 +1695,7 @@ export async function apply(ctx) {
       case 'getSession': return { view: await sessionView(args && args.sessionId) }
       case 'getSessionConnection': {
         const agent = agentRegistry.get(str(args && args.sessionId))
-        return { liveSession: Boolean(agent && agent.session) }
+        return { runtimeGeneration, liveSession: Boolean(agent && agent.session) }
       }
       case 'setPlayerName': return { playerName: await setPlayerName(args && args.sessionId, args && args.userName) }
       case 'ensureOpening': return { view: await ensureNativeOpening(args && args.sessionId) }

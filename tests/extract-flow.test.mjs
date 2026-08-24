@@ -98,8 +98,10 @@ test('DSH Session 失联时保留输入并重载恢复，但绝不自动发送',
   const timeout = between(clientSource, 'function TavernSignalTimeoutNotice', 'function TavernStatusPanel')
 
   assert.match(serverSource, /case 'getSessionConnection'/)
+  assert.match(serverSource, /runtimeGeneration/)
   assert.match(serverSource, /agentRegistry\.get\(str\(args && args\.sessionId\)\)/)
   assert.match(timeout, /rpc\("getSessionConnection", \{\}, props\.sessionId\)/)
+  assert.match(clientSource, /result && result\.runtimeGeneration/)
   assert.match(timeout, /sessionStorage\.setItem/)
   assert.match(timeout, /window\.location\.reload\(\)/)
   assert.match(timeout, /dispatchEvent\(new Event\("input"/)

@@ -7,13 +7,16 @@ import test from 'node:test'
 
 import {
   applySidebarDefaults,
+  browserOpenCommand,
   encodeWindowsPowerShellScript,
   ensureSidebarDefaults,
   extractDshVersion,
   isPortOpen,
+  needsFrontendBootstrap,
   parseInstallHost,
   parseUpdateOptions,
   renderWindowsLauncher,
+  restartBrowserTarget,
   resolveServicePort,
 } from '../bin/dsh-tavern.mjs'
 
@@ -45,6 +48,24 @@ test('命令行启动端口默认 3081，安卓环境可显式使用 3088', () =
   assert.equal(resolveServicePort('3088'), 3088)
   assert.throws(() => resolveServicePort('0'), /1 到 65535/)
   assert.throws(() => resolveServicePort('not-a-port'), /1 到 65535/)
+})
+
+test('升级时只用本次启动标识引导一次新页面，之后交给页面自动恢复', () => {
+  assert.equal(
+    restartBrowserTarget(3081, 'runtime-a b'),
+    'http://127.0.0.1:3081/?tavern-boot=runtime-a%20b',
+  )
+  assert.equal(needsFrontendBootstrap(null), true)
+  assert.equal(needsFrontendBootstrap({ version: 0 }), true)
+  assert.equal(needsFrontendBootstrap({ version: 1 }), false)
+  assert.match(launcherSource, /const target = restartBrowserTarget\(state\.port, state\.runtimeGeneration\)/)
+  assert.match(launcherSource, /openBrowserTarget\(target\)/)
+  assert.match(launcherSource, /if \(!bootstrapFrontendOnce\(state\)\)/)
+  assert.doesNotMatch(launcherSource, /Shift \+ R 强制刷新/)
+  assert.deepEqual(browserOpenCommand('http://127.0.0.1:3081/?tavern-boot=x', 'darwin'), {
+    command: 'open',
+    args: ['http://127.0.0.1:3081/?tavern-boot=x'],
+  })
 })
 
 test('从 CLI 输出识别 DSH 预发布版本', () => {
