@@ -101,6 +101,9 @@ test('DSH Session 失联时保留输入并重载恢复，但绝不自动发送',
   assert.match(serverSource, /runtimeGeneration/)
   assert.match(serverSource, /agentRegistry\.get\(str\(args && args\.sessionId\)\)/)
   assert.match(timeout, /rpc\("getSessionConnection", \{\}, props\.sessionId\)/)
+  assert.match(timeout, /props\.connection\.api\.sessions\.models\(\{ sessionId: props\.sessionId \}\)/)
+  assert.match(timeout, /blocks\.set\(props\.sessionId/)
+  assert.match(timeout, /正在恢复 Session/)
   assert.match(clientSource, /result && result\.runtimeGeneration/)
   assert.match(timeout, /sessionStorage\.setItem/)
   assert.match(timeout, /window\.location\.reload\(\)/)
@@ -175,7 +178,8 @@ test('Tavern 错误面板只保留最新错误，左侧栏连接恢复后撤销�
   assert.match(errorCenter, /"复制"/)
   assert.match(errorCenter, /"清除"/)
   assert.match(clientSource, /const lastReported = React\.useRef\(""\)/)
-  assert.match(clientSource, /message !== lastReported\.current/)
+  assert.match(clientSource, /visible !== lastReported\.current/)
+  assert.match(clientSource, /if \(!visible\) tavernErrorHub\.resolve\(source\)/)
   assert.match(sidebar, /if \(collapsed\) return h\(React\.Fragment, null,\s*h\(TavernErrorCenter\)/)
   assert.match(sidebar, /return h\(React\.Fragment, null, h\(TavernErrorCenter\)/)
   assert.match(clientSource, /usePersistentError\("左侧栏操作"\)/)
@@ -193,7 +197,8 @@ test('Tavern 错误面板只保留最新错误，左侧栏连接恢复后撤销�
   assert.match(clientSource, /tavernErrorHub\.report\("插件更新", err\)/)
   assert.match(clientSource, /function isIgnoredTavernError\(value\)/)
   assert.match(errorHub, /if \(isIgnoredTavernError\(error\)\) return/)
-  assert.match(clientSource, /setLocalError\(isIgnoredTavernError\(message\) \? "" : message\)/)
+  assert.match(clientSource, /const visible = isIgnoredTavernError\(message\) \? "" : message/)
+  assert.match(clientSource, /setLocalError\(visible\)/)
 })
 
 test('正则清理后的回复投影替换原生对话显示，并在配置变化后重算历史', () => {
@@ -222,11 +227,20 @@ test('候选项列表限制高度并独立滚动，底部操作保持在滚动�
 
 test('后台结算期间禁用候选项按钮，完成后自动恢复', () => {
   const action = between(clientSource, 'function CandidateAction', 'function CandidateDockActions')
+  const activity = between(serverSource, 'async function sessionActivity', 'async function sessionView')
 
-  assert.match(action, /useLiveTavernView\(props\.sessionId/)
+  assert.match(serverSource, /case 'getSessionActivity': return \{ activity: await sessionActivity/)
+  assert.match(activity, /settleStatus: chat\.settleStatus \|\| 'idle'/)
+  assert.doesNotMatch(activity, /view\(|readChatCard|projectRuntimeReplyHistory/)
+  assert.match(action, /useSettlementActivity\(props\.sessionId/)
   assert.match(action, /settlementStatus === "running"/)
   assert.match(action, /disabled:.*settling/s)
   assert.match(action, /"后台结算中…"/)
+  assert.match(action, /liveTavernView\.invalidate\(props\.sessionId\)/)
+  assert.match(action, /props\.refreshSessions\(\)/)
+  assert.match(action, /rpc\("generateChoices", \{ messageId: props\.messageId, guidance: guidance \|\| "" \}, props\.sessionId\)/)
+  assert.doesNotMatch(action, /generateChoices[^\n]+(?:signal|timeout|AbortController)/)
+  assert.match(action, /finally \{ liveTavernView\.invalidate\(props\.sessionId\); setBusy\(false\); \}/)
   assert.doesNotMatch(action, /rpc\("getSession"/)
 })
 

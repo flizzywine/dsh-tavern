@@ -823,6 +823,15 @@ export async function apply(ctx) {
     if (script === undefined || !Array.isArray(script.chunks)) return null
     return scriptContinuity.inspect({ script: script, state: chat.scriptState, request: { kind: 'preview' } })
   }
+  async function sessionActivity(sessionId) {
+    const chat = await chatForSession(sessionId)
+    if (chat === undefined) return null
+    return {
+      chatId: chat.id,
+      settleStatus: chat.settleStatus || 'idle',
+      updatedAt: chat.updatedAt || 0
+    }
+  }
   async function sessionView(sessionId) {
     const chat = await chatForSession(sessionId)
     if (chat === undefined) return null
@@ -1693,6 +1702,7 @@ export async function apply(ctx) {
         }
       }
       case 'getSession': return { view: await sessionView(args && args.sessionId) }
+      case 'getSessionActivity': return { activity: await sessionActivity(args && args.sessionId) }
       case 'getSessionConnection': {
         const agent = agentRegistry.get(str(args && args.sessionId))
         return { runtimeGeneration, liveSession: Boolean(agent && agent.session) }

@@ -132,11 +132,52 @@ test('结算轮询请求悬挂时按时取消，并继续轮询直到完成', as
   assert.deepEqual(timers.activeDelays(), [2000])
   await timers.runNext()
   assert.equal(aborted, true)
+  assert.equal(module.getSnapshot('session-stalled').error, '')
   assert.deepEqual(timers.activeDelays(), [300])
   await timers.runNext()
 
   assert.equal(loads, 3)
   assert.equal(module.getSnapshot('session-stalled').view.settleStatus, 'done')
   assert.deepEqual(timers.activeDelays(), [])
+  stop()
+})
+
+test('候选 Agent 长时间生成时状态查询只在内部重试，不产生超时错误', async function () {
+  const timers = fakeTimers()
+  let generating = false
+  let loads = 0
+  const module = createLiveTavernViewModule({
+    loadTimeoutMs: 2000,
+    load: async function (_sessionId, request) {
+      loads += 1
+      if (!generating) return { view: { settleStatus: 'done' } }
+      return await new Promise(function (_resolve, reject) {
+        request.signal.addEventListener('abort', function () { reject(new Error('aborted')) })
+      })
+    },
+    schedule: timers.schedule,
+    cancel: timers.cancel
+  })
+  const stop = module.subscribe('session-generating', function () {})
+
+  await timers.runNext()
+  generating = true
+  module.invalidate('session-generating')
+  await timers.runNext()
+
+  for (let cycle = 0; cycle < 3; cycle += 1) {
+    await timers.runNext()
+    assert.equal(module.getSnapshot('session-generating').phase, 'retrying')
+    assert.equal(module.getSnapshot('session-generating').error, '')
+    assert.deepEqual(timers.activeDelays(), [1500])
+    if (cycle < 2) await timers.runNext()
+  }
+
+  generating = false
+  await timers.runNext()
+  assert.equal(loads, 5)
+  assert.equal(module.getSnapshot('session-generating').phase, 'ready')
+  assert.equal(module.getSnapshot('session-generating').view.settleStatus, 'done')
+  assert.equal(module.getSnapshot('session-generating').error, '')
   stop()
 })

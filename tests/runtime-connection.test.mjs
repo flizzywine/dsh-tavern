@@ -22,6 +22,13 @@ test('首次发现服务代次时只记录，不重载', function () {
   })
 })
 
+test('首次发现冷 Session 时先记录代次并预热 Agent', function () {
+  assert.deepEqual(plain(decide('', { runtimeGeneration: 'runtime-a', liveSession: false }, false, false)), {
+    kind: 'warm',
+    generation: 'runtime-a'
+  })
+})
+
 test('服务代次变化时重连，并按请求是否已接收决定是否恢复草稿', function () {
   assert.deepEqual(plain(decide('runtime-a', { runtimeGeneration: 'runtime-b', liveSession: true }, true, false)), {
     kind: 'reload',
@@ -40,9 +47,12 @@ test('服务代次变化时重连，并按请求是否已接收决定是否恢�
   })
 })
 
-test('同代服务只有在发送中且 Session 确实不存在时才重连', function () {
+test('同代服务在空闲时预热冷 Session，发送竞争时才重载保护草稿', function () {
   assert.deepEqual(plain(decide('runtime-a', { runtimeGeneration: 'runtime-a', liveSession: true }, true, false)), { kind: 'none' })
-  assert.deepEqual(plain(decide('runtime-a', { runtimeGeneration: 'runtime-a', liveSession: false }, false, false)), { kind: 'none' })
+  assert.deepEqual(plain(decide('runtime-a', { runtimeGeneration: 'runtime-a', liveSession: false }, false, false)), {
+    kind: 'warm',
+    generation: 'runtime-a'
+  })
   assert.deepEqual(plain(decide('runtime-a', { runtimeGeneration: 'runtime-a', liveSession: false }, true, false)), {
     kind: 'reload',
     generation: 'runtime-a',
