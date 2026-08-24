@@ -2035,7 +2035,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const generation = String(result && result.runtimeGeneration || "");
 			if (!generation) return { kind: "none" };
 			if (!previousGeneration) {
-				if (result.liveSession === false && !submitting) return { kind: "warm", generation: generation };
+				if (result.liveSession === false && submitting) return { kind: "reload", generation: generation, restoreDraft: !accepted };
+				if (result.liveSession === false) return { kind: "warm", generation: generation };
 				return { kind: "remember", generation: generation };
 			}
 			if (previousGeneration !== generation || (submitting && result.liveSession === false)) {
@@ -2043,6 +2044,55 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			}
 			if (result.liveSession === false) return { kind: "warm", generation: generation };
 			return { kind: "none" };
+		}
+
+		function createRuntimeConnectionCoordinator(options) {
+			if (!options || typeof options.probe !== "function" || typeof options.warm !== "function" || typeof options.reload !== "function" || !options.storage) {
+				throw new Error("Runtime Connection Coordinator 缺少连接、存储或重载 adapter");
+			}
+			const storage = options.storage;
+			const generationKey = "dsh-tavern:runtime-generation:v1";
+			const draftKey = "dsh-tavern:reconnect-draft:v1";
+			function read(key) { try { return storage.getItem(key); } catch (_err) { return null; } }
+			function write(key, value) { try { storage.setItem(key, value); } catch (_err) {} }
+			function remove(key) { try { storage.removeItem(key); } catch (_err) {} }
+			async function reconcile(input) {
+				const result = await options.probe(input.sessionId);
+				const previous = String(read(generationKey) || "");
+				const action = decideRuntimeConnectionAction(previous, result, input.submitting === true, input.accepted === true);
+				if (action.kind === "remember") {
+					write(generationKey, action.generation);
+					return { phase: "ready", retryImmediately: false };
+				}
+				if (action.kind === "warm") {
+					write(generationKey, action.generation);
+					await options.warm(input.sessionId);
+					return { phase: "checking", retryImmediately: true };
+				}
+				if (action.kind === "reload") {
+					write(generationKey, action.generation);
+					const draft = String(input.draft || "");
+					if (action.restoreDraft && draft) write(draftKey, JSON.stringify({ sessionId: input.sessionId, draft: draft }));
+					else remove(draftKey);
+					options.reload({ generation: action.generation });
+					return { phase: "reloading", retryImmediately: false };
+				}
+				return { phase: "ready", retryImmediately: false };
+			}
+			function restore(sessionId, applyDraft) {
+				let pending = null;
+				try { pending = JSON.parse(read(draftKey) || "null"); } catch (_err) {}
+				if (!pending || pending.sessionId !== sessionId || !pending.draft || typeof applyDraft !== "function") return false;
+				if (applyDraft(String(pending.draft)) !== true) return false;
+				remove(draftKey);
+				return true;
+			}
+			function hasPendingDraft(sessionId) {
+				let pending = null;
+				try { pending = JSON.parse(read(draftKey) || "null"); } catch (_err) {}
+				return !!(pending && pending.sessionId === sessionId && pending.draft);
+			}
+			return Object.freeze({ reconcile: reconcile, restore: restore, hasPendingDraft: hasPendingDraft });
 		}
 
 		function createPlayControlsFeatureModule() {
@@ -2091,10 +2141,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			function TavernSignalTimeoutNotice(props) {
 				const promptError = props.useSession(function (snapshot) { return snapshot.promptError || null; });
 				const running = props.useSession(function (snapshot) { return snapshot.running === true; });
-				const [reloading, setReloading] = React.useState(false);
 				const [connectionPhase, setConnectionPhase] = React.useState("checking");
-				const reloadingRef = React.useRef(false);
-				const warmingRef = React.useRef(null);
 				const latestRole = props.useSession(function (snapshot) {
 					const nodes = snapshot.nodes || [];
 					for (let index = nodes.length - 1; index >= 0; index -= 1) {
@@ -2104,103 +2151,72 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				});
 				const isTimeout = promptError && /signal timeout/i.test(String(promptError.error && promptError.error.message || ""));
 				const submitting = props.input && props.input.phase === "submitting";
-				const reconnectDraftKey = "dsh-tavern:reconnect-draft:v1";
-				const runtimeGenerationKey = "dsh-tavern:runtime-generation:v1";
 				const composerBlockReason = "正在恢复 Session，请稍候…";
 				const accepted = running || latestRole === "user";
+				const draftRef = React.useRef("");
+				draftRef.current = String(props.input && props.input.draft || "");
+				const connectionCoordinator = React.useMemo(function () {
+					return createRuntimeConnectionCoordinator({
+						storage: window.sessionStorage,
+						probe: function (sessionId) { return rpc("getSessionConnection", {}, sessionId); },
+						warm: function (sessionId) { return props.connection.api.sessions.models({ sessionId: sessionId }); },
+						reload: function () { window.location.reload(); }
+					});
+				}, [props.connection]);
 				React.useEffect(function () {
 					if (connectionPhase === "ready") composerGate.clear(props.conversation, props.sessionId, "connection");
 					else composerGate.set(props.conversation, props.sessionId, "connection", composerBlockReason);
 					return function () { composerGate.clear(props.conversation, props.sessionId, "connection"); };
 				}, [props.sessionId, props.conversation, connectionPhase]);
-				function saveReconnectDraft(restoreDraft) {
-					const draft = String(props.input && props.input.draft || "");
-					try {
-						if (restoreDraft && draft) window.sessionStorage.setItem(reconnectDraftKey, JSON.stringify({ sessionId: props.sessionId, draft: draft }));
-						else window.sessionStorage.removeItem(reconnectDraftKey);
-					} catch (_err) {}
-				}
-				function reloadForConnection(action) {
-					if (reloadingRef.current) return;
-					reloadingRef.current = true;
-					setReloading(true);
-					try { window.sessionStorage.setItem(runtimeGenerationKey, action.generation); } catch (_err) {}
-					saveReconnectDraft(action.restoreDraft);
-					window.location.reload();
-				}
 				React.useEffect(function () {
-					let stored = null;
-					try { stored = JSON.parse(window.sessionStorage.getItem(reconnectDraftKey) || "null"); } catch (_err) {}
-					if (!stored || stored.sessionId !== props.sessionId || !stored.draft) return;
+					if (!connectionCoordinator.hasPendingDraft(props.sessionId)) return;
 					let stopped = false;
 					let attempts = 0;
 					function restore() {
 						if (stopped) return;
-						const textarea = document.querySelector('[data-composer-card] textarea, textarea[placeholder="给智能体发消息"]');
-						if (textarea && !textarea.value) {
-							const descriptor = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value");
-							if (descriptor && descriptor.set) descriptor.set.call(textarea, stored.draft);
-							else textarea.value = stored.draft;
-							textarea.dispatchEvent(new Event("input", { bubbles: true }));
-							window.sessionStorage.removeItem(reconnectDraftKey);
-							return;
-						}
-						if (textarea && textarea.value === stored.draft) {
-							window.sessionStorage.removeItem(reconnectDraftKey);
-							return;
-						}
+						if (connectionCoordinator.restore(props.sessionId, function (draft) {
+							const textarea = document.querySelector('[data-composer-card] textarea, textarea[placeholder="给智能体发消息"]');
+							if (!textarea) return false;
+							if (!textarea.value) {
+								const descriptor = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value");
+								if (descriptor && descriptor.set) descriptor.set.call(textarea, draft);
+								else textarea.value = draft;
+								textarea.dispatchEvent(new Event("input", { bubbles: true }));
+							}
+							return textarea.value === draft;
+						})) return;
 						attempts += 1;
 						if (attempts < 40) window.setTimeout(restore, 100);
 					}
 					restore();
 					return function () { stopped = true; };
-				}, [props.sessionId]);
+				}, [props.sessionId, connectionCoordinator]);
 				React.useEffect(function () {
 					let stopped = false;
 					let timer = null;
 					function schedule(delay) {
 						if (timer !== null) window.clearTimeout(timer);
-						if (!stopped && !reloadingRef.current) timer = window.setTimeout(check, delay === undefined ? 2000 : delay);
-					}
-					function rememberGeneration(generation) {
-						try { window.sessionStorage.setItem(runtimeGenerationKey, generation); } catch (_err) {}
-					}
-					function warmSession() {
-						setConnectionPhase("warming");
-						if (warmingRef.current !== null) return;
-						warmingRef.current = Promise.resolve(props.connection.api.sessions.models({ sessionId: props.sessionId })).catch(function () {}).finally(function () {
-							warmingRef.current = null;
-							if (!stopped) schedule(0);
-						});
+						if (!stopped) timer = window.setTimeout(check, delay === undefined ? 2000 : delay);
 					}
 					function check() {
-						rpc("getSessionConnection", {}, props.sessionId).then(function (result) {
+						connectionCoordinator.reconcile({
+							sessionId: props.sessionId,
+							submitting: submitting,
+							accepted: accepted,
+							draft: draftRef.current
+						}).then(function (result) {
 							if (stopped) return;
-							let previous = "";
-							try { previous = window.sessionStorage.getItem(runtimeGenerationKey) || ""; } catch (_err) {}
-							const action = decideRuntimeConnectionAction(previous, result, submitting, accepted);
-							if (action.kind === "remember") {
-								rememberGeneration(action.generation);
-								setConnectionPhase("ready");
-							} else if (action.kind === "warm") {
-								rememberGeneration(action.generation);
-								warmSession();
-							} else if (action.kind === "reload") {
-								reloadForConnection(action);
-								return;
-							} else {
-								setConnectionPhase("ready");
-							}
-							schedule();
+							setConnectionPhase(result.phase);
+							if (result.phase !== "reloading") schedule(result.retryImmediately ? 0 : 2000);
 						}, function () { setConnectionPhase("checking"); schedule(); });
 					}
 					check();
 					return function () { stopped = true; if (timer !== null) window.clearTimeout(timer); };
-				}, [props.sessionId, submitting, accepted]);
+				}, [props.sessionId, submitting, accepted, connectionCoordinator]);
 				React.useEffect(function () {
 					if (isTimeout && typeof props.refreshSessions === "function") Promise.resolve(props.refreshSessions()).catch(function () {});
 				}, [isTimeout]);
-				if (reloading) return React.createElement("div", { className: "dsh-tavern-timeout-banner", role: "alert" },
+				if (connectionPhase === "reloading") return React.createElement("div", { className: "dsh-tavern-timeout-banner", role: "alert" },
 					React.createElement("span", null, "DSH Session 连接已失效，正在核对本轮状态并重新连接。系统不会自动发送。")
 				);
 				if (connectionPhase !== "ready") return React.createElement("div", { className: "dsh-tavern-timeout-banner", role: "status" },
@@ -3001,6 +3017,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		exports.createLiveTavernViewModule = createLiveTavernViewModule;
 		exports.describeTavernActivity = describeTavernActivity;
 		exports.createComposerGate = createComposerGate;
+		exports.createRuntimeConnectionCoordinator = createRuntimeConnectionCoordinator;
 		exports.createConversationLifecycleModule = createConversationLifecycleModule;
 		exports.createResourcesLibraryFeatureModule = createResourcesLibraryFeatureModule;
 		exports.createPresetLibraryFeatureModule = createPresetLibraryFeatureModule;
@@ -3008,7 +3025,6 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		exports.createCardLibraryFeatureModule = createCardLibraryFeatureModule;
 		exports.createPlayControlsFeatureModule = createPlayControlsFeatureModule;
 		exports.createTavernShellFeatureModule = createTavernShellFeatureModule;
-		exports.decideRuntimeConnectionAction = decideRuntimeConnectionAction;
 		return module.exports;
 	}
 });
