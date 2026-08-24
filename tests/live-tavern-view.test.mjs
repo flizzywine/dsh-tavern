@@ -88,7 +88,13 @@ test('客户端先投影 busy 时立即开始权威轮询，服务端 idle 后�
   const stop = module.subscribe('session-optimistic', function () {})
   await timers.runNext()
 
-  module.setView('session-optimistic', { busy: true, phase: 'running' })
+  const release = module.setView('session-optimistic', { busy: true, phase: 'running' })
+  assert.deepEqual(timers.activeDelays(), [0])
+  await timers.runNext()
+
+  assert.equal(module.getSnapshot('session-optimistic').view.busy, true, '服务端尚未登记 Operation 时不能用旧 idle 提前解锁')
+  assert.deepEqual(timers.activeDelays(), [200])
+  release()
   assert.deepEqual(timers.activeDelays(), [0])
   await timers.runNext()
 

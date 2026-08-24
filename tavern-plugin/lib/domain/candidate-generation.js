@@ -238,7 +238,7 @@ export function createCandidateGenerator(options) {
   const now = typeof options.now === 'function' ? options.now : Date.now
   const logger = options.logger || console
 
-  async function generate(input) {
+  async function prepare(input) {
     let chat = await store.chatForSession(input.sessionId)
     if (chat === undefined || chat === null) throw new Error('当前会话没有绑定人物卡')
     const mode = chat.mode || 'story'
@@ -267,6 +267,9 @@ export function createCandidateGenerator(options) {
     const context = await planner.plan({ purpose: 'candidate', card, chat, task, scriptWindow })
     const taskRun = await tasks.begin(chat, 'candidate')
     chat = taskRun.chat
+    if (typeof input.onStarted === 'function') {
+      input.onStarted({ operationId: taskRun.operationId, basedOn: taskRun.basedOn })
+    }
     const participantRequest = taskRun.participantRequest
     const persistentSessionId = str(participantRequest.sessionId)
     const guidance = str(input.guidance).trim().slice(0, 600)
@@ -293,66 +296,74 @@ export function createCandidateGenerator(options) {
       persistentSessionId,
       rewindTo: participantRequest.rewindTo
     }
-    let run
-    try {
-      run = await model.runCandidate(Object.assign({}, callOptions, scriptMode ? {
-        tools: [SCRIPT_READ_TOOL, SCRIPT_POINT_TOOL],
-        onToolCall: research.onToolCall,
-        maxToolCalls: 6
-      } : { tools: [] }))
-    } catch (error) {
-      await taskRun.fail(error)
-      if (logger && typeof logger.error === 'function') logger.error('dsh-tavern: 候选项生成失败:', str(error && error.message || error))
-      throw error
-    }
-    const text = run.text
-    const traceSessionId = str(run.traceSessionId)
-    const participant = taskRun.participant(run)
-    let choices
-    try {
-      choices = validatedChoices(parsedDecision(text).choices, scriptMode)
-    } catch (error) {
-      if (logger && typeof logger.error === 'function') {
-        logger.error('dsh-tavern: 候选项输出无效:', str(error && error.message || error))
-        logger.error('dsh-tavern: 候选项原始输出:', str(text).slice(0, 1200))
+    async function execute() {
+      let run
+      try {
+        run = await model.runCandidate(Object.assign({}, callOptions, scriptMode ? {
+          tools: [SCRIPT_READ_TOOL, SCRIPT_POINT_TOOL],
+          onToolCall: research.onToolCall,
+          maxToolCalls: 6
+        } : { tools: [] }))
+      } catch (error) {
+        await taskRun.fail(error)
+        if (logger && typeof logger.error === 'function') logger.error('dsh-tavern: 候选项生成失败:', str(error && error.message || error))
+        throw error
       }
-      await taskRun.commit({ stateChanged: false, participant })
-      throw error
-    }
-    let savedCandidates = null
-    const completed = await taskRun.commit({
-      stateChanged: true,
-      participant,
-      apply(draft) {
-        let scriptProjection
-        if (scriptMode) {
-          const pointed = research.pointedPosition()
-          if (pointed === script.chunks.length) {
-            draft.scriptState = scripts.transition({ script, state: draft.scriptState, event: { kind: 'end' } }).state
-          } else if (Number.isInteger(pointed) && pointed >= 0) {
-            draft.scriptState = scripts.transition({ script, state: draft.scriptState, event: { kind: 'focus', cursor: pointed + 1 } }).state
+      const text = run.text
+      const traceSessionId = str(run.traceSessionId)
+      const participant = taskRun.participant(run)
+      let choices
+      try {
+        choices = validatedChoices(parsedDecision(text).choices, scriptMode)
+      } catch (error) {
+        if (logger && typeof logger.error === 'function') {
+          logger.error('dsh-tavern: 候选项输出无效:', str(error && error.message || error))
+          logger.error('dsh-tavern: 候选项原始输出:', str(text).slice(0, 1200))
+        }
+        await taskRun.commit({ stateChanged: false, participant })
+        throw error
+      }
+      let savedCandidates = null
+      const completed = await taskRun.commit({
+        stateChanged: true,
+        participant,
+        apply(draft) {
+          let scriptProjection
+          if (scriptMode) {
+            const pointed = research.pointedPosition()
+            if (pointed === script.chunks.length) {
+              draft.scriptState = scripts.transition({ script, state: draft.scriptState, event: { kind: 'end' } }).state
+            } else if (Number.isInteger(pointed) && pointed >= 0) {
+              draft.scriptState = scripts.transition({ script, state: draft.scriptState, event: { kind: 'focus', cursor: pointed + 1 } }).state
+            }
+            const progress = scripts.inspect({ script, state: draft.scriptState, request: { kind: 'progress' } })
+            scriptProjection = { cursor: progress.cursor, ended: progress.cursor >= progress.totalChunks }
           }
-          const progress = scripts.inspect({ script, state: draft.scriptState, request: { kind: 'progress' } })
-          scriptProjection = { cursor: progress.cursor, ended: progress.cursor >= progress.totalChunks }
+          draft.candidates = {
+            messageId: str(input.messageId), choices, generatedAt: now(), script: scriptProjection,
+            traceSessionId, traceSessionIds: traceSessionId === '' ? [] : [traceSessionId],
+            traceMode: 'continuable', basedOn: taskRun.basedOn
+          }
+          savedCandidates = draft.candidates
         }
-        draft.candidates = {
-          messageId: str(input.messageId), choices, generatedAt: now(), script: scriptProjection,
-          traceSessionId, traceSessionIds: traceSessionId === '' ? [] : [traceSessionId],
-          traceMode: 'continuable', basedOn: taskRun.basedOn
-        }
-        savedCandidates = draft.candidates
+      })
+      if (completed.status === 'missing') throw new Error('聊天不存在: ' + chat.id)
+      if (completed.status !== 'committed') throw new Error('剧情状态已变化，本次候选项已作废，请重新生成')
+      return {
+        messageId: savedCandidates.messageId,
+        choices: savedCandidates.choices,
+        generatedAt: savedCandidates.generatedAt,
+        traceSessionId: savedCandidates.traceSessionId,
+        traceSessionIds: savedCandidates.traceSessionIds,
+        traceMode: savedCandidates.traceMode
       }
-    })
-    if (completed.status === 'missing') throw new Error('聊天不存在: ' + chat.id)
-    if (completed.status !== 'committed') throw new Error('剧情状态已变化，本次候选项已作废，请重新生成')
-    return {
-      messageId: savedCandidates.messageId,
-      choices: savedCandidates.choices,
-      generatedAt: savedCandidates.generatedAt,
-      traceSessionId: savedCandidates.traceSessionId,
-      traceSessionIds: savedCandidates.traceSessionIds,
-      traceMode: savedCandidates.traceMode
     }
+    return Object.freeze({ operationId: taskRun.operationId, basedOn: taskRun.basedOn, execute })
+  }
+
+  async function generate(input) {
+    const prepared = await prepare(input)
+    return await prepared.execute()
   }
 
   async function find(input) {
@@ -368,5 +379,5 @@ export function createCandidateGenerator(options) {
     return { messageId: str(chat.candidates.messageId), choices, generatedAt: Number(chat.candidates.generatedAt) || 0, traceSessionId, traceSessionIds, traceMode: chat.candidates.traceMode === 'continuable' ? 'continuable' : 'one-shot' }
   }
 
-  return Object.freeze({ generate, find })
+  return Object.freeze({ prepare, generate, find })
 }

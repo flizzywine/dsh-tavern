@@ -1713,6 +1713,17 @@ export async function apply(ctx) {
       case 'setPlayerName': return { playerName: await setPlayerName(args && args.sessionId, args && args.userName) }
       case 'ensureOpening': return { view: await ensureNativeOpening(args && args.sessionId) }
       case 'getChoices': return { candidates: await candidateGenerator.find({ sessionId: args && args.sessionId, messageId: args && args.messageId }) }
+      case 'startChoices': {
+        const prepared = await candidateGenerator.prepare({
+          sessionId: args && args.sessionId,
+          messageId: args && args.messageId,
+          guidance: args && args.guidance
+        })
+        setTimeout(function () {
+          void prepared.execute().catch(function () {})
+        }, 0)
+        return { operationId: prepared.operationId, basedOn: prepared.basedOn }
+      }
       case 'generateChoices': {
         const candidates = await candidateGenerator.generate({ sessionId: args && args.sessionId, messageId: args && args.messageId, guidance: args && args.guidance })
         return { candidates: candidates }

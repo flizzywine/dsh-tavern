@@ -379,7 +379,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			function initialState() { return { phase: "idle", view: null, error: "", updatedAt: 0 }; }
 			function recordFor(sessionId) {
 				const id = String(sessionId || "");
-				if (!records.has(id)) records.set(id, { id: id, state: initialState(), listeners: new Set(), timer: null, loading: false, reloadRequested: false });
+				if (!records.has(id)) records.set(id, { id: id, state: initialState(), listeners: new Set(), timer: null, loading: false, reloadRequested: false, optimisticBusy: false });
 				return records.get(id);
 			}
 			function publish(record, state) {
@@ -421,6 +421,11 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					try { result = await load; }
 					finally { if (deadlineTimer !== null) cancelTimer(deadlineTimer); }
 					const view = result && result.view ? result.view : null;
+					if (record.optimisticBusy && !shouldPoll(view)) {
+						schedule(record, 200);
+						return;
+					}
+					if (shouldPoll(view)) record.optimisticBusy = false;
 					publish(record, { phase: "ready", view: view, error: "", updatedAt: Date.now() });
 					if (shouldPoll(view)) schedule(record, 200);
 				} catch (error) {
@@ -442,8 +447,16 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				getSnapshot: function (sessionId) { return recordFor(sessionId).state; },
 				setView: function (sessionId, view) {
 					const record = recordFor(sessionId);
+					record.optimisticBusy = shouldPoll(view);
 					publish(record, { phase: "ready", view: view, error: "", updatedAt: Date.now() });
 					if (shouldPoll(view)) schedule(record, 0);
+					let released = false;
+					return function () {
+						if (released) return;
+						released = true;
+						record.optimisticBusy = false;
+						invalidate(sessionId);
+					};
 				},
 				subscribe: function (sessionId, listener) {
 					const record = recordFor(sessionId);
@@ -2096,6 +2109,54 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			return Object.freeze({ reconcile: reconcile, restore: restore, hasPendingDraft: hasPendingDraft });
 		}
 
+		function createCandidateGenerationCoordinator(options) {
+			if (!options || typeof options.start !== "function" || typeof options.activity !== "function" || typeof options.read !== "function" || typeof options.projectBusy !== "function") {
+				throw new Error("Candidate Generation Coordinator 缺少 adapter");
+			}
+			const sleep = typeof options.sleep === "function" ? options.sleep : function (delay) { return new Promise(function (resolve) { window.setTimeout(resolve, delay); }); };
+			const queryTimeoutMs = Number(options.queryTimeoutMs) > 0 ? Number(options.queryTimeoutMs) : 0;
+			async function query(load) {
+				if (queryTimeoutMs === 0) return await load({});
+				const controller = new AbortController();
+				let timer = null;
+				try {
+					return await Promise.race([
+						load({ signal: controller.signal }),
+						new Promise(function (_resolve, reject) {
+							timer = window.setTimeout(function () { controller.abort(); reject(new Error("candidate coordination probe expired")); }, queryTimeoutMs);
+						})
+					]);
+				} finally { if (timer !== null) window.clearTimeout(timer); }
+			}
+			async function run(input) {
+				const releaseBusy = options.projectBusy(input.sessionId);
+				let started;
+				try { started = await options.start(input); }
+				catch (error) { releaseBusy(); throw error; }
+				releaseBusy();
+				const operationId = String(started && started.operationId || "");
+				if (!operationId) throw new Error("候选 Operation 启动后没有返回标识");
+				for (;;) {
+					let activity = null;
+					try { activity = await query(function (request) { return options.activity(input.sessionId, request); }); }
+					catch (_error) { await sleep(300); continue; }
+					if (String(activity && activity.operationId || "") === operationId && activity.busy !== true) {
+						if (typeof options.projectTerminal === "function") options.projectTerminal(input.sessionId, activity);
+						if (activity.phase === "failed") throw new Error("候选 Agent 生成失败，请查看后台轨迹");
+						let result = null;
+						for (;;) {
+							try { result = await query(function (request) { return options.read(input, request); }); break; }
+							catch (_error) { await sleep(300); }
+						}
+						if (!result || !result.candidates) throw new Error("候选 Agent 已完成，但没有提交候选项");
+						return result;
+					}
+					await sleep(250);
+				}
+			}
+			return Object.freeze({ run: run });
+		}
+
 		function createPlayControlsFeatureModule() {
 			function TavernActivityGate(props) {
 				const revision = props.useSession(function (snapshot) {
@@ -2389,6 +2450,20 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				error: ""
 			};
 		}
+		const candidateGenerationCoordinator = createCandidateGenerationCoordinator({
+			start: function (input) { return rpc("startChoices", { messageId: input.messageId, guidance: input.guidance || "" }, input.sessionId); },
+			activity: function (sessionId, request) { return rpc("getSessionActivity", {}, sessionId, request).then(function (result) { return result.activity || null; }); },
+			read: function (input, request) { return rpc("getChoices", { messageId: input.messageId }, input.sessionId, request); },
+			projectBusy: function (sessionId) {
+				return tavernActivity.setView(sessionId, { phase: "running", busy: true, role: "candidate", updatedAt: Date.now() });
+			},
+			projectTerminal: function (sessionId, activity) { tavernActivity.setView(sessionId, activity); },
+			queryTimeoutMs: 2000
+		});
+		async function generateCandidateChoices(sessionId, messageId, guidance) {
+			try { return await candidateGenerationCoordinator.run({ sessionId: sessionId, messageId: messageId, guidance: guidance || "" }); }
+			finally { liveTavernView.invalidate(sessionId); }
+		}
 
 		const regenPanel = { value: null, listeners: new Set() };
 		function setRegenPanel(value) {
@@ -2622,12 +2697,10 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 							return;
 						}
 					}
-					const request = rpc("generateChoices", { messageId: props.messageId, guidance: guidance || "" }, props.sessionId);
-					tavernActivity.setView(props.sessionId, { phase: "running", busy: true, role: "candidate", updatedAt: Date.now() });
-					const result = await request;
+					const result = await generateCandidateChoices(props.sessionId, props.messageId, guidance);
 					setCandidatePanel(readyCandidatePanel(props.sessionId, props.messageId, result.candidates));
 				} catch (err) { tavernErrorHub.report("候选项生成", err); setCandidatePanel({ sessionId: props.sessionId, messageId: props.messageId, phase: "error", choices: [], error: String(err && err.message || err) }); }
-				finally { tavernActivity.invalidate(props.sessionId); liveTavernView.invalidate(props.sessionId); setBusy(false); }
+				finally { setBusy(false); }
 			}
 			async function rollback() {
 				if (rolling) return;
@@ -2801,7 +2874,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				const messageId = panel.messageId;
 				setCandidateGuidePanel({ sessionId: props.sessionId, messageId: messageId, phase: "loading", error: "", previous: panel.previous });
 				try {
-					const result = await rpc("generateChoices", { messageId: messageId, guidance: guide }, props.sessionId);
+					const result = await generateCandidateChoices(props.sessionId, messageId, guide);
 					setCandidatePanel(readyCandidatePanel(props.sessionId, messageId, result.candidates));
 					setCandidateGuidePanel(null);
 				} catch (err) {
@@ -3023,6 +3096,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		exports.describeTavernActivity = describeTavernActivity;
 		exports.createComposerGate = createComposerGate;
 		exports.createRuntimeConnectionCoordinator = createRuntimeConnectionCoordinator;
+		exports.createCandidateGenerationCoordinator = createCandidateGenerationCoordinator;
 		exports.createConversationLifecycleModule = createConversationLifecycleModule;
 		exports.createResourcesLibraryFeatureModule = createResourcesLibraryFeatureModule;
 		exports.createPresetLibraryFeatureModule = createPresetLibraryFeatureModule;

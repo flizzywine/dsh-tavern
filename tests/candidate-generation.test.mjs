@@ -133,11 +133,26 @@ test('Story Timeline 后台 operation 运行时立即拒绝候选生成，不相
   assert.equal(run.modelCalls(), 0)
 })
 
+test('候选 prepare 只持久化 Operation，模型 Promise 由响应结束后再创建', async () => {
+  const run = harness({ outputs: [JSON.stringify({ choices: storyChoices })] })
+
+  const prepared = await run.candidates.prepare({ sessionId: 'session-1', messageId: 'message-prepared' })
+  assert.match(prepared.operationId, /^operation-/)
+  assert.equal(run.modelCalls(), 0)
+
+  const result = await prepared.execute()
+  assert.equal(run.modelCalls(), 1)
+  assert.equal(result.messageId, 'message-prepared')
+})
+
 test('自由故事只保存完整的 4 action + 1 scene', async () => {
   const truncatedButRecoverable = '{"choices":[' + storyChoices.map((item) => JSON.stringify(item)).join(',')
   const run = harness({ outputs: [truncatedButRecoverable] })
+  let started = null
 
-  const result = await run.candidates.generate({ sessionId: 'session-1', messageId: 'message-1', guidance: '多写动作' })
+  const result = await run.candidates.generate({ sessionId: 'session-1', messageId: 'message-1', guidance: '多写动作', onStarted(operation) { started = operation } })
+  assert.match(started.operationId, /^operation-/)
+  assert.equal(started.basedOn.revision, 0)
   assert.equal(run.modelCalls(), 1)
   assert.equal(result.choices.length, 5)
   assert.equal(result.choices.filter((item) => item.type === 'action').length, 4)
