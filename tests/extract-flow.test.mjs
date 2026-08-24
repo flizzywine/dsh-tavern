@@ -401,7 +401,7 @@ test('酒馆状态页注册到 Better Sidebar，不再接管 DSH details', () =>
   assert.doesNotMatch(clientSource, /slots\.inject\("details"|openDetails|ensureDetailsOpen/)
 })
 
-test('左侧栏提供一键更新并展示 CLI 与 Desktop 的不同完成提示', () => {
+test('左侧栏提供一键更新并展示 CLI、Desktop 与 Android 的不同提示', () => {
   const sidebar = between(clientSource, 'function TavernSidebar', 'function TavernResourcesTab')
 
   assert.match(sidebar, /call\("getUpdateStatus"/)
@@ -410,6 +410,8 @@ test('左侧栏提供一键更新并展示 CLI 与 Desktop 的不同完成提示
   assert.match(sidebar, /更新期间会短暂断开/)
   assert.match(sidebar, /请重启 DSH Desktop/)
   assert.match(sidebar, /更新完成，请刷新页面/)
+  assert.match(sidebar, /Android 版/)
+  assert.match(sidebar, /3088/)
   assert.match(sidebar, /未知方法:\s*getUpdateStatus/)
   assert.match(sidebar, /请重启 DSH Desktop 以加载新版插件/)
   assert.match(sidebar, /重启 Desktop 后可用/)

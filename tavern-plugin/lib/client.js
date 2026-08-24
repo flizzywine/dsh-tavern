@@ -1205,10 +1205,18 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				: updateStatus.phase === "restart-required"
 					? "请重启 DSH Desktop 以加载新版插件。"
 				: updateStatus.phase === "completed"
-					? (updateStatus.host === "desktop" ? "更新完成，请重启 DSH Desktop。" : "更新完成，请刷新页面。")
+					? (updateStatus.host === "desktop"
+						? "更新完成，请重启 DSH Desktop。"
+						: updateStatus.host === "android"
+							? "Android 更新完成，3088 服务已重启；如移动端界面未更新，请重启 DSHA。"
+							: "更新完成，请刷新页面。")
 					: updateStatus.phase === "failed"
 						? (updateStatus.error || "更新失败，请稍后重试。")
-						: (updateStatus.host === "desktop" ? "Desktop 版 · 仅更新 dsh-tavern" : "命令行版 · 仅更新 dsh-tavern");
+						: (updateStatus.host === "desktop"
+							? "Desktop 版 · 仅更新 dsh-tavern"
+							: updateStatus.host === "android"
+								? "Android 版 · 更新原克隆仓库并重启 3088"
+								: "命令行版 · 仅更新 dsh-tavern");
 			return h(React.Fragment, null, h(TavernErrorCenter), h("div", { className: "dsh-tavern-sidebar", style: { position: "relative", width: props.embedded ? "100%" : props.width + "px" } },
 				h("div", { className: "dsh-tavern-side-head" }, h("div", { className: "dsh-tavern-side-brand" }, "🍺 DSH Tavern"), props.embedded ? null : h("button", { className: "dsh-tavern-side-icon", title: "收起侧栏", onClick: props.toggleSidebar }, "◧")),
 				h("div", { className: "dsh-tavern-mode-switch" }, h("button", { className: uiMode === "play" ? "active" : "", onClick: function () { switchMode("play"); } }, "游玩"), h("button", { className: uiMode === "card" ? "active" : "", onClick: function () { switchMode("card"); } }, "卡片")),

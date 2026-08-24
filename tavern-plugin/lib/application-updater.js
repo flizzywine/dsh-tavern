@@ -8,7 +8,8 @@ const STATUS_FILE = 'update-status.json'
 const RUNNING_TIMEOUT_MS = 15 * 60 * 1000
 
 function installHostOf(manifest) {
-  return manifest?.dshTavern?.host === 'desktop' ? 'desktop' : 'cli'
+  const host = manifest?.dshTavern?.host
+  return host === 'desktop' || host === 'android' ? host : 'cli'
 }
 
 export function createApplicationUpdater(options) {
@@ -23,7 +24,7 @@ export function createApplicationUpdater(options) {
   const store = createProfileDataStore({ dataRoot })
 
   async function host() {
-    if (runtimeHost === 'cli' || runtimeHost === 'desktop') return runtimeHost
+    if (runtimeHost === 'cli' || runtimeHost === 'desktop' || runtimeHost === 'android') return runtimeHost
     try {
       return installHostOf(JSON.parse(await readFile(profileManifest, 'utf8')))
     } catch (error) {

@@ -15,6 +15,7 @@ import {
   needsFrontendBootstrap,
   parseInstallHost,
   parseUpdateOptions,
+  resolveUpdateProgram,
   renderWindowsLauncher,
   restartBrowserTarget,
   resolveServicePort,
@@ -35,9 +36,10 @@ test('Windows launcher quotes paths containing spaces and forwards arguments', (
   )
 })
 
-test('安装宿主默认使用 CLI，并明确接受 Desktop', () => {
+test('安装宿主默认使用 CLI，并明确接受 Desktop 与 Android', () => {
   assert.equal(parseInstallHost([]), 'cli')
   assert.equal(parseInstallHost(['--host', 'desktop']), 'desktop')
+  assert.equal(parseInstallHost(['--host', 'android']), 'android')
   assert.equal(parseInstallHost(['--host=cli']), 'cli')
   assert.throws(() => parseInstallHost(['--host', 'unknown']), /不支持的安装宿主/)
   assert.throws(() => parseInstallHost(['--unknown']), /无法识别的安装参数/)
@@ -85,9 +87,23 @@ test('UI 更新参数明确传递宿主、状态文件和启动延迟', () => {
     statusFile: '/tmp/update.json',
     delay: 800,
   })
+  assert.deepEqual(parseUpdateOptions(['--host=android']), { host: 'android', statusFile: '', delay: 0 })
   assert.deepEqual(parseUpdateOptions([]), { host: 'cli', statusFile: '', delay: 0 })
   assert.throws(() => parseUpdateOptions(['--host', 'other']), /不支持的安装宿主/)
   assert.throws(() => parseUpdateOptions(['--status-file', 'relative.json']), /绝对路径/)
+})
+
+test('Android UI 更新选择专用更新脚本，CLI 与 Desktop 保持原安装器', () => {
+  assert.deepEqual(resolveUpdateProgram('android', 'linux', '/app/dsh-tavern'), {
+    script: path.join('/app/dsh-tavern', 'android', 'update.sh'),
+    command: 'bash',
+    args: [path.join('/app/dsh-tavern', 'android', 'update.sh')],
+  })
+  assert.deepEqual(resolveUpdateProgram('cli', 'linux', '/app/dsh-tavern'), {
+    script: path.join('/app/dsh-tavern', 'install.sh'),
+    command: 'sh',
+    args: [path.join('/app/dsh-tavern', 'install.sh')],
+  })
 })
 
 test('Windows installer compares Node versions without native argument quoting', () => {
@@ -242,8 +258,8 @@ test('一键安装直接启动 Tavern，不通过包管理器托管后台进程'
   assert.doesNotMatch(windowsInstaller, /& \$PnpmCommand --dir \$AppDir run start:tavern/)
 })
 
-test('命令行启动器向共享 Profile 标记当前运行宿主', () => {
-  assert.match(launcherSource, /DSH_TAVERN_RUNTIME_HOST: 'cli'/)
+test('启动器保留显式 Android 运行宿主，普通命令行仍默认 CLI', () => {
+  assert.match(launcherSource, /DSH_TAVERN_RUNTIME_HOST: process\.env\.DSH_TAVERN_RUNTIME_HOST \|\| 'cli'/)
 })
 
 test('共享 Profile 不固定端口，CLI Adapter 启动时显式使用 3081', () => {

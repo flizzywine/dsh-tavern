@@ -60,7 +60,7 @@ WEB_PROFILE_DIR="${DSH_ROOT}/profiles/${WEB_PROFILE_NAME}"
 
 printf '\n正在安装 dsh-tavern 核心依赖……\n'
 pnpm --dir "${REPO_ROOT}" install --frozen-lockfile
-DSH_HOME="${DSH_ROOT}" node "${REPO_ROOT}/bin/dsh-tavern.mjs" install --host cli
+DSH_HOME="${DSH_ROOT}" node "${REPO_ROOT}/bin/dsh-tavern.mjs" install --host android
 
 printf '\n正在把安卓插件加入 tavern 与 %s Profile……\n' "${WEB_PROFILE_NAME}"
 node "${SCRIPT_DIR}/configure-profiles.mjs" "${REPO_ROOT}" "${TAVERN_PROFILE_DIR}" "${WEB_PROFILE_DIR}"
@@ -72,6 +72,7 @@ dsh --profile "${WEB_PROFILE_NAME}" --dump-config >/dev/null
 
 printf '\n正在启动 3088 酒馆服务……\n'
 DSH_HOME="${DSH_ROOT}" DSH_TAVERN_PORT="${TAVERN_PORT}" \
+  DSH_TAVERN_RUNTIME_HOST="android" \
   node "${REPO_ROOT}/bin/dsh-tavern.mjs" start
 
 probe_port "${TAVERN_PORT}" || fail "3088 端口未能启动，请查看 ${DSH_ROOT}/logs/tavern.log。"

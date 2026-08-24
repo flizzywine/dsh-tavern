@@ -9,6 +9,7 @@ import { configureAndroidProfiles } from '../android/configure-profiles.mjs'
 
 const root = new URL('../', import.meta.url)
 const installer = await readFile(new URL('../android/install.sh', import.meta.url), 'utf8')
+const updater = await readFile(new URL('../android/update.sh', import.meta.url), 'utf8')
 const entryClient = await readFile(new URL('../android/dsh-tavern-entry/client.js', import.meta.url), 'utf8')
 const entryManifest = JSON.parse(await readFile(new URL('../android/dsh-tavern-entry/package.json', import.meta.url), 'utf8'))
 const mobileManifest = JSON.parse(await readFile(new URL('../android/dsh-client-ui-mobile-adapt/package.json', import.meta.url), 'utf8'))
@@ -51,9 +52,22 @@ test('Android 安装脚本增量配置两个 Profile，失败不会伪装成成�
   assert.match(installer, /configure-profiles\.mjs/)
   assert.match(installer, /dsh-tavern-entry/)
   assert.match(installer, /dsh-client-ui-mobile-adapt/)
+  assert.match(installer, /install --host android/)
+  assert.match(installer, /DSH_TAVERN_RUNTIME_HOST="android"/)
   assert.doesNotMatch(installer, /dsh-cost-meter/)
   assert.doesNotMatch(installer, /rm -rf|\|\| true/)
   assert.doesNotMatch(installer, /tavern-plugin\/lib\/client\.js/)
+})
+
+test('Android 更新只快进原克隆仓库，并重新执行完整 Android 安装', () => {
+  assert.match(updater, /^#!\/usr\/bin\/env bash\nset -euo pipefail/m)
+  assert.match(updater, /DSH_TAVERN_SOURCE_ROOT/)
+  assert.match(updater, /git -C "\$\{REPO_ROOT\}" fetch origin main/)
+  assert.match(updater, /merge-base --is-ancestor HEAD origin\/main/)
+  assert.match(updater, /merge --ff-only origin\/main/)
+  assert.match(updater, /bin\/dsh-tavern\.mjs" stop/)
+  assert.match(updater, /android\/install\.sh/)
+  assert.doesNotMatch(updater, /reset --hard|git clean|git checkout/)
 })
 
 test('Android Profile 配置保留已有内容并幂等加入所需插件', async (t) => {

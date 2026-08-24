@@ -25,7 +25,7 @@ import { parseDocument } from 'yaml'
 import { migrateLegacyTavernData, resolveTavernDataRoot } from '../tavern-plugin/lib/domain/tavern-data.js'
 
 const PROFILE = 'tavern'
-const INSTALL_HOSTS = new Set(['cli', 'desktop'])
+const INSTALL_HOSTS = new Set(['cli', 'desktop', 'android'])
 const CLI_HOST = '127.0.0.1'
 const CLI_PORT = resolveServicePort(process.env.DSH_TAVERN_PORT)
 const SCRIPT_PATH = fileURLToPath(import.meta.url)
@@ -510,6 +510,8 @@ async function installProfile(host = 'cli') {
   console.log(`已与当前 DSH ${dshVersion} 对齐依赖。`)
   if (host === 'desktop') {
     console.log('请重启 DSH Desktop，然后从托盘的 Profile 菜单切换到 tavern。')
+  } else if (host === 'android') {
+    console.log('Android Tavern Profile 已配置。')
   } else {
     console.log('启动：dsh-tavern start')
   }
@@ -672,7 +674,7 @@ async function startService() {
     child = spawn(dsh, ['--profile', PROFILE, '--host', CLI_HOST, '--port', String(CLI_PORT), '--no-open'], {
       cwd: SOURCE_ROOT,
       detached: true,
-      env: { ...process.env, DSH_TAVERN_RUNTIME_HOST: 'cli' },
+      env: { ...process.env, DSH_TAVERN_RUNTIME_HOST: process.env.DSH_TAVERN_RUNTIME_HOST || 'cli' },
       shell: process.platform === 'win32',
       windowsHide: true,
       stdio: ['ignore', logDescriptor, logDescriptor],
@@ -708,24 +710,23 @@ async function updateApplication(options = { host: 'cli', statusFile: '', delay:
   if (options.delay > 0) await sleep(options.delay)
   console.log('正在更新 DSH Tavern……')
   writeUpdateStatus(options.statusFile, { phase: 'running', host: options.host, startedAt: Date.now() })
-  const extension = process.platform === 'win32' ? 'ps1' : 'sh'
-  const installer = path.join(SOURCE_ROOT, `install.${extension}`)
+  const program = resolveUpdateProgram(options.host, process.platform, SOURCE_ROOT)
+  const installer = program.script
   if (!existsSync(installer)) throw new Error(`当前安装缺少更新程序：${installer}`)
+  const extension = path.extname(installer).slice(1) || 'sh'
   const temporary = path.join(os.tmpdir(), `dsh-tavern-update-${process.pid}.${extension}`)
-  if (process.platform === 'win32') {
+  if (program.command === 'powershell.exe') {
     writeFileSync(temporary, encodeWindowsPowerShellScript(readFileSync(installer, 'utf8')), 'utf8')
   } else {
     copyFileSync(installer, temporary)
   }
   try {
-    const command = process.platform === 'win32' ? 'powershell.exe' : 'sh'
-    const args = process.platform === 'win32'
-      ? ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', temporary]
-      : [temporary]
+    const command = program.command
+    const args = program.args.map((argument) => argument === installer ? temporary : argument)
     const capture = options.statusFile !== ''
     const result = spawnSync(command, args, {
       encoding: capture ? 'utf8' : undefined,
-      env: { ...process.env, DSH_TAVERN_HOST: options.host },
+      env: { ...process.env, DSH_TAVERN_HOST: options.host, DSH_TAVERN_SOURCE_ROOT: SOURCE_ROOT },
       stdio: capture ? 'pipe' : 'inherit',
     })
     if (result.error) throw new Error(`无法运行更新程序：${result.error.message}`)
@@ -742,8 +743,21 @@ async function updateApplication(options = { host: 'cli', statusFile: '', delay:
   }
 }
 
+export function resolveUpdateProgram(host, platform = process.platform, sourceRoot = SOURCE_ROOT) {
+  if (host === 'android') {
+    const script = path.join(sourceRoot, 'android', 'update.sh')
+    return { script, command: 'bash', args: [script] }
+  }
+  if (platform === 'win32') {
+    const script = path.join(sourceRoot, 'install.ps1')
+    return { script, command: 'powershell.exe', args: ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script] }
+  }
+  const script = path.join(sourceRoot, 'install.sh')
+  return { script, command: 'sh', args: [script] }
+}
+
 function usage() {
-  console.log('用法：dsh-tavern install [--host cli|desktop] | {update|start|stop|restart|status}')
+  console.log('用法：dsh-tavern install [--host cli|desktop|android] | {update|start|stop|restart|status}')
 }
 
 async function main() {

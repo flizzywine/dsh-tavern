@@ -77,3 +77,31 @@ test('当前 CLI 运行方式优先于共享 Profile 的 Desktop 安装记录', 
     await rm(root, { recursive: true, force: true })
   }
 })
+
+test('Android 安装记录让 UI 更新任务沿用 Android 宿主', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-updater-'))
+  try {
+    const dataRoot = path.join(root, 'profile-data/tavern/data')
+    const profileManifest = path.join(root, 'profiles/tavern/package.json')
+    await mkdir(path.dirname(profileManifest), { recursive: true })
+    await writeFile(profileManifest, JSON.stringify({ dshTavern: { host: 'android' } }))
+    const calls = []
+    const child = { once(event, listener) { if (event === 'spawn') queueMicrotask(listener); return this }, unref() {} }
+    const updater = createApplicationUpdater({
+      dataRoot,
+      sourceRoot: '/storage/emulated/0/dsh-tavern',
+      dshHome: root,
+      execPath: '/runtime/node',
+      spawnProcess(command, args) { calls.push({ command, args }); return child },
+      now: () => 456,
+    })
+
+    assert.deepEqual(await updater.status(), { phase: 'idle', host: 'android' })
+    assert.deepEqual(await updater.start(), { phase: 'running', host: 'android', startedAt: 456 })
+    assert.deepEqual(calls[0].args.slice(0, 4), [
+      '/storage/emulated/0/dsh-tavern/bin/dsh-tavern.mjs', 'update', '--host', 'android',
+    ])
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
