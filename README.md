@@ -235,6 +235,6 @@ dsh-tavern update
 
 dsh-tavern 是运行在 DSH 上的插件项目，不包含 DSH 本体。DSH 本体可以按其自身方式正常更新，通常不会影响本项目的使用，除非 DSH 进行了不兼容的破坏性更新。更新 DSH 本体不需要运行 `dsh-tavern update`；这个命令只用于更新 dsh-tavern 的插件内容。Desktop 版不使用这些启停命令，由 DSH Desktop 统一管理。
 
-用户数据统一保存在 DSH 的 Tavern Profile 数据目录中，不再跟随源码文件夹。旧版本升级时会自动备份并迁移原 `data` 目录，因此更换安装目录、切换 Desktop/命令行版或使用 Git worktree，不会再产生彼此独立的对话库。
+用户数据统一保存在 DSH 的 Tavern Profile 数据目录中。
 
 # 
