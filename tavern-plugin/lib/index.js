@@ -826,10 +826,16 @@ export async function apply(ctx) {
   async function sessionActivity(sessionId) {
     const chat = await chatForSession(sessionId)
     if (chat === undefined) return null
+    const activity = backgroundTasks.activity(chat)
     return {
       chatId: chat.id,
-      settleStatus: chat.settleStatus || 'idle',
-      updatedAt: chat.updatedAt || 0
+      phase: activity.phase,
+      busy: activity.busy,
+      role: activity.role,
+      operationId: activity.operationId,
+      basedOn: activity.basedOn,
+      settleStatus: activity.busy ? 'running' : (activity.phase === 'failed' && activity.role === 'settlement' ? 'error' : 'done'),
+      updatedAt: activity.updatedAt || chat.updatedAt || 0
     }
   }
   async function sessionView(sessionId) {

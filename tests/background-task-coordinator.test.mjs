@@ -27,7 +27,7 @@ function coordinatorHarness() {
       async writeChat(chat) { current = chat; writes.push(chat) }
     }
   })
-  return { coordinator, current: function () { return current }, writes }
+  return { coordinator, timeline, current: function () { return current }, writes }
 }
 
 test('后台任务通过一个 interface 原子开始、重载并提交时间线结果', async () => {
@@ -46,6 +46,37 @@ test('后台任务通过一个 interface 原子开始、重载并提交时间线
   assert.equal(result.chat.preparedWorldBookContext, '钟楼只在午夜开放。')
   assert.equal(harness.writes.length, 2)
   assert.equal(harness.current().timeline.participants.background.sessionId, 'background-1')
+})
+
+test('后台 activity 只由 Story Timeline operation 推导，不相信重复的 settleStatus', async () => {
+  const harness = coordinatorHarness()
+  const task = await harness.coordinator.begin(Object.assign(harness.current(), { settleStatus: 'done' }), 'worldbook')
+
+  assert.deepEqual(harness.coordinator.activity(task.chat), {
+    phase: 'running', busy: true, role: 'worldbook', operationId: task.operationId,
+    basedOn: task.basedOn, updatedAt: 1003
+  })
+
+  const completed = await task.commit({ stateChanged: false })
+  assert.deepEqual(harness.coordinator.activity(completed.chat), {
+    phase: 'idle', busy: false, role: 'worldbook', operationId: task.operationId,
+    basedOn: task.basedOn, updatedAt: 1003
+  })
+})
+
+test('同一 Tavern Chat 的后台 operation 严格串行，不会用新任务取消旧任务', async () => {
+  const harness = coordinatorHarness()
+  const first = await harness.coordinator.begin(harness.current(), 'worldbook')
+
+  await assert.rejects(
+    harness.coordinator.begin(first.chat, 'settlement'),
+    function (error) { return error && error.code === 'BACKGROUND_BUSY' }
+  )
+
+  const operations = Object.values(harness.timeline.inspect({ chat: first.chat }).operations)
+  assert.equal(operations.length, 1)
+  assert.equal(operations[0].status, 'running')
+  assert.equal(operations[0].role, 'worldbook')
 })
 
 test('后台模型失败由 coordinator 关闭 operation，任务 module 只负责上报失败', async () => {

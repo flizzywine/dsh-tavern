@@ -112,17 +112,22 @@ test('开场白后的首次候选会先等待完整后台结算，再规划候�
   assert.deepEqual(order, ['settlement', 'candidate'])
 })
 
-test('后台结算运行时立即拒绝候选生成，不等待也不调用模型', async () => {
+test('Story Timeline 后台 operation 运行时立即拒绝候选生成，不相信重复的 settleStatus', async () => {
   let waits = 0
   const run = harness({
     outputs: [JSON.stringify({ choices: storyChoices })],
-    initialSettleStatus: 'running',
+    initialSettleStatus: 'done',
     async waitUntilSettled() { waits++ }
+  })
+  const timeline = createStoryTimeline({ id: (prefix) => prefix + '-busy', now: () => 123456 })
+  run.mutateChat(function (chat) {
+    const begun = timeline.apply({ chat, intent: { kind: 'agent.begin', role: 'settlement' } })
+    Object.assign(chat, begun.chat)
   })
 
   await assert.rejects(
     run.candidates.generate({ sessionId: 'session-1', messageId: 'message-running' }),
-    /后台结算尚未完成/
+    /后台 Agent 正在执行 settlement/
   )
   assert.equal(waits, 0)
   assert.equal(run.modelCalls(), 0)

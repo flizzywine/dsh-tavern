@@ -230,7 +230,8 @@ test('后台结算期间禁用候选项按钮，完成后自动恢复', () => {
   const activity = between(serverSource, 'async function sessionActivity', 'async function sessionView')
 
   assert.match(serverSource, /case 'getSessionActivity': return \{ activity: await sessionActivity/)
-  assert.match(activity, /settleStatus: chat\.settleStatus \|\| 'idle'/)
+  assert.match(activity, /const activity = backgroundTasks\.activity\(chat\)/)
+  assert.match(activity, /settleStatus: activity\.busy \? 'running'/)
   assert.doesNotMatch(activity, /view\(|readChatCard|projectRuntimeReplyHistory/)
   assert.match(action, /useSettlementActivity\(props\.sessionId/)
   assert.match(action, /settlementStatus === "running"/)

@@ -27,13 +27,59 @@ export function shouldStartSettlementAfterTurnEnd(chat, reason) {
 export function createBackgroundTaskCoordinator(options = {}) {
   const store = options.store
   const timeline = options.timeline
+  const mutationTails = new Map()
   if (!store || typeof store.readChat !== 'function' || typeof store.writeChat !== 'function' || !timeline) {
     throw new Error('Background Task Coordinator 缺少存储或时间线 adapter')
   }
 
+  function serialize(chatId, work) {
+    const id = str(chatId)
+    const previous = mutationTails.get(id) || Promise.resolve()
+    const current = previous.catch(function () {}).then(work)
+    mutationTails.set(id, current)
+    return current.finally(function () {
+      if (mutationTails.get(id) === current) mutationTails.delete(id)
+    })
+  }
+
+  function activity(chat) {
+    const inspected = timeline.inspect({ chat })
+    const operations = Object.values(inspected.operations || {}).filter(function (operation) {
+      return operation && operation.kind === 'agent'
+    }).sort(function (left, right) {
+      return (Number(right.createdAt) || 0) - (Number(left.createdAt) || 0)
+    })
+    const running = operations.find(function (operation) { return operation.status === 'running' })
+    const current = running || operations[0]
+    if (current === undefined) {
+      return { phase: 'idle', busy: false, role: '', operationId: '', basedOn: null, updatedAt: Number(inspected.updatedAt) || 0 }
+    }
+    return {
+      phase: running !== undefined ? 'running' : (current.status === 'failed' ? 'failed' : 'idle'),
+      busy: running !== undefined,
+      role: str(current.role),
+      operationId: str(current.id),
+      basedOn: current.basedOn || null,
+      updatedAt: Number(current.completedAt) || Number(current.createdAt) || Number(inspected.updatedAt) || 0
+    }
+  }
+
   async function begin(chat, role) {
-    const begun = timeline.apply({ chat, intent: { kind: 'agent.begin', role } })
-    await store.writeChat(begun.chat)
+    const chatId = str(chat && chat.id)
+    const begun = await serialize(chatId, async function () {
+      const latest = await store.readChat(chatId)
+      const source = latest === undefined ? chat : latest
+      const currentActivity = activity(source)
+      if (currentActivity.busy) {
+        const error = new Error('后台 Agent 正在执行 ' + currentActivity.role + '，请等待完成')
+        error.code = 'BACKGROUND_BUSY'
+        error.activity = currentActivity
+        throw error
+      }
+      const next = timeline.apply({ chat: source, intent: { kind: 'agent.begin', role } })
+      await store.writeChat(next.chat)
+      return next
+    })
     const task = {
       chat: begun.chat,
       operationId: begun.value.operationId,
@@ -50,21 +96,23 @@ export function createBackgroundTaskCoordinator(options = {}) {
         }
       },
       async commit(input = {}) {
-        const latest = await store.readChat(begun.chat.id)
-        if (latest === undefined) return { chat: null, status: 'missing' }
-        const completed = timeline.complete({
-          chat: latest,
-          operationId: begun.value.operationId,
-          basedOn: begun.value.basedOn,
-          outcome: {
-            status: input.status || 'success',
-            stateChanged: input.stateChanged === true,
-            participant: input.participant || null
-          },
-          apply: input.apply
+        return await serialize(begun.chat.id, async function () {
+          const latest = await store.readChat(begun.chat.id)
+          if (latest === undefined) return { chat: null, status: 'missing' }
+          const completed = timeline.complete({
+            chat: latest,
+            operationId: begun.value.operationId,
+            basedOn: begun.value.basedOn,
+            outcome: {
+              status: input.status || 'success',
+              stateChanged: input.stateChanged === true,
+              participant: input.participant || null
+            },
+            apply: input.apply
+          })
+          await store.writeChat(completed.chat)
+          return { chat: completed.chat, status: completed.value.status }
         })
-        await store.writeChat(completed.chat)
-        return { chat: completed.chat, status: completed.value.status }
       },
       async fail(trace) {
         return task.commit({ status: 'failed', stateChanged: false, participant: task.participant(trace) })
@@ -73,7 +121,7 @@ export function createBackgroundTaskCoordinator(options = {}) {
     return Object.freeze(task)
   }
 
-  return Object.freeze({ begin })
+  return Object.freeze({ activity, begin })
 }
 
 export function createSettlementAfterTurnEndScheduler(options = {}) {
