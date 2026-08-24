@@ -357,6 +357,7 @@ export function createCandidateGenerator(options) {
           }
           draft.candidates = {
             messageId: str(input.messageId), choices, generatedAt: now(), script: scriptProjection,
+            requestId, operationId: taskRun.operationId,
             traceSessionId, traceSessionIds: traceSessionId === '' ? [] : [traceSessionId],
             traceMode: 'continuable', basedOn: taskRun.basedOn
           }
@@ -369,6 +370,8 @@ export function createCandidateGenerator(options) {
         messageId: savedCandidates.messageId,
         choices: savedCandidates.choices,
         generatedAt: savedCandidates.generatedAt,
+        requestId: savedCandidates.requestId,
+        operationId: savedCandidates.operationId,
         traceSessionId: savedCandidates.traceSessionId,
         traceSessionIds: savedCandidates.traceSessionIds,
         traceMode: savedCandidates.traceMode
@@ -392,7 +395,11 @@ export function createCandidateGenerator(options) {
     if (choices.length === 0) return null
     const traceSessionIds = Array.isArray(chat.candidates.traceSessionIds) ? chat.candidates.traceSessionIds.map(str).filter(function (id) { return id !== '' }) : []
     const traceSessionId = str(chat.candidates.traceSessionId) || traceSessionIds[traceSessionIds.length - 1] || ''
-    return { messageId: str(chat.candidates.messageId), choices, generatedAt: Number(chat.candidates.generatedAt) || 0, traceSessionId, traceSessionIds, traceMode: chat.candidates.traceMode === 'continuable' ? 'continuable' : 'one-shot' }
+    return {
+      messageId: str(chat.candidates.messageId), choices, generatedAt: Number(chat.candidates.generatedAt) || 0,
+      requestId: str(chat.candidates.requestId), operationId: str(chat.candidates.operationId),
+      traceSessionId, traceSessionIds, traceMode: chat.candidates.traceMode === 'continuable' ? 'continuable' : 'one-shot'
+    }
   }
 
   return Object.freeze({ prepare, generate, find })

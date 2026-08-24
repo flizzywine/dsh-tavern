@@ -155,7 +155,10 @@ test('相同请求标识重复 prepare 复用 Operation，服务端只调度首�
   assert.equal(first.created, true)
   assert.equal(retried.created, false)
   assert.equal(retried.operationId, first.operationId)
-  await first.execute()
+  const result = await first.execute()
+  assert.equal(result.requestId, 'candidate-request-1')
+  assert.equal(result.operationId, first.operationId)
+  assert.equal((await run.candidates.find(input)).requestId, 'candidate-request-1')
   assert.equal(run.modelCalls(), 1)
 })
 

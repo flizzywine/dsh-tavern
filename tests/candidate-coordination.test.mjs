@@ -21,22 +21,25 @@ test('候选 Operation 启动后只轮询持久状态，不等待长生成请求
   ]
   let released = 0
   let sleeps = 0
+  let completed = false
   const coordinator = createCandidateGenerationCoordinator({
+    id() { return 'candidate-request-1' },
     async start() { return { operationId: 'operation-1' } },
     async operation(_sessionId, operationId) {
       assert.equal(operationId, 'operation-1')
       const next = operations.shift()
       if (next instanceof Error) throw next
+      if (next.terminal === true) completed = true
       return next
     },
-    async read() { return { candidates: { messageId: 'message-1', choices: [{ type: 'action', text: '继续前进' }] } } },
+    async read() { return { candidates: completed ? { messageId: 'message-1', requestId: 'candidate-request-1', choices: [{ type: 'action', text: '继续前进' }] } : null } },
     projectBusy() { return function () { released += 1 } },
-    async sleep() { sleeps += 1 }
+    async sleep() { sleeps += 1; await new Promise(function (resolve) { setTimeout(resolve, 0) }) }
   })
 
   const result = await coordinator.run({ sessionId: 'session-1', messageId: 'message-1' })
   assert.equal(released, 1)
-  assert.equal(sleeps, 2)
+  assert.ok(sleeps >= 2)
   assert.equal(result.candidates.messageId, 'message-1')
 })
 
@@ -83,9 +86,9 @@ test('候选启动响应丢失时用同一请求标识重试，不会永久停�
       return { operationId: 'operation-1' }
     },
     async operation() { return { operationId: 'operation-1', status: 'completed', terminal: true, successful: true } },
-    async read() { return { candidates: { messageId: 'message-1', choices: [{ type: 'action', text: '继续前进' }] } } },
+    async read() { return { candidates: starts >= 2 ? { messageId: 'message-1', requestId: 'candidate-request-1', choices: [{ type: 'action', text: '继续前进' }] } : null } },
     projectBusy() { return function () {} },
-    async sleep() {},
+    async sleep() { await new Promise(function (resolve) { setTimeout(resolve, 0) }) },
     queryTimeoutMs: 5
   })
 
@@ -97,4 +100,79 @@ test('候选启动响应丢失时用同一请求标识重试，不会永久停�
   assert.notEqual(result, 'STUCK')
   assert.equal(starts, 2)
   assert.equal(result.candidates.messageId, 'message-1')
+})
+
+test('候选所有启动响应都丢失时直接观察同一请求已落盘的结果', async function () {
+  let reads = 0
+  const coordinator = createCandidateGenerationCoordinator({
+    id() { return 'candidate-request-lost-start' },
+    async start() { return await new Promise(function () {}) },
+    async operation() { throw new Error('没有启动响应时不应依赖 Operation 标识') },
+    async read() {
+      reads += 1
+      if (reads === 1) return { candidates: null }
+      return { candidates: { messageId: 'message-1', requestId: 'candidate-request-lost-start', choices: [{ type: 'action', text: '继续前进' }] } }
+    },
+    projectBusy() { return function () {} },
+    async sleep() { await new Promise(function (resolve) { setTimeout(resolve, 0) }) },
+    queryTimeoutMs: 5
+  })
+
+  const result = await Promise.race([
+    coordinator.run({ sessionId: 'session-1', messageId: 'message-1' }),
+    new Promise(function (resolve) { setTimeout(function () { resolve('STUCK') }, 40) })
+  ])
+
+  assert.notEqual(result, 'STUCK')
+  assert.equal(result.candidates.requestId, 'candidate-request-lost-start')
+})
+
+test('候选 Operation 响应全部丢失时直接观察同一请求已落盘的结果', async function () {
+  let reads = 0
+  const coordinator = createCandidateGenerationCoordinator({
+    id() { return 'candidate-request-lost-operation' },
+    async start() { return { operationId: 'operation-1' } },
+    async operation() { return await new Promise(function () {}) },
+    async read() {
+      reads += 1
+      if (reads === 1) return { candidates: null }
+      return { candidates: { messageId: 'message-1', requestId: 'candidate-request-lost-operation', choices: [{ type: 'action', text: '继续前进' }] } }
+    },
+    projectBusy() { return function () {} },
+    async sleep() { await new Promise(function (resolve) { setTimeout(resolve, 0) }) },
+    queryTimeoutMs: 5
+  })
+
+  const result = await Promise.race([
+    coordinator.run({ sessionId: 'session-1', messageId: 'message-1' }),
+    new Promise(function (resolve) { setTimeout(function () { resolve('STUCK') }, 40) })
+  ])
+
+  assert.notEqual(result, 'STUCK')
+  assert.equal(result.candidates.requestId, 'candidate-request-lost-operation')
+})
+
+test('候选结果观察不会把上一次请求的旧结果当成本次完成', async function () {
+  let reads = 0
+  const coordinator = createCandidateGenerationCoordinator({
+    id() { return 'candidate-request-new' },
+    async start() { return await new Promise(function () {}) },
+    async operation() { throw new Error('没有启动响应时不应依赖 Operation 标识') },
+    async read() {
+      reads += 1
+      return { candidates: {
+        messageId: 'message-1',
+        requestId: reads === 1 ? 'candidate-request-old' : 'candidate-request-new',
+        choices: [{ type: 'action', text: '继续前进' }]
+      } }
+    },
+    projectBusy() { return function () {} },
+    async sleep() { await new Promise(function (resolve) { setTimeout(resolve, 0) }) },
+    queryTimeoutMs: 5
+  })
+
+  const result = await coordinator.run({ sessionId: 'session-1', messageId: 'message-1' })
+
+  assert.equal(reads, 2)
+  assert.equal(result.candidates.requestId, 'candidate-request-new')
 })

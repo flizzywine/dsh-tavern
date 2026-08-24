@@ -2198,40 +2198,57 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			async function run(input) {
 				const releaseBusy = options.projectBusy(input.sessionId);
 				const startInput = Object.assign({}, input, { requestId: id() });
-				let started;
-				for (;;) {
-					try { started = await query(function (request) { return options.start(startInput, request); }); break; }
-					catch (error) {
-						const message = String(error && error.message || "");
-						const transient = !!(error && (error.code === "COORDINATION_PROBE_EXPIRED" || error.name === "AbortError")) || /failed to fetch|networkerror|signal timed out/i.test(message);
-						if (!transient) { releaseBusy(); throw error; }
-						await sleep(300);
-					}
+				let finished = false;
+				let busyReleased = false;
+				function releaseProjection() {
+					if (busyReleased) return;
+					busyReleased = true;
+					releaseBusy();
 				}
-				releaseBusy();
-				const operationId = String(started && started.operationId || "");
-				if (!operationId) throw new Error("候选 Operation 启动后没有返回标识");
-				for (;;) {
-					let operation = null;
-					try { operation = await query(function (request) { return options.operation(input.sessionId, operationId, request); }); }
-					catch (_error) { await sleep(300); continue; }
-					if (!operation) throw new Error("候选 Operation 已不可用，请重新生成");
-					if (operation.terminal === true) {
-						if (operation.successful !== true) {
+				function pendingForever() { return new Promise(function () {}); }
+				async function observeResult() {
+					while (!finished) {
+						try {
+							const result = await query(function (request) { return options.read(startInput, request); });
+							const candidates = result && result.candidates;
+							if (candidates && String(candidates.messageId || "") === String(input.messageId || "") && String(candidates.requestId || "") === startInput.requestId) return result;
+						} catch (_error) {}
+						await sleep(250);
+					}
+					return await pendingForever();
+				}
+				async function observeOperation() {
+					let started;
+					while (!finished) {
+						try { started = await query(function (request) { return options.start(startInput, request); }); break; }
+						catch (error) {
+							const message = String(error && error.message || "");
+							const transient = !!(error && (error.code === "COORDINATION_PROBE_EXPIRED" || error.name === "AbortError")) || /failed to fetch|networkerror|signal timed out/i.test(message);
+							if (!transient) throw error;
+							await sleep(300);
+						}
+					}
+					if (finished) return await pendingForever();
+					releaseProjection();
+					const operationId = String(started && started.operationId || "");
+					if (!operationId) throw new Error("候选 Operation 启动后没有返回标识");
+					while (!finished) {
+						let operation = null;
+						try { operation = await query(function (request) { return options.operation(input.sessionId, operationId, request); }); }
+						catch (_error) { await sleep(300); continue; }
+						if (!operation) throw new Error("候选 Operation 已不可用，请重新生成");
+						if (operation.terminal === true) {
+							if (operation.successful === true) return await pendingForever();
 							if (operation.status === "failed") throw new Error("候选 Agent 生成失败，请查看后台轨迹");
 							if (operation.status === "interrupted") throw new Error("后台重启中断了本次候选生成，请重新生成");
 							throw new Error("剧情状态已变化，本次候选已作废，请重新生成");
 						}
-						let result = null;
-						for (;;) {
-							try { result = await query(function (request) { return options.read(input, request); }); break; }
-							catch (_error) { await sleep(300); }
-						}
-						if (!result || !result.candidates) throw new Error("候选 Agent 已完成，但没有提交候选项");
-						return result;
+						await sleep(250);
 					}
-					await sleep(250);
+					return await pendingForever();
 				}
+				try { return await Promise.race([observeResult(), observeOperation()]); }
+				finally { finished = true; releaseProjection(); }
 			}
 			return Object.freeze({ run: run });
 		}
