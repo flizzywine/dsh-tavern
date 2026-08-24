@@ -535,6 +535,21 @@ test('删除对话时把缺失 Session 视为已经归档，并继续清理 Tave
   assert.match(deletion, /props\.sessions\.clear\(\)/)
 })
 
+test('Session 顶栏工具区可以把服务端投影后的纯对话下载为 TXT', () => {
+  const sidebar = between(clientSource, 'function TavernSidebar', 'function TavernResourcesTab')
+  const exporter = between(clientSource, 'function TavernConversationExportAction', 'function TavernPlayerNameAction')
+
+  assert.match(serverSource, /case 'exportConversation': return await exportConversation/)
+  assert.match(exporter, /rpc\("getSession", \{\}, props\.sessionId\)/)
+  assert.match(exporter, /rpc\("exportConversation", \{ title: summary && summary\.displayTitle \|\| "" \}, props\.sessionId\)/)
+  assert.match(exporter, /text\/plain;charset=utf-8/)
+  assert.match(exporter, /new Blob\(\["\\uFEFF", result\.text\]/)
+  assert.match(exporter, /"纯对话 TXT ↓"/)
+  assert.match(clientSource, /slots\.inject\("conversation\.session\.header\.utilities"/)
+  assert.match(clientSource, /id: "dsh-tavern-conversation-export"/)
+  assert.doesNotMatch(sidebar, /导出 TXT|exportConversation/)
+})
+
 test('人物卡库通过列表进入详情，世界书编辑跳转到独立世界书库', () => {
   assert.match(clientSource, /id: "dsh-tavern:cards",\s*title: "人物卡库"/)
   assert.match(clientSource, /function CardLibraryTab/)

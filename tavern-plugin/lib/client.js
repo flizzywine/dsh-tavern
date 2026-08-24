@@ -67,6 +67,9 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 .dsh-tavern-update-status.error { color: #c45f5f; }
 .dsh-tavern-player-action { border: 1px solid var(--dsw-alias-border-l2); border-radius: 7px; padding: 4px 8px; background: transparent; color: var(--dsw-alias-label-secondary); cursor: pointer; font-size: 11px; }
 .dsh-tavern-player-action:hover { border-color: #a66b35; color: #a66b35; background: rgba(166,107,53,.08); }
+.dsh-tavern-export-action { min-height: 36px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 999px; padding: 7px 14px; background: transparent; color: var(--dsw-alias-label-primary); cursor: pointer; font-size: 13px; white-space: nowrap; }
+.dsh-tavern-export-action:hover { border-color: #a66b35; color: #a66b35; background: rgba(166,107,53,.08); }
+.dsh-tavern-export-action:disabled { opacity: .55; cursor: default; }
 .dsh-tavern-picker-overlay { position: fixed; z-index: 1000; inset: 0; display: flex; align-items: center; justify-content: center; box-sizing: border-box; padding: 24px; background: rgba(20,18,24,.42); backdrop-filter: blur(2px); }
 .dsh-tavern-card-picker { width: min(860px, calc(100vw - 48px)); max-height: min(80vh, 760px); overflow: auto; box-sizing: border-box; padding: 20px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 16px; background: var(--dsw-specific-sidebar-fill); box-shadow: 0 22px 64px rgba(0,0,0,.30); }
 .dsh-tavern-card-picker-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-weight: 700; }
@@ -2128,6 +2131,35 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		const cardLibraryFeature = createCardLibraryFeatureModule();
 
 		function createPlayControlsFeatureModule() {
+			function TavernConversationExportAction(props) {
+				const [available, setAvailable] = React.useState(false);
+				const [busy, setBusy] = React.useState(false);
+				React.useEffect(function () {
+					let stopped = false;
+					rpc("getSession", {}, props.sessionId).then(function (result) {
+						if (!stopped) setAvailable(Boolean(result && result.view));
+					}, function () { if (!stopped) setAvailable(false); });
+					return function () { stopped = true; };
+				}, [props.sessionId]);
+				if (!available) return null;
+				async function exportText() {
+					setBusy(true);
+					try {
+						const snapshot = props.sessions.list.getSnapshot();
+						const summary = snapshot.byId && snapshot.byId[props.sessionId];
+						const result = await rpc("exportConversation", { title: summary && summary.displayTitle || "" }, props.sessionId);
+						const blob = new Blob(["\uFEFF", result.text], { type: "text/plain;charset=utf-8" });
+						const url = URL.createObjectURL(blob);
+						const link = document.createElement("a");
+						link.href = url; link.download = result.filename || "对话记录.txt";
+						document.body.appendChild(link); link.click(); link.remove();
+						URL.revokeObjectURL(url);
+					} catch (err) { tavernErrorHub.report("导出纯对话", err); }
+					finally { setBusy(false); }
+				}
+				return React.createElement("button", { className: "dsh-tavern-export-action", disabled: busy, title: "导出只包含玩家与角色正文的 TXT", onClick: exportText }, busy ? "导出中…" : "纯对话 TXT ↓");
+			}
+
 			function TavernPlayerNameAction(props) {
 				const [view, setView] = React.useState(null);
 				const [busy, setBusy] = React.useState(false);
@@ -2852,6 +2884,10 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				{ name: "conversation.session.header.actions", id: "dsh-tavern-player-name", order: 15 },
 				TavernPlayerNameAction
 			)), "dsh-tavern: player name header action");
+			ctx.effect(() => slots.inject("conversation.session.header.utilities", () => slots.register(
+				{ name: "conversation.session.header.utilities", id: "dsh-tavern-conversation-export", order: 90 },
+				function (props) { return React.createElement(TavernConversationExportAction, Object.assign({}, props, { sessions: ctx.sessions })); }
+			)), "dsh-tavern: conversation text export utility");
 			ctx.effect(() => slots.inject("conversation.input.dock", () => slots.register(
 				{ name: "conversation.input.dock", id: "dsh-tavern-candidate-actions", order: -130, label: "候选项操作" },
 				function (props) { return React.createElement(CandidateDockActions, Object.assign({}, props, {

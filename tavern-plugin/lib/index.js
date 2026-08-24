@@ -9,6 +9,7 @@ import { createCardPreparation } from './domain/card-preparation.js'
 import { cardOpeningChoices, resolveCardOpening } from './domain/card-openings.js'
 import { READABLE_CARD_FIELDS, readCardField } from './domain/card-reading.js'
 import { createContextPlanner } from './domain/context-planner.js'
+import { createConversationTextExport } from './domain/conversation-text-export.js'
 import { createCoordinationEventPublisher } from './domain/coordination-event-publisher.js'
 import { createDurableTaskMailbox } from './domain/durable-task-mailbox.js'
 import { extractEpubText } from './domain/epub-text.js'
@@ -606,6 +607,13 @@ export async function apply(ctx) {
   }
   async function deleteChat(chatId) {
     return await conversationRegistry.remove(chatId)
+  }
+  async function exportConversation(chatId, sessionId, title) {
+    const chat = str(chatId) === '' ? await chatForSession(str(sessionId)) : await readChat(str(chatId))
+    if (chat === undefined) throw new Error('当前 Session 没有绑定 Tavern 对话')
+    const exported = createConversationTextExport(chat, { title: str(title) })
+    if (exported.messageCount === 0) throw new Error('暂无可导出的对话')
+    return exported
   }
 
   // ---------- 聊天 ----------
@@ -1883,6 +1891,7 @@ export async function apply(ctx) {
       case 'importCard': return { card: await importCard(args && args.payload) }
       case 'deleteCard': return await deleteCard(args && args.path)
       case 'deleteChat': return await deleteChat(args && args.chatId)
+      case 'exportConversation': return await exportConversation(args && args.chatId, args && args.sessionId, args && args.title)
       case 'startChat': {
         try {
           return { view: await startChat(args && args.path, args && args.sessionId, args && args.mode, args && args.openingId, args && args.userName) }
