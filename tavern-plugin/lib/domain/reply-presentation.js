@@ -42,6 +42,13 @@ export function projectReplyPresentation(value, options = {}) {
   const html = []
   const warnings = []
 
+  const regex = renderTavernRegexDisplay(body, options.regexScripts, options)
+  if (regex.changed) {
+    body = regex.bodyText
+    if (regex.presentationText !== '') html.push(regex.presentationText)
+  }
+  warnings.push.apply(warnings, regex.warnings)
+
   body = body.replace(/```(?:html)?[ \t]*\r?\n([\s\S]*?)\r?\n```/gi, function (whole, content) {
     const candidate = str(content).trim()
     if (!isCompletePresentationHtml(candidate)) return whole
@@ -58,13 +65,6 @@ export function projectReplyPresentation(value, options = {}) {
   if (html.length === 0 && /<(?:!doctype\s+html\b|html\b|style\b|details\b|div\b|section\b|aside\b|table\b|form\b)/i.test(body)) {
     warnings.push('检测到未闭合或无法安全分离的 HTML，已保留在正文中')
   }
-
-  const regex = renderTavernRegexDisplay(body, options.regexScripts, options)
-  if (regex.changed) {
-    body = regex.bodyText
-    if (regex.presentationText !== '') html.push(regex.presentationText)
-  }
-  warnings.push.apply(warnings, regex.warnings)
 
   return {
     sourceText,

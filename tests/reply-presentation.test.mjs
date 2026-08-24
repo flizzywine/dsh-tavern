@@ -29,6 +29,22 @@ test('HTML 代码围栏从正文中移除但围栏不进入展示内容', () => 
   assert.equal(result.presentationHtml, '<style>.status{color:red}</style><div class="status">状态</div>')
 })
 
+test('人物卡正则先于通用 HTML 展示处理完整 details', () => {
+  const source = '正文。\n\n<details><summary>后台日志（正在输出）</summary><p>完整日志</p></details>'
+  const rule = {
+    id: 'seal-log', name: '后台日志封录',
+    findRegex: '<details>\\s*<summary>后台日志（正在输出）<\\/summary>[\\s\\S]*?<\\/details>',
+    replaceString: '*后台日志已封录*',
+    placement: [2], enabled: true, markdownOnly: true, promptOnly: false, runOnEdit: false
+  }
+  const result = projectReplyPresentation(source, { regexScripts: [rule], placement: 2, isMarkdown: true })
+
+  assert.equal(result.bodyText, '正文。')
+  assert.equal(result.presentationHtml, '*后台日志已封录*')
+  assert.equal(result.regexApplied, true)
+  assert.deepEqual(result.appliedRegexes.map((item) => item.name), ['后台日志封录'])
+})
+
 test('普通行内 HTML 和不完整标签不从正文中误删', () => {
   const inline = projectReplyPresentation('她强调了 <b>不要回头</b>。')
   const malformed = projectReplyPresentation('正文后出现了 <div class="status">未闭合')
