@@ -6,7 +6,7 @@ import vm from 'node:vm'
 async function loadCoordinator() {
   const source = await readFile(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
   let descriptor
-  const sandbox = { window: { __ModuleLoader__: { load(value) { descriptor = value } } }, console, AbortController }
+  const sandbox = { window: { __ModuleLoader__: { load(value) { descriptor = value } }, setTimeout, clearTimeout }, console, AbortController }
   vm.runInNewContext(source, sandbox)
   return descriptor.factory(function () { return {} }).createCandidateGenerationCoordinator
 }
@@ -70,4 +70,31 @@ test('候选 Operation 被重启中断时立即结束等待，不把中断当成
     coordinator.run({ sessionId: 'session-1', messageId: 'message-1' }),
     /后台重启中断了本次候选生成/
   )
+})
+
+test('候选启动响应丢失时用同一请求标识重试，不会永久停在生成中', async function () {
+  let starts = 0
+  const coordinator = createCandidateGenerationCoordinator({
+    id() { return 'candidate-request-1' },
+    async start(input) {
+      starts += 1
+      assert.equal(input.requestId, 'candidate-request-1')
+      if (starts === 1) return await new Promise(function () {})
+      return { operationId: 'operation-1' }
+    },
+    async operation() { return { operationId: 'operation-1', status: 'completed', terminal: true, successful: true } },
+    async read() { return { candidates: { messageId: 'message-1', choices: [{ type: 'action', text: '继续前进' }] } } },
+    projectBusy() { return function () {} },
+    async sleep() {},
+    queryTimeoutMs: 5
+  })
+
+  const result = await Promise.race([
+    coordinator.run({ sessionId: 'session-1', messageId: 'message-1' }),
+    new Promise(function (resolve) { setTimeout(function () { resolve('STUCK') }, 30) })
+  ])
+
+  assert.notEqual(result, 'STUCK')
+  assert.equal(starts, 2)
+  assert.equal(result.candidates.messageId, 'message-1')
 })

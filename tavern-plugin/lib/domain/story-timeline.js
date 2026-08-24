@@ -220,18 +220,32 @@ export function createStoryTimeline(options = {}) {
 
   function beginAgent(chat, intent) {
     const role = str(intent.role).trim()
+    const requestId = str(intent.requestId).trim().slice(0, 160)
     if (role === '') throw new Error('Agent role 不能为空')
+    if (requestId !== '') {
+      const existing = Object.values(chat.timeline.operations).find(function (operation) {
+        return operation.kind === 'agent' && str(operation.requestId) === requestId
+      })
+      if (existing !== undefined) {
+        if (existing.role !== role) {
+          const error = new Error('同一后台请求标识对应了不同 Agent role')
+          error.code = 'IDEMPOTENCY_CONFLICT'
+          throw error
+        }
+        return Object.assign(operationValue(existing), { created: false })
+      }
+    }
     for (const operation of Object.values(chat.timeline.operations)) {
       if (operation.kind === 'agent' && operation.role === role && operation.status === 'running') operation.status = 'cancelled'
     }
     const operation = {
       id: makeId('operation'), kind: 'agent', role, status: 'running',
-      basedOn: basedOn(chat), createdAt: now()
+      requestId, basedOn: basedOn(chat), createdAt: now()
     }
     chat.timeline.operations[operation.id] = operation
     if (role === 'worldbook' || role === 'settlement') updateBackground(chat, 'running', role)
     trimOperations(chat.timeline)
-    return operationValue(operation, participantRequest(chat, role))
+    return Object.assign(operationValue(operation, participantRequest(chat, role)), { created: true })
   }
 
   function skipAgent(chat, intent) {

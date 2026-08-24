@@ -39,6 +39,30 @@ test('首次发现冷 Session 时记录服务代次并预热，不重载页面',
   assert.deepEqual(reloaded, [])
 })
 
+test('Session 预热永久挂起时不阻塞后续权威连接探测', async function () {
+  let probes = 0
+  let warmCalls = 0
+  const coordinator = createRuntimeConnectionCoordinator({
+    storage: storage(),
+    async probe() {
+      probes += 1
+      return { runtimeGeneration: 'runtime-a', liveSession: probes > 1 }
+    },
+    async warm() {
+      warmCalls += 1
+      return await new Promise(function () {})
+    },
+    reload() {}
+  })
+
+  const first = await coordinator.reconcile({ sessionId: 'session-1', submitting: false, accepted: false, draft: '' })
+  const second = await coordinator.reconcile({ sessionId: 'session-1', submitting: false, accepted: false, draft: '' })
+
+  assert.deepEqual(plain(first), { phase: 'checking', retryImmediately: true })
+  assert.deepEqual(plain(second), { phase: 'ready', retryImmediately: false })
+  assert.equal(warmCalls, 1)
+})
+
 test('服务代次变化时由 coordinator 原子保存草稿并请求重载', async function () {
   const sessionStorage = storage()
   sessionStorage.setItem('dsh-tavern:runtime-generation:v1', 'runtime-a')

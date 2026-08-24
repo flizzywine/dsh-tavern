@@ -243,9 +243,26 @@ export function createCandidateGenerator(options) {
     if (chat === undefined || chat === null) throw new Error('当前会话没有绑定人物卡')
     const mode = chat.mode || 'story'
     if (mode === 'card') throw new Error('卡片模式不生成剧情候选项')
+    const requestId = str(input.requestId).trim().slice(0, 160)
+    let taskRun = null
     const activity = tasks.activity(chat)
     if (activity.busy) {
-      throw new Error('后台 Agent 正在执行 ' + activity.role + '，请等待完成后再生成候选项')
+      try { taskRun = await tasks.begin(chat, 'candidate', { requestId }) }
+      catch (_error) { throw new Error('后台 Agent 正在执行 ' + activity.role + '，请等待完成后再生成候选项') }
+    }
+    function preparedValue() {
+      if (typeof input.onStarted === 'function') input.onStarted({ operationId: taskRun.operationId, basedOn: taskRun.basedOn })
+      if (taskRun.created !== false) return null
+      return Object.freeze({
+        operationId: taskRun.operationId,
+        basedOn: taskRun.basedOn,
+        created: false,
+        async execute() { throw new Error('重复的候选启动请求不能再次执行') }
+      })
+    }
+    if (taskRun !== null) {
+      const duplicate = preparedValue()
+      if (duplicate !== null) return duplicate
     }
     await waitUntilSettled(chat)
     chat = await store.readChat(chat.id)
@@ -265,11 +282,10 @@ export function createCandidateGenerator(options) {
     }
     const task = prompt(scriptMode ? 'candidate-script' : 'candidate-story')
     const context = await planner.plan({ purpose: 'candidate', card, chat, task, scriptWindow })
-    const taskRun = await tasks.begin(chat, 'candidate')
+    taskRun = await tasks.begin(chat, 'candidate', { requestId })
     chat = taskRun.chat
-    if (typeof input.onStarted === 'function') {
-      input.onStarted({ operationId: taskRun.operationId, basedOn: taskRun.basedOn })
-    }
+    const duplicate = preparedValue()
+    if (duplicate !== null) return duplicate
     const participantRequest = taskRun.participantRequest
     const persistentSessionId = str(participantRequest.sessionId)
     const guidance = str(input.guidance).trim().slice(0, 600)
@@ -358,7 +374,7 @@ export function createCandidateGenerator(options) {
         traceMode: savedCandidates.traceMode
       }
     }
-    return Object.freeze({ operationId: taskRun.operationId, basedOn: taskRun.basedOn, execute })
+    return Object.freeze({ operationId: taskRun.operationId, basedOn: taskRun.basedOn, created: true, execute })
   }
 
   async function generate(input) {

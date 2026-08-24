@@ -2067,9 +2067,21 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const storage = options.storage;
 			const generationKey = "dsh-tavern:runtime-generation:v1";
 			const draftKey = "dsh-tavern:reconnect-draft:v1";
+			const warmups = new Map();
 			function read(key) { try { return storage.getItem(key); } catch (_err) { return null; } }
 			function write(key, value) { try { storage.setItem(key, value); } catch (_err) {} }
 			function remove(key) { try { storage.removeItem(key); } catch (_err) {} }
+			function beginWarm(sessionId, generation) {
+				const key = String(generation || "") + ":" + String(sessionId || "");
+				if (warmups.has(key)) return;
+				let load;
+				try { load = Promise.resolve(options.warm(sessionId)); }
+				catch (error) { load = Promise.reject(error); }
+				const tracked = load.catch(function () {}).then(function () {
+					if (warmups.get(key) === tracked) warmups.delete(key);
+				});
+				warmups.set(key, tracked);
+			}
 			async function reconcile(input) {
 				const result = await options.probe(input.sessionId);
 				const previous = String(read(generationKey) || "");
@@ -2080,7 +2092,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				}
 				if (action.kind === "warm") {
 					write(generationKey, action.generation);
-					await options.warm(input.sessionId);
+					beginWarm(input.sessionId, action.generation);
 					return { phase: "checking", retryImmediately: true };
 				}
 				if (action.kind === "reload") {
@@ -2114,6 +2126,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				throw new Error("Candidate Generation Coordinator 缺少 adapter");
 			}
 			const sleep = typeof options.sleep === "function" ? options.sleep : function (delay) { return new Promise(function (resolve) { window.setTimeout(resolve, delay); }); };
+			const id = typeof options.id === "function" ? options.id : function () { return "candidate-request-" + Date.now() + "-" + Math.random().toString(36).slice(2); };
 			const queryTimeoutMs = Number(options.queryTimeoutMs) > 0 ? Number(options.queryTimeoutMs) : 0;
 			async function query(load) {
 				if (queryTimeoutMs === 0) return await load({});
@@ -2123,16 +2136,29 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					return await Promise.race([
 						load({ signal: controller.signal }),
 						new Promise(function (_resolve, reject) {
-							timer = window.setTimeout(function () { controller.abort(); reject(new Error("candidate coordination probe expired")); }, queryTimeoutMs);
+							timer = window.setTimeout(function () {
+								controller.abort();
+								const error = new Error("candidate coordination probe expired");
+								error.code = "COORDINATION_PROBE_EXPIRED";
+								reject(error);
+							}, queryTimeoutMs);
 						})
 					]);
 				} finally { if (timer !== null) window.clearTimeout(timer); }
 			}
 			async function run(input) {
 				const releaseBusy = options.projectBusy(input.sessionId);
+				const startInput = Object.assign({}, input, { requestId: id() });
 				let started;
-				try { started = await options.start(input); }
-				catch (error) { releaseBusy(); throw error; }
+				for (;;) {
+					try { started = await query(function (request) { return options.start(startInput, request); }); break; }
+					catch (error) {
+						const message = String(error && error.message || "");
+						const transient = !!(error && (error.code === "COORDINATION_PROBE_EXPIRED" || error.name === "AbortError")) || /failed to fetch|networkerror|signal timed out/i.test(message);
+						if (!transient) { releaseBusy(); throw error; }
+						await sleep(300);
+					}
+				}
 				releaseBusy();
 				const operationId = String(started && started.operationId || "");
 				if (!operationId) throw new Error("候选 Operation 启动后没有返回标识");
@@ -2455,7 +2481,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			};
 		}
 		const candidateGenerationCoordinator = createCandidateGenerationCoordinator({
-			start: function (input) { return rpc("startChoices", { messageId: input.messageId, guidance: input.guidance || "" }, input.sessionId); },
+			start: function (input, request) { return rpc("startChoices", { messageId: input.messageId, guidance: input.guidance || "", requestId: input.requestId }, input.sessionId, request); },
 			operation: function (sessionId, operationId, request) { return rpc("getBackgroundOperation", { operationId: operationId }, sessionId, request).then(function (result) { return result.operation || null; }); },
 			read: function (input, request) { return rpc("getChoices", { messageId: input.messageId }, input.sessionId, request); },
 			projectBusy: function (sessionId) {

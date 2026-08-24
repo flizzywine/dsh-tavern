@@ -95,13 +95,31 @@ export function createBackgroundTaskCoordinator(options = {}) {
     }
   }
 
-  async function begin(chat, role) {
+  async function begin(chat, role, input = {}) {
     const chatId = str(chat && chat.id)
+    const requestId = str(input.requestId).trim().slice(0, 160)
     const begun = await serialize(chatId, async function () {
       const latest = await store.readChat(chatId)
       const source = latest === undefined ? chat : latest
-      const currentActivity = activity(source)
       const requestedRole = str(role)
+      if (requestId !== '') {
+        const operations = Object.values(timeline.inspect({ chat: source }).operations || {})
+        const existing = operations.find(function (operation) {
+          return operation && operation.kind === 'agent' && str(operation.requestId) === requestId
+        })
+        if (existing !== undefined) {
+          if (str(existing.role) !== requestedRole) {
+            const error = new Error('同一后台请求标识对应了不同 Agent role')
+            error.code = 'IDEMPOTENCY_CONFLICT'
+            throw error
+          }
+          return {
+            chat: source,
+            value: { operationId: existing.id, basedOn: existing.basedOn, participant: null, created: false }
+          }
+        }
+      }
+      const currentActivity = activity(source)
       const expectedPending = currentActivity.phase === 'pending' && currentActivity.role === requestedRole
       if (currentActivity.busy && !expectedPending) {
         const error = new Error('后台 Agent 正在执行 ' + currentActivity.role + '，请等待完成')
@@ -109,7 +127,7 @@ export function createBackgroundTaskCoordinator(options = {}) {
         error.activity = currentActivity
         throw error
       }
-      const next = timeline.apply({ chat: source, intent: { kind: 'agent.begin', role } })
+      const next = timeline.apply({ chat: source, intent: { kind: 'agent.begin', role, requestId } })
       await store.writeChat(next.chat)
       return next
     })
@@ -117,6 +135,7 @@ export function createBackgroundTaskCoordinator(options = {}) {
       chat: begun.chat,
       operationId: begun.value.operationId,
       basedOn: begun.value.basedOn,
+      created: begun.value.created !== false,
       participantRequest: begun.value.participant || {},
       participant(trace) {
         const sessionId = str(trace && (trace.traceSessionId || trace.sessionId))

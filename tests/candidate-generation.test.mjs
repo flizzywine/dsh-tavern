@@ -145,6 +145,20 @@ test('候选 prepare 只持久化 Operation，模型 Promise 由响应结束后�
   assert.equal(result.messageId, 'message-prepared')
 })
 
+test('相同请求标识重复 prepare 复用 Operation，服务端只调度首次执行', async () => {
+  const run = harness({ outputs: [JSON.stringify({ choices: storyChoices })] })
+  const input = { sessionId: 'session-1', messageId: 'message-idempotent', requestId: 'candidate-request-1' }
+
+  const first = await run.candidates.prepare(input)
+  const retried = await run.candidates.prepare(input)
+
+  assert.equal(first.created, true)
+  assert.equal(retried.created, false)
+  assert.equal(retried.operationId, first.operationId)
+  await first.execute()
+  assert.equal(run.modelCalls(), 1)
+})
+
 test('自由故事只保存完整的 4 action + 1 scene', async () => {
   const truncatedButRecoverable = '{"choices":[' + storyChoices.map((item) => JSON.stringify(item)).join(',')
   const run = harness({ outputs: [truncatedButRecoverable] })

@@ -77,6 +77,18 @@ test('同一 Tavern Chat 的后台 operation 严格串行，不会用新任务�
   assert.equal(operations[0].role, 'worldbook')
 })
 
+test('同一候选请求标识重试时返回原 Operation，不会启动第二个后台任务', async () => {
+  const harness = coordinatorHarness()
+  const first = await harness.coordinator.begin(harness.current(), 'candidate', { requestId: 'candidate-request-1' })
+  const retried = await harness.coordinator.begin(first.chat, 'candidate', { requestId: 'candidate-request-1' })
+
+  assert.equal(retried.operationId, first.operationId)
+  assert.equal(first.created, true)
+  assert.equal(retried.created, false)
+  assert.equal(harness.writes.length, 1)
+  assert.equal(Object.values(harness.timeline.inspect({ chat: retried.chat }).operations).length, 1)
+})
+
 test('按 Operation ID 查询终态，不会被同一 Chat 的后续任务覆盖', async () => {
   const harness = coordinatorHarness()
   const first = await harness.coordinator.begin(harness.current(), 'candidate')

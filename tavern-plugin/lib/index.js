@@ -1723,11 +1723,14 @@ export async function apply(ctx) {
         const prepared = await candidateGenerator.prepare({
           sessionId: args && args.sessionId,
           messageId: args && args.messageId,
-          guidance: args && args.guidance
+          guidance: args && args.guidance,
+          requestId: args && args.requestId
         })
-        setTimeout(function () {
-          void prepared.execute().catch(function () {})
-        }, 0)
+        if (prepared.created !== false) {
+          setTimeout(function () {
+            void prepared.execute().catch(function () {})
+          }, 0)
+        }
         return { operationId: prepared.operationId, basedOn: prepared.basedOn }
       }
       case 'exportCard': {
