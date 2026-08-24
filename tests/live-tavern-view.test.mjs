@@ -77,6 +77,27 @@ test('后台 Activity busy 时由 module 统一快速轮询，完成后停止', 
   stop()
 })
 
+test('客户端先投影 busy 时立即开始权威轮询，服务端 idle 后解除门控', async function () {
+  const timers = fakeTimers()
+  const module = createLiveTavernViewModule({
+    load: async function () { return { view: { busy: false, phase: 'idle' } } },
+    shouldPoll(view) { return view && view.busy === true },
+    schedule: timers.schedule,
+    cancel: timers.cancel
+  })
+  const stop = module.subscribe('session-optimistic', function () {})
+  await timers.runNext()
+
+  module.setView('session-optimistic', { busy: true, phase: 'running' })
+  assert.deepEqual(timers.activeDelays(), [0])
+  await timers.runNext()
+
+  assert.equal(module.getSnapshot('session-optimistic').view.busy, false)
+  assert.equal(module.getSnapshot('session-optimistic').view.phase, 'idle')
+  assert.deepEqual(timers.activeDelays(), [])
+  stop()
+})
+
 test('失效通知在加载中到达时只排队一次后续刷新', async function () {
   const timers = fakeTimers()
   let resolveLoad

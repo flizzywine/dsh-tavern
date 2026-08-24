@@ -32,20 +32,25 @@ test('空闲或失败 Activity 不锁住正文输入', function () {
 })
 
 test('Composer Gate 合并 Session 恢复与后台 Activity，不会互相误解锁', function () {
-  let snapshot
-  const blocks = {
-    set(_sessionId, value) { snapshot = value },
-    storeFor() { return { getSnapshot() { return snapshot } } }
-  }
+	let snapshot
+	let writes = 0
+	const blocks = {
+		set(_sessionId, value) { writes += 1; snapshot = value },
+		storeFor() { return { getSnapshot() { return snapshot } } }
+	}
   const conversation = { blocks }
   const gate = browserModule.createComposerGate()
 
-  gate.set(conversation, 'session-1', 'activity', '后台结算中，请稍候…')
-  gate.set(conversation, 'session-1', 'connection', '正在恢复 Session，请稍候…')
+	gate.set(conversation, 'session-1', 'activity', '后台结算中，请稍候…')
+	gate.set(conversation, 'session-1', 'activity', '后台结算中，请稍候…')
+	assert.equal(writes, 1, '相同投影不应重复通知宿主')
+	gate.set(conversation, 'session-1', 'connection', '正在恢复 Session，请稍候…')
   assert.equal(snapshot.reason, '正在恢复 Session，请稍候…')
 
   gate.clear(conversation, 'session-1', 'activity')
   assert.equal(snapshot.reason, '正在恢复 Session，请稍候…')
-  gate.clear(conversation, 'session-1', 'connection')
-  assert.equal(snapshot, undefined)
+	gate.clear(conversation, 'session-1', 'connection')
+	assert.equal(snapshot, undefined)
+	gate.clear(conversation, 'session-1', 'connection')
+	assert.equal(writes, 3, '已清空的 owner 不应再次通知宿主')
 })

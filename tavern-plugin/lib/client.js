@@ -443,6 +443,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				setView: function (sessionId, view) {
 					const record = recordFor(sessionId);
 					publish(record, { phase: "ready", view: view, error: "", updatedAt: Date.now() });
+					if (shouldPoll(view)) schedule(record, 0);
 				},
 				subscribe: function (sessionId, listener) {
 					const record = recordFor(sessionId);
@@ -490,11 +491,11 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				if (!blocks || typeof blocks.set !== "function" || typeof blocks.storeFor !== "function") return;
 				const sessionClaims = claims.get(sessionId) || new Map();
 				const reason = sessionClaims.get("connection") || sessionClaims.get("activity") || "";
-				if (reason) blocks.set(sessionId, { source: "dsh-tavern-composer-gate", reason: reason });
-				else {
-					const current = blocks.storeFor(sessionId).getSnapshot();
-					if (current && current.source === "dsh-tavern-composer-gate") blocks.set(sessionId, undefined);
-				}
+				const current = blocks.storeFor(sessionId).getSnapshot();
+				if (reason) {
+					if (current && current.source === "dsh-tavern-composer-gate" && current.reason === reason) return;
+					blocks.set(sessionId, { source: "dsh-tavern-composer-gate", reason: reason });
+				} else if (current && current.source === "dsh-tavern-composer-gate") blocks.set(sessionId, undefined);
 			}
 			return Object.freeze({
 				set: function (conversation, sessionId, owner, reason) {
@@ -2107,8 +2108,10 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				React.useEffect(function () {
 					if (activity.busy) composerGate.set(props.conversation, props.sessionId, "activity", activity.blockReason);
 					else composerGate.clear(props.conversation, props.sessionId, "activity");
+				}, [props.sessionId, activity.busy, activity.blockReason]);
+				React.useEffect(function () {
 					return function () { composerGate.clear(props.conversation, props.sessionId, "activity"); };
-				}, [props.sessionId, props.conversation, activity.busy, activity.blockReason]);
+				}, [props.sessionId]);
 				return null;
 			}
 
@@ -2166,8 +2169,10 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				React.useEffect(function () {
 					if (connectionPhase === "ready") composerGate.clear(props.conversation, props.sessionId, "connection");
 					else composerGate.set(props.conversation, props.sessionId, "connection", composerBlockReason);
+				}, [props.sessionId, connectionPhase]);
+				React.useEffect(function () {
 					return function () { composerGate.clear(props.conversation, props.sessionId, "connection"); };
-				}, [props.sessionId, props.conversation, connectionPhase]);
+				}, [props.sessionId]);
 				React.useEffect(function () {
 					if (!connectionCoordinator.hasPendingDraft(props.sessionId)) return;
 					let stopped = false;
