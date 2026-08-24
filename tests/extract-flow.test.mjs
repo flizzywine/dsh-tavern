@@ -234,6 +234,7 @@ test('后台结算期间禁用候选项按钮，完成后自动恢复', () => {
   const activity = between(serverSource, 'async function sessionActivity', 'async function sessionView')
 
   assert.match(serverSource, /case 'getSessionActivity': return \{ activity: await sessionActivity/)
+  assert.match(serverSource, /case 'getBackgroundOperation': return \{ operation: await sessionOperation/)
   assert.match(serverSource, /case 'startChoices'/)
   assert.match(activity, /const activity = backgroundTasks\.activity\(chat\)/)
   assert.doesNotMatch(activity, /settleStatus/)
@@ -250,11 +251,13 @@ test('后台结算期间禁用候选项按钮，完成后自动恢复', () => {
   assert.match(generationAdapter, /tavernActivity\.setView\(sessionId, \{ phase: "running", busy: true, role: "candidate"/)
   assert.match(coordinator, /const releaseBusy = options\.projectBusy/)
   assert.match(coordinator, /started = await options\.start/)
-  assert.match(coordinator, /activity\.busy !== true/)
+  assert.match(coordinator, /operation\.terminal === true/)
+  assert.match(coordinator, /operation\.successful !== true/)
   assert.match(coordinator, /return options\.read\(input, request\)/)
   assert.match(generation, /liveTavernView\.invalidate\(sessionId\)/)
   assert.match(generationAdapter, /queryTimeoutMs: 2000/)
   assert.doesNotMatch(coordinator, /signal timed out|Tavern 状态同步超时/i)
+  assert.doesNotMatch(serverSource, /case 'generateChoices'/)
   assert.doesNotMatch(action, /rpc\("getSession"/)
 })
 

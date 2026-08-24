@@ -77,10 +77,13 @@ test('卡片 Agent 以极简模式工具为底座，游玩 Agent 不暴露文件
   assert.doesNotMatch(serverSource, /name: 'tavern_bind_script'/)
 })
 
-test('候选项 RPC 只返回一份 candidates', () => {
-  const dispatch = between(serverSource, "case 'generateChoices'", "case 'addGuide'")
+test('候选项 RPC 先返回 Operation，再独立读取一份 candidates', () => {
+  const dispatch = between(serverSource, "case 'getChoices'", "case 'exportCard'")
 
-  assert.match(dispatch, /return \{ candidates: candidates \}/)
+  assert.match(dispatch, /case 'getChoices': return \{ candidates: await candidateGenerator\.find/)
+  assert.match(dispatch, /case 'startChoices'/)
+  assert.match(dispatch, /return \{ operationId: prepared\.operationId, basedOn: prepared\.basedOn \}/)
+  assert.doesNotMatch(dispatch, /case 'generateChoices'/)
   assert.doesNotMatch(dispatch, /choices: candidates\.choices/)
   assert.match(clientSource, /readyCandidatePanel\(props\.sessionId, props\.messageId, result\.candidates\)/)
   assert.match(clientSource, /查看后台 Agent/)

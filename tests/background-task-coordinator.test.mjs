@@ -77,6 +77,25 @@ test('同一 Tavern Chat 的后台 operation 严格串行，不会用新任务�
   assert.equal(operations[0].role, 'worldbook')
 })
 
+test('按 Operation ID 查询终态，不会被同一 Chat 的后续任务覆盖', async () => {
+  const harness = coordinatorHarness()
+  const first = await harness.coordinator.begin(harness.current(), 'candidate')
+  await first.commit({ stateChanged: false })
+  const second = await harness.coordinator.begin(harness.current(), 'candidate')
+
+  assert.equal(harness.coordinator.activity(second.chat).operationId, second.operationId)
+  assert.deepEqual(harness.coordinator.operation(second.chat, first.operationId), {
+    operationId: first.operationId,
+    role: 'candidate',
+    status: 'completed',
+    busy: false,
+    terminal: true,
+    successful: true,
+    basedOn: first.basedOn,
+    updatedAt: 1003
+  })
+})
+
 test('Foreground Turn 提交后形成持久 Background Cycle，并依次开放世界书与状态结算', async () => {
   const harness = coordinatorHarness()
   const begunBody = harness.timeline.apply({ chat: harness.current(), intent: { kind: 'body.begin', turn: 1, userText: '向前走' } })

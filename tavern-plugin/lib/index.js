@@ -839,6 +839,11 @@ export async function apply(ctx) {
       updatedAt: activity.updatedAt || chat.updatedAt || 0
     }
   }
+  async function sessionOperation(sessionId, operationId) {
+    const chat = await chatForSession(sessionId)
+    if (chat === undefined) return null
+    return backgroundTasks.operation(chat, operationId)
+  }
   async function sessionView(sessionId) {
     const chat = await chatForSession(sessionId)
     if (chat === undefined) return null
@@ -1706,6 +1711,7 @@ export async function apply(ctx) {
       }
       case 'getSession': return { view: await sessionView(args && args.sessionId) }
       case 'getSessionActivity': return { activity: await sessionActivity(args && args.sessionId) }
+      case 'getBackgroundOperation': return { operation: await sessionOperation(args && args.sessionId, args && args.operationId) }
       case 'getSessionConnection': {
         const agent = agentRegistry.get(str(args && args.sessionId))
         return { runtimeGeneration, liveSession: Boolean(agent && agent.session) }
@@ -1723,10 +1729,6 @@ export async function apply(ctx) {
           void prepared.execute().catch(function () {})
         }, 0)
         return { operationId: prepared.operationId, basedOn: prepared.basedOn }
-      }
-      case 'generateChoices': {
-        const candidates = await candidateGenerator.generate({ sessionId: args && args.sessionId, messageId: args && args.messageId, guidance: args && args.guidance })
-        return { candidates: candidates }
       }
       case 'exportCard': {
         const workspace = await readCardWorkspace(args && args.path)

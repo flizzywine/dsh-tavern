@@ -78,6 +78,23 @@ export function createBackgroundTaskCoordinator(options = {}) {
     }
   }
 
+  function operation(chat, operationId) {
+    const inspected = timeline.inspect({ chat })
+    const current = (inspected.operations || {})[str(operationId)]
+    if (!current || current.kind !== 'agent') return null
+    const status = str(current.status)
+    return {
+      operationId: str(current.id),
+      role: str(current.role),
+      status,
+      busy: status === 'running',
+      terminal: status !== 'running',
+      successful: status === 'completed',
+      basedOn: current.basedOn || null,
+      updatedAt: Number(current.completedAt) || Number(current.createdAt) || Number(inspected.updatedAt) || 0
+    }
+  }
+
   async function begin(chat, role) {
     const chatId = str(chat && chat.id)
     const begun = await serialize(chatId, async function () {
@@ -159,5 +176,5 @@ export function createBackgroundTaskCoordinator(options = {}) {
     })
   }
 
-  return Object.freeze({ activity, begin, skip, recover })
+  return Object.freeze({ activity, operation, begin, skip, recover })
 }

@@ -2110,7 +2110,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		}
 
 		function createCandidateGenerationCoordinator(options) {
-			if (!options || typeof options.start !== "function" || typeof options.activity !== "function" || typeof options.read !== "function" || typeof options.projectBusy !== "function") {
+			if (!options || typeof options.start !== "function" || typeof options.operation !== "function" || typeof options.read !== "function" || typeof options.projectBusy !== "function") {
 				throw new Error("Candidate Generation Coordinator 缺少 adapter");
 			}
 			const sleep = typeof options.sleep === "function" ? options.sleep : function (delay) { return new Promise(function (resolve) { window.setTimeout(resolve, delay); }); };
@@ -2137,12 +2137,16 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				const operationId = String(started && started.operationId || "");
 				if (!operationId) throw new Error("候选 Operation 启动后没有返回标识");
 				for (;;) {
-					let activity = null;
-					try { activity = await query(function (request) { return options.activity(input.sessionId, request); }); }
+					let operation = null;
+					try { operation = await query(function (request) { return options.operation(input.sessionId, operationId, request); }); }
 					catch (_error) { await sleep(300); continue; }
-					if (String(activity && activity.operationId || "") === operationId && activity.busy !== true) {
-						if (typeof options.projectTerminal === "function") options.projectTerminal(input.sessionId, activity);
-						if (activity.phase === "failed") throw new Error("候选 Agent 生成失败，请查看后台轨迹");
+					if (!operation) throw new Error("候选 Operation 已不可用，请重新生成");
+					if (operation.terminal === true) {
+						if (operation.successful !== true) {
+							if (operation.status === "failed") throw new Error("候选 Agent 生成失败，请查看后台轨迹");
+							if (operation.status === "interrupted") throw new Error("后台重启中断了本次候选生成，请重新生成");
+							throw new Error("剧情状态已变化，本次候选已作废，请重新生成");
+						}
 						let result = null;
 						for (;;) {
 							try { result = await query(function (request) { return options.read(input, request); }); break; }
@@ -2452,12 +2456,11 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		}
 		const candidateGenerationCoordinator = createCandidateGenerationCoordinator({
 			start: function (input) { return rpc("startChoices", { messageId: input.messageId, guidance: input.guidance || "" }, input.sessionId); },
-			activity: function (sessionId, request) { return rpc("getSessionActivity", {}, sessionId, request).then(function (result) { return result.activity || null; }); },
+			operation: function (sessionId, operationId, request) { return rpc("getBackgroundOperation", { operationId: operationId }, sessionId, request).then(function (result) { return result.operation || null; }); },
 			read: function (input, request) { return rpc("getChoices", { messageId: input.messageId }, input.sessionId, request); },
 			projectBusy: function (sessionId) {
 				return tavernActivity.setView(sessionId, { phase: "running", busy: true, role: "candidate", updatedAt: Date.now() });
 			},
-			projectTerminal: function (sessionId, activity) { tavernActivity.setView(sessionId, activity); },
 			queryTimeoutMs: 2000
 		});
 		async function generateCandidateChoices(sessionId, messageId, guidance) {
