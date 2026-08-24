@@ -35,7 +35,20 @@ export function createApplicationUpdater(options) {
 
   async function status() {
     const current = await store.readJson(STATUS_FILE)
-    if (current !== undefined) return current
+    if (current !== undefined) {
+      const checkedAt = now()
+      if (current.phase === 'running' && checkedAt - Number(current.startedAt || 0) >= RUNNING_TIMEOUT_MS) {
+        const interrupted = {
+          phase: 'failed',
+          host: installHostOf({ dshTavern: { host: current.host } }),
+          failedAt: checkedAt,
+          error: '上次更新已中断',
+        }
+        await store.writeJson(STATUS_FILE, interrupted)
+        return interrupted
+      }
+      return current
+    }
     return { phase: 'idle', host: await host() }
   }
 

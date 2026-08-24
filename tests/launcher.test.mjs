@@ -20,6 +20,7 @@ import {
   renderWindowsLauncher,
   restartBrowserTarget,
   resolveServicePort,
+  updateApplication,
 } from '../bin/dsh-tavern.mjs'
 
 const windowsInstaller = await readFile(new URL('../install.ps1', import.meta.url), 'utf8')
@@ -108,6 +109,37 @@ test('Android UI 更新选择专用更新脚本，CLI 与 Desktop 保持原安�
     command: 'sh',
     args: [path.join('/app/dsh-tavern', 'install.sh')],
   })
+})
+
+test('更新器在选择安装器后的任一步骤失败时写入 failed 终态', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'dsh-tavern-update-runner-'))
+  try {
+    const statusFile = path.join(root, 'update-status.json')
+    await assert.rejects(() => updateApplication({
+      host: 'cli', statusFile, delay: 0, sourceRoot: path.join(root, 'missing-source'),
+    }), /当前安装缺少更新程序/)
+    const status = JSON.parse(await readFile(statusFile, 'utf8'))
+    assert.equal(status.phase, 'failed')
+    assert.equal(status.host, 'cli')
+    assert.match(status.error, /当前安装缺少更新程序/)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('更新器成功执行并清理临时脚本后写入 completed 终态', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'dsh-tavern-update-runner-'))
+  try {
+    const statusFile = path.join(root, 'update-status.json')
+    await writeFile(path.join(root, 'install.sh'), '#!/bin/sh\nexit 0\n')
+    await updateApplication({ host: 'cli', statusFile, delay: 0, sourceRoot: root })
+    const status = JSON.parse(await readFile(statusFile, 'utf8'))
+    assert.equal(status.phase, 'completed')
+    assert.equal(status.host, 'cli')
+    assert.equal(status.requiresRestart, false)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
 })
 
 test('Windows installer compares Node versions without native argument quoting', () => {

@@ -718,21 +718,23 @@ async function startService() {
   throw new Error(`DSH Tavern 启动超时，日志：${LOG_FILE}`)
 }
 
-async function updateApplication(options = { host: 'cli', statusFile: '', delay: 0 }) {
-  if (options.delay > 0) await sleep(options.delay)
-  console.log('正在更新 DSH Tavern……')
+export async function updateApplication(options = { host: 'cli', statusFile: '', delay: 0 }) {
+  const sourceRoot = path.resolve(options.sourceRoot || SOURCE_ROOT)
   writeUpdateStatus(options.statusFile, { phase: 'running', host: options.host, startedAt: Date.now() })
-  const program = resolveUpdateProgram(options.host, process.platform, SOURCE_ROOT)
-  const installer = program.script
-  if (!existsSync(installer)) throw new Error(`当前安装缺少更新程序：${installer}`)
-  const extension = path.extname(installer).slice(1) || 'sh'
-  const temporary = path.join(os.tmpdir(), `dsh-tavern-update-${process.pid}.${extension}`)
-  if (program.command === 'powershell.exe') {
-    writeFileSync(temporary, encodeWindowsPowerShellScript(readFileSync(installer, 'utf8')), 'utf8')
-  } else {
-    copyFileSync(installer, temporary)
-  }
+  let temporary = ''
   try {
+    if (options.delay > 0) await sleep(options.delay)
+    console.log('正在更新 DSH Tavern……')
+    const program = resolveUpdateProgram(options.host, process.platform, sourceRoot)
+    const installer = program.script
+    if (!existsSync(installer)) throw new Error(`当前安装缺少更新程序：${installer}`)
+    const extension = path.extname(installer).slice(1) || 'sh'
+    temporary = path.join(os.tmpdir(), `dsh-tavern-update-${process.pid}.${extension}`)
+    if (program.command === 'powershell.exe') {
+      writeFileSync(temporary, encodeWindowsPowerShellScript(readFileSync(installer, 'utf8')), 'utf8')
+    } else {
+      copyFileSync(installer, temporary)
+    }
     const command = program.command
     const args = program.args.map((argument) => argument === installer ? temporary : argument)
     const capture = options.statusFile !== ''
@@ -746,12 +748,18 @@ async function updateApplication(options = { host: 'cli', statusFile: '', delay:
       const details = capture ? String(result.stderr || result.stdout || '').trim().split('\n').slice(-12).join('\n') : ''
       throw new Error(`更新失败${details ? `：${details}` : '，请查看上方错误信息。'}`)
     }
+    if (temporary !== '' && existsSync(temporary)) unlinkSync(temporary)
+    temporary = ''
     writeUpdateStatus(options.statusFile, { phase: 'completed', host: options.host, completedAt: Date.now(), requiresRestart: options.host === 'desktop' })
   } catch (error) {
-    writeUpdateStatus(options.statusFile, { phase: 'failed', host: options.host, failedAt: Date.now(), error: String(error?.message || error) })
-    throw error
-  } finally {
-    if (existsSync(temporary)) unlinkSync(temporary)
+    let failure = error
+    if (temporary !== '' && existsSync(temporary)) {
+      try { unlinkSync(temporary) } catch (cleanupError) {
+        failure = new Error(`${String(error?.message || error)}；临时文件清理失败：${String(cleanupError?.message || cleanupError)}`)
+      }
+    }
+    writeUpdateStatus(options.statusFile, { phase: 'failed', host: options.host, failedAt: Date.now(), error: String(failure?.message || failure) })
+    throw failure
   }
 }
 

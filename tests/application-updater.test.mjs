@@ -63,6 +63,31 @@ test('更新任务正在运行时拒绝重复启动', async () => {
   }
 })
 
+test('超过十五分钟的更新自动标记为中断并持久化', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-updater-'))
+  try {
+    const dataRoot = path.join(root, 'profile-data/tavern/data')
+    const statusFile = path.join(dataRoot, 'update-status.json')
+    await mkdir(dataRoot, { recursive: true })
+    await writeFile(statusFile, JSON.stringify({ phase: 'running', host: 'desktop', startedAt: 1000 }))
+    const updater = createApplicationUpdater({
+      dataRoot,
+      sourceRoot: '/app/dsh-tavern',
+      dshHome: root,
+      now: () => 1000 + (15 * 60 * 1000),
+    })
+
+    assert.deepEqual(await updater.status(), {
+      phase: 'failed', host: 'desktop', failedAt: 901000, error: '上次更新已中断',
+    })
+    assert.deepEqual(JSON.parse(await readFile(statusFile, 'utf8')), {
+      phase: 'failed', host: 'desktop', failedAt: 901000, error: '上次更新已中断',
+    })
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test('当前 CLI 运行方式优先于共享 Profile 的 Desktop 安装记录', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-updater-'))
   try {
