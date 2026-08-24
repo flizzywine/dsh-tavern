@@ -99,6 +99,7 @@ test('按 Operation ID 查询终态，不会被同一 Chat 的后续任务覆盖
   assert.deepEqual(harness.coordinator.operation(second.chat, first.operationId), {
     operationId: first.operationId,
     role: 'candidate',
+    requestId: '',
     status: 'completed',
     busy: false,
     terminal: true,
@@ -121,6 +122,7 @@ test('Foreground Turn 提交后形成持久 Background Cycle，并依次开放�
 
   assert.equal(harness.coordinator.activity(harness.current()).phase, 'pending')
   assert.equal(harness.coordinator.activity(harness.current()).role, 'worldbook')
+  assert.equal(harness.coordinator.activity(harness.current()).busy, false)
 
   const worldbook = await harness.coordinator.begin(harness.current(), 'worldbook')
   const afterWorldbook = await worldbook.commit({ stateChanged: false })

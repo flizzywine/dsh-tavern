@@ -30,26 +30,20 @@ test('首次发现冷 Session 时记录服务代次并预热，不重载页面',
   const reloaded = []
   const coordinator = createRuntimeConnectionCoordinator({
     storage: storage(),
-    async probe() { return { runtimeGeneration: 'runtime-a', liveSession: false } },
     async warm(sessionId) { warmed.push(sessionId) },
     reload(input) { reloaded.push(input) }
   })
 
-  const result = await coordinator.reconcile({ sessionId: 'session-1', submitting: false, accepted: false, draft: '' })
-  assert.deepEqual(plain(result), { phase: 'checking', retryImmediately: true })
+  const result = coordinator.reconcile({ sessionId: 'session-1', submitting: false, accepted: false, draft: '', snapshot: { runtimeGeneration: 'runtime-a', liveSession: false } })
+  assert.deepEqual(plain(result), { phase: 'recovering' })
   assert.deepEqual(warmed, ['session-1'])
   assert.deepEqual(reloaded, [])
 })
 
 test('Session 预热永久挂起时不阻塞后续权威连接探测', async function () {
-  let probes = 0
   let warmCalls = 0
   const coordinator = createRuntimeConnectionCoordinator({
     storage: storage(),
-    async probe() {
-      probes += 1
-      return { runtimeGeneration: 'runtime-a', liveSession: probes > 1 }
-    },
     async warm() {
       warmCalls += 1
       return await new Promise(function () {})
@@ -57,11 +51,11 @@ test('Session 预热永久挂起时不阻塞后续权威连接探测', async fun
     reload() {}
   })
 
-  const first = await coordinator.reconcile({ sessionId: 'session-1', submitting: false, accepted: false, draft: '' })
-  const second = await coordinator.reconcile({ sessionId: 'session-1', submitting: false, accepted: false, draft: '' })
+  const first = coordinator.reconcile({ sessionId: 'session-1', submitting: false, accepted: false, draft: '', snapshot: { runtimeGeneration: 'runtime-a', liveSession: false } })
+  const second = coordinator.reconcile({ sessionId: 'session-1', submitting: false, accepted: false, draft: '', snapshot: { runtimeGeneration: 'runtime-a', liveSession: true } })
 
-  assert.deepEqual(plain(first), { phase: 'checking', retryImmediately: true })
-  assert.deepEqual(plain(second), { phase: 'ready', retryImmediately: false })
+  assert.deepEqual(plain(first), { phase: 'recovering' })
+  assert.deepEqual(plain(second), { phase: 'ready' })
   assert.equal(warmCalls, 1)
 })
 
@@ -71,13 +65,12 @@ test('服务代次变化时由 coordinator 原子保存草稿并请求重载', a
   const reloaded = []
   const coordinator = createRuntimeConnectionCoordinator({
     storage: sessionStorage,
-    async probe() { return { runtimeGeneration: 'runtime-b', liveSession: true } },
     async warm() {},
     reload(input) { reloaded.push(input) }
   })
 
-  const result = await coordinator.reconcile({ sessionId: 'session-1', submitting: true, accepted: false, draft: '推开房门' })
-  assert.deepEqual(plain(result), { phase: 'reloading', retryImmediately: false })
+  const result = coordinator.reconcile({ sessionId: 'session-1', submitting: true, accepted: false, draft: '推开房门', snapshot: { runtimeGeneration: 'runtime-b', liveSession: true } })
+  assert.deepEqual(plain(result), { phase: 'reloading' })
   assert.deepEqual(plain(reloaded), [{ generation: 'runtime-b' }])
   assert.match(sessionStorage.getItem('dsh-tavern:reconnect-draft:v1'), /推开房门/)
 })
@@ -102,12 +95,11 @@ test('首次探测就是冷 Session 且正在发送时，也先保护草稿再�
   const reloaded = []
   const coordinator = createRuntimeConnectionCoordinator({
     storage: sessionStorage,
-    async probe() { return { runtimeGeneration: 'runtime-a', liveSession: false } },
     async warm() {},
     reload(input) { reloaded.push(input) }
   })
 
-  const result = await coordinator.reconcile({ sessionId: 'session-1', submitting: true, accepted: false, draft: '第一次发送' })
+  const result = coordinator.reconcile({ sessionId: 'session-1', submitting: true, accepted: false, draft: '第一次发送', snapshot: { runtimeGeneration: 'runtime-a', liveSession: false } })
   assert.equal(result.phase, 'reloading')
   assert.deepEqual(plain(reloaded), [{ generation: 'runtime-a' }])
   assert.match(sessionStorage.getItem('dsh-tavern:reconnect-draft:v1'), /第一次发送/)
@@ -119,23 +111,30 @@ test('服务已权威接收本轮时不恢复草稿，避免诱导用户重复�
   sessionStorage.setItem('dsh-tavern:reconnect-draft:v1', 'stale')
   const coordinator = createRuntimeConnectionCoordinator({
     storage: sessionStorage,
-    async probe() { return { runtimeGeneration: 'runtime-b', liveSession: true } },
     async warm() {},
     reload() {}
   })
 
-  await coordinator.reconcile({ sessionId: 'session-1', submitting: true, accepted: true, draft: '已接收' })
+  coordinator.reconcile({ sessionId: 'session-1', submitting: true, accepted: true, draft: '已接收', snapshot: { runtimeGeneration: 'runtime-b', liveSession: true } })
   assert.equal(sessionStorage.getItem('dsh-tavern:reconnect-draft:v1'), null)
 })
 
 test('恢复草稿只消费同一个 Session 的记录，并由 adapter 确认写入成功', function () {
   const sessionStorage = storage()
   sessionStorage.setItem('dsh-tavern:reconnect-draft:v1', JSON.stringify({ sessionId: 'session-1', draft: '保留我' }))
-  const coordinator = createRuntimeConnectionCoordinator({ storage: sessionStorage, async probe() {}, async warm() {}, reload() {} })
+  const coordinator = createRuntimeConnectionCoordinator({ storage: sessionStorage, async warm() {}, reload() {} })
   let restored = ''
 
   assert.equal(coordinator.restore('session-2', function () { return true }), false)
   assert.equal(coordinator.restore('session-1', function (draft) { restored = draft; return true }), true)
   assert.equal(restored, '保留我')
   assert.equal(sessionStorage.getItem('dsh-tavern:reconnect-draft:v1'), null)
+})
+
+test('协调快照尚未返回时保持 checking，但不声称 Session 已失联', function () {
+  const coordinator = createRuntimeConnectionCoordinator({ storage: storage(), async warm() {}, reload() {} })
+
+  const result = coordinator.reconcile({ sessionId: 'session-1', submitting: false, accepted: false, draft: '', snapshot: null })
+
+  assert.deepEqual(plain(result), { phase: 'checking' })
 })

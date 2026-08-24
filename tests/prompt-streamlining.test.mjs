@@ -8,6 +8,7 @@ const clientSource = await readFile(new URL('../tavern-plugin/lib/client.js', im
 const serverSource = await readFile(new URL('../tavern-plugin/lib/index.js', import.meta.url), 'utf8')
 const backgroundRunnerSource = await readFile(new URL('../tavern-plugin/lib/background-agent-runner.js', import.meta.url), 'utf8')
 const orchestratorSource = await readFile(new URL('../tavern-plugin/lib/domain/turn-orchestration.js', import.meta.url), 'utf8')
+const plannerSource = await readFile(new URL('../tavern-plugin/lib/domain/context-planner.js', import.meta.url), 'utf8')
 const tavernPresetSource = await readFile(new URL('../presets/tavern/agent.cordis.yml', import.meta.url), 'utf8')
 const profileSource = await readFile(new URL('../package.json', import.meta.url), 'utf8')
 const profilePatchSource = await readFile(new URL('../cordis.patch.yml', import.meta.url), 'utf8')
@@ -77,15 +78,14 @@ test('卡片 Agent 以极简模式工具为底座，游玩 Agent 不暴露文件
   assert.doesNotMatch(serverSource, /name: 'tavern_bind_script'/)
 })
 
-test('候选项 RPC 先返回 Operation，再独立读取一份 candidates', () => {
-  const dispatch = between(serverSource, "case 'getChoices'", "case 'exportCard'")
+test('候选项通过持久任务信箱提交，同步快照原子携带结果', () => {
+  const dispatch = between(serverSource, "case 'syncSession'", "case 'getSessionActivity'")
 
-  assert.match(dispatch, /case 'getChoices': return \{ candidates: await candidateGenerator\.find/)
-  assert.match(dispatch, /case 'startChoices'/)
-  assert.match(dispatch, /return \{ operationId: prepared\.operationId, basedOn: prepared\.basedOn \}/)
-  assert.doesNotMatch(dispatch, /case 'generateChoices'/)
-  assert.doesNotMatch(dispatch, /choices: candidates\.choices/)
-  assert.match(clientSource, /readyCandidatePanel\(props\.sessionId, props\.messageId, result\.candidates\)/)
+  assert.match(dispatch, /case 'syncSession'/)
+  assert.match(dispatch, /case 'submitTask'/)
+  assert.match(serverSource, /result: \{ candidates \}/)
+  assert.match(clientSource, /readyCandidatePanel\(props\.sessionId, props\.messageId, taskForMessage\.result\.candidates\)/)
+  assert.doesNotMatch(clientSource, /createCandidateGenerationCoordinator/)
   assert.match(clientSource, /查看后台 Agent/)
   assert.doesNotMatch(clientSource, /button\[aria-haspopup="tree"\] \{ display: none !important; \}/)
   assert.match(clientSource, /refreshSubagents\(panel\.sessionId\)/)
@@ -178,6 +178,18 @@ test('游玩固定选择一个开场白，并用它对齐剧本', () => {
   assert.match(appendOpening, /typeof chat\.openingText === 'string'/)
   assert.match(appendOpening, /projectRuntimeReply\(text\)/)
   assert.doesNotMatch(serverSource, /switchOpening|openingViewOf|switchable: !hasStory/)
+})
+
+test('人物卡基本信息固定为游戏会话前缀，不随正文每轮重建', () => {
+  const startChat = between(serverSource, 'async function startChat', 'async function appendNativeOpening')
+  const systemAssembly = between(serverSource, "ctx.on('system-prompt/assemble'", '// ---------- 模型可选工具 ----------')
+  const bodyPlanner = between(plannerSource, "if (input.purpose === 'body')", "if (input.purpose === 'candidate')")
+
+  assert.match(startChat, /chat\.cardContextSnapshot = \(await contextPlanner\.plan\(\{ purpose: 'play-card-snapshot'/)
+  assert.match(systemAssembly, /name: 'tavern:card-snapshot'/)
+  assert.match(bodyPlanner, /includeDetails: false/)
+  assert.match(bodyPlanner, /includeSystemPrompt: false/)
+  assert.doesNotMatch(bodyPlanner, /hasStoryTurn/)
 })
 
 test('游玩回复把 HTML 从 DSH Surface 与正文历史中拆出', () => {

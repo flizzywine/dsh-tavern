@@ -257,3 +257,55 @@ test('候选 Agent 长时间生成时状态查询只在内部重试，不产生�
   assert.equal(module.getSnapshot('session-generating').error, '')
   stop()
 })
+
+test('协调快照空闲时保持低频探测，发现 Session 失联后切换为快速探测', async function () {
+  const timers = fakeTimers()
+  const snapshots = [
+    { liveSession: true, activity: { busy: false } },
+    { liveSession: false, activity: { busy: false } }
+  ]
+  const module = createLiveTavernViewModule({
+    load: async function () { return { view: snapshots.shift() } },
+    shouldPoll(view) { return !view || view.liveSession === false || (view.activity && view.activity.busy === true) },
+    idlePollIntervalMs: 2000,
+    schedule: timers.schedule,
+    cancel: timers.cancel
+  })
+  const stop = module.subscribe('session-coordination', function () {})
+
+  await timers.runNext()
+  assert.deepEqual(timers.activeDelays(), [2000])
+  await timers.runNext()
+  assert.equal(module.getSnapshot('session-coordination').view.liveSession, false)
+  assert.deepEqual(timers.activeDelays(), [200])
+  stop()
+})
+
+test('协调快照首次请求永久挂起时会超时并继续下一次权威探测', async function () {
+  const timers = fakeTimers()
+  let loads = 0
+  const module = createLiveTavernViewModule({
+    loadTimeoutMs: 2000,
+    idlePollIntervalMs: 2000,
+    load: async function () {
+      loads += 1
+      if (loads === 1) return await new Promise(function () {})
+      return { view: { liveSession: true, activity: { busy: false } } }
+    },
+    shouldPoll(view) { return !view || view.liveSession === false || (view.activity && view.activity.busy === true) },
+    schedule: timers.schedule,
+    cancel: timers.cancel
+  })
+  const stop = module.subscribe('session-lost-response', function () {})
+
+  await timers.runNext()
+  assert.deepEqual(timers.activeDelays(), [2000])
+  await timers.runNext()
+  assert.equal(module.getSnapshot('session-lost-response').phase, 'retrying')
+  assert.deepEqual(timers.activeDelays(), [300])
+  await timers.runNext()
+  assert.equal(loads, 2)
+  assert.equal(module.getSnapshot('session-lost-response').view.liveSession, true)
+  assert.deepEqual(timers.activeDelays(), [2000])
+  stop()
+})

@@ -1,178 +1,66 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
-import vm from 'node:vm'
 
-async function loadCoordinator() {
-  const source = await readFile(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
-  let descriptor
-  const sandbox = { window: { __ModuleLoader__: { load(value) { descriptor = value } }, setTimeout, clearTimeout }, console, AbortController }
-  vm.runInNewContext(source, sandbox)
-  return descriptor.factory(function () { return {} }).createCandidateGenerationCoordinator
+const clientSource = await readFile(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
+const serverSource = await readFile(new URL('../tavern-plugin/lib/index.js', import.meta.url), 'utf8')
+
+function between(source, start, end) {
+  const from = source.indexOf(start)
+  const to = source.indexOf(end, from)
+  assert.notEqual(from, -1, `missing start marker: ${start}`)
+  assert.notEqual(to, -1, `missing end marker: ${end}`)
+  return source.slice(from, to)
 }
 
-const createCandidateGenerationCoordinator = await loadCoordinator()
+test('候选生成先持久任务信箱，HTTP 请求不等待 Agent 完成', function () {
+  const submit = between(serverSource, 'async function submitCandidateTask', 'async function listTavernSessions')
+  const dispatch = between(serverSource, "case 'syncSession'", "case 'getSessionActivity'")
 
-test('候选 Operation 启动后只轮询持久状态，不等待长生成请求', async function () {
-  const operations = [
-    new Error('temporary connection failure'),
-    { operationId: 'operation-1', status: 'running', terminal: false, successful: false },
-    { operationId: 'operation-1', status: 'completed', terminal: true, successful: true }
-  ]
-  let released = 0
-  let sleeps = 0
-  let completed = false
-  const coordinator = createCandidateGenerationCoordinator({
-    id() { return 'candidate-request-1' },
-    async start() { return { operationId: 'operation-1' } },
-    async operation(_sessionId, operationId) {
-      assert.equal(operationId, 'operation-1')
-      const next = operations.shift()
-      if (next instanceof Error) throw next
-      if (next.terminal === true) completed = true
-      return next
-    },
-    async read() { return { candidates: completed ? { messageId: 'message-1', requestId: 'candidate-request-1', choices: [{ type: 'action', text: '继续前进' }] } : null } },
-    projectBusy() { return function () { released += 1 } },
-    async sleep() { sleeps += 1; await new Promise(function (resolve) { setTimeout(resolve, 0) }) }
-  })
-
-  const result = await coordinator.run({ sessionId: 'session-1', messageId: 'message-1' })
-  assert.equal(released, 1)
-  assert.ok(sleeps >= 2)
-  assert.equal(result.candidates.messageId, 'message-1')
+  assert.match(submit, /await taskMailbox\.submit/)
+  assert.match(submit, /scheduleCandidateTask\(chat\.id, task\)/)
+  assert.doesNotMatch(submit, /await candidateGenerator\.prepare|await prepared\.execute/)
+  assert.match(dispatch, /case 'submitTask'/)
 })
 
-test('候选 Operation 权威失败时解除门控并报告失败', async function () {
-  let released = 0
-  const coordinator = createCandidateGenerationCoordinator({
-    async start() { return { operationId: 'operation-failed' } },
-    async operation() { return { operationId: 'operation-failed', status: 'failed', terminal: true, successful: false } },
-    async read() { throw new Error('should not read') },
-    projectBusy() { return function () { released += 1 } },
-    async sleep() {}
-  })
+test('前端只通过统一同步快照消费任务结果，不再竞争读取 Operation 和 candidates', function () {
+  const coordination = between(clientSource, 'const tavernCoordination', 'function describeTavernActivity')
+  const submit = between(clientSource, 'async function submitCandidateTask', 'const regenPanel')
 
-  await assert.rejects(
-    coordinator.run({ sessionId: 'session-1', messageId: 'message-1' }),
-    /候选 Agent 生成失败/
-  )
-  assert.equal(released, 1)
+  assert.match(coordination, /rpc\("syncSession"/)
+  assert.match(coordination, /view\.task && view\.task\.busy/)
+  assert.match(submit, /rpc\("submitTask"/)
+  assert.doesNotMatch(submit, /getBackgroundOperation|getChoices|startChoices|Promise\.race/)
+  assert.doesNotMatch(clientSource, /createCandidateGenerationCoordinator/)
 })
 
-test('候选 Operation 被重启中断时立即结束等待，不把中断当成耗时超时', async function () {
-  const coordinator = createCandidateGenerationCoordinator({
-    async start() { return { operationId: 'operation-interrupted' } },
-    async operation() { return { operationId: 'operation-interrupted', status: 'interrupted', terminal: true, successful: false } },
-    async read() { throw new Error('should not read') },
-    projectBusy() { return function () {} },
-    async sleep() {}
-  })
+test('Session、世界书、结算与候选使用同一持久同步快照', function () {
+  const serverSync = between(serverSource, 'async function sessionSync', 'async function submitCandidateTask')
+  const clientSync = between(clientSource, 'function coordinationView', 'const tavernCoordination')
 
-  await assert.rejects(
-    coordinator.run({ sessionId: 'session-1', messageId: 'message-1' }),
-    /后台重启中断了本次候选生成/
-  )
+  assert.match(serverSync, /tasks: \{ candidate: task, background: backgroundTask \}/)
+  assert.match(serverSync, /runtimeGeneration/)
+  assert.match(serverSync, /liveSession/)
+  assert.match(clientSync, /tasks\.background/)
+  assert.match(clientSync, /tasks\.candidate/)
 })
 
-test('候选启动响应丢失时用同一请求标识重试，不会永久停在生成中', async function () {
-  let starts = 0
-  const coordinator = createCandidateGenerationCoordinator({
-    id() { return 'candidate-request-1' },
-    async start(input) {
-      starts += 1
-      assert.equal(input.requestId, 'candidate-request-1')
-      if (starts === 1) return await new Promise(function () {})
-      return { operationId: 'operation-1' }
-    },
-    async operation() { return { operationId: 'operation-1', status: 'completed', terminal: true, successful: true } },
-    async read() { return { candidates: starts >= 2 ? { messageId: 'message-1', requestId: 'candidate-request-1', choices: [{ type: 'action', text: '继续前进' }] } : null } },
-    projectBusy() { return function () {} },
-    async sleep() { await new Promise(function (resolve) { setTimeout(resolve, 0) }) },
-    queryTimeoutMs: 5
-  })
+test('后台完成而提醒丢失时，页面依据持久 task.result 直接恢复候选面板', function () {
+  const action = between(clientSource, 'function CandidateAction', 'function CandidateDockActions')
 
-  const result = await Promise.race([
-    coordinator.run({ sessionId: 'session-1', messageId: 'message-1' }),
-    new Promise(function (resolve) { setTimeout(function () { resolve('STUCK') }, 30) })
-  ])
-
-  assert.notEqual(result, 'STUCK')
-  assert.equal(starts, 2)
-  assert.equal(result.candidates.messageId, 'message-1')
+  assert.match(action, /taskForMessage\.status === "succeeded"/)
+  assert.match(action, /taskForMessage\.result\.candidates/)
+  assert.match(action, /readyCandidatePanel/)
+  assert.match(action, /taskForMessage\.terminal/)
+  assert.doesNotMatch(action, /hasLoadingPanel \|\| activity\.busy/)
 })
 
-test('候选所有启动响应都丢失时直接观察同一请求已落盘的结果', async function () {
-  let reads = 0
-  const coordinator = createCandidateGenerationCoordinator({
-    id() { return 'candidate-request-lost-start' },
-    async start() { return await new Promise(function () {}) },
-    async operation() { throw new Error('没有启动响应时不应依赖 Operation 标识') },
-    async read() {
-      reads += 1
-      if (reads === 1) return { candidates: null }
-      return { candidates: { messageId: 'message-1', requestId: 'candidate-request-lost-start', choices: [{ type: 'action', text: '继续前进' }] } }
-    },
-    projectBusy() { return function () {} },
-    async sleep() { await new Promise(function (resolve) { setTimeout(resolve, 0) }) },
-    queryTimeoutMs: 5
-  })
+test('提交响应丢失时用同一 requestId 有界重试，正确性由持久信箱保证', function () {
+  const submit = between(clientSource, 'async function submitCandidateTask', 'const regenPanel')
 
-  const result = await Promise.race([
-    coordinator.run({ sessionId: 'session-1', messageId: 'message-1' }),
-    new Promise(function (resolve) { setTimeout(function () { resolve('STUCK') }, 40) })
-  ])
-
-  assert.notEqual(result, 'STUCK')
-  assert.equal(result.candidates.requestId, 'candidate-request-lost-start')
-})
-
-test('候选 Operation 响应全部丢失时直接观察同一请求已落盘的结果', async function () {
-  let reads = 0
-  const coordinator = createCandidateGenerationCoordinator({
-    id() { return 'candidate-request-lost-operation' },
-    async start() { return { operationId: 'operation-1' } },
-    async operation() { return await new Promise(function () {}) },
-    async read() {
-      reads += 1
-      if (reads === 1) return { candidates: null }
-      return { candidates: { messageId: 'message-1', requestId: 'candidate-request-lost-operation', choices: [{ type: 'action', text: '继续前进' }] } }
-    },
-    projectBusy() { return function () {} },
-    async sleep() { await new Promise(function (resolve) { setTimeout(resolve, 0) }) },
-    queryTimeoutMs: 5
-  })
-
-  const result = await Promise.race([
-    coordinator.run({ sessionId: 'session-1', messageId: 'message-1' }),
-    new Promise(function (resolve) { setTimeout(function () { resolve('STUCK') }, 40) })
-  ])
-
-  assert.notEqual(result, 'STUCK')
-  assert.equal(result.candidates.requestId, 'candidate-request-lost-operation')
-})
-
-test('候选结果观察不会把上一次请求的旧结果当成本次完成', async function () {
-  let reads = 0
-  const coordinator = createCandidateGenerationCoordinator({
-    id() { return 'candidate-request-new' },
-    async start() { return await new Promise(function () {}) },
-    async operation() { throw new Error('没有启动响应时不应依赖 Operation 标识') },
-    async read() {
-      reads += 1
-      return { candidates: {
-        messageId: 'message-1',
-        requestId: reads === 1 ? 'candidate-request-old' : 'candidate-request-new',
-        choices: [{ type: 'action', text: '继续前进' }]
-      } }
-    },
-    projectBusy() { return function () {} },
-    async sleep() { await new Promise(function (resolve) { setTimeout(resolve, 0) }) },
-    queryTimeoutMs: 5
-  })
-
-  const result = await coordinator.run({ sessionId: 'session-1', messageId: 'message-1' })
-
-  assert.equal(reads, 2)
-  assert.equal(result.candidates.requestId, 'candidate-request-new')
+  assert.match(submit, /const requestId = candidateRequestId\(\)/)
+  assert.match(submit, /attempt < 3/)
+  assert.match(submit, /requestId: requestId/)
+  assert.match(submit, /controller\.abort\(\)/)
+  assert.match(submit, /tavernCoordination\.invalidate\(sessionId\)/)
 })

@@ -2,7 +2,7 @@ function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
 }
 
-/** Own the seam from one foreground turn to its persistent background cycle. */
+/** Pull a persistent background cycle only when the foreground needs its result. */
 export function createForegroundHandoff(options = {}) {
   const turns = options.turns
   const store = options.store
@@ -22,12 +22,9 @@ export function createForegroundHandoff(options = {}) {
   async function prepare(input) {
     if (typeof turns.prepare !== 'function') throw new Error('Foreground Handoff 缺少 prepare adapter')
     const chat = await store.chatForSession(input.sessionId)
-    const activity = chat === undefined ? { busy: false, role: '' } : tasks.activity(chat)
-    if (activity.busy) {
-      const error = new Error('后台 Agent 正在执行 ' + activity.role + '，完成后才能发送正文')
-      error.code = 'BACKGROUND_BUSY'
-      error.activity = activity
-      throw error
+    const activity = chat === undefined ? { phase: 'idle', busy: false, role: '' } : tasks.activity(chat)
+    if (chat !== undefined && (activity.role === 'worldbook' || activity.role === 'settlement') && (activity.phase === 'pending' || activity.phase === 'running')) {
+      await queueBackground(chat.id)
     }
     return await turns.prepare(input)
   }
@@ -42,13 +39,7 @@ export function createForegroundHandoff(options = {}) {
 
   function end(input = {}) {
     const reason = str(input.reason)
-    if (reason === 'completed' || reason === 'max-tokens') {
-      later(async function () {
-        const chat = await store.chatForSession(input.sessionId)
-        if (chat !== undefined && tasks.activity(chat).busy) await queueBackground(chat.id)
-      }, '前台回合移交后台周期')
-      return true
-    }
+    if (reason === 'completed' || reason === 'max-tokens') return true
     later(async function () {
       await turns.discard({ sessionId: input.sessionId, turn: input.turn })
     }, '清理未完成前台回合')
@@ -61,8 +52,7 @@ export function createForegroundHandoff(options = {}) {
       try {
         const chat = await store.readChat(chatId)
         if (chat === undefined) continue
-        const recovered = await tasks.recover(chat)
-        if (recovered.activity.busy) await queueBackground(recovered.chat.id)
+        await tasks.recover(chat)
       } catch (error) {
         logger.error('dsh-tavern: 恢复后台周期失败 ' + str(chatId), error && error.message || error)
       }

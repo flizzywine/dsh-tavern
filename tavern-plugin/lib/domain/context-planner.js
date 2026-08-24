@@ -67,8 +67,8 @@ export function createContextPlanner(options = {}) {
       if (input.includeStyleExample !== false && str(input.card.mes_example) !== '') cardInfoSections.push({ kind: 'card', required: false, text: '【文风示例】\n' + projectText(input.card.mes_example) })
     }
     if (input.includeInstructions !== false) {
-      if (str(input.card.post_history_instructions) !== '') instructionSections.push({ kind: 'card-instruction', required: true, text: '【附加要求】\n' + projectText(input.card.post_history_instructions) })
-      if (str(input.card.system_prompt) !== '') instructionSections.push({ kind: 'card-instruction', required: true, text: '【特殊指令】\n' + projectText(input.card.system_prompt) })
+      if (input.includePostHistory !== false && str(input.card.post_history_instructions) !== '') instructionSections.push({ kind: 'card-instruction', required: true, text: '【附加要求】\n' + projectText(input.card.post_history_instructions) })
+      if (input.includeSystemPrompt !== false && str(input.card.system_prompt) !== '') instructionSections.push({ kind: 'card-instruction', required: true, text: '【特殊指令】\n' + projectText(input.card.system_prompt) })
     }
     if (input.stableFirst === true) {
       sections.push.apply(sections, cardInfoSections)
@@ -102,6 +102,20 @@ export function createContextPlanner(options = {}) {
 
   async function plan(input) {
     const warnings = []
+    if (input.purpose === 'play-card-snapshot') {
+      const projectText = playProjector(input, warnings)
+      return resultOf(cardSections({
+        card: input.card,
+        chat: input.chat,
+        worldBookContext: '',
+        includeName: true,
+        includeDetails: true,
+        includeStyleExample: true,
+        includeInstructions: true,
+        includePostHistory: false,
+        stableFirst: true
+      }, projectText), warnings)
+    }
     if (input.purpose === 'body') {
       const projectText = playProjector(input, warnings)
       const sections = [{
@@ -117,16 +131,14 @@ export function createContextPlanner(options = {}) {
           text: '【上一轮正文源文本 · 展示正则已从可见正文移除，续写时保持剧情连续】\n' + str(projectedReply.sourceText)
         })
       }
-      const hasStoryTurn = (input.chat.messages || []).some(function (message) { return message !== null && typeof message === 'object' && message.greeting !== true })
-      const hasScript = (input.chat.mode || 'story') === 'script' || (input.scriptReference !== null && input.scriptReference !== undefined)
-      sections.push.apply(sections, cardSections({ card: input.card, chat: input.chat, worldBookContext: input.worldBookContext, includeName: false, includeDetails: !hasStoryTurn, includeStyleExample: !hasScript, includeInstructions: true }, projectText))
+      sections.push.apply(sections, cardSections({ card: input.card, chat: input.chat, worldBookContext: input.worldBookContext, includeName: false, includeDetails: false, includeInstructions: true, includeSystemPrompt: false }, projectText))
       if (input.scriptReference !== null && input.scriptReference !== undefined && str(input.scriptReference.text) !== '') {
         const order = Number(input.scriptReference.order)
         const position = Number.isInteger(order) && order >= 0 ? ' · 第 ' + (order + 1) + ' 块' : ''
         sections.push({ kind: 'script', required: true, text: '【本轮剧本参考' + position + '】\n' + projectText(input.scriptReference.text) })
         sections.push({ kind: 'script', required: true, text: prompt('script-story') })
       }
-      return resultOf(sections, warnings, hasStoryTurn ? [{ kind: 'card-details', reason: '仅首轮注入完整人物卡细节' }] : [])
+      return resultOf(sections, warnings, [{ kind: 'card-details', reason: '人物卡基本信息已固定在游戏会话稳定前缀' }, { kind: 'system-prompt', reason: '人物卡 system_prompt 已固定在游戏会话稳定前缀' }])
     }
 
     if (input.purpose === 'candidate') {

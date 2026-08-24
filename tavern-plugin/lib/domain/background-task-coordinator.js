@@ -54,7 +54,7 @@ export function createBackgroundTaskCoordinator(options = {}) {
     if (running === undefined && background && (background.phase === 'pending' || background.phase === 'running')) {
       return {
         phase: background.phase,
-        busy: true,
+        busy: background.phase === 'running',
         role: str(background.role),
         operationId: str(body.id),
         basedOn: { branchId: inspected.branchId, revision: Number(body.committedRevision) || inspected.revision },
@@ -86,6 +86,7 @@ export function createBackgroundTaskCoordinator(options = {}) {
     return {
       operationId: str(current.id),
       role: str(current.role),
+      requestId: str(current.requestId),
       status,
       busy: status === 'running',
       terminal: status !== 'running',
@@ -121,7 +122,8 @@ export function createBackgroundTaskCoordinator(options = {}) {
       }
       const currentActivity = activity(source)
       const expectedPending = currentActivity.phase === 'pending' && currentActivity.role === requestedRole
-      if (currentActivity.busy && !expectedPending) {
+      const conflictingPending = currentActivity.phase === 'pending' && currentActivity.role !== requestedRole
+      if ((currentActivity.busy || conflictingPending) && !expectedPending) {
         const error = new Error('后台 Agent 正在执行 ' + currentActivity.role + '，请等待完成')
         error.code = 'BACKGROUND_BUSY'
         error.activity = currentActivity

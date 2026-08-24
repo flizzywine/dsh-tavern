@@ -53,10 +53,7 @@ test('正文只注入召回模块准备的世界书上下文，并解析人物�
   assert.match(result.text, /钟楼藏着失踪商队的线索/)
   assert.doesNotMatch(result.text, /遥远王都/)
   assert.doesNotMatch(result.text, /停用条目/)
-  assert.match(result.text, /阿芙拉 是银发佣兵/)
-  assert.match(result.text, /你 表示玩家。/)
-  assert.match(result.text, /你 在旅店遇见 阿芙拉/)
-  assert.doesNotMatch(result.text, /文风示例|跟紧我/)
+  assert.doesNotMatch(result.text, /银发佣兵|表示玩家|旅店遇见|文风示例|跟紧我/)
   assert.doesNotMatch(result.text, /\{\{char\}\}|\{\{user\}\}/)
   assert.match(result.text, /本轮剧本参考 · 第 8 块/)
   assert.doesNotMatch(result.text, /故事设定 · 人物卡|名字: 阿芙拉/)
@@ -69,41 +66,36 @@ test('正文只注入召回模块准备的世界书上下文，并解析人物�
   assert.ok(result.audit.included.some((item) => item.kind === 'world-book'))
 })
 
-test('人物卡角色描述声明 user 表示玩家并在进入 Agent 前解析宏', async () => {
+test('游戏稳定前缀声明 user 表示玩家并在进入 Agent 前解析宏', async () => {
   const planner = createContextPlanner({ prompt, callModel: async () => '{"ids":[]}' })
   const current = chat()
   current.macroState = { userName: '叶天邪', local: {}, global: {} }
   const result = await planner.plan({
-    purpose: 'body',
+    purpose: 'play-card-snapshot',
     card: card(),
-    chat: current,
-    userText: '进入校园',
-    sessionId: 'session-1',
-    nativeTurn: 2,
-    scriptReference: null
+    chat: current
   })
 
+  assert.match(result.text, /名字: 阿芙拉/)
   assert.match(result.text, /设定: 阿芙拉 是银发佣兵。\n叶天邪 表示玩家。/)
+  assert.match(result.text, /谨慎而直接|叶天邪 在旅店遇见 阿芙拉|文风示例|保持冷静/)
+  assert.doesNotMatch(result.text, /避免替玩家决定/)
   assert.doesNotMatch(result.text, /\{\{user\}\}/)
 })
 
-test('自由故事首轮仍注入人物卡文风示例', async () => {
+test('游戏稳定前缀注入人物卡文风示例', async () => {
   const planner = createContextPlanner({ prompt, callModel: async () => '{"ids":[]}' })
   const result = await planner.plan({
-    purpose: 'body',
+    purpose: 'play-card-snapshot',
     card: card(),
-    chat: chat(),
-    userText: '留在旅店交谈',
-    sessionId: 'session-1',
-    nativeTurn: 2,
-    scriptReference: null
+    chat: chat()
   })
 
   assert.match(result.text, /文风示例/)
   assert.match(result.text, /阿芙拉 对 你 说：跟紧我/)
 })
 
-test('后续正文不重复首轮人物卡细节，但保留姿势、Guide 和特殊指令', async () => {
+test('每轮正文不重复人物卡细节和 system prompt，但保留姿势、Guide 和轮后指令', async () => {
   const planner = createContextPlanner({ prompt, callModel: async () => '{"ids":[]}' })
   const result = await planner.plan({
     purpose: 'body',
@@ -120,6 +112,7 @@ test('后续正文不重复首轮人物卡细节，但保留姿势、Guide 和�
 
   assert.doesNotMatch(result.text, /银发佣兵/)
   assert.doesNotMatch(result.text, /谨慎而直接/)
+  assert.doesNotMatch(result.text, /保持冷静/)
   assert.match(result.text, /右手按着剑柄/)
   assert.match(result.text, /多写动作/)
   assert.match(result.text, /避免替玩家决定/)

@@ -14,9 +14,9 @@ async function loadPolicy() {
 const browserModule = await loadPolicy()
 const describeTavernActivity = browserModule.describeTavernActivity
 
-test('Browser Activity 用一个投影同时控制正文输入与候选按钮', function () {
-  assert.deepEqual(JSON.parse(JSON.stringify(describeTavernActivity({ phase: 'pending', busy: true, role: 'worldbook' }))), {
-    phase: 'pending', busy: true, role: 'worldbook', label: '后台结算中…', blockReason: '正在准备下一轮世界书，请稍候…'
+test('Browser Activity 只在后台真正运行时控制正文输入与候选按钮', function () {
+  assert.deepEqual(JSON.parse(JSON.stringify(describeTavernActivity({ phase: 'pending', busy: false, role: 'worldbook' }))), {
+    phase: 'pending', busy: false, role: 'worldbook', label: '生成候选项', blockReason: ''
   })
   assert.deepEqual(JSON.parse(JSON.stringify(describeTavernActivity({ phase: 'running', busy: true, role: 'settlement' }))), {
     phase: 'running', busy: true, role: 'settlement', label: '后台结算中…', blockReason: '后台结算中，请稍候…'
@@ -31,7 +31,7 @@ test('空闲或失败 Activity 不锁住正文输入', function () {
   assert.equal(describeTavernActivity({ phase: 'failed', busy: false, role: 'settlement' }).blockReason, '')
 })
 
-test('Composer Gate 合并 Session 恢复与后台 Activity，不会互相误解锁', function () {
+test('Composer Gate 只管理 Session 恢复，不接受后台 Activity 锁', function () {
 	let snapshot
 	let writes = 0
 	const blocks = {
@@ -41,16 +41,10 @@ test('Composer Gate 合并 Session 恢复与后台 Activity，不会互相误解
   const conversation = { blocks }
   const gate = browserModule.createComposerGate()
 
-	gate.set(conversation, 'session-1', 'activity', '后台结算中，请稍候…')
-	gate.set(conversation, 'session-1', 'activity', '后台结算中，请稍候…')
-	assert.equal(writes, 1, '相同投影不应重复通知宿主')
 	gate.set(conversation, 'session-1', 'connection', '正在恢复 Session，请稍候…')
-  assert.equal(snapshot.reason, '正在恢复 Session，请稍候…')
-
-  gate.clear(conversation, 'session-1', 'activity')
   assert.equal(snapshot.reason, '正在恢复 Session，请稍候…')
 	gate.clear(conversation, 'session-1', 'connection')
 	assert.equal(snapshot, undefined)
 	gate.clear(conversation, 'session-1', 'connection')
-	assert.equal(writes, 3, '已清空的 owner 不应再次通知宿主')
+	assert.equal(writes, 2, '已清空的 owner 不应再次通知宿主')
 })

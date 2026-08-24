@@ -9,6 +9,7 @@ import { createCardPreparation } from './domain/card-preparation.js'
 import { cardOpeningChoices, resolveCardOpening } from './domain/card-openings.js'
 import { READABLE_CARD_FIELDS, readCardField } from './domain/card-reading.js'
 import { createContextPlanner } from './domain/context-planner.js'
+import { createDurableTaskMailbox } from './domain/durable-task-mailbox.js'
 import { extractEpubText } from './domain/epub-text.js'
 import { createFileResourceStore, normalizeResourcePath, resourceKind } from './domain/file-resources.js'
 import { createForegroundHandoff } from './domain/foreground-handoff.js'
@@ -613,6 +614,7 @@ export async function apply(ctx) {
       sessionId: '',
       guides: [],
       runtimePresetSnapshot: null,
+      cardContextSnapshot: '',
       macroState: { userName: '你', local: {}, global: {} },
       settleStatus: 'idle',
       settleError: null,
@@ -724,6 +726,7 @@ export async function apply(ctx) {
       const current = await chatForSession(sessionId)
       // 同一大模式（游玩/卡片）内复用当前会话；旧的自由故事会话不会被强行切换成剧本。
       if (current !== undefined && current.cardPath === str(cardPath) && groupOfMode(current.mode) === groupOfMode(chatMode)) {
+        if (groupOfMode(current.mode) === 'play') await ensurePlayCardSnapshot(current, card)
         await appendNativeOpening(sessionId, current, card)
         const currentView = await view(current, card)
         if (chatMode === 'card') currentView.workspace = workspaceViewOf(current)
@@ -750,6 +753,9 @@ export async function apply(ctx) {
     chat.runtimePresetSnapshot = null
     chat.runtimePresetPath = ''
     chat.macroState = macroState
+    if (groupOfMode(chat.mode) === 'play') {
+      chat.cardContextSnapshot = (await contextPlanner.plan({ purpose: 'play-card-snapshot', card: card, chat: chat })).text
+    }
     chat.openingText = greeting
     chat.presentationWarnings = openingProjection.warnings
     if (openingProjection.presentationHtml !== '') {
@@ -842,7 +848,11 @@ export async function apply(ctx) {
   async function sessionOperation(sessionId, operationId) {
     const chat = await chatForSession(sessionId)
     if (chat === undefined) return null
-    return backgroundTasks.operation(chat, operationId)
+    const operation = backgroundTasks.operation(chat, operationId)
+    if (operation === null || operation.role !== 'candidate' || operation.successful !== true) return operation
+    const candidates = await candidateGenerator.find({ sessionId, messageId: chat.candidates && chat.candidates.messageId })
+    if (candidates === null || candidates.operationId !== operation.operationId || candidates.requestId !== operation.requestId) return operation
+    return Object.assign({}, operation, { result: { candidates } })
   }
   async function sessionView(sessionId) {
     const chat = await chatForSession(sessionId)
@@ -865,6 +875,26 @@ export async function apply(ctx) {
     return result
   }
   const contextPlanner = createContextPlanner({ prompt: prompt, callModel: callModel, now: Date.now, logger: console })
+  const cardSnapshotBuilds = new Map()
+  async function ensurePlayCardSnapshot(chat, card) {
+    if (chat === undefined || groupOfMode(chat.mode) !== 'play') return ''
+    const existing = str(chat.cardContextSnapshot)
+    if (existing !== '') return existing
+    if (cardSnapshotBuilds.has(chat.id)) return await cardSnapshotBuilds.get(chat.id)
+    const build = (async function () {
+      const resolvedCard = card === undefined ? await readChatCard(chat) : card
+      const snapshot = (await contextPlanner.plan({ purpose: 'play-card-snapshot', card: resolvedCard, chat: chat })).text
+      chat.cardContextSnapshot = snapshot
+      await writeChat(chat)
+      return snapshot
+    })()
+    cardSnapshotBuilds.set(chat.id, build)
+    try {
+      return await build
+    } finally {
+      cardSnapshotBuilds.delete(chat.id)
+    }
+  }
   const backgroundAgentRunner = createBackgroundAgentRunner({
     agents: agentRegistry,
     flushSession: async function (session) {
@@ -947,17 +977,139 @@ export async function apply(ctx) {
     waitUntilSettled: async function (chat) {
       let current = await readChat(chat.id)
       if (current === undefined) return
+      let shouldRun = false
       if (isOpeningAwaitingSettlement(current)) {
         current.settleStatus = 'running'
         current.settleError = null
         await writeChat(current)
+        shouldRun = true
       }
-      if ((current.settleStatus || 'idle') === 'running') await queueSettlement(current.id)
+      const activity = backgroundTasks.activity(current)
+      if ((activity.role === 'worldbook' || activity.role === 'settlement') && (activity.phase === 'pending' || activity.phase === 'running')) shouldRun = true
+      if (shouldRun) await queueSettlement(current.id)
     },
     sleep: sleep,
     now: Date.now,
     logger: console
   })
+  const candidateTaskJobs = new Map()
+  const taskMailbox = createDurableTaskMailbox({
+    store: { readChat, writeChat },
+    now: Date.now,
+    reconcile(chat, task) {
+      if (task.kind !== 'candidate') return null
+      const saved = chat.candidates
+      if (saved && str(saved.requestId) === task.requestId && str(saved.messageId) === str(task.input && task.input.messageId)) {
+        return { status: 'succeeded', stage: 'completed', operationId: str(saved.operationId), result: { candidates: saved }, error: '' }
+      }
+      const operationId = str(task.operationId)
+      const operation = operationId === '' ? null : backgroundTasks.operation(chat, operationId)
+      if (!operation || !operation.terminal || operation.successful) return null
+      if (operation.status === 'interrupted') return { status: 'interrupted', stage: 'interrupted', error: '后台重启中断了本次候选生成' }
+      if (operation.status === 'failed') return { status: 'failed', stage: 'failed', error: '候选 Agent 生成失败，请查看后台轨迹' }
+      return { status: 'stale', stage: 'stale', error: '剧情状态已变化，本次候选已作废' }
+    }
+  })
+
+  function scheduleCandidateTask(chatId, task) {
+    const taskId = str(task && task.taskId)
+    if (taskId === '' || candidateTaskJobs.has(taskId) || (task && task.status) !== 'queued') return
+    const job = Promise.resolve().then(async function () {
+      let operationId = ''
+      try {
+        await taskMailbox.transition(chatId, taskId, { status: 'running', stage: 'preparing', error: '' })
+        const input = task.input || {}
+        const prepared = await candidateGenerator.prepare({
+          sessionId: input.sessionId,
+          messageId: input.messageId,
+          guidance: input.guidance,
+          requestId: task.requestId
+        })
+        operationId = str(prepared.operationId)
+        await taskMailbox.transition(chatId, taskId, { status: 'running', stage: 'generating', operationId })
+        if (prepared.created === false) {
+          await taskMailbox.sync(chatId, { taskId })
+          return
+        }
+        const candidates = await prepared.execute()
+        await taskMailbox.transition(chatId, taskId, { status: 'succeeded', stage: 'completed', operationId, result: { candidates }, error: '' })
+      } catch (error) {
+        const repaired = await taskMailbox.sync(chatId, { taskId })
+        if (repaired.task && repaired.task.status === 'succeeded') return
+        const message = str(error && error.message || error)
+        const interrupted = /restart|重启|中断|interrupted/i.test(message)
+        await taskMailbox.transition(chatId, taskId, {
+          status: interrupted ? 'interrupted' : 'failed',
+          stage: interrupted ? 'interrupted' : 'failed',
+          operationId,
+          error: message || '候选生成失败'
+        })
+      }
+    }).finally(function () { candidateTaskJobs.delete(taskId) })
+    candidateTaskJobs.set(taskId, job)
+  }
+
+  async function sessionSync(sessionId, selector = {}) {
+    const chat = await chatForSession(sessionId)
+    const agent = agentRegistry.get(str(sessionId))
+    if (chat === undefined) {
+      return { runtimeGeneration, liveSession: Boolean(agent && agent.session), activity: null, mailboxVersion: 0, task: null, tasks: { candidate: null, background: null } }
+    }
+    const synced = await taskMailbox.sync(chat.id, selector)
+    let task = synced.task
+    if (task === null && str(selector.kind) === 'candidate' && chat.candidates && typeof chat.candidates === 'object') {
+      task = {
+        taskId: 'legacy-' + str(chat.candidates.operationId || chat.candidates.requestId),
+        requestId: str(chat.candidates.requestId), kind: 'candidate', status: 'succeeded', stage: 'completed', busy: false, terminal: true,
+        input: { sessionId: str(sessionId), messageId: str(chat.candidates.messageId), guidance: '' },
+        operationId: str(chat.candidates.operationId), result: { candidates: chat.candidates }, error: '', version: 0,
+        createdAt: Number(chat.candidates.generatedAt) || 0, updatedAt: Number(chat.candidates.generatedAt) || 0
+      }
+    }
+    const activity = backgroundTasks.activity(await readChat(chat.id))
+    const backgroundTask = activity.operationId === '' ? null : {
+      taskId: activity.operationId,
+      requestId: '',
+      kind: activity.role || 'background',
+      status: activity.phase === 'pending' ? 'queued' : (activity.phase === 'running' ? 'running' : (activity.phase === 'failed' ? 'failed' : 'succeeded')),
+      stage: activity.role || activity.phase,
+      busy: activity.busy === true,
+      terminal: activity.phase !== 'pending' && activity.phase !== 'running',
+      input: { basedOn: activity.basedOn || null },
+      operationId: activity.operationId,
+      result: null,
+      error: '',
+      version: Number(activity.updatedAt) || 0,
+      createdAt: 0,
+      updatedAt: Number(activity.updatedAt) || 0
+    }
+    return {
+      runtimeGeneration,
+      liveSession: Boolean(agent && agent.session),
+      activity,
+      mailboxVersion: synced.mailboxVersion,
+      task,
+      tasks: { candidate: task, background: backgroundTask }
+    }
+  }
+
+  async function submitCandidateTask(args = {}) {
+    const sessionId = str(args.sessionId)
+    const chat = await chatForSession(sessionId)
+    if (chat === undefined) throw new Error('当前会话没有绑定人物卡')
+    const task = await taskMailbox.submit(chat.id, {
+      requestId: args.requestId,
+      kind: 'candidate',
+      stage: 'queued',
+      input: {
+        sessionId,
+        messageId: str(args.messageId),
+        guidance: str(args.guidance).trim().slice(0, 600)
+      }
+    })
+    scheduleCandidateTask(chat.id, task)
+    return await sessionSync(sessionId, { requestId: task.requestId, kind: 'candidate' })
+  }
   async function listTavernSessions() {
     const map = await readSessionMap()
     const rows = []
@@ -1207,6 +1359,22 @@ export async function apply(ctx) {
     settlementJobs.set(chatId, job)
     return job
   }
+  async function pullBackgroundCycle(sessionId) {
+    let chat = await chatForSession(sessionId)
+    if (chat === undefined) throw new Error('当前会话没有绑定人物卡')
+    let shouldRun = false
+    if (isOpeningAwaitingSettlement(chat)) {
+      chat.settleStatus = 'running'
+      chat.settleError = null
+      await writeChat(chat)
+      shouldRun = true
+    }
+    const activity = backgroundTasks.activity(chat)
+    if ((activity.role === 'worldbook' || activity.role === 'settlement') && (activity.phase === 'pending' || activity.phase === 'running')) shouldRun = true
+    if (!shouldRun) return true
+    void queueSettlement(chat.id)
+    return false
+  }
   // ---------- 卡片工作台：挂载资料与新卡创建 ----------
   async function sourceWindowOf(chat) {
     const out = []
@@ -1300,6 +1468,12 @@ export async function apply(ctx) {
   await fileResources.migrateLegacy(await readIndex(), readJson, writeIndex, readChat, writeChat)
   const recoveredIndex = await readIndex()
   await foregroundHandoff.recover((recoveredIndex.chats || []).map(function (row) { return row.id }))
+  for (const row of recoveredIndex.chats || []) {
+    const recovered = await taskMailbox.recover(row.id)
+    for (const task of recovered.tasks) {
+      if (task.kind === 'candidate' && task.status === 'queued') scheduleCandidateTask(row.id, task)
+    }
+  }
   const startupPresetState = await runtimePresets.state()
   if (str(startupPresetState.activePreset) !== '') {
     void reprojectBackgroundHistories(startupPresetState.activePreset).catch(function (error) {
@@ -1422,10 +1596,9 @@ export async function apply(ctx) {
     if (latest.nativeCommits !== null && typeof latest.nativeCommits === 'object') delete latest.nativeCommits[String(syntheticTurn)]
     latest.updatedAt = Date.now()
     delete latest.regenInProgress
-    latest.settleStatus = 'running'
+    latest.settleStatus = 'pending'
     latest.settleError = null
     await writeChat(latest)
-    queueSettlement(latest.id)
     // 模型面遮蔽旧正文；新正文由正常 Agent 回合生成，UI 隐藏旧 turn tail 与合成的重新生成用户消息
     if (nodes.indexOf(oldSeq) >= 0) {
       session.append('assistant/message', {
@@ -1710,16 +1883,21 @@ export async function apply(ctx) {
         }
       }
       case 'getSession': return { view: await sessionView(args && args.sessionId) }
-      case 'getSessionActivity': return { activity: await sessionActivity(args && args.sessionId), runtimeGeneration }
-      case 'getBackgroundOperation': return { operation: await sessionOperation(args && args.sessionId, args && args.operationId) }
-      case 'getSessionConnection': {
-        const agent = agentRegistry.get(str(args && args.sessionId))
-        return { runtimeGeneration, liveSession: Boolean(agent && agent.session) }
+      case 'syncSession': return { sync: await sessionSync(args && args.sessionId, { requestId: args && args.requestId, kind: args && args.kind }) }
+      case 'submitTask': {
+        if (str(args && args.kind) !== 'candidate') throw new Error('暂不支持的持久任务类型: ' + str(args && args.kind))
+        return { sync: await submitCandidateTask(args) }
       }
+      case 'getSessionActivity': {
+        const agent = agentRegistry.get(str(args && args.sessionId))
+        return { activity: await sessionActivity(args && args.sessionId), runtimeGeneration, liveSession: Boolean(agent && agent.session) }
+      }
+      case 'getBackgroundOperation': return { operation: await sessionOperation(args && args.sessionId, args && args.operationId) }
       case 'setPlayerName': return { playerName: await setPlayerName(args && args.sessionId, args && args.userName) }
       case 'ensureOpening': return { view: await ensureNativeOpening(args && args.sessionId) }
       case 'getChoices': return { candidates: await candidateGenerator.find({ sessionId: args && args.sessionId, messageId: args && args.messageId }) }
       case 'startChoices': {
+        if (!await pullBackgroundCycle(args && args.sessionId)) return { preparing: true }
         const prepared = await candidateGenerator.prepare({
           sessionId: args && args.sessionId,
           messageId: args && args.messageId,
@@ -1932,6 +2110,10 @@ export async function apply(ctx) {
     if (mode === 'card') {
       const workspaceContext = resourceWorkspaceContext(agent.session.header && agent.session.header.cwd)
       if (workspaceContext !== '') sections.push({ name: 'tavern:resource-workspace', text: workspaceContext })
+    } else {
+      const chat = await chatForSession(agent.session.id)
+      const cardSnapshot = await ensurePlayCardSnapshot(chat)
+      if (cardSnapshot !== '') sections.push({ name: 'tavern:card-snapshot', text: cardSnapshot })
     }
     assembly.sections = sections
     assembly.tools = assembly.tools.filter(function (schema) { return !controlledToolNames.has(schema.name) || visible.has(schema.name) })
