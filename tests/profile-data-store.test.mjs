@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { access, mkdtemp, readFile, rename, rm } from 'node:fs/promises'
+import { access, mkdtemp, readFile, readdir, rename, rm } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
@@ -78,6 +78,65 @@ test('Windows 临时占用目标文件时重试原子替换', async () => {
 
     assert.equal(renameCalls, 2)
     assert.deepEqual(await store.readJson('sessions.json'), { session: 'chat-1' })
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('Windows 较长时间占用大型聊天文件时持续重试原子替换', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-profile-data-'))
+  let renameCalls = 0
+  try {
+    const store = createProfileDataStore({
+      dataRoot: root,
+      platform: 'win32',
+      rename: async (source, target) => {
+        renameCalls += 1
+        if (renameCalls <= 6) {
+          const error = new Error('目标文件被 Windows 扫描程序占用')
+          error.code = 'EPERM'
+          throw error
+        }
+        await rename(source, target)
+      },
+      sleep: async () => {}
+    })
+
+    await store.writeJson('chats/chat-large.json', { text: 'x'.repeat(3 * 1024 * 1024) })
+
+    assert.equal(renameCalls, 7)
+    assert.equal((await store.readJson('chats/chat-large.json')).text.length, 3 * 1024 * 1024)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('Windows 持续占用聊天文件时保留旧文件与待恢复临时快照', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-profile-data-'))
+  try {
+    const initialStore = createProfileDataStore({ dataRoot: root })
+    await initialStore.writeJson('chats/chat-locked.json', { text: '旧内容' })
+    const store = createProfileDataStore({
+      dataRoot: root,
+      platform: 'win32',
+      rename: async () => {
+        const error = new Error('目标文件持续被占用')
+        error.code = 'EPERM'
+        throw error
+      },
+      sleep: async () => {}
+    })
+
+    await assert.rejects(
+      () => store.writeJson('chats/chat-locked.json', { text: '本轮新内容' }),
+      /临时快照/
+    )
+
+    assert.deepEqual(await initialStore.readJson('chats/chat-locked.json'), { text: '旧内容' })
+    const files = await readdir(path.join(root, 'chats'))
+    const recovery = files.find((name) => name.startsWith('chat-locked.json.tmp-'))
+    assert.ok(recovery)
+    assert.deepEqual(JSON.parse(await readFile(path.join(root, 'chats', recovery), 'utf8')), { text: '本轮新内容' })
   } finally {
     await rm(root, { recursive: true, force: true })
   }

@@ -4,6 +4,7 @@ import path from 'node:path'
 
 const TRANSIENT_RENAME_ERRORS = new Set(['EACCES', 'EBUSY', 'EPERM'])
 const RENAME_RETRY_DELAYS_MS = [25, 75, 150]
+const WINDOWS_RENAME_RETRY_DELAYS_MS = [50, 100, 200, 400, 800, 1600, 2000]
 
 function resolveSafePath(dataRoot, relativePath) {
   if (typeof relativePath !== 'string' || relativePath === '' || path.isAbsolute(relativePath)) {
@@ -21,6 +22,7 @@ export function createProfileDataStore(options) {
   const dataRoot = path.resolve(options.dataRoot)
   const renameFile = options.rename ?? rename
   const sleep = options.sleep ?? ((delay) => new Promise((resolve) => setTimeout(resolve, delay)))
+  const renameRetryDelays = (options.platform ?? process.platform) === 'win32' ? WINDOWS_RENAME_RETRY_DELAYS_MS : RENAME_RETRY_DELAYS_MS
   const writeQueues = new Map()
 
   async function readTarget(target) {
@@ -38,8 +40,13 @@ export function createProfileDataStore(options) {
         await renameFile(temporary, target)
         return
       } catch (error) {
-        const delay = RENAME_RETRY_DELAYS_MS[attempt]
-        if (!TRANSIENT_RENAME_ERRORS.has(error?.code) || delay === undefined) throw error
+        const transient = TRANSIENT_RENAME_ERRORS.has(error?.code)
+        const delay = renameRetryDelays[attempt]
+        if (!transient) throw error
+        if (delay === undefined) {
+          error.dshTavernRenameRetriesExhausted = true
+          throw error
+        }
         await sleep(delay)
       }
     }
@@ -52,7 +59,12 @@ export function createProfileDataStore(options) {
       await writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, 'utf8')
       await replaceTarget(temporary, target)
     } catch (error) {
-      await rm(temporary, { force: true }).catch(function () {})
+      if (error?.dshTavernRenameRetriesExhausted) {
+        error.recoveryPath = temporary
+        error.message += `。旧文件未被覆盖；本轮新内容的临时快照保留在：${temporary}`
+      } else {
+        await rm(temporary, { force: true }).catch(function () {})
+      }
       throw error
     }
   }
