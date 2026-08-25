@@ -72,6 +72,23 @@ test('人物卡世界书默认使用内置书，并可解绑或改绑独立世�
   } finally { await rm(root, { recursive: true, force: true }) }
 })
 
+test('人物卡可以引用另一张人物卡的内置世界书', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-embedded-worldbook-bindings-'))
+  try {
+    const store = createFileResourceStore({ dataRoot: root })
+    const ownerPath = await store.importCard({ name: '原主人.json', text: '{}' }, { name: '原主人', character_book: { entries: [] } })
+    const targetPath = await store.importCard({ name: '新人物.json', text: '{}' }, { name: '新人物' })
+
+    assert.deepEqual(await store.bindWorldBook(targetPath, { kind: 'embedded', cardPath: ownerPath }), { kind: 'embedded', cardPath: ownerPath, available: true })
+    assert.deepEqual(await store.worldBookBindingForCard(targetPath), { kind: 'embedded', cardPath: ownerPath, available: true })
+
+    const renamedOwner = (await store.rename(ownerPath, '改名主人')).path
+    assert.deepEqual(await store.worldBookBindingForCard(targetPath), { kind: 'embedded', cardPath: renamedOwner, available: true })
+    await store.remove(renamedOwner)
+    assert.deepEqual(await store.worldBookBindingForCard(targetPath), { kind: 'none' })
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
+
 test('人物卡或世界书重命名与删除会同步绑定关系', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-worldbook-binding-moves-'))
   try {

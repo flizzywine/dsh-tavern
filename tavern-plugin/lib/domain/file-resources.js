@@ -273,21 +273,35 @@ export function createFileResourceStore(options = {}) {
     if (!Object.prototype.hasOwnProperty.call(bindings, card)) return { kind: 'default' }
     const value = bindings[card]
     if (value === null) return { kind: 'none' }
-    if (typeof value !== 'string') return { kind: 'none' }
-    const worldBookPath = normalizeResourcePath(value, 'worldbook')
-    return { kind: 'standalone', path: worldBookPath, available: await exists(absolute(worldBookPath)) }
+    if (typeof value === 'string') {
+      const worldBookPath = normalizeResourcePath(value, 'worldbook')
+      return { kind: 'standalone', path: worldBookPath, available: await exists(absolute(worldBookPath)) }
+    }
+    if (value && value.kind === 'embedded') {
+      const ownerCardPath = normalizeResourcePath(value.cardPath, 'card')
+      return { kind: 'embedded', cardPath: ownerCardPath, available: await exists(absolute(ownerCardPath)) }
+    }
+    return { kind: 'none' }
   }
 
-  async function bindWorldBook(cardPath, worldBookPath) {
+  async function bindWorldBook(cardPath, locator) {
     const card = normalizeResourcePath(cardPath, 'card')
     if (!await exists(absolute(card))) throw new Error('人物卡不存在: ' + card)
     const bindings = await readWorldBookBindings()
-    if (worldBookPath === undefined || worldBookPath === null || str(worldBookPath) === '') {
+    if (locator === undefined || locator === null || str(locator) === '') {
       delete bindings[card]
       await writeWorldBookBindings(bindings)
       return { kind: 'default' }
     }
-    const worldBook = normalizeResourcePath(worldBookPath, 'worldbook')
+    if (locator && typeof locator === 'object' && locator.kind === 'embedded') {
+      const ownerCardPath = normalizeResourcePath(locator.cardPath, 'card')
+      if (!await exists(absolute(ownerCardPath))) throw new Error('人物卡不存在: ' + ownerCardPath)
+      bindings[card] = { kind: 'embedded', cardPath: ownerCardPath }
+      await writeWorldBookBindings(bindings)
+      return { kind: 'embedded', cardPath: ownerCardPath, available: true }
+    }
+    const worldBookValue = locator && typeof locator === 'object' && locator.kind === 'standalone' ? locator.path : locator
+    const worldBook = normalizeResourcePath(worldBookValue, 'worldbook')
     if (!await exists(absolute(worldBook))) throw new Error('世界书不存在: ' + worldBook)
     bindings[card] = worldBook
     await writeWorldBookBindings(bindings)
@@ -477,6 +491,15 @@ export function createFileResourceStore(options = {}) {
         delete worldBookBindings[normalized]
         changed = true
       }
+      if (kind === 'card') {
+        for (const cardPath of Object.keys(worldBookBindings)) {
+          const value = worldBookBindings[cardPath]
+          if (value && typeof value === 'object' && value.kind === 'embedded' && value.cardPath === normalized) {
+            worldBookBindings[cardPath] = null
+            changed = true
+          }
+        }
+      }
       if (kind === 'worldbook') {
         for (const cardPath of Object.keys(worldBookBindings)) {
           if (worldBookBindings[cardPath] === normalized) {
@@ -564,6 +587,15 @@ export function createFileResourceStore(options = {}) {
       worldBookBindings[newPath] = worldBookBindings[oldPath]
       delete worldBookBindings[oldPath]
       worldBookBindingsChanged = true
+    }
+    if (kind === 'card') {
+      for (const cardPath of Object.keys(worldBookBindings)) {
+        const value = worldBookBindings[cardPath]
+        if (value && typeof value === 'object' && value.kind === 'embedded' && value.cardPath === oldPath) {
+          worldBookBindings[cardPath] = { kind: 'embedded', cardPath: newPath }
+          worldBookBindingsChanged = true
+        }
+      }
     } else if (kind === 'worldbook') {
       for (const cardPath of Object.keys(worldBookBindings)) {
         if (worldBookBindings[cardPath] === oldPath) { worldBookBindings[cardPath] = newPath; worldBookBindingsChanged = true }

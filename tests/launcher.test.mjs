@@ -147,6 +147,7 @@ test('更新器在选择安装器后的任一步骤失败时写入 failed 终态
     const statusFile = path.join(root, 'update-status.json')
     await assert.rejects(() => updateApplication({
       host: 'cli', statusFile, delay: 0, sourceRoot: path.join(root, 'missing-source'),
+      log: function () {},
     }), /当前安装缺少更新程序/)
     const status = JSON.parse(await readFile(statusFile, 'utf8'))
     assert.equal(status.phase, 'failed')
@@ -162,11 +163,13 @@ test('更新器成功执行并清理临时脚本后写入 completed 终态', asy
   try {
     const statusFile = path.join(root, 'update-status.json')
     await writeFile(path.join(root, 'install.sh'), '#!/bin/sh\nexit 0\n')
-    await updateApplication({ host: 'cli', statusFile, delay: 0, sourceRoot: root })
+    const logs = []
+    await updateApplication({ host: 'cli', statusFile, delay: 0, sourceRoot: root, log: function (message) { logs.push(message) } })
     const status = JSON.parse(await readFile(statusFile, 'utf8'))
     assert.equal(status.phase, 'completed')
     assert.equal(status.host, 'cli')
     assert.equal(status.requiresRestart, false)
+    assert.deepEqual(logs, ['正在更新 DSH Tavern……'])
   } finally {
     await rm(root, { recursive: true, force: true })
   }

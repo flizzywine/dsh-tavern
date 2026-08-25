@@ -103,11 +103,51 @@ export function createWorldBookLibrary(options = {}) {
         throw error
       }
     }
+    if (stored.kind === 'embedded') {
+      const source = { kind: 'card', cardPath: stored.cardPath }
+      if (stored.available !== true) return { kind: 'embedded', source, name: '', available: false }
+      try {
+        const record = await readRecord(source)
+        return { kind: 'embedded', source: record.source, name: record.view.displayName, available: true }
+      } catch (error) {
+        if (/人物卡不存在/.test(str(error && error.message))) return { kind: 'embedded', source, name: '', available: false }
+        throw error
+      }
+    }
     if (card.character_book && typeof card.character_book === 'object') {
       const record = await readRecord({ kind: 'card', cardPath: normalized })
       return { kind: 'embedded', source: record.source, name: record.view.displayName, available: true }
     }
     return { kind: 'none', source: null, name: '', available: true }
+  }
+
+  function bindingMatchesSource(current, source) {
+    if (!current || !current.source) return false
+    if (source.kind === 'card') {
+      return current.kind === 'embedded' && current.source.cardPath === source.cardPath
+    }
+    return current.kind === 'standalone' && current.source.path === source.path
+  }
+
+  async function associations(locator) {
+    const source = sourceOf(locator)
+    const cardPaths = await cards.listPaths()
+    const cardRows = []
+    for (const cardPath of cardPaths) {
+      const card = await cards.read(cardPath)
+      if (card === undefined) continue
+      const current = await binding(cardPath)
+      cardRows.push({
+        path: cardPath,
+        name: str(card.name),
+        bound: bindingMatchesSource(current, source),
+        binding: current
+      })
+    }
+    const boundCards = cardRows.filter(function (card) { return card.bound }).map(function (card) {
+      return { path: card.path, name: card.name }
+    })
+    return { source, cards: cardRows, boundCards, conflict: boundCards.length > 1 }
   }
 
   async function bound(cardPath, card) {
@@ -127,12 +167,15 @@ export function createWorldBookLibrary(options = {}) {
     if (card === undefined) throw new Error('人物卡不存在: ' + normalized)
     const source = sourceOf(locator)
     if (source.kind === 'card') {
-      if (source.cardPath !== normalized) throw new Error('只能绑定人物卡自身携带的世界书')
-      if (!card.character_book || typeof card.character_book !== 'object') throw new Error('该人物卡没有自带世界书')
-      await resources.bind(normalized, null)
-    } else {
-      await resources.bind(normalized, source.path)
+      const owner = await cards.read(source.cardPath)
+      if (owner === undefined) throw new Error('人物卡不存在: ' + source.cardPath)
+      if (!owner.character_book || typeof owner.character_book !== 'object') throw new Error('该人物卡没有自带世界书')
     }
+    const relations = await associations(source)
+    const occupied = relations.boundCards.filter(function (item) { return item.path !== normalized })
+    if (occupied.length) throw new Error('该世界书已绑定人物卡：' + occupied.map(function (item) { return item.name || item.path }).join('、'))
+    if (source.kind === 'card' && source.cardPath === normalized) await resources.bind(normalized, null)
+    else await resources.bind(normalized, source.kind === 'card' ? { kind: 'embedded', cardPath: source.cardPath } : source)
     return await binding(normalized)
   }
 
@@ -168,5 +211,5 @@ export function createWorldBookLibrary(options = {}) {
     return await removeStandalone(normalizePath(path, 'worldbook'))
   }
 
-  return Object.freeze({ catalog, get, binding, bound, bind, unbind, import: importBook, update, export: exportBook, remove })
+  return Object.freeze({ catalog, get, binding, associations, bound, bind, unbind, import: importBook, update, export: exportBook, remove })
 }

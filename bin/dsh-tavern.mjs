@@ -720,11 +720,12 @@ async function startService() {
 
 export async function updateApplication(options = { host: 'cli', statusFile: '', delay: 0 }) {
   const sourceRoot = path.resolve(options.sourceRoot || SOURCE_ROOT)
+  const log = typeof options.log === 'function' ? options.log : console.log
   writeUpdateStatus(options.statusFile, { phase: 'running', host: options.host, startedAt: Date.now() })
   let temporary = ''
   try {
     if (options.delay > 0) await sleep(options.delay)
-    console.log('正在更新 DSH Tavern……')
+    log('正在更新 DSH Tavern……')
     const program = resolveUpdateProgram(options.host, process.platform, sourceRoot)
     const installer = program.script
     if (!existsSync(installer)) throw new Error(`当前安装缺少更新程序：${installer}`)

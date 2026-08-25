@@ -1956,6 +1956,7 @@ export async function apply(ctx) {
       case 'listWorldBooks': return await worldBooks.catalog()
       case 'getWorldBook': return await worldBooks.get(args && args.source)
       case 'getWorldBookBinding': return { binding: await worldBooks.binding(args && args.cardPath) }
+      case 'getWorldBookAssociations': return { associations: await worldBooks.associations(args && args.source) }
       case 'bindWorldBook': return { binding: await worldBooks.bind(args && args.cardPath, args && args.source) }
       case 'unbindWorldBook': return { binding: await worldBooks.unbind(args && args.cardPath) }
       case 'importWorldBook': return { worldBook: await worldBooks.import(args && args.payload) }
