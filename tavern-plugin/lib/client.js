@@ -1551,7 +1551,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const updateMessage = updateStatus.phase === "checking"
 				? "正在比较本地版本与 GitHub 最新版本，不会下载或停止服务…"
 				: updateStatus.phase === "up-to-date"
-					? "已是最新版（" + (updateStatus.currentVersion || "当前版本") + "），无需下载。"
+					? "已是最新提交（" + ((updateStatus.currentCommit || "").slice(0, 7) || updateStatus.currentVersion || "当前版本") + "），无需下载。"
 				: updateStatus.phase === "running"
 				? "正在下载并安装，期间页面可能暂时断开… 如果较长时间仍未更新完成，建议重新安装一次；检测到 Git 时只会下载运行所需代码。"
 				: updateStatus.phase === "restart-required"

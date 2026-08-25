@@ -11,6 +11,7 @@ esac
 REPOSITORY=${DSH_TAVERN_REPOSITORY:-flizzywine/dsh-tavern}
 REPOSITORY_URL=${DSH_TAVERN_GIT_URL:-https://github.com/${REPOSITORY}.git}
 ARCHIVE_URL=${DSH_TAVERN_ARCHIVE_URL:-https://codeload.github.com/${REPOSITORY}/tar.gz/refs/heads/main}
+COMMIT_URL=${DSH_TAVERN_COMMIT_URL:-https://api.github.com/repos/${REPOSITORY}/commits/main}
 DSH_ROOT=${DSH_HOME:-${HOME}/.dsh}
 APP_DIR=${DSH_TAVERN_APP_DIR:-${DSH_ROOT}/apps/dsh-tavern}
 RUNTIME_ROOT=${DSH_ROOT}/runtime
@@ -21,6 +22,7 @@ RUNTIME_PATHS='package.json pnpm-lock.yaml pnpm-workspace.yaml cordis.patch.yml 
 TMP_BASE=${TMPDIR:-/tmp}
 TMP_BASE=${TMP_BASE%/}
 TEMP_DIR=$(mktemp -d "${TMP_BASE}/dsh-tavern-install.XXXXXX")
+TARGET_COMMIT=${DSH_TAVERN_TARGET_COMMIT:-}
 
 cleanup() {
   case "${TEMP_DIR}" in
@@ -84,6 +86,7 @@ if command -v git >/dev/null 2>&1; then
   if { [ -f "${SOURCE_CACHE}/HEAD" ] || git clone --bare --filter=blob:none --depth 1 --single-branch --branch main "${REPOSITORY_URL}" "${SOURCE_CACHE}"; } \
     && git --git-dir="${SOURCE_CACHE}" remote set-url origin "${REPOSITORY_URL}" \
     && git --git-dir="${SOURCE_CACHE}" fetch --depth 1 origin main \
+    && TARGET_COMMIT=$(git --git-dir="${SOURCE_CACHE}" rev-parse FETCH_HEAD) \
     && git --git-dir="${SOURCE_CACHE}" archive --format=tar --output="${TEMP_DIR}/app.tar" FETCH_HEAD -- ${RUNTIME_PATHS}; then
     USED_GIT=1
   else
@@ -94,6 +97,9 @@ fi
 if [ "${USED_GIT}" -eq 0 ]; then
   command -v curl >/dev/null 2>&1 || fail "Git 不可用且未找到 curl，无法下载完整 ZIP。"
   echo "未检测到可用 Git，正在下载完整 ZIP……"
+  if [ -z "${TARGET_COMMIT}" ]; then
+    TARGET_COMMIT=$(curl -fsSL --connect-timeout 10 "${COMMIT_URL}" | sed -n 's/^[[:space:]]*"sha":[[:space:]]*"\([0-9a-fA-F]*\)".*/\1/p' | head -n 1 || true)
+  fi
   curl -fL --retry 3 --connect-timeout 15 "${ARCHIVE_URL}" -o "${TEMP_DIR}/app.tar.gz"
 fi
 mkdir -p "${TEMP_DIR}/extract"
@@ -114,6 +120,12 @@ fi
 mkdir -p "${APP_DIR}"
 # 覆盖程序文件但不删除旧目录，因此未被发布包跟踪的 data/ 用户数据会保留。
 cp -R "${SOURCE_DIR}/." "${APP_DIR}/"
+case ${TARGET_COMMIT} in
+  *[!0-9a-fA-F]*|'') ;;
+  ????????????????????????????????????????)
+    printf '{"commit":"%s","installedAt":"%s"}\n' "${TARGET_COMMIT}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"${APP_DIR}/.dsh-tavern-release.json"
+    ;;
+esac
 
 echo "正在安装程序依赖……"
 pnpm --dir "${APP_DIR}" install --frozen-lockfile

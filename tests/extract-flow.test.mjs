@@ -429,7 +429,7 @@ test('左侧栏提供一键更新并展示 CLI、Desktop 与 Android 的不同�
   assert.match(sidebar, /call\("startUpdate"/)
   assert.match(sidebar, /更新到最新版/)
   assert.match(sidebar, /正在比较本地版本与 GitHub 最新版本/)
-  assert.match(sidebar, /已是最新版/)
+  assert.match(sidebar, /已是最新提交/)
   assert.match(sidebar, /更新期间会短暂断开/)
   assert.match(sidebar, /如果较长时间仍未更新完成，建议重新安装一次/)
   assert.match(sidebar, /检测到 Git 时只会下载运行所需代码/)

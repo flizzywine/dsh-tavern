@@ -5,8 +5,10 @@ import path from 'node:path'
 import { createProfileDataStore } from './profile-data-store.js'
 
 const STATUS_FILE = 'update-status.json'
+const RELEASE_FILE = '.dsh-tavern-release.json'
 const RUNNING_TIMEOUT_MS = 15 * 60 * 1000
 const VERSION_URL = 'https://raw.githubusercontent.com/flizzywine/dsh-tavern/main/package.json'
+const COMMIT_URL = 'https://api.github.com/repos/flizzywine/dsh-tavern/commits/main'
 
 export function sanitizeUpdateError(value) {
   const message = String(value || '').trim()
@@ -41,6 +43,44 @@ function processIsAlive(pid) {
   }
 }
 
+async function readRecordedCommit(sourceRoot, dshHome) {
+  try {
+    const content = await readFile(path.join(sourceRoot, RELEASE_FILE), 'utf8')
+    const commit = String(JSON.parse(content.replace(/^\uFEFF/, ''))?.commit || '')
+    if (/^[0-9a-f]{40}$/i.test(commit)) return commit
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error
+  }
+  try {
+    const gitRoot = path.join(sourceRoot, '.git')
+    const head = (await readFile(path.join(gitRoot, 'HEAD'), 'utf8')).trim()
+    if (/^[0-9a-f]{40}$/i.test(head)) return head
+    const reference = head.match(/^ref:\s+(.+)$/)?.[1]
+    if (reference) {
+      try {
+        const commit = (await readFile(path.join(gitRoot, reference), 'utf8')).trim()
+        if (/^[0-9a-f]{40}$/i.test(commit)) return commit
+      } catch (error) {
+        if (error?.code !== 'ENOENT') throw error
+      }
+      const packed = await readFile(path.join(gitRoot, 'packed-refs'), 'utf8').catch((error) => error?.code === 'ENOENT' ? '' : Promise.reject(error))
+      const escaped = reference.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      const commit = packed.match(new RegExp(`^([0-9a-f]{40}) ${escaped}$`, 'mi'))?.[1] || ''
+      if (commit) return commit
+    }
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error
+  }
+  try {
+    const content = await readFile(path.join(dshHome, 'source-cache', 'dsh-tavern.git', 'FETCH_HEAD'), 'utf8')
+    const commit = String(content.match(/^[0-9a-f]{40}/i)?.[0] || '')
+    if (commit) return commit
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error
+  }
+  return ''
+}
+
 export function createApplicationUpdater(options) {
   const dataRoot = path.resolve(options.dataRoot)
   const sourceRoot = path.resolve(options.sourceRoot)
@@ -60,6 +100,15 @@ export function createApplicationUpdater(options) {
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
     return response.json()
   }
+  const fetchLatestCommit = options.fetchLatestCommit || async function () {
+    const response = await fetch(options.commitUrl || process.env.DSH_TAVERN_COMMIT_URL || COMMIT_URL, {
+      cache: 'no-store',
+      headers: { Accept: 'application/vnd.github+json' },
+      signal: AbortSignal.timeout(5000),
+    })
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    return String((await response.json())?.sha || '')
+  }
   const store = createProfileDataStore({ dataRoot })
 
   async function versions() {
@@ -67,14 +116,24 @@ export function createApplicationUpdater(options) {
     try {
       local = JSON.parse(await readFile(path.join(sourceRoot, 'package.json'), 'utf8'))
     } catch (error) {
-      if (error?.code === 'ENOENT') return { currentVersion: 'unknown', latestVersion: 'unknown', updateAvailable: true }
+      if (error?.code === 'ENOENT') return { currentVersion: 'unknown', latestVersion: 'unknown', currentCommit: '', latestCommit: '', updateAvailable: true }
       throw error
     }
-    const remote = await fetchManifest()
+    const [remote, latestCommit] = await Promise.all([fetchManifest(), fetchLatestCommit()])
     const currentVersion = String(local?.version || '')
     const latestVersion = String(remote?.version || '')
     if (currentVersion === '' || latestVersion === '') throw new Error('版本信息不完整')
-    return { currentVersion, latestVersion, updateAvailable: compareVersions(latestVersion, currentVersion) > 0 }
+    if (!/^[0-9a-f]{40}$/i.test(latestCommit)) throw new Error('GitHub 返回的提交号无效')
+    const currentCommit = await readRecordedCommit(sourceRoot, dshHome)
+    const versionAhead = compareVersions(latestVersion, currentVersion) > 0
+    return {
+      currentVersion,
+      latestVersion,
+      currentCommit,
+      latestCommit,
+      // An installation without commit metadata updates once to establish its baseline.
+      updateAvailable: versionAhead || currentCommit.toLowerCase() !== latestCommit.toLowerCase(),
+    }
   }
 
   async function host() {
@@ -131,13 +190,20 @@ export function createApplicationUpdater(options) {
       throw new Error(failed.error)
     }
     if (!version.updateAvailable) {
-      const upToDate = { phase: 'up-to-date', host: installHost, checkedAt: now(), currentVersion: version.currentVersion, latestVersion: version.latestVersion }
+      const upToDate = {
+        phase: 'up-to-date', host: installHost, checkedAt: now(),
+        currentVersion: version.currentVersion, latestVersion: version.latestVersion,
+        currentCommit: version.currentCommit, latestCommit: version.latestCommit,
+      }
       await store.writeJson(STATUS_FILE, upToDate)
       return upToDate
     }
     const running = {
       phase: 'running', host: installHost, startedAt: now(),
-      ...(version.currentVersion === 'unknown' ? {} : { currentVersion: version.currentVersion, latestVersion: version.latestVersion }),
+      ...(version.currentVersion === 'unknown' ? {} : {
+        currentVersion: version.currentVersion, latestVersion: version.latestVersion,
+        currentCommit: version.currentCommit, latestCommit: version.latestCommit,
+      }),
     }
     await store.writeJson(STATUS_FILE, running)
     const statusFile = path.join(dataRoot, STATUS_FILE)
@@ -147,6 +213,7 @@ export function createApplicationUpdater(options) {
       '--host', installHost,
       '--status-file', statusFile,
       '--delay=800',
+      ...(version.latestCommit ? ['--target-commit', version.latestCommit] : []),
     ]
     const args = platform === 'win32'
       ? [path.join(sourceRoot, 'bin', 'dsh-tavern-update-helper.mjs'), execPath, ...updaterArgs]

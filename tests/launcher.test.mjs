@@ -99,15 +99,17 @@ test('Windows 更新日志同时识别 UTF-8 与 UTF-16LE', () => {
 })
 
 test('UI 更新参数明确传递宿主、状态文件和启动延迟', () => {
-  assert.deepEqual(parseUpdateOptions(['--host', 'desktop', '--status-file', '/tmp/update.json', '--delay=800']), {
+  assert.deepEqual(parseUpdateOptions(['--host', 'desktop', '--status-file', '/tmp/update.json', '--delay=800', '--target-commit', 'a'.repeat(40)]), {
     host: 'desktop',
     statusFile: '/tmp/update.json',
     delay: 800,
+    targetCommit: 'a'.repeat(40),
   })
-  assert.deepEqual(parseUpdateOptions(['--host=android']), { host: 'android', statusFile: '', delay: 0 })
-  assert.deepEqual(parseUpdateOptions([]), { host: 'cli', statusFile: '', delay: 0 })
+  assert.deepEqual(parseUpdateOptions(['--host=android']), { host: 'android', statusFile: '', delay: 0, targetCommit: '' })
+  assert.deepEqual(parseUpdateOptions([]), { host: 'cli', statusFile: '', delay: 0, targetCommit: '' })
   assert.throws(() => parseUpdateOptions(['--host', 'other']), /不支持的安装宿主/)
   assert.throws(() => parseUpdateOptions(['--status-file', 'relative.json']), /绝对路径/)
+  assert.throws(() => parseUpdateOptions(['--target-commit', 'bad']), /提交号/)
 })
 
 test('Android UI 更新选择专用更新脚本，CLI 与 Desktop 保持原安装器', () => {

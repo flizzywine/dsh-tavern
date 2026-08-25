@@ -354,6 +354,7 @@ export function parseUpdateOptions(args) {
   let host = 'cli'
   let statusFile = ''
   let delay = 0
+  let targetCommit = ''
   for (let index = 0; index < args.length; index += 1) {
     const value = args[index]
     if (value === '--host') host = args[++index]
@@ -362,12 +363,15 @@ export function parseUpdateOptions(args) {
     else if (value.startsWith('--status-file=')) statusFile = value.slice('--status-file='.length)
     else if (value === '--delay') delay = Number(args[++index])
     else if (value.startsWith('--delay=')) delay = Number(value.slice('--delay='.length))
+    else if (value === '--target-commit') targetCommit = args[++index]
+    else if (value.startsWith('--target-commit=')) targetCommit = value.slice('--target-commit='.length)
     else throw new Error(`无法识别的更新参数：${value}`)
   }
   if (!INSTALL_HOSTS.has(host)) throw new Error(`不支持的安装宿主：${host}`)
   if (statusFile !== '' && !path.isAbsolute(statusFile)) throw new Error('更新状态文件必须使用绝对路径')
   if (!Number.isInteger(delay) || delay < 0 || delay > 5000) throw new Error('更新延迟必须是 0 到 5000 毫秒的整数')
-  return { host, statusFile, delay }
+  if (targetCommit !== '' && !/^[0-9a-f]{40}$/i.test(targetCommit)) throw new Error('目标提交号无效')
+  return { host, statusFile, delay, targetCommit }
 }
 
 function writeUpdateStatus(file, value) {
@@ -770,6 +774,7 @@ export async function updateApplication(options = { host: 'cli', statusFile: '',
           ...process.env,
           DSH_TAVERN_HOST: options.host,
           DSH_TAVERN_SOURCE_ROOT: SOURCE_ROOT,
+          ...(options.targetCommit ? { DSH_TAVERN_TARGET_COMMIT: options.targetCommit } : {}),
           ...(capture ? { DSH_TAVERN_NO_OPEN: '1' } : {}),
         },
         stdio: capture ? ['ignore', outputDescriptor, outputDescriptor] : 'inherit',

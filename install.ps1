@@ -6,12 +6,14 @@ if ($InstallHost -notin @('cli', 'desktop')) { throw "不支持的安装宿主�
 $Repository = if ($env:DSH_TAVERN_REPOSITORY) { $env:DSH_TAVERN_REPOSITORY } else { 'flizzywine/dsh-tavern' }
 $RepositoryUrl = if ($env:DSH_TAVERN_GIT_URL) { $env:DSH_TAVERN_GIT_URL } else { "https://github.com/$Repository.git" }
 $ArchiveUrl = if ($env:DSH_TAVERN_ARCHIVE_URL) { $env:DSH_TAVERN_ARCHIVE_URL } else { "https://codeload.github.com/$Repository/zip/refs/heads/main" }
+$CommitUrl = if ($env:DSH_TAVERN_COMMIT_URL) { $env:DSH_TAVERN_COMMIT_URL } else { "https://api.github.com/repos/$Repository/commits/main" }
 $DshRoot = if ($env:DSH_HOME) { $env:DSH_HOME } else { Join-Path ([Environment]::GetFolderPath('UserProfile')) '.dsh' }
 $AppDir = if ($env:DSH_TAVERN_APP_DIR) { $env:DSH_TAVERN_APP_DIR } else { Join-Path $DshRoot 'apps\dsh-tavern' }
 $RuntimeRoot = Join-Path $DshRoot 'runtime'
 $CommandBin = Join-Path $DshRoot 'bin'
 $SourceCache = Join-Path $DshRoot 'source-cache\dsh-tavern.git'
 $TempDir = Join-Path ([IO.Path]::GetTempPath()) ("dsh-tavern-install-" + [Guid]::NewGuid().ToString('N'))
+$TargetCommit = if ($env:DSH_TAVERN_TARGET_COMMIT) { $env:DSH_TAVERN_TARGET_COMMIT } else { '' }
 $RuntimePaths = @(
   'package.json',
   'pnpm-lock.yaml',
@@ -104,6 +106,8 @@ try {
       Assert-LastCommand 'DSH Tavern Git 远程地址配置失败。'
       & $GitCommand --git-dir=$SourceCache fetch --depth 1 origin main
       Assert-LastCommand 'DSH Tavern 增量更新失败。'
+      $TargetCommit = (& $GitCommand --git-dir=$SourceCache rev-parse FETCH_HEAD).Trim()
+      Assert-LastCommand 'DSH Tavern 提交号读取失败。'
       & $GitCommand --git-dir=$SourceCache archive --format=zip "--output=$ArchivePath" FETCH_HEAD -- @RuntimePaths
       Assert-LastCommand 'DSH Tavern 精简运行包生成失败。'
       $UsedGit = $true
@@ -117,6 +121,10 @@ try {
     $PreviousProgressPreference = $ProgressPreference
     $ProgressPreference = 'SilentlyContinue'
     try {
+      if ($TargetCommit -eq '') {
+        try { $TargetCommit = (Invoke-RestMethod -UseBasicParsing -Uri $CommitUrl -Headers @{ Accept = 'application/vnd.github+json' }).sha }
+        catch { Write-Warning '无法记录当前提交号，不影响本次安装。' }
+      }
       for ($Attempt = 1; $Attempt -le 3; $Attempt++) {
         try {
           Invoke-WebRequest -UseBasicParsing -Uri $ArchiveUrl -OutFile $ArchivePath
@@ -153,6 +161,10 @@ try {
   New-Item -ItemType Directory -Force -Path $AppDir | Out-Null
   # 覆盖程序文件但不删除旧目录，因此未被发布包跟踪的 data\ 用户数据会保留。
   Get-ChildItem -LiteralPath $SourceDir.FullName -Force | Copy-Item -Destination $AppDir -Recurse -Force
+  if ($TargetCommit -match '^[0-9a-fA-F]{40}$') {
+    $ReleaseJson = @{ commit = $TargetCommit; installedAt = [DateTime]::UtcNow.ToString('o') } | ConvertTo-Json
+    [IO.File]::WriteAllText((Join-Path $AppDir '.dsh-tavern-release.json'), $ReleaseJson, (New-Object Text.UTF8Encoding($false)))
+  }
 
   Write-Host '正在安装程序依赖……'
   & $PnpmCommand --dir $AppDir install --frozen-lockfile

@@ -11,20 +11,72 @@ test('版本相同时不下载、不停止服务', async () => {
   try {
     const dataRoot = path.join(root, 'data')
     await writeFile(path.join(root, 'package.json'), JSON.stringify({ version: '0.7.1' }))
+    await writeFile(path.join(root, '.dsh-tavern-release.json'), JSON.stringify({ commit: 'a'.repeat(40) }))
     let spawned = 0
     const updater = createApplicationUpdater({
       dataRoot,
       sourceRoot: root,
       runtimeHost: 'cli',
       fetchManifest: async () => ({ version: '0.7.1' }),
+      fetchLatestCommit: async () => 'a'.repeat(40),
       spawnProcess() { spawned += 1 },
       now: () => 123,
     })
 
     assert.deepEqual(await updater.start(), {
       phase: 'up-to-date', host: 'cli', checkedAt: 123, currentVersion: '0.7.1', latestVersion: '0.7.1',
+      currentCommit: 'a'.repeat(40), latestCommit: 'a'.repeat(40),
     })
     assert.equal(spawned, 0)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('版本号相同但提交号变化时仍启动更新', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-updater-commit-'))
+  try {
+    const dataRoot = path.join(root, 'data')
+    await writeFile(path.join(root, 'package.json'), JSON.stringify({ version: '0.7.2' }))
+    await writeFile(path.join(root, '.dsh-tavern-release.json'), JSON.stringify({ commit: 'a'.repeat(40) }))
+    const calls = []
+    const child = { pid: 4321, once(event, listener) { if (event === 'spawn') queueMicrotask(listener); return this }, unref() {} }
+    const updater = createApplicationUpdater({
+      dataRoot,
+      sourceRoot: root,
+      runtimeHost: 'cli',
+      platform: 'linux',
+      fetchManifest: async () => ({ version: '0.7.2' }),
+      fetchLatestCommit: async () => 'b'.repeat(40),
+      spawnProcess(command, args) { calls.push({ command, args }); return child },
+      now: () => 456,
+    })
+
+    const result = await updater.start()
+    assert.equal(result.phase, 'running')
+    assert.equal(result.currentCommit, 'a'.repeat(40))
+    assert.equal(result.latestCommit, 'b'.repeat(40))
+    assert.deepEqual(calls[0].args.slice(-2), ['--target-commit', 'b'.repeat(40)])
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('完整 Git 安装可直接从 HEAD 识别当前提交', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-updater-git-head-'))
+  try {
+    const commit = 'c'.repeat(40)
+    await mkdir(path.join(root, '.git', 'refs', 'heads'), { recursive: true })
+    await writeFile(path.join(root, '.git', 'HEAD'), 'ref: refs/heads/main\n')
+    await writeFile(path.join(root, '.git', 'refs', 'heads', 'main'), `${commit}\n`)
+    await writeFile(path.join(root, 'package.json'), JSON.stringify({ version: '0.7.2' }))
+    const updater = createApplicationUpdater({
+      dataRoot: path.join(root, 'data'), sourceRoot: root, runtimeHost: 'android',
+      fetchManifest: async () => ({ version: '0.7.2' }), fetchLatestCommit: async () => commit,
+      now: () => 789,
+    })
+
+    assert.equal((await updater.start()).phase, 'up-to-date')
   } finally {
     await rm(root, { recursive: true, force: true })
   }
