@@ -18,6 +18,7 @@ import {
   needsFrontendBootstrap,
   parseInstallHost,
   parseUpdateOptions,
+  recordInstalledRelease,
   resolveUpdateProgram,
   renderWindowsLauncher,
   restartBrowserTarget,
@@ -33,6 +34,18 @@ const profilePatch = await readFile(new URL('../cordis.patch.yml', import.meta.u
 const managedProfilePatch = await readFile(new URL('../tavern-plugin/cordis.patch.yml', import.meta.url), 'utf8')
 const profileConfigurationSource = await readFile(new URL('../bin/profile-configuration.mjs', import.meta.url), 'utf8')
 const rootManifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
+
+test('无 Git 的 ZIP 安装在收尾时补写提交号', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'dsh-tavern-release-'))
+  try {
+    const commit = 'd'.repeat(40)
+    const result = await recordInstalledRelease({ sourceRoot: root, dshRoot: path.join(root, '.dsh'), targetCommit: commit })
+    assert.equal(result.commit, commit)
+    assert.equal(JSON.parse(await readFile(path.join(root, '.dsh-tavern-release.json'), 'utf8')).commit, commit)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
 const tavernPluginManifest = JSON.parse(await readFile(new URL('../tavern-plugin/package.json', import.meta.url), 'utf8'))
 const profileWorkspace = await readFile(new URL('../pnpm-workspace.yaml', import.meta.url), 'utf8')
 

@@ -43,6 +43,8 @@ const LOG_FILE = path.join(LOG_DIR, 'tavern.log')
 const PID_FILE = path.join(LOG_DIR, 'tavern.pid.json')
 const FRONTEND_BOOTSTRAP_FILE = path.join(LOG_DIR, 'tavern.frontend-bootstrap.json')
 const FRONTEND_BOOTSTRAP_VERSION = 1
+const RELEASE_FILE = '.dsh-tavern-release.json'
+const DEFAULT_COMMIT_URL = 'https://api.github.com/repos/flizzywine/dsh-tavern/commits/main'
 const SETTINGS_FILE = path.join(DSH_ROOT, 'settings.yaml')
 const SIDEBAR_DEFAULTS_VERSION = 8
 const TAVERN_SIDEBAR_DEFAULTS = {
@@ -489,6 +491,33 @@ function legacyDataRoots() {
   return roots
 }
 
+export async function recordInstalledRelease(options = {}) {
+  const sourceRoot = path.resolve(options.sourceRoot || SOURCE_ROOT)
+  const dshRoot = path.resolve(options.dshRoot || DSH_ROOT)
+  if (existsSync(path.join(sourceRoot, '.git'))) return { source: 'git', commit: '' }
+  const releasePath = path.join(sourceRoot, RELEASE_FILE)
+  if (existsSync(releasePath)) return JSON.parse(readFileSync(releasePath, 'utf8').replace(/^\uFEFF/, ''))
+  let commit = String(options.targetCommit || process.env.DSH_TAVERN_TARGET_COMMIT || '')
+  if (!/^[0-9a-f]{40}$/i.test(commit)) {
+    const fetchHead = path.join(dshRoot, 'source-cache', 'dsh-tavern.git', 'FETCH_HEAD')
+    if (existsSync(fetchHead)) commit = readFileSync(fetchHead, 'utf8').match(/^[0-9a-f]{40}/i)?.[0] || ''
+  }
+  if (!/^[0-9a-f]{40}$/i.test(commit)) {
+    const request = options.request || fetch
+    const response = await request(options.commitUrl || process.env.DSH_TAVERN_COMMIT_URL || DEFAULT_COMMIT_URL, {
+      cache: 'no-store', headers: { Accept: 'application/vnd.github+json' }, signal: AbortSignal.timeout(5000),
+    })
+    if (!response.ok) throw new Error(`GitHub commit HTTP ${response.status}`)
+    commit = String((await response.json())?.sha || '')
+  }
+  if (!/^[0-9a-f]{40}$/i.test(commit)) throw new Error('GitHub 返回的提交号无效')
+  const release = { commit, installedAt: new Date().toISOString() }
+  const temporary = `${releasePath}.tmp-${process.pid}`
+  writeFileSync(temporary, `${JSON.stringify(release, null, 2)}\n`, 'utf8')
+  renameSync(temporary, releasePath)
+  return release
+}
+
 async function installProfile(host = 'cli') {
   const dsh = findDshCommand()
   requireCommand('node', '请安装 Node.js 22.19 或更高版本')
@@ -530,6 +559,11 @@ async function installProfile(host = 'cli') {
     throw error
   }
   if (host === 'cli') installCommand()
+  try {
+    await recordInstalledRelease()
+  } catch (error) {
+    console.warn(`未能记录安装提交号，不影响本次安装：${String(error?.message || error)}`)
+  }
 
   console.log('DSH Tavern 已安装。')
   console.log(`已与当前 DSH ${dshVersion} 对齐依赖。`)
