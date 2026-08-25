@@ -189,6 +189,12 @@ test('Windows UI 更新隐藏 PowerShell 窗口并保持 UTF-8 输出', () => {
   assert.match(updateHelperSource, /windowsHide: true/)
 })
 
+test('后台更新禁止重复打开浏览器，并用临时日志避免后台进程占住输出管道', () => {
+  assert.match(launcherSource, /DSH_TAVERN_NO_OPEN: '1'/)
+  assert.match(launcherSource, /stdio: capture \? \['ignore', outputDescriptor, outputDescriptor\] : 'inherit'/)
+  assert.doesNotMatch(launcherSource, /stdio: capture \? 'pipe' : 'inherit'/)
+})
+
 test('Windows installer compares Node versions without native argument quoting', () => {
   assert.match(windowsInstaller, /\[version\]\$NodeVersionText\.TrimStart\('v'\)/)
   assert.doesNotMatch(windowsInstaller, /node -e/)

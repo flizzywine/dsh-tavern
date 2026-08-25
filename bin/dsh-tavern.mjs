@@ -724,6 +724,7 @@ export async function updateApplication(options = { host: 'cli', statusFile: '',
   const log = typeof options.log === 'function' ? options.log : console.log
   writeUpdateStatus(options.statusFile, { phase: 'running', host: options.host, startedAt: Date.now(), pid: process.pid })
   let temporary = ''
+  let outputFile = ''
   try {
     if (options.delay > 0) await sleep(options.delay)
     log('正在更新 DSH Tavern……')
@@ -740,23 +741,33 @@ export async function updateApplication(options = { host: 'cli', statusFile: '',
     const command = program.command
     const args = program.args.map((argument) => argument === installer ? temporary : argument)
     const capture = options.statusFile !== ''
-    const result = spawnSync(command, args, {
-      encoding: capture ? 'utf8' : undefined,
-      env: {
-        ...process.env,
-        DSH_TAVERN_HOST: options.host,
-        DSH_TAVERN_SOURCE_ROOT: SOURCE_ROOT,
-      },
-      stdio: capture ? 'pipe' : 'inherit',
-      windowsHide: true,
-    })
+    outputFile = capture ? `${temporary}.log` : ''
+    let outputDescriptor = null
+    let result
+    try {
+      if (capture) outputDescriptor = openSync(outputFile, 'w')
+      result = spawnSync(command, args, {
+        env: {
+          ...process.env,
+          DSH_TAVERN_HOST: options.host,
+          DSH_TAVERN_SOURCE_ROOT: SOURCE_ROOT,
+          ...(capture ? { DSH_TAVERN_NO_OPEN: '1' } : {}),
+        },
+        stdio: capture ? ['ignore', outputDescriptor, outputDescriptor] : 'inherit',
+        windowsHide: true,
+      })
+    } finally {
+      if (outputDescriptor !== null) closeSync(outputDescriptor)
+    }
     if (result.error) throw new Error(`无法运行更新程序：${result.error.message}`)
     if (result.status !== 0) {
-      const details = capture ? String(result.stderr || result.stdout || '').trim().split('\n').slice(-12).join('\n') : ''
+      const details = capture && existsSync(outputFile) ? readFileSync(outputFile, 'utf8').trim().split('\n').slice(-12).join('\n') : ''
       throw new Error(`更新失败${details ? `：${details}` : '，请查看上方错误信息。'}`)
     }
     if (temporary !== '' && existsSync(temporary)) unlinkSync(temporary)
     temporary = ''
+    if (outputFile !== '' && existsSync(outputFile)) unlinkSync(outputFile)
+    outputFile = ''
     writeUpdateStatus(options.statusFile, { phase: 'completed', host: options.host, completedAt: Date.now(), requiresRestart: options.host === 'desktop' })
   } catch (error) {
     let failure = error
@@ -764,6 +775,9 @@ export async function updateApplication(options = { host: 'cli', statusFile: '',
       try { unlinkSync(temporary) } catch (cleanupError) {
         failure = new Error(`${String(error?.message || error)}；临时文件清理失败：${String(cleanupError?.message || cleanupError)}`)
       }
+    }
+    if (outputFile !== '' && existsSync(outputFile)) {
+      try { unlinkSync(outputFile) } catch {}
     }
     writeUpdateStatus(options.statusFile, { phase: 'failed', host: options.host, failedAt: Date.now(), error: String(failure?.message || failure) })
     throw failure
