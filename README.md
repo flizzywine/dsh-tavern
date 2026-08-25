@@ -61,6 +61,10 @@ dsh-tavern 支持 Windows、macOS、Linux 和 Android。Windows 与 macOS 可使
 
 Tavern Profile 保持开放。你可以自行编写、安装和组合 DSH 插件；更新 dsh-tavern 时，用户添加的插件与配置会被保留，不会被安装程序整体覆盖。
 
+#### 人物卡正则美化
+
+支持人物卡展示正则，在对话正文中渲染 HTML 前端。
+
 #### 速度快、消耗低
 
 dsh-tavern 只在需要时注入必要上下文，并把不同任务拆成短而明确的调用，减少无效的 Token 消耗和等待时间。
@@ -110,6 +114,12 @@ dsh-tavern 使用尽可能少而精的提示词，把流程和状态交给程序
 在中间与 Agent 讨论修改内容，同时在右侧查看并编辑人物卡字段、世界书与绑定剧本。
 
 ![通过对话讨论并编辑人物卡字段](docs/images/readme/card-editor.png)
+
+#### 人物卡正则美化
+
+把状态文本渲染为正文内的酒馆面板。
+
+![阿芙拉人物卡正则美化效果](docs/images/readme/regex-html-rendering.png)
 
 ## 安装与启动
 
