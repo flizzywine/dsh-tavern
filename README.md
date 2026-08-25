@@ -127,10 +127,24 @@ Windows：
 $env:DSH_TAVERN_HOST='desktop'; irm https://raw.githubusercontent.com/flizzywine/dsh-tavern/main/install.ps1 | iex
 ```
 
+如果无法连接 `raw.githubusercontent.com`，请改用国内网络备用命令：
+
+```powershell
+$env:DSH_TAVERN_HOST='desktop'
+$env:DSH_TAVERN_ARCHIVE_URL='https://codeload.github.com/flizzywine/dsh-tavern/zip/refs/heads/main'
+irm https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@main/install.ps1 | iex
+```
+
 macOS：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/flizzywine/dsh-tavern/main/install.sh | DSH_TAVERN_HOST=desktop sh
+```
+
+如果无法连接 `raw.githubusercontent.com`，请改用国内网络备用命令：
+
+```bash
+curl -fsSL https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@main/install.sh | DSH_TAVERN_HOST=desktop DSH_TAVERN_ARCHIVE_URL=https://codeload.github.com/flizzywine/dsh-tavern/tar.gz/refs/heads/main sh
 ```
 
 安装完成后，重启 DSH Desktop，并从托盘的 **Profile** 菜单选择 **tavern**。Desktop 会自动管理启停和端口；更新 dsh-tavern 时，在 DSH Terminal 中重新运行上述安装命令即可。
@@ -147,6 +161,13 @@ curl -fsSL https://raw.githubusercontent.com/flizzywine/dsh-tavern/main/install.
 irm https://raw.githubusercontent.com/flizzywine/dsh-tavern/main/install.ps1 | iex
 ```
 
+如果无法连接 `raw.githubusercontent.com`：
+
+```powershell
+$env:DSH_TAVERN_ARCHIVE_URL='https://codeload.github.com/flizzywine/dsh-tavern/zip/refs/heads/main'
+irm https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@main/install.ps1 | iex
+```
+
 #### macOS / Linux / WSL2
 
 打开终端，运行：
@@ -155,13 +176,19 @@ irm https://raw.githubusercontent.com/flizzywine/dsh-tavern/main/install.ps1 | i
 curl -fsSL https://raw.githubusercontent.com/flizzywine/dsh-tavern/main/install.sh | sh
 ```
 
+如果无法连接 `raw.githubusercontent.com`：
+
+```bash
+curl -fsSL https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@main/install.sh | DSH_TAVERN_ARCHIVE_URL=https://codeload.github.com/flizzywine/dsh-tavern/tar.gz/refs/heads/main sh
+```
+
 安装程序会自动安装依赖、启动 dsh-tavern，并打开 <http://127.0.0.1:3081>。
 
 首次使用时，在左侧栏底部打开 **设置 → 模型**，填写模型服务的 API 密钥。
 
 #### 手动安装
 
-如果一键命令无法访问 `raw.githubusercontent.com`：
+如果上述备用命令也无法使用：
 
 1. 在 GitHub 项目页点击 **Code → Download ZIP**，或直接下载 [`main.zip`](https://github.com/flizzywine/dsh-tavern/archive/refs/heads/main.zip)；
 2. 解压后进入 `dsh-tavern-main` 文件夹；

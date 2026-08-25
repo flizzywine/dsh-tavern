@@ -34,6 +34,24 @@ test('卡片模式从空白工作台直接进入 Agent 对话', () => {
   assert.ok(recovery.indexOf('props.openCardLibraryTab(pending.sessionId)') < recovery.indexOf('props.openResourcesTab(pending.sessionId)'))
 })
 
+test('游玩回复可只读交给同人物卡的卡片 Agent 调试', () => {
+	const renderer = between(clientSource, 'function createTavernAssistantRendererFeatureModule', 'function createTavernShellFeatureModule')
+	const status = between(clientSource, 'function TavernStatusPanel', 'function TavernStatusTab')
+	const sidebar = between(clientSource, 'function TavernSidebar', 'function TavernResourcesTab')
+
+	assert.doesNotMatch(renderer, /交给卡片 Agent 调试|dsh-tavern-assistant-debug/)
+	assert.match(status, /人物卡调试/)
+	assert.match(status, /openPlayChatDebugWorkspace\(props\.sessionId, debugTurn\)/)
+	assert.match(status, /第 " \+ item\.turn \+ " 轮/)
+	assert.match(clientSource, /dsh-tavern-debug-play-chat/)
+	assert.match(sidebar, /getPlayChatDebugTarget/)
+	assert.match(sidebar, /attachPlayChatDebug/)
+	assert.match(sidebar, /"debug-play", "调试游玩对话"/)
+	assert.match(serverSource, /name: 'tavern_read_play_chat'/)
+	assert.match(serverSource, /case 'attachPlayChatDebug'/)
+	assert.match(serverSource, /createPlayChatDebugReference/)
+})
+
 test('新建对话不会重复切换已经是 Tavern preset 的 Session', () => {
 	const sidebar = between(clientSource, 'function TavernSidebar', 'function TavernResourcesTab')
 	const guard = between(sidebar, 'async function ensureTavernPreset', 'async function archiveCurrentBlankSession')

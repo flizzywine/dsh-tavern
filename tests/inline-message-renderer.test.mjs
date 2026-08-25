@@ -13,7 +13,7 @@ async function loadClient() {
 
 const client = await loadClient()
 
-test('新版展示投影保持 Markdown 和可运行 HTML 的原始顺序', () => {
+test('旧版分段展示投影仍按原始顺序回放', () => {
   const parts = client.projectionPartsOf({
     version: 2,
     mode: 'rich',
@@ -54,6 +54,8 @@ test('消息 iframe 允许可信远程资源，同时保留不透明来源隔离
   assert.match(document, /document\.fonts\.ready/)
   assert.match(document, /dsh-tavern-frame-height/)
   assert.match(document, /height-token/)
+  assert.match(document, /body\{padding:0 1px;overflow-wrap:anywhere;white-space:pre-wrap\}/)
+  assert.match(document, /body>\*\{white-space:normal\}/)
 })
 
 test('assistant renderer 以更低 priority 接管 DSH 正式 keyed slot', () => {

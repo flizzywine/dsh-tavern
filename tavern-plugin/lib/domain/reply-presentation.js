@@ -1,5 +1,4 @@
 import { applyTavernRegexText } from './tavern-regex-display.js'
-import { marked } from 'marked'
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
@@ -54,54 +53,28 @@ function fencedSegments(value) {
   return segments
 }
 
-function withoutFencedCode(value) {
-  const lines = str(value).match(/.*(?:\r?\n|$)/g) || []
-  let visible = ''
-  let fence = null
-  for (const line of lines) {
-    const bare = line.replace(/\r?\n$/, '')
-    if (fence === null) {
-      const opening = bare.match(/^[ \t]{0,3}(`{3,}|~{3,})[^\r\n]*$/)
-      if (opening === null) visible += line
-      else fence = { character: opening[1][0], length: opening[1].length }
-      continue
-    }
-    const closing = bare.match(/^[ \t]{0,3}(`+|~+)[ \t]*$/)
-    if (closing !== null && closing[1][0] === fence.character && closing[1].length >= fence.length) fence = null
-  }
-  return visible
-}
-
 function hasRawHtml(value) {
-  return /<!--[\s\S]*?-->|<\/?[a-z][\w:-]*(?:\s[^<>]*?)?>/i.test(withoutFencedCode(value))
+  return /<!--[\s\S]*?-->|<\/?[a-z][\w:-]*(?:\s[^<>]*?)?>/i.test(str(value))
 }
 
-function compileTextPart(value) {
-  if (!hasRawHtml(value)) return { part: { kind: 'markdown', text: str(value) }, warning: '' }
-  try {
-    return { part: { kind: 'html', content: marked.parse(str(value), { async: false, breaks: true, gfm: true }) }, warning: '' }
-  } catch (error) {
-    return {
-      part: { kind: 'markdown', text: str(value) },
-      warning: '展示：Markdown/HTML 编译失败：' + str(error && error.message ? error.message : error)
-    }
-  }
+function escapeHtmlText(value) {
+  return str(value)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
 }
 
-/** Build ordered Markdown and executable HTML display parts. */
+function htmlDocumentContent(value) {
+  const source = fencedSegments(value).map(function (segment) {
+    return segment.kind === 'html' ? segment.content : segment.text
+  }).join('')
+  if (hasRawHtml(source)) return source
+  return '<div class="dsh-tavern-plain-text">' + escapeHtmlText(source) + '</div>'
+}
+
+/** Build one executable HTML document for the complete visible reply. */
 export function projectDisplayParts(value) {
-  const parts = []
-  const warnings = []
-  for (const segment of fencedSegments(value)) {
-    if (segment.kind === 'html') {
-      parts.push(segment)
-      continue
-    }
-    const compiled = compileTextPart(segment.text)
-    parts.push(compiled.part)
-    if (compiled.warning !== '') warnings.push(compiled.warning)
-  }
-  return { parts, warnings }
+  return { parts: [{ kind: 'html', content: htmlDocumentContent(value) }], warnings: [] }
 }
 
 /** Match renderable HTML regardless of whether it came from regex or model output. */
@@ -110,10 +83,7 @@ export function hasHtmlCodeBlock(value) {
 }
 
 /** Classify whether the display projection needs isolated rich rendering. */
-export function displayModeOf(value) {
-  const projected = projectDisplayParts(value)
-  return projected.parts.some(function (part) { return part.kind !== 'markdown' }) ? 'rich' : 'markdown'
-}
+export function displayModeOf() { return 'html' }
 
 function targetOptions(options, isMarkdown) {
   return {
@@ -138,7 +108,7 @@ export function projectReplyLayers(value, options = {}) {
   const session = applyTavernRegexText(projectionText, scripts, targetOptions(options, false))
   const display = applyTavernRegexText(projectionText, scripts, targetOptions(options, true))
   const displayProjection = projectDisplayParts(display.text)
-  const displayMode = displayProjection.parts.some(function (part) { return part.kind !== 'markdown' }) ? 'rich' : 'markdown'
+  const displayMode = 'html'
 
   return {
     sourceText,
@@ -181,7 +151,7 @@ export function projectReplyHistory(messages, options = {}) {
     const projected = projectReplyLayers(sourceText, Object.assign({}, options, { projectionText }))
     const sessionText = str(message.text)
 
-    if (projected.displayText !== sessionText || projected.displayMode === 'rich') {
+    if (projected.displayText !== sessionText || projected.displayMode !== 'markdown') {
       projections.push({
         version: 2,
         turn,

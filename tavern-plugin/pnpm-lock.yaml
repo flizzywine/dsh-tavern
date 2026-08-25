@@ -17,9 +17,6 @@ importers:
       chevrotain:
         specifier: ^11.2.0
         version: 11.2.0
-      marked:
-        specifier: 16.3.0
-        version: 16.3.0
 
 packages:
 
@@ -207,11 +204,6 @@ packages:
   lodash-es@4.17.23:
     resolution: {integrity: sha512-kVI48u3PZr38HdYz98UmfPnXl2DXrpdctLrFLCd3kOx1xUkOmpFPx7gCWWM5MPkL/fD8zb+Ph0QzjGFs4+hHWg==}
 
-  marked@16.3.0:
-    resolution: {integrity: sha512-K3UxuKu6l6bmA5FUwYho8CfJBlsUWAooKtdGgMcERSpF7gcBUrCGsLH7wDaaNOzwq18JzSUDyoEb/YsrqMac3w==}
-    engines: {node: '>= 20'}
-    hasBin: true
-
   zod@4.4.3:
     resolution: {integrity: sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ==}
 
@@ -369,7 +361,5 @@ snapshots:
       lodash-es: 4.17.23
 
   lodash-es@4.17.23: {}
-
-  marked@16.3.0: {}
 
   zod@4.4.3: {}

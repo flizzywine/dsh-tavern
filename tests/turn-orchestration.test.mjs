@@ -172,7 +172,7 @@ test('游玩正文不再拆走 HTML，三层回复随剧情消息一起保存', 
   assert.equal(message.text, '雨水扑进房间。\n\n<details><summary>状态</summary></details>')
   assert.equal(message.sourceText, message.text)
   assert.equal(message.displayText, message.text)
-  assert.equal(message.displayMode, 'rich')
+  assert.equal(message.displayMode, 'html')
   assert.equal(message.projectionVersion, 2)
   assert.equal(run.chat().presentation, undefined)
 
@@ -264,7 +264,7 @@ test('游玩回复先执行人物卡宏，再分别保存原文、Session 和展
   assert.equal(message.projectionText, '她抬起头。\n\n<style>.status{color:red}</style><div class="status">阶段 1</div>')
   assert.equal(message.text, message.projectionText)
   assert.equal(message.displayText, message.projectionText)
-  assert.equal(message.displayMode, 'rich')
+  assert.equal(message.displayMode, 'html')
   assert.equal(run.chat().presentation, undefined)
   assert.deepEqual(run.chat().macroState.local, { stage: 1 })
   assert.equal(saved.reply.sessionText, message.projectionText)
@@ -341,6 +341,7 @@ test('卡片修改先校验暂存，只在最终回复完成后写入', async ()
     'tavern_save_skill',
     'tavern_read_card',
     'tavern_read_card_raw',
+    'tavern_read_play_chat',
     'tavern_read_worldbook',
     'tavern_update_worldbook',
     'tavern_read_preset',
@@ -371,6 +372,7 @@ test('Windows 卡片模式暴露 PowerShell 而不是 Bash', async () => {
     'tavern_save_skill',
     'tavern_read_card',
     'tavern_read_card_raw',
+    'tavern_read_play_chat',
     'tavern_read_worldbook',
     'tavern_update_worldbook',
     'tavern_read_preset',
@@ -397,7 +399,7 @@ test('空白卡片工作台确认完整设定后直接创建并绑定正式人�
   const duplicate = await run.orchestrator.finalize({ sessionId: 'session-1', turn: 6, userText: '确认角色和玩家', assistantText: '重复回调' })
   assert.equal(duplicate.duplicate, true)
   assert.equal(run.createdCards.length, 1)
-  assert.deepEqual(await run.orchestrator.visibleTools('session-1'), ['bash', 'str_replace_editor', 'skill', 'tavern_save_skill', 'tavern_read_card', 'tavern_read_card_raw', 'tavern_read_worldbook', 'tavern_update_worldbook', 'tavern_read_preset', 'tavern_update_preset', 'tavern_update_card', 'tavern_restore_card'])
+  assert.deepEqual(await run.orchestrator.visibleTools('session-1'), ['bash', 'str_replace_editor', 'skill', 'tavern_save_skill', 'tavern_read_card', 'tavern_read_card_raw', 'tavern_read_play_chat', 'tavern_read_worldbook', 'tavern_update_worldbook', 'tavern_read_preset', 'tavern_update_preset', 'tavern_update_card', 'tavern_restore_card'])
 })
 
 test('空白工作台缺少新卡必填信息时不接受确认提交', async () => {

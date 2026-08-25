@@ -211,8 +211,8 @@ export function createContextPlanner(options = {}) {
       })
       const mountedResources = Array.isArray(workspace.mountedResources) ? workspace.mountedResources.filter(function (item) { return item !== null && typeof item === 'object' }) : []
       if (mountedResources.length > 0) {
-        const kindLabel = { card: '人物卡', preset: '预设', source: '资料', script: '剧本资料', worldbook: '世界书' }
-        sections.push({ kind: 'workspace-resources', required: true, text: '【挂载的 Tavern 资源 · 仅目录，正文尚未自动读取】\n' + mountedResources.map(function (item) { return '- [' + (kindLabel[item.kind] || item.kind) + '] ' + str(item.label) + ' · path=' + str(item.path) }).join('\n') + '\n人物卡、世界书、预设和资料使用对应 Tavern 只读工具按需读取；没有实际读取的内容，不得声称已经读过。' })
+        const kindLabel = { card: '人物卡', preset: '预设', source: '资料', script: '剧本资料', worldbook: '世界书', 'play-chat': '游玩记录' }
+        sections.push({ kind: 'workspace-resources', required: true, text: '【挂载的 Tavern 资源 · 仅目录，正文尚未自动读取】\n' + mountedResources.map(function (item) { return '- [' + (kindLabel[item.kind] || item.kind) + '] ' + str(item.label) + ' · path=' + str(item.path) }).join('\n') + '\n人物卡、世界书、预设、资料和游玩记录使用对应 Tavern 只读工具按需读取；没有实际读取的内容，不得声称已经读过。' })
       }
       if (player !== '' || (Array.isArray(workspace.sourcePaths) && workspace.sourcePaths.length > 0)) {
         sections.push({ kind: 'card-player', required: true, text: '【玩家身份（{{user}}）】\n' + (player !== '' ? player + '\nmes_example、scenario、first_mes 中的 {{user}} 一律指这个身份。需要修改时在 fields 中提交 player。' : '尚未确认。需要制作新卡或处理玩家视角时，先请用户说明谁是玩家（{{user}}）。') })

@@ -16,6 +16,7 @@ import { extractEpubText } from './domain/epub-text.js'
 import { createFileResourceStore, normalizeResourcePath, resourceKind } from './domain/file-resources.js'
 import { createForegroundHandoff } from './domain/foreground-handoff.js'
 import { inspectPreset } from './domain/preset-reading.js'
+import { createPlayChatDebugReference, readPlayChatDebugTurn } from './domain/play-chat-debug.js'
 import { createPresetEditor } from './domain/preset-editor.js'
 import { createRuntimePresetModule } from './domain/runtime-presets.js'
 import {
@@ -239,7 +240,8 @@ export async function apply(ctx) {
     script: 'card-task-script',
     material: 'card-task-script',
     worldbook: 'card-task-worldbook',
-    preset: 'card-task-preset'
+    preset: 'card-task-preset',
+    'debug-play': 'card-task-debug-play'
   })
   async function readCardWorkspace(cardPath) {
     if (str(cardPath) === '') return undefined
@@ -616,6 +618,19 @@ export async function apply(ctx) {
     if (exported.messageCount === 0) throw new Error('暂无可导出的对话')
     return exported
   }
+  async function attachPlayChatDebug(targetSessionId, sourceSessionId, turn) {
+    const editorChat = await chatForSession(str(targetSessionId))
+    const sourceChat = await chatForSession(str(sourceSessionId))
+    if (editorChat === undefined) throw new Error('卡片工作台对话不存在')
+    if (sourceChat === undefined) throw new Error('游玩对话不存在')
+    const reference = createPlayChatDebugReference(editorChat, sourceChat, turn)
+    const mounted = Array.isArray(editorChat.workspace && editorChat.workspace.mountedResources) ? editorChat.workspace.mountedResources : []
+    editorChat.workspace.mountedResources = mounted.filter(function (item) {
+      return !item || item.kind !== 'play-chat' || item.path !== reference.path
+    }).concat([reference])
+    await writeChat(editorChat)
+    return reference
+  }
 
   // ---------- 聊天 ----------
   function newChat(card, mode) {
@@ -689,6 +704,14 @@ export async function apply(ctx) {
       replyDisplay.projections = withLegacyPresentationProjection(chat, replyDisplay.projections)
     }
     const activity = backgroundTasks.activity(chat)
+    const debugTurns = []
+    for (const message of Array.isArray(chat.messages) ? chat.messages : []) {
+      if (!message || message.role !== 'assistant') continue
+      const turn = Math.max(0, Number(message.turn) || (message.greeting === true ? 1 : 0))
+      if (turn === 0) continue
+      const source = (str(message.sourceText) || str(message.text)).replace(/\s+/g, ' ').trim()
+      debugTurns.push({ turn, preview: source.slice(0, 90), chars: source.length })
+    }
     return {
       chatId: chat.id,
       mode: chat.mode || 'story',
@@ -696,6 +719,7 @@ export async function apply(ctx) {
       card: cardViewOf(card, chat),
       posture: chat.posture || '',
       guides: Array.isArray(chat.guides) ? chat.guides : [],
+      debugTurns: debugTurns.slice(-12).reverse(),
       presentation: null,
       replyProjections: replyDisplay.projections,
       presentationWarnings: Array.isArray(chat.presentationWarnings) ? chat.presentationWarnings : [],
@@ -1929,6 +1953,13 @@ export async function apply(ctx) {
       case 'deleteCard': return await deleteCard(args && args.path)
       case 'deleteChat': return await deleteChat(args && args.chatId)
       case 'exportConversation': return await exportConversation(args && args.chatId, args && args.sessionId, args && args.title)
+      case 'getPlayChatDebugTarget': {
+        const sourceChat = await chatForSession(args && args.sessionId)
+        if (sourceChat === undefined || ((sourceChat.mode || 'story') !== 'story' && (sourceChat.mode || 'story') !== 'script')) throw new Error('当前对话不是游玩对话')
+        const card = await readChatCard(sourceChat)
+        return { card: { path: sourceChat.cardPath, name: card.name }, chatId: sourceChat.id }
+      }
+      case 'attachPlayChatDebug': return { reference: await attachPlayChatDebug(args && args.targetSessionId, args && args.sourceSessionId, args && args.turn) }
       case 'startChat': {
         try {
           return { view: await startChat(args && args.path, args && args.sessionId, args && args.mode, args && args.openingId, args && args.userName) }
@@ -2209,7 +2240,7 @@ export async function apply(ctx) {
     foregroundHandoff.end({ sessionId: session.id, turn: event.data && event.data.turn, reason })
   })
 
-  const controlledToolNames = new Set(['bash', 'pwsh', 'str_replace_editor', 'skill', 'tavern_save_skill', 'tavern_read_card', 'tavern_read_card_raw', 'tavern_read_script', 'tavern_read_worldbook', 'tavern_update_worldbook', 'tavern_read_preset', 'tavern_update_preset', 'tavern_update_card', 'tavern_restore_card'])
+  const controlledToolNames = new Set(['bash', 'pwsh', 'str_replace_editor', 'skill', 'tavern_save_skill', 'tavern_read_card', 'tavern_read_card_raw', 'tavern_read_play_chat', 'tavern_read_script', 'tavern_read_worldbook', 'tavern_update_worldbook', 'tavern_read_preset', 'tavern_update_preset', 'tavern_update_card', 'tavern_restore_card'])
   ctx.on('system-prompt/assemble', async function (_assembly, context, next) {
     const assembly = await next()
     const agent = context && context.agent
@@ -2356,6 +2387,69 @@ export async function apply(ctx) {
         const workspace = await readCardWorkspace(resourcePath)
         if (workspace === undefined) throw new Error('人物卡资源不存在: ' + resourcePath)
         return cardPreparation.present({ card: workspace, as: 'raw-section', pointer: args.pointer, offset: args.offset, limit: args.limit })
+      }
+    }))
+
+    tools.register(defineTool({
+      name: 'tavern_read_play_chat',
+      description: '在卡片工作台中按需、只读地查看已挂载游玩记录的指定轮次。先读 overview，再根据问题读取模型原文、Session 文本、展示文本或当前人物卡正则诊断。',
+      parameters: {
+        ref: { type: 'string', description: '已挂载游玩记录引用，例如 play-chat:chat-xxx；只有一个引用时可省略' },
+        turn: { type: 'integer', description: '要读取的游玩轮次；省略时读取引用时选中的轮次' },
+        layer: { type: 'string', enum: ['overview', 'source', 'session', 'display', 'diagnostics'], description: '读取层：概览、模型原文、Session 文本、展示文本或当前正则诊断；默认 overview' },
+        offset: { type: 'integer', description: '可选的 1 起始字符位置，默认 1' },
+        limit: { type: 'integer', description: '本次最多读取字符数，默认 6000，最大 12000' }
+      },
+      output: {
+        schema: {
+          type: 'object', additionalProperties: false,
+          properties: {
+            ref: { type: 'string', required: true },
+            chatId: { type: 'string', required: true },
+            turn: { type: 'integer', required: true },
+            layer: { type: 'string', required: true },
+            text: { type: 'string', required: true },
+            totalChars: { type: 'integer', required: true },
+            from: { type: 'integer', required: true },
+            to: { type: 'integer', required: true },
+            done: { type: 'boolean', required: true },
+            cardSnapshotVersion: { type: 'integer', required: true },
+            cardSnapshotDigest: { type: 'string', required: true }
+          }
+        },
+        render: function (_args, value) {
+          return [{ type: 'text', text: '游玩记录第 ' + value.turn + ' 轮 · ' + value.layer + ' · 第 ' + value.from + '~' + value.to + ' 字 / 共 ' + value.totalChars + ' 字 · 人物卡快照 v' + value.cardSnapshotVersion + ' (' + (value.cardSnapshotDigest || '无摘要') + ')\n\n' + value.text }]
+        }
+      },
+      isConcurrencySafe: function () { return true },
+      async execute(args, exec) {
+        const sessionId = exec && exec.agent && exec.agent.session ? exec.agent.session.id : ''
+        const editorChat = await chatForSession(sessionId)
+        if (editorChat === undefined || (editorChat.mode || 'story') !== 'card') throw new Error('游玩记录只能在卡片工作台中读取')
+        const references = Array.isArray(editorChat.workspace && editorChat.workspace.mountedResources)
+          ? editorChat.workspace.mountedResources.filter(function (item) { return item && item.kind === 'play-chat' })
+          : []
+        const requestedRef = str(args.ref).trim()
+        const reference = requestedRef === ''
+          ? (references.length === 1 ? references[0] : null)
+          : references.find(function (item) { return item.path === requestedRef })
+        if (reference === null || reference === undefined) throw new Error(references.length > 1 ? '请指定要读取的游玩记录 ref' : '当前卡片工作台没有挂载游玩记录')
+        const sourceChat = await readChat(reference.chatId)
+        if (sourceChat === undefined) throw new Error('游玩记录已不存在')
+        let projector = null
+        if (str(args.layer) === 'diagnostics') {
+          const extensions = await readCardExtensions(editorChat.cardPath)
+          projector = function (message) {
+            return projectRuntimeReply(str(message.sourceText) || str(message.text), {
+              projectionText: Object.prototype.hasOwnProperty.call(message, 'projectionText') ? str(message.projectionText) : (str(message.sourceText) || str(message.text)),
+              regexScripts: Array.isArray(extensions && extensions.regexScripts) ? extensions.regexScripts : [],
+              placement: 2,
+              isEdit: false,
+              depth: 0
+            })
+          }
+        }
+        return readPlayChatDebugTurn(editorChat, sourceChat, reference, args, projector)
       }
     }))
 

@@ -13,7 +13,8 @@ const NAMES = [
   'card-task-extract',
   'card-task-script',
   'card-task-worldbook',
-  'card-task-preset'
+  'card-task-preset',
+  'card-task-debug-play'
 ]
 
 const knownNames = new Set(NAMES)

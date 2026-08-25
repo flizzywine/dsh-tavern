@@ -27,11 +27,43 @@ test('没有正则时三层回复保持原文，HTML 只影响展示分类', () 
   assert.equal(result.sourceText, source)
   assert.equal(result.sessionText, source)
   assert.equal(result.displayText, source)
-  assert.equal(result.displayMode, 'rich')
+  assert.equal(result.displayMode, 'html')
   assert.equal(result.displayParts.length, 1)
   assert.equal(result.displayParts[0].kind, 'html')
   assert.match(result.displayParts[0].content, /<details><summary>状态<\/summary><!-- HP: 10 --><\/details>/)
   assert.deepEqual(result.applied, { session: [], display: [] })
+})
+
+test('展示层把带空行和缩进的完整 HTML 原样交给同一个 iframe', () => {
+  const source = '<div class="outer">\n    <div>顶部</div>\n\n    <!-- 分区 -->\n    <div class="body">正文</div>\n</div>'
+  const result = projectDisplayParts(source)
+
+  assert.deepEqual(result.parts.map(part => part.kind), ['html'])
+  assert.equal(result.parts[0].content, source)
+  assert.doesNotMatch(result.parts[0].content, /<pre><code>|&lt;div/)
+})
+
+test('纯文本不执行 Markdown，只转成保留原文的 HTML 文本容器', () => {
+  const source = '# 标题\n\n**不是粗体**\n2 < 3 & 5 > 4'
+  const result = projectDisplayParts(source)
+
+  assert.deepEqual(result.parts.map(part => part.kind), ['html'])
+  assert.match(result.parts[0].content, /class="dsh-tavern-plain-text"/)
+  assert.match(result.parts[0].content, /# 标题/)
+  assert.match(result.parts[0].content, /\*\*不是粗体\*\*/)
+  assert.match(result.parts[0].content, /2 &lt; 3 &amp; 5 &gt; 4/)
+  assert.doesNotMatch(result.parts[0].content, /<h1>|<strong>/)
+})
+
+test('没有展示正则的纯文本历史也生成整轮 HTML 投影', () => {
+  const result = projectReplyHistory([
+    { role: 'assistant', turn: 2, text: '# 原样标题', sourceText: '# 原样标题' }
+  ])
+
+  assert.equal(result.projections.length, 1)
+  assert.equal(result.projections[0].mode, 'html')
+  assert.deepEqual(result.projections[0].parts.map(part => part.kind), ['html'])
+  assert.match(result.projections[0].parts[0].content, /># 原样标题</)
 })
 
 test('markdownOnly 只改变展示投影并保持替换位置', () => {
@@ -44,7 +76,7 @@ test('markdownOnly 只改变展示投影并保持替换位置', () => {
   assert.equal(result.sourceText, source)
   assert.equal(result.sessionText, source)
   assert.equal(result.displayText, '海风吹过。\n<aside>体力 90</aside>\n她继续向前。')
-  assert.equal(result.displayMode, 'rich')
+  assert.equal(result.displayMode, 'html')
   assert.deepEqual(result.applied.session, [])
   assert.deepEqual(result.applied.display.map(item => item.name), ['状态展示'])
 })
@@ -58,7 +90,7 @@ test('promptOnly 只改变 Session 投影', () => {
 
   assert.equal(result.sessionText, '正文。')
   assert.equal(result.displayText, source)
-  assert.equal(result.displayMode, 'rich')
+  assert.equal(result.displayMode, 'html')
 })
 
 test('两个 flag 都启用时分别改变 Session 和展示投影', () => {
@@ -91,21 +123,21 @@ test('完整 HTML、HTML 注释和 details 均留在原位置，不转换也不�
   assert.equal(result.sessionText, source)
   assert.equal(result.displayText, source)
   assert.match(result.displayText, /<!-- <script>alert\("x"\)<\/script> -->/)
-  assert.equal(result.displayMode, 'rich')
+  assert.equal(result.displayMode, 'html')
 })
 
 test('HTML 代码围栏在原位置进入统一 HTML 渲染', () => {
   const source = '示例：\n\n```html\n<div>只展示源码</div>\n```'
   const projected = projectDisplayParts(source)
-  assert.equal(displayModeOf(source), 'rich')
-  assert.deepEqual(projected.parts.map(part => part.kind), ['markdown', 'html'])
-  assert.equal(projected.parts[1].content, '<div>只展示源码</div>\n')
+  assert.equal(displayModeOf(source), 'html')
+  assert.deepEqual(projected.parts.map(part => part.kind), ['html'])
+  assert.equal(projected.parts[0].content, '示例：\n\n<div>只展示源码</div>\n')
 })
 
 test('未标语言但包含 HTML 的代码围栏也进入统一 HTML 渲染', () => {
   const projected = projectDisplayParts('正文前\n```\n<section>远程面板</section>\n```\n正文后')
-  assert.deepEqual(projected.parts.map(part => part.kind), ['markdown', 'html', 'markdown'])
-  assert.match(projected.parts[1].content, /<section>远程面板<\/section>/)
+  assert.deepEqual(projected.parts.map(part => part.kind), ['html'])
+  assert.match(projected.parts[0].content, /正文前\n<section>远程面板<\/section>\n正文后/)
 })
 
 test('首页占位符经 markdownOnly 正则变成前端代码，但 Session 保留占位符', () => {
@@ -118,8 +150,8 @@ test('首页占位符经 markdownOnly 正则变成前端代码，但 Session 保
 
   assert.equal(result.sessionText, source)
   assert.match(result.displayText, /<button>首页<\/button>/)
-  assert.deepEqual(result.displayParts.map(part => part.kind), ['markdown', 'html', 'markdown'])
-  assert.match(result.displayParts[1].content, /document\.body\.dataset\.ready/)
+  assert.deepEqual(result.displayParts.map(part => part.kind), ['html'])
+  assert.match(result.displayParts[0].content, /document\.body\.dataset\.ready/)
 })
 
 test('损坏规则只产生目标诊断，后续规则继续执行', () => {
@@ -145,7 +177,7 @@ test('历史投影从原文重算，关闭展示正则后恢复原始消息', ()
   ], { regexScripts: [rule], placement: 2 })
 
   assert.deepEqual(enabled.projections.map(({ turn, text, mode }) => ({ turn, text, mode })), [
-    { turn: 2, text: '正文。\n\n', mode: 'markdown' }
+    { turn: 2, text: '正文。\n\n', mode: 'html' }
   ])
 
   const disabled = projectReplyHistory([
@@ -153,7 +185,7 @@ test('历史投影从原文重算，关闭展示正则后恢复原始消息', ()
   ], { regexScripts: [], placement: 2 })
 
   assert.deepEqual(disabled.projections.map(({ turn, text, mode }) => ({ turn, text, mode })), [
-    { turn: 2, text: source, mode: 'rich' }
+    { turn: 2, text: source, mode: 'html' }
   ])
   assert.equal(disabled.presentation, null)
 })

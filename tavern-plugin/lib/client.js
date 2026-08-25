@@ -225,6 +225,12 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 .dsh-tavern-status-item { padding: 7px 0; border-bottom: 1px solid var(--dsw-alias-border-l3); font-size: 12px; line-height: 1.5; }
 .dsh-tavern-status-item:last-child { border-bottom: 0; }
 .dsh-tavern-status-empty { color: var(--dsw-alias-label-tertiary); font-size: 12px; line-height: 1.6; }
+.dsh-tavern-debug-panel { display: flex; flex-direction: column; gap: 7px; }
+.dsh-tavern-debug-panel select { width: 100%; box-sizing: border-box; padding: 7px 8px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-specific-input-major); color: inherit; font: inherit; font-size: 12px; }
+.dsh-tavern-debug-preview { padding: 7px 8px; border-radius: 8px; background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-secondary); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+.dsh-tavern-debug-open { width: 100%; box-sizing: border-box; padding: 7px 9px; border: 1px solid rgba(166,107,53,.4); border-radius: 8px; background: rgba(166,107,53,.08); color: #a66b35; cursor: pointer; font-size: 12px; font-weight: 650; }
+.dsh-tavern-debug-open:hover { background: rgba(166,107,53,.16); }
+.dsh-tavern-debug-open:disabled { cursor: wait; opacity: .6; }
 .dsh-tavern-status-settle { display: inline-flex; align-items: center; gap: 5px; margin-top: 8px; color: var(--dsw-alias-label-secondary); font-size: 11px; }
 .dsh-tavern-status-dot { width: 6px; height: 6px; border-radius: 50%; background: #6ea676; }
 .dsh-tavern-status-dot.running { background: #c68a3a; animation: dsh-tavern-pulse 1s infinite alternate; }
@@ -387,6 +393,29 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				if (controller.signal.aborted) throw new Error("读取超时，请重新读取");
 				throw error;
 			}).finally(function () { window.clearTimeout(timer); });
+		}
+
+		function openPlayChatDebugWorkspace(sourceSessionId, turn) {
+			return new Promise(function (resolve, reject) {
+				let settled = false;
+				const timer = window.setTimeout(function () {
+					if (settled) return;
+					settled = true;
+					reject(new Error("卡片工作台没有响应，请重试"));
+				}, 15000);
+				function finish(callback, value) {
+					if (settled) return;
+					settled = true;
+					window.clearTimeout(timer);
+					callback(value);
+				}
+				window.dispatchEvent(new CustomEvent("dsh-tavern-debug-play-chat", { detail: {
+					sourceSessionId: sourceSessionId,
+					turn: Number(turn),
+					resolve: function (value) { finish(resolve, value); },
+					reject: function (error) { finish(reject, error); }
+				} }));
+			});
 		}
 
 		function createLiveTavernViewModule(options) {
@@ -855,7 +884,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				+ '<meta name="viewport" content="width=device-width,initial-scale=1">'
 				+ '<meta name="referrer" content="no-referrer">'
 				+ '<meta http-equiv="Content-Security-Policy" content="default-src https: data: blob:; img-src https: data: blob:; media-src https: data: blob:; font-src https: data:; style-src \'unsafe-inline\' https:; script-src \'unsafe-inline\' \'unsafe-eval\' https: data: blob:; connect-src https: wss: data: blob:; frame-src https: data: blob:; object-src \'none\'; base-uri \'none\'; form-action \'none\'">'
-				+ '<style>:root{color-scheme:light dark}html,body{box-sizing:border-box;margin:0;min-height:0;background:transparent;color:CanvasText;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:16px;line-height:1.75}body{padding:0 1px;overflow-wrap:anywhere}*,*:before,*:after{box-sizing:border-box}img,video,svg,canvas{max-width:100%;height:auto}pre{max-width:100%;overflow:auto;white-space:pre-wrap}table{max-width:100%;border-collapse:collapse}a{color:LinkText}</style>'
+				+ '<style>:root{color-scheme:light dark}html,body{box-sizing:border-box;margin:0;min-height:0;background:transparent;color:CanvasText;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:16px;line-height:1.75}body{padding:0 1px;overflow-wrap:anywhere;white-space:pre-wrap}body>*{white-space:normal}.dsh-tavern-plain-text{white-space:pre-wrap;overflow-wrap:anywhere}*,*:before,*:after{box-sizing:border-box}img,video,svg,canvas{max-width:100%;height:auto}pre{max-width:100%;overflow:auto;white-space:pre-wrap}table{max-width:100%;border-collapse:collapse}a{color:LinkText}</style>'
 				+ '</head><body>' + html + reporter + '</body></html>';
 		}
 
@@ -903,7 +932,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			if (Array.isArray(projection.parts)) return projection.parts.filter(function (part) {
 				return part && (part.kind === "markdown" || part.kind === "html");
 			});
-			if (projection.mode === "html" && String(projection.html || "") !== "") return [{ kind: "html", content: String(projection.html) }];
+			if (projection.mode === "html" || projection.mode === "rich") return [{ kind: "html", content: String(projection.html || projection.text || "") }];
 			return [{ kind: "markdown", text: String(projection.text || "") }];
 		}
 
@@ -1213,6 +1242,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				publishSessionMode(pending.sessionId, pending.targetMode);
 				window.dispatchEvent(new CustomEvent("dsh-tavern-session-changed", { detail: { sessionId: pending.sessionId } }));
 				if (pending.targetMode === "card") {
+					if (pending.debugSource) await call("attachPlayChatDebug", { targetSessionId: pending.sessionId, sourceSessionId: pending.debugSource.sourceSessionId, turn: pending.debugSource.turn });
 					if (typeof props.openCardLibraryTab === "function") props.openCardLibraryTab(pending.sessionId);
 					if (typeof props.openPresetLibraryTab === "function") props.openPresetLibraryTab(pending.sessionId);
 					if (typeof props.openWorldBookLibraryTab === "function") props.openWorldBookLibraryTab(pending.sessionId);
@@ -1288,16 +1318,31 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				catch (err) { setError(String(err && err.message || err)); }
 				finally { setBusy(false); }
 			}
-			async function newCardConversation(card, task, label, selectedResources) {
+			async function newCardConversation(card, task, label, selectedResources, debugSource) {
 				setBusy(true); setError("");
 				try {
 					await conversationLifecycle.start({
 						kind: "card", targetMode: "card", card: card,
-						pending: { task: task, label: label, card: card, selectedResources: selectedResources || [] }
+						pending: { task: task, label: label, card: card, selectedResources: selectedResources || [], debugSource: debugSource || null }
 					});
 				} catch (err) { setError(String(err && err.phase || "创建对话") + "失败：" + String(err && err.message || err)); }
 				finally { setBusy(false); }
 			}
+			React.useEffect(function () {
+				function onDebugPlayChat(event) {
+					const detail = event && event.detail ? event.detail : {};
+					Promise.resolve().then(async function () {
+						const target = await call("getPlayChatDebugTarget", { sessionId: detail.sourceSessionId });
+						await newCardConversation(target.card, "debug-play", "调试游玩对话", [], { sourceSessionId: detail.sourceSessionId, turn: detail.turn });
+						if (typeof detail.resolve === "function") detail.resolve();
+					}).catch(function (error) {
+						setError("打开卡片调试失败：" + String(error && error.message || error));
+						if (typeof detail.reject === "function") detail.reject(error);
+					});
+				}
+				window.addEventListener("dsh-tavern-debug-play-chat", onDebugPlayChat);
+				return function () { window.removeEventListener("dsh-tavern-debug-play-chat", onDebugPlayChat); };
+			});
 			function formatTime(ts) {
 				if (!ts) return "";
 				const d = new Date(ts); return (d.getMonth() + 1) + "/" + d.getDate() + " " + String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
@@ -2536,6 +2581,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const [guideDraft, setGuideDraft] = React.useState("");
 			const [guideBusy, setGuideBusy] = React.useState(false);
 			const [guideError, setGuideError] = usePersistentError("Guide");
+			const [debugTurn, setDebugTurn] = React.useState(0);
+			const [debugBusy, setDebugBusy] = React.useState(false);
 			const stateKey = props.useSession(function (snapshot) {
 				const nodes = snapshot.nodes || [];
 				let latest = "";
@@ -2547,9 +2594,21 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const liveState = useLiveTavernView(props.sessionId, stateKey);
 			const view = liveState.view;
 			const loadState = liveState.phase;
+			const debugTurns = view && Array.isArray(view.debugTurns) ? view.debugTurns : [];
 			React.useEffect(function () {
 				setError(liveState.error || "");
 			}, [liveState.error]);
+			React.useEffect(function () {
+				if (!debugTurns.length) { setDebugTurn(0); return; }
+				if (!debugTurns.some(function (item) { return Number(item.turn) === Number(debugTurn); })) setDebugTurn(Number(debugTurns[0].turn));
+			}, [props.sessionId, debugTurns.map(function (item) { return item.turn; }).join(",")]);
+			async function openDebugger() {
+				if (!debugTurn || debugBusy) return;
+				setDebugBusy(true);
+				try { await openPlayChatDebugWorkspace(props.sessionId, debugTurn); }
+				catch (error) { tavernErrorHub.report("交给卡片 Agent 调试", error); }
+				finally { setDebugBusy(false); }
+			}
 			async function addGuide() {
 				const text = guideDraft.trim();
 				if (!text) return;
@@ -2579,6 +2638,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			);
 			if (view.mode === "card") return null;
 			const statusText = view.settleStatus === "running" ? "正在执行后台结算" : (view.settleStatus === "error" ? "后台结算失败" : "后台结算已完成");
+			const selectedDebugTurn = debugTurns.find(function (item) { return Number(item.turn) === Number(debugTurn); }) || null;
 			return h("aside", { className: "dsh-tavern-status" },
 				h("div", { className: "dsh-tavern-status-head" },
 					h("div", { className: "dsh-tavern-status-title" }, "酒馆状态"),
@@ -2591,6 +2651,14 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					(view.presentationWarnings || []).map(function (warning, index) {
 						return h("div", { className: "dsh-card-error", key: "presentation-warning-" + index }, warning);
 					}),
+					h("section", { className: "dsh-tavern-status-section" },
+						h("div", { className: "dsh-tavern-status-label" }, "人物卡调试"),
+						debugTurns.length ? h("div", { className: "dsh-tavern-debug-panel" },
+							h("select", { value: String(debugTurn), onChange: function (event) { setDebugTurn(Number(event.target.value)); } }, debugTurns.map(function (item) { return h("option", { key: item.turn, value: String(item.turn) }, "第 " + item.turn + " 轮 · " + item.chars + " 字"); })),
+							selectedDebugTurn ? h("div", { className: "dsh-tavern-debug-preview" }, selectedDebugTurn.preview || "（空回复）") : null,
+							h("button", { className: "dsh-tavern-debug-open", disabled: debugBusy || !debugTurn, onClick: openDebugger }, debugBusy ? "正在打开卡片 Agent…" : "交给卡片 Agent 调试")
+						) : h("div", { className: "dsh-tavern-status-empty" }, "暂无可调试的游玩回复。")
+					),
 					view.mode === "script" && view.scriptProgress ? h("section", { className: "dsh-tavern-status-section" },
 						h("div", { className: "dsh-tavern-status-label" }, "剧本进度"),
 						h("div", { className: "dsh-tavern-status-now" }, (view.scriptProgress.title || "剧本") + " · 游标 " + Math.min(view.scriptProgress.cursor + 1, view.scriptProgress.totalChunks) + "/" + view.scriptProgress.totalChunks + " · 已召回 " + view.scriptProgress.recalledCount + " 块")
