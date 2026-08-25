@@ -1549,7 +1549,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				)
 			);
 			const updateMessage = updateStatus.phase === "running"
-				? "正在下载并安装，期间页面可能暂时断开…"
+				? "正在下载并安装，期间页面可能暂时断开… 如果较长时间仍未更新完成，建议重新安装一次；检测到 Git 时只会下载运行所需代码。"
 				: updateStatus.phase === "restart-required"
 					? "请重启 DSH Desktop 以加载新版插件。"
 				: updateStatus.phase === "completed"

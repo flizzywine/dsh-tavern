@@ -429,6 +429,8 @@ test('左侧栏提供一键更新并展示 CLI、Desktop 与 Android 的不同�
   assert.match(sidebar, /call\("startUpdate"/)
   assert.match(sidebar, /更新到最新版/)
   assert.match(sidebar, /更新期间会短暂断开/)
+  assert.match(sidebar, /如果较长时间仍未更新完成，建议重新安装一次/)
+  assert.match(sidebar, /检测到 Git 时只会下载运行所需代码/)
   assert.match(sidebar, /请重启 DSH Desktop/)
   assert.match(sidebar, /更新完成，请刷新页面/)
   assert.match(sidebar, /Android 版/)
