@@ -1066,6 +1066,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const [pendingOpen, setPendingOpen] = React.useState(null);
 			const [menuSession, setMenuSession] = React.useState(null);
 			const [updateStatus, setUpdateStatus] = React.useState({ phase: "loading", host: "cli" });
+			const updateRecoveryRef = React.useRef({ sawOffline: false, reloading: false });
 			const lastModeSession = React.useRef(null);
 			const fileRef = React.useRef(null);
 			const initialImportRef = React.useRef(null);
@@ -1134,6 +1135,30 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				const timer = window.setInterval(refreshUpdateStatus, 2500);
 				return function () { stopped = true; window.clearInterval(timer); };
 			}, []);
+			React.useEffect(function () {
+				if (updateStatus.phase !== "running" || updateStatus.host === "desktop") return;
+				let stopped = false;
+				const recovery = updateRecoveryRef.current;
+				async function probeRestartedService() {
+					try {
+						const response = await window.fetch(window.location.origin + "/?tavern-update-probe=" + Date.now(), { cache: "no-store" });
+						if (!stopped && response.ok && recovery.sawOffline && !recovery.reloading) {
+							recovery.reloading = true;
+							window.location.reload();
+						}
+					} catch (error) {
+						if (!stopped) recovery.sawOffline = true;
+					}
+				}
+				probeRestartedService();
+				const timer = window.setInterval(probeRestartedService, 400);
+				return function () { stopped = true; window.clearInterval(timer); };
+			}, [updateStatus.phase, updateStatus.host]);
+			React.useEffect(function () {
+				if (updateStatus.phase !== "completed" || updateStatus.host === "desktop" || updateRecoveryRef.current.reloading) return;
+				updateRecoveryRef.current.reloading = true;
+				window.location.reload();
+			}, [updateStatus.phase, updateStatus.host]);
 			React.useEffect(function () {
 				if (!currentSummary || currentSummary.blank) return;
 				notifyDataChanged();
