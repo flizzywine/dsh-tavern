@@ -74,6 +74,8 @@ test('固定提示词从独立 Markdown 文件完整加载', () => {
   assert.match(prompt('card-task-preset'), /修改预设/)
   assert.match(prompt('card-task-preset'), /不会应用|无法使用/)
   assert.match(prompt('card-task-debug-play'), /tavern_read_play_chat/)
+  assert.match(prompt('card-task-debug-play'), /整场 Session 对话/)
+  assert.match(prompt('card-task-debug-play'), /iframe 的实际 DOM/)
   assert.match(prompt('card-task-debug-play'), /不得自动修正人物卡/)
   assert.throws(() => prompt('card-task-bind-script'), /未知提示词/)
   assert.throws(() => prompt('worldbook-selector'), /未知提示词/)

@@ -50,3 +50,22 @@ test('挂载资源按真实相对路径持久去重', () => {
 test('普通路径与 DSH Session 引用都不是 Tavern 资源', () => {
   assert.deepEqual(mentionedTavernResources('@"notes/a.md" @[研究对话](dsh-session:abc-123) 请继续'), [])
 })
+
+test('人物卡任务提示不会删除已挂载的整场游玩诊断引用', () => {
+  const reference = {
+    kind: 'play-chat', path: 'play-chat:chat-source', label: '校园 · 游玩第 2 轮',
+    chatId: 'chat-source', turn: 2, sourceUpdatedAt: 123,
+    cardSnapshotVersion: 3, cardSnapshotDigest: '1234567890abcdef'
+  }
+  assert.deepEqual(rememberTavernResources([reference], '【目标人物卡】\n@"cards/校园.json"'), [
+    reference,
+    { kind: 'card', path: 'cards/校园.json', label: '校园.json' }
+  ])
+})
+
+test('伪造或残缺的游玩诊断引用不会进入人物卡工作台', () => {
+  assert.deepEqual(rememberTavernResources([
+    { kind: 'play-chat', path: 'play-chat:other', chatId: 'chat-source', turn: 2 },
+    { kind: 'play-chat', path: 'play-chat:chat-source', chatId: 'chat-source', turn: 0 }
+  ], ''), [])
+})

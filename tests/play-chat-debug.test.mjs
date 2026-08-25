@@ -6,11 +6,14 @@ import { createPlayChatDebugReference, readPlayChatDebugTurn } from '../tavern-p
 function chats() {
   const source = {
     id: 'chat-play', mode: 'story', cardPath: 'cards/校园.json', cardName: '校园',
-    cardContextSnapshot: '人物卡快照', cardContextSnapshotVersion: 3, updatedAt: 123,
+    sessionId: 'session-foreground', cardContextSnapshot: '人物卡快照', cardContextSnapshotVersion: 3, updatedAt: 123,
+    timeline: { participants: { background: { sessionId: 'session-background' } }, operations: [{ kind: 'settle', turn: 2 }] },
+    lastSettle: { turn: 2, status: 'completed' }, candidates: { turn: 2, items: ['A', 'B'] },
     messages: [
       { role: 'assistant', text: '开场', sourceText: '开场', turn: 1, greeting: true },
       { role: 'user', text: '走进教室' },
-      { role: 'assistant', text: 'Session 正文', sourceText: '模型原文', displayText: '<div>展示</div>', projectionWarnings: ['旧警告'], turn: 2 }
+      { role: 'assistant', text: 'Session 正文', sourceText: '模型原文', displayText: '<div>展示</div>', projectionWarnings: ['旧警告'], turn: 2,
+        displayRuntime: { frames: [{ partIndex: 0, captureKind: 'live', dom: '<div>实际 DOM</div>', console: [{ level: 'warn', args: ['警告'] }], network: [{ method: 'GET', url: 'https://example.com/a', status: 200 }] }] } }
     ]
   }
   const editor = { id: 'chat-editor', mode: 'card', cardPath: 'cards/校园.json', workspace: { mountedResources: [] } }
@@ -46,6 +49,27 @@ test('卡片 Agent 可按层分段读取指定游玩轮次', () => {
   })
   assert.match(diagnostics.text, /候选项/)
   assert.match(diagnostics.text, /按当前人物卡重新计算/)
+})
+
+test('卡片 Agent 可查看整场对话、Tavern 状态、前后台 Agent 与 iframe 运行证据', () => {
+  const { source, editor } = chats()
+  const ref = createPlayChatDebugReference(editor, source, 2)
+  const evidence = {
+    foreground: { sessionId: 'session-foreground', loaded: true, events: [{ type: 'assistant-step', text: '前台日志' }] },
+    background: { sessionId: 'session-background', loaded: true, events: [{ type: 'tool-result', text: '后台日志' }] }
+  }
+
+  const overview = readPlayChatDebugTurn(editor, source, ref, { layer: 'overview' }, null, evidence)
+  assert.match(overview.text, /整场游玩记录/)
+  assert.match(overview.text, /第 1、2 轮/)
+  assert.match(overview.text, /foreground/)
+  assert.match(readPlayChatDebugTurn(editor, source, ref, { layer: 'conversation' }, null, evidence).text, /玩家：走进教室/)
+  assert.match(readPlayChatDebugTurn(editor, source, ref, { layer: 'tavern' }, null, evidence).text, /lastSettle/)
+  assert.match(readPlayChatDebugTurn(editor, source, ref, { layer: 'foreground' }, null, evidence).text, /前台日志/)
+  assert.match(readPlayChatDebugTurn(editor, source, ref, { layer: 'background' }, null, evidence).text, /后台日志/)
+  const iframe = readPlayChatDebugTurn(editor, source, ref, { layer: 'iframe', turn: 2 }, null, evidence)
+  assert.match(iframe.text, /实际 DOM/)
+  assert.match(iframe.text, /example\.com\/a/)
 })
 
 test('未挂载记录、错误轮次和跨人物卡读取会被拒绝', () => {

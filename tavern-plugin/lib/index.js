@@ -632,6 +632,79 @@ export async function apply(ctx) {
     return reference
   }
 
+  function assistantMessageAtTurn(chat, requestedTurn) {
+    const messages = Array.isArray(chat && chat.messages) ? chat.messages : []
+    let inferred = 1
+    for (const message of messages) {
+      if (message && message.role === 'user') inferred += 1
+      if (message && message.role === 'assistant' && Math.max(1, Number(message.turn) || (message.greeting === true ? 1 : inferred)) === requestedTurn) return message
+    }
+    return null
+  }
+
+  function cleanRuntimeUrl(value) {
+    return str(value).split(/[?#]/)[0].replace(/\/\/[^/@\s]+@/, '//').slice(0, 1000)
+  }
+
+  function sanitizeDisplayRuntime(value) {
+    const input = value && typeof value === 'object' ? value : {}
+    function scalar(item, limit = 4000) {
+      if (item === null || item === undefined || typeof item === 'boolean' || typeof item === 'number') return item
+      if (typeof item === 'string') return item.slice(0, limit)
+      try { return JSON.parse(JSON.stringify(item).slice(0, limit)) } catch { return str(item).slice(0, limit) }
+    }
+    return {
+      capturedAt: Math.max(0, Number(input.capturedAt) || Date.now()),
+      dom: str(input.dom).slice(0, 100000),
+      console: (Array.isArray(input.console) ? input.console : []).slice(-100).map(function (item) {
+        return { at: Math.max(0, Number(item && item.at) || 0), level: ['log', 'info', 'warn', 'error'].includes(item && item.level) ? item.level : 'log', args: scalar(item && item.args, 12000) }
+      }),
+      network: (Array.isArray(input.network) ? input.network : []).slice(-100).map(function (item) {
+        return { at: Math.max(0, Number(item && item.at) || 0), kind: item && item.kind === 'xhr' ? 'xhr' : 'fetch', method: str(item && item.method).slice(0, 16), url: cleanRuntimeUrl(item && item.url), status: Math.max(0, Number(item && item.status) || 0), durationMs: Math.max(0, Number(item && item.durationMs) || 0), failed: item && item.failed === true, error: str(item && item.error).slice(0, 1000) }
+      }),
+      errors: (Array.isArray(input.errors) ? input.errors : []).slice(-100).map(function (item) {
+        return { at: Math.max(0, Number(item && item.at) || 0), kind: str(item && item.kind).slice(0, 32), message: str(item && item.message).slice(0, 4000), tag: str(item && item.tag).slice(0, 32), url: cleanRuntimeUrl(item && item.url || item && item.source), line: Math.max(0, Number(item && item.line) || 0), column: Math.max(0, Number(item && item.column) || 0) }
+      })
+    }
+  }
+
+  async function captureDisplayRuntime(sessionId, requestedTurn, partIndex, runtime) {
+    const chat = await chatForSession(str(sessionId))
+    if (chat === undefined || groupOfMode(chat.mode) !== 'play') throw new Error('当前 Session 没有绑定游玩对话')
+    const turn = Math.max(1, Number(requestedTurn) || 0)
+    const message = assistantMessageAtTurn(chat, turn)
+    if (message === null) throw new Error('游玩记录中不存在第 ' + turn + ' 轮回复')
+    const index = Math.max(0, Math.min(100, Number(partIndex) || 0))
+    const capture = sanitizeDisplayRuntime(runtime)
+    const existingRuntime = message.displayRuntime && typeof message.displayRuntime === 'object' ? message.displayRuntime : null
+    const sourceActivityAt = Math.max(0, Number(existingRuntime && existingRuntime.sourceActivityAt) || Number(chat.updatedAt) || 0)
+    const latestTurn = Math.max.apply(null, (chat.messages || []).filter(function (item) { return item && item.role === 'assistant' }).map(function (item) { return Math.max(1, Number(item.turn) || 1) }).concat([1]))
+    capture.captureKind = turn === latestTurn && Date.now() - sourceActivityAt < 300000 ? 'live' : 'replay'
+    const current = existingRuntime || { frames: [] }
+    const frames = Array.isArray(current.frames) ? current.frames.filter(function (item) { return Number(item && item.partIndex) !== index }) : []
+    frames.push(Object.assign({ partIndex: index }, capture))
+    message.displayRuntime = { version: 1, sourceActivityAt, frames: frames.sort(function (a, b) { return a.partIndex - b.partIndex }) }
+    await writeChat(chat)
+    return { captured: true, turn, partIndex: index, captureKind: capture.captureKind }
+  }
+
+  function sessionDebugEvidence(sessionId) {
+    const id = str(sessionId)
+    if (id === '') return { sessionId: '', loaded: false, events: [] }
+    let session = null
+    try {
+      const sessions = ctx.get('sessions')
+      session = sessions && typeof sessions.get === 'function' ? sessions.get(id) : null
+    } catch {}
+    if (!session) {
+      try {
+        const agent = agentRegistry.get(id)
+        session = agent && agent.session
+      } catch {}
+    }
+    return { sessionId: id, loaded: Boolean(session && Array.isArray(session.events)), events: session && Array.isArray(session.events) ? session.events : [] }
+  }
+
   // ---------- 聊天 ----------
   function newChat(card, mode) {
     const chatMode = mode === 'card' ? 'card' : (mode === 'script' ? 'script' : 'story')
@@ -1960,6 +2033,7 @@ export async function apply(ctx) {
         return { card: { path: sourceChat.cardPath, name: card.name }, chatId: sourceChat.id }
       }
       case 'attachPlayChatDebug': return { reference: await attachPlayChatDebug(args && args.targetSessionId, args && args.sourceSessionId, args && args.turn) }
+      case 'captureDisplayRuntime': return await captureDisplayRuntime(args && args.sessionId, args && args.turn, args && args.partIndex, args && args.runtime)
       case 'startChat': {
         try {
           return { view: await startChat(args && args.path, args && args.sessionId, args && args.mode, args && args.openingId, args && args.userName) }
@@ -2392,11 +2466,11 @@ export async function apply(ctx) {
 
     tools.register(defineTool({
       name: 'tavern_read_play_chat',
-      description: '在卡片工作台中按需、只读地查看已挂载游玩记录的指定轮次。先读 overview，再根据问题读取模型原文、Session 文本、展示文本或当前人物卡正则诊断。',
+      description: '在卡片工作台中只读查看已挂载的整场游玩记录。引用时选中的轮次只是初始焦点；可查看整场对话、任意轮次三层文本、Tavern 状态、前后台 Agent Session log、正则诊断和 iframe 实际运行证据。',
       parameters: {
         ref: { type: 'string', description: '已挂载游玩记录引用，例如 play-chat:chat-xxx；只有一个引用时可省略' },
         turn: { type: 'integer', description: '要读取的游玩轮次；省略时读取引用时选中的轮次' },
-        layer: { type: 'string', enum: ['overview', 'source', 'session', 'display', 'diagnostics'], description: '读取层：概览、模型原文、Session 文本、展示文本或当前正则诊断；默认 overview' },
+        layer: { type: 'string', enum: ['overview', 'conversation', 'source', 'session', 'display', 'diagnostics', 'tavern', 'foreground', 'background', 'iframe'], description: '读取层：概览、整场 Session 对话、模型原文、Session 文本、展示文本、当前正则诊断、Tavern 状态、前台 Agent、后台 Agent 或 iframe 运行证据；默认 overview' },
         offset: { type: 'integer', description: '可选的 1 起始字符位置，默认 1' },
         limit: { type: 'integer', description: '本次最多读取字符数，默认 6000，最大 12000' }
       },
@@ -2449,7 +2523,12 @@ export async function apply(ctx) {
             })
           }
         }
-        return readPlayChatDebugTurn(editorChat, sourceChat, reference, args, projector)
+        const foregroundId = str(sourceChat.sessionId)
+        const backgroundId = str(sourceChat.timeline && sourceChat.timeline.participants && sourceChat.timeline.participants.background && sourceChat.timeline.participants.background.sessionId) || str(sourceChat.candidateAgent && sourceChat.candidateAgent.sessionId)
+        return readPlayChatDebugTurn(editorChat, sourceChat, reference, args, projector, {
+          foreground: sessionDebugEvidence(foregroundId),
+          background: sessionDebugEvidence(backgroundId)
+        })
       }
     }))
 

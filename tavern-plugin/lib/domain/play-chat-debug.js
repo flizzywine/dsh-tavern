@@ -53,6 +53,55 @@ function referencePath(chatId) {
   return 'play-chat:' + str(chatId)
 }
 
+function availableTurns(chat) {
+  const turns = []
+  const messages = Array.isArray(chat && chat.messages) ? chat.messages : []
+  let inferred = 1
+  for (const message of messages) {
+    if (message && message.role === 'user') inferred += 1
+    if (!message || message.role !== 'assistant') continue
+    const turn = assistantTurn(message, inferred)
+    if (!turns.includes(turn)) turns.push(turn)
+  }
+  return turns.sort(function (a, b) { return a - b })
+}
+
+function safeValue(value, depth = 0, seen = new WeakSet()) {
+  if (value === null || value === undefined || typeof value === 'boolean' || typeof value === 'number') return value
+  if (typeof value === 'string') return value.length > 12000 ? value.slice(0, 12000) + '…[已截断]' : value
+  if (typeof value !== 'object') return str(value)
+  if (depth >= 6) return '[深度已截断]'
+  if (seen.has(value)) return '[循环引用]'
+  seen.add(value)
+  if (Array.isArray(value)) return value.map(function (item) { return safeValue(item, depth + 1, seen) })
+  const result = {}
+  for (const [key, item] of Object.entries(value).slice(0, 200)) {
+    if (/authorization|cookie|api[-_]?key|secret|password|access[-_]?token/i.test(key)) result[key] = '[已隐藏]'
+    else result[key] = safeValue(item, depth + 1, seen)
+  }
+  return result
+}
+
+function json(value) {
+  try { return JSON.stringify(safeValue(value), null, 2) } catch { return str(value) }
+}
+
+function conversationText(chat) {
+  const lines = ['【整场游玩对话 · Session 层】']
+  const messages = Array.isArray(chat && chat.messages) ? chat.messages : []
+  for (const message of messages) {
+    if (!message || (message.role !== 'user' && message.role !== 'assistant')) continue
+    const label = message.role === 'user' ? '玩家' : ('模型（第 ' + assistantTurn(message, 1) + ' 轮）')
+    lines.push(label + '：' + str(message.text))
+  }
+  return lines.join('\n\n')
+}
+
+function agentEvidence(value, label) {
+  if (!value || value.loaded !== true) return '【' + label + ' Agent Session log】\nSession：' + str(value && value.sessionId) + '\n当前 DSH 运行时未加载该 Session，无法读取原生事件；Tavern 持久记录仍可从 tavern 层读取。'
+  return '【' + label + ' Agent Session log】\nSession：' + str(value.sessionId) + '\n\n' + json(value.events || [])
+}
+
 export function createPlayChatDebugReference(editorChat, sourceChat, requestedTurn) {
   if (!editorChat || str(editorChat.mode) !== 'card') throw new Error('游玩记录只能挂载到卡片工作台')
   if (!sourceChat || !playMode(sourceChat)) throw new Error('只能引用游玩模式对话')
@@ -71,7 +120,7 @@ export function createPlayChatDebugReference(editorChat, sourceChat, requestedTu
   }
 }
 
-export function readPlayChatDebugTurn(editorChat, sourceChat, reference, request = {}, currentProjection = null) {
+export function readPlayChatDebugTurn(editorChat, sourceChat, reference, request = {}, currentProjection = null, evidence = {}) {
   if (!editorChat || str(editorChat.mode) !== 'card') throw new Error('游玩记录只能在卡片工作台中读取')
   if (!sourceChat || !playMode(sourceChat)) throw new Error('游玩记录不存在或不是游玩对话')
   if (!reference || reference.kind !== 'play-chat' || str(reference.chatId) !== str(sourceChat.id)) throw new Error('该游玩记录尚未挂载到当前对话')
@@ -81,11 +130,26 @@ export function readPlayChatDebugTurn(editorChat, sourceChat, reference, request
   const found = messageForTurn(sourceChat, turn)
   if (found === null) throw new Error('游玩记录中不存在第 ' + turn + ' 轮回复')
   const message = found.message
-  const layer = ['overview', 'source', 'session', 'display', 'diagnostics'].includes(request.layer) ? request.layer : 'overview'
+  const layers = ['overview', 'conversation', 'source', 'session', 'display', 'diagnostics', 'tavern', 'foreground', 'background', 'iframe']
+  const layer = layers.includes(request.layer) ? request.layer : 'overview'
   let text = ''
-  if (layer === 'source') text = str(message.sourceText) || str(message.text)
+  if (layer === 'conversation') text = conversationText(sourceChat)
+  else if (layer === 'source') text = str(message.sourceText) || str(message.text)
   else if (layer === 'session') text = str(message.text)
   else if (layer === 'display') text = str(message.displayText) || str(message.text)
+  else if (layer === 'iframe') text = '【iframe 实际运行证据 · 第 ' + turn + ' 轮】\n' + json(message.displayRuntime || { status: '该轮尚无采集记录' })
+  else if (layer === 'foreground') text = agentEvidence(evidence.foreground, '前台')
+  else if (layer === 'background') text = agentEvidence(evidence.background, '后台')
+  else if (layer === 'tavern') {
+    text = '【Tavern 持久运行状态】\n' + json({
+      chatId: sourceChat.id, mode: sourceChat.mode, sessionId: sourceChat.sessionId,
+      settleStatus: sourceChat.settleStatus, settleError: sourceChat.settleError,
+      lastSettle: sourceChat.lastSettle, candidates: sourceChat.candidates,
+      preparedWorldBook: sourceChat.preparedWorldBook, preparedWorldBookContext: sourceChat.preparedWorldBookContext,
+      nativeCommits: sourceChat.nativeCommits, runtimeInputs: sourceChat.runtimeInputs,
+      taskMailbox: sourceChat.taskMailbox, timeline: sourceChat.timeline
+    })
+  }
   else if (layer === 'diagnostics') {
     const projected = typeof currentProjection === 'function' ? currentProjection(message) : currentProjection
     const applied = projected && projected.applied ? projected.applied : { session: [], display: [] }
@@ -99,6 +163,9 @@ export function readPlayChatDebugTurn(editorChat, sourceChat, reference, request
     ].join('\n')
   } else {
     text = [
+      '【整场游玩记录】初始焦点：第 ' + turn + ' 轮；可用轮次：第 ' + availableTurns(sourceChat).join('、') + ' 轮',
+      '可读层：conversation / source / session / display / diagnostics / tavern / foreground / background / iframe',
+      '前台 Session：' + str(sourceChat.sessionId) + '；后台 Session：' + str(sourceChat.timeline && sourceChat.timeline.participants && sourceChat.timeline.participants.background && sourceChat.timeline.participants.background.sessionId || sourceChat.candidateAgent && sourceChat.candidateAgent.sessionId),
       '玩家输入：\n' + (found.userText || '（开场轮，无玩家输入）'),
       '模型原文：' + (str(message.sourceText) || str(message.text)).length + ' 字',
       'Session 文本：' + str(message.text).length + ' 字',

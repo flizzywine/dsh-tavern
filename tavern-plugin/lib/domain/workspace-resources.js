@@ -19,6 +19,19 @@ import { normalizeResourcePath, resourceKind } from './file-resources.js'
 
 const RESOURCE_KINDS = Object.freeze(['card', 'preset', 'source', 'script', 'worldbook'])
 
+function playChatReference(item) {
+  const chatId = str(item && item.chatId).trim()
+  const path = str(item && item.path).trim()
+  const turn = Number(item && item.turn)
+  if (!/^chat-[a-z0-9-]+$/i.test(chatId) || path !== 'play-chat:' + chatId || !Number.isInteger(turn) || turn < 1) return null
+  return {
+    kind: 'play-chat', path, label: str(item.label).trim() || ('游玩第 ' + turn + ' 轮'), chatId, turn,
+    sourceUpdatedAt: Math.max(0, Number(item.sourceUpdatedAt) || 0),
+    cardSnapshotVersion: Math.max(0, Number(item.cardSnapshotVersion) || 0),
+    cardSnapshotDigest: str(item.cardSnapshotDigest).trim()
+  }
+}
+
 export function mentionedTavernResources(text) {
   const resources = []
   const mentions = []
@@ -56,6 +69,11 @@ export function rememberTavernResources(existing, text) {
   for (const item of (Array.isArray(existing) ? existing : []).concat(mentionedTavernResources(text))) {
     if (item === null || typeof item !== 'object') continue
     const kind = str(item.kind)
+    if (kind === 'play-chat') {
+      const reference = playChatReference(item)
+      if (reference !== null && !resources.some(function (entry) { return entry.kind === kind && entry.path === reference.path })) resources.push(reference)
+      continue
+    }
     let path
     try {
       path = kind === 'worldbook' ? normalizeResourcePath(item.path) : normalizeResourcePath(item.path, kind)
