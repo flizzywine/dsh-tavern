@@ -204,6 +204,25 @@ test('更新器成功执行并清理临时脚本后写入 completed 终态', asy
   }
 })
 
+test('代码已覆盖但自动重启失败时不再误报整体更新失败', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'dsh-tavern-update-partial-'))
+  try {
+    const statusFile = path.join(root, 'update-status.json')
+    const commit = 'e'.repeat(40)
+    const installerName = process.platform === 'win32' ? 'install.ps1' : 'install.sh'
+    const installerSource = process.platform === 'win32' ? 'exit 1\r\n' : '#!/bin/sh\nexit 1\n'
+    await writeFile(path.join(root, installerName), installerSource)
+    await writeFile(path.join(root, '.dsh-tavern-release.json'), JSON.stringify({ commit }))
+    await updateApplication({ host: 'cli', statusFile, delay: 0, sourceRoot: root, targetCommit: commit, log() {} })
+    const status = JSON.parse(await readFile(statusFile, 'utf8'))
+    assert.equal(status.phase, 'installed-restart-required')
+    assert.equal(status.targetCommit, commit)
+    assert.match(status.error, /程序文件已更新/)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test('Windows UI 更新隐藏 PowerShell 窗口并保持 UTF-8 输出', () => {
   assert.match(launcherSource, /System\.Text\.UTF8Encoding/)
   assert.match(launcherSource, /spawnSync\(command, args, \{[\s\S]*?windowsHide: true,/)

@@ -258,6 +258,22 @@ test('Android 安装记录让 UI 更新任务沿用 Android 宿主', async () =>
   }
 })
 
+test('手动重启后把“文件已更新”状态收敛为更新完成', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-updater-recovered-'))
+  try {
+    const dataRoot = path.join(root, 'data')
+    const statusFile = path.join(dataRoot, 'update-status.json')
+    await mkdir(dataRoot, { recursive: true })
+    await writeFile(statusFile, JSON.stringify({ phase: 'installed-restart-required', host: 'cli', targetCommit: 'f'.repeat(40) }))
+    const updater = createApplicationUpdater({ dataRoot, sourceRoot: root, runtimeHost: 'cli', now: () => 2345 })
+    assert.deepEqual(await updater.status(), {
+      phase: 'completed', host: 'cli', completedAt: 2345, targetCommit: 'f'.repeat(40), recoveredByRestart: true,
+    })
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test('Windows UI 更新通过短生命周期 helper 与服务进程树脱钩', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-updater-'))
   try {

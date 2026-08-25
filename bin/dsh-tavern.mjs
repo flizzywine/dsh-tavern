@@ -779,7 +779,12 @@ async function startService() {
 export async function updateApplication(options = { host: 'cli', statusFile: '', delay: 0 }) {
   const sourceRoot = path.resolve(options.sourceRoot || SOURCE_ROOT)
   const log = typeof options.log === 'function' ? options.log : console.log
-  writeUpdateStatus(options.statusFile, { phase: 'running', host: options.host, startedAt: Date.now(), pid: process.pid })
+  const startedAt = Date.now()
+  const targetCommit = String(options.targetCommit || '')
+  writeUpdateStatus(options.statusFile, {
+    phase: 'running', host: options.host, startedAt, pid: process.pid,
+    ...(targetCommit ? { targetCommit } : {}),
+  })
   let temporary = ''
   let outputFile = ''
   try {
@@ -826,7 +831,10 @@ export async function updateApplication(options = { host: 'cli', statusFile: '',
     temporary = ''
     if (outputFile !== '' && existsSync(outputFile)) unlinkSync(outputFile)
     outputFile = ''
-    writeUpdateStatus(options.statusFile, { phase: 'completed', host: options.host, completedAt: Date.now(), requiresRestart: options.host === 'desktop' })
+    writeUpdateStatus(options.statusFile, {
+      phase: 'completed', host: options.host, completedAt: Date.now(), requiresRestart: options.host === 'desktop',
+      ...(targetCommit ? { targetCommit } : {}),
+    })
   } catch (error) {
     let failure = error
     if (temporary !== '' && existsSync(temporary)) {
@@ -837,7 +845,21 @@ export async function updateApplication(options = { host: 'cli', statusFile: '',
     if (outputFile !== '' && existsSync(outputFile)) {
       try { unlinkSync(outputFile) } catch {}
     }
-    writeUpdateStatus(options.statusFile, { phase: 'failed', host: options.host, failedAt: Date.now(), error: String(failure?.message || failure) })
+    let installedCommit = ''
+    try {
+      installedCommit = String(JSON.parse(readFileSync(path.join(sourceRoot, RELEASE_FILE), 'utf8').replace(/^\uFEFF/, ''))?.commit || '')
+    } catch {}
+    if (targetCommit && installedCommit.toLowerCase() === targetCommit.toLowerCase()) {
+      writeUpdateStatus(options.statusFile, {
+        phase: 'installed-restart-required', host: options.host, installedAt: Date.now(), targetCommit,
+        error: '程序文件已更新，但自动启动或就绪检查未完成。请手动重启 DSH Tavern。',
+      })
+      return
+    }
+    writeUpdateStatus(options.statusFile, {
+      phase: 'failed', host: options.host, failedAt: Date.now(), error: String(failure?.message || failure),
+      ...(targetCommit ? { targetCommit } : {}),
+    })
     throw failure
   }
 }

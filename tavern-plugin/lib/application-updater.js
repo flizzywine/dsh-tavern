@@ -162,6 +162,14 @@ export function createApplicationUpdater(options) {
         await store.writeJson(STATUS_FILE, interrupted)
         return interrupted
       }
+      if (current.phase === 'installed-restart-required' && current.host !== 'desktop') {
+        const completed = {
+          phase: 'completed', host: current.host, completedAt: checkedAt,
+          targetCommit: current.targetCommit, recoveredByRestart: true,
+        }
+        await store.writeJson(STATUS_FILE, completed)
+        return completed
+      }
       if (current.phase === 'failed') {
         const error = sanitizeUpdateError(current.error)
         if (error !== current.error) {

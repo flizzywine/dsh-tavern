@@ -433,6 +433,8 @@ test('左侧栏提供一键更新并展示 CLI、Desktop 与 Android 的不同�
   assert.match(sidebar, /tavern-update-probe/)
   assert.match(sidebar, /recovery\.sawOffline/)
   assert.match(sidebar, /window\.location\.reload\(\)/)
+  assert.match(sidebar, /程序文件已更新，但自动重启失败/)
+  assert.match(sidebar, /请手动重启/)
   assert.match(sidebar, /更新期间会短暂断开/)
   assert.match(sidebar, /如果较长时间仍未更新完成，建议重新安装一次/)
   assert.match(sidebar, /检测到 Git 时只会下载运行所需代码/)
