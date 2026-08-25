@@ -449,6 +449,14 @@ test('左侧栏提供一键更新并展示 CLI、Desktop 与 Android 的不同�
   assert.match(serverSource, /case 'startUpdate'/)
 })
 
+test('持久化的更新完成状态不是刷新命令，页面只在服务实际离线恢复后刷新一次', () => {
+  const sidebar = between(clientSource, 'function TavernSidebar', 'function TavernResourcesTab')
+
+  assert.match(sidebar, /recovery\.sawOffline/)
+  assert.equal((sidebar.match(/window\.location\.reload\(\)/g) || []).length, 1)
+  assert.doesNotMatch(sidebar, /updateStatus\.phase !== "completed"[\s\S]{0,300}window\.location\.reload\(\)/)
+})
+
 test('旧破甲侧栏、RPC 和卡片入口已删除', () => {
   assert.doesNotMatch(clientSource, /BoundaryPromptTab|listBoundaryPrompts|从预设提取破甲/)
   assert.equal((clientSource.match(/dsh-tavern:boundary-prompts/g) || []).length, 1)

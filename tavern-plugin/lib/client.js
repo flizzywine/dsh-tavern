@@ -1180,11 +1180,6 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				return function () { stopped = true; window.clearInterval(timer); };
 			}, [updateStatus.phase, updateStatus.host]);
 			React.useEffect(function () {
-				if (updateStatus.phase !== "completed" || updateStatus.host === "desktop" || updateRecoveryRef.current.reloading) return;
-				updateRecoveryRef.current.reloading = true;
-				window.location.reload();
-			}, [updateStatus.phase, updateStatus.host]);
-			React.useEffect(function () {
 				if (!currentSummary || currentSummary.blank) return;
 				notifyDataChanged();
 			}, [current, currentSummary]);
