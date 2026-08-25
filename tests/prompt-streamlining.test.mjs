@@ -181,7 +181,7 @@ test('游玩固定选择一个开场白，并用它对齐剧本', () => {
   assert.doesNotMatch(serverSource, /switchOpening|openingViewOf|switchable: !hasStory/)
 })
 
-test('人物卡基本信息固定为游戏会话前缀，不随正文每轮重建', () => {
+test('人物卡稳定字段固定为会话前缀，角色约束改为每轮注入', () => {
   const startChat = between(serverSource, 'async function startChat', 'async function appendNativeOpening')
   const buildSnapshot = between(serverSource, 'async function buildPlayCardSnapshot', 'async function ensurePlayCardSnapshot')
   const ensureSnapshot = between(serverSource, 'async function ensurePlayCardSnapshot', 'const backgroundAgentRunner')
@@ -195,8 +195,13 @@ test('人物卡基本信息固定为游戏会话前缀，不随正文每轮重�
   assert.match(ensureSnapshot, /chat\.cardContextSnapshot = sanitized/)
   assert.match(ensureSnapshot, /await writeChat\(chat\)/)
   assert.match(systemAssembly, /name: 'tavern:card-snapshot'/)
-  assert.match(bodyPlanner, /includeDetails: false/)
-  assert.match(bodyPlanner, /includeSystemPrompt: false/)
+  assert.match(bodyPlanner, /includeDetails: true/)
+  assert.match(bodyPlanner, /includeDescription: true/)
+  assert.match(bodyPlanner, /includePersonality: true/)
+  assert.match(bodyPlanner, /includeScenario: false/)
+  assert.match(bodyPlanner, /includeStyleExample: false/)
+  assert.match(bodyPlanner, /includeSystemPrompt: true/)
+  assert.match(bodyPlanner, /includePostHistory: true/)
   assert.doesNotMatch(bodyPlanner, /hasStoryTurn/)
 })
 

@@ -380,6 +380,15 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			});
 		}
 
+		function rpcWithTimeout(method, args, sessionId) {
+			const controller = new AbortController();
+			const timer = window.setTimeout(function () { controller.abort(); }, 15000);
+			return rpc(method, args, sessionId, { signal: controller.signal }).catch(function (error) {
+				if (controller.signal.aborted) throw new Error("读取超时，请重新读取");
+				throw error;
+			}).finally(function () { window.clearTimeout(timer); });
+		}
+
 		function createLiveTavernViewModule(options) {
 			if (!options || typeof options.load !== "function") throw new Error("Live Tavern View 缺少 load adapter");
 			const records = new Map();
@@ -619,11 +628,15 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				start: async function (request) {
 					let phase = "清理当前空白对话";
 					try {
-						await options.archiveCurrent();
-						phase = request.kind === "card" ? "准备卡片工作区" : "准备游玩工作区";
-						const workspaceId = await options.resolveWorkspace(request);
-						phase = "创建 DSH Session";
-						const sessionId = await options.connectWorkspace(workspaceId);
+						const preparedSessionId = typeof request.preparedSessionId === "string" ? request.preparedSessionId : "";
+						await options.archiveCurrent(preparedSessionId);
+						let sessionId = preparedSessionId;
+						if (!sessionId) {
+							phase = request.kind === "card" ? "准备卡片工作区" : "准备游玩工作区";
+							const workspaceId = await options.resolveWorkspace(request);
+							phase = "创建 DSH Session";
+							sessionId = await options.connectWorkspace(workspaceId);
+						}
 						phase = "等待 DSH Session 就绪";
 						await options.waitForSession(sessionId);
 						phase = "切换到酒馆模式";
@@ -642,6 +655,58 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					}
 				}
 			};
+		}
+
+		function createConversationPrewarmModule(options) {
+			for (const method of ["sessionIds", "resolveWorkspace", "connectWorkspace", "archiveSession"]) {
+				if (!options || typeof options[method] !== "function") throw new Error("Conversation Prewarm 缺少 " + method + " adapter");
+			}
+			const now = typeof options.now === "function" ? options.now : Date.now;
+			const report = typeof options.report === "function" ? options.report : function () {};
+			let active = null;
+
+			function clean(record) {
+				if (!record || record.cleanupScheduled) return;
+				record.cleanupScheduled = true;
+				record.promise.then(async function (lease) {
+					if (!lease.created) return;
+					try { await options.archiveSession(lease.sessionId); }
+					catch (error) { report({ phase: "cleanup-failed", key: record.key, sessionId: lease.sessionId, error: error }); }
+				}, function () {});
+			}
+
+			function cancel() {
+				const record = active;
+				active = null;
+				clean(record);
+			}
+
+			function begin(request) {
+				cancel();
+				const key = String(request && request.key || "");
+				const known = new Set(options.sessionIds());
+				const startedAt = now();
+				const record = { key: key, cleanupScheduled: false, promise: null };
+				record.promise = (async function () {
+					const workspaceId = await options.resolveWorkspace(request || {});
+					const sessionId = await options.connectWorkspace(workspaceId);
+					const lease = { sessionId: sessionId, created: !known.has(sessionId) };
+					report({ phase: "ready", key: key, sessionId: sessionId, created: lease.created, elapsedMs: Math.max(0, now() - startedAt) });
+					return lease;
+				})();
+				record.promise.catch(function (error) { report({ phase: "failed", key: key, elapsedMs: Math.max(0, now() - startedAt), error: error }); });
+				active = record;
+				return record.promise;
+			}
+
+			async function claim(key) {
+				const record = active;
+				if (!record || record.key !== String(key || "")) return "";
+				active = null;
+				return (await record.promise).sessionId;
+			}
+
+			return Object.freeze({ begin: begin, claim: claim, cancel: cancel });
 		}
 
 		function isIgnoredTavernError(value) {
@@ -956,6 +1021,28 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const [updateStatus, setUpdateStatus] = React.useState({ phase: "loading", host: "cli" });
 			const lastModeSession = React.useRef(null);
 			const fileRef = React.useRef(null);
+			const playWorkspaceIdRef = React.useRef(workspaceId);
+			const playPrewarmRef = React.useRef(null);
+			playWorkspaceIdRef.current = workspaceId;
+			if (playPrewarmRef.current === null) {
+				playPrewarmRef.current = createConversationPrewarmModule({
+					sessionIds: function () { return Object.keys(props.sessions.list.getSnapshot().byId || {}); },
+					resolveWorkspace: async function () {
+						if (!playWorkspaceIdRef.current) throw new Error("当前没有可用的 Workspace");
+						return playWorkspaceIdRef.current;
+					},
+					connectWorkspace: function (targetWorkspaceId) { return props.workspaces.connectWorkspace(targetWorkspaceId); },
+					archiveSession: async function (sessionId) {
+						try { await props.workspaces.archiveSession(sessionId); }
+						catch (error) { if (!isMissingSessionArchiveError(error)) throw error; }
+					},
+					report: function (timing) {
+						if (timing.phase === "ready") console.info("dsh-tavern: 游戏 Session 预热完成", timing.elapsedMs + "ms", timing.created ? "新建" : "复用");
+						else if (timing.phase === "failed") console.warn("dsh-tavern: 游戏 Session 预热失败，将在开始时重试", timing.error);
+						else if (timing.phase === "cleanup-failed") console.warn("dsh-tavern: 未使用的预热 Session 清理失败", timing.error);
+					}
+				});
+			}
 			const currentSummary = current ? summaries[current] : null;
 			const readyTavernSession = current && summaries[current] && summaries[current].blank === false && history.some(function (entry) { return entry.sessionId === current && isPlayMode(entry.mode); }) ? current : "";
 			const readyCardSession = current && summaries[current] && summaries[current].blank === false && history.some(function (entry) { return entry.sessionId === current && entry.mode === "card"; }) ? current : "";
@@ -977,6 +1064,9 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				window.addEventListener("dsh-tavern-data-changed", onData);
 				const timer = window.setInterval(refresh, 4000);
 				return function () { window.clearInterval(timer); window.removeEventListener("dsh-tavern-data-changed", onData); };
+			}, []);
+			React.useEffect(function () {
+				return function () { playPrewarmRef.current.cancel(); };
 			}, []);
 			React.useEffect(function () {
 				let stopped = false;
@@ -1039,6 +1129,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				if (typeof props.openResourcesTab === "function") props.openResourcesTab(readyCardSession);
 			}, [readyCardSession]);
 			function openPicker() {
+				playPrewarmRef.current.cancel();
 				setMenuSession(null);
 				setCardEntry("");
 				setOpeningPicker(null);
@@ -1046,6 +1137,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				setPicking(true);
 			}
 			function closePicker() {
+				playPrewarmRef.current.cancel();
 				setPicking(false);
 				setCardEntry("");
 				setOpeningPicker(null);
@@ -1088,9 +1180,10 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				if (!presetResponse.result.ok) throw new Error(presetResponse.result.error && presetResponse.result.error.message ? presetResponse.result.error.message : "无法切换到酒馆模式");
 				props.sessions.noteAgentPreset(sessionId, "tavern");
 			}
-			async function archiveCurrentBlankSession() {
+			async function archiveCurrentBlankSession(protectedSessionId) {
 				const currentSummary = current ? summaries[current] : null;
 				if (!current || !currentSummary || !currentSummary.blank) return;
+				if (current === protectedSessionId) return;
 				try { await props.workspaces.archiveSession(current); }
 				catch (archiveError) { if (!isMissingSessionArchiveError(archiveError)) throw archiveError; }
 			}
@@ -1165,22 +1258,28 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			}
 			async function newConversation(card, requestedMode, openingId, userName) {
 				const targetMode = requestedMode || (uiMode === "play" ? playModeOfCard(card) : "card");
+				const startedAt = Date.now();
 				setBusy(true); setError("");
 				try {
 					const resolvedUserName = String(userName || "你").trim() || "你";
-					await conversationLifecycle.start({ kind: "play", targetMode: targetMode, card: card, openingId: openingId || "", userName: resolvedUserName });
+					let preparedSessionId = "";
+					try { preparedSessionId = await playPrewarmRef.current.claim(card && card.path); }
+					catch (prewarmError) { console.warn("dsh-tavern: 预热 Session 不可用，改为正常创建", prewarmError); }
+					await conversationLifecycle.start({ kind: "play", targetMode: targetMode, card: card, openingId: openingId || "", userName: resolvedUserName, preparedSessionId: preparedSessionId });
 					if (targetMode !== "card") window.localStorage.setItem("dsh-tavern-player-name", resolvedUserName);
+					console.info("dsh-tavern: 开始游戏完成", (Date.now() - startedAt) + "ms", preparedSessionId ? "预热命中" : "即时创建");
 				} catch (err) { setError(String(err && err.phase || "创建对话") + "失败：" + String(err && err.message || err)); }
 				finally { setBusy(false); }
 			}
 			async function preparePlayConversation(card) {
 				setBusy(true); setError("");
+				playPrewarmRef.current.begin({ key: card.path, kind: "play" });
 				try {
 					const userName = window.localStorage.getItem("dsh-tavern-player-name") || "你";
 					const response = await call("getCardOpenings", { path: card.path, userName: userName });
 					const openings = response.openings || [];
 					setOpeningPicker({ card: card, openings: openings, index: 0, userName: userName });
-				} catch (err) { setError(String(err && err.message || err)); }
+				} catch (err) { playPrewarmRef.current.cancel(); setError(String(err && err.message || err)); }
 				finally { setBusy(false); }
 			}
 			async function importCard(file) {
@@ -1204,6 +1303,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				const d = new Date(ts); return (d.getMonth() + 1) + "/" + d.getDate() + " " + String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
 			}
 			async function switchMode(nextMode) {
+				playPrewarmRef.current.cancel();
 				setUiMode(nextMode); setPicking(false); setMenuSession(null);
 				const first = history.filter(function (item) { return groupOfMode(item.mode) === nextMode; })[0];
 				if (first) {
@@ -1300,7 +1400,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				pendingOpen ? h("button", { className: "dsh-tavern-btn", disabled: busy, style: { marginTop: "8px" }, onClick: retryPendingOpen }, "重新连接已创建的 Session") : null
 			) : null;
 			const openingChoice = openingPicker ? h(React.Fragment, null,
-				h("div", { className: "dsh-tavern-card-picker-head" }, h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { setOpeningPicker(null); } }, "← 返回"), h("span", null, openingPicker.card.name + " · 游戏准备"), h("span", { className: "dsh-tavern-spacer" }), h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { setOpeningPicker(null); setPicking(false); } }, "关闭")),
+				h("div", { className: "dsh-tavern-card-picker-head" }, h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { playPrewarmRef.current.cancel(); setOpeningPicker(null); } }, "← 返回"), h("span", null, openingPicker.card.name + " · 游戏准备"), h("span", { className: "dsh-tavern-spacer" }), h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: closePicker }, "关闭")),
 					selectedOpening && selectedOpening.usesUser ? h(React.Fragment, null,
 						h("label", { className: "dsh-tavern-player-name" }, h("span", null, "故事中的玩家称呼（可选）"), h("input", { value: openingPicker.userName || "你", maxLength: 80, autoFocus: true, placeholder: "你", disabled: busy, onChange: function (event) { setOpeningPicker(Object.assign({}, openingPicker, { userName: event.target.value })); } })),
 						h("div", { className: "dsh-tavern-player-name-help" }, "可以填写姓名、昵称或身份；不填则使用“你”。开场白预览会随之更新。")
@@ -1936,23 +2036,50 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		}
 
 		function WorldBookLibraryTab(props) {
-			const [catalog, setCatalog] = React.useState({ standalone: [], embedded: [] });
+			const [catalog, setCatalog] = React.useState(null);
 			const [record, setRecord] = React.useState(null);
+			const [loading, setLoading] = React.useState(true);
+			const [recordLoading, setRecordLoading] = React.useState(false);
 			const [busy, setBusy] = React.useState(false);
 			const [error, setError] = usePersistentError("世界书库");
 			const importInput = React.useRef(null);
 			const requestedSource = props.tab && props.tab.meta && props.tab.meta.worldBookSource ? props.tab.meta.worldBookSource : null;
 			const sessionMode = useTavernSessionMode(props.scope.sessionId);
 			const h = React.createElement;
-			function refresh() { return rpc("listWorldBooks", {}, props.scope.sessionId).then(function (result) { setCatalog(result || { standalone: [], embedded: [] }); setError(""); return result; }, function (err) { setError(String(err && err.message || err)); }); }
-			function load(source) { if (!source) { setRecord(null); return Promise.resolve(); } return rpc("getWorldBook", { source: source }, props.scope.sessionId).then(function (result) { setRecord(result); setError(""); }, function (err) { setRecord(null); setError(String(err && err.message || err)); }); }
-			React.useEffect(function () { refresh(); function onData() { refresh(); } window.addEventListener("dsh-tavern-data-changed", onData); return function () { window.removeEventListener("dsh-tavern-data-changed", onData); }; }, []);
+			function refresh() {
+				setLoading(true); setError("");
+				return rpcWithTimeout("listWorldBooks", {}, props.scope.sessionId).then(function (result) {
+					setCatalog(result || { standalone: [], embedded: [] }); return result;
+				}, function (err) { setError(String(err && err.message || err)); }).finally(function () { setLoading(false); });
+			}
+			function load(source) {
+				if (!source) { setRecord(null); return Promise.resolve(); }
+				setRecordLoading(true); setError("");
+				return rpcWithTimeout("getWorldBook", { source: source }, props.scope.sessionId).then(function (result) { setRecord(result); }, function (err) {
+					setRecord(null); setError(String(err && err.message || err));
+				}).finally(function () { setRecordLoading(false); });
+			}
+			React.useEffect(function () {
+				refresh();
+				function onData() { refresh(); }
+				function onActivate() { refresh(); }
+				function onVisibility() { if (document.visibilityState === "visible") refresh(); }
+				window.addEventListener("dsh-tavern-data-changed", onData);
+				window.addEventListener("focus", onActivate);
+				document.addEventListener("visibilitychange", onVisibility);
+				return function () {
+					window.removeEventListener("dsh-tavern-data-changed", onData);
+					window.removeEventListener("focus", onActivate);
+					document.removeEventListener("visibilitychange", onVisibility);
+				};
+			}, []);
 			React.useEffect(function () { if (requestedSource) load(requestedSource); }, [JSON.stringify(requestedSource)]);
 			function clear() { setRecord(null); props.ctx.betterSidebar.updateTab(props.tab.id, { meta: null }); }
 			async function importFile(file) { if (!file) return; setBusy(true); setError(""); try { const result = await rpc("importWorldBook", { payload: await parseTextResourceFile(file) }, props.scope.sessionId); await refresh(); await load({ kind: "standalone", path: result.worldBook.path }); window.dispatchEvent(new CustomEvent("dsh-tavern-data-changed")); } catch (err) { setError(String(err && err.message || err)); } finally { setBusy(false); } }
 			async function rename() { if (!record || record.source.kind !== "standalone") return; const current = record.source.path.split("/").pop(); const name = window.prompt("重命名世界书文件", current); if (name === null || !name.trim() || name.trim() === current) return; setBusy(true); try { const result = await rpc("renameResource", { path: record.source.path, name: name.trim() }, props.scope.sessionId); await refresh(); await load({ kind: "standalone", path: result.resource.path }); } catch (err) { setError(String(err && err.message || err)); } finally { setBusy(false); } }
 			async function remove() { if (!record || record.source.kind !== "standalone" || !window.confirm("删除世界书“" + record.view.displayName + "”吗？\n工作版和原版都会删除。")) return; setBusy(true); try { await rpc("deleteWorldBook", { path: record.source.path }, props.scope.sessionId); clear(); await refresh(); window.dispatchEvent(new CustomEvent("dsh-tavern-data-changed")); } catch (err) { setError(String(err && err.message || err)); } finally { setBusy(false); } }
 			async function exportFile() { if (!record) return; try { const result = await rpc("exportWorldBook", { source: record.source }, props.scope.sessionId); const item = result.worldBook; const blob = new Blob([JSON.stringify(item.document, null, 2)], { type: "application/json" }); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = (item.name || "世界书") + ".json"; document.body.appendChild(link); link.click(); link.remove(); URL.revokeObjectURL(url); } catch (err) { setError(String(err && err.message || err)); } }
+			if (recordLoading) return h("div", { className: "dsh-tavern-library" }, h("div", { className: "dsh-tavern-empty" }, "正在读取世界书…"));
 			if (record) {
 				const actions = h("div", { className: "dsh-tavern-library-head-actions" }, h("button", { className: "dsh-tavern-btn", onClick: exportFile }, "导出"), record.source.kind === "standalone" ? h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: rename }, "重命名文件") : null, record.source.kind === "standalone" ? h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: remove }, "删除") : null);
 				return h(WorldBookEditor, { record: record, sessionId: props.scope.sessionId, onBack: clear, actions: actions, onSaved: function (result) { setRecord(result); refresh(); } });
@@ -1961,7 +2088,10 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			function group(title, items) { return h("section", { className: "dsh-tavern-resource-group" }, h("div", { className: "dsh-tavern-resource-group-title" }, h("span", null, title + " · " + items.length)), items.length ? items.map(row) : h("div", { className: "dsh-tavern-status-empty" }, "暂无")); }
 			return h("div", { className: "dsh-tavern-library" }, h("div", { className: "dsh-tavern-status-head" }, h("div", { className: "dsh-tavern-status-title" }, "世界书库"), h("div", { className: "dsh-tavern-question-sub" }, "独立世界书与人物卡内置世界书共用编辑界面"), h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { importInput.current && importInput.current.click(); } }, "导入世界书"), h("input", { ref: importInput, type: "file", accept: ".json,application/json", style: { display: "none" }, onChange: function (event) { const file = event.target.files && event.target.files[0]; importFile(file); event.target.value = ""; } })), h("div", { className: "dsh-tavern-resource-body" },
 				h("div", { className: "dsh-tavern-worldbook-note" }, "常驻条目随人物卡进入稳定前缀；非常驻条目按关键词确定性匹配，每轮最多注入 3 条，实际注入后冷却 10 个剧情回合。世界书不再调用后台 Agent。尚未支持的酒馆字段仍会原样保留。"),
-				error ? h("div", { className: "dsh-tavern-dock-error" }, error) : null, group("独立世界书", catalog.standalone || []), group("人物卡内置世界书", catalog.embedded || [])));
+				loading && !catalog ? h("div", { className: "dsh-tavern-empty" }, "正在读取世界书…") : null,
+				error ? h("div", { className: "dsh-tavern-dock-error" }, error, h("button", { className: "dsh-tavern-btn", onClick: refresh }, "重新读取")) : null,
+				catalog ? group("独立世界书", catalog.standalone || []) : null,
+				catalog ? group("人物卡内置世界书", catalog.embedded || []) : null));
 		}
 		function register(input) {
 			const ctx = input.ctx;
@@ -1983,22 +2113,30 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const [cards, setCards] = React.useState([]);
 			const [selectedPath, setSelectedPath] = React.useState("");
 			const [card, setCard] = React.useState(null);
+			const [loading, setLoading] = React.useState(false);
 			const [query, setQuery] = React.useState("");
 			const [busy, setBusy] = React.useState(false);
 			const [error, setError] = usePersistentError("人物卡库");
 			const importInput = React.useRef(null);
+			const cardRequest = React.useRef(0);
 			const sessionMode = useTavernSessionMode(props.scope.sessionId);
 			const requestedPath = props.tab && props.tab.meta && typeof props.tab.meta.cardPath === "string" ? props.tab.meta.cardPath : "";
 			function refreshCards() {
-				return rpc("listCards", {}).then(function (result) { setCards(result.cards || []); setError(""); return result.cards || []; }, function (err) { setError(String(err && err.message || err)); return []; });
+				return rpcWithTimeout("listCards", {}).then(function (result) { setCards(result.cards || []); setError(""); return result.cards || []; }, function (err) { setError(String(err && err.message || err)); return []; });
 			}
 			function loadCard(path) {
-				if (!path) { setSelectedPath(""); setCard(null); return Promise.resolve(); }
-				setSelectedPath(path); setError("");
-				return rpc("getCard", { path: path }).then(function (result) {
+				const request = ++cardRequest.current;
+				if (!path) { setSelectedPath(""); setCard(null); setLoading(false); return Promise.resolve(); }
+				if (path !== selectedPath) setCard(null);
+				setSelectedPath(path); setLoading(true); setError("");
+				return rpcWithTimeout("getCard", { path: path }).then(function (result) {
+					if (request !== cardRequest.current) return;
 					const next = result.card || null;
 					setCard(function (current) { return JSON.stringify(current) === JSON.stringify(next) ? current : next; });
-				}, function (err) { setError(String(err && err.message || err)); setCard(null); });
+				}, function (err) {
+					if (request !== cardRequest.current) return;
+					setError(String(err && err.message || err)); setCard(null);
+				}).finally(function () { if (request === cardRequest.current) setLoading(false); });
 			}
 			React.useEffect(function () {
 				refreshCards();
@@ -2009,15 +2147,25 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 						loadCard(selectedPath);
 					});
 				}
+				function onActivate() { if (selectedPath) loadCard(selectedPath); else refreshCards(); }
+				function onVisibility() { if (document.visibilityState === "visible") onActivate(); }
 				window.addEventListener("dsh-tavern-data-changed", onData);
-				return function () { window.removeEventListener("dsh-tavern-data-changed", onData); };
+				window.addEventListener("focus", onActivate);
+				document.addEventListener("visibilitychange", onVisibility);
+				return function () {
+					window.removeEventListener("dsh-tavern-data-changed", onData);
+					window.removeEventListener("focus", onActivate);
+					document.removeEventListener("visibilitychange", onVisibility);
+				};
 			}, [selectedPath]);
 			React.useEffect(function () {
 				if (requestedPath && requestedPath !== selectedPath) loadCard(requestedPath);
 			}, [requestedPath, selectedPath]);
 			function clearCard() {
+				cardRequest.current += 1;
 				setSelectedPath("");
 				setCard(null);
+				setLoading(false);
 				props.ctx.betterSidebar.updateTab(props.tab.id, { meta: null });
 			}
 			async function importCardFile(file) {
@@ -2055,7 +2203,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			}
 			const h = React.createElement;
 			if (selectedPath) {
-				if (!card) return h("div", { className: "dsh-tavern-library" }, h("div", { className: "dsh-tavern-status-head" }, h("button", { className: "dsh-tavern-btn", onClick: clearCard }, "← 返回人物卡库")), error ? h("div", { className: "dsh-tavern-dock-error" }, error) : h("div", { className: "dsh-tavern-empty" }, "正在读取人物卡…"));
+				if (!card) return h("div", { className: "dsh-tavern-library" }, h("div", { className: "dsh-tavern-status-head" }, h("button", { className: "dsh-tavern-btn", onClick: clearCard }, "← 返回人物卡库")), loading ? h("div", { className: "dsh-tavern-empty" }, "正在读取人物卡…") : error ? h("div", { className: "dsh-tavern-dock-error" }, error, h("button", { className: "dsh-tavern-btn", onClick: function () { loadCard(selectedPath); } }, "重新读取")) : h("div", { className: "dsh-tavern-empty" }, "人物卡读取失败", h("button", { className: "dsh-tavern-btn", onClick: function () { loadCard(selectedPath); } }, "重新读取")));
 				return h(CardFieldsPanel, { view: { card: card }, library: true, busy: busy, onBack: clearCard, onAttach: sessionMode === "card" ? function () { props.appendMention(card.path, card.name); } : null, onOpenWorldBook: props.openWorldBook, onRename: renameCard, onExport: exportCardFile, onDelete: deleteCardFile, onSaved: function (saved) { setCard(Object.assign({}, saved, { path: selectedPath })); refreshCards(); } });
 			}
 			const needle = query.trim().toLocaleLowerCase();
@@ -3129,6 +3277,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		exports.createTavernCoordinationEventModule = createTavernCoordinationEventModule;
 		exports.describeTavernActivity = describeTavernActivity;
 		exports.createConversationLifecycleModule = createConversationLifecycleModule;
+		exports.createConversationPrewarmModule = createConversationPrewarmModule;
 		exports.createResourcesLibraryFeatureModule = createResourcesLibraryFeatureModule;
 		exports.createPresetLibraryFeatureModule = createPresetLibraryFeatureModule;
 		exports.createWorldBookLibraryFeatureModule = createWorldBookLibraryFeatureModule;

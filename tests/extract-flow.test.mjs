@@ -519,6 +519,10 @@ test('人物卡库可以查看详情，并在当前卡片对话中引用人物�
   const library = between(clientSource, 'function CardLibraryTab', 'function CardFieldsPanel')
 
   assert.match(library, /loadCard\(item\.path\)/)
+  assert.match(library, /setLoading\(true\)/)
+  assert.match(library, /rpcWithTimeout\("getCard", \{ path: path \}\)/)
+  assert.match(library, /"重新读取"/)
+  assert.match(library, /window\.addEventListener\("focus", onActivate\)/)
   assert.match(library, /在对话中引用/)
   assert.match(library, /props\.appendMention\(item\.path, item\.name\)/)
   assert.match(clientSource, /在对话中引用/)
@@ -564,7 +568,7 @@ test('Session 顶栏工具区可以把服务端投影后的纯对话下载为 TX
 test('人物卡库通过列表进入详情，世界书编辑跳转到独立世界书库', () => {
   assert.match(clientSource, /id: "dsh-tavern:cards",\s*title: "人物卡库"/)
   assert.match(clientSource, /function CardLibraryTab/)
-  assert.match(clientSource, /rpc\("getCard", \{ path: path \}\)/)
+  assert.match(clientSource, /rpcWithTimeout\("getCard", \{ path: path \}\)/)
   assert.match(clientSource, /"基本信息"/)
   assert.match(clientSource, /"选择已有剧本"/)
   assert.match(clientSource, /call\("bindScript"/)
@@ -608,6 +612,11 @@ test('人物卡详情只提交用户实际改动，避免投影往返覆盖完�
   assert.match(panel, /call\("updateCard", \{ path: cardPath, patch: patch \}\)/)
 })
 
+test('人物卡稳定前缀升级到 v3，旧会话会按新的字段边界重建', () => {
+  assert.match(serverSource, /Number\(chat\.cardContextSnapshotVersion\) >= 3/)
+  assert.equal((serverSource.match(/cardContextSnapshotVersion = 3/g) || []).length, 2)
+})
+
 test('世界书库统一编辑独立世界书与人物卡内置世界书', () => {
   const cardPanel = between(clientSource, 'function CardFieldsPanel', 'function TavernStatusPanel')
   const library = between(clientSource, 'function WorldBookEditor', 'function CardLibraryTab')
@@ -618,7 +627,21 @@ test('世界书库统一编辑独立世界书与人物卡内置世界书', () =>
   assert.match(library, /group\("人物卡内置世界书"/)
   assert.match(library, /rpc\("importWorldBook"/)
   assert.match(library, /rpc\("updateWorldBook"/)
+  assert.match(library, /const \[catalog, setCatalog\] = React\.useState\(null\)/)
+  assert.match(library, /rpcWithTimeout\("listWorldBooks"/)
+  assert.match(library, /"正在读取世界书…"/)
+  assert.match(library, /"重新读取"/)
+  assert.match(library, /window\.addEventListener\("focus", onActivate\)/)
   assert.match(library, /未知字段与 extensions 会原样保留/)
+})
+
+test('资料库读取 RPC 有超时收尾，不会永久停留在加载状态', () => {
+  const timeout = between(clientSource, 'function rpcWithTimeout', 'function createLiveTavernViewModule')
+
+  assert.match(timeout, /new AbortController\(\)/)
+  assert.match(timeout, /window\.setTimeout/)
+  assert.match(timeout, /读取超时，请重新读取/)
+  assert.match(timeout, /window\.clearTimeout/)
 })
 
 test('世界书条目的低频匹配开关默认收进兼容字段', () => {

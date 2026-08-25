@@ -803,7 +803,7 @@ export async function apply(ctx) {
     chat.macroState = macroState
     if (groupOfMode(chat.mode) === 'play') {
       chat.cardContextSnapshot = await buildPlayCardSnapshot(chat, card)
-      chat.cardContextSnapshotVersion = 2
+      chat.cardContextSnapshotVersion = 3
     }
     chat.openingText = greeting
     chat.presentationWarnings = openingProjection.warnings
@@ -947,7 +947,7 @@ export async function apply(ctx) {
   async function ensurePlayCardSnapshot(chat, card) {
     if (chat === undefined || groupOfMode(chat.mode) !== 'play') return ''
     const existing = str(chat.cardContextSnapshot)
-    if (existing !== '' && Number(chat.cardContextSnapshotVersion) >= 2) {
+    if (existing !== '' && Number(chat.cardContextSnapshotVersion) >= 3) {
       const sanitized = sanitizeAgentProjectionText(existing)
       if (sanitized !== existing) {
         chat.cardContextSnapshot = sanitized
@@ -960,7 +960,7 @@ export async function apply(ctx) {
       const resolvedCard = card === undefined ? await readChatCard(chat) : card
       const snapshot = await buildPlayCardSnapshot(chat, resolvedCard)
       chat.cardContextSnapshot = snapshot
-      chat.cardContextSnapshotVersion = 2
+      chat.cardContextSnapshotVersion = 3
       await writeChat(chat)
       return snapshot
     })()

@@ -55,16 +55,16 @@ export function createContextPlanner(options = {}) {
     const worldBookSection = projectedWorldBook === '' ? null : { kind: 'world-book', required: false, text: '【' + worldBookLabel + '】\n' + projectedWorldBook }
     const guides = Array.isArray(input.chat.guides) ? input.chat.guides.filter(function (item) { return item !== null && typeof item === 'object' && str(item.text).trim() !== '' }) : []
     const projectedGuides = guides.map(function (item) { return projectText(str(item.text).trim()) }).filter(Boolean)
-    const guideSection = projectedGuides.length > 0 ? { kind: 'guide', required: true, text: '【用户指导 Guide · 优先遵循】\n' + projectedGuides.map(function (text, index) { return (index + 1) + '. ' + text }).join('\n') } : null
+    const guideSection = input.includeGuides === false || projectedGuides.length === 0 ? null : { kind: 'guide', required: true, text: '【用户指导 Guide · 优先遵循】\n' + projectedGuides.map(function (text, index) { return (index + 1) + '. ' + text }).join('\n') }
     const projectedPosture = projectText(input.chat.posture)
-    const postureSection = projectedPosture !== '' ? { kind: 'posture', required: true, text: '【现场 · 主要人物状态（每轮结算更新，务必与之一致）】\n' + projectedPosture } : null
+    const postureSection = input.includePosture === false || projectedPosture === '' ? null : { kind: 'posture', required: true, text: '【现场 · 主要人物状态（每轮结算更新，务必与之一致）】\n' + projectedPosture }
     const cardInfoSections = []
     const instructionSections = []
     if (input.includeName !== false) cardInfoSections.push({ kind: 'card', required: true, text: '【故事设定 · 人物卡】\n名字: ' + str(input.card.name) })
     if (input.includeDetails === true) {
-      cardInfoSections.push({ kind: 'card', required: false, text: '设定: ' + projectText([str(input.card.description), '{{user}} 表示玩家。'].filter(Boolean).join('\n')) })
-      if (str(input.card.personality) !== '') cardInfoSections.push({ kind: 'card', required: false, text: '主要人物性格: ' + projectText(input.card.personality) })
-      if (str(input.card.scenario) !== '') cardInfoSections.push({ kind: 'card', required: false, text: '开场情境: ' + projectText(input.card.scenario) })
+      if (input.includeDescription !== false) cardInfoSections.push({ kind: 'card', required: false, text: '设定: ' + projectText([str(input.card.description), '{{user}} 表示玩家。'].filter(Boolean).join('\n')) })
+      if (input.includePersonality !== false && str(input.card.personality) !== '') cardInfoSections.push({ kind: 'card', required: false, text: '主要人物性格: ' + projectText(input.card.personality) })
+      if (input.includeScenario !== false && str(input.card.scenario) !== '') cardInfoSections.push({ kind: 'card', required: false, text: '开场情境: ' + projectText(input.card.scenario) })
       if (input.includeStyleExample !== false && str(input.card.mes_example) !== '') cardInfoSections.push({ kind: 'card', required: false, text: '【文风示例】\n' + projectText(input.card.mes_example) })
     }
     if (input.includeInstructions !== false) {
@@ -112,9 +112,13 @@ export function createContextPlanner(options = {}) {
         worldBookLabel: input.worldBookLabel,
         includeName: true,
         includeDetails: true,
+        includeDescription: false,
+        includePersonality: false,
+        includeScenario: true,
         includeStyleExample: true,
-        includeInstructions: true,
-        includePostHistory: false,
+        includeInstructions: false,
+        includeGuides: false,
+        includePosture: false,
         stableFirst: true
       }, projectText), warnings)
     }
@@ -133,14 +137,27 @@ export function createContextPlanner(options = {}) {
           text: '【上一轮正文源文本 · 展示正则已从可见正文移除，续写时保持剧情连续】\n' + str(projectedReply.sourceText)
         })
       }
-      sections.push.apply(sections, cardSections({ card: input.card, chat: input.chat, worldBookContext: input.worldBookContext, includeName: false, includeDetails: false, includeInstructions: true, includeSystemPrompt: false }, projectText))
+      sections.push.apply(sections, cardSections({
+        card: input.card,
+        chat: input.chat,
+        worldBookContext: input.worldBookContext,
+        includeName: false,
+        includeDetails: true,
+        includeDescription: true,
+        includePersonality: true,
+        includeScenario: false,
+        includeStyleExample: false,
+        includeInstructions: true,
+        includeSystemPrompt: true,
+        includePostHistory: true
+      }, projectText))
       if (input.scriptReference !== null && input.scriptReference !== undefined && str(input.scriptReference.text) !== '') {
         const order = Number(input.scriptReference.order)
         const position = Number.isInteger(order) && order >= 0 ? ' · 第 ' + (order + 1) + ' 块' : ''
         sections.push({ kind: 'script', required: true, text: '【本轮剧本参考' + position + '】\n' + projectText(input.scriptReference.text) })
         sections.push({ kind: 'script', required: true, text: prompt('script-story') })
       }
-      return resultOf(sections, warnings, [{ kind: 'card-details', reason: '人物卡基本信息已固定在游戏会话稳定前缀' }, { kind: 'system-prompt', reason: '人物卡 system_prompt 已固定在游戏会话稳定前缀' }])
+      return resultOf(sections, warnings, [{ kind: 'stable-card-details', reason: '角色名称、场景和文风示例已固定在游戏会话稳定前缀' }])
     }
 
     if (input.purpose === 'candidate') {

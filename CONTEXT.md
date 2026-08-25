@@ -32,6 +32,22 @@ Story Timeline 中 Background Operation 生命周期的只读投影，用于回�
 
 从权威领域状态派生、可随时重建的只读表示。DSH Session Surface、Background Activity、Tavern 状态视图和浏览器交互状态都是 Projection。
 
+## DSH Preset
+
+用于组织模型请求上下文的 DSH 原生预设。它只拥有稳定前缀、每轮注入和后带内容三个部分，不拥有或重建 DSH Session 的真实对话历史。
+
+## Stable Prefix
+
+DSH 预设中在会话创建时确定、后续请求保持不变的部分。中文正式名称为“稳定前缀”。
+
+## Per-Turn Injection
+
+DSH 预设中每轮根据当轮状态重新生成、只在该轮生效的部分。中文正式名称为“每轮注入”。它可以保存当轮快照以供追溯，但旧轮快照不会在后续请求中重复累积。
+
+## Tail Content
+
+DSH 预设中在发送模型请求前临时追加到末尾、但不写入 DSH Session 的部分。中文正式名称为“后带内容”。
+
 ## Script
 
 用于引导故事主线的叙事资源，可以是小说、剧情大纲或故事素材。Script 可以暂未绑定；一份 Script 最多绑定一张人物卡，一张人物卡最多绑定一份 Script。
