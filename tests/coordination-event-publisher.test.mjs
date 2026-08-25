@@ -102,3 +102,27 @@ test('服务器只轮询小版本文件，版本不变时不重读完整对话',
   assert.equal(received.at(-1).activity.busy, false)
   close()
 })
+
+test('人物卡展示投影修订变化时，即使后台状态不变也发布新快照', async function () {
+  const clock = intervals()
+  let version = 'cards-v1'
+  let projectionRevision = 1
+  const publisher = createCoordinationEventPublisher({
+    readVersion: async function () { return version },
+    load: async function () {
+      return { projectionRevision, mailboxVersion: 0, activity: { busy: false, phase: 'idle', updatedAt: 10 }, task: null }
+    },
+    startInterval: clock.start,
+    stopInterval: clock.stop
+  })
+  const received = []
+  const close = publisher.subscribe('session-projection', function (snapshot) { received.push(snapshot) })
+
+  await new Promise((resolve) => setImmediate(resolve))
+  version = 'cards-v2'
+  projectionRevision = 2
+  await clock.tick()
+
+  assert.deepEqual(received.map((item) => item.projectionRevision), [1, 2])
+  close()
+})

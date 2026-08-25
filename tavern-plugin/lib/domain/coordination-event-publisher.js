@@ -13,6 +13,7 @@ export function coordinationEventId(snapshot) {
     str(activity.phase),
     activity.busy === true ? '1' : '0',
     Number(activity.updatedAt) || 0,
+    Number(snapshot && snapshot.projectionRevision) || 0,
     str(task.taskId),
     str(task.status),
     Number(task.version) || 0

@@ -130,13 +130,15 @@ export function readPlayChatDebugTurn(editorChat, sourceChat, reference, request
   const found = messageForTurn(sourceChat, turn)
   if (found === null) throw new Error('游玩记录中不存在第 ' + turn + ' 轮回复')
   const message = found.message
-  const layers = ['overview', 'conversation', 'source', 'session', 'display', 'diagnostics', 'tavern', 'foreground', 'background', 'iframe']
+  const layers = ['overview', 'conversation', 'source', 'session', 'display', 'saved-display', 'diagnostics', 'tavern', 'foreground', 'background', 'iframe']
   const layer = layers.includes(request.layer) ? request.layer : 'overview'
+  const projected = typeof currentProjection === 'function' ? currentProjection(message) : currentProjection
   let text = ''
   if (layer === 'conversation') text = conversationText(sourceChat)
   else if (layer === 'source') text = str(message.sourceText) || str(message.text)
   else if (layer === 'session') text = str(message.text)
-  else if (layer === 'display') text = str(message.displayText) || str(message.text)
+  else if (layer === 'display') text = projected && Object.prototype.hasOwnProperty.call(projected, 'displayText') ? str(projected.displayText) : (str(message.displayText) || str(message.text))
+  else if (layer === 'saved-display') text = str(message.displayText) || str(message.text)
   else if (layer === 'iframe') text = '【iframe 实际运行证据 · 第 ' + turn + ' 轮】\n' + json(message.displayRuntime || { status: '该轮尚无采集记录' })
   else if (layer === 'foreground') text = agentEvidence(evidence.foreground, '前台')
   else if (layer === 'background') text = agentEvidence(evidence.background, '后台')
@@ -151,7 +153,6 @@ export function readPlayChatDebugTurn(editorChat, sourceChat, reference, request
     })
   }
   else if (layer === 'diagnostics') {
-    const projected = typeof currentProjection === 'function' ? currentProjection(message) : currentProjection
     const applied = projected && projected.applied ? projected.applied : { session: [], display: [] }
     const warnings = projected && Array.isArray(projected.warnings) ? projected.warnings : []
     text = [
@@ -159,17 +160,17 @@ export function readPlayChatDebugTurn(editorChat, sourceChat, reference, request
       'Session 命中：' + JSON.stringify(applied.session || []),
       '展示命中：' + JSON.stringify(applied.display || []),
       '警告：' + JSON.stringify(warnings),
-      '说明：命中结果按当前人物卡重新计算；历史显示文本仍来自该轮保存的数据。'
+      '说明：命中结果按当前人物卡重新计算；display 是当前实时投影，saved-display 是该轮保存时的展示快照。'
     ].join('\n')
   } else {
     text = [
       '【整场游玩记录】初始焦点：第 ' + turn + ' 轮；可用轮次：第 ' + availableTurns(sourceChat).join('、') + ' 轮',
-      '可读层：conversation / source / session / display / diagnostics / tavern / foreground / background / iframe',
+      '可读层：conversation / source / session / display / saved-display / diagnostics / tavern / foreground / background / iframe',
       '前台 Session：' + str(sourceChat.sessionId) + '；后台 Session：' + str(sourceChat.timeline && sourceChat.timeline.participants && sourceChat.timeline.participants.background && sourceChat.timeline.participants.background.sessionId || sourceChat.candidateAgent && sourceChat.candidateAgent.sessionId),
       '玩家输入：\n' + (found.userText || '（开场轮，无玩家输入）'),
       '模型原文：' + (str(message.sourceText) || str(message.text)).length + ' 字',
       'Session 文本：' + str(message.text).length + ' 字',
-      '展示文本：' + (str(message.displayText) || str(message.text)).length + ' 字',
+      '已保存展示文本：' + (str(message.displayText) || str(message.text)).length + ' 字',
       '历史警告：' + JSON.stringify(Array.isArray(message.projectionWarnings) ? message.projectionWarnings : [])
     ].join('\n\n')
   }

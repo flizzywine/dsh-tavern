@@ -42,18 +42,28 @@ test('Session、世界书、结算与候选使用同一持久同步快照', func
   assert.match(serverSync, /tasks: \{ candidate: task, background: backgroundTask \}/)
   assert.match(serverSync, /runtimeGeneration/)
   assert.match(serverSync, /liveSession/)
+  assert.match(serverSync, /projectionRevision/)
   assert.match(clientSync, /tasks\.background/)
   assert.match(clientSync, /tasks\.candidate/)
+  assert.match(clientSync, /projectionRevision/)
 })
 
 test('服务器先检查轻量文件版本，再通过 SSE 发送变化后的完整快照', function () {
   assert.match(serverSource, /createCoordinationEventPublisher/)
   assert.match(serverSource, /readVersion: async function/)
   assert.match(serverSource, /profileData\.version\('chats\/'/)
+  assert.match(serverSource, /profileData\.version\('card-projection-revisions\.json'\)/)
   assert.match(serverSource, /pollIntervalMs: 250/)
   assert.match(serverSource, /'Content-Type': 'text\/event-stream; charset=utf-8'/)
   assert.match(serverSource, /coordinationEvents\.subscribe\(sessionId/)
   assert.match(serverSource, /data: ' \+ JSON\.stringify\(snapshot\)/)
+})
+
+test('SSE 收到人物卡展示修订后主动刷新游玩投影', function () {
+  const coordination = between(clientSource, 'const tavernCoordination', 'function describeTavernActivity')
+
+  assert.match(coordination, /onView:/)
+  assert.match(coordination, /liveTavernView\.invalidate\(sessionId\)/)
 })
 
 test('后台完成而提醒丢失时，页面依据持久 task.result 直接恢复候选面板', function () {

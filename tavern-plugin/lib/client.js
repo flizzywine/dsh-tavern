@@ -550,7 +550,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				activity: background ? { phase: background.status === "queued" ? "pending" : (background.status === "succeeded" ? "idle" : background.status), busy: background.busy === true, role: background.kind, operationId: background.operationId, updatedAt: background.updatedAt } : (sync.activity || null),
 				task: tasks.candidate || sync.task || null,
 				tasks: tasks,
-				mailboxVersion: Number(sync.mailboxVersion) || 0
+				mailboxVersion: Number(sync.mailboxVersion) || 0,
+				projectionRevision: Number(sync.projectionRevision) || 0
 			};
 		}
 
@@ -576,6 +577,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				record.connection = options.connect(record.id, {
 					message: function (view) {
 						publish(record, { phase: "ready", view: view || null, error: "", updatedAt: Date.now() });
+						if (typeof options.onView === "function") options.onView(record.id, view || null);
 					},
 					error: function (error) {
 						publish(record, { phase: "retrying", view: record.state.view, error: String(error && error.message || ""), updatedAt: record.state.updatedAt });
@@ -613,6 +615,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		}
 
 		const tavernCoordination = createTavernCoordinationEventModule({
+			onView: function (sessionId) { liveTavernView.invalidate(sessionId); },
 			connect: function (sessionId, handlers) {
 				const target = "/api/dsh-tavern/events?sessionId=" + encodeURIComponent(sessionId) + "&kind=candidate";
 				const source = new window.EventSource(target);
@@ -1065,6 +1068,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const [updateStatus, setUpdateStatus] = React.useState({ phase: "loading", host: "cli" });
 			const lastModeSession = React.useRef(null);
 			const fileRef = React.useRef(null);
+			const initialImportRef = React.useRef(null);
 			const playWorkspaceIdRef = React.useRef(workspaceId);
 			const playPrewarmRef = React.useRef(null);
 			playWorkspaceIdRef.current = workspaceId;
@@ -1186,10 +1190,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				setCardEntry("");
 				setOpeningPicker(null);
 			}
-			async function openResourcePicker(task) {
-				setBusy(true); setError("");
-				try {
-					let resources = [];
+			async function loadInitialResources(task) {
+				let resources = [];
 					if (task === "worldbook") {
 						const response = await call("listWorldBooks");
 						resources = (response.standalone || []).concat(response.embedded || []).map(function (item) {
@@ -1202,9 +1204,28 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 						const response = await call("listResources");
 						resources = (response.resources || []).map(function (item) { return Object.assign({}, item, { kind: "source" }); });
 					}
-					setInitialResources(resources);
+				return resources;
+			}
+			async function openResourcePicker(task) {
+				setBusy(true); setError("");
+				try {
+					setInitialResources(await loadInitialResources(task));
 					setSelectedInitialResources({});
 					setCardEntry(task);
+				} catch (err) { setError(String(err && err.message || err)); }
+				finally { setBusy(false); }
+			}
+			async function importInitialResource(file, task) {
+				if (!file || !task) return;
+				setBusy(true); setError("");
+				try {
+					const payload = await parseTextResourceFile(file);
+					if (task === "worldbook") await call("importWorldBook", { payload: payload });
+					else if (task === "preset") await call("importPreset", { payload: payload });
+					else await call("importSource", { payload: payload });
+					notifyDataChanged();
+					setInitialResources(await loadInitialResources(task));
+					setSelectedInitialResources({});
 				} catch (err) { setError(String(err && err.message || err)); }
 				finally { setBusy(false); }
 			}
@@ -1511,11 +1532,13 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					else if (cardEntry === "preset") newCardConversation(null, "preset", "修改预设", chosenInitialResources);
 						else newCardConversation(null, "extract", "从剧本新建人物卡", chosenInitialResources);
 				} }, "用已选 " + chosenInitialResources.length + (cardEntry === "script" || cardEntry === "extract" ? " 份剧本开始" : " 项开始")))
-			) : h("div", { className: "dsh-tavern-empty" }, initialResourceTitle + "库暂无可选内容。请先从右侧" + initialResourceTitle + "库导入。");
+			) : h("div", { className: "dsh-tavern-empty" }, "暂无可选" + initialResourceTitle + "，可点击右上角导入。");
+			const initialImportLabel = cardEntry === "worldbook" ? "导入世界书" : cardEntry === "preset" ? "导入预设" : cardEntry === "extract" || cardEntry === "script" ? "导入剧本" : "";
+			const initialImportAccept = cardEntry === "worldbook" || cardEntry === "preset" ? ".json,application/json" : ".txt,.md,.json,.epub,text/plain,text/markdown,application/json,application/epub+zip";
 			const cardPicker = h("div", { className: "dsh-tavern-card-picker", role: "dialog", "aria-modal": "true", "aria-label": "选择卡片工作台起始任务" }, pickerError,
-				h("div", { className: "dsh-tavern-card-picker-head" }, cardEntry ? h("button", { className: "dsh-tavern-btn", onClick: function () { setCardEntry(""); } }, "← 返回") : h("span", null, "选择起始任务"), cardEntry === "extract" ? h("span", null, "选择初始剧本（至少 1 份）") : cardEntry === "script" || cardEntry === "worldbook" || cardEntry === "preset" ? h("span", null, "选择一个编辑目标") : null, h("span", { className: "dsh-tavern-spacer" }), cardEntry === "edit" ? h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { fileRef.current && fileRef.current.click(); } }, "导入人物卡") : null, h("button", { className: "dsh-tavern-btn", onClick: closePicker }, "关闭")),
+				h("div", { className: "dsh-tavern-card-picker-head" }, cardEntry ? h("button", { className: "dsh-tavern-btn", onClick: function () { setCardEntry(""); } }, "← 返回") : h("span", null, "选择起始任务"), cardEntry === "extract" ? h("span", null, "选择初始剧本（至少 1 份）") : cardEntry === "script" || cardEntry === "worldbook" || cardEntry === "preset" ? h("span", null, "选择一个编辑目标") : null, h("span", { className: "dsh-tavern-spacer" }), cardEntry === "edit" ? h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { fileRef.current && fileRef.current.click(); } }, "导入人物卡") : null, initialImportLabel ? h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { initialImportRef.current && initialImportRef.current.click(); } }, initialImportLabel) : null, h("button", { className: "dsh-tavern-btn", onClick: closePicker }, "关闭")),
 				h("input", { ref: fileRef, type: "file", accept: ".png,.json", style: { display: "none" }, onChange: function (e) { const f = e.target.files && e.target.files[0]; if (f) importCard(f); e.target.value = ""; } }),
-				!cardEntry ? h("div", { className: "dsh-tavern-card-picker-help" }, "请先从右侧侧边栏的对应资源库导入人物卡、剧本、世界书或预设文件。") : null,
+				h("input", { ref: initialImportRef, type: "file", accept: initialImportAccept, style: { display: "none" }, onChange: function (e) { const f = e.target.files && e.target.files[0]; if (f) importInitialResource(f, cardEntry); e.target.value = ""; } }),
 					cardEntry === "edit" ? cardEditRows : cardEntry === "extract" || cardEntry === "script" || cardEntry === "worldbook" || cardEntry === "preset" ? initialResourcePicker : h(React.Fragment, null,
 						h("button", { className: "dsh-tavern-card-pick", disabled: busy, onClick: function () { setCardEntry("edit"); } }, h("b", null, "修改人物卡"), h("span", null, "先选择人物卡，再追加修改任务提示词")),
 						h("button", { className: "dsh-tavern-card-pick", disabled: busy, onClick: function () { openResourcePicker("extract"); } }, h("b", null, "从剧本新建人物卡"), h("span", null, "先选择至少一份剧本，再进入工作台")),

@@ -100,6 +100,20 @@ export async function apply(ctx) {
   async function rmFile(rel) {
     await profileData.remove(rel)
   }
+  const CARD_PROJECTION_REVISIONS = 'card-projection-revisions.json'
+  async function cardProjectionRevision(cardPath) {
+    const state = await readJson(CARD_PROJECTION_REVISIONS)
+    return Math.max(0, Number(state && state.cards && state.cards[str(cardPath)]) || 0)
+  }
+  async function bumpCardProjectionRevision(cardPath) {
+    const normalized = normalizeResourcePath(cardPath, 'card')
+    return await profileData.updateJson(CARD_PROJECTION_REVISIONS, function (value) {
+      const state = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
+      const cards = state.cards && typeof state.cards === 'object' && !Array.isArray(state.cards) ? state.cards : {}
+      const version = Math.max(0, Number(state.version) || 0) + 1
+      return { version, cards: Object.assign({}, cards, { [normalized]: version }) }
+    })
+  }
   function groupOfMode(mode) {
     const m = mode || 'story'
     return m === 'story' || m === 'script' ? 'play' : 'card'
@@ -569,6 +583,7 @@ export async function apply(ctx) {
       return Object.assign({}, change, { card: unchangedCard })
     }
     await fileResources.writeWorking(normalizeResourcePath(cardPath, 'card'), JSON.stringify(savedWorkspace, null, 2))
+    await bumpCardProjectionRevision(cardPath)
     const savedCard = change.view
     savedCard.path = cardPath
     savedCard.extensions = cardPreparation.present({ card: savedWorkspace, as: 'card-extensions' })
@@ -597,6 +612,7 @@ export async function apply(ctx) {
       return cardPreparation.create({ kind: 'import', payload: payload })
     })
     const restoredCard = cardPreparation.project(restored.card)
+    await bumpCardProjectionRevision(cardPath)
     await syncCardName(cardPath, restoredCard.name)
     return {
       path: cardPath,
@@ -1215,7 +1231,7 @@ export async function apply(ctx) {
     const chat = await chatForSession(sessionId)
     const agent = agentRegistry.get(str(sessionId))
     if (chat === undefined) {
-      return { runtimeGeneration, liveSession: Boolean(agent && agent.session), activity: null, mailboxVersion: 0, task: null, tasks: { candidate: null, background: null } }
+      return { runtimeGeneration, liveSession: Boolean(agent && agent.session), projectionRevision: 0, activity: null, mailboxVersion: 0, task: null, tasks: { candidate: null, background: null } }
     }
     const synced = await taskMailbox.sync(chat.id, selector)
     let task = synced.task
@@ -1248,6 +1264,7 @@ export async function apply(ctx) {
     return {
       runtimeGeneration,
       liveSession: Boolean(agent && agent.session),
+      projectionRevision: await cardProjectionRevision(chat.cardPath),
       activity,
       mailboxVersion: synced.mailboxVersion,
       task,
@@ -2096,7 +2113,8 @@ export async function apply(ctx) {
     const chatId = str(links && links[normalizedSessionId])
     const liveSession = Boolean(agentRegistry.get(normalizedSessionId) && agentRegistry.get(normalizedSessionId).session)
     const chatVersion = chatId === '' ? '' : await profileData.version('chats/' + chatId + '.json')
-    return [runtimeGeneration, liveSession ? '1' : '0', chatId, chatVersion].join(':')
+    const projectionVersion = await profileData.version('card-projection-revisions.json')
+    return [runtimeGeneration, liveSession ? '1' : '0', chatId, chatVersion, projectionVersion].join(':')
   }
 
   const coordinationEvents = createCoordinationEventPublisher({
@@ -2470,7 +2488,7 @@ export async function apply(ctx) {
       parameters: {
         ref: { type: 'string', description: '已挂载游玩记录引用，例如 play-chat:chat-xxx；只有一个引用时可省略' },
         turn: { type: 'integer', description: '要读取的游玩轮次；省略时读取引用时选中的轮次' },
-        layer: { type: 'string', enum: ['overview', 'conversation', 'source', 'session', 'display', 'diagnostics', 'tavern', 'foreground', 'background', 'iframe'], description: '读取层：概览、整场 Session 对话、模型原文、Session 文本、展示文本、当前正则诊断、Tavern 状态、前台 Agent、后台 Agent 或 iframe 运行证据；默认 overview' },
+        layer: { type: 'string', enum: ['overview', 'conversation', 'source', 'session', 'display', 'saved-display', 'diagnostics', 'tavern', 'foreground', 'background', 'iframe'], description: '读取层：概览、整场 Session 对话、模型原文、Session 文本、当前实时展示、保存时展示快照、当前正则诊断、Tavern 状态、前台 Agent、后台 Agent 或 iframe 运行证据；默认 overview' },
         offset: { type: 'integer', description: '可选的 1 起始字符位置，默认 1' },
         limit: { type: 'integer', description: '本次最多读取字符数，默认 6000，最大 12000' }
       },
@@ -2511,7 +2529,7 @@ export async function apply(ctx) {
         const sourceChat = await readChat(reference.chatId)
         if (sourceChat === undefined) throw new Error('游玩记录已不存在')
         let projector = null
-        if (str(args.layer) === 'diagnostics') {
+        if (str(args.layer) === 'diagnostics' || str(args.layer) === 'display') {
           const extensions = await readCardExtensions(editorChat.cardPath)
           projector = function (message) {
             return projectRuntimeReply(str(message.sourceText) || str(message.text), {

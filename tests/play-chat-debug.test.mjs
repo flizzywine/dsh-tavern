@@ -42,13 +42,16 @@ test('卡片 Agent 可按层分段读取指定游玩轮次', () => {
   assert.match(overview.text, /模型原文：4 字/)
   assert.equal(readPlayChatDebugTurn(editor, source, ref, { turn: 2, layer: 'source' }).text, '模型原文')
   assert.equal(readPlayChatDebugTurn(editor, source, ref, { turn: 2, layer: 'session' }).text, 'Session 正文')
-  assert.equal(readPlayChatDebugTurn(editor, source, ref, { turn: 2, layer: 'display' }).text, '<div>展示</div>')
+  const currentProjection = { displayText: '<div>当前正则展示</div>', applied: { session: [], display: [] }, warnings: [] }
+  assert.equal(readPlayChatDebugTurn(editor, source, ref, { turn: 2, layer: 'display' }, currentProjection).text, '<div>当前正则展示</div>')
+  assert.equal(readPlayChatDebugTurn(editor, source, ref, { turn: 2, layer: 'saved-display' }, currentProjection).text, '<div>展示</div>')
 
   const diagnostics = readPlayChatDebugTurn(editor, source, ref, { turn: 2, layer: 'diagnostics' }, {
     applied: { session: [], display: [{ name: '候选项', matches: 1 }] }, warnings: ['展示警告']
   })
   assert.match(diagnostics.text, /候选项/)
   assert.match(diagnostics.text, /按当前人物卡重新计算/)
+  assert.match(diagnostics.text, /display.*实时投影/)
 })
 
 test('卡片 Agent 可查看整场对话、Tavern 状态、前后台 Agent 与 iframe 运行证据', () => {

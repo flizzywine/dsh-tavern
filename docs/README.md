@@ -3,6 +3,7 @@
 ## 权威文档
 
 - [产品设计原则](product-design.md)：项目使命、核心体验，以及 Agent、上下文、生态组合、候选和剧本等产品取舍。
+- [软件不是代码的集合](software-is-experience.md)：AI 加速实现之后，真实体验、反复测试与产品打磨仍由人完成。
 - [架构与领域语言](architecture.md)：统一术语、DSH seam、领域模块、适配器和关键规则。
 - [TODO](todo.md)：当前优先级、后续功能与发布门槛。
 
