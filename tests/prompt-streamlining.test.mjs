@@ -32,7 +32,19 @@ test('卡片工作台使用结构化卡片修改工具，不再传递 JSON 字�
   assert.match(serverSource, /name: 'tavern_update_card'/)
   assert.match(serverSource, /name: 'tavern_restore_card'/)
   assert.match(serverSource, /fields: \{/)
-  assert.match(serverSource, /worldBook: \{/)
+  const updateCardTool = between(serverSource, "name: 'tavern_update_card'", "name: 'tavern_restore_card'")
+  assert.doesNotMatch(updateCardTool, /worldBook: \{/)
+  assert.match(serverSource, /name: 'tavern_update_worldbook'/)
+})
+
+test('世界书工具统一使用 entry 编号，当前人物卡可省略 path', () => {
+  const reader = between(serverSource, "name: 'tavern_read_worldbook'", "name: 'tavern_update_worldbook'")
+  const updater = between(serverSource, "name: 'tavern_update_worldbook'", "name: 'tavern_read_preset'")
+
+  assert.match(reader, /例如 entry:0/)
+  assert.doesNotMatch(reader, /wb-0/)
+  assert.doesNotMatch(updater, /\n        path: \{ type: 'string', required: true/)
+  assert.match(updater, /省略 path 时修改当前人物卡绑定的世界书/)
 })
 
 test('模型工具只保留按需读取和明确修改', () => {

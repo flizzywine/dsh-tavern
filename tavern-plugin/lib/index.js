@@ -557,10 +557,10 @@ export async function apply(ctx) {
       })
     }
   }
-  async function updateCard(cardPath, patch, revision, worldBookOperations, rawOperations) {
+  async function updateCard(cardPath, patch, revision, rawOperations) {
     const workspace = await readCardWorkspace(cardPath)
     if (workspace === undefined) throw new Error('人物卡不存在: ' + cardPath)
-    const change = cardPreparation.update({ kind: 'card', card: workspace, patch: patch, revision: revision, worldBookOperations: worldBookOperations, rawOperations: rawOperations })
+    const change = cardPreparation.update({ kind: 'card', card: workspace, patch: patch, revision: revision, rawOperations: rawOperations })
     const savedWorkspace = change.card
     if (!change.changed) {
       const unchangedCard = change.view
@@ -2615,7 +2615,7 @@ export async function apply(ctx) {
       description: '在卡片设定对话中按编号、关键词或分页读取已引用的世界书正文。省略 path 时读取当前人物卡绑定的世界书。',
       parameters: {
         path: { type: 'string', description: '已引用世界书的相对路径；独立世界书为 worldbooks/...，人物卡内置世界书为 cards/...' },
-        ref: { type: 'string', description: '目录中的条目编号，例如 wb-0' },
+        ref: { type: 'string', description: '目录中的条目编号，例如 entry:0' },
         query: { type: 'string', description: '可选关键词' },
         offset: { type: 'integer', description: '可选的 1 起始条目序号' },
         limit: { type: 'integer', description: '读取 1~10 条，默认 3' }
@@ -2680,9 +2680,9 @@ export async function apply(ctx) {
 
     tools.register(defineTool({
       name: 'tavern_update_worldbook',
-      description: '仅在用户明确确认后，对已引用世界书提交条目级最小修改。支持独立世界书和人物卡内置世界书；不要重写整本世界书。',
+      description: '仅在用户明确确认后，对已引用世界书提交条目级最小修改。支持独立世界书和人物卡内置世界书；省略 path 时修改当前人物卡绑定的世界书。不要重写整本世界书。',
       parameters: {
-        path: { type: 'string', required: true, description: '已引用世界书路径；worldbooks/... 或携带内置世界书的 cards/...' },
+        path: { type: 'string', description: '可选的已引用世界书路径；省略时使用当前人物卡，或填写 worldbooks/...、cards/...' },
         name: { type: 'string', description: '可选的新世界书名称' },
         description: { type: 'string', description: '可选的新世界书说明' },
         operations: {
@@ -2714,10 +2714,12 @@ export async function apply(ctx) {
         const sessionId = exec && exec.agent && exec.agent.session ? exec.agent.session.id : ''
         const chat = await chatForSession(sessionId)
         if (chat === undefined || (chat.mode || 'story') !== 'card') throw new Error('世界书只能在卡片工作台中修改')
-        const normalized = normalizeResourcePath(args.path)
+        const requestedPath = str(args.path).trim()
+        if (requestedPath === '' && str(chat.cardPath) === '') throw new Error('当前工作台尚未绑定人物卡，无法修改世界书')
+        const normalized = requestedPath === '' ? normalizeResourcePath(chat.cardPath, 'card') : normalizeResourcePath(requestedPath)
         const kind = resourceKind(normalized)
         if (kind !== 'worldbook' && kind !== 'card') throw new Error('世界书引用路径类型不正确')
-        if (!mountedResource(chat, 'worldbook', normalized)) throw new Error('该世界书尚未挂载到当前对话')
+        if (!mountedResource(chat, 'worldbook', normalized) && normalized !== str(chat.cardPath)) throw new Error('该世界书尚未挂载到当前对话')
         const source = kind === 'card' ? { kind: 'card', cardPath: normalized } : { kind: 'standalone', path: normalized }
         const request = { operations: args.operations }
         if (Object.prototype.hasOwnProperty.call(args, 'name')) request.name = args.name
@@ -2816,23 +2818,9 @@ export async function apply(ctx) {
             player: { type: 'string', description: '新建人物卡时用于约束 {{user}} 视角的玩家身份' }
           }
         },
-        worldBook: {
-          type: 'array',
-          description: '当前工作台已挂载正式人物卡时可用：世界书逐条操作',
-          items: {
-            type: 'object', additionalProperties: false,
-            properties: {
-              op: { type: 'string', required: true, enum: ['update', 'add', 'delete', 'rename'] },
-              ref: { type: 'string' },
-              name: { type: 'string' },
-              patch: { type: 'object', additionalProperties: true },
-              entry: { type: 'object', additionalProperties: true }
-            }
-          }
-        },
         rawOperations: {
           type: 'array',
-          description: '仅用于标准字段和世界书工具无法覆盖的扩展字段；按 JSON Pointer 对完整工作 raw 做最小 set/delete 修改',
+          description: '仅用于标准字段和专用资源工具无法覆盖的扩展字段；不能修改世界书。按 JSON Pointer 对完整工作 raw 做最小 set/delete 修改',
           items: {
             type: 'object', additionalProperties: false,
             properties: {
@@ -2867,7 +2855,6 @@ export async function apply(ctx) {
           sessionId,
           turn: activeTurnOf(exec),
           fields: args.fields,
-          worldBook: args.worldBook,
           rawOperations: args.rawOperations
         })
       }

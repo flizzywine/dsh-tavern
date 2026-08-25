@@ -74,7 +74,7 @@ function entryContentText(entry) {
 }
 
 function worldBookRef(value, total) {
-  const match = /^wb-(\d+)$/.exec(str(value).trim())
+  const match = /^entry:(\d+)$/.exec(str(value).trim())
   const index = match === null ? -1 : Number(match[1])
   if (!Number.isInteger(index) || index < 0 || index >= total) throw new Error('世界书条目不存在: ' + str(value))
   return index
@@ -94,7 +94,7 @@ function worldBookOverview(card) {
       const entry = item.entry
       const source = entry !== null && typeof entry === 'object' ? entry : {}
       return {
-        ref: 'wb-' + item.index,
+        ref: 'entry:' + item.index,
         keys: normalizedList(source.keys, 30),
         comment: str(source.comment || source.name).trim(),
         enabled: source.enabled !== false,
@@ -138,7 +138,7 @@ function worldBookWindow(card, request) {
     total: activeEntries.length,
     ref,
     query,
-    entries: selected.map(function (item) { return { ref: 'wb-' + item.index, entry: clone(item.entry) } })
+    entries: selected.map(function (item) { return { ref: 'entry:' + item.index, entry: clone(item.entry) } })
   }
 }
 
@@ -283,6 +283,10 @@ function applyRawOperations(raw, operations) {
     const pointer = str(operation.path)
     const parts = pointerParts(pointer)
     if (parts.length === 0) throw new Error('不能整体替换或删除人物卡 raw')
+    const root = parts[0] === 'data' ? parts[1] : parts[0]
+    if (root === 'character_book' || root === 'world_book') {
+      throw new Error('世界书只能通过 tavern_update_worldbook 修改: ' + pointer)
+    }
     let parent = raw
     for (const part of parts.slice(0, -1)) {
       if (Array.isArray(parent)) {

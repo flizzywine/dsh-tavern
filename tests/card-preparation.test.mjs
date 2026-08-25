@@ -141,6 +141,10 @@ test('raw 扩展按 JSON Pointer 分段读取并做最小修改', () => {
   assert.equal(changed.card.raw.data.extensions.regex_scripts[0].disabled, true)
   assert.deepEqual(changed.card.raw.data.extensions.mvu, { version: 1 })
   assert.throws(() => cards.update({ kind: 'card', card: workspace, patch: {}, rawOperations: [{ op: 'set', path: '/__proto__/polluted', value: true }] }), /不安全字段/)
+  assert.throws(() => cards.update({
+    kind: 'card', card: workspace, patch: {},
+    rawOperations: [{ op: 'set', path: '/data/character_book/entries/0/content', value: '绕过专用接口' }]
+  }), /世界书只能通过 tavern_update_worldbook 修改/)
 })
 
 test('旧平面工作版迁移时以原版 raw 为底，并合并用户已修改字段', () => {
@@ -200,17 +204,17 @@ test('世界书常驻上下文只暴露目录，正文按编号或关键词读�
   const overview = cards.present({ card, as: 'world-book-overview' })
   assert.equal(overview.entryCount, 2)
   assert.deepEqual(overview.entries[0], {
-    ref: 'wb-0', keys: ['钟楼'], comment: '', enabled: true, constant: false, chars: 12
+    ref: 'entry:0', keys: ['钟楼'], comment: '', enabled: true, constant: false, chars: 12
   })
-  assert.deepEqual(overview.entries.map((entry) => entry.ref), ['wb-0', 'wb-2'])
+  assert.deepEqual(overview.entries.map((entry) => entry.ref), ['entry:0', 'entry:2'])
   assert.equal(JSON.stringify(overview).includes('失踪商队'), false)
 
-  const window = cards.present({ card, as: 'world-book-window', ref: 'wb-2' })
+  const window = cards.present({ card, as: 'world-book-window', ref: 'entry:2' })
   assert.equal(window.total, 2)
-  assert.equal(window.entries[0].ref, 'wb-2')
+  assert.equal(window.entries[0].ref, 'entry:2')
   assert.equal(window.entries[0].entry.content, '吧台下面藏着一把短弩。')
-  assert.equal(cards.present({ card, as: 'world-book-window', query: '失踪商队', limit: 1 }).entries[0].ref, 'wb-0')
-  assert.deepEqual(cards.present({ card, as: 'world-book-window', ref: 'wb-1' }).entries, [])
+  assert.equal(cards.present({ card, as: 'world-book-window', query: '失踪商队', limit: 1 }).entries[0].ref, 'entry:0')
+  assert.deepEqual(cards.present({ card, as: 'world-book-window', ref: 'entry:1' }).entries, [])
 })
 
 test('世界书按条目合并修改，不要求模型重传整本世界书', () => {
@@ -235,7 +239,7 @@ test('世界书按条目合并修改，不要求模型重传整本世界书', ()
     patch: {},
     worldBookOperations: [
       { op: 'rename', name: '新世界书' },
-      { op: 'update', ref: 'wb-0', patch: { content: '新线索' } },
+      { op: 'update', ref: 'entry:0', patch: { content: '新线索' } },
       { op: 'add', entry: { keys: ['水道'], content: '新的入口', enabled: true } }
     ]
   })
@@ -248,9 +252,9 @@ test('世界书按条目合并修改，不要求模型重传整本世界书', ()
   assert.equal(changed.view.character_book.entries[1].content, '保持不变')
   assert.equal(changed.view.character_book.entries[2].content, '新的入口')
 
-  const removed = cards.update({ kind: 'card', card: changed.card, patch: {}, worldBookOperations: { op: 'delete', ref: 'wb-1' } })
+  const removed = cards.update({ kind: 'card', card: changed.card, patch: {}, worldBookOperations: { op: 'delete', ref: 'entry:1' } })
   assert.deepEqual(removed.view.character_book.entries.map((entry) => entry.content), ['新线索', '新的入口'])
-  assert.throws(() => cards.update({ kind: 'card', card, patch: {}, worldBookOperations: { op: 'update', ref: 'wb-9', patch: { content: 'x' } } }), /世界书条目不存在/)
+  assert.throws(() => cards.update({ kind: 'card', card, patch: {}, worldBookOperations: { op: 'update', ref: 'entry:9', patch: { content: 'x' } } }), /世界书条目不存在/)
 })
 
 test('手动编辑与对话式 patch 使用同一个 update interface', () => {

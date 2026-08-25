@@ -47,8 +47,8 @@ function harness(mode, options = {}) {
     async readScript() { return mode === 'script' || (mode === 'card' && !options.draft) ? clone(script()) : undefined },
     async readBoundWorldBook() { return clone(options.boundWorldBook || null) },
     async writeChat(value) { chat = clone(value) },
-    async updateCard(_cardId, fields, revision, worldBook, rawOperations) {
-      const change = cards.update({ kind: 'card', card: cardWorkspace, patch: fields, revision, worldBookOperations: worldBook, rawOperations })
+    async updateCard(_cardId, fields, revision, rawOperations) {
+      const change = cards.update({ kind: 'card', card: cardWorkspace, patch: fields, revision, rawOperations })
       cardWorkspace = clone(change.card)
       card = clone(change.view)
       return { ...clone(change), card: clone(card) }

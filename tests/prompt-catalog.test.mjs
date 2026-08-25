@@ -53,6 +53,7 @@ test('固定提示词从独立 Markdown 文件完整加载', () => {
   assert.match(prompt('card-mode'), /`materials\/` 的工作文件只有在用户明确要求或确认后才可用原生文件工具修改/)
   assert.match(prompt('card-mode'), /人物卡、世界书和预设工作文件只通过 Tavern 工具读写/)
   assert.match(prompt('card-mode'), /rawOperations/)
+  assert.match(prompt('card-mode'), /rawOperations 不能修改世界书/)
   assert.match(prompt('card-mode'), /用户看到最终回复时，修改已经保存并生效/)
   assert.match(prompt('card-mode'), /不得说“保存后将生效”/)
   assert.match(prompt('card-mode'), /tavern_restore_card 只用于当前正式人物卡发生灾难性错误后的原版恢复/)

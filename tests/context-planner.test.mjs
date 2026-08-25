@@ -267,8 +267,8 @@ test('卡片工作台在同一规划 interface 中组合人物卡、世界书和
     worldBookOverview: {
       name: '黑麦镇世界书', entryCount: 2,
       entries: [
-        { ref: 'wb-0', keys: ['黑麦镇'], comment: '', enabled: true, constant: true, chars: 9 },
-        { ref: 'wb-1', keys: ['钟楼'], comment: '', enabled: true, constant: false, chars: 14 }
+        { ref: 'entry:0', keys: ['黑麦镇'], comment: '', enabled: true, constant: true, chars: 9 },
+        { ref: 'entry:1', keys: ['钟楼'], comment: '', enabled: true, constant: false, chars: 14 }
       ]
     }
   })
@@ -282,7 +282,7 @@ test('卡片工作台在同一规划 interface 中组合人物卡、世界书和
   assert.match(result.text, /资料.*长篇小说.*path=materials\/长篇小说\.md/s)
   assert.match(result.text, /剧本.*银铃剧本.*path=scripts\/银铃\/剧本\.txt/s)
   assert.match(result.text, /世界书目录.*2 条/s)
-  assert.match(result.text, /wb-1.*钟楼/s)
+  assert.match(result.text, /entry:1.*钟楼/s)
   assert.match(result.text, /tavern_read_worldbook/)
   assert.match(result.text, /tavern_update_worldbook.*update.*add.*delete/s)
   assert.match(result.text, /玩家身份/)
