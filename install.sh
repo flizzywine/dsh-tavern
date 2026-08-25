@@ -9,7 +9,7 @@ case ${INSTALL_HOST} in
 esac
 
 REPOSITORY=${DSH_TAVERN_REPOSITORY:-flizzywine/dsh-tavern}
-ARCHIVE_URL=${DSH_TAVERN_ARCHIVE_URL:-https://github.com/${REPOSITORY}/archive/refs/heads/main.tar.gz}
+ARCHIVE_URL=${DSH_TAVERN_ARCHIVE_URL:-https://codeload.github.com/${REPOSITORY}/tar.gz/refs/heads/main}
 DSH_ROOT=${DSH_HOME:-${HOME}/.dsh}
 APP_DIR=${DSH_TAVERN_APP_DIR:-${DSH_ROOT}/apps/dsh-tavern}
 RUNTIME_ROOT=${DSH_ROOT}/runtime

@@ -124,27 +124,13 @@ dsh-tavern 使用尽可能少而精的提示词，把流程和状态交给程序
 Windows：
 
 ```powershell
-$env:DSH_TAVERN_HOST='desktop'; irm https://raw.githubusercontent.com/flizzywine/dsh-tavern/main/install.ps1 | iex
-```
-
-如果无法连接 `raw.githubusercontent.com`，请改用国内网络备用命令：
-
-```powershell
-$env:DSH_TAVERN_HOST='desktop'
-$env:DSH_TAVERN_ARCHIVE_URL='https://codeload.github.com/flizzywine/dsh-tavern/zip/refs/heads/main'
-irm https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@main/install.ps1 | iex
+$env:DSH_TAVERN_HOST='desktop'; irm https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@main/install.ps1 | iex
 ```
 
 macOS：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/flizzywine/dsh-tavern/main/install.sh | DSH_TAVERN_HOST=desktop sh
-```
-
-如果无法连接 `raw.githubusercontent.com`，请改用国内网络备用命令：
-
-```bash
-curl -fsSL https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@main/install.sh | DSH_TAVERN_HOST=desktop DSH_TAVERN_ARCHIVE_URL=https://codeload.github.com/flizzywine/dsh-tavern/tar.gz/refs/heads/main sh
+curl -fsSL https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@main/install.sh | DSH_TAVERN_HOST=desktop sh
 ```
 
 安装完成后，重启 DSH Desktop，并从托盘的 **Profile** 菜单选择 **tavern**。Desktop 会自动管理启停和端口；更新 dsh-tavern 时，在 DSH Terminal 中重新运行上述安装命令即可。
@@ -158,13 +144,6 @@ curl -fsSL https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@main/install.sh | D
 打开 PowerShell，运行：
 
 ```powershell
-irm https://raw.githubusercontent.com/flizzywine/dsh-tavern/main/install.ps1 | iex
-```
-
-如果无法连接 `raw.githubusercontent.com`：
-
-```powershell
-$env:DSH_TAVERN_ARCHIVE_URL='https://codeload.github.com/flizzywine/dsh-tavern/zip/refs/heads/main'
 irm https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@main/install.ps1 | iex
 ```
 
@@ -173,13 +152,7 @@ irm https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@main/install.ps1 | iex
 打开终端，运行：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/flizzywine/dsh-tavern/main/install.sh | sh
-```
-
-如果无法连接 `raw.githubusercontent.com`：
-
-```bash
-curl -fsSL https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@main/install.sh | DSH_TAVERN_ARCHIVE_URL=https://codeload.github.com/flizzywine/dsh-tavern/tar.gz/refs/heads/main sh
+curl -fsSL https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@main/install.sh | sh
 ```
 
 安装程序会自动安装依赖、启动 dsh-tavern，并打开 <http://127.0.0.1:3081>。
@@ -188,7 +161,7 @@ curl -fsSL https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@main/install.sh | D
 
 #### 手动安装
 
-如果上述备用命令也无法使用：
+如果一键命令仍然无法使用：
 
 1. 在 GitHub 项目页点击 **Code → Download ZIP**，或直接下载 [`main.zip`](https://github.com/flizzywine/dsh-tavern/archive/refs/heads/main.zip)；
 2. 解压后进入 `dsh-tavern-main` 文件夹；
@@ -224,7 +197,7 @@ node ./bin/dsh-tavern.mjs install --host desktop
 2. 打开“创造模式”，把下面一句话发给 AI：
 
 ```text
-请运行这条命令安装 DSH Tavern，完成后告诉我结果：curl -fsSL https://raw.githubusercontent.com/flizzywine/dsh-tavern/main/android/setup.sh | bash
+请运行这条命令安装 DSH Tavern，完成后告诉我结果：curl -fsSL https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@main/android/setup.sh | bash
 ```
 
 3. 安装完成后重启 DSHA，点击侧栏里的 **酒馆工作台**。

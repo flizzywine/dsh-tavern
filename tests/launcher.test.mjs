@@ -268,6 +268,13 @@ test('installers accept the installed DSH host without pinning its release', () 
   assert.doesNotMatch(launcherSource, /MINIMUM_DSH_VERSION|supportsDshVersion|requireDshVersion/)
 })
 
+test('installers default to codeload archives while allowing an override', () => {
+  assert.match(windowsInstaller, /DSH_TAVERN_ARCHIVE_URL/)
+  assert.match(windowsInstaller, /https:\/\/codeload\.github\.com\/\$Repository\/zip\/refs\/heads\/main/)
+  assert.match(unixInstaller, /DSH_TAVERN_ARCHIVE_URL/)
+  assert.match(unixInstaller, /https:\/\/codeload\.github\.com\/\$\{REPOSITORY\}\/tar\.gz\/refs\/heads\/main/)
+})
+
 test('Desktop 安装复用内置运行时，不启动独立 3081 服务', () => {
   assert.match(unixInstaller, /INSTALL_HOST=\$\{DSH_TAVERN_HOST:-cli\}/)
   assert.match(unixInstaller, /install --host "\$\{INSTALL_HOST\}"/)
