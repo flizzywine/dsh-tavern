@@ -318,6 +318,7 @@ test('卡片模式通过人物卡、剧本、世界书、预设和空白入口�
   assert.match(clientSource, /"修改预设"/)
   assert.match(clientSource, /仅编辑，无法使用/)
   assert.match(clientSource, /"空白开始"/)
+	assert.match(clientSource, /请先从右侧侧边栏的对应资源库导入人物卡、剧本、世界书或预设文件。/)
 	assert.match(flow, /kind: "card", targetMode: "card"/)
   assert.match(flow, /task: task, label: label, card: card, selectedResources: selectedResources \|\| \[\]/)
   assert.match(recovery, /if \(pending\.task\) await props\.injectTaskPrompt\(pending\.sessionId, pending\.task, pending\.label, pending\.card, \(pending\.selectedResources \|\| \[\]\)\.length > 0\)/)
