@@ -715,7 +715,7 @@ export async function apply(ctx) {
       if (!message || message.role !== 'assistant') continue
       const displayText = Object.prototype.hasOwnProperty.call(message, 'displayText') ? str(message.displayText) : str(message.text)
       const mode = str(message.displayMode) || 'markdown'
-      if (displayText === str(message.text) && mode !== 'html') continue
+      if (displayText === str(message.text) && mode !== 'html' && mode !== 'rich') continue
       const turn = Math.max(0, Number(message.turn) || (message.greeting === true ? 1 : 0))
       if (turn === 0) continue
       projections.push({
@@ -723,7 +723,6 @@ export async function apply(ctx) {
         turn,
         text: displayText,
         mode,
-        html: str(message.displayHtml),
         warnings: Array.isArray(message.projectionWarnings) ? message.projectionWarnings : []
       })
     }
@@ -747,11 +746,11 @@ export async function apply(ctx) {
     if (target === null) return result
     const projected = projectRuntimeReply(str(target.text) + '\n\n' + str(legacy.html))
     result.push({
-      version: 1,
+      version: 2,
       turn,
       text: projected.displayText,
       mode: projected.displayMode,
-      html: projected.displayHtml,
+      parts: projected.displayParts,
       warnings: ['旧会话兼容：正文与历史人物卡界面已在原消息位置合并显示。'].concat(projected.warnings)
     })
     return result.sort(function (left, right) { return Number(left.turn) - Number(right.turn) })
@@ -782,7 +781,7 @@ export async function apply(ctx) {
     const openingSourceText = chatMode === 'card' ? prompt('card-mode-greeting') : resolveCardOpening(card, openingId)
     const openingExtensions = chatMode === 'card' ? null : await readCardExtensions(cardPath)
     const openingProjection = chatMode === 'card'
-      ? { agentText: openingSourceText, renderedText: openingSourceText, sessionText: openingSourceText, displayText: openingSourceText, displayMode: 'markdown', displayHtml: '', warnings: [], macroState }
+      ? { agentText: openingSourceText, renderedText: openingSourceText, sessionText: openingSourceText, displayText: openingSourceText, displayMode: 'markdown', displayParts: [{ kind: 'markdown', text: openingSourceText }], warnings: [], macroState }
       : projectOpeningCommit(openingSourceText, {
           charName: str(card.name),
           macroState,
@@ -819,8 +818,7 @@ export async function apply(ctx) {
       projectionText: openingProjection.renderedText,
       displayText: openingProjection.displayText,
       displayMode: openingProjection.displayMode,
-      displayHtml: openingProjection.displayHtml,
-      projectionVersion: 1,
+      projectionVersion: 2,
       projectionWarnings: openingProjection.warnings,
       ts: Date.now(),
       greeting: true,

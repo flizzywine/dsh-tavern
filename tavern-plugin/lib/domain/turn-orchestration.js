@@ -231,7 +231,7 @@ export function createTurnOrchestrator(options) {
       sessionText: sourceText,
       displayText: sourceText,
       displayMode: 'markdown',
-      displayHtml: '',
+      displayParts: [{ kind: 'markdown', text: sourceText }],
       warnings: []
     }
     if (mode === 'story' || mode === 'script') {
@@ -342,9 +342,8 @@ export function createTurnOrchestrator(options) {
           sourceText: str(reply.sourceText),
           projectionText: str(reply.projectionText),
           displayText: str(reply.displayText),
-          displayMode: reply.displayMode === 'html' ? 'html' : 'markdown',
-          displayHtml: str(reply.displayHtml),
-          projectionVersion: 1,
+          displayMode: reply.displayMode === 'rich' ? 'rich' : 'markdown',
+          projectionVersion: 2,
           projectionWarnings: Array.isArray(reply.warnings) ? clone(reply.warnings) : [],
           ts: now(),
           native: true,

@@ -54,7 +54,7 @@ function contentProjection(value, options, preview, sanitizeForAgent) {
     sessionText: layers.sessionText,
     displayText: layers.displayText,
     displayMode: layers.displayMode,
-    displayHtml: layers.displayHtml,
+    displayParts: layers.displayParts,
     presentationHtml: '',
     presentationOnly: false,
     warnings: layers.warnings,
@@ -69,7 +69,7 @@ export function preserveRuntimeSource(value, options = {}) {
   const raw = str(value)
   return {
     agentText: raw, bodyText: raw, renderedText: raw,
-    sessionText: raw, displayText: raw, displayMode: 'markdown', displayHtml: '',
+    sessionText: raw, displayText: raw, displayMode: 'markdown', displayParts: [{ kind: 'markdown', text: raw }],
     presentationHtml: '', presentationOnly: false,
     warnings: [], diagnostics: [], macroState: macroSnapshot(options.macroState)
   }

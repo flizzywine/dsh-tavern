@@ -5,6 +5,8 @@
 > 对应 DSH 依赖：`0.1.1-rc.2`；官方源码标签 [`dsh-v0.1.1-rc.2`](https://github.com/deepseek-ai/deepseek-harness/tree/b150a551b8d465e31e418e1b2eaf5e79bbb7d28e)  
 > 检查日期：2026-08-25
 
+> 当前项目说明：本文记录 `dsh-visualize` 的参考实现及早期方案，不定义 dsh-tavern 当前 HTML 权限。现行机制以[酒馆正则渲染备忘](sillytavern-regex-rendering-memo.md)和[助手正文 HTML 渲染设计](../design/inline-message-renderer-refactor.md)为准；当前实现允许可信人物卡使用 HTTPS 远程资源。
+
 ## 一句话结论
 
 `dsh-visualize` 证明了：**DSH Web 插件可以通过正式的工具展示插槽，把一个 React 组件放在对话流中的工具调用位置，再由组件用 `iframe srcDoc` 渲染 HTML。**

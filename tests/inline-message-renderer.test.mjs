@@ -13,18 +13,45 @@ async function loadClient() {
 
 const client = await loadClient()
 
-test('消息 iframe 使用不透明来源沙箱、封闭 CSP 和受控高度协议', () => {
+test('新版展示投影保持 Markdown 和可运行 HTML 的原始顺序', () => {
+  const parts = client.projectionPartsOf({
+    version: 2,
+    mode: 'rich',
+    text: '原始展示文本',
+    parts: [
+      { kind: 'markdown', text: '正文前' },
+      { kind: 'html', content: '<body>卡片</body>' },
+      { kind: 'html', content: '<p>正文后</p>' }
+    ]
+  })
+
+  assert.deepEqual(parts.map(part => part.kind), ['markdown', 'html', 'html'])
+  assert.equal(parts[1].content, '<body>卡片</body>')
+})
+
+test('旧版整条 HTML 投影仍可只读回放', () => {
+  const parts = client.projectionPartsOf({ version: 1, mode: 'html', html: '<p>旧界面</p>' })
+  assert.equal(parts.length, 1)
+  assert.equal(parts[0].kind, 'html')
+  assert.equal(parts[0].content, '<p>旧界面</p>')
+})
+
+test('消息 iframe 允许可信远程资源，同时保留不透明来源隔离和受控高度协议', () => {
   const document = client.buildTavernFrameDocument({
-    html: '<p>正文</p><style>p{color:red}</style>',
+    content: '<p>正文</p><style>p{color:red}</style><script src="https://cdn.jsdelivr.net/example.js"></script>',
     token: 'height-token'
   })
 
   assert.match(document, /<p>正文<\/p><style>p\{color:red\}<\/style>/)
-  assert.match(document, /default-src 'none'/)
-  assert.match(document, /connect-src 'none'/)
-  assert.match(document, /frame-src 'none'/)
+  assert.match(document, /cdn\.jsdelivr\.net\/example\.js/)
+  assert.match(document, /default-src https: data: blob:/)
+  assert.match(document, /connect-src https: wss: data: blob:/)
+  assert.match(document, /frame-src https: data: blob:/)
+  assert.match(document, /object-src 'none'/)
   assert.match(document, /form-action 'none'/)
   assert.match(document, /ResizeObserver/)
+  assert.match(document, /getBoundingClientRect/)
+  assert.match(document, /document\.fonts\.ready/)
   assert.match(document, /dsh-tavern-frame-height/)
   assert.match(document, /height-token/)
 })

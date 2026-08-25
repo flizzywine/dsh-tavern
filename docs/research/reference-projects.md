@@ -11,8 +11,17 @@
 - 仓库：<https://github.com/SillyTavern/SillyTavern>
 - 用途：核对人物卡、预设、世界书、正则、宏、消息存储与展示等酒馆原生语义。
 - 定位：酒馆兼容行为的主要语义基准。遇到社区实现与酒馆本体不一致时，应先说明差异，而不是默认社区实现等同于酒馆。
+- 本地源码：`references/SillyTavern`（取得方式和固定提交见 `references/README.md`）。
+- 已有研究：[酒馆正则如何把 `【首页】` 变成可交互卡片](sillytavern-regex-rendering-memo.md)
 
 ## 社区参考实现
+
+### 酒馆助手 / JS-Slash-Runner
+
+- 仓库：<https://github.com/N0VI028/JS-Slash-Runner>
+- 用途：核对酒馆助手如何识别消息中的前端代码块，并用 `iframe srcdoc` 或 Blob URL 渲染交互界面。
+- 本地源码：`references/JS-Slash-Runner`（取得方式和固定提交见 `references/README.md`）。
+- 已有研究：[酒馆正则如何把 `【首页】` 变成可交互卡片](sillytavern-regex-rendering-memo.md)
 
 ### dsh-agent-rp
 

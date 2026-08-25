@@ -5,22 +5,114 @@ function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
 }
 
-function withoutFencedCode(value) {
-  return str(value).replace(/```[^\r\n]*\r?\n[\s\S]*?\r?\n```/g, '')
+function isHtmlSource(value, info = '') {
+  const content = str(value)
+  const language = str(info).trim().split(/\s+/, 1)[0].toLowerCase()
+  return language === 'html' || language === 'htm'
+    || /<!--[\s\S]*?-->|<\/?[a-z][\w:-]*(?:\s[^<>]*?)?>/i.test(content)
 }
 
-/** Classify a display projection without moving or rewriting any content. */
-export function displayModeOf(value) {
-  const visible = withoutFencedCode(value)
-  return /<!--[\s\S]*?-->|<\/?[a-z][\w:-]*(?:\s[^<>]*?)?>/i.test(visible) ? 'html' : 'markdown'
-}
-
-function compileDisplayHtml(value) {
-  try {
-    return { html: marked.parse(str(value), { async: false, breaks: true, gfm: true }), warning: '' }
-  } catch (error) {
-    return { html: '', warning: '展示：Markdown/HTML 编译失败：' + str(error && error.message ? error.message : error) }
+function fencedSegments(value) {
+  const lines = str(value).match(/.*(?:\r?\n|$)/g) || []
+  const segments = []
+  let plain = ''
+  let fence = null
+  let fenced = ''
+  let content = ''
+  for (const line of lines) {
+    const bare = line.replace(/\r?\n$/, '')
+    if (fence === null) {
+      const opening = bare.match(/^[ \t]{0,3}(`{3,}|~{3,})([^\r\n]*)$/)
+      if (opening !== null) {
+        fence = { character: opening[1][0], length: opening[1].length, info: opening[2] }
+        fenced = line
+        content = ''
+      } else {
+        plain += line
+      }
+      continue
+    }
+    fenced += line
+    const closing = bare.match(/^[ \t]{0,3}(`+|~+)[ \t]*$/)
+    if (closing !== null && closing[1][0] === fence.character && closing[1].length >= fence.length) {
+      if (isHtmlSource(content, fence.info)) {
+        if (plain !== '') segments.push({ kind: 'text', text: plain })
+        segments.push({ kind: 'html', content })
+        plain = ''
+      } else {
+        plain += fenced
+      }
+      fence = null
+      fenced = ''
+      content = ''
+      continue
+    }
+    content += line
   }
+  if (fence !== null) plain += fenced
+  if (plain !== '') segments.push({ kind: 'text', text: plain })
+  return segments
+}
+
+function withoutFencedCode(value) {
+  const lines = str(value).match(/.*(?:\r?\n|$)/g) || []
+  let visible = ''
+  let fence = null
+  for (const line of lines) {
+    const bare = line.replace(/\r?\n$/, '')
+    if (fence === null) {
+      const opening = bare.match(/^[ \t]{0,3}(`{3,}|~{3,})[^\r\n]*$/)
+      if (opening === null) visible += line
+      else fence = { character: opening[1][0], length: opening[1].length }
+      continue
+    }
+    const closing = bare.match(/^[ \t]{0,3}(`+|~+)[ \t]*$/)
+    if (closing !== null && closing[1][0] === fence.character && closing[1].length >= fence.length) fence = null
+  }
+  return visible
+}
+
+function hasRawHtml(value) {
+  return /<!--[\s\S]*?-->|<\/?[a-z][\w:-]*(?:\s[^<>]*?)?>/i.test(withoutFencedCode(value))
+}
+
+function compileTextPart(value) {
+  if (!hasRawHtml(value)) return { part: { kind: 'markdown', text: str(value) }, warning: '' }
+  try {
+    return { part: { kind: 'html', content: marked.parse(str(value), { async: false, breaks: true, gfm: true }) }, warning: '' }
+  } catch (error) {
+    return {
+      part: { kind: 'markdown', text: str(value) },
+      warning: '展示：Markdown/HTML 编译失败：' + str(error && error.message ? error.message : error)
+    }
+  }
+}
+
+/** Build ordered Markdown and executable HTML display parts. */
+export function projectDisplayParts(value) {
+  const parts = []
+  const warnings = []
+  for (const segment of fencedSegments(value)) {
+    if (segment.kind === 'html') {
+      parts.push(segment)
+      continue
+    }
+    const compiled = compileTextPart(segment.text)
+    parts.push(compiled.part)
+    if (compiled.warning !== '') warnings.push(compiled.warning)
+  }
+  return { parts, warnings }
+}
+
+/** Match renderable HTML regardless of whether it came from regex or model output. */
+export function hasHtmlCodeBlock(value) {
+  return fencedSegments(value).some(function (segment) { return segment.kind === 'html' })
+}
+
+/** Classify whether the display projection needs isolated rich rendering. */
+export function displayModeOf(value) {
+  const projected = projectDisplayParts(value)
+  return projected.parts.some(function (part) { return part.kind !== 'markdown' }) ? 'rich' : 'markdown'
 }
 
 function targetOptions(options, isMarkdown) {
@@ -45,8 +137,8 @@ export function projectReplyLayers(value, options = {}) {
   const scripts = Array.isArray(options.regexScripts) ? options.regexScripts : []
   const session = applyTavernRegexText(projectionText, scripts, targetOptions(options, false))
   const display = applyTavernRegexText(projectionText, scripts, targetOptions(options, true))
-  const displayMode = displayModeOf(display.text)
-  const compiled = displayMode === 'html' ? compileDisplayHtml(display.text) : { html: '', warning: '' }
+  const displayProjection = projectDisplayParts(display.text)
+  const displayMode = displayProjection.parts.some(function (part) { return part.kind !== 'markdown' }) ? 'rich' : 'markdown'
 
   return {
     sourceText,
@@ -54,14 +146,14 @@ export function projectReplyLayers(value, options = {}) {
     sessionText: session.text,
     displayText: display.text,
     displayMode,
-    displayHtml: compiled.html,
+    displayParts: displayProjection.parts,
     applied: {
       session: session.applied,
       display: display.applied
     },
     warnings: session.warnings.map(function (warning) { return 'Session：' + warning })
       .concat(display.warnings.map(function (warning) { return '展示：' + warning }))
-      .concat(compiled.warning === '' ? [] : [compiled.warning])
+      .concat(displayProjection.warnings)
   }
 }
 
@@ -89,13 +181,13 @@ export function projectReplyHistory(messages, options = {}) {
     const projected = projectReplyLayers(sourceText, Object.assign({}, options, { projectionText }))
     const sessionText = str(message.text)
 
-    if (projected.displayText !== sessionText || projected.displayMode === 'html') {
+    if (projected.displayText !== sessionText || projected.displayMode === 'rich') {
       projections.push({
-        version: 1,
+        version: 2,
         turn,
         text: projected.displayText,
         mode: projected.displayMode,
-        html: projected.displayHtml,
+        parts: projected.displayParts,
         warnings: projected.warnings
       })
     }

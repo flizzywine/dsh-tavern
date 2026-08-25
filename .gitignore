@@ -8,3 +8,7 @@ cordis.yml
 
 # 用户数据（人物卡、聊天、剧本、素材、索引、设置、diff）
 data/
+
+# 本地上游源码参考（提交号和拉取方式记录在 references/README.md）
+references/SillyTavern/
+references/JS-Slash-Runner/

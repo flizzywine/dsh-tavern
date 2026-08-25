@@ -783,13 +783,13 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		}
 
 		function buildTavernFrameDocument(input) {
-			const html = String(input && input.html || "");
+			const html = String(input && (input.content !== undefined ? input.content : input.html) || "");
 			const token = JSON.stringify(String(input && input.token || "")).replace(/</g, "\\u003c");
-			const reporter = '<script data-dsh-tavern-frame>(function(){var token=' + token + ';var last=0;function report(){var root=document.documentElement;var body=document.body;var height=Math.max(root?root.scrollHeight:0,body?body.scrollHeight:0,48);if(height===last)return;last=height;parent.postMessage({type:"dsh-tavern-frame-height",token:token,height:height},"*");}if(typeof ResizeObserver==="function")new ResizeObserver(report).observe(document.documentElement);addEventListener("load",report);new MutationObserver(report).observe(document.documentElement,{subtree:true,childList:true,attributes:true,characterData:true});report();})();<\/script>';
+			const reporter = '<script data-dsh-tavern-frame>(function(){var token=' + token + ';var last=0;var queued=false;function measure(){var root=document.documentElement;var body=document.body;var height=Math.max(root?root.scrollHeight:0,body?body.scrollHeight:0,48);if(body){var nodes=[body].concat(Array.prototype.slice.call(body.querySelectorAll("*")));for(var i=0;i<nodes.length;i+=1){var node=nodes[i];if(!node||typeof node.getBoundingClientRect!=="function")continue;var rect=node.getBoundingClientRect();if(rect.width===0&&rect.height===0)continue;height=Math.max(height,Math.ceil(rect.bottom+(window.scrollY||0)),node.scrollHeight||0);}}return height;}function report(){queued=false;var height=measure();if(height===last)return;last=height;parent.postMessage({type:"dsh-tavern-frame-height",token:token,height:height},"*");}function schedule(){if(queued)return;queued=true;if(typeof requestAnimationFrame==="function")requestAnimationFrame(report);else setTimeout(report,0);}if(typeof ResizeObserver==="function"){var observer=new ResizeObserver(schedule);observer.observe(document.documentElement);if(document.body)observer.observe(document.body);}addEventListener("load",schedule);if(document.fonts&&document.fonts.ready)document.fonts.ready.then(schedule);new MutationObserver(schedule).observe(document.documentElement,{subtree:true,childList:true,attributes:true,characterData:true});schedule();})();<\/script>';
 			return '<!doctype html><html><head><meta charset="utf-8">'
 				+ '<meta name="viewport" content="width=device-width,initial-scale=1">'
 				+ '<meta name="referrer" content="no-referrer">'
-				+ '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; img-src data: blob:; media-src data: blob:; font-src data:; style-src \'unsafe-inline\'; script-src \'unsafe-inline\'; connect-src \'none\'; frame-src \'none\'; object-src \'none\'; base-uri \'none\'; form-action \'none\'">'
+				+ '<meta http-equiv="Content-Security-Policy" content="default-src https: data: blob:; img-src https: data: blob:; media-src https: data: blob:; font-src https: data:; style-src \'unsafe-inline\' https:; script-src \'unsafe-inline\' \'unsafe-eval\' https: data: blob:; connect-src https: wss: data: blob:; frame-src https: data: blob:; object-src \'none\'; base-uri \'none\'; form-action \'none\'">'
 				+ '<style>:root{color-scheme:light dark}html,body{box-sizing:border-box;margin:0;min-height:0;background:transparent;color:CanvasText;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:16px;line-height:1.75}body{padding:0 1px;overflow-wrap:anywhere}*,*:before,*:after{box-sizing:border-box}img,video,svg,canvas{max-width:100%;height:auto}pre{max-width:100%;overflow:auto;white-space:pre-wrap}table{max-width:100%;border-collapse:collapse}a{color:LinkText}</style>'
 				+ '</head><body>' + html + reporter + '</body></html>';
 		}
@@ -800,8 +800,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			if (tokenRef.current === "") tokenRef.current = window.crypto && typeof window.crypto.randomUUID === "function" ? window.crypto.randomUUID() : String(Date.now()) + ":" + String(Math.random());
 			const [height, setHeight] = React.useState(80);
 			const documentHtml = React.useMemo(function () {
-				return buildTavernFrameDocument({ html: props.html, token: tokenRef.current });
-			}, [props.html]);
+				return buildTavernFrameDocument({ content: props.content, token: tokenRef.current });
+			}, [props.content]);
 			React.useEffect(function () {
 				function receive(event) {
 					const frame = frameRef.current;
@@ -828,9 +828,27 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			if (!view || !isPlayMode(view.mode) || !Array.isArray(view.replyProjections)) return null;
 			for (let index = view.replyProjections.length - 1; index >= 0; index -= 1) {
 				const projection = view.replyProjections[index];
-				if (Number(projection && projection.turn) === Number(turn)) return Number(projection.version) === 1 ? projection : null;
+				if (Number(projection && projection.turn) === Number(turn)) return Number(projection.version) === 1 || Number(projection.version) === 2 ? projection : null;
 			}
 			return null;
+		}
+
+		function projectionPartsOf(projection) {
+			if (!projection) return [];
+			if (Array.isArray(projection.parts)) return projection.parts.filter(function (part) {
+				return part && (part.kind === "markdown" || part.kind === "html");
+			});
+			if (projection.mode === "html" && String(projection.html || "") !== "") return [{ kind: "html", content: String(projection.html) }];
+			return [{ kind: "markdown", text: String(projection.text || "") }];
+		}
+
+		function renderTavernProjection(projection, options) {
+			const h = React.createElement;
+			return projectionPartsOf(projection).map(function (part, index) {
+				if (part.kind === "markdown") return h(DshUi.MarkdownText, { key: index, text: String(part.text || ""), streaming: options.streaming, codeLabels: options.codeLabels, fileMentions: options.mentions });
+				const content = String(part.content !== undefined ? part.content : part.html || "");
+				return h(TavernMessageFrame, { key: index, content: content });
+			});
 		}
 
 		function renderTavernAssistantBlocks(input) {
@@ -853,8 +871,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				if (block.kind === "text") {
 					if (input.projection && projected) continue;
 					const projection = input.projection;
-					if (projection && projection.mode === "html" && String(projection.html || "") !== "") rendered.push(h(TavernMessageFrame, { key: index, html: projection.html }));
-					else rendered.push(h(DshUi.MarkdownText, { key: index, text: projection ? String(projection.text || "") : String(block.text || ""), streaming: input.streaming, codeLabels: codeLabels, fileMentions: input.mentions }));
+					if (projection) rendered.push(h(React.Fragment, { key: index }, renderTavernProjection(projection, { streaming: input.streaming, codeLabels: codeLabels, mentions: input.mentions })));
+					else rendered.push(h(DshUi.MarkdownText, { key: index, text: String(block.text || ""), streaming: input.streaming, codeLabels: codeLabels, fileMentions: input.mentions }));
 					projected = true;
 					continue;
 				}
@@ -872,8 +890,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				if (block.kind !== "tool-call") rendered.push(h(DshUi.JsonBlock, { key: index, label: translate("message.unknownBlock"), payload: block.block || block, truncatedLabel: function (total) { return translate("json.truncated", { total: total }); } }));
 			}
 			if (input.projection && !projected) {
-				if (input.projection.mode === "html" && String(input.projection.html || "") !== "") rendered.push(h(TavernMessageFrame, { key: "projection", html: input.projection.html }));
-				else rendered.push(h(DshUi.MarkdownText, { key: "projection", text: String(input.projection.text || ""), streaming: false, codeLabels: codeLabels, fileMentions: input.mentions }));
+				rendered.push(h(React.Fragment, { key: "projection" }, renderTavernProjection(input.projection, { streaming: false, codeLabels: codeLabels, mentions: input.mentions })));
 			}
 			if (input.interrupted) rendered.push(h("span", { key: "stopped", className: "dsh-tavern-assistant-stopped" }, translate("message.stopped")));
 			return rendered;
@@ -3107,6 +3124,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		exports.inject = inject;
 		exports.buildOpeningPreviewDocument = buildOpeningPreviewDocument;
 		exports.buildTavernFrameDocument = buildTavernFrameDocument;
+		exports.projectionPartsOf = projectionPartsOf;
 		exports.createLiveTavernViewModule = createLiveTavernViewModule;
 		exports.createTavernCoordinationEventModule = createTavernCoordinationEventModule;
 		exports.describeTavernActivity = describeTavernActivity;

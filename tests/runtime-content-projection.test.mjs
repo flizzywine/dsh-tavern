@@ -20,7 +20,8 @@ test('游玩投影统一解析宏但不拆走 HTML，且不修改传入的权威
 
   assert.equal(result.agentText, '当前阶段 2。\n<style>.panel{color:red}</style><div class="panel">阶段 2</div>')
   assert.equal(result.displayText, result.agentText)
-  assert.equal(result.displayMode, 'html')
+  assert.equal(result.displayMode, 'rich')
+  assert.equal(result.displayParts[0].kind, 'html')
   assert.equal(result.presentationHtml, '')
   assert.deepEqual(result.macroState.local, { stage: 2 })
   assert.deepEqual(state, { userName: '陈锋', local: { stage: 2 }, global: {} })
@@ -59,7 +60,7 @@ test('开场白预览保留完整渲染结果，不提前剥离 HTML 或提交�
   assert.match(result.agentText, /^2序章<style>/)
   assert.equal(result.bodyText, result.agentText)
   assert.equal(result.displayText, result.agentText)
-  assert.equal(result.displayMode, 'html')
+  assert.equal(result.displayMode, 'rich')
   assert.equal(result.presentationHtml, '')
   assert.equal(result.presentationOnly, false)
   assert.deepEqual(state.local, { stage: 1 })
