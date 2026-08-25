@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url'
 import { createBackgroundAgentRunner } from './background-agent-runner.js'
 import { createApplicationUpdater } from './application-updater.js'
 import { createCandidateGenerator } from './domain/candidate-generation.js'
-import { waitForAgentSession } from './domain/agent-readiness.js'
+import { waitForWritableSession } from './domain/agent-readiness.js'
 import { createCardDeletion } from './domain/card-deletion.js'
 import { createCardPreparation } from './domain/card-preparation.js'
 import { cardOpeningChoices, resolveCardOpening } from './domain/card-openings.js'
@@ -51,8 +51,9 @@ import { prompt } from './prompt-catalog.js'
 export async function apply(ctx) {
   const llm = ctx.get('llm')
   const agentRegistry = ctx.get('agents')
-  if (llm === undefined || agentRegistry === undefined) {
-    console.error('dsh-tavern: 缺少 llm 或 agents 服务')
+  const sessionStore = ctx.get('sessions')
+  if (llm === undefined || agentRegistry === undefined || sessionStore === undefined) {
+    console.error('dsh-tavern: 缺少 llm、agents 或 sessions 服务')
     return
   }
   const agentDefaultModel = ctx.get('agentDefaultModel')
@@ -909,7 +910,7 @@ export async function apply(ctx) {
     const greeting = openingProjection.sessionText
     // connectWorkspace 返回时，Agent 注册偶尔仍在异步完成。先等到原生会话可写，
     // 再落盘 Tavern 对话，避免失败时留下只有映射、没有原生开场白的半初始化记录。
-    const openingAgent = typeof sessionId === 'string' && sessionId !== '' && greeting !== '' ? await waitForAgentSession({ registry: agentRegistry, sessionId: sessionId, sleep: sleep }) : undefined
+    const openingTarget = typeof sessionId === 'string' && sessionId !== '' && greeting !== '' ? await waitForWritableSession({ registry: agentRegistry, sessions: sessionStore, sessionId: sessionId, sleep: sleep }) : undefined
     const chat = newChat(card, chatMode || 'story')
     chat.runtimePresetSnapshot = null
     chat.runtimePresetPath = ''
@@ -939,13 +940,13 @@ export async function apply(ctx) {
     })
     const hasSession = typeof sessionId === 'string' && sessionId !== ''
     await conversationRegistry.publish(chat)
-    if (hasSession) await appendNativeOpening(sessionId, chat, card, openingAgent)
+    if (hasSession) await appendNativeOpening(sessionId, chat, card, openingTarget)
     const result = await view(chat, card)
     if (chatMode === 'card') result.workspace = workspaceViewOf(chat)
     return result
   }
 
-  async function appendNativeOpening(sessionId, chat, card, readyAgent) {
+  async function appendNativeOpening(sessionId, chat, card, readyTarget) {
     if (chat.nativeOpeningAppended === true) return
     const mode = chat.mode || 'story'
     let text
@@ -960,31 +961,33 @@ export async function apply(ctx) {
       text = storedGreeting === undefined ? renderCardText(card.first_mes, card, chat.macroState) : storedGreeting.text
     }
     if (text === '') return
-    const agent = readyAgent || await waitForAgentSession({ registry: agentRegistry, sessionId: sessionId, sleep: sleep })
+    const target = readyTarget || await waitForWritableSession({ registry: agentRegistry, sessions: sessionStore, sessionId: sessionId, sleep: sleep })
+    if (target.agent === undefined) console.warn('dsh-tavern: Agent 尚未注册，直接使用已绑定 Session 写入开场白', { sessionId })
     const selected = modelSelection(sessionId) || { provider: 'dsh-tavern', model: 'character-card' }
     const turn = 1
     const step = 1
-    agent.session.append('turn/start', { turn: turn })
-    agent.session.append('step/start', { turn: turn, step: step })
+    target.session.append('turn/start', { turn: turn })
+    target.session.append('step/start', { turn: turn, step: step })
     const message = {
       id: crypto.randomUUID(),
       role: 'assistant',
       content: [{ type: 'text', text: text }],
       source: { kind: 'model', provider: selected.provider, model: selected.model }
     }
-    agent.session.append('assistant/message', { turn: turn, step: step, message: message }, {
+    target.session.append('assistant/message', { turn: turn, step: step, message: message }, {
       surfaceOp: 'append',
       sourceEventSeqs: []
     })
-    agent.session.append('step/end', { turn: turn, step: step })
-    agent.session.append('turn/end', { turn: turn, reason: { kind: 'completed' } })
+    target.session.append('step/end', { turn: turn, step: step })
+    target.session.append('turn/end', { turn: turn, reason: { kind: 'completed' } })
     // AgentLoop caches the last turn when it is constructed. Because this
     // greeting is appended externally, advance that idle cursor as well;
     // otherwise the first real prompt incorrectly opens another turn 1 and
     // the conversation fold overlays the reply on the greeting/user message.
-    if (agent.phase !== undefined && agent.phase !== null && agent.phase.kind === 'idle') {
-      agent.phase.lastTurn = Math.max(Number(agent.phase.lastTurn) || 0, turn)
+    if (target.agent !== undefined && target.agent.phase !== undefined && target.agent.phase !== null && target.agent.phase.kind === 'idle') {
+      target.agent.phase.lastTurn = Math.max(Number(target.agent.phase.lastTurn) || 0, turn)
     }
+    await sessionStore.flush(target.session)
     chat.nativeOpeningAppended = true
     await writeChat(chat)
   }

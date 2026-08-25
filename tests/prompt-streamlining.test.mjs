@@ -227,14 +227,15 @@ test('游玩回复把 prompt 投影写回 DSH Session，同时保留完整展示
   assert.match(replaceReply, /surfaceOp: \{ op: 'replace', start: result\.index, end: result\.index \}/)
 })
 
-test('新会话等待 Agent 后通过 Conversation Registry 原子发布', () => {
+test('新会话取得可写 Session 后通过 Conversation Registry 原子发布', () => {
   const startChat = between(serverSource, 'async function startChat', 'async function appendNativeOpening')
   const appendOpening = between(serverSource, 'async function appendNativeOpening', 'async function scriptPreviewOf')
 
-  assert.match(startChat, /const openingAgent = .*waitForAgentSession/)
-  assert.ok(startChat.indexOf('waitForAgentSession') < startChat.indexOf('await conversationRegistry.publish(chat)'))
+  assert.match(startChat, /const openingTarget = .*waitForWritableSession/)
+  assert.ok(startChat.indexOf('waitForWritableSession') < startChat.indexOf('await conversationRegistry.publish(chat)'))
   assert.match(startChat, /await conversationRegistry\.publish\(chat\)/)
   assert.doesNotMatch(startChat, /linkSession|unlinkSession|writeIndex\(idx\)/)
-  assert.match(startChat, /appendNativeOpening\(sessionId, chat, card, openingAgent\)/)
-  assert.match(appendOpening, /readyAgent \|\| await waitForAgentSession/)
+  assert.match(startChat, /appendNativeOpening\(sessionId, chat, card, openingTarget\)/)
+  assert.match(appendOpening, /readyTarget \|\| await waitForWritableSession/)
+  assert.match(appendOpening, /await sessionStore\.flush\(target\.session\)/)
 })
