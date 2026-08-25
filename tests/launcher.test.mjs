@@ -162,7 +162,9 @@ test('更新器成功执行并清理临时脚本后写入 completed 终态', asy
   const root = await mkdtemp(path.join(tmpdir(), 'dsh-tavern-update-runner-'))
   try {
     const statusFile = path.join(root, 'update-status.json')
-    await writeFile(path.join(root, 'install.sh'), '#!/bin/sh\nexit 0\n')
+    const installerName = process.platform === 'win32' ? 'install.ps1' : 'install.sh'
+    const installerSource = process.platform === 'win32' ? 'exit 0\r\n' : '#!/bin/sh\nexit 0\n'
+    await writeFile(path.join(root, installerName), installerSource)
     const logs = []
     await updateApplication({ host: 'cli', statusFile, delay: 0, sourceRoot: root, log: function (message) { logs.push(message) } })
     const status = JSON.parse(await readFile(statusFile, 'utf8'))
