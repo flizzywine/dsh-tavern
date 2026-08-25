@@ -6,6 +6,25 @@ import { createProfileDataStore } from './profile-data-store.js'
 
 const STATUS_FILE = 'update-status.json'
 const RUNNING_TIMEOUT_MS = 15 * 60 * 1000
+const VERSION_URL = 'https://raw.githubusercontent.com/flizzywine/dsh-tavern/main/package.json'
+
+export function sanitizeUpdateError(value) {
+  const message = String(value || '').trim()
+  const replacements = (message.match(/\uFFFD/g) || []).length
+  if (replacements >= 2) return '更新失败：安装程序输出编码异常。建议重新安装一次。'
+  return message || '更新失败，请重新安装一次。'
+}
+
+function compareVersions(left, right) {
+  const parse = (value) => String(value || '').split('-', 1)[0].split('.').map(Number)
+  const a = parse(left)
+  const b = parse(right)
+  if (a.length !== 3 || b.length !== 3 || a.some(Number.isNaN) || b.some(Number.isNaN)) return String(left) === String(right) ? 0 : 1
+  for (let index = 0; index < 3; index += 1) {
+    if (a[index] !== b[index]) return a[index] > b[index] ? 1 : -1
+  }
+  return 0
+}
 
 function installHostOf(manifest) {
   const host = manifest?.dshTavern?.host
@@ -33,7 +52,30 @@ export function createApplicationUpdater(options) {
   const spawnProcess = options.spawnProcess || spawn
   const now = typeof options.now === 'function' ? options.now : Date.now
   const isProcessAlive = typeof options.isProcessAlive === 'function' ? options.isProcessAlive : processIsAlive
+  const fetchManifest = options.fetchManifest || async function () {
+    const response = await fetch(options.versionUrl || process.env.DSH_TAVERN_VERSION_URL || VERSION_URL, {
+      cache: 'no-store',
+      signal: AbortSignal.timeout(5000),
+    })
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    return response.json()
+  }
   const store = createProfileDataStore({ dataRoot })
+
+  async function versions() {
+    let local
+    try {
+      local = JSON.parse(await readFile(path.join(sourceRoot, 'package.json'), 'utf8'))
+    } catch (error) {
+      if (error?.code === 'ENOENT') return { currentVersion: 'unknown', latestVersion: 'unknown', updateAvailable: true }
+      throw error
+    }
+    const remote = await fetchManifest()
+    const currentVersion = String(local?.version || '')
+    const latestVersion = String(remote?.version || '')
+    if (currentVersion === '' || latestVersion === '') throw new Error('版本信息不完整')
+    return { currentVersion, latestVersion, updateAvailable: compareVersions(latestVersion, currentVersion) > 0 }
+  }
 
   async function host() {
     if (runtimeHost === 'cli' || runtimeHost === 'desktop' || runtimeHost === 'android') return runtimeHost
@@ -61,6 +103,14 @@ export function createApplicationUpdater(options) {
         await store.writeJson(STATUS_FILE, interrupted)
         return interrupted
       }
+      if (current.phase === 'failed') {
+        const error = sanitizeUpdateError(current.error)
+        if (error !== current.error) {
+          const readable = { ...current, error }
+          await store.writeJson(STATUS_FILE, readable)
+          return readable
+        }
+      }
       return current
     }
     return { phase: 'idle', host: await host() }
@@ -72,7 +122,23 @@ export function createApplicationUpdater(options) {
       throw new Error('更新正在进行，请勿重复启动')
     }
     const installHost = await host()
-    const running = { phase: 'running', host: installHost, startedAt: now() }
+    let version
+    try {
+      version = await versions()
+    } catch (error) {
+      const failed = { phase: 'failed', host: installHost, failedAt: now(), error: `无法检查最新版，尚未开始下载：${sanitizeUpdateError(error?.message || error)}` }
+      await store.writeJson(STATUS_FILE, failed)
+      throw new Error(failed.error)
+    }
+    if (!version.updateAvailable) {
+      const upToDate = { phase: 'up-to-date', host: installHost, checkedAt: now(), currentVersion: version.currentVersion, latestVersion: version.latestVersion }
+      await store.writeJson(STATUS_FILE, upToDate)
+      return upToDate
+    }
+    const running = {
+      phase: 'running', host: installHost, startedAt: now(),
+      ...(version.currentVersion === 'unknown' ? {} : { currentVersion: version.currentVersion, latestVersion: version.latestVersion }),
+    }
     await store.writeJson(STATUS_FILE, running)
     const statusFile = path.join(dataRoot, STATUS_FILE)
     const updaterArgs = [

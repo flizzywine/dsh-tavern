@@ -1437,7 +1437,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			}
 			async function startUpdate() {
 				if (!window.confirm("更新期间会短暂断开，人物卡、资料和对话数据不会受到影响。\n确定更新到 GitHub 最新版吗？")) return;
-				setUpdateStatus({ phase: "running", host: updateStatus.host || "cli", startedAt: Date.now() });
+				setUpdateStatus({ phase: "checking", host: updateStatus.host || "cli", checkedAt: Date.now() });
 				try {
 					const result = await call("startUpdate");
 					if (result && result.status) setUpdateStatus(result.status);
@@ -1548,7 +1548,11 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					h("button", { className: "dsh-tavern-card-pick", disabled: busy, onClick: function () { newCardConversation(null); } }, h("b", null, "空白开始"), h("span", null, "不追加任务提示词，自由使用完整卡片 Agent"))
 				)
 			);
-			const updateMessage = updateStatus.phase === "running"
+			const updateMessage = updateStatus.phase === "checking"
+				? "正在比较本地版本与 GitHub 最新版本，不会下载或停止服务…"
+				: updateStatus.phase === "up-to-date"
+					? "已是最新版（" + (updateStatus.currentVersion || "当前版本") + "），无需下载。"
+				: updateStatus.phase === "running"
 				? "正在下载并安装，期间页面可能暂时断开… 如果较长时间仍未更新完成，建议重新安装一次；检测到 Git 时只会下载运行所需代码。"
 				: updateStatus.phase === "restart-required"
 					? "请重启 DSH Desktop 以加载新版插件。"
@@ -1573,7 +1577,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				h("div", { className: "dsh-tavern-side-list" }, rows.length ? rows : h("div", { className: "dsh-tavern-side-empty" }, uiMode === "play" ? "还没有游玩对话。\n选择人物卡开始；绑定剧本的卡会按剧本推进。" : "还没有卡片工作台对话。\n可以空白开始，再按需添加人物卡和剧本。")),
 				!picking && error ? h("div", { className: "dsh-tavern-dock-error", role: "alert" }, error) : null,
 				h("div", { className: "dsh-tavern-update" },
-					h("button", { className: "dsh-tavern-update-button", disabled: updateStatus.phase === "running" || updateStatus.phase === "loading" || updateStatus.phase === "restart-required", onClick: startUpdate }, updateStatus.phase === "running" ? "正在更新…" : (updateStatus.phase === "restart-required" ? "重启 Desktop 后可用" : "更新到最新版")),
+					h("button", { className: "dsh-tavern-update-button", disabled: updateStatus.phase === "checking" || updateStatus.phase === "running" || updateStatus.phase === "loading" || updateStatus.phase === "restart-required", onClick: startUpdate }, updateStatus.phase === "checking" ? "正在检查…" : (updateStatus.phase === "running" ? "正在更新…" : (updateStatus.phase === "restart-required" ? "重启 Desktop 后可用" : "更新到最新版"))),
 					h("div", { className: "dsh-tavern-update-status" + (updateStatus.phase === "failed" ? " error" : "") }, updateMessage)
 				),
 				picking ? h("div", { className: "dsh-tavern-picker-overlay", onMouseDown: function (event) { if (event.target === event.currentTarget) closePicker(); } }, uiMode === "play" ? playPicker : cardPicker) : null

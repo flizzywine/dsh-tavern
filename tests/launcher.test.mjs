@@ -9,10 +9,12 @@ import { parseDocument } from 'yaml'
 import {
   applySidebarDefaults,
   browserOpenCommand,
+  decodeUpdateOutput,
   encodeWindowsPowerShellScript,
   ensureSidebarDefaults,
   extractDshVersion,
   isPortOpen,
+  isServiceReady,
   needsFrontendBootstrap,
   parseInstallHost,
   parseUpdateOptions,
@@ -89,6 +91,11 @@ test('Windows update script carries a UTF-8 BOM for Windows PowerShell 5.1', () 
     assert.match(encoded, /System\.Text\.UTF8Encoding/)
     assert.equal(encoded.match(/Write-Host '模型设置'/g)?.length, 1)
   }
+})
+
+test('Windows 更新日志同时识别 UTF-8 与 UTF-16LE', () => {
+  assert.equal(decodeUpdateOutput(Buffer.from('更新失败', 'utf8')), '更新失败')
+  assert.equal(decodeUpdateOutput(Buffer.concat([Buffer.from([0xFF, 0xFE]), Buffer.from('更新失败', 'utf16le')])), '更新失败')
 })
 
 test('UI 更新参数明确传递宿主、状态文件和启动延迟', () => {
@@ -419,4 +426,10 @@ test('port probe distinguishes an open listener from a closed port', async () =>
   assert.equal(await isPortOpen(address.port), true)
   await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())))
   assert.equal(await isPortOpen(address.port), false)
+})
+
+test('Web 服务就绪检查要求 HTTP 成功响应', async () => {
+  assert.equal(await isServiceReady(3081, async () => ({ ok: true })), true)
+  assert.equal(await isServiceReady(3081, async () => ({ ok: false })), false)
+  assert.equal(await isServiceReady(3081, async () => { throw new Error('offline') }), false)
 })

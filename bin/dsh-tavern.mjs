@@ -342,6 +342,14 @@ export function encodeWindowsPowerShellScript(source) {
   return `\uFEFF${utf8Output}${source.replace(/^\uFEFF/, '')}`
 }
 
+export function decodeUpdateOutput(value) {
+  const buffer = Buffer.isBuffer(value) ? value : Buffer.from(value || '')
+  let text
+  if (buffer.length >= 2 && buffer[0] === 0xFF && buffer[1] === 0xFE) text = buffer.subarray(2).toString('utf16le')
+  else text = buffer.toString('utf8')
+  return text.replace(/^\uFEFF/, '').replaceAll('\u0000', '')
+}
+
 export function parseUpdateOptions(args) {
   let host = 'cli'
   let statusFile = ''
@@ -581,14 +589,24 @@ export function isPortOpen(port, host = '127.0.0.1', timeout = 300) {
   })
 }
 
+export async function isServiceReady(port, request = fetch) {
+  try {
+    const response = await request(`http://127.0.0.1:${port}/`, { signal: AbortSignal.timeout(1000) })
+    return response.ok
+  } catch {
+    return false
+  }
+}
+
 async function serviceState() {
   const port = CLI_PORT
   const record = readPidRecord()
   const pidAlive = Boolean(record && isProcessAlive(record.pid))
   const portOpen = await isPortOpen(port)
+  const ready = portOpen && await isServiceReady(port)
   if (record && !pidAlive) removePidRecord()
   const legacyRecord = !pidAlive && portOpen ? findLegacyService(port) : null
-  return { port, record: pidAlive ? record : legacyRecord, portOpen }
+  return { port, record: pidAlive ? record : legacyRecord, portOpen, ready }
 }
 
 function findLegacyService(port) {
@@ -608,11 +626,12 @@ function findLegacyService(port) {
 async function statusService() {
   verifyProfile()
   const state = await serviceState()
-  if (state.record && state.portOpen) {
+  if (state.record && state.ready) {
     console.log(`DSH Tavern 正在运行：PID ${state.record.pid}，http://127.0.0.1:${state.port}`)
     return
   }
   if (state.portOpen) {
+    if (state.record) throw new Error(`DSH Tavern 进程存在，但 Web 页面尚未就绪：PID ${state.record.pid}。请稍后重试。`)
     throw new Error(`端口 ${state.port} 已被未识别的进程占用，DSH Tavern 不会操作该进程。`)
   }
   if (state.record) {
@@ -668,7 +687,7 @@ async function startService() {
   verifyProfile()
   ensureSidebarDefaults()
   const state = await serviceState()
-  if (state.record && state.portOpen) {
+  if (state.record && state.ready) {
     console.log(`DSH Tavern 已经在运行：PID ${state.record.pid}。`)
     return
   }
@@ -703,7 +722,7 @@ async function startService() {
   writePidRecord(child.pid, state.port)
 
   for (let attempt = 0; attempt < 150; attempt += 1) {
-    if (await isPortOpen(state.port)) {
+    if (await isPortOpen(state.port) && await isServiceReady(state.port)) {
       console.log(`DSH Tavern 已启动：PID ${child.pid}，http://127.0.0.1:${state.port}`)
       console.log(`日志：${LOG_FILE}`)
       return { port: state.port, runtimeGeneration: `${child.pid}-${Date.now()}` }
@@ -761,7 +780,7 @@ export async function updateApplication(options = { host: 'cli', statusFile: '',
     }
     if (result.error) throw new Error(`无法运行更新程序：${result.error.message}`)
     if (result.status !== 0) {
-      const details = capture && existsSync(outputFile) ? readFileSync(outputFile, 'utf8').trim().split('\n').slice(-12).join('\n') : ''
+      const details = capture && existsSync(outputFile) ? decodeUpdateOutput(readFileSync(outputFile)).trim().split('\n').slice(-12).join('\n') : ''
       throw new Error(`更新失败${details ? `：${details}` : '，请查看上方错误信息。'}`)
     }
     if (temporary !== '' && existsSync(temporary)) unlinkSync(temporary)

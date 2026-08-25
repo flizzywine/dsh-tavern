@@ -4,7 +4,36 @@ import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 
-import { createApplicationUpdater } from '../tavern-plugin/lib/application-updater.js'
+import { createApplicationUpdater, sanitizeUpdateError } from '../tavern-plugin/lib/application-updater.js'
+
+test('版本相同时不下载、不停止服务', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-updater-version-'))
+  try {
+    const dataRoot = path.join(root, 'data')
+    await writeFile(path.join(root, 'package.json'), JSON.stringify({ version: '0.7.1' }))
+    let spawned = 0
+    const updater = createApplicationUpdater({
+      dataRoot,
+      sourceRoot: root,
+      runtimeHost: 'cli',
+      fetchManifest: async () => ({ version: '0.7.1' }),
+      spawnProcess() { spawned += 1 },
+      now: () => 123,
+    })
+
+    assert.deepEqual(await updater.start(), {
+      phase: 'up-to-date', host: 'cli', checkedAt: 123, currentVersion: '0.7.1', latestVersion: '0.7.1',
+    })
+    assert.equal(spawned, 0)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('乱码更新错误替换为可执行的重新安装提示', () => {
+  assert.equal(sanitizeUpdateError('�������� DSH Tavern����'), '更新失败：安装程序输出编码异常。建议重新安装一次。')
+  assert.equal(sanitizeUpdateError('服务启动失败'), '服务启动失败')
+})
 
 test('UI 更新沿用 Profile 中记录的 Desktop 宿主并脱离当前服务执行', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-updater-'))
