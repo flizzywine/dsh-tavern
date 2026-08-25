@@ -28,6 +28,7 @@ export function createApplicationUpdater(options) {
   const dshHome = path.resolve(options.dshHome || path.join(dataRoot, '../../..'))
   const profileManifest = path.join(dshHome, 'profiles', 'tavern', 'package.json')
   const execPath = options.execPath || process.execPath
+  const platform = options.platform || process.platform
   const runtimeHost = options.runtimeHost || process.env.DSH_TAVERN_RUNTIME_HOST
   const spawnProcess = options.spawnProcess || spawn
   const now = typeof options.now === 'function' ? options.now : Date.now
@@ -74,13 +75,16 @@ export function createApplicationUpdater(options) {
     const running = { phase: 'running', host: installHost, startedAt: now() }
     await store.writeJson(STATUS_FILE, running)
     const statusFile = path.join(dataRoot, STATUS_FILE)
-    const args = [
+    const updaterArgs = [
       path.join(sourceRoot, 'bin', 'dsh-tavern.mjs'),
       'update',
       '--host', installHost,
       '--status-file', statusFile,
       '--delay=800',
     ]
+    const args = platform === 'win32'
+      ? [path.join(sourceRoot, 'bin', 'dsh-tavern-update-helper.mjs'), execPath, ...updaterArgs]
+      : updaterArgs
     try {
       const child = spawnProcess(execPath, args, {
         cwd: sourceRoot,
@@ -99,7 +103,9 @@ export function createApplicationUpdater(options) {
       }
       child.unref()
       const childPid = Number(child.pid)
-      if (Number.isInteger(childPid) && childPid > 0) {
+      // On Windows this PID belongs to the short-lived double-detach helper.
+      // The real updater writes its own PID before beginning the delayed update.
+      if (platform !== 'win32' && Number.isInteger(childPid) && childPid > 0) {
         running.pid = childPid
         await store.writeJson(STATUS_FILE, running)
       }

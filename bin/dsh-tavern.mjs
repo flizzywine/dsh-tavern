@@ -338,7 +338,8 @@ export function renderWindowsLauncher(scriptPath) {
 }
 
 export function encodeWindowsPowerShellScript(source) {
-  return `\uFEFF${source.replace(/^\uFEFF/, '')}`
+  const utf8Output = "$OutputEncoding = [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)\r\n"
+  return `\uFEFF${utf8Output}${source.replace(/^\uFEFF/, '')}`
 }
 
 export function parseUpdateOptions(args) {
@@ -633,7 +634,7 @@ async function stopService() {
   }
 
   if (process.platform === 'win32') {
-    const result = spawnSync('taskkill', ['/PID', String(state.record.pid), '/T', '/F'], { stdio: 'ignore' })
+    const result = spawnSync('taskkill', ['/PID', String(state.record.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true })
     if (result.status !== 0 && isProcessAlive(state.record.pid)) {
       throw new Error(`无法停止 DSH Tavern 进程：PID ${state.record.pid}。`)
     }
@@ -741,8 +742,13 @@ export async function updateApplication(options = { host: 'cli', statusFile: '',
     const capture = options.statusFile !== ''
     const result = spawnSync(command, args, {
       encoding: capture ? 'utf8' : undefined,
-      env: { ...process.env, DSH_TAVERN_HOST: options.host, DSH_TAVERN_SOURCE_ROOT: SOURCE_ROOT },
+      env: {
+        ...process.env,
+        DSH_TAVERN_HOST: options.host,
+        DSH_TAVERN_SOURCE_ROOT: SOURCE_ROOT,
+      },
       stdio: capture ? 'pipe' : 'inherit',
+      windowsHide: true,
     })
     if (result.error) throw new Error(`无法运行更新程序：${result.error.message}`)
     if (result.status !== 0) {

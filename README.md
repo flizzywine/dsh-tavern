@@ -147,7 +147,7 @@ curl -fsSL https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@main/install.sh | D
 
 ### 命令行版
 
-适合希望通过浏览器访问、自己管理服务的用户。需要 Node.js 22.19 或更高版本。
+适合希望通过浏览器访问、自己管理服务的用户。需要 Node.js 22.19 或更高版本。建议安装 Git：安装器会建立持久化稀疏缓存，首次只获取运行文件，后续只拉取变化内容，不下载 `docs/`、文档图片、`demo/`、`references/` 和测试文件；没有 Git 时自动回退到完整 ZIP。
 
 #### Windows
 
@@ -165,7 +165,7 @@ irm https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@main/install.ps1 | iex
 curl -fsSL https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@main/install.sh | sh
 ```
 
-安装程序会自动安装依赖、启动 dsh-tavern，并打开 <http://127.0.0.1:3081>。
+安装程序会自动安装依赖、启动 dsh-tavern，并打开 <http://127.0.0.1:3081>。更新时优先使用 Git 增量同步；Git 不可用或同步失败时才下载完整 ZIP。
 
 首次使用时，在左侧栏底部打开 **设置 → 模型**，填写模型服务的 API 密钥。
 

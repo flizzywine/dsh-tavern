@@ -26,6 +26,7 @@ import {
 const windowsInstaller = await readFile(new URL('../install.ps1', import.meta.url), 'utf8')
 const unixInstaller = await readFile(new URL('../install.sh', import.meta.url), 'utf8')
 const launcherSource = await readFile(new URL('../bin/dsh-tavern.mjs', import.meta.url), 'utf8')
+const updateHelperSource = await readFile(new URL('../bin/dsh-tavern-update-helper.mjs', import.meta.url), 'utf8')
 const profilePatch = await readFile(new URL('../cordis.patch.yml', import.meta.url), 'utf8')
 const managedProfilePatch = await readFile(new URL('../tavern-plugin/cordis.patch.yml', import.meta.url), 'utf8')
 const profileConfigurationSource = await readFile(new URL('../bin/profile-configuration.mjs', import.meta.url), 'utf8')
@@ -82,8 +83,12 @@ test('从 CLI 输出识别 DSH 预发布版本', () => {
 })
 
 test('Windows update script carries a UTF-8 BOM for Windows PowerShell 5.1', () => {
-  assert.equal(encodeWindowsPowerShellScript("Write-Host '模型设置'"), "\uFEFFWrite-Host '模型设置'")
-  assert.equal(encodeWindowsPowerShellScript("\uFEFFWrite-Host '模型设置'"), "\uFEFFWrite-Host '模型设置'")
+  for (const source of ["Write-Host '模型设置'", "\uFEFFWrite-Host '模型设置'"]) {
+    const encoded = encodeWindowsPowerShellScript(source)
+    assert.ok(encoded.startsWith('\uFEFF'))
+    assert.match(encoded, /System\.Text\.UTF8Encoding/)
+    assert.equal(encoded.match(/Write-Host '模型设置'/g)?.length, 1)
+  }
 })
 
 test('UI 更新参数明确传递宿主、状态文件和启动延迟', () => {
@@ -175,6 +180,13 @@ test('更新器成功执行并清理临时脚本后写入 completed 终态', asy
   } finally {
     await rm(root, { recursive: true, force: true })
   }
+})
+
+test('Windows UI 更新隐藏 PowerShell 窗口并保持 UTF-8 输出', () => {
+  assert.match(launcherSource, /System\.Text\.UTF8Encoding/)
+  assert.match(launcherSource, /spawnSync\(command, args, \{[\s\S]*?windowsHide: true,/)
+  assert.match(updateHelperSource, /detached: true/)
+  assert.match(updateHelperSource, /windowsHide: true/)
 })
 
 test('Windows installer compares Node versions without native argument quoting', () => {
@@ -308,6 +320,36 @@ test('installers default to codeload archives while allowing an override', () =>
   assert.match(windowsInstaller, /https:\/\/codeload\.github\.com\/\$Repository\/zip\/refs\/heads\/main/)
   assert.match(unixInstaller, /DSH_TAVERN_ARCHIVE_URL/)
   assert.match(unixInstaller, /https:\/\/codeload\.github\.com\/\$\{REPOSITORY\}\/tar\.gz\/refs\/heads\/main/)
+})
+
+test('安装器优先使用持久化 Git 稀疏缓存，并保留完整 ZIP 回退', () => {
+  assert.match(windowsInstaller, /source-cache\\dsh-tavern\.git/)
+  assert.match(windowsInstaller, /clone --bare --filter=blob:none --depth 1/)
+  assert.match(windowsInstaller, /archive --format=zip/)
+  assert.match(windowsInstaller, /未检测到可用 Git，正在下载完整 ZIP/)
+  assert.match(unixInstaller, /source-cache\/dsh-tavern\.git/)
+  assert.match(unixInstaller, /clone --bare --filter=blob:none --depth 1/)
+  assert.match(unixInstaller, /archive --format=tar/)
+  assert.match(unixInstaller, /未检测到可用 Git，正在下载完整 ZIP/)
+
+  const windowsRuntimePaths = windowsInstaller.match(/\$RuntimePaths = @\(([\s\S]*?)\)/)?.[1] || ''
+  const unixRuntimePaths = unixInstaller.match(/RUNTIME_PATHS='([^']+)'/)?.[1] || ''
+  for (const paths of [windowsRuntimePaths, unixRuntimePaths]) {
+    assert.match(paths, /tavern-plugin/)
+    assert.doesNotMatch(paths, /docs|demo|references|tests|\.github/)
+  }
+})
+
+test('一键更新在依赖检查前复用 Tavern 托管运行时', () => {
+  const windowsRuntimePath = windowsInstaller.indexOf('$env:Path = "$RuntimeRoot;$env:Path"')
+  const windowsDependencyCheck = windowsInstaller.indexOf('$MissingPackages = @()')
+  assert.ok(windowsRuntimePath >= 0)
+  assert.ok(windowsRuntimePath < windowsDependencyCheck)
+
+  const unixRuntimePath = unixInstaller.indexOf('PATH=${RUNTIME_BIN}:${PATH}')
+  const unixDependencyCheck = unixInstaller.indexOf('  set --')
+  assert.ok(unixRuntimePath >= 0)
+  assert.ok(unixRuntimePath < unixDependencyCheck)
 })
 
 test('Desktop 安装复用内置运行时，不启动独立 3081 服务', () => {

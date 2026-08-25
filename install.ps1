@@ -4,12 +4,26 @@ $InstallHost = if ($env:DSH_TAVERN_HOST) { $env:DSH_TAVERN_HOST } else { 'cli' }
 if ($InstallHost -notin @('cli', 'desktop')) { throw "不支持的安装宿主：$InstallHost" }
 
 $Repository = if ($env:DSH_TAVERN_REPOSITORY) { $env:DSH_TAVERN_REPOSITORY } else { 'flizzywine/dsh-tavern' }
+$RepositoryUrl = if ($env:DSH_TAVERN_GIT_URL) { $env:DSH_TAVERN_GIT_URL } else { "https://github.com/$Repository.git" }
 $ArchiveUrl = if ($env:DSH_TAVERN_ARCHIVE_URL) { $env:DSH_TAVERN_ARCHIVE_URL } else { "https://codeload.github.com/$Repository/zip/refs/heads/main" }
 $DshRoot = if ($env:DSH_HOME) { $env:DSH_HOME } else { Join-Path ([Environment]::GetFolderPath('UserProfile')) '.dsh' }
 $AppDir = if ($env:DSH_TAVERN_APP_DIR) { $env:DSH_TAVERN_APP_DIR } else { Join-Path $DshRoot 'apps\dsh-tavern' }
 $RuntimeRoot = Join-Path $DshRoot 'runtime'
 $CommandBin = Join-Path $DshRoot 'bin'
+$SourceCache = Join-Path $DshRoot 'source-cache\dsh-tavern.git'
 $TempDir = Join-Path ([IO.Path]::GetTempPath()) ("dsh-tavern-install-" + [Guid]::NewGuid().ToString('N'))
+$RuntimePaths = @(
+  'package.json',
+  'pnpm-lock.yaml',
+  'pnpm-workspace.yaml',
+  'cordis.patch.yml',
+  'install.ps1',
+  'install.sh',
+  'bin',
+  'config',
+  'presets',
+  'tavern-plugin'
+)
 
 function Test-Command([string]$Name) {
   return $null -ne (Get-Command $Name -ErrorAction SilentlyContinue)
@@ -38,9 +52,14 @@ try {
   if ($NodeVersion -lt [version]'22.19.0') {
     throw "Node.js 版本过低，需要 22.19 或更高版本（当前：$NodeVersionText）。"
   }
+  $GitCommand = Resolve-Command 'git'
   $NpmCommand = Resolve-Command 'npm'
   if ($InstallHost -eq 'cli' -and $null -eq $NpmCommand) { throw '未找到 npm，请重新安装 Node.js。' }
 
+  # UI updates start in a fresh process that may not inherit the install-time PATH.
+  # Prefer the DSH/pnpm shims already installed in Tavern's managed runtime before
+  # deciding that either package is missing and downloading it again.
+  $env:Path = "$RuntimeRoot;$env:Path"
   $MissingPackages = @()
   if ($InstallHost -eq 'cli' -and -not (Test-Command 'pnpm')) { $MissingPackages += 'pnpm' }
   $DshCommand = Resolve-Command 'dsh'
@@ -52,7 +71,6 @@ try {
     New-Item -ItemType Directory -Force -Path $RuntimeRoot | Out-Null
     & $NpmCommand install --global --prefix $RuntimeRoot @MissingPackages
     Assert-LastCommand 'pnpm 或 DeepSeek Harness 安装失败。'
-    $env:Path = "$RuntimeRoot;$env:Path"
   }
   $PnpmCommand = Resolve-Command 'pnpm'
   if ($null -eq $PnpmCommand) { throw '未找到 pnpm。Desktop 版请从 DSH Desktop 托盘打开 DSH Terminal 后运行本命令。' }
@@ -73,21 +91,57 @@ try {
   New-Item -ItemType Directory -Force -Path $TempDir | Out-Null
   $ArchivePath = Join-Path $TempDir 'app.zip'
   $ExtractDir = Join-Path $TempDir 'extract'
-  Write-Host '正在下载 DSH Tavern……'
-  for ($Attempt = 1; $Attempt -le 3; $Attempt++) {
+  $UsedGit = $false
+  if ($null -ne $GitCommand) {
     try {
-      Invoke-WebRequest -UseBasicParsing -Uri $ArchiveUrl -OutFile $ArchivePath
-      break
+      Write-Host '正在通过 Git 增量同步 DSH Tavern（不下载文档与图片）……'
+      New-Item -ItemType Directory -Force -Path (Split-Path $SourceCache -Parent) | Out-Null
+      if (-not (Test-Path (Join-Path $SourceCache 'HEAD'))) {
+        & $GitCommand clone --bare --filter=blob:none --depth 1 --single-branch --branch main $RepositoryUrl $SourceCache
+        Assert-LastCommand 'DSH Tavern Git 缓存初始化失败。'
+      }
+      & $GitCommand --git-dir=$SourceCache remote set-url origin $RepositoryUrl
+      Assert-LastCommand 'DSH Tavern Git 远程地址配置失败。'
+      & $GitCommand --git-dir=$SourceCache fetch --depth 1 origin main
+      Assert-LastCommand 'DSH Tavern 增量更新失败。'
+      & $GitCommand --git-dir=$SourceCache archive --format=zip "--output=$ArchivePath" FETCH_HEAD -- @RuntimePaths
+      Assert-LastCommand 'DSH Tavern 精简运行包生成失败。'
+      $UsedGit = $true
     }
     catch {
-      if ($Attempt -eq 3) { throw }
-      Write-Host "下载失败，正在重试（$Attempt/3）……"
-      Start-Sleep -Seconds 2
+      Write-Warning ("Git 增量更新不可用，将回退到完整 ZIP：" + $_.Exception.Message)
     }
   }
+  if (-not $UsedGit) {
+    Write-Host '未检测到可用 Git，正在下载完整 ZIP……'
+    $PreviousProgressPreference = $ProgressPreference
+    $ProgressPreference = 'SilentlyContinue'
+    try {
+      for ($Attempt = 1; $Attempt -le 3; $Attempt++) {
+        try {
+          Invoke-WebRequest -UseBasicParsing -Uri $ArchiveUrl -OutFile $ArchivePath
+          break
+        }
+        catch {
+          if ($Attempt -eq 3) { throw }
+          Write-Host "下载失败，正在重试（$Attempt/3）……"
+          Start-Sleep -Seconds 2
+        }
+      }
+    }
+    finally {
+      $ProgressPreference = $PreviousProgressPreference
+    }
+  }
+  New-Item -ItemType Directory -Force -Path $ExtractDir | Out-Null
   Expand-Archive -LiteralPath $ArchivePath -DestinationPath $ExtractDir -Force
-  $SourceDir = Get-ChildItem -LiteralPath $ExtractDir -Directory | Select-Object -First 1
-  if ($null -eq $SourceDir -or -not (Test-Path (Join-Path $SourceDir.FullName 'package.json'))) {
+  $SourceDir = if ($UsedGit) {
+    Get-Item -LiteralPath $ExtractDir
+  } else {
+    Get-ChildItem -LiteralPath $ExtractDir -Directory | Select-Object -First 1
+  }
+  if ($null -eq $SourceDir) { throw '下载内容不完整。' }
+  if (-not (Test-Path (Join-Path $SourceDir.FullName 'package.json'))) {
     throw '下载内容不完整。'
   }
 

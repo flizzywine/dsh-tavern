@@ -9,12 +9,15 @@ case ${INSTALL_HOST} in
 esac
 
 REPOSITORY=${DSH_TAVERN_REPOSITORY:-flizzywine/dsh-tavern}
+REPOSITORY_URL=${DSH_TAVERN_GIT_URL:-https://github.com/${REPOSITORY}.git}
 ARCHIVE_URL=${DSH_TAVERN_ARCHIVE_URL:-https://codeload.github.com/${REPOSITORY}/tar.gz/refs/heads/main}
 DSH_ROOT=${DSH_HOME:-${HOME}/.dsh}
 APP_DIR=${DSH_TAVERN_APP_DIR:-${DSH_ROOT}/apps/dsh-tavern}
 RUNTIME_ROOT=${DSH_ROOT}/runtime
 RUNTIME_BIN=${RUNTIME_ROOT}/bin
 COMMAND_BIN=${HOME}/.local/bin
+SOURCE_CACHE=${DSH_ROOT}/source-cache/dsh-tavern.git
+RUNTIME_PATHS='package.json pnpm-lock.yaml pnpm-workspace.yaml cordis.patch.yml install.ps1 install.sh bin config presets tavern-plugin'
 TMP_BASE=${TMPDIR:-/tmp}
 TMP_BASE=${TMP_BASE%/}
 TEMP_DIR=$(mktemp -d "${TMP_BASE}/dsh-tavern-install.XXXXXX")
@@ -45,6 +48,11 @@ if [ "${INSTALL_HOST}" = "cli" ] && ! command -v npm >/dev/null 2>&1; then
   fail "未找到 npm，请重新安装 Node.js。"
 fi
 
+# UI updates start in a fresh process that may not inherit the install-time PATH.
+# Reuse pnpm and DSH from Tavern's managed runtime before treating them as missing.
+PATH=${RUNTIME_BIN}:${PATH}
+export PATH
+
 if [ "${INSTALL_HOST}" = "cli" ]; then
   set --
   if ! command -v pnpm >/dev/null 2>&1; then set -- "$@" pnpm; fi
@@ -55,8 +63,6 @@ if [ "${INSTALL_HOST}" = "cli" ]; then
     echo "正在安装或升级：$*……"
     mkdir -p "${RUNTIME_ROOT}"
     npm install --global --prefix "${RUNTIME_ROOT}" "$@"
-    PATH=${RUNTIME_BIN}:${PATH}
-    export PATH
   fi
 fi
 
@@ -68,15 +74,38 @@ if [ "${INSTALL_HOST}" = "cli" ]; then
   export DSH_TAVERN_BIN_DIR
 fi
 
-command -v curl >/dev/null 2>&1 || fail "未找到 curl。"
 command -v tar >/dev/null 2>&1 || fail "未找到 tar。"
 
-echo "正在下载 DSH Tavern……"
-curl -fL --retry 3 --connect-timeout 15 "${ARCHIVE_URL}" -o "${TEMP_DIR}/app.tar.gz"
+echo "正在增量同步 DSH Tavern……"
+USED_GIT=0
+if command -v git >/dev/null 2>&1; then
+  echo "正在通过 Git 增量同步（不下载文档与图片）……"
+  mkdir -p "$(dirname -- "${SOURCE_CACHE}")"
+  if { [ -f "${SOURCE_CACHE}/HEAD" ] || git clone --bare --filter=blob:none --depth 1 --single-branch --branch main "${REPOSITORY_URL}" "${SOURCE_CACHE}"; } \
+    && git --git-dir="${SOURCE_CACHE}" remote set-url origin "${REPOSITORY_URL}" \
+    && git --git-dir="${SOURCE_CACHE}" fetch --depth 1 origin main \
+    && git --git-dir="${SOURCE_CACHE}" archive --format=tar --output="${TEMP_DIR}/app.tar" FETCH_HEAD -- ${RUNTIME_PATHS}; then
+    USED_GIT=1
+  else
+    echo "Git 增量更新不可用，将回退到完整 ZIP。" >&2
+  fi
+fi
+
+if [ "${USED_GIT}" -eq 0 ]; then
+  command -v curl >/dev/null 2>&1 || fail "Git 不可用且未找到 curl，无法下载完整 ZIP。"
+  echo "未检测到可用 Git，正在下载完整 ZIP……"
+  curl -fL --retry 3 --connect-timeout 15 "${ARCHIVE_URL}" -o "${TEMP_DIR}/app.tar.gz"
+fi
 mkdir -p "${TEMP_DIR}/extract"
-tar -xzf "${TEMP_DIR}/app.tar.gz" -C "${TEMP_DIR}/extract"
-SOURCE_DIR=$(find "${TEMP_DIR}/extract" -mindepth 1 -maxdepth 1 -type d | head -n 1)
-[ -n "${SOURCE_DIR}" ] && [ -f "${SOURCE_DIR}/package.json" ] || fail "下载内容不完整。"
+if [ "${USED_GIT}" -eq 1 ]; then
+  tar -xf "${TEMP_DIR}/app.tar" -C "${TEMP_DIR}/extract"
+  SOURCE_DIR=${TEMP_DIR}/extract
+else
+  tar -xzf "${TEMP_DIR}/app.tar.gz" -C "${TEMP_DIR}/extract"
+  SOURCE_DIR=$(find "${TEMP_DIR}/extract" -mindepth 1 -maxdepth 1 -type d | head -n 1)
+fi
+[ -n "${SOURCE_DIR}" ] || fail "下载内容不完整。"
+[ -f "${SOURCE_DIR}/package.json" ] || fail "下载内容不完整。"
 
 if [ "${INSTALL_HOST}" = "cli" ] && [ -f "${APP_DIR}/bin/dsh-tavern.mjs" ]; then
   DSH_HOME=${DSH_ROOT} node "${APP_DIR}/bin/dsh-tavern.mjs" stop >/dev/null 2>&1 || true

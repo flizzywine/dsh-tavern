@@ -20,6 +20,7 @@ test('UI 更新沿用 Profile 中记录的 Desktop 宿主并脱离当前服务�
       sourceRoot: '/app/dsh-tavern',
       dshHome: root,
       execPath: '/runtime/node',
+      platform: 'linux',
       spawnProcess(command, args, options) { calls.push({ command, args, options }); return child },
       now: () => 123,
     })
@@ -28,7 +29,7 @@ test('UI 更新沿用 Profile 中记录的 Desktop 宿主并脱离当前服务�
     assert.deepEqual(await updater.start(), { phase: 'running', host: 'desktop', startedAt: 123, pid: 4321 })
     assert.equal(calls.length, 1)
     assert.equal(calls[0].command, '/runtime/node')
-    assert.deepEqual(calls[0].args.slice(0, 4), ['/app/dsh-tavern/bin/dsh-tavern.mjs', 'update', '--host', 'desktop'])
+    assert.deepEqual(calls[0].args.slice(0, 4), [path.join(path.resolve('/app/dsh-tavern'), 'bin', 'dsh-tavern.mjs'), 'update', '--host', 'desktop'])
     assert.ok(calls[0].args.includes('--status-file'))
     assert.ok(calls[0].args.includes('--delay=800'))
     assert.equal(calls[0].options.detached, true)
@@ -161,6 +162,7 @@ test('Android 安装记录让 UI 更新任务沿用 Android 宿主', async () =>
       sourceRoot: '/storage/emulated/0/dsh-tavern',
       dshHome: root,
       execPath: '/runtime/node',
+      platform: 'linux',
       spawnProcess(command, args) { calls.push({ command, args }); return child },
       now: () => 456,
     })
@@ -168,8 +170,34 @@ test('Android 安装记录让 UI 更新任务沿用 Android 宿主', async () =>
     assert.deepEqual(await updater.status(), { phase: 'idle', host: 'android' })
     assert.deepEqual(await updater.start(), { phase: 'running', host: 'android', startedAt: 456 })
     assert.deepEqual(calls[0].args.slice(0, 4), [
-      '/storage/emulated/0/dsh-tavern/bin/dsh-tavern.mjs', 'update', '--host', 'android',
+      path.join(path.resolve('/storage/emulated/0/dsh-tavern'), 'bin', 'dsh-tavern.mjs'), 'update', '--host', 'android',
     ])
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('Windows UI 更新通过短生命周期 helper 与服务进程树脱钩', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-updater-'))
+  try {
+    const calls = []
+    const child = { pid: 4321, once(event, listener) { if (event === 'spawn') queueMicrotask(listener); return this }, unref() {} }
+    const updater = createApplicationUpdater({
+      dataRoot: path.join(root, 'profile-data/tavern/data'),
+      sourceRoot: 'C:\\app\\dsh-tavern',
+      dshHome: root,
+      execPath: 'C:\\runtime\\node.exe',
+      platform: 'win32',
+      spawnProcess(command, args, options) { calls.push({ command, args, options }); return child },
+      now: () => 789,
+    })
+
+    assert.deepEqual(await updater.start(), { phase: 'running', host: 'cli', startedAt: 789 })
+    assert.equal(calls[0].command, 'C:\\runtime\\node.exe')
+    assert.match(calls[0].args[0], /bin[\\/]dsh-tavern-update-helper\.mjs$/)
+    assert.equal(calls[0].args[1], 'C:\\runtime\\node.exe')
+    assert.ok(calls[0].args.includes('--status-file'))
+    assert.equal(calls[0].options.windowsHide, true)
   } finally {
     await rm(root, { recursive: true, force: true })
   }
