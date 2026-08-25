@@ -2,7 +2,7 @@ export async function waitForAgentSession(options) {
   const registry = options.registry
   const sessionId = options.sessionId
   const sleep = options.sleep
-  const attempts = Number.isInteger(options.attempts) && options.attempts > 0 ? options.attempts : 81
+  const attempts = Number.isInteger(options.attempts) && options.attempts > 0 ? options.attempts : 321
   const intervalMs = Number.isFinite(options.intervalMs) && options.intervalMs >= 0 ? options.intervalMs : 25
 
   for (let attempt = 0; attempt < attempts; attempt += 1) {
