@@ -2484,11 +2484,11 @@ export async function apply(ctx) {
 
     tools.register(defineTool({
       name: 'tavern_read_play_chat',
-      description: '在卡片工作台中只读查看已挂载的整场游玩记录。引用时选中的轮次只是初始焦点；可查看整场对话、任意轮次三层文本、Tavern 状态、前后台 Agent Session log、正则诊断和 iframe 实际运行证据。',
+      description: '在卡片工作台中渐进读取已挂载的游玩诊断。默认从最新一轮的小型 overview 开始；需要时可列出轮次、读取任意轮次或整场对话，并按层、分页获取文本、状态、日志、正则诊断和 iframe 证据。',
       parameters: {
         ref: { type: 'string', description: '已挂载游玩记录引用，例如 play-chat:chat-xxx；只有一个引用时可省略' },
-        turn: { type: 'integer', description: '要读取的游玩轮次；省略时读取引用时选中的轮次' },
-        layer: { type: 'string', enum: ['overview', 'conversation', 'source', 'session', 'display', 'saved-display', 'diagnostics', 'tavern', 'foreground', 'background', 'iframe'], description: '读取层：概览、整场 Session 对话、模型原文、Session 文本、当前实时展示、保存时展示快照、当前正则诊断、Tavern 状态、前台 Agent、后台 Agent 或 iframe 运行证据；默认 overview' },
+        turn: { type: 'integer', description: '要读取的游玩轮次；省略时使用最新一轮' },
+        layer: { type: 'string', enum: ['overview', 'turns', 'conversation', 'input', 'source', 'session', 'display', 'saved-display', 'diagnostics', 'tavern', 'foreground', 'background', 'iframe'], description: '读取层：小型概览、轮次目录、整场对话、本轮玩家输入、模型原文、Session 文本、当前实时展示、保存时展示快照、当前正则诊断、Tavern 状态、前台 Agent、后台 Agent 或 iframe 运行证据；默认 overview' },
         offset: { type: 'integer', description: '可选的 1 起始字符位置，默认 1' },
         limit: { type: 'integer', description: '本次最多读取字符数，默认 6000，最大 12000' }
       },

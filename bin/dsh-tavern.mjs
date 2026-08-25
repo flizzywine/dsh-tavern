@@ -730,7 +730,7 @@ export async function updateApplication(options = { host: 'cli', statusFile: '',
     if (!existsSync(installer)) throw new Error(`当前安装缺少更新程序：${installer}`)
     const extension = path.extname(installer).slice(1) || 'sh'
     temporary = path.join(os.tmpdir(), `dsh-tavern-update-${process.pid}.${extension}`)
-    if (program.command === 'powershell.exe') {
+    if (path.extname(installer).toLowerCase() === '.ps1') {
       writeFileSync(temporary, encodeWindowsPowerShellScript(readFileSync(installer, 'utf8')), 'utf8')
     } else {
       copyFileSync(installer, temporary)
@@ -763,14 +763,41 @@ export async function updateApplication(options = { host: 'cli', statusFile: '',
   }
 }
 
-export function resolveUpdateProgram(host, platform = process.platform, sourceRoot = SOURCE_ROOT) {
+function resolveWindowsPowerShell(options = {}) {
+  const environment = options.env || process.env
+  const fileExists = options.fileExists || existsSync
+  const commandAvailable = options.commandAvailable || commandExists
+  const windowsRoots = [
+    environment.SystemRoot,
+    environment.SYSTEMROOT,
+    environment.WINDIR,
+    environment.windir,
+  ].filter(Boolean)
+
+  for (const windowsRoot of new Set(windowsRoots)) {
+    const candidate = path.win32.join(windowsRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
+    if (fileExists(candidate)) return candidate
+  }
+  if (commandAvailable('powershell.exe')) return 'powershell.exe'
+  if (commandAvailable('pwsh.exe')) return 'pwsh.exe'
+  return ''
+}
+
+export function resolveUpdateProgram(host, platform = process.platform, sourceRoot = SOURCE_ROOT, options = {}) {
   if (host === 'android') {
     const script = path.join(sourceRoot, 'android', 'update.sh')
     return { script, command: 'bash', args: [script] }
   }
   if (platform === 'win32') {
     const script = path.join(sourceRoot, 'install.ps1')
-    return { script, command: 'powershell.exe', args: ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script] }
+    const command = resolveWindowsPowerShell(options)
+    if (command === '') {
+      const hostPrefix = host === 'desktop' ? "$env:DSH_TAVERN_HOST='desktop'; " : ''
+      throw new Error(
+        `找不到 Windows PowerShell 或 PowerShell 7。请在当前 PowerShell 中运行：${hostPrefix}irm https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@main/install.ps1 | iex`,
+      )
+    }
+    return { script, command, args: ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script] }
   }
   const script = path.join(sourceRoot, 'install.sh')
   return { script, command: 'sh', args: [script] }

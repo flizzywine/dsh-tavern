@@ -40,9 +40,10 @@ test('游玩回复可只读交给同人物卡的卡片 Agent 调试', () => {
 	const sidebar = between(clientSource, 'function TavernSidebar', 'function TavernResourcesTab')
 
 	assert.doesNotMatch(renderer, /交给卡片 Agent 调试|dsh-tavern-assistant-debug/)
-	assert.match(status, /人物卡调试/)
-	assert.match(status, /openPlayChatDebugWorkspace\(props\.sessionId, debugTurn\)/)
-	assert.match(status, /第 " \+ item\.turn \+ " 轮/)
+	assert.match(status, /感觉内容有问题？/)
+	assert.match(status, /openPlayChatDebugWorkspace\(props\.sessionId, latestDebugTurn\)/)
+	assert.match(status, /交给卡片 Agent 调试/)
+	assert.doesNotMatch(status, /selectedDebugTurn|setDebugTurn|第 " \+ item\.turn \+ " 轮/)
 	assert.match(clientSource, /dsh-tavern-debug-play-chat/)
 	assert.match(sidebar, /getPlayChatDebugTarget/)
 	assert.match(sidebar, /attachPlayChatDebug/)

@@ -106,7 +106,8 @@ export function createPlayChatDebugReference(editorChat, sourceChat, requestedTu
   if (!editorChat || str(editorChat.mode) !== 'card') throw new Error('游玩记录只能挂载到卡片工作台')
   if (!sourceChat || !playMode(sourceChat)) throw new Error('只能引用游玩模式对话')
   if (str(editorChat.cardPath) === '' || str(editorChat.cardPath) !== str(sourceChat.cardPath)) throw new Error('游玩记录与当前人物卡不一致')
-  const turn = Math.max(1, Number(requestedTurn) || latestAssistantTurn(sourceChat))
+  const turn = latestAssistantTurn(sourceChat)
+  if (turn < 1) throw new Error('游玩记录还没有可调试的模型回复')
   if (messageForTurn(sourceChat, turn) === null) throw new Error('游玩记录中不存在第 ' + turn + ' 轮回复')
   return {
     kind: 'play-chat',
@@ -130,11 +131,13 @@ export function readPlayChatDebugTurn(editorChat, sourceChat, reference, request
   const found = messageForTurn(sourceChat, turn)
   if (found === null) throw new Error('游玩记录中不存在第 ' + turn + ' 轮回复')
   const message = found.message
-  const layers = ['overview', 'conversation', 'source', 'session', 'display', 'saved-display', 'diagnostics', 'tavern', 'foreground', 'background', 'iframe']
+  const layers = ['overview', 'turns', 'conversation', 'input', 'source', 'session', 'display', 'saved-display', 'diagnostics', 'tavern', 'foreground', 'background', 'iframe']
   const layer = layers.includes(request.layer) ? request.layer : 'overview'
   const projected = typeof currentProjection === 'function' ? currentProjection(message) : currentProjection
   let text = ''
-  if (layer === 'conversation') text = conversationText(sourceChat)
+  if (layer === 'turns') text = '【可用游玩轮次】\n' + availableTurns(sourceChat).map(function (item) { return '第 ' + item + ' 轮' }).join('\n')
+  else if (layer === 'conversation') text = conversationText(sourceChat)
+  else if (layer === 'input') text = found.userText || '（开场轮，无玩家输入）'
   else if (layer === 'source') text = str(message.sourceText) || str(message.text)
   else if (layer === 'session') text = str(message.text)
   else if (layer === 'display') text = projected && Object.prototype.hasOwnProperty.call(projected, 'displayText') ? str(projected.displayText) : (str(message.displayText) || str(message.text))
@@ -164,14 +167,13 @@ export function readPlayChatDebugTurn(editorChat, sourceChat, reference, request
     ].join('\n')
   } else {
     text = [
-      '【整场游玩记录】初始焦点：第 ' + turn + ' 轮；可用轮次：第 ' + availableTurns(sourceChat).join('、') + ' 轮',
-      '可读层：conversation / source / session / display / saved-display / diagnostics / tavern / foreground / background / iframe',
-      '前台 Session：' + str(sourceChat.sessionId) + '；后台 Session：' + str(sourceChat.timeline && sourceChat.timeline.participants && sourceChat.timeline.participants.background && sourceChat.timeline.participants.background.sessionId || sourceChat.candidateAgent && sourceChat.candidateAgent.sessionId),
-      '玩家输入：\n' + (found.userText || '（开场轮，无玩家输入）'),
+      '【最新一轮游玩诊断】第 ' + turn + ' 轮',
+      '可按需读取：turns / conversation / input / source / session / display / saved-display / diagnostics / tavern / foreground / background / iframe',
       '模型原文：' + (str(message.sourceText) || str(message.text)).length + ' 字',
       'Session 文本：' + str(message.text).length + ' 字',
       '已保存展示文本：' + (str(message.displayText) || str(message.text)).length + ' 字',
-      '历史警告：' + JSON.stringify(Array.isArray(message.projectionWarnings) ? message.projectionWarnings : [])
+      '展示警告数：' + (Array.isArray(message.projectionWarnings) ? message.projectionWarnings.length : 0),
+      '最新一轮只是默认入口，不是读取边界。请只读取判断当前问题所需的层，不要一次展开全部内容。'
     ].join('\n\n')
   }
 

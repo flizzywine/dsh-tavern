@@ -111,6 +111,36 @@ test('Android UI 更新选择专用更新脚本，CLI 与 Desktop 保持原安�
   })
 })
 
+test('Windows 更新在 PATH 缺少 PowerShell 时优先使用系统绝对路径', () => {
+  const systemPowerShell = 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe'
+  const program = resolveUpdateProgram('desktop', 'win32', 'C:\\app\\dsh-tavern', {
+    env: { SystemRoot: 'C:\\Windows' },
+    fileExists: (candidate) => candidate === systemPowerShell,
+    commandAvailable: () => false,
+  })
+
+  assert.equal(program.command, systemPowerShell)
+  assert.deepEqual(program.args.slice(0, 4), ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File'])
+})
+
+test('Windows 更新在 Windows PowerShell 不可用时回退到 PowerShell 7', () => {
+  const program = resolveUpdateProgram('cli', 'win32', 'C:\\app\\dsh-tavern', {
+    env: {},
+    fileExists: () => false,
+    commandAvailable: (candidate) => candidate === 'pwsh.exe',
+  })
+
+  assert.equal(program.command, 'pwsh.exe')
+})
+
+test('Windows 更新找不到任何 PowerShell 时给出手动恢复命令', () => {
+  assert.throws(() => resolveUpdateProgram('desktop', 'win32', 'C:\\app\\dsh-tavern', {
+    env: {},
+    fileExists: () => false,
+    commandAvailable: () => false,
+  }), /cdn\.jsdelivr\.net\/gh\/flizzywine\/dsh-tavern@main\/install\.ps1/)
+})
+
 test('更新器在选择安装器后的任一步骤失败时写入 failed 终态', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'dsh-tavern-update-runner-'))
   try {

@@ -2620,7 +2620,6 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const [guideDraft, setGuideDraft] = React.useState("");
 			const [guideBusy, setGuideBusy] = React.useState(false);
 			const [guideError, setGuideError] = usePersistentError("Guide");
-			const [debugTurn, setDebugTurn] = React.useState(0);
 			const [debugBusy, setDebugBusy] = React.useState(false);
 			const stateKey = props.useSession(function (snapshot) {
 				const nodes = snapshot.nodes || [];
@@ -2634,17 +2633,14 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const view = liveState.view;
 			const loadState = liveState.phase;
 			const debugTurns = view && Array.isArray(view.debugTurns) ? view.debugTurns : [];
+			const latestDebugTurn = Number(debugTurns[0] && debugTurns[0].turn) || 0;
 			React.useEffect(function () {
 				setError(liveState.error || "");
 			}, [liveState.error]);
-			React.useEffect(function () {
-				if (!debugTurns.length) { setDebugTurn(0); return; }
-				if (!debugTurns.some(function (item) { return Number(item.turn) === Number(debugTurn); })) setDebugTurn(Number(debugTurns[0].turn));
-			}, [props.sessionId, debugTurns.map(function (item) { return item.turn; }).join(",")]);
 			async function openDebugger() {
-				if (!debugTurn || debugBusy) return;
+				if (!latestDebugTurn || debugBusy) return;
 				setDebugBusy(true);
-				try { await openPlayChatDebugWorkspace(props.sessionId, debugTurn); }
+				try { await openPlayChatDebugWorkspace(props.sessionId, latestDebugTurn); }
 				catch (error) { tavernErrorHub.report("交给卡片 Agent 调试", error); }
 				finally { setDebugBusy(false); }
 			}
@@ -2677,7 +2673,6 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			);
 			if (view.mode === "card") return null;
 			const statusText = view.settleStatus === "running" ? "正在执行后台结算" : (view.settleStatus === "error" ? "后台结算失败" : "后台结算已完成");
-			const selectedDebugTurn = debugTurns.find(function (item) { return Number(item.turn) === Number(debugTurn); }) || null;
 			return h("aside", { className: "dsh-tavern-status" },
 				h("div", { className: "dsh-tavern-status-head" },
 					h("div", { className: "dsh-tavern-status-title" }, "酒馆状态"),
@@ -2691,12 +2686,10 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 						return h("div", { className: "dsh-card-error", key: "presentation-warning-" + index }, warning);
 					}),
 					h("section", { className: "dsh-tavern-status-section" },
-						h("div", { className: "dsh-tavern-status-label" }, "人物卡调试"),
-						debugTurns.length ? h("div", { className: "dsh-tavern-debug-panel" },
-							h("select", { value: String(debugTurn), onChange: function (event) { setDebugTurn(Number(event.target.value)); } }, debugTurns.map(function (item) { return h("option", { key: item.turn, value: String(item.turn) }, "第 " + item.turn + " 轮 · " + item.chars + " 字"); })),
-							selectedDebugTurn ? h("div", { className: "dsh-tavern-debug-preview" }, selectedDebugTurn.preview || "（空回复）") : null,
-							h("button", { className: "dsh-tavern-debug-open", disabled: debugBusy || !debugTurn, onClick: openDebugger }, debugBusy ? "正在打开卡片 Agent…" : "交给卡片 Agent 调试")
-						) : h("div", { className: "dsh-tavern-status-empty" }, "暂无可调试的游玩回复。")
+						h("div", { className: "dsh-tavern-status-label" }, "感觉内容有问题？"),
+						h("div", { className: "dsh-tavern-debug-panel" },
+							h("button", { className: "dsh-tavern-debug-open", disabled: debugBusy || !latestDebugTurn, onClick: openDebugger }, debugBusy ? "正在打开卡片 Agent…" : "交给卡片 Agent 调试")
+						)
 					),
 					view.mode === "script" && view.scriptProgress ? h("section", { className: "dsh-tavern-status-section" },
 						h("div", { className: "dsh-tavern-status-label" }, "剧本进度"),

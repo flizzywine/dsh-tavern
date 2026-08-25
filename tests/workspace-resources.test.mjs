@@ -51,7 +51,7 @@ test('普通路径与 DSH Session 引用都不是 Tavern 资源', () => {
   assert.deepEqual(mentionedTavernResources('@"notes/a.md" @[研究对话](dsh-session:abc-123) 请继续'), [])
 })
 
-test('人物卡任务提示不会删除已挂载的整场游玩诊断引用', () => {
+test('人物卡任务提示不会删除已挂载的单轮游玩诊断引用', () => {
   const reference = {
     kind: 'play-chat', path: 'play-chat:chat-source', label: '校园 · 游玩第 2 轮',
     chatId: 'chat-source', turn: 2, sourceUpdatedAt: 123,
