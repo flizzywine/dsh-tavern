@@ -15,6 +15,7 @@ import { createDurableTaskMailbox } from './domain/durable-task-mailbox.js'
 import { extractEpubText } from './domain/epub-text.js'
 import { createFileResourceStore, normalizeResourcePath, resourceKind } from './domain/file-resources.js'
 import { createForegroundHandoff } from './domain/foreground-handoff.js'
+import { previewPresetConversion } from './domain/preset-conversion-preview.js'
 import { inspectPreset } from './domain/preset-reading.js'
 import { createPlayChatDebugReference, readPlayChatDebugTurn } from './domain/play-chat-debug.js'
 import { createPresetEditor } from './domain/preset-editor.js'
@@ -350,6 +351,12 @@ export async function apply(ctx) {
     const text = await fileResources.readText(normalized)
     if (text === undefined) return undefined
     return Object.assign({ path: normalized, previewPath: fileResources.absolute(normalized) }, inspectPreset(text, normalized))
+  }
+  async function previewPreset(presetPath, orderGroupIndex) {
+    const normalized = normalizeResourcePath(presetPath, 'preset')
+    const text = await fileResources.readText(normalized)
+    if (text === undefined) return undefined
+    return Object.assign({ path: normalized }, previewPresetConversion(text, normalized, { orderGroupIndex }))
   }
   const presetEditor = createPresetEditor({
     normalizePath: normalizeResourcePath,
@@ -1987,6 +1994,11 @@ export async function apply(ctx) {
         const preset = inspected && inspected.valid && (inspected.recognized || inspected.regexCount > 0) ? await runtimePresets.view(inspected.path) : inspected
         if (preset === undefined) throw new Error('预设不存在: ' + (args && args.path))
         return { preset }
+      }
+      case 'previewPresetConversion': {
+        const preview = await previewPreset(args && args.path, args && args.orderGroupIndex)
+        if (preview === undefined) throw new Error('预设不存在: ' + (args && args.path))
+        return { preview }
       }
       case 'togglePresetEntry': {
         if (args && args.enabled === true) throw new Error('预设实验模块当前仅支持导入和查看，提示词注入已禁用')

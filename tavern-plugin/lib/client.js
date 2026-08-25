@@ -205,6 +205,31 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 .dsh-tavern-mvu-kind { color: #a66b35; font-weight: 750; }
 .dsh-tavern-mvu-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dsh-tavern-mvu-state { color: var(--dsw-alias-label-tertiary); white-space: nowrap; }
+.dsh-tavern-dsh-preset { flex: 1; min-height: 0; overflow-y: auto; padding: 10px 12px 24px; }
+.dsh-tavern-dsh-preset-controls { display: grid; grid-template-columns: auto minmax(0,1fr); align-items: center; gap: 8px; margin-bottom: 10px; padding: 9px 10px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 9px; background: var(--dsw-specific-input-major); font-size: 11px; }
+.dsh-tavern-dsh-preset-controls select { min-width: 0; width: 100%; height: 28px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 6px; padding: 0 7px; background: var(--dsw-specific-input-major); color: inherit; }
+.dsh-tavern-dsh-preset-summary { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.dsh-tavern-dsh-preset-badge { border-radius: 999px; padding: 3px 8px; background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-secondary); font-size: 10px; }
+.dsh-tavern-dsh-preset-badge.front { background: rgba(58,132,255,.13); color: #4f92ff; }
+.dsh-tavern-dsh-preset-badge.middle { background: rgba(237,151,20,.15); color: #d27b00; }
+.dsh-tavern-dsh-preset-badge.back { background: rgba(180,124,255,.14); color: #9c62ed; }
+.dsh-tavern-dsh-preset-phase { margin-bottom: 15px; }
+.dsh-tavern-dsh-preset-phase-title { margin: 2px 2px 7px; color: var(--dsw-alias-label-secondary); font-size: 11px; font-weight: 800; }
+.dsh-tavern-dsh-preset-row { margin-bottom: 6px; border: 1px solid var(--dsw-alias-border-l2); border-left: 4px solid #5b9cff; border-radius: 8px; background: var(--dsw-specific-input-major); overflow: hidden; }
+.dsh-tavern-dsh-preset-row.front { border-left-color: #4f92ff; }
+.dsh-tavern-dsh-preset-row.middle { border-left-color: #ed9714; }
+.dsh-tavern-dsh-preset-row.back { border-left-color: #b47cff; }
+.dsh-tavern-dsh-preset-row summary { display: grid; grid-template-columns: 36px minmax(0,1fr) auto; align-items: center; gap: 7px; padding: 8px 9px; cursor: pointer; list-style: none; }
+.dsh-tavern-dsh-preset-row summary::-webkit-details-marker { display: none; }
+.dsh-tavern-dsh-preset-index { color: var(--dsw-alias-label-tertiary); font: 9px/1 ui-monospace, monospace; }
+.dsh-tavern-dsh-preset-name { min-width: 0; }
+.dsh-tavern-dsh-preset-name b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+.dsh-tavern-dsh-preset-name span { display: block; overflow: hidden; margin-top: 3px; color: var(--dsw-alias-label-tertiary); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.dsh-tavern-dsh-preset-meta { color: var(--dsw-alias-label-secondary); font-size: 9px; white-space: nowrap; }
+.dsh-tavern-dsh-preset-content { margin: 0; padding: 9px 10px; border-top: 1px solid var(--dsw-alias-border-l3); color: var(--dsw-alias-label-secondary); font: 10px/1.55 ui-monospace, monospace; white-space: pre-wrap; word-break: break-word; }
+.dsh-tavern-dsh-preset-diagnostics { margin-top: 12px; padding: 8px 10px; border: 1px solid rgba(237,151,20,.35); border-radius: 8px; background: rgba(237,151,20,.07); color: var(--dsw-alias-label-secondary); font-size: 10px; line-height: 1.55; }
+.dsh-tavern-dsh-preset-diagnostics summary { cursor: pointer; font-weight: 800; }
+.dsh-tavern-dsh-preset-diagnostics ul { margin: 7px 0 0; padding-left: 18px; }
 .dsh-tavern-status-head { flex: none; padding: 16px 16px 12px; border-bottom: 1px solid var(--dsw-alias-border-l2); }
 .dsh-tavern-status-title { font-size: 15px; font-weight: 800; }
 .dsh-tavern-status-role { margin-top: 5px; color: #a66b35; font-size: 13px; font-weight: 700; }
@@ -1791,6 +1816,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const [selectedPlanId, setSelectedPlanId] = React.useState("");
 			const [tutorialOpen, setTutorialOpen] = React.useState(function () { return window.localStorage.getItem("dsh-tavern-preset-tutorial") !== "closed"; });
 			const [busy, setBusy] = React.useState(false);
+			const [dshDraft, setDshDraft] = React.useState(null);
 			const [error, setError] = usePersistentError("预设库");
 			const importInput = React.useRef(null);
 			const sessionMode = useTavernSessionMode(props.scope.sessionId);
@@ -1808,6 +1834,16 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			function loadPreset(path) {
 				setError("");
 				return rpc("getPreset", { path: path }, props.scope.sessionId).then(function (result) { setPreset(result.preset || null); }, function (err) { setError(String(err && err.message || err)); setPreset(null); });
+			}
+			async function openDshDraft(orderGroupIndex) {
+				if (!preset) return;
+				setDshDraft(function (current) { return { phase: "loading", preview: current && current.preview || null, error: "" }; });
+				try {
+					const result = await rpc("previewPresetConversion", { path: preset.path, orderGroupIndex: orderGroupIndex }, props.scope.sessionId);
+					setDshDraft({ phase: "ready", preview: result.preview || null, error: "" });
+				} catch (err) {
+					setDshDraft(function (current) { return { phase: "error", preview: current && current.preview || null, error: String(err && err.message || err) }; });
+				}
 			}
 			async function importPresetFile(file) {
 				if (!file) return;
@@ -1946,11 +1982,55 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				return function () { window.removeEventListener("dsh-tavern-data-changed", onData); };
 			}, [props.scope.sessionId]);
 			const h = React.createElement;
+			const phaseLabels = { front: "前 · 稳定前缀", middle: "中 · 每轮注入", back: "后 · 请求附加" };
+			function dshPresetRow(entry, phase) {
+				const snippet = entry.type === "material" ? (entry.material || "未识别材料") : String(entry.content || "").replace(/\s+/g, " ").trim() || "空条目";
+				const source = entry.source || {};
+				const fullContent = entry.type === "material" ? "材料引用：" + (entry.material || "未识别") + "\n酒馆 marker：" + (source.identifier || "") : (entry.content || "（空）");
+				return h("details", { key: phase + ":" + entry.id, className: "dsh-tavern-dsh-preset-row " + phase },
+					h("summary", null,
+						h("span", { className: "dsh-tavern-dsh-preset-index" }, entry.order === null || entry.order === undefined ? "—" : "#" + (entry.order + 1)),
+						h("span", { className: "dsh-tavern-dsh-preset-name" }, h("b", null, entry.name || source.identifier), h("span", null, snippet)),
+						h("span", { className: "dsh-tavern-dsh-preset-meta" }, String(entry.role || "system").toUpperCase() + " · " + (entry.type === "material" ? "材料" : "文本"))
+					),
+					h("pre", { className: "dsh-tavern-dsh-preset-content" }, fullContent)
+				);
+			}
+			if (dshDraft) {
+				const preview = dshDraft.preview;
+				const nativePreset = preview && preview.dshPreset;
+				const loading = dshDraft.phase === "loading";
+				return h("div", { className: "dsh-tavern-presets" },
+					h("div", { className: "dsh-tavern-status-head" }, h("button", { className: "dsh-tavern-btn", onClick: function () { setDshDraft(null); } }, "← 返回酒馆预设"), h("div", { className: "dsh-tavern-status-title" }, "DSH 预设 · 转换稿"), h("div", { className: "dsh-tavern-question-sub" }, preview && preview.title || preset && preset.title || "")),
+					h("div", { className: "dsh-tavern-dsh-preset" },
+						dshDraft.error ? h("div", { className: "dsh-tavern-dock-error" }, dshDraft.error) : null,
+						loading && !preview ? h("div", { className: "dsh-tavern-status-empty" }, "正在生成 DSH 预设转换稿…") : null,
+						preview ? h(React.Fragment, null,
+							h("div", { className: "dsh-tavern-preset-summary" }, "映射草案：chatHistory 前 → 前，深度注入 → 中，chatHistory 后 → 后。当前只读，不保存、不执行。"),
+							h("label", { className: "dsh-tavern-dsh-preset-controls" }, h("b", null, "prompt_order 组"), h("select", { value: preview.selectedOrderGroupIndex === null ? "" : String(preview.selectedOrderGroupIndex), disabled: loading, onChange: function (event) { openDshDraft(Number(event.target.value)); } }, preview.orderGroups && preview.orderGroups.length ? preview.orderGroups.map(function (group) { return h("option", { key: group.index, value: String(group.index) }, group.label + " · " + group.enabledCount + "/" + group.itemCount); }) : h("option", { value: "" }, "prompts 原始顺序"))),
+							h("div", { className: "dsh-tavern-dsh-preset-summary" },
+								h("span", { className: "dsh-tavern-dsh-preset-badge front" }, "前 " + (nativePreset && nativePreset.front.length || 0)),
+								h("span", { className: "dsh-tavern-dsh-preset-badge middle" }, "中 " + (nativePreset && nativePreset.middle.length || 0)),
+								h("span", { className: "dsh-tavern-dsh-preset-badge back" }, "后 " + (nativePreset && nativePreset.back.length || 0)),
+								h("span", { className: "dsh-tavern-dsh-preset-badge" }, "关闭 " + (preview.summary && preview.summary.disabledRows || 0)),
+								h("span", { className: "dsh-tavern-dsh-preset-badge" }, "未编排 " + (preview.summary && preview.summary.unorderedRows || 0)),
+								h("span", { className: "dsh-tavern-dsh-preset-badge" }, nativePreset && nativePreset.schema || "未生成")
+							),
+							nativePreset ? ["front", "middle", "back"].map(function (phase) { const items = nativePreset[phase] || []; return h("section", { key: phase, className: "dsh-tavern-dsh-preset-phase" }, h("div", { className: "dsh-tavern-dsh-preset-phase-title" }, phaseLabels[phase] + " · " + items.length), items.length ? items.map(function (entry) { return dshPresetRow(entry, phase); }) : h("div", { className: "dsh-tavern-status-empty" }, "暂无条目")); }) : null,
+							h("details", { className: "dsh-tavern-dsh-preset-diagnostics", open: true },
+								h("summary", null, "未转换内容与诊断 · " + (preview.diagnostics || []).length),
+								h("div", null, "顶层配置：" + ((preview.rootConfigurationKeys || []).join(", ") || "无") + " · 预设正则：" + (preview.regexCount || 0) + " 条"),
+								(preview.diagnostics || []).length ? h("ul", null, preview.diagnostics.map(function (item, index) { return h("li", { key: item.code + ":" + index }, item.message); })) : h("div", null, "没有发现结构诊断。")
+							)
+							) : null
+						)
+					);
+			}
 			if (preset) {
 				const entries = preset.entries || [];
 				const regexScripts = preset.regexScripts || [];
 				return h("div", { className: "dsh-tavern-presets" },
-					h("div", { className: "dsh-tavern-status-head" }, h("button", { className: "dsh-tavern-btn", onClick: function () { setPreset(null); } }, "← 返回预设库"), h("div", { className: "dsh-tavern-status-title" }, preset.title), (preset.enabledCount || preset.enabledRegexCount) ? h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: disableCurrentPreset }, "清空此预设勾选") : null),
+					h("div", { className: "dsh-tavern-status-head" }, h("button", { className: "dsh-tavern-btn", onClick: function () { setPreset(null); setDshDraft(null); } }, "← 返回预设库"), h("div", { className: "dsh-tavern-status-title" }, preset.title), h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { openDshDraft(); } }, "查看 DSH 转换稿"), (preset.enabledCount || preset.enabledRegexCount) ? h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: disableCurrentPreset }, "清空此预设勾选") : null),
 					h("div", { className: "dsh-tavern-preset-detail" },
 						error ? h("div", { className: "dsh-tavern-dock-error" }, error) : null,
 						h("div", { className: "dsh-tavern-preset-summary" }, preset.runtimeManaged ? (preset.promptCount + " 个提示词条目 · " + preset.regexCount + " 条正则脚本") : "暂未识别可执行内容 · 原始 JSON 已完整保留", h("div", null, "当前仅供阅读：提示词注入和预设正则匹配均已禁用，不产生运行时效果。"), preset.warning ? h("div", null, preset.warning) : null),
