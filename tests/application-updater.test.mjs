@@ -14,7 +14,7 @@ test('UI 更新沿用 Profile 中记录的 Desktop 宿主并脱离当前服务�
     await mkdir(path.dirname(profileManifest), { recursive: true })
     await writeFile(profileManifest, JSON.stringify({ dshTavern: { host: 'desktop' } }))
     const calls = []
-    const child = { unrefCalled: false, once(event, listener) { if (event === 'spawn') queueMicrotask(listener); return this }, unref() { this.unrefCalled = true } }
+    const child = { pid: 4321, unrefCalled: false, once(event, listener) { if (event === 'spawn') queueMicrotask(listener); return this }, unref() { this.unrefCalled = true } }
     const updater = createApplicationUpdater({
       dataRoot,
       sourceRoot: '/app/dsh-tavern',
@@ -25,7 +25,7 @@ test('UI 更新沿用 Profile 中记录的 Desktop 宿主并脱离当前服务�
     })
 
     assert.deepEqual(await updater.status(), { phase: 'idle', host: 'desktop' })
-    assert.deepEqual(await updater.start(), { phase: 'running', host: 'desktop', startedAt: 123 })
+    assert.deepEqual(await updater.start(), { phase: 'running', host: 'desktop', startedAt: 123, pid: 4321 })
     assert.equal(calls.length, 1)
     assert.equal(calls[0].command, '/runtime/node')
     assert.deepEqual(calls[0].args.slice(0, 4), ['/app/dsh-tavern/bin/dsh-tavern.mjs', 'update', '--host', 'desktop'])
@@ -33,7 +33,7 @@ test('UI 更新沿用 Profile 中记录的 Desktop 宿主并脱离当前服务�
     assert.ok(calls[0].args.includes('--delay=800'))
     assert.equal(calls[0].options.detached, true)
     assert.equal(child.unrefCalled, true)
-    assert.deepEqual(JSON.parse(await readFile(path.join(dataRoot, 'update-status.json'), 'utf8')), { phase: 'running', host: 'desktop', startedAt: 123 })
+    assert.deepEqual(JSON.parse(await readFile(path.join(dataRoot, 'update-status.json'), 'utf8')), { phase: 'running', host: 'desktop', startedAt: 123, pid: 4321 })
   } finally {
     await rm(root, { recursive: true, force: true })
   }
@@ -83,6 +83,50 @@ test('超过十五分钟的更新自动标记为中断并持久化', async () =>
     assert.deepEqual(JSON.parse(await readFile(statusFile, 'utf8')), {
       phase: 'failed', host: 'desktop', failedAt: 901000, error: '上次更新已中断',
     })
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('更新进程已经退出时立即恢复按钮', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-updater-'))
+  try {
+    const dataRoot = path.join(root, 'profile-data/tavern/data')
+    const statusFile = path.join(dataRoot, 'update-status.json')
+    await mkdir(dataRoot, { recursive: true })
+    await writeFile(statusFile, JSON.stringify({ phase: 'running', host: 'desktop', startedAt: 1000, pid: 4321 }))
+    const updater = createApplicationUpdater({
+      dataRoot,
+      sourceRoot: '/app/dsh-tavern',
+      dshHome: root,
+      now: () => 2000,
+      isProcessAlive: () => false,
+    })
+
+    assert.deepEqual(await updater.status(), {
+      phase: 'failed', host: 'desktop', failedAt: 2000, error: '上次更新已中断',
+    })
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('更新进程仍存活时保持运行状态', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-updater-'))
+  try {
+    const dataRoot = path.join(root, 'profile-data/tavern/data')
+    const running = { phase: 'running', host: 'desktop', startedAt: 1000, pid: 4321 }
+    await mkdir(dataRoot, { recursive: true })
+    await writeFile(path.join(dataRoot, 'update-status.json'), JSON.stringify(running))
+    const updater = createApplicationUpdater({
+      dataRoot,
+      sourceRoot: '/app/dsh-tavern',
+      dshHome: root,
+      now: () => 2000,
+      isProcessAlive: () => true,
+    })
+
+    assert.deepEqual(await updater.status(), running)
   } finally {
     await rm(root, { recursive: true, force: true })
   }

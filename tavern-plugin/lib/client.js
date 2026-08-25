@@ -1239,8 +1239,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				});
 			}
 			async function ensureTavernPreset(sessionId) {
-				const summary = props.sessions.list.getSnapshot().byId[sessionId];
-				if (summary && summary.agentPreset === "tavern") return;
+				// DSH may reuse a persisted blank Session whose Agent has not been resumed yet.
+				// Confirming the preset through the Host restores that Agent before Tavern writes the opening.
 				const presetResponse = await props.connection.api.agentPresets.select({ sessionId: sessionId, agentPreset: "tavern" });
 				if (!presetResponse.result.ok) throw new Error(presetResponse.result.error && presetResponse.result.error.message ? presetResponse.result.error.message : "无法切换到酒馆模式");
 				props.sessions.noteAgentPreset(sessionId, "tavern");

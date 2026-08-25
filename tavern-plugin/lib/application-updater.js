@@ -12,6 +12,16 @@ function installHostOf(manifest) {
   return host === 'desktop' || host === 'android' ? host : 'cli'
 }
 
+function processIsAlive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return false
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (error) {
+    return error?.code === 'EPERM'
+  }
+}
+
 export function createApplicationUpdater(options) {
   const dataRoot = path.resolve(options.dataRoot)
   const sourceRoot = path.resolve(options.sourceRoot)
@@ -21,6 +31,7 @@ export function createApplicationUpdater(options) {
   const runtimeHost = options.runtimeHost || process.env.DSH_TAVERN_RUNTIME_HOST
   const spawnProcess = options.spawnProcess || spawn
   const now = typeof options.now === 'function' ? options.now : Date.now
+  const isProcessAlive = typeof options.isProcessAlive === 'function' ? options.isProcessAlive : processIsAlive
   const store = createProfileDataStore({ dataRoot })
 
   async function host() {
@@ -37,7 +48,9 @@ export function createApplicationUpdater(options) {
     const current = await store.readJson(STATUS_FILE)
     if (current !== undefined) {
       const checkedAt = now()
-      if (current.phase === 'running' && checkedAt - Number(current.startedAt || 0) >= RUNNING_TIMEOUT_MS) {
+      const updatePid = Number(current.pid)
+      const stopped = Number.isInteger(updatePid) && updatePid > 0 && !isProcessAlive(updatePid)
+      if (current.phase === 'running' && (stopped || checkedAt - Number(current.startedAt || 0) >= RUNNING_TIMEOUT_MS)) {
         const interrupted = {
           phase: 'failed',
           host: installHostOf({ dshTavern: { host: current.host } }),
@@ -85,6 +98,11 @@ export function createApplicationUpdater(options) {
         })
       }
       child.unref()
+      const childPid = Number(child.pid)
+      if (Number.isInteger(childPid) && childPid > 0) {
+        running.pid = childPid
+        await store.writeJson(STATUS_FILE, running)
+      }
     } catch (error) {
       const failed = { phase: 'failed', host: installHost, failedAt: now(), error: String(error?.message || error) }
       await store.writeJson(STATUS_FILE, failed)

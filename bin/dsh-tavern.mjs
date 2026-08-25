@@ -721,7 +721,7 @@ async function startService() {
 export async function updateApplication(options = { host: 'cli', statusFile: '', delay: 0 }) {
   const sourceRoot = path.resolve(options.sourceRoot || SOURCE_ROOT)
   const log = typeof options.log === 'function' ? options.log : console.log
-  writeUpdateStatus(options.statusFile, { phase: 'running', host: options.host, startedAt: Date.now() })
+  writeUpdateStatus(options.statusFile, { phase: 'running', host: options.host, startedAt: Date.now(), pid: process.pid })
   let temporary = ''
   try {
     if (options.delay > 0) await sleep(options.delay)

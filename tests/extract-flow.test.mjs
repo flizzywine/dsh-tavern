@@ -53,16 +53,15 @@ test('游玩回复可只读交给同人物卡的卡片 Agent 调试', () => {
 	assert.match(serverSource, /createPlayChatDebugReference/)
 })
 
-test('新建对话不会重复切换已经是 Tavern preset 的 Session', () => {
+test('新建对话会确认 Tavern preset 以恢复被复用的冷 Session Agent', () => {
 	const sidebar = between(clientSource, 'function TavernSidebar', 'function TavernResourcesTab')
 	const guard = between(sidebar, 'async function ensureTavernPreset', 'async function archiveCurrentBlankSession')
 	const lifecycle = between(sidebar, 'const conversationLifecycle = createConversationLifecycleModule', 'async function retryPendingOpen')
 	const playFlow = between(sidebar, 'async function newConversation', 'async function importCard')
 	const cardFlow = between(sidebar, 'async function newCardConversation', 'function formatTime')
 
-  assert.match(guard, /props\.sessions\.list\.getSnapshot\(\)\.byId\[sessionId\]/)
-  assert.match(guard, /if \(summary && summary\.agentPreset === "tavern"\) return;/)
   assert.match(guard, /agentPresets\.select/)
+	assert.doesNotMatch(guard, /agentPreset === "tavern"\) return/)
 	assert.match(lifecycle, /ensurePreset: ensureTavernPreset/)
 	assert.match(playFlow, /conversationLifecycle\.start/)
 	assert.match(cardFlow, /conversationLifecycle\.start/)
