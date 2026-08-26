@@ -509,6 +509,7 @@ export async function apply(ctx) {
       const presetPath = record.path
       const inspected = record.inspected
       const preset = inspected
+      const extractableRegexScripts = runtimeRegexScriptsOf(preset, await readPresetDocument(preset.path))
       result.push({
         path: preset.path,
         previewPath: preset.previewPath,
@@ -517,8 +518,8 @@ export async function apply(ctx) {
         recognized: preset.recognized,
         promptCount: preset.promptCount,
         enabledCount: preset.enabledCount || 0,
-        regexCount: preset.regexCount,
-        enabledRegexCount: preset.enabledRegexCount || 0,
+        regexCount: extractableRegexScripts.length,
+        enabledRegexCount: extractableRegexScripts.filter(function (script) { return script.enabled !== false }).length,
         warning: preset.warning,
         error: preset.error
       })
