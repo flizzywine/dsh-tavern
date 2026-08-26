@@ -867,3 +867,15 @@ test('开发模式在顶层侧栏切换 DSH 与酒馆兼容请求模式', () => 
 	assert.match(systemAssembly, /assembly\.tools = \[\]/)
 	assert.match(serverSource, /酒馆兼容模式不运行 DSH 后台候选项/)
 })
+
+test('兼容模式使用独立酒馆条目开关，不复用 DSH 破限过滤状态', () => {
+	const panel = between(clientSource, 'function PresetLibraryTab', 'function CardLibraryTab')
+	const compile = between(serverSource, 'async function compileCompatibilityTurn', 'function compatibilityMessages')
+
+	assert.match(panel, /toggleCompatibilityPresetEntry/)
+	assert.match(panel, /entry\.compatibilityEnabled/)
+	assert.match(panel, /兼容模式直接按酒馆 prompt_order 构造请求/)
+	assert.match(serverSource, /compatibility-presets\.json/)
+	assert.match(compile, /compatibilityPresets\.apply\(presetPath, sourcePreset\)/)
+	assert.doesNotMatch(compile, /runtimePresets\.snapshot/)
+})
