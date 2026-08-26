@@ -1531,7 +1531,11 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			async function switchMode(nextMode) {
 				playPrewarmRef.current.cancel();
 				setUiMode(nextMode); setPicking(false); setMenuSession(null);
-				const first = history.filter(function (item) { return groupOfMode(item.mode) === nextMode; })[0];
+				const first = history.filter(function (item) {
+					if (groupOfMode(item.mode) !== nextMode) return false;
+					if (nextMode !== "play") return true;
+					return (item.requestMode === "sillytavern" ? "sillytavern" : "dsh") === requestMode;
+				})[0];
 				if (first) {
 					try { await openSessionWhenReady(first.sessionId); }
 					catch (err) { setError("打开 Session 失败：" + String(err && err.message || err)); }
@@ -1546,19 +1550,12 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				setRequestMode(nextRequestMode);
 				window.localStorage.setItem("dsh-tavern-request-mode", nextRequestMode);
 				try {
-					const currentEntry = history.filter(function (item) { return item.sessionId === current && isPlayMode(item.mode); })[0];
-					const target = currentEntry || history.filter(function (item) { return isPlayMode(item.mode); })[0];
-					if (!target) { openPicker(); return; }
-					const result = await call("setRequestMode", { sessionId: target.sessionId, requestMode: nextRequestMode });
-					const resolvedRequestMode = result && result.requestMode === "sillytavern" ? "sillytavern" : "dsh";
-					const coordinationState = tavernCoordination.getSnapshot(target.sessionId);
-					tavernCoordination.setView(target.sessionId, Object.assign({}, coordinationState.view || {}, { requestMode: resolvedRequestMode }));
-					liveTavernView.invalidate(target.sessionId);
-					tavernCoordination.invalidate(target.sessionId);
-					if (!currentEntry) await openSessionWhenReady(target.sessionId);
-					await refresh();
-					window.dispatchEvent(new CustomEvent("dsh-tavern-data-changed"));
-				} catch (err) { setRequestMode("dsh"); setError("切换请求模式失败：" + String(err && err.message || err)); }
+					const target = history.filter(function (item) {
+						return isPlayMode(item.mode) && (item.requestMode === "sillytavern" ? "sillytavern" : "dsh") === nextRequestMode;
+					})[0];
+					if (!target) { props.sessions.clear(); openPicker(); return; }
+					if (target.sessionId !== current) await openSessionWhenReady(target.sessionId);
+				} catch (err) { setError("切换对话列表失败：" + String(err && err.message || err)); }
 				finally { setBusy(false); }
 			}
 			async function renameConversation(item, currentTitle) {
@@ -1583,7 +1580,11 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					catch (archiveError) { if (!isMissingSessionArchiveError(archiveError)) throw archiveError; }
 					await call("deleteChat", { chatId: item.chatId });
 					if (current === item.sessionId) {
-						const next = history.filter(function (entry) { return entry.sessionId !== item.sessionId && groupOfMode(entry.mode) === uiMode; })[0];
+						const next = history.filter(function (entry) {
+							if (entry.sessionId === item.sessionId || groupOfMode(entry.mode) !== uiMode) return false;
+							if (uiMode !== "play") return true;
+							return (entry.requestMode === "sillytavern" ? "sillytavern" : "dsh") === requestMode;
+						})[0];
 						if (next) await openSessionWhenReady(next.sessionId);
 						else { props.sessions.clear(); openPicker("cards"); }
 					}
@@ -1622,7 +1623,11 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					h("button", { className: "dsh-tavern-side-icon", title: "新建对话（跟随当前模式）", onClick: function () { props.toggleSidebar(); window.setTimeout(function () { openPicker("cards"); }, 180); } }, "＋")
 				)
 			);
-			const visibleHistory = history.filter(function (item) { return groupOfMode(item.mode) === uiMode; });
+			const visibleHistory = history.filter(function (item) {
+				if (groupOfMode(item.mode) !== uiMode) return false;
+				if (uiMode !== "play") return true;
+				return (item.requestMode === "sillytavern" ? "sillytavern" : "dsh") === requestMode;
+			});
 			const rows = visibleHistory.map(function (item) {
 				const summary = summaries[item.sessionId];
 				const title = item.title || (summary && summary.displayTitle ? summary.displayTitle : (item.cardName + "的新对话"));
@@ -1746,9 +1751,9 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					compatibilityAvailable ? h("button", { className: uiMode === "play" && requestMode === "sillytavern" ? "active" : "", disabled: busy, title: "开发调试：按酒馆语义构造请求，不运行 DSH 后台 Agent", onClick: function () { switchPlayRequestMode("sillytavern"); } }, "兼容") : null,
 					h("button", { className: uiMode === "card" ? "active" : "", disabled: busy, onClick: function () { switchMode("card"); } }, "卡片")
 				),
-				h("button", { className: "dsh-tavern-side-new", disabled: busy, onClick: function () { openPicker(); } }, uiMode === "play" ? "＋ 选择人物卡 · 新开游玩" : "＋ 新建卡片工作台对话"),
-				h("div", { className: "dsh-tavern-side-title" }, uiMode === "play" ? "游玩历史" : "卡片历史"),
-				h("div", { className: "dsh-tavern-side-list" }, rows.length ? rows : h("div", { className: "dsh-tavern-side-empty" }, uiMode === "play" ? "还没有游玩对话。\n选择人物卡开始；绑定剧本的卡会按剧本推进。" : "还没有卡片工作台对话。\n可以空白开始，再按需添加人物卡和剧本。")),
+				h("button", { className: "dsh-tavern-side-new", disabled: busy, onClick: function () { openPicker(); } }, uiMode === "play" ? (requestMode === "sillytavern" ? "＋ 选择人物卡 · 新开兼容测试" : "＋ 选择人物卡 · 新开游玩") : "＋ 新建卡片工作台对话"),
+				h("div", { className: "dsh-tavern-side-title" }, uiMode === "play" ? (requestMode === "sillytavern" ? "兼容测试历史" : "游玩历史") : "卡片历史"),
+				h("div", { className: "dsh-tavern-side-list" }, rows.length ? rows : h("div", { className: "dsh-tavern-side-empty" }, uiMode === "play" ? (requestMode === "sillytavern" ? "还没有兼容测试对话。\n选择人物卡开始新的兼容测试。" : "还没有游玩对话。\n选择人物卡开始；绑定剧本的卡会按剧本推进。") : "还没有卡片工作台对话。\n可以空白开始，再按需添加人物卡和剧本。")),
 				!picking && error ? h("div", { className: "dsh-tavern-dock-error", role: "alert" }, error) : null,
 				h("div", { className: "dsh-tavern-update" },
 				h("button", { className: "dsh-tavern-update-button", disabled: updateStatus.phase === "checking" || updateStatus.phase === "running" || updateStatus.phase === "loading" || updateStatus.phase === "restart-required" || updateStatus.phase === "installed-restart-required", onClick: startUpdate }, updateStatus.phase === "checking" ? "正在检查…" : (updateStatus.phase === "running" ? "正在更新…" : (updateStatus.phase === "installed-restart-required" ? "请手动重启" : (updateStatus.phase === "restart-required" ? "重启 Desktop 后可用" : "更新到最新版")))),

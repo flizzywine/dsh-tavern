@@ -815,7 +815,12 @@ test('开发模式在顶层侧栏切换 DSH 与酒馆兼容请求模式', () => 
 
 	assert.match(shell, /capabilities\.compatibilityMode/)
 	assert.match(shell, /switchPlayRequestMode\("sillytavern"\)/)
-	assert.match(shell, /tavernCoordination\.setView\(target\.sessionId/)
+	assert.match(shell, /item\.requestMode === "sillytavern" \? "sillytavern" : "dsh"\) === requestMode/)
+	assert.match(shell, /item\.requestMode === "sillytavern" \? "sillytavern" : "dsh"\) === nextRequestMode/)
+	assert.doesNotMatch(shell, /call\("setRequestMode", \{ sessionId: target\.sessionId/)
+	assert.match(shell, /"兼容测试历史"/)
+	assert.match(shell, /新开兼容测试/)
+	assert.match(shell, /if \(!target\) \{ props\.sessions\.clear\(\); openPicker\(\); return; \}/)
 	assert.match(shell, />?"兼容"/)
 	assert.match(coordination, /requestMode: sync\.requestMode === "sillytavern"/)
 	assert.match(action, /requestMode === "sillytavern"[\s\S]*"重新生成正文"[\s\S]*"回退本轮"/)
