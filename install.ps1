@@ -7,6 +7,8 @@ $Repository = if ($env:DSH_TAVERN_REPOSITORY) { $env:DSH_TAVERN_REPOSITORY } els
 $RepositoryUrl = if ($env:DSH_TAVERN_GIT_URL) { $env:DSH_TAVERN_GIT_URL } else { "https://github.com/$Repository.git" }
 $ArchiveUrl = if ($env:DSH_TAVERN_ARCHIVE_URL) { $env:DSH_TAVERN_ARCHIVE_URL } else { "https://codeload.github.com/$Repository/zip/refs/heads/main" }
 $CommitUrl = if ($env:DSH_TAVERN_COMMIT_URL) { $env:DSH_TAVERN_COMMIT_URL } else { "https://api.github.com/repos/$Repository/commits/main" }
+$CdnMetadataUrl = if ($env:DSH_TAVERN_CDN_METADATA_URL) { $env:DSH_TAVERN_CDN_METADATA_URL } else { "https://cdn.jsdelivr.net/gh/$Repository@main/dsh-tavern-runtime.json" }
+$CdnRootUrl = if ($env:DSH_TAVERN_CDN_ROOT_URL) { $env:DSH_TAVERN_CDN_ROOT_URL.TrimEnd('/') } else { "https://cdn.jsdelivr.net/gh/$Repository" }
 $DshRoot = if ($env:DSH_HOME) { $env:DSH_HOME } else { Join-Path ([Environment]::GetFolderPath('UserProfile')) '.dsh' }
 $AppDir = if ($env:DSH_TAVERN_APP_DIR) { $env:DSH_TAVERN_APP_DIR } else { Join-Path $DshRoot 'apps\dsh-tavern' }
 $RuntimeRoot = Join-Path $DshRoot 'runtime'
@@ -94,6 +96,7 @@ try {
   $ArchivePath = Join-Path $TempDir 'app.zip'
   $ExtractDir = Join-Path $TempDir 'extract'
   $UsedGit = $false
+  $UsedCdn = $false
   if ($null -ne $GitCommand) {
     try {
       Write-Host '正在通过 Git 增量同步 DSH Tavern（不下载文档与图片）……'
@@ -117,7 +120,32 @@ try {
     }
   }
   if (-not $UsedGit) {
-    Write-Host '未检测到可用 Git，正在下载完整 ZIP……'
+    try {
+      Write-Host 'GitHub 直连不可用，正在通过 jsDelivr 备用源下载运行代码……'
+      $CdnSource = Join-Path $TempDir 'cdn-source'
+      New-Item -ItemType Directory -Force -Path $CdnSource | Out-Null
+      $Metadata = Invoke-RestMethod -UseBasicParsing -Uri $CdnMetadataUrl -TimeoutSec 15
+      if ([string]$Metadata.revision -notmatch '^[0-9a-fA-F]{40}$') { throw 'jsDelivr 运行清单缺少有效提交号。' }
+      $RuntimePattern = '^(package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|cordis\.patch\.yml|install\.ps1|install\.sh|bin/|config/|presets/|tavern-plugin/)'
+      $Files = @($Metadata.files | Where-Object { $_.path -match $RuntimePattern -and $_.path -notmatch '(^|/)\.\.(/|$)' -and $_.sha256 -match '^[0-9a-fA-F]{64}$' })
+      if ($Files.Count -eq 0) { throw 'jsDelivr 未返回运行文件清单。' }
+      foreach ($File in $Files) {
+        $RelativePath = $File.path.Replace('/', [IO.Path]::DirectorySeparatorChar)
+        $Target = Join-Path $CdnSource $RelativePath
+        New-Item -ItemType Directory -Force -Path (Split-Path $Target -Parent) | Out-Null
+        Invoke-WebRequest -UseBasicParsing -Uri ("$CdnRootUrl@$($Metadata.revision)/$($File.path)") -OutFile $Target -TimeoutSec 30
+        $ActualHash = (Get-FileHash -LiteralPath $Target -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($ActualHash -ne ([string]$File.sha256).ToLowerInvariant()) { throw "jsDelivr 文件校验失败：$($File.path)" }
+      }
+      $TargetCommit = [string]$Metadata.revision
+      $UsedCdn = $true
+    }
+    catch {
+      Write-Warning ("jsDelivr 备用源不可用，将回退到完整 ZIP：" + $_.Exception.Message)
+    }
+  }
+  if (-not $UsedGit -and -not $UsedCdn) {
+    Write-Host '正在下载完整 ZIP……'
     $PreviousProgressPreference = $ProgressPreference
     $ProgressPreference = 'SilentlyContinue'
     try {
@@ -141,9 +169,13 @@ try {
       $ProgressPreference = $PreviousProgressPreference
     }
   }
-  New-Item -ItemType Directory -Force -Path $ExtractDir | Out-Null
-  Expand-Archive -LiteralPath $ArchivePath -DestinationPath $ExtractDir -Force
-  $SourceDir = if ($UsedGit) {
+  if (-not $UsedCdn) {
+    New-Item -ItemType Directory -Force -Path $ExtractDir | Out-Null
+    Expand-Archive -LiteralPath $ArchivePath -DestinationPath $ExtractDir -Force
+  }
+  $SourceDir = if ($UsedCdn) {
+    Get-Item -LiteralPath $CdnSource
+  } elseif ($UsedGit) {
     Get-Item -LiteralPath $ExtractDir
   } else {
     Get-ChildItem -LiteralPath $ExtractDir -Directory | Select-Object -First 1
@@ -161,6 +193,9 @@ try {
   New-Item -ItemType Directory -Force -Path $AppDir | Out-Null
   # 覆盖程序文件但不删除旧目录，因此未被发布包跟踪的 data\ 用户数据会保留。
   Get-ChildItem -LiteralPath $SourceDir.FullName -Force | Copy-Item -Destination $AppDir -Recurse -Force
+  if ($UsedCdn -and (Test-Path (Join-Path $AppDir '.dsh-tavern-release.json'))) {
+    Remove-Item -LiteralPath (Join-Path $AppDir '.dsh-tavern-release.json') -Force
+  }
   if ($TargetCommit -match '^[0-9a-fA-F]{40}$') {
     $ReleaseJson = @{ commit = $TargetCommit; installedAt = [DateTime]::UtcNow.ToString('o') } | ConvertTo-Json
     [IO.File]::WriteAllText((Join-Path $AppDir '.dsh-tavern-release.json'), $ReleaseJson, (New-Object Text.UTF8Encoding($false)))

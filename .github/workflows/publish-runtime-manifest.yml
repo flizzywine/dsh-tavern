@@ -1,0 +1,38 @@
+name: Publish runtime manifest
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - dsh-tavern-runtime.json
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-runtime-manifest
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Build immutable runtime manifest
+        shell: bash
+        run: |
+          git fetch origin main
+          git checkout main
+          git pull --ff-only origin main
+          node .github/scripts/write-runtime-manifest.mjs "$(git rev-parse HEAD)"
+      - name: Commit manifest
+        shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add dsh-tavern-runtime.json
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "chore: publish runtime manifest [skip ci]"
+          git push origin main

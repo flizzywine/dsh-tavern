@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 
@@ -9,6 +10,35 @@ const RELEASE_FILE = '.dsh-tavern-release.json'
 const RUNNING_TIMEOUT_MS = 15 * 60 * 1000
 const VERSION_URL = 'https://raw.githubusercontent.com/flizzywine/dsh-tavern/main/package.json'
 const COMMIT_URL = 'https://api.github.com/repos/flizzywine/dsh-tavern/commits/main'
+const CDN_METADATA_URL = 'https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@main/dsh-tavern-runtime.json'
+const RUNTIME_FILES = new Set(['package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'cordis.patch.yml', 'install.ps1', 'install.sh'])
+const RUNTIME_DIRECTORIES = ['bin/', 'config/', 'presets/', 'tavern-plugin/']
+
+function runtimePath(value) {
+  const normalized = String(value || '').replace(/^\/+/, '').replaceAll('\\', '/')
+  if (normalized === '' || normalized.includes('../') || path.posix.isAbsolute(normalized)) return ''
+  return RUNTIME_FILES.has(normalized) || RUNTIME_DIRECTORIES.some((prefix) => normalized.startsWith(prefix)) ? normalized : ''
+}
+
+async function compareCdnRuntime(sourceRoot, metadata) {
+  if (!/^[0-9a-f]{40}$/i.test(String(metadata?.revision || ''))) throw new Error('jsDelivr 运行清单缺少有效提交号')
+  const files = Array.isArray(metadata?.files) ? metadata.files.map((file) => ({ path: runtimePath(file?.path), hash: String(file?.sha256 || '').toLowerCase() })).filter((file) => file.path && /^[0-9a-f]{64}$/.test(file.hash)) : []
+  if (files.length === 0) throw new Error('jsDelivr 未返回运行文件清单')
+  files.sort((left, right) => left.path.localeCompare(right.path))
+  const remoteDigest = createHash('sha256')
+  const localDigest = createHash('sha256')
+  let matches = true
+  for (const file of files) {
+    remoteDigest.update(`${file.path}\0${file.hash}\n`)
+    let localHash = ''
+    try { localHash = createHash('sha256').update(await readFile(path.join(sourceRoot, ...file.path.split('/')))).digest('hex') } catch (error) {
+      if (error?.code !== 'ENOENT') throw error
+    }
+    localDigest.update(`${file.path}\0${localHash}\n`)
+    if (localHash !== file.hash) matches = false
+  }
+  return { matches, revision: metadata.revision, currentFingerprint: localDigest.digest('hex'), latestFingerprint: remoteDigest.digest('hex'), fileCount: files.length }
+}
 
 export function sanitizeUpdateError(value) {
   const message = String(value || '').trim()
@@ -109,6 +139,13 @@ export function createApplicationUpdater(options) {
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
     return String((await response.json())?.sha || '')
   }
+  const fetchCdnMetadata = options.fetchCdnMetadata || async function () {
+    const response = await fetch(options.cdnMetadataUrl || process.env.DSH_TAVERN_CDN_METADATA_URL || CDN_METADATA_URL, {
+      cache: 'no-store', signal: AbortSignal.timeout(8000),
+    })
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    return response.json()
+  }
   const store = createProfileDataStore({ dataRoot })
 
   async function versions() {
@@ -119,20 +156,30 @@ export function createApplicationUpdater(options) {
       if (error?.code === 'ENOENT') return { currentVersion: 'unknown', latestVersion: 'unknown', currentCommit: '', latestCommit: '', updateAvailable: true }
       throw error
     }
-    const [remote, latestCommit] = await Promise.all([fetchManifest(), fetchLatestCommit()])
     const currentVersion = String(local?.version || '')
-    const latestVersion = String(remote?.version || '')
-    if (currentVersion === '' || latestVersion === '') throw new Error('版本信息不完整')
-    if (!/^[0-9a-f]{40}$/i.test(latestCommit)) throw new Error('GitHub 返回的提交号无效')
     const currentCommit = await readRecordedCommit(sourceRoot, dshHome)
-    const versionAhead = compareVersions(latestVersion, currentVersion) > 0
-    return {
-      currentVersion,
-      latestVersion,
-      currentCommit,
-      latestCommit,
-      // An installation without commit metadata updates once to establish its baseline.
-      updateAvailable: versionAhead || currentCommit.toLowerCase() !== latestCommit.toLowerCase(),
+    try {
+      const [remote, latestCommit] = await Promise.all([fetchManifest(), fetchLatestCommit()])
+      const latestVersion = String(remote?.version || '')
+      if (currentVersion === '' || latestVersion === '') throw new Error('版本信息不完整')
+      if (!/^[0-9a-f]{40}$/i.test(latestCommit)) throw new Error('GitHub 返回的提交号无效')
+      const versionAhead = compareVersions(latestVersion, currentVersion) > 0
+      return {
+        currentVersion, latestVersion, currentCommit, latestCommit, checkSource: 'github',
+        updateAvailable: versionAhead || currentCommit.toLowerCase() !== latestCommit.toLowerCase(),
+      }
+    } catch (githubError) {
+      try {
+        const compared = await compareCdnRuntime(sourceRoot, await fetchCdnMetadata())
+        return {
+          currentVersion, latestVersion: 'unknown', currentCommit, latestCommit: compared.revision, checkSource: 'jsdelivr',
+          currentFingerprint: compared.currentFingerprint, latestFingerprint: compared.latestFingerprint,
+          checkedFileCount: compared.fileCount, updateAvailable: !compared.matches,
+          checkWarning: `GitHub 不可达，已使用 jsDelivr 备用源（可能有缓存延迟）：${sanitizeUpdateError(githubError?.message || githubError)}`,
+        }
+      } catch (cdnError) {
+        throw new Error(`GitHub 不可达（${sanitizeUpdateError(githubError?.message || githubError)}）；jsDelivr 备用源也不可用（${sanitizeUpdateError(cdnError?.message || cdnError)}）`)
+      }
     }
   }
 
@@ -202,6 +249,7 @@ export function createApplicationUpdater(options) {
         phase: 'up-to-date', host: installHost, checkedAt: now(),
         currentVersion: version.currentVersion, latestVersion: version.latestVersion,
         currentCommit: version.currentCommit, latestCommit: version.latestCommit,
+        checkSource: version.checkSource, checkWarning: version.checkWarning,
       }
       await store.writeJson(STATUS_FILE, upToDate)
       return upToDate
@@ -211,6 +259,7 @@ export function createApplicationUpdater(options) {
       ...(version.currentVersion === 'unknown' ? {} : {
         currentVersion: version.currentVersion, latestVersion: version.latestVersion,
         currentCommit: version.currentCommit, latestCommit: version.latestCommit,
+        checkSource: version.checkSource, checkWarning: version.checkWarning,
       }),
     }
     await store.writeJson(STATUS_FILE, running)
