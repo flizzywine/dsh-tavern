@@ -182,6 +182,10 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 .dsh-tavern-preset-row-main span { display: block; margin-top: 3px; color: var(--dsw-alias-label-secondary); font-size: 10px; }
 .dsh-tavern-preset-detail { flex: 1; min-height: 0; overflow-y: auto; padding: 10px 12px 24px; }
 .dsh-tavern-preset-summary { margin-bottom: 10px; padding: 9px 10px; border: 1px solid rgba(166,107,53,.35); border-radius: 9px; background: rgba(166,107,53,.08); color: var(--dsw-alias-label-secondary); font-size: 11px; line-height: 1.5; }
+.dsh-tavern-external-preset-notice { padding: 14px 16px; font-size: 14px; line-height: 1.7; }
+.dsh-tavern-external-preset-notice p { margin: 4px 0 0; }
+.dsh-tavern-external-preset-notice strong { color: #a66b35; font-weight: 750; }
+.dsh-tavern-external-preset-notice .dsh-tavern-preset-warning { color: #b4473a; }
 .dsh-tavern-preset-selector { display: grid; grid-template-columns: auto minmax(0,1fr); align-items: center; gap: 8px; margin-bottom: 10px; padding: 9px 10px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 9px; background: var(--dsw-specific-input-major); font-size: 11px; }
 .dsh-tavern-preset-selector select { min-width: 0; width: 100%; height: 28px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 6px; padding: 0 7px; background: var(--dsw-specific-input-major); color: inherit; }
 .dsh-tavern-preset-section-title { margin: 14px 2px 7px; color: var(--dsw-alias-label-secondary); font-size: 11px; font-weight: 800; letter-spacing: .04em; }
@@ -2054,7 +2058,10 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				return h("div", { className: "dsh-tavern-presets" },
 					h("div", { className: "dsh-tavern-status-head" }, h("div", { className: "dsh-tavern-status-title" }, "外部预设库"), h("div", { className: "dsh-tavern-question-sub" }, "导入和查看外部预设，并从中抽取破限方案"), h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { importInput.current && importInput.current.click(); } }, "导入外部预设"), h("input", { ref: importInput, type: "file", accept: ".json,application/json", style: { display: "none" }, onChange: function (event) { const file = event.target.files && event.target.files[0]; importFile(file); event.target.value = ""; } })),
 					h("div", { className: "dsh-tavern-preset-list" }, error ? h("div", { className: "dsh-tavern-dock-error" }, error) : null,
-						h("div", { className: "dsh-tavern-preset-summary" }, "DSH Tavern 自带了一套运行预设，因此不支持直接使用外部预设；外部预设仅供查看，无法实际运行。你可以勾选外部预设中与破限相关的条目，抽取为破限方案后使用。请勿抽取与破限无关的条目，否则可能干扰 DSH Tavern 的正常运行。"),
+						h("div", { className: "dsh-tavern-preset-summary dsh-tavern-external-preset-notice" },
+							h("strong", null, "外部预设仅供查看，无法实际运行"),
+							h("p", null, "DSH Tavern 已自带运行预设。请勾选外部预设中", h("strong", null, "与破限相关的条目"), "，抽取为破限方案后使用。"),
+							h("p", { className: "dsh-tavern-preset-warning" }, h("strong", null, "注意：请勿抽取与破限无关的条目"), "，否则可能干扰 DSH Tavern 的正常运行。")),
 						catalog.presets.length ? catalog.presets.map(function (item) { return h("div", { key: item.path, className: "dsh-tavern-preset-row" }, h("div", { className: "dsh-tavern-preset-row-head" }, h("button", { className: "dsh-tavern-preset-row-main", onClick: function () { load(item.path); } }, h("b", null, item.title), h("span", null, item.promptCount + " 个提示词 · " + item.regexCount + " 条可迁移正则")), h("button", { className: "dsh-tavern-resource-at", disabled: busy, onClick: function () { exportFile(item); } }, "导出"), h("button", { className: "dsh-tavern-resource-at", disabled: busy, onClick: function () { rename(item); } }, "重命名"), h("button", { className: "dsh-tavern-resource-at", disabled: busy, onClick: function () { remove(item); } }, "删除"))); }) : h("div", { className: "dsh-tavern-status-empty" }, "还没有外部预设。")));
 			}
 
