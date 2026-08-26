@@ -2014,10 +2014,21 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					try { await rpc("deletePreset", { path: item.path }, props.scope.sessionId); if (preset && preset.path === item.path) setPreset(null); await refresh(); window.dispatchEvent(new CustomEvent("dsh-tavern-data-changed")); }
 					catch (err) { setError(String(err && err.message || err)); } finally { setBusy(false); }
 				}
-				function startExtraction() {
+				function startExtraction(targetPreset) {
+					const source = targetPreset || preset;
 					setEntryKeys([]);
-					setRegexKeys((preset.extractableRegexScripts || []).map(function (script) { return script.regexKey; }));
-					setPlanName((preset.title || "未命名") + " · 破限方案"); setExtracting(true); setError("");
+					setRegexKeys((source.extractableRegexScripts || []).map(function (script) { return script.regexKey; }));
+					setPlanName((source.title || "未命名") + " · 破限方案"); setExtracting(true); setError("");
+				}
+				async function openExtraction(item) {
+					setBusy(true); setError("");
+					try {
+						const result = await rpc("getPreset", { path: item.path }, props.scope.sessionId);
+						const source = result.preset || null;
+						if (!source || !source.recognized) throw new Error("该外部预设无法识别，不能抽取破限方案");
+						setPreset(source); startExtraction(source);
+					} catch (err) { setError(String(err && err.message || err)); }
+					finally { setBusy(false); }
 				}
 				function toggleKey(setter, current, key, checked) {
 					setter(checked ? current.concat([key]).filter(function (item, index, all) { return all.indexOf(item) === index; }) : current.filter(function (item) { return item !== key; }));
@@ -2049,7 +2060,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 						h("div", { className: "dsh-tavern-regex-body" }, h("pre", { className: "dsh-tavern-regex-code" }, script.findRegex || "（空）"), h("pre", { className: "dsh-tavern-regex-code" }, script.replaceString || "（空）")));
 				}
 				if (preset) return h("div", { className: "dsh-tavern-presets" },
-					h("div", { className: "dsh-tavern-status-head" }, h("button", { className: "dsh-tavern-btn", onClick: function () { setPreset(null); setExtracting(false); } }, "← 返回外部预设库"), h("div", { className: "dsh-tavern-status-title" }, preset.title), !extracting ? h("button", { className: "dsh-tavern-btn primary", disabled: busy || !preset.recognized, onClick: startExtraction }, "抽取破限方案") : null),
+					h("div", { className: "dsh-tavern-status-head" }, h("button", { className: "dsh-tavern-btn", onClick: function () { setPreset(null); setExtracting(false); } }, "← 返回外部预设库"), h("div", { className: "dsh-tavern-status-title" }, preset.title)),
 					h("div", { className: "dsh-tavern-preset-detail" }, error ? h("div", { className: "dsh-tavern-dock-error" }, error) : null,
 						extracting ? h("div", { className: "dsh-tavern-preset-summary" }, h("b", null, "选择需要的破限提示词"), h("p", null, "提示词默认不选；正则默认全部迁移并继承原启用状态。"), h("label", null, "方案名称", h("input", { value: planName, disabled: busy, onChange: function (event) { setPlanName(event.target.value); } }))) : h("div", { className: "dsh-tavern-preset-summary" }, "这是只读的外部预设。它不会直接进入模型请求，只能用于抽取破限方案。"),
 						h("div", { className: "dsh-tavern-preset-section-title" }, "提示词条目 · " + (preset.entries || []).length), (preset.entries || []).map(function (entry) { return entryRow(entry, entry.injectable && !entry.marker); }),
@@ -2060,9 +2071,9 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					h("div", { className: "dsh-tavern-preset-list" }, error ? h("div", { className: "dsh-tavern-dock-error" }, error) : null,
 						h("div", { className: "dsh-tavern-preset-summary dsh-tavern-external-preset-notice" },
 							h("strong", null, "外部预设仅供查看，无法实际运行"),
-							h("p", null, "DSH Tavern 已自带运行预设。请勾选外部预设中", h("strong", null, "与破限相关的条目"), "，抽取为破限方案后使用。"),
+							h("p", null, "DSH Tavern 已自带运行预设。请勾选外部预设中", h("strong", null, "与破限相关的条目"), "，", h("strong", null, "抽取为破限方案后使用"), "。"),
 							h("p", { className: "dsh-tavern-preset-warning" }, h("strong", null, "注意：请勿抽取与破限无关的条目"), "，否则可能干扰 DSH Tavern 的正常运行。")),
-						catalog.presets.length ? catalog.presets.map(function (item) { return h("div", { key: item.path, className: "dsh-tavern-preset-row" }, h("div", { className: "dsh-tavern-preset-row-head" }, h("button", { className: "dsh-tavern-preset-row-main", onClick: function () { load(item.path); } }, h("b", null, item.title), h("span", null, item.promptCount + " 个提示词 · " + item.regexCount + " 条可迁移正则")), h("button", { className: "dsh-tavern-resource-at", disabled: busy, onClick: function () { exportFile(item); } }, "导出"), h("button", { className: "dsh-tavern-resource-at", disabled: busy, onClick: function () { rename(item); } }, "重命名"), h("button", { className: "dsh-tavern-resource-at", disabled: busy, onClick: function () { remove(item); } }, "删除"))); }) : h("div", { className: "dsh-tavern-status-empty" }, "还没有外部预设。")));
+						catalog.presets.length ? catalog.presets.map(function (item) { return h("div", { key: item.path, className: "dsh-tavern-preset-row" }, h("div", { className: "dsh-tavern-preset-row-head" }, h("button", { className: "dsh-tavern-preset-row-main", onClick: function () { load(item.path); } }, h("b", null, item.title), h("span", null, item.promptCount + " 个提示词 · " + item.regexCount + " 条可迁移正则")), h("button", { className: "dsh-tavern-resource-at", disabled: busy, onClick: function () { openExtraction(item); } }, "抽取破限方案"), h("button", { className: "dsh-tavern-resource-at", disabled: busy, onClick: function () { exportFile(item); } }, "导出"), h("button", { className: "dsh-tavern-resource-at", disabled: busy, onClick: function () { rename(item); } }, "重命名"), h("button", { className: "dsh-tavern-resource-at", disabled: busy, onClick: function () { remove(item); } }, "删除"))); }) : h("div", { className: "dsh-tavern-status-empty" }, "还没有外部预设。")));
 			}
 
 			function BypassPlanLibraryTab(props) {
