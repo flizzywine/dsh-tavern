@@ -23,6 +23,8 @@ import { createPlayChatDebugReference, readPlayChatDebugTurn } from './domain/pl
 import { createPresetEditor } from './domain/preset-editor.js'
 import { createRuntimePresetModule, resolveRuntimePresetMacros } from './domain/runtime-presets.js'
 import { compileSillyTavernRequest } from './domain/sillytavern-compatibility.js'
+import { createEphemeralCompatibilityRequest, isCompatibilityConversationRequest } from './domain/compatibility-request.js'
+import { hasRollbackMessages, locateRollbackSurface } from './domain/rollback-surface.js'
 import { clearRuntimePresetBoundaryMessages, runtimePresetPhaseMessages } from './domain/runtime-preset-lifecycle.js'
 import {
   preserveRuntimeSource,
@@ -858,6 +860,7 @@ export async function apply(ctx) {
       guides: Array.isArray(chat.guides) ? chat.guides : [],
       debugTurns: debugTurns.slice(-12).reverse(),
       inputSources,
+      canRollback: hasRollbackMessages(chat.messages),
       presentation: null,
       replyProjections: replyDisplay.projections,
       presentationWarnings: Array.isArray(chat.presentationWarnings) ? chat.presentationWarnings : [],
@@ -1870,29 +1873,10 @@ export async function apply(ctx) {
     const session = agent.session
     const events = Array.isArray(session.events) ? session.events : []
     const nodes = session.surface !== undefined && Array.isArray(session.surface.nodes) ? session.surface.nodes : []
-    let userSeq = -1
-    for (let i = nodes.length - 1; i >= 0; i--) {
-      const event = events[nodes[i]]
-      if (event !== null && typeof event === 'object' && event.type === 'user/message' && event.surfaceOp === 'append') {
-        userSeq = Number(event.seq)
-        break
-      }
-    }
-    if (userSeq < 0) throw new Error('原生消息流中找不到可回退的用户输入')
-    let lastAssistant = null
-    for (let i = nodes.length - 1; i >= 0; i--) {
-      const event = events[nodes[i]]
-      if (event !== null && typeof event === 'object' && event.type === 'assistant/message' && event.surfaceOp === 'append') {
-        lastAssistant = event
-        break
-      }
-    }
-    if (lastAssistant === null) throw new Error('原生消息流中找不到可回退的正文输出')
-    const hiddenTurn = Math.max(0, Number(lastAssistant.data && lastAssistant.data.turn) || 0)
-    const startIndex = nodes.indexOf(userSeq)
-    if (startIndex < 0) throw new Error('目标用户输入已不在模型面中，可能已经回退过')
-    const shadowedSeqs = nodes.slice(startIndex)
-    if (shadowedSeqs.length === 0) throw new Error('没有可遮蔽的消息区间')
+    const rollbackSurface = locateRollbackSurface({ events, nodes })
+    if (rollbackSurface === null) throw new Error('原生消息流中找不到可回退的用户输入与正文组合')
+    const hiddenTurn = rollbackSurface.turn
+    const shadowedSeqs = rollbackSurface.shadowedSeqs
 
     // 1) 定位要回退的最后一组 user + assistant
     const msgs = chat.messages || []
@@ -1952,24 +1936,17 @@ export async function apply(ctx) {
     await writeChat(chat)
 
     // 3) 原生消息面：用空消息替换最近一轮的所有 surface 节点（模型不再看到），UI 由客户端隐藏对应 turn tail
-    const endSeq = shadowedSeqs[shadowedSeqs.length - 1]
-    const hideTurn = Math.max(0, Number(lastAssistant.data && lastAssistant.data.turn) || 0)
-    const hideStep = Math.max(1, Number(lastAssistant.data && lastAssistant.data.step) || 1)
-    const rollbackSource = lastAssistant !== null && lastAssistant.data !== undefined && lastAssistant.data.message !== undefined && lastAssistant.data.message.source !== undefined && lastAssistant.data.message.source.kind === 'model'
-      ? lastAssistant.data.message.source
-      : null
-    if (rollbackSource === null) throw new Error('找不到可用的模型来源，无法遮蔽本轮消息')
     session.append('assistant/message', {
-      turn: hideTurn,
-      step: hideStep,
+      turn: rollbackSurface.turn,
+      step: rollbackSurface.step,
       message: {
         id: crypto.randomUUID(),
         role: 'assistant',
         content: [],
-        source: rollbackSource
+        source: rollbackSurface.source
       }
     }, {
-      surfaceOp: { op: 'replace', start: userSeq, end: endSeq },
+      surfaceOp: { op: 'replace', start: rollbackSurface.userSeq, end: rollbackSurface.endSeq },
       sourceEventSeqs: shadowedSeqs
     })
     const result = await view(chat, card)
@@ -2444,6 +2421,25 @@ export async function apply(ctx) {
 
   // ---------- DSH 回合生命周期 ----------
   const requestCoordinates = new Map()
+  const compatibilityModelRequests = new Map()
+  const compatibilityRedispatches = new WeakSet()
+
+  function compatibilityMessages(compiled) {
+    return compiled.messages.map(function (item, index) {
+      const label = str(item.source && (item.source.identifier || item.source.kind)) || 'message-' + (index + 1)
+      return {
+        id: crypto.randomUUID(),
+        role: item.role,
+        content: [{ type: 'text', text: item.content }],
+        source: {
+          kind: 'plugin', plugin: 'dsh-tavern', form: 'sillytavern-compatibility',
+          sections: [{ name: 'tavern:sillytavern:' + label, text: item.content }],
+          trace: item.source
+        }
+      }
+    })
+  }
+
   ctx.on('agent/request', async function (payload, next) {
     const sessionId = payload.agent && payload.agent.session ? payload.agent.session.id : ''
     if (sessionId !== '') requestCoordinates.set(sessionId, { turn: payload.turn, step: payload.step })
@@ -2467,21 +2463,14 @@ export async function apply(ctx) {
       if (!chat.compatibilityTraces || typeof chat.compatibilityTraces !== 'object') chat.compatibilityTraces = {}
       chat.compatibilityTraces[String(payload.turn)] = Object.assign({ createdAt: Date.now() }, compiled.trace, { diagnostics: compiled.diagnostics })
       await writeChat(chat)
+      compatibilityModelRequests.set(sessionId, {
+        turn: Number(payload.turn) || 0,
+        step: Number(payload.step) || 0,
+        messages: compatibilityMessages(compiled)
+      })
       return {
         kind: 'enter',
-        messages: compiled.messages.map(function (item, index) {
-          const label = str(item.source && (item.source.identifier || item.source.kind)) || 'message-' + (index + 1)
-          return {
-            id: crypto.randomUUID(),
-            role: item.role,
-            content: [{ type: 'text', text: item.content }],
-            source: {
-              kind: 'plugin', plugin: 'dsh-tavern', form: 'sillytavern-compatibility',
-              sections: [{ name: 'tavern:sillytavern:' + label, text: item.content }],
-              trace: item.source
-            }
-          }
-        })
+        messages: payload.messages
       }
     }
     const mode = await turnOrchestrator.modeFor(sessionId)
@@ -2514,14 +2503,23 @@ export async function apply(ctx) {
   })
 
   ctx.on('llm/stream', function (options, next) {
-    const stream = next()
     const sessionId = str(options && options.sessionId)
+    const stagedCompatibility = compatibilityModelRequests.get(sessionId)
+    const coordinates = requestCoordinates.get(sessionId)
+    const shouldRedispatch = !compatibilityRedispatches.has(options) &&
+      isCompatibilityConversationRequest(options, stagedCompatibility, coordinates)
+    if (shouldRedispatch) {
+      const compatibilityRequest = createEphemeralCompatibilityRequest(options, stagedCompatibility.messages)
+      compatibilityRedispatches.add(compatibilityRequest)
+      return ctx.llm.stream(compatibilityRequest)
+    }
+    const stream = next()
     const backgroundContext = backgroundAgentRunner.requestContext(sessionId)
     const ownerSessionId = backgroundContext ? backgroundContext.parentSessionId : sessionId
     return (async function * () {
       const chat = ownerSessionId === '' ? undefined : await chatForSession(ownerSessionId)
       let requestRecord = null
-      if (chat !== undefined && (chat.mode === 'story' || chat.mode === 'script')) {
+      if (options.purpose === undefined && chat !== undefined && (chat.mode === 'story' || chat.mode === 'script')) {
         const coordinates = requestCoordinates.get(sessionId) || {}
         const session = backgroundContext ? backgroundAgentRunner.requestSession(sessionId) : (agentRegistry.get(sessionId) && agentRegistry.get(sessionId).session)
         try {
@@ -2545,6 +2543,8 @@ export async function apply(ctx) {
         failure = str(error && error.message || error)
         throw error
       } finally {
+        const completed = finish && finish.kind !== 'error' && finish.kind !== 'aborted'
+        if (stagedCompatibility && compatibilityRedispatches.has(options) && completed) compatibilityModelRequests.delete(sessionId)
         if (chat && requestRecord) {
           try { await modelRequestLog.complete({ chatId: chat.id, id: requestRecord.id, text: responseText, finish, error: failure }) }
           catch (error) { console.error('dsh-tavern: 模型结果日志写入失败', str(error && error.message || error)) }
@@ -2572,6 +2572,7 @@ export async function apply(ctx) {
 
   ctx.on('session/event', function (session, event) {
     if (!event || event.type !== 'turn/end') return
+    compatibilityModelRequests.delete(session.id)
     if (backgroundAgentRunner.owns(session.id)) return
     const reason = event.data && event.data.reason ? event.data.reason.kind : ''
     foregroundHandoff.end({ sessionId: session.id, turn: event.data && event.data.turn, reason })
@@ -2587,6 +2588,7 @@ export async function apply(ctx) {
     const chat = await chatForSession(agent.session.id)
     if (chat && chat.requestMode === 'sillytavern') {
       assembly.sections = []
+      assembly.contexts = []
       assembly.tools = []
       return assembly
     }

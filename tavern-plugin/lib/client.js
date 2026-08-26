@@ -3369,8 +3369,10 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				}
 				return null;
 			});
+			const rollbackViewState = useLiveTavernView(props.sessionId, String(frontRunning) + ":" + String(latestMessageId || ""));
 			const activityState = useTavernCoordination(props.sessionId, String(frontRunning) + ":" + String(latestMessageId || ""));
 			const activity = describeTavernActivity(activityState.view && activityState.view.activity);
+			const canRollback = rollbackViewState.view && rollbackViewState.view.canRollback === true;
 			const candidateTask = activityState.view && activityState.view.task;
 			const taskForMessage = candidateTask && candidateTask.kind === "candidate" && candidateTask.input && String(candidateTask.input.messageId || "") === String(props.messageId || "") ? candidateTask : null;
 			const taskBusy = !!(taskForMessage && taskForMessage.busy);
@@ -3423,6 +3425,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					setCandidatePanel(null);
 					setRegenPanel(null);
 					setCandidateGuidePanel(null);
+					liveTavernView.invalidate(props.sessionId);
+					tavernCoordination.invalidate(props.sessionId);
 					window.dispatchEvent(new CustomEvent("dsh-tavern-data-changed"));
 				} catch (err) {
 					tavernErrorHub.report("回退本轮", err);
@@ -3435,7 +3439,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			if (!isPlayMode(sessionMode) || latestMessageId !== props.messageId) return null;
 			if (activityState.view && activityState.view.requestMode === "sillytavern") return h(React.Fragment, null,
 				h("button", { className: "dsh-tavern-choice-trigger", title: "重新生成正文（酒馆兼容请求）", onClick: function (event) { const tail = event && event.currentTarget ? event.currentTarget.closest('[data-chat-flow-kind="turn-tail"]') : null; setRegenPanel({ sessionId: props.sessionId, phase: "input", guidance: "", text: "", error: "", tail: tail }); } }, "重新生成正文"),
-				h("button", { className: "dsh-tavern-choice-trigger", disabled: rolling, title: "删除最近一次用户输入和这段 LLM 输出", onClick: rollback }, rolling ? "回退中…" : "回退本轮")
+				canRollback ? h("button", { className: "dsh-tavern-choice-trigger", disabled: rolling, title: "删除最近一次用户输入和这段 LLM 输出", onClick: rollback }, rolling ? "回退中…" : "回退本轮") : null
 			);
 			return h(React.Fragment, null,
 				h("button", { className: "dsh-tavern-choice-trigger", disabled: busy || rolling || taskBusy || activity.busy, title: activity.busy ? activity.blockReason : (hasReadyPanel ? "重新生成候选项（可先填写意见）" : (isScript ? "手动生成候选项；由于跟随剧本，只有一个推荐候选项" : "手动生成候选项")), onClick: function () {
@@ -3453,7 +3457,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					setCandidatePanel(null);
 					setRegenPanel({ sessionId: props.sessionId, phase: "input", guidance: "", text: "", error: "", tail: tail });
 				} }, "重新生成正文"),
-				h("button", { className: "dsh-tavern-choice-trigger", disabled: rolling, title: "删除最近一次用户输入和这段 LLM 输出", onClick: rollback }, rolling ? "回退中…" : "回退本轮")
+				canRollback ? h("button", { className: "dsh-tavern-choice-trigger", disabled: rolling, title: "删除最近一次用户输入和这段 LLM 输出", onClick: rollback }, rolling ? "回退中…" : "回退本轮") : null
 			);
 		}
 
