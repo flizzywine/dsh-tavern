@@ -197,6 +197,19 @@ function importedObject(payload) {
   throw new Error('无法识别的人物卡导入数据')
 }
 
+function isStandaloneWorldBook(raw) {
+  if (!object(raw)) return false
+  if (!Array.isArray(raw.entries) && !object(raw.entries)) return false
+  if ((raw.spec === 'chara_card_v2' || raw.spec === 'chara_card_v3') && object(raw.data)) return false
+  const characterFields = [
+    'description', 'personality', 'scenario', 'first_mes', 'mes_example',
+    'system_prompt', 'post_history_instructions', 'alternate_greetings', 'character_book'
+  ]
+  return !characterFields.some(function (field) {
+    return Object.prototype.hasOwnProperty.call(raw, field)
+  })
+}
+
 function projectedCard(value) {
   const raw = rawOf(value)
   if (!object(raw)) throw new Error('人物卡格式错误')
@@ -337,7 +350,9 @@ export function createCardPreparation(options = {}) {
   function create(request) {
     if (request === null || typeof request !== 'object') throw new Error('缺少人物卡准备请求')
     if (request.kind === 'import') {
-      return makeWorkspace(importedObject(request.payload), { id: nextId(), importedAt: now(), revisionHistory: [] })
+      const raw = importedObject(request.payload)
+      if (isStandaloneWorldBook(raw)) throw new Error('检测到世界书，请从右侧“世界书库”导入。')
+      return makeWorkspace(raw, { id: nextId(), importedAt: now(), revisionHistory: [] })
     }
     if (request.kind === 'draft') {
       const draft = request.draft !== null && typeof request.draft === 'object' ? request.draft : {}
