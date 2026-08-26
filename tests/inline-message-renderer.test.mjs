@@ -96,6 +96,27 @@ test('消息 iframe 在人物卡脚本前提供隔离的 localStorage 兼容层'
   assert.equal(isolatedWindow.localStorage.getItem('theme'), null)
 })
 
+test('消息 iframe 清理完整 HTML 文档泄漏到正文层的顶级排版空白', () => {
+  const document = client.buildTavernFrameDocument({
+    content: '<maintext>正文内\n保留换行</maintext>\n\n    <meta charset="utf-8">\n    <div data-status>状态栏</div>',
+    token: 'layout-token'
+  })
+  const normalizer = document.match(/<script data-dsh-tavern-layout>([\s\S]*?)<\/script>/)
+  assert.ok(normalizer)
+  assert.ok(document.indexOf('data-status') < document.lastIndexOf('<script data-dsh-tavern-layout>'))
+
+  const topLevelWhitespace = { nodeType: 3, nodeValue: '\n\n    ' }
+  const meaningfulText = { nodeType: 3, nodeValue: '正文内容' }
+  const nestedWhitespace = { nodeType: 3, nodeValue: '\n保留', parentNode: {} }
+  const body = { childNodes: [topLevelWhitespace, meaningfulText] }
+  nestedWhitespace.parentNode = { childNodes: [nestedWhitespace] }
+  vm.runInNewContext(normalizer[1], { document: { body }, Array })
+
+  assert.equal(topLevelWhitespace.nodeValue, ' ')
+  assert.equal(meaningfulText.nodeValue, '正文内容')
+  assert.equal(nestedWhitespace.nodeValue, '\n保留')
+})
+
 test('assistant renderer 以更低 priority 接管 DSH 正式 keyed slot', () => {
   const registrations = []
   const labels = []
