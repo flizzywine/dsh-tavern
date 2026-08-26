@@ -12,14 +12,18 @@ import { createContextPlanner } from './domain/context-planner.js'
 import { createConversationTextExport } from './domain/conversation-text-export.js'
 import { createCoordinationEventPublisher } from './domain/coordination-event-publisher.js'
 import { createDurableTaskMailbox } from './domain/durable-task-mailbox.js'
+import { resolveDeveloperMode } from './domain/developer-mode.js'
 import { extractEpubText } from './domain/epub-text.js'
 import { createFileResourceStore, normalizeResourcePath, resourceKind } from './domain/file-resources.js'
 import { createForegroundHandoff } from './domain/foreground-handoff.js'
+import { createModelRequestLog } from './domain/model-request-log.js'
 import { previewPresetConversion } from './domain/preset-conversion-preview.js'
 import { inspectPreset } from './domain/preset-reading.js'
 import { createPlayChatDebugReference, readPlayChatDebugTurn } from './domain/play-chat-debug.js'
 import { createPresetEditor } from './domain/preset-editor.js'
 import { createRuntimePresetModule, resolveRuntimePresetMacros } from './domain/runtime-presets.js'
+import { compileSillyTavernRequest } from './domain/sillytavern-compatibility.js'
+import { clearRuntimePresetBoundaryMessages, runtimePresetPhaseMessages } from './domain/runtime-preset-lifecycle.js'
 import {
   preserveRuntimeSource,
   projectAgentContent,
@@ -27,6 +31,7 @@ import {
   projectOpeningPreview,
   projectRuntimeReply,
   projectRuntimeReplyHistory,
+  resolveRuntimeMacroText,
   sanitizeAgentProjectionText
 } from './domain/runtime-content-projection.js'
 import { createScriptContinuity } from './domain/script-continuity.js'
@@ -35,6 +40,7 @@ import { createStoryTimeline } from './domain/story-timeline.js'
 import { resolveTavernDataRoot } from './domain/tavern-data.js'
 import { createTavernSkillModule } from './domain/tavern-skills.js'
 import { createTavernConversationRegistry } from './domain/tavern-conversation-registry.js'
+import { applyTavernRegexText } from './domain/tavern-regex-display.js'
 import { createTurnOrchestrator } from './domain/turn-orchestration.js'
 import { resourceWorkspaceContext } from './domain/workspace-resources.js'
 import { createWorldBookLibrary } from './domain/worldbook-library.js'
@@ -58,11 +64,17 @@ export async function apply(ctx) {
     return
   }
   const agentDefaultModel = ctx.get('agentDefaultModel')
+  const developerMode = resolveDeveloperMode()
 
   const sourceRoot = fileURLToPath(new URL('../../', import.meta.url))
   const dataRoot = resolveTavernDataRoot()
   const profileData = createProfileDataStore({ dataRoot })
   const applicationUpdater = createApplicationUpdater({ dataRoot, sourceRoot })
+  const modelRequestLog = createModelRequestLog({
+    readJson: async function (path) { return await profileData.readJson(path) },
+    writeJson: async function (path, value) { return await profileData.writeJson(path, value) },
+    updateJson: async function (path, updater) { return await profileData.updateJson(path, updater) }
+  })
   const tavernSkills = createTavernSkillModule({
     directory: dataRoot + '/skills',
     builtInDirectory: sourceRoot + '/presets/tavern/skills'
@@ -513,6 +525,7 @@ export async function apply(ctx) {
   function normalizeChat(chat) {
     if (chat === undefined || chat === null || typeof chat !== 'object') return chat
     if (chat.mode === 'revision' || chat.mode === 'extract') chat.mode = 'card'
+    if (!developerMode || chat.requestMode !== 'sillytavern') chat.requestMode = 'dsh'
     if (typeof chat.cardPath !== 'string') chat.cardPath = ''
     if (chat.macroState === null || typeof chat.macroState !== 'object') chat.macroState = { userName: '你', local: {}, global: {} }
     if (typeof chat.macroState.userName !== 'string' || chat.macroState.userName === '' || chat.macroState.userName === 'User') chat.macroState.userName = '你'
@@ -620,7 +633,7 @@ export async function apply(ctx) {
     }
   }
   async function restoreCurrentCard(sessionId) {
-    const chat = await chatForSession(sessionId)
+    let chat = await chatForSession(sessionId)
     if (chat === undefined) throw new Error('当前会话没有绑定人物卡')
     if ((chat.mode || 'story') !== 'card') throw new Error('原版恢复只能在卡片模式中使用')
     const cardPath = str(chat.cardPath)
@@ -739,7 +752,7 @@ export async function apply(ctx) {
   }
 
   // ---------- 聊天 ----------
-  function newChat(card, mode) {
+  function newChat(card, mode, requestMode) {
     const chatMode = mode === 'card' ? 'card' : (mode === 'script' ? 'script' : 'story')
     const hasCard = card !== null && card !== undefined && str(card.path) !== ''
     return {
@@ -747,6 +760,7 @@ export async function apply(ctx) {
       cardPath: hasCard ? card.path : '',
       cardName: hasCard ? card.name : '卡片工作台',
       mode: chatMode,
+      requestMode: developerMode && requestMode === 'sillytavern' && chatMode !== 'card' ? 'sillytavern' : 'dsh',
       scriptState: chatMode === 'script' ? { cursor: 0, recalledChunkIds: [], prepared: null, lastReference: null, totalChunks: 0, title: '', scriptVersion: 0 } : null,
       workspace: chatMode === 'card' ? emptyCardWorkspace() : null,
       messages: [],
@@ -822,14 +836,28 @@ export async function apply(ctx) {
       const source = (str(message.sourceText) || str(message.text)).replace(/\s+/g, ' ').trim()
       debugTurns.push({ turn, preview: source.slice(0, 90), chars: source.length })
     }
+    const inputSources = {}
+    const runtimeInputs = chat.runtimeInputs && typeof chat.runtimeInputs === 'object' ? chat.runtimeInputs : {}
+    for (const turn of Object.keys(runtimeInputs)) {
+      const input = runtimeInputs[turn]
+      inputSources[turn] = str(input && input.source)
+    }
+    const runtimePresetPath = str(chat.runtimePresetPath) || str(chat.runtimePresetSnapshot && chat.runtimePresetSnapshot.presetPath)
+    const runtimePresetFile = runtimePresetPath.split('/').pop() || ''
     return {
       chatId: chat.id,
       mode: chat.mode || 'story',
+      requestMode: chat.requestMode === 'sillytavern' ? 'sillytavern' : 'dsh',
       playerName: str(chat.macroState && chat.macroState.userName).trim() || '你',
+      runtimePreset: runtimePresetPath === '' ? null : {
+        path: runtimePresetPath,
+        name: runtimePresetFile.replace(/\.json$/i, '') || runtimePresetPath
+      },
       card: cardViewOf(card, chat),
       posture: chat.posture || '',
       guides: Array.isArray(chat.guides) ? chat.guides : [],
       debugTurns: debugTurns.slice(-12).reverse(),
+      inputSources,
       presentation: null,
       replyProjections: replyDisplay.projections,
       presentationWarnings: Array.isArray(chat.presentationWarnings) ? chat.presentationWarnings : [],
@@ -889,7 +917,8 @@ export async function apply(ctx) {
     })
     return result.sort(function (left, right) { return Number(left.turn) - Number(right.turn) })
   }
-  async function startChat(cardPath, sessionId, mode, openingId, userName) {
+  async function startChat(cardPath, sessionId, mode, openingId, userName, requestMode) {
+    const effectiveRequestMode = developerMode && requestMode === 'sillytavern' ? 'sillytavern' : 'dsh'
     const requestedMode = mode === 'card' || mode === 'revision' || mode === 'extract' ? 'card' : (mode === 'script' ? 'script' : (mode === 'story' ? 'story' : null))
     const card = str(cardPath) === '' && requestedMode === 'card' ? null : await readCard(cardPath)
     if (card === undefined) throw new Error('人物卡不存在: ' + cardPath)
@@ -923,8 +952,13 @@ export async function apply(ctx) {
     macroState.global = resolvedRuntimePreset.macroState.global
     const openingSourceText = chatMode === 'card' ? prompt('card-mode-greeting') : resolveCardOpening(card, openingId)
     const openingExtensions = chatMode === 'card' ? null : await readCardExtensions(cardPath)
+    const compatibilityPreset = effectiveRequestMode === 'sillytavern' && runtimePresetSnapshot && runtimePresetSnapshot.presetPath
+      ? await readPreset(runtimePresetSnapshot.presetPath)
+      : null
     const openingRegexScripts = (Array.isArray(openingExtensions && openingExtensions.regexScripts) ? openingExtensions.regexScripts : []).concat(
-      Array.isArray(runtimePresetSnapshot && runtimePresetSnapshot.regexScripts) ? runtimePresetSnapshot.regexScripts : []
+      compatibilityPreset
+        ? (compatibilityPreset.regexScripts || []).filter(function (script) { return script.enabled !== false })
+        : (Array.isArray(runtimePresetSnapshot && runtimePresetSnapshot.regexScripts) ? runtimePresetSnapshot.regexScripts : [])
     )
     const openingProjection = chatMode === 'card'
       ? { agentText: openingSourceText, renderedText: openingSourceText, sessionText: openingSourceText, displayText: openingSourceText, displayMode: 'markdown', displayParts: [{ kind: 'markdown', text: openingSourceText }], warnings: [], macroState }
@@ -943,7 +977,7 @@ export async function apply(ctx) {
     // connectWorkspace 返回时，Agent 注册偶尔仍在异步完成。先等到原生会话可写，
     // 再落盘 Tavern 对话，避免失败时留下只有映射、没有原生开场白的半初始化记录。
     const openingTarget = typeof sessionId === 'string' && sessionId !== '' && greeting !== '' ? await waitForWritableSession({ registry: agentRegistry, sessions: sessionStore, sessionId: sessionId, sleep: sleep }) : undefined
-    const chat = newChat(card, chatMode || 'story')
+    const chat = newChat(card, chatMode || 'story', effectiveRequestMode)
     chat.runtimePresetSnapshot = runtimePresetSnapshot
     chat.runtimePresetPath = runtimePresetSnapshot && runtimePresetSnapshot.presetPath || ''
     chat.macroState = macroState
@@ -1031,7 +1065,7 @@ export async function apply(ctx) {
     return scriptContinuity.inspect({ script: script, state: chat.scriptState, request: { kind: 'preview' } })
   }
   async function sessionActivity(sessionId) {
-    const chat = await chatForSession(sessionId)
+    let chat = await chatForSession(sessionId)
     if (chat === undefined) return null
     const activity = backgroundTasks.activity(chat)
     return {
@@ -1129,12 +1163,7 @@ export async function apply(ctx) {
     resolveRuntimePresetSnapshot: async function (input) {
       const chat = await chatForSession(input.sessionId)
       if (!chat) return null
-      const snapshot = chat.runtimePresetSnapshot || null
-      const reference = Object.assign({}, snapshot || {}, {
-        presetPath: str(chat.runtimePresetPath) || str(snapshot && snapshot.presetPath)
-      })
-      const regexScripts = await runtimePresets.regexScriptsFor(reference)
-      return Object.assign({}, snapshot || {}, { regexScripts })
+      return await resolveChatRuntimePreset(chat)
     }
   })
   ctx.effect(() => () => backgroundAgentRunner.dispose(), 'dsh-tavern: dispose resident background agents')
@@ -1272,6 +1301,7 @@ export async function apply(ctx) {
     return {
       runtimeGeneration,
       liveSession: Boolean(agent && agent.session),
+      requestMode: chat.requestMode === 'sillytavern' ? 'sillytavern' : 'dsh',
       projectionRevision: await cardProjectionRevision(chat.cardPath),
       activity,
       mailboxVersion: synced.mailboxVersion,
@@ -1284,6 +1314,7 @@ export async function apply(ctx) {
     const sessionId = str(args.sessionId)
     const chat = await chatForSession(sessionId)
     if (chat === undefined) throw new Error('当前会话没有绑定人物卡')
+    if (chat.requestMode === 'sillytavern') throw new Error('酒馆兼容模式不运行 DSH 后台候选项')
     const task = await taskMailbox.submit(chat.id, {
       requestId: args.requestId,
       kind: 'candidate',
@@ -1309,7 +1340,8 @@ export async function apply(ctx) {
         title: str(chat.title),
         cardName: chat.cardName || '未命名角色',
         updatedAt: chat.updatedAt || chat.createdAt || 0,
-        mode: chat.mode || 'story'
+        mode: chat.mode || 'story',
+        requestMode: chat.requestMode === 'sillytavern' ? 'sillytavern' : 'dsh'
       })
     }
     rows.sort(function (a, b) { return b.updatedAt - a.updatedAt })
@@ -1347,6 +1379,15 @@ export async function apply(ctx) {
     else chat.macroState.userName = name
     await writeChat(chat)
     return name
+  }
+  async function setRequestMode(sessionId, requestMode) {
+    const chat = await chatForSession(sessionId)
+    if (chat === undefined) throw new Error('当前会话没有绑定人物卡')
+    if ((chat.mode || 'story') === 'card') throw new Error('卡片工作台不能切换请求模式')
+    if (requestMode === 'sillytavern' && !developerMode) throw new Error('酒馆兼容模式仅在开发模式下可用')
+    chat.requestMode = requestMode === 'sillytavern' ? 'sillytavern' : 'dsh'
+    await writeChat(chat)
+    return chat.requestMode
   }
 
   // ---------- 后台结算 ----------
@@ -1628,6 +1669,12 @@ export async function apply(ctx) {
     },
     projectReply: projectRuntimeReply,
     resolvePresetRegexScripts: async function (chat) {
+      if (chat && chat.requestMode === 'sillytavern') {
+        const presetPath = str(chat.runtimePresetPath) || str(chat.runtimePresetSnapshot && chat.runtimePresetSnapshot.presetPath)
+        if (presetPath === '') return []
+        const preset = await readPreset(presetPath)
+        return (preset && preset.regexScripts || []).filter(function (script) { return script.enabled !== false })
+      }
       const reference = Object.assign({}, chat.runtimePresetSnapshot || {}, {
         presetPath: str(chat.runtimePresetPath) || str(chat.runtimePresetSnapshot && chat.runtimePresetSnapshot.presetPath)
       })
@@ -2051,7 +2098,7 @@ export async function apply(ctx) {
         const change = await updateCard(args && args.path, args && args.patch)
         return { card: change.card, changed: change.changed }
       }
-      case 'listSessions': return { sessions: await listTavernSessions() }
+      case 'listSessions': return { sessions: await listTavernSessions(), capabilities: { compatibilityMode: developerMode } }
       case 'importCard': return { card: await importCard(args && args.payload) }
       case 'deleteCard': return await deleteCard(args && args.path)
       case 'deleteChat': return await deleteChat(args && args.chatId)
@@ -2066,7 +2113,7 @@ export async function apply(ctx) {
       case 'captureDisplayRuntime': return await captureDisplayRuntime(args && args.sessionId, args && args.turn, args && args.partIndex, args && args.runtime)
       case 'startChat': {
         try {
-          return { view: await startChat(args && args.path, args && args.sessionId, args && args.mode, args && args.openingId, args && args.userName) }
+          return { view: await startChat(args && args.path, args && args.sessionId, args && args.mode, args && args.openingId, args && args.userName, args && args.requestMode) }
         } catch (error) {
           console.error('dsh-tavern: 创建对话失败', {
             cardPath: str(args && args.path),
@@ -2090,9 +2137,12 @@ export async function apply(ctx) {
       }
       case 'getBackgroundOperation': return { operation: await sessionOperation(args && args.sessionId, args && args.operationId) }
       case 'setPlayerName': return { playerName: await setPlayerName(args && args.sessionId, args && args.userName) }
+      case 'setRequestMode': return { requestMode: await setRequestMode(args && args.sessionId, args && args.requestMode) }
       case 'ensureOpening': return { view: await ensureNativeOpening(args && args.sessionId) }
       case 'getChoices': return { candidates: await candidateGenerator.find({ sessionId: args && args.sessionId, messageId: args && args.messageId }) }
       case 'startChoices': {
+        const choiceChat = await chatForSession(args && args.sessionId)
+        if (choiceChat && choiceChat.requestMode === 'sillytavern') throw new Error('酒馆兼容模式不运行 DSH 后台候选项')
         if (!await pullBackgroundCycle(args && args.sessionId)) return { preparing: true }
         const prepared = await candidateGenerator.prepare({
           sessionId: args && args.sessionId,
@@ -2294,31 +2344,146 @@ export async function apply(ctx) {
     })
   }
 
-  function runtimePresetPhaseMessages(chat, phase, turn, step) {
-    const snapshot = chat && chat.runtimePresetSnapshot
-    const projected = snapshot && snapshot[phase]
-    return (projected && Array.isArray(projected.entries) ? projected.entries : []).filter(function (entry) {
-      return str(entry && entry.content).trim() !== ''
-    }).map(function (entry) {
-      const text = str(entry.content)
-      return {
-        id: 'dsh-tavern-runtime-preset-' + phase + '-' + turn + '-' + step + '-' + crypto.randomUUID(),
-        role: entry.role === 'user' || entry.role === 'assistant' ? entry.role : 'system',
-        content: [{ type: 'text', text }],
-        source: {
-          kind: 'plugin', plugin: 'dsh-tavern', form: 'snapshot',
-          sections: [{ name: 'tavern:runtime-preset-' + phase, text }]
-        }
+  async function resolveChatRuntimePreset(chat) {
+    if (!chat) return null
+    const presetPath = str(chat.runtimePresetPath) || str(chat.runtimePresetSnapshot && chat.runtimePresetSnapshot.presetPath)
+    if (presetPath === '') return null
+    const raw = await runtimePresets.snapshot(presetPath)
+    const resolved = resolveRuntimePresetMacros(raw, {
+      charName: str(chat.cardName),
+      macroState: chat.macroState
+    })
+    chat.runtimePresetSnapshot = resolved.snapshot
+    chat.runtimePresetPath = presetPath
+    chat.macroState = resolved.macroState
+    await profileData.updateJson('chats/' + chat.id + '.json', function (current) {
+      if (!current || typeof current !== 'object') return current
+      return Object.assign({}, current, {
+        runtimePresetSnapshot: resolved.snapshot,
+        runtimePresetPath: presetPath,
+        macroState: resolved.macroState,
+        updatedAt: Date.now()
+      })
+    })
+    return resolved.snapshot
+  }
+
+  function compatibilityWorldBookMatch(entry, source) {
+    if (entry.constant === true) return true
+    const text = entry.caseSensitive === true ? source : source.toLocaleLowerCase()
+    const keys = Array.isArray(entry.primaryKeys) ? entry.primaryKeys : []
+    return keys.some(function (value) {
+      const key = str(value).trim()
+      if (key === '') return false
+      const match = /^\/(.*)\/([dgimsuvy]*)$/.exec(key)
+      if (match) {
+        try { return new RegExp(match[1], match[2].replace(/[gy]/g, '')).test(source) } catch { return false }
       }
+      return text.includes(entry.caseSensitive === true ? key : key.toLocaleLowerCase())
     })
   }
 
+  async function compatibilityWorldInfo(chat, card, input) {
+    let worldBook = null
+    try { worldBook = await worldBooks.bound(chat.cardPath, card) } catch {}
+    const entries = Array.isArray(worldBook && worldBook.view && worldBook.view.entries) ? worldBook.view.entries : []
+    const scan = (chat.messages || []).map(function (item) { return str(item.sourceText || item.text) }).concat([str(input)]).join('\n')
+    const active = entries.filter(function (entry) {
+      return entry && entry.enabled !== false && str(entry.content).trim() !== '' && compatibilityWorldBookMatch(entry, scan)
+    }).sort(function (left, right) {
+      return (Number(right.order) || 0) - (Number(left.order) || 0) || (Number(left.displayIndex) || 0) - (Number(right.displayIndex) || 0)
+    })
+    const before = []
+    const after = []
+    for (const entry of active) {
+      const position = entry.position
+      const target = position === 0 || position === 'before_char' || position === 'before' ? before : after
+      target.push(str(entry.content).trim())
+    }
+    return { before: before.join('\n\n'), after: after.join('\n\n'), refs: active.map(function (entry) { return entry.ref }) }
+  }
+
+  async function compileCompatibilityTurn(chat, userText) {
+    const presetPath = str(chat.runtimePresetPath) || str(chat.runtimePresetSnapshot && chat.runtimePresetSnapshot.presetPath)
+    if (presetPath === '') throw new Error('酒馆兼容模式需要先启用一个预设')
+    const preset = await readPreset(presetPath)
+    if (!preset || preset.valid !== true || preset.recognized !== true) throw new Error('当前预设不是可识别的 SillyTavern 预设')
+    const presetText = await fileResources.readText(normalizeResourcePath(presetPath, 'preset'))
+    const presetDocument = JSON.parse(presetText)
+    const card = await readChatCard(chat)
+    const extensions = await readCardExtensions(chat.cardPath)
+    const regexScripts = (Array.isArray(extensions && extensions.regexScripts) ? extensions.regexScripts : []).concat(
+      (preset.regexScripts || []).filter(function (script) { return script.enabled !== false })
+    )
+    const worldInfo = await compatibilityWorldInfo(chat, card, userText)
+    const compiled = compileSillyTavernRequest({
+      card,
+      preset,
+      presetPath,
+      presetDocument,
+      history: (chat.messages || []).map(function (item) { return { role: item.role, text: str(item.text), sourceText: str(item.sourceText) } }),
+      input: userText,
+      userName: str(chat.macroState && chat.macroState.userName),
+      macroState: chat.macroState,
+      worldInfoBefore: worldInfo.before,
+      worldInfoAfter: worldInfo.after,
+      resolveMacros: resolveRuntimeMacroText,
+      projectPromptText: function (text, context) {
+        return applyTavernRegexText(text, regexScripts, {
+          placement: context.role === 'assistant' ? 2 : 1,
+          isMarkdown: false,
+          isEdit: false,
+          depth: context.depth
+        })
+      }
+    })
+    compiled.trace.worldBookRefs = worldInfo.refs
+    compiled.trace.regexCount = regexScripts.length
+    return compiled
+  }
+
   // ---------- DSH 回合生命周期 ----------
+  const requestCoordinates = new Map()
+  ctx.on('agent/request', async function (payload, next) {
+    const sessionId = payload.agent && payload.agent.session ? payload.agent.session.id : ''
+    if (sessionId !== '') requestCoordinates.set(sessionId, { turn: payload.turn, step: payload.step })
+    return await next()
+  })
+
   ctx.on('agent/pre-step', async function (payload, next) {
     const sessionId = payload.agent && payload.agent.session ? payload.agent.session.id : ''
     if (backgroundAgentRunner.owns(sessionId)) return next()
     const decision = await next()
     if (decision.kind === 'reject') return decision
+    let chat = await chatForSession(sessionId)
+    if (chat && chat.requestMode === 'sillytavern') {
+      const userText = payload.messages.filter(isTurnInput).map(contentText).filter(Boolean).join('\n').trim()
+      if (Number(payload.step) === 1) {
+        await turnOrchestrator.beginCompatibility({ sessionId, turn: payload.turn, userText })
+        chat = await chatForSession(sessionId)
+      }
+      const compiled = await compileCompatibilityTurn(chat, userText)
+      chat.macroState = compiled.macroState
+      if (!chat.compatibilityTraces || typeof chat.compatibilityTraces !== 'object') chat.compatibilityTraces = {}
+      chat.compatibilityTraces[String(payload.turn)] = Object.assign({ createdAt: Date.now() }, compiled.trace, { diagnostics: compiled.diagnostics })
+      await writeChat(chat)
+      return {
+        kind: 'enter',
+        messages: compiled.messages.map(function (item, index) {
+          const label = str(item.source && (item.source.identifier || item.source.kind)) || 'message-' + (index + 1)
+          return {
+            id: crypto.randomUUID(),
+            role: item.role,
+            content: [{ type: 'text', text: item.content }],
+            source: {
+              kind: 'plugin', plugin: 'dsh-tavern', form: 'sillytavern-compatibility',
+              sections: [{ name: 'tavern:sillytavern:' + label, text: item.content }],
+              trace: item.source
+            }
+          }
+        })
+      }
+    }
     const mode = await turnOrchestrator.modeFor(sessionId)
     const visibleMessages = filterSkillMessages(decision.messages, mode)
     const scopedDecision = visibleMessages === decision.messages ? decision : { ...decision, messages: visibleMessages }
@@ -2339,13 +2504,54 @@ export async function apply(ctx) {
         }
       }])
     }
-    const chat = await chatForSession(sessionId)
-    const frontMessages = runtimePresetPhaseMessages(chat, 'front', payload.turn, payload.step)
-    const middleMessages = Number(payload.step) === 1 ? runtimePresetPhaseMessages(chat, 'middle', payload.turn, payload.step) : []
-    const backMessages = runtimePresetPhaseMessages(chat, 'back', payload.turn, payload.step)
+    const snapshot = await resolveChatRuntimePreset(chat)
+    const messageOptions = { scope: 'foreground', turn: payload.turn, step: payload.step }
+    const frontMessages = runtimePresetPhaseMessages(snapshot, 'front', messageOptions)
+    const middleMessages = Number(payload.step) === 1 ? runtimePresetPhaseMessages(snapshot, 'middle', messageOptions) : []
+    const backMessages = runtimePresetPhaseMessages(snapshot, 'back', messageOptions)
     agentMessages = frontMessages.concat(agentMessages, middleMessages, backMessages)
     return { kind: 'enter', messages: agentMessages }
   })
+
+  ctx.on('llm/stream', function (options, next) {
+    const stream = next()
+    const sessionId = str(options && options.sessionId)
+    const backgroundContext = backgroundAgentRunner.requestContext(sessionId)
+    const ownerSessionId = backgroundContext ? backgroundContext.parentSessionId : sessionId
+    return (async function * () {
+      const chat = ownerSessionId === '' ? undefined : await chatForSession(ownerSessionId)
+      let requestRecord = null
+      if (chat !== undefined && (chat.mode === 'story' || chat.mode === 'script')) {
+        const coordinates = requestCoordinates.get(sessionId) || {}
+        const session = backgroundContext ? backgroundAgentRunner.requestSession(sessionId) : (agentRegistry.get(sessionId) && agentRegistry.get(sessionId).session)
+        try {
+          requestRecord = await modelRequestLog.record({ chat, context: backgroundContext, coordinates, options })
+        } finally {
+          if (session) clearRuntimePresetBoundaryMessages(session, Object.assign({}, coordinates, {
+            source: { kind: 'model', provider: str(options.provider), model: str(options.model) }
+          }))
+        }
+      }
+      let responseText = ''
+      let finish = null
+      let failure = null
+      try {
+        for await (const chunk of stream) {
+          if (chunk && chunk.type === 'text-delta') responseText += str(chunk.text)
+          if (chunk && chunk.type === 'finish') finish = chunk.reason === undefined ? chunk : chunk.reason
+          yield chunk
+        }
+      } catch (error) {
+        failure = str(error && error.message || error)
+        throw error
+      } finally {
+        if (chat && requestRecord) {
+          try { await modelRequestLog.complete({ chatId: chat.id, id: requestRecord.id, text: responseText, finish, error: failure }) }
+          catch (error) { console.error('dsh-tavern: 模型结果日志写入失败', str(error && error.message || error)) }
+        }
+      }
+    })()
+  }, { global: true })
 
   ctx.on('agent/turn-stopping', async function (payload) {
     const session = payload.agent && payload.agent.session
@@ -2378,9 +2584,14 @@ export async function apply(ctx) {
     if (agent === undefined || agent.session === undefined) return assembly
     if (backgroundAgentRunner.owns(agent.session.id)) return assembly
     const mode = await turnOrchestrator.modeFor(agent.session.id)
+    const chat = await chatForSession(agent.session.id)
+    if (chat && chat.requestMode === 'sillytavern') {
+      assembly.sections = []
+      assembly.tools = []
+      return assembly
+    }
     const visible = new Set(await turnOrchestrator.visibleTools(agent.session.id))
     const sections = []
-    const chat = await chatForSession(agent.session.id)
     sections.push({
       name: 'tavern:mode-persona',
       text: prompt(mode === 'card' ? 'card-mode' : 'play-mode')
@@ -2523,11 +2734,11 @@ export async function apply(ctx) {
 
     tools.register(defineTool({
       name: 'tavern_read_play_chat',
-      description: '在卡片工作台中渐进读取已挂载的游玩诊断。默认从最新一轮的小型 overview 开始；需要时可列出轮次、读取任意轮次或整场对话，并按层、分页获取文本、状态、日志、正则诊断和 iframe 证据。',
+      description: '在卡片工作台中渐进读取已挂载的游玩诊断。默认从最新一轮的小型 overview 开始；需要时可列出轮次、读取任意轮次或整场对话，并按层、分页获取文本、状态、日志、真实模型请求、正则诊断和 iframe 证据。',
       parameters: {
         ref: { type: 'string', description: '已挂载游玩记录引用，例如 play-chat:chat-xxx；只有一个引用时可省略' },
         turn: { type: 'integer', description: '要读取的游玩轮次；省略时使用最新一轮' },
-        layer: { type: 'string', enum: ['overview', 'turns', 'conversation', 'input', 'source', 'session', 'display', 'saved-display', 'diagnostics', 'tavern', 'foreground', 'background', 'iframe'], description: '读取层：小型概览、轮次目录、整场对话、本轮玩家输入、模型原文、Session 文本、当前实时展示、保存时展示快照、当前正则诊断、Tavern 状态、前台 Agent、后台 Agent 或 iframe 运行证据；默认 overview' },
+        layer: { type: 'string', enum: ['overview', 'turns', 'conversation', 'input', 'source', 'session', 'display', 'saved-display', 'diagnostics', 'tavern', 'foreground', 'background', 'request', 'iframe'], description: '读取层：小型概览、轮次目录、整场对话、本轮玩家输入、模型原文、Session 文本、当前实时展示、保存时展示快照、当前正则诊断、Tavern 状态、前台 Agent、后台 Agent、真实模型请求或 iframe 运行证据；默认 overview' },
         offset: { type: 'integer', description: '可选的 1 起始字符位置，默认 1' },
         limit: { type: 'integer', description: '本次最多读取字符数，默认 6000，最大 12000' }
       },
@@ -2584,7 +2795,8 @@ export async function apply(ctx) {
         const backgroundId = str(sourceChat.timeline && sourceChat.timeline.participants && sourceChat.timeline.participants.background && sourceChat.timeline.participants.background.sessionId) || str(sourceChat.candidateAgent && sourceChat.candidateAgent.sessionId)
         return readPlayChatDebugTurn(editorChat, sourceChat, reference, args, projector, {
           foreground: sessionDebugEvidence(foregroundId),
-          background: sessionDebugEvidence(backgroundId)
+          background: sessionDebugEvidence(backgroundId),
+          requests: await modelRequestLog.evidence(sourceChat.id, args.turn || reference.turn)
         })
       }
     }))

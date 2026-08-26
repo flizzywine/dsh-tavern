@@ -40,7 +40,7 @@ test('后台 Runner 执行候选任务，查询超限后提示开始推理而不
         assert.match(message.content[0].text, /雨水敲窗/)
         const preStep = listeners.find(function (entry) { return entry.name === 'agent/pre-step' })
         assert.ok(preStep)
-        const decision = await preStep.listener({ agent: child }, async function () { return { kind: 'enter', messages: [message] } })
+        const decision = await preStep.listener({ agent: child, turn: 1, step: 1 }, async function () { return { kind: 'enter', messages: [message] } })
         requestMessages = decision.messages
         pointResult = await registered[1].execute({ position: 3 })
         for (let index = 1; index <= 7; index++) {

@@ -270,7 +270,7 @@ export function previewPresetConversion(text, filename = '', options = {}) {
   const macroEntries = phases.front.concat(phases.middle, phases.back).filter(function (entry) { return entry.enabled && entry.macros.count > 0 })
   if (macroEntries.length > 0) {
     const macroCount = macroEntries.reduce(function (total, entry) { return total + entry.macros.count }, 0)
-    diagnostics.push(diagnostic('info', 'TAVERN_MACRO_RUNTIME', macroEntries.length + ' 个启用条目含酒馆宏，共 ' + macroCount + ' 处；开始新对话时会按前、中、后顺序解析一次。', macroEntries.map(function (entry) { return entry.entryKey })))
+    diagnostics.push(diagnostic('info', 'TAVERN_MACRO_RUNTIME', macroEntries.length + ' 个启用条目含酒馆宏，共 ' + macroCount + ' 处；每次模型请求会按前、中、后顺序读取当前预设并解析。', macroEntries.map(function (entry) { return entry.entryKey })))
   }
   if (unknownMarkers.length > 0) diagnostics.push(diagnostic('error', 'UNKNOWN_MARKER', unknownMarkers.length + ' 个启用占位符无法识别，需要人工检查。', unknownMarkers.map(function (entry) { return entry.entryKey })))
   if (missing.length > 0) diagnostics.push(diagnostic('error', 'ORDER_ENTRY_MISSING', missing.length + ' 个 order 条目没有对应 prompt 定义。', missing.map(function (entry) { return entry.entryKey })))

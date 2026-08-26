@@ -112,6 +112,18 @@ test('游玩中可修改玩家称呼，Tavern 不接管正文发送状态', () =
   assert.doesNotMatch(clientSource, /dsh-tavern-signal-timeout/)
 })
 
+test('游玩对话顶栏显示实际绑定的预设，未绑定时显示无', () => {
+  const player = between(clientSource, 'function TavernPlayerNameAction', 'function TavernStatusPanel')
+  const view = between(serverSource, 'async function view(chat, card)', 'function replyProjectionsOf')
+
+  assert.match(view, /const runtimePresetPath = str\(chat\.runtimePresetPath\) \|\| str\(chat\.runtimePresetSnapshot && chat\.runtimePresetSnapshot\.presetPath\)/)
+  assert.match(view, /runtimePreset: runtimePresetPath === '' \? null/)
+  assert.match(view, /name: runtimePresetFile\.replace\(\/\\\.json\$\/i, ''\) \|\| runtimePresetPath/)
+  assert.match(player, /const presetName = view\.runtimePreset && view\.runtimePreset\.name \? view\.runtimePreset\.name : "无"/)
+  assert.match(player, /"预设：" \+ presetName/)
+  assert.match(clientSource, /dsh-tavern-preset-status/)
+})
+
 test('后台协调快照不参与 Session 恢复、页面重载或正文锁定', () => {
   assert.doesNotMatch(serverSource, /case 'getSessionConnection'/)
   assert.match(serverSource, /case 'syncSession'/)
@@ -214,17 +226,20 @@ test('Tavern 错误面板只保留最新错误，左侧栏连接恢复后撤销�
   assert.match(clientSource, /setLocalError\(visible\)/)
 })
 
-test('展示投影通过正式 assistant-step renderer 渲染，并在配置变化后重算历史', () => {
+test('展示投影通过正式消息 renderer 渲染，并在配置变化后重算历史', () => {
   const view = between(serverSource, 'async function view(chat, card)', 'function replyProjectionsOf')
   const renderer = between(clientSource, 'function createTavernAssistantRendererFeatureModule', 'function createTavernShellFeatureModule')
 
   assert.match(serverSource, /function replyProjectionsOf\(chat\)/)
   assert.match(view, /projectRuntimeReplyHistory\(chat\.messages/)
   assert.match(view, /replyProjections: replyDisplay\.projections/)
+  assert.match(view, /inputSources/)
   assert.match(renderer, /key: "assistant-step"/)
+  assert.match(renderer, /key: "user"/)
   assert.match(renderer, /priority: -1/)
   assert.match(renderer, /useLiveTavernView\(props\.sessionId/)
   assert.match(renderer, /tavernProjectionForTurn\(liveState\.view, turn\)/)
+  assert.match(renderer, /tavernUserTextForTurn\(liveState\.view, turn, data\.content\)/)
   assert.doesNotMatch(clientSource, /function applyReplyProjections|dsh-tavern-projected-reply/)
 })
 
@@ -787,4 +802,25 @@ test('酒馆状态只服务游玩模式，卡片工作台面板暂不复用该�
 test('剧本预览只显示当前召回和后续块', () => {
   assert.match(clientSource, /index === 0 \? "当前召回" : "后续"/)
   assert.doesNotMatch(clientSource, /上一块（已召回）|当前待召回|scriptPreview\.previous/)
+})
+
+test('开发模式在顶层侧栏切换 DSH 与酒馆兼容请求模式', () => {
+	const player = between(clientSource, 'function TavernPlayerNameAction', 'function TavernStatusPanel')
+	const shell = between(clientSource, 'function TavernSidebar', 'function register(input)')
+	const preStep = between(serverSource, "ctx.on('agent/pre-step'", "ctx.on('llm/stream'")
+	const systemAssembly = between(serverSource, "ctx.on('system-prompt/assemble'", '// ---------- 模型可选工具 ----------')
+
+	assert.match(shell, /capabilities\.compatibilityMode/)
+	assert.match(shell, /switchPlayRequestMode\("sillytavern"\)/)
+	assert.match(shell, />?"兼容"/)
+	assert.doesNotMatch(player, /setRequestMode|请求：酒馆兼容/)
+	assert.doesNotMatch(clientSource, /"请求模式".*"select"/s)
+	assert.match(serverSource, /resolveDeveloperMode/)
+	assert.match(serverSource, /酒馆兼容模式仅在开发模式下可用/)
+	assert.match(preStep, /compileCompatibilityTurn/)
+  assert.match(preStep, /beginCompatibility/)
+  assert.match(systemAssembly, /chat\.requestMode === 'sillytavern'/)
+  assert.match(systemAssembly, /assembly\.sections = \[\]/)
+  assert.match(systemAssembly, /assembly\.tools = \[\]/)
+  assert.match(serverSource, /酒馆兼容模式不运行 DSH 后台候选项/)
 })

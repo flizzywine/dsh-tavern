@@ -99,6 +99,7 @@ export function inspectPreset(text, filename = '') {
       ordered: false,
       injectionPosition: Number.isFinite(Number(prompt.injection_position)) ? Number(prompt.injection_position) : null,
       injectionDepth: Number.isFinite(Number(prompt.injection_depth)) ? Number(prompt.injection_depth) : null,
+      injectionOrder: Number.isFinite(Number(prompt.injection_order)) ? Number(prompt.injection_order) : null,
       sourcePromptIndex: sourceRecord.sourceIndex
     }
     records.push(record)
@@ -121,7 +122,7 @@ export function inspectPreset(text, filename = '') {
     const matches = recordsByIdentifier.get(identifier) || []
     const record = matches.find(function (candidate) { return !used.has(candidate) })
     if (record === undefined) {
-      entries.push({ identifier, name: identifier, role: 'system', content: '', enabled: item.enabled !== false, marker: true, systemPrompt: true, ordered: true, injectionPosition: null, injectionDepth: null, sourcePromptIndex: null, sourceOrderGroupIndex: orderGroupIndex, sourceOrderItemIndex: orderItemIndex })
+      entries.push({ identifier, name: identifier, role: 'system', content: '', enabled: item.enabled !== false, marker: true, systemPrompt: true, ordered: true, injectionPosition: null, injectionDepth: null, injectionOrder: null, sourcePromptIndex: null, sourceOrderGroupIndex: orderGroupIndex, sourceOrderItemIndex: orderItemIndex })
     } else {
       entries.push(Object.assign({}, record, { enabled: item.enabled !== false, ordered: true, sourceOrderGroupIndex: orderGroupIndex, sourceOrderItemIndex: orderItemIndex }))
     }
@@ -158,6 +159,7 @@ export function inspectPreset(text, filename = '') {
     regexCount: regexScripts.length,
     enabledRegexCount: regexScripts.filter(function (script) { return script.enabled }).length,
     regexScripts,
+    orderGroupIndex,
     rootKeys,
     warning: selectedOrder === undefined && entries.length > 0 ? '预设没有可用的 prompt_order，当前按 prompts 原始顺序展示。' : '',
     error: ''

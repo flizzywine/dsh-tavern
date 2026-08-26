@@ -1,4 +1,5 @@
 import { snapshotSubagentDescriptor } from '@deepseek-ai/dsh-subagent'
+import { runtimePresetPhaseMessages } from './domain/runtime-preset-lifecycle.js'
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
@@ -7,26 +8,6 @@ function str(value) {
 function messageText(message) {
   const blocks = message && Array.isArray(message.content) ? message.content : []
   return blocks.filter(function (block) { return block && block.type === 'text' }).map(function (block) { return str(block.text) }).join('')
-}
-
-function runtimePresetMessages(snapshot) {
-  return ['front', 'middle', 'back'].flatMap(function (phase) {
-    const projected = snapshot && snapshot[phase]
-    return (projected && Array.isArray(projected.entries) ? projected.entries : []).filter(function (entry) {
-      return str(entry && entry.content).trim() !== ''
-    }).map(function (entry) {
-      const text = str(entry.content)
-      return {
-        id: 'dsh-tavern-background-preset-' + phase + '-' + crypto.randomUUID(),
-        role: entry.role === 'user' || entry.role === 'assistant' ? entry.role : 'system',
-        content: [{ type: 'text', text }],
-        source: {
-          kind: 'plugin', plugin: 'dsh-tavern', form: 'snapshot',
-          sections: [{ name: 'tavern:runtime-preset-' + phase, text }]
-        }
-      }
-    })
-  })
 }
 
 function backgroundPrompt(messages, turnContext, task, taskProtocol) {
@@ -93,6 +74,8 @@ export function createBackgroundAgentRunner(options) {
   const agents = options.agents
   const makeId = typeof options.id === 'function' ? options.id : function () { return 'background-' + crypto.randomUUID() }
   const activeSessions = new Set()
+  const requestContexts = new Map()
+  const requestSessions = new Map()
   const residentHandles = new Map()
   const residentSessionByParent = new Map()
   const queues = new Map()
@@ -153,14 +136,21 @@ export function createBackgroundAgentRunner(options) {
     let descriptorAppended = !appendDescriptor
     return function (childCtx) {
       state.ctx = childCtx
-      childCtx.on('agent/pre-step', async function ({ agent }, next) {
+      childCtx.on('agent/pre-step', async function ({ agent, turn, step }, next) {
         const decision = await next()
         if (!descriptorAppended && decision.kind === 'enter') {
           descriptorAppended = true
           agent.session.append('subagent/descriptor', descriptor)
         }
         if (decision.kind !== 'enter') return decision
-        const presetMessages = runtimePresetMessages(state.input && state.input.runtimePresetSnapshot)
+        const input = state.input || {}
+        const snapshot = typeof options.resolveRuntimePresetSnapshot === 'function'
+          ? await options.resolveRuntimePresetSnapshot({ sessionId: input.sessionId, operation: input.task || 'background' })
+          : null
+        const messageOptions = { scope: 'background', turn, step }
+        const presetMessages = runtimePresetPhaseMessages(snapshot, 'front', messageOptions)
+          .concat(Number(step) === 1 ? runtimePresetPhaseMessages(snapshot, 'middle', messageOptions) : [])
+          .concat(runtimePresetPhaseMessages(snapshot, 'back', messageOptions))
         return presetMessages.length === 0 ? decision : Object.assign({}, decision, {
           messages: presetMessages.concat(decision.messages)
         })
@@ -215,10 +205,7 @@ export function createBackgroundAgentRunner(options) {
   async function execute(input) {
     const parent = agents.get(input.sessionId)
     if (parent === undefined || parent.session === undefined) throw new Error('无法创建后台 Agent：前台会话不可用')
-    const runtimePresetSnapshot = typeof options.resolveRuntimePresetSnapshot === 'function'
-      ? await options.resolveRuntimePresetSnapshot({ sessionId: input.sessionId, operation: input.task || 'background' })
-      : null
-    const runtimeInput = Object.assign({}, input, { runtimePresetSnapshot })
+    const runtimeInput = Object.assign({}, input)
     const persistent = input.persistent === true
     const requestedSessionId = str(input.persistentSessionId)
     const residentSessionId = str(residentSessionByParent.get(str(input.sessionId)))
@@ -278,6 +265,13 @@ export function createBackgroundAgentRunner(options) {
     state.input = runtimeInput
     rewindSurface(handle.agent.session, input.rewindTo)
     activeSessions.add(traceSessionId)
+    requestSessions.set(traceSessionId, handle.agent.session)
+    requestContexts.set(traceSessionId, {
+      scope: 'background',
+      parentSessionId: str(input.sessionId),
+      task: str(input.task) || 'background',
+      turn: Math.max(0, Number(input.turn) || 0)
+    })
     const removeTaskTools = installTaskTools(state, runtimeInput)
 
     try {
@@ -302,7 +296,11 @@ export function createBackgroundAgentRunner(options) {
     } finally {
       await removeTaskTools()
       activeSessions.delete(traceSessionId)
-      if (!persistent) await handle.dispose()
+      if (!persistent) {
+        requestContexts.delete(traceSessionId)
+        requestSessions.delete(traceSessionId)
+        await handle.dispose()
+      }
     }
   }
 
@@ -322,15 +320,25 @@ export function createBackgroundAgentRunner(options) {
     return activeSessions.has(id) || residentHandles.has(id)
   }
 
+  function requestContext(sessionId) {
+    return requestContexts.get(str(sessionId)) || null
+  }
+
+  function requestSession(sessionId) {
+    return requestSessions.get(str(sessionId)) || null
+  }
+
   async function dispose() {
     const residents = Array.from(residentHandles.values())
     residentHandles.clear()
     residentSessionByParent.clear()
     activeSessions.clear()
+    requestContexts.clear()
+    requestSessions.clear()
     const settled = await Promise.allSettled(residents.map(function (resident) { return resident.handle.dispose() }))
     const failures = settled.filter(function (result) { return result.status === 'rejected' }).map(function (result) { return result.reason })
     if (failures.length > 0) throw new AggregateError(failures, '常驻后台 Agent 释放失败')
   }
 
-  return Object.freeze({ run, owns, dispose })
+  return Object.freeze({ run, owns, requestContext, requestSession, dispose })
 }

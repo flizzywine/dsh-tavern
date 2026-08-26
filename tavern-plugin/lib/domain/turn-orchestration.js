@@ -189,6 +189,20 @@ export function createTurnOrchestrator(options) {
     return { ready: true, mode, cardName: card.name, text: plan.text, userText: runtimeUserText }
   }
 
+  async function beginCompatibility(input) {
+    let chat = await store.chatForSession(input.sessionId)
+    if (chat === undefined) throw new Error('当前会话没有绑定人物卡')
+    const mode = chat.mode || 'story'
+    if (mode !== 'story' && mode !== 'script') throw new Error('酒馆兼容模式只适用于游玩对话')
+    const turn = Math.max(0, Number(input.turn) || 0)
+    const userText = str(input.userText).trim()
+    const begun = timeline.apply({ chat, intent: { kind: 'body.begin', turn, userText } })
+    chat = begun.chat
+    rememberRuntimeInput(chat, turn, userText, userText)
+    await store.writeChat(chat)
+    return { ready: true, mode, userText }
+  }
+
   async function stageChanges(input) {
     const chat = await store.chatForSession(input.sessionId)
     if (chat === undefined) throw new Error('当前会话没有绑定人物卡')
@@ -419,5 +433,5 @@ export function createTurnOrchestrator(options) {
     return chat === undefined ? null : (chat.mode || 'story')
   }
 
-  return Object.freeze({ prepare, stageChanges, finalize, discard, visibleTools, modeFor })
+  return Object.freeze({ prepare, beginCompatibility, stageChanges, finalize, discard, visibleTools, modeFor })
 }

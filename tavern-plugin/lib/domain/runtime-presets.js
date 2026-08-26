@@ -306,9 +306,9 @@ export function createRuntimePresetModule(options = {}) {
     })
   }
 
-  async function snapshot() {
+  async function snapshot(requestedPath) {
     const current = await state()
-    const activePath = current.activePreset
+    const activePath = typeof requestedPath === 'string' && requestedPath !== '' ? requestedPath : current.activePreset
     if (activePath === '') return null
     const active = Object.keys(current.entries[activePath] || {}).length > 0 || Object.keys(current.regexes[activePath] || {}).length > 0
     if (!active) return null

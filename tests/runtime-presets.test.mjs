@@ -105,7 +105,7 @@ test('过滤标注与开启状态相互独立，DSH 预设继承酒馆开关', a
   assert.deepEqual(snapshot.front.entries.map(function (entry) { return [entry.id, entry.role] }), [['a#1', 'system']])
 })
 
-test('新对话创建时只解析一次预设酒馆宏，并冻结解析后的变量状态', () => {
+test('一次请求按前中后顺序解析酒馆宏并返回新的变量状态', () => {
   const raw = {
     text: '{{setvar::rule::校规}}{{user}}遵守{{getvar::rule}}；{{char}}在场；{{future::macro}}',
     sources: [],
@@ -157,7 +157,7 @@ test('DSH 转换稿按前中后分别生成快照，并按顺序共享宏变量�
   ])
 })
 
-test('提示词快照固定，正则开关可在旧对话中实时解析', async () => {
+test('请求投影保留绑定路径，正则开关可在旧对话中实时解析', async () => {
   const value = harness()
   await value.module.register('presets/先导入.json')
   await value.module.toggle({ path: 'presets/先导入.json', entryKey: 'a#1', enabled: true })
@@ -178,6 +178,20 @@ test('提示词快照固定，正则开关可在旧对话中实时解析', async
 
   await value.module.toggleRegex({ path: 'presets/先导入.json', regexKey: 'status#2', enabled: false })
   assert.deepEqual((await value.module.regexScriptsFor(snapshot)).map(function (script) { return script.regexKey }), ['status#1'])
+})
+
+test('已绑定对话可按路径重新读取修改后的提示词，不受当前全局选择影响', async () => {
+  const value = harness()
+  await value.module.register('presets/先导入.json')
+  await value.module.register('presets/后导入.json')
+  await value.module.toggle({ path: 'presets/先导入.json', entryKey: 'a#1', enabled: true })
+  await value.module.select('presets/后导入.json')
+
+  value.presets.get('presets/先导入.json').entries[0].content = '修改后的第一段'
+  const snapshot = await value.module.snapshot('presets/先导入.json')
+
+  assert.equal(snapshot.presetPath, 'presets/先导入.json')
+  assert.equal(snapshot.front.text, '修改后的第一段')
 })
 
 test('没有 prompts、只有正则的预设也能独立管理', async () => {
