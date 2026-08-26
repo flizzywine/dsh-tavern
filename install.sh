@@ -12,6 +12,8 @@ REPOSITORY=${DSH_TAVERN_REPOSITORY:-flizzywine/dsh-tavern}
 REPOSITORY_URL=${DSH_TAVERN_GIT_URL:-https://github.com/${REPOSITORY}.git}
 ARCHIVE_URL=${DSH_TAVERN_ARCHIVE_URL:-https://codeload.github.com/${REPOSITORY}/tar.gz/refs/heads/main}
 COMMIT_URL=${DSH_TAVERN_COMMIT_URL:-https://api.github.com/repos/${REPOSITORY}/commits/main}
+CDN_METADATA_URL=${DSH_TAVERN_CDN_METADATA_URL:-https://cdn.jsdelivr.net/gh/${REPOSITORY}@main/dsh-tavern-runtime.json}
+CDN_ROOT_URL=${DSH_TAVERN_CDN_ROOT_URL:-https://cdn.jsdelivr.net/gh/${REPOSITORY}}
 DSH_ROOT=${DSH_HOME:-${HOME}/.dsh}
 APP_DIR=${DSH_TAVERN_APP_DIR:-${DSH_ROOT}/apps/dsh-tavern}
 RUNTIME_ROOT=${DSH_ROOT}/runtime
@@ -80,6 +82,7 @@ command -v tar >/dev/null 2>&1 || fail "未找到 tar。"
 
 echo "正在增量同步 DSH Tavern……"
 USED_GIT=0
+USED_CDN=0
 if command -v git >/dev/null 2>&1; then
   echo "正在通过 Git 增量同步（不下载文档与图片）……"
   mkdir -p "$(dirname -- "${SOURCE_CACHE}")"
@@ -95,15 +98,56 @@ if command -v git >/dev/null 2>&1; then
 fi
 
 if [ "${USED_GIT}" -eq 0 ]; then
+  echo "GitHub 直连不可用，正在通过 jsDelivr 备用源下载运行代码……"
+  mkdir -p "${TEMP_DIR}/cdn-source"
+  if CDN_METADATA_URL="${CDN_METADATA_URL}" CDN_ROOT_URL="${CDN_ROOT_URL}" CDN_SOURCE="${TEMP_DIR}/cdn-source" node <<'NODE'
+const { createHash } = require('node:crypto')
+const { mkdir, writeFile } = require('node:fs/promises')
+const path = require('node:path')
+const allowed = /^(package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|cordis\.patch\.yml|install\.ps1|install\.sh|bin\/|config\/|presets\/|tavern-plugin\/)/
+async function get(url, timeout = 30000) {
+  const response = await fetch(url, { signal: AbortSignal.timeout(timeout) })
+  if (!response.ok) throw new Error(`${url}: HTTP ${response.status}`)
+  return response
+}
+;(async () => {
+  const metadata = await (await get(process.env.CDN_METADATA_URL, 15000)).json()
+  if (!/^[0-9a-f]{40}$/i.test(String(metadata.revision || ''))) throw new Error('jsDelivr 运行清单缺少有效提交号')
+  const files = (metadata.files || []).map((file) => ({ ...file, path: String(file.path || '').replace(/^\/+/, '') }))
+    .filter((file) => allowed.test(file.path) && !file.path.split('/').includes('..') && /^[0-9a-f]{64}$/i.test(String(file.sha256 || '')))
+  if (files.length === 0) throw new Error('jsDelivr 未返回运行文件清单')
+  for (const file of files) {
+    const bytes = Buffer.from(await (await get(`${process.env.CDN_ROOT_URL}@${metadata.revision}/${file.path}`)).arrayBuffer())
+    const actual = createHash('sha256').update(bytes).digest('hex')
+    if (actual !== String(file.sha256).toLowerCase()) throw new Error(`jsDelivr 文件校验失败：${file.path}`)
+    const target = path.join(process.env.CDN_SOURCE, ...file.path.split('/'))
+    await mkdir(path.dirname(target), { recursive: true })
+    await writeFile(target, bytes)
+  }
+  await writeFile(path.join(process.env.CDN_SOURCE, '.revision'), metadata.revision)
+})().catch((error) => { console.error(error.message); process.exit(1) })
+NODE
+  then
+    USED_CDN=1
+    TARGET_COMMIT=$(cat "${TEMP_DIR}/cdn-source/.revision")
+    rm -f -- "${TEMP_DIR}/cdn-source/.revision"
+  else
+    echo "jsDelivr 备用源不可用，将回退到完整 ZIP。" >&2
+  fi
+fi
+
+if [ "${USED_GIT}" -eq 0 ] && [ "${USED_CDN}" -eq 0 ]; then
   command -v curl >/dev/null 2>&1 || fail "Git 不可用且未找到 curl，无法下载完整 ZIP。"
-  echo "未检测到可用 Git，正在下载完整 ZIP……"
+  echo "正在下载完整 ZIP……"
   if [ -z "${TARGET_COMMIT}" ]; then
     TARGET_COMMIT=$(curl -fsSL --connect-timeout 10 "${COMMIT_URL}" | sed -n 's/^[[:space:]]*"sha":[[:space:]]*"\([0-9a-fA-F]*\)".*/\1/p' | head -n 1 || true)
   fi
   curl -fL --retry 3 --connect-timeout 15 "${ARCHIVE_URL}" -o "${TEMP_DIR}/app.tar.gz"
 fi
 mkdir -p "${TEMP_DIR}/extract"
-if [ "${USED_GIT}" -eq 1 ]; then
+if [ "${USED_CDN}" -eq 1 ]; then
+  SOURCE_DIR=${TEMP_DIR}/cdn-source
+elif [ "${USED_GIT}" -eq 1 ]; then
   tar -xf "${TEMP_DIR}/app.tar" -C "${TEMP_DIR}/extract"
   SOURCE_DIR=${TEMP_DIR}/extract
 else
@@ -120,6 +164,7 @@ fi
 mkdir -p "${APP_DIR}"
 # 覆盖程序文件但不删除旧目录，因此未被发布包跟踪的 data/ 用户数据会保留。
 cp -R "${SOURCE_DIR}/." "${APP_DIR}/"
+if [ "${USED_CDN}" -eq 1 ]; then rm -f -- "${APP_DIR}/.dsh-tavern-release.json"; fi
 case ${TARGET_COMMIT} in
   *[!0-9a-fA-F]*|'') ;;
   ????????????????????????????????????????)

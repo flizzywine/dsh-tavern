@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -26,8 +27,37 @@ test('版本相同时不下载、不停止服务', async () => {
     assert.deepEqual(await updater.start(), {
       phase: 'up-to-date', host: 'cli', checkedAt: 123, currentVersion: '0.7.1', latestVersion: '0.7.1',
       currentCommit: 'a'.repeat(40), latestCommit: 'a'.repeat(40),
+      checkSource: 'github', checkWarning: undefined,
     })
     assert.equal(spawned, 0)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('GitHub 不可达时通过 jsDelivr 文件哈希判断是否有更新', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-updater-cdn-'))
+  try {
+    const packageText = JSON.stringify({ version: '0.7.2' })
+    await writeFile(path.join(root, 'package.json'), packageText)
+    const metadata = { revision: '9'.repeat(40), files: [{ path: 'package.json', sha256: createHash('sha256').update(packageText).digest('hex') }] }
+    const common = {
+      dataRoot: path.join(root, 'data'), sourceRoot: root, runtimeHost: 'cli',
+      fetchManifest: async () => { throw new Error('fetch failed') },
+      fetchLatestCommit: async () => { throw new Error('fetch failed') },
+      fetchCdnMetadata: async () => metadata,
+      now: () => 321,
+    }
+    const current = await createApplicationUpdater(common).start()
+    assert.equal(current.phase, 'up-to-date')
+    assert.equal(current.checkSource, 'jsdelivr')
+    assert.match(current.checkWarning, /jsDelivr 备用源/)
+
+    metadata.files[0].sha256 = createHash('sha256').update('new package').digest('hex')
+    const child = { pid: 4321, once(event, listener) { if (event === 'spawn') queueMicrotask(listener); return this }, unref() {} }
+    const changed = await createApplicationUpdater({ ...common, platform: 'linux', spawnProcess() { return child } }).start()
+    assert.equal(changed.phase, 'running')
+    assert.equal(changed.checkSource, 'jsdelivr')
   } finally {
     await rm(root, { recursive: true, force: true })
   }

@@ -444,8 +444,9 @@ test('左侧栏提供一键更新并展示 CLI、Desktop 与 Android 的不同�
   assert.match(sidebar, /call\("getUpdateStatus"/)
   assert.match(sidebar, /call\("startUpdate"/)
   assert.match(sidebar, /更新到最新版/)
-  assert.match(sidebar, /正在比较本地版本与 GitHub 最新版本/)
+  assert.match(sidebar, /正在检查 GitHub 最新提交/)
   assert.match(sidebar, /已是最新提交/)
+  assert.match(sidebar, /jsDelivr 备用源显示运行代码一致/)
   assert.match(sidebar, /tavern-update-probe/)
   assert.match(sidebar, /recovery\.sawOffline/)
   assert.match(sidebar, /window\.location\.reload\(\)/)
@@ -659,6 +660,23 @@ test('Session 顶栏工具区可以把服务端投影后的纯对话下载为 TX
   assert.match(clientSource, /slots\.inject\("conversation\.session\.header\.utilities"/)
   assert.match(clientSource, /id: "dsh-tavern-conversation-export"/)
   assert.doesNotMatch(sidebar, /导出 TXT|exportConversation/)
+})
+
+test('所有对话的操作区都可以直接调用 DSH 原生上下文压缩', () => {
+  const action = between(clientSource, 'function TavernCompactionAction', 'function TavernPlayerNameAction')
+  const dock = between(clientSource, 'function CandidateDockActions', 'function CandidateQuestion')
+
+  assert.match(action, /props\.executeCompact\(props\.sessionId\)/)
+  assert.match(action, /"压缩上下文"/)
+  assert.match(action, /busy \|\| running/)
+  assert.match(action, /className: "dsh-tavern-choice-trigger"/)
+  assert.match(dock, /React\.createElement\(TavernCompactionAction, props\)/)
+  assert.match(dock, /isPlayMode\(sessionMode\) && latestMessageId \? React\.createElement\(CandidateAction/)
+  assert.doesNotMatch(dock, /if \(!isPlayMode\(sessionMode\)/)
+  assert.doesNotMatch(action, /rpc\("getSession"/)
+  assert.doesNotMatch(clientSource, /id: "dsh-tavern-context-compaction"/)
+  assert.match(clientSource, /ctx\.remote\.commands\.execute\(sessionId, "\/compact", \[\]\)/)
+  assert.match(clientSource, /"remote", "remote\.commands"/)
 })
 
 test('人物卡库通过列表进入详情，世界书编辑跳转到独立世界书库', () => {

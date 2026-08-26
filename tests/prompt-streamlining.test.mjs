@@ -90,6 +90,13 @@ test('卡片 Agent 以极简模式工具为底座，游玩 Agent 不暴露文件
   assert.doesNotMatch(serverSource, /name: 'tavern_bind_script'/)
 })
 
+test('酒馆模式启用 DSH 原生上下文压缩和 /compact 命令', () => {
+  assert.match(tavernPresetSource, /id: compaction[\s\S]*?isolate:[\s\S]*?compaction: true[\s\S]*?toolResultPruner: true/)
+  assert.match(tavernPresetSource, /@deepseek-ai\/dsh-compaction-basic/)
+  assert.match(tavernPresetSource, /@deepseek-ai\/dsh-command-compact/)
+  assert.match(tavernPresetSource, /@deepseek-ai\/dsh-compaction-tool-result-pruner/)
+})
+
 test('候选项通过持久任务信箱提交，同步快照原子携带结果', () => {
   const dispatch = between(serverSource, "case 'syncSession'", "case 'getSessionActivity'")
 
