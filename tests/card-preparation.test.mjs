@@ -11,6 +11,39 @@ function moduleUnderTest() {
   })
 }
 
+test('人物卡入口明确拒绝独立世界书并指向世界书库', () => {
+  const cards = moduleUnderTest()
+  const standaloneWorldBook = {
+    entries: {
+      0: { uid: 0, key: ['钟楼'], content: '钟楼藏着线索。', disable: false }
+    },
+    originalData: {
+      name: '黑麦镇',
+      entries: [{ uid: 0, key: ['钟楼'], content: '钟楼藏着线索。', disable: false }]
+    }
+  }
+
+  assert.throws(
+    () => cards.create({ kind: 'import', payload: { kind: 'text', text: JSON.stringify(standaloneWorldBook) } }),
+    /检测到世界书.*世界书库/
+  )
+})
+
+test('带自定义 entries 扩展的旧人物卡仍可导入', () => {
+  const cards = moduleUnderTest()
+  const imported = cards.create({
+    kind: 'import',
+    payload: {
+      name: '阿芙拉',
+      description: '银发佣兵',
+      entries: { custom: true }
+    }
+  })
+
+  assert.equal(cards.project(imported).name, '阿芙拉')
+  assert.equal(cards.project(imported).description, '银发佣兵')
+})
+
 test('SillyTavern v3 导入与导出共享字段政策，并保持 world book 内容', () => {
   const cards = moduleUnderTest()
   const imported = cards.create({
