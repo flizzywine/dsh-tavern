@@ -2128,6 +2128,19 @@ export async function apply(ctx) {
         return { activePlanId: args && args.id || '' }
       }
       case 'getBypassPlan': return { plan: await bypassPlans.get(args && args.id) }
+      case 'importBypassPlan': {
+        const payload = args && args.payload && typeof args.payload === 'object' ? args.payload : {}
+        const text = str(payload.text)
+        if (text.trim() === '') throw new Error('破限方案文件为空')
+        let document
+        try { document = JSON.parse(text) } catch { throw new Error('破限方案文件不是有效的 JSON') }
+        return { plan: await bypassPlans.importPackage(document) }
+      }
+      case 'exportBypassPlan': {
+        const document = await bypassPlans.exportPlan(args && args.id)
+        const safeName = str(document.plan && document.plan.name || '破限方案').replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').trim() || '破限方案'
+        return { name: safeName + '.dsh-bypass-plan.json', text: JSON.stringify(document, null, 2) }
+      }
       case 'toggleBypassPlanEntry': {
         await bypassPlans.toggleEntry({ id: args && args.id, entryKey: args && args.entryKey, enabled: args && args.enabled === true })
         return { plan: await bypassPlans.get(args && args.id) }

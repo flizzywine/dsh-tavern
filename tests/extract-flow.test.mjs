@@ -513,7 +513,12 @@ test('外部预设只读，抽取时提示词手选且正则默认全部迁移',
   assert.match(serverSource, /case 'activateBypassPlan'/)
   assert.match(serverSource, /case 'toggleBypassPlanEntry'/)
   assert.match(serverSource, /case 'toggleBypassPlanRegex'/)
+  assert.match(serverSource, /case 'importBypassPlan'/)
+  assert.match(serverSource, /case 'exportBypassPlan'/)
   assert.match(serverSource, /case 'deleteBypassPlan'/)
+  assert.match(panel, /导入破限方案/)
+  assert.match(panel, /rpc\("importBypassPlan"/)
+  assert.match(panel, /rpc\("exportBypassPlan"/)
 })
 
 test('卡片模式预加载人物卡、预设、世界书和剧本四个库', () => {

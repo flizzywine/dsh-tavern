@@ -120,3 +120,38 @@ test('可以从旧对话快照导入不依赖来源文件的迁移方案', async
   assert.equal((await value.module.snapshot(plan.id)).front.text, '保留下来')
   assert.equal((await value.module.regexScriptsFor(plan.id))[0].name, '旧正则')
 })
+
+test('导出的破限方案可以脱离来源重新导入，且不会携带内部 ID 或激活状态', async function () {
+  const source = harness()
+  const original = await source.module.extract({ sourcePresetPath: 'presets/demo.json', name: '可分享方案', entryKeys: ['main#1', 'tail#1'] })
+  await source.module.activate(original.id)
+  const exported = await source.module.exportPlan(original.id)
+
+  assert.equal(exported.schema, 'dsh-tavern/bypass-plan')
+  assert.equal(exported.version, 1)
+  assert.equal(exported.plan.name, '可分享方案')
+  assert.equal(Object.hasOwn(exported.plan, 'id'), false)
+  assert.equal(Object.hasOwn(exported, 'activePlanId'), false)
+
+  const target = harness()
+  target.presets.clear(); target.documents.clear()
+  const imported = await target.module.importPackage(exported)
+  assert.notEqual(imported.id, original.id)
+  assert.equal(imported.name, original.name)
+  assert.equal(imported.entries.length, original.entries.length)
+  assert.deepEqual(imported.regexScripts.map(function (script) { return [script.regexKey, script.enabled] }), [
+    ['panel#1', true],
+    ['hidden#1', false]
+  ])
+  assert.equal((await target.module.state()).activePlanId, '')
+})
+
+test('导入破限方案拒绝错误格式、空方案和同名覆盖', async function () {
+  const value = harness()
+  await assert.rejects(value.module.importPackage({}), /不是 DSH Tavern 破限方案文件/)
+  await assert.rejects(value.module.importPackage({ schema: 'dsh-tavern/bypass-plan', version: 2, plan: {} }), /版本暂不支持/)
+  await assert.rejects(value.module.importPackage({ schema: 'dsh-tavern/bypass-plan', version: 1, plan: { name: '空方案', entries: [], regexScripts: [] } }), /没有可保存的提示词或正则/)
+  const plan = await value.module.extract({ sourcePresetPath: 'presets/demo.json', name: '重复名称', entryKeys: ['main#1'] })
+  const exported = await value.module.exportPlan(plan.id)
+  await assert.rejects(value.module.importPackage(exported), /名称已存在/)
+})

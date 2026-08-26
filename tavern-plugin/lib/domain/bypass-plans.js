@@ -1,5 +1,8 @@
 import { createHash } from 'node:crypto'
 
+const BYPASS_PLAN_SCHEMA = 'dsh-tavern/bypass-plan'
+const BYPASS_PLAN_FILE_VERSION = 1
+
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
 }
@@ -256,6 +259,38 @@ export function createBypassPlanModule(options = {}) {
     return planView(plan, (await state()).activePlanId)
   }
 
+  async function exportPlan(id) {
+    const plan = await get(id)
+    return {
+      schema: BYPASS_PLAN_SCHEMA,
+      version: BYPASS_PLAN_FILE_VERSION,
+      exportedAt: now(),
+      plan: {
+        name: plan.name,
+        source: clone(plan.source),
+        entries: clone(plan.entries),
+        regexScripts: clone(plan.regexScripts),
+        compatibilitySettings: clone(plan.compatibilitySettings)
+      }
+    }
+  }
+
+  async function importPackage(value) {
+    const document = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
+    if (document.schema !== BYPASS_PLAN_SCHEMA) throw new Error('文件不是 DSH Tavern 破限方案文件')
+    if (document.version !== BYPASS_PLAN_FILE_VERSION) throw new Error('破限方案文件版本暂不支持：' + str(document.version))
+    const plan = document.plan && typeof document.plan === 'object' && !Array.isArray(document.plan) ? document.plan : null
+    if (plan === null) throw new Error('破限方案文件缺少方案内容')
+    if (!Array.isArray(plan.entries) || !Array.isArray(plan.regexScripts)) throw new Error('破限方案文件内容不完整')
+    return await importPlan({
+      name: plan.name,
+      source: plan.source,
+      entries: plan.entries,
+      regexScripts: plan.regexScripts,
+      compatibilitySettings: plan.compatibilitySettings
+    })
+  }
+
   async function activate(id) {
     const selected = str(id)
     return mutate(function (current) {
@@ -379,5 +414,5 @@ export function createBypassPlanModule(options = {}) {
     return plan.regexScripts.filter(function (script) { return script.enabled && script.findRegex !== '' }).map(clone)
   }
 
-  return { state, list, get, extract, importPlan, activate, toggleEntry, toggleRegex, rename, copy, remove, snapshot, regexScriptsFor }
+  return { state, list, get, extract, importPlan, exportPlan, importPackage, activate, toggleEntry, toggleRegex, rename, copy, remove, snapshot, regexScriptsFor }
 }
