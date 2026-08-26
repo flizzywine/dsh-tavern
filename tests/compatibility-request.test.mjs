@@ -28,6 +28,7 @@ test('酒馆兼容请求从只读 DSH 请求派生且不修改原对象', () => 
   assert.equal(options.messages, originalMessages)
   assert.equal(options.messages[0].content[0].text, '原始输入')
   assert.notEqual(request, options)
+  assert.equal(request.stream, false)
   assert.equal(request.messages[0].content[0].text, '酒馆预设')
   assert.equal(Object.isFrozen(request), true)
   assert.equal(Object.isFrozen(request.messages), true)

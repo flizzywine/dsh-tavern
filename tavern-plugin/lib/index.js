@@ -25,6 +25,7 @@ import { createRuntimePresetModule, resolveRuntimePresetMacros } from './domain/
 import { compileSillyTavernRequest } from './domain/sillytavern-compatibility.js'
 import { applySillyTavernStrictTools } from './domain/sillytavern-strict-tools.js'
 import { createEphemeralCompatibilityRequest, isCompatibilityConversationRequest } from './domain/compatibility-request.js'
+import { createCompatibilityNonStreamingTransport } from './domain/compatibility-nonstream.js'
 import { hasRollbackMessages, locateRollbackSurface } from './domain/rollback-surface.js'
 import { clearRuntimePresetBoundaryMessages, runtimePresetPhaseMessages } from './domain/runtime-preset-lifecycle.js'
 import {
@@ -69,6 +70,11 @@ export async function apply(ctx) {
   }
   const agentDefaultModel = ctx.get('agentDefaultModel')
   const developerMode = resolveDeveloperMode()
+  const compatibilityNonStreamingTransport = createCompatibilityNonStreamingTransport({
+    fetch: globalThis.fetch,
+    baseURL: process.env.DSH_TAVERN_COMPAT_BASE_URL || 'https://llm.onerouter.pro/v1',
+    apiKey: function () { return process.env.INFRON_API_KEY }
+  })
 
   const sourceRoot = fileURLToPath(new URL('../../', import.meta.url))
   const dataRoot = resolveTavernDataRoot()
@@ -2547,7 +2553,9 @@ export async function apply(ctx) {
       compatibilityRedispatches.add(compatibilityRequest)
       return ctx.llm.stream(compatibilityRequest)
     }
-    const stream = next()
+    const stream = compatibilityRedispatches.has(options) && str(options && options.provider) === 'infron'
+      ? compatibilityNonStreamingTransport(options)
+      : next()
     const backgroundContext = backgroundAgentRunner.requestContext(sessionId)
     const ownerSessionId = backgroundContext ? backgroundContext.parentSessionId : sessionId
     return (async function * () {
