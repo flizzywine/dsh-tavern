@@ -807,12 +807,17 @@ test('剧本预览只显示当前召回和后续块', () => {
 test('开发模式在顶层侧栏切换 DSH 与酒馆兼容请求模式', () => {
 	const player = between(clientSource, 'function TavernPlayerNameAction', 'function TavernStatusPanel')
 	const shell = between(clientSource, 'function TavernSidebar', 'function register(input)')
+	const action = between(clientSource, 'function CandidateAction', 'function CandidateDockActions')
+	const coordination = between(clientSource, 'function coordinationView', 'function createTavernCoordinationEventModule')
 	const preStep = between(serverSource, "ctx.on('agent/pre-step'", "ctx.on('llm/stream'")
 	const systemAssembly = between(serverSource, "ctx.on('system-prompt/assemble'", '// ---------- 模型可选工具 ----------')
 
 	assert.match(shell, /capabilities\.compatibilityMode/)
 	assert.match(shell, /switchPlayRequestMode\("sillytavern"\)/)
+	assert.match(shell, /tavernCoordination\.setView\(target\.sessionId/)
 	assert.match(shell, />?"兼容"/)
+	assert.match(coordination, /requestMode: sync\.requestMode === "sillytavern"/)
+	assert.match(action, /requestMode === "sillytavern"[\s\S]*"重新生成正文"[\s\S]*"回退本轮"/)
 	assert.doesNotMatch(player, /setRequestMode|请求：酒馆兼容/)
 	assert.doesNotMatch(clientSource, /"请求模式".*"select"/s)
 	assert.match(serverSource, /resolveDeveloperMode/)

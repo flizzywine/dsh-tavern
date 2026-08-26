@@ -596,6 +596,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			return {
 				runtimeGeneration: String(sync.runtimeGeneration || ""),
 				liveSession: sync.liveSession === true,
+				requestMode: sync.requestMode === "sillytavern" ? "sillytavern" : "dsh",
 				activity: background ? { phase: background.status === "queued" ? "pending" : (background.status === "succeeded" ? "idle" : background.status), busy: background.busy === true, role: background.kind, operationId: background.operationId, updatedAt: background.updatedAt } : (sync.activity || null),
 				task: tasks.candidate || sync.task || null,
 				tasks: tasks,
@@ -1548,7 +1549,12 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					const currentEntry = history.filter(function (item) { return item.sessionId === current && isPlayMode(item.mode); })[0];
 					const target = currentEntry || history.filter(function (item) { return isPlayMode(item.mode); })[0];
 					if (!target) { openPicker(); return; }
-					await call("setRequestMode", { sessionId: target.sessionId, requestMode: nextRequestMode });
+					const result = await call("setRequestMode", { sessionId: target.sessionId, requestMode: nextRequestMode });
+					const resolvedRequestMode = result && result.requestMode === "sillytavern" ? "sillytavern" : "dsh";
+					const coordinationState = tavernCoordination.getSnapshot(target.sessionId);
+					tavernCoordination.setView(target.sessionId, Object.assign({}, coordinationState.view || {}, { requestMode: resolvedRequestMode }));
+					liveTavernView.invalidate(target.sessionId);
+					tavernCoordination.invalidate(target.sessionId);
 					if (!currentEntry) await openSessionWhenReady(target.sessionId);
 					await refresh();
 					window.dispatchEvent(new CustomEvent("dsh-tavern-data-changed"));
