@@ -22,7 +22,6 @@ import { inspectPreset, nativeRegexScriptsOf } from './domain/preset-reading.js'
 import { createPlayChatDebugReference, readPlayChatDebugTurn } from './domain/play-chat-debug.js'
 import { createPresetEditor } from './domain/preset-editor.js'
 import { createRuntimePresetModule, resolveRuntimePresetMacros } from './domain/runtime-presets.js'
-import { createCompatibilityPresetState } from './domain/compatibility-preset-state.js'
 import { compileSillyTavernRequest } from './domain/sillytavern-compatibility.js'
 import { applySillyTavernStrictTools } from './domain/sillytavern-strict-tools.js'
 import { createEphemeralCompatibilityRequest, isCompatibilityConversationRequest } from './domain/compatibility-request.js'
@@ -395,12 +394,6 @@ export async function apply(ctx) {
     updateState: async function (updater) { return await profileData.updateJson('runtime-presets.json', updater) },
     now: Date.now
   })
-  const compatibilityPresets = createCompatibilityPresetState({
-    readPreset,
-    readState: async function () { return await readJson('compatibility-presets.json') },
-    updateState: async function (updater) { return await profileData.updateJson('compatibility-presets.json', updater) },
-    now: Date.now
-  })
   async function listPresets() {
     const result = []
     const inspectedPresets = []
@@ -450,10 +443,7 @@ export async function apply(ctx) {
     const oldPath = normalizeResourcePath(resourcePath)
     const kind = resourceKind(oldPath)
     const renamed = await fileResources.rename(oldPath, name)
-    if (kind === 'preset') {
-      await runtimePresets.rename(renamed.oldPath, renamed.path)
-      await compatibilityPresets.rename(renamed.oldPath, renamed.path)
-    }
+    if (kind === 'preset') await runtimePresets.rename(renamed.oldPath, renamed.path)
     const replacements = new Map([[renamed.oldPath, renamed.path]])
     if (renamed.scriptOldPath && renamed.scriptPath) replacements.set(renamed.scriptOldPath, renamed.scriptPath)
     const idx = await readIndex()
@@ -513,7 +503,6 @@ export async function apply(ctx) {
     const normalized = normalizeResourcePath(resourcePath, 'preset')
     const result = await deleteLibraryResource(normalized, 'preset')
     await runtimePresets.remove(normalized)
-    await compatibilityPresets.remove(normalized)
     return result
   }
   const worldBooks = createWorldBookLibrary({
@@ -2023,14 +2012,7 @@ export async function apply(ctx) {
       }
       case 'getPreset': {
         const inspected = await readPreset(args && args.path)
-        let preset = inspected && inspected.valid && (inspected.recognized || inspected.regexCount > 0) ? await runtimePresets.view(inspected.path) : inspected
-        if (preset && preset.recognized === true) {
-          const compatibilityView = await compatibilityPresets.view(preset.path, preset)
-          preset = Object.assign({}, preset, {
-            entries: compatibilityView.entries,
-            compatibilityEnabledCount: compatibilityView.compatibilityEnabledCount
-          })
-        }
+        const preset = inspected && inspected.valid && (inspected.recognized || inspected.regexCount > 0) ? await runtimePresets.view(inspected.path) : inspected
         if (preset === undefined) throw new Error('预设不存在: ' + (args && args.path))
         return { preset }
       }
@@ -2048,12 +2030,6 @@ export async function apply(ctx) {
       case 'togglePresetEntry': {
         await runtimePresets.toggle({ path: args && args.path, entryKey: args && args.entryKey, enabled: args && args.enabled === true })
         return { preset: await runtimePresets.view(args && args.path) }
-      }
-      case 'toggleCompatibilityPresetEntry': {
-        await compatibilityPresets.toggle({ path: args && args.path, entryKey: args && args.entryKey, enabled: args && args.enabled === true })
-        const runtimeView = await runtimePresets.view(args && args.path)
-        const compatibilityView = await compatibilityPresets.view(args && args.path, runtimeView)
-        return { preset: Object.assign({}, runtimeView, { entries: compatibilityView.entries, compatibilityEnabledCount: compatibilityView.compatibilityEnabledCount }) }
       }
       case 'selectPreset': {
         await runtimePresets.select(args && args.path || '')
@@ -2409,9 +2385,14 @@ export async function apply(ctx) {
   async function compileCompatibilityTurn(chat, userText) {
     const presetPath = str(chat.runtimePresetPath) || str(chat.runtimePresetSnapshot && chat.runtimePresetSnapshot.presetPath)
     if (presetPath === '') throw new Error('酒馆兼容模式需要先启用一个预设')
-    const sourcePreset = await readPreset(presetPath)
-    if (!sourcePreset || sourcePreset.valid !== true || sourcePreset.recognized !== true) throw new Error('当前预设不是可识别的 SillyTavern 预设')
-    const preset = await compatibilityPresets.apply(presetPath, sourcePreset)
+    const runtimePreset = await runtimePresets.view(presetPath)
+    if (!runtimePreset || runtimePreset.valid !== true || runtimePreset.recognized !== true) throw new Error('当前预设不是可识别的 SillyTavern 预设')
+    const preset = Object.assign({}, runtimePreset, {
+      entries: runtimePreset.entries.map(function (entry) {
+        const systemManagedMarker = entry.marker === true && entry.ordered === true && entry.runtimeEligible === false
+        return Object.assign({}, entry, { enabled: systemManagedMarker ? entry.enabled !== false : entry.runtimeEnabled === true })
+      })
+    })
     const presetText = await fileResources.readText(normalizeResourcePath(presetPath, 'preset'))
     const presetDocument = JSON.parse(presetText)
     const card = await readChatCard(chat)

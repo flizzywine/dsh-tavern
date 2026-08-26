@@ -61,14 +61,14 @@ function harness() {
   return { module, presets, getState: () => structuredClone(state), getWrites: () => writes }
 }
 
-test('首次导入不猜测破限提示词，只沿用酒馆预设自己的正则默认状态', async () => {
+test('首次导入沿用酒馆预设自己的条目和正则默认状态', async () => {
   const value = harness()
   await value.module.register('presets/先导入.json')
 
   const view = await value.module.view('presets/先导入.json')
 
-  assert.equal(view.enabledCount, 0)
-  assert.deepEqual(view.entries.map(function (entry) { return entry.runtimeEnabled }), [false, false, false])
+  assert.equal(view.enabledCount, 1)
+  assert.deepEqual(view.entries.map(function (entry) { return entry.runtimeEnabled }), [true, false, false])
   assert.equal(view.entries[0].enabled, true)
   assert.equal(view.entries[2].enabled, false)
   assert.equal(view.enabledRegexCount, 1)
@@ -78,13 +78,13 @@ test('首次导入不猜测破限提示词，只沿用酒馆预设自己的正�
   ])
   await value.module.select('presets/先导入.json')
   const snapshot = await value.module.snapshot()
-  assert.equal(snapshot.front.text, '')
+  assert.equal(snapshot.front.text, '第一段')
   assert.equal(snapshot.middle.text, '')
   assert.equal(snapshot.back.text, '')
   assert.equal(snapshot.regexScripts[0].regexKey, 'status#1')
 })
 
-test('过滤标注与开启状态相互独立，DSH 预设继承酒馆开关', async () => {
+test('提示词只维护一套开启状态，不再叠加酒馆默认开关', async () => {
   const value = harness()
   await value.module.register('presets/先导入.json')
   await value.module.toggle({ path: 'presets/先导入.json', entryKey: 'a#1', enabled: true })
@@ -97,12 +97,12 @@ test('过滤标注与开启状态相互独立，DSH 预设继承酒馆开关', a
   assert.deepEqual(view.entries.map(function (entry) { return [entry.entryKey, entry.runtimeIncluded, entry.runtimeEnabled] }), [
     ['a#1', true, true],
     ['empty#1', false, false],
-    ['b#1', true, false]
+    ['b#1', true, true]
   ])
   assert.equal(view.includedCount, 2)
-  assert.equal(view.enabledCount, 1)
-  assert.equal(snapshot.front.text, '第一段')
-  assert.deepEqual(snapshot.front.entries.map(function (entry) { return [entry.id, entry.role] }), [['a#1', 'system']])
+  assert.equal(view.enabledCount, 2)
+  assert.equal(snapshot.front.text, '第一段\n\n第二段')
+  assert.deepEqual(snapshot.front.entries.map(function (entry) { return [entry.id, entry.role] }), [['a#1', 'system'], ['b#1', 'system']])
 })
 
 test('一次请求按前中后顺序解析酒馆宏并返回新的变量状态', () => {
@@ -226,9 +226,10 @@ test('同一时间只启用一个预设，切换时保留各自内部勾选', as
   await value.module.select('presets/先导入.json')
   const snapshot = await value.module.snapshot()
 
-  assert.equal(snapshot.text, '第一段')
+  assert.equal(snapshot.text, '第一段\n\n第二段')
   assert.deepEqual(snapshot.sources.map(function (source) { return [source.path, source.entryKey] }), [
-    ['presets/先导入.json', 'a#1']
+    ['presets/先导入.json', 'a#1'],
+    ['presets/先导入.json', 'b#1']
   ])
   assert.equal(typeof snapshot.digest, 'string')
   assert.ok(snapshot.digest.length > 10)

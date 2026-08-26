@@ -13,7 +13,7 @@
 9f37d3e3ec8a86d22c261d6da23122d2368baa3300efa75a3c2a93217f6fa74a
 ```
 
-当前高优先级差异分处两层：兼容模式此前没有独立保存用户按酒馆语义调整的 `prompt_order` 开关，只能重新读取导入 preset 的默认状态，实际选中了 25 条；编译后保留的首条 `system` 又会被 DSH `llm-pi-ai` 适配器改成 `user`。此外 DSH 固定流式，而真实酒馆本轮非流式；输出长度字段、数值和采样参数集合也不同。
+当前高优先级差异分处两层：兼容模式此前绕过了预设界面中的用户开关，重新读取导入 preset 的默认状态，实际选中了 25 条；编译后保留的首条 `system` 又会被 DSH `llm-pi-ai` 适配器改成 `user`。此外 DSH 固定流式，而真实酒馆本轮非流式；输出长度字段、数值和采样参数集合也不同。
 
 ```text
 dsh-tavern strict_tools 输出
@@ -56,15 +56,15 @@ mt9u1poj-67e12ab9-924f-4232-a56a-b111ee293e07.json
 
 ### 确定差异
 
-#### A. 兼容模式缺少独立的酒馆 `prompt_order` 用户开关状态（最高优先级）
+#### A. 兼容模式没有使用预设界面的用户开关（最高优先级）
 
-对话文件 `/Users/cf/.dsh/profile-data/tavern/data/chats/chat-mt9tm6rd-6mm0ua.json` 的 `runtimePresetSnapshot.sources` 只有 5 条，分别是 `a443...`、`main`、`d07b...`、`c127...`、`jailbreak`。复核 UI 与存储语义后确认：这是 DSH 预设的破限过滤与前中后投影，不是酒馆兼容模式的 `prompt_order` 开关。
+对话文件 `/Users/cf/.dsh/profile-data/tavern/data/chats/chat-mt9tm6rd-6mm0ua.json` 的 `runtimePresetSnapshot.sources` 只有 5 条，分别是 `a443...`、`main`、`d07b...`、`c127...`、`jailbreak`。这些是用户在预设界面中开启的条目，也应该同时成为 DSH 前中后投影与酒馆兼容请求的唯一条目状态。
 
 但两份兼容请求日志的 `compatibility.selectedEntryKeys` 都有 25 条，第一条就是未出现在快照中的 `0322500e-...#1`。该项在原始 preset 的 `/prompts` 中 `enabled=false`，却在解析 `prompt_order` 时被 order item 的开关覆盖；证据是 `tavern-plugin/lib/domain/preset-reading.js:124-137` 以 `item.enabled !== false` 重建 ordered entry，而兼容编译器再以 `entry.enabled===true` 选取（`tavern-plugin/lib/domain/sillytavern-compatibility.js:108-110`）。
 
-直接原因是 `compileCompatibilityTurn()` 每轮仅从 `runtimePresetPath` 取路径，然后调用 `readPreset(presetPath)`、重新读取并解析原始 JSON（`tavern-plugin/lib/index.js:2385-2403`）；当时没有另一份兼容模式专用状态，用来记录用户相对导入默认值做出的开启或关闭调整。
+直接原因是 `compileCompatibilityTurn()` 每轮仅从 `runtimePresetPath` 取路径，然后调用 `readPreset(presetPath)`、重新读取并解析原始 JSON（当时的 `tavern-plugin/lib/index.js:2385-2403`），没有使用 `runtimePresets.view()` 中已持久化的用户选择。
 
-因此 DSH 的 5 条过滤结果和兼容请求的 25 条本来就是两套语义，不能互相复用。真正缺失的是“兼容开关”这一份 source of truth：缺省继承导入 preset，用户调整后独立持久化，只供兼容请求使用。这也解释了为什么此前用户以为已经调过开关，兼容 trace 却仍保持 25 条。
+产品决策是不再建立第二套“兼容开关”。预设界面的开启/关闭是唯一 source of truth：兼容模式按酒馆顺序取用同一批已开启条目，DSH 模式再将它们投影为前、中、后。这也解释了为什么此前用户以为已经调过开关，兼容 trace 却仍保持 25 条。
 
 #### B. 首条 `system` 被 DSH adapter 降为 `user`
 
@@ -122,13 +122,13 @@ presence_penalty=0, frequency_penalty=0
 
 ### 下一步顺序
 
-1. 为兼容模式建立独立的酒馆条目开关状态：初始继承原始 `prompt_order`，用户调整后覆盖默认值；不要复用 DSH 的破限过滤快照。
+1. 让兼容模式直接使用预设界面已持久化的条目开关；与 DSH 前中后投影共用一份状态。
 2. 解决或旁路 DSH adapter 的首 `system → user` 二次改写，并在 provider fetch 前验证。
 3. 明确兼容模式是否必须支持 `stream=false`；若 DSH adapter 只能流式，应标成架构限制，不能宣称请求等价。
 4. 投影 `temperature/top_p/presence_penalty/frequency_penalty/max_tokens`，确认 Infron 接受的长度字段。
 5. 用同一开场、同一完整历史、同一输入各发送一次，对最终 provider messages 做角色、长度、逐条 SHA-256 对比；最后补工具和多模态样本。
 
-当前前三项是：**兼容模式缺少独立的酒馆开关状态、实际沿用原始 preset 25 条；首 system 被降为 user；stream=false 对固定 stream=true。** 第四项是 `max_tokens=65535` 对 `max_completion_tokens=64000` 且采样参数缺失。在收敛这些差异并取得同条件最终 HTTP 日志前，不应把拒绝差异归因于模型随机性、预设文本无效或 Agent 架构本身。
+当前前三项是：**兼容模式绕过共享的用户开关、实际沿用原始 preset 25 条；首 system 被降为 user；stream=false 对固定 stream=true。** 第四项是 `max_tokens=65535` 对 `max_completion_tokens=64000` 且采样参数缺失。在收敛这些差异并取得同条件最终 HTTP 日志前，不应把拒绝差异归因于模型随机性、预设文本无效或 Agent 架构本身。
 
 ---
 

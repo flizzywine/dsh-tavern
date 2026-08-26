@@ -493,7 +493,7 @@ test('卡片编辑读取保留人物卡宏，只在游玩投影中展开', () =>
   assert.doesNotMatch(worldBookReader, /projectCardMacros|projectCardText/)
 })
 
-test('预设库分别呈现酒馆标注界面与 DSH 预览界面', () => {
+test('预设库分别呈现酒馆原始界面与 DSH 预览界面', () => {
   const panel = between(clientSource, 'function PresetLibraryTab', 'function CardLibraryTab')
 
   assert.match(clientSource, /id: "dsh-tavern:presets"/)
@@ -507,18 +507,18 @@ test('预设库分别呈现酒馆标注界面与 DSH 预览界面', () => {
   assert.match(panel, /后 · 请求附加/)
   assert.match(panel, /酒馆原始预设/)
   assert.match(panel, /DSH 预设预览/)
-  assert.match(panel, /破限相关/)
-  assert.doesNotMatch(panel, /确认把.*标为破限相关/)
+  assert.doesNotMatch(panel, /破限相关/)
   assert.match(panel, /rpc\("importPreset"/)
   assert.match(panel, /rpc\("deletePreset"/)
   assert.match(panel, /SYSTEM|role\.toUpperCase/)
   assert.match(panel, /占位/)
   assert.match(panel, /rpc\("disableAllPresets"/)
-  assert.match(panel, /先标注需要保留的破限提示词/)
-  assert.match(panel, /条目的开启或关闭继承酒馆预设/)
+  assert.match(panel, /酒馆兼容与 DSH 预设共用同一套开启状态/)
+  assert.match(panel, /entry\.ordered === false \? "未编排"/)
+  assert.match(panel, /不在当前 prompt_order 中，不会进入请求/)
   assert.match(panel, /正则沿用原预设设置/)
   assert.match(panel, /checked: entry\.runtimeIncluded/)
-  assert.match(panel, /checked: sourceEntry\.enabled/)
+  assert.match(panel, /checked: sourceEntry\.runtimeIncluded/)
   assert.match(panel, /checked: runtimeScript\.runtimeEnabled/)
   assert.match(panel, /编辑此条/)
   assert.match(panel, /保存修改/)
@@ -868,14 +868,12 @@ test('开发模式在顶层侧栏切换 DSH 与酒馆兼容请求模式', () => 
 	assert.match(serverSource, /酒馆兼容模式不运行 DSH 后台候选项/)
 })
 
-test('兼容模式使用独立酒馆条目开关，不复用 DSH 破限过滤状态', () => {
+test('兼容模式与 DSH 预设共用同一套条目开关', () => {
 	const panel = between(clientSource, 'function PresetLibraryTab', 'function CardLibraryTab')
 	const compile = between(serverSource, 'async function compileCompatibilityTurn', 'function compatibilityMessages')
 
-	assert.match(panel, /toggleCompatibilityPresetEntry/)
-	assert.match(panel, /entry\.compatibilityEnabled/)
-	assert.match(panel, /兼容模式直接按酒馆 prompt_order 构造请求/)
-	assert.match(serverSource, /compatibility-presets\.json/)
-	assert.match(compile, /compatibilityPresets\.apply\(presetPath, sourcePreset\)/)
-	assert.doesNotMatch(compile, /runtimePresets\.snapshot/)
+	assert.doesNotMatch(panel, /toggleCompatibilityPresetEntry|compatibilityEnabled|破限相关/)
+	assert.doesNotMatch(serverSource, /compatibility-presets\.json|createCompatibilityPresetState/)
+	assert.match(compile, /runtimePresets\.view\(presetPath\)/)
+	assert.match(compile, /entry\.runtimeEnabled === true/)
 })

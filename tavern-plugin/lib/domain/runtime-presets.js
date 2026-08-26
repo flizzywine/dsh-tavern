@@ -188,7 +188,9 @@ export function createRuntimePresetModule(options = {}) {
       if (state.presetOrder.includes(path) && state.entries[path] && state.regexes[path] && state.initialized[path] === true) return undefined
       if (!state.presetOrder.includes(path)) state.presetOrder.push(path)
       if (state.initialized[path] !== true) {
-        state.entries[path] = {}
+        state.entries[path] = Object.fromEntries(dshEntries(preset).filter(function (entry) {
+          return entry.enabled !== false && entry.injectable === true
+        }).map(function (entry) { return [entry.entryKey, true] }))
         state.regexes[path] = Object.fromEntries(regexesWithKeys(preset).filter(function (script) {
           return script.enabled !== false && String(script.findRegex || '') !== ''
         }).map(function (script) { return [script.regexKey, true] }))
@@ -215,7 +217,7 @@ export function createRuntimePresetModule(options = {}) {
       return Object.assign({}, entry, {
         runtimeEligible: projectedKeys.has(entry.entryKey),
         runtimeIncluded,
-        runtimeEnabled: runtimeIncluded && entry.enabled !== false
+        runtimeEnabled: runtimeIncluded
       })
     })
     const regexScripts = regexesWithKeys(preset).map(function (script) {
@@ -224,13 +226,11 @@ export function createRuntimePresetModule(options = {}) {
     return Object.assign({}, preset, {
       runtimeManaged: true,
       runtimeActive: current.activePreset === path,
-      sourceEnabledCount: preset.enabledCount,
-      sourceEnabledRegexCount: preset.enabledRegexCount,
       entries,
       regexScripts,
       includedCount: projectedEntries.filter(function (entry) { return enabled[entry.entryKey] === true }).length,
-      enabledCount: projectedEntries.filter(function (entry) { return enabled[entry.entryKey] === true && entry.enabled !== false }).length,
-      enabledCharacters: projectedEntries.reduce(function (total, entry) { return total + (enabled[entry.entryKey] === true && entry.enabled !== false ? entry.content.length : 0) }, 0),
+      enabledCount: projectedEntries.filter(function (entry) { return enabled[entry.entryKey] === true }).length,
+      enabledCharacters: projectedEntries.reduce(function (total, entry) { return total + (enabled[entry.entryKey] === true ? entry.content.length : 0) }, 0),
       enabledRegexCount: regexScripts.filter(function (script) { return script.runtimeEnabled }).length
     })
   }
@@ -329,7 +329,6 @@ export function createRuntimePresetModule(options = {}) {
         for (const entry of projectedEntries) {
           if (enabled[entry.entryKey] !== true) continue
           if (entry.injectable !== true) throw new Error('预设条目已失效：' + path + ' / ' + entry.entryKey)
-          if (entry.enabled === false) continue
           phaseEntries[entry.phase].push({
             id: entry.entryKey,
             role: entry.role,

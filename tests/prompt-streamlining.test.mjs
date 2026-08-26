@@ -148,7 +148,7 @@ test('后台 Agent 不进入前台正文上下文注入和工具过滤', () => {
   assert.match(lifecycle, /if \(backgroundAgentRunner\.owns\(agent\.session\.id\)\) return assembly/)
 })
 
-test('标注后的破限提示词保留角色注入前后台，正则只作用前台', () => {
+test('已开启的预设提示词保留角色注入前后台，正则只作用前台', () => {
   const startChat = between(serverSource, 'async function startChat', 'async function appendNativeOpening')
   assert.match(startChat, /runtimePresets\.snapshot/)
   assert.match(startChat, /resolveRuntimePresetMacros/)
