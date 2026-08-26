@@ -1,5 +1,25 @@
 # SillyTavern 与 dsh-tavern 请求差异诊断
 
+## 2026-08-26：同输入、同模型复核
+
+> 本节是当前最新结论，覆盖下方关于预设开关与最终消息尚未对齐的历史判断。
+
+人物卡、预设条目开关、模型和用户输入一致时，真实 SillyTavern 的最终 provider `messages` 与 dsh-tavern 兼容模式记录的最终 `messages` 已逐字段相等：均为 3 条 `user, assistant, user`，正文长度分别为 `15092 / 995 / 563`，规范化数组 SHA-256 前 16 位同为 `6bbf0c72082406de`。兼容编译记录为 13 个选中键、10 条源消息、3 条 `strict_tools` 后消息，且无诊断错误。
+
+仍未对齐的部分：
+
+- 真实酒馆发送 `stream=false`；DSH 适配链固定使用流式请求。
+- 真实酒馆发送 `max_tokens=65535`、`temperature=1`、`top_p=1`、`presence_penalty=0`、`frequency_penalty=0`；兼容模式调用 DSH 时只明确记录 `maxTokens=64000`。
+- 真实酒馆本轮一次请求即 HTTP 200、`finish_reason=stop`；兼容模式第一次已经产生正文但以 `Stream ended without finish_reason` 结束，随后由 DSH 自动重试并成功。
+- DSH 日志位于 adapter 之前，尚未取得与真实酒馆同层级的最终 HTTP body，因此不能宣称整个 wire request 已完全一致。
+
+产品测试观察：在相同人物卡、预设、模型和供应商下，真实酒馆实际游玩未观察到内容拒绝；兼容模式仍有偶发拒绝或失败，体感成功率较低。当前证据只能把原因范围收敛到采样参数、输出长度、流式传输、自动重试或 adapter 的最终请求投影，不能归因于已经对齐的提示词正文，也不能仅凭现有样本断言某一个差异是唯一原因。
+
+本轮证据文件仅保存在本地，不提交其中的敏感正文：
+
+- 真实酒馆：`/Users/cf/Workspace/tools/SillyTavern/data/default-user/request-logs/chat-completions/2026-08-26T12-15-04.223Z-363f025a-4d02-4895-8769-dd3f8494b3cf.json`
+- 兼容模式：`/Users/cf/.dsh/profile-data/tavern/data/model-requests/chat-mta2oey8-cdd0vh/mta2oo8c-5de0178b-8d13-45ea-aaa8-ea980c7c7e0d.json`、`mta2p5go-71082222-f7db-45db-945b-200c7fc7376e.json`
+
 ## 2026-08-26：`strict_tools` 后复核
 
 > 状态：只做一手证据研究，未修改运行代码。以下结论优先于后文 2026-08-23 的初始诊断。
