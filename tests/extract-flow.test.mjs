@@ -112,12 +112,12 @@ test('游玩中可修改玩家称呼，Tavern 不接管正文发送状态', () =
   assert.doesNotMatch(clientSource, /dsh-tavern-signal-timeout/)
 })
 
-test('游玩对话顶栏显示实际绑定的破限方案，未绑定时显示无', () => {
+test('Tavern 对话顶栏显示当前全局破限方案，未激活时显示无', () => {
   const player = between(clientSource, 'function TavernPlayerNameAction', 'function TavernStatusPanel')
   const view = between(serverSource, 'async function view(chat, card)', 'function replyProjectionsOf')
 
-  assert.match(view, /str\(chat\.bypassPlanId\)/)
-  assert.match(view, /bypassPlan: bypassPlan === null \? null : \{ id: bypassPlan\.id, name: bypassPlan\.name \}/)
+  assert.match(view, /const activeBypassSnapshot = await bypassPlans\.snapshot\(\)/)
+  assert.match(view, /bypassPlan: activeBypassSnapshot === null \? null : \{ id: activeBypassSnapshot\.planId, name: activeBypassSnapshot\.planName \}/)
   assert.match(player, /const planName = view\.bypassPlan && view\.bypassPlan\.name \? view\.bypassPlan\.name : "无"/)
   assert.match(player, /"破限方案：" \+ planName/)
   assert.match(clientSource, /dsh-tavern-preset-status/)
@@ -516,6 +516,11 @@ test('外部预设只读，抽取时提示词手选且正则默认全部迁移',
   assert.match(panel, /dsh-tavern-extract-state/)
   assert.match(panel, /checked \? "抽取" : "不抽取"/)
   assert.match(panel, /dsh-tavern-plan-name-field/)
+  assert.match(panel, /破限方案对 Tavern 全局生效/)
+  assert.match(panel, /游玩前台、游玩后台和卡片 Agent/)
+  assert.match(panel, /建议尽量减少条目注入/)
+  assert.match(panel, /dsh-tavern-bypass-plan-notice/)
+  assert.doesNotMatch(panel, /只影响之后新建/)
   assert.doesNotMatch(panel, /当前启用预设|previewPresetConversion|updatePresetEntry|applyPresetPlan/)
   assert.match(serverSource, /case 'extractBypassPlan'/)
   assert.match(serverSource, /const extractableRegexScripts = runtimeRegexScriptsOf\(preset, await readPresetDocument\(preset\.path\)\)/)
@@ -837,13 +842,14 @@ test('开发模式在顶层侧栏切换 DSH 与酒馆兼容请求模式', () => 
 	assert.match(serverSource, /酒馆兼容模式不运行 DSH 后台候选项/)
 })
 
-test('兼容模式和 DSH 请求都读取对话绑定的独立破限方案', () => {
+test('兼容模式和 DSH 请求都读取当前全局破限方案', () => {
 	const panel = between(clientSource, 'function createExternalPresetAndBypassPlanFeatureModule', 'function createWorldBookLibraryFeatureModule')
 	const compile = between(serverSource, 'async function compileCompatibilityTurn', 'function compatibilityMessages')
 
 	assert.match(panel, /toggleBypassPlanEntry/)
 	assert.match(panel, /toggleBypassPlanRegex/)
 	assert.doesNotMatch(serverSource, /compatibility-presets\.json|createCompatibilityPresetState/)
+	assert.match(compile, /const snapshot = await resolveChatRuntimePreset\(chat\)/)
 	assert.match(compile, /bypassPlans\.get\(planId\)/)
 	assert.match(compile, /entries: plan\.entries\.map/)
 	assert.match(compile, /plan\.regexScripts\.filter\(function \(script\) \{ return script\.enabled !== false \}/)

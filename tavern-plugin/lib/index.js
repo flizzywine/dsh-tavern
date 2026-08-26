@@ -921,10 +921,12 @@ export async function apply(ctx) {
         scriptProgress = scriptContinuity.inspect({ script: script, state: chat.scriptState, request: { kind: 'progress' } })
       }
     }
+    const activeBypassSnapshot = await bypassPlans.snapshot()
+    const activeBypassPlanId = str(activeBypassSnapshot && activeBypassSnapshot.planId)
     let replyDisplay = { projections: replyProjectionsOf(chat), presentation: null, latestSourceBacked: false }
     if ((chat.mode || 'story') === 'story' || (chat.mode || 'story') === 'script') {
       const extensions = await readCardExtensions(chat.cardPath)
-      const presetRegexScripts = str(chat.bypassPlanId) === '' ? [] : await bypassPlans.regexScriptsFor(chat.bypassPlanId)
+      const presetRegexScripts = activeBypassPlanId === '' ? [] : activeBypassSnapshot.regexScripts
       replyDisplay = projectRuntimeReplyHistory(chat.messages, {
         regexScripts: (Array.isArray(extensions && extensions.regexScripts) ? extensions.regexScripts : []).concat(presetRegexScripts),
         placement: 2,
@@ -949,17 +951,13 @@ export async function apply(ctx) {
       const input = runtimeInputs[turn]
       inputSources[turn] = str(input && input.source)
     }
-    let bypassPlan = null
-    if (str(chat.bypassPlanId) !== '') {
-      try { bypassPlan = await bypassPlans.get(chat.bypassPlanId) } catch {}
-    }
     return {
       chatId: chat.id,
       mode: chat.mode || 'story',
       requestMode: chat.requestMode === 'sillytavern' ? 'sillytavern' : 'dsh',
       playerName: str(chat.macroState && chat.macroState.userName).trim() || '你',
-      bypassPlan: bypassPlan === null ? null : { id: bypassPlan.id, name: bypassPlan.name },
-      runtimePreset: bypassPlan === null ? null : { id: bypassPlan.id, name: bypassPlan.name },
+      bypassPlan: activeBypassSnapshot === null ? null : { id: activeBypassSnapshot.planId, name: activeBypassSnapshot.planName },
+      runtimePreset: activeBypassSnapshot === null ? null : { id: activeBypassSnapshot.planId, name: activeBypassSnapshot.planName },
       card: cardViewOf(card, chat),
       posture: chat.posture || '',
       guides: Array.isArray(chat.guides) ? chat.guides : [],
@@ -1049,8 +1047,7 @@ export async function apply(ctx) {
       }
     }
     const macroState = { userName: str(userName).trim().slice(0, 80) || '你', local: {}, global: {} }
-    const bypassState = groupOfMode(chatMode) === 'play' ? await bypassPlans.state() : { activePlanId: '' }
-    const rawRuntimePresetSnapshot = groupOfMode(chatMode) === 'play' ? await bypassPlans.snapshot(bypassState.activePlanId) : null
+    const rawRuntimePresetSnapshot = await bypassPlans.snapshot()
     const resolvedRuntimePreset = resolveRuntimePresetMacros(rawRuntimePresetSnapshot, {
       charName: str(card && card.name),
       macroState
@@ -1774,8 +1771,9 @@ export async function apply(ctx) {
     },
     projectReply: projectRuntimeReply,
     resolvePresetRegexScripts: async function (chat) {
-      if (!chat || str(chat.bypassPlanId) === '') return []
-      return await bypassPlans.regexScriptsFor(chat.bypassPlanId)
+      if (!chat) return []
+      const snapshot = await bypassPlans.snapshot()
+      return Array.isArray(snapshot && snapshot.regexScripts) ? snapshot.regexScripts : []
     },
     now: Date.now,
     shellToolName: process.platform === 'win32' ? 'pwsh' : 'bash'
@@ -2432,9 +2430,26 @@ export async function apply(ctx) {
 
   async function resolveChatRuntimePreset(chat) {
     if (!chat) return null
-    const planId = str(chat.bypassPlanId) || str(chat.runtimePresetSnapshot && chat.runtimePresetSnapshot.planId)
-    if (planId === '') return null
-    const raw = await bypassPlans.snapshot(planId)
+    const raw = await bypassPlans.snapshot()
+    const planId = str(raw && raw.planId)
+    if (planId === '') {
+      const needsClearing = chat.runtimePresetSnapshot !== null || str(chat.bypassPlanId) !== '' || str(chat.runtimePresetPath) !== ''
+      chat.runtimePresetSnapshot = null
+      chat.bypassPlanId = ''
+      chat.runtimePresetPath = ''
+      if (needsClearing) {
+        await profileData.updateJson('chats/' + chat.id + '.json', function (current) {
+          if (!current || typeof current !== 'object') return current
+          return Object.assign({}, current, {
+            runtimePresetSnapshot: null,
+            bypassPlanId: '',
+            runtimePresetPath: '',
+            updatedAt: Date.now()
+          })
+        })
+      }
+      return null
+    }
     const resolved = resolveRuntimePresetMacros(raw, {
       charName: str(chat.cardName),
       macroState: chat.macroState
@@ -2492,8 +2507,9 @@ export async function apply(ctx) {
   }
 
   async function compileCompatibilityTurn(chat, userText) {
-    const planId = str(chat.bypassPlanId) || str(chat.runtimePresetSnapshot && chat.runtimePresetSnapshot.planId)
-    if (planId === '') throw new Error('酒馆兼容模式需要先激活一份破限方案并新建对话')
+    const snapshot = await resolveChatRuntimePreset(chat)
+    const planId = str(snapshot && snapshot.planId)
+    if (planId === '') throw new Error('酒馆兼容模式需要先激活一份破限方案')
     const plan = await bypassPlans.get(planId)
     const preset = {
       valid: true,

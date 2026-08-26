@@ -148,20 +148,31 @@ test('后台 Agent 不进入前台正文上下文注入和工具过滤', () => {
   assert.match(lifecycle, /if \(backgroundAgentRunner\.owns\(agent\.session\.id\)\) return assembly/)
 })
 
-test('已开启的破限方案提示词保留角色注入前后台，正则只作用前台', () => {
+test('全局破限方案提示词注入游玩前台、后台与卡片 Agent，正则只作用前台', () => {
   const startChat = between(serverSource, 'async function startChat', 'async function appendNativeOpening')
-  assert.match(startChat, /bypassPlans\.state/)
-  assert.match(startChat, /bypassPlans\.snapshot\(bypassState\.activePlanId\)/)
+  assert.match(startChat, /const rawRuntimePresetSnapshot = await bypassPlans\.snapshot\(\)/)
   assert.match(startChat, /resolveRuntimePresetMacros/)
   assert.match(startChat, /chat\.bypassPlanId = runtimePresetSnapshot && runtimePresetSnapshot\.planId/)
   assert.match(startChat, /chat\.runtimePresetSnapshot = runtimePresetSnapshot/)
-  assert.match(serverSource, /resolveChatRuntimePreset\(chat\)/)
+  const resolver = between(serverSource, 'async function resolveChatRuntimePreset', 'function compatibilityWorldBookMatch')
+  assert.match(resolver, /const raw = await bypassPlans\.snapshot\(\)/)
+  assert.doesNotMatch(resolver, /chat\.bypassPlanId\) \|\|/)
+  const lifecycle = between(serverSource, '// ---------- DSH 回合生命周期 ----------', '// ---------- 模型可选工具 ----------')
+  assert.match(lifecycle, /const snapshot = await resolveChatRuntimePreset\(chat\)/)
+  const presetResolve = lifecycle.slice(
+    lifecycle.indexOf('const snapshot = await resolveChatRuntimePreset(chat)') - 160,
+    lifecycle.indexOf('const snapshot = await resolveChatRuntimePreset(chat)') + 120
+  )
+  assert.doesNotMatch(presetResolve, /mode === 'story'|mode === 'script'/)
+  const compatibility = between(serverSource, 'async function compileCompatibilityTurn', '// ---------- DSH 回合生命周期 ----------')
+  assert.match(compatibility, /const snapshot = await resolveChatRuntimePreset\(chat\)/)
+  assert.doesNotMatch(compatibility, /并新建对话/)
   assert.match(serverSource, /runtimePresetPhaseMessages\(snapshot, 'front'/)
   assert.match(serverSource, /runtimePresetPhaseMessages\(snapshot, 'middle'/)
   assert.match(serverSource, /runtimePresetPhaseMessages\(snapshot, 'back'/)
   assert.match(serverSource, /modelRequestLog\.record\(\{ chat, context: backgroundContext, coordinates, options \}\)/)
   assert.match(serverSource, /clearRuntimePresetBoundaryMessages\(session, Object\.assign\(\{\}, coordinates/)
-  assert.match(serverSource, /bypassPlans\.regexScriptsFor/)
+  assert.match(serverSource, /const presetRegexScripts = activeBypassPlanId === '' \? \[\] : activeBypassSnapshot\.regexScripts/)
   assert.match(backgroundRunnerSource, /resolveRuntimePresetSnapshot/)
   assert.match(backgroundRunnerSource, /runtimePresetPhaseMessages\(snapshot, 'front'/)
   assert.match(backgroundRunnerSource, /presetMessages\.concat\(decision\.messages\)/)
