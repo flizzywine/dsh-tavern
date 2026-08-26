@@ -515,6 +515,7 @@ test('外部预设只读，抽取时提示词手选且正则默认全部迁移',
   assert.match(panel, /entryKeys: entryKeys, regexKeys: regexKeys/)
   assert.match(panel, /dsh-tavern-extract-state/)
   assert.match(panel, /checked \? "抽取" : "不抽取"/)
+  assert.match(panel, /dsh-tavern-plan-name-field/)
   assert.doesNotMatch(panel, /当前启用预设|previewPresetConversion|updatePresetEntry|applyPresetPlan/)
   assert.match(serverSource, /case 'extractBypassPlan'/)
   assert.match(serverSource, /const extractableRegexScripts = runtimeRegexScriptsOf\(preset, await readPresetDocument\(preset\.path\)\)/)
