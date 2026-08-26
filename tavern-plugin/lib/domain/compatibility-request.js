@@ -10,7 +10,6 @@ export function createEphemeralCompatibilityRequest(options, messages) {
   if (options === null || typeof options !== 'object') throw new TypeError('模型请求必须是对象')
   if (!Array.isArray(messages)) throw new TypeError('兼容请求消息必须是数组')
   return Object.freeze(Object.assign({}, options, {
-    stream: false,
     messages: freezeTree(messages)
   }))
 }
