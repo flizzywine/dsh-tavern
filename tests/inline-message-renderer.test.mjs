@@ -64,6 +64,31 @@ test('消息 iframe 允许可信远程资源，同时保留不透明来源隔离
   assert.match(document, /body>\*\{white-space:normal\}/)
 })
 
+test('消息 iframe 在人物卡脚本前提供隔离的 localStorage 兼容层', () => {
+  const document = client.buildTavernFrameDocument({
+    content: '<script data-card-script>window.cardTheme = localStorage.getItem("theme") || "night";<\/script>',
+    token: 'storage-token'
+  })
+  const shim = document.match(/<script data-dsh-tavern-storage>([\s\S]*?)<\/script>/)
+  assert.ok(shim)
+  assert.ok(document.indexOf('data-dsh-tavern-storage') < document.indexOf('data-card-script'))
+
+  const isolatedWindow = {}
+  Object.defineProperty(isolatedWindow, 'localStorage', {
+    configurable: true,
+    get() { throw new Error('opaque origin') }
+  })
+  vm.runInNewContext(shim[1], { window: isolatedWindow })
+
+  assert.equal(isolatedWindow.localStorage.getItem('theme'), null)
+  isolatedWindow.localStorage.setItem('theme', 'jade')
+  assert.equal(isolatedWindow.localStorage.getItem('theme'), 'jade')
+  assert.equal(isolatedWindow.localStorage.length, 1)
+  assert.equal(isolatedWindow.localStorage.key(0), 'theme')
+  isolatedWindow.localStorage.removeItem('theme')
+  assert.equal(isolatedWindow.localStorage.getItem('theme'), null)
+})
+
 test('assistant renderer 以更低 priority 接管 DSH 正式 keyed slot', () => {
   const registrations = []
   const labels = []
