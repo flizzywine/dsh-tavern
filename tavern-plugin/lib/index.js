@@ -1,7 +1,9 @@
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { createBackgroundAgentRunner } from './background-agent-runner.js'
 import { createApplicationUpdater } from './application-updater.js'
+import { createBundledExampleInstaller } from './domain/bundled-examples.js'
 import { createCandidateGenerator } from './domain/candidate-generation.js'
 import { waitForWritableSession } from './domain/agent-readiness.js'
 import { createCardDeletion } from './domain/card-deletion.js'
@@ -419,6 +421,15 @@ export async function apply(ctx) {
     readState: async function () { return await readJson('bypass-plans.json') },
     updateState: async function (updater) { return await profileData.updateJson('bypass-plans.json', updater) },
     now: Date.now
+  })
+  const bundledExamples = createBundledExampleInstaller({
+    readMarker: async function () { return await readJson('bundled-examples.json') },
+    writeMarker: async function (value) { return await writeJson('bundled-examples.json', value) },
+    readBundledText: async function (relative) { return await readFile(new URL('../examples/' + relative, import.meta.url), 'utf8') },
+    listPresetPaths: async function () { return await fileResources.list('preset') },
+    importPreset: async function (payload) { return await importPreset(payload) },
+    listPlans: async function () { return await bypassPlans.list() },
+    importPlanPackage: async function (document) { return await bypassPlans.importPackage(document) }
   })
   async function migrateLegacyPresetPlans() {
     const target = await bypassPlans.state()
@@ -1779,6 +1790,7 @@ export async function apply(ctx) {
 
   await fileResources.migrateLegacy(await readIndex(), readJson, writeIndex, readChat, writeChat)
   await migrateLegacyPresetPlans()
+  await bundledExamples.install()
   const recoveredIndex = await readIndex()
   for (const row of recoveredIndex.chats || []) {
     const chat = await readChat(row.id)
