@@ -1,4 +1,5 @@
 import { rememberTavernResources } from './workspace-resources.js'
+import { projectBackgroundInput } from './runtime-content-projection.js'
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
@@ -112,6 +113,7 @@ export function createTurnOrchestrator(options) {
     const turn = Math.max(0, Number(input.turn) || 0)
     const userText = str(input.userText).trim()
     let runtimeUserText = userText
+    let reusedRuntimeInput = false
     const mode = chat.mode || 'story'
     let chatChanged = clearStaleStages(chat, turn)
 
@@ -122,16 +124,25 @@ export function createTurnOrchestrator(options) {
       const cachedRuntimeInput = runtimeInputFor(chat, turn, userText)
       if (cachedRuntimeInput !== null) {
         runtimeUserText = cachedRuntimeInput
+        reusedRuntimeInput = true
       } else {
         if (renderMacros !== null && userText.includes('{{')) runtimeUserText = renderMacros(userText, chat)
-        rememberRuntimeInput(chat, turn, userText, runtimeUserText)
-        chatChanged = true
       }
     }
 
     const cardPath = cardPathOf(chat)
     const card = cardPath === '' ? null : await store.readCard(cardPath)
     if (cardPath !== '' && card === undefined) throw new Error('人物卡不存在: ' + cardPath)
+    if ((mode === 'story' || mode === 'script') && !reusedRuntimeInput) {
+      const extensions = typeof store.readCardExtensions === 'function'
+        ? await store.readCardExtensions(cardPath)
+        : null
+      const presetRegexScripts = await resolvePresetRegexScripts(chat)
+      const regexScripts = (Array.isArray(extensions && extensions.regexScripts) ? extensions.regexScripts : []).concat(presetRegexScripts)
+      runtimeUserText = projectBackgroundInput(runtimeUserText, regexScripts, 1).text
+      rememberRuntimeInput(chat, turn, userText, runtimeUserText)
+      chatChanged = true
+    }
     let scriptReference = null
     let scriptInfo = null
     let worldBookOverview = null

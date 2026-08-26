@@ -141,14 +141,18 @@ test('后台 Agent 不进入前台正文上下文注入和工具过滤', () => {
   assert.match(lifecycle, /if \(backgroundAgentRunner\.owns\(agent\.session\.id\)\) return assembly/)
 })
 
-test('实验预设不注入提示词，也不执行预设正则', () => {
+test('运行时预设按前中后注入前后台，并执行实时正则', () => {
   const startChat = between(serverSource, 'async function startChat', 'async function appendNativeOpening')
-  assert.match(startChat, /chat\.runtimePresetSnapshot = null/)
-  assert.match(startChat, /chat\.runtimePresetPath = ''/)
-  assert.doesNotMatch(startChat, /runtimePresets\.snapshot|resolveRuntimePresetMacros/)
-  assert.doesNotMatch(serverSource, /name: 'tavern:runtime-preset'/)
-  assert.doesNotMatch(serverSource, /runtimePresets\.regexScriptsFor/)
-  assert.doesNotMatch(backgroundRunnerSource, /tavern_runtime_preset|runtimePresetReminderMessage/)
+  assert.match(startChat, /runtimePresets\.snapshot/)
+  assert.match(startChat, /resolveRuntimePresetMacros/)
+  assert.match(startChat, /chat\.runtimePresetSnapshot = runtimePresetSnapshot/)
+  assert.match(serverSource, /name: 'tavern:runtime-preset-front'/)
+  assert.match(serverSource, /runtimePresetPhaseText\(chat, 'middle'\)/)
+  assert.match(serverSource, /runtimePresetPhaseText\(chat, 'back'\)/)
+  assert.match(serverSource, /runtimePresets\.regexScriptsFor/)
+  assert.match(backgroundRunnerSource, /tavern_runtime_preset_front/)
+  assert.match(backgroundRunnerSource, /runtimePresetText\(runtimePresetSnapshot, 'middle'\)/)
+  assert.match(backgroundRunnerSource, /runtimePresetText\(state\.input && state\.input\.runtimePresetSnapshot, 'back'\)/)
   assert.doesNotMatch(serverSource, /boundaryPrompts|resolveProjectedBoundaryPrompt/)
 })
 

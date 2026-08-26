@@ -74,55 +74,6 @@
       "content": "<!-- 下面是重要的角色扮演参考资料，参照其内容完成角色扮演 -->\n\n<info>"
     },
     {
-      "key": "worldInfoBefore#1",
-      "name": "💠↑Char",
-      "role": "system",
-      "type": "material",
-      "material": "worldbook.before"
-    },
-    {
-      "key": "personaDescription#1",
-      "name": "💠Persona Description",
-      "role": "system",
-      "type": "material",
-      "material": "player.description"
-    },
-    {
-      "key": "charDescription#1",
-      "name": "💠Char Description",
-      "role": "system",
-      "type": "material",
-      "material": "character.description"
-    },
-    {
-      "key": "charPersonality#1",
-      "name": "💠Char Personality",
-      "role": "system",
-      "type": "material",
-      "material": "character.personality"
-    },
-    {
-      "key": "scenario#1",
-      "name": "💠Scenario",
-      "role": "system",
-      "type": "material",
-      "material": "character.scenario"
-    },
-    {
-      "key": "worldInfoAfter#1",
-      "name": "💠↓Char",
-      "role": "system",
-      "type": "material",
-      "material": "worldbook.after"
-    },
-    {
-      "key": "dialogueExamples#1",
-      "name": "Chat Examples",
-      "role": "system",
-      "type": "material",
-      "material": "character.dialogueExamples"
-    },
-    {
       "key": "10ee0833-1b61-47e0-b05a-7418b0704972#1",
       "name": "💠</DATA>",
       "role": "system",

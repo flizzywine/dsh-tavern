@@ -38,6 +38,7 @@ test('后台 Runner 执行候选任务，查询超限后提示开始推理而不
         assert.equal(runner.owns('candidate-session-1'), true)
         assert.match(message.content[0].text, /最近剧情/)
         assert.match(message.content[0].text, /雨水敲窗/)
+        assert.match(message.content[0].text, /每轮后台约束/)
         const preStep = listeners.find(function (entry) { return entry.name === 'agent/pre-step' })
         assert.ok(preStep)
         const decision = await preStep.listener({ agent: child }, async function () { return { kind: 'enter', messages: [] } })
@@ -78,7 +79,18 @@ test('后台 Runner 执行候选任务，查询超限后提示开始推理而不
     }
   }
   const calls = []
-  runner = createBackgroundAgentRunner({ agents, id: () => 'candidate-session-1' })
+  runner = createBackgroundAgentRunner({
+    agents,
+    id: () => 'candidate-session-1',
+    resolveRuntimePresetSnapshot: async function () {
+      return {
+        front: { text: '后台稳定前缀' },
+        middle: { text: '每轮后台约束' },
+        back: { text: '请求末尾约束' },
+        regexScripts: []
+      }
+    }
+  })
   const result = await runner.run({
     sessionId: parent.id,
     selection: { provider: 'test', model: 'scripted' },
@@ -106,13 +118,14 @@ test('后台 Runner 执行候选任务，查询超限后提示开始推理而不
   assert.equal(createCalls[0].agentOptions.maxTokens, 4000)
   assert.equal(sections[0].complete, true)
   assert.equal(sections.length, 1)
-  assert.doesNotMatch(sections[0].text, /tavern_runtime_preset/)
+  assert.match(sections[0].text, /tavern_runtime_preset_front/)
   assert.doesNotMatch(sections[0].text, /future::macro/)
   assert.doesNotMatch(sections[0].text, /候选系统提示/)
   assert.match(sections[0].text, /\{\{tavern_background_task\}\}/)
   assert.equal(variables.find(function (entry) { return entry.name === 'tavern_background_task' }).provider(), '候选系统提示')
-  assert.equal(variables.some(function (entry) { return entry.name === 'tavern_runtime_preset' }), false)
-  assert.deepEqual(requestMessages, [])
+  assert.equal(variables.find(function (entry) { return entry.name === 'tavern_runtime_preset_front' }).provider(), '后台稳定前缀')
+  assert.equal(requestMessages.length, 1)
+  assert.equal(requestMessages[0].content[0].text, '请求末尾约束')
   assert.deepEqual(restrictions, [{ allow: [] }])
   assert.equal(registered[0].name, 'tavern_read_script')
   assert.equal(registered[1].name, 'tavern_point_script')
@@ -137,7 +150,7 @@ test('后台 Runner 执行候选任务，查询超限后提示开始推理而不
   assert.equal(runner.owns('candidate-session-1'), false)
 })
 
-test('后台 Agent 忽略实验预设的提示词与正则配置', async () => {
+test('后台 Agent 应用预设正则，并保持后台模型原始事件不变', async () => {
   const parent = { id: 'parent-session', session: { header: { cwd: '/tmp/tavern', delegationDepth: 0 } } }
   const events = []
   const prompts = []
@@ -217,10 +230,10 @@ test('后台 Agent 忽略实验预设的提示词与正则配置', async () => {
     task: 'candidate'
   })
 
-  assert.match(prompts[0], /正文冗余内容/)
-  assert.match(result.text, /后台冗余输出/)
+  assert.doesNotMatch(prompts[0], /正文冗余内容/)
+  assert.doesNotMatch(result.text, /后台冗余输出/)
   assert.equal(events[0].data.message.content[0].text.includes('后台冗余输出'), true, '原始事件保持不变')
-  assert.equal(appended.length, 0, '预设正则停用后不写入展示投影')
+  assert.equal(appended.length, 3, '输出正则保留模型、展示与遮蔽投影链')
 })
 
 test('恢复后台 Session 时重新投影历史输入与输出并持久化 Surface', async () => {

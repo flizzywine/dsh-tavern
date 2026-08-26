@@ -10,15 +10,15 @@
 
 ## 转换结果
 
-| 段 | 启用条目 | 正文字符 | role |
-| --- | ---: | ---: | --- |
-| 前 | 19 | 16115 | system 17、user 2 |
-| 中 | 0 | 0 | 无 |
-| 后 | 5 | 1699 | system 5 |
+| 段 | 全部条目 | 开启 | 全部正文字符 | role |
+| --- | ---: | ---: | ---: | --- |
+| 前 | 24 | 12 | 19253 | system 22、user 2 |
+| 中 | 0 | 0 | 0 | 无 |
+| 后 | 11 | 5 | 9846 | system 11 |
 
-转换草稿状态：`review-required`。完整正文见 [转换草稿](kemini-dramatron-dsh-preset-draft.json)。
+转换草稿状态：`review-required`。开启条目的正文快照见 [转换草稿](kemini-dramatron-dsh-preset-draft.json)；完整开关状态及未转换原值以当前转换 UI 为准。
 
-## 前段顺序
+## 前段开启条目顺序
 
 | 源顺序 | 名称 | role | 类型 | 字符 | 宏 |
 | ---: | --- | --- | --- | ---: | ---: |
@@ -32,21 +32,14 @@
 | 18 | 💠CLEAR | system | text | 264 | 0 |
 | 19 | 🎬ROLE AND GUIDE | user | text | 630 | 3 |
 | 20 | 💠&lt;DATA&gt; | system | text | 43 | 0 |
-| 21 | 💠↑Char | system | `worldbook.before` | 0 | 0 |
-| 22 | 💠Persona Description | system | `player.description` | 0 | 0 |
-| 23 | 💠Char Description | system | `character.description` | 0 | 0 |
-| 25 | 💠Char Personality | system | `character.personality` | 0 | 0 |
-| 26 | 💠Scenario | system | `character.scenario` | 0 | 0 |
-| 27 | 💠↓Char | system | `worldbook.after` | 0 | 0 |
-| 28 | Chat Examples | system | `character.dialogueExamples` | 0 | 0 |
 | 29 | 💠&lt;/DATA&gt; | system | text | 7 | 0 |
 | 30 | 💠&lt;HISTORY&gt; | system | text | 43 | 0 |
 
-## 中段顺序
+## 中段开启条目顺序
 
 没有条目。所选 order 中没有启用的 `injection_position === 1` 条目。
 
-## 后段顺序
+## 后段开启条目顺序
 
 | 源顺序 | 名称 | role | 类型 | 字符 | 宏 |
 | ---: | --- | --- | --- | ---: | ---: |
@@ -56,9 +49,19 @@
 | 39 | 🎬ROLEPLAY GUIDE | system | text | 842 | 6 |
 | 40 | 💠continue | system | text | 244 | 0 |
 
-## 未进入 DSH 预设
+## DSH 原生接管
 
-### 所选 order 中关闭的 18 个条目
+### 由 DSH 原生接管的 7 个 marker
+
+- 💠↑Char
+- 💠Persona Description
+- 💠Char Description
+- 💠Char Personality
+- 💠Scenario
+- 💠↓Char
+- Chat Examples
+
+## DSH 三段中处于关闭状态的 18 个条目
 
 - ⚓不媚USER
 - ⚖️防支配
@@ -79,6 +82,8 @@
 - `nsfw`
 - `enhanceDefinitions`
 
+## 未转换内容
+
 ### 未出现在所选 order 中的 4 个 prompt
 
 - SPreset配置
@@ -86,28 +91,27 @@
 - 💠FAKE
 - 🔶ICOT（自由）
 
-### 独立保留在酒馆源预设
+### 未选择的顺序组
 
-- 顶层采样、请求、续写、图片、工具和推理参数均未进入前、中、后；
-- 12 条 SPreset 正则未进入 DSH 预设；
 - 未选择的 `character_id = 100000` order 未参与转换。
+
+顶层采样、请求、续写、图片、工具和推理参数，以及正则之外的扩展配置，在转换中直接忽略，不进入未转换内容。12 条 SPreset 正则完整进入 DSH 转换稿的独立正则区，其中 11 条开启、1 条关闭。
 
 ## Diagnostics
 
 | 级别 | 代码 | 说明 |
 | --- | --- | --- |
-| error | `TAVERN_MACRO_UNSUPPORTED` | 10 个启用条目仍含酒馆宏，共 45 处；其中 `setvar` 25 处、`getvar` 17 处。草稿不能直接执行。 |
+| info | `TAVERN_MACRO_RUNTIME` | 10 个启用条目含酒馆宏，共 45 处；开始新对话时按前、中、后顺序解析一次，未知宏保留并记录运行诊断。 |
 | warning | `MIDDLE_EMPTY` | 纯结构转换后中段为空。 |
 | info | `ORDER_GROUP_NOT_SELECTED` | `character_id = 100000` 没有参与本次转换。 |
-| info | `DISABLED_ENTRIES_EXCLUDED` | 18 个关闭条目未复制到 DSH 预设。 |
-| info | `UNORDERED_PROMPTS_EXCLUDED` | 4 个未编排 prompt 未复制到 DSH 预设。 |
-| info | `MODEL_PARAMETERS_NOT_APPLIED` | 酒馆采样及请求参数保留在源文件，未进入 DSH 三段。 |
-| info | `PRESET_EXTENSIONS_NOT_CONVERTED` | 12 条正则及其他扩展未进入 DSH 预设。 |
+| info | `DISABLED_ENTRIES_PRESERVED` | 18 个关闭条目已复制到 DSH 三段，并保持关闭状态。 |
+| info | `NATIVE_MATERIAL_MARKERS_IGNORED` | 7 个人物卡或世界书 marker 由 DSH 原生流程接管，未重复写入预设。 |
+| info | `UNORDERED_PROMPTS_EXCLUDED` | 4 个未编排 prompt 未复制到 DSH 三段，但在未转换内容中完整展示。 |
 
 ## 这份样例暴露的问题
 
 1. 仅按 `chatHistory` 与深度注入分段时，中段完全为空。
-2. 前段包含 16115 字启用正文，其中一条 user role 内容就有 13622 字；“历史前”不天然等于适合稳定缓存。
-3. 前段 marker 包含角色描述、性格、场景和世界书；是否全部稳定，需要 DSH 自己的生命周期规则决定。
-4. 后段的 COT、SETTING 和 ROLEPLAY GUIDE 依赖 `getvar`；不设计 DSH 变量协议就无法成为原生可运行内容。
-5. 转换保留了 user role，没有拍平成 system；后续 DSH 请求装配必须决定如何表达。
+2. 前段共 19253 字，其中开启条目正文 16115 字；一条 user role 内容就有 13622 字。“历史前”不天然等于适合稳定缓存。
+3. 人物卡和世界书 marker 已排除，由 DSH 原生生命周期规则统一装配，避免重复注入。
+4. 后段的 COT、SETTING 和 ROLEPLAY GUIDE 依赖 `getvar`；三段必须共享同一轮宏变量状态。
+5. 转换稿保留 user role；当前 DSH 生命周期适配器的中、后统一以 user 请求消息表达，后续原生接口升级时再恢复更细粒度 role。

@@ -47,3 +47,36 @@ test('预设编辑器拒绝根节点删除和不存在的父路径', async () =>
   await assert.rejects(run.editor.update('presets/写作.json', [{ op: 'set', path: '/missing/value', value: 1 }]), /路径不存在/)
   assert.equal(run.writes(), 0)
 })
+
+test('条目表单同步修改 prompts 与 prompt_order 的默认状态', async () => {
+  const run = harness({
+    prompts: [{ identifier: 'main', name: '旧名称', role: 'system', content: '旧正文', enabled: true, unknown: 42 }],
+    prompt_order: [{ order: [{ identifier: 'main', enabled: true }] }],
+    extension_data: { custom: '保留' }
+  })
+
+  const result = await run.editor.updateEntry('presets/写作.json', 'main#1', {
+    name: '新名称', role: 'assistant', content: '新正文', enabled: false
+  })
+
+  assert.deepEqual(result.changed, [
+    '/prompts/0/name',
+    '/prompts/0/role',
+    '/prompts/0/content',
+    '/prompts/0/enabled',
+    '/prompt_order/0/order/0/enabled'
+  ])
+  assert.deepEqual(run.document(), {
+    prompts: [{ identifier: 'main', name: '新名称', role: 'assistant', content: '新正文', enabled: false, unknown: 42 }],
+    prompt_order: [{ order: [{ identifier: 'main', enabled: false }] }],
+    extension_data: { custom: '保留' }
+  })
+})
+
+test('条目表单拒绝未知字段与非法角色', async () => {
+  const run = harness({ prompts: [{ identifier: 'main', content: '正文' }] })
+
+  await assert.rejects(run.editor.updateEntry('presets/写作.json', 'main#1', { identifier: 'other' }), /不支持修改/)
+  await assert.rejects(run.editor.updateEntry('presets/写作.json', 'main#1', { role: 'developer' }), /角色必须/)
+  assert.equal(run.writes(), 0)
+})

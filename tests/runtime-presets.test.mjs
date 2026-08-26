@@ -61,22 +61,27 @@ function harness() {
   return { module, presets, getState: () => structuredClone(state), getWrites: () => writes }
 }
 
-test('导入的提示词和正则全部默认关闭', async () => {
+test('首次导入沿用酒馆预设自己的提示词和正则默认状态', async () => {
   const value = harness()
   await value.module.register('presets/先导入.json')
 
   const view = await value.module.view('presets/先导入.json')
 
-  assert.equal(view.enabledCount, 0)
-  assert.deepEqual(view.entries.map(function (entry) { return entry.runtimeEnabled }), [false, false, false])
+  assert.equal(view.enabledCount, 1)
+  assert.deepEqual(view.entries.map(function (entry) { return entry.runtimeEnabled }), [true, false, false])
   assert.equal(view.entries[0].enabled, true)
   assert.equal(view.entries[2].enabled, false)
-  assert.equal(view.enabledRegexCount, 0)
+  assert.equal(view.enabledRegexCount, 1)
   assert.deepEqual(view.regexScripts.map(function (script) { return [script.regexKey, script.runtimeEnabled] }), [
-    ['status#1', false],
+    ['status#1', true],
     ['status#2', false]
   ])
-  assert.equal(await value.module.snapshot(), null)
+  await value.module.select('presets/先导入.json')
+  const snapshot = await value.module.snapshot()
+  assert.equal(snapshot.front.text, '第一段')
+  assert.equal(snapshot.middle.text, '')
+  assert.equal(snapshot.back.text, '')
+  assert.equal(snapshot.regexScripts[0].regexKey, 'status#1')
 })
 
 test('新对话创建时只解析一次预设酒馆宏，并冻结解析后的变量状态', () => {
@@ -100,6 +105,34 @@ test('新对话创建时只解析一次预设酒馆宏，并冻结解析后的�
   assert.equal(raw.text, '{{setvar::rule::校规}}{{user}}遵守{{getvar::rule}}；{{char}}在场；{{future::macro}}')
 })
 
+test('DSH 转换稿按前中后分别生成快照，并按顺序共享宏变量状态', async () => {
+  const value = harness()
+  const converted = preset('presets/三段.json', [])
+  converted.dshPreset = {
+    front: [{ id: 'front#1', name: '前', role: 'system', content: '{{setvar::rule::守则}}前：{{user}}', enabled: true, source: { identifier: 'front' } }],
+    middle: [{ id: 'middle#1', name: '中', role: 'system', content: '中：{{getvar::rule}}', enabled: true, source: { identifier: 'middle' } }],
+    back: [{ id: 'back#1', name: '后', role: 'system', content: '后：{{char}}', enabled: true, source: { identifier: 'back' } }]
+  }
+  value.presets.set('presets/三段.json', converted)
+
+  await value.module.register('presets/三段.json')
+  await value.module.select('presets/三段.json')
+  const raw = await value.module.snapshot()
+  const resolved = resolveRuntimePresetMacros(raw, {
+    charName: '阿芙拉',
+    macroState: { userName: '陈锋', local: {}, global: {} }
+  })
+
+  assert.equal(resolved.snapshot.front.text, '前：陈锋')
+  assert.equal(resolved.snapshot.middle.text, '中：守则')
+  assert.equal(resolved.snapshot.back.text, '后：阿芙拉')
+  assert.deepEqual(resolved.snapshot.sources.map(function (source) { return [source.entryKey, source.phase] }), [
+    ['front#1', 'front'],
+    ['middle#1', 'middle'],
+    ['back#1', 'back']
+  ])
+})
+
 test('提示词快照固定，正则开关可在旧对话中实时解析', async () => {
   const value = harness()
   await value.module.register('presets/先导入.json')
@@ -110,17 +143,17 @@ test('提示词快照固定，正则开关可在旧对话中实时解析', async
 
   assert.equal(snapshot.text, '第一段')
   assert.equal(snapshot.presetPath, 'presets/先导入.json')
-  assert.deepEqual(await value.module.regexScriptsFor(snapshot), [])
+  assert.deepEqual((await value.module.regexScriptsFor(snapshot)).map(function (script) { return script.regexKey }), ['status#1'])
 
   await value.module.toggleRegex({ path: 'presets/先导入.json', regexKey: 'status#2', enabled: true })
   const enabled = await value.module.regexScriptsFor(snapshot)
-  assert.equal(enabled.length, 1)
-  assert.equal(enabled[0].name, '状态栏副本')
-  assert.equal(enabled[0].enabled, true)
+  assert.equal(enabled.length, 2)
+  assert.equal(enabled[1].name, '状态栏副本')
+  assert.equal(enabled[1].enabled, true)
   assert.equal(snapshot.text, '第一段')
 
   await value.module.toggleRegex({ path: 'presets/先导入.json', regexKey: 'status#2', enabled: false })
-  assert.deepEqual(await value.module.regexScriptsFor(snapshot), [])
+  assert.deepEqual((await value.module.regexScriptsFor(snapshot)).map(function (script) { return script.regexKey }), ['status#1'])
 })
 
 test('没有 prompts、只有正则的预设也能独立管理', async () => {
@@ -169,7 +202,7 @@ test('空条目不可开启，已开启条目失效时快照明确失败且不�
   await value.module.register('presets/先导入.json')
   await assert.rejects(
     value.module.toggle({ path: 'presets/先导入.json', entryKey: 'empty#1', enabled: true }),
-    /不可注入/
+    /不存在|不可注入/
   )
   await value.module.toggle({ path: 'presets/先导入.json', entryKey: 'a#1', enabled: true })
   await value.module.select('presets/先导入.json')
@@ -201,7 +234,9 @@ test('失效预设修复后成功生成快照会清除持久错误', async () =>
   await value.module.select('presets/先导入.json')
   value.presets.delete('presets/先导入.json')
   await assert.rejects(value.module.snapshot(), /预设注入失败/)
-  value.presets.set('presets/先导入.json', preset('presets/先导入.json', [{ identifier: 'a', content: '已修复' }]))
+  value.presets.set('presets/先导入.json', preset('presets/先导入.json', [{ identifier: 'a', content: '已修复' }], [
+    { id: 'status', name: '状态栏', findRegex: '/<status>(.*?)<\\/status>/s', replaceString: '<aside>$1</aside>', placement: [2], enabled: true }
+  ]))
 
   assert.equal((await value.module.snapshot()).text, '已修复')
   assert.equal((await value.module.state()).lastError, null)
@@ -212,7 +247,9 @@ test('重命名和删除预设同步迁移或清除全局开关', async () => {
   await value.module.register('presets/先导入.json')
   await value.module.toggle({ path: 'presets/先导入.json', entryKey: 'a#1', enabled: true })
   await value.module.select('presets/先导入.json')
-  value.presets.set('presets/已改名.json', preset('presets/已改名.json', [{ identifier: 'a', content: '第一段' }]))
+  value.presets.set('presets/已改名.json', preset('presets/已改名.json', [{ identifier: 'a', content: '第一段' }], [
+    { id: 'status', name: '状态栏', findRegex: '/<status>(.*?)<\\/status>/s', replaceString: '<aside>$1</aside>', placement: [2], enabled: true }
+  ]))
   value.presets.delete('presets/先导入.json')
 
   await value.module.rename('presets/先导入.json', 'presets/已改名.json')

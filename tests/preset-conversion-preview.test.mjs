@@ -3,7 +3,7 @@ import test from 'node:test'
 
 import { previewPresetConversion } from '../tavern-plugin/lib/domain/preset-conversion-preview.js'
 
-test('按 prompt_order 把启用条目转换为前中后三段并保留 role 与 marker', () => {
+test('按 prompt_order 把全部条目转换为前中后三段，保留开关并忽略 DSH 原生材料 marker 与顶层参数', () => {
   const result = previewPresetConversion(JSON.stringify({
     temperature: 1.1,
     prompts: [
@@ -29,17 +29,18 @@ test('按 prompt_order 把启用条目转换为前中后三段并保留 role 与
   }), '样例.json')
 
   assert.equal(result.status, 'ready')
-  assert.deepEqual(result.phases.front.map(function (entry) { return entry.entryKey }), ['front#1', 'charDescription#1'])
+  assert.deepEqual(result.phases.front.map(function (entry) { return entry.entryKey }), ['front#1'])
   assert.deepEqual(result.phases.middle.map(function (entry) { return entry.entryKey }), ['depth#1'])
-  assert.deepEqual(result.phases.back.map(function (entry) { return entry.entryKey }), ['tail#1'])
-  assert.equal(result.phases.front[1].material, 'character.description')
+  assert.deepEqual(result.phases.back.map(function (entry) { return entry.entryKey }), ['tail#1', 'off#1'])
   assert.equal(result.phases.middle[0].role, 'user')
   assert.equal(result.phases.back[0].role, 'assistant')
   assert.equal(result.dshPreset.schema, 'dsh.preset.draft/v1')
-  assert.deepEqual(result.dshPreset.front.map(function (entry) { return entry.id }), ['front#1', 'charDescription#1'])
+  assert.deepEqual(result.dshPreset.front.map(function (entry) { return entry.id }), ['front#1'])
   assert.deepEqual(result.dshPreset.middle.map(function (entry) { return entry.id }), ['depth#1'])
-  assert.deepEqual(result.dshPreset.back.map(function (entry) { return entry.id }), ['tail#1'])
-  assert.equal(result.dshPreset.front[1].material, 'character.description')
+  assert.deepEqual(result.dshPreset.back.map(function (entry) { return entry.id }), ['tail#1', 'off#1'])
+  assert.equal(result.dshPreset.back[1].enabled, false)
+  assert.deepEqual(result.excluded.nativeMaterials.map(function (entry) { return entry.entryKey }), ['charDescription#1'])
+  assert.equal(result.summary.nativeMaterialRows, 1)
   assert.deepEqual(result.dshPreset.middle[0].source, {
     identifier: 'depth',
     marker: false,
@@ -48,10 +49,35 @@ test('按 prompt_order 把启用条目转换为前中后三段并保留 role 与
     injectionOrder: 7
   })
   assert.equal(result.sourceRows[3].type, 'history')
-  assert.equal(result.excluded.disabled[0].entryKey, 'off#1')
   assert.equal(result.excluded.unordered[0].entryKey, 'orphan#1')
+  assert.deepEqual(result.unconverted.prompts.map(function (entry) { return entry.entryKey }), ['orphan#1'])
+  assert.equal(result.unconverted.rootConfiguration, undefined)
   assert.ok(result.diagnostics.some(function (item) { return item.code === 'TAVERN_DEPTH_COLLAPSED' }))
-  assert.ok(result.diagnostics.some(function (item) { return item.code === 'ROOT_CONFIGURATION_NOT_APPLIED' }))
+  assert.ok(!result.diagnostics.some(function (item) { return item.code === 'ROOT_CONFIGURATION_NOT_APPLIED' }))
+  assert.ok(result.diagnostics.some(function (item) { return item.code === 'NATIVE_MATERIAL_MARKERS_IGNORED' }))
+})
+
+test('七类人物卡与世界书 marker 全部由 DSH 原生装配，不进入转换稿', () => {
+  const identifiers = [
+    'personaDescription',
+    'charDescription',
+    'charPersonality',
+    'scenario',
+    'dialogueExamples',
+    'worldInfoBefore',
+    'worldInfoAfter'
+  ]
+  const result = previewPresetConversion(JSON.stringify({
+    prompts: identifiers.map(function (identifier) { return { identifier, marker: true, content: '' } }),
+    prompt_order: [{ order: identifiers.map(function (identifier) { return { identifier, enabled: true } }) }]
+  }), '原生材料.json')
+
+  assert.deepEqual(result.dshPreset.front, [])
+  assert.deepEqual(result.dshPreset.middle, [])
+  assert.deepEqual(result.dshPreset.back, [])
+  assert.deepEqual(result.excluded.nativeMaterials.map(function (entry) { return entry.identifier }), identifiers)
+  assert.equal(result.summary.enabledRows, 0)
+  assert.equal(result.summary.nativeMaterialRows, 7)
 })
 
 test('默认选择 100001 order，并允许按索引切换其他 order 组', () => {
@@ -75,7 +101,7 @@ test('默认选择 100001 order，并允许按索引切换其他 order 组', () 
   assert.deepEqual(selectedView.phases.front.map(function (entry) { return entry.entryKey }), ['a#1'])
 })
 
-test('宏、未知 marker 和缺失定义进入诊断，不被静默修正', () => {
+test('宏留待运行时解析，未知 marker 和缺失定义继续阻止直接使用', () => {
   const result = previewPresetConversion(JSON.stringify({
     prompts: [
       { identifier: 'macro', content: '{{setvar::x::1}}正文{{getvar::x}}' },
@@ -90,12 +116,41 @@ test('宏、未知 marker 和缺失定义进入诊断，不被静默修正', () 
 
   assert.equal(result.status, 'review-required')
   assert.equal(result.phases.front[0].content, '{{setvar::x::1}}正文{{getvar::x}}')
-  assert.equal(result.phases.front[1].material, null)
+  assert.equal(result.phases.front.length, 1)
+  assert.deepEqual(result.unconverted.prompts.map(function (entry) { return entry.entryKey }), ['missing#missing-3', 'customMarker#1'])
+  assert.deepEqual(result.unconverted.prompts.map(function (entry) { return entry.unconvertedReason }), ['缺失 prompt 定义', '未知 marker'])
   assert.deepEqual(result.diagnostics.filter(function (item) { return item.severity === 'error' }).map(function (item) { return item.code }), [
-    'TAVERN_MACRO_UNSUPPORTED',
     'UNKNOWN_MARKER',
     'ORDER_ENTRY_MISSING'
   ])
+  assert.equal(result.diagnostics.find(function (item) { return item.code === 'TAVERN_MACRO_RUNTIME' }).severity, 'info')
+})
+
+test('正则进入 DSH 转换稿，顶层参数与其他扩展被忽略，未选择 order 组保留', () => {
+  const result = previewPresetConversion(JSON.stringify({
+    temperature: 0.8,
+    prompts: [
+      { identifier: 'main', content: '正文' },
+      { identifier: 'charDescription', marker: true, content: '' }
+    ],
+    prompt_order: [
+      { character_id: 100001, order: [{ identifier: 'main', enabled: true }] },
+      { character_id: 100000, order: [{ identifier: 'charDescription', enabled: true }] }
+    ],
+    extensions: { SPreset: { RegexBinding: { regexes: [{ findRegex: '/x/g', replaceString: 'y' }] } }, custom: { value: 42 } }
+  }), '完整报告.json')
+
+  assert.equal(result.unconverted.rootConfiguration, undefined)
+  assert.equal(result.unconverted.extensions, undefined)
+  assert.equal(result.dshPreset.regex.length, 1)
+  assert.equal(result.dshPreset.regex[0].findRegex, '/x/g')
+  assert.equal(result.dshPreset.regex[0].replaceString, 'y')
+  assert.equal(result.dshPreset.regex[0].enabled, true)
+  assert.equal(result.unconverted.unselectedOrderGroups[0].label, '角色组 100000')
+  assert.equal(result.unconverted.prompts.length, 0)
+  assert.deepEqual(result.excluded.nativeMaterials.map(function (entry) { return entry.identifier }), ['charDescription'])
+  assert.equal(result.summary.regexRows, 1)
+  assert.equal(result.summary.enabledRegexRows, 1)
 })
 
 test('没有 prompt_order 时按 prompts 原始顺序生成只读草稿', () => {

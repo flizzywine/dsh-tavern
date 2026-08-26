@@ -1,3 +1,5 @@
+import { regexScriptsOf } from './preset-reading.js'
+
 const MATERIAL_MARKERS = Object.freeze({
   charDescription: 'character.description',
   charPersonality: 'character.personality',
@@ -35,21 +37,28 @@ function macrosOf(content) {
   }
 }
 
-function regexCountOf(document) {
-  const regexes = document && document.extensions && document.extensions.SPreset && document.extensions.SPreset.RegexBinding && document.extensions.SPreset.RegexBinding.regexes
-  return Array.isArray(regexes) ? regexes.length : 0
-}
-
 function phaseStats(entries) {
   const roles = {}
   let textCharacters = 0
+  let enabledTextCharacters = 0
   let materialCount = 0
   for (const entry of entries) {
     roles[entry.role] = (roles[entry.role] || 0) + 1
     if (entry.type === 'material') materialCount += 1
-    else textCharacters += entry.content.length
+    else {
+      textCharacters += entry.content.length
+      if (entry.enabled) enabledTextCharacters += entry.content.length
+    }
   }
-  return { count: entries.length, textCharacters, materialCount, roles }
+  return {
+    count: entries.length,
+    enabledCount: entries.filter(function (entry) { return entry.enabled }).length,
+    disabledCount: entries.filter(function (entry) { return !entry.enabled }).length,
+    textCharacters,
+    enabledTextCharacters,
+    materialCount,
+    roles
+  }
 }
 
 function diagnostic(severity, code, message, entryKeys = []) {
@@ -62,6 +71,7 @@ function nativeEntry(entry) {
     name: entry.name,
     order: entry.orderIndex,
     role: entry.role,
+    enabled: entry.enabled,
     type: entry.type,
     content: entry.type === 'text' ? entry.content : '',
     material: entry.type === 'material' ? entry.material : null,
@@ -89,7 +99,8 @@ export function previewPresetConversion(text, filename = '', options = {}) {
       selectedOrderGroupIndex: null,
       sourceRows: [],
       phases: { front: [], middle: [], back: [] },
-      excluded: { disabled: [], unordered: [] },
+      excluded: { unordered: [], nativeMaterials: [] },
+      unconverted: { prompts: [], unselectedOrderGroups: [] },
       diagnostics: []
     }
   }
@@ -108,7 +119,8 @@ export function previewPresetConversion(text, filename = '', options = {}) {
       selectedOrderGroupIndex: null,
       sourceRows: [],
       phases: { front: [], middle: [], back: [] },
-      excluded: { disabled: [], unordered: [] },
+      excluded: { unordered: [], nativeMaterials: [] },
+      unconverted: { prompts: [], unselectedOrderGroups: [] },
       diagnostics: []
     }
   }
@@ -168,6 +180,7 @@ export function previewPresetConversion(text, filename = '', options = {}) {
   const sourceRows = []
   const phases = { front: [], middle: [], back: [] }
   const disabled = []
+  const nativeMaterials = []
   const missing = []
   const unknownMarkers = []
   let afterHistory = false
@@ -225,44 +238,51 @@ export function previewPresetConversion(text, filename = '', options = {}) {
       missing: false
     })
     sourceRows.push(row)
-    if (!enabled) {
-      disabled.push(row)
+    if (record.marker && material !== undefined) {
+      nativeMaterials.push(row)
       return
     }
-    if (record.marker && material === undefined) unknownMarkers.push(row)
+    if (record.marker && material === undefined) {
+      row.unconvertedReason = '未知 marker'
+      unknownMarkers.push(row)
+      return
+    }
     phases[targetPhase].push(row)
+    if (!enabled) disabled.push(row)
   })
 
-  const unordered = records.filter(function (record) { return !used.has(record) }).map(function (record) {
-    return Object.assign({}, record, {
+  const unordered = []
+  for (const record of records.filter(function (item) { return !used.has(item) })) {
+    const row = Object.assign({}, record, {
       enabled: false,
       orderIndex: null,
       targetPhase: null,
       type: record.marker ? 'material' : 'text',
       material: record.marker ? MATERIAL_MARKERS[record.identifier] || null : null,
-      missing: false
+      missing: false,
+      unconvertedReason: '未编排'
     })
-  })
+    if (record.marker && MATERIAL_MARKERS[record.identifier] !== undefined) nativeMaterials.push(row)
+    else unordered.push(row)
+  }
 
   const diagnostics = []
-  const macroEntries = phases.front.concat(phases.middle, phases.back).filter(function (entry) { return entry.macros.count > 0 })
+  const macroEntries = phases.front.concat(phases.middle, phases.back).filter(function (entry) { return entry.enabled && entry.macros.count > 0 })
   if (macroEntries.length > 0) {
     const macroCount = macroEntries.reduce(function (total, entry) { return total + entry.macros.count }, 0)
-    diagnostics.push(diagnostic('error', 'TAVERN_MACRO_UNSUPPORTED', macroEntries.length + ' 个启用条目仍含酒馆宏，共 ' + macroCount + ' 处；当前只保留原文，不执行宏。', macroEntries.map(function (entry) { return entry.entryKey })))
+    diagnostics.push(diagnostic('info', 'TAVERN_MACRO_RUNTIME', macroEntries.length + ' 个启用条目含酒馆宏，共 ' + macroCount + ' 处；开始新对话时会按前、中、后顺序解析一次。', macroEntries.map(function (entry) { return entry.entryKey })))
   }
-  if (unknownMarkers.length > 0) diagnostics.push(diagnostic('error', 'UNKNOWN_MARKER', unknownMarkers.length + ' 个启用 marker 无法映射到 DSH 材料。', unknownMarkers.map(function (entry) { return entry.entryKey })))
+  if (unknownMarkers.length > 0) diagnostics.push(diagnostic('error', 'UNKNOWN_MARKER', unknownMarkers.length + ' 个启用占位符无法识别，需要人工检查。', unknownMarkers.map(function (entry) { return entry.entryKey })))
   if (missing.length > 0) diagnostics.push(diagnostic('error', 'ORDER_ENTRY_MISSING', missing.length + ' 个 order 条目没有对应 prompt 定义。', missing.map(function (entry) { return entry.entryKey })))
   const depthEntries = phases.middle.filter(function (entry) { return entry.injectionPosition === 1 })
-  if (depthEntries.length > 0) diagnostics.push(diagnostic('warning', 'TAVERN_DEPTH_COLLAPSED', depthEntries.length + ' 个深度注入条目被折叠到 DSH 中段；depth/order 仅供查看。', depthEntries.map(function (entry) { return entry.entryKey })))
+  if (depthEntries.length > 0) diagnostics.push(diagnostic('warning', 'TAVERN_DEPTH_COLLAPSED', depthEntries.length + ' 个深度注入条目已归入中段；原深度和顺序仅保留作兼容记录。', depthEntries.map(function (entry) { return entry.entryKey })))
   if (phases.middle.length === 0) diagnostics.push(diagnostic('warning', 'MIDDLE_EMPTY', '所选顺序没有启用的深度注入条目，按当前结构规则转换后中段为空。'))
   if (orderGroups.length > 1) diagnostics.push(diagnostic('info', 'ORDER_GROUP_NOT_SELECTED', '当前只预览 ' + selectedGroup.label + '，其余 ' + (orderGroups.length - 1) + ' 组未参与转换。'))
-  if (disabled.length > 0) diagnostics.push(diagnostic('info', 'DISABLED_ENTRIES_EXCLUDED', disabled.length + ' 个关闭条目未进入 DSH 三段。', disabled.map(function (entry) { return entry.entryKey })))
+  if (disabled.length > 0) diagnostics.push(diagnostic('info', 'DISABLED_ENTRIES_PRESERVED', disabled.length + ' 个关闭条目已保留在 DSH 三段中，并保持关闭状态。', disabled.map(function (entry) { return entry.entryKey })))
+  if (nativeMaterials.length > 0) diagnostics.push(diagnostic('info', 'NATIVE_MATERIAL_MARKERS_IGNORED', nativeMaterials.length + ' 个人物卡或世界书占位符由系统自动提供，未在预设中重复显示。', nativeMaterials.map(function (entry) { return entry.entryKey })))
   if (unordered.length > 0) diagnostics.push(diagnostic('info', 'UNORDERED_PROMPTS_EXCLUDED', unordered.length + ' 个未编排 prompt 未进入 DSH 三段。', unordered.map(function (entry) { return entry.entryKey })))
 
-  const rootConfigurationKeys = Object.keys(object).filter(function (key) { return key !== 'prompts' && key !== 'prompt_order' && key !== 'extensions' })
-  const regexCount = regexCountOf(object)
-  if (rootConfigurationKeys.length > 0) diagnostics.push(diagnostic('info', 'ROOT_CONFIGURATION_NOT_APPLIED', rootConfigurationKeys.length + ' 个顶层采样或请求配置未进入 DSH 三段。'))
-  if (regexCount > 0) diagnostics.push(diagnostic('info', 'PRESET_EXTENSIONS_NOT_CONVERTED', regexCount + ' 条 SPreset 正则未进入 DSH 三段。'))
+  const regexScripts = regexScriptsOf(object)
 
   const errorCount = diagnostics.filter(function (item) { return item.severity === 'error' }).length
   const dshPreset = {
@@ -271,8 +291,16 @@ export function previewPresetConversion(text, filename = '', options = {}) {
     sourceOrderGroup: selectedGroup === undefined ? null : selectedGroup.index,
     front: phases.front.map(nativeEntry),
     middle: phases.middle.map(nativeEntry),
-    back: phases.back.map(nativeEntry)
+    back: phases.back.map(nativeEntry),
+    regex: regexScripts
   }
+  const unselectedOrderGroups = orderGroups.filter(function (group) { return selectedGroup === undefined || group.index !== selectedGroup.index }).map(function (group) {
+    return { index: group.index, label: group.label, value: object.prompt_order[group.index] }
+  })
+  const unconvertedPrompts = missing.concat(unknownMarkers, unordered).map(function (entry) {
+    if (entry.missing) return Object.assign({}, entry, { unconvertedReason: '缺失 prompt 定义' })
+    return entry
+  })
   return {
     valid: true,
     recognized: true,
@@ -292,16 +320,24 @@ export function previewPresetConversion(text, filename = '', options = {}) {
       middle: phaseStats(phases.middle),
       back: phaseStats(phases.back)
     },
-    excluded: { disabled, unordered },
+    excluded: { unordered, nativeMaterials },
+    unconverted: {
+      prompts: unconvertedPrompts,
+      unselectedOrderGroups
+    },
     diagnostics,
-    rootConfigurationKeys,
-    regexCount,
+    regexCount: regexScripts.length,
     summary: {
       promptDefinitions: records.length,
       orderedRows: sourceRows.length,
-      enabledRows: phases.front.length + phases.middle.length + phases.back.length,
+      convertedRows: phases.front.length + phases.middle.length + phases.back.length,
+      enabledRows: phases.front.concat(phases.middle, phases.back).filter(function (entry) { return entry.enabled }).length,
       disabledRows: disabled.length,
-      unorderedRows: unordered.length
+      nativeMaterialRows: nativeMaterials.length,
+      unorderedRows: unordered.length,
+      unconvertedRows: unconvertedPrompts.length,
+      regexRows: regexScripts.length,
+      enabledRegexRows: regexScripts.filter(function (script) { return script.enabled }).length
     }
   }
 }

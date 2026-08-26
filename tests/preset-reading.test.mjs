@@ -30,6 +30,14 @@ test('按 SillyTavern prompt_order 还原条目顺序和启用状态', () => {
   assert.equal(result.entries[0].enabled, true)
   assert.equal(result.entries[1].enabled, true)
   assert.equal(result.entries[2].ordered, false)
+  assert.deepEqual(result.entries[1].edit, {
+    promptPath: '/prompts/0',
+    enabledPaths: ['/prompts/0/enabled', '/prompt_order/0/order/1/enabled']
+  })
+  assert.deepEqual(result.entries[2].edit, {
+    promptPath: '/prompts/2',
+    enabledPaths: ['/prompts/2/enabled']
+  })
 })
 
 test('兼容缺少 prompt_order 和合法但未知的 JSON', () => {
@@ -59,6 +67,15 @@ test('重复 identifier 获得稳定且互不冲突的条目标识', () => {
 
   assert.deepEqual(result.entries.map(function (entry) { return entry.entryKey }), ['same#1', 'same#2', 'placeholder#1'])
   assert.deepEqual(result.entries.map(function (entry) { return entry.injectable }), [true, true, false])
+})
+
+test('只有 prompt_order 的占位条目只开放开关状态', () => {
+  const result = inspectPreset(JSON.stringify({ prompts: [], prompt_order: [{ order: [{ identifier: 'missing', enabled: true }] }] }))
+
+  assert.deepEqual(result.entries[0].edit, {
+    promptPath: null,
+    enabledPaths: ['/prompt_order/0/order/0/enabled']
+  })
 })
 
 test('损坏 JSON 返回可展示错误而不抛出解析异常', () => {

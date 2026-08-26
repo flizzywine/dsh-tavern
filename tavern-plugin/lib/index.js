@@ -19,7 +19,7 @@ import { previewPresetConversion } from './domain/preset-conversion-preview.js'
 import { inspectPreset } from './domain/preset-reading.js'
 import { createPlayChatDebugReference, readPlayChatDebugTurn } from './domain/play-chat-debug.js'
 import { createPresetEditor } from './domain/preset-editor.js'
-import { createRuntimePresetModule } from './domain/runtime-presets.js'
+import { createRuntimePresetModule, resolveRuntimePresetMacros } from './domain/runtime-presets.js'
 import {
   preserveRuntimeSource,
   projectAgentContent,
@@ -350,7 +350,15 @@ export async function apply(ctx) {
     const normalized = normalizeResourcePath(presetPath, 'preset')
     const text = await fileResources.readText(normalized)
     if (text === undefined) return undefined
-    return Object.assign({ path: normalized, previewPath: fileResources.absolute(normalized) }, inspectPreset(text, normalized))
+    const inspected = inspectPreset(text, normalized)
+    const conversion = previewPresetConversion(text, normalized)
+    return Object.assign({
+      path: normalized,
+      previewPath: fileResources.absolute(normalized),
+      dshPreset: conversion && conversion.dshPreset || null,
+      conversionStatus: conversion && conversion.status || 'unrecognized',
+      conversionDiagnostics: conversion && conversion.diagnostics || []
+    }, inspected)
   }
   async function previewPreset(presetPath, orderGroupIndex) {
     const normalized = normalizeResourcePath(presetPath, 'preset')
@@ -791,8 +799,12 @@ export async function apply(ctx) {
     let replyDisplay = { projections: replyProjectionsOf(chat), presentation: null, latestSourceBacked: false }
     if ((chat.mode || 'story') === 'story' || (chat.mode || 'story') === 'script') {
       const extensions = await readCardExtensions(chat.cardPath)
+      const reference = Object.assign({}, chat.runtimePresetSnapshot || {}, {
+        presetPath: str(chat.runtimePresetPath) || str(chat.runtimePresetSnapshot && chat.runtimePresetSnapshot.presetPath)
+      })
+      const presetRegexScripts = await runtimePresets.regexScriptsFor(reference)
       replyDisplay = projectRuntimeReplyHistory(chat.messages, {
-        regexScripts: Array.isArray(extensions && extensions.regexScripts) ? extensions.regexScripts : [],
+        regexScripts: (Array.isArray(extensions && extensions.regexScripts) ? extensions.regexScripts : []).concat(presetRegexScripts),
         placement: 2,
         isMarkdown: true,
         isEdit: false,
@@ -899,14 +911,26 @@ export async function apply(ctx) {
       }
     }
     const macroState = { userName: str(userName).trim().slice(0, 80) || '你', local: {}, global: {} }
+    const rawRuntimePresetSnapshot = groupOfMode(chatMode) === 'play' ? await runtimePresets.snapshot() : null
+    const resolvedRuntimePreset = resolveRuntimePresetMacros(rawRuntimePresetSnapshot, {
+      charName: str(card && card.name),
+      macroState
+    })
+    const runtimePresetSnapshot = resolvedRuntimePreset.snapshot
+    macroState.userName = resolvedRuntimePreset.macroState.userName
+    macroState.local = resolvedRuntimePreset.macroState.local
+    macroState.global = resolvedRuntimePreset.macroState.global
     const openingSourceText = chatMode === 'card' ? prompt('card-mode-greeting') : resolveCardOpening(card, openingId)
     const openingExtensions = chatMode === 'card' ? null : await readCardExtensions(cardPath)
+    const openingRegexScripts = (Array.isArray(openingExtensions && openingExtensions.regexScripts) ? openingExtensions.regexScripts : []).concat(
+      Array.isArray(runtimePresetSnapshot && runtimePresetSnapshot.regexScripts) ? runtimePresetSnapshot.regexScripts : []
+    )
     const openingProjection = chatMode === 'card'
       ? { agentText: openingSourceText, renderedText: openingSourceText, sessionText: openingSourceText, displayText: openingSourceText, displayMode: 'markdown', displayParts: [{ kind: 'markdown', text: openingSourceText }], warnings: [], macroState }
       : projectOpeningCommit(openingSourceText, {
           charName: str(card.name),
           macroState,
-          regexScripts: Array.isArray(openingExtensions && openingExtensions.regexScripts) ? openingExtensions.regexScripts : [],
+          regexScripts: openingRegexScripts,
           regexPlacement: 2,
           isEdit: false,
           depth: 0
@@ -919,8 +943,8 @@ export async function apply(ctx) {
     // 再落盘 Tavern 对话，避免失败时留下只有映射、没有原生开场白的半初始化记录。
     const openingTarget = typeof sessionId === 'string' && sessionId !== '' && greeting !== '' ? await waitForWritableSession({ registry: agentRegistry, sessions: sessionStore, sessionId: sessionId, sleep: sleep }) : undefined
     const chat = newChat(card, chatMode || 'story')
-    chat.runtimePresetSnapshot = null
-    chat.runtimePresetPath = ''
+    chat.runtimePresetSnapshot = runtimePresetSnapshot
+    chat.runtimePresetPath = runtimePresetSnapshot && runtimePresetSnapshot.presetPath || ''
     chat.macroState = macroState
     if (groupOfMode(chat.mode) === 'play') {
       chat.cardContextSnapshot = await buildPlayCardSnapshot(chat, card)
@@ -1101,7 +1125,16 @@ export async function apply(ctx) {
       if (sessions === undefined) throw new Error('dsh-tavern: 缺少 sessions 服务')
       await sessions.flush(session)
     },
-    resolveRuntimePresetSnapshot: async function () { return null }
+    resolveRuntimePresetSnapshot: async function (input) {
+      const chat = await chatForSession(input.sessionId)
+      if (!chat) return null
+      const snapshot = chat.runtimePresetSnapshot || null
+      const reference = Object.assign({}, snapshot || {}, {
+        presetPath: str(chat.runtimePresetPath) || str(snapshot && snapshot.presetPath)
+      })
+      const regexScripts = await runtimePresets.regexScriptsFor(reference)
+      return Object.assign({}, snapshot || {}, { regexScripts })
+    }
   })
   ctx.effect(() => () => backgroundAgentRunner.dispose(), 'dsh-tavern: dispose resident background agents')
   const backgroundTasks = createBackgroundTaskCoordinator({
@@ -1132,8 +1165,10 @@ export async function apply(ctx) {
         const participant = chat.timeline && chat.timeline.participants && chat.timeline.participants.background
         const backgroundSessionId = str(participant && participant.sessionId) || str(chat.candidateAgent && chat.candidateAgent.sessionId)
         if (backgroundSessionId === '') continue
+        const reference = Object.assign({}, chat.runtimePresetSnapshot || {}, { presetPath: path })
+        const regexScripts = await runtimePresets.regexScriptsFor(reference)
         try {
-          const result = await backgroundAgentRunner.reproject({ sessionId: backgroundSessionId, regexScripts: [] })
+          const result = await backgroundAgentRunner.reproject({ sessionId: backgroundSessionId, regexScripts })
           changed += Number(result.changed) || 0
         } catch (error) {
           console.warn('dsh-tavern: 后台历史正则投影失败，已跳过 ' + backgroundSessionId + ':', str(error && error.message || error))
@@ -1630,7 +1665,10 @@ export async function apply(ctx) {
     },
     projectReply: projectRuntimeReply,
     resolvePresetRegexScripts: async function (chat) {
-      return []
+      const reference = Object.assign({}, chat.runtimePresetSnapshot || {}, {
+        presetPath: str(chat.runtimePresetPath) || str(chat.runtimePresetSnapshot && chat.runtimePresetSnapshot.presetPath)
+      })
+      return await runtimePresets.regexScriptsFor(reference)
     },
     now: Date.now,
     shellToolName: process.platform === 'win32' ? 'pwsh' : 'bash'
@@ -1978,15 +2016,16 @@ export async function apply(ctx) {
         const runtimePresetState = await runtimePresets.state()
         const presetPlans = await runtimePresets.plans()
         const activePreset = presets.find(function (preset) { return preset.path === runtimePresetState.activePreset })
+        const activeRuntimePreset = activePreset ? await runtimePresets.view(activePreset.path) : null
         return {
           presets,
           runtimePresetState,
           presetPlans,
           activePreset: runtimePresetState.activePreset || '',
           activePresetTitle: activePreset && activePreset.title || '',
-          enabledCount: activePreset && activePreset.enabledCount || 0,
-          enabledCharacters: activePreset && activePreset.enabledCharacters || 0,
-          enabledRegexCount: activePreset && activePreset.enabledRegexCount || 0
+          enabledCount: activeRuntimePreset && activeRuntimePreset.enabledCount || 0,
+          enabledCharacters: activeRuntimePreset && activeRuntimePreset.enabledCharacters || 0,
+          enabledRegexCount: activeRuntimePreset && activeRuntimePreset.enabledRegexCount || 0
         }
       }
       case 'getPreset': {
@@ -1995,23 +2034,26 @@ export async function apply(ctx) {
         if (preset === undefined) throw new Error('预设不存在: ' + (args && args.path))
         return { preset }
       }
+      case 'updatePresetEntry': {
+        await presetEditor.updateEntry(args && args.path, args && args.entryKey, args && args.patch)
+        const inspected = await readPreset(args && args.path)
+        const preset = inspected && inspected.valid && (inspected.recognized || inspected.regexCount > 0) ? await runtimePresets.view(inspected.path) : inspected
+        return { preset }
+      }
       case 'previewPresetConversion': {
         const preview = await previewPreset(args && args.path, args && args.orderGroupIndex)
         if (preview === undefined) throw new Error('预设不存在: ' + (args && args.path))
         return { preview }
       }
       case 'togglePresetEntry': {
-        if (args && args.enabled === true) throw new Error('预设实验模块当前仅支持导入和查看，提示词注入已禁用')
         await runtimePresets.toggle({ path: args && args.path, entryKey: args && args.entryKey, enabled: args && args.enabled === true })
         return { preset: await runtimePresets.view(args && args.path) }
       }
       case 'selectPreset': {
-        if (str(args && args.path) !== '') throw new Error('预设实验模块当前没有运行时效果，不能启用预设')
         await runtimePresets.select(args && args.path || '')
         return { selected: args && args.path || '' }
       }
       case 'togglePresetRegex': {
-        if (args && args.enabled === true) throw new Error('预设实验模块当前仅支持导入和查看，预设正则匹配已禁用')
         await runtimePresets.toggleRegex({ path: args && args.path, regexKey: args && args.regexKey, enabled: args && args.enabled === true })
         const historicalChanges = await reprojectBackgroundHistories(args && args.path)
         return { preset: await runtimePresets.view(args && args.path), historicalChanges }
@@ -2028,7 +2070,7 @@ export async function apply(ctx) {
         return { plan: await runtimePresets.savePlan({ id: args && args.id, name: args && args.name }) }
       }
       case 'applyPresetPlan': {
-        throw new Error('预设实验模块当前没有运行时效果，不能应用配置方案')
+        return { plan: await runtimePresets.applyPlan(args && args.id) }
       }
       case 'renamePresetPlan': {
         return { plan: await runtimePresets.renamePlan(args && args.id, args && args.name) }
@@ -2297,31 +2339,90 @@ export async function apply(ctx) {
     })
   }
 
+  const runtimePresetBackPrefix = 'dsh-tavern-runtime-preset-back-'
+
+  function runtimePresetPhaseText(chat, phase) {
+    const snapshot = chat && chat.runtimePresetSnapshot
+    const projected = snapshot && snapshot[phase]
+    return str(projected && projected.text).trim()
+  }
+
+  function runtimePresetTurnMessage(phase, text, turn, step) {
+    return {
+      id: phase === 'back' ? runtimePresetBackPrefix + turn + '-' + step + '-' + crypto.randomUUID() : crypto.randomUUID(),
+      role: 'user',
+      content: [{ type: 'text', text }],
+      source: {
+        kind: 'plugin', plugin: 'dsh-tavern', form: 'snapshot',
+        sections: [{ name: 'tavern:runtime-preset-' + phase, text }]
+      }
+    }
+  }
+
+  function clearRuntimePresetBack(session) {
+    const nodes = session && session.surface && Array.isArray(session.surface.nodes) ? session.surface.nodes.slice() : []
+    const config = session && typeof session.requestHeader === 'function' && session.requestHeader()
+    const selected = config && config.config || modelSelection(session && session.id) || {}
+    let cleared = 0
+    for (const seq of nodes) {
+      const event = session.events && session.events[seq]
+      const id = event && event.type === 'user/message' && event.data && event.data.id
+      if (typeof id !== 'string' || !id.startsWith(runtimePresetBackPrefix)) continue
+      session.append('assistant/message', {
+        turn: Number(event.data && event.data.turn) || 0,
+        step: 1,
+        message: {
+          id: 'dsh-tavern-runtime-preset-tombstone-' + crypto.randomUUID(),
+          role: 'assistant',
+          content: [],
+          source: {
+            kind: 'model',
+            provider: str(selected.provider) || 'dsh-tavern',
+            model: str(selected.model) || 'runtime-preset'
+          }
+        }
+      }, {
+        surfaceOp: { op: 'replace', start: seq, end: seq },
+        sourceEventSeqs: [seq]
+      })
+      cleared++
+    }
+    return cleared
+  }
+
   // ---------- DSH 回合生命周期 ----------
   ctx.on('agent/pre-step', async function (payload, next) {
     const sessionId = payload.agent && payload.agent.session ? payload.agent.session.id : ''
     if (backgroundAgentRunner.owns(sessionId)) return next()
+    clearRuntimePresetBack(payload.agent && payload.agent.session)
     const decision = await next()
     if (decision.kind === 'reject') return decision
     const mode = await turnOrchestrator.modeFor(sessionId)
     const visibleMessages = filterSkillMessages(decision.messages, mode)
     const scopedDecision = visibleMessages === decision.messages ? decision : { ...decision, messages: visibleMessages }
-    if (Number(payload.step) !== 1) return scopedDecision
-    const userText = payload.messages.filter(isTurnInput).map(contentText).filter(Boolean).join('\n').trim()
-    const prepared = await foregroundHandoff.prepare({ sessionId, turn: payload.turn, userText })
-    const agentMessages = mode === 'story' || mode === 'script'
-      ? replaceTurnInput(scopedDecision.messages, prepared.userText)
-      : scopedDecision.messages
-    const contextMessage = {
-      id: crypto.randomUUID(),
-      role: 'user',
-      content: [{ type: 'text', text: prepared.text }],
-      source: {
-        kind: 'plugin', plugin: 'dsh-tavern', form: 'snapshot',
-        sections: [{ name: 'tavern:turn', text: prepared.text }]
-      }
+    let agentMessages = scopedDecision.messages
+    if (Number(payload.step) === 1) {
+      const userText = payload.messages.filter(isTurnInput).map(contentText).filter(Boolean).join('\n').trim()
+      const prepared = await foregroundHandoff.prepare({ sessionId, turn: payload.turn, userText })
+      agentMessages = mode === 'story' || mode === 'script'
+        ? replaceTurnInput(scopedDecision.messages, prepared.userText)
+        : scopedDecision.messages
+      agentMessages = agentMessages.concat([{
+        id: crypto.randomUUID(),
+        role: 'user',
+        content: [{ type: 'text', text: prepared.text }],
+        source: {
+          kind: 'plugin', plugin: 'dsh-tavern', form: 'snapshot',
+          sections: [{ name: 'tavern:turn', text: prepared.text }]
+        }
+      }])
     }
-    return { kind: 'enter', messages: agentMessages.concat([contextMessage]) }
+    const chat = await chatForSession(sessionId)
+    const middleText = Number(payload.step) === 1 ? runtimePresetPhaseText(chat, 'middle') : ''
+    const backText = runtimePresetPhaseText(chat, 'back')
+    if (middleText !== '') agentMessages = agentMessages.concat([runtimePresetTurnMessage('middle', middleText, payload.turn, payload.step)])
+    if (backText !== '') agentMessages = agentMessages.concat([runtimePresetTurnMessage('back', backText, payload.turn, payload.step)])
+    return { kind: 'enter', messages: agentMessages }
   })
 
   ctx.on('agent/turn-stopping', async function (payload) {
@@ -2329,6 +2430,7 @@ export async function apply(ctx) {
     if (session === undefined) return
     const sessionId = session.id
     if (backgroundAgentRunner.owns(sessionId)) return
+    clearRuntimePresetBack(session)
     const userText = userTextForTurn(session, payload.turn)
     if (userText === '') return
     const assistant = assistantResultForTurn(session, payload.turn)
@@ -2357,6 +2459,9 @@ export async function apply(ctx) {
     const mode = await turnOrchestrator.modeFor(agent.session.id)
     const visible = new Set(await turnOrchestrator.visibleTools(agent.session.id))
     const sections = []
+    const chat = await chatForSession(agent.session.id)
+    const frontText = runtimePresetPhaseText(chat, 'front')
+    if (frontText !== '') sections.push({ name: 'tavern:runtime-preset-front', order: -1000, text: frontText })
     sections.push({
       name: 'tavern:mode-persona',
       text: prompt(mode === 'card' ? 'card-mode' : 'play-mode')
@@ -2365,7 +2470,6 @@ export async function apply(ctx) {
       const workspaceContext = resourceWorkspaceContext(agent.session.header && agent.session.header.cwd)
       if (workspaceContext !== '') sections.push({ name: 'tavern:resource-workspace', text: workspaceContext })
     } else {
-      const chat = await chatForSession(agent.session.id)
       const cardSnapshot = await ensurePlayCardSnapshot(chat)
       if (cardSnapshot !== '') sections.push({ name: 'tavern:card-snapshot', text: cardSnapshot })
     }

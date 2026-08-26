@@ -25,7 +25,11 @@ function projectBackgroundMessages(messages, regexScripts) {
   })
 }
 
-function backgroundPrompt(messages, turnContext, task) {
+function runtimePresetText(snapshot, phase) {
+  return str(snapshot && snapshot[phase] && snapshot[phase].text).trim()
+}
+
+function backgroundPrompt(messages, turnContext, task, middleText) {
   const sections = []
   const authoritative = str(turnContext).trim()
   if (authoritative !== '') {
@@ -37,7 +41,48 @@ function backgroundPrompt(messages, turnContext, task) {
   }).filter(function (text) { return text.trim() !== '' }).join('\n\n')
   const taskName = task === 'settlement' ? '状态结算' : '候选生成'
   sections.push('【最近剧情与本次任务】\n任务类型：' + taskName + '\n' + recent)
+  if (str(middleText).trim() !== '') sections.push(str(middleText).trim())
   return sections.join('\n\n')
+}
+
+const runtimePresetBackPrefix = 'dsh-tavern-background-preset-back-'
+
+function runtimePresetBackMessage(text, turn, step) {
+  return {
+    id: runtimePresetBackPrefix + turn + '-' + step + '-' + crypto.randomUUID(),
+    role: 'user',
+    content: [{ type: 'text', text }],
+    source: { kind: 'plugin', plugin: 'dsh-tavern', form: 'snapshot' }
+  }
+}
+
+function clearRuntimePresetBack(session, selection) {
+  const nodes = session && session.surface && Array.isArray(session.surface.nodes) ? session.surface.nodes.slice() : []
+  let cleared = 0
+  for (const seq of nodes) {
+    const event = session.events && session.events[seq]
+    const id = event && event.type === 'user/message' && event.data && event.data.id
+    if (typeof id !== 'string' || !id.startsWith(runtimePresetBackPrefix)) continue
+    session.append('assistant/message', {
+      turn: 0,
+      step: 1,
+      message: {
+        id: 'dsh-tavern-background-preset-tombstone-' + crypto.randomUUID(),
+        role: 'assistant',
+        content: [],
+        source: {
+          kind: 'model',
+          provider: str(selection && selection.provider) || 'dsh-tavern',
+          model: str(selection && selection.model) || 'runtime-preset'
+        }
+      }
+    }, {
+      surfaceOp: { op: 'replace', start: seq, end: seq },
+      sourceEventSeqs: [seq]
+    })
+    cleared++
+  }
+  return cleared
 }
 
 function finalMessage(events, startAt) {
@@ -282,20 +327,28 @@ export function createBackgroundAgentRunner(options) {
     let descriptorAppended = !appendDescriptor
     return function (childCtx) {
       state.ctx = childCtx
-      childCtx.on('agent/pre-step', async function ({ agent }, next) {
+      childCtx.on('agent/pre-step', async function ({ agent, turn, step }, next) {
+        clearRuntimePresetBack(agent.session, state.input && state.input.selection)
         const decision = await next()
         if (!descriptorAppended && decision.kind === 'enter') {
           descriptorAppended = true
           agent.session.append('subagent/descriptor', descriptor)
         }
-        return decision
+        if (decision.kind !== 'enter') return decision
+        const backText = runtimePresetText(state.input && state.input.runtimePresetSnapshot, 'back')
+        return backText === '' ? decision : Object.assign({}, decision, {
+          messages: decision.messages.concat([runtimePresetBackMessage(backText, turn, step)])
+        })
       })
       childCtx.systemPrompt.variable('tavern_background_task', function () { return str(state.input && state.input.system) })
+      childCtx.systemPrompt.variable('tavern_runtime_preset_front', function () {
+        return runtimePresetText(state.input && state.input.runtimePresetSnapshot, 'front')
+      })
       childCtx.systemPrompt.section({
         name: 'deployment:persona',
         order: 0,
         complete: true,
-        text: backgroundPersona
+        text: '{{tavern_runtime_preset_front}}\n\n' + backgroundPersona
       })
       childCtx.systemPrompt.suppressRuntimeContext()
       childCtx.tools.restrict({ allow: [] })
@@ -340,8 +393,13 @@ export function createBackgroundAgentRunner(options) {
   async function execute(input) {
     const parent = agents.get(input.sessionId)
     if (parent === undefined || parent.session === undefined) throw new Error('无法创建后台 Agent：前台会话不可用')
-    const runtimeInput = Object.assign({}, input, { runtimePresetSnapshot: null })
-    const runtimeRegexScripts = []
+    const runtimePresetSnapshot = typeof options.resolveRuntimePresetSnapshot === 'function'
+      ? await options.resolveRuntimePresetSnapshot({ sessionId: input.sessionId, operation: input.task || 'background' })
+      : null
+    const runtimeInput = Object.assign({}, input, { runtimePresetSnapshot })
+    const runtimeRegexScripts = Array.isArray(runtimePresetSnapshot && runtimePresetSnapshot.regexScripts)
+      ? runtimePresetSnapshot.regexScripts
+      : []
     const persistent = input.persistent === true
     const requestedSessionId = str(input.persistentSessionId)
     const residentSessionId = str(residentSessionByParent.get(str(input.sessionId)))
@@ -409,7 +467,7 @@ export function createBackgroundAgentRunner(options) {
       handle.agent.followup({
         id: crypto.randomUUID(),
         role: 'user',
-        content: [{ type: 'text', text: backgroundPrompt(projectedMessages, input.turnContext, input.task) }],
+        content: [{ type: 'text', text: backgroundPrompt(projectedMessages, input.turnContext, input.task, runtimePresetText(runtimePresetSnapshot, 'middle')) }],
         source: { kind: 'plugin', plugin: 'dsh-tavern' }
       })
       await handle.agent.whenIdle()
@@ -430,6 +488,8 @@ export function createBackgroundAgentRunner(options) {
       try {
         await removeTaskTools()
       } finally {
+        const cleared = clearRuntimePresetBack(handle.agent.session, runtimeInput.selection)
+        if (cleared > 0 && typeof options.flushSession === 'function') await options.flushSession(handle.agent.session)
         activeSessions.delete(traceSessionId)
         if (!persistent) await handle.dispose()
       }
