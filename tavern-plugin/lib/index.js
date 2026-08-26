@@ -29,7 +29,7 @@ import { compileSillyTavernRequest } from './domain/sillytavern-compatibility.js
 import { applySillyTavernStrictTools } from './domain/sillytavern-strict-tools.js'
 import { createEphemeralCompatibilityRequest, isCompatibilityConversationRequest } from './domain/compatibility-request.js'
 import { hasRollbackMessages, locateRollbackSurface } from './domain/rollback-surface.js'
-import { projectRuntimePresetRequestMessages, runtimePresetPhaseMessages } from './domain/runtime-preset-lifecycle.js'
+import { projectRuntimePresetRequest, runtimePresetPhaseMessages } from './domain/runtime-preset-lifecycle.js'
 import { createTavernRetryLimiter } from './domain/tavern-retry-limiter.js'
 import {
   preserveRuntimeSource,
@@ -2716,8 +2716,8 @@ export async function apply(ctx) {
     const stagedRuntimePreset = runtimePresetSnapshots.get(sessionId)
     if (options !== null && typeof options === 'object' && options.purpose === undefined &&
       stagedRuntimePreset !== undefined && !runtimePresetRedispatches.has(options)) {
-      const projectedMessages = projectRuntimePresetRequestMessages(
-        options.messages,
+      const projectedRequest = projectRuntimePresetRequest(
+        options,
         stagedRuntimePreset.snapshot,
         {
           scope: stagedRuntimePreset.scope,
@@ -2725,8 +2725,7 @@ export async function apply(ctx) {
           step: stagedRuntimePreset.step
         }
       )
-      if (projectedMessages !== options.messages) {
-        const projectedRequest = Object.assign({}, options, { messages: projectedMessages })
+      if (projectedRequest !== options) {
         runtimePresetRedispatches.add(projectedRequest)
         return ctx.llm.stream(projectedRequest)
       }

@@ -175,7 +175,7 @@ test('全局破限方案提示词注入游玩前台、后台与卡片 Agent，�
   assert.match(lifecycle, /ctx\.on\('agent\/request-error', tavernRetryLimiter\.handle, \{ prepend: true \}\)/)
   const modelStream = between(serverSource, "ctx.on('llm/stream'", "ctx.on('agent/turn-stopping'")
   assert.doesNotMatch(modelStream, /clearRuntimePresetBoundaryMessages/)
-  assert.match(modelStream, /projectRuntimePresetRequestMessages/)
+  assert.match(modelStream, /projectRuntimePresetRequest/)
   assert.match(lifecycle, /ctx\.on\('agent\/turn-stopping'[\s\S]*clearRuntimePresetRequestState\(payload\.agent/)
   assert.match(lifecycle, /ctx\.on\('agent\/error'[\s\S]*clearRuntimePresetRequestState\(payload\.agent/)
   assert.match(serverSource, /const presetRegexScripts = activeBypassPlanId === '' \? \[\] : activeBypassSnapshot\.regexScripts/)

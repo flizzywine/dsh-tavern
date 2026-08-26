@@ -39,3 +39,27 @@ export function projectRuntimePresetRequestMessages(messages, snapshot, options 
   if (front.length === 0 && back.length === 0 && ordinary.length === source.length) return source
   return front.concat(ordinary, back)
 }
+
+export function projectRuntimePresetRequest(request, snapshot, options = {}) {
+  if (request === null || typeof request !== 'object') throw new TypeError('模型请求必须是对象')
+  const source = Array.isArray(request.messages) ? request.messages : []
+  const ordinary = source.filter(function (message) { return !isRuntimePresetBoundaryMessage(message) })
+  const front = runtimePresetPhaseMessages(snapshot, 'front', options)
+  const back = runtimePresetPhaseMessages(snapshot, 'back', options)
+  const systemText = str(request.system)
+  const moveSystem = front.length > 0 && systemText !== ''
+  if (!moveSystem && front.length === 0 && back.length === 0 && ordinary.length === source.length) return request
+  const systemMessages = moveSystem ? [{
+    id: 'dsh-tavern-runtime-system-' + crypto.randomUUID(),
+    role: 'system',
+    content: [{ type: 'text', text: systemText }],
+    source: {
+      kind: 'plugin', plugin: 'dsh-tavern', form: 'snapshot',
+      sections: [{ name: 'tavern:dsh-system', text: systemText }]
+    }
+  }] : []
+  return Object.assign({}, request, {
+    ...(moveSystem ? { system: '' } : {}),
+    messages: front.concat(systemMessages, ordinary, back)
+  })
+}
