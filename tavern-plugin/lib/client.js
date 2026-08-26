@@ -256,6 +256,10 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 .dsh-tavern-dsh-preset-raw summary { padding: 7px 8px; cursor: pointer; font-weight: 700; }
 .dsh-tavern-status-head { flex: none; padding: 16px 16px 12px; border-bottom: 1px solid var(--dsw-alias-border-l2); }
 .dsh-tavern-status-title { font-size: 15px; font-weight: 800; }
+.dsh-tavern-plan-head { display: flex; flex-direction: column; gap: 10px; }
+.dsh-tavern-plan-head-main { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.dsh-tavern-plan-head-main .dsh-tavern-status-title { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.dsh-tavern-plan-head-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .dsh-tavern-status-role { margin-top: 5px; color: #a66b35; font-size: 13px; font-weight: 700; }
 .dsh-tavern-status-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 7px; }
 .dsh-tavern-status-tag { padding: 2px 6px; border-radius: 999px; background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-secondary); font-size: 10px; }
@@ -2090,7 +2094,9 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					return h("details", { key: script.regexKey, className: "dsh-tavern-prompt-row role-regex" }, h("summary", { className: "dsh-tavern-prompt-head" }, h("span", { className: "dsh-tavern-prompt-role" }, "REGEX"), h("span", { className: "dsh-tavern-prompt-title" }, h("b", null, script.name), h("span", null, script.findRegex || "空查找规则")), state), h("div", { className: "dsh-tavern-regex-body" }, h("pre", { className: "dsh-tavern-regex-code" }, script.findRegex || "（空）"), h("pre", { className: "dsh-tavern-regex-code" }, script.replaceString || "（空）")));
 				}
 				if (plan) return h("div", { className: "dsh-tavern-presets" },
-					h("div", { className: "dsh-tavern-status-head" }, h("button", { className: "dsh-tavern-btn", onClick: function () { setPlan(null); } }, "← 返回破限方案库"), h("div", { className: "dsh-tavern-status-title" }, plan.name), h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { exportFile(plan); } }, "导出"), h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: rename }, "重命名"), h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: copy }, "复制"), h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: remove }, "删除")),
+					h("div", { className: "dsh-tavern-status-head dsh-tavern-plan-head" },
+						h("div", { className: "dsh-tavern-plan-head-main" }, h("button", { className: "dsh-tavern-btn", onClick: function () { setPlan(null); } }, "← 返回"), h("div", { className: "dsh-tavern-status-title" }, plan.name)),
+						h("div", { className: "dsh-tavern-plan-head-actions" }, h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { exportFile(plan); } }, "导出"), h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: rename }, "重命名"), h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: copy }, "复制"), h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: remove }, "删除"))),
 					h("div", { className: "dsh-tavern-preset-detail" }, error ? h("div", { className: "dsh-tavern-dock-error" }, error) : null, h("div", { className: "dsh-tavern-preset-summary" }, "来源：" + (plan.source && plan.source.presetName || "未知") + "（仅用于追溯；删除来源不影响本方案）"),
 						h("div", { className: "dsh-tavern-preset-section-title" }, "提示词 · " + (plan.entries || []).filter(function (entry) { return !entry.systemManaged; }).length), (plan.entries || []).filter(function (entry) { return !entry.systemManaged; }).map(planEntryRow),
 						h("div", { className: "dsh-tavern-preset-section-title" }, "正则 · " + (plan.regexScripts || []).length), (plan.regexScripts || []).map(planRegexRow)));
