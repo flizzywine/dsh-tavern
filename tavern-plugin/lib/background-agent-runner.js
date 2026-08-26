@@ -1,5 +1,4 @@
 import { snapshotSubagentDescriptor } from '@deepseek-ai/dsh-subagent'
-import { projectBackgroundInput, projectBackgroundOutput } from './domain/runtime-content-projection.js'
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
@@ -10,26 +9,27 @@ function messageText(message) {
   return blocks.filter(function (block) { return block && block.type === 'text' }).map(function (block) { return str(block.text) }).join('')
 }
 
-function projectBackgroundMessages(messages, regexScripts) {
-  return (messages || []).map(function (message) {
-    if (message === null || typeof message !== 'object') return message
-    const placement = Number.isInteger(Number(message.regexPlacement))
-      ? Number(message.regexPlacement)
-      : (message.role === 'assistant' ? 2 : 1)
-    const content = Array.isArray(message.content) ? message.content.map(function (block) {
-      if (block === null || typeof block !== 'object' || block.type !== 'text') return block
-      const projected = projectBackgroundInput(block.text, regexScripts, placement)
-      return Object.assign({}, block, { text: projected.text })
-    }) : message.content
-    return Object.assign({}, message, { content })
+function runtimePresetMessages(snapshot) {
+  return ['front', 'middle', 'back'].flatMap(function (phase) {
+    const projected = snapshot && snapshot[phase]
+    return (projected && Array.isArray(projected.entries) ? projected.entries : []).filter(function (entry) {
+      return str(entry && entry.content).trim() !== ''
+    }).map(function (entry) {
+      const text = str(entry.content)
+      return {
+        id: 'dsh-tavern-background-preset-' + phase + '-' + crypto.randomUUID(),
+        role: entry.role === 'user' || entry.role === 'assistant' ? entry.role : 'system',
+        content: [{ type: 'text', text }],
+        source: {
+          kind: 'plugin', plugin: 'dsh-tavern', form: 'snapshot',
+          sections: [{ name: 'tavern:runtime-preset-' + phase, text }]
+        }
+      }
+    })
   })
 }
 
-function runtimePresetText(snapshot, phase) {
-  return str(snapshot && snapshot[phase] && snapshot[phase].text).trim()
-}
-
-function backgroundPrompt(messages, turnContext, task, middleText) {
+function backgroundPrompt(messages, turnContext, task, taskProtocol) {
   const sections = []
   const authoritative = str(turnContext).trim()
   if (authoritative !== '') {
@@ -41,48 +41,9 @@ function backgroundPrompt(messages, turnContext, task, middleText) {
   }).filter(function (text) { return text.trim() !== '' }).join('\n\n')
   const taskName = task === 'settlement' ? '状态结算' : '候选生成'
   sections.push('【最近剧情与本次任务】\n任务类型：' + taskName + '\n' + recent)
-  if (str(middleText).trim() !== '') sections.push(str(middleText).trim())
+  const protocol = str(taskProtocol).trim()
+  if (protocol !== '') sections.push('【DSH 后台任务协议（最终指令）】\n' + protocol)
   return sections.join('\n\n')
-}
-
-const runtimePresetBackPrefix = 'dsh-tavern-background-preset-back-'
-
-function runtimePresetBackMessage(text, turn, step) {
-  return {
-    id: runtimePresetBackPrefix + turn + '-' + step + '-' + crypto.randomUUID(),
-    role: 'user',
-    content: [{ type: 'text', text }],
-    source: { kind: 'plugin', plugin: 'dsh-tavern', form: 'snapshot' }
-  }
-}
-
-function clearRuntimePresetBack(session, selection) {
-  const nodes = session && session.surface && Array.isArray(session.surface.nodes) ? session.surface.nodes.slice() : []
-  let cleared = 0
-  for (const seq of nodes) {
-    const event = session.events && session.events[seq]
-    const id = event && event.type === 'user/message' && event.data && event.data.id
-    if (typeof id !== 'string' || !id.startsWith(runtimePresetBackPrefix)) continue
-    session.append('assistant/message', {
-      turn: 0,
-      step: 1,
-      message: {
-        id: 'dsh-tavern-background-preset-tombstone-' + crypto.randomUUID(),
-        role: 'assistant',
-        content: [],
-        source: {
-          kind: 'model',
-          provider: str(selection && selection.provider) || 'dsh-tavern',
-          model: str(selection && selection.model) || 'runtime-preset'
-        }
-      }
-    }, {
-      surfaceOp: { op: 'replace', start: seq, end: seq },
-      sourceEventSeqs: [seq]
-    })
-    cleared++
-  }
-  return cleared
 }
 
 function finalMessage(events, startAt) {
@@ -96,141 +57,6 @@ function finalMessage(events, startAt) {
   return null
 }
 
-function replaceBackgroundSurface(session, result, text) {
-  if (result === null || result.text === text || typeof session.append !== 'function') return
-  appendAssistantProjection(session, result.event, result.index, text)
-}
-
-function contentText(content) {
-  return (Array.isArray(content) ? content : []).filter(function (block) {
-    return block && block.type === 'text'
-  }).map(function (block) { return str(block.text) }).join('')
-}
-
-function replaceContentText(content, text) {
-  const blocks = Array.isArray(content) ? content : []
-  const result = []
-  let replaced = false
-  for (const block of blocks) {
-    if (!block || block.type !== 'text') {
-      result.push(block)
-      continue
-    }
-    if (replaced) continue
-    result.push(Object.assign({}, block, { text: text === '' ? '\u00a0' : text }))
-    replaced = true
-  }
-  if (!replaced) result.unshift({ type: 'text', text: text === '' ? '\u00a0' : text })
-  return result
-}
-
-function projectionMessage(previous, text, prefix) {
-  return Object.assign({}, previous, {
-    id: prefix + crypto.randomUUID(),
-    content: replaceContentText(previous.content, text)
-  })
-}
-
-function appendAssistantProjection(session, source, targetSeq, text) {
-  const previous = source && source.data && source.data.message
-  if (!previous || typeof previous !== 'object') return
-  const turn = Number(source.data && source.data.turn) || 0
-  const step = Number(source.data && source.data.step) || 1
-  const replacement = projectionMessage(previous, text, 'dsh-tavern-model-projection-')
-  session.append('assistant/message', { turn, step, message: replacement }, {
-    surfaceOp: { op: 'replace', start: targetSeq, end: targetSeq },
-    sourceEventSeqs: [targetSeq]
-  })
-  const displayEvent = session.append('assistant/message', {
-    turn,
-    step,
-    message: projectionMessage(previous, text, 'dsh-tavern-ui-projection-')
-  }, { surfaceOp: 'append' })
-  session.append('assistant/message', {
-    turn,
-    step,
-    message: Object.assign({}, previous, {
-      id: 'dsh-tavern-ui-tombstone-' + crypto.randomUUID(),
-      content: []
-    })
-  }, {
-    surfaceOp: { op: 'replace', start: displayEvent.seq, end: displayEvent.seq },
-    sourceEventSeqs: [displayEvent.seq]
-  })
-}
-
-function isProjectionTombstone(event) {
-  const id = event && event.data && event.data.message && event.data.message.id
-  return typeof id === 'string' && id.startsWith('dsh-tavern-ui-tombstone-')
-}
-
-function latestUiAssistantText(events, source) {
-  const turn = Number(source && source.data && source.data.turn) || 0
-  const step = Number(source && source.data && source.data.step) || 1
-  for (let index = events.length - 1; index >= 0; index--) {
-    const event = events[index]
-    if (!event || event.type !== 'assistant/message' || event.surfaceOp !== 'append') continue
-    if ((Number(event.data && event.data.turn) || 0) !== turn) continue
-    if ((Number(event.data && event.data.step) || 1) !== step) continue
-    return contentText(event.data && event.data.message && event.data.message.content)
-  }
-  return null
-}
-
-function originalSurfaceEvent(events, event) {
-  let current = event
-  const seen = new Set()
-  while (current && Array.isArray(current.sourceEventSeqs) && current.sourceEventSeqs.length === 1) {
-    const source = current.sourceEventSeqs[0]
-    if (!Number.isSafeInteger(source) || seen.has(source)) break
-    const previous = events[source]
-    if (!previous || (previous.type !== 'user/message' && previous.type !== 'assistant/message')) break
-    seen.add(source)
-    current = previous
-  }
-  return current
-}
-
-function projectHistoricalSurface(session, regexScripts) {
-  const events = Array.isArray(session && session.events) ? session.events : []
-  const nodes = session && session.surface && Array.isArray(session.surface.nodes) ? session.surface.nodes.slice() : []
-  let changed = 0
-  for (const seq of nodes) {
-    const visible = events[seq]
-    if (!visible || (visible.type !== 'user/message' && visible.type !== 'assistant/message')) continue
-    if (isProjectionTombstone(visible)) continue
-    const source = originalSurfaceEvent(events, visible)
-    const sourceContent = source.type === 'assistant/message'
-      ? source.data && source.data.message && source.data.message.content
-      : source.data && source.data.content
-    const visibleContent = visible.type === 'assistant/message'
-      ? visible.data && visible.data.message && visible.data.message.content
-      : visible.data && visible.data.content
-    const rawText = contentText(sourceContent)
-    const currentText = contentText(visibleContent)
-    if (rawText === '' && currentText === '') continue
-    const projected = (source.type === 'assistant/message'
-      ? projectBackgroundOutput(rawText, regexScripts)
-      : projectBackgroundInput(rawText, regexScripts, 2)).text.trim()
-    const displayed = projected === '' ? '\u00a0' : projected
-    if (source.type === 'assistant/message') {
-      const uiText = latestUiAssistantText(events, source)
-      if (displayed === currentText && displayed === uiText) continue
-      appendAssistantProjection(session, source, seq, projected)
-    } else {
-      if (displayed === currentText) continue
-      session.append('user/message', Object.assign({}, source.data, {
-        id: crypto.randomUUID(),
-        content: replaceContentText(source.data && source.data.content, projected)
-      }), {
-        surfaceOp: { op: 'replace', start: seq, end: seq },
-        sourceEventSeqs: [seq]
-      })
-    }
-    changed++
-  }
-  return changed
-}
 
 function terminalError(events, startAt) {
   for (let index = (events || []).length - 1; index >= Math.max(0, Number(startAt) || 0); index--) {
@@ -327,28 +153,24 @@ export function createBackgroundAgentRunner(options) {
     let descriptorAppended = !appendDescriptor
     return function (childCtx) {
       state.ctx = childCtx
-      childCtx.on('agent/pre-step', async function ({ agent, turn, step }, next) {
-        clearRuntimePresetBack(agent.session, state.input && state.input.selection)
+      childCtx.on('agent/pre-step', async function ({ agent }, next) {
         const decision = await next()
         if (!descriptorAppended && decision.kind === 'enter') {
           descriptorAppended = true
           agent.session.append('subagent/descriptor', descriptor)
         }
         if (decision.kind !== 'enter') return decision
-        const backText = runtimePresetText(state.input && state.input.runtimePresetSnapshot, 'back')
-        return backText === '' ? decision : Object.assign({}, decision, {
-          messages: decision.messages.concat([runtimePresetBackMessage(backText, turn, step)])
+        const presetMessages = runtimePresetMessages(state.input && state.input.runtimePresetSnapshot)
+        return presetMessages.length === 0 ? decision : Object.assign({}, decision, {
+          messages: presetMessages.concat(decision.messages)
         })
       })
       childCtx.systemPrompt.variable('tavern_background_task', function () { return str(state.input && state.input.system) })
-      childCtx.systemPrompt.variable('tavern_runtime_preset_front', function () {
-        return runtimePresetText(state.input && state.input.runtimePresetSnapshot, 'front')
-      })
       childCtx.systemPrompt.section({
         name: 'deployment:persona',
         order: 0,
         complete: true,
-        text: '{{tavern_runtime_preset_front}}\n\n' + backgroundPersona
+        text: backgroundPersona
       })
       childCtx.systemPrompt.suppressRuntimeContext()
       childCtx.tools.restrict({ allow: [] })
@@ -397,9 +219,6 @@ export function createBackgroundAgentRunner(options) {
       ? await options.resolveRuntimePresetSnapshot({ sessionId: input.sessionId, operation: input.task || 'background' })
       : null
     const runtimeInput = Object.assign({}, input, { runtimePresetSnapshot })
-    const runtimeRegexScripts = Array.isArray(runtimePresetSnapshot && runtimePresetSnapshot.regexScripts)
-      ? runtimePresetSnapshot.regexScripts
-      : []
     const persistent = input.persistent === true
     const requestedSessionId = str(input.persistentSessionId)
     const residentSessionId = str(residentSessionByParent.get(str(input.sessionId)))
@@ -463,11 +282,10 @@ export function createBackgroundAgentRunner(options) {
 
     try {
       const eventStart = Array.isArray(handle.agent.session.events) ? handle.agent.session.events.length : 0
-      const projectedMessages = projectBackgroundMessages(input.messages, runtimeRegexScripts)
       handle.agent.followup({
         id: crypto.randomUUID(),
         role: 'user',
-        content: [{ type: 'text', text: backgroundPrompt(projectedMessages, input.turnContext, input.task, runtimePresetText(runtimePresetSnapshot, 'middle')) }],
+        content: [{ type: 'text', text: backgroundPrompt(input.messages, input.turnContext, input.task, input.system) }],
         source: { kind: 'plugin', plugin: 'dsh-tavern' }
       })
       await handle.agent.whenIdle()
@@ -477,22 +295,14 @@ export function createBackgroundAgentRunner(options) {
         if (underlying !== null) throw underlying
         throw new Error(input.task === 'settlement' ? '后台 Agent 没有返回结算文本' : '后台 Agent 没有返回候选文本')
       }
-      const projectedResult = projectBackgroundOutput(rawResult.text, runtimeRegexScripts)
-      const text = projectedResult.text.trim()
-      if (text === '') throw new Error('已启用的预设正则清空了后台 Agent 输出')
-      replaceBackgroundSurface(handle.agent.session, rawResult, text)
+      const text = rawResult.text.trim()
       return { text, traceSessionId, persistent, traceBoundary: completedBoundary(handle.agent.session.events) }
     } catch (error) {
       throw traceError(error, traceSessionId, input.task)
     } finally {
-      try {
-        await removeTaskTools()
-      } finally {
-        const cleared = clearRuntimePresetBack(handle.agent.session, runtimeInput.selection)
-        if (cleared > 0 && typeof options.flushSession === 'function') await options.flushSession(handle.agent.session)
-        activeSessions.delete(traceSessionId)
-        if (!persistent) await handle.dispose()
-      }
+      await removeTaskTools()
+      activeSessions.delete(traceSessionId)
+      if (!persistent) await handle.dispose()
     }
   }
 
@@ -522,30 +332,5 @@ export function createBackgroundAgentRunner(options) {
     if (failures.length > 0) throw new AggregateError(failures, '常驻后台 Agent 释放失败')
   }
 
-  async function reproject(input) {
-    const sessionId = str(input && input.sessionId)
-    if (sessionId === '') throw new Error('缺少后台 Session ID')
-    let handle = null
-    let agent = agents.get(sessionId)
-    if (agent === undefined) {
-      if (typeof agents.resume !== 'function') throw new Error('当前 DSH 不支持恢复后台历史')
-      handle = await agents.resume({ resumeSessionId: sessionId })
-      agent = handle.agent
-    }
-    activeSessions.add(sessionId)
-    try {
-      if (typeof agent.whenIdle === 'function') await agent.whenIdle()
-      const changed = projectHistoricalSurface(agent.session, Array.isArray(input.regexScripts) ? input.regexScripts : [])
-      if (changed > 0 && typeof options.flushSession === 'function') await options.flushSession(agent.session)
-      return { changed, sessionId }
-    } finally {
-      try {
-        if (handle !== null) await handle.dispose()
-      } finally {
-        activeSessions.delete(sessionId)
-      }
-    }
-  }
-
-  return Object.freeze({ run, owns, reproject, dispose })
+  return Object.freeze({ run, owns, dispose })
 }

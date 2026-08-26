@@ -456,6 +456,9 @@ test('持久化的更新完成状态不是刷新命令，页面只在服务实�
   assert.match(sidebar, /recovery\.sawOffline/)
   assert.equal((sidebar.match(/window\.location\.reload\(\)/g) || []).length, 1)
   assert.doesNotMatch(sidebar, /updateStatus\.phase !== "completed"[\s\S]{0,300}window\.location\.reload\(\)/)
+  assert.match(sidebar, /updateStartedAtRef\.current > 0/)
+  assert.match(sidebar, /status\.completedAt[\s\S]{0,120}updateStartedAtRef\.current/)
+  assert.match(sidebar, /status\.phase === "completed" && !completedInThisPage \? \{ phase: "idle"/)
 })
 
 test('旧破甲侧栏、RPC 和卡片入口已删除', () => {
@@ -474,7 +477,7 @@ test('卡片编辑读取保留人物卡宏，只在游玩投影中展开', () =>
   assert.doesNotMatch(worldBookReader, /projectCardMacros|projectCardText/)
 })
 
-test('预设库只呈现统一预设详情，并控制前中后与正则运行状态', () => {
+test('预设库分别呈现酒馆标注界面与 DSH 预览界面', () => {
   const panel = between(clientSource, 'function PresetLibraryTab', 'function CardLibraryTab')
 
   assert.match(clientSource, /id: "dsh-tavern:presets"/)
@@ -486,15 +489,20 @@ test('预设库只呈现统一预设详情，并控制前中后与正则运行�
   assert.match(panel, /前 · 稳定前缀/)
   assert.match(panel, /中 · 每轮注入/)
   assert.match(panel, /后 · 请求附加/)
-  assert.doesNotMatch(panel, /DSH 预设|酒馆预设|转换稿|prompt_order 组/)
+  assert.match(panel, /酒馆原始预设/)
+  assert.match(panel, /DSH 预设预览/)
+  assert.match(panel, /破限相关/)
+  assert.doesNotMatch(panel, /确认把.*标为破限相关/)
   assert.match(panel, /rpc\("importPreset"/)
   assert.match(panel, /rpc\("deletePreset"/)
   assert.match(panel, /SYSTEM|role\.toUpperCase/)
   assert.match(panel, /占位/)
   assert.match(panel, /rpc\("disableAllPresets"/)
-  assert.match(panel, /新建游玩对话会按前、中、后三段执行/)
-  assert.match(panel, /预设正则同时作用于前台与后台/)
-  assert.match(panel, /checked: sourceEntry\.runtimeEnabled/)
+  assert.match(panel, /先标注需要保留的破限提示词/)
+  assert.match(panel, /条目的开启或关闭继承酒馆预设/)
+  assert.match(panel, /正则沿用原预设设置/)
+  assert.match(panel, /checked: entry\.runtimeIncluded/)
+  assert.match(panel, /checked: sourceEntry\.enabled/)
   assert.match(panel, /checked: runtimeScript\.runtimeEnabled/)
   assert.match(panel, /编辑此条/)
   assert.match(panel, /保存修改/)
@@ -523,7 +531,7 @@ test('预设库只呈现统一预设详情，并控制前中后与正则运行�
   assert.match(serverSource, /name: 'tavern_update_worldbook'/)
 })
 
-test('兼容信息保留未映射内容与来源诊断，但主界面不暴露转换概念', () => {
+test('DSH 预览保留自动分段诊断与兼容信息', () => {
   const panel = between(clientSource, 'function PresetLibraryTab', 'const presetLibraryFeature')
   assert.match(panel, /兼容信息/)
   assert.match(panel, /当前顺序/)
@@ -536,7 +544,7 @@ test('兼容信息保留未映射内容与来源诊断，但主界面不暴露�
   assert.match(panel, /仅提示词/)
   assert.match(panel, /仅 Markdown/)
   assert.match(panel, /runtimeScript\.runtimeEnabled/)
-  assert.doesNotMatch(panel, /DSH 预设|酒馆预设|转换稿|prompt_order 组/)
+  assert.match(panel, /DSH 预设预览/)
   assert.match(presetConversionSource, /人物卡或世界书占位符由系统自动提供/)
 })
 

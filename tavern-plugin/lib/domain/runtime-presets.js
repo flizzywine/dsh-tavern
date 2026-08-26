@@ -2,14 +2,15 @@ import { createHash } from 'node:crypto'
 import { resolveRuntimeMacroText } from './runtime-content-projection.js'
 
 function emptyState() {
-  return { version: 5, activePreset: '', presetOrder: [], entries: {}, regexes: {}, initialized: {}, plans: [], lastError: null, updatedAt: 0 }
+  return { version: 6, activePreset: '', presetOrder: [], entries: {}, regexes: {}, initialized: {}, plans: [], lastError: null, updatedAt: 0 }
 }
 
 function normalizeState(value) {
   const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
-  const entries = source.entries && typeof source.entries === 'object' && !Array.isArray(source.entries) ? source.entries : {}
-  const regexes = source.regexes && typeof source.regexes === 'object' && !Array.isArray(source.regexes) ? source.regexes : {}
-  const initialized = source.initialized && typeof source.initialized === 'object' && !Array.isArray(source.initialized) ? source.initialized : {}
+  const currentVersion = Number(source.version) === 6
+  const entries = currentVersion && source.entries && typeof source.entries === 'object' && !Array.isArray(source.entries) ? source.entries : {}
+  const regexes = currentVersion && source.regexes && typeof source.regexes === 'object' && !Array.isArray(source.regexes) ? source.regexes : {}
+  const initialized = currentVersion && source.initialized && typeof source.initialized === 'object' && !Array.isArray(source.initialized) ? source.initialized : {}
   const plans = Array.isArray(source.plans) ? source.plans.filter(function (plan) {
     return plan && typeof plan === 'object' && typeof plan.id === 'string' && plan.id !== '' && typeof plan.name === 'string' && plan.name.trim() !== ''
   }).map(function (plan) {
@@ -25,7 +26,7 @@ function normalizeState(value) {
     }
   }) : []
   return {
-    version: 5,
+    version: 6,
     activePreset: typeof source.activePreset === 'string' ? source.activePreset : '',
     presetOrder: Array.isArray(source.presetOrder) ? source.presetOrder.filter(function (path) { return typeof path === 'string' && path !== '' }) : [],
     entries: Object.fromEntries(Object.entries(entries).map(function ([path, keys]) {
@@ -187,9 +188,7 @@ export function createRuntimePresetModule(options = {}) {
       if (state.presetOrder.includes(path) && state.entries[path] && state.regexes[path] && state.initialized[path] === true) return undefined
       if (!state.presetOrder.includes(path)) state.presetOrder.push(path)
       if (state.initialized[path] !== true) {
-        state.entries[path] = Object.fromEntries(dshEntries(preset).filter(function (entry) {
-          return entry.enabled !== false && entry.injectable === true
-        }).map(function (entry) { return [entry.entryKey, true] }))
+        state.entries[path] = {}
         state.regexes[path] = Object.fromEntries(regexesWithKeys(preset).filter(function (script) {
           return script.enabled !== false && String(script.findRegex || '') !== ''
         }).map(function (script) { return [script.regexKey, true] }))
@@ -212,9 +211,11 @@ export function createRuntimePresetModule(options = {}) {
     const projectedEntries = dshEntries(preset)
     const projectedKeys = new Set(projectedEntries.map(function (entry) { return entry.entryKey }))
     const entries = (preset.entries || []).map(function (entry) {
+      const runtimeIncluded = projectedKeys.has(entry.entryKey) && enabled[entry.entryKey] === true
       return Object.assign({}, entry, {
         runtimeEligible: projectedKeys.has(entry.entryKey),
-        runtimeEnabled: projectedKeys.has(entry.entryKey) && enabled[entry.entryKey] === true
+        runtimeIncluded,
+        runtimeEnabled: runtimeIncluded && entry.enabled !== false
       })
     })
     const regexScripts = regexesWithKeys(preset).map(function (script) {
@@ -227,8 +228,9 @@ export function createRuntimePresetModule(options = {}) {
       sourceEnabledRegexCount: preset.enabledRegexCount,
       entries,
       regexScripts,
-      enabledCount: projectedEntries.filter(function (entry) { return enabled[entry.entryKey] === true }).length,
-      enabledCharacters: projectedEntries.reduce(function (total, entry) { return total + (enabled[entry.entryKey] === true ? entry.content.length : 0) }, 0),
+      includedCount: projectedEntries.filter(function (entry) { return enabled[entry.entryKey] === true }).length,
+      enabledCount: projectedEntries.filter(function (entry) { return enabled[entry.entryKey] === true && entry.enabled !== false }).length,
+      enabledCharacters: projectedEntries.reduce(function (total, entry) { return total + (enabled[entry.entryKey] === true && entry.enabled !== false ? entry.content.length : 0) }, 0),
       enabledRegexCount: regexScripts.filter(function (script) { return script.runtimeEnabled }).length
     })
   }
@@ -327,6 +329,7 @@ export function createRuntimePresetModule(options = {}) {
         for (const entry of projectedEntries) {
           if (enabled[entry.entryKey] !== true) continue
           if (entry.injectable !== true) throw new Error('预设条目已失效：' + path + ' / ' + entry.entryKey)
+          if (entry.enabled === false) continue
           phaseEntries[entry.phase].push({
             id: entry.entryKey,
             role: entry.role,

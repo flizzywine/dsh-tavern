@@ -61,14 +61,14 @@ function harness() {
   return { module, presets, getState: () => structuredClone(state), getWrites: () => writes }
 }
 
-test('首次导入沿用酒馆预设自己的提示词和正则默认状态', async () => {
+test('首次导入不猜测破限提示词，只沿用酒馆预设自己的正则默认状态', async () => {
   const value = harness()
   await value.module.register('presets/先导入.json')
 
   const view = await value.module.view('presets/先导入.json')
 
-  assert.equal(view.enabledCount, 1)
-  assert.deepEqual(view.entries.map(function (entry) { return entry.runtimeEnabled }), [true, false, false])
+  assert.equal(view.enabledCount, 0)
+  assert.deepEqual(view.entries.map(function (entry) { return entry.runtimeEnabled }), [false, false, false])
   assert.equal(view.entries[0].enabled, true)
   assert.equal(view.entries[2].enabled, false)
   assert.equal(view.enabledRegexCount, 1)
@@ -78,10 +78,31 @@ test('首次导入沿用酒馆预设自己的提示词和正则默认状态', as
   ])
   await value.module.select('presets/先导入.json')
   const snapshot = await value.module.snapshot()
-  assert.equal(snapshot.front.text, '第一段')
+  assert.equal(snapshot.front.text, '')
   assert.equal(snapshot.middle.text, '')
   assert.equal(snapshot.back.text, '')
   assert.equal(snapshot.regexScripts[0].regexKey, 'status#1')
+})
+
+test('过滤标注与开启状态相互独立，DSH 预设继承酒馆开关', async () => {
+  const value = harness()
+  await value.module.register('presets/先导入.json')
+  await value.module.toggle({ path: 'presets/先导入.json', entryKey: 'a#1', enabled: true })
+  await value.module.toggle({ path: 'presets/先导入.json', entryKey: 'b#1', enabled: true })
+  await value.module.select('presets/先导入.json')
+
+  const view = await value.module.view('presets/先导入.json')
+  const snapshot = await value.module.snapshot()
+
+  assert.deepEqual(view.entries.map(function (entry) { return [entry.entryKey, entry.runtimeIncluded, entry.runtimeEnabled] }), [
+    ['a#1', true, true],
+    ['empty#1', false, false],
+    ['b#1', true, false]
+  ])
+  assert.equal(view.includedCount, 2)
+  assert.equal(view.enabledCount, 1)
+  assert.equal(snapshot.front.text, '第一段')
+  assert.deepEqual(snapshot.front.entries.map(function (entry) { return [entry.id, entry.role] }), [['a#1', 'system']])
 })
 
 test('新对话创建时只解析一次预设酒馆宏，并冻结解析后的变量状态', () => {
@@ -116,6 +137,9 @@ test('DSH 转换稿按前中后分别生成快照，并按顺序共享宏变量�
   value.presets.set('presets/三段.json', converted)
 
   await value.module.register('presets/三段.json')
+  await value.module.toggle({ path: 'presets/三段.json', entryKey: 'front#1', enabled: true })
+  await value.module.toggle({ path: 'presets/三段.json', entryKey: 'middle#1', enabled: true })
+  await value.module.toggle({ path: 'presets/三段.json', entryKey: 'back#1', enabled: true })
   await value.module.select('presets/三段.json')
   const raw = await value.module.snapshot()
   const resolved = resolveRuntimePresetMacros(raw, {
@@ -188,10 +212,9 @@ test('同一时间只启用一个预设，切换时保留各自内部勾选', as
   await value.module.select('presets/先导入.json')
   const snapshot = await value.module.snapshot()
 
-  assert.equal(snapshot.text, '第一段\n\n第二段')
+  assert.equal(snapshot.text, '第一段')
   assert.deepEqual(snapshot.sources.map(function (source) { return [source.path, source.entryKey] }), [
-    ['presets/先导入.json', 'a#1'],
-    ['presets/先导入.json', 'b#1']
+    ['presets/先导入.json', 'a#1']
   ])
   assert.equal(typeof snapshot.digest, 'string')
   assert.ok(snapshot.digest.length > 10)

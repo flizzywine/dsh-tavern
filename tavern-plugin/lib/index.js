@@ -404,6 +404,7 @@ export async function apply(ctx) {
         valid: preset.valid,
         recognized: preset.recognized,
         promptCount: preset.promptCount,
+        includedCount: preset.includedCount || 0,
         enabledCount: preset.enabledCount || 0,
         enabledCharacters: preset.enabledCharacters || 0,
         regexCount: preset.regexCount,
@@ -1141,44 +1142,6 @@ export async function apply(ctx) {
     store: { readChat, writeChat },
     timeline: storyTimeline
   })
-  function presetPathForChat(chat) {
-    if (!chat || typeof chat !== 'object') return ''
-    const snapshot = chat.runtimePresetSnapshot
-    const direct = str(chat.runtimePresetPath) || str(snapshot && snapshot.presetPath)
-    if (direct !== '') return direct
-    for (const source of (snapshot && snapshot.sources || []).concat(snapshot && snapshot.regexSources || [])) {
-      const path = str(source && source.path)
-      if (path !== '') return path
-    }
-    return ''
-  }
-  let backgroundHistoryProjection = Promise.resolve()
-  function reprojectBackgroundHistories(presetPath) {
-    const path = str(presetPath)
-    const run = backgroundHistoryProjection.catch(function () {}).then(async function () {
-      const sessionMap = await readSessionMap()
-      const chatIds = Array.from(new Set(Object.values(sessionMap).map(str).filter(Boolean)))
-      let changed = 0
-      for (const chatId of chatIds) {
-        const chat = await readChat(chatId)
-        if (!chat || presetPathForChat(chat) !== path) continue
-        const participant = chat.timeline && chat.timeline.participants && chat.timeline.participants.background
-        const backgroundSessionId = str(participant && participant.sessionId) || str(chat.candidateAgent && chat.candidateAgent.sessionId)
-        if (backgroundSessionId === '') continue
-        const reference = Object.assign({}, chat.runtimePresetSnapshot || {}, { presetPath: path })
-        const regexScripts = await runtimePresets.regexScriptsFor(reference)
-        try {
-          const result = await backgroundAgentRunner.reproject({ sessionId: backgroundSessionId, regexScripts })
-          changed += Number(result.changed) || 0
-        } catch (error) {
-          console.warn('dsh-tavern: 后台历史正则投影失败，已跳过 ' + backgroundSessionId + ':', str(error && error.message || error))
-        }
-      }
-      return changed
-    })
-    backgroundHistoryProjection = run
-    return run
-  }
   const candidateGenerator = createCandidateGenerator({
     store: {
       chatForSession: chatForSession,
@@ -1690,13 +1653,6 @@ export async function apply(ctx) {
       if (task.kind === 'candidate' && task.status === 'queued') scheduleCandidateTask(row.id, task)
     }
   }
-  const startupPresetState = await runtimePresets.state()
-  if (str(startupPresetState.activePreset) !== '') {
-    void reprojectBackgroundHistories(startupPresetState.activePreset).catch(function (error) {
-      console.warn('dsh-tavern: 启动时刷新后台历史失败:', str(error && error.message || error))
-    })
-  }
-
   // ---------- 重新生成正文（生成即替换，无确认） ----------
   async function regenBody(chatId, guidance, sessionId) {
     let chat = str(chatId) === '' ? await chatForSession(sessionId) : await readChat(chatId)
@@ -2055,8 +2011,7 @@ export async function apply(ctx) {
       }
       case 'togglePresetRegex': {
         await runtimePresets.toggleRegex({ path: args && args.path, regexKey: args && args.regexKey, enabled: args && args.enabled === true })
-        const historicalChanges = await reprojectBackgroundHistories(args && args.path)
-        return { preset: await runtimePresets.view(args && args.path), historicalChanges }
+        return { preset: await runtimePresets.view(args && args.path) }
       }
       case 'disablePreset': {
         await runtimePresets.disablePreset(args && args.path)
@@ -2339,62 +2294,29 @@ export async function apply(ctx) {
     })
   }
 
-  const runtimePresetBackPrefix = 'dsh-tavern-runtime-preset-back-'
-
-  function runtimePresetPhaseText(chat, phase) {
+  function runtimePresetPhaseMessages(chat, phase, turn, step) {
     const snapshot = chat && chat.runtimePresetSnapshot
     const projected = snapshot && snapshot[phase]
-    return str(projected && projected.text).trim()
-  }
-
-  function runtimePresetTurnMessage(phase, text, turn, step) {
-    return {
-      id: phase === 'back' ? runtimePresetBackPrefix + turn + '-' + step + '-' + crypto.randomUUID() : crypto.randomUUID(),
-      role: 'user',
-      content: [{ type: 'text', text }],
-      source: {
-        kind: 'plugin', plugin: 'dsh-tavern', form: 'snapshot',
-        sections: [{ name: 'tavern:runtime-preset-' + phase, text }]
-      }
-    }
-  }
-
-  function clearRuntimePresetBack(session) {
-    const nodes = session && session.surface && Array.isArray(session.surface.nodes) ? session.surface.nodes.slice() : []
-    const config = session && typeof session.requestHeader === 'function' && session.requestHeader()
-    const selected = config && config.config || modelSelection(session && session.id) || {}
-    let cleared = 0
-    for (const seq of nodes) {
-      const event = session.events && session.events[seq]
-      const id = event && event.type === 'user/message' && event.data && event.data.id
-      if (typeof id !== 'string' || !id.startsWith(runtimePresetBackPrefix)) continue
-      session.append('assistant/message', {
-        turn: Number(event.data && event.data.turn) || 0,
-        step: 1,
-        message: {
-          id: 'dsh-tavern-runtime-preset-tombstone-' + crypto.randomUUID(),
-          role: 'assistant',
-          content: [],
-          source: {
-            kind: 'model',
-            provider: str(selected.provider) || 'dsh-tavern',
-            model: str(selected.model) || 'runtime-preset'
-          }
+    return (projected && Array.isArray(projected.entries) ? projected.entries : []).filter(function (entry) {
+      return str(entry && entry.content).trim() !== ''
+    }).map(function (entry) {
+      const text = str(entry.content)
+      return {
+        id: 'dsh-tavern-runtime-preset-' + phase + '-' + turn + '-' + step + '-' + crypto.randomUUID(),
+        role: entry.role === 'user' || entry.role === 'assistant' ? entry.role : 'system',
+        content: [{ type: 'text', text }],
+        source: {
+          kind: 'plugin', plugin: 'dsh-tavern', form: 'snapshot',
+          sections: [{ name: 'tavern:runtime-preset-' + phase, text }]
         }
-      }, {
-        surfaceOp: { op: 'replace', start: seq, end: seq },
-        sourceEventSeqs: [seq]
-      })
-      cleared++
-    }
-    return cleared
+      }
+    })
   }
 
   // ---------- DSH 回合生命周期 ----------
   ctx.on('agent/pre-step', async function (payload, next) {
     const sessionId = payload.agent && payload.agent.session ? payload.agent.session.id : ''
     if (backgroundAgentRunner.owns(sessionId)) return next()
-    clearRuntimePresetBack(payload.agent && payload.agent.session)
     const decision = await next()
     if (decision.kind === 'reject') return decision
     const mode = await turnOrchestrator.modeFor(sessionId)
@@ -2418,10 +2340,10 @@ export async function apply(ctx) {
       }])
     }
     const chat = await chatForSession(sessionId)
-    const middleText = Number(payload.step) === 1 ? runtimePresetPhaseText(chat, 'middle') : ''
-    const backText = runtimePresetPhaseText(chat, 'back')
-    if (middleText !== '') agentMessages = agentMessages.concat([runtimePresetTurnMessage('middle', middleText, payload.turn, payload.step)])
-    if (backText !== '') agentMessages = agentMessages.concat([runtimePresetTurnMessage('back', backText, payload.turn, payload.step)])
+    const frontMessages = runtimePresetPhaseMessages(chat, 'front', payload.turn, payload.step)
+    const middleMessages = Number(payload.step) === 1 ? runtimePresetPhaseMessages(chat, 'middle', payload.turn, payload.step) : []
+    const backMessages = runtimePresetPhaseMessages(chat, 'back', payload.turn, payload.step)
+    agentMessages = frontMessages.concat(agentMessages, middleMessages, backMessages)
     return { kind: 'enter', messages: agentMessages }
   })
 
@@ -2430,7 +2352,6 @@ export async function apply(ctx) {
     if (session === undefined) return
     const sessionId = session.id
     if (backgroundAgentRunner.owns(sessionId)) return
-    clearRuntimePresetBack(session)
     const userText = userTextForTurn(session, payload.turn)
     if (userText === '') return
     const assistant = assistantResultForTurn(session, payload.turn)
@@ -2460,8 +2381,6 @@ export async function apply(ctx) {
     const visible = new Set(await turnOrchestrator.visibleTools(agent.session.id))
     const sections = []
     const chat = await chatForSession(agent.session.id)
-    const frontText = runtimePresetPhaseText(chat, 'front')
-    if (frontText !== '') sections.push({ name: 'tavern:runtime-preset-front', order: -1000, text: frontText })
     sections.push({
       name: 'tavern:mode-persona',
       text: prompt(mode === 'card' ? 'card-mode' : 'play-mode')
