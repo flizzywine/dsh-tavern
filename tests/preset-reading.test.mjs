@@ -7,7 +7,7 @@ test('按 SillyTavern prompt_order 还原条目顺序和启用状态', () => {
   const result = inspectPreset(JSON.stringify({
     temperature: 1.1,
     prompts: [
-      { identifier: 'main', name: '主提示词', role: 'system', content: '保持角色一致。', enabled: false },
+      { identifier: 'main', name: '主提示词', role: 'system', content: '保持角色一致。', enabled: false, forbid_overrides: true },
       { identifier: 'charDescription', name: 'Persona Description', role: 'user', marker: true, content: '' },
       { identifier: 'extra', name: '未编排条目', role: 'assistant', content: '补充内容', enabled: true }
     ],
@@ -29,6 +29,7 @@ test('按 SillyTavern prompt_order 还原条目顺序和启用状态', () => {
   assert.equal(result.entries[0].marker, true)
   assert.equal(result.entries[0].enabled, true)
   assert.equal(result.entries[1].enabled, true)
+  assert.equal(result.entries[1].forbidOverrides, true)
   assert.equal(result.entries[2].ordered, false)
   assert.deepEqual(result.entries[1].edit, {
     promptPath: '/prompts/0',

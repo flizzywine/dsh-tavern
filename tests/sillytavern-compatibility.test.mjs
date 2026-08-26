@@ -42,6 +42,42 @@ test('人物卡 system prompt 与历史后指令遵循酒馆覆盖语义', () =>
   assert.deepEqual(result.messages.map(function (item) { return item.content }), ['卡片主提示', '卡片历史后指令'])
 })
 
+test('禁止覆盖的 main 与 jailbreak 保留预设原文', () => {
+  const result = compileSillyTavernRequest({
+    card: { name: '角色', system_prompt: '卡片主提示', post_history_instructions: '卡片历史后指令' },
+    preset: { entries: [
+      { entryKey: 'main#1', identifier: 'main', role: 'system', content: '预设主提示', forbidOverrides: true, enabled: true, ordered: true },
+      { entryKey: 'jailbreak#1', identifier: 'jailbreak', role: 'system', content: '预设历史后指令', forbidOverrides: true, enabled: true, ordered: true }
+    ] },
+    presetDocument: {}, resolveMacros
+  })
+  assert.deepEqual(result.messages.map(function (item) { return item.content }), ['预设主提示', '预设历史后指令'])
+})
+
+test('对话示例只识别与当前玩家和角色名匹配的英文冒号前缀', () => {
+  const mismatch = compileSillyTavernRequest({
+    card: { name: '角色', mes_example: '玩家：不应进入\n角色：也不应进入' },
+    preset: { entries: [
+      { entryKey: 'examples#1', identifier: 'dialogueExamples', marker: true, role: 'system', content: '', enabled: true, ordered: true }
+    ] },
+    presetDocument: { new_example_chat_prompt: '[开始示例]' }, userName: '你', resolveMacros
+  })
+  assert.deepEqual(mismatch.messages, [])
+
+  const matched = compileSillyTavernRequest({
+    card: { name: '角色', mes_example: '你: 问候\n角色: 回答' },
+    preset: { entries: [
+      { entryKey: 'examples#1', identifier: 'dialogueExamples', marker: true, role: 'system', content: '', enabled: true, ordered: true }
+    ] },
+    presetDocument: { new_example_chat_prompt: '[开始示例]' }, userName: '你', resolveMacros
+  })
+  assert.deepEqual(matched.messages.map(function (item) { return [item.role, item.name || '', item.content] }), [
+    ['system', '', '[开始示例]'],
+    ['system', 'example_user', '问候'],
+    ['system', 'example_assistant', '回答']
+  ])
+})
+
 test('绝对深度条目插入聊天历史且正则只投影真实聊天消息', () => {
   const result = compileSillyTavernRequest({
     card: { name: '角色' },

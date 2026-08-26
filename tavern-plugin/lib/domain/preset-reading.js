@@ -110,6 +110,7 @@ export function inspectPreset(text, filename = '') {
       injectionPosition: Number.isFinite(Number(prompt.injection_position)) ? Number(prompt.injection_position) : null,
       injectionDepth: Number.isFinite(Number(prompt.injection_depth)) ? Number(prompt.injection_depth) : null,
       injectionOrder: Number.isFinite(Number(prompt.injection_order)) ? Number(prompt.injection_order) : null,
+      forbidOverrides: prompt.forbid_overrides === true,
       sourcePromptIndex: sourceRecord.sourceIndex
     }
     records.push(record)

@@ -14,19 +14,41 @@ function macro(text, resolveMacros, state, card) {
   return { text: result.text, diagnostics: result.diagnostics || [] }
 }
 
-function exampleMessages(value) {
-  const blocks = str(value).split(/<START>/i).map(function (item) { return item.trim() }).filter(Boolean)
+function exampleMessages(value, options = {}) {
+  let source = str(value)
+  if (source === '' || source === '<START>') return []
+  source = source
+    .replace(/{{\s*user\s*}}/gi, str(options.userName))
+    .replace(/{{\s*char\s*}}/gi, str(options.charName))
+  if (!source.startsWith('<START>')) source = '<START>\n' + source.trim()
+  const blocks = source.split(/<START>/i).slice(1)
   const messages = []
   for (const block of blocks) {
-    messages.push({ role: 'system', content: '[Start a new example chat]' })
-    for (const line of block.split('\n')) {
-      const match = /^\s*([^:：\n]{1,80})[:：]\s*(.*)$/.exec(line)
-      if (!match) {
-        if (line.trim() !== '') messages.push({ role: 'system', content: line.trim() })
-        continue
-      }
-      messages.push({ role: 'system', content: match[2], name: match[1].trim() })
+    const parsed = []
+    let current = null
+    function flush() {
+      if (current === null) return
+      const content = current.lines.join('\n').trim()
+      if (content !== '') parsed.push({ role: 'system', content, name: current.name })
+      current = null
     }
+    for (const line of block.trim().replace(/\r/g, '').split('\n')) {
+      const userPrefix = str(options.userName) + ':'
+      const charPrefix = str(options.charName) + ':'
+      if (userPrefix !== ':' && line.startsWith(userPrefix)) {
+        flush()
+        current = { name: 'example_user', lines: [line.slice(userPrefix.length).trimStart()] }
+      } else if (charPrefix !== ':' && line.startsWith(charPrefix)) {
+        flush()
+        current = { name: 'example_assistant', lines: [line.slice(charPrefix.length).trimStart()] }
+      } else if (current !== null) {
+        current.lines.push(line)
+      }
+    }
+    flush()
+    if (parsed.length === 0) continue
+    messages.push({ role: 'system', content: str(options.newExampleChatPrompt) })
+    messages.push(...parsed)
   }
   return messages
 }
@@ -51,15 +73,19 @@ function markerMessages(identifier, input) {
       return [{ role: 'system', content: format ? format.replace(/{{\s*scenario\s*}}/gi, value) : value }]
     }
     case 'personaDescription': return input.persona ? [{ role: 'system', content: input.persona }] : []
-    case 'dialogueExamples': return exampleMessages(card.mes_example)
+    case 'dialogueExamples': return exampleMessages(card.mes_example, {
+      userName: input.userName,
+      charName: card.name,
+      newExampleChatPrompt: settings.new_example_chat_prompt
+    })
     case 'chatHistory': return input.history
     default: return null
   }
 }
 
 function overrideContent(entry, card) {
-  if (entry.identifier === 'main' && str(card.system_prompt).trim() !== '') return card.system_prompt
-  if (entry.identifier === 'jailbreak' && str(card.post_history_instructions).trim() !== '') return card.post_history_instructions
+  if (entry.forbidOverrides !== true && entry.identifier === 'main' && str(card.system_prompt).trim() !== '') return card.system_prompt
+  if (entry.forbidOverrides !== true && entry.identifier === 'jailbreak' && str(card.post_history_instructions).trim() !== '') return card.post_history_instructions
   return entry.content
 }
 
@@ -131,6 +157,7 @@ export function compileSillyTavernRequest(options = {}) {
   for (const entry of regular) {
     const marker = markerMessages(str(entry.identifier), {
       card, settings, history,
+      userName: state.userName,
       persona: str(options.persona),
       worldInfoBefore: str(options.worldInfoBefore),
       worldInfoAfter: str(options.worldInfoAfter)
