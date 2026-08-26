@@ -500,6 +500,8 @@ test('外部预设只读，抽取时提示词手选且正则默认全部迁移',
   assert.match(panel, /title: "破限方案库"/)
   assert.match(panel, /这是只读的外部预设/)
   assert.match(panel, /只能用于抽取破限方案/)
+  assert.match(panel, /外部预设仅供查看，无法实际运行/)
+  assert.match(panel, /请勿抽取与破限无关的条目/)
   assert.match(panel, /setEntryKeys\(\[\]\)/)
   assert.match(panel, /setRegexKeys\(\(preset\.extractableRegexScripts \|\| \[\]\).*script\.regexKey/s)
   assert.match(panel, /提示词默认不选；正则默认全部迁移并继承原启用状态/)
