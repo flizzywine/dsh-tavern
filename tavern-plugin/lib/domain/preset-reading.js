@@ -16,9 +16,7 @@ function depth(value) {
   return value === null || value === undefined || value === '' || !Number.isFinite(Number(value)) ? null : Number(value)
 }
 
-export function regexScriptsOf(object) {
-  const binding = object && object.extensions && object.extensions.SPreset && object.extensions.SPreset.RegexBinding
-  const regexes = binding && Array.isArray(binding.regexes) ? binding.regexes : []
+function normalizeRegexScripts(regexes) {
   return regexes.filter(function (item) { return item !== null && typeof item === 'object' && !Array.isArray(item) }).map(function (item, index) {
     const id = str(item.id).trim() || 'regex-' + (index + 1)
     return {
@@ -37,6 +35,18 @@ export function regexScriptsOf(object) {
       maxDepth: depth(item.maxDepth)
     }
   })
+}
+
+export function regexScriptsOf(object) {
+  const binding = object && object.extensions && object.extensions.SPreset && object.extensions.SPreset.RegexBinding
+  const regexes = binding && Array.isArray(binding.regexes) ? binding.regexes : []
+  return normalizeRegexScripts(regexes)
+}
+
+/** Native SillyTavern runtime source; SPreset RegexBinding is editor metadata. */
+export function nativeRegexScriptsOf(object) {
+  const extensions = object && object.extensions && typeof object.extensions === 'object' ? object.extensions : {}
+  return normalizeRegexScripts(Array.isArray(extensions.regex_scripts) ? extensions.regex_scripts : [])
 }
 
 export function inspectPreset(text, filename = '') {

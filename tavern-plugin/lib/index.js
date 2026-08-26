@@ -18,11 +18,12 @@ import { createFileResourceStore, normalizeResourcePath, resourceKind } from './
 import { createForegroundHandoff } from './domain/foreground-handoff.js'
 import { createModelRequestLog } from './domain/model-request-log.js'
 import { previewPresetConversion } from './domain/preset-conversion-preview.js'
-import { inspectPreset } from './domain/preset-reading.js'
+import { inspectPreset, nativeRegexScriptsOf } from './domain/preset-reading.js'
 import { createPlayChatDebugReference, readPlayChatDebugTurn } from './domain/play-chat-debug.js'
 import { createPresetEditor } from './domain/preset-editor.js'
 import { createRuntimePresetModule, resolveRuntimePresetMacros } from './domain/runtime-presets.js'
 import { compileSillyTavernRequest } from './domain/sillytavern-compatibility.js'
+import { applySillyTavernStrictTools } from './domain/sillytavern-strict-tools.js'
 import { createEphemeralCompatibilityRequest, isCompatibilityConversationRequest } from './domain/compatibility-request.js'
 import { hasRollbackMessages, locateRollbackSurface } from './domain/rollback-surface.js'
 import { clearRuntimePresetBoundaryMessages, runtimePresetPhaseMessages } from './domain/runtime-preset-lifecycle.js'
@@ -2390,7 +2391,7 @@ export async function apply(ctx) {
     const card = await readChatCard(chat)
     const extensions = await readCardExtensions(chat.cardPath)
     const regexScripts = (Array.isArray(extensions && extensions.regexScripts) ? extensions.regexScripts : []).concat(
-      (preset.regexScripts || []).filter(function (script) { return script.enabled !== false })
+      nativeRegexScriptsOf(presetDocument).filter(function (script) { return script.enabled !== false })
     )
     const worldInfo = await compatibilityWorldInfo(chat, card, userText)
     const compiled = compileSillyTavernRequest({
@@ -2407,7 +2408,7 @@ export async function apply(ctx) {
       resolveMacros: resolveRuntimeMacroText,
       projectPromptText: function (text, context) {
         return applyTavernRegexText(text, regexScripts, {
-          placement: context.role === 'assistant' ? 2 : 1,
+          placement: context.placement,
           isMarkdown: false,
           isEdit: false,
           depth: context.depth
@@ -2416,6 +2417,14 @@ export async function apply(ctx) {
     })
     compiled.trace.worldBookRefs = worldInfo.refs
     compiled.trace.regexCount = regexScripts.length
+    const sourceMessageCount = compiled.messages.length
+    compiled.messages = applySillyTavernStrictTools(compiled.messages, {
+      charName: str(card.name),
+      userName: str(chat.macroState && chat.macroState.userName)
+    })
+    compiled.trace.postProcessing = 'strict_tools'
+    compiled.trace.sourceMessageCount = sourceMessageCount
+    compiled.trace.finalMessageCount = compiled.messages.length
     return compiled
   }
 

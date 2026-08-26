@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { inspectPreset } from '../tavern-plugin/lib/domain/preset-reading.js'
+import { inspectPreset, nativeRegexScriptsOf } from '../tavern-plugin/lib/domain/preset-reading.js'
 
 test('按 SillyTavern prompt_order 还原条目顺序和启用状态', () => {
   const result = inspectPreset(JSON.stringify({
@@ -128,4 +128,21 @@ test('读取 SPreset RegexBinding 正则脚本及其运行条件', () => {
     minDepth: 2,
     maxDepth: 10
   }])
+})
+
+test('兼容运行时单独读取原生 regex_scripts，不采用 SPreset 编辑器副本', () => {
+  const document = {
+    extensions: {
+      regex_scripts: [{ id: 'native', scriptName: '原生', findRegex: 'x', replaceString: 'y' }],
+      SPreset: { RegexBinding: { regexes: [
+        { id: 'copy-1', scriptName: '编辑器副本一', findRegex: 'x', replaceString: 'a' },
+        { id: 'copy-2', scriptName: '编辑器副本二', findRegex: 'x', replaceString: 'b' }
+      ] } }
+    }
+  }
+  const runtime = nativeRegexScriptsOf(document)
+  const editor = inspectPreset(JSON.stringify(Object.assign({ prompts: [] }, document)), '双份正则.json')
+
+  assert.deepEqual(runtime.map(function (script) { return script.id }), ['native'])
+  assert.deepEqual(editor.regexScripts.map(function (script) { return script.id }), ['copy-1', 'copy-2'])
 })

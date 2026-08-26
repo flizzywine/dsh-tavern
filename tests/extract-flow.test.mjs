@@ -834,6 +834,8 @@ test('开发模式在顶层侧栏切换 DSH 与酒馆兼容请求模式', () => 
 	assert.match(serverSource, /resolveDeveloperMode/)
 	assert.match(serverSource, /酒馆兼容模式仅在开发模式下可用/)
 	assert.match(preStep, /compileCompatibilityTurn/)
+	assert.match(serverSource, /applySillyTavernStrictTools\(compiled\.messages/)
+	assert.match(serverSource, /compiled\.trace\.postProcessing = 'strict_tools'/)
 	assert.match(preStep, /messages: payload\.messages/)
 	assert.doesNotMatch(serverSource, /compatibilitySummaryMessage/)
 	assert.doesNotMatch(llmStream, /options\.messages\s*=/)

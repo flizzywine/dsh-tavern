@@ -91,6 +91,13 @@ function registerMacros() {
 
   MacroRegistry.registerMacro('user', { category: MacroCategory.NAMES, handler: ({ env }) => env.names.user })
   MacroRegistry.registerMacro('char', { category: MacroCategory.NAMES, handler: ({ env }) => env.names.char })
+  MacroRegistry.registerMacro('//', {
+    category: MacroCategory.UTILITY,
+    unnamedArgs: [{ name: 'comment', optional: true, defaultValue: '' }],
+    list: true,
+    strictArgs: false,
+    handler: () => ''
+  })
 
   registerAccessor('getvar', 'local', 'get')
   registerAccessor('setvar', 'local', 'set')

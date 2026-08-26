@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import { compileSillyTavernRequest } from '../tavern-plugin/lib/domain/sillytavern-compatibility.js'
+import { renderTavernMacros } from '../tavern-plugin/lib/domain/tavern-macro-engine.js'
 
 function resolveMacros(text, context) {
   return { text: String(text).replaceAll('{{char}}', context.charName).replaceAll('{{user}}', context.macroState.userName), diagnostics: [], macroState: context.macroState }
@@ -41,7 +42,7 @@ test('人物卡 system prompt 与历史后指令遵循酒馆覆盖语义', () =>
   assert.deepEqual(result.messages.map(function (item) { return item.content }), ['卡片主提示', '卡片历史后指令'])
 })
 
-test('绝对深度条目插入聊天历史并经过提示词正则投影', () => {
+test('绝对深度条目插入聊天历史且正则只投影真实聊天消息', () => {
   const result = compileSillyTavernRequest({
     card: { name: '角色' },
     preset: { entries: [
@@ -53,5 +54,56 @@ test('绝对深度条目插入聊天历史并经过提示词正则投影', () =>
   })
   assert.deepEqual(result.messages.map(function (item) { return [item.role, item.content] }), [
     ['assistant', '原始'], ['system', '深度内容'], ['user', '投影输入']
+  ])
+})
+
+test('变量条目不进入请求且提示词正则只处理聊天消息并按最新消息计算深度', () => {
+  const calls = []
+  const result = compileSillyTavernRequest({
+    card: { name: '角色' },
+    preset: { entries: [
+      { entryKey: 'vars#1', identifier: 'vars', role: 'system', content: '{{setvar::style::轻小说}}{{// 作者注释}}', enabled: true, ordered: true },
+      { entryKey: 'bypass#1', identifier: 'bypass', role: 'user', content: '预设用户角色 {{getvar::style}}', enabled: true, ordered: true },
+      { entryKey: 'history#1', identifier: 'chatHistory', role: 'system', content: '', marker: true, enabled: true, ordered: true }
+    ] },
+    presetDocument: {},
+    history: [
+      { role: 'user', text: '较早输入' },
+      { role: 'assistant', text: '最近回复' }
+    ],
+    input: '当前输入',
+    resolveMacros: function (text, context) {
+      const rendered = renderTavernMacros(text, {
+        charName: context.charName,
+        userName: context.macroState.userName,
+        localVariables: context.macroState.local,
+        globalVariables: context.macroState.global
+      })
+      return {
+        text: rendered.text,
+        diagnostics: rendered.diagnostics,
+        macroState: {
+          userName: context.macroState.userName,
+          local: rendered.localVariables,
+          global: rendered.globalVariables
+        }
+      }
+    },
+    projectPromptText: function (text, context) {
+      calls.push({ text, context })
+      return { text: context.placement === 1 && context.depth <= 1 ? '<input>' + text + '</input>' : text, warnings: [] }
+    }
+  })
+
+  assert.deepEqual(result.messages.map(function (item) { return [item.role, item.content] }), [
+    ['user', '预设用户角色 轻小说'],
+    ['user', '较早输入'],
+    ['assistant', '最近回复'],
+    ['user', '<input>当前输入</input>']
+  ])
+  assert.deepEqual(calls.map(function (item) { return [item.text, item.context.placement, item.context.depth] }), [
+    ['较早输入', 1, 2],
+    ['最近回复', 2, 1],
+    ['当前输入', 1, 0]
   ])
 })

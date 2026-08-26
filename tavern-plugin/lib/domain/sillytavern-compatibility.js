@@ -84,19 +84,25 @@ export function compileSillyTavernRequest(options = {}) {
     global: Object.assign({}, options.macroState && options.macroState.global || {})
   }
   const diagnostics = []
-  const history = (Array.isArray(options.history) ? options.history : []).map(function (item, depth) {
+  const history = (Array.isArray(options.history) ? options.history : []).map(function (item) {
     const sourceText = str(item.sourceText || item.text || item.content)
-    const rendered = macro(sourceText, resolveMacros, state, card)
-    const projected = projectPromptText(rendered.text, { role: role(item.role), depth })
-    diagnostics.push(...rendered.diagnostics, ...(projected.warnings || []))
-    return { role: role(item.role), content: projected.text, source: { kind: 'chat-history', depth } }
+    return { role: role(item.role), content: sourceText, source: { kind: 'chat-history' } }
   })
   const inputText = str(options.input).trim()
   if (inputText !== '') {
-    const rendered = macro(inputText, resolveMacros, state, card)
-    const projected = projectPromptText(rendered.text, { role: 'user', depth: 0 })
+    history.push({ role: 'user', content: inputText, source: { kind: 'current-input' } })
+  }
+  for (const [index, item] of history.entries()) {
+    const rendered = macro(item.content, resolveMacros, state, card)
+    const messageRole = role(item.role)
+    const depth = history.length - index - 1
+    const placement = messageRole === 'user' ? 1 : (messageRole === 'assistant' ? 2 : null)
+    const projected = placement === null
+      ? { text: rendered.text, warnings: [] }
+      : projectPromptText(rendered.text, { role: messageRole, placement, depth, sourceKind: item.source.kind })
     diagnostics.push(...rendered.diagnostics, ...(projected.warnings || []))
-    history.push({ role: 'user', content: projected.text, source: { kind: 'current-input' } })
+    item.content = projected.text
+    item.source.depth = depth
   }
 
   const selected = (Array.isArray(preset.entries) ? preset.entries : []).filter(function (entry) {
@@ -113,11 +119,10 @@ export function compileSillyTavernRequest(options = {}) {
   })
   for (const entry of absolute) {
     const rendered = macro(overrideContent(entry, card), resolveMacros, state, card)
-    const projected = projectPromptText(rendered.text, { role: role(entry.role), depth: Number(entry.injectionDepth) || 0 })
-    diagnostics.push(...rendered.diagnostics, ...(projected.warnings || []))
-    if (projected.text.trim() === '') continue
+    diagnostics.push(...rendered.diagnostics)
+    if (rendered.text.trim() === '') continue
     history.splice(Math.max(0, history.length - (Number(entry.injectionDepth) || 0)), 0, {
-      role: role(entry.role), content: projected.text,
+      role: role(entry.role), content: rendered.text,
       source: { kind: 'preset-depth', entryKey: entry.entryKey, identifier: entry.identifier, depth: Number(entry.injectionDepth) || 0 }
     })
   }
@@ -134,11 +139,10 @@ export function compileSillyTavernRequest(options = {}) {
     for (const value of values) {
       const alreadyProjected = value.source && (value.source.kind === 'chat-history' || value.source.kind === 'current-input' || value.source.kind === 'preset-depth')
       const rendered = alreadyProjected ? { text: value.content, diagnostics: [] } : macro(value.content, resolveMacros, state, card)
-      const projected = alreadyProjected ? { text: value.content, warnings: [] } : projectPromptText(rendered.text, { role: role(value.role), depth: 0 })
-      diagnostics.push(...rendered.diagnostics, ...(projected.warnings || []))
-      if (projected.text.trim() === '') continue
+      diagnostics.push(...rendered.diagnostics)
+      if (rendered.text.trim() === '') continue
       messages.push({
-        role: role(value.role), content: projected.text,
+        role: role(value.role), content: rendered.text,
         ...(value.name ? { name: value.name } : {}),
         source: { kind: entry.marker ? 'marker' : 'preset', entryKey: entry.entryKey, identifier: entry.identifier, name: entry.name }
       })
