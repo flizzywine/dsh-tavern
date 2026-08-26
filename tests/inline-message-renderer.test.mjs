@@ -117,6 +117,15 @@ test('消息 iframe 清理完整 HTML 文档泄漏到正文层的顶级排版空
   assert.equal(nestedWhitespace.nodeValue, '\n保留')
 })
 
+test('消息 iframe 保留人物卡 maintext 中的开场白换行', () => {
+  const document = client.buildTavernFrameDocument({
+    content: '<maintext>第一段。\n\n第二段。</maintext>',
+    token: 'opening-lines-token'
+  })
+
+  assert.match(document, /maintext\{[^}]*white-space:pre-wrap/)
+})
+
 test('assistant renderer 以更低 priority 接管 DSH 正式 keyed slot', () => {
   const registrations = []
   const labels = []
