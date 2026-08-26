@@ -204,6 +204,9 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 .dsh-tavern-prompt-state { display: flex; align-items: center; gap: 5px; color: var(--dsw-alias-label-secondary); font-size: 9px; white-space: nowrap; }
 .dsh-tavern-prompt-state::before { width: 8px; height: 8px; border: 2px solid #23bd63; border-radius: 999px; content: ""; }
 .dsh-tavern-prompt-state.off::before { border-color: #91a0b5; }
+.dsh-tavern-extract-state { gap: 8px; color: var(--dsw-alias-label-primary); font-size: 13px; font-weight: 650; }
+.dsh-tavern-extract-state::before { width: 11px; height: 11px; }
+.dsh-tavern-extract-state input[type="checkbox"] { width: 18px; height: 18px; margin: 0; accent-color: #23bd63; }
 .dsh-tavern-prompt-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
 .dsh-tavern-prompt-tag { padding: 1px 5px; border-radius: 4px; background: rgba(237,151,20,.14); color: #c77800; font-size: 9px; }
 .dsh-tavern-prompt-content { margin: 0; padding: 10px 12px; border-top: 1px solid var(--dsw-alias-border-l2); color: var(--dsw-alias-label-secondary); font: 10px/1.55 ui-monospace, monospace; white-space: pre-wrap; word-break: break-word; }
@@ -2044,7 +2047,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				function entryRow(entry, selectable) {
 					const checked = entryKeys.includes(entry.entryKey); const role = String(entry.role || "system").toUpperCase();
 					const state = extracting && selectable
-						? h("label", { className: "dsh-tavern-prompt-state " + (checked ? "on" : "off"), onClick: function (event) { event.stopPropagation(); } }, h("input", { type: "checkbox", checked: checked, disabled: busy, onChange: function (event) { toggleKey(setEntryKeys, entryKeys, entry.entryKey, event.target.checked); } }), checked ? "已选择" : "不迁移")
+						? h("label", { className: "dsh-tavern-prompt-state dsh-tavern-extract-state " + (checked ? "on" : "off"), onClick: function (event) { event.stopPropagation(); } }, h("input", { type: "checkbox", checked: checked, disabled: busy, onChange: function (event) { toggleKey(setEntryKeys, entryKeys, entry.entryKey, event.target.checked); } }), checked ? "抽取" : "不抽取")
 						: h("span", { className: "dsh-tavern-prompt-tag" }, entry.marker ? "系统处理" : (entry.enabled ? "原预设开启" : "原预设关闭"));
 					return h("details", { key: entry.entryKey, className: "dsh-tavern-prompt-row role-" + String(entry.role || "system") },
 						h("summary", { className: "dsh-tavern-prompt-head" }, h("span", { className: "dsh-tavern-prompt-role" }, role), h("span", { className: "dsh-tavern-prompt-title" }, h("b", null, entry.name), h("span", null, String(entry.content || "").replace(/\s+/g, " ").trim() || (entry.marker ? "系统占位" : "空条目"))), state),
@@ -2053,7 +2056,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				function regexRow(script) {
 					const checked = regexKeys.includes(script.regexKey);
 					const state = extracting
-						? h("label", { className: "dsh-tavern-prompt-state " + (checked ? "on" : "off"), onClick: function (event) { event.stopPropagation(); } }, h("input", { type: "checkbox", checked: checked, disabled: busy, onChange: function (event) { toggleKey(setRegexKeys, regexKeys, script.regexKey, event.target.checked); } }), checked ? "随方案迁移" : "不迁移")
+						? h("label", { className: "dsh-tavern-prompt-state dsh-tavern-extract-state " + (checked ? "on" : "off"), onClick: function (event) { event.stopPropagation(); } }, h("input", { type: "checkbox", checked: checked, disabled: busy, onChange: function (event) { toggleKey(setRegexKeys, regexKeys, script.regexKey, event.target.checked); } }), checked ? "抽取" : "不抽取")
 						: h("span", { className: "dsh-tavern-prompt-tag" }, script.enabled === false ? "原预设关闭" : "原预设开启");
 					return h("details", { key: script.regexKey, className: "dsh-tavern-prompt-row role-regex" },
 						h("summary", { className: "dsh-tavern-prompt-head" }, h("span", { className: "dsh-tavern-prompt-role" }, "REGEX"), h("span", { className: "dsh-tavern-prompt-title" }, h("b", null, script.name), h("span", null, script.findRegex || "空查找规则")), state),
