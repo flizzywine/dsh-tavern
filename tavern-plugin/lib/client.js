@@ -2672,6 +2672,22 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				return React.createElement("button", { className: "dsh-tavern-export-action", disabled: busy, title: "导出只包含玩家与角色正文的 TXT", onClick: exportText }, busy ? "导出中…" : "纯对话 TXT ↓");
 			}
 
+			function TavernCompactionAction(props) {
+				const [busy, setBusy] = React.useState(false);
+				const running = props.useSession(function (snapshot) { return snapshot.running; });
+				async function compactContext() {
+					setBusy(true);
+					try {
+						const result = await props.executeCompact(props.sessionId);
+						if (!result.ok) throw new Error(result.error && result.error.message ? result.error.message : "无法执行上下文压缩");
+						if (result.value === undefined) throw new Error("当前会话不支持 /compact");
+						if (result.value.result && result.value.result.kind === "error") throw new Error(result.value.result.text || "上下文压缩失败");
+					} catch (err) { tavernErrorHub.report("压缩上下文", err); }
+					finally { setBusy(false); }
+				}
+				return React.createElement("button", { className: "dsh-tavern-choice-trigger", disabled: busy || running, title: "使用 DSH 原生 /compact 压缩较早的对话上下文", onClick: compactContext }, busy ? "压缩中…" : "压缩上下文");
+			}
+
 			function TavernPlayerNameAction(props) {
 				const [view, setView] = React.useState(null);
 				const [busy, setBusy] = React.useState(false);
@@ -3123,10 +3139,10 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				}
 				return null;
 			});
-			if (!isPlayMode(sessionMode) || !latestMessageId) return null;
 			const h = React.createElement;
 			return h("div", { className: "dsh-tavern-dock-actions" },
-				React.createElement(CandidateAction, Object.assign({}, props, { messageId: latestMessageId }))
+				isPlayMode(sessionMode) && latestMessageId ? React.createElement(CandidateAction, Object.assign({}, props, { messageId: latestMessageId })) : null,
+				React.createElement(TavernCompactionAction, props)
 			);
 		}
 
@@ -3348,7 +3364,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			ctx.effect(() => slots.inject("conversation.input.dock", () => slots.register(
 				{ name: "conversation.input.dock", id: "dsh-tavern-candidate-actions", order: -130, label: "候选项操作" },
 				function (props) { return React.createElement(CandidateDockActions, Object.assign({}, props, {
-					refreshSessions: function () { return typeof ctx.sessions.refresh === "function" ? ctx.sessions.refresh() : Promise.resolve(); }
+					refreshSessions: function () { return typeof ctx.sessions.refresh === "function" ? ctx.sessions.refresh() : Promise.resolve(); },
+					executeCompact: function (sessionId) { return ctx.remote.commands.execute(sessionId, "/compact", []); }
 				})); }
 			)), "dsh-tavern: candidate dock actions");
 			ctx.effect(() => slots.inject("conversation.input.dock", () => slots.register(
@@ -3369,7 +3386,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		const playControlsFeature = createPlayControlsFeatureModule();
 		const assistantRendererFeature = createTavernAssistantRendererFeatureModule();
 
-		const inject = ["slots", "sessions", "workspaces", "layout", "connection", "conversation", "betterSidebar"];
+		const inject = ["slots", "sessions", "workspaces", "layout", "connection", "conversation", "betterSidebar", "remote", "remote.commands"];
 
 		function apply(ctx) {
 			const slots = ctx.slots;
