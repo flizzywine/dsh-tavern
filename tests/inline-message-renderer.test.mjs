@@ -126,6 +126,50 @@ test('消息 iframe 保留人物卡 maintext 中的开场白换行', () => {
   assert.match(document, /maintext\{[^}]*white-space:pre-wrap/)
 })
 
+test('消息 iframe 测高忽略被裁剪内容与固定悬浮元素', () => {
+  const documentHtml = client.buildTavernFrameDocument({ content: '正文', token: 'height-token' })
+  const reporters = Array.from(documentHtml.matchAll(/<script data-dsh-tavern-frame>([\s\S]*?)<\/script>/g))
+  const reporter = reporters.at(-1)
+  assert.ok(reporter)
+
+  function element({ top, bottom, position = 'static', overflow = 'visible', parent = null }) {
+    return {
+      parentElement: parent,
+      scrollHeight: Math.max(0, bottom - top),
+      getBoundingClientRect() { return { top, bottom, width: 100, height: bottom - top } },
+      style: { position, overflow, overflowX: overflow, overflowY: overflow }
+    }
+  }
+
+  const root = { scrollHeight: 2304, parentElement: null }
+  const body = element({ top: 0, bottom: 1761, parent: root })
+  body.scrollHeight = 1761
+  const clippedContainer = element({ top: 1419, bottom: 1443, overflow: 'hidden', parent: body })
+  const clippedCard = element({ top: 2033, bottom: 2304, parent: clippedContainer })
+  const fixedButton = element({ top: 2240, bottom: 2290, position: 'fixed', parent: body })
+  const visibleAbsolute = element({ top: 1740, bottom: 1800, position: 'absolute', parent: body })
+  body.querySelectorAll = () => [clippedContainer, clippedCard, fixedButton, visibleAbsolute]
+
+  let reportedHeight = 0
+  class Observer { observe() {} }
+  vm.runInNewContext(reporter[1], {
+    document: { documentElement: root, body },
+    window: { scrollY: 0 },
+    parent: { postMessage(message) { reportedHeight = message.height } },
+    getComputedStyle(node) { return node.style || { position: 'static', overflow: 'visible', overflowX: 'visible', overflowY: 'visible' } },
+    ResizeObserver: Observer,
+    MutationObserver: Observer,
+    requestAnimationFrame(callback) { callback() },
+    addEventListener() {},
+    Array,
+    Math,
+    Number,
+    String
+  })
+
+  assert.equal(reportedHeight, 1800)
+})
+
 test('assistant renderer 以更低 priority 接管 DSH 正式 keyed slot', () => {
   const registrations = []
   const labels = []
