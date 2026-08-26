@@ -516,6 +516,9 @@ test('预设库分别呈现酒馆原始界面与 DSH 预览界面', () => {
   assert.match(panel, /酒馆兼容与 DSH 预设共用同一套开启状态/)
   assert.match(panel, /entry\.ordered === false \? "未编排"/)
   assert.match(panel, /不在当前 prompt_order 中，不会进入请求/)
+  assert.match(panel, /兼容：随酒馆 · DSH：原生接管/)
+  assert.match(panel, /entry\.runtimeEligible === false\s*\? h\("span", \{ className: "dsh-tavern-prompt-tag"/)
+  assert.doesNotMatch(panel, /disabled: busy \|\| !entry\.injectable \|\| entry\.runtimeEligible === false/)
   assert.match(panel, /正则沿用原预设设置/)
   assert.match(panel, /checked: entry\.runtimeIncluded/)
   assert.match(panel, /checked: sourceEntry\.runtimeIncluded/)
@@ -662,7 +665,7 @@ test('Session 顶栏工具区可以把服务端投影后的纯对话下载为 TX
   assert.doesNotMatch(sidebar, /导出 TXT|exportConversation/)
 })
 
-test('所有对话的操作区都可以直接调用 DSH 原生上下文压缩', () => {
+test('只在酒馆对话操作区调用 DSH 原生上下文压缩', () => {
   const action = between(clientSource, 'function TavernCompactionAction', 'function TavernPlayerNameAction')
   const dock = between(clientSource, 'function CandidateDockActions', 'function CandidateQuestion')
 
@@ -671,8 +674,9 @@ test('所有对话的操作区都可以直接调用 DSH 原生上下文压缩', 
   assert.match(action, /busy \|\| running/)
   assert.match(action, /className: "dsh-tavern-choice-trigger"/)
   assert.match(dock, /React\.createElement\(TavernCompactionAction, props\)/)
+  assert.match(dock, /if \(!sessionMode\) return null/)
   assert.match(dock, /isPlayMode\(sessionMode\) && latestMessageId \? React\.createElement\(CandidateAction/)
-  assert.doesNotMatch(dock, /if \(!isPlayMode\(sessionMode\)/)
+  assert.ok(dock.indexOf('if (!sessionMode) return null') < dock.indexOf('React.createElement(TavernCompactionAction, props)'))
   assert.doesNotMatch(action, /rpc\("getSession"/)
   assert.doesNotMatch(clientSource, /id: "dsh-tavern-context-compaction"/)
   assert.match(clientSource, /ctx\.remote\.commands\.execute\(sessionId, "\/compact", \[\]\)/)

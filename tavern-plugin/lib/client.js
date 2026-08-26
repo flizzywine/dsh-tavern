@@ -2209,13 +2209,15 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			function sourcePresetRow(entry) {
 				const role = String(entry.role || "system");
 				const snippet = String(entry.content || "").replace(/\s+/g, " ").trim() || (entry.marker ? "由酒馆运行时提供的占位符" : "空条目");
-				const unavailableLabel = entry.ordered === false ? "未编排" : (entry.marker ? "系统处理" : "未转换");
+				const unavailableLabel = entry.ordered === false ? "未编排" : (entry.marker ? "兼容：随酒馆 · DSH：原生接管" : "未转换");
 				const unavailableTitle = entry.ordered === false ? "此条不在当前 prompt_order 中，不会进入请求" : (entry.marker ? "此占位由系统自动处理" : "此条尚未映射到 DSH 预设");
 				return h("details", { key: "source:" + entry.entryKey, className: "dsh-tavern-prompt-row role-" + role },
 					h("summary", { className: "dsh-tavern-prompt-head" },
 						h("span", { className: "dsh-tavern-prompt-role" }, role.toUpperCase()),
 						h("span", { className: "dsh-tavern-prompt-title" }, h("b", null, entry.name), h("span", null, snippet), h("span", { className: "dsh-tavern-prompt-tags" }, entry.marker ? h("span", { className: "dsh-tavern-prompt-tag" }, "占位") : null)),
-						h("label", { className: "dsh-tavern-prompt-state " + (entry.runtimeIncluded ? "on" : "off"), title: entry.runtimeEligible === false ? unavailableTitle : "酒馆兼容与 DSH 预设共用此开关", onClick: function (event) { event.stopPropagation(); } }, h("input", { type: "checkbox", checked: entry.runtimeIncluded === true, disabled: busy || !entry.injectable || entry.runtimeEligible === false, onChange: function (event) { toggleEntry(entry, event.target.checked); } }), entry.runtimeEligible === false ? unavailableLabel : (entry.runtimeIncluded ? "开启" : "关闭"))
+						entry.runtimeEligible === false
+							? h("span", { className: "dsh-tavern-prompt-tag", title: unavailableTitle }, unavailableLabel)
+							: h("label", { className: "dsh-tavern-prompt-state " + (entry.runtimeIncluded ? "on" : "off"), title: "酒馆兼容与 DSH 预设共用此开关", onClick: function (event) { event.stopPropagation(); } }, h("input", { type: "checkbox", checked: entry.runtimeIncluded === true, disabled: busy || !entry.injectable, onChange: function (event) { toggleEntry(entry, event.target.checked); } }), entry.runtimeIncluded ? "开启" : "关闭")
 					),
 					editingEntryKey === entry.entryKey && entryDraft ? h("div", { className: "dsh-tavern-prompt-editor" },
 						h("label", { className: "dsh-tavern-prompt-editor-field" }, "名称", h("input", { type: "text", value: entryDraft.name, disabled: busy || !(entry.edit && entry.edit.promptPath), onChange: function (event) { setEntryDraft(Object.assign({}, entryDraft, { name: event.target.value })); } })),
@@ -2288,7 +2290,9 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 								h("summary", { className: "dsh-tavern-prompt-head" },
 									h("span", { className: "dsh-tavern-prompt-role" }, role.toUpperCase()),
 									h("span", { className: "dsh-tavern-prompt-title" }, h("b", null, entry.name), h("span", null, snippet), h("span", { className: "dsh-tavern-prompt-tags" }, entry.marker ? h("span", { className: "dsh-tavern-prompt-tag" }, "占位") : null, entry.ordered === false ? h("span", { className: "dsh-tavern-prompt-tag" }, "未编排") : null)),
-									h("label", { className: "dsh-tavern-prompt-state " + (entry.runtimeEnabled ? "on" : "off"), title: entry.runtimeEligible === false ? "此条未进入当前预设" : "是否使用这条预设内容", onClick: function (event) { event.stopPropagation(); } }, h("input", { type: "checkbox", checked: entry.runtimeEnabled === true, disabled: busy || !entry.injectable || entry.runtimeEligible === false, onChange: function (event) { toggleEntry(entry, event.target.checked); } }), entry.runtimeEligible === false ? "未使用" : (entry.runtimeEnabled ? "使用" : "停用"))
+									entry.runtimeEligible === false
+										? h("span", { className: "dsh-tavern-prompt-tag", title: entry.ordered === false ? "此条不在当前 prompt_order 中，不会进入请求" : "此条由系统自动处理" }, entry.ordered === false ? "未编排" : (entry.marker ? "兼容：随酒馆 · DSH：原生接管" : "未转换"))
+										: h("label", { className: "dsh-tavern-prompt-state " + (entry.runtimeEnabled ? "on" : "off"), title: "是否使用这条预设内容", onClick: function (event) { event.stopPropagation(); } }, h("input", { type: "checkbox", checked: entry.runtimeEnabled === true, disabled: busy || !entry.injectable, onChange: function (event) { toggleEntry(entry, event.target.checked); } }), entry.runtimeEnabled ? "使用" : "停用")
 								),
 								editingEntryKey === entry.entryKey && entryDraft ? h("div", { className: "dsh-tavern-prompt-editor" },
 									h("label", { className: "dsh-tavern-prompt-editor-field" }, "名称", h("input", { type: "text", value: entryDraft.name, disabled: busy || !(entry.edit && entry.edit.promptPath), onChange: function (event) { setEntryDraft(Object.assign({}, entryDraft, { name: event.target.value })); } })),
@@ -3491,6 +3495,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				return null;
 			});
 			const h = React.createElement;
+			if (!sessionMode) return null;
 			return h("div", { className: "dsh-tavern-dock-actions" },
 				isPlayMode(sessionMode) && latestMessageId ? React.createElement(CandidateAction, Object.assign({}, props, { messageId: latestMessageId })) : null,
 				React.createElement(TavernCompactionAction, props)
