@@ -40,6 +40,7 @@ import {
 import { createScriptContinuity } from './domain/script-continuity.js'
 import { filterSkillMessages } from './domain/skill-visibility.js'
 import { createStoryTimeline } from './domain/story-timeline.js'
+import { createStoryCompactionRequest, usesStoryCompaction } from './domain/story-compaction.js'
 import { resolveTavernDataRoot } from './domain/tavern-data.js'
 import { createTavernSkillModule } from './domain/tavern-skills.js'
 import { createTavernConversationRegistry } from './domain/tavern-conversation-registry.js'
@@ -2432,6 +2433,7 @@ export async function apply(ctx) {
   const requestCoordinates = new Map()
   const compatibilityModelRequests = new Map()
   const compatibilityRedispatches = new WeakSet()
+  const storyCompactionRequests = new WeakSet()
 
   function compatibilityMessages(compiled) {
     return compiled.messages.map(function (item, index) {
@@ -2513,6 +2515,23 @@ export async function apply(ctx) {
 
   ctx.on('llm/stream', function (options, next) {
     const sessionId = str(options && options.sessionId)
+    if (options !== null && typeof options === 'object' && options.purpose === 'compaction' && !storyCompactionRequests.has(options)) {
+      const fallback = next()
+      return (async function * () {
+        const chat = await chatForSession(sessionId)
+        if (!usesStoryCompaction(chat)) {
+          yield * fallback
+          return
+        }
+        const request = createStoryCompactionRequest(options, prompt('story-compaction'))
+        if (request === options) {
+          yield * fallback
+          return
+        }
+        storyCompactionRequests.add(request)
+        yield * ctx.llm.stream(request)
+      })()
+    }
     const stagedCompatibility = compatibilityModelRequests.get(sessionId)
     const coordinates = requestCoordinates.get(sessionId)
     const shouldRedispatch = !compatibilityRedispatches.has(options) &&

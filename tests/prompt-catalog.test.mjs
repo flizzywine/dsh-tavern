@@ -13,6 +13,7 @@ const names = [
   'candidate-story',
   'candidate-script',
   'posture-settlement',
+  'story-compaction',
   'play-mode',
   'card-mode',
   'card-mode-greeting',
@@ -35,6 +36,10 @@ test('固定提示词从独立 Markdown 文件完整加载', () => {
   assert.match(prompt('candidate-script'), /tavern_read_script/)
   assert.match(prompt('candidate-script'), /tavern_point_script/)
   assert.match(prompt('play-mode'), /本轮演出指引/)
+  assert.match(prompt('story-compaction'), /剧情记录压缩器/)
+  assert.match(prompt('story-compaction'), /不续写剧情/)
+  assert.match(prompt('story-compaction'), /角色所知、玩家所知与客观事实/)
+  assert.doesNotMatch(prompt('story-compaction'), /Files and Code|AI coding assistant/)
   assert.ok(prompt('card-mode').startsWith('You are a helpful software engineer assistant.\n\n'))
   assert.doesNotMatch(prompt('card-mode'), /你具备 DSH 极简模式/)
   assert.match(prompt('card-mode'), /只是同一个 Agent 的不同起始任务，不是不同模式/)
