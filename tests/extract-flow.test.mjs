@@ -543,6 +543,12 @@ test('外部预设只读，抽取时提示词手选且正则默认全部迁移',
   assert.match(panel, /rpc\("exportBypassPlan"/)
   assert.match(panel, /dsh-tavern-plan-head-main/)
   assert.match(panel, /dsh-tavern-plan-head-actions/)
+  assert.match(panel, /planPhaseSection\("front", "前 · 请求前置", "每次请求临时放在最前，不写入 Session"\)/)
+  assert.match(panel, /planPhaseSection\("middle", "中 · 每轮注入", "每轮注入一次，并进入 Session"\)/)
+  assert.match(panel, /planPhaseSection\("back", "后 · 请求后置", "每次请求临时附加在末尾，不写入 Session"\)/)
+  assert.match(panel, /entry\.phase === phase/)
+  assert.match(panel, /已开启 " \+ enabledCount \+ " \/ 共 " \+ entries\.length/)
+  assert.match(clientSource, /dsh-tavern-plan-phase/)
 })
 
 test('卡片模式预加载人物卡、预设、世界书和剧本四个库', () => {
