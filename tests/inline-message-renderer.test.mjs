@@ -13,6 +13,13 @@ async function loadClient() {
 
 const client = await loadClient()
 
+test('普通长消息自动展开，只有极端高度才限制为单轮滚动', () => {
+  assert.equal(client.clampTavernFrameHeight(48), 48)
+  assert.equal(client.clampTavernFrameHeight(5000), 5000)
+  assert.equal(client.clampTavernFrameHeight(12000), 12000)
+  assert.equal(client.clampTavernFrameHeight(18000), 12000)
+})
+
 test('旧版分段展示投影仍按原始顺序回放', () => {
   const parts = client.projectionPartsOf({
     version: 2,

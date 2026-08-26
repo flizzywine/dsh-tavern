@@ -894,6 +894,11 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				+ '</head><body>' + html + reporter + '</body></html>';
 		}
 
+		const TAVERN_FRAME_MAX_HEIGHT = 12000;
+		function clampTavernFrameHeight(value) {
+			return Math.max(48, Math.min(TAVERN_FRAME_MAX_HEIGHT, Math.ceil(Number(value) || 48)));
+		}
+
 		function TavernMessageFrame(props) {
 			const frameRef = React.useRef(null);
 			const tokenRef = React.useRef("");
@@ -910,7 +915,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					const data = event && event.data;
 					if (!frame || event.source !== frame.contentWindow || !data || data.token !== tokenRef.current) return;
 					if (data.type === "dsh-tavern-frame-height") {
-						const next = Math.max(48, Math.min(1200, Math.ceil(Number(data.height) || 48)));
+						const next = clampTavernFrameHeight(data.height);
 						setHeight(next);
 					} else if (data.type === "dsh-tavern-frame-runtime" && props.sessionId && props.turn > 0) {
 						pendingRuntime.current = data.runtime;
@@ -931,7 +936,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				sandbox: "allow-scripts",
 				referrerPolicy: "no-referrer",
 				srcDoc: documentHtml,
-				style: { height: height + "px", overflow: height >= 1200 ? "auto" : "hidden" }
+				style: { height: height + "px", overflow: height >= TAVERN_FRAME_MAX_HEIGHT ? "auto" : "hidden" }
 			});
 		}
 
@@ -3475,6 +3480,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		exports.inject = inject;
 		exports.buildOpeningPreviewDocument = buildOpeningPreviewDocument;
 		exports.buildTavernFrameDocument = buildTavernFrameDocument;
+		exports.clampTavernFrameHeight = clampTavernFrameHeight;
 		exports.projectionPartsOf = projectionPartsOf;
 		exports.createLiveTavernViewModule = createLiveTavernViewModule;
 		exports.createTavernCoordinationEventModule = createTavernCoordinationEventModule;
