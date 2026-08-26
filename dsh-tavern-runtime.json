@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "revision": "5131fca524dc4f62b7d21067a32c83169c29128b",
+  "revision": "1774fce3727d4fc0db6c7a602c17ed105904d3cc",
   "files": [
     {
       "path": "bin/dsh-tavern",
@@ -99,8 +99,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "f2758b95890f3f14a7e164144ac1f9663e834ffc91f342d4199f92c535285461",
-      "size": 253890
+      "sha256": "410129d6191c020a402e7f51e15565ef909905cdb429b60d1b13259dcf9f85a8",
+      "size": 256260
     },
     {
       "path": "tavern-plugin/lib/domain/agent-readiness.js",
@@ -134,8 +134,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/card-preparation.js",
-      "sha256": "7985e7b28b98ace9945ba18eef24bce067f0c3195394248c2a962f4c8cf228a5",
-      "size": 24300
+      "sha256": "0c021b24160dc498a104192f3a9a99acefc798dafc64f55c4cdfb9604cd758f9",
+      "size": 25000
     },
     {
       "path": "tavern-plugin/lib/domain/card-reading.js",
@@ -218,6 +218,11 @@
       "size": 336
     },
     {
+      "path": "tavern-plugin/lib/domain/story-compaction.js",
+      "sha256": "8b6b8b4a1bb97fd812c5ac5bee165af9c0f1bba90d7dc954336a9d15af2b055b",
+      "size": 1162
+    },
+    {
       "path": "tavern-plugin/lib/domain/story-timeline.js",
       "sha256": "294dfdb6ce811893ab2d3f5e2a66a92748466452d2c220c834fe9c06af7c32e8",
       "size": 20026
@@ -274,8 +279,8 @@
     },
     {
       "path": "tavern-plugin/lib/index.js",
-      "sha256": "25f17455be9d6153a2ec2ff13c2d385e64d1bb290b51bae568e47da9d85f89d1",
-      "size": 154377
+      "sha256": "e2c2c8060589f01fbd0ebee7ac65eb4af1549c643ca0ec9f38534da701220643",
+      "size": 155217
     },
     {
       "path": "tavern-plugin/lib/profile-data-store.js",
@@ -284,8 +289,8 @@
     },
     {
       "path": "tavern-plugin/lib/prompt-catalog.js",
-      "sha256": "2b71b725c3f7f8c5f1f98e70f6ccf26bd568836ad083ac50c95d895342dfb64c",
-      "size": 827
+      "sha256": "869eccc17e82eaea2ce821fdddb0f1c39b1a45b335e89a208e3e89669ffb8374",
+      "size": 849
     },
     {
       "path": "tavern-plugin/lib/vendor/sillytavern-macros/constants.js",
@@ -426,6 +431,11 @@
       "path": "tavern-plugin/prompts/script-story.md",
       "sha256": "857c6a4aacba68f1a5a82147224937395bdf9cba1a3bc5ddedac22025ef0749a",
       "size": 447
+    },
+    {
+      "path": "tavern-plugin/prompts/story-compaction.md",
+      "sha256": "ad2d3dfb19cea33c643223b8f6867d7d28fec5f3ffb20632b44d563c50e8169a",
+      "size": 1745
     },
     {
       "path": "tavern-plugin/prompts/story.md",
