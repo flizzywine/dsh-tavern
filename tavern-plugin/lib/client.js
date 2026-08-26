@@ -2787,7 +2787,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 						return h("div", { className: "dsh-card-error", key: "presentation-warning-" + index }, warning);
 					}),
 					h("section", { className: "dsh-tavern-status-section" },
-						h("div", { className: "dsh-tavern-status-label" }, "感觉内容有问题？"),
+						h("div", { className: "dsh-tavern-status-label" }, "正则加载不对？前端美化不对？内容生成不对？"),
 						h("div", { className: "dsh-tavern-debug-panel" },
 							h("button", { className: "dsh-tavern-debug-open", disabled: debugBusy || !latestDebugTurn, onClick: openDebugger }, debugBusy ? "正在打开卡片 Agent…" : "交给卡片 Agent 调试")
 						)
