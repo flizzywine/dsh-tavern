@@ -30,6 +30,7 @@ import { applySillyTavernStrictTools } from './domain/sillytavern-strict-tools.j
 import { createEphemeralCompatibilityRequest, isCompatibilityConversationRequest } from './domain/compatibility-request.js'
 import { hasRollbackMessages, locateRollbackSurface } from './domain/rollback-surface.js'
 import { clearRuntimePresetBoundaryMessages, runtimePresetPhaseMessages } from './domain/runtime-preset-lifecycle.js'
+import { createTavernRetryLimiter } from './domain/tavern-retry-limiter.js'
 import {
   preserveRuntimeSource,
   projectAgentContent,
@@ -2569,6 +2570,13 @@ export async function apply(ctx) {
   const compatibilityModelRequests = new Map()
   const compatibilityRedispatches = new WeakSet()
   const storyCompactionRequests = new WeakSet()
+  const tavernRetryLimiter = createTavernRetryLimiter({
+    owns: async function (agent) {
+      const sessionId = agent && agent.session ? agent.session.id : ''
+      if (sessionId === '') return false
+      return backgroundAgentRunner.owns(sessionId) || await chatForSession(sessionId) !== undefined
+    }
+  })
 
   function clearRuntimePresetMessages(agent, fallback = {}) {
     const session = agent && agent.session
@@ -2601,6 +2609,8 @@ export async function apply(ctx) {
     if (sessionId !== '') requestCoordinates.set(sessionId, { turn: payload.turn, step: payload.step })
     return await next()
   })
+
+  ctx.on('agent/request-error', tavernRetryLimiter.handle, { prepend: true })
 
   ctx.on('agent/pre-step', async function (payload, next) {
     const sessionId = payload.agent && payload.agent.session ? payload.agent.session.id : ''
