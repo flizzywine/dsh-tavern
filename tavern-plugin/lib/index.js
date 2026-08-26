@@ -2570,6 +2570,16 @@ export async function apply(ctx) {
   const compatibilityRedispatches = new WeakSet()
   const storyCompactionRequests = new WeakSet()
 
+  function clearRuntimePresetMessages(agent, fallback = {}) {
+    const session = agent && agent.session
+    if (session === undefined) return 0
+    const sessionId = session.id
+    const coordinates = requestCoordinates.get(sessionId) || fallback
+    const cleared = clearRuntimePresetBoundaryMessages(session, coordinates)
+    requestCoordinates.delete(sessionId)
+    return cleared
+  }
+
   function compatibilityMessages(compiled) {
     return compiled.messages.map(function (item, index) {
       const label = str(item.source && (item.source.identifier || item.source.kind)) || 'message-' + (index + 1)
@@ -2650,6 +2660,12 @@ export async function apply(ctx) {
 
   ctx.on('llm/stream', function (options, next) {
     const sessionId = str(options && options.sessionId)
+    const coordinates = requestCoordinates.get(sessionId)
+    if (coordinates !== undefined) {
+      requestCoordinates.set(sessionId, Object.assign({}, coordinates, {
+        source: { kind: 'model', provider: str(options.provider), model: str(options.model) }
+      }))
+    }
     if (options !== null && typeof options === 'object' && options.purpose === 'compaction' && !storyCompactionRequests.has(options)) {
       const fallback = next()
       return (async function * () {
@@ -2668,7 +2684,6 @@ export async function apply(ctx) {
       })()
     }
     const stagedCompatibility = compatibilityModelRequests.get(sessionId)
-    const coordinates = requestCoordinates.get(sessionId)
     const shouldRedispatch = !compatibilityRedispatches.has(options) &&
       isCompatibilityConversationRequest(options, stagedCompatibility, coordinates)
     if (shouldRedispatch) {
@@ -2684,14 +2699,7 @@ export async function apply(ctx) {
       let requestRecord = null
       if (options.purpose === undefined && chat !== undefined && (chat.mode === 'story' || chat.mode === 'script')) {
         const coordinates = requestCoordinates.get(sessionId) || {}
-        const session = backgroundContext ? backgroundAgentRunner.requestSession(sessionId) : (agentRegistry.get(sessionId) && agentRegistry.get(sessionId).session)
-        try {
-          requestRecord = await modelRequestLog.record({ chat, context: backgroundContext, coordinates, options })
-        } finally {
-          if (session) clearRuntimePresetBoundaryMessages(session, Object.assign({}, coordinates, {
-            source: { kind: 'model', provider: str(options.provider), model: str(options.model) }
-          }))
-        }
+        requestRecord = await modelRequestLog.record({ chat, context: backgroundContext, coordinates, options })
       }
       let responseText = ''
       let finish = null
@@ -2720,6 +2728,7 @@ export async function apply(ctx) {
     const session = payload.agent && payload.agent.session
     if (session === undefined) return
     const sessionId = session.id
+    clearRuntimePresetMessages(payload.agent, { turn: payload.turn, step: 1 })
     if (backgroundAgentRunner.owns(sessionId)) return
     const userText = userTextForTurn(session, payload.turn)
     if (userText === '') return
@@ -2731,6 +2740,10 @@ export async function apply(ctx) {
       assistantText: assistant === null ? '' : assistant.text
     })
     if (saved.reply) replaceAssistantReply(session, assistant, saved.reply.sessionText)
+  })
+
+  ctx.on('agent/error', function (payload) {
+    clearRuntimePresetMessages(payload.agent, { turn: payload.turn, step: payload.step })
   })
 
   ctx.on('session/event', function (session, event) {
