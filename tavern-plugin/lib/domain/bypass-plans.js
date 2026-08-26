@@ -11,6 +11,13 @@ function clone(value) {
   return JSON.parse(JSON.stringify(value))
 }
 
+function normalizeCompatibleModels(value) {
+  const values = Array.isArray(value) ? value : []
+  return values.map(function (item) { return str(item).trim().slice(0, 160) }).filter(Boolean).filter(function (item, index, all) {
+    return all.findIndex(function (candidate) { return candidate.toLocaleLowerCase() === item.toLocaleLowerCase() }) === index
+  }).slice(0, 32)
+}
+
 function emptyState() {
   return { version: 1, activePlanId: '', plans: [], lastError: null, updatedAt: 0 }
 }
@@ -65,6 +72,7 @@ function normalizePlan(value) {
     },
     entries: (Array.isArray(plan.entries) ? plan.entries : []).map(normalizeEntry).filter(function (entry) { return entry.entryKey !== '' }),
     regexScripts: (Array.isArray(plan.regexScripts) ? plan.regexScripts : []).map(normalizeRegex).filter(function (script) { return script.regexKey !== '' }),
+    compatibleModels: normalizeCompatibleModels(plan.compatibleModels),
     compatibilitySettings: plan.compatibilitySettings && typeof plan.compatibilitySettings === 'object' && !Array.isArray(plan.compatibilitySettings) ? clone(plan.compatibilitySettings) : {},
     createdAt: Number(plan.createdAt) || 0,
     updatedAt: Number(plan.updatedAt) || 0
@@ -215,6 +223,7 @@ export function createBypassPlanModule(options = {}) {
       source: { presetName: str(preset.title), presetPath: path, presetDigest: digestOf(document) },
       entries,
       regexScripts,
+      compatibleModels: input.compatibleModels,
       compatibilitySettings: compatibilitySettings(document),
       createdAt: existing ? existing.createdAt : stamp,
       updatedAt: stamp
@@ -245,6 +254,7 @@ export function createBypassPlanModule(options = {}) {
       source: input.source,
       entries: input.entries,
       regexScripts: input.regexScripts,
+      compatibleModels: input.compatibleModels,
       compatibilitySettings: input.compatibilitySettings,
       createdAt: existing ? existing.createdAt : stamp,
       updatedAt: stamp
@@ -270,6 +280,7 @@ export function createBypassPlanModule(options = {}) {
         source: clone(plan.source),
         entries: clone(plan.entries),
         regexScripts: clone(plan.regexScripts),
+        compatibleModels: clone(plan.compatibleModels),
         compatibilitySettings: clone(plan.compatibilitySettings)
       }
     }
@@ -287,6 +298,7 @@ export function createBypassPlanModule(options = {}) {
       source: plan.source,
       entries: plan.entries,
       regexScripts: plan.regexScripts,
+      compatibleModels: plan.compatibleModels,
       compatibilitySettings: plan.compatibilitySettings
     })
   }
@@ -323,6 +335,17 @@ export function createBypassPlanModule(options = {}) {
       plan.updatedAt = now()
       return current
     })
+  }
+
+  async function setCompatibleModels({ id, compatibleModels }) {
+    await mutate(function (current) {
+      const plan = current.plans.find(function (item) { return item.id === id })
+      if (!plan) throw new Error('破限方案不存在：' + id)
+      plan.compatibleModels = normalizeCompatibleModels(compatibleModels)
+      plan.updatedAt = now()
+      return current
+    })
+    return await get(id)
   }
 
   async function rename(id, name) {
@@ -396,6 +419,7 @@ export function createBypassPlanModule(options = {}) {
     const result = {
       planId: plan.id,
       planName: plan.name,
+      compatibleModels: clone(plan.compatibleModels),
       front,
       middle,
       back,
@@ -414,5 +438,5 @@ export function createBypassPlanModule(options = {}) {
     return plan.regexScripts.filter(function (script) { return script.enabled && script.findRegex !== '' }).map(clone)
   }
 
-  return { state, list, get, extract, importPlan, exportPlan, importPackage, activate, toggleEntry, toggleRegex, rename, copy, remove, snapshot, regexScriptsFor }
+  return { state, list, get, extract, importPlan, exportPlan, importPackage, activate, toggleEntry, toggleRegex, setCompatibleModels, rename, copy, remove, snapshot, regexScriptsFor }
 }

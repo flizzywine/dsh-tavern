@@ -429,7 +429,8 @@ export async function apply(ctx) {
     listPresetPaths: async function () { return await fileResources.list('preset') },
     importPreset: async function (payload) { return await importPreset(payload) },
     listPlans: async function () { return await bypassPlans.list() },
-    importPlanPackage: async function (document) { return await bypassPlans.importPackage(document) }
+    importPlanPackage: async function (document) { return await bypassPlans.importPackage(document) },
+    setPlanCompatibleModels: async function (id, compatibleModels) { return await bypassPlans.setCompatibleModels({ id, compatibleModels }) }
   })
   async function migrateLegacyPresetPlans() {
     const target = await bypassPlans.state()
@@ -2130,7 +2131,8 @@ export async function apply(ctx) {
           name: args && args.name,
           sourcePresetPath: args && args.sourcePresetPath,
           entryKeys: args && args.entryKeys,
-          regexKeys: args && args.regexKeys
+          regexKeys: args && args.regexKeys,
+          compatibleModels: args && args.compatibleModels
         }) }
       }
       case 'activateBypassPlan': {
@@ -2159,6 +2161,7 @@ export async function apply(ctx) {
         await bypassPlans.toggleRegex({ id: args && args.id, regexKey: args && args.regexKey, enabled: args && args.enabled === true })
         return { plan: await bypassPlans.get(args && args.id) }
       }
+      case 'setBypassPlanCompatibleModels': return { plan: await bypassPlans.setCompatibleModels({ id: args && args.id, compatibleModels: args && args.compatibleModels }) }
       case 'renameBypassPlan': return { plan: await bypassPlans.rename(args && args.id, args && args.name) }
       case 'copyBypassPlan': return { plan: await bypassPlans.copy(args && args.id, args && args.name) }
       case 'deleteBypassPlan': {

@@ -22,7 +22,8 @@ function fixture(overrides = {}) {
     listPresetPaths: async function () { return presets },
     importPreset: async function (payload) { calls.push(['preset', payload]); presets.push('presets/' + payload.name) },
     listPlans: async function () { return plans },
-    importPlanPackage: async function (document) { calls.push(['plan', document]); plans.push({ name: document.plan.name }) }
+    importPlanPackage: async function (document) { calls.push(['plan', document]); plans.push({ id: 'plan-new', name: document.plan.name, compatibleModels: document.plan.compatibleModels || [] }) },
+    setPlanCompatibleModels: async function (id, compatibleModels) { calls.push(['models', id, compatibleModels]); const plan = plans.find(function (item) { return item.id === id }); if (plan) plan.compatibleModels = [...compatibleModels] }
   })
   return { installer, calls, marker: function () { return marker } }
 }
@@ -33,19 +34,28 @@ test('首次运行导入 Kemini 外部预设与对应破限方案，但不激活
   assert.deepEqual(result, { installed: true, preset: true, plan: true })
   assert.equal(setup.calls.filter(function (call) { return call[0] === 'preset' }).length, 1)
   assert.equal(setup.calls.filter(function (call) { return call[0] === 'plan' }).length, 1)
-  assert.deepEqual(setup.marker(), { version: 1 })
+  assert.deepEqual(setup.marker(), { version: 2 })
 })
 
 test('已有同名范例时不覆盖，只记录范例初始化完成', async function () {
-  const setup = fixture({ presets: ['presets/' + presetName], plans: [{ name: planName }] })
+  const setup = fixture({ presets: ['presets/' + presetName], plans: [{ id: 'plan-existing', name: planName, compatibleModels: ['gemini-3.7-flash'] }] })
   const result = await setup.installer.install()
   assert.deepEqual(result, { installed: true, preset: false, plan: false })
   assert.equal(setup.calls.some(function (call) { return call[0] === 'preset' || call[0] === 'plan' }), false)
-  assert.deepEqual(setup.marker(), { version: 1 })
+  assert.deepEqual(setup.marker(), { version: 2 })
+})
+
+test('升级时只给已有 Kemini 范例补充缺失的适配模型', async function () {
+  const setup = fixture({ marker: { version: 1 }, presets: ['presets/' + presetName], plans: [{ id: 'plan-existing', name: planName, compatibleModels: [] }] })
+  const result = await setup.installer.install()
+  assert.deepEqual(result, { installed: true, preset: false, plan: false })
+  assert.deepEqual(setup.calls.find(function (call) { return call[0] === 'models' }), ['models', 'plan-existing', ['gemini-3.7-flash']])
+  assert.equal(setup.calls.some(function (call) { return call[0] === 'preset' || call[0] === 'plan' }), false)
+  assert.deepEqual(setup.marker(), { version: 2 })
 })
 
 test('初始化标记存在后不再恢复被用户删除的范例', async function () {
-  const setup = fixture({ marker: { version: 1 } })
+  const setup = fixture({ marker: { version: 2 } })
   const result = await setup.installer.install()
   assert.deepEqual(result, { installed: false, preset: false, plan: false })
   assert.deepEqual(setup.calls, [])
@@ -63,6 +73,7 @@ test('仓库随附的 Kemini 预设与破限方案都是可读取的发布文件
   assert.equal(plan.schema, 'dsh-tavern/bypass-plan')
   assert.equal(plan.version, 1)
   assert.equal(plan.plan.name, planName)
+  assert.deepEqual(plan.plan.compatibleModels, ['gemini-3.7-flash'])
   assert.equal(plan.plan.entries.length, 12)
   assert.equal(plan.plan.regexScripts.length, 7)
 })

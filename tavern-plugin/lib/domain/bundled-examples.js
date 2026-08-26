@@ -1,4 +1,4 @@
-const BUNDLED_EXAMPLES_VERSION = 1
+const BUNDLED_EXAMPLES_VERSION = 2
 const PRESET_NAME = 'Kemini Dramatron 陨落的天才v1.26.json'
 const PRESET_PATH = 'presets/' + PRESET_NAME
 const PLAN_NAME = 'Kemini Dramatron 陨落的天才v1.26 · 破限方案'
@@ -16,6 +16,7 @@ export function createBundledExampleInstaller(options = {}) {
   const importPreset = required(options, 'importPreset')
   const listPlans = required(options, 'listPlans')
   const importPlanPackage = required(options, 'importPlanPackage')
+  const setPlanCompatibleModels = required(options, 'setPlanCompatibleModels')
 
   async function install() {
     const marker = await readMarker()
@@ -32,10 +33,13 @@ export function createBundledExampleInstaller(options = {}) {
     }
 
     const plans = await listPlans()
-    if (!plans.some(function (item) { return item && item.name === PLAN_NAME })) {
+    const existingPlan = plans.find(function (item) { return item && item.name === PLAN_NAME })
+    if (!existingPlan) {
       const document = JSON.parse(await readBundledText('bypass-plans/' + PLAN_NAME + '.json'))
       await importPlanPackage(document)
       plan = true
+    } else if (!Array.isArray(existingPlan.compatibleModels) || existingPlan.compatibleModels.length === 0) {
+      await setPlanCompatibleModels(existingPlan.id, ['gemini-3.7-flash'])
     }
 
     await writeMarker({ version: BUNDLED_EXAMPLES_VERSION })
@@ -44,4 +48,3 @@ export function createBundledExampleInstaller(options = {}) {
 
   return Object.freeze({ install })
 }
-

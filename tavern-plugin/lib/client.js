@@ -179,7 +179,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 .dsh-tavern-preset-row-head { display: flex; align-items: center; gap: 7px; }
 .dsh-tavern-preset-row-main { flex: 1; min-width: 0; padding: 0; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
 .dsh-tavern-preset-row-main b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
-.dsh-tavern-preset-row-main span { display: block; margin-top: 3px; color: var(--dsw-alias-label-secondary); font-size: 10px; }
+.dsh-tavern-preset-row-main span { display: block; margin-top: 3px; overflow: hidden; color: var(--dsw-alias-label-secondary); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .dsh-tavern-preset-detail { flex: 1; min-height: 0; overflow-y: auto; padding: 10px 12px 24px; }
 .dsh-tavern-preset-summary { margin-bottom: 10px; padding: 9px 10px; border: 1px solid rgba(166,107,53,.35); border-radius: 9px; background: rgba(166,107,53,.08); color: var(--dsw-alias-label-secondary); font-size: 11px; line-height: 1.5; }
 .dsh-tavern-external-preset-notice { padding: 14px 16px; font-size: 14px; line-height: 1.7; }
@@ -213,6 +213,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 .dsh-tavern-extract-state input[type="checkbox"] { width: 18px; height: 18px; margin: 0; accent-color: #23bd63; }
 .dsh-tavern-plan-name-field { display: grid; gap: 5px; margin-top: 8px; color: var(--dsw-alias-label-primary); font-size: 12px; font-weight: 650; }
 .dsh-tavern-plan-name-field input { box-sizing: border-box; width: 100%; min-width: 0; padding: 7px 9px; font: inherit; font-weight: 400; }
+.dsh-tavern-plan-model-editor { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 7px; }
+.dsh-tavern-plan-model-editor input { box-sizing: border-box; width: 100%; min-width: 0; padding: 7px 9px; font: inherit; font-weight: 400; }
 .dsh-tavern-prompt-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
 .dsh-tavern-prompt-tag { padding: 1px 5px; border-radius: 4px; background: rgba(237,151,20,.14); color: #c77800; font-size: 9px; }
 .dsh-tavern-prompt-content { margin: 0; padding: 10px 12px; border-top: 1px solid var(--dsw-alias-border-l2); color: var(--dsw-alias-label-secondary); font: 10px/1.55 ui-monospace, monospace; white-space: pre-wrap; word-break: break-word; }
@@ -1960,6 +1962,11 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 
 
 			function createExternalPresetAndBypassPlanFeatureModule() {
+			function compatibleModelsFromText(value) {
+				return String(value || "").split(/[,，\n]/).map(function (item) { return item.trim(); }).filter(Boolean).filter(function (item, index, all) {
+					return all.findIndex(function (candidate) { return candidate.toLocaleLowerCase() === item.toLocaleLowerCase(); }) === index;
+				});
+			}
 			function usePresetCatalog(sessionId, errorSink) {
 				const [catalog, setCatalog] = React.useState({ presets: [], bypassPlans: [], activePlanId: "", activePlanTitle: "" });
 				function refresh() {
@@ -1987,6 +1994,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				const [entryKeys, setEntryKeys] = React.useState([]);
 				const [regexKeys, setRegexKeys] = React.useState([]);
 				const [planName, setPlanName] = React.useState("");
+				const [compatibleModelsText, setCompatibleModelsText] = React.useState("");
 				const [busy, setBusy] = React.useState(false);
 				const importInput = React.useRef(null);
 				const h = React.createElement;
@@ -2027,7 +2035,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					const source = targetPreset || preset;
 					setEntryKeys([]);
 					setRegexKeys((source.extractableRegexScripts || []).map(function (script) { return script.regexKey; }));
-					setPlanName((source.title || "未命名") + " · 破限方案"); setExtracting(true); setError("");
+					setPlanName((source.title || "未命名") + " · 破限方案"); setCompatibleModelsText(""); setExtracting(true); setError("");
 				}
 				async function openExtraction(item) {
 					setBusy(true); setError("");
@@ -2046,7 +2054,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					if (!planName.trim()) { setError("请输入破限方案名称"); return; }
 					setBusy(true); setError("");
 					try {
-						await rpc("extractBypassPlan", { name: planName.trim(), sourcePresetPath: preset.path, entryKeys: entryKeys, regexKeys: regexKeys }, props.scope.sessionId);
+						await rpc("extractBypassPlan", { name: planName.trim(), sourcePresetPath: preset.path, entryKeys: entryKeys, regexKeys: regexKeys, compatibleModels: compatibleModelsFromText(compatibleModelsText) }, props.scope.sessionId);
 						setExtracting(false); await refresh(); window.dispatchEvent(new CustomEvent("dsh-tavern-data-changed"));
 					} catch (err) { setError(String(err && err.message || err)); } finally { setBusy(false); }
 				}
@@ -2071,7 +2079,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				if (preset) return h("div", { className: "dsh-tavern-presets" },
 					h("div", { className: "dsh-tavern-status-head" }, h("button", { className: "dsh-tavern-btn", onClick: function () { setPreset(null); setExtracting(false); } }, "← 返回外部预设库"), h("div", { className: "dsh-tavern-status-title" }, preset.title)),
 					h("div", { className: "dsh-tavern-preset-detail" }, error ? h("div", { className: "dsh-tavern-dock-error" }, error) : null,
-						extracting ? h("div", { className: "dsh-tavern-preset-summary" }, h("b", null, "选择需要的破限提示词"), h("p", null, "提示词默认不选；正则默认全部迁移并继承原启用状态。"), h("label", { className: "dsh-tavern-plan-name-field" }, h("span", null, "方案名称"), h("input", { value: planName, disabled: busy, onChange: function (event) { setPlanName(event.target.value); } }))) : h("div", { className: "dsh-tavern-preset-summary" }, "这是只读的外部预设。它不会直接进入模型请求，只能用于抽取破限方案。"),
+						extracting ? h("div", { className: "dsh-tavern-preset-summary" }, h("b", null, "选择需要的破限提示词"), h("p", null, "提示词默认不选；正则默认全部迁移并继承原启用状态。"), h("label", { className: "dsh-tavern-plan-name-field" }, h("span", null, "方案名称"), h("input", { value: planName, disabled: busy, onChange: function (event) { setPlanName(event.target.value); } })), h("label", { className: "dsh-tavern-plan-name-field" }, h("span", null, "适配模型（选填，多个模型用逗号分隔）"), h("input", { value: compatibleModelsText, disabled: busy, placeholder: "例如：gemini-3.7-flash, gemini-2.5-pro", onChange: function (event) { setCompatibleModelsText(event.target.value); } }))) : h("div", { className: "dsh-tavern-preset-summary" }, "这是只读的外部预设。它不会直接进入模型请求，只能用于抽取破限方案。"),
 						h("div", { className: "dsh-tavern-preset-section-title" }, "提示词条目 · " + (preset.entries || []).length), (preset.entries || []).map(function (entry) { return entryRow(entry, entry.injectable && !entry.marker); }),
 						h("div", { className: "dsh-tavern-preset-section-title" }, "正则脚本 · " + (preset.extractableRegexScripts || []).length), (preset.extractableRegexScripts || []).map(regexRow),
 						extracting ? h("div", { className: "dsh-tavern-prompt-editor-actions" }, h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { setExtracting(false); } }, "取消"), h("button", { className: "dsh-tavern-btn primary", disabled: busy, onClick: saveExtraction }, busy ? "正在保存…" : "保存到破限方案库")) : null));
@@ -2089,15 +2097,16 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				const [error, setError] = usePersistentError("破限方案库");
 				const [catalog, refresh] = usePresetCatalog(props.scope.sessionId, setError);
 				const [plan, setPlan] = React.useState(null);
+				const [compatibleModelsText, setCompatibleModelsText] = React.useState("");
 				const [busy, setBusy] = React.useState(false);
 				const importInput = React.useRef(null);
 				const h = React.createElement;
-				async function load(id) { setBusy(true); setError(""); try { const result = await rpc("getBypassPlan", { id: id }, props.scope.sessionId); setPlan(result.plan || null); } catch (err) { setError(String(err && err.message || err)); } finally { setBusy(false); } }
+				async function load(id) { setBusy(true); setError(""); try { const result = await rpc("getBypassPlan", { id: id }, props.scope.sessionId); const next = result.plan || null; setPlan(next); setCompatibleModelsText(next ? (next.compatibleModels || []).join(", ") : ""); } catch (err) { setError(String(err && err.message || err)); } finally { setBusy(false); } }
 				async function importFile(file) {
 					if (!file) return; setBusy(true); setError("");
 					try {
 						const result = await rpc("importBypassPlan", { payload: await parseTextResourceFile(file) }, props.scope.sessionId);
-						await refresh(); setPlan(result.plan || null); window.dispatchEvent(new CustomEvent("dsh-tavern-data-changed"));
+						await refresh(); setPlan(result.plan || null); setCompatibleModelsText(result.plan ? (result.plan.compatibleModels || []).join(", ") : ""); window.dispatchEvent(new CustomEvent("dsh-tavern-data-changed"));
 					} catch (err) { setError(String(err && err.message || err)); } finally { setBusy(false); }
 				}
 				async function exportFile(item) {
@@ -2111,9 +2120,11 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				async function activate(id) { setBusy(true); setError(""); try { await rpc("activateBypassPlan", { id: id }, props.scope.sessionId); await refresh(); window.dispatchEvent(new CustomEvent("dsh-tavern-data-changed")); } catch (err) { setError(String(err && err.message || err)); } finally { setBusy(false); } }
 				async function toggleEntry(entry, enabled) { setBusy(true); setError(""); try { const result = await rpc("toggleBypassPlanEntry", { id: plan.id, entryKey: entry.entryKey, enabled: enabled }, props.scope.sessionId); setPlan(result.plan); await refresh(); } catch (err) { setError(String(err && err.message || err)); } finally { setBusy(false); } }
 				async function toggleRegex(script, enabled) { setBusy(true); setError(""); try { const result = await rpc("toggleBypassPlanRegex", { id: plan.id, regexKey: script.regexKey, enabled: enabled }, props.scope.sessionId); setPlan(result.plan); await refresh(); window.dispatchEvent(new CustomEvent("dsh-tavern-data-changed")); } catch (err) { setError(String(err && err.message || err)); } finally { setBusy(false); } }
+				async function saveCompatibleModels() { setBusy(true); setError(""); try { const result = await rpc("setBypassPlanCompatibleModels", { id: plan.id, compatibleModels: compatibleModelsFromText(compatibleModelsText) }, props.scope.sessionId); setPlan(result.plan); setCompatibleModelsText((result.plan.compatibleModels || []).join(", ")); await refresh(); } catch (err) { setError(String(err && err.message || err)); } finally { setBusy(false); } }
 				async function rename() { const name = window.prompt("重命名破限方案", plan.name); if (name === null || !name.trim() || name.trim() === plan.name) return; setBusy(true); try { const result = await rpc("renameBypassPlan", { id: plan.id, name: name.trim() }, props.scope.sessionId); setPlan(result.plan); await refresh(); } catch (err) { setError(String(err && err.message || err)); } finally { setBusy(false); } }
 				async function copy() { const name = window.prompt("复制破限方案", plan.name + " 副本"); if (name === null || !name.trim()) return; setBusy(true); try { await rpc("copyBypassPlan", { id: plan.id, name: name.trim() }, props.scope.sessionId); await refresh(); } catch (err) { setError(String(err && err.message || err)); } finally { setBusy(false); } }
-				async function remove() { if (!window.confirm("删除破限方案“" + plan.name + "”吗？")) return; setBusy(true); try { await rpc("deleteBypassPlan", { id: plan.id }, props.scope.sessionId); setPlan(null); await refresh(); window.dispatchEvent(new CustomEvent("dsh-tavern-data-changed")); } catch (err) { setError(String(err && err.message || err)); } finally { setBusy(false); } }
+				async function remove() { if (!window.confirm("删除破限方案“" + plan.name + "”吗？")) return; setBusy(true); try { await rpc("deleteBypassPlan", { id: plan.id }, props.scope.sessionId); setPlan(null); setCompatibleModelsText(""); await refresh(); window.dispatchEvent(new CustomEvent("dsh-tavern-data-changed")); } catch (err) { setError(String(err && err.message || err)); } finally { setBusy(false); } }
+				function modelSummary(item) { const models = item && Array.isArray(item.compatibleModels) ? item.compatibleModels : []; return models.length ? "适配 " + models.join("、") : "适配模型未标注"; }
 				function planEntryRow(entry) {
 					const state = h("label", { className: "dsh-tavern-prompt-state " + (entry.enabled ? "on" : "off"), onClick: function (event) { event.stopPropagation(); } }, h("input", { type: "checkbox", checked: entry.enabled === true, disabled: busy, onChange: function (event) { toggleEntry(entry, event.target.checked); } }), entry.enabled ? "开启" : "关闭");
 					return h("details", { key: entry.entryKey, className: "dsh-tavern-prompt-row role-" + entry.role }, h("summary", { className: "dsh-tavern-prompt-head" }, h("span", { className: "dsh-tavern-prompt-role" }, entry.role.toUpperCase()), h("span", { className: "dsh-tavern-prompt-title" }, h("b", null, entry.name), h("span", null, String(entry.content || "").replace(/\s+/g, " ").trim())), state), h("pre", { className: "dsh-tavern-prompt-content" }, entry.content || "（空）"));
@@ -2126,12 +2137,12 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					h("div", { className: "dsh-tavern-status-head dsh-tavern-plan-head" },
 						h("div", { className: "dsh-tavern-plan-head-main" }, h("button", { className: "dsh-tavern-btn", onClick: function () { setPlan(null); } }, "← 返回"), h("div", { className: "dsh-tavern-status-title" }, plan.name)),
 						h("div", { className: "dsh-tavern-plan-head-actions" }, h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { exportFile(plan); } }, "导出"), h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: rename }, "重命名"), h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: copy }, "复制"), h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: remove }, "删除"))),
-					h("div", { className: "dsh-tavern-preset-detail" }, error ? h("div", { className: "dsh-tavern-dock-error" }, error) : null, h("div", { className: "dsh-tavern-preset-summary" }, "来源：" + (plan.source && plan.source.presetName || "未知") + "（仅用于追溯；删除来源不影响本方案）"),
+					h("div", { className: "dsh-tavern-preset-detail" }, error ? h("div", { className: "dsh-tavern-dock-error" }, error) : null, h("div", { className: "dsh-tavern-preset-summary" }, h("div", null, "来源：" + (plan.source && plan.source.presetName || "未知") + "（仅用于追溯；删除来源不影响本方案）"), h("label", { className: "dsh-tavern-plan-name-field" }, h("span", null, "适配模型（选填，多个模型用逗号分隔）"), h("div", { className: "dsh-tavern-plan-model-editor" }, h("input", { value: compatibleModelsText, disabled: busy, placeholder: "例如：gemini-3.7-flash, gemini-2.5-pro", onChange: function (event) { setCompatibleModelsText(event.target.value); } }), h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: saveCompatibleModels }, "保存")))),
 						h("div", { className: "dsh-tavern-preset-section-title" }, "提示词 · " + (plan.entries || []).filter(function (entry) { return !entry.systemManaged; }).length), (plan.entries || []).filter(function (entry) { return !entry.systemManaged; }).map(planEntryRow),
 						h("div", { className: "dsh-tavern-preset-section-title" }, "正则 · " + (plan.regexScripts || []).length), (plan.regexScripts || []).map(planRegexRow)));
 				return h("div", { className: "dsh-tavern-presets" },
 					h("div", { className: "dsh-tavern-status-head" }, h("div", { className: "dsh-tavern-status-title" }, "破限方案库"), h("div", { className: "dsh-tavern-question-sub" }, "管理从外部预设中抽取的可运行方案"), h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { importInput.current && importInput.current.click(); } }, "导入破限方案"), h("input", { ref: importInput, type: "file", accept: ".json,application/json", style: { display: "none" }, onChange: function (event) { const file = event.target.files && event.target.files[0]; importFile(file); event.target.value = ""; } })),
-					h("div", { className: "dsh-tavern-preset-list" }, error ? h("div", { className: "dsh-tavern-dock-error" }, error) : null, h("label", { className: "dsh-tavern-preset-selector" }, h("b", null, "当前激活方案"), h("select", { value: catalog.activePlanId, disabled: busy, onChange: function (event) { activate(event.target.value); } }, h("option", { value: "" }, "不使用破限方案"), catalog.bypassPlans.map(function (item) { return h("option", { key: item.id, value: item.id }, item.name); }))), h("div", { className: "dsh-tavern-preset-summary dsh-tavern-bypass-plan-notice" }, h("strong", null, "破限方案对 Tavern 全局生效"), h("p", null, "切换后，下一次请求会立即用于", h("strong", null, "游玩前台、游玩后台和卡片 Agent"), "。"), h("p", { className: "dsh-tavern-preset-warning" }, h("strong", null, "建议尽量减少条目注入"), "。只保留破限必需内容，过多或无关条目可能干扰 DSH Tavern，产生意外行为。")), catalog.bypassPlans.length ? catalog.bypassPlans.map(function (item) { return h("div", { key: item.id, className: "dsh-tavern-preset-row" }, h("div", { className: "dsh-tavern-preset-row-head" }, h("button", { className: "dsh-tavern-preset-row-main", onClick: function () { load(item.id); } }, h("b", null, (item.active ? "✓ " : "") + item.name), h("span", null, item.enabledCount + " 个提示词 · " + item.enabledRegexCount + " 条启用正则 · 来源 " + (item.source && item.source.presetName || "未知"))))); }) : h("div", { className: "dsh-tavern-status-empty" }, "还没有破限方案。请先从外部预设库抽取。")));
+					h("div", { className: "dsh-tavern-preset-list" }, error ? h("div", { className: "dsh-tavern-dock-error" }, error) : null, h("label", { className: "dsh-tavern-preset-selector" }, h("b", null, "当前激活方案"), h("select", { value: catalog.activePlanId, disabled: busy, onChange: function (event) { activate(event.target.value); } }, h("option", { value: "" }, "不使用破限方案"), catalog.bypassPlans.map(function (item) { return h("option", { key: item.id, value: item.id }, item.name); }))), h("div", { className: "dsh-tavern-preset-summary dsh-tavern-bypass-plan-notice" }, h("strong", null, "破限方案对 Tavern 全局生效"), h("p", null, "切换后，下一次请求会立即用于", h("strong", null, "游玩前台、游玩后台和卡片 Agent"), "。"), h("p", { className: "dsh-tavern-preset-warning" }, h("strong", null, "建议尽量减少条目注入"), "。只保留破限必需内容，过多或无关条目可能干扰 DSH Tavern，产生意外行为。")), catalog.bypassPlans.length ? catalog.bypassPlans.map(function (item) { return h("div", { key: item.id, className: "dsh-tavern-preset-row" }, h("div", { className: "dsh-tavern-preset-row-head" }, h("button", { className: "dsh-tavern-preset-row-main", onClick: function () { load(item.id); } }, h("b", null, (item.active ? "✓ " : "") + item.name), h("span", { title: modelSummary(item) }, item.enabledCount + " 个提示词 · " + item.enabledRegexCount + " 条启用正则 · " + modelSummary(item) + " · 来源 " + (item.source && item.source.presetName || "未知"))))); }) : h("div", { className: "dsh-tavern-status-empty" }, "还没有破限方案。请先从外部预设库抽取。")));
 			}
 
 			function register(input) {

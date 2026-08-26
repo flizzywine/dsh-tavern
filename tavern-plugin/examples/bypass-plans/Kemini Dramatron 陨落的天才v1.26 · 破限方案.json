@@ -343,6 +343,9 @@
         "regexKey": "589faae2-d5fb-4c21-9618-0d5605763b5f#1"
       }
     ],
+    "compatibleModels": [
+      "gemini-3.7-flash"
+    ],
     "compatibilitySettings": {
       "personality_format": "[{{char}}'s personality: {{personality}}]",
       "scenario_format": "[Circumstances and context of the dialogue: {{scenario}}]",

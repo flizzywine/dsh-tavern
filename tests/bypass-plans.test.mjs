@@ -54,7 +54,7 @@ function harness() {
 
 test('从外部预设抽取自包含方案，正则默认完整迁移并继承原状态', async function () {
   const value = harness()
-  const plan = await value.module.extract({ sourcePresetPath: 'presets/demo.json', name: '演示破限', entryKeys: ['main#1'] })
+  const plan = await value.module.extract({ sourcePresetPath: 'presets/demo.json', name: '演示破限', entryKeys: ['main#1'], compatibleModels: [' gemini-3.7-flash ', 'GEMINI-3.7-FLASH', 'gemini-2.5-pro'] })
 
   assert.equal(plan.name, '演示破限')
   assert.deepEqual(plan.entries.map(function (entry) { return [entry.entryKey, entry.enabled, entry.systemManaged, entry.phase] }), [
@@ -66,6 +66,7 @@ test('从外部预设抽取自包含方案，正则默认完整迁移并继承�
     ['hidden#1', false]
   ])
   assert.deepEqual(plan.compatibilitySettings, { personality_format: '性格：{{personality}}' })
+  assert.deepEqual(plan.compatibleModels, ['gemini-3.7-flash', 'gemini-2.5-pro'])
   assert.equal(plan.enabledCount, 1)
   assert.equal(plan.enabledRegexCount, 1)
 })
@@ -95,6 +96,16 @@ test('方案条目和正则可以独立开关，来源预设不被修改', async
   assert.equal(snapshot.back.text, '')
   assert.deepEqual(snapshot.regexScripts.map(function (script) { return script.regexKey }), ['panel#1', 'hidden#1'])
   assert.equal(value.presets.get('presets/demo.json').entries[2].enabled, false)
+})
+
+test('适配模型可以选填多个，只作为方案元数据保存', async function () {
+  const value = harness()
+  const plan = await value.module.extract({ sourcePresetPath: 'presets/demo.json', name: '模型说明', entryKeys: ['main#1'] })
+  assert.deepEqual(plan.compatibleModels, [])
+
+  const updated = await value.module.setCompatibleModels({ id: plan.id, compatibleModels: ['gemini-3.7-flash', '', ' claude-sonnet-4 '] })
+  assert.deepEqual(updated.compatibleModels, ['gemini-3.7-flash', 'claude-sonnet-4'])
+  assert.deepEqual((await value.module.snapshot(plan.id)).compatibleModels, updated.compatibleModels)
 })
 
 test('删除激活方案会恢复为不使用破限方案', async function () {
@@ -130,14 +141,18 @@ test('导出的破限方案可以脱离来源重新导入，且不会携带内�
   assert.equal(exported.schema, 'dsh-tavern/bypass-plan')
   assert.equal(exported.version, 1)
   assert.equal(exported.plan.name, '可分享方案')
+  await source.module.setCompatibleModels({ id: original.id, compatibleModels: ['gemini-3.7-flash'] })
+  const exportedWithModels = await source.module.exportPlan(original.id)
+  assert.deepEqual(exportedWithModels.plan.compatibleModels, ['gemini-3.7-flash'])
   assert.equal(Object.hasOwn(exported.plan, 'id'), false)
   assert.equal(Object.hasOwn(exported, 'activePlanId'), false)
 
   const target = harness()
   target.presets.clear(); target.documents.clear()
-  const imported = await target.module.importPackage(exported)
+  const imported = await target.module.importPackage(exportedWithModels)
   assert.notEqual(imported.id, original.id)
   assert.equal(imported.name, original.name)
+  assert.deepEqual(imported.compatibleModels, ['gemini-3.7-flash'])
   assert.equal(imported.entries.length, original.entries.length)
   assert.deepEqual(imported.regexScripts.map(function (script) { return [script.regexKey, script.enabled] }), [
     ['panel#1', true],
