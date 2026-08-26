@@ -31,6 +31,7 @@ import {
 import { createScriptContinuity } from './domain/script-continuity.js'
 import { filterSkillMessages } from './domain/skill-visibility.js'
 import { createStoryTimeline } from './domain/story-timeline.js'
+import { createStoryCompactionRequest, usesStoryCompaction } from './domain/story-compaction.js'
 import { resolveTavernDataRoot } from './domain/tavern-data.js'
 import { createTavernSkillModule } from './domain/tavern-skills.js'
 import { createTavernConversationRegistry } from './domain/tavern-conversation-registry.js'
@@ -2286,6 +2287,27 @@ export async function apply(ctx) {
   }
 
   // ---------- DSH 回合生命周期 ----------
+  const storyCompactionRequests = new WeakSet()
+
+  ctx.on('llm/stream', function (options, next) {
+    if (options === null || typeof options !== 'object' || options.purpose !== 'compaction' || storyCompactionRequests.has(options)) return next()
+    const fallback = next()
+    return (async function * () {
+      const chat = await chatForSession(str(options.sessionId))
+      if (!usesStoryCompaction(chat)) {
+        yield * fallback
+        return
+      }
+      const request = createStoryCompactionRequest(options, prompt('story-compaction'))
+      if (request === options) {
+        yield * fallback
+        return
+      }
+      storyCompactionRequests.add(request)
+      yield * ctx.llm.stream(request)
+    })()
+  }, { global: true })
+
   ctx.on('agent/pre-step', async function (payload, next) {
     const sessionId = payload.agent && payload.agent.session ? payload.agent.session.id : ''
     if (backgroundAgentRunner.owns(sessionId)) return next()

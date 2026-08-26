@@ -10,7 +10,7 @@
 ## 设计与决策
 
 - [`adr/`](adr/)：已经接受的关键架构决策。
-- [`design/`](design/)：剧情时间线、剧本游标、状态栏、文风 Skill、[世界书召回](design/worldbook-recall.md)、[运行时预设](design/preset-library.md)、[正则三层语义备忘](design/regex-three-layer.md)、[DSH 对话内 HTML](design/html-in-dsh-messages.md)、[助手正文投影与内联 HTML 改造](design/inline-message-renderer-refactor.md)、[高 ROI 酒馆兼容功能](design/high-roi-sillytavern-compatibility.md)和[SillyTavern 生态翻译](design/sillytavern-translation.md)设计。
+- [`design/`](design/)：剧情时间线、剧本游标、状态栏、文风 Skill、[世界书召回](design/worldbook-recall.md)、[运行时预设](design/preset-library.md)、[单会话可追溯压缩](design/context-compaction-drilldown.md)、[正则三层语义备忘](design/regex-three-layer.md)、[DSH 对话内 HTML](design/html-in-dsh-messages.md)、[助手正文投影与内联 HTML 改造](design/inline-message-renderer-refactor.md)、[高 ROI 酒馆兼容功能](design/high-roi-sillytavern-compatibility.md)和[SillyTavern 生态翻译](design/sillytavern-translation.md)设计。
 - [`specs/`](specs/)：产品规格，包括[卡片工作台](specs/card-workbench.md)以及[候选项容错与用户配置保留需求](specs/candidate-tolerance-and-user-config.md)。
 - [`reviews/`](reviews/)：历史审查及实施记录，不作为当前架构入口。
 - [`research/`](research/)：外部项目与兼容机制研究。统一入口见[参考项目库](research/reference-projects.md)，已有专题包括[酒馆正则如何把 `【首页】` 变成可交互卡片](research/sillytavern-regex-rendering-memo.md)、[梨园架构研究与借鉴范围](research/liyuan-architecture-reference.md)和[dsh-visualize HTML 嵌入机制](research/dsh-visualize-html-embedding.md)。研究文档通常只提供证据；其中正则渲染备忘已由对应设计明确采纳为兼容基线。
