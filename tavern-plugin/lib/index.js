@@ -5,6 +5,7 @@ import { createApplicationUpdater } from './application-updater.js'
 import { createCandidateGenerator } from './domain/candidate-generation.js'
 import { waitForWritableSession } from './domain/agent-readiness.js'
 import { createCardDeletion } from './domain/card-deletion.js'
+import { createBypassPlanModule } from './domain/bypass-plans.js'
 import { createCardPreparation } from './domain/card-preparation.js'
 import { cardOpeningChoices, resolveCardOpening } from './domain/card-openings.js'
 import { READABLE_CARD_FIELDS, readCardField } from './domain/card-reading.js'
@@ -376,6 +377,23 @@ export async function apply(ctx) {
       conversionDiagnostics: conversion && conversion.diagnostics || []
     }, inspected)
   }
+  async function readPresetDocument(presetPath) {
+    const normalized = normalizeResourcePath(presetPath, 'preset')
+    const text = await fileResources.readText(normalized)
+    if (text === undefined) return undefined
+    try { return JSON.parse(text) } catch { return undefined }
+  }
+  function runtimeRegexScriptsOf(preset, document) {
+    const nativeScripts = nativeRegexScriptsOf(document)
+    const source = nativeScripts.length > 0 ? nativeScripts : (Array.isArray(preset && preset.regexScripts) ? preset.regexScripts : [])
+    const occurrences = new Map()
+    return source.map(function (script, index) {
+      const identifier = str(script.id) || 'regex-' + (index + 1)
+      const occurrence = (occurrences.get(identifier) || 0) + 1
+      occurrences.set(identifier, occurrence)
+      return Object.assign({}, script, { regexKey: identifier + '#' + occurrence })
+    })
+  }
   async function previewPreset(presetPath, orderGroupIndex) {
     const normalized = normalizeResourcePath(presetPath, 'preset')
     const text = await fileResources.readText(normalized)
@@ -394,25 +412,103 @@ export async function apply(ctx) {
     updateState: async function (updater) { return await profileData.updateJson('runtime-presets.json', updater) },
     now: Date.now
   })
+  const bypassPlans = createBypassPlanModule({
+    readPreset,
+    readPresetDocument,
+    runtimeRegexScripts: runtimeRegexScriptsOf,
+    readState: async function () { return await readJson('bypass-plans.json') },
+    updateState: async function (updater) { return await profileData.updateJson('bypass-plans.json', updater) },
+    now: Date.now
+  })
+  async function migrateLegacyPresetPlans() {
+    const target = await bypassPlans.state()
+    if (target.plans.length > 0) return
+    const legacy = await runtimePresets.state()
+    const candidates = (legacy.plans || []).map(function (plan) {
+      return { name: plan.name, path: plan.presetPath, entryKeys: plan.entryKeys || [], regexKeys: plan.regexKeys || [] }
+    })
+    if (legacy.activePreset && !candidates.some(function (item) { return item.path === legacy.activePreset })) {
+      candidates.push({
+        name: (legacy.activePreset.split('/').pop() || '外部预设').replace(/\.json$/i, '') + ' · 迁移方案',
+        path: legacy.activePreset,
+        entryKeys: Object.keys(legacy.entries[legacy.activePreset] || {}),
+        regexKeys: Object.keys(legacy.regexes[legacy.activePreset] || {})
+      })
+    }
+    for (const candidate of candidates) {
+      try {
+        const preset = await readPreset(candidate.path)
+        const document = await readPresetDocument(candidate.path)
+        if (!preset || !document) continue
+        const availableRegexes = new Set(runtimeRegexScriptsOf(preset, document).map(function (script) { return script.regexKey }))
+        const regexKeys = candidate.regexKeys.filter(function (key) { return availableRegexes.has(key) })
+        await bypassPlans.extract({
+          name: candidate.name,
+          sourcePresetPath: candidate.path,
+          entryKeys: candidate.entryKeys,
+          regexKeys
+        })
+      } catch (error) {
+        console.warn('dsh-tavern: 旧预设方案迁移失败', candidate.path, error)
+      }
+    }
+  }
+
+  async function migrateLegacyChatPreset(chat) {
+    if (!chat || str(chat.bypassPlanId) !== '') return false
+    const path = str(chat.runtimePresetPath) || str(chat.runtimePresetSnapshot && chat.runtimePresetSnapshot.presetPath)
+    if (path === '') return false
+    const snapshot = chat.runtimePresetSnapshot && typeof chat.runtimePresetSnapshot === 'object' ? chat.runtimePresetSnapshot : {}
+    const selectedKeys = Array.from(new Set((snapshot.sources || []).map(function (source) { return str(source && source.entryKey) }).filter(Boolean)))
+    let plan = null
+    const existingPlans = await bypassPlans.list()
+    plan = existingPlans.find(function (item) {
+      if (str(item.source && item.source.presetPath) !== path) return false
+      const keys = item.entries.filter(function (entry) { return entry.enabled && !entry.systemManaged }).map(function (entry) { return entry.entryKey })
+      return JSON.stringify(keys.slice().sort()) === JSON.stringify(selectedKeys.slice().sort())
+    }) || null
+    if (plan === null) {
+      const name = '旧对话 · ' + (str(chat.cardName) || '未命名') + ' · ' + str(chat.id).slice(-6)
+      const preset = await readPreset(path)
+      const document = await readPresetDocument(path)
+      if (preset && document) {
+        const selectedRegexKeys = Array.from(new Set((snapshot.regexSources || []).map(function (source) { return str(source && source.regexKey) }).filter(Boolean)))
+        plan = await bypassPlans.extract({ name, sourcePresetPath: path, entryKeys: selectedKeys, regexKeys: selectedRegexKeys })
+      } else {
+        const entries = []
+        for (const phase of ['front', 'middle', 'back']) {
+          for (const entry of (snapshot[phase] && snapshot[phase].entries || [])) {
+            entries.push(Object.assign({}, entry, {
+              entryKey: str(entry.id || entry.entryKey), identifier: str(entry.source && entry.source.identifier),
+              enabled: true, injectable: str(entry.content).trim() !== '', phase
+            }))
+          }
+        }
+        plan = await bypassPlans.importPlan({
+          name,
+          source: { presetName: (path.split('/').pop() || path).replace(/\.json$/i, ''), presetPath: path, presetDigest: '' },
+          entries,
+          regexScripts: snapshot.regexScripts || [],
+          compatibilitySettings: {}
+        })
+      }
+    }
+    chat.bypassPlanId = plan.id
+    chat.runtimePresetPath = ''
+    chat.runtimePresetSnapshot = await bypassPlans.snapshot(plan.id)
+    return true
+  }
   async function listPresets() {
     const result = []
     const inspectedPresets = []
     for (const presetPath of await fileResources.list('preset')) {
       const inspected = await readPreset(presetPath)
-      if (inspected.valid && (inspected.recognized || inspected.regexCount > 0)) await runtimePresets.register(presetPath)
       inspectedPresets.push({ path: presetPath, inspected })
     }
-    const runtimeState = await runtimePresets.state()
-    const order = new Map(runtimeState.presetOrder.map(function (path, index) { return [path, index] }))
-    inspectedPresets.sort(function (left, right) {
-      const leftOrder = order.has(left.path) ? order.get(left.path) : Number.MAX_SAFE_INTEGER
-      const rightOrder = order.has(right.path) ? order.get(right.path) : Number.MAX_SAFE_INTEGER
-      return leftOrder - rightOrder
-    })
     for (const record of inspectedPresets) {
       const presetPath = record.path
       const inspected = record.inspected
-      const preset = inspected.valid && (inspected.recognized || inspected.regexCount > 0) ? await runtimePresets.view(presetPath) : inspected
+      const preset = inspected
       result.push({
         path: preset.path,
         previewPath: preset.previewPath,
@@ -420,9 +516,7 @@ export async function apply(ctx) {
         valid: preset.valid,
         recognized: preset.recognized,
         promptCount: preset.promptCount,
-        includedCount: preset.includedCount || 0,
         enabledCount: preset.enabledCount || 0,
-        enabledCharacters: preset.enabledCharacters || 0,
         regexCount: preset.regexCount,
         enabledRegexCount: preset.enabledRegexCount || 0,
         warning: preset.warning,
@@ -436,8 +530,7 @@ export async function apply(ctx) {
     const inspected = inspectPreset(prepared.text, prepared.name)
     if (!inspected.valid) throw new Error(inspected.error)
     const presetPath = await fileResources.importText('preset', prepared)
-    if (inspected.recognized || inspected.regexCount > 0) await runtimePresets.register(presetPath)
-    return inspected.recognized || inspected.regexCount > 0 ? await runtimePresets.view(presetPath) : await readPreset(presetPath)
+    return await readPreset(presetPath)
   }
   async function renameResource(resourcePath, name) {
     const oldPath = normalizeResourcePath(resourcePath)
@@ -771,6 +864,7 @@ export async function apply(ctx) {
       posture: '',
       sessionId: '',
       guides: [],
+      bypassPlanId: '',
       runtimePresetSnapshot: null,
       cardContextSnapshot: '',
       cardContextSnapshotVersion: 0,
@@ -818,10 +912,7 @@ export async function apply(ctx) {
     let replyDisplay = { projections: replyProjectionsOf(chat), presentation: null, latestSourceBacked: false }
     if ((chat.mode || 'story') === 'story' || (chat.mode || 'story') === 'script') {
       const extensions = await readCardExtensions(chat.cardPath)
-      const reference = Object.assign({}, chat.runtimePresetSnapshot || {}, {
-        presetPath: str(chat.runtimePresetPath) || str(chat.runtimePresetSnapshot && chat.runtimePresetSnapshot.presetPath)
-      })
-      const presetRegexScripts = await runtimePresets.regexScriptsFor(reference)
+      const presetRegexScripts = str(chat.bypassPlanId) === '' ? [] : await bypassPlans.regexScriptsFor(chat.bypassPlanId)
       replyDisplay = projectRuntimeReplyHistory(chat.messages, {
         regexScripts: (Array.isArray(extensions && extensions.regexScripts) ? extensions.regexScripts : []).concat(presetRegexScripts),
         placement: 2,
@@ -846,17 +937,17 @@ export async function apply(ctx) {
       const input = runtimeInputs[turn]
       inputSources[turn] = str(input && input.source)
     }
-    const runtimePresetPath = str(chat.runtimePresetPath) || str(chat.runtimePresetSnapshot && chat.runtimePresetSnapshot.presetPath)
-    const runtimePresetFile = runtimePresetPath.split('/').pop() || ''
+    let bypassPlan = null
+    if (str(chat.bypassPlanId) !== '') {
+      try { bypassPlan = await bypassPlans.get(chat.bypassPlanId) } catch {}
+    }
     return {
       chatId: chat.id,
       mode: chat.mode || 'story',
       requestMode: chat.requestMode === 'sillytavern' ? 'sillytavern' : 'dsh',
       playerName: str(chat.macroState && chat.macroState.userName).trim() || '你',
-      runtimePreset: runtimePresetPath === '' ? null : {
-        path: runtimePresetPath,
-        name: runtimePresetFile.replace(/\.json$/i, '') || runtimePresetPath
-      },
+      bypassPlan: bypassPlan === null ? null : { id: bypassPlan.id, name: bypassPlan.name },
+      runtimePreset: bypassPlan === null ? null : { id: bypassPlan.id, name: bypassPlan.name },
       card: cardViewOf(card, chat),
       posture: chat.posture || '',
       guides: Array.isArray(chat.guides) ? chat.guides : [],
@@ -946,7 +1037,8 @@ export async function apply(ctx) {
       }
     }
     const macroState = { userName: str(userName).trim().slice(0, 80) || '你', local: {}, global: {} }
-    const rawRuntimePresetSnapshot = groupOfMode(chatMode) === 'play' ? await runtimePresets.snapshot() : null
+    const bypassState = groupOfMode(chatMode) === 'play' ? await bypassPlans.state() : { activePlanId: '' }
+    const rawRuntimePresetSnapshot = groupOfMode(chatMode) === 'play' ? await bypassPlans.snapshot(bypassState.activePlanId) : null
     const resolvedRuntimePreset = resolveRuntimePresetMacros(rawRuntimePresetSnapshot, {
       charName: str(card && card.name),
       macroState
@@ -957,13 +1049,8 @@ export async function apply(ctx) {
     macroState.global = resolvedRuntimePreset.macroState.global
     const openingSourceText = chatMode === 'card' ? prompt('card-mode-greeting') : resolveCardOpening(card, openingId)
     const openingExtensions = chatMode === 'card' ? null : await readCardExtensions(cardPath)
-    const compatibilityPreset = effectiveRequestMode === 'sillytavern' && runtimePresetSnapshot && runtimePresetSnapshot.presetPath
-      ? await readPreset(runtimePresetSnapshot.presetPath)
-      : null
     const openingRegexScripts = (Array.isArray(openingExtensions && openingExtensions.regexScripts) ? openingExtensions.regexScripts : []).concat(
-      compatibilityPreset
-        ? (compatibilityPreset.regexScripts || []).filter(function (script) { return script.enabled !== false })
-        : (Array.isArray(runtimePresetSnapshot && runtimePresetSnapshot.regexScripts) ? runtimePresetSnapshot.regexScripts : [])
+      Array.isArray(runtimePresetSnapshot && runtimePresetSnapshot.regexScripts) ? runtimePresetSnapshot.regexScripts : []
     )
     const openingProjection = chatMode === 'card'
       ? { agentText: openingSourceText, renderedText: openingSourceText, sessionText: openingSourceText, displayText: openingSourceText, displayMode: 'markdown', displayParts: [{ kind: 'markdown', text: openingSourceText }], warnings: [], macroState }
@@ -983,8 +1070,9 @@ export async function apply(ctx) {
     // 再落盘 Tavern 对话，避免失败时留下只有映射、没有原生开场白的半初始化记录。
     const openingTarget = typeof sessionId === 'string' && sessionId !== '' && greeting !== '' ? await waitForWritableSession({ registry: agentRegistry, sessions: sessionStore, sessionId: sessionId, sleep: sleep }) : undefined
     const chat = newChat(card, chatMode || 'story', effectiveRequestMode)
+    chat.bypassPlanId = runtimePresetSnapshot && runtimePresetSnapshot.planId || ''
     chat.runtimePresetSnapshot = runtimePresetSnapshot
-    chat.runtimePresetPath = runtimePresetSnapshot && runtimePresetSnapshot.presetPath || ''
+    chat.runtimePresetPath = ''
     chat.macroState = macroState
     if (groupOfMode(chat.mode) === 'play') {
       chat.cardContextSnapshot = await buildPlayCardSnapshot(chat, card)
@@ -1674,16 +1762,8 @@ export async function apply(ctx) {
     },
     projectReply: projectRuntimeReply,
     resolvePresetRegexScripts: async function (chat) {
-      if (chat && chat.requestMode === 'sillytavern') {
-        const presetPath = str(chat.runtimePresetPath) || str(chat.runtimePresetSnapshot && chat.runtimePresetSnapshot.presetPath)
-        if (presetPath === '') return []
-        const preset = await readPreset(presetPath)
-        return (preset && preset.regexScripts || []).filter(function (script) { return script.enabled !== false })
-      }
-      const reference = Object.assign({}, chat.runtimePresetSnapshot || {}, {
-        presetPath: str(chat.runtimePresetPath) || str(chat.runtimePresetSnapshot && chat.runtimePresetSnapshot.presetPath)
-      })
-      return await runtimePresets.regexScriptsFor(reference)
+      if (!chat || str(chat.bypassPlanId) === '') return []
+      return await bypassPlans.regexScriptsFor(chat.bypassPlanId)
     },
     now: Date.now,
     shellToolName: process.platform === 'win32' ? 'pwsh' : 'bash'
@@ -1697,7 +1777,13 @@ export async function apply(ctx) {
   })
 
   await fileResources.migrateLegacy(await readIndex(), readJson, writeIndex, readChat, writeChat)
+  await migrateLegacyPresetPlans()
   const recoveredIndex = await readIndex()
+  for (const row of recoveredIndex.chats || []) {
+    const chat = await readChat(row.id)
+    if (chat === undefined) continue
+    try { if (await migrateLegacyChatPreset(chat)) await writeChat(chat) } catch (error) { console.warn('dsh-tavern: 旧对话破限方案迁移失败', chat.id, error) }
+  }
   await foregroundHandoff.recover((recoveredIndex.chats || []).map(function (row) { return row.id }))
   for (const row of recoveredIndex.chats || []) {
     const recovered = await taskMailbox.recover(row.id)
@@ -1995,69 +2081,64 @@ export async function apply(ctx) {
       case 'deleteWorldBook': return await worldBooks.remove(args && args.path)
       case 'listPresets': {
         const presets = await listPresets()
-        const runtimePresetState = await runtimePresets.state()
-        const presetPlans = await runtimePresets.plans()
-        const activePreset = presets.find(function (preset) { return preset.path === runtimePresetState.activePreset })
-        const activeRuntimePreset = activePreset ? await runtimePresets.view(activePreset.path) : null
+        const bypassPlanState = await bypassPlans.state()
+        const plans = await bypassPlans.list()
+        const activePlan = plans.find(function (plan) { return plan.id === bypassPlanState.activePlanId }) || null
         return {
           presets,
-          runtimePresetState,
-          presetPlans,
-          activePreset: runtimePresetState.activePreset || '',
-          activePresetTitle: activePreset && activePreset.title || '',
-          enabledCount: activeRuntimePreset && activeRuntimePreset.enabledCount || 0,
-          enabledCharacters: activeRuntimePreset && activeRuntimePreset.enabledCharacters || 0,
-          enabledRegexCount: activeRuntimePreset && activeRuntimePreset.enabledRegexCount || 0
+          bypassPlanState,
+          bypassPlans: plans,
+          activePlanId: bypassPlanState.activePlanId || '',
+          activePlanTitle: activePlan && activePlan.name || ''
         }
       }
       case 'getPreset': {
         const inspected = await readPreset(args && args.path)
-        const preset = inspected && inspected.valid && (inspected.recognized || inspected.regexCount > 0) ? await runtimePresets.view(inspected.path) : inspected
-        if (preset === undefined) throw new Error('预设不存在: ' + (args && args.path))
-        return { preset }
+        if (inspected === undefined) throw new Error('预设不存在: ' + (args && args.path))
+        const document = await readPresetDocument(inspected.path)
+        return { preset: Object.assign({}, inspected, { extractableRegexScripts: runtimeRegexScriptsOf(inspected, document) }) }
+      }
+      case 'exportPreset': {
+        const presetPath = normalizeResourcePath(args && args.path, 'preset')
+        const text = await fileResources.readText(presetPath)
+        if (text === undefined) throw new Error('预设不存在: ' + presetPath)
+        return { name: presetPath.split('/').pop() || 'preset.json', text }
       }
       case 'updatePresetEntry': {
         await presetEditor.updateEntry(args && args.path, args && args.entryKey, args && args.patch)
-        const inspected = await readPreset(args && args.path)
-        const preset = inspected && inspected.valid && (inspected.recognized || inspected.regexCount > 0) ? await runtimePresets.view(inspected.path) : inspected
-        return { preset }
+        return { preset: await readPreset(args && args.path) }
       }
       case 'previewPresetConversion': {
         const preview = await previewPreset(args && args.path, args && args.orderGroupIndex)
         if (preview === undefined) throw new Error('预设不存在: ' + (args && args.path))
         return { preview }
       }
-      case 'togglePresetEntry': {
-        await runtimePresets.toggle({ path: args && args.path, entryKey: args && args.entryKey, enabled: args && args.enabled === true })
-        return { preset: await runtimePresets.view(args && args.path) }
+      case 'extractBypassPlan': {
+        return { plan: await bypassPlans.extract({
+          id: args && args.id,
+          name: args && args.name,
+          sourcePresetPath: args && args.sourcePresetPath,
+          entryKeys: args && args.entryKeys,
+          regexKeys: args && args.regexKeys
+        }) }
       }
-      case 'selectPreset': {
-        await runtimePresets.select(args && args.path || '')
-        return { selected: args && args.path || '' }
+      case 'activateBypassPlan': {
+        await bypassPlans.activate(args && args.id || '')
+        return { activePlanId: args && args.id || '' }
       }
-      case 'togglePresetRegex': {
-        await runtimePresets.toggleRegex({ path: args && args.path, regexKey: args && args.regexKey, enabled: args && args.enabled === true })
-        return { preset: await runtimePresets.view(args && args.path) }
+      case 'getBypassPlan': return { plan: await bypassPlans.get(args && args.id) }
+      case 'toggleBypassPlanEntry': {
+        await bypassPlans.toggleEntry({ id: args && args.id, entryKey: args && args.entryKey, enabled: args && args.enabled === true })
+        return { plan: await bypassPlans.get(args && args.id) }
       }
-      case 'disablePreset': {
-        await runtimePresets.disablePreset(args && args.path)
-        return { preset: await runtimePresets.view(args && args.path) }
+      case 'toggleBypassPlanRegex': {
+        await bypassPlans.toggleRegex({ id: args && args.id, regexKey: args && args.regexKey, enabled: args && args.enabled === true })
+        return { plan: await bypassPlans.get(args && args.id) }
       }
-      case 'disableAllPresets': {
-        await runtimePresets.disableAll()
-        return { disabled: true }
-      }
-      case 'savePresetPlan': {
-        return { plan: await runtimePresets.savePlan({ id: args && args.id, name: args && args.name }) }
-      }
-      case 'applyPresetPlan': {
-        return { plan: await runtimePresets.applyPlan(args && args.id) }
-      }
-      case 'renamePresetPlan': {
-        return { plan: await runtimePresets.renamePlan(args && args.id, args && args.name) }
-      }
-      case 'deletePresetPlan': {
-        await runtimePresets.removePlan(args && args.id)
+      case 'renameBypassPlan': return { plan: await bypassPlans.rename(args && args.id, args && args.name) }
+      case 'copyBypassPlan': return { plan: await bypassPlans.copy(args && args.id, args && args.name) }
+      case 'deleteBypassPlan': {
+        await bypassPlans.remove(args && args.id)
         return { deleted: true }
       }
       case 'renameResource': return { resource: await renameResource(args && args.path, args && args.name) }
@@ -2325,21 +2406,23 @@ export async function apply(ctx) {
 
   async function resolveChatRuntimePreset(chat) {
     if (!chat) return null
-    const presetPath = str(chat.runtimePresetPath) || str(chat.runtimePresetSnapshot && chat.runtimePresetSnapshot.presetPath)
-    if (presetPath === '') return null
-    const raw = await runtimePresets.snapshot(presetPath)
+    const planId = str(chat.bypassPlanId) || str(chat.runtimePresetSnapshot && chat.runtimePresetSnapshot.planId)
+    if (planId === '') return null
+    const raw = await bypassPlans.snapshot(planId)
     const resolved = resolveRuntimePresetMacros(raw, {
       charName: str(chat.cardName),
       macroState: chat.macroState
     })
     chat.runtimePresetSnapshot = resolved.snapshot
-    chat.runtimePresetPath = presetPath
+    chat.bypassPlanId = planId
+    chat.runtimePresetPath = ''
     chat.macroState = resolved.macroState
     await profileData.updateJson('chats/' + chat.id + '.json', function (current) {
       if (!current || typeof current !== 'object') return current
       return Object.assign({}, current, {
         runtimePresetSnapshot: resolved.snapshot,
-        runtimePresetPath: presetPath,
+        bypassPlanId: planId,
+        runtimePresetPath: '',
         macroState: resolved.macroState,
         updatedAt: Date.now()
       })
@@ -2383,28 +2466,27 @@ export async function apply(ctx) {
   }
 
   async function compileCompatibilityTurn(chat, userText) {
-    const presetPath = str(chat.runtimePresetPath) || str(chat.runtimePresetSnapshot && chat.runtimePresetSnapshot.presetPath)
-    if (presetPath === '') throw new Error('酒馆兼容模式需要先启用一个预设')
-    const runtimePreset = await runtimePresets.view(presetPath)
-    if (!runtimePreset || runtimePreset.valid !== true || runtimePreset.recognized !== true) throw new Error('当前预设不是可识别的 SillyTavern 预设')
-    const preset = Object.assign({}, runtimePreset, {
-      entries: runtimePreset.entries.map(function (entry) {
-        const systemManagedMarker = entry.marker === true && entry.ordered === true && entry.runtimeEligible === false
-        return Object.assign({}, entry, { enabled: systemManagedMarker ? entry.enabled !== false : entry.runtimeEnabled === true })
-      })
-    })
-    const presetText = await fileResources.readText(normalizeResourcePath(presetPath, 'preset'))
-    const presetDocument = JSON.parse(presetText)
+    const planId = str(chat.bypassPlanId) || str(chat.runtimePresetSnapshot && chat.runtimePresetSnapshot.planId)
+    if (planId === '') throw new Error('酒馆兼容模式需要先激活一份破限方案并新建对话')
+    const plan = await bypassPlans.get(planId)
+    const preset = {
+      valid: true,
+      recognized: true,
+      title: plan.name,
+      orderGroupIndex: null,
+      entries: plan.entries.map(function (entry) { return Object.assign({}, entry) })
+    }
+    const presetDocument = plan.compatibilitySettings || {}
     const card = await readChatCard(chat)
     const extensions = await readCardExtensions(chat.cardPath)
     const regexScripts = (Array.isArray(extensions && extensions.regexScripts) ? extensions.regexScripts : []).concat(
-      nativeRegexScriptsOf(presetDocument).filter(function (script) { return script.enabled !== false })
+      plan.regexScripts.filter(function (script) { return script.enabled !== false })
     )
     const worldInfo = await compatibilityWorldInfo(chat, card, userText)
     const compiled = compileSillyTavernRequest({
       card,
       preset,
-      presetPath,
+      presetPath: str(plan.source && plan.source.presetPath),
       presetDocument,
       history: (chat.messages || []).map(function (item) { return { role: item.role, text: str(item.text), sourceText: str(item.sourceText) } }),
       input: userText,
@@ -2423,6 +2505,8 @@ export async function apply(ctx) {
       }
     })
     compiled.trace.worldBookRefs = worldInfo.refs
+    compiled.trace.planId = plan.id
+    compiled.trace.planName = plan.name
     compiled.trace.regexCount = regexScripts.length
     const sourceMessageCount = compiled.messages.length
     compiled.messages = applySillyTavernStrictTools(compiled.messages, {

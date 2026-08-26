@@ -106,3 +106,17 @@ test('删除激活方案会恢复为不使用破限方案', async function () {
   assert.equal((await value.module.state()).activePlanId, '')
   assert.equal(await value.module.snapshot(), null)
 })
+
+test('可以从旧对话快照导入不依赖来源文件的迁移方案', async function () {
+  const value = harness()
+  const plan = await value.module.importPlan({
+    name: '旧对话迁移',
+    source: { presetName: '已删除来源', presetPath: 'presets/missing.json', presetDigest: '' },
+    entries: [{ entryKey: 'legacy#1', identifier: 'legacy', name: '旧提示词', role: 'system', content: '保留下来', enabled: true, phase: 'front', injectable: true }],
+    regexScripts: [{ regexKey: 'legacy-regex#1', id: 'legacy-regex', name: '旧正则', findRegex: '/x/g', replaceString: 'y', enabled: true }]
+  })
+  value.presets.clear(); value.documents.clear()
+
+  assert.equal((await value.module.snapshot(plan.id)).front.text, '保留下来')
+  assert.equal((await value.module.regexScriptsFor(plan.id))[0].name, '旧正则')
+})

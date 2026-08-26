@@ -226,6 +226,36 @@ export function createBypassPlanModule(options = {}) {
     return planView(plan, (await state()).activePlanId)
   }
 
+  async function importPlan(input = {}) {
+    const name = str(input.name).trim()
+    if (name === '') throw new Error('破限方案名称不能为空')
+    const current = await state()
+    const requestedId = str(input.id)
+    const existing = requestedId === '' ? null : current.plans.find(function (item) { return item.id === requestedId })
+    if (requestedId !== '' && !existing && input.allowCreateWithId !== true) throw new Error('破限方案不存在：' + requestedId)
+    if (current.plans.some(function (item) { return item.name === name && (!existing || item.id !== existing.id) })) throw new Error('破限方案名称已存在：' + name)
+    const stamp = now()
+    const id = existing ? existing.id : (requestedId || 'bypass-' + digestOf(name + '\n' + stamp).slice(0, 12))
+    const plan = normalizePlan({
+      id,
+      name,
+      source: input.source,
+      entries: input.entries,
+      regexScripts: input.regexScripts,
+      compatibilitySettings: input.compatibilitySettings,
+      createdAt: existing ? existing.createdAt : stamp,
+      updatedAt: stamp
+    })
+    if (plan.entries.length === 0 && plan.regexScripts.length === 0) throw new Error('破限方案没有可保存的提示词或正则')
+    await mutate(function (latest) {
+      const index = latest.plans.findIndex(function (item) { return item.id === id })
+      if (index === -1) latest.plans.push(plan)
+      else latest.plans[index] = plan
+      return latest
+    })
+    return planView(plan, (await state()).activePlanId)
+  }
+
   async function activate(id) {
     const selected = str(id)
     return mutate(function (current) {
@@ -349,5 +379,5 @@ export function createBypassPlanModule(options = {}) {
     return plan.regexScripts.filter(function (script) { return script.enabled && script.findRegex !== '' }).map(clone)
   }
 
-  return { state, list, get, extract, activate, toggleEntry, toggleRegex, rename, copy, remove, snapshot, regexScriptsFor }
+  return { state, list, get, extract, importPlan, activate, toggleEntry, toggleRegex, rename, copy, remove, snapshot, regexScriptsFor }
 }

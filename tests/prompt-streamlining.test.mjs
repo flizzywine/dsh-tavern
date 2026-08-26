@@ -148,10 +148,12 @@ test('后台 Agent 不进入前台正文上下文注入和工具过滤', () => {
   assert.match(lifecycle, /if \(backgroundAgentRunner\.owns\(agent\.session\.id\)\) return assembly/)
 })
 
-test('已开启的预设提示词保留角色注入前后台，正则只作用前台', () => {
+test('已开启的破限方案提示词保留角色注入前后台，正则只作用前台', () => {
   const startChat = between(serverSource, 'async function startChat', 'async function appendNativeOpening')
-  assert.match(startChat, /runtimePresets\.snapshot/)
+  assert.match(startChat, /bypassPlans\.state/)
+  assert.match(startChat, /bypassPlans\.snapshot\(bypassState\.activePlanId\)/)
   assert.match(startChat, /resolveRuntimePresetMacros/)
+  assert.match(startChat, /chat\.bypassPlanId = runtimePresetSnapshot && runtimePresetSnapshot\.planId/)
   assert.match(startChat, /chat\.runtimePresetSnapshot = runtimePresetSnapshot/)
   assert.match(serverSource, /resolveChatRuntimePreset\(chat\)/)
   assert.match(serverSource, /runtimePresetPhaseMessages\(snapshot, 'front'/)
@@ -159,7 +161,7 @@ test('已开启的预设提示词保留角色注入前后台，正则只作用�
   assert.match(serverSource, /runtimePresetPhaseMessages\(snapshot, 'back'/)
   assert.match(serverSource, /modelRequestLog\.record\(\{ chat, context: backgroundContext, coordinates, options \}\)/)
   assert.match(serverSource, /clearRuntimePresetBoundaryMessages\(session, Object\.assign\(\{\}, coordinates/)
-  assert.match(serverSource, /runtimePresets\.regexScriptsFor/)
+  assert.match(serverSource, /bypassPlans\.regexScriptsFor/)
   assert.match(backgroundRunnerSource, /resolveRuntimePresetSnapshot/)
   assert.match(backgroundRunnerSource, /runtimePresetPhaseMessages\(snapshot, 'front'/)
   assert.match(backgroundRunnerSource, /presetMessages\.concat\(decision\.messages\)/)
