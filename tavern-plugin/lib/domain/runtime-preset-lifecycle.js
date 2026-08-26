@@ -2,6 +2,62 @@ function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
 }
 
+function textOnly(message) {
+  return Array.isArray(message && message.content) && message.content.length > 0 && message.content.every(function (block) {
+    return block && block.type === 'text' && typeof block.text === 'string'
+  })
+}
+
+function hasToolSemantics(message) {
+  return message && (message.role === 'tool' || message.tool_call_id !== undefined ||
+    (Array.isArray(message.tool_calls) && message.tool_calls.length > 0))
+}
+
+function messageText(message) {
+  return message.content.map(function (block) { return block.text }).join('')
+}
+
+function mergedSource(left, right) {
+  const leftSource = left && left.source && typeof left.source === 'object' ? left.source : null
+  const rightSource = right && right.source && typeof right.source === 'object' ? right.source : null
+  if (!leftSource && !rightSource) return undefined
+  const source = Object.assign({}, leftSource || rightSource)
+  const sections = []
+  for (const item of [leftSource, rightSource]) {
+    if (Array.isArray(item && item.sections)) sections.push(...item.sections)
+  }
+  if (sections.length > 0) source.sections = sections
+  return source
+}
+
+function squashTextRoles(messages) {
+  const merged = []
+  for (const source of messages) {
+    const message = Object.assign({}, source)
+    message.content = Array.isArray(source && source.content) ? source.content.map(function (block) {
+      return block && typeof block === 'object' ? Object.assign({}, block) : block
+    }) : source && source.content
+    const previous = merged[merged.length - 1]
+    if (previous && previous.role === message.role && textOnly(previous) && textOnly(message) &&
+      !hasToolSemantics(previous) && !hasToolSemantics(message)) {
+      previous.content = [{ type: 'text', text: messageText(previous) + '\n\n' + messageText(message) }]
+      const sourceInfo = mergedSource(previous, message)
+      if (sourceInfo) previous.source = sourceInfo
+      continue
+    }
+    merged.push(message)
+  }
+  return merged
+}
+
+function normalizeRuntimeRequestRoles(messages) {
+  const merged = squashTextRoles(messages)
+  for (let index = 1; index < merged.length; index += 1) {
+    if (merged[index].role === 'system') merged[index].role = 'user'
+  }
+  return squashTextRoles(merged)
+}
+
 export function runtimePresetPhaseMessages(snapshot, phase, options = {}) {
   const projected = snapshot && snapshot[phase]
   const scope = str(options.scope) || 'foreground'
@@ -60,6 +116,6 @@ export function projectRuntimePresetRequest(request, snapshot, options = {}) {
   }] : []
   return Object.assign({}, request, {
     ...(moveSystem ? { system: '' } : {}),
-    messages: front.concat(systemMessages, ordinary, back)
+    messages: normalizeRuntimeRequestRoles(front.concat(systemMessages, ordinary, back))
   })
 }
