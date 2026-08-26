@@ -31,12 +31,19 @@ export function isRuntimePresetBoundaryMessage(message) {
   })
 }
 
+function sessionEventMessage(event) {
+  if (!event || !event.data) return null
+  return event.data.message && typeof event.data.message === 'object'
+    ? event.data.message
+    : event.data
+}
+
 export function clearRuntimePresetBoundaryMessages(session, options = {}) {
   const events = Array.isArray(session && session.events) ? session.events : []
   const nodes = session && session.surface && Array.isArray(session.surface.nodes) ? session.surface.nodes : []
   const targets = nodes.filter(function (seq) {
     const event = events[seq]
-    return event && event.data && isRuntimePresetBoundaryMessage(event.data.message)
+    return isRuntimePresetBoundaryMessage(sessionEventMessage(event))
   })
   if (targets.length === 0) return 0
   const source = options.source && options.source.kind === 'model'

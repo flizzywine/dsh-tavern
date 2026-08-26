@@ -29,10 +29,10 @@ test('前中后保留原角色，只有前后属于请求边界消息', () => {
 
 test('真实请求形成后只遮蔽前后，不遮蔽中段和普通消息', () => {
   const events = [
-    { data: { message: phaseMessage('front', '前') } },
-    { data: { message: { role: 'user', content: [{ type: 'text', text: '普通输入' }] } } },
-    { data: { message: phaseMessage('middle', '中') } },
-    { data: { message: phaseMessage('back', '后') } }
+    { type: 'user/message', data: phaseMessage('front', '前') },
+    { type: 'user/message', data: { role: 'user', content: [{ type: 'text', text: '普通输入' }] } },
+    { type: 'user/message', data: phaseMessage('middle', '中') },
+    { type: 'user/message', data: phaseMessage('back', '后') }
   ]
   const appended = []
   const session = {
@@ -56,4 +56,17 @@ test('真实请求形成后只遮蔽前后，不遮蔽中段和普通消息', ()
       adoptSessionEvent({ seq: 10 + index, time: 100 + index, type: appended[index].type, data: appended[index].data, ...appended[index].options })
     })
   }
+})
+
+test('兼容带 message 包裹的旧 Session 事件', () => {
+  const wrapped = phaseMessage('front', '旧前缀')
+  const appended = []
+  const session = {
+    events: [{ type: 'user/message', data: { message: wrapped } }],
+    surface: { nodes: [0] },
+    append(type, data, options) { appended.push({ type, data, options }) }
+  }
+
+  assert.equal(clearRuntimePresetBoundaryMessages(session), 1)
+  assert.deepEqual(appended[0].options.sourceEventSeqs, [0])
 })
