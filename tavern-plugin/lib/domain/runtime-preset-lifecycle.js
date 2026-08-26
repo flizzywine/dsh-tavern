@@ -31,44 +31,11 @@ export function isRuntimePresetBoundaryMessage(message) {
   })
 }
 
-function sessionEventMessage(event) {
-  if (!event || !event.data) return null
-  return event.data.message && typeof event.data.message === 'object'
-    ? event.data.message
-    : event.data
-}
-
-export function clearRuntimePresetBoundaryMessages(session, options = {}) {
-  const events = Array.isArray(session && session.events) ? session.events : []
-  const nodes = session && session.surface && Array.isArray(session.surface.nodes) ? session.surface.nodes : []
-  const targets = nodes.filter(function (seq) {
-    const event = events[seq]
-    return isRuntimePresetBoundaryMessage(sessionEventMessage(event))
-  })
-  if (targets.length === 0) return 0
-  const source = options.source && options.source.kind === 'model'
-    ? options.source
-    : { kind: 'model', provider: str(options.provider) || 'unknown', model: str(options.model) || 'unknown' }
-  const groups = []
-  for (const seq of targets) {
-    const current = groups[groups.length - 1]
-    if (current && current[current.length - 1] + 1 === seq) current.push(seq)
-    else groups.push([seq])
-  }
-  for (const group of groups) {
-    session.append('assistant/message', {
-      turn: Math.max(0, Number(options.turn) || 0),
-      step: Math.max(1, Number(options.step) || 1),
-      message: {
-        id: crypto.randomUUID(),
-        role: 'assistant',
-        content: [],
-        source
-      }
-    }, {
-      surfaceOp: { op: 'replace', start: group[0], end: group[group.length - 1] },
-      sourceEventSeqs: group
-    })
-  }
-  return targets.length
+export function projectRuntimePresetRequestMessages(messages, snapshot, options = {}) {
+  const source = Array.isArray(messages) ? messages : []
+  const ordinary = source.filter(function (message) { return !isRuntimePresetBoundaryMessage(message) })
+  const front = runtimePresetPhaseMessages(snapshot, 'front', options)
+  const back = runtimePresetPhaseMessages(snapshot, 'back', options)
+  if (front.length === 0 && back.length === 0 && ordinary.length === source.length) return source
+  return front.concat(ordinary, back)
 }

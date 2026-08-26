@@ -1,10 +1,9 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { adoptSessionEvent } from '../tavern-plugin/node_modules/@deepseek-ai/dsh-session/lib/index.js'
 
 import {
-  clearRuntimePresetBoundaryMessages,
   isRuntimePresetBoundaryMessage,
+  projectRuntimePresetRequestMessages,
   runtimePresetPhaseMessages
 } from '../tavern-plugin/lib/domain/runtime-preset-lifecycle.js'
 
@@ -27,46 +26,37 @@ test('前中后保留原角色，只有前后属于请求边界消息', () => {
   assert.equal(isRuntimePresetBoundaryMessage(back), true)
 })
 
-test('真实请求形成后只遮蔽前后，不遮蔽中段和普通消息', () => {
-  const events = [
-    { type: 'user/message', data: phaseMessage('front', '前') },
-    { type: 'user/message', data: { role: 'user', content: [{ type: 'text', text: '普通输入' }] } },
-    { type: 'user/message', data: phaseMessage('middle', '中') },
-    { type: 'user/message', data: phaseMessage('back', '后') }
+test('最终请求把前后投影到 messages 绝对边界，并清除旧 Session 残留', () => {
+  const snapshot = {
+    front: { entries: [
+      { role: 'system', content: '新前一' },
+      { role: 'user', content: '新前二' }
+    ] },
+    back: { entries: [
+      { role: 'assistant', content: '新后一' },
+      { role: 'system', content: '新后二' }
+    ] }
+  }
+  const messages = [
+    phaseMessage('front', '旧前'),
+    { role: 'system', content: [{ type: 'text', text: 'DSH 系统上下文' }] },
+    { role: 'assistant', content: [{ type: 'text', text: '历史正文' }] },
+    phaseMessage('middle', '中段'),
+    { role: 'user', content: [{ type: 'text', text: '本轮输入' }] },
+    phaseMessage('back', '旧后')
   ]
-  const appended = []
-  const session = {
-    events,
-    surface: { nodes: [0, 1, 2, 3] },
-    append(type, data, options) { appended.push({ type, data, options }) }
-  }
-  assert.equal(clearRuntimePresetBoundaryMessages(session, { turn: 2, step: 1, source: { kind: 'model', provider: 'test', model: 'scripted' } }), 2)
-  assert.equal(appended.length, 2)
-  assert.deepEqual(appended.map(function (item) { return item.options.sourceEventSeqs }), [[0], [3]])
-  assert.deepEqual(appended.map(function (item) { return item.options.surfaceOp }), [
-    { op: 'replace', start: 0, end: 0 },
-    { op: 'replace', start: 3, end: 3 }
+  const projected = projectRuntimePresetRequestMessages(messages, snapshot, { scope: 'foreground', turn: 5, step: 1 })
+  const text = projected.map(function (message) { return message.content[0].text })
+  assert.deepEqual(text, ['新前一', '新前二', 'DSH 系统上下文', '历史正文', '中段', '本轮输入', '新后一', '新后二'])
+  assert.deepEqual(projected.map(function (message) { return message.role }), [
+    'system', 'user', 'system', 'assistant', 'system', 'user', 'assistant', 'system'
   ])
-  assert.deepEqual(appended.map(function (item) { return item.data.message.source }), [
-    { kind: 'model', provider: 'test', model: 'scripted' },
-    { kind: 'model', provider: 'test', model: 'scripted' }
-  ])
-  for (let index = 0; index < appended.length; index += 1) {
-    assert.doesNotThrow(function () {
-      adoptSessionEvent({ seq: 10 + index, time: 100 + index, type: appended[index].type, data: appended[index].data, ...appended[index].options })
-    })
-  }
+  assert.equal(projected.slice(0, 2).every(isRuntimePresetBoundaryMessage), true)
+  assert.equal(projected.slice(-2).every(isRuntimePresetBoundaryMessage), true)
+  assert.equal(projected.slice(2, -2).some(isRuntimePresetBoundaryMessage), false)
 })
 
-test('兼容带 message 包裹的旧 Session 事件', () => {
-  const wrapped = phaseMessage('front', '旧前缀')
-  const appended = []
-  const session = {
-    events: [{ type: 'user/message', data: { message: wrapped } }],
-    surface: { nodes: [0] },
-    append(type, data, options) { appended.push({ type, data, options }) }
-  }
-
-  assert.equal(clearRuntimePresetBoundaryMessages(session), 1)
-  assert.deepEqual(appended[0].options.sourceEventSeqs, [0])
+test('没有前后和旧残留时保持原 messages 引用', () => {
+  const messages = [{ role: 'user', content: [{ type: 'text', text: '输入' }] }]
+  assert.equal(projectRuntimePresetRequestMessages(messages, null), messages)
 })

@@ -29,7 +29,7 @@ import { compileSillyTavernRequest } from './domain/sillytavern-compatibility.js
 import { applySillyTavernStrictTools } from './domain/sillytavern-strict-tools.js'
 import { createEphemeralCompatibilityRequest, isCompatibilityConversationRequest } from './domain/compatibility-request.js'
 import { hasRollbackMessages, locateRollbackSurface } from './domain/rollback-surface.js'
-import { clearRuntimePresetBoundaryMessages, runtimePresetPhaseMessages } from './domain/runtime-preset-lifecycle.js'
+import { projectRuntimePresetRequestMessages, runtimePresetPhaseMessages } from './domain/runtime-preset-lifecycle.js'
 import { createTavernRetryLimiter } from './domain/tavern-retry-limiter.js'
 import {
   preserveRuntimeSource,
@@ -1257,6 +1257,7 @@ export async function apply(ctx) {
       cardSnapshotBuilds.delete(chat.id)
     }
   }
+  const runtimePresetSnapshots = new Map()
   const backgroundAgentRunner = createBackgroundAgentRunner({
     agents: agentRegistry,
     flushSession: async function (session) {
@@ -1268,6 +1269,14 @@ export async function apply(ctx) {
       const chat = await chatForSession(input.sessionId)
       if (!chat) return null
       return await resolveChatRuntimePreset(chat)
+    },
+    stageRuntimePresetSnapshot: function (input) {
+      runtimePresetSnapshots.set(str(input.sessionId), {
+        turn: Math.max(0, Number(input.turn) || 0),
+        step: Math.max(1, Number(input.step) || 1),
+        scope: 'background',
+        snapshot: input.snapshot || null
+      })
     }
   })
   ctx.effect(() => () => backgroundAgentRunner.dispose(), 'dsh-tavern: dispose resident background agents')
@@ -2569,6 +2578,7 @@ export async function apply(ctx) {
   const requestCoordinates = new Map()
   const compatibilityModelRequests = new Map()
   const compatibilityRedispatches = new WeakSet()
+  const runtimePresetRedispatches = new WeakSet()
   const storyCompactionRequests = new WeakSet()
   const tavernRetryLimiter = createTavernRetryLimiter({
     owns: async function (agent) {
@@ -2578,14 +2588,12 @@ export async function apply(ctx) {
     }
   })
 
-  function clearRuntimePresetMessages(agent, fallback = {}) {
+  function clearRuntimePresetRequestState(agent) {
     const session = agent && agent.session
     if (session === undefined) return 0
     const sessionId = session.id
-    const coordinates = requestCoordinates.get(sessionId) || fallback
-    const cleared = clearRuntimePresetBoundaryMessages(session, coordinates)
     requestCoordinates.delete(sessionId)
-    return cleared
+    runtimePresetSnapshots.delete(sessionId)
   }
 
   function compatibilityMessages(compiled) {
@@ -2661,10 +2669,14 @@ export async function apply(ctx) {
     }
     const snapshot = await resolveChatRuntimePreset(chat)
     const messageOptions = { scope: 'foreground', turn: payload.turn, step: payload.step }
-    const frontMessages = runtimePresetPhaseMessages(snapshot, 'front', messageOptions)
     const middleMessages = Number(payload.step) === 1 ? runtimePresetPhaseMessages(snapshot, 'middle', messageOptions) : []
-    const backMessages = runtimePresetPhaseMessages(snapshot, 'back', messageOptions)
-    agentMessages = frontMessages.concat(agentMessages, middleMessages, backMessages)
+    runtimePresetSnapshots.set(sessionId, {
+      turn: Math.max(0, Number(payload.turn) || 0),
+      step: Math.max(1, Number(payload.step) || 1),
+      scope: 'foreground',
+      snapshot: snapshot || null
+    })
+    agentMessages = agentMessages.concat(middleMessages)
     return { kind: 'enter', messages: agentMessages }
   })
 
@@ -2701,6 +2713,24 @@ export async function apply(ctx) {
       compatibilityRedispatches.add(compatibilityRequest)
       return ctx.llm.stream(compatibilityRequest)
     }
+    const stagedRuntimePreset = runtimePresetSnapshots.get(sessionId)
+    if (options !== null && typeof options === 'object' && options.purpose === undefined &&
+      stagedRuntimePreset !== undefined && !runtimePresetRedispatches.has(options)) {
+      const projectedMessages = projectRuntimePresetRequestMessages(
+        options.messages,
+        stagedRuntimePreset.snapshot,
+        {
+          scope: stagedRuntimePreset.scope,
+          turn: stagedRuntimePreset.turn,
+          step: stagedRuntimePreset.step
+        }
+      )
+      if (projectedMessages !== options.messages) {
+        const projectedRequest = Object.assign({}, options, { messages: projectedMessages })
+        runtimePresetRedispatches.add(projectedRequest)
+        return ctx.llm.stream(projectedRequest)
+      }
+    }
     const stream = next()
     const backgroundContext = backgroundAgentRunner.requestContext(sessionId)
     const ownerSessionId = backgroundContext ? backgroundContext.parentSessionId : sessionId
@@ -2726,6 +2756,7 @@ export async function apply(ctx) {
       } finally {
         const completed = finish && finish.kind !== 'error' && finish.kind !== 'aborted'
         if (stagedCompatibility && compatibilityRedispatches.has(options) && completed) compatibilityModelRequests.delete(sessionId)
+        if (runtimePresetRedispatches.has(options) && completed) runtimePresetSnapshots.delete(sessionId)
         if (chat && requestRecord) {
           try { await modelRequestLog.complete({ chatId: chat.id, id: requestRecord.id, text: responseText, finish, error: failure }) }
           catch (error) { console.error('dsh-tavern: 模型结果日志写入失败', str(error && error.message || error)) }
@@ -2738,7 +2769,7 @@ export async function apply(ctx) {
     const session = payload.agent && payload.agent.session
     if (session === undefined) return
     const sessionId = session.id
-    clearRuntimePresetMessages(payload.agent, { turn: payload.turn, step: 1 })
+    clearRuntimePresetRequestState(payload.agent)
     if (backgroundAgentRunner.owns(sessionId)) return
     const userText = userTextForTurn(session, payload.turn)
     if (userText === '') return
@@ -2753,7 +2784,7 @@ export async function apply(ctx) {
   })
 
   ctx.on('agent/error', function (payload) {
-    clearRuntimePresetMessages(payload.agent, { turn: payload.turn, step: payload.step })
+    clearRuntimePresetRequestState(payload.agent)
   })
 
   ctx.on('session/event', function (session, event) {

@@ -30,6 +30,7 @@ test('后台 Runner 执行候选任务，查询超限后提示开始推理而不
   let runner
   const child = {
     session: {
+      id: 'candidate-session-1',
       events,
       append(type, data) { appended.push({ type, data }) }
     },
@@ -78,6 +79,7 @@ test('后台 Runner 执行候选任务，查询超限后提示开始推理而不
     }
   }
   const calls = []
+  const stagedSnapshots = []
   runner = createBackgroundAgentRunner({
     agents,
     id: () => 'candidate-session-1',
@@ -88,7 +90,8 @@ test('后台 Runner 执行候选任务，查询超限后提示开始推理而不
         back: { entries: [{ id: 'back#1', role: 'assistant', content: '通用破限预填充' }] },
         regexScripts: []
       }
-    }
+    },
+    stageRuntimePresetSnapshot(input) { stagedSnapshots.push(input) }
   })
   const result = await runner.run({
     sessionId: parent.id,
@@ -124,15 +127,18 @@ test('后台 Runner 执行候选任务，查询超限后提示开始推理而不
   assert.equal(variables.find(function (entry) { return entry.name === 'tavern_background_task' }).provider(), '候选系统提示')
   assert.equal(variables.some(function (entry) { return entry.name === 'tavern_runtime_preset_front' }), false)
   assert.deepEqual(requestMessages.map(function (entry) { return [entry.role, entry.content[0].text] }), [
-    ['system', '通用破限身份'],
     ['user', '通用破限握手'],
-    ['assistant', '通用破限预填充'],
-    ['user', requestMessages[3].content[0].text]
+    ['user', requestMessages[1].content[0].text]
   ])
-  assert.match(requestMessages[3].content[0].text, /最近剧情/)
-  assert.match(requestMessages[3].content[0].text, /候选生成/)
-  assert.match(requestMessages[3].content[0].text, /DSH 后台任务协议（最终指令）/)
-  assert.match(requestMessages[3].content[0].text, /候选系统提示/)
+  assert.match(requestMessages[1].content[0].text, /最近剧情/)
+  assert.match(requestMessages[1].content[0].text, /候选生成/)
+  assert.match(requestMessages[1].content[0].text, /DSH 后台任务协议（最终指令）/)
+  assert.match(requestMessages[1].content[0].text, /候选系统提示/)
+  assert.equal(stagedSnapshots.length, 1)
+  assert.equal(stagedSnapshots[0].sessionId, 'candidate-session-1')
+  assert.equal(stagedSnapshots[0].scope, 'background')
+  assert.equal(stagedSnapshots[0].snapshot.front.entries[0].content, '通用破限身份')
+  assert.equal(stagedSnapshots[0].snapshot.back.entries[0].content, '通用破限预填充')
   assert.deepEqual(restrictions, [{ allow: [] }])
   assert.equal(registered[0].name, 'tavern_read_script')
   assert.equal(registered[1].name, 'tavern_point_script')

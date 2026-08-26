@@ -148,11 +148,12 @@ export function createBackgroundAgentRunner(options) {
           ? await options.resolveRuntimePresetSnapshot({ sessionId: input.sessionId, operation: input.task || 'background' })
           : null
         const messageOptions = { scope: 'background', turn, step }
-        const presetMessages = runtimePresetPhaseMessages(snapshot, 'front', messageOptions)
-          .concat(Number(step) === 1 ? runtimePresetPhaseMessages(snapshot, 'middle', messageOptions) : [])
-          .concat(runtimePresetPhaseMessages(snapshot, 'back', messageOptions))
-        return presetMessages.length === 0 ? decision : Object.assign({}, decision, {
-          messages: presetMessages.concat(decision.messages)
+        if (typeof options.stageRuntimePresetSnapshot === 'function') {
+          options.stageRuntimePresetSnapshot({ sessionId: agent.session.id, turn, step, snapshot, scope: 'background' })
+        }
+        const middleMessages = Number(step) === 1 ? runtimePresetPhaseMessages(snapshot, 'middle', messageOptions) : []
+        return middleMessages.length === 0 ? decision : Object.assign({}, decision, {
+          messages: middleMessages.concat(decision.messages)
         })
       })
       childCtx.systemPrompt.variable('tavern_background_task', function () { return str(state.input && state.input.system) })
