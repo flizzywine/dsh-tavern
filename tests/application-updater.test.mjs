@@ -62,6 +62,35 @@ test('检查更新只返回最新提交状态，不启动安装进程', async ()
   }
 })
 
+test('GitHub 最新提交仅发布运行清单时，以父提交作为最新运行构建', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-updater-manifest-commit-'))
+  try {
+    const runtimeCommit = 'a'.repeat(40)
+    await writeFile(path.join(root, 'package.json'), JSON.stringify({ version: '0.9.0' }))
+    await writeFile(path.join(root, '.dsh-tavern-release.json'), JSON.stringify({ commit: runtimeCommit }))
+    const updater = createApplicationUpdater({
+      dataRoot: path.join(root, 'data'), sourceRoot: root, runtimeHost: 'cli',
+      fetchManifest: async () => ({ version: '0.9.0' }),
+      fetchLatestCommit: async () => ({
+        sha: 'b'.repeat(40),
+        parents: [{ sha: runtimeCommit }],
+        files: [{ filename: 'dsh-tavern-runtime.json' }],
+      }),
+      fetchCdnMetadata: async () => { throw new Error('备用源不应参与本用例') },
+      now: () => 250,
+    })
+
+    assert.deepEqual(await updater.check(), {
+      phase: 'up-to-date', host: 'cli', checkedAt: 250,
+      currentVersion: '0.9.0', latestVersion: '0.9.0',
+      currentCommit: runtimeCommit, latestCommit: runtimeCommit,
+      checkSource: 'github', checkWarning: undefined,
+    })
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test('检查更新失败时保留当前构建信息且不启动安装', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-updater-check-failed-'))
   try {

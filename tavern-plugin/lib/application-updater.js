@@ -58,6 +58,15 @@ function compareVersions(left, right) {
   return 0
 }
 
+function runtimeCommitOf(value) {
+  if (typeof value === 'string') return value
+  const commit = String(value?.sha || '')
+  const parent = String(value?.parents?.[0]?.sha || '')
+  const files = Array.isArray(value?.files) ? value.files : []
+  if (files.length === 1 && files[0]?.filename === 'dsh-tavern-runtime.json' && /^[0-9a-f]{40}$/i.test(parent)) return parent
+  return commit
+}
+
 function installHostOf(manifest) {
   const host = manifest?.dshTavern?.host
   return host === 'desktop' || host === 'android' ? host : 'cli'
@@ -137,7 +146,7 @@ export function createApplicationUpdater(options) {
       signal: AbortSignal.timeout(5000),
     })
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
-    return String((await response.json())?.sha || '')
+    return response.json()
   }
   const fetchCdnMetadata = options.fetchCdnMetadata || async function () {
     const response = await fetch(options.cdnMetadataUrl || process.env.DSH_TAVERN_CDN_METADATA_URL || CDN_METADATA_URL, {
@@ -166,7 +175,8 @@ export function createApplicationUpdater(options) {
     const { currentVersion, currentCommit } = await localIdentity()
     if (currentVersion === 'unknown') return { currentVersion, latestVersion: 'unknown', currentCommit, latestCommit: '', updateAvailable: true }
     try {
-      const [remote, latestCommit] = await Promise.all([fetchManifest(), fetchLatestCommit()])
+      const [remote, latestCommitResult] = await Promise.all([fetchManifest(), fetchLatestCommit()])
+      const latestCommit = runtimeCommitOf(latestCommitResult)
       const latestVersion = String(remote?.version || '')
       if (currentVersion === '' || latestVersion === '') throw new Error('版本信息不完整')
       if (!/^[0-9a-f]{40}$/i.test(latestCommit)) throw new Error('GitHub 返回的提交号无效')
