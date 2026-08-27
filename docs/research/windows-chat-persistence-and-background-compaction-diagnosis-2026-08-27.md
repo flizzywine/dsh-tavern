@@ -1,10 +1,21 @@
 # Windows 聊天落盘、候选失败与后台压缩排查报告
 
 - 日期：2026-08-27
-- 状态：诊断完成，等待 Windows 实机复现与修复
+- 状态：聊天持久化与候选失败分层已实现，等待 Windows 实机复现；前后台联合压缩仍受回退门禁约束
 - 日志包：`dsh-session-session-1bdc36b3-328d-40d7-9b22-29519f9ed14e.zip`
 - SHA-256：`ba7d1c239f09c06243628ef0d0dc9e786486824df728ad213e5dddd30c2abac8`
 - 分析代码基线：`main`，`1774fce`
+
+## 0. 实施进展
+
+当前工作区已按本报告第 5 节实现以下修复：
+
+1. Windows 原子替换重试耗尽后，新版本保留为带单调 revision 的 pending snapshot；`readJson`、`updateJson`、`version` 和 `remove` 均识别该快照。
+2. 后续替换成功会把最新版本提升为 canonical target，并清理旧 pending artifacts；进程重启后也能自动恢复读取。
+3. 同一目标增加跨 Store 写锁；活跃多写者会明确报冲突，已退出进程遗留的锁会自动回收；同 revision 分叉不会按 mtime 静默覆盖。
+4. 候选任务现在区分 `generating`、`validating`、`committing`、`publishing` 和 `completed`，并分别报告模型失败、输出无效以及“已经生成但保存失败”。
+
+前后台联合压缩尚未启用。第 6.3 节要求的真实 DSH“压缩后回退”验证仍是发布门禁，不能仅凭单元测试跳过。
 
 ## 1. 用户症状
 

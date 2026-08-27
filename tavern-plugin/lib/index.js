@@ -1205,7 +1205,10 @@ export async function apply(ctx) {
           sessionId: input.sessionId,
           messageId: input.messageId,
           guidance: input.guidance,
-          requestId: task.requestId
+          requestId: task.requestId,
+          async onStage(stage) {
+            await taskMailbox.transition(chatId, taskId, { status: 'running', stage, operationId })
+          }
         })
         operationId = str(prepared.operationId)
         await taskMailbox.transition(chatId, taskId, { status: 'running', stage: 'generating', operationId })

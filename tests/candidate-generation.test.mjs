@@ -25,7 +25,7 @@ function script() {
   }
 }
 
-function harness({ mode = 'story', outputs, initialCandidates, initialCandidateAgent, initialSettleStatus, messages, initialScriptCursor = 0, initialScriptEnded = false, scriptData, cardData, macroState, waitUntilSettled }) {
+function harness({ mode = 'story', outputs, initialCandidates, initialCandidateAgent, initialSettleStatus, messages, initialScriptCursor = 0, initialScriptEnded = false, scriptData, cardData, macroState, waitUntilSettled, writeChatHook }) {
   const continuity = createScriptContinuity()
   const activeScript = scriptData || script()
   let scriptState = mode === 'script' ? continuity.start(activeScript, initialScriptCursor) : null
@@ -65,7 +65,10 @@ function harness({ mode = 'story', outputs, initialCandidates, initialCandidateA
     async readChat() { return structuredClone(chat) },
     async readCard() { return structuredClone(card) },
     async readScript() { return mode === 'script' ? structuredClone(activeScript) : undefined },
-    async writeChat(next) { chat = structuredClone(next) }
+    async writeChat(next) {
+      if (typeof writeChatHook === 'function') await writeChatHook(next, chat)
+      chat = structuredClone(next)
+    }
   }
   const model = {
     selection() { return { provider: 'test', model: 'scripted' } },
@@ -144,6 +147,54 @@ test('候选 prepare 只持久化 Operation，模型 Promise 由响应结束后�
   const result = await prepared.execute()
   assert.equal(run.modelCalls(), 1)
   assert.equal(result.messageId, 'message-prepared')
+})
+
+test('候选任务依次报告生成、校验、保存与发布阶段', async () => {
+  const run = harness({ outputs: [JSON.stringify({ choices: storyChoices })] })
+  const stages = []
+
+  await run.candidates.generate({
+    sessionId: 'session-1', messageId: 'message-stages',
+    onStage(stage) { stages.push(stage) }
+  })
+
+  assert.deepEqual(stages, ['generating', 'validating', 'committing', 'publishing'])
+})
+
+test('模型成功但 chat 提交失败时明确报告候选已经生成但保存失败', async () => {
+  const run = harness({
+    outputs: [JSON.stringify({ choices: storyChoices })],
+    async writeChatHook(next) {
+      if (next.candidates && next.candidates.messageId === 'message-save-failure') {
+        const error = new Error('模拟 chat 文件写入失败')
+        error.code = 'EIO'
+        throw error
+      }
+    }
+  })
+
+  await assert.rejects(
+    () => run.candidates.generate({ sessionId: 'session-1', messageId: 'message-save-failure' }),
+    function (error) {
+      return error && error.stage === 'committing' && /候选已经生成，但保存失败/.test(error.message)
+    }
+  )
+  assert.equal(run.modelCalls(), 1)
+  assert.equal(run.chat().candidates, undefined)
+})
+
+test('模型调用失败与候选输出无效保留各自的失败阶段', async () => {
+  const modelFailure = harness({ outputs: [async function () { throw new Error('上游模型不可用') }] })
+  await assert.rejects(
+    () => modelFailure.candidates.generate({ sessionId: 'session-1', messageId: 'message-model-failure' }),
+    function (error) { return error && error.stage === 'generating' && /候选 Agent 生成失败/.test(error.message) }
+  )
+
+  const invalid = harness({ outputs: ['{"choices":[]}'] })
+  await assert.rejects(
+    () => invalid.candidates.generate({ sessionId: 'session-1', messageId: 'message-invalid-stage' }),
+    function (error) { return error && error.stage === 'validating' && /候选输出无效/.test(error.message) }
+  )
 })
 
 test('相同请求标识重复 prepare 复用 Operation，服务端只调度首次执行', async () => {
