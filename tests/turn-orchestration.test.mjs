@@ -34,8 +34,10 @@ function harness(mode, options = {}) {
     runtimePresetSnapshot: clone(options.runtimePresetSnapshot || null),
     macroState: { userName: 'User', local: {}, global: {} },
     scriptState: mode === 'script' ? scripts.start(script(), 0) : null,
-    workspace: mode === 'card' ? { mountedResources: [], sourceIds: options.draft ? ['src-1'] : [], draft: { name: '' }, player: '', cursor: 0, prepared: null } : null
+    workspace: mode === 'card' ? { mountedResources: [], sourceIds: options.draft ? ['src-1'] : [], draft: { name: '' }, player: '', cursor: 0, prepared: null } : null,
+    _storageRevision: 1
   }
+  const history = new Map([[1, clone(chat)]])
   const settlements = []
   const createdCards = []
   const plannerCalls = []
@@ -46,7 +48,13 @@ function harness(mode, options = {}) {
     async readCardExtensions() { return clone(options.extensions || { regexScripts: [] }) },
     async readScript() { return mode === 'script' || (mode === 'card' && !options.draft) ? clone(script()) : undefined },
     async readBoundWorldBook() { return clone(options.boundWorldBook || null) },
-    async writeChat(value) { chat = clone(value) },
+    async writeChat(value) {
+      const revision = Math.max(0, Number(chat._storageRevision) || 0) + 1
+      chat = clone(value)
+      chat._storageRevision = revision
+      value._storageRevision = revision
+      history.set(revision, clone(chat))
+    },
     async updateCard(_cardId, fields, revision, rawOperations) {
       const change = cards.update({ kind: 'card', card: cardWorkspace, patch: fields, revision, rawOperations })
       cardWorkspace = clone(change.card)
@@ -112,6 +120,13 @@ function harness(mode, options = {}) {
     settlements,
     createdCards,
     timeline,
+    rollback(value = chat) {
+      const target = timeline.rollbackTarget({ chat: value })
+      const beforeChat = target === null ? undefined : history.get(target.beforeRevision)
+      const result = timeline.apply({ chat: clone(value), intent: { kind: 'turn.rollback', beforeChat: clone(beforeChat) } })
+      result.chat._storageRevision = Math.max(0, Number(value._storageRevision) || 0) + 1
+      return result
+    },
     replaceChat(next) { chat = clone(next) }
   }
 }
@@ -176,7 +191,7 @@ test('游玩正文不再拆走 HTML，三层回复随剧情消息一起保存', 
   assert.equal(message.projectionVersion, 2)
   assert.equal(run.chat().presentation, undefined)
 
-  const rolled = run.timeline.apply({ chat: run.chat(), intent: { kind: 'turn.rollback' } })
+  const rolled = run.rollback()
   assert.equal(rolled.chat.presentation, null)
 })
 
@@ -312,7 +327,7 @@ test('正文替代先回到 checkpoint 再提交，剧本游标不会推进两�
   await run.orchestrator.finalize({ sessionId: 'session-1', turn: 1, userText: '走进旅店', assistantText: '第一版正文' })
   assert.equal(run.chat().scriptState.cursor, 1)
 
-  const rolled = run.timeline.apply({ chat: run.chat(), intent: { kind: 'turn.rollback' } })
+  const rolled = run.rollback()
   run.replaceChat(rolled.chat)
   await run.orchestrator.prepare({ sessionId: 'session-1', turn: 2, userText: '【重新生成】走进旅店' })
   await run.orchestrator.finalize({ sessionId: 'session-1', turn: 2, userText: '【重新生成】走进旅店', assistantText: '替代正文' })

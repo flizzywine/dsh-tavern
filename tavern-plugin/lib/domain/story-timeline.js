@@ -2,6 +2,10 @@ function clone(value) {
   return value === undefined ? undefined : JSON.parse(JSON.stringify(value))
 }
 
+function storageRevision(chat) {
+  return Math.max(0, Number(chat && chat._storageRevision) || 0)
+}
+
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
 }
@@ -104,7 +108,7 @@ export function createStoryTimeline(options = {}) {
       preparedWorldBookContext: str(chat.preparedWorldBookContext),
       preparedWorldBook: chat.preparedWorldBook === undefined ? null : chat.preparedWorldBook,
       worldBookReads: chat.worldBookReads === undefined ? null : chat.worldBookReads,
-      participants: chat.timeline.participants
+      participants: object(chat.timeline).participants
     })
   }
 
@@ -174,7 +178,7 @@ export function createStoryTimeline(options = {}) {
     }
     const operation = {
       id: makeId('operation'), kind: 'body', role: 'body', status: 'running', turn, userText,
-      basedOn: basedOn(chat), before: snapshot(chat), createdAt: now()
+      basedOn: basedOn(chat), beforeRevision: storageRevision(chat), beforeParticipants: clone(chat.timeline.participants), createdAt: now()
     }
     chat.timeline.operations[operation.id] = operation
     trimOperations(chat.timeline)
@@ -216,7 +220,8 @@ export function createStoryTimeline(options = {}) {
 
   function earlierParticipantSource(checkpoints, role) {
     for (let index = checkpoints.length - 2; index >= 0; index--) {
-      const participants = object(checkpoints[index] && checkpoints[index].before && checkpoints[index].before.participants)
+      const checkpoint = object(checkpoints[index])
+      const participants = object(checkpoint.participants || checkpoint.before && checkpoint.before.participants)
       const source = participantCheckpointSource(participants[role])
       if (source !== null) return source
     }
@@ -289,9 +294,23 @@ export function createStoryTimeline(options = {}) {
     for (const operation of Object.values(operations)) {
       if (operation.status === 'running') operation.status = 'cancelled'
     }
-    restore(chat, checkpoint.before)
+    let restoredState
+    if (checkpoint.before !== undefined) {
+      restoredState = checkpoint.before
+    } else {
+      const beforeChat = object(intent.beforeChat)
+      const expectedRevision = Math.max(0, Number(checkpoint.beforeRevision) || 0)
+      if (str(beforeChat.id) !== str(chat.id) || storageRevision(beforeChat) !== expectedRevision) {
+        const error = new Error('剧情 checkpoint 需要 storage revision ' + expectedRevision + ' 的历史 Chat')
+        error.code = 'CHECKPOINT_HISTORY_REQUIRED'
+        error.beforeRevision = expectedRevision
+        throw error
+      }
+      restoredState = snapshot(beforeChat)
+    }
+    restore(chat, restoredState)
     const branchId = makeId('branch')
-    const restoredParticipants = object(checkpoint.before && checkpoint.before.participants)
+    const restoredParticipants = object(checkpoint.participants || restoredState && restoredState.participants)
     const nextParticipants = {}
     for (const role of Object.keys(restoredParticipants)) {
       const participant = object(restoredParticipants[role])
@@ -387,7 +406,8 @@ export function createStoryTimeline(options = {}) {
         id: makeId('checkpoint'),
         turn: operation.turn,
         userText: operation.userText,
-        before: clone(operation.before),
+        beforeRevision: Math.max(0, Number(operation.beforeRevision) || 0),
+        participants: clone(operation.beforeParticipants),
         committedAt: now()
       })
       chat.timeline.checkpoints = chat.timeline.checkpoints.slice(-40)
@@ -447,5 +467,15 @@ export function createStoryTimeline(options = {}) {
     })
   }
 
-  return Object.freeze({ apply, complete, inspect })
+  function rollbackTarget(input) {
+    const chat = ensure(input && input.chat)
+    const checkpoint = chat.timeline.checkpoints[chat.timeline.checkpoints.length - 1]
+    if (checkpoint === undefined || checkpoint.before !== undefined) return null
+    return {
+      checkpointId: str(checkpoint.id),
+      beforeRevision: Math.max(0, Number(checkpoint.beforeRevision) || 0)
+    }
+  }
+
+  return Object.freeze({ apply, complete, inspect, rollbackTarget })
 }

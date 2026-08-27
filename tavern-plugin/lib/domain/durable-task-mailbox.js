@@ -135,7 +135,7 @@ export function createDurableTaskMailbox(options = {}) {
         return (Number(mailbox.tasks[right].createdAt) || 0) - (Number(mailbox.tasks[left].createdAt) || 0)
       })
       for (const oldId of ids.slice(30)) delete mailbox.tasks[oldId]
-      await store.writeChat(chat)
+      await store.writeChat(chat, { source: kind + '.mailbox.queued', requestId })
       return publicTask(task)
     })
   }
@@ -147,7 +147,7 @@ export function createDurableTaskMailbox(options = {}) {
       const mailbox = mailboxOf(chat)
       const task = findTask(mailbox, { taskId })
       if (!task) throw new Error('持久任务不存在: ' + taskId)
-      if (applyPatch(mailbox, task, patch)) await store.writeChat(chat)
+      if (applyPatch(mailbox, task, patch)) await store.writeChat(chat, { source: str(task.kind) + '.mailbox.' + (str(patch.stage) || str(patch.status) || 'transition'), requestId: str(task.requestId), operationId: str(patch.operationId || task.operationId) })
       return publicTask(task)
     })
   }
@@ -160,7 +160,7 @@ export function createDurableTaskMailbox(options = {}) {
       const task = findTask(mailbox, selector)
       if (!task) return { mailboxVersion: mailbox.version, task: null }
       const repair = await reconcile(chat, publicTask(task))
-      if (repair && typeof repair === 'object' && applyPatch(mailbox, task, repair)) await store.writeChat(chat)
+      if (repair && typeof repair === 'object' && applyPatch(mailbox, task, repair)) await store.writeChat(chat, { source: str(task.kind) + '.mailbox.reconcile', requestId: str(task.requestId), operationId: str(task.operationId) })
       return { mailboxVersion: mailbox.version, task: publicTask(task) }
     })
   }
@@ -178,7 +178,7 @@ export function createDurableTaskMailbox(options = {}) {
           status: 'interrupted', stage: 'interrupted', error: '服务重启中断了本次后台任务'
         }) || changed
       }
-      if (changed) await store.writeChat(chat)
+      if (changed) await store.writeChat(chat, { source: 'mailbox.recover' })
       return { mailboxVersion: mailbox.version, tasks: Object.values(mailbox.tasks).map(publicTask) }
     })
   }

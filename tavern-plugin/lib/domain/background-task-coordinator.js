@@ -136,7 +136,7 @@ export function createBackgroundTaskCoordinator(options = {}) {
         throw error
       }
       const next = timeline.apply({ chat: source, intent: { kind: 'agent.begin', role, requestId } })
-      await store.writeChat(next.chat)
+      await store.writeChat(next.chat, { source: 'background.' + requestedRole + '.begin', operationId: next.value.operationId, requestId })
       return next
     })
     const task = {
@@ -170,7 +170,7 @@ export function createBackgroundTaskCoordinator(options = {}) {
             },
             apply: input.apply
           })
-          await store.writeChat(completed.chat)
+          await store.writeChat(completed.chat, { source: 'background.' + str(role) + '.commit', operationId: begun.value.operationId })
           return { chat: completed.chat, status: completed.value.status }
         })
       },
@@ -187,7 +187,7 @@ export function createBackgroundTaskCoordinator(options = {}) {
       const latest = await store.readChat(chatId)
       const source = latest === undefined ? chat : latest
       const next = timeline.apply({ chat: source, intent: { kind: 'background.recover' } })
-      if (next.value.status !== 'unchanged') await store.writeChat(next.chat)
+      if (next.value.status !== 'unchanged') await store.writeChat(next.chat, { source: 'background.recover' })
       return { chat: next.chat, status: next.value.status, activity: activity(next.chat) }
     })
   }

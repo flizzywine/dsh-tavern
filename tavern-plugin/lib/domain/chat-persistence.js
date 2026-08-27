@@ -52,17 +52,25 @@ function mergeValue(base, latest, desired, path, chatId) {
  */
 export function createChatPersistence(options = {}) {
   const data = options.data
+  const store = options.store
   const normalize = typeof options.normalize === 'function' ? options.normalize : function (value) { return value }
   const now = typeof options.now === 'function' ? options.now : Date.now
   const baselines = new Map()
-  if (!data || typeof data.readJson !== 'function' || typeof data.updateJson !== 'function' || typeof data.remove !== 'function') {
-    throw new Error('Chat Persistence 缺少 Profile Data adapter')
-  }
 
   function relative(chatId) {
     const id = String(chatId || '')
     if (id === '' || id.includes('/') || id.includes('\\')) throw new Error('Tavern Chat ID 不合法')
     return 'chats/' + id + '.json'
+  }
+
+  const records = store || (data && typeof data.readJson === 'function' && typeof data.updateJson === 'function' && typeof data.remove === 'function' ? {
+    async read(chatId) { return await data.readJson(relative(chatId)) },
+    async update(chatId, updater) { return await data.updateJson(relative(chatId), updater) },
+    async remove(chatId) { await data.remove(relative(chatId)) },
+    async version(chatId) { return typeof data.version === 'function' ? await data.version(relative(chatId)) : '' }
+  } : null)
+  if (records === null || typeof records.read !== 'function' || typeof records.update !== 'function' || typeof records.remove !== 'function') {
+    throw new Error('Chat Persistence 缺少 Chat Store adapter')
   }
 
   function remember(chat) {
@@ -74,18 +82,18 @@ export function createChatPersistence(options = {}) {
   }
 
   async function read(chatId) {
-    const value = await data.readJson(relative(chatId))
+    const value = await records.read(chatId)
     if (value === undefined) return undefined
     return remember(normalize(value))
   }
 
-  async function write(input) {
+  async function write(input, metadata = {}) {
     if (!input || typeof input !== 'object' || String(input.id || '') === '') throw new Error('不能保存没有 id 的 Tavern Chat')
     const desired = clone(input)
     const chatId = String(desired.id)
     const basedOn = Math.max(0, Number(desired[STORAGE_REVISION]) || 0)
     const baseline = baselines.get(chatId + ':' + basedOn)
-    const saved = await data.updateJson(relative(chatId), function (stored) {
+    const saved = await records.update(chatId, function (stored) {
       if (stored === undefined) {
         if (basedOn !== 0) throw conflict(chatId, '<deleted>')
         desired[STORAGE_REVISION] = 1
@@ -104,16 +112,16 @@ export function createChatPersistence(options = {}) {
       next[STORAGE_REVISION] = latestRevision + 1
       next.updatedAt = Math.max(Number(latest.updatedAt) || 0, Number(desired.updatedAt) || 0, now())
       return next
-    })
+    }, metadata)
     const normalized = remember(normalize(clone(saved)))
     input[STORAGE_REVISION] = normalized[STORAGE_REVISION]
     input.updatedAt = normalized.updatedAt
     return normalized
   }
 
-  async function update(chatId, mutation) {
+  async function update(chatId, mutation, metadata = {}) {
     if (typeof mutation !== 'function') throw new Error('Chat Persistence 缺少 mutation')
-    const saved = await data.updateJson(relative(chatId), async function (stored) {
+    const saved = await records.update(chatId, async function (stored) {
       if (stored === undefined) return undefined
       const latest = normalize(clone(stored))
       const currentRevision = Math.max(0, Number(latest[STORAGE_REVISION]) || 0)
@@ -123,14 +131,24 @@ export function createChatPersistence(options = {}) {
       next[STORAGE_REVISION] = currentRevision + 1
       next.updatedAt = Math.max(Number(next.updatedAt) || 0, now())
       return next
-    })
+    }, metadata)
     return saved === undefined ? undefined : remember(normalize(clone(saved)))
+  }
+
+  async function readRevision(chatId, revision) {
+    if (typeof records.readRevision !== 'function') throw new Error('当前 Chat Store 不支持按 revision 读取')
+    const value = await records.readRevision(chatId, revision)
+    return value === undefined ? undefined : normalize(clone(value))
+  }
+
+  async function version(chatId) {
+    return typeof records.version === 'function' ? await records.version(chatId) : ''
   }
 
   async function remove(chatId) {
     baselines.forEach(function (_value, key) { if (key.startsWith(String(chatId) + ':')) baselines.delete(key) })
-    await data.remove(relative(chatId))
+    await records.remove(chatId)
   }
 
-  return Object.freeze({ read, write, update, remove })
+  return Object.freeze({ read, readRevision, write, update, version, remove })
 }

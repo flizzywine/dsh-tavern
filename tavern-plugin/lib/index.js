@@ -46,6 +46,7 @@ import {
 } from './domain/background-task-coordinator.js'
 import { createProfileDataStore } from './profile-data-store.js'
 import { createChatPersistence } from './domain/chat-persistence.js'
+import { createChatJournalStore } from './domain/chat-journal-store.js'
 import { createResourceGraph } from './domain/resource-graph.js'
 import { prompt } from './prompt-catalog.js'
 
@@ -455,10 +456,19 @@ export async function apply(ctx) {
     }
     return chat
   }
-  const chatPersistence = createChatPersistence({ data: profileData, normalize: normalizeChat, now: Date.now })
+  const chatJournalStore = createChatJournalStore({ dataRoot, legacyData: profileData, now: Date.now, logger: console })
+  const chatPersistence = createChatPersistence({ store: chatJournalStore, normalize: normalizeChat, now: Date.now })
   async function readChat(chatId) { return await chatPersistence.read(chatId) }
-  async function writeChat(chat) { return await chatPersistence.write(chat) }
-  async function updateChat(chatId, mutation) { return await chatPersistence.update(chatId, mutation) }
+  async function readChatRevision(chatId, revision) { return await chatPersistence.readRevision(chatId, revision) }
+  async function writeChat(chat, metadata) { return await chatPersistence.write(chat, metadata) }
+  async function updateChat(chatId, mutation, metadata) { return await chatPersistence.update(chatId, mutation, metadata) }
+  async function prepareRollbackIntent(chat, intent) {
+    const target = storyTimeline.rollbackTarget({ chat })
+    if (target === null) return intent
+    const beforeChat = await readChatRevision(chat.id, target.beforeRevision)
+    if (beforeChat === undefined) throw new Error('找不到剧情 checkpoint 对应的历史 Chat revision: ' + target.beforeRevision)
+    return Object.assign({}, intent, { beforeChat })
+  }
   const conversationRegistry = createTavernConversationRegistry({
     store: {
       readLinks: async function () { return await readJson('sessions.json') },
@@ -553,7 +563,7 @@ export async function apply(ctx) {
       const linked = await readChat(item.id)
       if (linked !== undefined && linked.cardName !== cardName) {
         linked.cardName = cardName
-        await writeJson('chats/' + linked.id + '.json', linked)
+        await writeChat(linked, { source: 'card-name.sync' })
       }
     }
   }
@@ -599,7 +609,7 @@ export async function apply(ctx) {
     editorChat.workspace.mountedResources = mounted.filter(function (item) {
       return !item || item.kind !== 'play-chat' || item.path !== reference.path
     }).concat([reference])
-    await writeChat(editorChat)
+    await writeChat(editorChat, { source: 'play-chat.attach' })
     return reference
   }
 
@@ -655,7 +665,7 @@ export async function apply(ctx) {
     const frames = Array.isArray(current.frames) ? current.frames.filter(function (item) { return Number(item && item.partIndex) !== index }) : []
     frames.push(Object.assign({ partIndex: index }, capture))
     message.displayRuntime = { version: 1, sourceActivityAt, frames: frames.sort(function (a, b) { return a.partIndex - b.partIndex }) }
-    await writeChat(chat)
+    await writeChat(chat, { source: 'display.capture' })
     return { captured: true, turn, partIndex: index, captureKind: capture.captureKind }
   }
 
@@ -943,7 +953,7 @@ export async function apply(ctx) {
     }
     await sessionStore.flush(target.session)
     chat.nativeOpeningAppended = true
-    await writeChat(chat)
+    await writeChat(chat, { source: 'opening.native-append' })
   }
 
   async function scriptPreviewOf(chat) {
@@ -1021,7 +1031,7 @@ export async function apply(ctx) {
       const sanitized = sanitizeAgentProjectionText(existing)
       if (sanitized !== existing) {
         chat.cardContextSnapshot = sanitized
-        await writeChat(chat)
+        await writeChat(chat, { source: 'card-context.sanitize' })
       }
       return sanitized
     }
@@ -1031,7 +1041,7 @@ export async function apply(ctx) {
       const snapshot = await buildPlayCardSnapshot(chat, resolvedCard)
       chat.cardContextSnapshot = snapshot
       chat.cardContextSnapshotVersion = 3
-      await writeChat(chat)
+      await writeChat(chat, { source: 'card-context.snapshot' })
       return snapshot
     })()
     cardSnapshotBuilds.set(chat.id, build)
@@ -1145,7 +1155,7 @@ export async function apply(ctx) {
       if (isOpeningAwaitingSettlement(current)) {
         current.settleStatus = 'running'
         current.settleError = null
-        await writeChat(current)
+        await writeChat(current, { source: 'settlement.opening-prepare' })
         shouldRun = true
       }
       const activity = backgroundTasks.activity(current)
@@ -1305,7 +1315,7 @@ export async function apply(ctx) {
     if (chat.guides.length >= 20) throw new Error('Guide 数量已达上限（20 条）')
     chat.guides.push({ id: uid('guide'), text: guide, createdAt: Date.now() })
     chat.updatedAt = Date.now()
-    await writeChat(chat)
+    await writeChat(chat, { source: 'guide.add' })
     return chat.guides
   }
   async function deleteGuide(sessionId, index) {
@@ -1316,7 +1326,7 @@ export async function apply(ctx) {
     if (idx < 0) throw new Error('Guide 序号无效')
     chat.guides.splice(idx, 1)
     chat.updatedAt = Date.now()
-    await writeChat(chat)
+    await writeChat(chat, { source: 'guide.delete' })
     return chat.guides
   }
   async function setPlayerName(sessionId, userName) {
@@ -1326,7 +1336,7 @@ export async function apply(ctx) {
     const name = str(userName).trim().slice(0, 80) || '你'
     if (chat.macroState === null || typeof chat.macroState !== 'object') chat.macroState = { userName: name, local: {}, global: {} }
     else chat.macroState.userName = name
-    await writeChat(chat)
+    await writeChat(chat, { source: 'player-name.set' })
     return name
   }
 
@@ -1422,7 +1432,7 @@ export async function apply(ctx) {
     if (error === null) latest.worldBookReads = prepared.recordReads(latest.worldBookReads)
     latest.worldBookError = error
     latest.lastWorldBookRecall = Object.assign({}, latest.preparedWorldBook)
-    await writeChat(latest)
+    await writeChat(latest, { source: 'worldbook.projection' })
     return latest
   }
   async function runSettlement(chatId) {
@@ -1523,7 +1533,7 @@ export async function apply(ctx) {
     if (isOpeningAwaitingSettlement(chat)) {
       chat.settleStatus = 'running'
       chat.settleError = null
-      await writeChat(chat)
+      await writeChat(chat, { source: 'settlement.opening-prepare' })
       shouldRun = true
     }
     const activity = backgroundTasks.activity(chat)
@@ -1681,7 +1691,7 @@ export async function apply(ctx) {
     async function restoreFailedRegen() {
       const failedChat = await readChat(chat.id)
       const restored = storyTimeline.apply({ chat: failedChat || chat, intent: { kind: 'replacement.abort', restoreChat: originalChat } })
-      await writeChat(restored.chat)
+      await writeChat(restored.chat, { source: 'foreground.regen-abort' })
     }
     let legacyBefore = null
     if (storyTimeline.inspect({ chat }).checkpointCount === 0) {
@@ -1709,10 +1719,11 @@ export async function apply(ctx) {
         legacyBefore.scriptState = scriptContinuity.transition({ script, state: chat.scriptState, event: { kind: 'restore', revision, reference } }).state
       }
     }
-    const rolled = storyTimeline.apply({ chat, intent: { kind: 'turn.rollback', turn: oldTurn, legacyBefore } })
+    const rollbackIntent = await prepareRollbackIntent(chat, { kind: 'turn.rollback', turn: oldTurn, legacyBefore })
+    const rolled = storyTimeline.apply({ chat, intent: rollbackIntent })
     chat = rolled.chat
     chat.regenInProgress = true
-    await writeChat(chat)
+    await writeChat(chat, { source: 'rollback.regen' })
     const guide = str(guidance).trim()
     const syntheticText = '【重新生成正文】\n原玩家输入：\n' + originalUserText + '\n\n指导意见：\n' + (guide !== '' ? guide : '（无）') + '\n\n请根据原玩家输入和指导意见重新生成小说正文。'
     const beforeLastTurn = agent.phase !== undefined && agent.phase !== null && Number.isFinite(Number(agent.phase.lastTurn)) ? Number(agent.phase.lastTurn) : 0
@@ -1756,7 +1767,7 @@ export async function apply(ctx) {
     delete latest.regenInProgress
     latest.settleStatus = 'pending'
     latest.settleError = null
-    await writeChat(latest)
+    await writeChat(latest, { source: 'foreground.regen-commit' })
     // 模型面遮蔽旧正文；新正文由正常 Agent 回合生成，UI 隐藏旧 turn tail 与合成的重新生成用户消息
     if (nodes.indexOf(oldSeq) >= 0) {
       session.append('assistant/message', {
@@ -1881,14 +1892,12 @@ export async function apply(ctx) {
       const reference = rollbackCommit !== null && rollbackCommit.scriptReference !== null && typeof rollbackCommit.scriptReference === 'object' ? rollbackCommit.scriptReference : null
       legacyBefore.scriptState = scriptContinuity.transition({ script: script, state: chat.scriptState, event: { kind: 'restore', revision: revision, reference: reference } }).state
     }
-    const rolled = storyTimeline.apply({
-      chat,
-      intent: { kind: 'turn.rollback', turn: hiddenTurn, legacyBefore }
-    })
+    const rollbackIntent = await prepareRollbackIntent(chat, { kind: 'turn.rollback', turn: hiddenTurn, legacyBefore })
+    const rolled = storyTimeline.apply({ chat, intent: rollbackIntent })
     chat = rolled.chat
     if (rollbackCommitKey !== '') delete chat.nativeCommits[rollbackCommitKey]
     chat.updatedAt = Date.now()
-    await writeChat(chat)
+    await writeChat(chat, { source: 'rollback' })
 
     // 3) 原生消息面：用空消息替换最近一轮的所有 surface 节点（模型不再看到），UI 由客户端隐藏对应 turn tail
     const endSeq = shadowedSeqs[shadowedSeqs.length - 1]
@@ -2106,7 +2115,7 @@ export async function apply(ctx) {
     const links = await readSessionMap()
     const chatId = str(links && links[normalizedSessionId])
     const liveSession = Boolean(agentRegistry.get(normalizedSessionId) && agentRegistry.get(normalizedSessionId).session)
-    const chatVersion = chatId === '' ? '' : await profileData.version('chats/' + chatId + '.json')
+    const chatVersion = chatId === '' ? '' : await chatPersistence.version(chatId)
     const projectionVersion = await profileData.version('card-projection-revisions.json')
     return [runtimeGeneration, liveSession ? '1' : '0', chatId, chatVersion, projectionVersion].join(':')
   }

@@ -225,7 +225,7 @@ test('人物卡稳定字段固定为会话前缀，角色约束改为每轮注�
   assert.match(buildSnapshot, /worldBookLabel: '常驻世界书'/)
   assert.match(ensureSnapshot, /sanitizeAgentProjectionText\(existing\)/)
   assert.match(ensureSnapshot, /chat\.cardContextSnapshot = sanitized/)
-  assert.match(ensureSnapshot, /await writeChat\(chat\)/)
+  assert.match(ensureSnapshot, /await writeChat\(chat, \{ source: 'card-context\.(?:sanitize|snapshot)' \}\)/)
   assert.match(systemAssembly, /name: 'tavern:card-snapshot'/)
   assert.match(bodyPlanner, /includeDetails: true/)
   assert.match(bodyPlanner, /includeDescription: true/)

@@ -72,7 +72,7 @@ export function createTavernCompactionCoordinator(options = {}) {
             current.compactionPlannedAt = now()
           }
           return draft
-        })
+        }, { source: 'compaction.prepare', operationId })
       }
     } catch (error) {
       plans.delete(plan.chatId)
@@ -115,7 +115,7 @@ export function createTavernCompactionCoordinator(options = {}) {
           background
         }
         return draft
-      })
+      }, { source: 'compaction.complete', operationId: plan.operationId })
     } finally {
       plans.delete(plan.chatId)
     }

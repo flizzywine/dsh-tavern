@@ -185,7 +185,7 @@ JSON chat 与 DSH Session 不能形成真正的跨存储 ACID 事务。提交顺
 
 旧对话首次读取时惰性建立 baseline timeline。现有 `nativeCommits` 转为 checkpoint 输入；现有 `candidateAgent.sessionId` 作为 legacy 后台 participant 绑定，上一版 timeline 中的 `candidate` participant 也会改名为 `background`。旧版 `needs-branch/forkFrom` 会迁移为同一 Session 的 `needs-rewind/rewindTo`；直接来源已经丢失时，向更早 checkpoint 恢复最近有效边界。
 
-checkpoint 初期保存完整领域快照并保留最近 40 个。以后可以在 Store Adapter 内改成增量与周期快照，不改变 Story Timeline 接口。
+新 checkpoint 保存正文开始前的 Chat storage revision cursor，并由 snapshot + journal 在回退时完整重建；旧 checkpoint 内嵌的 `before` 继续兼容读取。Store Adapter 保留历史 snapshot 与 sealed journal，因此 Story Timeline 不需要重复保存整份 Chat。
 
 ## 验收矩阵
 
@@ -201,6 +201,6 @@ checkpoint 初期保存完整领域快照并保留最近 40 个。以后可以�
 
 ## 当前落地范围
 
-已实现：完整 checkpoint、单调 revision、新分支回退、正文替代只推进一次、候选/结算迟到结果作废、整条 Tavern 对话复用一个后台 Session、回退后从闭合回合边界遮蔽模型 Surface、旧对话从 `nativeCommits` 惰性迁移。上一版的 `candidate` participant 会惰性迁移为 `background`，旧版派生状态会迁移为 Surface 回退状态。
+已实现：可由 storage revision 完整重建的 checkpoint、单调 revision、新分支回退、正文替代只推进一次、候选/结算迟到结果作废、整条 Tavern 对话复用一个后台 Session、回退后从闭合回合边界遮蔽模型 Surface、旧对话从 `nativeCommits` 惰性迁移。上一版的 `candidate` participant 会惰性迁移为 `background`，旧版派生状态会迁移为 Surface 回退状态。
 
 后续加固：文件 Store 的跨进程 CAS、持久 projection outbox、compact 后 Surface 回退能力的显式检测。这三项不影响当前单进程 Tavern 的时间线正确性，但在多进程写入、DSH 投影中途崩溃或目标边界已被 compact 时仍需要恢复机制。

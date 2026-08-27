@@ -11,7 +11,7 @@
 
 Tavern chat 中的 Story Timeline 是唯一权威状态，DSH 主会话与子 Agent Session 都只是某个 `{branchId, revision}` 的生产者或投影。
 
-- 每次正文提交前保存完整 checkpoint。
+- 每次正文提交前保存可完整重建的 checkpoint。领域语义要求完整恢复，但物理表示可以是 Chat storage revision cursor。
 - revision 只增不减；回退恢复 checkpoint 内容，但创建新 branch 和更大的 revision。
 - 每个 Agent operation 绑定生成开始时的 branch/revision，提交时不一致就作废。
 - 同一分支复用持久后台 Session；回退或正文替代后，从 checkpoint 记录的闭合回合边界派生新 Session。
@@ -22,7 +22,7 @@ Tavern chat 中的 Story Timeline 是唯一权威状态，DSH 主会话与子 Ag
 
 好处：连续回退、正文替代、候选重生成和未来状态结算使用同一套规则；迟到结果不会复活；废弃剧情不会进入当前后台 Agent 的新分支。
 
-代价：分叉后 Session ID 会变化；chat 需要保存 checkpoint、operation 和 participant 元数据；跨文件 chat 与 DSH surface 的崩溃恢复仍需后续 projection outbox 加固。
+代价：chat 需要保存 checkpoint cursor、operation 和 participant 元数据；跨文件 chat 与 DSH surface 的崩溃恢复仍需后续 projection outbox 加固。
 
 ## 被否决方案
 

@@ -61,7 +61,7 @@ export function createTavernConversationRegistry(options = {}) {
     let chatWritten = false
     let linked = false
     try {
-      await store.writeChat(chat)
+      await store.writeChat(chat, { source: 'chat.create' })
       chatWritten = true
       if (sessionId !== '') {
         await store.updateLinks(function (value) {

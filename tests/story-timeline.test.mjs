@@ -3,6 +3,8 @@ import test from 'node:test'
 
 import { createStoryTimeline } from '../tavern-plugin/lib/domain/story-timeline.js'
 
+const histories = new WeakMap()
+
 function harness() {
   let sequence = 0
   const timeline = createStoryTimeline({
@@ -12,12 +14,15 @@ function harness() {
   const chat = {
     id: 'chat-1', mode: 'script', messages: [], posture: '门边站立', candidates: null,
     scriptState: { cursor: 0, prepared: null }, settleStatus: 'done', settleError: null, lastSettle: { ts: 1 },
-    candidateAgent: null
+    candidateAgent: null, _storageRevision: 1
   }
+  histories.set(timeline, new Map())
   return { timeline, chat }
 }
 
 function beginAndCommitBody(timeline, chat, turn, userText, body) {
+  const beforeRevision = Math.max(0, Number(chat._storageRevision) || 0)
+  histories.get(timeline).set(beforeRevision, structuredClone(chat))
   const begun = timeline.apply({ chat, intent: { kind: 'body.begin', turn, userText } })
   const completed = timeline.complete({
     chat: begun.chat,
@@ -29,7 +34,16 @@ function beginAndCommitBody(timeline, chat, turn, userText, body) {
       draft.scriptState = { cursor: draft.scriptState.cursor + 1, prepared: null }
     }
   })
+  completed.chat._storageRevision = beforeRevision + 2
   return completed.chat
+}
+
+function rollback(timeline, chat) {
+  const target = timeline.rollbackTarget({ chat })
+  const beforeChat = target === null ? undefined : histories.get(timeline).get(target.beforeRevision)
+  const result = timeline.apply({ chat, intent: { kind: 'turn.rollback', beforeChat } })
+  result.chat._storageRevision = Math.max(0, Number(chat._storageRevision) || 0) + 1
+  return result
 }
 
 test('正文提交建立 checkpoint，revision 单调增加并清除旧候选', () => {
@@ -38,8 +52,14 @@ test('正文提交建立 checkpoint，revision 单调增加并清除旧候选', 
   const next = beginAndCommitBody(timeline, chat, 1, '推门', '门开了。')
 
   const view = timeline.inspect({ chat: next })
+  const checkpoint = next.timeline.checkpoints[0]
+  const bodyOperation = Object.values(next.timeline.operations).find(function (operation) { return operation.kind === 'body' })
   assert.equal(view.revision, 1)
   assert.equal(view.checkpointCount, 1)
+  assert.equal(checkpoint.beforeRevision, 1)
+  assert.equal(Object.hasOwn(checkpoint, 'before'), false)
+  assert.equal(bodyOperation.beforeRevision, 1)
+  assert.equal(Object.hasOwn(bodyOperation, 'before'), false)
   assert.equal(next.candidates, null)
   assert.equal(next.messages.length, 2)
   assert.equal(next.scriptState.cursor, 1)
@@ -57,7 +77,7 @@ test('回退恢复完整 checkpoint，但创建新 branch 且 revision 不倒退
   second.worldBookReads['entry:2'] = { turn: 2, fingerprint: 'new' }
   const beforeRollback = timeline.inspect({ chat: second })
 
-  const rolled = timeline.apply({ chat: second, intent: { kind: 'turn.rollback' } })
+  const rolled = rollback(timeline, second)
   const after = timeline.inspect({ chat: rolled.chat })
 
   assert.notEqual(after.branchId, beforeRollback.branchId)
@@ -75,7 +95,7 @@ test('候选工作绑定 branch/revision；回退后迟到结果自动 stale', (
   const { timeline, chat } = harness()
   const committed = beginAndCommitBody(timeline, chat, 1, '推门', '门开了。')
   const begun = timeline.apply({ chat: committed, intent: { kind: 'agent.begin', role: 'candidate' } })
-  const rolled = timeline.apply({ chat: begun.chat, intent: { kind: 'turn.rollback' } })
+  const rolled = rollback(timeline, begun.chat)
   const late = timeline.complete({
     chat: rolled.chat,
     operationId: begun.value.operationId,
@@ -92,7 +112,7 @@ test('同一 operation 协议可扩展到状态结算，迟到结算不能覆盖
   const { timeline, chat } = harness()
   const committed = beginAndCommitBody(timeline, chat, 1, '推门', '门开了。')
   const begun = timeline.apply({ chat: committed, intent: { kind: 'agent.begin', role: 'settlement' } })
-  const rolled = timeline.apply({ chat: begun.chat, intent: { kind: 'turn.rollback' } })
+  const rolled = rollback(timeline, begun.chat)
   const late = timeline.complete({
     chat: rolled.chat,
     operationId: begun.value.operationId,
@@ -148,7 +168,7 @@ test('后台 participant 在正常推进时复用，回退后仍使用同一 Ses
   assert.equal(begun.value.participant.sessionId, 'candidate-1')
   assert.equal(begun.value.participant.rewindTo, null)
 
-  const rolled = timeline.apply({ chat: begun.chat, intent: { kind: 'turn.rollback' } })
+  const rolled = rollback(timeline, begun.chat)
   const next = timeline.apply({ chat: rolled.chat, intent: { kind: 'agent.begin', role: 'candidate' } })
   assert.equal(next.value.participant.sessionId, 'candidate-1')
   assert.equal(next.value.participant.rewindTo, 42)
@@ -168,7 +188,7 @@ test('后台 Session 压缩后发生正文回退时重建 Session，不复用可
   current.timeline.participants.background.requiresNewSessionOnRewind = true
   current.timeline.participants.background.compactedAt = 1000
 
-  const rolled = timeline.apply({ chat: current, intent: { kind: 'turn.rollback' } })
+  const rolled = rollback(timeline, current)
   begun = timeline.apply({ chat: rolled.chat, intent: { kind: 'agent.begin', role: 'candidate' } })
 
   assert.equal(begun.value.participant.sessionId, '')
@@ -185,13 +205,13 @@ test('连续正文替代始终回退同一个后台 Session 的有效 checkpoint
   }
 
   current = beginAndCommitBody(timeline, current, 1, '推门', '第一版正文')
-  current = timeline.apply({ chat: current, intent: { kind: 'turn.rollback' } }).chat
+  current = rollback(timeline, current).chat
   let begun = timeline.apply({ chat: current, intent: { kind: 'agent.begin', role: 'candidate' } })
   assert.equal(begun.value.participant.sessionId, 'background-before-body')
   assert.equal(begun.value.participant.rewindTo, 42)
 
   current = beginAndCommitBody(timeline, begun.chat, 2, '推门', '第二版正文')
-  current = timeline.apply({ chat: current, intent: { kind: 'turn.rollback' } }).chat
+  current = rollback(timeline, current).chat
   begun = timeline.apply({ chat: current, intent: { kind: 'agent.begin', role: 'candidate' } })
 
   assert.equal(begun.value.participant.sessionId, 'background-before-body')
@@ -280,7 +300,7 @@ test('旧 checkpoint 丢失直接来源时向前恢复最近的有效后台边�
   }
   current = beginAndCommitBody(timeline, current, 2, '上楼', '第二段正文')
 
-  const rolled = timeline.apply({ chat: current, intent: { kind: 'turn.rollback' } })
+  const rolled = rollback(timeline, current)
   const begun = timeline.apply({ chat: rolled.chat, intent: { kind: 'agent.begin', role: 'candidate' } })
 
   assert.equal(begun.value.participant.sessionId, 'background-old')
