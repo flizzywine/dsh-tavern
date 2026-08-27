@@ -46,7 +46,11 @@ Story Timeline 中 Background Operation 生命周期的只读投影，用于回�
 
 ## Internal Preset Projection
 
-运行时从 Bypass Plan 确定性生成的内部请求结构。中文正式名称为“内部预设投影”。它可以包含稳定前缀、每轮注入和后带内容，或在开发者兼容模式下投影为 SillyTavern 消息顺序；它不是用户资源，不在 UI 中展示或激活。
+运行时从 Bypass Plan 确定性生成的内部请求结构。中文正式名称为“内部预设投影”。它可以包含稳定前缀、每轮注入和后带内容，或在兼容模式下投影为 SillyTavern 消息顺序；它不是用户资源，不在 UI 中展示或激活。
+
+## Compatibility Mode
+
+普通用户可以在设置中主动开启的实验性游玩模式。中文正式名称为“兼容模式（实验性）”。它按 SillyTavern 语义构造前台模型请求，不运行 DSH 后台 Agent、状态结算和候选项。该设置默认关闭，只控制入口与新建权限；已有兼容对话不会因关闭设置而被改写。
 
 ## Stable Prefix
 

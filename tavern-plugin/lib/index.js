@@ -15,7 +15,6 @@ import { createContextPlanner } from './domain/context-planner.js'
 import { createConversationTextExport } from './domain/conversation-text-export.js'
 import { createCoordinationEventPublisher } from './domain/coordination-event-publisher.js'
 import { createDurableTaskMailbox } from './domain/durable-task-mailbox.js'
-import { resolveDeveloperMode } from './domain/developer-mode.js'
 import { extractEpubText } from './domain/epub-text.js'
 import { createFileResourceStore, normalizeResourcePath, resourceKind } from './domain/file-resources.js'
 import { createForegroundHandoff } from './domain/foreground-handoff.js'
@@ -76,11 +75,21 @@ export async function apply(ctx) {
     return
   }
   const agentDefaultModel = ctx.get('agentDefaultModel')
-  const developerMode = resolveDeveloperMode()
-
   const sourceRoot = fileURLToPath(new URL('../../', import.meta.url))
   const dataRoot = resolveTavernDataRoot()
   const profileData = createProfileDataStore({ dataRoot })
+  const settingsPath = 'tavern-settings.json'
+  async function readTavernSettings() {
+    const saved = await profileData.readJson(settingsPath)
+    return { compatibilityMode: Boolean(saved && saved.compatibilityMode === true) }
+  }
+  async function updateTavernSettings(patch) {
+    return await profileData.updateJson(settingsPath, function (current) {
+      const next = current && typeof current === 'object' ? Object.assign({}, current) : {}
+      if (patch && Object.prototype.hasOwnProperty.call(patch, 'compatibilityMode')) next.compatibilityMode = patch.compatibilityMode === true
+      return next
+    })
+  }
   const applicationUpdater = createApplicationUpdater({ dataRoot, sourceRoot })
   const modelRequestLog = createModelRequestLog({
     readJson: async function (path) { return await profileData.readJson(path) },
@@ -581,7 +590,7 @@ export async function apply(ctx) {
   function normalizeChat(chat) {
     if (chat === undefined || chat === null || typeof chat !== 'object') return chat
     if (chat.mode === 'revision' || chat.mode === 'extract') chat.mode = 'card'
-    if (!developerMode || chat.requestMode !== 'sillytavern') chat.requestMode = 'dsh'
+    if (chat.requestMode !== 'sillytavern') chat.requestMode = 'dsh'
     if (typeof chat.cardPath !== 'string') chat.cardPath = ''
     if (chat.macroState === null || typeof chat.macroState !== 'object') chat.macroState = { userName: '你', local: {}, global: {} }
     if (typeof chat.macroState.userName !== 'string' || chat.macroState.userName === '' || chat.macroState.userName === 'User') chat.macroState.userName = '你'
@@ -834,7 +843,7 @@ export async function apply(ctx) {
       cardPath: hasCard ? card.path : '',
       cardName: hasCard ? card.name : '卡片工作台',
       mode: chatMode,
-      requestMode: developerMode && requestMode === 'sillytavern' && chatMode !== 'card' ? 'sillytavern' : 'dsh',
+      requestMode: requestMode === 'sillytavern' && chatMode !== 'card' ? 'sillytavern' : 'dsh',
       scriptState: chatMode === 'script' ? { cursor: 0, recalledChunkIds: [], prepared: null, lastReference: null, totalChunks: 0, title: '', scriptVersion: 0 } : null,
       workspace: chatMode === 'card' ? emptyCardWorkspace() : null,
       messages: [],
@@ -989,7 +998,8 @@ export async function apply(ctx) {
     return result.sort(function (left, right) { return Number(left.turn) - Number(right.turn) })
   }
   async function startChat(cardPath, sessionId, mode, openingId, userName, requestMode) {
-    const effectiveRequestMode = developerMode && requestMode === 'sillytavern' ? 'sillytavern' : 'dsh'
+    const settings = await readTavernSettings()
+    const effectiveRequestMode = settings.compatibilityMode && requestMode === 'sillytavern' ? 'sillytavern' : 'dsh'
     const requestedMode = mode === 'card' || mode === 'revision' || mode === 'extract' ? 'card' : (mode === 'script' ? 'script' : (mode === 'story' ? 'story' : null))
     const card = str(cardPath) === '' && requestedMode === 'card' ? null : await readCard(cardPath)
     if (card === undefined) throw new Error('人物卡不存在: ' + cardPath)
@@ -1492,7 +1502,8 @@ export async function apply(ctx) {
     const chat = await chatForSession(sessionId)
     if (chat === undefined) throw new Error('当前会话没有绑定人物卡')
     if ((chat.mode || 'story') === 'card') throw new Error('卡片工作台不能切换请求模式')
-    if (requestMode === 'sillytavern' && !developerMode) throw new Error('酒馆兼容模式仅在开发模式下可用')
+    const settings = await readTavernSettings()
+    if (requestMode === 'sillytavern' && !settings.compatibilityMode) throw new Error('请先在设置中启用兼容模式（实验性）')
     chat.requestMode = requestMode === 'sillytavern' ? 'sillytavern' : 'dsh'
     await writeChat(chat)
     return chat.requestMode
@@ -2179,7 +2190,12 @@ export async function apply(ctx) {
         const change = await updateCard(args && args.path, args && args.patch)
         return { card: change.card, changed: change.changed }
       }
-      case 'listSessions': return { sessions: await listTavernSessions(), capabilities: { compatibilityMode: developerMode } }
+      case 'getTavernSettings': return { settings: await readTavernSettings() }
+      case 'updateTavernSettings': return { settings: await updateTavernSettings(args && args.patch) }
+      case 'listSessions': {
+        const settings = await readTavernSettings()
+        return { sessions: await listTavernSessions(), capabilities: { compatibilityMode: settings.compatibilityMode } }
+      }
       case 'importCard': return { card: await importCard(args && args.payload) }
       case 'deleteCard': return await deleteCard(args && args.path)
       case 'deleteChat': return await deleteChat(args && args.chatId)

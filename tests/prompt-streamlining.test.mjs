@@ -24,7 +24,8 @@ function between(source, start, end) {
 }
 
 test('模型选择只读取当前会话和 DSH 默认值', () => {
-  assert.doesNotMatch(serverSource, /getSettings|updateSettings|settings\.json|settings\.provider|settings\.model/)
+  const selection = between(serverSource, 'function modelSelection', 'async function callModel')
+  assert.doesNotMatch(selection, /getSettings|updateSettings|settings\.json|settings\.provider|settings\.model/)
   assert.match(serverSource, /当前会话的模型选择器/)
 })
 
