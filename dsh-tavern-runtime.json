@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "revision": "7bd9475493494f19c463bcdfdb49934f40e86c3d",
+  "revision": "c41a4c038260228bac202f1e9ddbe5bf919bb6ec",
   "files": [
     {
       "path": "bin/dsh-tavern",
@@ -44,7 +44,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "e9a6ad44a56acdf1e905222df342a97de7558f22ffcffdaea127fb513e59f2fe",
+      "sha256": "2462c7e813264b9786f7e393376c629f4fc1e3cc138ede0af39a77cc2c67d160",
       "size": 982
     },
     {
@@ -93,16 +93,6 @@
       "size": 763
     },
     {
-      "path": "tavern-plugin/examples/bypass-plans/Kemini Dramatron 陨落的天才v1.26 · 破限方案.json",
-      "sha256": "0faca74765d6242c42f95de7701f693b2be4c170d6b8f7da24ba45e411fd61f1",
-      "size": 64855
-    },
-    {
-      "path": "tavern-plugin/examples/presets/Kemini Dramatron 陨落的天才v1.26.json",
-      "sha256": "a1ad0dee9cc0b734f02953fbe5931334ad9501cdf106d8bed097b5d12b458383",
-      "size": 108838
-    },
-    {
       "path": "tavern-plugin/lib/application-updater.js",
       "sha256": "b4e49c2eef94f3f17aba526657f05782db81d6a7250a69593c343521563796ca",
       "size": 16020
@@ -114,8 +104,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "eecaaa5e98eb70c090c5e285ca6776d294c83f952b891043e45b7d50fe2e722e",
-      "size": 294046
+      "sha256": "046f679ec4412695098cea856ee3999178f1f8ba7c583b84d6a296e66fa217a8",
+      "size": 279984
     },
     {
       "path": "tavern-plugin/lib/domain/agent-readiness.js",
@@ -128,14 +118,9 @@
       "size": 8841
     },
     {
-      "path": "tavern-plugin/lib/domain/bundled-examples.js",
-      "sha256": "771502e6fb96d20f0e862ad78b12ba7df1a8d107f6dac012c37071b0008d99a2",
-      "size": 2064
-    },
-    {
       "path": "tavern-plugin/lib/domain/bypass-plans.js",
-      "sha256": "e4b5de338217c7909a6085a2a17f2afd8be514623b06cee2d05e5ca34c5f7b39",
-      "size": 19661
+      "sha256": "adada05c2c8163df3c571a7ee2ac475a37891477e5af3d768f33de328c4d7b1e",
+      "size": 19879
     },
     {
       "path": "tavern-plugin/lib/domain/candidate-generation.js",
@@ -174,8 +159,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/chat-persistence.js",
-      "sha256": "23e603356278e6438e73ae963eed27371bb06eebb4c48159057130d21e4957f6",
-      "size": 6530
+      "sha256": "7eb93b6cbdd8f774f765be2e1dc4a194afaf6bd06dfc5e9616c00e97fd8c242e",
+      "size": 6561
     },
     {
       "path": "tavern-plugin/lib/domain/compatibility-request.js",
@@ -379,8 +364,8 @@
     },
     {
       "path": "tavern-plugin/lib/index.js",
-      "sha256": "2b51112d03573b631d931cd412776aeffc9bbe375823b8a9e91c9999ab03e3e0",
-      "size": 179131
+      "sha256": "1d893c459042065f3248612102c75ef7b58e405b164c1500b490c378f592c5c9",
+      "size": 178681
     },
     {
       "path": "tavern-plugin/lib/profile-data-store.js",
@@ -449,7 +434,7 @@
     },
     {
       "path": "tavern-plugin/package.json",
-      "sha256": "521bc6cadade123e4ff5403cf949fe1f72db4be881bc6b6be6f10e8487bffc01",
+      "sha256": "0bc63e4f929de1e4f93b3ed830bfcc0017a261b68d60a33bf9fef25ce4f80a18",
       "size": 580
     },
     {
@@ -474,13 +459,13 @@
     },
     {
       "path": "tavern-plugin/prompts/card-mode-greeting.md",
-      "sha256": "5ad41fdb4214f3b5a387b6dc73d85b226b9b6dd7fef6c3afea02605524007155",
-      "size": 184
+      "sha256": "f3457a29febb57dd10b9fbab1c31bfe8dc460c1751a999b518d8db1ac74c4472",
+      "size": 163
     },
     {
       "path": "tavern-plugin/prompts/card-mode.md",
-      "sha256": "88103910889ebe4cfdacb80b462e841aeefcc06405506a088905d7caa3e857f6",
-      "size": 5276
+      "sha256": "6ba5fe134316384c9788e9d6a0033959962d0d77a9b35ea1f3fc7bc9b3315e80",
+      "size": 5267
     },
     {
       "path": "tavern-plugin/prompts/card-task-debug-play.md",
