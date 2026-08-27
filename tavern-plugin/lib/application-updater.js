@@ -40,6 +40,16 @@ async function compareCdnRuntime(sourceRoot, metadata) {
   return { matches, revision: metadata.revision, currentFingerprint: localDigest.digest('hex'), latestFingerprint: remoteDigest.digest('hex'), fileCount: files.length }
 }
 
+async function readVerifiedRuntimeCommit(sourceRoot) {
+  try {
+    const metadata = JSON.parse(await readFile(path.join(sourceRoot, 'dsh-tavern-runtime.json'), 'utf8'))
+    const compared = await compareCdnRuntime(sourceRoot, metadata)
+    return compared.matches ? compared.revision : ''
+  } catch {
+    return ''
+  }
+}
+
 export function sanitizeUpdateError(value) {
   const message = String(value || '').trim()
   const replacements = (message.match(/\uFFFD/g) || []).length
@@ -90,6 +100,8 @@ async function readRecordedCommit(sourceRoot, dshHome) {
   } catch (error) {
     if (error?.code !== 'ENOENT') throw error
   }
+  const runtimeCommit = await readVerifiedRuntimeCommit(sourceRoot)
+  if (runtimeCommit) return runtimeCommit
   try {
     const gitRoot = path.join(sourceRoot, '.git')
     const head = (await readFile(path.join(gitRoot, 'HEAD'), 'utf8')).trim()

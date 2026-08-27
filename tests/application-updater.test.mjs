@@ -91,6 +91,39 @@ test('GitHub 最新提交仅发布运行清单时，以父提交作为最新运�
   }
 })
 
+test('本地 HEAD 仅发布运行清单时，以清单中的运行提交作为当前构建', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-updater-local-manifest-'))
+  try {
+    const runtimeCommit = 'a'.repeat(40)
+    const manifestCommit = 'b'.repeat(40)
+    const packageText = JSON.stringify({ version: '0.9.2' })
+    await mkdir(path.join(root, '.git', 'refs', 'heads'), { recursive: true })
+    await writeFile(path.join(root, '.git', 'HEAD'), 'ref: refs/heads/main\n')
+    await writeFile(path.join(root, '.git', 'refs', 'heads', 'main'), `${manifestCommit}\n`)
+    await writeFile(path.join(root, 'package.json'), packageText)
+    await writeFile(path.join(root, 'dsh-tavern-runtime.json'), JSON.stringify({
+      schemaVersion: 1,
+      revision: runtimeCommit,
+      files: [{ path: 'package.json', sha256: createHash('sha256').update(packageText).digest('hex') }],
+    }))
+    const updater = createApplicationUpdater({
+      dataRoot: path.join(root, 'data'), sourceRoot: root, runtimeHost: 'cli',
+      fetchManifest: async () => ({ version: '0.9.2' }),
+      fetchLatestCommit: async () => ({
+        sha: manifestCommit,
+        parents: [{ sha: runtimeCommit }],
+        files: [{ filename: 'dsh-tavern-runtime.json' }],
+      }),
+      now: () => 260,
+    })
+
+    assert.equal((await updater.status()).currentCommit, runtimeCommit)
+    assert.equal((await updater.check()).phase, 'up-to-date')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test('检查更新失败时保留当前构建信息且不启动安装', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-updater-check-failed-'))
   try {
