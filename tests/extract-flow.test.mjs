@@ -270,7 +270,7 @@ test('后台结算期间禁用候选项按钮，完成后自动恢复', () => {
   assert.doesNotMatch(clientSource, /dsh-tavern-activity-gate/)
   assert.match(action, /useTavernCoordination\(props\.sessionId/)
   assert.match(action, /disabled:.*activity\.busy/s)
-  assert.match(action, /disabled: false, title: "重新生成正文/)
+	assert.match(action, /disabled: regenBusy \|\| rolling, title: "不填写意见，立即重新生成正文/)
   assert.match(action, /disabled: rolling, title: "删除最近一次用户输入/)
   assert.match(clientSource, /"后台结算中…"/)
   assert.match(action, /props\.refreshSessions\(\)/)
@@ -283,6 +283,22 @@ test('后台结算期间禁用候选项按钮，完成后自动恢复', () => {
   assert.doesNotMatch(coordination, /rpc\("syncSession"|setTimeout|setInterval/)
   assert.doesNotMatch(serverSource, /case 'generateChoices'/)
   assert.doesNotMatch(action, /rpc\("getSession"/)
+})
+
+test('正文重新生成提供一键执行与带意见执行两个入口，并复用同一替换流程', () => {
+	const action = between(clientSource, 'function CandidateAction', 'function CandidateDockActions')
+	const shared = between(clientSource, 'async function submitBodyRegeneration', 'function CandidateAction')
+	const panel = between(clientSource, 'function RegenPanel', 'function register')
+
+	assert.match(action, /"一键重新生成"/)
+	assert.match(action, /"带意见重生成"/)
+	assert.match(action, /onClick: regenerateImmediately/)
+	assert.match(action, /onClick: openGuidedRegeneration/)
+	assert.match(action, /submitBodyRegeneration\(props\.sessionId, panel, ""\)/)
+	assert.match(panel, /submitBodyRegeneration\(props\.sessionId, panel, guide\)/)
+	assert.match(shared, /rpc\("regenBody", \{ guidance:/)
+	assert.match(shared, /recordHiddenTurn/)
+	assert.match(shared, /recordHiddenRegenUserTurn/)
 })
 
 test('人物卡详情支持查看、绑定和解绑唯一世界书', () => {
@@ -860,7 +876,7 @@ test('设置开启后在顶层侧栏最右侧显示实验性兼容模式', () =>
 	assert.match(shell, /if \(!target\) \{ props\.sessions\.clear\(\); openPicker\(\); return; \}/)
 	assert.match(shell, /"卡片"\),[\s\S]*"兼容（实验性）"/)
 	assert.match(coordination, /requestMode: sync\.requestMode === "sillytavern"/)
-	assert.match(action, /requestMode === "sillytavern"[\s\S]*"重新生成正文"[\s\S]*"回退本轮"/)
+	assert.match(action, /requestMode === "sillytavern"[\s\S]*"一键重新生成"[\s\S]*"带意见重生成"[\s\S]*"回退本轮"/)
 	assert.match(action, /rollbackViewState = useLiveTavernView\(props\.sessionId,[\s\S]*canRollback = rollbackViewState\.view && rollbackViewState\.view\.canRollback === true/)
 	assert.match(action, /canRollback \? h\("button"[\s\S]*"回退本轮"/)
 	assert.match(action, /liveTavernView\.invalidate\(props\.sessionId\)[\s\S]*tavernCoordination\.invalidate\(props\.sessionId\)/)

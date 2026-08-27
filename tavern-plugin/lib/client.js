@@ -3274,11 +3274,22 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				}
 			} catch (err) {}
 		}
+		async function submitBodyRegeneration(sessionId, panel, guidance) {
+			const res = await rpc("regenBody", { guidance: String(guidance || "").trim() }, sessionId);
+			const adopted = res.view && res.view.adopted ? res.view.adopted : null;
+			if (adopted && Number(adopted.hiddenTurn) > 0) recordHiddenTurn(sessionId, Number(adopted.hiddenTurn));
+			if (adopted && Number(adopted.syntheticTurn) > 0) recordHiddenRegenUserTurn(sessionId, Number(adopted.syntheticTurn));
+			hideTurnTail(panel.tail);
+			applyHiddenTurns(sessionId);
+			applyHiddenRegenUserTurns(sessionId);
+			setCandidatePanel(null);
+		}
 
 		function CandidateAction(props) {
 			const [busy, setBusy] = React.useState(false);
 			const [rolling, setRolling] = React.useState(false);
 			const candidatePanelState = useCandidatePanel();
+			const regenPanelState = useRegenPanel();
 			const sessionMode = useTavernSessionMode(props.sessionId);
 			const frontRunning = props.useSession(function (snapshot) { return snapshot.running === true; });
 			const latestMessageId = props.useSession(function (snapshot) {
@@ -3295,6 +3306,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const candidateTask = activityState.view && activityState.view.task;
 			const taskForMessage = candidateTask && candidateTask.kind === "candidate" && candidateTask.input && String(candidateTask.input.messageId || "") === String(props.messageId || "") ? candidateTask : null;
 			const taskBusy = !!(taskForMessage && taskForMessage.busy);
+			const regenBusy = regenPanelState !== null && regenPanelState.sessionId === props.sessionId && regenPanelState.phase === "loading";
 			const projectedTaskRef = React.useRef("");
 			React.useEffect(function () {
 				if (!taskForMessage) return;
@@ -3351,17 +3363,40 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					tavernErrorHub.report("回退本轮", err);
 				} finally { setRolling(false); }
 			}
+			function regenerationPanelFor(event, phase) {
+				const tail = event && event.currentTarget ? event.currentTarget.closest('[data-chat-flow-kind="turn-tail"]') : null;
+				return { sessionId: props.sessionId, phase: phase, guidance: "", text: "", error: "", tail: tail };
+			}
+			function openGuidedRegeneration(event) {
+				if (regenBusy || rolling) return;
+				setCandidatePanel(null);
+				setRegenPanel(regenerationPanelFor(event, "input"));
+			}
+			async function regenerateImmediately(event) {
+				if (regenBusy || rolling) return;
+				const panel = regenerationPanelFor(event, "loading");
+				setCandidatePanel(null);
+				setRegenPanel(panel);
+				try {
+					await submitBodyRegeneration(props.sessionId, panel, "");
+					setRegenPanel(null);
+				} catch (err) {
+					tavernErrorHub.report("正文重新生成", err);
+					setRegenPanel(Object.assign({}, panel, { phase: "error", error: String(err && err.message || err) }));
+				}
+			}
 			const h = React.createElement;
 			const isScript = sessionMode === "script";
 			const hasReadyPanel = candidatePanelState !== null && candidatePanelState.sessionId === props.sessionId && candidatePanelState.messageId === props.messageId && candidatePanelState.phase === "ready";
 			const hasLoadingPanel = candidatePanelState !== null && candidatePanelState.sessionId === props.sessionId && candidatePanelState.messageId === props.messageId && candidatePanelState.phase === "loading";
 			if (!isPlayMode(sessionMode) || latestMessageId !== props.messageId) return null;
 			if (activityState.view && activityState.view.requestMode === "sillytavern") return h(React.Fragment, null,
-				h("button", { className: "dsh-tavern-choice-trigger", title: "重新生成正文（酒馆兼容请求）", onClick: function (event) { const tail = event && event.currentTarget ? event.currentTarget.closest('[data-chat-flow-kind="turn-tail"]') : null; setRegenPanel({ sessionId: props.sessionId, phase: "input", guidance: "", text: "", error: "", tail: tail }); } }, "重新生成正文"),
+				h("button", { className: "dsh-tavern-choice-trigger", disabled: regenBusy || rolling, title: "不填写意见，立即重新生成正文（酒馆兼容请求）", onClick: regenerateImmediately }, regenBusy ? "重生成中…" : "一键重新生成"),
+				h("button", { className: "dsh-tavern-choice-trigger", disabled: regenBusy || rolling, title: "填写指导意见后重新生成正文（酒馆兼容请求）", onClick: openGuidedRegeneration }, "带意见重生成"),
 				canRollback ? h("button", { className: "dsh-tavern-choice-trigger", disabled: rolling, title: "删除最近一次用户输入和这段 LLM 输出", onClick: rollback }, rolling ? "回退中…" : "回退本轮") : null
 			);
 			return h(React.Fragment, null,
-				h("button", { className: "dsh-tavern-choice-trigger", disabled: busy || rolling || taskBusy || activity.busy, title: activity.busy ? activity.blockReason : (hasReadyPanel ? "重新生成候选项（可先填写意见）" : (isScript ? "手动生成候选项；由于跟随剧本，只有一个推荐候选项" : "手动生成候选项")), onClick: function () {
+				h("button", { className: "dsh-tavern-choice-trigger", disabled: busy || rolling || taskBusy || activity.busy || regenBusy, title: activity.busy ? activity.blockReason : (hasReadyPanel ? "重新生成候选项（可先填写意见）" : (isScript ? "手动生成候选项；由于跟随剧本，只有一个推荐候选项" : "手动生成候选项")), onClick: function () {
 					setRegenPanel(null);
 					if (hasReadyPanel) {
 						const previous = candidatePanelState;
@@ -3371,11 +3406,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 						generate(false);
 					}
 				} }, activity.busy ? activity.label : ((busy || taskBusy) ? "生成中…" : (hasReadyPanel ? "重新生成候选项" : "生成候选项"))),
-				h("button", { className: "dsh-tavern-choice-trigger", disabled: false, title: "重新生成正文（可填指导意见，生成后直接替换）", onClick: function (event) {
-					const tail = event && event.currentTarget ? event.currentTarget.closest('[data-chat-flow-kind="turn-tail"]') : null;
-					setCandidatePanel(null);
-					setRegenPanel({ sessionId: props.sessionId, phase: "input", guidance: "", text: "", error: "", tail: tail });
-				} }, "重新生成正文"),
+				h("button", { className: "dsh-tavern-choice-trigger", disabled: regenBusy || rolling, title: "不填写意见，立即重新生成正文", onClick: regenerateImmediately }, regenBusy ? "重生成中…" : "一键重新生成"),
+				h("button", { className: "dsh-tavern-choice-trigger", disabled: regenBusy || rolling, title: "填写指导意见后重新生成正文", onClick: openGuidedRegeneration }, "带意见重生成"),
 				canRollback ? h("button", { className: "dsh-tavern-choice-trigger", disabled: rolling, title: "删除最近一次用户输入和这段 LLM 输出", onClick: rollback }, rolling ? "回退中…" : "回退本轮") : null
 			);
 		}
@@ -3549,20 +3581,12 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const [guidance, setGuidance] = React.useState("");
 			const h = React.createElement;
 			if (!isPlayMode(sessionMode) || running || !panel || panel.sessionId !== props.sessionId) return null;
-			function call(method, args) { return rpc(method, args, props.sessionId); }
 			async function generate() {
 				const guide = guidance.trim();
 				setRegenPanel(Object.assign({}, panel, { phase: "loading", error: "" }));
 				try {
-					const res = await call("regenBody", { guidance: guide });
-					const adopted = res.view && res.view.adopted ? res.view.adopted : null;
-					if (adopted && Number(adopted.hiddenTurn) > 0) recordHiddenTurn(props.sessionId, Number(adopted.hiddenTurn));
-					if (adopted && Number(adopted.syntheticTurn) > 0) recordHiddenRegenUserTurn(props.sessionId, Number(adopted.syntheticTurn));
-					hideTurnTail(panel.tail);
-					applyHiddenTurns(props.sessionId);
-					applyHiddenRegenUserTurns(props.sessionId);
+					await submitBodyRegeneration(props.sessionId, panel, guide);
 					setRegenPanel(null);
-					setCandidatePanel(null);
 				} catch (err) {
 					tavernErrorHub.report("正文重新生成", err);
 					setRegenPanel(Object.assign({}, panel, { phase: "error", error: String(err && err.message || err) }));
