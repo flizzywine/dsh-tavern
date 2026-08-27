@@ -1,3 +1,5 @@
+import { isDeepStrictEqual } from 'node:util'
+
 const STORAGE_REVISION = '_storageRevision'
 const MISSING = Symbol('missing')
 
@@ -11,7 +13,7 @@ function object(value) {
 
 function same(left, right) {
   if (left === MISSING || right === MISSING) return left === right
-  return JSON.stringify(left) === JSON.stringify(right)
+  return isDeepStrictEqual(left, right)
 }
 
 function conflict(chatId, path) {

@@ -289,6 +289,7 @@ test('正文重新生成提供两个含义明确的入口，并复用同一替�
 	const action = between(clientSource, 'function CandidateAction', 'function CandidateDockActions')
 	const shared = between(clientSource, 'async function submitBodyRegeneration', 'function CandidateAction')
 	const panel = between(clientSource, 'function RegenPanel', 'function register')
+	const regen = between(serverSource, 'async function regenBody', '// ---------- 回退本轮')
 
 	assert.match(action, /"一键重新生成正文"/)
 	assert.match(action, /"带意见重新生成正文"/)
@@ -299,6 +300,10 @@ test('正文重新生成提供两个含义明确的入口，并复用同一替�
 	assert.match(shared, /rpc\("regenBody", \{ guidance:/)
 	assert.match(shared, /recordHiddenTurn/)
 	assert.match(shared, /recordHiddenRegenUserTurn/)
+	assert.match(regen, /const rolledMessageCount = \(chat\.messages \|\| \[\]\)\.length/)
+	assert.match(regen, /latestMsgs\.length < rolledMessageCount \+ 2/)
+	assert.match(regen, /Number\(newAssistant\.turn\) !== syntheticTurn/)
+	assert.match(regen, /await updateChat\(chat\.id,[\s\S]*source: 'foreground\.regen-abort'/)
 })
 
 test('人物卡详情支持查看、绑定和解绑唯一世界书', () => {
@@ -885,6 +890,7 @@ test('设置开启后在顶层侧栏最右侧显示实验性兼容模式', () =>
 test('兼容模式和 DSH 请求都读取当前全局预设条目选择', () => {
 	const panel = between(clientSource, 'function createExternalPresetAndBypassPlanFeatureModule', 'function createWorldBookLibraryFeatureModule')
 	const compile = between(serverSource, 'async function compileCompatibilityTurn', 'function compatibilityMessages')
+	const preStep = between(serverSource, "ctx.on('agent/pre-step'", "ctx.on('llm/stream'")
 
 	assert.match(panel, /extractBypassPlan/)
 	assert.match(panel, /activateBypassPlan/)
@@ -895,4 +901,6 @@ test('兼容模式和 DSH 请求都读取当前全局预设条目选择', () => 
 	assert.match(compile, /entries: plan\.entries\.map/)
 	assert.match(compile, /plan\.regexScripts\.filter\(function \(script\) \{ return script\.enabled !== false \}/)
 	assert.doesNotMatch(compile, /readPresetDocument|runtimePresets/)
+	assert.match(preStep, /await updateChat\(chat\.id,[\s\S]*source: 'compatibility\.compile'/)
+	assert.doesNotMatch(preStep, /chat\.compatibilityTraces\[String\(payload\.turn\)\][\s\S]*await writeChat\(chat\)/)
 })

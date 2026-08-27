@@ -1854,9 +1854,10 @@ export async function apply(ctx) {
     const originalUserText = str(msgs0[oldAssistantIndex - 1].text).trim()
     const originalChat = structuredClone(chat)
     async function restoreFailedRegen() {
-      const failedChat = await readChat(chat.id)
-      const restored = storyTimeline.apply({ chat: failedChat || chat, intent: { kind: 'replacement.abort', restoreChat: originalChat } })
-      await writeChat(restored.chat, { source: 'foreground.regen-abort' })
+      await updateChat(chat.id, function (current) {
+        if (!current || typeof current !== 'object') return current
+        return storyTimeline.apply({ chat: current, intent: { kind: 'replacement.abort', restoreChat: originalChat } }).chat
+      }, { source: 'foreground.regen-abort' })
     }
     let legacyBefore = null
     if (storyTimeline.inspect({ chat }).checkpointCount === 0) {
@@ -1889,6 +1890,7 @@ export async function apply(ctx) {
     chat = rolled.chat
     chat.regenInProgress = true
     await writeChat(chat, { source: 'rollback.regen' })
+    const rolledMessageCount = (chat.messages || []).length
     const guide = str(guidance).trim()
     const syntheticText = '【重新生成正文】\n原玩家输入：\n' + originalUserText + '\n\n指导意见：\n' + (guide !== '' ? guide : '（无）') + '\n\n请根据原玩家输入和指导意见重新生成小说正文。'
     const beforeLastTurn = agent.phase !== undefined && agent.phase !== null && Number.isFinite(Number(agent.phase.lastTurn)) ? Number(agent.phase.lastTurn) : 0
@@ -1911,12 +1913,14 @@ export async function apply(ctx) {
       throw new Error('聊天不存在: ' + chat.id)
     }
     const latestMsgs = latest.messages || []
-    if (latestMsgs.length < 2) {
+    if (latestMsgs.length < rolledMessageCount + 2) {
       await restoreFailedRegen()
       throw new Error('重新生成流程未产生新的用户/助手回合')
     }
+    const regeneratedUser = latestMsgs[latestMsgs.length - 2]
     const newAssistant = latestMsgs[latestMsgs.length - 1]
-    if (newAssistant === null || typeof newAssistant !== 'object' || newAssistant.role !== 'assistant') {
+    if (regeneratedUser === null || typeof regeneratedUser !== 'object' || regeneratedUser.role !== 'user' ||
+        newAssistant === null || typeof newAssistant !== 'object' || newAssistant.role !== 'assistant' || Number(newAssistant.turn) !== syntheticTurn) {
       await restoreFailedRegen()
       throw new Error('重新生成流程未产生正文')
     }
@@ -2624,10 +2628,13 @@ export async function apply(ctx) {
         chat = await chatForSession(sessionId)
       }
       const compiled = await compileCompatibilityTurn(chat, userText)
-      chat.macroState = compiled.macroState
-      if (!chat.compatibilityTraces || typeof chat.compatibilityTraces !== 'object') chat.compatibilityTraces = {}
-      chat.compatibilityTraces[String(payload.turn)] = Object.assign({ createdAt: Date.now() }, compiled.trace, { diagnostics: compiled.diagnostics })
-      await writeChat(chat)
+      await updateChat(chat.id, function (current) {
+        if (!current || typeof current !== 'object') return current
+        current.macroState = compiled.macroState
+        if (!current.compatibilityTraces || typeof current.compatibilityTraces !== 'object') current.compatibilityTraces = {}
+        current.compatibilityTraces[String(payload.turn)] = Object.assign({ createdAt: Date.now() }, compiled.trace, { diagnostics: compiled.diagnostics })
+        return current
+      }, { source: 'compatibility.compile' })
       compatibilityModelRequests.set(sessionId, {
         turn: Number(payload.turn) || 0,
         step: Number(payload.step) || 0,

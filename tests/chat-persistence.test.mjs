@@ -51,6 +51,28 @@ test('并发改写同一路径时明确拒绝旧快照覆盖', async function ()
   assert.equal(app.stored().posture, '窗边')
 })
 
+test('对象字段顺序变化不应让等价的预设条目数组产生假冲突', async function () {
+  const app = harness({
+    id: 'chat-1',
+    runtimePresetSnapshot: { front: { entries: [{ id: 'entry-1', content: '旧内容' }] } },
+    macroState: { local: {} },
+    _storageRevision: 1
+  })
+  const compatibilityCompile = await app.persistence.read('chat-1')
+
+  await app.persistence.update('chat-1', function (chat) {
+    chat.runtimePresetSnapshot.front.entries = [{ content: '新内容', id: 'entry-1' }]
+    return chat
+  })
+  compatibilityCompile.runtimePresetSnapshot.front.entries = [{ id: 'entry-1', content: '新内容' }]
+  compatibilityCompile.macroState.local.compiled = true
+
+  await app.persistence.write(compatibilityCompile)
+
+  assert.deepEqual(app.stored().runtimePresetSnapshot.front.entries, [{ content: '新内容', id: 'entry-1' }])
+  assert.equal(app.stored().macroState.local.compiled, true)
+})
+
 test('domain mutation 总是在锁内基于最新聊天执行', async function () {
   const app = harness({ id: 'chat-1', counter: 0, _storageRevision: 0 })
   await Promise.all(Array.from({ length: 20 }, function () {
