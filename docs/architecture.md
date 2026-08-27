@@ -153,7 +153,7 @@ Tavern Profile 是 CLI 与 DSH Desktop 共用的宿主 seam，本身不声明 We
 | Live Tavern View | `getSnapshot`、`subscribe`、`invalidate` | 向 Web UI 提供单一的实时 Tavern 视图缓存、刷新和重试入口 |
 | Conversation Lifecycle | `start` | 把新建游玩或卡片工作台拆成可诊断的顺序阶段，并统一失败位置 |
 | Preset Reading | `inspectPreset` | 把不同 SillyTavern JSON 预设投影为统一的只读摘要和有序提示词条目，不改写原文件 |
-| Runtime Presets（实验兼容层） | `register`、`view`、`toggle`、`snapshot`、`savePlan`、`applyPlan` | 保留预设导入、阅读、开关和方案数据模型，供未来兼容模式使用；当前运行时注入与正则执行明确禁用，不影响游玩 |
+| Preset Compatibility | `inspectPreset`、`extractBypassPlan`、`activateBypassPlan`、`compileCompatibilityTurn` | 外部预设只供查看和抽取；破限方案是唯一运行资源。普通游玩投影为 DSH 三段，设置中开启的实验性兼容模式按 SillyTavern 语义编译请求 |
 
 Web 端按产品能力划分为 Tavern Shell、Play Controls、Card Library、World Book Library、Resources Library 和 Preset Library 六个 Feature Module。它们不是机械拆文件：每个模块从界面、状态到注册形成完整 seam，删除某一模块即可同时移除该能力及其宿主注册，`apply()` 只负责组合这些接口。
 

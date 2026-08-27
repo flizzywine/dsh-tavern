@@ -131,7 +131,7 @@ export function readPlayChatDebugTurn(editorChat, sourceChat, reference, request
   const found = messageForTurn(sourceChat, turn)
   if (found === null) throw new Error('游玩记录中不存在第 ' + turn + ' 轮回复')
   const message = found.message
-  const layers = ['overview', 'turns', 'conversation', 'input', 'source', 'session', 'display', 'saved-display', 'diagnostics', 'tavern', 'foreground', 'background', 'iframe']
+  const layers = ['overview', 'turns', 'conversation', 'input', 'source', 'session', 'display', 'saved-display', 'diagnostics', 'tavern', 'foreground', 'background', 'request', 'iframe']
   const layer = layers.includes(request.layer) ? request.layer : 'overview'
   const projected = typeof currentProjection === 'function' ? currentProjection(message) : currentProjection
   let text = ''
@@ -145,6 +145,7 @@ export function readPlayChatDebugTurn(editorChat, sourceChat, reference, request
   else if (layer === 'iframe') text = '【iframe 实际运行证据 · 第 ' + turn + ' 轮】\n' + json(message.displayRuntime || { status: '该轮尚无采集记录' })
   else if (layer === 'foreground') text = agentEvidence(evidence.foreground, '前台')
   else if (layer === 'background') text = agentEvidence(evidence.background, '后台')
+  else if (layer === 'request') text = '【真实模型请求 · 第 ' + turn + ' 轮】\n' + JSON.stringify(evidence.requests && Array.isArray(evidence.requests.requests) ? evidence.requests.requests : [], null, 2)
   else if (layer === 'tavern') {
     text = '【Tavern 持久运行状态】\n' + json({
       chatId: sourceChat.id, mode: sourceChat.mode, sessionId: sourceChat.sessionId,
@@ -168,7 +169,7 @@ export function readPlayChatDebugTurn(editorChat, sourceChat, reference, request
   } else {
     text = [
       '【最新一轮游玩诊断】第 ' + turn + ' 轮',
-      '可按需读取：turns / conversation / input / source / session / display / saved-display / diagnostics / tavern / foreground / background / iframe',
+      '可按需读取：turns / conversation / input / source / session / display / saved-display / diagnostics / tavern / foreground / background / request / iframe',
       '模型原文：' + (str(message.sourceText) || str(message.text)).length + ' 字',
       'Session 文本：' + str(message.text).length + ' 字',
       '已保存展示文本：' + (str(message.displayText) || str(message.text)).length + ' 字',

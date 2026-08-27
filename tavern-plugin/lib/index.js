@@ -1,10 +1,13 @@
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { createBackgroundAgentRunner, executeBackgroundCompaction } from './background-agent-runner.js'
 import { createApplicationUpdater } from './application-updater.js'
+import { createBundledExampleInstaller } from './domain/bundled-examples.js'
 import { createCandidateGenerator } from './domain/candidate-generation.js'
 import { waitForWritableSession } from './domain/agent-readiness.js'
 import { createCardDeletion } from './domain/card-deletion.js'
+import { createBypassPlanModule } from './domain/bypass-plans.js'
 import { createCardPreparation } from './domain/card-preparation.js'
 import { cardOpeningChoices, resolveCardOpening } from './domain/card-openings.js'
 import { READABLE_CARD_FIELDS, readCardField } from './domain/card-reading.js'
@@ -15,10 +18,18 @@ import { createDurableTaskMailbox } from './domain/durable-task-mailbox.js'
 import { extractEpubText } from './domain/epub-text.js'
 import { createFileResourceStore, normalizeResourcePath, resourceKind } from './domain/file-resources.js'
 import { createForegroundHandoff } from './domain/foreground-handoff.js'
-import { inspectPreset } from './domain/preset-reading.js'
+import { createModelRequestLog } from './domain/model-request-log.js'
+import { previewPresetConversion } from './domain/preset-conversion-preview.js'
+import { inspectPreset, nativeRegexScriptsOf } from './domain/preset-reading.js'
 import { createPlayChatDebugReference, readPlayChatDebugTurn } from './domain/play-chat-debug.js'
 import { createPresetEditor } from './domain/preset-editor.js'
-import { createRuntimePresetModule } from './domain/runtime-presets.js'
+import { createRuntimePresetModule, resolveRuntimePresetMacros } from './domain/runtime-presets.js'
+import { compileSillyTavernRequest } from './domain/sillytavern-compatibility.js'
+import { applySillyTavernStrictTools } from './domain/sillytavern-strict-tools.js'
+import { createEphemeralCompatibilityRequest, isCompatibilityConversationRequest } from './domain/compatibility-request.js'
+import { clearFailedTurnSurface, hasRollbackMessages, locateRollbackSurface, planRegenerationSurface } from './domain/rollback-surface.js'
+import { projectRuntimePresetRequest, runtimePresetPhaseMessages } from './domain/runtime-preset-lifecycle.js'
+import { createTavernRetryLimiter } from './domain/tavern-retry-limiter.js'
 import {
   preserveRuntimeSource,
   projectAgentContent,
@@ -26,6 +37,7 @@ import {
   projectOpeningPreview,
   projectRuntimeReply,
   projectRuntimeReplyHistory,
+  resolveRuntimeMacroText,
   sanitizeAgentProjectionText
 } from './domain/runtime-content-projection.js'
 import { createScriptContinuity } from './domain/script-continuity.js'
@@ -35,6 +47,7 @@ import { createStoryCompactionRequest, usesStoryCompaction } from './domain/stor
 import { resolveTavernDataRoot } from './domain/tavern-data.js'
 import { createTavernSkillModule } from './domain/tavern-skills.js'
 import { createTavernConversationRegistry } from './domain/tavern-conversation-registry.js'
+import { applyTavernRegexText } from './domain/tavern-regex-display.js'
 import { createTavernCompactionCoordinator } from './domain/tavern-compaction.js'
 import { createTurnOrchestrator } from './domain/turn-orchestration.js'
 import { resourceWorkspaceContext } from './domain/workspace-resources.js'
@@ -62,11 +75,27 @@ export async function apply(ctx) {
     return
   }
   const agentDefaultModel = ctx.get('agentDefaultModel')
-
   const sourceRoot = fileURLToPath(new URL('../../', import.meta.url))
   const dataRoot = resolveTavernDataRoot()
   const profileData = createProfileDataStore({ dataRoot })
+  const settingsPath = 'tavern-settings.json'
+  async function readTavernSettings() {
+    const saved = await profileData.readJson(settingsPath)
+    return { compatibilityMode: Boolean(saved && saved.compatibilityMode === true) }
+  }
+  async function updateTavernSettings(patch) {
+    return await profileData.updateJson(settingsPath, function (current) {
+      const next = current && typeof current === 'object' ? Object.assign({}, current) : {}
+      if (patch && Object.prototype.hasOwnProperty.call(patch, 'compatibilityMode')) next.compatibilityMode = patch.compatibilityMode === true
+      return next
+    })
+  }
   const applicationUpdater = createApplicationUpdater({ dataRoot, sourceRoot })
+  const modelRequestLog = createModelRequestLog({
+    readJson: async function (path) { return await profileData.readJson(path) },
+    writeJson: async function (path, value) { return await profileData.writeJson(path, value) },
+    updateJson: async function (path, updater) { return await profileData.updateJson(path, updater) }
+  })
   const tavernSkills = createTavernSkillModule({
     directory: dataRoot + '/skills',
     builtInDirectory: sourceRoot + '/presets/tavern/skills'
@@ -351,7 +380,38 @@ export async function apply(ctx) {
     const normalized = normalizeResourcePath(presetPath, 'preset')
     const text = await fileResources.readText(normalized)
     if (text === undefined) return undefined
-    return Object.assign({ path: normalized, previewPath: fileResources.absolute(normalized) }, inspectPreset(text, normalized))
+    const inspected = inspectPreset(text, normalized)
+    const conversion = previewPresetConversion(text, normalized)
+    return Object.assign({
+      path: normalized,
+      previewPath: fileResources.absolute(normalized),
+      dshPreset: conversion && conversion.dshPreset || null,
+      conversionStatus: conversion && conversion.status || 'unrecognized',
+      conversionDiagnostics: conversion && conversion.diagnostics || []
+    }, inspected)
+  }
+  async function readPresetDocument(presetPath) {
+    const normalized = normalizeResourcePath(presetPath, 'preset')
+    const text = await fileResources.readText(normalized)
+    if (text === undefined) return undefined
+    try { return JSON.parse(text) } catch { return undefined }
+  }
+  function runtimeRegexScriptsOf(preset, document) {
+    const nativeScripts = nativeRegexScriptsOf(document)
+    const source = nativeScripts.length > 0 ? nativeScripts : (Array.isArray(preset && preset.regexScripts) ? preset.regexScripts : [])
+    const occurrences = new Map()
+    return source.map(function (script, index) {
+      const identifier = str(script.id) || 'regex-' + (index + 1)
+      const occurrence = (occurrences.get(identifier) || 0) + 1
+      occurrences.set(identifier, occurrence)
+      return Object.assign({}, script, { regexKey: identifier + '#' + occurrence })
+    })
+  }
+  async function previewPreset(presetPath, orderGroupIndex) {
+    const normalized = normalizeResourcePath(presetPath, 'preset')
+    const text = await fileResources.readText(normalized)
+    if (text === undefined) return undefined
+    return Object.assign({ path: normalized }, previewPresetConversion(text, normalized, { orderGroupIndex }))
   }
   const presetEditor = createPresetEditor({
     normalizePath: normalizeResourcePath,
@@ -365,25 +425,114 @@ export async function apply(ctx) {
     updateState: async function (updater) { return await profileData.updateJson('runtime-presets.json', updater) },
     now: Date.now
   })
+  const bypassPlans = createBypassPlanModule({
+    readPreset,
+    readPresetDocument,
+    runtimeRegexScripts: runtimeRegexScriptsOf,
+    readState: async function () { return await readJson('bypass-plans.json') },
+    updateState: async function (updater) { return await profileData.updateJson('bypass-plans.json', updater) },
+    now: Date.now
+  })
+  const bundledExamples = createBundledExampleInstaller({
+    readMarker: async function () { return await readJson('bundled-examples.json') },
+    writeMarker: async function (value) { return await writeJson('bundled-examples.json', value) },
+    readBundledText: async function (relative) { return await readFile(new URL('../examples/' + relative, import.meta.url), 'utf8') },
+    listPresetPaths: async function () { return await fileResources.list('preset') },
+    importPreset: async function (payload) { return await importPreset(payload) },
+    listPlans: async function () { return await bypassPlans.list() },
+    importPlanPackage: async function (document) { return await bypassPlans.importPackage(document) },
+    setPlanCompatibleModels: async function (id, compatibleModels) { return await bypassPlans.setCompatibleModels({ id, compatibleModels }) }
+  })
+  async function migrateLegacyPresetPlans() {
+    const target = await bypassPlans.state()
+    if (target.plans.length > 0) return
+    const legacy = await runtimePresets.state()
+    const candidates = (legacy.plans || []).map(function (plan) {
+      return { name: plan.name, path: plan.presetPath, entryKeys: plan.entryKeys || [], regexKeys: plan.regexKeys || [] }
+    })
+    if (legacy.activePreset && !candidates.some(function (item) { return item.path === legacy.activePreset })) {
+      candidates.push({
+        name: (legacy.activePreset.split('/').pop() || '外部预设').replace(/\.json$/i, '') + ' · 迁移方案',
+        path: legacy.activePreset,
+        entryKeys: Object.keys(legacy.entries[legacy.activePreset] || {}),
+        regexKeys: Object.keys(legacy.regexes[legacy.activePreset] || {})
+      })
+    }
+    for (const candidate of candidates) {
+      try {
+        const preset = await readPreset(candidate.path)
+        const document = await readPresetDocument(candidate.path)
+        if (!preset || !document) continue
+        const availableRegexes = new Set(runtimeRegexScriptsOf(preset, document).map(function (script) { return script.regexKey }))
+        const regexKeys = candidate.regexKeys.filter(function (key) { return availableRegexes.has(key) })
+        await bypassPlans.extract({
+          name: candidate.name,
+          sourcePresetPath: candidate.path,
+          entryKeys: candidate.entryKeys,
+          regexKeys
+        })
+      } catch (error) {
+        console.warn('dsh-tavern: 旧预设方案迁移失败', candidate.path, error)
+      }
+    }
+  }
+
+  async function migrateLegacyChatPreset(chat) {
+    if (!chat || str(chat.bypassPlanId) !== '') return false
+    const path = str(chat.runtimePresetPath) || str(chat.runtimePresetSnapshot && chat.runtimePresetSnapshot.presetPath)
+    if (path === '') return false
+    const snapshot = chat.runtimePresetSnapshot && typeof chat.runtimePresetSnapshot === 'object' ? chat.runtimePresetSnapshot : {}
+    const selectedKeys = Array.from(new Set((snapshot.sources || []).map(function (source) { return str(source && source.entryKey) }).filter(Boolean)))
+    let plan = null
+    const existingPlans = await bypassPlans.list()
+    plan = existingPlans.find(function (item) {
+      if (str(item.source && item.source.presetPath) !== path) return false
+      const keys = item.entries.filter(function (entry) { return entry.enabled && !entry.systemManaged }).map(function (entry) { return entry.entryKey })
+      return JSON.stringify(keys.slice().sort()) === JSON.stringify(selectedKeys.slice().sort())
+    }) || null
+    if (plan === null) {
+      const name = '旧对话 · ' + (str(chat.cardName) || '未命名') + ' · ' + str(chat.id).slice(-6)
+      const preset = await readPreset(path)
+      const document = await readPresetDocument(path)
+      if (preset && document) {
+        const selectedRegexKeys = Array.from(new Set((snapshot.regexSources || []).map(function (source) { return str(source && source.regexKey) }).filter(Boolean)))
+        plan = await bypassPlans.extract({ name, sourcePresetPath: path, entryKeys: selectedKeys, regexKeys: selectedRegexKeys })
+      } else {
+        const entries = []
+        for (const phase of ['front', 'middle', 'back']) {
+          for (const entry of (snapshot[phase] && snapshot[phase].entries || [])) {
+            entries.push(Object.assign({}, entry, {
+              entryKey: str(entry.id || entry.entryKey), identifier: str(entry.source && entry.source.identifier),
+              enabled: true, injectable: str(entry.content).trim() !== '', phase
+            }))
+          }
+        }
+        plan = await bypassPlans.importPlan({
+          name,
+          source: { presetName: (path.split('/').pop() || path).replace(/\.json$/i, ''), presetPath: path, presetDigest: '' },
+          entries,
+          regexScripts: snapshot.regexScripts || [],
+          compatibilitySettings: {}
+        })
+      }
+    }
+    chat.bypassPlanId = plan.id
+    chat.runtimePresetPath = ''
+    chat.runtimePresetSnapshot = await bypassPlans.snapshot(plan.id)
+    return true
+  }
   async function listPresets() {
     const result = []
     const inspectedPresets = []
     for (const presetPath of await fileResources.list('preset')) {
       const inspected = await readPreset(presetPath)
-      if (inspected.valid && (inspected.recognized || inspected.regexCount > 0)) await runtimePresets.register(presetPath)
       inspectedPresets.push({ path: presetPath, inspected })
     }
-    const runtimeState = await runtimePresets.state()
-    const order = new Map(runtimeState.presetOrder.map(function (path, index) { return [path, index] }))
-    inspectedPresets.sort(function (left, right) {
-      const leftOrder = order.has(left.path) ? order.get(left.path) : Number.MAX_SAFE_INTEGER
-      const rightOrder = order.has(right.path) ? order.get(right.path) : Number.MAX_SAFE_INTEGER
-      return leftOrder - rightOrder
-    })
     for (const record of inspectedPresets) {
       const presetPath = record.path
       const inspected = record.inspected
-      const preset = inspected.valid && (inspected.recognized || inspected.regexCount > 0) ? await runtimePresets.view(presetPath) : inspected
+      const preset = inspected
+      const extractableRegexScripts = runtimeRegexScriptsOf(preset, await readPresetDocument(preset.path))
       result.push({
         path: preset.path,
         previewPath: preset.previewPath,
@@ -392,9 +541,8 @@ export async function apply(ctx) {
         recognized: preset.recognized,
         promptCount: preset.promptCount,
         enabledCount: preset.enabledCount || 0,
-        enabledCharacters: preset.enabledCharacters || 0,
-        regexCount: preset.regexCount,
-        enabledRegexCount: preset.enabledRegexCount || 0,
+        regexCount: extractableRegexScripts.length,
+        enabledRegexCount: extractableRegexScripts.filter(function (script) { return script.enabled !== false }).length,
         warning: preset.warning,
         error: preset.error
       })
@@ -406,8 +554,7 @@ export async function apply(ctx) {
     const inspected = inspectPreset(prepared.text, prepared.name)
     if (!inspected.valid) throw new Error(inspected.error)
     const presetPath = await fileResources.importText('preset', prepared)
-    if (inspected.recognized || inspected.regexCount > 0) await runtimePresets.register(presetPath)
-    return inspected.recognized || inspected.regexCount > 0 ? await runtimePresets.view(presetPath) : await readPreset(presetPath)
+    return await readPreset(presetPath)
   }
   let resourceGraph
   async function renameResource(resourcePath, name) { return await resourceGraph.rename(resourcePath, name) }
@@ -443,6 +590,7 @@ export async function apply(ctx) {
   function normalizeChat(chat) {
     if (chat === undefined || chat === null || typeof chat !== 'object') return chat
     if (chat.mode === 'revision' || chat.mode === 'extract') chat.mode = 'card'
+    if (chat.requestMode !== 'sillytavern') chat.requestMode = 'dsh'
     if (typeof chat.cardPath !== 'string') chat.cardPath = ''
     if (chat.macroState === null || typeof chat.macroState !== 'object') chat.macroState = { userName: '你', local: {}, global: {} }
     if (typeof chat.macroState.userName !== 'string' || chat.macroState.userName === '' || chat.macroState.userName === 'User') chat.macroState.userName = '你'
@@ -568,7 +716,7 @@ export async function apply(ctx) {
     }
   }
   async function restoreCurrentCard(sessionId) {
-    const chat = await chatForSession(sessionId)
+    let chat = await chatForSession(sessionId)
     if (chat === undefined) throw new Error('当前会话没有绑定人物卡')
     if ((chat.mode || 'story') !== 'card') throw new Error('原版恢复只能在卡片模式中使用')
     const cardPath = str(chat.cardPath)
@@ -687,7 +835,7 @@ export async function apply(ctx) {
   }
 
   // ---------- 聊天 ----------
-  function newChat(card, mode) {
+  function newChat(card, mode, requestMode) {
     const chatMode = mode === 'card' ? 'card' : (mode === 'script' ? 'script' : 'story')
     const hasCard = card !== null && card !== undefined && str(card.path) !== ''
     return {
@@ -695,12 +843,14 @@ export async function apply(ctx) {
       cardPath: hasCard ? card.path : '',
       cardName: hasCard ? card.name : '卡片工作台',
       mode: chatMode,
+      requestMode: requestMode === 'sillytavern' && chatMode !== 'card' ? 'sillytavern' : 'dsh',
       scriptState: chatMode === 'script' ? { cursor: 0, recalledChunkIds: [], prepared: null, lastReference: null, totalChunks: 0, title: '', scriptVersion: 0 } : null,
       workspace: chatMode === 'card' ? emptyCardWorkspace() : null,
       messages: [],
       posture: '',
       sessionId: '',
       guides: [],
+      bypassPlanId: '',
       runtimePresetSnapshot: null,
       cardContextSnapshot: '',
       cardContextSnapshotVersion: 0,
@@ -745,11 +895,14 @@ export async function apply(ctx) {
         scriptProgress = scriptContinuity.inspect({ script: script, state: chat.scriptState, request: { kind: 'progress' } })
       }
     }
+    const activeBypassSnapshot = await bypassPlans.snapshot()
+    const activeBypassPlanId = str(activeBypassSnapshot && activeBypassSnapshot.planId)
     let replyDisplay = { projections: replyProjectionsOf(chat), presentation: null, latestSourceBacked: false }
     if ((chat.mode || 'story') === 'story' || (chat.mode || 'story') === 'script') {
       const extensions = await readCardExtensions(chat.cardPath)
+      const presetRegexScripts = activeBypassPlanId === '' ? [] : activeBypassSnapshot.regexScripts
       replyDisplay = projectRuntimeReplyHistory(chat.messages, {
-        regexScripts: Array.isArray(extensions && extensions.regexScripts) ? extensions.regexScripts : [],
+        regexScripts: (Array.isArray(extensions && extensions.regexScripts) ? extensions.regexScripts : []).concat(presetRegexScripts),
         placement: 2,
         isMarkdown: true,
         isEdit: false,
@@ -766,14 +919,25 @@ export async function apply(ctx) {
       const source = (str(message.sourceText) || str(message.text)).replace(/\s+/g, ' ').trim()
       debugTurns.push({ turn, preview: source.slice(0, 90), chars: source.length })
     }
+    const inputSources = {}
+    const runtimeInputs = chat.runtimeInputs && typeof chat.runtimeInputs === 'object' ? chat.runtimeInputs : {}
+    for (const turn of Object.keys(runtimeInputs)) {
+      const input = runtimeInputs[turn]
+      inputSources[turn] = str(input && input.source)
+    }
     return {
       chatId: chat.id,
       mode: chat.mode || 'story',
+      requestMode: chat.requestMode === 'sillytavern' ? 'sillytavern' : 'dsh',
       playerName: str(chat.macroState && chat.macroState.userName).trim() || '你',
+      bypassPlan: activeBypassSnapshot === null ? null : { id: activeBypassSnapshot.planId, name: activeBypassSnapshot.planName },
+      runtimePreset: activeBypassSnapshot === null ? null : { id: activeBypassSnapshot.planId, name: activeBypassSnapshot.planName },
       card: cardViewOf(card, chat),
       posture: chat.posture || '',
       guides: Array.isArray(chat.guides) ? chat.guides : [],
       debugTurns: debugTurns.slice(-12).reverse(),
+      inputSources,
+      canRollback: hasRollbackMessages(chat.messages),
       presentation: null,
       replyProjections: replyDisplay.projections,
       presentationWarnings: Array.isArray(chat.presentationWarnings) ? chat.presentationWarnings : [],
@@ -833,7 +997,9 @@ export async function apply(ctx) {
     })
     return result.sort(function (left, right) { return Number(left.turn) - Number(right.turn) })
   }
-  async function startChat(cardPath, sessionId, mode, openingId, userName) {
+  async function startChat(cardPath, sessionId, mode, openingId, userName, requestMode) {
+    const settings = await readTavernSettings()
+    const effectiveRequestMode = settings.compatibilityMode && requestMode === 'sillytavern' ? 'sillytavern' : 'dsh'
     const requestedMode = mode === 'card' || mode === 'revision' || mode === 'extract' ? 'card' : (mode === 'script' ? 'script' : (mode === 'story' ? 'story' : null))
     const card = str(cardPath) === '' && requestedMode === 'card' ? null : await readCard(cardPath)
     if (card === undefined) throw new Error('人物卡不存在: ' + cardPath)
@@ -856,14 +1022,26 @@ export async function apply(ctx) {
       }
     }
     const macroState = { userName: str(userName).trim().slice(0, 80) || '你', local: {}, global: {} }
+    const rawRuntimePresetSnapshot = await bypassPlans.snapshot()
+    const resolvedRuntimePreset = resolveRuntimePresetMacros(rawRuntimePresetSnapshot, {
+      charName: str(card && card.name),
+      macroState
+    })
+    const runtimePresetSnapshot = resolvedRuntimePreset.snapshot
+    macroState.userName = resolvedRuntimePreset.macroState.userName
+    macroState.local = resolvedRuntimePreset.macroState.local
+    macroState.global = resolvedRuntimePreset.macroState.global
     const openingSourceText = chatMode === 'card' ? prompt('card-mode-greeting') : resolveCardOpening(card, openingId)
     const openingExtensions = chatMode === 'card' ? null : await readCardExtensions(cardPath)
+    const openingRegexScripts = (Array.isArray(openingExtensions && openingExtensions.regexScripts) ? openingExtensions.regexScripts : []).concat(
+      Array.isArray(runtimePresetSnapshot && runtimePresetSnapshot.regexScripts) ? runtimePresetSnapshot.regexScripts : []
+    )
     const openingProjection = chatMode === 'card'
       ? { agentText: openingSourceText, renderedText: openingSourceText, sessionText: openingSourceText, displayText: openingSourceText, displayMode: 'markdown', displayParts: [{ kind: 'markdown', text: openingSourceText }], warnings: [], macroState }
       : projectOpeningCommit(openingSourceText, {
           charName: str(card.name),
           macroState,
-          regexScripts: Array.isArray(openingExtensions && openingExtensions.regexScripts) ? openingExtensions.regexScripts : [],
+          regexScripts: openingRegexScripts,
           regexPlacement: 2,
           isEdit: false,
           depth: 0
@@ -875,8 +1053,9 @@ export async function apply(ctx) {
     // connectWorkspace 返回时，Agent 注册偶尔仍在异步完成。先等到原生会话可写，
     // 再落盘 Tavern 对话，避免失败时留下只有映射、没有原生开场白的半初始化记录。
     const openingTarget = typeof sessionId === 'string' && sessionId !== '' && greeting !== '' ? await waitForWritableSession({ registry: agentRegistry, sessions: sessionStore, sessionId: sessionId, sleep: sleep }) : undefined
-    const chat = newChat(card, chatMode || 'story')
-    chat.runtimePresetSnapshot = null
+    const chat = newChat(card, chatMode || 'story', effectiveRequestMode)
+    chat.bypassPlanId = runtimePresetSnapshot && runtimePresetSnapshot.planId || ''
+    chat.runtimePresetSnapshot = runtimePresetSnapshot
     chat.runtimePresetPath = ''
     chat.macroState = macroState
     if (groupOfMode(chat.mode) === 'play') {
@@ -963,7 +1142,7 @@ export async function apply(ctx) {
     return scriptContinuity.inspect({ script: script, state: chat.scriptState, request: { kind: 'preview' } })
   }
   async function sessionActivity(sessionId) {
-    const chat = await chatForSession(sessionId)
+    let chat = await chatForSession(sessionId)
     if (chat === undefined) return null
     const activity = backgroundTasks.activity(chat)
     return {
@@ -1051,6 +1230,7 @@ export async function apply(ctx) {
       cardSnapshotBuilds.delete(chat.id)
     }
   }
+  const runtimePresetSnapshots = new Map()
   const backgroundAgentRunner = createBackgroundAgentRunner({
     agents: agentRegistry,
     agentPreset: 'tavern-background',
@@ -1063,7 +1243,19 @@ export async function apply(ctx) {
       if (sessions === undefined) throw new Error('dsh-tavern: 缺少 sessions 服务')
       await sessions.flush(session)
     },
-    resolveRuntimePresetSnapshot: async function () { return null }
+    resolveRuntimePresetSnapshot: async function (input) {
+      const chat = await chatForSession(input.sessionId)
+      if (!chat) return null
+      return await resolveChatRuntimePreset(chat)
+    },
+    stageRuntimePresetSnapshot: function (input) {
+      runtimePresetSnapshots.set(str(input.sessionId), {
+        turn: Math.max(0, Number(input.turn) || 0),
+        step: Math.max(1, Number(input.step) || 1),
+        scope: 'background',
+        snapshot: input.snapshot || null
+      })
+    }
   })
   ctx.effect(() => () => backgroundAgentRunner.dispose(), 'dsh-tavern: dispose resident background agents')
   let tavernCompaction = null
@@ -1093,42 +1285,6 @@ export async function apply(ctx) {
     } catch (error) {
       return { status: 'failed', message: str(error && error.message || error) || '后台压缩失败' }
     }
-  }
-  function presetPathForChat(chat) {
-    if (!chat || typeof chat !== 'object') return ''
-    const snapshot = chat.runtimePresetSnapshot
-    const direct = str(chat.runtimePresetPath) || str(snapshot && snapshot.presetPath)
-    if (direct !== '') return direct
-    for (const source of (snapshot && snapshot.sources || []).concat(snapshot && snapshot.regexSources || [])) {
-      const path = str(source && source.path)
-      if (path !== '') return path
-    }
-    return ''
-  }
-  let backgroundHistoryProjection = Promise.resolve()
-  function reprojectBackgroundHistories(presetPath) {
-    const path = str(presetPath)
-    const run = backgroundHistoryProjection.catch(function () {}).then(async function () {
-      const sessionMap = await readSessionMap()
-      const chatIds = Array.from(new Set(Object.values(sessionMap).map(str).filter(Boolean)))
-      let changed = 0
-      for (const chatId of chatIds) {
-        const chat = await readChat(chatId)
-        if (!chat || presetPathForChat(chat) !== path) continue
-        const participant = chat.timeline && chat.timeline.participants && chat.timeline.participants.background
-        const backgroundSessionId = str(participant && participant.sessionId) || str(chat.candidateAgent && chat.candidateAgent.sessionId)
-        if (backgroundSessionId === '') continue
-        try {
-          const result = await backgroundAgentRunner.reproject({ sessionId: backgroundSessionId, regexScripts: [] })
-          changed += Number(result.changed) || 0
-        } catch (error) {
-          console.warn('dsh-tavern: 后台历史正则投影失败，已跳过 ' + backgroundSessionId + ':', str(error && error.message || error))
-        }
-      }
-      return changed
-    })
-    backgroundHistoryProjection = run
-    return run
   }
   const candidateGenerator = createCandidateGenerator({
     store: {
@@ -1263,6 +1419,7 @@ export async function apply(ctx) {
     return {
       runtimeGeneration,
       liveSession: Boolean(agent && agent.session),
+      requestMode: chat.requestMode === 'sillytavern' ? 'sillytavern' : 'dsh',
       projectionRevision: await cardProjectionRevision(chat.cardPath),
       activity,
       mailboxVersion: synced.mailboxVersion,
@@ -1275,6 +1432,7 @@ export async function apply(ctx) {
     const sessionId = str(args.sessionId)
     const chat = await chatForSession(sessionId)
     if (chat === undefined) throw new Error('当前会话没有绑定人物卡')
+    if (chat.requestMode === 'sillytavern') throw new Error('酒馆兼容模式不运行 DSH 后台候选项')
     const task = await taskMailbox.submit(chat.id, {
       requestId: args.requestId,
       kind: 'candidate',
@@ -1300,7 +1458,8 @@ export async function apply(ctx) {
         title: str(chat.title),
         cardName: chat.cardName || '未命名角色',
         updatedAt: chat.updatedAt || chat.createdAt || 0,
-        mode: chat.mode || 'story'
+        mode: chat.mode || 'story',
+        requestMode: chat.requestMode === 'sillytavern' ? 'sillytavern' : 'dsh'
       })
     }
     rows.sort(function (a, b) { return b.updatedAt - a.updatedAt })
@@ -1338,6 +1497,16 @@ export async function apply(ctx) {
     else chat.macroState.userName = name
     await writeChat(chat, { source: 'player-name.set' })
     return name
+  }
+  async function setRequestMode(sessionId, requestMode) {
+    const chat = await chatForSession(sessionId)
+    if (chat === undefined) throw new Error('当前会话没有绑定人物卡')
+    if ((chat.mode || 'story') === 'card') throw new Error('卡片工作台不能切换请求模式')
+    const settings = await readTavernSettings()
+    if (requestMode === 'sillytavern' && !settings.compatibilityMode) throw new Error('请先在设置中启用兼容模式（实验性）')
+    chat.requestMode = requestMode === 'sillytavern' ? 'sillytavern' : 'dsh'
+    await writeChat(chat)
+    return chat.requestMode
   }
 
   // ---------- 后台结算 ----------
@@ -1619,7 +1788,9 @@ export async function apply(ctx) {
     },
     projectReply: projectRuntimeReply,
     resolvePresetRegexScripts: async function (chat) {
-      return []
+      if (!chat) return []
+      const snapshot = await bypassPlans.snapshot()
+      return Array.isArray(snapshot && snapshot.regexScripts) ? snapshot.regexScripts : []
     },
     now: Date.now,
     shellToolName: process.platform === 'win32' ? 'pwsh' : 'bash'
@@ -1629,12 +1800,26 @@ export async function apply(ctx) {
     store: { chatForSession, readChat },
     tasks: backgroundTasks,
     queueBackground: queueSettlement,
+    cleanupFailedTurn: async function (input) {
+      const mode = await turnOrchestrator.modeFor(input.sessionId)
+      if (mode !== 'story' && mode !== 'script') return 0
+      const liveAgent = agentRegistry.get(input.sessionId)
+      const liveSession = sessionStore.get(input.sessionId) || (liveAgent && liveAgent.session)
+      return clearFailedTurnSurface({ session: liveSession, turn: input.turn })
+    },
     logger: console
   })
 
   await fileResources.migrateLegacy(await readIndex(), readJson, writeIndex, readChat, writeChat)
+  await migrateLegacyPresetPlans()
+  await bundledExamples.install()
   await resourceGraph.recover()
   const recoveredIndex = await readIndex()
+  for (const row of recoveredIndex.chats || []) {
+    const chat = await readChat(row.id)
+    if (chat === undefined) continue
+    try { if (await migrateLegacyChatPreset(chat)) await writeChat(chat) } catch (error) { console.warn('dsh-tavern: 旧对话破限方案迁移失败', chat.id, error) }
+  }
   await foregroundHandoff.recover((recoveredIndex.chats || []).map(function (row) { return row.id }))
   for (const row of recoveredIndex.chats || []) {
     const recovered = await taskMailbox.recover(row.id)
@@ -1642,13 +1827,6 @@ export async function apply(ctx) {
       if (task.kind === 'candidate' && task.status === 'queued') scheduleCandidateTask(row.id, task)
     }
   }
-  const startupPresetState = await runtimePresets.state()
-  if (str(startupPresetState.activePreset) !== '') {
-    void reprojectBackgroundHistories(startupPresetState.activePreset).catch(function (error) {
-      console.warn('dsh-tavern: 启动时刷新后台历史失败:', str(error && error.message || error))
-    })
-  }
-
   // ---------- 重新生成正文（生成即替换，无确认） ----------
   async function regenBody(chatId, guidance, sessionId) {
     let chat = str(chatId) === '' ? await chatForSession(sessionId) : await readChat(chatId)
@@ -1768,40 +1946,22 @@ export async function apply(ctx) {
     latest.settleStatus = 'pending'
     latest.settleError = null
     await writeChat(latest, { source: 'foreground.regen-commit' })
-    // 模型面遮蔽旧正文；新正文由正常 Agent 回合生成，UI 隐藏旧 turn tail 与合成的重新生成用户消息
-    if (nodes.indexOf(oldSeq) >= 0) {
-      session.append('assistant/message', {
-        turn: oldTurn,
-        step: 1,
-        message: {
-          id: crypto.randomUUID(),
-          role: 'assistant',
-          content: [],
-          source: oldSource
-        }
-      }, {
-        surfaceOp: { op: 'replace', start: oldSeq, end: oldSeq },
-        sourceEventSeqs: [oldSeq]
-      })
-    }
+    // 一次遮蔽旧正文、此前失败回合残留与本次合成输入；新正文保持为最后一个可见模型节点
     const currentNodes = session.surface !== undefined && Array.isArray(session.surface.nodes) ? session.surface.nodes : []
-    const syntheticNodes = currentNodes.filter(function (seq) { return seq >= eventStart })
-    let finalAssistantIndex = -1
-    for (let index = syntheticNodes.length - 1; index >= 0; index--) {
-      const event = session.events[syntheticNodes[index]]
-      if (event && event.type === 'assistant/message') { finalAssistantIndex = index; break }
-    }
-    const syntheticPrefix = finalAssistantIndex > 0 ? syntheticNodes.slice(0, finalAssistantIndex) : []
-    if (syntheticPrefix.length > 0) {
-      session.append('assistant/message', {
-        turn: syntheticTurn,
-        step: 1,
-        message: { id: crypto.randomUUID(), role: 'assistant', content: [], source: oldSource }
-      }, {
-        surfaceOp: { op: 'replace', start: syntheticPrefix[0], end: syntheticPrefix[syntheticPrefix.length - 1] },
-        sourceEventSeqs: syntheticPrefix
-      })
-    }
+    const replacement = planRegenerationSurface({
+      events: session.events,
+      nodes: currentNodes,
+      oldAssistantSeq: oldSeq,
+      eventStart
+    })
+    session.append('assistant/message', {
+      turn: oldTurn,
+      step: 1,
+      message: { id: crypto.randomUUID(), role: 'assistant', content: [], source: oldSource }
+    }, {
+      surfaceOp: { op: 'replace', start: replacement.start, end: replacement.end },
+      sourceEventSeqs: replacement.shadowedSeqs
+    })
     const result = await view(latest, card)
     result.adopted = { text: body, guidance: guide, hiddenTurn: oldTurn, syntheticTurn: syntheticTurn }
     return result
@@ -1820,29 +1980,10 @@ export async function apply(ctx) {
     const session = agent.session
     const events = Array.isArray(session.events) ? session.events : []
     const nodes = session.surface !== undefined && Array.isArray(session.surface.nodes) ? session.surface.nodes : []
-    let userSeq = -1
-    for (let i = nodes.length - 1; i >= 0; i--) {
-      const event = events[nodes[i]]
-      if (event !== null && typeof event === 'object' && event.type === 'user/message' && event.surfaceOp === 'append') {
-        userSeq = Number(event.seq)
-        break
-      }
-    }
-    if (userSeq < 0) throw new Error('原生消息流中找不到可回退的用户输入')
-    let lastAssistant = null
-    for (let i = nodes.length - 1; i >= 0; i--) {
-      const event = events[nodes[i]]
-      if (event !== null && typeof event === 'object' && event.type === 'assistant/message' && event.surfaceOp === 'append') {
-        lastAssistant = event
-        break
-      }
-    }
-    if (lastAssistant === null) throw new Error('原生消息流中找不到可回退的正文输出')
-    const hiddenTurn = Math.max(0, Number(lastAssistant.data && lastAssistant.data.turn) || 0)
-    const startIndex = nodes.indexOf(userSeq)
-    if (startIndex < 0) throw new Error('目标用户输入已不在模型面中，可能已经回退过')
-    const shadowedSeqs = nodes.slice(startIndex)
-    if (shadowedSeqs.length === 0) throw new Error('没有可遮蔽的消息区间')
+    const rollbackSurface = locateRollbackSurface({ events, nodes })
+    if (rollbackSurface === null) throw new Error('原生消息流中找不到可回退的用户输入与正文组合')
+    const hiddenTurn = rollbackSurface.turn
+    const shadowedSeqs = rollbackSurface.shadowedSeqs
 
     // 1) 定位要回退的最后一组 user + assistant
     const msgs = chat.messages || []
@@ -1900,24 +2041,17 @@ export async function apply(ctx) {
     await writeChat(chat, { source: 'rollback' })
 
     // 3) 原生消息面：用空消息替换最近一轮的所有 surface 节点（模型不再看到），UI 由客户端隐藏对应 turn tail
-    const endSeq = shadowedSeqs[shadowedSeqs.length - 1]
-    const hideTurn = Math.max(0, Number(lastAssistant.data && lastAssistant.data.turn) || 0)
-    const hideStep = Math.max(1, Number(lastAssistant.data && lastAssistant.data.step) || 1)
-    const rollbackSource = lastAssistant !== null && lastAssistant.data !== undefined && lastAssistant.data.message !== undefined && lastAssistant.data.message.source !== undefined && lastAssistant.data.message.source.kind === 'model'
-      ? lastAssistant.data.message.source
-      : null
-    if (rollbackSource === null) throw new Error('找不到可用的模型来源，无法遮蔽本轮消息')
     session.append('assistant/message', {
-      turn: hideTurn,
-      step: hideStep,
+      turn: rollbackSurface.turn,
+      step: rollbackSurface.step,
       message: {
         id: crypto.randomUUID(),
         role: 'assistant',
         content: [],
-        source: rollbackSource
+        source: rollbackSurface.source
       }
     }, {
-      surfaceOp: { op: 'replace', start: userSeq, end: endSeq },
+      surfaceOp: { op: 'replace', start: rollbackSurface.userSeq, end: rollbackSurface.endSeq },
       sourceEventSeqs: shadowedSeqs
     })
     const result = await view(chat, card)
@@ -1964,61 +2098,79 @@ export async function apply(ctx) {
       case 'deleteWorldBook': return await worldBooks.remove(args && args.path)
       case 'listPresets': {
         const presets = await listPresets()
-        const runtimePresetState = await runtimePresets.state()
-        const presetPlans = await runtimePresets.plans()
-        const activePreset = presets.find(function (preset) { return preset.path === runtimePresetState.activePreset })
+        const bypassPlanState = await bypassPlans.state()
+        const plans = await bypassPlans.list()
+        const activePlan = plans.find(function (plan) { return plan.id === bypassPlanState.activePlanId }) || null
         return {
           presets,
-          runtimePresetState,
-          presetPlans,
-          activePreset: runtimePresetState.activePreset || '',
-          activePresetTitle: activePreset && activePreset.title || '',
-          enabledCount: activePreset && activePreset.enabledCount || 0,
-          enabledCharacters: activePreset && activePreset.enabledCharacters || 0,
-          enabledRegexCount: activePreset && activePreset.enabledRegexCount || 0
+          bypassPlanState,
+          bypassPlans: plans,
+          activePlanId: bypassPlanState.activePlanId || '',
+          activePlanTitle: activePlan && activePlan.name || ''
         }
       }
       case 'getPreset': {
         const inspected = await readPreset(args && args.path)
-        const preset = inspected && inspected.valid && (inspected.recognized || inspected.regexCount > 0) ? await runtimePresets.view(inspected.path) : inspected
-        if (preset === undefined) throw new Error('预设不存在: ' + (args && args.path))
-        return { preset }
+        if (inspected === undefined) throw new Error('预设不存在: ' + (args && args.path))
+        const document = await readPresetDocument(inspected.path)
+        return { preset: Object.assign({}, inspected, { extractableRegexScripts: runtimeRegexScriptsOf(inspected, document) }) }
       }
-      case 'togglePresetEntry': {
-        if (args && args.enabled === true) throw new Error('预设实验模块当前仅支持导入和查看，提示词注入已禁用')
-        await runtimePresets.toggle({ path: args && args.path, entryKey: args && args.entryKey, enabled: args && args.enabled === true })
-        return { preset: await runtimePresets.view(args && args.path) }
+      case 'exportPreset': {
+        const presetPath = normalizeResourcePath(args && args.path, 'preset')
+        const text = await fileResources.readText(presetPath)
+        if (text === undefined) throw new Error('预设不存在: ' + presetPath)
+        return { name: presetPath.split('/').pop() || 'preset.json', text }
       }
-      case 'selectPreset': {
-        if (str(args && args.path) !== '') throw new Error('预设实验模块当前没有运行时效果，不能启用预设')
-        await runtimePresets.select(args && args.path || '')
-        return { selected: args && args.path || '' }
+      case 'updatePresetEntry': {
+        await presetEditor.updateEntry(args && args.path, args && args.entryKey, args && args.patch)
+        return { preset: await readPreset(args && args.path) }
       }
-      case 'togglePresetRegex': {
-        if (args && args.enabled === true) throw new Error('预设实验模块当前仅支持导入和查看，预设正则匹配已禁用')
-        await runtimePresets.toggleRegex({ path: args && args.path, regexKey: args && args.regexKey, enabled: args && args.enabled === true })
-        const historicalChanges = await reprojectBackgroundHistories(args && args.path)
-        return { preset: await runtimePresets.view(args && args.path), historicalChanges }
+      case 'previewPresetConversion': {
+        const preview = await previewPreset(args && args.path, args && args.orderGroupIndex)
+        if (preview === undefined) throw new Error('预设不存在: ' + (args && args.path))
+        return { preview }
       }
-      case 'disablePreset': {
-        await runtimePresets.disablePreset(args && args.path)
-        return { preset: await runtimePresets.view(args && args.path) }
+      case 'extractBypassPlan': {
+        return { plan: await bypassPlans.extract({
+          id: args && args.id,
+          name: args && args.name,
+          sourcePresetPath: args && args.sourcePresetPath,
+          entryKeys: args && args.entryKeys,
+          regexKeys: args && args.regexKeys,
+          compatibleModels: args && args.compatibleModels
+        }) }
       }
-      case 'disableAllPresets': {
-        await runtimePresets.disableAll()
-        return { disabled: true }
+      case 'activateBypassPlan': {
+        await bypassPlans.activate(args && args.id || '')
+        return { activePlanId: args && args.id || '' }
       }
-      case 'savePresetPlan': {
-        return { plan: await runtimePresets.savePlan({ id: args && args.id, name: args && args.name }) }
+      case 'getBypassPlan': return { plan: await bypassPlans.get(args && args.id) }
+      case 'importBypassPlan': {
+        const payload = args && args.payload && typeof args.payload === 'object' ? args.payload : {}
+        const text = str(payload.text)
+        if (text.trim() === '') throw new Error('破限方案文件为空')
+        let document
+        try { document = JSON.parse(text) } catch { throw new Error('破限方案文件不是有效的 JSON') }
+        return { plan: await bypassPlans.importPackage(document) }
       }
-      case 'applyPresetPlan': {
-        throw new Error('预设实验模块当前没有运行时效果，不能应用配置方案')
+      case 'exportBypassPlan': {
+        const document = await bypassPlans.exportPlan(args && args.id)
+        const safeName = str(document.plan && document.plan.name || '破限方案').replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').trim() || '破限方案'
+        return { name: safeName + '.dsh-bypass-plan.json', text: JSON.stringify(document, null, 2) }
       }
-      case 'renamePresetPlan': {
-        return { plan: await runtimePresets.renamePlan(args && args.id, args && args.name) }
+      case 'toggleBypassPlanEntry': {
+        await bypassPlans.toggleEntry({ id: args && args.id, entryKey: args && args.entryKey, enabled: args && args.enabled === true })
+        return { plan: await bypassPlans.get(args && args.id) }
       }
-      case 'deletePresetPlan': {
-        await runtimePresets.removePlan(args && args.id)
+      case 'toggleBypassPlanRegex': {
+        await bypassPlans.toggleRegex({ id: args && args.id, regexKey: args && args.regexKey, enabled: args && args.enabled === true })
+        return { plan: await bypassPlans.get(args && args.id) }
+      }
+      case 'setBypassPlanCompatibleModels': return { plan: await bypassPlans.setCompatibleModels({ id: args && args.id, compatibleModels: args && args.compatibleModels }) }
+      case 'renameBypassPlan': return { plan: await bypassPlans.rename(args && args.id, args && args.name) }
+      case 'copyBypassPlan': return { plan: await bypassPlans.copy(args && args.id, args && args.name) }
+      case 'deleteBypassPlan': {
+        await bypassPlans.remove(args && args.id)
         return { deleted: true }
       }
       case 'renameResource': return { resource: await renameResource(args && args.path, args && args.name) }
@@ -2038,7 +2190,12 @@ export async function apply(ctx) {
         const change = await updateCard(args && args.path, args && args.patch)
         return { card: change.card, changed: change.changed }
       }
-      case 'listSessions': return { sessions: await listTavernSessions() }
+      case 'getTavernSettings': return { settings: await readTavernSettings() }
+      case 'updateTavernSettings': return { settings: await updateTavernSettings(args && args.patch) }
+      case 'listSessions': {
+        const settings = await readTavernSettings()
+        return { sessions: await listTavernSessions(), capabilities: { compatibilityMode: settings.compatibilityMode } }
+      }
       case 'importCard': return { card: await importCard(args && args.payload) }
       case 'deleteCard': return await deleteCard(args && args.path)
       case 'deleteChat': return await deleteChat(args && args.chatId)
@@ -2053,7 +2210,7 @@ export async function apply(ctx) {
       case 'captureDisplayRuntime': return await captureDisplayRuntime(args && args.sessionId, args && args.turn, args && args.partIndex, args && args.runtime)
       case 'startChat': {
         try {
-          return { view: await startChat(args && args.path, args && args.sessionId, args && args.mode, args && args.openingId, args && args.userName) }
+          return { view: await startChat(args && args.path, args && args.sessionId, args && args.mode, args && args.openingId, args && args.userName, args && args.requestMode) }
         } catch (error) {
           console.error('dsh-tavern: 创建对话失败', {
             cardPath: str(args && args.path),
@@ -2080,9 +2237,12 @@ export async function apply(ctx) {
       }
       case 'getBackgroundOperation': return { operation: await sessionOperation(args && args.sessionId, args && args.operationId) }
       case 'setPlayerName': return { playerName: await setPlayerName(args && args.sessionId, args && args.userName) }
+      case 'setRequestMode': return { requestMode: await setRequestMode(args && args.sessionId, args && args.requestMode) }
       case 'ensureOpening': return { view: await ensureNativeOpening(args && args.sessionId) }
       case 'getChoices': return { candidates: await candidateGenerator.find({ sessionId: args && args.sessionId, messageId: args && args.messageId }) }
       case 'startChoices': {
+        const choiceChat = await chatForSession(args && args.sessionId)
+        if (choiceChat && choiceChat.requestMode === 'sillytavern') throw new Error('酒馆兼容模式不运行 DSH 后台候选项')
         if (!await pullBackgroundCycle(args && args.sessionId)) return { preparing: true }
         const prepared = await candidateGenerator.prepare({
           sessionId: args && args.sessionId,
@@ -2284,58 +2444,334 @@ export async function apply(ctx) {
     })
   }
 
-  // ---------- DSH 回合生命周期 ----------
-  const storyCompactionRequests = new WeakSet()
+  async function resolveChatRuntimePreset(chat) {
+    if (!chat) return null
+    const raw = await bypassPlans.snapshot()
+    const planId = str(raw && raw.planId)
+    if (planId === '') {
+      const needsClearing = chat.runtimePresetSnapshot !== null || str(chat.bypassPlanId) !== '' || str(chat.runtimePresetPath) !== ''
+      chat.runtimePresetSnapshot = null
+      chat.bypassPlanId = ''
+      chat.runtimePresetPath = ''
+      if (needsClearing) {
+        await updateChat(chat.id, function (current) {
+          if (!current || typeof current !== 'object') return current
+          return Object.assign({}, current, {
+            runtimePresetSnapshot: null,
+            bypassPlanId: '',
+            runtimePresetPath: '',
+            updatedAt: Date.now()
+          })
+        }, { source: 'runtime-preset.clear' })
+      }
+      return null
+    }
+    const resolved = resolveRuntimePresetMacros(raw, {
+      charName: str(chat.cardName),
+      macroState: chat.macroState
+    })
+    chat.runtimePresetSnapshot = resolved.snapshot
+    chat.bypassPlanId = planId
+    chat.runtimePresetPath = ''
+    chat.macroState = resolved.macroState
+    await updateChat(chat.id, function (current) {
+      if (!current || typeof current !== 'object') return current
+      return Object.assign({}, current, {
+        runtimePresetSnapshot: resolved.snapshot,
+        bypassPlanId: planId,
+        runtimePresetPath: '',
+        macroState: resolved.macroState,
+        updatedAt: Date.now()
+      })
+    }, { source: 'runtime-preset.resolve' })
+    return resolved.snapshot
+  }
 
-  ctx.on('llm/stream', function (options, next) {
-    if (options === null || typeof options !== 'object' || options.purpose !== 'compaction' || storyCompactionRequests.has(options)) return next()
-    const fallback = next()
-    return (async function * () {
-      const chat = await chatForSession(str(options.sessionId))
-      if (!usesStoryCompaction(chat)) {
-        yield * fallback
-        return
+  function compatibilityWorldBookMatch(entry, source) {
+    if (entry.constant === true) return true
+    const text = entry.caseSensitive === true ? source : source.toLocaleLowerCase()
+    const keys = Array.isArray(entry.primaryKeys) ? entry.primaryKeys : []
+    return keys.some(function (value) {
+      const key = str(value).trim()
+      if (key === '') return false
+      const match = /^\/(.*)\/([dgimsuvy]*)$/.exec(key)
+      if (match) {
+        try { return new RegExp(match[1], match[2].replace(/[gy]/g, '')).test(source) } catch { return false }
       }
-      const request = createStoryCompactionRequest(options, prompt('story-compaction'))
-      if (request === options) {
-        yield * fallback
-        return
+      return text.includes(entry.caseSensitive === true ? key : key.toLocaleLowerCase())
+    })
+  }
+
+  async function compatibilityWorldInfo(chat, card, input) {
+    let worldBook = null
+    try { worldBook = await worldBooks.bound(chat.cardPath, card) } catch {}
+    const entries = Array.isArray(worldBook && worldBook.view && worldBook.view.entries) ? worldBook.view.entries : []
+    const scan = (chat.messages || []).map(function (item) { return str(item.sourceText || item.text) }).concat([str(input)]).join('\n')
+    const active = entries.filter(function (entry) {
+      return entry && entry.enabled !== false && str(entry.content).trim() !== '' && compatibilityWorldBookMatch(entry, scan)
+    }).sort(function (left, right) {
+      return (Number(right.order) || 0) - (Number(left.order) || 0) || (Number(left.displayIndex) || 0) - (Number(right.displayIndex) || 0)
+    })
+    const before = []
+    const after = []
+    for (const entry of active) {
+      const position = entry.position
+      const target = position === 0 || position === 'before_char' || position === 'before' ? before : after
+      target.push(str(entry.content).trim())
+    }
+    return { before: before.join('\n\n'), after: after.join('\n\n'), refs: active.map(function (entry) { return entry.ref }) }
+  }
+
+  async function compileCompatibilityTurn(chat, userText) {
+    const snapshot = await resolveChatRuntimePreset(chat)
+    const planId = str(snapshot && snapshot.planId)
+    if (planId === '') throw new Error('酒馆兼容模式需要先激活一份破限方案')
+    const plan = await bypassPlans.get(planId)
+    const preset = {
+      valid: true,
+      recognized: true,
+      title: plan.name,
+      orderGroupIndex: null,
+      entries: plan.entries.map(function (entry) { return Object.assign({}, entry) })
+    }
+    const presetDocument = plan.compatibilitySettings || {}
+    const card = await readChatCard(chat)
+    const extensions = await readCardExtensions(chat.cardPath)
+    const regexScripts = (Array.isArray(extensions && extensions.regexScripts) ? extensions.regexScripts : []).concat(
+      plan.regexScripts.filter(function (script) { return script.enabled !== false })
+    )
+    const worldInfo = await compatibilityWorldInfo(chat, card, userText)
+    const compiled = compileSillyTavernRequest({
+      card,
+      preset,
+      presetPath: str(plan.source && plan.source.presetPath),
+      presetDocument,
+      history: (chat.messages || []).map(function (item) { return { role: item.role, text: str(item.text), sourceText: str(item.sourceText) } }),
+      input: userText,
+      userName: str(chat.macroState && chat.macroState.userName),
+      macroState: chat.macroState,
+      worldInfoBefore: worldInfo.before,
+      worldInfoAfter: worldInfo.after,
+      resolveMacros: resolveRuntimeMacroText,
+      projectPromptText: function (text, context) {
+        return applyTavernRegexText(text, regexScripts, {
+          placement: context.placement,
+          isMarkdown: false,
+          isEdit: false,
+          depth: context.depth
+        })
       }
-      storyCompactionRequests.add(request)
-      yield * ctx.llm.stream(request)
-    })()
-  }, { global: true })
+    })
+    compiled.trace.worldBookRefs = worldInfo.refs
+    compiled.trace.planId = plan.id
+    compiled.trace.planName = plan.name
+    compiled.trace.regexCount = regexScripts.length
+    const sourceMessageCount = compiled.messages.length
+    compiled.messages = applySillyTavernStrictTools(compiled.messages, {
+      charName: str(card.name),
+      userName: str(chat.macroState && chat.macroState.userName)
+    })
+    compiled.trace.postProcessing = 'strict_tools'
+    compiled.trace.sourceMessageCount = sourceMessageCount
+    compiled.trace.finalMessageCount = compiled.messages.length
+    return compiled
+  }
+
+  // ---------- DSH 回合生命周期 ----------
+  const requestCoordinates = new Map()
+  const compatibilityModelRequests = new Map()
+  const compatibilityRedispatches = new WeakSet()
+  const runtimePresetRedispatches = new WeakSet()
+  const storyCompactionRequests = new WeakSet()
+  const tavernRetryLimiter = createTavernRetryLimiter({
+    owns: async function (agent) {
+      const sessionId = agent && agent.session ? agent.session.id : ''
+      if (sessionId === '') return false
+      return backgroundAgentRunner.owns(sessionId) || await chatForSession(sessionId) !== undefined
+    }
+  })
+
+  function clearRuntimePresetRequestState(agent) {
+    const session = agent && agent.session
+    if (session === undefined) return 0
+    const sessionId = session.id
+    requestCoordinates.delete(sessionId)
+    runtimePresetSnapshots.delete(sessionId)
+  }
+
+  function compatibilityMessages(compiled) {
+    return compiled.messages.map(function (item, index) {
+      const label = str(item.source && (item.source.identifier || item.source.kind)) || 'message-' + (index + 1)
+      return {
+        id: crypto.randomUUID(),
+        role: item.role,
+        content: [{ type: 'text', text: item.content }],
+        source: {
+          kind: 'plugin', plugin: 'dsh-tavern', form: 'sillytavern-compatibility',
+          sections: [{ name: 'tavern:sillytavern:' + label, text: item.content }],
+          trace: item.source
+        }
+      }
+    })
+  }
+
+  ctx.on('agent/request', async function (payload, next) {
+    const sessionId = payload.agent && payload.agent.session ? payload.agent.session.id : ''
+    if (sessionId !== '') requestCoordinates.set(sessionId, { turn: payload.turn, step: payload.step })
+    return await next()
+  })
+
+  ctx.on('agent/request-error', tavernRetryLimiter.handle, { prepend: true })
 
   ctx.on('agent/pre-step', async function (payload, next) {
     const sessionId = payload.agent && payload.agent.session ? payload.agent.session.id : ''
     if (backgroundAgentRunner.owns(sessionId)) return next()
     const decision = await next()
     if (decision.kind === 'reject') return decision
+    let chat = await chatForSession(sessionId)
+    if (chat && chat.requestMode === 'sillytavern') {
+      const userText = payload.messages.filter(isTurnInput).map(contentText).filter(Boolean).join('\n').trim()
+      if (Number(payload.step) === 1) {
+        await turnOrchestrator.beginCompatibility({ sessionId, turn: payload.turn, userText })
+        chat = await chatForSession(sessionId)
+      }
+      const compiled = await compileCompatibilityTurn(chat, userText)
+      chat.macroState = compiled.macroState
+      if (!chat.compatibilityTraces || typeof chat.compatibilityTraces !== 'object') chat.compatibilityTraces = {}
+      chat.compatibilityTraces[String(payload.turn)] = Object.assign({ createdAt: Date.now() }, compiled.trace, { diagnostics: compiled.diagnostics })
+      await writeChat(chat)
+      compatibilityModelRequests.set(sessionId, {
+        turn: Number(payload.turn) || 0,
+        step: Number(payload.step) || 0,
+        messages: compatibilityMessages(compiled)
+      })
+      return {
+        kind: 'enter',
+        messages: payload.messages
+      }
+    }
     const mode = await turnOrchestrator.modeFor(sessionId)
     const visibleMessages = filterSkillMessages(decision.messages, mode)
     const scopedDecision = visibleMessages === decision.messages ? decision : { ...decision, messages: visibleMessages }
-    if (Number(payload.step) !== 1) return scopedDecision
-    const userText = payload.messages.filter(isTurnInput).map(contentText).filter(Boolean).join('\n').trim()
-    const prepared = await foregroundHandoff.prepare({ sessionId, turn: payload.turn, userText })
-    const agentMessages = mode === 'story' || mode === 'script'
-      ? replaceTurnInput(scopedDecision.messages, prepared.userText)
-      : scopedDecision.messages
-    const contextMessage = {
-      id: crypto.randomUUID(),
-      role: 'user',
-      content: [{ type: 'text', text: prepared.text }],
-      source: {
-        kind: 'plugin', plugin: 'dsh-tavern', form: 'snapshot',
-        sections: [{ name: 'tavern:turn', text: prepared.text }]
+    let agentMessages = scopedDecision.messages
+    if (Number(payload.step) === 1) {
+      const userText = payload.messages.filter(isTurnInput).map(contentText).filter(Boolean).join('\n').trim()
+      const prepared = await foregroundHandoff.prepare({ sessionId, turn: payload.turn, userText })
+      agentMessages = mode === 'story' || mode === 'script'
+        ? replaceTurnInput(scopedDecision.messages, prepared.userText)
+        : scopedDecision.messages
+      agentMessages = agentMessages.concat([{
+        id: crypto.randomUUID(),
+        role: 'user',
+        content: [{ type: 'text', text: prepared.text }],
+        source: {
+          kind: 'plugin', plugin: 'dsh-tavern', form: 'snapshot',
+          sections: [{ name: 'tavern:turn', text: prepared.text }]
+        }
+      }])
+    }
+    const snapshot = await resolveChatRuntimePreset(chat)
+    const messageOptions = { scope: 'foreground', turn: payload.turn, step: payload.step }
+    const middleMessages = Number(payload.step) === 1 ? runtimePresetPhaseMessages(snapshot, 'middle', messageOptions) : []
+    runtimePresetSnapshots.set(sessionId, {
+      turn: Math.max(0, Number(payload.turn) || 0),
+      step: Math.max(1, Number(payload.step) || 1),
+      scope: 'foreground',
+      snapshot: snapshot || null
+    })
+    agentMessages = agentMessages.concat(middleMessages)
+    return { kind: 'enter', messages: agentMessages }
+  })
+
+  ctx.on('llm/stream', function (options, next) {
+    const sessionId = str(options && options.sessionId)
+    const coordinates = requestCoordinates.get(sessionId)
+    if (coordinates !== undefined) {
+      requestCoordinates.set(sessionId, Object.assign({}, coordinates, {
+        source: { kind: 'model', provider: str(options.provider), model: str(options.model) }
+      }))
+    }
+    if (options !== null && typeof options === 'object' && options.purpose === 'compaction' && !storyCompactionRequests.has(options)) {
+      const fallback = next()
+      return (async function * () {
+        const chat = await chatForSession(sessionId)
+        if (!usesStoryCompaction(chat)) {
+          yield * fallback
+          return
+        }
+        const request = createStoryCompactionRequest(options, prompt('story-compaction'))
+        if (request === options) {
+          yield * fallback
+          return
+        }
+        storyCompactionRequests.add(request)
+        yield * ctx.llm.stream(request)
+      })()
+    }
+    const stagedCompatibility = compatibilityModelRequests.get(sessionId)
+    const shouldRedispatch = !compatibilityRedispatches.has(options) &&
+      isCompatibilityConversationRequest(options, stagedCompatibility, coordinates)
+    if (shouldRedispatch) {
+      const compatibilityRequest = createEphemeralCompatibilityRequest(options, stagedCompatibility.messages)
+      compatibilityRedispatches.add(compatibilityRequest)
+      return ctx.llm.stream(compatibilityRequest)
+    }
+    const stagedRuntimePreset = runtimePresetSnapshots.get(sessionId)
+    if (options !== null && typeof options === 'object' && options.purpose === undefined &&
+      stagedRuntimePreset !== undefined && !runtimePresetRedispatches.has(options)) {
+      const projectedRequest = projectRuntimePresetRequest(
+        options,
+        stagedRuntimePreset.snapshot,
+        {
+          scope: stagedRuntimePreset.scope,
+          turn: stagedRuntimePreset.turn,
+          step: stagedRuntimePreset.step
+        }
+      )
+      if (projectedRequest !== options) {
+        runtimePresetRedispatches.add(projectedRequest)
+        return ctx.llm.stream(projectedRequest)
       }
     }
-    return { kind: 'enter', messages: agentMessages.concat([contextMessage]) }
-  })
+    const stream = next()
+    const backgroundContext = backgroundAgentRunner.requestContext(sessionId)
+    const ownerSessionId = backgroundContext ? backgroundContext.parentSessionId : sessionId
+    return (async function * () {
+      const chat = ownerSessionId === '' ? undefined : await chatForSession(ownerSessionId)
+      let requestRecord = null
+      if (options.purpose === undefined && chat !== undefined && (chat.mode === 'story' || chat.mode === 'script')) {
+        const coordinates = requestCoordinates.get(sessionId) || {}
+        requestRecord = await modelRequestLog.record({ chat, context: backgroundContext, coordinates, options })
+      }
+      let responseText = ''
+      let finish = null
+      let failure = null
+      try {
+        for await (const chunk of stream) {
+          if (chunk && chunk.type === 'text-delta') responseText += str(chunk.text)
+          if (chunk && chunk.type === 'finish') finish = chunk.reason === undefined ? chunk : chunk.reason
+          yield chunk
+        }
+      } catch (error) {
+        failure = str(error && error.message || error)
+        throw error
+      } finally {
+        const completed = finish && finish.kind !== 'error' && finish.kind !== 'aborted'
+        if (stagedCompatibility && compatibilityRedispatches.has(options) && completed) compatibilityModelRequests.delete(sessionId)
+        if (runtimePresetRedispatches.has(options) && completed) runtimePresetSnapshots.delete(sessionId)
+        if (chat && requestRecord) {
+          try { await modelRequestLog.complete({ chatId: chat.id, id: requestRecord.id, text: responseText, finish, error: failure }) }
+          catch (error) { console.error('dsh-tavern: 模型结果日志写入失败', str(error && error.message || error)) }
+        }
+      }
+    })()
+  }, { global: true })
 
   ctx.on('agent/turn-stopping', async function (payload) {
     const session = payload.agent && payload.agent.session
     if (session === undefined) return
     const sessionId = session.id
+    clearRuntimePresetRequestState(payload.agent)
     if (backgroundAgentRunner.owns(sessionId)) return
     const userText = userTextForTurn(session, payload.turn)
     if (userText === '') return
@@ -2349,8 +2785,13 @@ export async function apply(ctx) {
     if (saved.reply) replaceAssistantReply(session, assistant, saved.reply.sessionText)
   })
 
+  ctx.on('agent/error', function (payload) {
+    clearRuntimePresetRequestState(payload.agent)
+  })
+
   ctx.on('session/event', function (session, event) {
     if (!event || event.type !== 'turn/end') return
+    compatibilityModelRequests.delete(session.id)
     if (backgroundAgentRunner.owns(session.id)) return
     const reason = event.data && event.data.reason ? event.data.reason.kind : ''
     foregroundHandoff.end({ sessionId: session.id, turn: event.data && event.data.turn, reason })
@@ -2363,6 +2804,13 @@ export async function apply(ctx) {
     if (agent === undefined || agent.session === undefined) return assembly
     if (backgroundAgentRunner.owns(agent.session.id)) return assembly
     const mode = await turnOrchestrator.modeFor(agent.session.id)
+    const chat = await chatForSession(agent.session.id)
+    if (chat && chat.requestMode === 'sillytavern') {
+      assembly.sections = []
+      assembly.contexts = []
+      assembly.tools = []
+      return assembly
+    }
     const visible = new Set(await turnOrchestrator.visibleTools(agent.session.id))
     const sections = []
     sections.push({
@@ -2373,7 +2821,6 @@ export async function apply(ctx) {
       const workspaceContext = resourceWorkspaceContext(agent.session.header && agent.session.header.cwd)
       if (workspaceContext !== '') sections.push({ name: 'tavern:resource-workspace', text: workspaceContext })
     } else {
-      const chat = await chatForSession(agent.session.id)
       const cardSnapshot = await ensurePlayCardSnapshot(chat)
       if (cardSnapshot !== '') sections.push({ name: 'tavern:card-snapshot', text: cardSnapshot })
     }
@@ -2508,11 +2955,11 @@ export async function apply(ctx) {
 
     tools.register(defineTool({
       name: 'tavern_read_play_chat',
-      description: '在卡片工作台中渐进读取已挂载的游玩诊断。默认从最新一轮的小型 overview 开始；需要时可列出轮次、读取任意轮次或整场对话，并按层、分页获取文本、状态、日志、正则诊断和 iframe 证据。',
+      description: '在卡片工作台中渐进读取已挂载的游玩诊断。默认从最新一轮的小型 overview 开始；需要时可列出轮次、读取任意轮次或整场对话，并按层、分页获取文本、状态、日志、真实模型请求、正则诊断和 iframe 证据。',
       parameters: {
         ref: { type: 'string', description: '已挂载游玩记录引用，例如 play-chat:chat-xxx；只有一个引用时可省略' },
         turn: { type: 'integer', description: '要读取的游玩轮次；省略时使用最新一轮' },
-        layer: { type: 'string', enum: ['overview', 'turns', 'conversation', 'input', 'source', 'session', 'display', 'saved-display', 'diagnostics', 'tavern', 'foreground', 'background', 'iframe'], description: '读取层：小型概览、轮次目录、整场对话、本轮玩家输入、模型原文、Session 文本、当前实时展示、保存时展示快照、当前正则诊断、Tavern 状态、前台 Agent、后台 Agent 或 iframe 运行证据；默认 overview' },
+        layer: { type: 'string', enum: ['overview', 'turns', 'conversation', 'input', 'source', 'session', 'display', 'saved-display', 'diagnostics', 'tavern', 'foreground', 'background', 'request', 'iframe'], description: '读取层：小型概览、轮次目录、整场对话、本轮玩家输入、模型原文、Session 文本、当前实时展示、保存时展示快照、当前正则诊断、Tavern 状态、前台 Agent、后台 Agent、真实模型请求或 iframe 运行证据；默认 overview' },
         offset: { type: 'integer', description: '可选的 1 起始字符位置，默认 1' },
         limit: { type: 'integer', description: '本次最多读取字符数，默认 6000，最大 12000' }
       },
@@ -2569,7 +3016,8 @@ export async function apply(ctx) {
         const backgroundId = str(sourceChat.timeline && sourceChat.timeline.participants && sourceChat.timeline.participants.background && sourceChat.timeline.participants.background.sessionId) || str(sourceChat.candidateAgent && sourceChat.candidateAgent.sessionId)
         return readPlayChatDebugTurn(editorChat, sourceChat, reference, args, projector, {
           foreground: sessionDebugEvidence(foregroundId),
-          background: sessionDebugEvidence(backgroundId)
+          background: sessionDebugEvidence(backgroundId),
+          requests: await modelRequestLog.evidence(sourceChat.id, args.turn || reference.turn)
         })
       }
     }))

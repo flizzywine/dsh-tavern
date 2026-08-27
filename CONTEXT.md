@@ -36,21 +36,33 @@ Story Timeline 中 Background Operation 生命周期的只读投影，用于回�
 
 从权威领域状态派生、可随时重建的只读表示。DSH Session Surface、Background Activity、Tavern 状态视图和浏览器交互状态都是 Projection。
 
-## DSH Preset
+## External Preset
 
-用于组织模型请求上下文的 DSH 原生预设。它只拥有稳定前缀、每轮注入和后带内容三个部分，不拥有或重建 DSH Session 的真实对话历史。
+从 SillyTavern 等外部系统导入的只读来源。中文正式名称为“外部预设”。它用于查看和抽取，不可直接激活，也不直接进入模型请求。
+
+## Bypass Plan
+
+从一份 External Preset 中抽取并保存的自包含运行资源。中文正式名称为“破限方案”。它独立拥有选中的提示词条目和迁移的正则，是用户唯一可以激活并绑定 Tavern Chat 的对象；删除来源外部预设不影响已经保存的破限方案。
+
+## Internal Preset Projection
+
+运行时从 Bypass Plan 确定性生成的内部请求结构。中文正式名称为“内部预设投影”。它可以包含稳定前缀、每轮注入和后带内容，或在兼容模式下投影为 SillyTavern 消息顺序；它不是用户资源，不在 UI 中展示或激活。
+
+## Compatibility Mode
+
+普通用户可以在设置中主动开启的实验性游玩模式。中文正式名称为“兼容模式（实验性）”。它按 SillyTavern 语义构造前台模型请求，不运行 DSH 后台 Agent、状态结算和候选项。该设置默认关闭，只控制入口与新建权限；已有兼容对话不会因关闭设置而被改写。
 
 ## Stable Prefix
 
-DSH 预设中在会话创建时确定、后续请求保持不变的部分。中文正式名称为“稳定前缀”。
+Internal Preset Projection 中拼在请求前部、后续请求保持稳定的部分。中文正式名称为“稳定前缀”。它不写入权威 Session 历史。
 
 ## Per-Turn Injection
 
-DSH 预设中每轮根据当轮状态重新生成、只在该轮生效的部分。中文正式名称为“每轮注入”。它可以保存当轮快照以供追溯，但旧轮快照不会在后续请求中重复累积。
+Internal Preset Projection 中每轮根据当轮状态重新生成、只在该轮生效的部分。中文正式名称为“每轮注入”。它可以保存当轮快照以供追溯，但旧轮快照不会在后续请求中重复累积。
 
 ## Tail Content
 
-DSH 预设中在发送模型请求前临时追加到末尾、但不写入 DSH Session 的部分。中文正式名称为“后带内容”。
+Internal Preset Projection 中在发送模型请求前临时追加到末尾、但不写入 DSH Session 的部分。中文正式名称为“后带内容”。
 
 ## Script
 

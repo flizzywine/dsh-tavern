@@ -16,9 +16,7 @@ function depth(value) {
   return value === null || value === undefined || value === '' || !Number.isFinite(Number(value)) ? null : Number(value)
 }
 
-function regexScriptsOf(object) {
-  const binding = object && object.extensions && object.extensions.SPreset && object.extensions.SPreset.RegexBinding
-  const regexes = binding && Array.isArray(binding.regexes) ? binding.regexes : []
+function normalizeRegexScripts(regexes) {
   return regexes.filter(function (item) { return item !== null && typeof item === 'object' && !Array.isArray(item) }).map(function (item, index) {
     const id = str(item.id).trim() || 'regex-' + (index + 1)
     return {
@@ -37,6 +35,18 @@ function regexScriptsOf(object) {
       maxDepth: depth(item.maxDepth)
     }
   })
+}
+
+export function regexScriptsOf(object) {
+  const binding = object && object.extensions && object.extensions.SPreset && object.extensions.SPreset.RegexBinding
+  const regexes = binding && Array.isArray(binding.regexes) ? binding.regexes : []
+  return normalizeRegexScripts(regexes)
+}
+
+/** Native SillyTavern runtime source; SPreset RegexBinding is editor metadata. */
+export function nativeRegexScriptsOf(object) {
+  const extensions = object && object.extensions && typeof object.extensions === 'object' ? object.extensions : {}
+  return normalizeRegexScripts(Array.isArray(extensions.regex_scripts) ? extensions.regex_scripts : [])
 }
 
 export function inspectPreset(text, filename = '') {
@@ -62,7 +72,9 @@ export function inspectPreset(text, filename = '') {
   const object = document !== null && typeof document === 'object' && !Array.isArray(document) ? document : null
   const rootKeys = object === null ? [] : Object.keys(object)
   const regexScripts = regexScriptsOf(object)
-  const prompts = object !== null && Array.isArray(object.prompts) ? object.prompts.filter(function (item) { return item !== null && typeof item === 'object' && !Array.isArray(item) }) : []
+  const prompts = object !== null && Array.isArray(object.prompts) ? object.prompts.map(function (item, sourceIndex) {
+    return item !== null && typeof item === 'object' && !Array.isArray(item) ? { source: item, sourceIndex } : null
+  }).filter(Boolean) : []
   const recognized = object !== null && Array.isArray(object.prompts)
   if (!recognized) {
     return {
@@ -83,7 +95,8 @@ export function inspectPreset(text, filename = '') {
 
   const records = []
   const recordsByIdentifier = new Map()
-  prompts.forEach(function (prompt, index) {
+  prompts.forEach(function (sourceRecord, index) {
+    const prompt = sourceRecord.source
     const identifier = str(prompt.identifier).trim() || 'prompt-' + (index + 1)
     const record = {
       identifier,
@@ -95,7 +108,10 @@ export function inspectPreset(text, filename = '') {
       systemPrompt: prompt.system_prompt === true,
       ordered: false,
       injectionPosition: Number.isFinite(Number(prompt.injection_position)) ? Number(prompt.injection_position) : null,
-      injectionDepth: Number.isFinite(Number(prompt.injection_depth)) ? Number(prompt.injection_depth) : null
+      injectionDepth: Number.isFinite(Number(prompt.injection_depth)) ? Number(prompt.injection_depth) : null,
+      injectionOrder: Number.isFinite(Number(prompt.injection_order)) ? Number(prompt.injection_order) : null,
+      forbidOverrides: prompt.forbid_overrides === true,
+      sourcePromptIndex: sourceRecord.sourceIndex
     }
     records.push(record)
     const matches = recordsByIdentifier.get(identifier) || []
@@ -104,19 +120,22 @@ export function inspectPreset(text, filename = '') {
   })
 
   const orders = object !== null && Array.isArray(object.prompt_order) ? object.prompt_order : []
-  const selectedOrder = orders.find(function (item) { return item && Number(item.character_id) === 100001 && Array.isArray(item.order) }) || orders.find(function (item) { return item && Array.isArray(item.order) })
+  const selectedOrderGroupIndex = orders.findIndex(function (item) { return item && Number(item.character_id) === 100001 && Array.isArray(item.order) })
+  const fallbackOrderGroupIndex = orders.findIndex(function (item) { return item && Array.isArray(item.order) })
+  const orderGroupIndex = selectedOrderGroupIndex >= 0 ? selectedOrderGroupIndex : fallbackOrderGroupIndex
+  const selectedOrder = orderGroupIndex >= 0 ? orders[orderGroupIndex] : undefined
   const entries = []
   const used = new Set()
-  for (const item of (selectedOrder && selectedOrder.order) || []) {
+  for (const [orderItemIndex, item] of ((selectedOrder && selectedOrder.order) || []).entries()) {
     if (item === null || typeof item !== 'object') continue
     const identifier = str(item.identifier).trim()
     if (identifier === '') continue
     const matches = recordsByIdentifier.get(identifier) || []
     const record = matches.find(function (candidate) { return !used.has(candidate) })
     if (record === undefined) {
-      entries.push({ identifier, name: identifier, role: 'system', content: '', enabled: item.enabled !== false, marker: true, systemPrompt: true, ordered: true, injectionPosition: null, injectionDepth: null })
+      entries.push({ identifier, name: identifier, role: 'system', content: '', enabled: item.enabled !== false, marker: true, systemPrompt: true, ordered: true, injectionPosition: null, injectionDepth: null, injectionOrder: null, sourcePromptIndex: null, sourceOrderGroupIndex: orderGroupIndex, sourceOrderItemIndex: orderItemIndex })
     } else {
-      entries.push(Object.assign({}, record, { enabled: item.enabled !== false, ordered: true }))
+      entries.push(Object.assign({}, record, { enabled: item.enabled !== false, ordered: true, sourceOrderGroupIndex: orderGroupIndex, sourceOrderItemIndex: orderItemIndex }))
     }
     if (record !== undefined) used.add(record)
   }
@@ -131,6 +150,14 @@ export function inspectPreset(text, filename = '') {
     occurrences.set(entry.identifier, occurrence)
     entry.entryKey = entry.identifier + '#' + occurrence
     entry.injectable = entry.content.trim() !== ''
+    const promptPath = Number.isInteger(entry.sourcePromptIndex) ? '/prompts/' + entry.sourcePromptIndex : null
+    const orderPath = Number.isInteger(entry.sourceOrderGroupIndex) && Number.isInteger(entry.sourceOrderItemIndex)
+      ? '/prompt_order/' + entry.sourceOrderGroupIndex + '/order/' + entry.sourceOrderItemIndex
+      : null
+    entry.edit = {
+      promptPath,
+      enabledPaths: [promptPath, orderPath].filter(Boolean).map(function (path) { return path + '/enabled' })
+    }
   }
 
   return {
@@ -143,6 +170,7 @@ export function inspectPreset(text, filename = '') {
     regexCount: regexScripts.length,
     enabledRegexCount: regexScripts.filter(function (script) { return script.enabled }).length,
     regexScripts,
+    orderGroupIndex,
     rootKeys,
     warning: selectedOrder === undefined && entries.length > 0 ? '预设没有可用的 prompt_order，当前按 prompts 原始顺序展示。' : '',
     error: ''

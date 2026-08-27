@@ -8,6 +8,7 @@ export function createForegroundHandoff(options = {}) {
   const store = options.store
   const tasks = options.tasks
   const queueBackground = options.queueBackground
+  const cleanupFailedTurn = typeof options.cleanupFailedTurn === 'function' ? options.cleanupFailedTurn : null
   const defer = typeof options.defer === 'function' ? options.defer : setImmediate
   const logger = options.logger || console
   if (!turns || typeof turns.finalize !== 'function' || typeof turns.discard !== 'function' ||
@@ -41,7 +42,9 @@ export function createForegroundHandoff(options = {}) {
     const reason = str(input.reason)
     if (reason === 'completed' || reason === 'max-tokens') return true
     later(async function () {
-      await turns.discard({ sessionId: input.sessionId, turn: input.turn })
+      const target = { sessionId: input.sessionId, turn: input.turn }
+      await turns.discard(target)
+      if (cleanupFailedTurn !== null) await cleanupFailedTurn(target)
     }, '清理未完成前台回合')
     return true
   }

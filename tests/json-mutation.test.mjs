@@ -61,4 +61,3 @@ test('相同 JSON 不产生 changes', function () {
   const value = { id: 'chat-1', nested: { active: true }, messages: [] }
   assert.deepEqual(diffJson(value, structuredClone(value)), [])
 })
-

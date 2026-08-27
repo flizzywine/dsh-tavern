@@ -21,6 +21,13 @@ test('执行局部变量宏并返回可持久化快照', () => {
   assert.deepEqual(result.localVariables, { level: 2 })
 })
 
+test('酒馆注释宏不进入提示词且不影响相邻变量赋值', () => {
+  const result = renderTavernMacros('{{setvar::mode::first}}{{// 这里只是作者注释}}模式={{getvar::mode}}', {})
+
+  assert.equal(result.text, '模式=first')
+  assert.deepEqual(result.localVariables, { mode: 'first' })
+})
+
 test('解析命运人物卡使用的默认值与嵌套条件', () => {
   const source = '{{setvar::mode::0}}{{setvar::level::1}}<b>{{.level || 9}}</b>{{if {{.mode == 1}} }}自由冒险{{else}}邪天主线{{/if}}'
   const result = renderTavernMacros(source, { charName: '命运' })

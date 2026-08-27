@@ -66,6 +66,28 @@ function applyOperations(document, operations) {
   return changed
 }
 
+function entryOperations(inspected, entryKey, patch) {
+  const entry = (inspected.entries || []).find(function (item) { return item.entryKey === str(entryKey) })
+  if (!entry) throw new Error('预设条目不存在: ' + str(entryKey))
+  const input = patch !== null && typeof patch === 'object' && !Array.isArray(patch) ? patch : {}
+  const allowed = new Set(['name', 'role', 'content', 'enabled'])
+  for (const key of Object.keys(input)) if (!allowed.has(key)) throw new Error('不支持修改预设字段: ' + key)
+  const operations = []
+  const promptPath = entry.edit && entry.edit.promptPath
+  for (const field of ['name', 'role', 'content']) {
+    if (!Object.prototype.hasOwnProperty.call(input, field)) continue
+    if (promptPath === null || promptPath === undefined) throw new Error('该占位条目在 prompts 中没有定义，不能修改' + field)
+    if (typeof input[field] !== 'string') throw new Error('预设条目 ' + field + ' 必须是字符串')
+    if (field === 'role' && !['system', 'user', 'assistant'].includes(input[field])) throw new Error('预设条目角色必须是 system、user 或 assistant')
+    operations.push({ op: 'set', path: promptPath + '/' + field, value: input[field] })
+  }
+  if (Object.prototype.hasOwnProperty.call(input, 'enabled')) {
+    if (typeof input.enabled !== 'boolean') throw new Error('预设条目 enabled 必须是布尔值')
+    for (const path of (entry.edit && entry.edit.enabledPaths) || []) operations.push({ op: 'set', path, value: input.enabled })
+  }
+  return operations
+}
+
 export function createPresetEditor(options = {}) {
   const normalizePath = options.normalizePath
   const readText = options.readText
@@ -113,5 +135,26 @@ export function createPresetEditor(options = {}) {
     }
   }
 
-  return Object.freeze({ read, update })
+  async function updateEntry(path, entryKey, patch) {
+    const loaded = await load(path)
+    const inspected = inspectPreset(JSON.stringify(loaded.document), loaded.normalized)
+    if (!inspected.valid || !inspected.recognized) throw new Error(inspected.error || '预设没有可编辑的 prompts 结构')
+    const next = clone(loaded.document)
+    const changed = applyOperations(next, entryOperations(inspected, entryKey, patch))
+    const text = JSON.stringify(next, null, 2)
+    const nextInspected = inspectPreset(text, loaded.normalized)
+    if (!nextInspected.valid) throw new Error(nextInspected.error || '修改后的预设无效')
+    if (changed.length > 0) await writeText(loaded.normalized, text)
+    return {
+      path: loaded.normalized,
+      changed,
+      valid: nextInspected.valid,
+      recognized: nextInspected.recognized,
+      promptCount: nextInspected.promptCount,
+      regexCount: nextInspected.regexCount,
+      warning: nextInspected.warning
+    }
+  }
+
+  return Object.freeze({ read, update, updateEntry })
 }

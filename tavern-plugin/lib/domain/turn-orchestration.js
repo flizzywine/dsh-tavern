@@ -1,4 +1,5 @@
 import { rememberTavernResources } from './workspace-resources.js'
+import { projectBackgroundInput } from './runtime-content-projection.js'
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
@@ -112,6 +113,7 @@ export function createTurnOrchestrator(options) {
     const turn = Math.max(0, Number(input.turn) || 0)
     const userText = str(input.userText).trim()
     let runtimeUserText = userText
+    let reusedRuntimeInput = false
     const mode = chat.mode || 'story'
     let chatChanged = clearStaleStages(chat, turn)
 
@@ -122,16 +124,25 @@ export function createTurnOrchestrator(options) {
       const cachedRuntimeInput = runtimeInputFor(chat, turn, userText)
       if (cachedRuntimeInput !== null) {
         runtimeUserText = cachedRuntimeInput
+        reusedRuntimeInput = true
       } else {
         if (renderMacros !== null && userText.includes('{{')) runtimeUserText = renderMacros(userText, chat)
-        rememberRuntimeInput(chat, turn, userText, runtimeUserText)
-        chatChanged = true
       }
     }
 
     const cardPath = cardPathOf(chat)
     const card = cardPath === '' ? null : await store.readCard(cardPath)
     if (cardPath !== '' && card === undefined) throw new Error('人物卡不存在: ' + cardPath)
+    if ((mode === 'story' || mode === 'script') && !reusedRuntimeInput) {
+      const extensions = typeof store.readCardExtensions === 'function'
+        ? await store.readCardExtensions(cardPath)
+        : null
+      const presetRegexScripts = await resolvePresetRegexScripts(chat)
+      const regexScripts = (Array.isArray(extensions && extensions.regexScripts) ? extensions.regexScripts : []).concat(presetRegexScripts)
+      runtimeUserText = projectBackgroundInput(runtimeUserText, regexScripts, 1).text
+      rememberRuntimeInput(chat, turn, userText, runtimeUserText)
+      chatChanged = true
+    }
     let scriptReference = null
     let scriptInfo = null
     let worldBookOverview = null
@@ -176,6 +187,20 @@ export function createTurnOrchestrator(options) {
     const plan = await planner.plan({ purpose: 'body', card, chat, userText: runtimeUserText, sessionId: input.sessionId, nativeTurn: turn, scriptReference, worldBookContext })
     if (chatChanged) await store.writeChat(chat, { source: 'foreground.prepare' })
     return { ready: true, mode, cardName: card.name, text: plan.text, userText: runtimeUserText }
+  }
+
+  async function beginCompatibility(input) {
+    let chat = await store.chatForSession(input.sessionId)
+    if (chat === undefined) throw new Error('当前会话没有绑定人物卡')
+    const mode = chat.mode || 'story'
+    if (mode !== 'story' && mode !== 'script') throw new Error('酒馆兼容模式只适用于游玩对话')
+    const turn = Math.max(0, Number(input.turn) || 0)
+    const userText = str(input.userText).trim()
+    const begun = timeline.apply({ chat, intent: { kind: 'body.begin', turn, userText } })
+    chat = begun.chat
+    rememberRuntimeInput(chat, turn, userText, userText)
+    await store.writeChat(chat)
+    return { ready: true, mode, userText }
   }
 
   async function stageChanges(input) {
@@ -408,5 +433,5 @@ export function createTurnOrchestrator(options) {
     return chat === undefined ? null : (chat.mode || 'story')
   }
 
-  return Object.freeze({ prepare, stageChanges, finalize, discard, visibleTools, modeFor })
+  return Object.freeze({ prepare, beginCompatibility, stageChanges, finalize, discard, visibleTools, modeFor })
 }

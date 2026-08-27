@@ -2,13 +2,15 @@ import { createHash } from 'node:crypto'
 import { resolveRuntimeMacroText } from './runtime-content-projection.js'
 
 function emptyState() {
-  return { version: 4, activePreset: '', presetOrder: [], entries: {}, regexes: {}, plans: [], lastError: null, updatedAt: 0 }
+  return { version: 6, activePreset: '', presetOrder: [], entries: {}, regexes: {}, initialized: {}, plans: [], lastError: null, updatedAt: 0 }
 }
 
 function normalizeState(value) {
   const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
-  const entries = source.entries && typeof source.entries === 'object' && !Array.isArray(source.entries) ? source.entries : {}
-  const regexes = source.regexes && typeof source.regexes === 'object' && !Array.isArray(source.regexes) ? source.regexes : {}
+  const currentVersion = Number(source.version) === 6
+  const entries = currentVersion && source.entries && typeof source.entries === 'object' && !Array.isArray(source.entries) ? source.entries : {}
+  const regexes = currentVersion && source.regexes && typeof source.regexes === 'object' && !Array.isArray(source.regexes) ? source.regexes : {}
+  const initialized = currentVersion && source.initialized && typeof source.initialized === 'object' && !Array.isArray(source.initialized) ? source.initialized : {}
   const plans = Array.isArray(source.plans) ? source.plans.filter(function (plan) {
     return plan && typeof plan === 'object' && typeof plan.id === 'string' && plan.id !== '' && typeof plan.name === 'string' && plan.name.trim() !== ''
   }).map(function (plan) {
@@ -24,7 +26,7 @@ function normalizeState(value) {
     }
   }) : []
   return {
-    version: 4,
+    version: 6,
     activePreset: typeof source.activePreset === 'string' ? source.activePreset : '',
     presetOrder: Array.isArray(source.presetOrder) ? source.presetOrder.filter(function (path) { return typeof path === 'string' && path !== '' }) : [],
     entries: Object.fromEntries(Object.entries(entries).map(function ([path, keys]) {
@@ -35,14 +37,48 @@ function normalizeState(value) {
       const enabled = keys && typeof keys === 'object' && !Array.isArray(keys) ? keys : {}
       return [path, Object.fromEntries(Object.entries(enabled).filter(function ([key, active]) { return key !== '' && active === true }))]
     })),
+    initialized: Object.fromEntries(Object.entries(initialized).filter(function ([path, ready]) { return path !== '' && ready === true })),
     plans,
     lastError: source.lastError && typeof source.lastError === 'object' ? source.lastError : null,
     updatedAt: Number(source.updatedAt) || 0
   }
 }
 
+function dshEntries(preset) {
+  const draft = preset && preset.dshPreset
+  if (draft && typeof draft === 'object') {
+    return ['front', 'middle', 'back'].flatMap(function (phase) {
+      return (Array.isArray(draft[phase]) ? draft[phase] : []).map(function (entry) {
+        return {
+          entryKey: String(entry.id || ''),
+          identifier: String(entry.source && entry.source.identifier || entry.id || ''),
+          name: String(entry.name || entry.id || ''),
+          role: entry.role === 'user' || entry.role === 'assistant' ? entry.role : 'system',
+          content: String(entry.content || ''),
+          enabled: entry.enabled !== false,
+          injectable: String(entry.content || '').trim() !== '',
+          phase
+        }
+      })
+    })
+  }
+  return (preset && Array.isArray(preset.entries) ? preset.entries : []).filter(function (entry) {
+    return entry && entry.injectable === true && entry.marker !== true
+  }).map(function (entry) {
+    return Object.assign({}, entry, { phase: 'front' })
+  })
+}
+
+function phaseValue(entries) {
+  const value = Array.isArray(entries) ? entries : []
+  return {
+    entries: value,
+    text: value.map(function (entry) { return String(entry.content || '') }).filter(Boolean).join('\n\n')
+  }
+}
+
 function presetDigest(preset) {
-  const entryKeys = (preset.entries || []).map(function (entry) { return entry.entryKey })
+  const entryKeys = dshEntries(preset).map(function (entry) { return entry.entryKey })
   const regexKeys = regexesWithKeys(preset).map(function (script) { return script.regexKey })
   return createHash('sha256').update(JSON.stringify({ entryKeys, regexKeys })).digest('hex')
 }
@@ -81,22 +117,47 @@ export function resolveRuntimePresetMacros(snapshot, options = {}) {
     global: Object.assign({}, options.macroState?.global && typeof options.macroState.global === 'object' ? options.macroState.global : {})
   }
   if (snapshot === null || typeof snapshot !== 'object') return { snapshot: null, macroState, diagnostics: [] }
-  const rendered = resolveRuntimeMacroText(snapshot.text, {
-    charName: typeof options.charName === 'string' ? options.charName : '',
-    macroState
-  })
+  const rawPhases = snapshot.front || snapshot.middle || snapshot.back
+    ? {
+        front: phaseValue(snapshot.front && snapshot.front.entries),
+        middle: phaseValue(snapshot.middle && snapshot.middle.entries),
+        back: phaseValue(snapshot.back && snapshot.back.entries)
+      }
+    : { front: phaseValue([{ id: 'legacy', role: 'system', content: String(snapshot.text || '') }]), middle: phaseValue([]), back: phaseValue([]) }
+  let state = macroState
+  const diagnostics = []
+  const resolvedPhases = {}
+  for (const phase of ['front', 'middle', 'back']) {
+    const entries = []
+    for (const entry of rawPhases[phase].entries) {
+      const rendered = resolveRuntimeMacroText(entry.content, {
+        charName: typeof options.charName === 'string' ? options.charName : '',
+        macroState: state
+      })
+      state = rendered.macroState
+      diagnostics.push.apply(diagnostics, rendered.diagnostics.map(function (item) {
+        return Object.assign({ phase, entryId: entry.id || entry.entryKey || '' }, item)
+      }))
+      entries.push(Object.assign({}, entry, { content: rendered.text }))
+    }
+    resolvedPhases[phase] = phaseValue(entries)
+  }
+  const text = ['front', 'middle', 'back'].map(function (phase) { return resolvedPhases[phase].text }).filter(Boolean).join('\n\n')
   const resolved = Object.assign({}, snapshot, {
-    text: rendered.text,
-    digest: createHash('sha256').update(JSON.stringify({ text: rendered.text, regexScripts: snapshot.regexScripts || [] })).digest('hex')
+    front: resolvedPhases.front,
+    middle: resolvedPhases.middle,
+    back: resolvedPhases.back,
+    text,
+    digest: createHash('sha256').update(JSON.stringify({ front: resolvedPhases.front, middle: resolvedPhases.middle, back: resolvedPhases.back, regexScripts: snapshot.regexScripts || [] })).digest('hex')
   })
   return {
     snapshot: resolved,
     macroState: {
-      userName: macroState.userName,
-      local: rendered.macroState.local,
-      global: rendered.macroState.global
+      userName: state.userName,
+      local: state.local,
+      global: state.global
     },
-    diagnostics: rendered.diagnostics
+    diagnostics
   }
 }
 
@@ -124,10 +185,17 @@ export function createRuntimePresetModule(options = {}) {
     const preset = await readPreset(path)
     if (!manageable(preset)) throw new Error('无法注册无效的运行时预设：' + path)
     return mutate(function (state) {
-      if (state.presetOrder.includes(path) && state.entries[path] && state.regexes[path]) return undefined
+      if (state.presetOrder.includes(path) && state.entries[path] && state.regexes[path] && state.initialized[path] === true) return undefined
       if (!state.presetOrder.includes(path)) state.presetOrder.push(path)
-      if (!state.entries[path]) state.entries[path] = {}
-      if (!state.regexes[path]) state.regexes[path] = {}
+      if (state.initialized[path] !== true) {
+        state.entries[path] = Object.fromEntries(dshEntries(preset).filter(function (entry) {
+          return entry.enabled !== false && entry.injectable === true
+        }).map(function (entry) { return [entry.entryKey, true] }))
+        state.regexes[path] = Object.fromEntries(regexesWithKeys(preset).filter(function (script) {
+          return script.enabled !== false && String(script.findRegex || '') !== ''
+        }).map(function (script) { return [script.regexKey, true] }))
+        state.initialized[path] = true
+      }
       return state
     })
   }
@@ -142,8 +210,15 @@ export function createRuntimePresetModule(options = {}) {
     const current = await state()
     const enabled = current.entries[path] || {}
     const enabledRegexes = current.regexes[path] || {}
+    const projectedEntries = dshEntries(preset)
+    const projectedKeys = new Set(projectedEntries.map(function (entry) { return entry.entryKey }))
     const entries = (preset.entries || []).map(function (entry) {
-      return Object.assign({}, entry, { runtimeEnabled: enabled[entry.entryKey] === true })
+      const runtimeIncluded = projectedKeys.has(entry.entryKey) && enabled[entry.entryKey] === true
+      return Object.assign({}, entry, {
+        runtimeEligible: projectedKeys.has(entry.entryKey),
+        runtimeIncluded,
+        runtimeEnabled: runtimeIncluded
+      })
     })
     const regexScripts = regexesWithKeys(preset).map(function (script) {
       return Object.assign({}, script, { runtimeEnabled: enabledRegexes[script.regexKey] === true })
@@ -151,12 +226,11 @@ export function createRuntimePresetModule(options = {}) {
     return Object.assign({}, preset, {
       runtimeManaged: true,
       runtimeActive: current.activePreset === path,
-      sourceEnabledCount: preset.enabledCount,
-      sourceEnabledRegexCount: preset.enabledRegexCount,
       entries,
       regexScripts,
-      enabledCount: entries.filter(function (entry) { return entry.runtimeEnabled }).length,
-      enabledCharacters: entries.reduce(function (total, entry) { return total + (entry.runtimeEnabled ? entry.content.length : 0) }, 0),
+      includedCount: projectedEntries.filter(function (entry) { return enabled[entry.entryKey] === true }).length,
+      enabledCount: projectedEntries.filter(function (entry) { return enabled[entry.entryKey] === true }).length,
+      enabledCharacters: projectedEntries.reduce(function (total, entry) { return total + (enabled[entry.entryKey] === true ? entry.content.length : 0) }, 0),
       enabledRegexCount: regexScripts.filter(function (script) { return script.runtimeEnabled }).length
     })
   }
@@ -178,7 +252,7 @@ export function createRuntimePresetModule(options = {}) {
   async function toggle({ path, entryKey, enabled }) {
     const preset = await readPreset(path)
     if (!manageable(preset)) throw new Error('预设不可用：' + path)
-    const entry = (preset.entries || []).find(function (item) { return item.entryKey === entryKey })
+    const entry = dshEntries(preset).find(function (item) { return item.entryKey === entryKey })
     if (!entry) throw new Error('预设条目不存在：' + entryKey)
     if (enabled === true && entry.injectable !== true) throw new Error('该预设条目没有可注入内容，不可注入')
     return mutate(function (current) {
@@ -232,13 +306,13 @@ export function createRuntimePresetModule(options = {}) {
     })
   }
 
-  async function snapshot() {
+  async function snapshot(requestedPath) {
     const current = await state()
-    const activePath = current.activePreset
+    const activePath = typeof requestedPath === 'string' && requestedPath !== '' ? requestedPath : current.activePreset
     if (activePath === '') return null
     const active = Object.keys(current.entries[activePath] || {}).length > 0 || Object.keys(current.regexes[activePath] || {}).length > 0
     if (!active) return null
-    const texts = []
+    const phaseEntries = { front: [], middle: [], back: [] }
     const sources = []
     const regexScripts = []
     const regexSources = []
@@ -251,13 +325,20 @@ export function createRuntimePresetModule(options = {}) {
         if (!available.has(path)) throw new Error('预设已不存在：' + path)
         const preset = await readPreset(path)
         if (!manageable(preset)) throw new Error('预设无法读取：' + path)
-        for (const entry of preset.entries || []) {
+        const projectedEntries = dshEntries(preset)
+        for (const entry of projectedEntries) {
           if (enabled[entry.entryKey] !== true) continue
           if (entry.injectable !== true) throw new Error('预设条目已失效：' + path + ' / ' + entry.entryKey)
-          texts.push(entry.content)
-          sources.push({ path, entryKey: entry.entryKey, identifier: entry.identifier, name: entry.name })
+          phaseEntries[entry.phase].push({
+            id: entry.entryKey,
+            role: entry.role,
+            content: entry.content,
+            name: entry.name,
+            source: { path, entryKey: entry.entryKey, identifier: entry.identifier, name: entry.name }
+          })
+          sources.push({ path, entryKey: entry.entryKey, identifier: entry.identifier, name: entry.name, phase: entry.phase })
         }
-        const present = new Set((preset.entries || []).map(function (entry) { return entry.entryKey }))
+        const present = new Set(projectedEntries.map(function (entry) { return entry.entryKey }))
         for (const entryKey of Object.keys(enabled)) {
           if (!present.has(entryKey)) throw new Error('预设条目已不存在：' + path + ' / ' + entryKey)
         }
@@ -273,15 +354,18 @@ export function createRuntimePresetModule(options = {}) {
           if (!presentRegexes.has(regexKey)) throw new Error('预设正则已不存在：' + path + ' / ' + regexKey)
         }
       }
-      const text = texts.join('\n\n')
+      const front = phaseValue(phaseEntries.front)
+      const middle = phaseValue(phaseEntries.middle)
+      const back = phaseValue(phaseEntries.back)
+      const text = [front.text, middle.text, back.text].filter(Boolean).join('\n\n')
       if (current.lastError !== null) {
         await mutate(function (latest) {
           latest.lastError = null
           return latest
         })
       }
-      const digestInput = JSON.stringify({ text, regexScripts })
-      return { presetPath: activePath, text, sources, regexScripts, regexSources, digest: createHash('sha256').update(digestInput).digest('hex'), createdAt: now() }
+      const digestInput = JSON.stringify({ front, middle, back, regexScripts })
+      return { presetPath: activePath, front, middle, back, text, sources, regexScripts, regexSources, digest: createHash('sha256').update(digestInput).digest('hex'), createdAt: now() }
     } catch (error) {
       const message = '预设注入失败：' + (error instanceof Error ? error.message : String(error))
       await persistError(message)
@@ -314,7 +398,7 @@ export function createRuntimePresetModule(options = {}) {
   async function inspectPlan(plan) {
     const preset = await readPreset(plan.presetPath)
     if (!manageable(preset)) return Object.assign({}, plan, { valid: false, outdated: true, error: '预设不存在或无法读取：' + plan.presetPath })
-    const entries = new Map((preset.entries || []).map(function (entry) { return [entry.entryKey, entry] }))
+    const entries = new Map(dshEntries(preset).map(function (entry) { return [entry.entryKey, entry] }))
     const regexes = new Map(regexesWithKeys(preset).map(function (script) { return [script.regexKey, script] }))
     const missingEntries = plan.entryKeys.filter(function (key) { return !entries.has(key) || entries.get(key).injectable !== true })
     const missingRegexes = plan.regexKeys.filter(function (key) { return !regexes.has(key) || String(regexes.get(key).findRegex || '') === '' })
@@ -420,6 +504,10 @@ export function createRuntimePresetModule(options = {}) {
         current.regexes[to] = current.regexes[from]
         delete current.regexes[from]
       }
+      if (current.initialized[from]) {
+        current.initialized[to] = current.initialized[from]
+        delete current.initialized[from]
+      }
       current.plans = current.plans.map(function (plan) { return plan.presetPath === from ? Object.assign({}, plan, { presetPath: to }) : plan })
       current.lastError = null
       return current
@@ -432,6 +520,7 @@ export function createRuntimePresetModule(options = {}) {
       if (current.activePreset === path) current.activePreset = ''
       delete current.entries[path]
       delete current.regexes[path]
+      delete current.initialized[path]
       current.lastError = null
       return current
     })

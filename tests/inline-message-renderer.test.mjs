@@ -170,7 +170,7 @@ test('消息 iframe 测高忽略被裁剪内容与固定悬浮元素', () => {
   assert.equal(reportedHeight, 1800)
 })
 
-test('assistant renderer 以更低 priority 接管 DSH 正式 keyed slot', () => {
+test('Tavern 消息 renderer 以更低 priority 接管 assistant 和 user 正式 keyed slot', () => {
   const registrations = []
   const labels = []
   const feature = client.createTavernAssistantRendererFeatureModule()
@@ -194,10 +194,21 @@ test('assistant renderer 以更低 priority 接管 DSH 正式 keyed slot', () =>
   feature.register({ ctx, slots })
 
   assert.deepEqual(Object.keys(feature), ['register'])
-  assert.equal(registrations.length, 1)
+  assert.equal(registrations.length, 2)
   assert.equal(registrations[0].spec.name, 'conversation.chat.node')
   assert.equal(registrations[0].spec.key, 'assistant-step')
   assert.equal(registrations[0].spec.priority, -1)
   assert.equal(typeof registrations[0].component, 'function')
-  assert.deepEqual(labels, ['dsh-tavern: inline assistant renderer'])
+  assert.equal(registrations[1].spec.name, 'conversation.chat.node')
+  assert.equal(registrations[1].spec.key, 'user')
+  assert.equal(registrations[1].spec.priority, -1)
+  assert.equal(typeof registrations[1].component, 'function')
+  assert.deepEqual(labels, ['dsh-tavern: inline assistant renderer', 'dsh-tavern: raw user message renderer'])
+})
+
+test('用户气泡优先展示持久化原始输入，不展示 promptOnly 的 Session 投影', () => {
+  const sessionContent = [{ type: 'text', text: '<interactive_input>\n原始输入\n</interactive_input>' }]
+
+  assert.equal(client.tavernUserTextForTurn({ inputSources: { 2: '原始输入' } }, 2, sessionContent), '原始输入')
+  assert.equal(client.tavernUserTextForTurn({}, 2, sessionContent), '<interactive_input>\n原始输入\n</interactive_input>')
 })

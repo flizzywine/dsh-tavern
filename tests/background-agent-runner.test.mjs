@@ -94,6 +94,7 @@ test('后台 Runner 执行候选任务，查询超限后提示开始推理而不
   let runner
   const child = {
     session: {
+      id: 'candidate-session-1',
       events,
       append(type, data) { appended.push({ type, data }) }
     },
@@ -104,7 +105,7 @@ test('后台 Runner 执行候选任务，查询超限后提示开始推理而不
         assert.match(message.content[0].text, /雨水敲窗/)
         const preStep = listeners.find(function (entry) { return entry.name === 'agent/pre-step' })
         assert.ok(preStep)
-        const decision = await preStep.listener({ agent: child }, async function () { return { kind: 'enter', messages: [] } })
+        const decision = await preStep.listener({ agent: child, turn: 1, step: 1 }, async function () { return { kind: 'enter', messages: [message] } })
         requestMessages = decision.messages
         pointResult = await registered[1].execute({ position: 3 })
         for (let index = 1; index <= 7; index++) {
@@ -142,7 +143,20 @@ test('后台 Runner 执行候选任务，查询超限后提示开始推理而不
     }
   }
   const calls = []
-  runner = createBackgroundAgentRunner({ agents, id: () => 'candidate-session-1' })
+  const stagedSnapshots = []
+  runner = createBackgroundAgentRunner({
+    agents,
+    id: () => 'candidate-session-1',
+    resolveRuntimePresetSnapshot: async function () {
+      return {
+        front: { entries: [{ id: 'front#1', role: 'system', content: '通用破限身份' }] },
+        middle: { entries: [{ id: 'middle#1', role: 'user', content: '通用破限握手' }] },
+        back: { entries: [{ id: 'back#1', role: 'assistant', content: '通用破限预填充' }] },
+        regexScripts: []
+      }
+    },
+    stageRuntimePresetSnapshot(input) { stagedSnapshots.push(input) }
+  })
   const result = await runner.run({
     sessionId: parent.id,
     selection: { provider: 'test', model: 'scripted' },
@@ -170,13 +184,25 @@ test('后台 Runner 执行候选任务，查询超限后提示开始推理而不
   assert.equal(createCalls[0].agentOptions.maxTokens, 4000)
   assert.equal(sections[0].complete, true)
   assert.equal(sections.length, 1)
-  assert.doesNotMatch(sections[0].text, /tavern_runtime_preset/)
+  assert.doesNotMatch(sections[0].text, /tavern_runtime_preset_front/)
   assert.doesNotMatch(sections[0].text, /future::macro/)
   assert.doesNotMatch(sections[0].text, /候选系统提示/)
   assert.match(sections[0].text, /\{\{tavern_background_task\}\}/)
   assert.equal(variables.find(function (entry) { return entry.name === 'tavern_background_task' }).provider(), '候选系统提示')
-  assert.equal(variables.some(function (entry) { return entry.name === 'tavern_runtime_preset' }), false)
-  assert.deepEqual(requestMessages, [])
+  assert.equal(variables.some(function (entry) { return entry.name === 'tavern_runtime_preset_front' }), false)
+  assert.deepEqual(requestMessages.map(function (entry) { return [entry.role, entry.content[0].text] }), [
+    ['user', '通用破限握手'],
+    ['user', requestMessages[1].content[0].text]
+  ])
+  assert.match(requestMessages[1].content[0].text, /最近剧情/)
+  assert.match(requestMessages[1].content[0].text, /候选生成/)
+  assert.match(requestMessages[1].content[0].text, /DSH 后台任务协议（最终指令）/)
+  assert.match(requestMessages[1].content[0].text, /候选系统提示/)
+  assert.equal(stagedSnapshots.length, 1)
+  assert.equal(stagedSnapshots[0].sessionId, 'candidate-session-1')
+  assert.equal(stagedSnapshots[0].scope, 'background')
+  assert.equal(stagedSnapshots[0].snapshot.front.entries[0].content, '通用破限身份')
+  assert.equal(stagedSnapshots[0].snapshot.back.entries[0].content, '通用破限预填充')
   assert.deepEqual(restrictions, [{ allow: [] }])
   assert.equal(registered[0].name, 'tavern_read_script')
   assert.equal(registered[1].name, 'tavern_point_script')
@@ -201,7 +227,7 @@ test('后台 Runner 执行候选任务，查询超限后提示开始推理而不
   assert.equal(runner.owns('candidate-session-1'), false)
 })
 
-test('后台 Agent 忽略实验预设的提示词与正则配置', async () => {
+test('后台 Agent 不执行前台预设正则，保持任务协议和结构化结果原样', async () => {
   const parent = { id: 'parent-session', session: { header: { cwd: '/tmp/tavern', delegationDepth: 0 } } }
   const events = []
   const prompts = []
@@ -284,105 +310,12 @@ test('后台 Agent 忽略实验预设的提示词与正则配置', async () => {
   assert.match(prompts[0], /正文冗余内容/)
   assert.match(result.text, /后台冗余输出/)
   assert.equal(events[0].data.message.content[0].text.includes('后台冗余输出'), true, '原始事件保持不变')
-  assert.equal(appended.length, 0, '预设正则停用后不写入展示投影')
+  assert.equal(appended.length, 0, '后台不生成正则投影事件')
 })
 
-test('恢复后台 Session 时重新投影历史输入与输出并持久化 Surface', async () => {
-  const events = [
-    {
-      seq: 0,
-      type: 'user/message',
-      data: {
-        id: 'old-input', role: 'user', source: { kind: 'plugin', plugin: 'dsh-tavern' },
-        content: [{ type: 'text', text: '【最近正文】正文<Reference_Example>旧输入冗余</Reference_Example>' }]
-      },
-      surfaceOp: 'append'
-    },
-    {
-      seq: 1,
-      type: 'assistant/message',
-      data: {
-        turn: 1, step: 1,
-        message: {
-          id: 'old-output', role: 'assistant', source: { kind: 'model', provider: 'test', model: 'scripted' },
-          content: [{ type: 'text', text: '{"posture":"坐在桌边"}<Reference_Example>旧输出冗余</Reference_Example>' }]
-        }
-      },
-      surfaceOp: 'append'
-    },
-    {
-      seq: 2,
-      type: 'assistant/message',
-      data: {
-        turn: 1, step: 1,
-        message: {
-          id: 'old-model-projection', role: 'assistant', source: { kind: 'model', provider: 'test', model: 'scripted' },
-          content: [{ type: 'text', text: '{"posture":"坐在桌边"}' }]
-        }
-      },
-      surfaceOp: { op: 'replace', start: 1, end: 1 },
-      sourceEventSeqs: [1]
-    }
-  ]
-  const appended = []
-  const session = {
-    events,
-    surface: { nodes: [0, 2] },
-    append(type, data, options) {
-      const event = { seq: events.length, type, data, ...options }
-      events.push(event)
-      appended.push({ type, data, options, event })
-      return event
-    }
-  }
-  let resumed = 0
-  let disposed = 0
-  let flushed = 0
-  const runner = createBackgroundAgentRunner({
-    agents: {
-      get() { return undefined },
-      async resume(options) {
-        resumed++
-        assert.equal(options.resumeSessionId, 'old-background')
-        return { agent: { session, async whenIdle() {} }, async dispose() { disposed++ } }
-      }
-    },
-    async flushSession(value) {
-      assert.equal(value, session)
-      flushed++
-    }
-  })
-  const regexScripts = [{
-    id: 'remove-reference-example', enabled: true, placement: [2], promptOnly: true, markdownOnly: true,
-    findRegex: '/<Reference_Example>[\\s\\S]*?<\\/Reference_Example>/g', replaceString: ''
-  }]
-
-  const result = await runner.reproject({ sessionId: 'old-background', regexScripts })
-
-  assert.deepEqual(result, { changed: 2, sessionId: 'old-background' })
-  assert.equal(resumed, 1)
-  assert.equal(flushed, 1)
-  assert.equal(disposed, 1)
-  assert.equal(events[0].data.content[0].text.includes('旧输入冗余'), true, '原始输入事件保持不变')
-  assert.equal(events[1].data.message.content[0].text.includes('旧输出冗余'), true, '原始输出事件保持不变')
-  assert.equal(appended[0].type, 'user/message')
-  assert.equal(appended[0].data.content[0].text, '【最近正文】正文')
-  assert.deepEqual(appended[0].options, { surfaceOp: { op: 'replace', start: 0, end: 0 }, sourceEventSeqs: [0] })
-  assert.equal(appended[1].type, 'assistant/message')
-  assert.equal(appended[1].data.message.content[0].text, '{"posture":"坐在桌边"}')
-  assert.deepEqual(appended[1].options, { surfaceOp: { op: 'replace', start: 2, end: 2 }, sourceEventSeqs: [2] })
-  assert.equal(appended[2].type, 'assistant/message')
-  assert.equal(appended[2].data.message.content[0].text, '{"posture":"坐在桌边"}', '历史输出追加干净文本供前端刷新')
-  assert.deepEqual(appended[2].options, { surfaceOp: 'append' })
-  assert.equal(appended[3].type, 'assistant/message')
-  assert.deepEqual(appended[3].data.message.content, [])
-  assert.deepEqual(appended[3].options, { surfaceOp: { op: 'replace', start: 5, end: 5 }, sourceEventSeqs: [5] })
-
-  session.surface.nodes = [3, 4, 6]
-  const repeated = await runner.reproject({ sessionId: 'old-background', regexScripts })
-  assert.deepEqual(repeated, { changed: 0, sessionId: 'old-background' }, '刷新后的投影和 UI 墓碑不会被重复处理')
-  assert.equal(appended.length, 4)
-  assert.equal(flushed, 1)
+test('后台 Runner 不再提供预设正则历史重投影入口', () => {
+  const runner = createBackgroundAgentRunner({ agents: { get() {} } })
+  assert.equal(runner.reproject, undefined)
 })
 
 test('状态结算与候选生成复用同一个常驻后台 Agent，并且每轮只读取本轮新增输入', async () => {

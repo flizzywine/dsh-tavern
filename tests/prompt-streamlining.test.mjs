@@ -7,6 +7,7 @@ import { prompt } from '../tavern-plugin/lib/prompt-catalog.js'
 const clientSource = await readFile(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
 const serverSource = await readFile(new URL('../tavern-plugin/lib/index.js', import.meta.url), 'utf8')
 const backgroundRunnerSource = await readFile(new URL('../tavern-plugin/lib/background-agent-runner.js', import.meta.url), 'utf8')
+const runtimePresetLifecycleSource = await readFile(new URL('../tavern-plugin/lib/domain/runtime-preset-lifecycle.js', import.meta.url), 'utf8')
 const orchestratorSource = await readFile(new URL('../tavern-plugin/lib/domain/turn-orchestration.js', import.meta.url), 'utf8')
 const plannerSource = await readFile(new URL('../tavern-plugin/lib/domain/context-planner.js', import.meta.url), 'utf8')
 const tavernPresetSource = await readFile(new URL('../presets/tavern/agent.cordis.yml', import.meta.url), 'utf8')
@@ -23,7 +24,8 @@ function between(source, start, end) {
 }
 
 test('模型选择只读取当前会话和 DSH 默认值', () => {
-  assert.doesNotMatch(serverSource, /getSettings|updateSettings|settings\.json|settings\.provider|settings\.model/)
+  const selection = between(serverSource, 'function modelSelection', 'async function callModel')
+  assert.doesNotMatch(selection, /getSettings|updateSettings|settings\.json|settings\.provider|settings\.model/)
   assert.match(serverSource, /当前会话的模型选择器/)
 })
 
@@ -161,14 +163,42 @@ test('后台 Agent 不进入前台正文上下文注入和工具过滤', () => {
   assert.match(lifecycle, /if \(backgroundAgentRunner\.owns\(agent\.session\.id\)\) return assembly/)
 })
 
-test('实验预设不注入提示词，也不执行预设正则', () => {
+test('全局破限方案提示词注入游玩前台、后台与卡片 Agent，正则只作用前台', () => {
   const startChat = between(serverSource, 'async function startChat', 'async function appendNativeOpening')
-  assert.match(startChat, /chat\.runtimePresetSnapshot = null/)
-  assert.match(startChat, /chat\.runtimePresetPath = ''/)
-  assert.doesNotMatch(startChat, /runtimePresets\.snapshot|resolveRuntimePresetMacros/)
-  assert.doesNotMatch(serverSource, /name: 'tavern:runtime-preset'/)
-  assert.doesNotMatch(serverSource, /runtimePresets\.regexScriptsFor/)
-  assert.doesNotMatch(backgroundRunnerSource, /tavern_runtime_preset|runtimePresetReminderMessage/)
+  assert.match(startChat, /const rawRuntimePresetSnapshot = await bypassPlans\.snapshot\(\)/)
+  assert.match(startChat, /resolveRuntimePresetMacros/)
+  assert.match(startChat, /chat\.bypassPlanId = runtimePresetSnapshot && runtimePresetSnapshot\.planId/)
+  assert.match(startChat, /chat\.runtimePresetSnapshot = runtimePresetSnapshot/)
+  const resolver = between(serverSource, 'async function resolveChatRuntimePreset', 'function compatibilityWorldBookMatch')
+  assert.match(resolver, /const raw = await bypassPlans\.snapshot\(\)/)
+  assert.doesNotMatch(resolver, /chat\.bypassPlanId\) \|\|/)
+  const lifecycle = between(serverSource, '// ---------- DSH 回合生命周期 ----------', '// ---------- 模型可选工具 ----------')
+  assert.match(lifecycle, /const snapshot = await resolveChatRuntimePreset\(chat\)/)
+  const presetResolve = lifecycle.slice(
+    lifecycle.indexOf('const snapshot = await resolveChatRuntimePreset(chat)') - 160,
+    lifecycle.indexOf('const snapshot = await resolveChatRuntimePreset(chat)') + 120
+  )
+  assert.doesNotMatch(presetResolve, /mode === 'story'|mode === 'script'/)
+  const compatibility = between(serverSource, 'async function compileCompatibilityTurn', '// ---------- DSH 回合生命周期 ----------')
+  assert.match(compatibility, /const snapshot = await resolveChatRuntimePreset\(chat\)/)
+  assert.doesNotMatch(compatibility, /并新建对话/)
+  assert.match(serverSource, /runtimePresetPhaseMessages\(snapshot, 'middle'/)
+  assert.match(runtimePresetLifecycleSource, /runtimePresetPhaseMessages\(snapshot, 'front'/)
+  assert.match(runtimePresetLifecycleSource, /runtimePresetPhaseMessages\(snapshot, 'back'/)
+  assert.match(serverSource, /modelRequestLog\.record\(\{ chat, context: backgroundContext, coordinates, options \}\)/)
+  assert.match(lifecycle, /ctx\.on\('agent\/request-error', tavernRetryLimiter\.handle, \{ prepend: true \}\)/)
+  const modelStream = between(serverSource, "ctx.on('llm/stream'", "ctx.on('agent/turn-stopping'")
+  assert.doesNotMatch(modelStream, /clearRuntimePresetBoundaryMessages/)
+  assert.match(modelStream, /projectRuntimePresetRequest/)
+  assert.match(lifecycle, /ctx\.on\('agent\/turn-stopping'[\s\S]*clearRuntimePresetRequestState\(payload\.agent/)
+  assert.match(lifecycle, /ctx\.on\('agent\/error'[\s\S]*clearRuntimePresetRequestState\(payload\.agent/)
+  assert.match(serverSource, /const presetRegexScripts = activeBypassPlanId === '' \? \[\] : activeBypassSnapshot\.regexScripts/)
+  assert.match(backgroundRunnerSource, /resolveRuntimePresetSnapshot/)
+  assert.match(backgroundRunnerSource, /stageRuntimePresetSnapshot/)
+  assert.doesNotMatch(backgroundRunnerSource, /runtimePresetPhaseMessages\(snapshot, 'front'/)
+  assert.doesNotMatch(backgroundRunnerSource, /runtimePresetPhaseMessages\(snapshot, 'back'/)
+  assert.match(backgroundRunnerSource, /middleMessages\.concat\(decision\.messages\)/)
+  assert.doesNotMatch(backgroundRunnerSource, /projectBackgroundInput|projectBackgroundOutput/)
   assert.doesNotMatch(serverSource, /boundaryPrompts|resolveProjectedBoundaryPrompt/)
 })
 

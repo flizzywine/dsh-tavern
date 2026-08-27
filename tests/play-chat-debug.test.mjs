@@ -62,7 +62,8 @@ test('卡片 Agent 从最新轮次渐进披露，并可按需读取整场证据'
   const ref = createPlayChatDebugReference(editor, source, 2)
   const evidence = {
     foreground: { sessionId: 'session-foreground', loaded: true, events: [{ type: 'assistant-step', text: '前台日志' }] },
-    background: { sessionId: 'session-background', loaded: true, events: [{ type: 'tool-result', text: '后台日志' }] }
+    background: { sessionId: 'session-background', loaded: true, events: [{ type: 'tool-result', text: '后台日志' }] },
+    requests: { loaded: true, requests: [{ scope: 'foreground', turn: 2, request: { messages: [{ role: 'system', content: [{ type: 'text', text: '真实前缀' }] }] } }] }
   }
 
   const overview = readPlayChatDebugTurn(editor, source, ref, { layer: 'overview' }, null, evidence)
@@ -75,6 +76,7 @@ test('卡片 Agent 从最新轮次渐进披露，并可按需读取整场证据'
   assert.match(readPlayChatDebugTurn(editor, source, ref, { layer: 'tavern' }, null, evidence).text, /lastSettle/)
   assert.match(readPlayChatDebugTurn(editor, source, ref, { layer: 'foreground' }, null, evidence).text, /前台日志/)
   assert.match(readPlayChatDebugTurn(editor, source, ref, { layer: 'background' }, null, evidence).text, /后台日志/)
+  assert.match(readPlayChatDebugTurn(editor, source, ref, { layer: 'request' }, null, evidence).text, /真实前缀/)
   const iframe = readPlayChatDebugTurn(editor, source, ref, { layer: 'iframe', turn: 2 }, null, evidence)
   assert.match(iframe.text, /实际 DOM/)
   assert.match(iframe.text, /example\.com\/a/)

@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { inspectPreset } from '../tavern-plugin/lib/domain/preset-reading.js'
+import { inspectPreset, nativeRegexScriptsOf } from '../tavern-plugin/lib/domain/preset-reading.js'
 
 test('按 SillyTavern prompt_order 还原条目顺序和启用状态', () => {
   const result = inspectPreset(JSON.stringify({
     temperature: 1.1,
     prompts: [
-      { identifier: 'main', name: '主提示词', role: 'system', content: '保持角色一致。', enabled: false },
+      { identifier: 'main', name: '主提示词', role: 'system', content: '保持角色一致。', enabled: false, forbid_overrides: true },
       { identifier: 'charDescription', name: 'Persona Description', role: 'user', marker: true, content: '' },
       { identifier: 'extra', name: '未编排条目', role: 'assistant', content: '补充内容', enabled: true }
     ],
@@ -29,7 +29,16 @@ test('按 SillyTavern prompt_order 还原条目顺序和启用状态', () => {
   assert.equal(result.entries[0].marker, true)
   assert.equal(result.entries[0].enabled, true)
   assert.equal(result.entries[1].enabled, true)
+  assert.equal(result.entries[1].forbidOverrides, true)
   assert.equal(result.entries[2].ordered, false)
+  assert.deepEqual(result.entries[1].edit, {
+    promptPath: '/prompts/0',
+    enabledPaths: ['/prompts/0/enabled', '/prompt_order/0/order/1/enabled']
+  })
+  assert.deepEqual(result.entries[2].edit, {
+    promptPath: '/prompts/2',
+    enabledPaths: ['/prompts/2/enabled']
+  })
 })
 
 test('兼容缺少 prompt_order 和合法但未知的 JSON', () => {
@@ -59,6 +68,15 @@ test('重复 identifier 获得稳定且互不冲突的条目标识', () => {
 
   assert.deepEqual(result.entries.map(function (entry) { return entry.entryKey }), ['same#1', 'same#2', 'placeholder#1'])
   assert.deepEqual(result.entries.map(function (entry) { return entry.injectable }), [true, true, false])
+})
+
+test('只有 prompt_order 的占位条目只开放开关状态', () => {
+  const result = inspectPreset(JSON.stringify({ prompts: [], prompt_order: [{ order: [{ identifier: 'missing', enabled: true }] }] }))
+
+  assert.deepEqual(result.entries[0].edit, {
+    promptPath: null,
+    enabledPaths: ['/prompt_order/0/order/0/enabled']
+  })
 })
 
 test('损坏 JSON 返回可展示错误而不抛出解析异常', () => {
@@ -111,4 +129,21 @@ test('读取 SPreset RegexBinding 正则脚本及其运行条件', () => {
     minDepth: 2,
     maxDepth: 10
   }])
+})
+
+test('兼容运行时单独读取原生 regex_scripts，不采用 SPreset 编辑器副本', () => {
+  const document = {
+    extensions: {
+      regex_scripts: [{ id: 'native', scriptName: '原生', findRegex: 'x', replaceString: 'y' }],
+      SPreset: { RegexBinding: { regexes: [
+        { id: 'copy-1', scriptName: '编辑器副本一', findRegex: 'x', replaceString: 'a' },
+        { id: 'copy-2', scriptName: '编辑器副本二', findRegex: 'x', replaceString: 'b' }
+      ] } }
+    }
+  }
+  const runtime = nativeRegexScriptsOf(document)
+  const editor = inspectPreset(JSON.stringify(Object.assign({ prompts: [] }, document)), '双份正则.json')
+
+  assert.deepEqual(runtime.map(function (script) { return script.id }), ['native'])
+  assert.deepEqual(editor.regexScripts.map(function (script) { return script.id }), ['copy-1', 'copy-2'])
 })
