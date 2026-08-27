@@ -15,7 +15,10 @@
 3. 同一目标增加跨 Store 写锁；活跃多写者会明确报冲突，已退出进程遗留的锁会自动回收；同 revision 分叉不会按 mtime 静默覆盖。
 4. 候选任务现在区分 `generating`、`validating`、`committing`、`publishing` 和 `completed`，并分别报告模型失败、输出无效以及“已经生成但保存失败”。
 
-前后台联合压缩尚未启用。第 6.3 节要求的真实 DSH“压缩后回退”验证仍是发布门禁，不能仅凭单元测试跳过。
+5. Tavern 压缩现在会分别执行前台与后台 Session：前台继续使用剧情压缩提示词，后台使用 DSH 内置提示词；两边结果独立保存并可报告部分成功。
+6. 后台压缩开始前会持久标记该 Session；后续正文回退不再复用可能含废弃剧情的 summary，而是从 Tavern 权威状态重建后台 Session。
+
+联合压缩的自动回归契约已经建立。真实 DSH 上仍需观察两边 token 变化以及压缩后回退生成的新后台 Session，作为实机验收而非功能启用前的未解决设计门禁。
 
 ## 1. 用户症状
 
@@ -222,9 +225,9 @@ mailbox.publish.end
 
 ## 6. 修复建议 B：前后台联合压缩
 
-### 6.1 当前缺口
+### 6.1 原始缺口（已实现）
 
-界面“压缩上下文”只执行：
+原界面“压缩上下文”只执行：
 
 ```js
 ctx.remote.commands.execute(foregroundSessionId, "/compact", [])

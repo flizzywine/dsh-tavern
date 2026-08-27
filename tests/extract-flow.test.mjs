@@ -606,11 +606,19 @@ test('Session 顶栏工具区可以把服务端投影后的纯对话下载为 TX
   assert.doesNotMatch(sidebar, /导出 TXT|exportConversation/)
 })
 
-test('所有对话的操作区都可以直接调用 DSH 原生上下文压缩', () => {
+test('游玩对话压缩前台与后台 Session，并保留各自的压缩结果', () => {
   const action = between(clientSource, 'function TavernCompactionAction', 'function TavernPlayerNameAction')
   const dock = between(clientSource, 'function CandidateDockActions', 'function CandidateQuestion')
 
-  assert.match(action, /props\.executeCompact\(props\.sessionId\)/)
+  assert.match(action, /rpc\("prepareCompaction", \{\}, props\.sessionId\)/)
+  assert.match(action, /executeTarget\(plan\.foregroundSessionId/)
+  assert.match(action, /executeTarget\(plan\.backgroundSessionId/)
+  assert.match(action, /props\.executeCompact\(sessionId\)/)
+  assert.match(action, /rpc\("completeCompaction"/)
+  assert.match(action, /部分成功/)
+  assert.match(action, /setResultTitle\("前台：" \+ foreground\.message \+ "；后台：" \+ background\.message\)/)
+  assert.match(action, /前台/)
+  assert.match(action, /后台/)
   assert.match(action, /"压缩上下文"/)
   assert.match(action, /busy \|\| running/)
   assert.match(action, /className: "dsh-tavern-choice-trigger"/)

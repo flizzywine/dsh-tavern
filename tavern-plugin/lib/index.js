@@ -35,6 +35,7 @@ import { createStoryCompactionRequest, usesStoryCompaction } from './domain/stor
 import { resolveTavernDataRoot } from './domain/tavern-data.js'
 import { createTavernSkillModule } from './domain/tavern-skills.js'
 import { createTavernConversationRegistry } from './domain/tavern-conversation-registry.js'
+import { createTavernCompactionCoordinator } from './domain/tavern-compaction.js'
 import { createTurnOrchestrator } from './domain/turn-orchestration.js'
 import { resourceWorkspaceContext } from './domain/workspace-resources.js'
 import { createWorldBookLibrary } from './domain/worldbook-library.js'
@@ -457,6 +458,7 @@ export async function apply(ctx) {
   const chatPersistence = createChatPersistence({ data: profileData, normalize: normalizeChat, now: Date.now })
   async function readChat(chatId) { return await chatPersistence.read(chatId) }
   async function writeChat(chat) { return await chatPersistence.write(chat) }
+  async function updateChat(chatId, mutation) { return await chatPersistence.update(chatId, mutation) }
   const conversationRegistry = createTavernConversationRegistry({
     store: {
       readLinks: async function () { return await readJson('sessions.json') },
@@ -1049,9 +1051,16 @@ export async function apply(ctx) {
     resolveRuntimePresetSnapshot: async function () { return null }
   })
   ctx.effect(() => () => backgroundAgentRunner.dispose(), 'dsh-tavern: dispose resident background agents')
+  let tavernCompaction = null
   const backgroundTasks = createBackgroundTaskCoordinator({
     store: { readChat, writeChat },
-    timeline: storyTimeline
+    timeline: storyTimeline,
+    blocked: function (chat) { return tavernCompaction !== null && tavernCompaction.blocked(chat) }
+  })
+  tavernCompaction = createTavernCompactionCoordinator({
+    store: { chatForSession, updateChat },
+    activity: function (chat) { return backgroundTasks.activity(chat) },
+    now: Date.now
   })
   function presetPathForChat(chat) {
     if (!chat || typeof chat !== 'object') return ''
@@ -2026,6 +2035,8 @@ export async function apply(ctx) {
         }
       }
       case 'getSession': return { view: await sessionView(args && args.sessionId) }
+      case 'prepareCompaction': return { plan: await tavernCompaction.prepare(args && args.sessionId) }
+      case 'completeCompaction': return { result: await tavernCompaction.complete(args && args.sessionId, args) }
       case 'syncSession': return { sync: await sessionSync(args && args.sessionId, { requestId: args && args.requestId, kind: args && args.kind }) }
       case 'submitTask': {
         if (str(args && args.kind) !== 'candidate') throw new Error('暂不支持的持久任务类型: ' + str(args && args.kind))

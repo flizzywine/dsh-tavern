@@ -1,6 +1,10 @@
 # 后台 Agent 使用单 Session 与 Surface 回退
 
-后台候选与状态结算在一条 Tavern 对话中始终复用同一个后台 Session。正文回退或替代时，Tavern 根据 checkpoint 保存的闭合回合边界，用 DSH `surface replace` 遮蔽其后的后台消息，再注入最新权威状态继续运行；不再为剧情分支派生新 Session。这与前台 Agent 的既有回退机制一致，保留连续记忆和单一轨迹，同时由 Tavern revision 校验阻止旧任务结果落盘。底层事件日志仍保留被遮蔽事件，因此 compact 后的严格物理遗忘不作保证；当前产品选择一致的模型 Surface、较低迁移复杂度和更清晰的用户体验。
+后台候选与状态结算在一条 Tavern 对话正常向前推进时复用同一个后台 Session。正文回退或替代时，Tavern 通常根据 checkpoint 保存的闭合回合边界，用 DSH `surface replace` 遮蔽其后的后台消息，再注入最新权威状态继续运行。这与前台 Agent 的既有回退机制一致，保留连续记忆和单一轨迹，同时由 Tavern revision 校验阻止旧任务结果落盘。
+
+Tavern Compaction 同时压缩前台和后台 Session，但使用不同摘要契约：前台使用 Tavern 剧情压缩提示词，后台直接使用 DSH 内置提示词。两边结果独立记录，单边失败报告为部分成功；后台 Agent 忙碌时不得开始压缩，压缩期间也不得启动新的后台任务。
+
+后台 Session 一旦开始压缩，后续如果发生正文回退或替代，Tavern 不再尝试对该 Session 的 compact summary 做 Surface 回退，而是从 Story Timeline 的权威状态重建一个后台 Session。保护标记在命令发出前持久化，因此即使压缩成功但客户端丢失完成响应，也不会让包含废弃剧情的摘要进入新分支。代价是压缩后的首次回退会失去旧后台 Session 的连续轨迹；这是为了优先保证剧情分支正确性。
 
 ## 历史加载性能边界
 

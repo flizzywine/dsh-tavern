@@ -154,6 +154,27 @@ test('后台 participant 在正常推进时复用，回退后仍使用同一 Ses
   assert.equal(next.value.participant.rewindTo, 42)
 })
 
+test('后台 Session 压缩后发生正文回退时重建 Session，不复用可能含废弃剧情的摘要', () => {
+  const { timeline, chat } = harness()
+  let current = beginAndCommitBody(timeline, chat, 1, '推门', '门开了。')
+  let begun = timeline.apply({ chat: current, intent: { kind: 'agent.begin', role: 'candidate' } })
+  current = timeline.complete({
+    chat: begun.chat,
+    operationId: begun.value.operationId,
+    basedOn: begun.value.basedOn,
+    outcome: { status: 'success', participant: { sessionId: 'background-1', boundary: 42, lifetime: 'chat' } }
+  }).chat
+  current = beginAndCommitBody(timeline, current, 2, '上楼', '钟声响了。')
+  current.timeline.participants.background.requiresNewSessionOnRewind = true
+  current.timeline.participants.background.compactedAt = 1000
+
+  const rolled = timeline.apply({ chat: current, intent: { kind: 'turn.rollback' } })
+  begun = timeline.apply({ chat: rolled.chat, intent: { kind: 'agent.begin', role: 'candidate' } })
+
+  assert.equal(begun.value.participant.sessionId, '')
+  assert.equal(begun.value.participant.rewindTo, null)
+})
+
 test('连续正文替代始终回退同一个后台 Session 的有效 checkpoint', () => {
   const { timeline, chat } = harness()
   let current = timeline.apply({ chat, intent: { kind: 'ensure' } }).chat
