@@ -39,7 +39,7 @@ export function createTavernCompactionCoordinator(options = {}) {
     const chat = await store.chatForSession(foregroundSessionId)
     if (chat === undefined) throw new Error('当前会话没有绑定 Tavern 对话')
     const running = activity(chat) || {}
-    if (running.busy === true || running.phase === 'pending') {
+    if (running.busy === true || running.phase === 'running') {
       const error = new Error('后台 Agent 正在执行 ' + (str(running.role) || '任务') + '，请等待完成后再压缩')
       error.code = 'BACKGROUND_BUSY'
       error.activity = running

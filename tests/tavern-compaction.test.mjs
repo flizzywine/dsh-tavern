@@ -56,6 +56,16 @@ test('后台任务运行时拒绝开始联合压缩', async function () {
   )
 })
 
+test('后台结算仅待启动且 Agent 空闲时允许开始联合压缩', async function () {
+  const app = harness({ activity: { phase: 'pending', busy: false, role: 'settlement' } })
+
+  const plan = await app.coordinator.prepare('foreground-1')
+
+  assert.equal(plan.foregroundSessionId, 'foreground-1')
+  assert.equal(plan.backgroundSessionId, 'background-1')
+  assert.equal(app.coordinator.blocked(app.read()), true)
+})
+
 test('前后台结果分别持久化，后台成功后标记回退必须重建 Session', async function () {
   const app = harness()
   const plan = await app.coordinator.prepare('foreground-1')
