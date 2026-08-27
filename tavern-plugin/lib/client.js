@@ -2173,10 +2173,9 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					h("div", { className: "dsh-tavern-status-head" }, h("div", { className: "dsh-tavern-status-title" }, "预设库（实验性）"), h("div", { className: "dsh-tavern-question-sub" }, "选择兼容模式使用的预设，或交给卡片 Agent 编辑"), h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { importInput.current && importInput.current.click(); } }, "导入外部预设"), h("input", { ref: importInput, type: "file", accept: ".json,application/json", style: { display: "none" }, onChange: function (event) { const file = event.target.files && event.target.files[0]; importFile(file); event.target.value = ""; } })),
 					h("div", { className: "dsh-tavern-preset-list" }, error ? h("div", { className: "dsh-tavern-dock-error" }, error) : null,
 						h("div", { className: "dsh-tavern-preset-summary dsh-tavern-external-preset-notice" },
-							h("strong", null, catalog.activePresetPath ? "当前预设：" + catalog.activePresetTitle : "当前未选择预设"),
-							h("p", null, "兼容模式会按预设原有顺序使用其中已启用的提示词和正则；修改预设后，下一轮请求直接生效。"),
-							h("p", null, "在卡片模式中引用预设只供 Agent 阅读和编辑，不会自动选择或运行该预设。"),
-							catalog.activePresetPath ? h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { selectPreset(""); } }, "停用预设") : null),
+						h("strong", null, catalog.activePresetPath ? "当前预设：" + catalog.activePresetTitle : "当前未选择预设"),
+							h("p", null, "只有兼容模式会使用当前预设。游玩模式和卡片模式不会运行外部预设。"),
+							h("p", null, "修改预设后，下一轮兼容请求直接生效；卡片模式中的引用仅供 Agent 阅读和编辑。")),
 					catalog.presets.length ? catalog.presets.map(function (item) { const selected = item.path === catalog.activePresetPath; const runnable = item.valid === true && item.recognized === true; return h("div", { key: item.path, className: "dsh-tavern-preset-row" }, h("div", { className: "dsh-tavern-preset-row-head" }, h("button", { className: "dsh-tavern-preset-row-main", disabled: busy, title: "查看并编辑预设", onClick: function () { loadPreset(item.path); } }, h("b", null, (selected ? "✓ " : "") + item.title), h("span", null, item.promptCount + " 个提示词 · " + item.regexCount + " 条正则")), h("div", { className: "dsh-tavern-preset-row-actions" }, h("button", { className: "dsh-tavern-resource-at" + (selected ? " mounted" : ""), disabled: busy || selected || !runnable, title: runnable ? "在兼容模式中使用整份预设" : "该文件没有可运行的 SillyTavern prompts 结构", onClick: function () { selectPreset(item.path); } }, selected ? "使用中" : runnable ? "使用预设" : "无法使用"), inCardMode ? h("button", { className: "dsh-tavern-resource-at", disabled: busy, onClick: function () { props.appendMention("preset", item.path, item.title); } }, "在对话中引用") : null))); }) : h("div", { className: "dsh-tavern-status-empty" }, "还没有外部预设。请先导入。")));
 			}
 
