@@ -20,12 +20,13 @@ const legacyPatch = await readFile(new URL('../config/legacy-profile-patch-v0.6.
 function sourceManifest() {
   return {
     dependencies: {
+      '@dsh-external/dsh-mobile-nav': 'github:mexiaosqwq/dsh-web-mobile#mobile-test-revision',
       'dsh-better-sidebar': '0.16.0',
       'dsh-tavern-plugin': 'link:./tavern-plugin',
     },
     dsh: {
       profile: {
-        bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', 'dsh-better-sidebar', 'dsh-tavern-plugin'],
+        bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', '@dsh-external/dsh-mobile-nav', 'dsh-better-sidebar', 'dsh-tavern-plugin'],
       },
     },
   }
@@ -55,15 +56,16 @@ test('Profile 更新替换项目管理项并保留用户额外插件', () => {
 
   assert.equal(next.description, '用户备注')
   assert.equal(next.dependencies['user-extra-plugin'], '2.0.0')
+  assert.equal(next.dependencies['@dsh-external/dsh-mobile-nav'], 'github:mexiaosqwq/dsh-web-mobile#mobile-test-revision')
   assert.equal(next.dependencies['dsh-better-sidebar'], '0.16.0')
   assert.equal(next.dependencies['dsh-tavern-plugin'], 'link:/app/tavern-plugin')
   assert.equal(next.dependencies['dsh-codex-connect'], undefined)
   assert.equal(next.dsh.customFlag, true)
   assert.deepEqual(next.dsh.profile.bundles, [
-    '@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', 'dsh-better-sidebar', 'dsh-tavern-plugin', 'user-extra-plugin',
+    '@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', '@dsh-external/dsh-mobile-nav', 'dsh-better-sidebar', 'dsh-tavern-plugin', 'user-extra-plugin',
   ])
   assert.deepEqual(next.dshTavern.managedBundles, sourceManifest().dsh.profile.bundles)
-  assert.deepEqual(next.dshTavern.managedDependencies, ['dsh-better-sidebar', 'dsh-tavern-plugin'])
+  assert.deepEqual(next.dshTavern.managedDependencies, ['@dsh-external/dsh-mobile-nav', 'dsh-better-sidebar', 'dsh-tavern-plugin'])
   assert.equal(next.dshTavern.profileConfigurationVersion, PROFILE_CONFIGURATION_VERSION)
 })
 
