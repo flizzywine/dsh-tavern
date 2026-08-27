@@ -1,6 +1,6 @@
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { fileURLToPath } from 'node:url'
-import { createBackgroundAgentRunner } from './background-agent-runner.js'
+import { createBackgroundAgentRunner, executeBackgroundCompaction } from './background-agent-runner.js'
 import { createApplicationUpdater } from './application-updater.js'
 import { createCandidateGenerator } from './domain/candidate-generation.js'
 import { waitForWritableSession } from './domain/agent-readiness.js'
@@ -1043,13 +1043,11 @@ export async function apply(ctx) {
   }
   const backgroundAgentRunner = createBackgroundAgentRunner({
     agents: agentRegistry,
-    compactAgent: async function (agent, signal) {
-      const compaction = ctx.get('compaction')
-      if (compaction === undefined || typeof compaction.compactNow !== 'function') {
-        throw new Error('dsh-tavern: 当前 DSH 没有提供 compaction 服务')
-      }
-      return await compaction.compactNow(agent, signal)
+    agentPreset: 'tavern-background',
+    setupAgent: async function (childCtx) {
+      await agentPresets.mount(childCtx, 'tavern-background')
     },
+    compactAgent: executeBackgroundCompaction,
     flushSession: async function (session) {
       const sessions = ctx.get('sessions')
       if (sessions === undefined) throw new Error('dsh-tavern: 缺少 sessions 服务')
@@ -1075,6 +1073,9 @@ export async function apply(ctx) {
     try {
       const result = await backgroundAgentRunner.compact({ sessionId: backgroundSessionId })
       if (result === null) return { status: 'succeeded', message: '没有可压缩的后台历史' }
+      if (typeof result.message === 'string' && result.message !== '') {
+        return { status: 'succeeded', message: result.message }
+      }
       return {
         status: 'succeeded',
         message: 'Compacted ' + result.shadowedSeqs.length + ' history items (~' + result.shadowedTokenCount + ' tokens).'

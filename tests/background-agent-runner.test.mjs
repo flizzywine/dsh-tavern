@@ -1,12 +1,30 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { createBackgroundAgentRunner, maximumBackgroundTokens } from '../tavern-plugin/lib/background-agent-runner.js'
+import { createBackgroundAgentRunner, executeBackgroundCompaction, maximumBackgroundTokens } from '../tavern-plugin/lib/background-agent-runner.js'
 
 test('DeepSeek V4 后台任务采用官方最大输出，其他模型交给适配器', () => {
   assert.equal(maximumBackgroundTokens({ provider: 'deepseek-official', model: 'deepseek-v4-flash' }), 384000)
   assert.equal(maximumBackgroundTokens({ provider: 'deepseek-official', model: 'deepseek-v4-pro' }), 384000)
   assert.equal(maximumBackgroundTokens({ provider: 'test', model: 'scripted' }), undefined)
+})
+
+test('后台压缩通过进程内命令服务把 /compact 交给精确 Agent', async () => {
+  const signal = new AbortController().signal
+  const agent = { ctx: { get(name) { return name === 'commands' ? commands : undefined } } }
+  const commands = {
+    async execute(target, line, images, receivedSignal) {
+      assert.equal(target, agent)
+      assert.equal(line, '/compact')
+      assert.deepEqual(images, [])
+      assert.equal(receivedSignal, signal)
+      return { result: { kind: 'success', text: 'Compacted 3 history items (~400 tokens).' } }
+    }
+  }
+
+  assert.deepEqual(await executeBackgroundCompaction(agent, signal), {
+    message: 'Compacted 3 history items (~400 tokens).'
+  })
 })
 
 test('后台压缩由宿主直接交给 subagent Agent，不经过跨 Session 远程路由', async () => {
@@ -26,6 +44,33 @@ test('后台压缩由宿主直接交给 subagent Agent，不经过跨 Session �
 
   assert.equal(compacted, child)
   assert.deepEqual(result, { shadowedSeqs: [1, 2], shadowedTokenCount: 200 })
+})
+
+test('冷恢复后台 Agent 时先挂载后台压缩预设', async () => {
+  const childCtx = {}
+  const child = { ctx: childCtx, session: { id: 'background-cold' }, async whenIdle() {} }
+  let mounted = null
+  let disposed = false
+  const runner = createBackgroundAgentRunner({
+    agents: {
+      get() { return undefined },
+      async resume(options) {
+        assert.equal(options.resumeSessionId, child.session.id)
+        assert.equal(typeof options.setup, 'function')
+        await options.setup(childCtx)
+        return { agent: child, async dispose() { disposed = true } }
+      }
+    },
+    async setupAgent(ctx) { mounted = ctx },
+    async compactAgent(agent) {
+      assert.equal(mounted, childCtx)
+      assert.equal(agent, child)
+      return null
+    }
+  })
+
+  assert.equal(await runner.compact({ sessionId: child.session.id }), null)
+  assert.equal(disposed, true)
 })
 
 test('后台 Runner 执行候选任务，查询超限后提示开始推理而不终止回合', async () => {

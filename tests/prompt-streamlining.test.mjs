@@ -10,6 +10,7 @@ const backgroundRunnerSource = await readFile(new URL('../tavern-plugin/lib/back
 const orchestratorSource = await readFile(new URL('../tavern-plugin/lib/domain/turn-orchestration.js', import.meta.url), 'utf8')
 const plannerSource = await readFile(new URL('../tavern-plugin/lib/domain/context-planner.js', import.meta.url), 'utf8')
 const tavernPresetSource = await readFile(new URL('../presets/tavern/agent.cordis.yml', import.meta.url), 'utf8')
+const backgroundPresetSource = await readFile(new URL('../presets/tavern-background/agent.cordis.yml', import.meta.url), 'utf8').catch(() => '')
 const profileSource = await readFile(new URL('../package.json', import.meta.url), 'utf8')
 const profilePatchSource = await readFile(new URL('../tavern-plugin/cordis.patch.yml', import.meta.url), 'utf8')
 
@@ -95,6 +96,18 @@ test('酒馆模式启用 DSH 原生上下文压缩和 /compact 命令', () => {
   assert.match(tavernPresetSource, /@deepseek-ai\/dsh-compaction-basic/)
   assert.match(tavernPresetSource, /@deepseek-ai\/dsh-command-compact/)
   assert.match(tavernPresetSource, /@deepseek-ai\/dsh-compaction-tool-result-pruner/)
+})
+
+test('后台压缩在 Agent 作用域挂载 DSH compaction，不阻塞 Tavern Host 启动', () => {
+  const tavernEntry = between(profilePatchSource, '- id: dsh-tavern', '- agentPresets') + '- agentPresets'
+  assert.doesNotMatch(tavernEntry, /- compaction/)
+  assert.match(backgroundPresetSource, /@deepseek-ai\/dsh-compaction-basic/)
+  assert.match(backgroundPresetSource, /@deepseek-ai\/dsh-command-compact/)
+  assert.match(serverSource, /agentPresets\.mount\(childCtx, 'tavern-background'\)/)
+  assert.match(serverSource, /compactAgent: executeBackgroundCompaction/)
+  assert.match(backgroundRunnerSource, /agentCtx\.get\('commands'\)/)
+  assert.match(backgroundRunnerSource, /commands\.execute\(agent, '\/compact', \[\], signal\)/)
+  assert.doesNotMatch(serverSource, /ctx\.get\('compaction'\)/)
 })
 
 test('候选项通过持久任务信箱提交，同步快照原子携带结果', () => {
