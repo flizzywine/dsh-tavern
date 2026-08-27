@@ -838,6 +838,7 @@ test('设置开启后在顶层侧栏最右侧显示实验性兼容模式', () =>
 	assert.match(clientSource, /name: "settings\.section"/)
 	assert.match(clientSource, /id: "dsh-tavern"/)
 	assert.match(clientSource, /启用兼容模式（实验性）/)
+	assert.match(clientSource, /兼容模式可用于测试破限方案，但不保证游戏体验良好/)
 	assert.match(clientSource, /updateTavernSettings/)
 	assert.match(shell, /switchPlayRequestMode\("sillytavern"\)/)
 	assert.match(shell, /item\.requestMode === "sillytavern" \? "sillytavern" : "dsh"\) === requestMode/)
