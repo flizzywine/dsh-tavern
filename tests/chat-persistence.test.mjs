@@ -59,4 +59,3 @@ test('domain mutation 总是在锁内基于最新聊天执行', async function (
   assert.equal(app.stored().counter, 20)
   assert.equal(app.stored()._storageRevision, 20)
 })
-
