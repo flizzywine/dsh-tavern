@@ -45,6 +45,7 @@ import {
 } from './domain/background-task-coordinator.js'
 import { createProfileDataStore } from './profile-data-store.js'
 import { createChatPersistence } from './domain/chat-persistence.js'
+import { createResourceGraph } from './domain/resource-graph.js'
 import { prompt } from './prompt-catalog.js'
 
 // dsh-tavern 宿主插件（profile 组合行）
@@ -406,71 +407,15 @@ export async function apply(ctx) {
     if (inspected.recognized || inspected.regexCount > 0) await runtimePresets.register(presetPath)
     return inspected.recognized || inspected.regexCount > 0 ? await runtimePresets.view(presetPath) : await readPreset(presetPath)
   }
-  async function renameResource(resourcePath, name) {
-    const oldPath = normalizeResourcePath(resourcePath)
-    const kind = resourceKind(oldPath)
-    const renamed = await fileResources.rename(oldPath, name)
-    if (kind === 'preset') await runtimePresets.rename(renamed.oldPath, renamed.path)
-    const replacements = new Map([[renamed.oldPath, renamed.path]])
-    if (renamed.scriptOldPath && renamed.scriptPath) replacements.set(renamed.scriptOldPath, renamed.scriptPath)
-    const idx = await readIndex()
-    for (const row of idx.chats || []) {
-      const chat = await readChat(row.id)
-      if (chat === undefined) continue
-      let changed = false
-      if (replacements.has(chat.cardPath)) {
-        chat.cardPath = replacements.get(chat.cardPath)
-        row.cardPath = chat.cardPath
-        changed = true
-      }
-      if (kind === 'preset') {
-        if (chat.runtimePresetPath === renamed.oldPath) { chat.runtimePresetPath = renamed.path; changed = true }
-        if (chat.runtimePresetSnapshot && typeof chat.runtimePresetSnapshot === 'object') {
-          const snapshot = chat.runtimePresetSnapshot
-          if (snapshot.presetPath === renamed.oldPath) { snapshot.presetPath = renamed.path; changed = true }
-          for (const source of (snapshot.sources || []).concat(snapshot.regexSources || [])) {
-            if (source && source.path === renamed.oldPath) { source.path = renamed.path; changed = true }
-          }
-        }
-      }
-      if (chat.workspace && typeof chat.workspace === 'object') {
-        const nextSources = (chat.workspace.sourcePaths || []).map(function (item) { return replacements.get(item) || item })
-        if (JSON.stringify(nextSources) !== JSON.stringify(chat.workspace.sourcePaths || [])) { chat.workspace.sourcePaths = nextSources; changed = true }
-        const nextMounted = (chat.workspace.mountedResources || []).map(function (item) {
-          if (!item || !replacements.has(item.path)) return item
-          const nextPath = replacements.get(item.path)
-          const filename = nextPath.split('/').pop()
-          return Object.assign({}, item, { path: nextPath, label: filename.replace(/\.[^.]+$/, '') })
-        })
-        if (JSON.stringify(nextMounted) !== JSON.stringify(chat.workspace.mountedResources || [])) { chat.workspace.mountedResources = nextMounted; changed = true }
-      }
-      if (changed) await writeChat(chat)
-    }
-    await writeIndex(idx)
-    return { kind, path: renamed.path }
-  }
+  let resourceGraph
+  async function renameResource(resourcePath, name) { return await resourceGraph.rename(resourcePath, name) }
   async function deleteLibraryResource(resourcePath, expectedKind) {
-    const normalized = normalizeResourcePath(resourcePath, expectedKind)
-    await fileResources.remove(normalized)
-    const idx = await readIndex()
-    for (const row of idx.chats || []) {
-      const chat = await readChat(row.id)
-      if (chat === undefined || !chat.workspace || typeof chat.workspace !== 'object') continue
-      const nextSources = (chat.workspace.sourcePaths || []).filter(function (item) { return item !== normalized })
-      const nextMounted = (chat.workspace.mountedResources || []).filter(function (item) { return !item || item.path !== normalized })
-      if (JSON.stringify(nextSources) === JSON.stringify(chat.workspace.sourcePaths || []) && JSON.stringify(nextMounted) === JSON.stringify(chat.workspace.mountedResources || [])) continue
-      chat.workspace.sourcePaths = nextSources
-      chat.workspace.mountedResources = nextMounted
-      await writeChat(chat)
-    }
-    return { removed: normalized }
+    const result = await resourceGraph.remove(resourcePath, expectedKind)
+    return { removed: result.path }
   }
   async function deleteResource(resourcePath) { return await deleteLibraryResource(resourcePath, 'source') }
   async function deletePreset(resourcePath) {
-    const normalized = normalizeResourcePath(resourcePath, 'preset')
-    const result = await deleteLibraryResource(normalized, 'preset')
-    await runtimePresets.remove(normalized)
-    return result
+    return await deleteLibraryResource(resourcePath, 'preset')
   }
   const worldBooks = createWorldBookLibrary({
     normalizePath: normalizeResourcePath,
@@ -525,6 +470,16 @@ export async function apply(ctx) {
   })
   async function readSessionMap() { return await conversationRegistry.links() }
   async function chatForSession(sessionId) { return await conversationRegistry.resolve(sessionId) }
+  resourceGraph = createResourceGraph({
+    resources: fileResources,
+    presets: runtimePresets,
+    chats: { readIndex, writeIndex, readChat, writeChat },
+    operations: {
+      read: async function () { return await readJson('resource-graph-operation.json') },
+      write: async function (operation) { await writeJson('resource-graph-operation.json', operation) },
+      remove: async function () { await profileData.remove('resource-graph-operation.json') }
+    }
+  })
   async function readChatCard(chat) {
     const card = await readCard(chat.cardPath)
     if (card === undefined) throw new Error('人物卡不存在: ' + chat.cardPath)
@@ -1637,6 +1592,7 @@ export async function apply(ctx) {
   })
 
   await fileResources.migrateLegacy(await readIndex(), readJson, writeIndex, readChat, writeChat)
+  await resourceGraph.recover()
   const recoveredIndex = await readIndex()
   await foregroundHandoff.recover((recoveredIndex.chats || []).map(function (row) { return row.id }))
   for (const row of recoveredIndex.chats || []) {
