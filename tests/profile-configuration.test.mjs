@@ -211,7 +211,7 @@ test('配置事务先备份并原子写入，验证失败时可以恢复原文�
   await writeFile(patchPath, originalPatch)
 
   try {
-    const transaction = beginProfileConfigurationUpdate({
+    const transaction = await beginProfileConfigurationUpdate({
       profileDir: directory,
       manifest: { name: 'after' },
       patchText: '- id: user-after\n',
@@ -222,7 +222,7 @@ test('配置事务先备份并原子写入，验证失败时可以恢复原文�
     assert.equal(existsSync(`${manifestPath}.backup.20260824120000`), true)
     assert.equal(existsSync(`${patchPath}.backup.20260824120000`), true)
 
-    transaction.rollback()
+    await transaction.rollback()
     assert.equal(await readFile(manifestPath, 'utf8'), originalManifest)
     assert.equal(await readFile(patchPath, 'utf8'), originalPatch)
   } finally {
