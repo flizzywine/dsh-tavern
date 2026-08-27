@@ -147,7 +147,7 @@ export function createBypassPlanModule(options = {}) {
     : function (preset) { return Array.isArray(preset && preset.regexScripts) ? preset.regexScripts : [] }
   const now = typeof options.now === 'function' ? options.now : Date.now
   if ([readPreset, readPresetDocument, readState, updateState].some(function (fn) { return typeof fn !== 'function' })) {
-    throw new TypeError('破限方案模块缺少存储适配器')
+    throw new TypeError('预设条目配置模块缺少存储适配器')
   }
 
   async function mutate(updater) {
@@ -172,7 +172,7 @@ export function createBypassPlanModule(options = {}) {
   async function get(id) {
     const current = await state()
     const plan = current.plans.find(function (item) { return item.id === id })
-    if (!plan) throw new Error('破限方案不存在：' + id)
+    if (!plan) throw new Error('预设条目配置不存在：' + id)
     return planView(plan, current.activePlanId)
   }
 
@@ -180,7 +180,7 @@ export function createBypassPlanModule(options = {}) {
     const path = str(input.sourcePresetPath)
     const name = str(input.name).trim()
     if (path === '') throw new Error('请选择外部预设')
-    if (name === '') throw new Error('破限方案名称不能为空')
+    if (name === '') throw new Error('预设条目配置名称不能为空')
     const preset = await readPreset(path)
     const document = await readPresetDocument(path)
     if (!preset || preset.valid !== true || preset.recognized !== true) throw new Error('外部预设不存在或无法识别：' + path)
@@ -213,8 +213,8 @@ export function createBypassPlanModule(options = {}) {
     }
     const current = await state()
     const existing = str(input.id) === '' ? null : current.plans.find(function (item) { return item.id === str(input.id) })
-    if (input.id && !existing) throw new Error('破限方案不存在：' + input.id)
-    if (current.plans.some(function (item) { return item.name === name && (!existing || item.id !== existing.id) })) throw new Error('破限方案名称已存在：' + name)
+    if (input.id && !existing) throw new Error('预设条目配置不存在：' + input.id)
+    if (current.plans.some(function (item) { return item.name === name && (!existing || item.id !== existing.id) })) throw new Error('预设条目配置名称已存在：' + name)
     const stamp = now()
     const id = existing ? existing.id : 'bypass-' + digestOf(name + '\n' + path + '\n' + stamp).slice(0, 12)
     const plan = normalizePlan({
@@ -240,12 +240,12 @@ export function createBypassPlanModule(options = {}) {
 
   async function importPlan(input = {}) {
     const name = str(input.name).trim()
-    if (name === '') throw new Error('破限方案名称不能为空')
+    if (name === '') throw new Error('预设条目配置名称不能为空')
     const current = await state()
     const requestedId = str(input.id)
     const existing = requestedId === '' ? null : current.plans.find(function (item) { return item.id === requestedId })
-    if (requestedId !== '' && !existing && input.allowCreateWithId !== true) throw new Error('破限方案不存在：' + requestedId)
-    if (current.plans.some(function (item) { return item.name === name && (!existing || item.id !== existing.id) })) throw new Error('破限方案名称已存在：' + name)
+    if (requestedId !== '' && !existing && input.allowCreateWithId !== true) throw new Error('预设条目配置不存在：' + requestedId)
+    if (current.plans.some(function (item) { return item.name === name && (!existing || item.id !== existing.id) })) throw new Error('预设条目配置名称已存在：' + name)
     const stamp = now()
     const id = existing ? existing.id : (requestedId || 'bypass-' + digestOf(name + '\n' + stamp).slice(0, 12))
     const plan = normalizePlan({
@@ -259,7 +259,7 @@ export function createBypassPlanModule(options = {}) {
       createdAt: existing ? existing.createdAt : stamp,
       updatedAt: stamp
     })
-    if (plan.entries.length === 0 && plan.regexScripts.length === 0) throw new Error('破限方案没有可保存的提示词或正则')
+    if (plan.entries.length === 0 && plan.regexScripts.length === 0) throw new Error('预设条目配置没有可保存的提示词或正则')
     await mutate(function (latest) {
       const index = latest.plans.findIndex(function (item) { return item.id === id })
       if (index === -1) latest.plans.push(plan)
@@ -288,11 +288,11 @@ export function createBypassPlanModule(options = {}) {
 
   async function importPackage(value) {
     const document = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
-    if (document.schema !== BYPASS_PLAN_SCHEMA) throw new Error('文件不是 DSH Tavern 破限方案文件')
-    if (document.version !== BYPASS_PLAN_FILE_VERSION) throw new Error('破限方案文件版本暂不支持：' + str(document.version))
+    if (document.schema !== BYPASS_PLAN_SCHEMA) throw new Error('文件不是 DSH Tavern 旧版预设条目配置文件')
+    if (document.version !== BYPASS_PLAN_FILE_VERSION) throw new Error('旧版预设条目配置文件版本暂不支持：' + str(document.version))
     const plan = document.plan && typeof document.plan === 'object' && !Array.isArray(document.plan) ? document.plan : null
-    if (plan === null) throw new Error('破限方案文件缺少方案内容')
-    if (!Array.isArray(plan.entries) || !Array.isArray(plan.regexScripts)) throw new Error('破限方案文件内容不完整')
+    if (plan === null) throw new Error('旧版预设条目配置文件缺少配置内容')
+    if (!Array.isArray(plan.entries) || !Array.isArray(plan.regexScripts)) throw new Error('旧版预设条目配置文件内容不完整')
     return await importPlan({
       name: plan.name,
       source: plan.source,
@@ -306,7 +306,7 @@ export function createBypassPlanModule(options = {}) {
   async function activate(id) {
     const selected = str(id)
     return mutate(function (current) {
-      if (selected !== '' && !current.plans.some(function (plan) { return plan.id === selected })) throw new Error('破限方案不存在：' + selected)
+      if (selected !== '' && !current.plans.some(function (plan) { return plan.id === selected })) throw new Error('预设条目配置不存在：' + selected)
       current.activePlanId = selected
       current.lastError = null
       return current
@@ -316,9 +316,9 @@ export function createBypassPlanModule(options = {}) {
   async function toggleEntry({ id, entryKey, enabled }) {
     return mutate(function (current) {
       const plan = current.plans.find(function (item) { return item.id === id })
-      if (!plan) throw new Error('破限方案不存在：' + id)
+      if (!plan) throw new Error('预设条目配置不存在：' + id)
       const entry = plan.entries.find(function (item) { return item.entryKey === entryKey })
-      if (!entry || entry.systemManaged) throw new Error('破限方案条目不可调整：' + entryKey)
+      if (!entry || entry.systemManaged) throw new Error('预设条目不可调整：' + entryKey)
       entry.enabled = enabled === true
       plan.updatedAt = now()
       return current
@@ -328,9 +328,9 @@ export function createBypassPlanModule(options = {}) {
   async function toggleRegex({ id, regexKey, enabled }) {
     return mutate(function (current) {
       const plan = current.plans.find(function (item) { return item.id === id })
-      if (!plan) throw new Error('破限方案不存在：' + id)
+      if (!plan) throw new Error('预设条目配置不存在：' + id)
       const script = plan.regexScripts.find(function (item) { return item.regexKey === regexKey })
-      if (!script) throw new Error('破限方案正则不存在：' + regexKey)
+      if (!script) throw new Error('预设正则不存在：' + regexKey)
       script.enabled = enabled === true
       plan.updatedAt = now()
       return current
@@ -340,7 +340,7 @@ export function createBypassPlanModule(options = {}) {
   async function setCompatibleModels({ id, compatibleModels }) {
     await mutate(function (current) {
       const plan = current.plans.find(function (item) { return item.id === id })
-      if (!plan) throw new Error('破限方案不存在：' + id)
+      if (!plan) throw new Error('预设条目配置不存在：' + id)
       plan.compatibleModels = normalizeCompatibleModels(compatibleModels)
       plan.updatedAt = now()
       return current
@@ -350,11 +350,11 @@ export function createBypassPlanModule(options = {}) {
 
   async function rename(id, name) {
     const nextName = str(name).trim()
-    if (nextName === '') throw new Error('破限方案名称不能为空')
+    if (nextName === '') throw new Error('预设条目配置名称不能为空')
     await mutate(function (current) {
       const plan = current.plans.find(function (item) { return item.id === id })
-      if (!plan) throw new Error('破限方案不存在：' + id)
-      if (current.plans.some(function (item) { return item.id !== id && item.name === nextName })) throw new Error('破限方案名称已存在：' + nextName)
+      if (!plan) throw new Error('预设条目配置不存在：' + id)
+      if (current.plans.some(function (item) { return item.id !== id && item.name === nextName })) throw new Error('预设条目配置名称已存在：' + nextName)
       plan.name = nextName
       plan.updatedAt = now()
       return current
@@ -365,9 +365,9 @@ export function createBypassPlanModule(options = {}) {
   async function copy(id, name) {
     const current = await state()
     const source = current.plans.find(function (item) { return item.id === id })
-    if (!source) throw new Error('破限方案不存在：' + id)
+    if (!source) throw new Error('预设条目配置不存在：' + id)
     const nextName = str(name).trim() || source.name + ' 副本'
-    if (current.plans.some(function (item) { return item.name === nextName })) throw new Error('破限方案名称已存在：' + nextName)
+    if (current.plans.some(function (item) { return item.name === nextName })) throw new Error('预设条目配置名称已存在：' + nextName)
     const stamp = now()
     const next = normalizePlan(Object.assign({}, clone(source), {
       id: 'bypass-' + digestOf(nextName + '\n' + stamp).slice(0, 12),
@@ -384,7 +384,7 @@ export function createBypassPlanModule(options = {}) {
 
   async function remove(id) {
     await mutate(function (current) {
-      if (!current.plans.some(function (plan) { return plan.id === id })) throw new Error('破限方案不存在：' + id)
+      if (!current.plans.some(function (plan) { return plan.id === id })) throw new Error('预设条目配置不存在：' + id)
       current.plans = current.plans.filter(function (plan) { return plan.id !== id })
       if (current.activePlanId === id) current.activePlanId = ''
       return current
@@ -396,7 +396,7 @@ export function createBypassPlanModule(options = {}) {
     const id = str(requestedId) || current.activePlanId
     if (id === '') return null
     const plan = current.plans.find(function (item) { return item.id === id })
-    if (!plan) throw new Error('破限方案不存在：' + id)
+    if (!plan) throw new Error('预设条目配置不存在：' + id)
     const phases = { front: [], middle: [], back: [] }
     const sources = []
     for (const entry of plan.entries) {
@@ -419,6 +419,7 @@ export function createBypassPlanModule(options = {}) {
     const result = {
       planId: plan.id,
       planName: plan.name,
+      presetName: str(plan.source && plan.source.presetName),
       compatibleModels: clone(plan.compatibleModels),
       front,
       middle,

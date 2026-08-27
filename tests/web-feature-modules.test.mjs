@@ -34,7 +34,7 @@ test('剧本库 Feature module 只向宿主暴露注册 interface', function () 
   assert.deepEqual(effects, ['dsh-tavern: Better Sidebar resources tab'])
 })
 
-test('预设 Feature module 分别注册外部预设库与破限方案库', function () {
+test('预设 Feature module 只注册一个预设库', function () {
   const feature = browser.createPresetLibraryFeatureModule()
   const registrations = []
   const ctx = {
@@ -46,8 +46,7 @@ test('预设 Feature module 分别注册外部预设库与破限方案库', func
 
   assert.deepEqual(Object.keys(feature), ['register'])
   assert.deepEqual(registrations.map(function (item) { return [item.id, item.title] }), [
-    ['dsh-tavern:presets', '外部预设库（实验性）'],
-    ['dsh-tavern:bypass-plans', '破限方案库（实验性）']
+    ['dsh-tavern:presets', '预设库（实验性）']
   ])
   assert.ok(registrations.every(function (item) { return typeof item.component === 'function' }))
 })

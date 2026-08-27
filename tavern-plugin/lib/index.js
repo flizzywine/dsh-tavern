@@ -1,9 +1,7 @@
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { createBackgroundAgentRunner, executeBackgroundCompaction } from './background-agent-runner.js'
 import { createApplicationUpdater } from './application-updater.js'
-import { createBundledExampleInstaller } from './domain/bundled-examples.js'
 import { createCandidateGenerator } from './domain/candidate-generation.js'
 import { waitForWritableSession } from './domain/agent-readiness.js'
 import { createCardDeletion } from './domain/card-deletion.js'
@@ -432,16 +430,6 @@ export async function apply(ctx) {
     readState: async function () { return await readJson('bypass-plans.json') },
     updateState: async function (updater) { return await profileData.updateJson('bypass-plans.json', updater) },
     now: Date.now
-  })
-  const bundledExamples = createBundledExampleInstaller({
-    readMarker: async function () { return await readJson('bundled-examples.json') },
-    writeMarker: async function (value) { return await writeJson('bundled-examples.json', value) },
-    readBundledText: async function (relative) { return await readFile(new URL('../examples/' + relative, import.meta.url), 'utf8') },
-    listPresetPaths: async function () { return await fileResources.list('preset') },
-    importPreset: async function (payload) { return await importPreset(payload) },
-    listPlans: async function () { return await bypassPlans.list() },
-    importPlanPackage: async function (document) { return await bypassPlans.importPackage(document) },
-    setPlanCompatibleModels: async function (id, compatibleModels) { return await bypassPlans.setCompatibleModels({ id, compatibleModels }) }
   })
   async function migrateLegacyPresetPlans() {
     const target = await bypassPlans.state()
@@ -930,8 +918,8 @@ export async function apply(ctx) {
       mode: chat.mode || 'story',
       requestMode: chat.requestMode === 'sillytavern' ? 'sillytavern' : 'dsh',
       playerName: str(chat.macroState && chat.macroState.userName).trim() || '你',
-      bypassPlan: activeBypassSnapshot === null ? null : { id: activeBypassSnapshot.planId, name: activeBypassSnapshot.planName },
-      runtimePreset: activeBypassSnapshot === null ? null : { id: activeBypassSnapshot.planId, name: activeBypassSnapshot.planName },
+      bypassPlan: activeBypassSnapshot === null ? null : { id: activeBypassSnapshot.planId, name: activeBypassSnapshot.presetName || activeBypassSnapshot.planName },
+      runtimePreset: activeBypassSnapshot === null ? null : { id: activeBypassSnapshot.planId, name: activeBypassSnapshot.presetName || activeBypassSnapshot.planName },
       card: cardViewOf(card, chat),
       posture: chat.posture || '',
       guides: Array.isArray(chat.guides) ? chat.guides : [],
@@ -1812,13 +1800,12 @@ export async function apply(ctx) {
 
   await fileResources.migrateLegacy(await readIndex(), readJson, writeIndex, readChat, writeChat)
   await migrateLegacyPresetPlans()
-  await bundledExamples.install()
   await resourceGraph.recover()
   const recoveredIndex = await readIndex()
   for (const row of recoveredIndex.chats || []) {
     const chat = await readChat(row.id)
     if (chat === undefined) continue
-    try { if (await migrateLegacyChatPreset(chat)) await writeChat(chat) } catch (error) { console.warn('dsh-tavern: 旧对话破限方案迁移失败', chat.id, error) }
+    try { if (await migrateLegacyChatPreset(chat)) await writeChat(chat) } catch (error) { console.warn('dsh-tavern: 旧对话预设条目配置迁移失败', chat.id, error) }
   }
   await foregroundHandoff.recover((recoveredIndex.chats || []).map(function (row) { return row.id }))
   for (const row of recoveredIndex.chats || []) {
@@ -2149,14 +2136,14 @@ export async function apply(ctx) {
       case 'importBypassPlan': {
         const payload = args && args.payload && typeof args.payload === 'object' ? args.payload : {}
         const text = str(payload.text)
-        if (text.trim() === '') throw new Error('破限方案文件为空')
+        if (text.trim() === '') throw new Error('旧版预设条目配置文件为空')
         let document
-        try { document = JSON.parse(text) } catch { throw new Error('破限方案文件不是有效的 JSON') }
+        try { document = JSON.parse(text) } catch { throw new Error('旧版预设条目配置文件不是有效的 JSON') }
         return { plan: await bypassPlans.importPackage(document) }
       }
       case 'exportBypassPlan': {
         const document = await bypassPlans.exportPlan(args && args.id)
-        const safeName = str(document.plan && document.plan.name || '破限方案').replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').trim() || '破限方案'
+        const safeName = str(document.plan && document.plan.name || '预设条目配置').replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').trim() || '预设条目配置'
         return { name: safeName + '.dsh-bypass-plan.json', text: JSON.stringify(document, null, 2) }
       }
       case 'toggleBypassPlanEntry': {
@@ -2526,7 +2513,7 @@ export async function apply(ctx) {
   async function compileCompatibilityTurn(chat, userText) {
     const snapshot = await resolveChatRuntimePreset(chat)
     const planId = str(snapshot && snapshot.planId)
-    if (planId === '') throw new Error('酒馆兼容模式需要先激活一份破限方案')
+    if (planId === '') throw new Error('请先在预设库中启用至少一个外部预设条目')
     const plan = await bypassPlans.get(planId)
     const preset = {
       valid: true,

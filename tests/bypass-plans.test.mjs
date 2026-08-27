@@ -80,6 +80,7 @@ test('删除来源外部预设后方案仍可激活、生成投影和读取正�
 
   const snapshot = await value.module.snapshot()
   assert.equal(snapshot.planId, plan.id)
+  assert.equal(snapshot.presetName, '外部演示')
   assert.equal(snapshot.front.text, '破限正文')
   assert.equal(snapshot.back.text, '尾部指令')
   assert.deepEqual((await value.module.regexScriptsFor(plan.id)).map(function (script) { return script.regexKey }), ['panel#1'])
@@ -163,7 +164,7 @@ test('导出的破限方案可以脱离来源重新导入，且不会携带内�
 
 test('导入破限方案拒绝错误格式、空方案和同名覆盖', async function () {
   const value = harness()
-  await assert.rejects(value.module.importPackage({}), /不是 DSH Tavern 破限方案文件/)
+  await assert.rejects(value.module.importPackage({}), /不是 DSH Tavern 旧版预设条目配置文件/)
   await assert.rejects(value.module.importPackage({ schema: 'dsh-tavern/bypass-plan', version: 2, plan: {} }), /版本暂不支持/)
   await assert.rejects(value.module.importPackage({ schema: 'dsh-tavern/bypass-plan', version: 1, plan: { name: '空方案', entries: [], regexScripts: [] } }), /没有可保存的提示词或正则/)
   const plan = await value.module.extract({ sourcePresetPath: 'presets/demo.json', name: '重复名称', entryKeys: ['main#1'] })
