@@ -44,6 +44,7 @@ import {
   isOpeningAwaitingSettlement
 } from './domain/background-task-coordinator.js'
 import { createProfileDataStore } from './profile-data-store.js'
+import { createChatPersistence } from './domain/chat-persistence.js'
 import { prompt } from './prompt-catalog.js'
 
 // dsh-tavern 宿主插件（profile 组合行）
@@ -98,9 +99,6 @@ export async function apply(ctx) {
   }
   async function writeJson(rel, value) {
     await profileData.writeJson(rel, value)
-  }
-  async function rmFile(rel) {
-    await profileData.remove(rel)
   }
   const CARD_PROJECTION_REVISIONS = 'card-projection-revisions.json'
   async function cardProjectionRevision(cardPath) {
@@ -511,11 +509,9 @@ export async function apply(ctx) {
     }
     return chat
   }
-  async function readChat(chatId) { return normalizeChat(await readJson('chats/' + chatId + '.json')) }
-  async function writeChat(chat) {
-    chat.updatedAt = Date.now()
-    await writeJson('chats/' + chat.id + '.json', chat)
-  }
+  const chatPersistence = createChatPersistence({ data: profileData, normalize: normalizeChat, now: Date.now })
+  async function readChat(chatId) { return await chatPersistence.read(chatId) }
+  async function writeChat(chat) { return await chatPersistence.write(chat) }
   const conversationRegistry = createTavernConversationRegistry({
     store: {
       readLinks: async function () { return await readJson('sessions.json') },
@@ -524,7 +520,7 @@ export async function apply(ctx) {
       writeIndex,
       readChat,
       writeChat,
-      removeChat: async function (chatId) { await rmFile('chats/' + chatId + '.json') }
+      removeChat: async function (chatId) { await chatPersistence.remove(chatId) }
     }
   })
   async function readSessionMap() { return await conversationRegistry.links() }
