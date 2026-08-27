@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "revision": "f9835b0dae79d7cb03d7c517505c61968c16d271",
+  "revision": "1c651365da50980b8f4086a560b1b709b9c8070c",
   "files": [
     {
       "path": "bin/dsh-tavern",
@@ -44,7 +44,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "36634b72e3cc9b110470bacf9a80d01646925db4854d09244df6da40dca3da14",
+      "sha256": "2a32843f2a685a613912dbe51fb3336cbc319faf90e16896786a4fa8a85b29ae",
       "size": 829
     },
     {
@@ -114,8 +114,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/background-task-coordinator.js",
-      "sha256": "f8d2e15a8762434816990895c0c8ba7a01e568960c2603793a72b2aaec5b32e5",
-      "size": 8616
+      "sha256": "e2bd95455efe0f6d841ac7f27505dc6bd54ec90438405e17ec2bd54cabefa4ae",
+      "size": 8841
     },
     {
       "path": "tavern-plugin/lib/domain/candidate-generation.js",
@@ -148,9 +148,14 @@
       "size": 1588
     },
     {
+      "path": "tavern-plugin/lib/domain/chat-journal-store.js",
+      "sha256": "e37671ea01e368307a7850cbd21c44f9529d15d400a4718a840129f6028f08f4",
+      "size": 14395
+    },
+    {
       "path": "tavern-plugin/lib/domain/chat-persistence.js",
-      "sha256": "bb0ef02c285174341231c7cf66f1dcf1ec1f459bf11ebb732fece2b425bba342",
-      "size": 5509
+      "sha256": "23e603356278e6438e73ae963eed27371bb06eebb4c48159057130d21e4957f6",
+      "size": 6530
     },
     {
       "path": "tavern-plugin/lib/domain/context-planner.js",
@@ -169,8 +174,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/durable-task-mailbox.js",
-      "sha256": "a2cecf97e037f0f2160e55ddc134fb0f361457fa06cc4a8b928e3e37617a6edb",
-      "size": 7945
+      "sha256": "ca263e9ffccb03140a240e75f227b2d57e831b0ab0e7b8b130069e130d8c7b36",
+      "size": 8333
     },
     {
       "path": "tavern-plugin/lib/domain/epub-text.js",
@@ -186,6 +191,11 @@
       "path": "tavern-plugin/lib/domain/foreground-handoff.js",
       "sha256": "0e729fce567286ade52597c110f014f05b474d8bdb48fabd73c8bda7885971f5",
       "size": 2483
+    },
+    {
+      "path": "tavern-plugin/lib/domain/json-mutation.js",
+      "sha256": "78f6e83d8d89f6effac59efe5dd94fbff6d491a46a2b6394fe133b131154587d",
+      "size": 5307
     },
     {
       "path": "tavern-plugin/lib/domain/play-chat-debug.js",
@@ -244,18 +254,18 @@
     },
     {
       "path": "tavern-plugin/lib/domain/story-timeline.js",
-      "sha256": "7fd427fdf06922c5ef9bf1f6f7bf1d4fb7fa568dc2b2c290454122e7201270c6",
-      "size": 20925
+      "sha256": "691846de487631e540f09b13242ddaa2aebd6e6ada428f8a783b0668ca95004a",
+      "size": 22302
     },
     {
       "path": "tavern-plugin/lib/domain/tavern-compaction.js",
-      "sha256": "76873b830435958ab2a723cee128906c28c107a39654ec8ba376ec1887979062",
-      "size": 6105
+      "sha256": "675b433ca84a067a532f8e18597ac765fb8e71b27c0f4b0717a7d5b89505ec0a",
+      "size": 6218
     },
     {
       "path": "tavern-plugin/lib/domain/tavern-conversation-registry.js",
-      "sha256": "6dae18e7846504fce258972571a8b4cc17a7f8a6f90d31b8ede044d7c53d14b1",
-      "size": 4087
+      "sha256": "76b8b849744f2c7e7ad20bf3231ca3343dc08d058dcf6ba3392e0d29335d4cf3",
+      "size": 4114
     },
     {
       "path": "tavern-plugin/lib/domain/tavern-data.js",
@@ -279,8 +289,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/turn-orchestration.js",
-      "sha256": "69b2cdba3057db6247bc2c4d7a035ac32207a8b2716b10dd94c136b38c37dc08",
-      "size": 19603
+      "sha256": "ddc5b2cb9d0046cfb3b80f2af8f10e52ececf67a50f00e4cb041d3015f608226",
+      "size": 19839
     },
     {
       "path": "tavern-plugin/lib/domain/workspace-resources.js",
@@ -309,8 +319,8 @@
     },
     {
       "path": "tavern-plugin/lib/index.js",
-      "sha256": "d967377f477c40654caba1f3a3d795a639d91b7132d4567618c3f35b22e66430",
-      "size": 154660
+      "sha256": "c43de65a4c88e8f6d481a6b07de9748a4cfb551f1466a0e6bd5b1619cdbe3a96",
+      "size": 156066
     },
     {
       "path": "tavern-plugin/lib/profile-data-store.js",
@@ -379,7 +389,7 @@
     },
     {
       "path": "tavern-plugin/package.json",
-      "sha256": "ddbf37d1551b71e5e00de05d9bae2edc936da114a4cc95119dc46014ca177445",
+      "sha256": "93f1dd8a0e1639129894aeb0716acd0909dd9fb2b66c5d060ccbe06b68b2e4ab",
       "size": 580
     },
     {
