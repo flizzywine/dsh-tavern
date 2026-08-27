@@ -5,6 +5,14 @@ function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
 }
 
+function candidateFailure(stage, message, cause) {
+  const detail = str(cause && cause.message || cause).trim()
+  const error = new Error(detail === '' ? message : `${message}：${detail}`, cause instanceof Error ? { cause } : undefined)
+  error.code = 'CANDIDATE_' + stage.toUpperCase() + '_FAILED'
+  error.stage = stage
+  return error
+}
+
 function messageText(message) {
   return str(message && message.sourceText) || str(message && message.text)
 }
@@ -247,6 +255,14 @@ export function createCandidateGenerator(options) {
   const logger = options.logger || console
 
   async function prepare(input) {
+    async function reportStage(stage) {
+      if (typeof input.onStage !== 'function') return
+      try {
+        await input.onStage(stage)
+      } catch (error) {
+        if (logger && typeof logger.warn === 'function') logger.warn(`dsh-tavern: 候选任务阶段 ${stage} 发布失败，将继续执行并由持久状态恢复：${str(error && error.message || error)}`)
+      }
+    }
     let chat = await store.chatForSession(input.sessionId)
     if (chat === undefined || chat === null) throw new Error('当前会话没有绑定人物卡')
     const mode = chat.mode || 'story'
@@ -323,57 +339,70 @@ export function createCandidateGenerator(options) {
     async function execute() {
       let run
       try {
+        await reportStage('generating')
         run = await model.runCandidate(Object.assign({}, callOptions, scriptMode ? {
           tools: [SCRIPT_READ_TOOL, SCRIPT_POINT_TOOL],
           onToolCall: research.onToolCall,
           maxToolCalls: 6
         } : { tools: [] }))
       } catch (error) {
-        await taskRun.fail(error)
+        await taskRun.fail(error).catch(function (persistError) {
+          if (logger && typeof logger.warn === 'function') logger.warn(`dsh-tavern: 候选模型失败后无法持久化终态：${str(persistError && persistError.message || persistError)}`)
+        })
         if (logger && typeof logger.error === 'function') logger.error('dsh-tavern: 候选项生成失败:', str(error && error.message || error))
-        throw error
+        throw candidateFailure('generating', '候选 Agent 生成失败', error)
       }
       const text = run.text
       const traceSessionId = str(run.traceSessionId)
       const participant = taskRun.participant(run)
       let choices
       try {
+        await reportStage('validating')
         choices = validatedChoices(parsedDecision(text).choices, scriptMode, logger)
       } catch (error) {
         if (logger && typeof logger.error === 'function') {
           logger.error('dsh-tavern: 候选项输出无效:', str(error && error.message || error))
           logger.error('dsh-tavern: 候选项原始输出:', str(text).slice(0, 1200))
         }
-        await taskRun.commit({ stateChanged: false, participant })
-        throw error
+        await taskRun.commit({ stateChanged: false, participant }).catch(function (persistError) {
+          if (logger && typeof logger.warn === 'function') logger.warn(`dsh-tavern: 候选输出无效后无法持久化终态：${str(persistError && persistError.message || persistError)}`)
+        })
+        throw candidateFailure('validating', '候选输出无效', error)
       }
       let savedCandidates = null
-      const completed = await taskRun.commit({
-        stateChanged: true,
-        participant,
-        apply(draft) {
-          let scriptProjection
-          if (scriptMode) {
-            const pointed = research.pointedPosition()
-            if (pointed === script.chunks.length) {
-              draft.scriptState = scripts.transition({ script, state: draft.scriptState, event: { kind: 'end' } }).state
-            } else if (Number.isInteger(pointed) && pointed >= 0) {
-              draft.scriptState = scripts.transition({ script, state: draft.scriptState, event: { kind: 'focus', cursor: pointed + 1 } }).state
+      let completed
+      try {
+        await reportStage('committing')
+        completed = await taskRun.commit({
+          stateChanged: true,
+          participant,
+          apply(draft) {
+            let scriptProjection
+            if (scriptMode) {
+              const pointed = research.pointedPosition()
+              if (pointed === script.chunks.length) {
+                draft.scriptState = scripts.transition({ script, state: draft.scriptState, event: { kind: 'end' } }).state
+              } else if (Number.isInteger(pointed) && pointed >= 0) {
+                draft.scriptState = scripts.transition({ script, state: draft.scriptState, event: { kind: 'focus', cursor: pointed + 1 } }).state
+              }
+              const progress = scripts.inspect({ script, state: draft.scriptState, request: { kind: 'progress' } })
+              scriptProjection = { cursor: progress.cursor, ended: progress.cursor >= progress.totalChunks }
             }
-            const progress = scripts.inspect({ script, state: draft.scriptState, request: { kind: 'progress' } })
-            scriptProjection = { cursor: progress.cursor, ended: progress.cursor >= progress.totalChunks }
+            draft.candidates = {
+              messageId: str(input.messageId), choices, generatedAt: now(), script: scriptProjection,
+              requestId, operationId: taskRun.operationId,
+              traceSessionId, traceSessionIds: traceSessionId === '' ? [] : [traceSessionId],
+              traceMode: 'continuable', basedOn: taskRun.basedOn
+            }
+            savedCandidates = draft.candidates
           }
-          draft.candidates = {
-            messageId: str(input.messageId), choices, generatedAt: now(), script: scriptProjection,
-            requestId, operationId: taskRun.operationId,
-            traceSessionId, traceSessionIds: traceSessionId === '' ? [] : [traceSessionId],
-            traceMode: 'continuable', basedOn: taskRun.basedOn
-          }
-          savedCandidates = draft.candidates
-        }
-      })
+        })
+      } catch (error) {
+        throw candidateFailure('committing', '候选已经生成，但保存失败', error)
+      }
       if (completed.status === 'missing') throw new Error('聊天不存在: ' + chat.id)
       if (completed.status !== 'committed') throw new Error('剧情状态已变化，本次候选项已作废，请重新生成')
+      await reportStage('publishing')
       return {
         messageId: savedCandidates.messageId,
         choices: savedCandidates.choices,

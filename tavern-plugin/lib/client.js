@@ -2819,18 +2819,43 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 
 			function TavernCompactionAction(props) {
 				const [busy, setBusy] = React.useState(false);
+				const [resultLabel, setResultLabel] = React.useState("");
+				const [resultTitle, setResultTitle] = React.useState("");
 				const running = props.useSession(function (snapshot) { return snapshot.running; });
-				async function compactContext() {
-					setBusy(true);
+				async function executeTarget(sessionId, missingMessage) {
+					if (!sessionId) return { status: "skipped", message: missingMessage };
 					try {
-						const result = await props.executeCompact(props.sessionId);
+						const result = await props.executeCompact(sessionId);
 						if (!result.ok) throw new Error(result.error && result.error.message ? result.error.message : "无法执行上下文压缩");
 						if (result.value === undefined) throw new Error("当前会话不支持 /compact");
 						if (result.value.result && result.value.result.kind === "error") throw new Error(result.value.result.text || "上下文压缩失败");
+						return { status: "succeeded", message: result.value.result && result.value.result.text || "压缩完成" };
+					} catch (error) {
+						return { status: "failed", message: String(error && error.message || error) };
+					}
+				}
+				async function compactContext() {
+					setBusy(true);
+					setResultLabel("");
+					setResultTitle("");
+					try {
+						const prepared = await rpc("prepareCompaction", {}, props.sessionId);
+						const plan = prepared.plan;
+						const foreground = await executeTarget(plan.foregroundSessionId, "没有前台 Session");
+						const background = plan.backgroundSessionId
+							? (await rpc("compactBackground", { operationId: plan.operationId }, props.sessionId)).result
+							: { status: "skipped", message: "没有后台 Session" };
+						const completed = await rpc("completeCompaction", { operationId: plan.operationId, foreground: foreground, background: background }, props.sessionId);
+						setResultTitle("前台：" + foreground.message + "；后台：" + background.message);
+						if (completed.result.status === "completed") setResultLabel(plan.backgroundSessionId ? "前台和后台已压缩" : "前台已压缩");
+						else if (completed.result.status === "partial") {
+							setResultLabel("部分成功");
+							throw new Error("上下文压缩部分成功。前台：" + foreground.message + "；后台：" + background.message);
+						} else throw new Error("上下文压缩失败。前台：" + foreground.message + "；后台：" + background.message);
 					} catch (err) { tavernErrorHub.report("压缩上下文", err); }
 					finally { setBusy(false); }
 				}
-				return React.createElement("button", { className: "dsh-tavern-choice-trigger", disabled: busy || running, title: "使用 DSH 原生 /compact 压缩较早的对话上下文", onClick: compactContext }, busy ? "压缩中…" : "压缩上下文");
+				return React.createElement("button", { className: "dsh-tavern-choice-trigger", disabled: busy || running, title: resultTitle || "前台使用剧情提示词、后台使用 DSH 内置提示词并联合压缩", onClick: compactContext }, busy ? "压缩中…" : (resultLabel || "压缩上下文"));
 			}
 
 			function TavernPlayerNameAction(props) {

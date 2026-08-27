@@ -1,9 +1,11 @@
-import { access, copyFile, cp, mkdir, readFile, readdir, rename, stat, writeFile } from 'node:fs/promises'
+import { access, copyFile, cp, mkdir, readFile, readdir, stat } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
+import { createDurableFilePromotion } from '../durable-file-promotion.js'
 
 const MIGRATION_MARKER = '.legacy-data-migration-v1.json'
 const MERGED_JSON_FILES = new Set(['index.json', 'sessions.json', '.material-bindings.json', '.file-resources-v1.json'])
+const durableFiles = createDurableFilePromotion()
 
 function safeLabel(value) {
   const label = String(value || 'legacy').replace(/[^0-9A-Za-z._-]+/g, '-').replace(/^-+|-+$/g, '')
@@ -25,10 +27,7 @@ async function readJson(file, fallback) {
 }
 
 async function writeJsonAtomic(file, value) {
-  await mkdir(path.dirname(file), { recursive: true })
-  const temporary = `${file}.tmp-${process.pid}`
-  await writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, 'utf8')
-  await rename(temporary, file)
+  await durableFiles.write(file, `${JSON.stringify(value, null, 2)}\n`)
 }
 
 function keyedRows(rows) {

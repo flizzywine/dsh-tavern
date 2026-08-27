@@ -25,6 +25,13 @@ test('只有剧情和剧本游玩会话使用剧情压缩', () => {
   assert.equal(usesStoryCompaction(undefined), false)
 })
 
+test('未映射到 Tavern 前台对话的后台 Session 保留 DSH 内置压缩提示词', () => {
+  assert.equal(usesStoryCompaction(undefined), false)
+  const request = compactionRequest()
+  assert.equal(createStoryCompactionRequest(request, '剧情专用摘要指令').messages[1].content[0].text, '剧情专用摘要指令')
+  assert.equal(request.messages[1].content[0].text, 'DSH 默认工程摘要指令')
+})
+
 test('剧情压缩只替换 DSH 压缩请求最后一条指令且不修改原请求', () => {
   const original = compactionRequest()
   const request = createStoryCompactionRequest(original, '剧情专用摘要指令')

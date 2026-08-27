@@ -318,6 +318,33 @@ test('人物卡绑定资料只保存路径引用，重命名任一端都会保�
   } finally { await rm(root, { recursive: true, force: true }) }
 })
 
+test('人物卡重命名中途崩溃后，重启从 journal 恢复文件与绑定的新图', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-files-'))
+  try {
+    const initial = createFileResourceStore({ dataRoot: root })
+    const cardPath = await initial.importCard({ name: '旧名.json', text: '{"name":"角色"}' }, { name: '角色' })
+    const materialPath = await initial.importText('source', { name: '故事.txt', text: '正文' })
+    await initial.bindMaterial(cardPath, materialPath)
+    const crashing = createFileResourceStore({
+      dataRoot: root,
+      mutationFault: async function ({ side, index }) {
+        if (side === 'after' && index === 2) {
+          const error = new Error('模拟进程退出')
+          error.code = 'DSH_TAVERN_SIMULATED_CRASH'
+          throw error
+        }
+      }
+    })
+    await assert.rejects(crashing.rename(cardPath, '新名.json'), /模拟进程退出/)
+
+    const restarted = createFileResourceStore({ dataRoot: root })
+    await restarted.ensure()
+    assert.equal(await restarted.readCard(cardPath), undefined)
+    assert.equal((await restarted.readCard('cards/新名.json')).name, '角色')
+    assert.equal(await restarted.scriptForCard('cards/新名.json'), materialPath)
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
+
 test('一份剧本只能绑定一张人物卡', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-files-'))
   try {

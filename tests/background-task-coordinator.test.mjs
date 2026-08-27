@@ -7,7 +7,7 @@ import {
   isOpeningAwaitingSettlement
 } from '../tavern-plugin/lib/domain/background-task-coordinator.js'
 
-function coordinatorHarness() {
+function coordinatorHarness(options = {}) {
   let current = {
     id: 'chat-1', mode: 'story', messages: [], posture: '', candidates: null,
     settleStatus: 'idle', settleError: null
@@ -20,6 +20,7 @@ function coordinatorHarness() {
   })
   const coordinator = createBackgroundTaskCoordinator({
     timeline,
+    blocked: options.blocked,
     store: {
       async readChat() { return current },
       async writeChat(chat) { current = chat; writes.push(chat) }
@@ -44,6 +45,15 @@ test('后台任务通过一个 interface 原子开始、重载并提交时间线
   assert.equal(result.chat.posture, '门边站立。')
   assert.equal(harness.writes.length, 2)
   assert.equal(harness.current().timeline.participants.background.sessionId, 'background-1')
+})
+
+test('Tavern 联合压缩期间不允许启动新的后台任务', async () => {
+  const harness = coordinatorHarness({ blocked: () => true })
+  await assert.rejects(
+    () => harness.coordinator.begin(harness.current(), 'settlement'),
+    function (error) { return error && error.code === 'COMPACTION_RUNNING' }
+  )
+  assert.equal(harness.writes.length, 0)
 })
 
 test('后台 activity 只由 Story Timeline operation 推导，不相信重复的 settleStatus', async () => {

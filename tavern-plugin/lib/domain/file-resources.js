@@ -1,5 +1,7 @@
 import { access, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
+import { createDurableFilePromotion } from '../durable-file-promotion.js'
+import { createResourceMutationJournal } from './resource-mutation-journal.js'
 import { inspectPreset } from './preset-reading.js'
 
 const KIND_DIR = Object.freeze({ card: 'cards', preset: 'presets', source: 'materials', script: 'scripts', worldbook: 'worldbooks' })
@@ -113,6 +115,12 @@ export function createFileResourceStore(options = {}) {
   const markerPath = path.join(dataRoot, '.file-resources-v1.json')
   const bindingsPath = path.join(dataRoot, '.material-bindings.json')
   const worldBookBindingsPath = path.join(dataRoot, '.worldbook-bindings.json')
+  const durableFiles = options.files || createDurableFilePromotion(options.filePromotion)
+  const mutations = options.mutations || createResourceMutationJournal({
+    dataRoot,
+    files: durableFiles,
+    fault: options.mutationFault
+  })
 
   function absolute(relative, original = false) {
     const normalized = normalizeResourcePath(relative)
@@ -120,6 +128,7 @@ export function createFileResourceStore(options = {}) {
   }
 
   async function ensure() {
+    await mutations.recover()
     for (const root of [resourcesRoot, originalsRoot]) {
       for (const folder of Object.values(KIND_DIR)) await mkdir(path.join(root, folder), { recursive: true })
     }
@@ -134,8 +143,7 @@ export function createFileResourceStore(options = {}) {
   async function writeWorking(relative, data) {
     const normalized = normalizeResourcePath(relative)
     const target = absolute(normalized)
-    await mkdir(path.dirname(target), { recursive: true })
-    await writeFile(target, data)
+    await durableFiles.write(target, data)
   }
 
   async function originalCardPayload(normalized) {
@@ -164,17 +172,14 @@ export function createFileResourceStore(options = {}) {
     const normalized = normalizeResourcePath(relative, 'card')
     if (typeof migrate !== 'function') throw new Error('缺少人物卡工作区迁移器')
     const workingPath = absolute(normalized)
-    const currentText = await readFile(workingPath, 'utf8')
+    const currentText = (await durableFiles.read(workingPath)).toString('utf8')
     const current = JSON.parse(currentText)
     const next = await migrate(current, await originalCardPayload(normalized))
     if (JSON.stringify(next) === JSON.stringify(current)) return current
     const stem = path.posix.basename(normalized, path.posix.extname(normalized))
     const backupName = stem + '-before-workspace-migration-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8) + '.json'
     await writeNew(path.join(dataRoot, 'recovery', 'cards', backupName), currentText)
-    try { await writeFile(workingPath, JSON.stringify(next, null, 2)) } catch (error) {
-      try { await writeFile(workingPath, currentText) } catch {}
-      throw error
-    }
+    await durableFiles.write(workingPath, JSON.stringify(next, null, 2))
     return next
   }
 
@@ -183,10 +188,8 @@ export function createFileResourceStore(options = {}) {
     if (typeof prepare !== 'function') throw new Error('缺少原版人物卡解析器')
     const workingPath = absolute(normalized)
     let current
-    try { current = await readFile(workingPath) } catch (error) {
-      if (error && error.code === 'ENOENT') throw new Error('人物卡工作版不存在: ' + normalized)
-      throw error
-    }
+    current = await durableFiles.read(workingPath)
+    if (current === undefined) throw new Error('人物卡工作版不存在: ' + normalized)
 
     const stem = path.posix.basename(normalized, path.posix.extname(normalized))
     const payload = await originalCardPayload(normalized)
@@ -200,18 +203,14 @@ export function createFileResourceStore(options = {}) {
     const backupName = stem + '-before-original-restore-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8) + '.json'
     const backupRelative = 'recovery/cards/' + backupName
     await writeNew(path.join(dataRoot, ...backupRelative.split('/')), current)
-    try {
-      await writeFile(workingPath, JSON.stringify(saved, null, 2))
-    } catch (error) {
-      try { await writeFile(workingPath, current) } catch {}
-      throw error
-    }
+    await durableFiles.write(workingPath, JSON.stringify(saved, null, 2))
     return { card: saved, originalPath: 'originals/cards/' + payload.name, backupPath: backupRelative }
   }
 
   async function readText(relative) {
     const target = absolute(relative)
-    try { return await readFile(target, 'utf8') } catch (error) { if (error && error.code === 'ENOENT') return undefined; throw error }
+    const value = await durableFiles.read(target)
+    return value === undefined ? undefined : value.toString('utf8')
   }
 
   async function readCard(relative) {
@@ -241,7 +240,9 @@ export function createFileResourceStore(options = {}) {
 
   async function readBindings() {
     try {
-      const value = JSON.parse(await readFile(bindingsPath, 'utf8'))
+      const source = await durableFiles.read(bindingsPath)
+      if (source === undefined) return {}
+      const value = JSON.parse(source.toString('utf8'))
       return value !== null && typeof value === 'object' ? value : {}
     } catch (error) {
       if (error && error.code === 'ENOENT') return {}
@@ -250,12 +251,14 @@ export function createFileResourceStore(options = {}) {
   }
 
   async function writeBindings(bindings) {
-    await writeFile(bindingsPath, JSON.stringify(bindings, null, 2))
+    await durableFiles.write(bindingsPath, JSON.stringify(bindings, null, 2))
   }
 
   async function readWorldBookBindings() {
     try {
-      const value = JSON.parse(await readFile(worldBookBindingsPath, 'utf8'))
+      const source = await durableFiles.read(worldBookBindingsPath)
+      if (source === undefined) return {}
+      const value = JSON.parse(source.toString('utf8'))
       return value !== null && typeof value === 'object' && !Array.isArray(value) ? value : {}
     } catch (error) {
       if (error && error.code === 'ENOENT') return {}
@@ -264,7 +267,7 @@ export function createFileResourceStore(options = {}) {
   }
 
   async function writeWorldBookBindings(bindings) {
-    await writeFile(worldBookBindingsPath, JSON.stringify(bindings, null, 2))
+    await durableFiles.write(worldBookBindingsPath, JSON.stringify(bindings, null, 2))
   }
 
   async function worldBookBindingForCard(cardPath) {
@@ -429,33 +432,13 @@ export function createFileResourceStore(options = {}) {
     const nextWorking = absolute(next)
     const nextOriginal = absolute(next, true)
     if (next !== current && (await exists(nextWorking) || await exists(nextOriginal))) throw new Error('文件已存在: ' + next)
-    const suffix = '.replace-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8)
-    const tempWorking = nextWorking + suffix
-    const tempOriginal = nextOriginal + suffix
-    const backupWorking = oldWorking + suffix + '.bak'
-    const backupOriginal = oldOriginal + suffix + '.bak'
-    await mkdir(path.dirname(nextWorking), { recursive: true })
-    await mkdir(path.dirname(nextOriginal), { recursive: true })
-    await writeFile(tempWorking, text)
-    await writeFile(tempOriginal, originalData)
-    let workingBackedUp = false
-    let originalBackedUp = false
-    try {
-      await rename(oldWorking, backupWorking); workingBackedUp = true
-      if (await exists(oldOriginal)) { await rename(oldOriginal, backupOriginal); originalBackedUp = true }
-      await rename(tempWorking, nextWorking)
-      await rename(tempOriginal, nextOriginal)
-      await rm(backupWorking, { force: true })
-      await rm(backupOriginal, { force: true })
-      return next
-    } catch (error) {
-      await rm(tempWorking, { force: true }); await rm(tempOriginal, { force: true })
-      if (workingBackedUp && await exists(backupWorking)) { await rm(oldWorking, { force: true }); await rename(backupWorking, oldWorking) }
-      else if (nextWorking !== oldWorking) await rm(nextWorking, { force: true })
-      if (originalBackedUp && await exists(backupOriginal)) { await rm(oldOriginal, { force: true }); await rename(backupOriginal, oldOriginal) }
-      else if (nextOriginal !== oldOriginal) await rm(nextOriginal, { force: true })
-      throw error
-    }
+    await mutations.run('replace-script:' + current, async function (plan) {
+      if (nextWorking !== oldWorking) await plan.remove(oldWorking)
+      if (nextOriginal !== oldOriginal) await plan.remove(oldOriginal)
+      await plan.write(nextWorking, text)
+      await plan.write(nextOriginal, originalData)
+    })
+    return next
   }
 
   async function remove(relative) {
@@ -465,38 +448,29 @@ export function createFileResourceStore(options = {}) {
       const boundCards = await cardsForMaterial(normalized)
       if (boundCards.length) throw new Error('剧本仍被人物卡绑定，请先解绑: ' + boundCards.join(', '))
     }
-    await rm(absolute(normalized), { force: true })
     const originalDir = path.dirname(absolute(normalized, true))
     const stem = path.basename(normalized, path.extname(normalized))
-    if (await exists(originalDir)) {
-      for (const name of await readdir(originalDir)) {
-        if (path.basename(name, path.extname(name)) === stem) await rm(path.join(originalDir, name), { force: true })
-      }
-    }
-    if (kind === 'card') {
-      const recoveryDir = path.join(dataRoot, 'recovery', 'cards')
-      if (await exists(recoveryDir)) {
-        const prefix = stem + '-before-'
-        for (const name of await readdir(recoveryDir)) {
-          if (name.startsWith(prefix) && path.extname(name) === '.json') {
-            await rm(path.join(recoveryDir, name), { force: true })
-          }
-        }
-      }
-    }
+    const originals = await exists(originalDir) ? (await readdir(originalDir)).filter(function (name) {
+      return path.basename(name, path.extname(name)) === stem
+    }).map(function (name) { return path.join(originalDir, name) }) : []
+    const recoveryDir = path.join(dataRoot, 'recovery', 'cards')
+    const recoveries = kind === 'card' && await exists(recoveryDir) ? (await readdir(recoveryDir)).filter(function (name) {
+      return name.startsWith(stem + '-before-') && path.extname(name) === '.json'
+    }).map(function (name) { return path.join(recoveryDir, name) }) : []
+    let worldBookBindings = null
+    let worldBookBindingsChanged = false
     if (kind === 'card' || kind === 'worldbook') {
-      const worldBookBindings = await readWorldBookBindings()
-      let changed = false
+      worldBookBindings = await readWorldBookBindings()
       if (kind === 'card' && Object.prototype.hasOwnProperty.call(worldBookBindings, normalized)) {
         delete worldBookBindings[normalized]
-        changed = true
+        worldBookBindingsChanged = true
       }
       if (kind === 'card') {
         for (const cardPath of Object.keys(worldBookBindings)) {
           const value = worldBookBindings[cardPath]
           if (value && typeof value === 'object' && value.kind === 'embedded' && value.cardPath === normalized) {
             worldBookBindings[cardPath] = null
-            changed = true
+            worldBookBindingsChanged = true
           }
         }
       }
@@ -504,15 +478,20 @@ export function createFileResourceStore(options = {}) {
         for (const cardPath of Object.keys(worldBookBindings)) {
           if (worldBookBindings[cardPath] === normalized) {
             worldBookBindings[cardPath] = null
-            changed = true
+            worldBookBindingsChanged = true
           }
         }
       }
-      if (changed) await writeWorldBookBindings(worldBookBindings)
     }
+    await mutations.run('remove-resource:' + normalized, async function (plan) {
+      await plan.remove(absolute(normalized))
+      for (const target of originals.concat(recoveries)) await plan.remove(target)
+      if (worldBookBindingsChanged) await plan.write(worldBookBindingsPath, JSON.stringify(worldBookBindings, null, 2))
+    })
   }
 
   async function renameResource(relative, requestedName) {
+    await mutations.recover()
     const oldPath = normalizeResourcePath(relative)
     const kind = resourceKind(oldPath)
     const oldName = path.posix.basename(oldPath)
@@ -525,7 +504,25 @@ export function createFileResourceStore(options = {}) {
     if (newPath === oldPath) return { oldPath, path: newPath }
     const oldWorking = absolute(oldPath)
     const newWorking = absolute(newPath)
-    if (await exists(newWorking)) throw new Error('文件已存在: ' + newPath)
+    const oldWorkingExists = await exists(oldWorking)
+    const newWorkingExists = await exists(newWorking)
+    if (!oldWorkingExists && newWorkingExists) {
+      let scriptOldPath
+      let scriptPath
+      if (kind === 'card') {
+        const newStem = path.parse(newName).name
+        const newScriptDir = path.join(resourcesRoot, 'scripts', newStem)
+        if (await exists(newScriptDir)) {
+          const names = await readdir(newScriptDir)
+          if (names.length === 1) {
+            scriptOldPath = 'scripts/' + oldStem + '/' + names[0]
+            scriptPath = 'scripts/' + newStem + '/' + names[0]
+          }
+        }
+      }
+      return { oldPath, path: newPath, scriptOldPath, scriptPath }
+    }
+    if (newWorkingExists) throw new Error('文件已存在: ' + newPath)
 
     const moves = [{ from: oldWorking, to: newWorking }]
     const originalParent = path.dirname(absolute(oldPath, true))
@@ -555,20 +552,6 @@ export function createFileResourceStore(options = {}) {
     for (const move of moves) {
       if (move.from !== move.to && await exists(move.to)) throw new Error('文件已存在: ' + path.relative(dataRoot, move.to))
     }
-    const completed = []
-    try {
-      for (const move of moves) {
-        if (move.from === move.to) continue
-        await mkdir(path.dirname(move.to), { recursive: true })
-        await rename(move.from, move.to)
-        completed.push(move)
-      }
-    } catch (error) {
-      for (const move of completed.reverse()) {
-        try { await rename(move.to, move.from) } catch {}
-      }
-      throw error
-    }
     const bindings = await readBindings()
     let bindingsChanged = false
     if (kind === 'card' && Object.prototype.hasOwnProperty.call(bindings, oldPath)) {
@@ -580,7 +563,6 @@ export function createFileResourceStore(options = {}) {
         if (bindings[cardPath] === oldPath) { bindings[cardPath] = newPath; bindingsChanged = true }
       }
     }
-    if (bindingsChanged) await writeBindings(bindings)
     const worldBookBindings = await readWorldBookBindings()
     let worldBookBindingsChanged = false
     if (kind === 'card' && Object.prototype.hasOwnProperty.call(worldBookBindings, oldPath)) {
@@ -601,7 +583,13 @@ export function createFileResourceStore(options = {}) {
         if (worldBookBindings[cardPath] === oldPath) { worldBookBindings[cardPath] = newPath; worldBookBindingsChanged = true }
       }
     }
-    if (worldBookBindingsChanged) await writeWorldBookBindings(worldBookBindings)
+    await mutations.run('rename-resource:' + oldPath, async function (plan) {
+      for (const move of moves) {
+        if (move.from !== move.to) await plan.move(move.from, move.to)
+      }
+      if (bindingsChanged) await plan.write(bindingsPath, JSON.stringify(bindings, null, 2))
+      if (worldBookBindingsChanged) await plan.write(worldBookBindingsPath, JSON.stringify(worldBookBindings, null, 2))
+    })
     return { oldPath, path: newPath, scriptOldPath, scriptPath }
   }
 
@@ -710,7 +698,7 @@ export function createFileResourceStore(options = {}) {
           const card = JSON.parse(await readFile(originalPath, 'utf8'))
           if (card && Object.prototype.hasOwnProperty.call(card, 'id')) {
             delete card.id
-            await writeFile(originalPath, JSON.stringify(card, null, 2))
+            await durableFiles.write(originalPath, JSON.stringify(card, null, 2))
           }
         }
         marker.schemaVersion = 2
@@ -725,7 +713,7 @@ export function createFileResourceStore(options = {}) {
         marker.schemaVersion = 4
         marker.presetMaterialsMigratedAt = Date.now()
       }
-      await writeFile(markerPath, JSON.stringify(marker, null, 2))
+      await durableFiles.write(markerPath, JSON.stringify(marker, null, 2))
       return marker
     }
     const cardMap = {}
@@ -799,7 +787,7 @@ export function createFileResourceStore(options = {}) {
     result.presetMaterials = await migratePresetMaterials(nextIndex, readChat, writeChat)
     result.schemaVersion = 4
     result.presetMaterialsMigratedAt = Date.now()
-    await writeFile(markerPath, JSON.stringify(result, null, 2))
+    await durableFiles.write(markerPath, JSON.stringify(result, null, 2))
     return result
   }
 

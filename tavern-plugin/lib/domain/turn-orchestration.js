@@ -177,7 +177,7 @@ export function createTurnOrchestrator(options) {
         worldBookOverview = cards.present({ card, as: 'world-book-overview' })
       }
       const plan = await planner.plan({ purpose: 'card', card, workspace: state, sourcePrepared: prepared, scriptInfo, worldBookOverview })
-      await store.writeChat(chat)
+      await store.writeChat(chat, { source: 'card.prepare' })
       return { ready: true, mode, cardName: card === null ? (str(state.draft && state.draft.name) || '卡片工作台') : card.name, text: plan.text }
     }
 
@@ -185,7 +185,7 @@ export function createTurnOrchestrator(options) {
     // 保存好的下一轮上下文，玩家输入和候选项选择都不能在此重新触发匹配。
     const worldBookContext = str(chat.preparedWorldBookContext).trim()
     const plan = await planner.plan({ purpose: 'body', card, chat, userText: runtimeUserText, sessionId: input.sessionId, nativeTurn: turn, scriptReference, worldBookContext })
-    if (chatChanged) await store.writeChat(chat)
+    if (chatChanged) await store.writeChat(chat, { source: 'foreground.prepare' })
     return { ready: true, mode, cardName: card.name, text: plan.text, userText: runtimeUserText }
   }
 
@@ -235,7 +235,7 @@ export function createTurnOrchestrator(options) {
     }
 
     stages[String(turn)] = combined
-    await store.writeChat(chat)
+    await store.writeChat(chat, { source: 'card.stage' })
     return { staged: true, mode, changed: preview.changed, createsCard: cardPath === '', changedFields: preview.changedFields }
   }
 
@@ -301,7 +301,7 @@ export function createTurnOrchestrator(options) {
       chat.messages.push({ role: 'assistant', text: assistantText, ts: now(), native: true, changed })
       chat.cardName = created === null ? (str(state.draft && state.draft.name) || '卡片工作台') : created.card.name
       rememberCommit(chat, turn, { mode, userText, changed }, null, now)
-      await store.writeChat(chat)
+      await store.writeChat(chat, { source: 'card.commit' })
       return {
         saved: true,
         mode,
@@ -328,7 +328,7 @@ export function createTurnOrchestrator(options) {
       chat.messages.push({ role: 'assistant', text: assistantText, ts: now(), native: true, changed })
       chat.cardName = savedCard.name
       rememberCommit(chat, turn, { mode, userText, changed }, null, now)
-      await store.writeChat(chat)
+      await store.writeChat(chat, { source: 'card.commit' })
       return { saved: true, mode, changed, chatId: chat.id, cardName: savedCard.name }
     }
 
@@ -380,7 +380,7 @@ export function createTurnOrchestrator(options) {
     })
     chat = completed.chat
     if (completed.value.status !== 'committed') throw new Error('正文生成期间剧情状态已变化，本轮结果已作废')
-    await store.writeChat(chat)
+    await store.writeChat(chat, { source: 'foreground.commit', operationId: operation.id })
     return { saved: true, mode, changed: false, chatId: chat.id, cardName: chat.cardName, reply }
   }
 
@@ -415,7 +415,7 @@ export function createTurnOrchestrator(options) {
         changed = true
       }
     }
-    if (changed) await store.writeChat(chat)
+    if (changed) await store.writeChat(chat, { source: 'foreground.discard' })
     return changed
   }
 

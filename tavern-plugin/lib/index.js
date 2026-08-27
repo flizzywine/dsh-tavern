@@ -1,7 +1,7 @@
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
-import { createBackgroundAgentRunner } from './background-agent-runner.js'
+import { createBackgroundAgentRunner, executeBackgroundCompaction } from './background-agent-runner.js'
 import { createApplicationUpdater } from './application-updater.js'
 import { createBundledExampleInstaller } from './domain/bundled-examples.js'
 import { createCandidateGenerator } from './domain/candidate-generation.js'
@@ -49,6 +49,7 @@ import { resolveTavernDataRoot } from './domain/tavern-data.js'
 import { createTavernSkillModule } from './domain/tavern-skills.js'
 import { createTavernConversationRegistry } from './domain/tavern-conversation-registry.js'
 import { applyTavernRegexText } from './domain/tavern-regex-display.js'
+import { createTavernCompactionCoordinator } from './domain/tavern-compaction.js'
 import { createTurnOrchestrator } from './domain/turn-orchestration.js'
 import { resourceWorkspaceContext } from './domain/workspace-resources.js'
 import { createWorldBookLibrary } from './domain/worldbook-library.js'
@@ -58,6 +59,9 @@ import {
   isOpeningAwaitingSettlement
 } from './domain/background-task-coordinator.js'
 import { createProfileDataStore } from './profile-data-store.js'
+import { createChatPersistence } from './domain/chat-persistence.js'
+import { createChatJournalStore } from './domain/chat-journal-store.js'
+import { createResourceGraph } from './domain/resource-graph.js'
 import { prompt } from './prompt-catalog.js'
 
 // dsh-tavern 宿主插件（profile 组合行）
@@ -118,9 +122,6 @@ export async function apply(ctx) {
   }
   async function writeJson(rel, value) {
     await profileData.writeJson(rel, value)
-  }
-  async function rmFile(rel) {
-    await profileData.remove(rel)
   }
   const CARD_PROJECTION_REVISIONS = 'card-projection-revisions.json'
   async function cardProjectionRevision(cardPath) {
@@ -546,71 +547,15 @@ export async function apply(ctx) {
     const presetPath = await fileResources.importText('preset', prepared)
     return await readPreset(presetPath)
   }
-  async function renameResource(resourcePath, name) {
-    const oldPath = normalizeResourcePath(resourcePath)
-    const kind = resourceKind(oldPath)
-    const renamed = await fileResources.rename(oldPath, name)
-    if (kind === 'preset') await runtimePresets.rename(renamed.oldPath, renamed.path)
-    const replacements = new Map([[renamed.oldPath, renamed.path]])
-    if (renamed.scriptOldPath && renamed.scriptPath) replacements.set(renamed.scriptOldPath, renamed.scriptPath)
-    const idx = await readIndex()
-    for (const row of idx.chats || []) {
-      const chat = await readChat(row.id)
-      if (chat === undefined) continue
-      let changed = false
-      if (replacements.has(chat.cardPath)) {
-        chat.cardPath = replacements.get(chat.cardPath)
-        row.cardPath = chat.cardPath
-        changed = true
-      }
-      if (kind === 'preset') {
-        if (chat.runtimePresetPath === renamed.oldPath) { chat.runtimePresetPath = renamed.path; changed = true }
-        if (chat.runtimePresetSnapshot && typeof chat.runtimePresetSnapshot === 'object') {
-          const snapshot = chat.runtimePresetSnapshot
-          if (snapshot.presetPath === renamed.oldPath) { snapshot.presetPath = renamed.path; changed = true }
-          for (const source of (snapshot.sources || []).concat(snapshot.regexSources || [])) {
-            if (source && source.path === renamed.oldPath) { source.path = renamed.path; changed = true }
-          }
-        }
-      }
-      if (chat.workspace && typeof chat.workspace === 'object') {
-        const nextSources = (chat.workspace.sourcePaths || []).map(function (item) { return replacements.get(item) || item })
-        if (JSON.stringify(nextSources) !== JSON.stringify(chat.workspace.sourcePaths || [])) { chat.workspace.sourcePaths = nextSources; changed = true }
-        const nextMounted = (chat.workspace.mountedResources || []).map(function (item) {
-          if (!item || !replacements.has(item.path)) return item
-          const nextPath = replacements.get(item.path)
-          const filename = nextPath.split('/').pop()
-          return Object.assign({}, item, { path: nextPath, label: filename.replace(/\.[^.]+$/, '') })
-        })
-        if (JSON.stringify(nextMounted) !== JSON.stringify(chat.workspace.mountedResources || [])) { chat.workspace.mountedResources = nextMounted; changed = true }
-      }
-      if (changed) await writeChat(chat)
-    }
-    await writeIndex(idx)
-    return { kind, path: renamed.path }
-  }
+  let resourceGraph
+  async function renameResource(resourcePath, name) { return await resourceGraph.rename(resourcePath, name) }
   async function deleteLibraryResource(resourcePath, expectedKind) {
-    const normalized = normalizeResourcePath(resourcePath, expectedKind)
-    await fileResources.remove(normalized)
-    const idx = await readIndex()
-    for (const row of idx.chats || []) {
-      const chat = await readChat(row.id)
-      if (chat === undefined || !chat.workspace || typeof chat.workspace !== 'object') continue
-      const nextSources = (chat.workspace.sourcePaths || []).filter(function (item) { return item !== normalized })
-      const nextMounted = (chat.workspace.mountedResources || []).filter(function (item) { return !item || item.path !== normalized })
-      if (JSON.stringify(nextSources) === JSON.stringify(chat.workspace.sourcePaths || []) && JSON.stringify(nextMounted) === JSON.stringify(chat.workspace.mountedResources || [])) continue
-      chat.workspace.sourcePaths = nextSources
-      chat.workspace.mountedResources = nextMounted
-      await writeChat(chat)
-    }
-    return { removed: normalized }
+    const result = await resourceGraph.remove(resourcePath, expectedKind)
+    return { removed: result.path }
   }
   async function deleteResource(resourcePath) { return await deleteLibraryResource(resourcePath, 'source') }
   async function deletePreset(resourcePath) {
-    const normalized = normalizeResourcePath(resourcePath, 'preset')
-    const result = await deleteLibraryResource(normalized, 'preset')
-    await runtimePresets.remove(normalized)
-    return result
+    return await deleteLibraryResource(resourcePath, 'preset')
   }
   const worldBooks = createWorldBookLibrary({
     normalizePath: normalizeResourcePath,
@@ -650,10 +595,18 @@ export async function apply(ctx) {
     }
     return chat
   }
-  async function readChat(chatId) { return normalizeChat(await readJson('chats/' + chatId + '.json')) }
-  async function writeChat(chat) {
-    chat.updatedAt = Date.now()
-    await writeJson('chats/' + chat.id + '.json', chat)
+  const chatJournalStore = createChatJournalStore({ dataRoot, legacyData: profileData, now: Date.now, logger: console })
+  const chatPersistence = createChatPersistence({ store: chatJournalStore, normalize: normalizeChat, now: Date.now })
+  async function readChat(chatId) { return await chatPersistence.read(chatId) }
+  async function readChatRevision(chatId, revision) { return await chatPersistence.readRevision(chatId, revision) }
+  async function writeChat(chat, metadata) { return await chatPersistence.write(chat, metadata) }
+  async function updateChat(chatId, mutation, metadata) { return await chatPersistence.update(chatId, mutation, metadata) }
+  async function prepareRollbackIntent(chat, intent) {
+    const target = storyTimeline.rollbackTarget({ chat })
+    if (target === null) return intent
+    const beforeChat = await readChatRevision(chat.id, target.beforeRevision)
+    if (beforeChat === undefined) throw new Error('找不到剧情 checkpoint 对应的历史 Chat revision: ' + target.beforeRevision)
+    return Object.assign({}, intent, { beforeChat })
   }
   const conversationRegistry = createTavernConversationRegistry({
     store: {
@@ -663,11 +616,21 @@ export async function apply(ctx) {
       writeIndex,
       readChat,
       writeChat,
-      removeChat: async function (chatId) { await rmFile('chats/' + chatId + '.json') }
+      removeChat: async function (chatId) { await chatPersistence.remove(chatId) }
     }
   })
   async function readSessionMap() { return await conversationRegistry.links() }
   async function chatForSession(sessionId) { return await conversationRegistry.resolve(sessionId) }
+  resourceGraph = createResourceGraph({
+    resources: fileResources,
+    presets: runtimePresets,
+    chats: { readIndex, writeIndex, readChat, writeChat },
+    operations: {
+      read: async function () { return await readJson('resource-graph-operation.json') },
+      write: async function (operation) { await writeJson('resource-graph-operation.json', operation) },
+      remove: async function () { await profileData.remove('resource-graph-operation.json') }
+    }
+  })
   async function readChatCard(chat) {
     const card = await readCard(chat.cardPath)
     if (card === undefined) throw new Error('人物卡不存在: ' + chat.cardPath)
@@ -739,7 +702,7 @@ export async function apply(ctx) {
       const linked = await readChat(item.id)
       if (linked !== undefined && linked.cardName !== cardName) {
         linked.cardName = cardName
-        await writeJson('chats/' + linked.id + '.json', linked)
+        await writeChat(linked, { source: 'card-name.sync' })
       }
     }
   }
@@ -785,7 +748,7 @@ export async function apply(ctx) {
     editorChat.workspace.mountedResources = mounted.filter(function (item) {
       return !item || item.kind !== 'play-chat' || item.path !== reference.path
     }).concat([reference])
-    await writeChat(editorChat)
+    await writeChat(editorChat, { source: 'play-chat.attach' })
     return reference
   }
 
@@ -841,7 +804,7 @@ export async function apply(ctx) {
     const frames = Array.isArray(current.frames) ? current.frames.filter(function (item) { return Number(item && item.partIndex) !== index }) : []
     frames.push(Object.assign({ partIndex: index }, capture))
     message.displayRuntime = { version: 1, sourceActivityAt, frames: frames.sort(function (a, b) { return a.partIndex - b.partIndex }) }
-    await writeChat(chat)
+    await writeChat(chat, { source: 'display.capture' })
     return { captured: true, turn, partIndex: index, captureKind: capture.captureKind }
   }
 
@@ -1159,7 +1122,7 @@ export async function apply(ctx) {
     }
     await sessionStore.flush(target.session)
     chat.nativeOpeningAppended = true
-    await writeChat(chat)
+    await writeChat(chat, { source: 'opening.native-append' })
   }
 
   async function scriptPreviewOf(chat) {
@@ -1237,7 +1200,7 @@ export async function apply(ctx) {
       const sanitized = sanitizeAgentProjectionText(existing)
       if (sanitized !== existing) {
         chat.cardContextSnapshot = sanitized
-        await writeChat(chat)
+        await writeChat(chat, { source: 'card-context.sanitize' })
       }
       return sanitized
     }
@@ -1247,7 +1210,7 @@ export async function apply(ctx) {
       const snapshot = await buildPlayCardSnapshot(chat, resolvedCard)
       chat.cardContextSnapshot = snapshot
       chat.cardContextSnapshotVersion = 3
-      await writeChat(chat)
+      await writeChat(chat, { source: 'card-context.snapshot' })
       return snapshot
     })()
     cardSnapshotBuilds.set(chat.id, build)
@@ -1260,6 +1223,11 @@ export async function apply(ctx) {
   const runtimePresetSnapshots = new Map()
   const backgroundAgentRunner = createBackgroundAgentRunner({
     agents: agentRegistry,
+    agentPreset: 'tavern-background',
+    setupAgent: async function (childCtx) {
+      await agentPresets.mount(childCtx, 'tavern-background')
+    },
+    compactAgent: executeBackgroundCompaction,
     flushSession: async function (session) {
       const sessions = ctx.get('sessions')
       if (sessions === undefined) throw new Error('dsh-tavern: 缺少 sessions 服务')
@@ -1280,10 +1248,34 @@ export async function apply(ctx) {
     }
   })
   ctx.effect(() => () => backgroundAgentRunner.dispose(), 'dsh-tavern: dispose resident background agents')
+  let tavernCompaction = null
   const backgroundTasks = createBackgroundTaskCoordinator({
     store: { readChat, writeChat },
-    timeline: storyTimeline
+    timeline: storyTimeline,
+    blocked: function (chat) { return tavernCompaction !== null && tavernCompaction.blocked(chat) }
   })
+  tavernCompaction = createTavernCompactionCoordinator({
+    store: { chatForSession, updateChat },
+    activity: function (chat) { return backgroundTasks.activity(chat) },
+    now: Date.now
+  })
+  async function compactBackground(sessionId, operationId) {
+    const backgroundSessionId = await tavernCompaction.backgroundTarget(sessionId, operationId)
+    if (backgroundSessionId === '') return { status: 'skipped', message: '没有后台 Session' }
+    try {
+      const result = await backgroundAgentRunner.compact({ sessionId: backgroundSessionId })
+      if (result === null) return { status: 'succeeded', message: '没有可压缩的后台历史' }
+      if (typeof result.message === 'string' && result.message !== '') {
+        return { status: 'succeeded', message: result.message }
+      }
+      return {
+        status: 'succeeded',
+        message: 'Compacted ' + result.shadowedSeqs.length + ' history items (~' + result.shadowedTokenCount + ' tokens).'
+      }
+    } catch (error) {
+      return { status: 'failed', message: str(error && error.message || error) || '后台压缩失败' }
+    }
+  }
   const candidateGenerator = createCandidateGenerator({
     store: {
       chatForSession: chatForSession,
@@ -1309,7 +1301,7 @@ export async function apply(ctx) {
       if (isOpeningAwaitingSettlement(current)) {
         current.settleStatus = 'running'
         current.settleError = null
-        await writeChat(current)
+        await writeChat(current, { source: 'settlement.opening-prepare' })
         shouldRun = true
       }
       const activity = backgroundTasks.activity(current)
@@ -1351,7 +1343,10 @@ export async function apply(ctx) {
           sessionId: input.sessionId,
           messageId: input.messageId,
           guidance: input.guidance,
-          requestId: task.requestId
+          requestId: task.requestId,
+          async onStage(stage) {
+            await taskMailbox.transition(chatId, taskId, { status: 'running', stage, operationId })
+          }
         })
         operationId = str(prepared.operationId)
         await taskMailbox.transition(chatId, taskId, { status: 'running', stage: 'generating', operationId })
@@ -1469,7 +1464,7 @@ export async function apply(ctx) {
     if (chat.guides.length >= 20) throw new Error('Guide 数量已达上限（20 条）')
     chat.guides.push({ id: uid('guide'), text: guide, createdAt: Date.now() })
     chat.updatedAt = Date.now()
-    await writeChat(chat)
+    await writeChat(chat, { source: 'guide.add' })
     return chat.guides
   }
   async function deleteGuide(sessionId, index) {
@@ -1480,7 +1475,7 @@ export async function apply(ctx) {
     if (idx < 0) throw new Error('Guide 序号无效')
     chat.guides.splice(idx, 1)
     chat.updatedAt = Date.now()
-    await writeChat(chat)
+    await writeChat(chat, { source: 'guide.delete' })
     return chat.guides
   }
   async function setPlayerName(sessionId, userName) {
@@ -1490,7 +1485,7 @@ export async function apply(ctx) {
     const name = str(userName).trim().slice(0, 80) || '你'
     if (chat.macroState === null || typeof chat.macroState !== 'object') chat.macroState = { userName: name, local: {}, global: {} }
     else chat.macroState.userName = name
-    await writeChat(chat)
+    await writeChat(chat, { source: 'player-name.set' })
     return name
   }
   async function setRequestMode(sessionId, requestMode) {
@@ -1595,7 +1590,7 @@ export async function apply(ctx) {
     if (error === null) latest.worldBookReads = prepared.recordReads(latest.worldBookReads)
     latest.worldBookError = error
     latest.lastWorldBookRecall = Object.assign({}, latest.preparedWorldBook)
-    await writeChat(latest)
+    await writeChat(latest, { source: 'worldbook.projection' })
     return latest
   }
   async function runSettlement(chatId) {
@@ -1696,7 +1691,7 @@ export async function apply(ctx) {
     if (isOpeningAwaitingSettlement(chat)) {
       chat.settleStatus = 'running'
       chat.settleError = null
-      await writeChat(chat)
+      await writeChat(chat, { source: 'settlement.opening-prepare' })
       shouldRun = true
     }
     const activity = backgroundTasks.activity(chat)
@@ -1800,6 +1795,7 @@ export async function apply(ctx) {
   await fileResources.migrateLegacy(await readIndex(), readJson, writeIndex, readChat, writeChat)
   await migrateLegacyPresetPlans()
   await bundledExamples.install()
+  await resourceGraph.recover()
   const recoveredIndex = await readIndex()
   for (const row of recoveredIndex.chats || []) {
     const chat = await readChat(row.id)
@@ -1855,7 +1851,7 @@ export async function apply(ctx) {
     async function restoreFailedRegen() {
       const failedChat = await readChat(chat.id)
       const restored = storyTimeline.apply({ chat: failedChat || chat, intent: { kind: 'replacement.abort', restoreChat: originalChat } })
-      await writeChat(restored.chat)
+      await writeChat(restored.chat, { source: 'foreground.regen-abort' })
     }
     let legacyBefore = null
     if (storyTimeline.inspect({ chat }).checkpointCount === 0) {
@@ -1883,10 +1879,11 @@ export async function apply(ctx) {
         legacyBefore.scriptState = scriptContinuity.transition({ script, state: chat.scriptState, event: { kind: 'restore', revision, reference } }).state
       }
     }
-    const rolled = storyTimeline.apply({ chat, intent: { kind: 'turn.rollback', turn: oldTurn, legacyBefore } })
+    const rollbackIntent = await prepareRollbackIntent(chat, { kind: 'turn.rollback', turn: oldTurn, legacyBefore })
+    const rolled = storyTimeline.apply({ chat, intent: rollbackIntent })
     chat = rolled.chat
     chat.regenInProgress = true
-    await writeChat(chat)
+    await writeChat(chat, { source: 'rollback.regen' })
     const guide = str(guidance).trim()
     const syntheticText = '【重新生成正文】\n原玩家输入：\n' + originalUserText + '\n\n指导意见：\n' + (guide !== '' ? guide : '（无）') + '\n\n请根据原玩家输入和指导意见重新生成小说正文。'
     const beforeLastTurn = agent.phase !== undefined && agent.phase !== null && Number.isFinite(Number(agent.phase.lastTurn)) ? Number(agent.phase.lastTurn) : 0
@@ -1930,7 +1927,7 @@ export async function apply(ctx) {
     delete latest.regenInProgress
     latest.settleStatus = 'pending'
     latest.settleError = null
-    await writeChat(latest)
+    await writeChat(latest, { source: 'foreground.regen-commit' })
     // 模型面遮蔽旧正文；新正文由正常 Agent 回合生成，UI 隐藏旧 turn tail 与合成的重新生成用户消息
     if (nodes.indexOf(oldSeq) >= 0) {
       session.append('assistant/message', {
@@ -2036,14 +2033,12 @@ export async function apply(ctx) {
       const reference = rollbackCommit !== null && rollbackCommit.scriptReference !== null && typeof rollbackCommit.scriptReference === 'object' ? rollbackCommit.scriptReference : null
       legacyBefore.scriptState = scriptContinuity.transition({ script: script, state: chat.scriptState, event: { kind: 'restore', revision: revision, reference: reference } }).state
     }
-    const rolled = storyTimeline.apply({
-      chat,
-      intent: { kind: 'turn.rollback', turn: hiddenTurn, legacyBefore }
-    })
+    const rollbackIntent = await prepareRollbackIntent(chat, { kind: 'turn.rollback', turn: hiddenTurn, legacyBefore })
+    const rolled = storyTimeline.apply({ chat, intent: rollbackIntent })
     chat = rolled.chat
     if (rollbackCommitKey !== '') delete chat.nativeCommits[rollbackCommitKey]
     chat.updatedAt = Date.now()
-    await writeChat(chat)
+    await writeChat(chat, { source: 'rollback' })
 
     // 3) 原生消息面：用空消息替换最近一轮的所有 surface 节点（模型不再看到），UI 由客户端隐藏对应 turn tail
     session.append('assistant/message', {
@@ -2223,6 +2218,9 @@ export async function apply(ctx) {
         }
       }
       case 'getSession': return { view: await sessionView(args && args.sessionId) }
+      case 'prepareCompaction': return { plan: await tavernCompaction.prepare(args && args.sessionId) }
+      case 'compactBackground': return { result: await compactBackground(args && args.sessionId, args && args.operationId) }
+      case 'completeCompaction': return { result: await tavernCompaction.complete(args && args.sessionId, args) }
       case 'syncSession': return { sync: await sessionSync(args && args.sessionId, { requestId: args && args.requestId, kind: args && args.kind }) }
       case 'submitTask': {
         if (str(args && args.kind) !== 'candidate') throw new Error('暂不支持的持久任务类型: ' + str(args && args.kind))
@@ -2272,7 +2270,7 @@ export async function apply(ctx) {
     const links = await readSessionMap()
     const chatId = str(links && links[normalizedSessionId])
     const liveSession = Boolean(agentRegistry.get(normalizedSessionId) && agentRegistry.get(normalizedSessionId).session)
-    const chatVersion = chatId === '' ? '' : await profileData.version('chats/' + chatId + '.json')
+    const chatVersion = chatId === '' ? '' : await chatPersistence.version(chatId)
     const projectionVersion = await profileData.version('card-projection-revisions.json')
     return [runtimeGeneration, liveSession ? '1' : '0', chatId, chatVersion, projectionVersion].join(':')
   }
@@ -2451,7 +2449,7 @@ export async function apply(ctx) {
       chat.bypassPlanId = ''
       chat.runtimePresetPath = ''
       if (needsClearing) {
-        await profileData.updateJson('chats/' + chat.id + '.json', function (current) {
+        await updateChat(chat.id, function (current) {
           if (!current || typeof current !== 'object') return current
           return Object.assign({}, current, {
             runtimePresetSnapshot: null,
@@ -2459,7 +2457,7 @@ export async function apply(ctx) {
             runtimePresetPath: '',
             updatedAt: Date.now()
           })
-        })
+        }, { source: 'runtime-preset.clear' })
       }
       return null
     }
@@ -2471,7 +2469,7 @@ export async function apply(ctx) {
     chat.bypassPlanId = planId
     chat.runtimePresetPath = ''
     chat.macroState = resolved.macroState
-    await profileData.updateJson('chats/' + chat.id + '.json', function (current) {
+    await updateChat(chat.id, function (current) {
       if (!current || typeof current !== 'object') return current
       return Object.assign({}, current, {
         runtimePresetSnapshot: resolved.snapshot,
@@ -2480,7 +2478,7 @@ export async function apply(ctx) {
         macroState: resolved.macroState,
         updatedAt: Date.now()
       })
-    })
+    }, { source: 'runtime-preset.resolve' })
     return resolved.snapshot
   }
 

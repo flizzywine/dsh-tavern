@@ -540,7 +540,7 @@ async function installProfile(host = 'cli') {
 
   installPluginDependencies(dshVersion)
   const configuration = prepareProfileConfiguration(host, dshVersion)
-  const transaction = beginProfileConfigurationUpdate({
+  const transaction = await beginProfileConfigurationUpdate({
     profileDir: PROFILE_DIR,
     manifest: configuration.manifest,
     patchText: configuration.patchText,
@@ -555,7 +555,7 @@ async function installProfile(host = 'cli') {
     ensureSidebarDefaults()
     transaction.commit()
   } catch (error) {
-    transaction.rollback()
+    await transaction.rollback()
     throw error
   }
   if (host === 'cli') installCommand()

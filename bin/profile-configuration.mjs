@@ -3,12 +3,10 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
-  renameSync,
-  unlinkSync,
-  writeFileSync,
 } from 'node:fs'
 import path from 'node:path'
 import { isMap, isScalar, isSeq, parseDocument } from 'yaml'
+import { createDurableFilePromotion } from '../tavern-plugin/lib/durable-file-promotion.js'
 
 export const PROFILE_CONFIGURATION_VERSION = 1
 
@@ -195,21 +193,15 @@ export function prepareProfilePatch({ profileDir, templateText, legacyManagedTex
   }
 }
 
-function atomicWrite(file, source) {
-  const temporary = `${file}.tmp-${process.pid}-${Date.now()}`
-  writeFileSync(temporary, source, 'utf8')
-  renameSync(temporary, file)
-}
-
-function restore(file, source) {
+async function restore(files, file, source) {
   if (source === null) {
-    if (existsSync(file)) unlinkSync(file)
+    await files.remove(file)
     return
   }
-  atomicWrite(file, source)
+  await files.write(file, source)
 }
 
-export function beginProfileConfigurationUpdate({ profileDir, manifest, patchText, timestamp = defaultTimestamp() }) {
+export async function beginProfileConfigurationUpdate({ profileDir, manifest, patchText, timestamp = defaultTimestamp(), files = createDurableFilePromotion() }) {
   mkdirSync(profileDir, { recursive: true })
   const manifestPath = path.join(profileDir, 'package.json')
   const patchPath = path.join(profileDir, 'cordis.patch.yml')
@@ -221,20 +213,20 @@ export function beginProfileConfigurationUpdate({ profileDir, manifest, patchTex
   }
   let active = true
   try {
-    atomicWrite(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
-    if (patchText !== undefined) atomicWrite(patchPath, patchText)
+    await files.write(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
+    if (patchText !== undefined) await files.write(patchPath, patchText)
   } catch (error) {
-    restore(manifestPath, originalManifest)
-    if (patchText !== undefined) restore(patchPath, originalPatch)
+    await restore(files, manifestPath, originalManifest)
+    if (patchText !== undefined) await restore(files, patchPath, originalPatch)
     throw error
   }
   return Object.freeze({
     backups,
     commit() { active = false },
-    rollback() {
+    async rollback() {
       if (!active) return false
-      restore(manifestPath, originalManifest)
-      if (patchText !== undefined) restore(patchPath, originalPatch)
+      await restore(files, manifestPath, originalManifest)
+      if (patchText !== undefined) await restore(files, patchPath, originalPatch)
       active = false
       return true
     },

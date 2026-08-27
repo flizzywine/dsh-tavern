@@ -1,5 +1,6 @@
-import { access, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { access, readFile } from 'node:fs/promises'
 import path from 'node:path'
+import { createDurableFilePromotion } from '../durable-file-promotion.js'
 
 const SKILL_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 
@@ -38,6 +39,7 @@ function renderSkill(input) {
 export function createTavernSkillModule(options = {}) {
   const directory = path.resolve(str(options.directory))
   const builtInDirectory = path.resolve(str(options.builtInDirectory))
+  const files = options.files || createDurableFilePromotion(options.filePromotion)
   if (str(options.directory) === '' || str(options.builtInDirectory) === '') throw new Error('Tavern Skill Module 缺少目录')
 
   function target(root, name) {
@@ -73,19 +75,7 @@ export function createTavernSkillModule(options = {}) {
       modelInvocable: input.modelInvocable,
       userInvocable: input.userInvocable
     })
-    await mkdir(path.dirname(destination), { recursive: true })
-    const temporary = destination + '.tmp-' + process.pid + '-' + Math.random().toString(36).slice(2, 8)
-    const backup = destination + '.bak-' + process.pid + '-' + Math.random().toString(36).slice(2, 8)
-    await writeFile(temporary, content)
-    try {
-      if (present) await rename(destination, backup)
-      await rename(temporary, destination)
-      if (present) await rm(backup, { force: true })
-    } catch (error) {
-      await rm(temporary, { force: true })
-      if (present && await exists(backup) && !await exists(destination)) await rename(backup, destination)
-      throw error
-    }
+    await files.write(destination, content)
     return { name, source: 'user', path: destination, content, chars: content.length, overwritten: present }
   }
 

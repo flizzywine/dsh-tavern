@@ -62,6 +62,21 @@ export function maximumBackgroundTokens(selection) {
   return undefined
 }
 
+export async function executeBackgroundCompaction(agent, signal) {
+  const agentCtx = agent && agent.ctx
+  const commands = agentCtx !== undefined && typeof agentCtx.get === 'function' ? agentCtx.get('commands') : undefined
+  if (commands === undefined || typeof commands.execute !== 'function') {
+    throw new Error('dsh-tavern: 当前 DSH 没有提供命令服务')
+  }
+  const execution = await commands.execute(agent, '/compact', [], signal)
+  if (execution === undefined || execution.result === undefined) {
+    throw new Error('dsh-tavern: 后台 Agent 没有提供 /compact 命令')
+  }
+  const result = execution.result
+  if (result.kind !== 'success') throw new Error(str(result.text) || '后台压缩失败')
+  return { message: str(result.text) || '后台压缩完成' }
+}
+
 function traceError(error, traceSessionId, task) {
   const fallback = task === 'settlement' ? '后台状态结算失败' : '后台候选生成失败'
   const wrapped = new Error(str(error && error.message || error) || fallback, { cause: error })
@@ -72,6 +87,9 @@ function traceError(error, traceSessionId, task) {
 export function createBackgroundAgentRunner(options) {
   if (options === null || typeof options !== 'object' || options.agents === undefined) throw new Error('缺少 DSH Agent 运行环境')
   const agents = options.agents
+  const compactAgent = typeof options.compactAgent === 'function' ? options.compactAgent : null
+  const setupAgent = typeof options.setupAgent === 'function' ? options.setupAgent : null
+  const agentPreset = str(options.agentPreset)
   const makeId = typeof options.id === 'function' ? options.id : function () { return 'background-' + crypto.randomUUID() }
   const activeSessions = new Set()
   const requestContexts = new Map()
@@ -134,7 +152,8 @@ export function createBackgroundAgentRunner(options) {
   function setupFor(state, descriptor, appendDescriptor) {
     const backgroundPersona = '你是与前台正文生成隔离的酒馆后台 Agent。你会在同一个剧情分支中依次承担状态结算与候选生成；严格按本轮任务输出，不得把某类任务的输出格式混入另一类任务。最新权威状态优先于 Session 中的旧动态状态。\n\n【本轮任务规则】\n{{tavern_background_task}}'
     let descriptorAppended = !appendDescriptor
-    return function (childCtx) {
+    return async function (childCtx) {
+      if (setupAgent !== null) await setupAgent(childCtx)
       state.ctx = childCtx
       childCtx.on('agent/pre-step', async function ({ agent, turn, step }, next) {
         const decision = await next()
@@ -243,7 +262,8 @@ export function createBackgroundAgentRunner(options) {
           const meta = {
             parentSession: parent.id,
             origin: 'subagent',
-            delegationDepth: Number.isSafeInteger(parentDepth) && parentDepth >= 0 ? parentDepth + 1 : 1
+            delegationDepth: Number.isSafeInteger(parentDepth) && parentDepth >= 0 ? parentDepth + 1 : 1,
+            ...(agentPreset === '' ? {} : { agentPreset })
           }
           const cwd = str(parent.session.header && parent.session.header.cwd)
           if (cwd !== '') meta.cwd = cwd
@@ -329,6 +349,37 @@ export function createBackgroundAgentRunner(options) {
     return requestSessions.get(str(sessionId)) || null
   }
 
+  async function compact(input = {}) {
+    const sessionId = str(input.sessionId)
+    if (sessionId === '') throw new Error('缺少后台 Session ID')
+    if (compactAgent === null) throw new Error('当前 DSH 没有提供后台压缩能力')
+    if (activeSessions.has(sessionId)) throw new Error('后台 Agent 正在执行任务，请等待完成后再压缩')
+    const resident = residentHandles.get(sessionId)
+    let handle = null
+    let agent = resident && resident.handle && resident.handle.agent
+    if (agent === undefined) agent = agents.get(sessionId)
+    if (agent === undefined) {
+      if (typeof agents.resume !== 'function') throw new Error('当前 DSH 不支持恢复后台 Agent 进行压缩')
+      handle = await agents.resume({
+        resumeSessionId: sessionId,
+        ...(setupAgent === null ? {} : { setup: setupAgent })
+      })
+      agent = handle.agent
+    }
+    const signal = input.signal || new AbortController().signal
+    activeSessions.add(sessionId)
+    try {
+      if (typeof agent.whenIdle === 'function') await agent.whenIdle()
+      return await compactAgent(agent, signal)
+    } finally {
+      try {
+        if (handle !== null) await handle.dispose()
+      } finally {
+        activeSessions.delete(sessionId)
+      }
+    }
+  }
+
   async function dispose() {
     const residents = Array.from(residentHandles.values())
     residentHandles.clear()
@@ -341,5 +392,5 @@ export function createBackgroundAgentRunner(options) {
     if (failures.length > 0) throw new AggregateError(failures, '常驻后台 Agent 释放失败')
   }
 
-  return Object.freeze({ run, owns, requestContext, requestSession, dispose })
+  return Object.freeze({ run, owns, requestContext, requestSession, compact, dispose })
 }

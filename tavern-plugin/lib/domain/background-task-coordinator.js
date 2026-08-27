@@ -20,6 +20,7 @@ export function isOpeningAwaitingSettlement(chat) {
 export function createBackgroundTaskCoordinator(options = {}) {
   const store = options.store
   const timeline = options.timeline
+  const blocked = typeof options.blocked === 'function' ? options.blocked : function () { return false }
   const mutationTails = new Map()
   if (!store || typeof store.readChat !== 'function' || typeof store.writeChat !== 'function' || !timeline) {
     throw new Error('Background Task Coordinator 缺少存储或时间线 adapter')
@@ -103,6 +104,11 @@ export function createBackgroundTaskCoordinator(options = {}) {
       const latest = await store.readChat(chatId)
       const source = latest === undefined ? chat : latest
       const requestedRole = str(role)
+      if (blocked(source)) {
+        const error = new Error('Tavern 正在压缩前台与后台上下文，请等待完成')
+        error.code = 'COMPACTION_RUNNING'
+        throw error
+      }
       if (requestId !== '') {
         const operations = Object.values(timeline.inspect({ chat: source }).operations || {})
         const existing = operations.find(function (operation) {
@@ -130,7 +136,7 @@ export function createBackgroundTaskCoordinator(options = {}) {
         throw error
       }
       const next = timeline.apply({ chat: source, intent: { kind: 'agent.begin', role, requestId } })
-      await store.writeChat(next.chat)
+      await store.writeChat(next.chat, { source: 'background.' + requestedRole + '.begin', operationId: next.value.operationId, requestId })
       return next
     })
     const task = {
@@ -164,7 +170,7 @@ export function createBackgroundTaskCoordinator(options = {}) {
             },
             apply: input.apply
           })
-          await store.writeChat(completed.chat)
+          await store.writeChat(completed.chat, { source: 'background.' + str(role) + '.commit', operationId: begun.value.operationId })
           return { chat: completed.chat, status: completed.value.status }
         })
       },
@@ -181,7 +187,7 @@ export function createBackgroundTaskCoordinator(options = {}) {
       const latest = await store.readChat(chatId)
       const source = latest === undefined ? chat : latest
       const next = timeline.apply({ chat: source, intent: { kind: 'background.recover' } })
-      if (next.value.status !== 'unchanged') await store.writeChat(next.chat)
+      if (next.value.status !== 'unchanged') await store.writeChat(next.chat, { source: 'background.recover' })
       return { chat: next.chat, status: next.value.status, activity: activity(next.chat) }
     })
   }
