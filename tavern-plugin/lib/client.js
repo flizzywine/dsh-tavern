@@ -2160,6 +2160,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 						h("div", { className: "dsh-tavern-preset-summary dsh-tavern-external-preset-notice" },
 							h("strong", null, "外部预设仅供查看，无法实际运行"),
 							h("p", null, "DSH Tavern 已自带运行预设。请勾选外部预设中", h("strong", null, "与破限相关的条目"), "，", h("strong", null, "抽取为破限方案后使用"), "。"),
+							h("p", { className: "dsh-tavern-preset-warning" }, "当前仅兼容模式完成破限方案适配；游玩模式和卡片模式尚未完成适配，请勿使用。"),
+							h("p", null, "开启兼容模式：进入设置，在“DSH Tavern”中开启“启用兼容模式（实验性）”。"),
 							h("p", null, "如需控制文风、字数、人称、叙事节奏等内容偏好，请进入", h("strong", null, "卡片模式"), "修改人物卡，并将相关要求写入人物卡的", h("strong", null, "系统提示"), "或", h("strong", null, "历史后指令"), "。"),
 							h("p", { className: "dsh-tavern-preset-warning" }, "允许勾选与破限无关的条目，但这些内容可能干扰 DSH Tavern 的正常运行，请谨慎斟酌。")),
 						catalog.presets.length ? catalog.presets.map(function (item) { return h("div", { key: item.path, className: "dsh-tavern-preset-row" }, h("div", { className: "dsh-tavern-preset-row-head" }, h("button", { className: "dsh-tavern-preset-row-main", onClick: function () { load(item.path); } }, h("b", null, item.title), h("span", null, item.promptCount + " 个提示词 · " + item.regexCount + " 条可迁移正则")), h("button", { className: "dsh-tavern-resource-at", disabled: busy, onClick: function () { openExtraction(item); } }, "抽取破限方案"), h("button", { className: "dsh-tavern-resource-at", disabled: busy, onClick: function () { exportFile(item); } }, "导出"), h("button", { className: "dsh-tavern-resource-at", disabled: busy, onClick: function () { rename(item); } }, "重命名"), h("button", { className: "dsh-tavern-resource-at", disabled: busy, onClick: function () { remove(item); } }, "删除"))); }) : h("div", { className: "dsh-tavern-status-empty" }, "还没有外部预设。")));

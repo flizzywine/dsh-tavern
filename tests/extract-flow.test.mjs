@@ -501,6 +501,8 @@ test('外部预设只读，抽取时提示词手选且正则默认全部迁移',
   assert.match(panel, /这是只读的外部预设/)
   assert.match(panel, /只能用于抽取破限方案/)
   assert.match(panel, /外部预设仅供查看，无法实际运行/)
+  assert.match(panel, /当前仅兼容模式完成破限方案适配；游玩模式和卡片模式尚未完成适配，请勿使用/)
+  assert.match(panel, /开启兼容模式：进入设置，在“DSH Tavern”中开启“启用兼容模式（实验性）”/)
   assert.match(panel, /允许勾选与破限无关的条目/)
   assert.match(panel, /可能干扰 DSH Tavern 的正常运行，请谨慎斟酌/)
   assert.match(panel, /dsh-tavern-external-preset-notice/)
