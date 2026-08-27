@@ -1,6 +1,6 @@
 {
   "name": "dsh-profile-tavern",
-  "version": "0.7.2",
+  "version": "0.8.0",
   "private": true,
   "bin": {
     "dsh-tavern": "bin/dsh-tavern.mjs"
