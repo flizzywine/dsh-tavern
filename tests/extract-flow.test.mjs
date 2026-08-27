@@ -473,7 +473,7 @@ test('左侧栏常驻显示版本与构建号，并把检查更新和进行更�
   assert.match(sidebar, /currentVersionLabel/)
   assert.match(sidebar, /currentCommitLabel/)
   assert.match(sidebar, /检查更新/)
-  assert.match(sidebar, /重新检查/)
+  assert.doesNotMatch(sidebar, /重新检查/)
   assert.match(sidebar, /进行更新/)
   assert.match(sidebar, /updateStatus\.phase !== "update-available"/)
   assert.match(sidebar, /正在检查 GitHub 最新提交/)
