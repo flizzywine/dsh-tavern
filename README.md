@@ -248,4 +248,6 @@ dsh-tavern 是运行在 DSH 上的插件项目，不包含 DSH 本体。DSH 本�
 
 用户数据统一保存在 DSH 的 Tavern Profile 数据目录中。
 
-# 
+## 社区交流
+
+欢迎加入 [dsh-tavern Discord 讨论频道](https://discord.com/channels/1134557553011998840/1538577327028445194)，交流使用经验、分享人物卡或反馈问题。
