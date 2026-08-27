@@ -55,6 +55,36 @@ export function locateRollbackSurface(input) {
   })
 }
 
+export function planRegenerationSurface(input) {
+  const events = Array.isArray(input && input.events) ? input.events : []
+  const nodes = Array.isArray(input && input.nodes) ? input.nodes : []
+  const oldAssistantSeq = Number(input && input.oldAssistantSeq)
+  const eventStart = Math.max(0, Number(input && input.eventStart) || 0)
+  const oldAssistantIndex = nodes.indexOf(oldAssistantSeq)
+  if (oldAssistantIndex < 0) throw new Error('旧正文已经不在当前模型消息面中')
+
+  let finalAssistantIndex = -1
+  for (let index = nodes.length - 1; index > oldAssistantIndex; index -= 1) {
+    const seq = Number(nodes[index])
+    if (seq < eventStart) continue
+    const event = eventAt(events, seq)
+    if (event && event.type === 'assistant/message' && modelSourceOf(event) !== null) {
+      finalAssistantIndex = index
+      break
+    }
+  }
+  if (finalAssistantIndex < 0) throw new Error('重新生成流程未在当前模型消息面中产生正文')
+
+  const shadowedSeqs = nodes.slice(oldAssistantIndex, finalAssistantIndex).map(Number)
+  if (shadowedSeqs.length === 0) throw new Error('重新生成流程没有需要替换的旧消息')
+  return Object.freeze({
+    start: shadowedSeqs[0],
+    end: shadowedSeqs[shadowedSeqs.length - 1],
+    finalAssistantSeq: Number(nodes[finalAssistantIndex]),
+    shadowedSeqs: Object.freeze(shadowedSeqs)
+  })
+}
+
 export function hasRollbackMessages(messages) {
   const list = Array.isArray(messages) ? messages : []
   for (let index = list.length - 1; index >= 0; index -= 1) {

@@ -28,7 +28,7 @@ import { createRuntimePresetModule, resolveRuntimePresetMacros } from './domain/
 import { compileSillyTavernRequest } from './domain/sillytavern-compatibility.js'
 import { applySillyTavernStrictTools } from './domain/sillytavern-strict-tools.js'
 import { createEphemeralCompatibilityRequest, isCompatibilityConversationRequest } from './domain/compatibility-request.js'
-import { hasRollbackMessages, locateRollbackSurface } from './domain/rollback-surface.js'
+import { hasRollbackMessages, locateRollbackSurface, planRegenerationSurface } from './domain/rollback-surface.js'
 import { projectRuntimePresetRequest, runtimePresetPhaseMessages } from './domain/runtime-preset-lifecycle.js'
 import { createTavernRetryLimiter } from './domain/tavern-retry-limiter.js'
 import {
@@ -1928,40 +1928,22 @@ export async function apply(ctx) {
     latest.settleStatus = 'pending'
     latest.settleError = null
     await writeChat(latest, { source: 'foreground.regen-commit' })
-    // 模型面遮蔽旧正文；新正文由正常 Agent 回合生成，UI 隐藏旧 turn tail 与合成的重新生成用户消息
-    if (nodes.indexOf(oldSeq) >= 0) {
-      session.append('assistant/message', {
-        turn: oldTurn,
-        step: 1,
-        message: {
-          id: crypto.randomUUID(),
-          role: 'assistant',
-          content: [],
-          source: oldSource
-        }
-      }, {
-        surfaceOp: { op: 'replace', start: oldSeq, end: oldSeq },
-        sourceEventSeqs: [oldSeq]
-      })
-    }
+    // 一次遮蔽旧正文、此前失败回合残留与本次合成输入；新正文保持为最后一个可见模型节点
     const currentNodes = session.surface !== undefined && Array.isArray(session.surface.nodes) ? session.surface.nodes : []
-    const syntheticNodes = currentNodes.filter(function (seq) { return seq >= eventStart })
-    let finalAssistantIndex = -1
-    for (let index = syntheticNodes.length - 1; index >= 0; index--) {
-      const event = session.events[syntheticNodes[index]]
-      if (event && event.type === 'assistant/message') { finalAssistantIndex = index; break }
-    }
-    const syntheticPrefix = finalAssistantIndex > 0 ? syntheticNodes.slice(0, finalAssistantIndex) : []
-    if (syntheticPrefix.length > 0) {
-      session.append('assistant/message', {
-        turn: syntheticTurn,
-        step: 1,
-        message: { id: crypto.randomUUID(), role: 'assistant', content: [], source: oldSource }
-      }, {
-        surfaceOp: { op: 'replace', start: syntheticPrefix[0], end: syntheticPrefix[syntheticPrefix.length - 1] },
-        sourceEventSeqs: syntheticPrefix
-      })
-    }
+    const replacement = planRegenerationSurface({
+      events: session.events,
+      nodes: currentNodes,
+      oldAssistantSeq: oldSeq,
+      eventStart
+    })
+    session.append('assistant/message', {
+      turn: oldTurn,
+      step: 1,
+      message: { id: crypto.randomUUID(), role: 'assistant', content: [], source: oldSource }
+    }, {
+      surfaceOp: { op: 'replace', start: replacement.start, end: replacement.end },
+      sourceEventSeqs: replacement.shadowedSeqs
+    })
     const result = await view(latest, card)
     result.adopted = { text: body, guidance: guide, hiddenTurn: oldTurn, syntheticTurn: syntheticTurn }
     return result

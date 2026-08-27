@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { hasRollbackMessages, locateRollbackSurface } from '../tavern-plugin/lib/domain/rollback-surface.js'
+import { hasRollbackMessages, locateRollbackSurface, planRegenerationSurface } from '../tavern-plugin/lib/domain/rollback-surface.js'
 
 function modelSource() {
   return { kind: 'model', provider: 'test', model: 'test-model' }
@@ -64,4 +64,38 @@ test('回退按钮只在权威消息尾部存在用户输入与正文组合时�
   assert.equal(hasRollbackMessages([opening]), false)
   assert.equal(hasRollbackMessages([opening, user]), false)
   assert.equal(hasRollbackMessages([opening, user, assistant]), true)
+})
+
+test('重新生成正文完整遮蔽旧正文、失败回合残留和合成输入', () => {
+  const events = []
+  events[48] = {
+    seq: 48,
+    type: 'assistant/message',
+    data: { turn: 2, step: 1, message: { role: 'assistant', source: modelSource() } },
+    surfaceOp: 'append'
+  }
+  events[55] = { seq: 55, type: 'user/message', data: { role: 'user' }, surfaceOp: 'append' }
+  events[56] = { seq: 56, type: 'user/message', data: { role: 'user' }, surfaceOp: 'append' }
+  events[69] = { seq: 69, type: 'user/message', data: { role: 'user' }, surfaceOp: 'append' }
+  events[70] = { seq: 70, type: 'user/message', data: { role: 'user' }, surfaceOp: 'append' }
+  events[99] = {
+    seq: 99,
+    type: 'assistant/message',
+    data: { turn: 4, step: 1, message: { role: 'assistant', source: modelSource() } },
+    surfaceOp: 'append'
+  }
+
+  const planned = planRegenerationSurface({
+    events,
+    nodes: [6, 13, 14, 48, 55, 56, 69, 70, 99],
+    oldAssistantSeq: 48,
+    eventStart: 65
+  })
+
+  assert.deepEqual(planned, {
+    start: 48,
+    end: 70,
+    finalAssistantSeq: 99,
+    shadowedSeqs: [48, 55, 56, 69, 70]
+  })
 })
