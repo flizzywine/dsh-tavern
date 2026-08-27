@@ -46,8 +46,8 @@ test('预设 Feature module 分别注册外部预设库与破限方案库', func
 
   assert.deepEqual(Object.keys(feature), ['register'])
   assert.deepEqual(registrations.map(function (item) { return [item.id, item.title] }), [
-    ['dsh-tavern:presets', '外部预设库'],
-    ['dsh-tavern:bypass-plans', '破限方案库']
+    ['dsh-tavern:presets', '外部预设库（实验性）'],
+    ['dsh-tavern:bypass-plans', '破限方案库（实验性）']
   ])
   assert.ok(registrations.every(function (item) { return typeof item.component === 'function' }))
 })

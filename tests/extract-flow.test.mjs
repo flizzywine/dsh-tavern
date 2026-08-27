@@ -496,8 +496,8 @@ test('卡片编辑读取保留人物卡宏，只在游玩投影中展开', () =>
 test('外部预设只读，抽取时提示词手选且正则默认全部迁移', () => {
   const panel = between(clientSource, 'function createExternalPresetAndBypassPlanFeatureModule', 'function createWorldBookLibraryFeatureModule')
 
-  assert.match(panel, /title: "外部预设库"/)
-  assert.match(panel, /title: "破限方案库"/)
+  assert.match(panel, /title: "外部预设库（实验性）"/)
+  assert.match(panel, /title: "破限方案库（实验性）"/)
   assert.match(panel, /这是只读的外部预设/)
   assert.match(panel, /只能用于抽取破限方案/)
   assert.match(panel, /外部预设仅供查看，无法实际运行/)
