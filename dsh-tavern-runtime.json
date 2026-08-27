@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "revision": "c41a4c038260228bac202f1e9ddbe5bf919bb6ec",
+  "revision": "06d82f42fe5fc9ef152cbf66a3587adf722eddcc",
   "files": [
     {
       "path": "bin/dsh-tavern",
@@ -104,8 +104,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "046f679ec4412695098cea856ee3999178f1f8ba7c583b84d6a296e66fa217a8",
-      "size": 279984
+      "sha256": "5665258d48991da9f72e5c0e343b5ec7cd0764536357310595d27bc90bd8ae68",
+      "size": 279897
     },
     {
       "path": "tavern-plugin/lib/domain/agent-readiness.js",
