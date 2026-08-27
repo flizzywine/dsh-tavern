@@ -74,6 +74,12 @@ test('仓库随附的 Kemini 预设与破限方案都是可读取的发布文件
   assert.equal(plan.version, 1)
   assert.equal(plan.plan.name, planName)
   assert.deepEqual(plan.plan.compatibleModels, ['gemini-3.7-flash'])
-  assert.equal(plan.plan.entries.length, 12)
+  assert.equal(plan.plan.entries.length, 15)
+  assert.deepEqual(plan.plan.entries.slice(-4).map(function (entry) { return [entry.name, entry.enabled] }), [
+    ['📽️COT（格式友好型）', true],
+    ['📐牢大防截断', false],
+    ['💿普通防截断', false],
+    ['💠continue', true]
+  ])
   assert.equal(plan.plan.regexScripts.length, 7)
 })
