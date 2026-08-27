@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "revision": "06d82f42fe5fc9ef152cbf66a3587adf722eddcc",
+  "revision": "02cabde4823e973375378b367a6bd2e1abfb9183",
   "files": [
     {
       "path": "bin/dsh-tavern",
@@ -44,7 +44,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "2462c7e813264b9786f7e393376c629f4fc1e3cc138ede0af39a77cc2c67d160",
+      "sha256": "d33bfa698b8995642a0100b30aaa3ebf502ed2222715ee818b137101dfb79d08",
       "size": 982
     },
     {
@@ -104,8 +104,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "5665258d48991da9f72e5c0e343b5ec7cd0764536357310595d27bc90bd8ae68",
-      "size": 279897
+      "sha256": "2374507226a7ae00f861e59c6345dcb88a36989f847eeb08cdf9fba014859455",
+      "size": 279517
     },
     {
       "path": "tavern-plugin/lib/domain/agent-readiness.js",
@@ -224,8 +224,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/preset-editor.js",
-      "sha256": "923bc245e8b5088b849e710e285b27185de9d6cf9594908153aa2141820d9643",
-      "size": 7918
+      "sha256": "e70e89d455ecb9534e8c7ecdef3ca942cf3ca9d3b72d904ec124cfdffc3e6a1c",
+      "size": 8744
     },
     {
       "path": "tavern-plugin/lib/domain/preset-reading.js",
@@ -264,8 +264,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/runtime-presets.js",
-      "sha256": "4cac014dc129d1a66448ceeaa7e9c534175d785b3ce7e488c6aad5decb2c2327",
-      "size": 25542
+      "sha256": "6e31b3e6c7b3fb802c03c95a4d8032824fc09b929b0c3a10c4ea752342ddccf3",
+      "size": 28952
     },
     {
       "path": "tavern-plugin/lib/domain/script-continuity.js",
@@ -364,8 +364,8 @@
     },
     {
       "path": "tavern-plugin/lib/index.js",
-      "sha256": "1d893c459042065f3248612102c75ef7b58e405b164c1500b490c378f592c5c9",
-      "size": 178681
+      "sha256": "ee23be601af4af7ccf08f276d5d0571fe9d829079cce44dd1580b026789f21e2",
+      "size": 180156
     },
     {
       "path": "tavern-plugin/lib/profile-data-store.js",
@@ -434,7 +434,7 @@
     },
     {
       "path": "tavern-plugin/package.json",
-      "sha256": "0bc63e4f929de1e4f93b3ed830bfcc0017a261b68d60a33bf9fef25ce4f80a18",
+      "sha256": "a95f50c709245b98074b32f184f69b83b23ef30304ba1f6fd5d8dbe0fe6ebafa",
       "size": 580
     },
     {
