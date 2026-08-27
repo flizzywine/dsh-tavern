@@ -13,7 +13,12 @@ function harness(document) {
       return String(value)
     },
     readText: async function () { return text },
-    writeText: async function (_path, next) { text = next; writes += 1 }
+    writeText: async function (_path, next) { text = next; writes += 1 },
+    inspectRegexScripts: function (_inspected, source) {
+      return (source.extensions && source.extensions.regex_scripts || []).map(function (script, index) {
+        return { regexKey: String(script.id || 'regex-' + (index + 1)) + '#1', edit: { disabledPath: '/extensions/regex_scripts/' + index + '/disabled' } }
+      })
+    }
   })
   return { editor, document: function () { return JSON.parse(text) }, writes: function () { return writes } }
 }
@@ -79,4 +84,17 @@ test('条目表单拒绝未知字段与非法角色', async () => {
   await assert.rejects(run.editor.updateEntry('presets/写作.json', 'main#1', { identifier: 'other' }), /不支持修改/)
   await assert.rejects(run.editor.updateEntry('presets/写作.json', 'main#1', { role: 'developer' }), /角色必须/)
   assert.equal(run.writes(), 0)
+})
+
+test('正则开关直接写回预设自身并保留其他字段', async () => {
+  const run = harness({
+    prompts: [],
+    extensions: { regex_scripts: [{ id: 'cleanup', disabled: false, findRegex: 'x', custom: 42 }] }
+  })
+
+  const result = await run.editor.updateRegex('presets/写作.json', 'cleanup#1', false)
+
+  assert.deepEqual(result.changed, ['/extensions/regex_scripts/0/disabled'])
+  assert.equal(run.document().extensions.regex_scripts[0].disabled, true)
+  assert.equal(run.document().extensions.regex_scripts[0].custom, 42)
 })

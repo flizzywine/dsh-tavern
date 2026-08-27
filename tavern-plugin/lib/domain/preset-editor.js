@@ -92,6 +92,7 @@ export function createPresetEditor(options = {}) {
   const normalizePath = options.normalizePath
   const readText = options.readText
   const writeText = options.writeText
+  const inspectRegexScripts = options.inspectRegexScripts
   if (typeof normalizePath !== 'function' || typeof readText !== 'function' || typeof writeText !== 'function') {
     throw new Error('Preset Editor 缺少路径或存储 adapter')
   }
@@ -156,5 +157,15 @@ export function createPresetEditor(options = {}) {
     }
   }
 
-  return Object.freeze({ read, update, updateEntry })
+  async function updateRegex(path, regexKey, enabled) {
+    if (typeof inspectRegexScripts !== 'function') throw new Error('Preset Editor 缺少正则编辑 adapter')
+    if (typeof enabled !== 'boolean') throw new Error('预设正则 enabled 必须是布尔值')
+    const loaded = await load(path)
+    const inspected = inspectPreset(JSON.stringify(loaded.document), loaded.normalized)
+    const script = inspectRegexScripts(inspected, loaded.document).find(function (item) { return item.regexKey === str(regexKey) })
+    if (!script || !script.edit || !script.edit.disabledPath) throw new Error('预设正则不存在: ' + str(regexKey))
+    return await update(loaded.normalized, [{ op: 'set', path: script.edit.disabledPath, value: !enabled }])
+  }
+
+  return Object.freeze({ read, update, updateEntry, updateRegex })
 }

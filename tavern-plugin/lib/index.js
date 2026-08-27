@@ -396,13 +396,20 @@ export async function apply(ctx) {
   }
   function runtimeRegexScriptsOf(preset, document) {
     const nativeScripts = nativeRegexScriptsOf(document)
-    const source = nativeScripts.length > 0 ? nativeScripts : (Array.isArray(preset && preset.regexScripts) ? preset.regexScripts : [])
+    const nativeSource = document && document.extensions && Array.isArray(document.extensions.regex_scripts) ? document.extensions.regex_scripts : []
+    const bindingSource = document && document.extensions && document.extensions.SPreset && document.extensions.SPreset.RegexBinding && Array.isArray(document.extensions.SPreset.RegexBinding.regexes) ? document.extensions.SPreset.RegexBinding.regexes : []
+    const usingNative = nativeScripts.length > 0
+    const source = usingNative ? nativeScripts : (Array.isArray(preset && preset.regexScripts) ? preset.regexScripts : [])
+    const sourceIndexes = (usingNative ? nativeSource : bindingSource).map(function (script, index) {
+      return script !== null && typeof script === 'object' && !Array.isArray(script) ? index : null
+    }).filter(function (index) { return index !== null })
+    const sourceBase = usingNative ? '/extensions/regex_scripts/' : '/extensions/SPreset/RegexBinding/regexes/'
     const occurrences = new Map()
     return source.map(function (script, index) {
       const identifier = str(script.id) || 'regex-' + (index + 1)
       const occurrence = (occurrences.get(identifier) || 0) + 1
       occurrences.set(identifier, occurrence)
-      return Object.assign({}, script, { regexKey: identifier + '#' + occurrence })
+      return Object.assign({}, script, { regexKey: identifier + '#' + occurrence, edit: { disabledPath: sourceBase + sourceIndexes[index] + '/disabled' } })
     })
   }
   async function previewPreset(presetPath, orderGroupIndex) {
@@ -414,7 +421,8 @@ export async function apply(ctx) {
   const presetEditor = createPresetEditor({
     normalizePath: normalizeResourcePath,
     readText: async function (path) { return await fileResources.readText(path) },
-    writeText: async function (path, text) { return await fileResources.writeWorking(path, text) }
+    writeText: async function (path, text) { return await fileResources.writeWorking(path, text) },
+    inspectRegexScripts: runtimeRegexScriptsOf
   })
   const runtimePresets = createRuntimePresetModule({
     listPaths: async function () { return await fileResources.list('preset') },
@@ -2125,6 +2133,12 @@ export async function apply(ctx) {
       case 'updatePresetEntry': {
         await presetEditor.updateEntry(args && args.path, args && args.entryKey, args && args.patch)
         return { preset: await readPreset(args && args.path) }
+      }
+      case 'updatePresetRegex': {
+        const path = normalizeResourcePath(args && args.path, 'preset')
+        await presetEditor.updateRegex(path, args && args.regexKey, args && args.enabled)
+        const next = await readPreset(path)
+        return { preset: Object.assign({}, next, { extractableRegexScripts: runtimeRegexScriptsOf(next, await readPresetDocument(path)) }) }
       }
       case 'previewPresetConversion': {
         const preview = await previewPreset(args && args.path, args && args.orderGroupIndex)
