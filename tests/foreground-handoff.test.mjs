@@ -25,12 +25,14 @@ test('Foreground Turn 完成后保留待处理 Cycle，不自动启动后台工�
 
 test('失败回合只清理 Foreground Turn，不启动后台工作', async () => {
   const discarded = []
+  const cleaned = []
   const queued = []
   const handoff = createForegroundHandoff({
     turns: { async finalize() {}, async discard(input) { discarded.push(input) } },
     store: { async chatForSession() { return { id: 'chat-1' } } },
     tasks: { activity() { return { phase: 'idle', busy: false, role: '' } } },
     async queueBackground(chatId) { queued.push(chatId) },
+    async cleanupFailedTurn(input) { cleaned.push(input) },
     defer(run) { run() },
     logger: { error() {} }
   })
@@ -38,6 +40,7 @@ test('失败回合只清理 Foreground Turn，不启动后台工作', async () =
   assert.equal(handoff.end({ sessionId: 'session-1', turn: 3, reason: 'failed' }), true)
   await new Promise(function (resolve) { setImmediate(resolve) })
   assert.deepEqual(discarded, [{ sessionId: 'session-1', turn: 3 }])
+  assert.deepEqual(cleaned, [{ sessionId: 'session-1', turn: 3 }])
   assert.deepEqual(queued, [])
 })
 

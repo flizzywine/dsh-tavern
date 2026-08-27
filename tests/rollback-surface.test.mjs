@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { hasRollbackMessages, locateRollbackSurface, planRegenerationSurface } from '../tavern-plugin/lib/domain/rollback-surface.js'
+import { clearFailedTurnSurface, hasRollbackMessages, locateRollbackSurface, planFailedTurnSurface, planRegenerationSurface } from '../tavern-plugin/lib/domain/rollback-surface.js'
 
 function modelSource() {
   return { kind: 'model', provider: 'test', model: 'test-model' }
@@ -98,4 +98,49 @@ test('重新生成正文完整遮蔽旧正文、失败回合残留和合成输�
     finalAssistantSeq: 99,
     shadowedSeqs: [48, 55, 56, 69, 70]
   })
+})
+
+test('失败的正文回合从模型消息面移除本轮全部残留节点', () => {
+  const events = []
+  events[52] = { seq: 52, type: 'turn/start', data: { turn: 3 } }
+  events[55] = { seq: 55, type: 'user/message', data: { role: 'user' }, surfaceOp: 'append' }
+  events[56] = { seq: 56, type: 'user/message', data: { role: 'user' }, surfaceOp: 'append' }
+  events[64] = { seq: 64, type: 'turn/end', data: { turn: 3, reason: { kind: 'error' } } }
+
+  const planned = planFailedTurnSurface({
+    events,
+    nodes: [6, 13, 14, 48, 55, 56],
+    turn: 3
+  })
+
+  assert.deepEqual(planned, {
+    start: 55,
+    end: 56,
+    shadowedSeqs: [55, 56]
+  })
+
+  const calls = []
+  const session = {
+    events,
+    surface: { nodes: [6, 13, 14, 48, 55, 56] },
+    append(type, data, options) { calls.push({ type, data, options }) }
+  }
+  assert.equal(clearFailedTurnSurface({ session, turn: 3, id: function () { return 'cleanup-id' } }), 2)
+  assert.deepEqual(calls, [{
+    type: 'assistant/message',
+    data: {
+      turn: 3,
+      step: 1,
+      message: {
+        id: 'cleanup-id',
+        role: 'assistant',
+        content: [],
+        source: { kind: 'plugin', plugin: 'dsh-tavern-failed-turn-cleanup' }
+      }
+    },
+    options: {
+      surfaceOp: { op: 'replace', start: 55, end: 56 },
+      sourceEventSeqs: [55, 56]
+    }
+  }])
 })

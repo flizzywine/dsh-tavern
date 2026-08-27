@@ -85,6 +85,66 @@ export function planRegenerationSurface(input) {
   })
 }
 
+export function planFailedTurnSurface(input) {
+  const events = Array.isArray(input && input.events) ? input.events : []
+  const nodes = Array.isArray(input && input.nodes) ? input.nodes : []
+  const turn = Math.max(0, Number(input && input.turn) || 0)
+  let startSeq = -1
+  let endSeq = -1
+  for (const event of events) {
+    if (!event || !Number.isSafeInteger(event.seq) || Number(event.data && event.data.turn) !== turn) continue
+    if (event.type === 'turn/start') startSeq = Math.max(startSeq, event.seq)
+    if (event.type === 'turn/end') endSeq = Math.max(endSeq, event.seq)
+  }
+  if (startSeq < 0 || endSeq <= startSeq) return null
+
+  let firstIndex = -1
+  let lastIndex = -1
+  for (let index = 0; index < nodes.length; index += 1) {
+    const seq = Number(nodes[index])
+    if (seq <= startSeq || seq >= endSeq) continue
+    if (firstIndex < 0) firstIndex = index
+    lastIndex = index
+  }
+  if (firstIndex < 0 || lastIndex < firstIndex) return null
+
+  const shadowedSeqs = nodes.slice(firstIndex, lastIndex + 1).map(Number)
+  const outsideTurn = shadowedSeqs.find(function (seq) { return seq <= startSeq || seq >= endSeq })
+  if (outsideTurn !== undefined) throw new Error('失败回合的模型消息面不是连续区间，无法安全清理: ' + outsideTurn)
+  return Object.freeze({
+    start: shadowedSeqs[0],
+    end: shadowedSeqs[shadowedSeqs.length - 1],
+    shadowedSeqs: Object.freeze(shadowedSeqs)
+  })
+}
+
+export function clearFailedTurnSurface(input) {
+  const session = input && input.session
+  if (!session || typeof session.append !== 'function') return 0
+  const cleanup = planFailedTurnSurface({
+    events: session.events,
+    nodes: session.surface && session.surface.nodes,
+    turn: input.turn
+  })
+  if (cleanup === null) return 0
+  const makeId = typeof input.id === 'function' ? input.id : function () { return crypto.randomUUID() }
+  const turn = Math.max(0, Number(input.turn) || 0)
+  session.append('assistant/message', {
+    turn,
+    step: 1,
+    message: {
+      id: makeId(),
+      role: 'assistant',
+      content: [],
+      source: { kind: 'plugin', plugin: 'dsh-tavern-failed-turn-cleanup' }
+    }
+  }, {
+    surfaceOp: { op: 'replace', start: cleanup.start, end: cleanup.end },
+    sourceEventSeqs: cleanup.shadowedSeqs
+  })
+  return cleanup.shadowedSeqs.length
+}
+
 export function hasRollbackMessages(messages) {
   const list = Array.isArray(messages) ? messages : []
   for (let index = list.length - 1; index >= 0; index -= 1) {

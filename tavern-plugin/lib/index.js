@@ -28,7 +28,7 @@ import { createRuntimePresetModule, resolveRuntimePresetMacros } from './domain/
 import { compileSillyTavernRequest } from './domain/sillytavern-compatibility.js'
 import { applySillyTavernStrictTools } from './domain/sillytavern-strict-tools.js'
 import { createEphemeralCompatibilityRequest, isCompatibilityConversationRequest } from './domain/compatibility-request.js'
-import { hasRollbackMessages, locateRollbackSurface, planRegenerationSurface } from './domain/rollback-surface.js'
+import { clearFailedTurnSurface, hasRollbackMessages, locateRollbackSurface, planRegenerationSurface } from './domain/rollback-surface.js'
 import { projectRuntimePresetRequest, runtimePresetPhaseMessages } from './domain/runtime-preset-lifecycle.js'
 import { createTavernRetryLimiter } from './domain/tavern-retry-limiter.js'
 import {
@@ -1789,6 +1789,13 @@ export async function apply(ctx) {
     store: { chatForSession, readChat },
     tasks: backgroundTasks,
     queueBackground: queueSettlement,
+    cleanupFailedTurn: async function (input) {
+      const mode = await turnOrchestrator.modeFor(input.sessionId)
+      if (mode !== 'story' && mode !== 'script') return 0
+      const liveAgent = agentRegistry.get(input.sessionId)
+      const liveSession = sessionStore.get(input.sessionId) || (liveAgent && liveAgent.session)
+      return clearFailedTurnSurface({ session: liveSession, turn: input.turn })
+    },
     logger: console
   })
 
