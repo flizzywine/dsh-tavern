@@ -1043,6 +1043,13 @@ export async function apply(ctx) {
   }
   const backgroundAgentRunner = createBackgroundAgentRunner({
     agents: agentRegistry,
+    compactAgent: async function (agent, signal) {
+      const compaction = ctx.get('compaction')
+      if (compaction === undefined || typeof compaction.compactNow !== 'function') {
+        throw new Error('dsh-tavern: 当前 DSH 没有提供 compaction 服务')
+      }
+      return await compaction.compactNow(agent, signal)
+    },
     flushSession: async function (session) {
       const sessions = ctx.get('sessions')
       if (sessions === undefined) throw new Error('dsh-tavern: 缺少 sessions 服务')
@@ -1062,6 +1069,20 @@ export async function apply(ctx) {
     activity: function (chat) { return backgroundTasks.activity(chat) },
     now: Date.now
   })
+  async function compactBackground(sessionId, operationId) {
+    const backgroundSessionId = await tavernCompaction.backgroundTarget(sessionId, operationId)
+    if (backgroundSessionId === '') return { status: 'skipped', message: '没有后台 Session' }
+    try {
+      const result = await backgroundAgentRunner.compact({ sessionId: backgroundSessionId })
+      if (result === null) return { status: 'succeeded', message: '没有可压缩的后台历史' }
+      return {
+        status: 'succeeded',
+        message: 'Compacted ' + result.shadowedSeqs.length + ' history items (~' + result.shadowedTokenCount + ' tokens).'
+      }
+    } catch (error) {
+      return { status: 'failed', message: str(error && error.message || error) || '后台压缩失败' }
+    }
+  }
   function presetPathForChat(chat) {
     if (!chat || typeof chat !== 'object') return ''
     const snapshot = chat.runtimePresetSnapshot
@@ -2036,6 +2057,7 @@ export async function apply(ctx) {
       }
       case 'getSession': return { view: await sessionView(args && args.sessionId) }
       case 'prepareCompaction': return { plan: await tavernCompaction.prepare(args && args.sessionId) }
+      case 'compactBackground': return { result: await compactBackground(args && args.sessionId, args && args.operationId) }
       case 'completeCompaction': return { result: await tavernCompaction.complete(args && args.sessionId, args) }
       case 'syncSession': return { sync: await sessionSync(args && args.sessionId, { requestId: args && args.requestId, kind: args && args.kind }) }
       case 'submitTask': {

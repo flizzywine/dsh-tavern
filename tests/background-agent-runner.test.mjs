@@ -9,6 +9,25 @@ test('DeepSeek V4 后台任务采用官方最大输出，其他模型交给适�
   assert.equal(maximumBackgroundTokens({ provider: 'test', model: 'scripted' }), undefined)
 })
 
+test('后台压缩由宿主直接交给 subagent Agent，不经过跨 Session 远程路由', async () => {
+  const session = { id: 'background-owned', header: { origin: 'subagent' } }
+  const child = { session, async whenIdle() {} }
+  let compacted = null
+  const runner = createBackgroundAgentRunner({
+    agents: { get(id) { return id === session.id ? child : undefined } },
+    async compactAgent(agent, signal) {
+      assert.equal(signal.aborted, false)
+      compacted = agent
+      return { shadowedSeqs: [1, 2], shadowedTokenCount: 200 }
+    }
+  })
+
+  const result = await runner.compact({ sessionId: session.id })
+
+  assert.equal(compacted, child)
+  assert.deepEqual(result, { shadowedSeqs: [1, 2], shadowedTokenCount: 200 })
+})
+
 test('后台 Runner 执行候选任务，查询超限后提示开始推理而不终止回合', async () => {
   const parent = {
     id: 'parent-session',

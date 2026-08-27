@@ -46,6 +46,18 @@ test('联合压缩计划包含前台与当前后台 Session，并在执行期间
   })
   assert.equal(app.coordinator.blocked(app.read()), true)
   assert.equal(app.read().timeline.participants.background.requiresNewSessionOnRewind, true)
+  assert.equal(await app.coordinator.backgroundTarget('foreground-1', plan.operationId), 'background-1')
+})
+
+test('后台压缩目标只能由当前前台压缩计划解析', async function () {
+  const app = harness()
+  const plan = await app.coordinator.prepare('foreground-1')
+
+  await assert.rejects(
+    () => app.coordinator.backgroundTarget('foreground-1', 'wrong-operation'),
+    function (error) { return error && error.code === 'COMPACTION_PLAN_STALE' }
+  )
+  assert.equal(await app.coordinator.backgroundTarget('foreground-1', plan.operationId), 'background-1')
 })
 
 test('后台任务运行时拒绝开始联合压缩', async function () {

@@ -122,5 +122,18 @@ export function createTavernCompactionCoordinator(options = {}) {
     return { operationId: plan.operationId, status, foreground, background }
   }
 
-  return Object.freeze({ prepare, complete, blocked })
+  async function backgroundTarget(sessionId, operationId) {
+    const foregroundSessionId = str(sessionId)
+    const chat = await store.chatForSession(foregroundSessionId)
+    if (chat === undefined) throw new Error('当前会话没有绑定 Tavern 对话')
+    const plan = active(chat.id)
+    if (plan === null || plan.operationId !== str(operationId) || plan.foregroundSessionId !== foregroundSessionId) {
+      const error = new Error('压缩计划已失效，请重新执行')
+      error.code = 'COMPACTION_PLAN_STALE'
+      throw error
+    }
+    return plan.backgroundSessionId
+  }
+
+  return Object.freeze({ prepare, complete, backgroundTarget, blocked })
 }

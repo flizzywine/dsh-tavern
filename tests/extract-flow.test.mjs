@@ -612,7 +612,8 @@ test('游玩对话压缩前台与后台 Session，并保留各自的压缩结果
 
   assert.match(action, /rpc\("prepareCompaction", \{\}, props\.sessionId\)/)
   assert.match(action, /executeTarget\(plan\.foregroundSessionId/)
-  assert.match(action, /executeTarget\(plan\.backgroundSessionId/)
+  assert.match(action, /rpc\("compactBackground", \{ operationId: plan\.operationId \}, props\.sessionId\)/)
+  assert.doesNotMatch(action, /executeTarget\(plan\.backgroundSessionId/)
   assert.match(action, /props\.executeCompact\(sessionId\)/)
   assert.match(action, /rpc\("completeCompaction"/)
   assert.match(action, /部分成功/)
@@ -628,6 +629,7 @@ test('游玩对话压缩前台与后台 Session，并保留各自的压缩结果
   assert.doesNotMatch(action, /rpc\("getSession"/)
   assert.doesNotMatch(clientSource, /id: "dsh-tavern-context-compaction"/)
   assert.match(clientSource, /ctx\.remote\.commands\.execute\(sessionId, "\/compact", \[\]\)/)
+  assert.match(serverSource, /case 'compactBackground'/)
   assert.match(clientSource, /"remote", "remote\.commands"/)
 })
 

@@ -220,6 +220,7 @@ function traceError(error, traceSessionId, task) {
 export function createBackgroundAgentRunner(options) {
   if (options === null || typeof options !== 'object' || options.agents === undefined) throw new Error('缺少 DSH Agent 运行环境')
   const agents = options.agents
+  const compactAgent = typeof options.compactAgent === 'function' ? options.compactAgent : null
   const makeId = typeof options.id === 'function' ? options.id : function () { return 'background-' + crypto.randomUUID() }
   const activeSessions = new Set()
   const residentHandles = new Map()
@@ -452,6 +453,34 @@ export function createBackgroundAgentRunner(options) {
     return activeSessions.has(id) || residentHandles.has(id)
   }
 
+  async function compact(input = {}) {
+    const sessionId = str(input.sessionId)
+    if (sessionId === '') throw new Error('缺少后台 Session ID')
+    if (compactAgent === null) throw new Error('当前 DSH 没有提供后台压缩能力')
+    if (activeSessions.has(sessionId)) throw new Error('后台 Agent 正在执行任务，请等待完成后再压缩')
+    const resident = residentHandles.get(sessionId)
+    let handle = null
+    let agent = resident && resident.handle && resident.handle.agent
+    if (agent === undefined) agent = agents.get(sessionId)
+    if (agent === undefined) {
+      if (typeof agents.resume !== 'function') throw new Error('当前 DSH 不支持恢复后台 Agent 进行压缩')
+      handle = await agents.resume({ resumeSessionId: sessionId })
+      agent = handle.agent
+    }
+    const signal = input.signal || new AbortController().signal
+    activeSessions.add(sessionId)
+    try {
+      if (typeof agent.whenIdle === 'function') await agent.whenIdle()
+      return await compactAgent(agent, signal)
+    } finally {
+      try {
+        if (handle !== null) await handle.dispose()
+      } finally {
+        activeSessions.delete(sessionId)
+      }
+    }
+  }
+
   async function dispose() {
     const residents = Array.from(residentHandles.values())
     residentHandles.clear()
@@ -487,5 +516,5 @@ export function createBackgroundAgentRunner(options) {
     }
   }
 
-  return Object.freeze({ run, owns, reproject, dispose })
+  return Object.freeze({ run, owns, compact, reproject, dispose })
 }

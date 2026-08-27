@@ -2707,7 +2707,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 						const plan = prepared.plan;
 						const foreground = await executeTarget(plan.foregroundSessionId, "没有前台 Session");
 						const background = plan.backgroundSessionId
-							? await executeTarget(plan.backgroundSessionId, "没有后台 Session")
+							? (await rpc("compactBackground", { operationId: plan.operationId }, props.sessionId)).result
 							: { status: "skipped", message: "没有后台 Session" };
 						const completed = await rpc("completeCompaction", { operationId: plan.operationId, foreground: foreground, background: background }, props.sessionId);
 						setResultTitle("前台：" + foreground.message + "；后台：" + background.message);
