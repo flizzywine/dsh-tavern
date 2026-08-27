@@ -164,6 +164,8 @@ export function resolveRuntimePresetMacros(snapshot, options = {}) {
 export function createRuntimePresetModule(options = {}) {
   const listPaths = options.listPaths
   const readPreset = options.readPreset
+  const readPresetDocument = typeof options.readPresetDocument === 'function' ? options.readPresetDocument : async function () { return {} }
+  const runtimeRegexScripts = typeof options.runtimeRegexScripts === 'function' ? options.runtimeRegexScripts : function (preset) { return regexesWithKeys(preset) }
   const readState = options.readState
   const updateState = options.updateState
   const now = typeof options.now === 'function' ? options.now : Date.now
@@ -373,6 +375,66 @@ export function createRuntimePresetModule(options = {}) {
     }
   }
 
+  async function fullSnapshot(requestedPath) {
+    const current = await state()
+    const activePath = typeof requestedPath === 'string' && requestedPath !== '' ? requestedPath : current.activePreset
+    if (activePath === '') return null
+    try {
+      const available = new Set(await listPaths())
+      if (!available.has(activePath)) throw new Error('预设已不存在：' + activePath)
+      const preset = await readPreset(activePath)
+      if (!preset || preset.valid !== true || preset.recognized !== true) throw new Error('预设无法读取：' + activePath)
+      const phases = new Map()
+      const draft = preset.dshPreset && typeof preset.dshPreset === 'object' ? preset.dshPreset : null
+      if (draft) {
+        for (const phase of ['front', 'middle', 'back']) {
+          for (const entry of (Array.isArray(draft[phase]) ? draft[phase] : [])) phases.set(String(entry.id || ''), phase)
+        }
+      }
+      const phaseEntries = { front: [], middle: [], back: [] }
+      const sources = []
+      for (const entry of (Array.isArray(preset.entries) ? preset.entries : [])) {
+        if (entry.ordered !== true || entry.enabled === false || entry.marker === true || entry.injectable !== true) continue
+        const phase = phases.get(entry.entryKey) || (Number(entry.injectionPosition) === 1 ? 'middle' : 'front')
+        const projected = {
+          id: entry.entryKey,
+          role: entry.role,
+          content: entry.content,
+          name: entry.name,
+          source: { path: activePath, entryKey: entry.entryKey, identifier: entry.identifier, name: entry.name }
+        }
+        phaseEntries[phase].push(projected)
+        sources.push(Object.assign({ phase }, projected.source))
+      }
+      const document = await readPresetDocument(activePath)
+      const regexScripts = runtimeRegexScripts(preset, document).filter(function (script) {
+        return script.enabled !== false && String(script.findRegex || '') !== ''
+      }).map(function (script) { return Object.assign({}, script, { enabled: true }) })
+      const front = phaseValue(phaseEntries.front)
+      const middle = phaseValue(phaseEntries.middle)
+      const back = phaseValue(phaseEntries.back)
+      const result = {
+        presetPath: activePath,
+        presetName: preset.title,
+        front,
+        middle,
+        back,
+        text: [front.text, middle.text, back.text].filter(Boolean).join('\n\n'),
+        sources,
+        regexScripts,
+        regexSources: regexScripts.map(function (script) { return { path: activePath, regexKey: script.regexKey, id: script.id, name: script.name } }),
+        createdAt: now()
+      }
+      result.digest = createHash('sha256').update(JSON.stringify({ front, middle, back, regexScripts })).digest('hex')
+      if (current.lastError !== null) await mutate(function (latest) { latest.lastError = null; return latest })
+      return result
+    } catch (error) {
+      const message = '预设加载失败：' + (error instanceof Error ? error.message : String(error))
+      await persistError(message)
+      throw new Error(message)
+    }
+  }
+
   async function regexScriptsFor(snapshot) {
     const path = presetPathOf(snapshot)
     if (path === '') return []
@@ -526,5 +588,5 @@ export function createRuntimePresetModule(options = {}) {
     })
   }
 
-  return { register, state, view, select, toggle, toggleRegex, disablePreset, disableAll, snapshot, regexScriptsFor, plans, savePlan, applyPlan, renamePlan, removePlan, rename, remove }
+  return { register, state, view, select, toggle, toggleRegex, disablePreset, disableAll, snapshot, fullSnapshot, regexScriptsFor, plans, savePlan, applyPlan, renamePlan, removePlan, rename, remove }
 }

@@ -84,6 +84,24 @@ test('首次导入沿用酒馆预设自己的条目和正则默认状态', async
   assert.equal(snapshot.regexScripts[0].regexKey, 'status#1')
 })
 
+test('整份预设快照每次读取源文件的原始启用状态，不依赖条目选择副本', async () => {
+  const value = harness()
+  await value.module.register('presets/先导入.json')
+  await value.module.select('presets/先导入.json')
+  await value.module.toggle({ path: 'presets/先导入.json', entryKey: 'a#1', enabled: false })
+  await value.module.toggle({ path: 'presets/先导入.json', entryKey: 'b#1', enabled: true })
+
+  let snapshot = await value.module.fullSnapshot()
+  assert.equal(snapshot.presetPath, 'presets/先导入.json')
+  assert.equal(snapshot.front.text, '第一段')
+  assert.deepEqual(snapshot.regexScripts.map(function (script) { return script.regexKey }), ['status#1'])
+
+  value.presets.get('presets/先导入.json').entries[0].content = '编辑后立即生效'
+  value.presets.get('presets/先导入.json').entries[2].enabled = true
+  snapshot = await value.module.fullSnapshot()
+  assert.equal(snapshot.front.text, '编辑后立即生效\n\n第二段')
+})
+
 test('提示词只维护一套开启状态，不再叠加酒馆默认开关', async () => {
   const value = harness()
   await value.module.register('presets/先导入.json')

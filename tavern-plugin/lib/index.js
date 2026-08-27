@@ -419,6 +419,8 @@ export async function apply(ctx) {
   const runtimePresets = createRuntimePresetModule({
     listPaths: async function () { return await fileResources.list('preset') },
     readPreset,
+    readPresetDocument,
+    runtimeRegexScripts: runtimeRegexScriptsOf,
     readState: async function () { return await readJson('runtime-presets.json') },
     updateState: async function (updater) { return await profileData.updateJson('runtime-presets.json', updater) },
     now: Date.now
@@ -463,6 +465,14 @@ export async function apply(ctx) {
         console.warn('dsh-tavern: 旧预设方案迁移失败', candidate.path, error)
       }
     }
+  }
+  async function migrateActivePresetSelection() {
+    const legacy = await bypassPlans.state()
+    const activePlan = legacy.plans.find(function (plan) { return plan.id === legacy.activePlanId })
+    if (!activePlan) return
+    const path = str(activePlan.source && activePlan.source.presetPath)
+    if (path !== '' && await readPreset(path)) await runtimePresets.select(path)
+    await bypassPlans.activate('')
   }
 
   async function migrateLegacyChatPreset(chat) {
@@ -883,12 +893,11 @@ export async function apply(ctx) {
         scriptProgress = scriptContinuity.inspect({ script: script, state: chat.scriptState, request: { kind: 'progress' } })
       }
     }
-    const activeBypassSnapshot = await bypassPlans.snapshot()
-    const activeBypassPlanId = str(activeBypassSnapshot && activeBypassSnapshot.planId)
+    const activePresetSnapshot = chat.requestMode === 'sillytavern' ? await runtimePresets.fullSnapshot() : null
     let replyDisplay = { projections: replyProjectionsOf(chat), presentation: null, latestSourceBacked: false }
     if ((chat.mode || 'story') === 'story' || (chat.mode || 'story') === 'script') {
       const extensions = await readCardExtensions(chat.cardPath)
-      const presetRegexScripts = activeBypassPlanId === '' ? [] : activeBypassSnapshot.regexScripts
+      const presetRegexScripts = Array.isArray(activePresetSnapshot && activePresetSnapshot.regexScripts) ? activePresetSnapshot.regexScripts : []
       replyDisplay = projectRuntimeReplyHistory(chat.messages, {
         regexScripts: (Array.isArray(extensions && extensions.regexScripts) ? extensions.regexScripts : []).concat(presetRegexScripts),
         placement: 2,
@@ -918,8 +927,8 @@ export async function apply(ctx) {
       mode: chat.mode || 'story',
       requestMode: chat.requestMode === 'sillytavern' ? 'sillytavern' : 'dsh',
       playerName: str(chat.macroState && chat.macroState.userName).trim() || '你',
-      bypassPlan: activeBypassSnapshot === null ? null : { id: activeBypassSnapshot.planId, name: activeBypassSnapshot.presetName || activeBypassSnapshot.planName },
-      runtimePreset: activeBypassSnapshot === null ? null : { id: activeBypassSnapshot.planId, name: activeBypassSnapshot.presetName || activeBypassSnapshot.planName },
+      bypassPlan: null,
+      runtimePreset: activePresetSnapshot === null ? null : { id: activePresetSnapshot.presetPath, name: activePresetSnapshot.presetName },
       card: cardViewOf(card, chat),
       posture: chat.posture || '',
       guides: Array.isArray(chat.guides) ? chat.guides : [],
@@ -1010,15 +1019,7 @@ export async function apply(ctx) {
       }
     }
     const macroState = { userName: str(userName).trim().slice(0, 80) || '你', local: {}, global: {} }
-    const rawRuntimePresetSnapshot = await bypassPlans.snapshot()
-    const resolvedRuntimePreset = resolveRuntimePresetMacros(rawRuntimePresetSnapshot, {
-      charName: str(card && card.name),
-      macroState
-    })
-    const runtimePresetSnapshot = resolvedRuntimePreset.snapshot
-    macroState.userName = resolvedRuntimePreset.macroState.userName
-    macroState.local = resolvedRuntimePreset.macroState.local
-    macroState.global = resolvedRuntimePreset.macroState.global
+    const runtimePresetSnapshot = effectiveRequestMode === 'sillytavern' ? await runtimePresets.fullSnapshot() : null
     const openingSourceText = chatMode === 'card' ? prompt('card-mode-greeting') : resolveCardOpening(card, openingId)
     const openingExtensions = chatMode === 'card' ? null : await readCardExtensions(cardPath)
     const openingRegexScripts = (Array.isArray(openingExtensions && openingExtensions.regexScripts) ? openingExtensions.regexScripts : []).concat(
@@ -1776,8 +1777,8 @@ export async function apply(ctx) {
     },
     projectReply: projectRuntimeReply,
     resolvePresetRegexScripts: async function (chat) {
-      if (!chat) return []
-      const snapshot = await bypassPlans.snapshot()
+      if (!chat || chat.requestMode !== 'sillytavern') return []
+      const snapshot = await runtimePresets.fullSnapshot()
       return Array.isArray(snapshot && snapshot.regexScripts) ? snapshot.regexScripts : []
     },
     now: Date.now,
@@ -1800,6 +1801,7 @@ export async function apply(ctx) {
 
   await fileResources.migrateLegacy(await readIndex(), readJson, writeIndex, readChat, writeChat)
   await migrateLegacyPresetPlans()
+  await migrateActivePresetSelection()
   await resourceGraph.recover()
   const recoveredIndex = await readIndex()
   for (const row of recoveredIndex.chats || []) {
@@ -2090,16 +2092,23 @@ export async function apply(ctx) {
       case 'deleteWorldBook': return await worldBooks.remove(args && args.path)
       case 'listPresets': {
         const presets = await listPresets()
-        const bypassPlanState = await bypassPlans.state()
-        const plans = await bypassPlans.list()
-        const activePlan = plans.find(function (plan) { return plan.id === bypassPlanState.activePlanId }) || null
+        const runtimePresetState = await runtimePresets.state()
+        const activePreset = presets.find(function (preset) { return preset.path === runtimePresetState.activePreset }) || null
         return {
           presets,
-          bypassPlanState,
-          bypassPlans: plans,
-          activePlanId: bypassPlanState.activePlanId || '',
-          activePlanTitle: activePlan && activePlan.name || ''
+          activePresetPath: runtimePresetState.activePreset || '',
+          activePresetTitle: activePreset && activePreset.title || ''
         }
+      }
+      case 'selectPreset': {
+        const path = str(args && args.path)
+        if (path !== '') {
+          const preset = await readPreset(path)
+          if (!preset || preset.valid !== true || preset.recognized !== true) throw new Error('该文件不是可运行的 SillyTavern 预设：' + path)
+        }
+        await runtimePresets.select(path)
+        await bypassPlans.activate('')
+        return { activePresetPath: path }
       }
       case 'getPreset': {
         const inspected = await readPreset(args && args.path)
@@ -2438,9 +2447,9 @@ export async function apply(ctx) {
 
   async function resolveChatRuntimePreset(chat) {
     if (!chat) return null
-    const raw = await bypassPlans.snapshot()
-    const planId = str(raw && raw.planId)
-    if (planId === '') {
+    const raw = chat.requestMode === 'sillytavern' ? await runtimePresets.fullSnapshot() : null
+    const presetPath = str(raw && raw.presetPath)
+    if (presetPath === '') {
       const needsClearing = chat.runtimePresetSnapshot !== null || str(chat.bypassPlanId) !== '' || str(chat.runtimePresetPath) !== ''
       chat.runtimePresetSnapshot = null
       chat.bypassPlanId = ''
@@ -2458,25 +2467,19 @@ export async function apply(ctx) {
       }
       return null
     }
-    const resolved = resolveRuntimePresetMacros(raw, {
-      charName: str(chat.cardName),
-      macroState: chat.macroState
-    })
-    chat.runtimePresetSnapshot = resolved.snapshot
-    chat.bypassPlanId = planId
-    chat.runtimePresetPath = ''
-    chat.macroState = resolved.macroState
+    chat.runtimePresetSnapshot = raw
+    chat.bypassPlanId = ''
+    chat.runtimePresetPath = presetPath
     await updateChat(chat.id, function (current) {
       if (!current || typeof current !== 'object') return current
       return Object.assign({}, current, {
-        runtimePresetSnapshot: resolved.snapshot,
-        bypassPlanId: planId,
-        runtimePresetPath: '',
-        macroState: resolved.macroState,
+        runtimePresetSnapshot: raw,
+        bypassPlanId: '',
+        runtimePresetPath: presetPath,
         updatedAt: Date.now()
       })
     }, { source: 'runtime-preset.resolve' })
-    return resolved.snapshot
+    return raw
   }
 
   function compatibilityWorldBookMatch(entry, source) {
@@ -2516,27 +2519,21 @@ export async function apply(ctx) {
 
   async function compileCompatibilityTurn(chat, userText) {
     const snapshot = await resolveChatRuntimePreset(chat)
-    const planId = str(snapshot && snapshot.planId)
-    if (planId === '') throw new Error('请先在预设库中启用至少一个外部预设条目')
-    const plan = await bypassPlans.get(planId)
-    const preset = {
-      valid: true,
-      recognized: true,
-      title: plan.name,
-      orderGroupIndex: null,
-      entries: plan.entries.map(function (entry) { return Object.assign({}, entry) })
-    }
-    const presetDocument = plan.compatibilitySettings || {}
+    const presetPath = str(snapshot && snapshot.presetPath)
+    if (presetPath === '') throw new Error('请先在预设库中选择一份外部预设')
+    const preset = await readPreset(presetPath)
+    const presetDocument = await readPresetDocument(presetPath)
+    if (!preset || preset.valid !== true || preset.recognized !== true || !presetDocument) throw new Error('当前预设不存在或无法读取：' + presetPath)
     const card = await readChatCard(chat)
     const extensions = await readCardExtensions(chat.cardPath)
     const regexScripts = (Array.isArray(extensions && extensions.regexScripts) ? extensions.regexScripts : []).concat(
-      plan.regexScripts.filter(function (script) { return script.enabled !== false })
+      Array.isArray(snapshot.regexScripts) ? snapshot.regexScripts : []
     )
     const worldInfo = await compatibilityWorldInfo(chat, card, userText)
     const compiled = compileSillyTavernRequest({
       card,
       preset,
-      presetPath: str(plan.source && plan.source.presetPath),
+      presetPath,
       presetDocument,
       history: (chat.messages || []).map(function (item) { return { role: item.role, text: str(item.text), sourceText: str(item.sourceText) } }),
       input: userText,
@@ -2555,8 +2552,8 @@ export async function apply(ctx) {
       }
     })
     compiled.trace.worldBookRefs = worldInfo.refs
-    compiled.trace.planId = plan.id
-    compiled.trace.planName = plan.name
+    compiled.trace.presetPath = presetPath
+    compiled.trace.presetTitle = preset.title
     compiled.trace.regexCount = regexScripts.length
     const sourceMessageCount = compiled.messages.length
     compiled.messages = applySillyTavernStrictTools(compiled.messages, {

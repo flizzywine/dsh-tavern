@@ -19,7 +19,7 @@
 
 当前编译器负责：
 
-1. 读取用户在预设库中启用的条目，并按来源预设的 `prompt_order` 还原顺序，不使用 DSH 前中后投影结果。
+1. 读取用户在预设库中选择的整份预设，并按来源文件的 `prompt_order` 和原始启用状态还原顺序，不使用 DSH 前中后投影结果。
 2. 保留每条提示词的 `system`、`user`、`assistant` 角色。
 3. 展开人物描述、性格、场景、玩家设定、示例对话、聊天历史和世界书 Marker。
 4. 支持人物卡 `system_prompt`、`post_history_instructions` 覆盖。

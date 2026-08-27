@@ -1400,7 +1400,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 						});
 					} else if (task === "preset") {
 						const response = await call("listPresets");
-						resources = (response.presets || []).map(function (item) { return { kind: "preset", path: item.path, title: item.title, detail: "仅编辑，无法使用" }; });
+						resources = (response.presets || []).map(function (item) { return { kind: "preset", path: item.path, title: item.title, detail: "作为编辑目标引用，不会在当前 Agent 中运行" }; });
 					} else {
 						const response = await call("listResources");
 						resources = (response.resources || []).map(function (item) { return Object.assign({}, item, { kind: "source" }); });
@@ -1580,6 +1580,15 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				}
 				window.addEventListener("dsh-tavern-debug-play-chat", onDebugPlayChat);
 				return function () { window.removeEventListener("dsh-tavern-debug-play-chat", onDebugPlayChat); };
+			});
+			React.useEffect(function () {
+				function onEditPreset(event) {
+					const detail = event && event.detail ? event.detail : {};
+					if (!detail.path) return;
+					newCardConversation(null, "preset", "修改预设", [{ kind: "preset", path: detail.path, title: detail.title || detail.path }]);
+				}
+				window.addEventListener("dsh-tavern-edit-preset", onEditPreset);
+				return function () { window.removeEventListener("dsh-tavern-edit-preset", onEditPreset); };
 			});
 			function formatTime(ts) {
 				if (!ts) return "";
@@ -1786,7 +1795,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 						h("button", { className: "dsh-tavern-card-pick", disabled: busy, onClick: function () { openResourcePicker("extract"); } }, h("b", null, "从剧本新建人物卡"), h("span", null, "先选择至少一份剧本，再进入工作台")),
 						h("button", { className: "dsh-tavern-card-pick", disabled: busy, onClick: function () { openResourcePicker("script"); } }, h("b", null, "修改剧本"), h("span", null, "先选择一份剧本，再进入工作台修改工作版")),
 					h("button", { className: "dsh-tavern-card-pick", disabled: busy, onClick: function () { openResourcePicker("worldbook"); } }, h("b", null, "修改世界书"), h("span", null, "先选择一本世界书，再进入工作台按条目修改")),
-					h("button", { className: "dsh-tavern-card-pick", disabled: busy, onClick: function () { openResourcePicker("preset"); } }, h("b", null, "修改预设"), h("span", null, "先选择一个预设；仅编辑，无法使用")),
+					h("button", { className: "dsh-tavern-card-pick", disabled: busy, onClick: function () { openResourcePicker("preset"); } }, h("b", null, "修改预设"), h("span", null, "先选择一个预设，交给卡片 Agent 阅读和修改")),
 					h("button", { className: "dsh-tavern-card-pick", disabled: busy, onClick: function () { newCardConversation(null); } }, h("b", null, "空白开始"), h("span", null, "不追加任务提示词，自由使用完整卡片 Agent"))
 				)
 			);
@@ -1833,7 +1842,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				h("button", { className: "dsh-tavern-side-new", disabled: busy, onClick: function () { openPicker(); } }, uiMode === "play" ? (requestMode === "sillytavern" ? "＋ 选择人物卡 · 新开兼容对话" : "＋ 选择人物卡 · 新开游玩") : "＋ 新建卡片工作台对话"),
 				uiMode === "play" && requestMode === "sillytavern" ? h("div", { className: "dsh-tavern-compatibility-notice" },
 					h("strong", null, "什么是兼容模式？"),
-					h("div", null, "兼容模式会尽可能复刻 SillyTavern（酒馆）的行为，与游玩模式存在很大差异。它支持使用预设库中手动启用的条目，但不直接运行整份预设；需要哪个条目，在预设库中勾选并启用即可。预设库可从右侧面板打开。")
+					h("div", null, "兼容模式会尽可能复刻 SillyTavern（酒馆）的行为，与游玩模式存在很大差异。它会使用预设库中当前选择的整份预设，并遵循预设原有的提示词顺序、启用状态和正则设置。预设库可从右侧面板打开。")
 				) : null,
 				h("div", { className: "dsh-tavern-side-title" }, uiMode === "play" ? (requestMode === "sillytavern" ? "兼容对话" : "游玩历史") : "卡片历史"),
 				h("div", { className: "dsh-tavern-side-list" }, rows.length ? rows : h("div", { className: "dsh-tavern-side-empty" }, uiMode === "play" ? (requestMode === "sillytavern" ? "还没有兼容对话。\n选择人物卡开始；兼容效果可能因预设、模型和供应商而异。" : "还没有游玩对话。\n选择人物卡开始；绑定剧本的卡会按剧本推进。") : "还没有卡片工作台对话。\n可以空白开始，再按需添加人物卡和剧本。")),
@@ -2059,13 +2068,11 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 
 			function createExternalPresetAndBypassPlanFeatureModule() {
 			function usePresetCatalog(sessionId, errorSink) {
-				const [catalog, setCatalog] = React.useState({ presets: [], bypassPlans: [], activePlanId: "", activePlanTitle: "" });
+				const [catalog, setCatalog] = React.useState({ presets: [], activePresetPath: "", activePresetTitle: "", sessionMode: "" });
 				function refresh() {
-					return rpc("listPresets", {}, sessionId).then(function (result) {
-						const next = {
-							presets: result.presets || [], bypassPlans: result.bypassPlans || [],
-							activePlanId: result.activePlanId || "", activePlanTitle: result.activePlanTitle || ""
-						};
+					return Promise.all([rpc("listPresets", {}, sessionId), rpc("getSession", { sessionId: sessionId }, sessionId)]).then(function (all) {
+						const result = all[0] || {}; const view = all[1] && all[1].view;
+						const next = { presets: result.presets || [], activePresetPath: result.activePresetPath || "", activePresetTitle: result.activePresetTitle || "", sessionMode: view && view.mode || "" };
 						setCatalog(next); if (errorSink) errorSink(""); return next;
 					}, function (err) { if (errorSink) errorSink(String(err && err.message || err)); return null; });
 				}
@@ -2080,43 +2087,28 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			function ExternalPresetLibraryTab(props) {
 				const [error, setError] = usePersistentError("预设库");
 				const [catalog, refresh] = usePresetCatalog(props.scope.sessionId, setError);
-				const [preset, setPreset] = React.useState(null);
-				const [entryKeys, setEntryKeys] = React.useState([]);
-				const [regexKeys, setRegexKeys] = React.useState([]);
 				const [busy, setBusy] = React.useState(false);
 				const importInput = React.useRef(null);
 				const h = React.createElement;
-				function existingPlanForPreset(path, sourceCatalog) {
-					const plans = (sourceCatalog || catalog).bypassPlans || [];
-					return plans.find(function (item) { return item.id === (sourceCatalog || catalog).activePlanId && item.source && item.source.presetPath === path; })
-						|| plans.find(function (item) { return item.source && item.source.presetPath === path; }) || null;
-				}
-				async function load(path, sourceCatalog) {
-					setBusy(true); setError("");
-					try {
-						const result = await rpc("getPreset", { path: path }, props.scope.sessionId);
-						const source = result.preset || null;
-						const existing = existingPlanForPreset(path, sourceCatalog);
-						let saved = null;
-						if (existing) saved = (await rpc("getBypassPlan", { id: existing.id }, props.scope.sessionId)).plan || null;
-						setPreset(source);
-						setEntryKeys(saved ? (saved.entries || []).filter(function (entry) { return !entry.systemManaged && entry.enabled === true; }).map(function (entry) { return entry.entryKey; }) : []);
-						setRegexKeys(saved ? (saved.regexScripts || []).filter(function (script) { return script.enabled !== false; }).map(function (script) { return script.regexKey; }) : (source && source.extractableRegexScripts || []).map(function (script) { return script.regexKey; }));
-					}
-					catch (err) { setError(String(err && err.message || err)); }
-					finally { setBusy(false); }
-				}
 				async function importFile(file) {
 					if (!file) return; setBusy(true); setError("");
-					try { const result = await rpc("importPreset", { payload: await parseTextResourceFile(file) }, props.scope.sessionId); const next = await refresh(); await load(result.preset.path, next); window.dispatchEvent(new CustomEvent("dsh-tavern-data-changed")); }
-					catch (err) { setError(String(err && err.message || err)); }
-					finally { setBusy(false); }
+					try { await rpc("importPreset", { payload: await parseTextResourceFile(file) }, props.scope.sessionId); await refresh(); window.dispatchEvent(new CustomEvent("dsh-tavern-data-changed")); }
+					catch (err) { setError(String(err && err.message || err)); } finally { setBusy(false); }
+				}
+				async function selectPreset(path) {
+					setBusy(true); setError("");
+					try { await rpc("selectPreset", { path: path }, props.scope.sessionId); await refresh(); window.dispatchEvent(new CustomEvent("dsh-tavern-data-changed")); }
+					catch (err) { setError(String(err && err.message || err)); } finally { setBusy(false); }
 				}
 				async function rename(item) {
 					const current = item.path.split("/").pop(); const name = window.prompt("重命名外部预设", current);
 					if (name === null || !name.trim() || name.trim() === current) return;
 					setBusy(true); setError("");
-					try { const result = await rpc("renameResource", { path: item.path, name: name.trim() }, props.scope.sessionId); await refresh(); if (preset && preset.path === item.path) await load(result.resource.path); }
+					try {
+						const result = await rpc("renameResource", { path: item.path, name: name.trim() }, props.scope.sessionId);
+						if (item.path === catalog.activePresetPath) await rpc("selectPreset", { path: result.resource.path }, props.scope.sessionId);
+						await refresh(); window.dispatchEvent(new CustomEvent("dsh-tavern-data-changed"));
+					}
 					catch (err) { setError(String(err && err.message || err)); } finally { setBusy(false); }
 				}
 				async function exportFile(item) {
@@ -2128,72 +2120,34 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					} catch (err) { setError(String(err && err.message || err)); } finally { setBusy(false); }
 				}
 				async function remove(item) {
-					if (!window.confirm("删除外部预设“" + item.title + "”吗？\n如果正在使用它的条目，这些条目将同时停用。")) return;
+					if (!window.confirm("删除外部预设“" + item.title + "”吗？\n工作版和原版都会删除；已有对话保留。")) return;
 					setBusy(true); setError("");
 					try {
-						const active = (catalog.bypassPlans || []).find(function (plan) { return plan.id === catalog.activePlanId; });
-						if (active && active.source && active.source.presetPath === item.path) await rpc("activateBypassPlan", { id: "" }, props.scope.sessionId);
-						await rpc("deletePreset", { path: item.path }, props.scope.sessionId); if (preset && preset.path === item.path) setPreset(null); await refresh(); window.dispatchEvent(new CustomEvent("dsh-tavern-data-changed"));
+						if (item.path === catalog.activePresetPath) await rpc("selectPreset", { path: "" }, props.scope.sessionId);
+						await rpc("deletePreset", { path: item.path }, props.scope.sessionId); await refresh(); window.dispatchEvent(new CustomEvent("dsh-tavern-data-changed"));
 					}
 					catch (err) { setError(String(err && err.message || err)); } finally { setBusy(false); }
 				}
-				function toggleKey(setter, current, key, checked) {
-					setter(checked ? current.concat([key]).filter(function (item, index, all) { return all.indexOf(item) === index; }) : current.filter(function (item) { return item !== key; }));
+				function editWithAgent(item) {
+					window.dispatchEvent(new CustomEvent("dsh-tavern-edit-preset", { detail: { path: item.path, title: item.title } }));
 				}
-				async function activateSelection() {
-					if (!preset || entryKeys.length + regexKeys.length === 0) { setError("请至少启用一个提示词条目或正则脚本"); return; }
-					setBusy(true); setError("");
-					try {
-						const existing = existingPlanForPreset(preset.path);
-						const result = await rpc("extractBypassPlan", { id: existing && existing.id, name: existing && existing.name || (preset.title || "未命名预设") + " · 预设条目", sourcePresetPath: preset.path, entryKeys: entryKeys, regexKeys: regexKeys }, props.scope.sessionId);
-						await rpc("activateBypassPlan", { id: result.plan.id }, props.scope.sessionId);
-						await refresh(); window.dispatchEvent(new CustomEvent("dsh-tavern-data-changed"));
-					} catch (err) { setError(String(err && err.message || err)); } finally { setBusy(false); }
-				}
-				async function deactivateSelection() {
-					setBusy(true); setError("");
-					try { await rpc("activateBypassPlan", { id: "" }, props.scope.sessionId); await refresh(); window.dispatchEvent(new CustomEvent("dsh-tavern-data-changed")); }
-					catch (err) { setError(String(err && err.message || err)); } finally { setBusy(false); }
-				}
-				function entryRow(entry, selectable) {
-					const checked = entryKeys.includes(entry.entryKey); const role = String(entry.role || "system").toUpperCase();
-					const state = selectable
-						? h("label", { className: "dsh-tavern-prompt-state dsh-tavern-extract-state " + (checked ? "on" : "off"), onClick: function (event) { event.stopPropagation(); } }, h("input", { type: "checkbox", checked: checked, disabled: busy, onChange: function (event) { toggleKey(setEntryKeys, entryKeys, entry.entryKey, event.target.checked); } }), checked ? "启用" : "不启用")
-						: h("span", { className: "dsh-tavern-prompt-tag" }, entry.marker ? "系统处理" : (entry.enabled ? "原预设开启" : "原预设关闭"));
-					return h("details", { key: entry.entryKey, className: "dsh-tavern-prompt-row role-" + String(entry.role || "system") },
-						h("summary", { className: "dsh-tavern-prompt-head" }, h("span", { className: "dsh-tavern-prompt-role" }, role), h("span", { className: "dsh-tavern-prompt-title" }, h("b", null, entry.name), h("span", null, String(entry.content || "").replace(/\s+/g, " ").trim() || (entry.marker ? "系统占位" : "空条目"))), state),
-						h("pre", { className: "dsh-tavern-prompt-content" }, entry.content || (entry.marker ? "[由运行时提供的占位]" : "（空）")));
-				}
-				function regexRow(script) {
-					const checked = regexKeys.includes(script.regexKey);
-					const state = h("label", { className: "dsh-tavern-prompt-state dsh-tavern-extract-state " + (checked ? "on" : "off"), onClick: function (event) { event.stopPropagation(); } }, h("input", { type: "checkbox", checked: checked, disabled: busy, onChange: function (event) { toggleKey(setRegexKeys, regexKeys, script.regexKey, event.target.checked); } }), checked ? "启用" : "不启用");
-					return h("details", { key: script.regexKey, className: "dsh-tavern-prompt-row role-regex" },
-						h("summary", { className: "dsh-tavern-prompt-head" }, h("span", { className: "dsh-tavern-prompt-role" }, "REGEX"), h("span", { className: "dsh-tavern-prompt-title" }, h("b", null, script.name), h("span", null, script.findRegex || "空查找规则")), state),
-						h("div", { className: "dsh-tavern-regex-body" }, h("pre", { className: "dsh-tavern-regex-code" }, script.findRegex || "（空）"), h("pre", { className: "dsh-tavern-regex-code" }, script.replaceString || "（空）")));
-				}
-				if (preset) return h("div", { className: "dsh-tavern-presets" },
-					h("div", { className: "dsh-tavern-status-head" }, h("button", { className: "dsh-tavern-btn", onClick: function () { setPreset(null); } }, "← 返回预设库"), h("div", { className: "dsh-tavern-status-title" }, preset.title)),
-					h("div", { className: "dsh-tavern-preset-detail" }, error ? h("div", { className: "dsh-tavern-dock-error" }, error) : null,
-						h("div", { className: "dsh-tavern-preset-summary" }, h("b", null, "选择条目"), h("p", null, "提示词默认不选；正则默认全部迁移并继承原启用状态。只会使用你手动启用的条目，不会直接运行整份预设。")),
-						h("div", { className: "dsh-tavern-preset-section-title" }, "提示词条目 · " + (preset.entries || []).length), (preset.entries || []).map(function (entry) { return entryRow(entry, entry.injectable && !entry.marker); }),
-						h("div", { className: "dsh-tavern-preset-section-title" }, "正则脚本 · " + (preset.extractableRegexScripts || []).length), (preset.extractableRegexScripts || []).map(regexRow),
-						h("div", { className: "dsh-tavern-prompt-editor-actions" }, catalog.activePlanId ? h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: deactivateSelection }, "停用预设条目") : null, h("button", { className: "dsh-tavern-btn primary", disabled: busy || entryKeys.length + regexKeys.length === 0, onClick: activateSelection }, busy ? "正在启用…" : "启用所选条目"))));
+				const inCardMode = catalog.sessionMode === "card";
 				return h("div", { className: "dsh-tavern-presets" },
-					h("div", { className: "dsh-tavern-status-head" }, h("div", { className: "dsh-tavern-status-title" }, "预设库（实验性）"), h("div", { className: "dsh-tavern-question-sub" }, "导入外部预设，并选择需要启用的条目"), h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { importInput.current && importInput.current.click(); } }, "导入外部预设"), h("input", { ref: importInput, type: "file", accept: ".json,application/json", style: { display: "none" }, onChange: function (event) { const file = event.target.files && event.target.files[0]; importFile(file); event.target.value = ""; } })),
+					h("div", { className: "dsh-tavern-status-head" }, h("div", { className: "dsh-tavern-status-title" }, "预设库（实验性）"), h("div", { className: "dsh-tavern-question-sub" }, "选择兼容模式使用的预设，或交给卡片 Agent 编辑"), h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { importInput.current && importInput.current.click(); } }, "导入外部预设"), h("input", { ref: importInput, type: "file", accept: ".json,application/json", style: { display: "none" }, onChange: function (event) { const file = event.target.files && event.target.files[0]; importFile(file); event.target.value = ""; } })),
 					h("div", { className: "dsh-tavern-preset-list" }, error ? h("div", { className: "dsh-tavern-dock-error" }, error) : null,
 						h("div", { className: "dsh-tavern-preset-summary dsh-tavern-external-preset-notice" },
-							h("strong", null, "只会使用你手动启用的条目，不会直接运行整份预设"),
-							h("p", { className: "dsh-tavern-preset-warning" }, "当前仅兼容模式完成外部预设条目适配；游玩模式和卡片模式尚未完成适配，请勿使用。"),
-							h("p", null, "开启兼容模式：进入设置，在“DSH Tavern”中开启“启用兼容模式（实验性）”。"),
-							h("p", { className: "dsh-tavern-preset-warning" }, "启用的条目可能干扰 DSH Tavern 的正常运行，请谨慎选择。"),
-							catalog.activePlanId ? h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: deactivateSelection }, "停用预设条目") : null),
-					catalog.presets.length ? catalog.presets.map(function (item) { const selected = existingPlanForPreset(item.path); return h("div", { key: item.path, className: "dsh-tavern-preset-row" }, h("div", { className: "dsh-tavern-preset-row-head" }, h("button", { className: "dsh-tavern-preset-row-main", onClick: function () { load(item.path); } }, h("b", null, (selected && selected.id === catalog.activePlanId ? "✓ " : "") + item.title), h("span", null, item.promptCount + " 个提示词 · " + item.regexCount + " 条正则")), h("button", { className: "dsh-tavern-resource-at", disabled: busy, onClick: function () { load(item.path); } }, "选择条目"), h("button", { className: "dsh-tavern-resource-at", disabled: busy, onClick: function () { exportFile(item); } }, "导出"), h("button", { className: "dsh-tavern-resource-at", disabled: busy, onClick: function () { rename(item); } }, "重命名"), h("button", { className: "dsh-tavern-resource-at", disabled: busy, onClick: function () { remove(item); } }, "删除"))); }) : h("div", { className: "dsh-tavern-status-empty" }, "还没有外部预设。请先导入。")));
+							h("strong", null, catalog.activePresetPath ? "当前预设：" + catalog.activePresetTitle : "当前未选择预设"),
+							h("p", null, "兼容模式会按预设原有顺序使用其中已启用的提示词和正则；修改预设后，下一轮请求直接生效。"),
+							h("p", null, "在卡片模式中引用预设只供 Agent 阅读和编辑，不会自动选择或运行该预设。"),
+							catalog.activePresetPath ? h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { selectPreset(""); } }, "停用预设") : null),
+					catalog.presets.length ? catalog.presets.map(function (item) { const selected = item.path === catalog.activePresetPath; const runnable = item.valid === true && item.recognized === true; return h("div", { key: item.path, className: "dsh-tavern-preset-row" }, h("div", { className: "dsh-tavern-preset-row-head" }, h("div", { className: "dsh-tavern-preset-row-main" }, h("b", null, (selected ? "✓ " : "") + item.title), h("span", null, item.promptCount + " 个提示词 · " + item.regexCount + " 条正则")), h("button", { className: "dsh-tavern-resource-at" + (selected ? " mounted" : ""), disabled: busy || selected || !runnable, title: runnable ? "在兼容模式中使用整份预设" : "该文件没有可运行的 SillyTavern prompts 结构", onClick: function () { selectPreset(item.path); } }, selected ? "使用中" : runnable ? "使用预设" : "无法使用"), h("button", { className: "dsh-tavern-resource-at", disabled: busy, onClick: function () { editWithAgent(item); } }, "编辑预设"), inCardMode ? h("button", { className: "dsh-tavern-resource-at", disabled: busy, onClick: function () { props.appendMention("preset", item.path, item.title); } }, "在对话中引用") : null, h("button", { className: "dsh-tavern-resource-at", disabled: busy, onClick: function () { exportFile(item); } }, "导出"), h("button", { className: "dsh-tavern-resource-at", disabled: busy, onClick: function () { rename(item); } }, "重命名"), h("button", { className: "dsh-tavern-resource-at", disabled: busy, onClick: function () { remove(item); } }, "删除"))); }) : h("div", { className: "dsh-tavern-status-empty" }, "还没有外部预设。请先导入。")));
 			}
 
 			function register(input) {
 				const ctx = input.ctx;
+				const appendMention = input.appendMention;
 				return ctx.effect(function () {
-					const dispose = ctx.betterSidebar.registerTab({ id: "dsh-tavern:presets", title: "预设库（实验性）", order: 4, single: true, component: ExternalPresetLibraryTab });
+					const dispose = ctx.betterSidebar.registerTab({ id: "dsh-tavern:presets", title: "预设库（实验性）", order: 4, single: true, component: function (props) { return React.createElement(ExternalPresetLibraryTab, { scope: props.scope, appendMention: function (kind, path, label) { appendMention(props.scope.sessionId, kind, path, label); } }); } });
 					return function () { if (typeof dispose === "function") dispose(); };
 				}, "dsh-tavern: preset library");
 			}
@@ -2908,10 +2862,10 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					} catch (err) { tavernErrorHub.report("玩家称呼", err); }
 					finally { setBusy(false); }
 				}
-				const planName = view.bypassPlan && view.bypassPlan.name ? view.bypassPlan.name : "无";
+				const presetName = view.runtimePreset && view.runtimePreset.name ? view.runtimePreset.name : "无";
 				return React.createElement(React.Fragment, null,
 					React.createElement("button", { className: "dsh-tavern-player-action", disabled: busy, title: "修改之后内容中的玩家称呼", onClick: renamePlayer }, "玩家：" + (view.playerName || "你")),
-					React.createElement("span", { className: "dsh-tavern-preset-status", title: view.bypassPlan && view.bypassPlan.id ? view.bypassPlan.id : "当前没有启用外部预设条目" }, "预设条目：" + planName)
+					React.createElement("span", { className: "dsh-tavern-preset-status", title: view.runtimePreset && view.runtimePreset.id ? view.runtimePreset.id : "当前没有选择外部预设" }, "当前预设：" + presetName)
 				);
 			}
 
