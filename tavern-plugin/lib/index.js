@@ -409,7 +409,13 @@ export async function apply(ctx) {
       const identifier = str(script.id) || 'regex-' + (index + 1)
       const occurrence = (occurrences.get(identifier) || 0) + 1
       occurrences.set(identifier, occurrence)
-      return Object.assign({}, script, { regexKey: identifier + '#' + occurrence, edit: { disabledPath: sourceBase + sourceIndexes[index] + '/disabled' } })
+      const editBase = sourceBase + sourceIndexes[index]
+      return Object.assign({}, script, { regexKey: identifier + '#' + occurrence, edit: {
+        scriptNamePath: editBase + '/scriptName',
+        findRegexPath: editBase + '/findRegex',
+        replaceStringPath: editBase + '/replaceString',
+        disabledPath: editBase + '/disabled'
+      } })
     })
   }
   async function previewPreset(presetPath, orderGroupIndex) {
@@ -2136,7 +2142,7 @@ export async function apply(ctx) {
       }
       case 'updatePresetRegex': {
         const path = normalizeResourcePath(args && args.path, 'preset')
-        await presetEditor.updateRegex(path, args && args.regexKey, args && args.enabled)
+        await presetEditor.updateRegex(path, args && args.regexKey, args && args.patch !== undefined ? args.patch : args && args.enabled)
         const next = await readPreset(path)
         return { preset: Object.assign({}, next, { extractableRegexScripts: runtimeRegexScriptsOf(next, await readPresetDocument(path)) }) }
       }

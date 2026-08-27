@@ -157,14 +157,28 @@ export function createPresetEditor(options = {}) {
     }
   }
 
-  async function updateRegex(path, regexKey, enabled) {
+  async function updateRegex(path, regexKey, patch) {
     if (typeof inspectRegexScripts !== 'function') throw new Error('Preset Editor 缺少正则编辑 adapter')
-    if (typeof enabled !== 'boolean') throw new Error('预设正则 enabled 必须是布尔值')
+    const input = typeof patch === 'boolean' ? { enabled: patch } : (patch !== null && typeof patch === 'object' && !Array.isArray(patch) ? patch : {})
+    const allowed = new Set(['name', 'findRegex', 'replaceString', 'enabled'])
+    for (const key of Object.keys(input)) if (!allowed.has(key)) throw new Error('不支持修改预设正则字段: ' + key)
     const loaded = await load(path)
     const inspected = inspectPreset(JSON.stringify(loaded.document), loaded.normalized)
     const script = inspectRegexScripts(inspected, loaded.document).find(function (item) { return item.regexKey === str(regexKey) })
     if (!script || !script.edit || !script.edit.disabledPath) throw new Error('预设正则不存在: ' + str(regexKey))
-    return await update(loaded.normalized, [{ op: 'set', path: script.edit.disabledPath, value: !enabled }])
+    const operations = []
+    for (const field of ['name', 'findRegex', 'replaceString']) {
+      if (!Object.prototype.hasOwnProperty.call(input, field)) continue
+      if (typeof input[field] !== 'string') throw new Error('预设正则 ' + field + ' 必须是字符串')
+      const pathKey = field === 'name' ? 'scriptNamePath' : field + 'Path'
+      if (!script.edit[pathKey]) throw new Error('该预设正则不能修改 ' + field)
+      operations.push({ op: 'set', path: script.edit[pathKey], value: input[field] })
+    }
+    if (Object.prototype.hasOwnProperty.call(input, 'enabled')) {
+      if (typeof input.enabled !== 'boolean') throw new Error('预设正则 enabled 必须是布尔值')
+      operations.push({ op: 'set', path: script.edit.disabledPath, value: !input.enabled })
+    }
+    return await update(loaded.normalized, operations)
   }
 
   return Object.freeze({ read, update, updateEntry, updateRegex })

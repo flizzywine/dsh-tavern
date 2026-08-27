@@ -16,7 +16,13 @@ function harness(document) {
     writeText: async function (_path, next) { text = next; writes += 1 },
     inspectRegexScripts: function (_inspected, source) {
       return (source.extensions && source.extensions.regex_scripts || []).map(function (script, index) {
-        return { regexKey: String(script.id || 'regex-' + (index + 1)) + '#1', edit: { disabledPath: '/extensions/regex_scripts/' + index + '/disabled' } }
+        const base = '/extensions/regex_scripts/' + index
+        return { regexKey: String(script.id || 'regex-' + (index + 1)) + '#1', edit: {
+          scriptNamePath: base + '/scriptName',
+          findRegexPath: base + '/findRegex',
+          replaceStringPath: base + '/replaceString',
+          disabledPath: base + '/disabled'
+        } }
       })
     }
   })
@@ -97,4 +103,25 @@ test('正则开关直接写回预设自身并保留其他字段', async () => {
   assert.deepEqual(result.changed, ['/extensions/regex_scripts/0/disabled'])
   assert.equal(run.document().extensions.regex_scripts[0].disabled, true)
   assert.equal(run.document().extensions.regex_scripts[0].custom, 42)
+})
+
+test('正则表单写回名称、查找规则、替换内容和启用状态', async () => {
+  const run = harness({
+    prompts: [],
+    extensions: { regex_scripts: [{ id: 'cleanup', scriptName: '旧名称', disabled: false, findRegex: 'x', replaceString: 'y', custom: 42 }] }
+  })
+
+  const result = await run.editor.updateRegex('presets/写作.json', 'cleanup#1', {
+    name: '新名称', findRegex: '/new/g', replaceString: '替换', enabled: false
+  })
+
+  assert.deepEqual(result.changed, [
+    '/extensions/regex_scripts/0/scriptName',
+    '/extensions/regex_scripts/0/findRegex',
+    '/extensions/regex_scripts/0/replaceString',
+    '/extensions/regex_scripts/0/disabled'
+  ])
+  assert.deepEqual(run.document().extensions.regex_scripts[0], {
+    id: 'cleanup', scriptName: '新名称', disabled: true, findRegex: '/new/g', replaceString: '替换', custom: 42
+  })
 })
