@@ -148,16 +148,23 @@ export function createApplicationUpdater(options) {
   }
   const store = createProfileDataStore({ dataRoot })
 
-  async function versions() {
+  async function localIdentity() {
     let local
     try {
       local = JSON.parse(await readFile(path.join(sourceRoot, 'package.json'), 'utf8'))
     } catch (error) {
-      if (error?.code === 'ENOENT') return { currentVersion: 'unknown', latestVersion: 'unknown', currentCommit: '', latestCommit: '', updateAvailable: true }
+      if (error?.code === 'ENOENT') return { currentVersion: 'unknown', currentCommit: '' }
       throw error
     }
-    const currentVersion = String(local?.version || '')
-    const currentCommit = await readRecordedCommit(sourceRoot, dshHome)
+    return {
+      currentVersion: String(local?.version || '') || 'unknown',
+      currentCommit: await readRecordedCommit(sourceRoot, dshHome),
+    }
+  }
+
+  async function versions() {
+    const { currentVersion, currentCommit } = await localIdentity()
+    if (currentVersion === 'unknown') return { currentVersion, latestVersion: 'unknown', currentCommit, latestCommit: '', updateAvailable: true }
     try {
       const [remote, latestCommit] = await Promise.all([fetchManifest(), fetchLatestCommit()])
       const latestVersion = String(remote?.version || '')
@@ -194,6 +201,7 @@ export function createApplicationUpdater(options) {
   }
 
   async function status() {
+    const identity = await localIdentity()
     const current = await store.readJson(STATUS_FILE)
     if (current !== undefined) {
       const checkedAt = now()
@@ -207,7 +215,7 @@ export function createApplicationUpdater(options) {
           error: '上次更新已中断',
         }
         await store.writeJson(STATUS_FILE, interrupted)
-        return interrupted
+        return { ...interrupted, ...identity }
       }
       if (current.phase === 'installed-restart-required' && current.host !== 'desktop') {
         const completed = {
@@ -215,19 +223,48 @@ export function createApplicationUpdater(options) {
           targetCommit: current.targetCommit, recoveredByRestart: true,
         }
         await store.writeJson(STATUS_FILE, completed)
-        return completed
+        return { ...completed, ...identity }
       }
       if (current.phase === 'failed') {
         const error = sanitizeUpdateError(current.error)
         if (error !== current.error) {
           const readable = { ...current, error }
           await store.writeJson(STATUS_FILE, readable)
-          return readable
+          return { ...readable, ...identity }
         }
       }
-      return current
+      return { ...current, ...identity }
     }
-    return { phase: 'idle', host: await host() }
+    return { phase: 'idle', host: await host(), ...identity }
+  }
+
+  async function check() {
+    const current = await status()
+    if (current.phase === 'running' && now() - Number(current.startedAt || 0) < RUNNING_TIMEOUT_MS) {
+      throw new Error('更新正在进行，暂时无法重新检查')
+    }
+    const installHost = await host()
+    let version
+    try {
+      version = await versions()
+    } catch (error) {
+      const failed = {
+        phase: 'check-failed', host: installHost, checkedAt: now(),
+        currentVersion: current.currentVersion, currentCommit: current.currentCommit,
+        error: `无法检查更新：${sanitizeUpdateError(error?.message || error)}`,
+      }
+      await store.writeJson(STATUS_FILE, failed)
+      return failed
+    }
+    const checked = {
+      phase: version.updateAvailable ? 'update-available' : 'up-to-date',
+      host: installHost, checkedAt: now(),
+      currentVersion: version.currentVersion, latestVersion: version.latestVersion,
+      currentCommit: version.currentCommit, latestCommit: version.latestCommit,
+      checkSource: version.checkSource, checkWarning: version.checkWarning,
+    }
+    await store.writeJson(STATUS_FILE, checked)
+    return checked
   }
 
   async function start() {
@@ -307,5 +344,5 @@ export function createApplicationUpdater(options) {
     return running
   }
 
-  return { start, status }
+  return { check, start, status }
 }

@@ -458,14 +458,22 @@ test('酒馆状态页注册到 Better Sidebar，不再接管 DSH details', () =>
   assert.doesNotMatch(clientSource, /slots\.inject\("details"|openDetails|ensureDetailsOpen/)
 })
 
-test('左侧栏提供一键更新并展示 CLI、Desktop 与 Android 的不同提示', () => {
+test('左侧栏常驻显示版本与构建号，并把检查更新和进行更新分成两步', () => {
   const sidebar = between(clientSource, 'function TavernSidebar', 'function TavernResourcesTab')
 
   assert.match(sidebar, /call\("getUpdateStatus"/)
+  assert.match(sidebar, /call\("checkUpdate"/)
   assert.match(sidebar, /call\("startUpdate"/)
-  assert.match(sidebar, /更新到最新版/)
+  assert.match(sidebar, /DSH Tavern /)
+  assert.match(sidebar, /currentVersionLabel/)
+  assert.match(sidebar, /currentCommitLabel/)
+  assert.match(sidebar, /检查更新/)
+  assert.match(sidebar, /重新检查/)
+  assert.match(sidebar, /进行更新/)
+  assert.match(sidebar, /updateStatus\.phase !== "update-available"/)
   assert.match(sidebar, /正在检查 GitHub 最新提交/)
-  assert.match(sidebar, /已是最新提交/)
+  assert.match(sidebar, /已是最新构建/)
+  assert.match(sidebar, /发现新构建/)
   assert.match(sidebar, /jsDelivr 备用源显示运行代码一致/)
   assert.match(sidebar, /tavern-update-probe/)
   assert.match(sidebar, /recovery\.sawOffline/)
@@ -483,6 +491,7 @@ test('左侧栏提供一键更新并展示 CLI、Desktop 与 Android 的不同�
   assert.match(sidebar, /请重启 DSH Desktop 以加载新版插件/)
   assert.match(sidebar, /重启 Desktop 后可用/)
   assert.match(serverSource, /case 'getUpdateStatus'/)
+  assert.match(serverSource, /case 'checkUpdate'/)
   assert.match(serverSource, /case 'startUpdate'/)
 })
 
@@ -494,7 +503,7 @@ test('持久化的更新完成状态不是刷新命令，页面只在服务实�
   assert.doesNotMatch(sidebar, /updateStatus\.phase !== "completed"[\s\S]{0,300}window\.location\.reload\(\)/)
   assert.match(sidebar, /updateStartedAtRef\.current > 0/)
   assert.match(sidebar, /status\.completedAt[\s\S]{0,120}updateStartedAtRef\.current/)
-  assert.match(sidebar, /status\.phase === "completed" && !completedInThisPage \? \{ phase: "idle"/)
+  assert.match(sidebar, /status\.phase === "completed" && !completedInThisPage \? \{ \.\.\.status, phase: "idle"/)
 })
 
 test('旧破甲侧栏、RPC 和卡片入口已删除', () => {

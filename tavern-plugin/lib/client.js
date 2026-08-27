@@ -76,8 +76,11 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 .dsh-tavern-side-row-meta { margin-top: 3px; display: flex; gap: 6px; color: var(--dsw-alias-label-secondary); font-size: 11px; }
 .dsh-tavern-side-empty { padding: 18px 8px; color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 1.6; text-align: center; }
 .dsh-tavern-update { flex: none; margin-top: 8px; padding-top: 9px; border-top: 1px solid var(--dsw-alias-border-l2); }
+.dsh-tavern-update-identity { color: var(--dsw-alias-label-secondary); font-size: 11px; line-height: 1.45; }
+.dsh-tavern-update-actions { display: flex; gap: 6px; margin-top: 7px; }
 .dsh-tavern-update-button { width: 100%; height: 32px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; background: transparent; color: var(--dsw-alias-label-secondary); cursor: pointer; font-size: 11px; }
 .dsh-tavern-update-button:hover { border-color: #a66b35; color: #a66b35; background: rgba(166,107,53,.08); }
+.dsh-tavern-update-button.primary { border-color: #a66b35; color: #a66b35; background: rgba(166,107,53,.08); }
 .dsh-tavern-update-button:disabled { opacity: .55; cursor: default; }
 .dsh-tavern-update-status { margin-top: 5px; color: var(--dsw-alias-label-tertiary); font-size: 10px; line-height: 1.45; white-space: pre-wrap; }
 .dsh-tavern-update-status.error { color: #c45f5f; }
@@ -1299,7 +1302,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 							received = true;
 							const status = result.status;
 							const completedInThisPage = status.phase === "completed" && updateStartedAtRef.current > 0 && Number(status.completedAt || 0) >= updateStartedAtRef.current;
-							setUpdateStatus(status.phase === "completed" && !completedInThisPage ? { phase: "idle", host: status.host || "cli" } : status);
+							setUpdateStatus(status.phase === "completed" && !completedInThisPage ? { ...status, phase: "idle", host: status.host || "cli" } : status);
 						}
 					} catch (err) {
 							if (!stopped && !received) {
@@ -1657,10 +1660,22 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					URL.revokeObjectURL(url);
 				} catch (err) { setError(String(err && err.message || err)); }
 			}
-			async function startUpdate() {
+			async function checkUpdate() {
+				if (updateStatus.phase === "checking" || updateStatus.phase === "running") return;
+				setUpdateStatus({ ...updateStatus, phase: "checking", host: updateStatus.host || "cli", checkedAt: Date.now(), error: "" });
+				try {
+					const result = await call("checkUpdate");
+					if (result && result.status) setUpdateStatus(result.status);
+				} catch (err) {
+					setUpdateStatus({ ...updateStatus, phase: "check-failed", host: updateStatus.host || "cli", error: String(err && err.message || err) });
+					tavernErrorHub.report("检查更新", err);
+				}
+			}
+			async function performUpdate() {
+				if (updateStatus.phase !== "update-available") return;
 				if (!window.confirm("更新期间会短暂断开，人物卡、资料和对话数据不会受到影响。\n确定更新到 GitHub 最新版吗？")) return;
 				updateStartedAtRef.current = Date.now();
-				setUpdateStatus({ phase: "checking", host: updateStatus.host || "cli", checkedAt: updateStartedAtRef.current });
+				setUpdateStatus({ ...updateStatus, phase: "running", host: updateStatus.host || "cli", startedAt: updateStartedAtRef.current });
 				try {
 					const result = await call("startUpdate");
 					if (result && result.status) setUpdateStatus(result.status);
@@ -1780,7 +1795,9 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				: updateStatus.phase === "up-to-date"
 					? (updateStatus.checkSource === "jsdelivr"
 						? "GitHub 不可达；jsDelivr 备用源显示运行代码一致（可能有缓存延迟），无需下载。"
-						: "已是最新提交（" + ((updateStatus.currentCommit || "").slice(0, 7) || updateStatus.currentVersion || "当前版本") + "），无需下载。")
+						: "✓ 已是最新构建")
+				: updateStatus.phase === "update-available"
+					? "发现新构建 " + ((updateStatus.latestCommit || "").slice(0, 7) || updateStatus.latestVersion || "")
 				: updateStatus.phase === "running"
 				? (updateStatus.checkSource === "jsdelivr" ? "GitHub 不可达，正在尝试通过 jsDelivr 备用源更新运行代码…" : "正在下载并安装，期间页面可能暂时断开… 如果较长时间仍未更新完成，建议重新安装一次；检测到 Git 时只会下载运行所需代码。")
 				: updateStatus.phase === "installed-restart-required"
@@ -1793,13 +1810,19 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 						: updateStatus.host === "android"
 							? "Android 更新完成，3088 服务已重启；如移动端界面未更新，请重启 DSHA。"
 							: "更新完成，请刷新页面。")
-					: updateStatus.phase === "failed"
+					: updateStatus.phase === "failed" || updateStatus.phase === "check-failed"
 						? (updateStatus.error || "更新失败，请稍后重试。")
-						: (updateStatus.host === "desktop"
-							? "Desktop 版 · 仅更新 dsh-tavern"
-							: updateStatus.host === "android"
-								? "Android 版 · 更新原克隆仓库并重启 3088"
-								: "命令行版 · 仅更新 dsh-tavern");
+						: "尚未检查更新";
+			const currentVersionLabel = updateStatus.currentVersion && updateStatus.currentVersion !== "unknown" ? "v" + updateStatus.currentVersion : "版本未知";
+			const currentCommitLabel = (updateStatus.currentCommit || "").slice(0, 7) || "构建未知";
+			const updateHostLabel = updateStatus.host === "desktop" ? "Desktop 版" : (updateStatus.host === "android" ? "Android 版" : "命令行版");
+			const checkingOrRunning = updateStatus.phase === "checking" || updateStatus.phase === "running" || updateStatus.phase === "loading";
+			const updateActions = updateStatus.phase === "update-available"
+				? h("div", { className: "dsh-tavern-update-actions" },
+					h("button", { className: "dsh-tavern-update-button", onClick: checkUpdate }, "重新检查"),
+					h("button", { className: "dsh-tavern-update-button primary", onClick: performUpdate }, "进行更新"))
+				: h("div", { className: "dsh-tavern-update-actions" },
+					h("button", { className: "dsh-tavern-update-button", disabled: checkingOrRunning || updateStatus.phase === "restart-required" || updateStatus.phase === "installed-restart-required", onClick: checkUpdate }, updateStatus.phase === "checking" ? "正在检查…" : (updateStatus.phase === "running" ? "正在更新…" : (updateStatus.phase === "installed-restart-required" ? "请手动重启" : (updateStatus.phase === "restart-required" ? "重启 Desktop 后可用" : (updateStatus.phase === "idle" || updateStatus.phase === "loading" ? "检查更新" : "重新检查"))))));
 			return h(React.Fragment, null, h(TavernErrorCenter), h("div", { className: "dsh-tavern-sidebar", style: { position: "relative", width: props.embedded ? "100%" : props.width + "px" } },
 				h("div", { className: "dsh-tavern-side-head" }, h("div", { className: "dsh-tavern-side-brand" }, "🍺 DSH Tavern"), props.embedded ? null : h("button", { className: "dsh-tavern-side-icon", title: "收起侧栏", onClick: props.toggleSidebar }, "◧")),
 				h("div", { className: "dsh-tavern-mode-switch" + (compatibilityAvailable ? " compatibility-enabled" : "") },
@@ -1816,8 +1839,9 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				h("div", { className: "dsh-tavern-side-list" }, rows.length ? rows : h("div", { className: "dsh-tavern-side-empty" }, uiMode === "play" ? (requestMode === "sillytavern" ? "还没有兼容对话。\n选择人物卡开始；兼容效果可能因预设、模型和供应商而异。" : "还没有游玩对话。\n选择人物卡开始；绑定剧本的卡会按剧本推进。") : "还没有卡片工作台对话。\n可以空白开始，再按需添加人物卡和剧本。")),
 				!picking && error ? h("div", { className: "dsh-tavern-dock-error", role: "alert" }, error) : null,
 				h("div", { className: "dsh-tavern-update" },
-				h("button", { className: "dsh-tavern-update-button", disabled: updateStatus.phase === "checking" || updateStatus.phase === "running" || updateStatus.phase === "loading" || updateStatus.phase === "restart-required" || updateStatus.phase === "installed-restart-required", onClick: startUpdate }, updateStatus.phase === "checking" ? "正在检查…" : (updateStatus.phase === "running" ? "正在更新…" : (updateStatus.phase === "installed-restart-required" ? "请手动重启" : (updateStatus.phase === "restart-required" ? "重启 Desktop 后可用" : "更新到最新版")))),
-					h("div", { className: "dsh-tavern-update-status" + (updateStatus.phase === "failed" ? " error" : "") }, updateMessage)
+					h("div", { className: "dsh-tavern-update-identity" }, "DSH Tavern " + currentVersionLabel + " · " + currentCommitLabel + " · " + updateHostLabel),
+					updateActions,
+					h("div", { className: "dsh-tavern-update-status" + (updateStatus.phase === "failed" || updateStatus.phase === "check-failed" ? " error" : "") }, updateMessage)
 				),
 				picking ? h("div", { className: "dsh-tavern-picker-overlay", onMouseDown: function (event) { if (event.target === event.currentTarget) closePicker(); } }, uiMode === "play" ? playPicker : cardPicker) : null
 			));

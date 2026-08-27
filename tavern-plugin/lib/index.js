@@ -2064,6 +2064,7 @@ export async function apply(ctx) {
     switch (method) {
       case 'listCards': return { cards: await listCards() }
       case 'getUpdateStatus': return { status: await applicationUpdater.status() }
+      case 'checkUpdate': return { status: await applicationUpdater.check() }
       case 'startUpdate': return { status: await applicationUpdater.start() }
       case 'getCardOpenings': return { openings: await getCardOpenings(args && args.path, args && args.userName) }
       case 'getCard': {

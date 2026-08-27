@@ -35,6 +35,80 @@ test('版本相同时不下载、不停止服务', async () => {
   }
 })
 
+test('检查更新只返回最新提交状态，不启动安装进程', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-updater-check-'))
+  try {
+    await writeFile(path.join(root, 'package.json'), JSON.stringify({ version: '0.9.0' }))
+    await writeFile(path.join(root, '.dsh-tavern-release.json'), JSON.stringify({ commit: 'a'.repeat(40) }))
+    let spawned = 0
+    const updater = createApplicationUpdater({
+      dataRoot: path.join(root, 'data'), sourceRoot: root, runtimeHost: 'cli',
+      fetchManifest: async () => ({ version: '0.9.0' }), fetchLatestCommit: async () => 'b'.repeat(40),
+      spawnProcess() { spawned += 1 }, now: () => 234,
+    })
+
+    assert.deepEqual(await updater.status(), {
+      phase: 'idle', host: 'cli', currentVersion: '0.9.0', currentCommit: 'a'.repeat(40),
+    })
+    assert.deepEqual(await updater.check(), {
+      phase: 'update-available', host: 'cli', checkedAt: 234,
+      currentVersion: '0.9.0', latestVersion: '0.9.0',
+      currentCommit: 'a'.repeat(40), latestCommit: 'b'.repeat(40),
+      checkSource: 'github', checkWarning: undefined,
+    })
+    assert.equal(spawned, 0)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('检查更新失败时保留当前构建信息且不启动安装', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-updater-check-failed-'))
+  try {
+    await writeFile(path.join(root, 'package.json'), JSON.stringify({ version: '0.9.0' }))
+    await writeFile(path.join(root, '.dsh-tavern-release.json'), JSON.stringify({ commit: 'c'.repeat(40) }))
+    let spawned = 0
+    const updater = createApplicationUpdater({
+      dataRoot: path.join(root, 'data'), sourceRoot: root, runtimeHost: 'cli',
+      fetchManifest: async () => { throw new Error('offline') },
+      fetchLatestCommit: async () => { throw new Error('offline') },
+      fetchCdnMetadata: async () => { throw new Error('offline') },
+      spawnProcess() { spawned += 1 }, now: () => 345,
+    })
+
+    const result = await updater.check()
+    assert.equal(result.phase, 'check-failed')
+    assert.equal(result.currentVersion, '0.9.0')
+    assert.equal(result.currentCommit, 'c'.repeat(40))
+    assert.match(result.error, /无法检查更新/)
+    assert.equal(spawned, 0)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('状态缓存中的旧提交号不会覆盖当前本地构建', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-updater-current-identity-'))
+  try {
+    const dataRoot = path.join(root, 'data')
+    await mkdir(dataRoot, { recursive: true })
+    await writeFile(path.join(root, 'package.json'), JSON.stringify({ version: '0.9.1' }))
+    await writeFile(path.join(root, '.dsh-tavern-release.json'), JSON.stringify({ commit: 'd'.repeat(40) }))
+    await writeFile(path.join(dataRoot, 'update-status.json'), JSON.stringify({
+      phase: 'update-available', host: 'cli', checkedAt: 123,
+      currentVersion: '0.9.0', currentCommit: 'a'.repeat(40), latestCommit: 'b'.repeat(40),
+    }))
+    const updater = createApplicationUpdater({ dataRoot, sourceRoot: root, runtimeHost: 'cli' })
+
+    const result = await updater.status()
+    assert.equal(result.currentVersion, '0.9.1')
+    assert.equal(result.currentCommit, 'd'.repeat(40))
+    assert.equal(result.latestCommit, 'b'.repeat(40))
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test('GitHub 不可达时通过 jsDelivr 文件哈希判断是否有更新', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-updater-cdn-'))
   try {
@@ -136,7 +210,7 @@ test('UI 更新沿用 Profile 中记录的 Desktop 宿主并脱离当前服务�
       now: () => 123,
     })
 
-    assert.deepEqual(await updater.status(), { phase: 'idle', host: 'desktop' })
+    assert.deepEqual(await updater.status(), { phase: 'idle', host: 'desktop', currentVersion: 'unknown', currentCommit: '' })
     assert.deepEqual(await updater.start(), { phase: 'running', host: 'desktop', startedAt: 123, pid: 4321 })
     assert.equal(calls.length, 1)
     assert.equal(calls[0].command, '/runtime/node')
@@ -190,7 +264,7 @@ test('超过十五分钟的更新自动标记为中断并持久化', async () =>
     })
 
     assert.deepEqual(await updater.status(), {
-      phase: 'failed', host: 'desktop', failedAt: 901000, error: '上次更新已中断',
+      phase: 'failed', host: 'desktop', failedAt: 901000, error: '上次更新已中断', currentVersion: 'unknown', currentCommit: '',
     })
     assert.deepEqual(JSON.parse(await readFile(statusFile, 'utf8')), {
       phase: 'failed', host: 'desktop', failedAt: 901000, error: '上次更新已中断',
@@ -216,7 +290,7 @@ test('更新进程已经退出时立即恢复按钮', async () => {
     })
 
     assert.deepEqual(await updater.status(), {
-      phase: 'failed', host: 'desktop', failedAt: 2000, error: '上次更新已中断',
+      phase: 'failed', host: 'desktop', failedAt: 2000, error: '上次更新已中断', currentVersion: 'unknown', currentCommit: '',
     })
   } finally {
     await rm(root, { recursive: true, force: true })
@@ -238,7 +312,7 @@ test('更新进程仍存活时保持运行状态', async () => {
       isProcessAlive: () => true,
     })
 
-    assert.deepEqual(await updater.status(), running)
+    assert.deepEqual(await updater.status(), { ...running, currentVersion: 'unknown', currentCommit: '' })
   } finally {
     await rm(root, { recursive: true, force: true })
   }
@@ -253,7 +327,7 @@ test('当前 CLI 运行方式优先于共享 Profile 的 Desktop 安装记录', 
     await writeFile(profileManifest, JSON.stringify({ dshTavern: { host: 'desktop' } }))
     const updater = createApplicationUpdater({ dataRoot, sourceRoot: '/app/dsh-tavern', dshHome: root, runtimeHost: 'cli' })
 
-    assert.deepEqual(await updater.status(), { phase: 'idle', host: 'cli' })
+    assert.deepEqual(await updater.status(), { phase: 'idle', host: 'cli', currentVersion: 'unknown', currentCommit: '' })
   } finally {
     await rm(root, { recursive: true, force: true })
   }
@@ -278,7 +352,7 @@ test('Android 安装记录让 UI 更新任务沿用 Android 宿主', async () =>
       now: () => 456,
     })
 
-    assert.deepEqual(await updater.status(), { phase: 'idle', host: 'android' })
+    assert.deepEqual(await updater.status(), { phase: 'idle', host: 'android', currentVersion: 'unknown', currentCommit: '' })
     assert.deepEqual(await updater.start(), { phase: 'running', host: 'android', startedAt: 456 })
     assert.deepEqual(calls[0].args.slice(0, 4), [
       path.join(path.resolve('/storage/emulated/0/dsh-tavern'), 'bin', 'dsh-tavern.mjs'), 'update', '--host', 'android',
@@ -298,6 +372,7 @@ test('手动重启后把“文件已更新”状态收敛为更新完成', async
     const updater = createApplicationUpdater({ dataRoot, sourceRoot: root, runtimeHost: 'cli', now: () => 2345 })
     assert.deepEqual(await updater.status(), {
       phase: 'completed', host: 'cli', completedAt: 2345, targetCommit: 'f'.repeat(40), recoveredByRestart: true,
+      currentVersion: 'unknown', currentCommit: '',
     })
   } finally {
     await rm(root, { recursive: true, force: true })

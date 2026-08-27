@@ -68,7 +68,7 @@ test('Android 入口在 Tavern 离线时仍可启动更新或修复', async (t) 
   assert.deepEqual(await manager.status(), {
     installed: true,
     online: false,
-    update: { phase: 'idle', host: 'android' },
+    update: { phase: 'idle', host: 'android', currentVersion: 'unknown', currentCommit: '' },
   })
   assert.deepEqual(await manager.update(), {
     installed: true,
