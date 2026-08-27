@@ -125,6 +125,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
   .dsh-tavern-card-pick-wrap { grid-template-columns: minmax(0, 1fr) auto auto; }
   .dsh-tavern-greeting-preview { max-height: 60vh; }
   .dsh-tavern-player-name { grid-template-columns: 1fr; gap: 5px; }
+  .dsh-tavern-preset-status { display: none; }
 }
 .dsh-tavern-picker-group { margin-top: 10px; color: var(--dsw-alias-label-secondary); font-size: 11px; font-weight: 700; }
 .dsh-tavern-picker-foot { position: sticky; bottom: -10px; display: flex; justify-content: flex-end; margin: 10px -10px -10px; padding: 10px; border-top: 1px solid var(--dsw-alias-border-l2); background: var(--dsw-specific-sidebar-fill); }

@@ -123,6 +123,10 @@ test('Tavern 对话顶栏显示当前全局破限方案，未激活时显示无'
   assert.match(clientSource, /dsh-tavern-preset-status/)
 })
 
+test('手机宽度隐藏顶栏长破限方案标签，避免挤压会话标题', () => {
+	assert.match(clientSource, /@media \(max-width: 640px\)[\s\S]*\.dsh-tavern-preset-status \{ display: none; \}/)
+})
+
 test('后台协调快照不参与 Session 恢复、页面重载或正文锁定', () => {
   assert.doesNotMatch(serverSource, /case 'getSessionConnection'/)
   assert.match(serverSource, /case 'syncSession'/)
