@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "revision": "02cabde4823e973375378b367a6bd2e1abfb9183",
+  "revision": "b655f23790e137f235513a22154f589f6caf2fa8",
   "files": [
     {
       "path": "bin/dsh-tavern",
@@ -94,8 +94,8 @@
     },
     {
       "path": "tavern-plugin/lib/application-updater.js",
-      "sha256": "b4e49c2eef94f3f17aba526657f05782db81d6a7250a69593c343521563796ca",
-      "size": 16020
+      "sha256": "ee40ab401d672f8fb0805f4ba4a3c159f77f4e8ca25942ddfddccebc3488dde9",
+      "size": 16452
     },
     {
       "path": "tavern-plugin/lib/background-agent-runner.js",
