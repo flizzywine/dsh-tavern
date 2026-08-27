@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "revision": "186b9b8c8e71d4a0158d0864903303c15d115fe5",
+  "revision": "445def8a7ae32ee2b6af603e828f7c7977911037",
   "files": [
     {
       "path": "bin/dsh-tavern",
@@ -104,8 +104,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "05aad6f78ac4d4841928c9290cc88bb753542aea56e0fc3a6a4a8da3c0329e40",
-      "size": 279724
+      "sha256": "3d9d1e1e2b42a9c8f2df1859f3f356fac639bd57c9d843ef499de3374ef77d07",
+      "size": 283740
     },
     {
       "path": "tavern-plugin/lib/domain/agent-readiness.js",
@@ -224,8 +224,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/preset-editor.js",
-      "sha256": "e70e89d455ecb9534e8c7ecdef3ca942cf3ca9d3b72d904ec124cfdffc3e6a1c",
-      "size": 8744
+      "sha256": "a2b7401f312962e733f6977d5b39abc5da729bb75f13637bac41368ccc02df84",
+      "size": 9746
     },
     {
       "path": "tavern-plugin/lib/domain/preset-reading.js",
@@ -364,8 +364,8 @@
     },
     {
       "path": "tavern-plugin/lib/index.js",
-      "sha256": "ee23be601af4af7ccf08f276d5d0571fe9d829079cce44dd1580b026789f21e2",
-      "size": 180156
+      "sha256": "5bba3b4d449387584725985c28c9a5ed7d52346b823fb251092684b14a516911",
+      "size": 180404
     },
     {
       "path": "tavern-plugin/lib/profile-data-store.js",
