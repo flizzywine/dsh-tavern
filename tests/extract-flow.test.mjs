@@ -527,6 +527,8 @@ test('外部预设只读，抽取时提示词手选且正则默认全部迁移',
   assert.match(panel, /适配模型未标注/)
   assert.match(panel, /破限方案对 Tavern 全局生效/)
   assert.match(panel, /当前仅兼容模式完成适配，推荐仅在兼容模式中使用破限方案/)
+  assert.match(panel, /打开兼容模式：进入设置/)
+  assert.match(panel, /启用兼容模式（实验性）/)
   assert.match(panel, /建议选择.*“不使用破限方案”/s)
   assert.match(panel, /否则可能产生异常行为/)
   assert.match(panel, /先导入外部预设，再勾选需要的预设条目并抽取/)
