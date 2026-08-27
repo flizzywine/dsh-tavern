@@ -847,6 +847,7 @@ test('设置开启后在顶层侧栏最右侧显示实验性兼容模式', () =>
 	assert.match(shell, /尽可能复刻 SillyTavern（酒馆）的行为，与游玩模式存在很大差异/)
 	assert.match(shell, /支持破限方案，但不直接运行整份预设/)
 	assert.match(shell, /需要哪个条目，抽取时勾选即可/)
+	assert.match(shell, /外部预设库和破限方案库可从右侧面板打开/)
 	assert.match(shell, /if \(!target\) \{ props\.sessions\.clear\(\); openPicker\(\); return; \}/)
 	assert.match(shell, /"卡片"\),[\s\S]*"兼容（实验性）"/)
 	assert.match(coordination, /requestMode: sync\.requestMode === "sillytavern"/)
