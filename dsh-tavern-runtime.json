@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "revision": "a55157ea4fa8e254897c5782a742b2e2e27622e4",
+  "revision": "d6380a134b06bff2fe15e79b90c5b4fafeaa1ae5",
   "files": [
     {
       "path": "bin/dsh-tavern",
@@ -44,13 +44,13 @@
     },
     {
       "path": "package.json",
-      "sha256": "0896dcb6fc3718dd848b9e8d3f54e20b7e1f0d624eff066a6432a7f68b2fc7c8",
-      "size": 829
+      "sha256": "e9a6ad44a56acdf1e905222df342a97de7558f22ffcffdaea127fb513e59f2fe",
+      "size": 982
     },
     {
       "path": "pnpm-lock.yaml",
-      "sha256": "1b639b1ceaa94c1c921523da1948215665595ff28ce76182405eae6eb853b5e6",
-      "size": 45356
+      "sha256": "aa9896bb80724b2e31a0e382b11e38ec3cc86340590096c4e0ee41cd66440051",
+      "size": 46946
     },
     {
       "path": "pnpm-workspace.yaml",
@@ -104,8 +104,8 @@
     },
     {
       "path": "tavern-plugin/lib/application-updater.js",
-      "sha256": "72c0ab8f6011b951f6344483211f639964e577729d39d6ba33b4cd95ebf1c8ff",
-      "size": 14075
+      "sha256": "82d0b20ab616ce8443f6d5fb5e09ae7c5b0405d81472364e4df7d1a456d0c33b",
+      "size": 15592
     },
     {
       "path": "tavern-plugin/lib/background-agent-runner.js",
@@ -114,8 +114,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "a5ff191ba06f9c04a5e0232aff4b22b1e4950bce71de478a301da4162dc07be1",
-      "size": 290794
+      "sha256": "eecaaa5e98eb70c090c5e285ca6776d294c83f952b891043e45b7d50fe2e722e",
+      "size": 294046
     },
     {
       "path": "tavern-plugin/lib/domain/agent-readiness.js",
@@ -379,8 +379,8 @@
     },
     {
       "path": "tavern-plugin/lib/index.js",
-      "sha256": "86757e173eae4b2ad3e69379c11cc226d269825d09525516cd37a8e7d6a26384",
-      "size": 179053
+      "sha256": "2b51112d03573b631d931cd412776aeffc9bbe375823b8a9e91c9999ab03e3e0",
+      "size": 179131
     },
     {
       "path": "tavern-plugin/lib/profile-data-store.js",
