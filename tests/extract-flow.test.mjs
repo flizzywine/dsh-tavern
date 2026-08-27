@@ -541,7 +541,7 @@ test('预设库选择整份预设，并可交给卡片 Agent 编辑或在当前�
   assert.match(panel, /"使用中"/)
   assert.doesNotMatch(panel, /"停用预设"/)
   assert.match(panel, /只有兼容模式会使用当前预设。游玩模式和卡片模式不会运行外部预设。/)
-  assert.match(panel, /进入“设置 → 通用设置”，开启“兼容模式（实验性）”。开启后，侧栏最右侧会显示“兼容（实验性）”。/)
+  assert.match(panel, /进入“设置 → DSH Tavern”，开启“兼容模式（实验性）”。开启后，侧栏最右侧会显示“兼容（实验性）”。/)
   assert.match(panel, /修改预设后，下一轮兼容请求直接生效；卡片模式中的引用仅供 Agent 阅读和编辑。/)
   assert.match(panel, /"在对话中引用"/)
   assert.match(panel, /props\.appendMention\("preset"/)
