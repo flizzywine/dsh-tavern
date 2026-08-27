@@ -59,9 +59,21 @@
 
 这与浅层安全对齐互补：前者给出“预训练连贯性与安全目标竞争”的行为解释，后者给出“安全 KL 预算主要花在前几个 token”的更细机制证据。
 
+#### 4. 2026 年 R1 系列前缀训练结果（近期预印本）
+
+[How Does Prefix Matter in Reasoning Model Tuning?（Tomar et al., 2026）](https://arxiv.org/abs/2601.01624) 在三个 R1 系列模型上系统改变 SFT 数据中前缀句的覆盖比例，同时测试推理、安全与事实性。论文报告：前缀条件化训练最高使 WildJailbreak、StrongReject 上的 `Safe@1` 提升 6%，GSM8K 推理提升 7%；token 级损失分析中，若干前缀 token 具有更大的梯度，被作者解释为稳定解码轨迹的 alignment anchors。
+
+这篇论文与“能力后训练和安全后训练可能共享前缀敏感性”的猜想最接近，因为它在同一实验框架中同时观察到安全与推理变化。但必须保留三个边界：
+
+- 它研究的是**训练数据中的输出前缀句**，不是推理时放在输入最前面的小说；
+- 结果并非所有任务都改善，事实性和编程可能持平或下降；
+- 截至本文记录日期，它仍是 2026 年预印本，证据等级低于已发表的 ICLR/NeurIPS 论文。
+
+[What Matters For Safety Alignment?（Li et al., 2026）](https://arxiv.org/abs/2601.03868) 则在 32 个模型、13 个模型家族、5 个安全数据集上做了大规模经验评测。作者报告 response-prefix 操纵令攻击成功率平均增加 3.34 倍，并在一个模型上从 0.6% 升至 96.3%。这进一步支持“输出前缀是安全控制面”，但它同样是预印本，而且研究的是 response prefix，不是输入小说前缀。
+
 ### B. 直接证据：输入上下文中的示范可以改变安全分布
 
-#### 4. 安全示范比一段抽象安全声明更有直接依据
+#### 5. 安全示范比一段抽象安全声明更有直接依据
 
 [Jailbreak and Guard Aligned Language Models with Only Few In-Context Demonstrations（Wei et al., 2023）](https://arxiv.org/abs/2310.06387) 同时研究了 In-Context Attack（ICA）和 In-Context Defense（ICD）：同样的模型，只改变前置对话示范，安全行为就会改变。
 
@@ -73,7 +85,7 @@
 
 所以，如果目标真的是加强安全而不是改变内容边界，现有论文更支持**短小、结构化的安全示范**，不支持泛化为“任意长安全文本都有效”。
 
-#### 5. 长上下文会放大 in-context learning，而非简单“稀释”
+#### 6. 长上下文会放大 in-context learning，而非简单“稀释”
 
 [Many-shot Jailbreaking（Anil et al., Anthropic, 2024）](https://www.anthropic.com/research/many-shot-jailbreaking) 用数十到数百个对话示范研究长上下文安全。攻击效果随示范数量按幂律增强；相似幂律也出现在正常的 in-context learning 任务上。作者据此认为该现象更像 ICL 的安全副作用，而非单纯 token 数量造成的注意力稀释。
 
@@ -83,7 +95,7 @@
 
 ### C. 机制证据：拒绝行为可能是低维而脆弱的
 
-#### 6. 拒绝方向
+#### 7. 拒绝方向
 
 [Refusal in Language Models Is Mediated by a Single Direction（Arditi et al., NeurIPS 2024）](https://proceedings.neurips.cc/paper_files/paper/2024/hash/f545448535dfde4f9786555403ab7c49-Abstract-Conference.html) 在 13 个开源聊天模型、最高 72B 参数上发现一个可因果干预的“拒绝方向”：
 
@@ -97,7 +109,7 @@
 
 ### D. 间接证据：开头会锁定能力轨迹
 
-#### 7. 少量推理前缀可以训练出明显能力变化
+#### 8. 少量推理前缀可以训练出明显能力变化
 
 [The First Few Tokens Are All You Need: UPFT（Ji et al., 2025）](https://arxiv.org/abs/2503.02875) 发现不同推理轨迹常共享初始步骤，并只用短前缀做无监督微调。Llama-3.1-8B-Instruct 在 MATH500 上以 8-token 前缀取得最佳平均结果；论文报告相对完整轨迹训练减少 75% 训练时间和 99% 采样成本，同时达到接近监督方法的推理表现。
 
@@ -105,19 +117,19 @@
 
 ### E. 位置效应：长前缀可能增强，也可能让指令被忘记
 
-#### 8. Lost in the Middle 只证明位置偏置，不证明安全稀释
+#### 9. Lost in the Middle 只证明位置偏置，不证明安全稀释
 
 [Lost in the Middle（Liu et al., TACL 2024）](https://aclanthology.org/2024.tacl-1.9/) 在多文档问答和键值检索中发现 U 形位置效应：关键信息位于输入开头或末尾时通常最好，放在中间时明显变差；多文档问答最坏情况下可下降 20 个百分点以上。
 
 这可以解释为什么“最开头的小说”可能仍有强影响，也提示夹在长文本中间的安全说明可能被弱化。但该论文没有研究安全行为，因此只能作为位置偏置的间接证据。
 
-#### 9. 对长输入，任务指令放在末尾有时更可靠
+#### 10. 对长输入，任务指令放在末尾有时更可靠
 
 [Instruction Position Matters in Sequence Generation（Liu et al., Findings of ACL 2024）](https://aclanthology.org/2024.findings-acl.693/) 研究翻译与摘要，发现长输入会出现 instruction forgetting；把任务指令从输入之前移到输入之后，最高提升 9.7 BLEU 和 3.5 ROUGE。
 
 这构成一个重要边界：不能仅凭“模型对前缀敏感”就断定规则必须放最前。对某些任务，**靠近生成位置的末尾指令反而更强**。dsh-tavern 应把“前置协议”和“历史后置短提醒”作为独立变量比较。
 
-#### 10. 安全 prompt/template 的作用具有模型差异
+#### 11. 安全 prompt/template 的作用具有模型差异
 
 [Keeping LLMs Aligned After Fine-tuning: The Crucial Role of Prompt Templates（Lyu et al., NeurIPS 2024）](https://proceedings.neurips.cc/paper_files/paper/2024/hash/d6f034bb216b472fc7d32ec7aff20342-Abstract-Conference.html) 表明推理时使用安全 system prompt 可以在多种微调设置中降低攻击成功率，但不同模型族差异明显。
 
@@ -243,3 +255,5 @@ DeepInception 使用“催眠”“自我迷失”“服从权威”等心理学
 9. Li et al. [DeepInception: Hypnotize Large Language Model to Be Jailbreaker](https://arxiv.org/abs/2311.03191), 2023, revised subsequently.
 10. Ji et al. [The First Few Tokens Are All You Need: An Efficient and Effective Unsupervised Prefix Fine-Tuning Method for Reasoning Models](https://arxiv.org/abs/2503.02875), 2025.
 11. DeepSeek. [Chat Prefix Completion (Beta)](https://api-docs.deepseek.com/guides/chat_prefix_completion/), official API documentation.
+12. Tomar et al. [How Does Prefix Matter in Reasoning Model Tuning?](https://arxiv.org/abs/2601.01624), 2026 preprint.
+13. Li et al. [What Matters For Safety Alignment?](https://arxiv.org/abs/2601.03868), 2026 preprint.
