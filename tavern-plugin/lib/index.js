@@ -1305,6 +1305,7 @@ export async function apply(ctx) {
     timeline: storyTimeline,
     tasks: backgroundTasks,
     waitUntilSettled: async function (chat) {
+      if (chat.requestMode === 'sillytavern') return
       let current = await readChat(chat.id)
       if (current === undefined) return
       let shouldRun = false
@@ -1432,7 +1433,6 @@ export async function apply(ctx) {
     const sessionId = str(args.sessionId)
     const chat = await chatForSession(sessionId)
     if (chat === undefined) throw new Error('当前会话没有绑定人物卡')
-    if (chat.requestMode === 'sillytavern') throw new Error('酒馆兼容模式不运行 DSH 后台候选项')
     const task = await taskMailbox.submit(chat.id, {
       requestId: args.requestId,
       kind: 'candidate',
@@ -2243,8 +2243,8 @@ export async function apply(ctx) {
       case 'getChoices': return { candidates: await candidateGenerator.find({ sessionId: args && args.sessionId, messageId: args && args.messageId }) }
       case 'startChoices': {
         const choiceChat = await chatForSession(args && args.sessionId)
-        if (choiceChat && choiceChat.requestMode === 'sillytavern') throw new Error('酒馆兼容模式不运行 DSH 后台候选项')
-        if (!await pullBackgroundCycle(args && args.sessionId)) return { preparing: true }
+        if (choiceChat === undefined) throw new Error('当前会话没有绑定人物卡')
+        if (choiceChat.requestMode !== 'sillytavern' && !await pullBackgroundCycle(args && args.sessionId)) return { preparing: true }
         const prepared = await candidateGenerator.prepare({
           sessionId: args && args.sessionId,
           messageId: args && args.messageId,

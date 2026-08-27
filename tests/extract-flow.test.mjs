@@ -285,13 +285,13 @@ test('后台结算期间禁用候选项按钮，完成后自动恢复', () => {
   assert.doesNotMatch(action, /rpc\("getSession"/)
 })
 
-test('正文重新生成提供一键执行与带意见执行两个入口，并复用同一替换流程', () => {
+test('正文重新生成提供两个含义明确的入口，并复用同一替换流程', () => {
 	const action = between(clientSource, 'function CandidateAction', 'function CandidateDockActions')
 	const shared = between(clientSource, 'async function submitBodyRegeneration', 'function CandidateAction')
 	const panel = between(clientSource, 'function RegenPanel', 'function register')
 
-	assert.match(action, /"一键重新生成"/)
-	assert.match(action, /"带意见重生成"/)
+	assert.match(action, /"一键重新生成正文"/)
+	assert.match(action, /"带意见重新生成正文"/)
 	assert.match(action, /onClick: regenerateImmediately/)
 	assert.match(action, /onClick: openGuidedRegeneration/)
 	assert.match(action, /submitBodyRegeneration\(props\.sessionId, panel, ""\)/)
@@ -885,7 +885,8 @@ test('设置开启后在顶层侧栏最右侧显示实验性兼容模式', () =>
 	assert.match(shell, /if \(!target\) \{ props\.sessions\.clear\(\); openPicker\(\); return; \}/)
 	assert.match(shell, /"卡片"\),[\s\S]*"兼容（实验性）"/)
 	assert.match(coordination, /requestMode: sync\.requestMode === "sillytavern"/)
-	assert.match(action, /requestMode === "sillytavern"[\s\S]*"一键重新生成"[\s\S]*"带意见重生成"[\s\S]*"回退本轮"/)
+	assert.match(action, /"重新生成候选项"[\s\S]*"一键重新生成正文"[\s\S]*"带意见重新生成正文"[\s\S]*"回退本轮"/)
+	assert.doesNotMatch(action, /requestMode === "sillytavern"\) return/)
 	assert.match(action, /rollbackViewState = useLiveTavernView\(props\.sessionId,[\s\S]*canRollback = rollbackViewState\.view && rollbackViewState\.view\.canRollback === true/)
 	assert.match(action, /canRollback \? h\("button"[\s\S]*"回退本轮"/)
 	assert.match(action, /liveTavernView\.invalidate\(props\.sessionId\)[\s\S]*tavernCoordination\.invalidate\(props\.sessionId\)/)
@@ -911,7 +912,9 @@ test('设置开启后在顶层侧栏最右侧显示实验性兼容模式', () =>
 	assert.match(systemAssembly, /assembly\.sections = \[\]/)
 	assert.match(systemAssembly, /assembly\.contexts = \[\]/)
 	assert.match(systemAssembly, /assembly\.tools = \[\]/)
-	assert.match(serverSource, /酒馆兼容模式不运行 DSH 后台候选项/)
+	assert.doesNotMatch(serverSource, /酒馆兼容模式不运行 DSH 后台候选项/)
+	assert.match(serverSource, /waitUntilSettled: async function \(chat\) \{[\s\S]*if \(chat\.requestMode === 'sillytavern'\) return/)
+	assert.match(clientSource, /不运行游玩模式的后台状态结算；候选项可按需手动生成/)
 })
 
 test('兼容模式和 DSH 请求都读取当前全局破限方案', () => {

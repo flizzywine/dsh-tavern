@@ -1828,7 +1828,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				h("div", { className: "dsh-tavern-mode-switch" + (compatibilityAvailable ? " compatibility-enabled" : "") },
 					h("button", { className: uiMode === "play" && requestMode === "dsh" ? "active" : "", disabled: busy, onClick: function () { switchPlayRequestMode("dsh"); } }, "游玩"),
 					h("button", { className: uiMode === "card" ? "active" : "", disabled: busy, onClick: function () { switchMode("card"); } }, "卡片"),
-					compatibilityAvailable ? h("button", { className: uiMode === "play" && requestMode === "sillytavern" ? "active" : "", disabled: busy, title: "按 SillyTavern 语义构造请求；不运行 DSH 后台 Agent、状态结算和候选项", onClick: function () { switchPlayRequestMode("sillytavern"); } }, "兼容（实验性）") : null
+					compatibilityAvailable ? h("button", { className: uiMode === "play" && requestMode === "sillytavern" ? "active" : "", disabled: busy, title: "按 SillyTavern 语义构造请求；不运行游玩模式的后台状态结算，候选项可按需手动生成", onClick: function () { switchPlayRequestMode("sillytavern"); } }, "兼容（实验性）") : null
 				),
 				h("button", { className: "dsh-tavern-side-new", disabled: busy, onClick: function () { openPicker(); } }, uiMode === "play" ? (requestMode === "sillytavern" ? "＋ 选择人物卡 · 新开兼容对话" : "＋ 选择人物卡 · 新开游玩") : "＋ 新建卡片工作台对话"),
 				uiMode === "play" && requestMode === "sillytavern" ? h("div", { className: "dsh-tavern-compatibility-notice" },
@@ -1911,7 +1911,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					React.createElement("label", { className: "dsh-tavern-settings-row" },
 						React.createElement("span", { className: "dsh-tavern-settings-copy" },
 							React.createElement("span", { className: "dsh-tavern-settings-title" }, "启用兼容模式（实验性）"),
-							React.createElement("span", { className: "dsh-tavern-settings-desc" }, "开启后，侧栏最右侧会显示兼容模式。该模式按 SillyTavern 语义构造请求，不运行 DSH 后台 Agent、状态结算和候选项；兼容效果可能因预设、模型和供应商而异。兼容模式可用于测试破限方案，但不保证游戏体验良好。")
+							React.createElement("span", { className: "dsh-tavern-settings-desc" }, "开启后，侧栏最右侧会显示兼容模式。该模式按 SillyTavern 语义构造请求，不运行游玩模式的后台状态结算；候选项可按需手动生成。兼容效果可能因预设、模型和供应商而异。兼容模式可用于测试破限方案，但不保证游戏体验良好。")
 						),
 						React.createElement("span", { className: "dsh-tavern-settings-switch" },
 							React.createElement("input", { type: "checkbox", checked: state.compatibilityMode, disabled: state.loading || state.busy, onChange: function (event) { void setCompatibilityMode(event.target.checked); }, "aria-label": "启用兼容模式（实验性）" }),
@@ -3414,11 +3414,6 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const hasReadyPanel = candidatePanelState !== null && candidatePanelState.sessionId === props.sessionId && candidatePanelState.messageId === props.messageId && candidatePanelState.phase === "ready";
 			const hasLoadingPanel = candidatePanelState !== null && candidatePanelState.sessionId === props.sessionId && candidatePanelState.messageId === props.messageId && candidatePanelState.phase === "loading";
 			if (!isPlayMode(sessionMode) || latestMessageId !== props.messageId) return null;
-			if (activityState.view && activityState.view.requestMode === "sillytavern") return h(React.Fragment, null,
-				h("button", { className: "dsh-tavern-choice-trigger", disabled: regenBusy || rolling, title: "不填写意见，立即重新生成正文（酒馆兼容请求）", onClick: regenerateImmediately }, regenBusy ? "重生成中…" : "一键重新生成"),
-				h("button", { className: "dsh-tavern-choice-trigger", disabled: regenBusy || rolling, title: "填写指导意见后重新生成正文（酒馆兼容请求）", onClick: openGuidedRegeneration }, "带意见重生成"),
-				canRollback ? h("button", { className: "dsh-tavern-choice-trigger", disabled: rolling, title: "删除最近一次用户输入和这段 LLM 输出", onClick: rollback }, rolling ? "回退中…" : "回退本轮") : null
-			);
 			return h(React.Fragment, null,
 				h("button", { className: "dsh-tavern-choice-trigger", disabled: busy || rolling || taskBusy || activity.busy || regenBusy, title: activity.busy ? activity.blockReason : (hasReadyPanel ? "重新生成候选项（可先填写意见）" : (isScript ? "手动生成候选项；由于跟随剧本，只有一个推荐候选项" : "手动生成候选项")), onClick: function () {
 					setRegenPanel(null);
@@ -3430,8 +3425,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 						generate(false);
 					}
 				} }, activity.busy ? activity.label : ((busy || taskBusy) ? "生成中…" : (hasReadyPanel ? "重新生成候选项" : "生成候选项"))),
-				h("button", { className: "dsh-tavern-choice-trigger", disabled: regenBusy || rolling, title: "不填写意见，立即重新生成正文", onClick: regenerateImmediately }, regenBusy ? "重生成中…" : "一键重新生成"),
-				h("button", { className: "dsh-tavern-choice-trigger", disabled: regenBusy || rolling, title: "填写指导意见后重新生成正文", onClick: openGuidedRegeneration }, "带意见重生成"),
+				h("button", { className: "dsh-tavern-choice-trigger", disabled: regenBusy || rolling, title: "不填写意见，立即重新生成正文", onClick: regenerateImmediately }, regenBusy ? "重生成中…" : "一键重新生成正文"),
+				h("button", { className: "dsh-tavern-choice-trigger", disabled: regenBusy || rolling, title: "填写指导意见后重新生成正文", onClick: openGuidedRegeneration }, "带意见重新生成正文"),
 				canRollback ? h("button", { className: "dsh-tavern-choice-trigger", disabled: rolling, title: "删除最近一次用户输入和这段 LLM 输出", onClick: rollback }, rolling ? "回退中…" : "回退本轮") : null
 			);
 		}
