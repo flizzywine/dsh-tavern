@@ -95,4 +95,4 @@ message
 
 截至 `e46f344`，上述首轮顺序均已形成可运行实现：纯前台请求保留卡内 MVU 规则，Host 结算标准补丁并保存消息/Swipe 快照；隔离 Helper Host 常驻运行非 Host 接管脚本；动态世界书能够在发送前修改绑定世界书；变量守卫能够在 `COMMAND_PARSED` 阶段改写命令后再交还 Host 执行；状态栏能够读取结算后的变量并加载远程 CG。
 
-当前仍统一标记为“受限支持”，因为尚未完成固定 SillyTavern 基线的同输入、同输出差分；默认隔离模式也明确不开放父页面同源 DOM。详见[《灯火阑珊》MVU 兼容链路验收](../research/lighthouse-mvu-compatibility-e2e-2026-08-28.md)。
+当前仍统一标记为“受限支持”，因为尚未完成固定 SillyTavern 基线的同输入、同输出差分。默认隔离模式不开放父页面同源 DOM；用户可在设置中显式开启“受信任人物卡模式”，使人物卡消息界面和常驻 Helper iframe 获得同源父页面能力。详见[《灯火阑珊》MVU 兼容链路验收](../research/lighthouse-mvu-compatibility-e2e-2026-08-28.md)。

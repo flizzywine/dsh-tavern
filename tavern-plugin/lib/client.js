@@ -1393,11 +1393,11 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				root = null;
 				previous = null;
 			}
-			function createRecord(sessionId, script, context) {
+			function createRecord(sessionId, script, context, trustedCardMode) {
 				const frame = hostDocument.createElement("iframe");
-				const record = { id: script.id, name: script.name, fingerprint: script.id + "\n" + script.content, token: token(), frame: frame, loaded: false, context: context, lastRuntimeError: "" };
+				const record = { id: script.id, name: script.name, fingerprint: script.id + "\n" + script.content + "\ntrusted=" + String(trustedCardMode), token: token(), frame: frame, loaded: false, context: context, lastRuntimeError: "" };
 				frame.title = "人物卡脚本：" + script.name;
-				frame.sandbox = "allow-scripts";
+				frame.sandbox = trustedCardMode ? "allow-scripts allow-same-origin" : "allow-scripts";
 				frame.referrerPolicy = "no-referrer";
 				frame.srcdoc = buildTavernHelperScriptDocument({ token: record.token, script: script, context: context });
 				frame.addEventListener("load", function () {
@@ -1414,6 +1414,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				if (activeSessionId && activeSessionId !== nextSessionId) clear();
 				activeSessionId = nextSessionId;
 				const scripts = Array.isArray(view && view.tavernHelperScripts) ? view.tavernHelperScripts : [];
+				const trustedCardMode = Boolean(view && view.tavernRuntimePolicy && view.tavernRuntimePolicy.trustedCardMode);
 				const activeIds = new Set(scripts.map(function (script) { return String(script.id); }));
 				Array.from(records.keys()).forEach(function (id) { if (!activeIds.has(id)) removeRecord(id); });
 				let nextSnapshot = null;
@@ -1421,10 +1422,10 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				for (const script of scripts) {
 					const context = helperContext(view, script);
 					if (!nextSnapshot) { nextSnapshot = snapshot(context); queuedEvents = eventsBetween(previous, nextSnapshot); }
-					const fingerprint = script.id + "\n" + script.content;
+					const fingerprint = script.id + "\n" + script.content + "\ntrusted=" + String(trustedCardMode);
 					let record = records.get(script.id);
 					if (record && record.fingerprint !== fingerprint) { removeRecord(script.id); record = null; }
-					if (!record) record = createRecord(nextSessionId, script, context);
+					if (!record) record = createRecord(nextSessionId, script, context, trustedCardMode);
 					else {
 						record.context = context;
 						post(record, { type: "dsh-tavern-helper-context", context: context });
@@ -1540,7 +1541,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				ref: frameRef,
 				className: "dsh-tavern-message-frame",
 				title: "人物卡消息界面",
-				sandbox: "allow-scripts",
+				sandbox: props.trustedCardMode ? "allow-scripts allow-same-origin" : "allow-scripts",
 				referrerPolicy: "no-referrer",
 				srcDoc: documentHtml,
 				style: { height: height + "px", overflow: height >= TAVERN_FRAME_MAX_HEIGHT ? "auto" : "hidden" }
@@ -1570,7 +1571,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			return projectionPartsOf(projection).map(function (part, index) {
 				if (part.kind === "markdown") return h(DshUi.MarkdownText, { key: index, text: String(part.text || ""), streaming: options.streaming, codeLabels: options.codeLabels, fileMentions: options.mentions });
 				const content = String(part.content !== undefined ? part.content : part.html || "");
-				return h(TavernMessageFrame, { key: index, content: content, sessionId: options.sessionId, turn: options.turn, partIndex: index, helperContext: options.helperContext });
+				return h(TavernMessageFrame, { key: index, content: content, sessionId: options.sessionId, turn: options.turn, partIndex: index, helperContext: options.helperContext, trustedCardMode: options.trustedCardMode });
 			});
 		}
 
@@ -1594,7 +1595,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				if (block.kind === "text") {
 					if (input.projection && projected) continue;
 					const projection = input.projection;
-					if (projection) rendered.push(h(React.Fragment, { key: index }, renderTavernProjection(projection, { streaming: input.streaming, codeLabels: codeLabels, mentions: input.mentions, sessionId: input.sessionId, turn: input.turn, helperContext: input.helperContext })));
+					if (projection) rendered.push(h(React.Fragment, { key: index }, renderTavernProjection(projection, { streaming: input.streaming, codeLabels: codeLabels, mentions: input.mentions, sessionId: input.sessionId, turn: input.turn, helperContext: input.helperContext, trustedCardMode: input.trustedCardMode })));
 					else rendered.push(h(DshUi.MarkdownText, { key: index, text: String(block.text || ""), streaming: input.streaming, codeLabels: codeLabels, fileMentions: input.mentions }));
 					projected = true;
 					continue;
@@ -1613,7 +1614,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				if (block.kind !== "tool-call") rendered.push(h(DshUi.JsonBlock, { key: index, label: translate("message.unknownBlock"), payload: block.block || block, truncatedLabel: function (total) { return translate("json.truncated", { total: total }); } }));
 			}
 			if (input.projection && !projected) {
-				rendered.push(h(React.Fragment, { key: "projection" }, renderTavernProjection(input.projection, { streaming: false, codeLabels: codeLabels, mentions: input.mentions, sessionId: input.sessionId, turn: input.turn, helperContext: input.helperContext })));
+				rendered.push(h(React.Fragment, { key: "projection" }, renderTavernProjection(input.projection, { streaming: false, codeLabels: codeLabels, mentions: input.mentions, sessionId: input.sessionId, turn: input.turn, helperContext: input.helperContext, trustedCardMode: input.trustedCardMode })));
 			}
 			if (input.interrupted) rendered.push(h("span", { key: "stopped", className: "dsh-tavern-assistant-stopped" }, translate("message.stopped")));
 			return rendered;
@@ -1692,6 +1693,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					interrupted: data.status === "interrupted",
 					projection: projection,
 					helperContext: liveState.view && liveState.view.tavernHelper,
+					trustedCardMode: Boolean(liveState.view && liveState.view.tavernRuntimePolicy && liveState.view.tavernRuntimePolicy.trustedCardMode),
 					sessionId: props.sessionId,
 					turn: turn,
 					renderMessageImages: props.renderMessageImages,
@@ -2409,13 +2411,13 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		const tavernShellFeature = createTavernShellFeatureModule();
 
 		function TavernSettingsSection() {
-			const [state, setState] = React.useState({ loading: true, busy: false, compatibilityMode: false, error: "" });
+			const [state, setState] = React.useState({ loading: true, busy: false, compatibilityMode: false, trustedCardMode: false, error: "" });
 			React.useEffect(function () {
 				let active = true;
 				rpc("getTavernSettings").then(function (result) {
-					if (active) setState({ loading: false, busy: false, compatibilityMode: Boolean(result.settings && result.settings.compatibilityMode), error: "" });
+					if (active) setState({ loading: false, busy: false, compatibilityMode: Boolean(result.settings && result.settings.compatibilityMode), trustedCardMode: Boolean(result.settings && result.settings.trustedCardMode), error: "" });
 				}, function (error) {
-					if (active) setState({ loading: false, busy: false, compatibilityMode: false, error: String(error && error.message || error) });
+					if (active) setState({ loading: false, busy: false, compatibilityMode: false, trustedCardMode: false, error: String(error && error.message || error) });
 				});
 				return function () { active = false; };
 			}, []);
@@ -2423,8 +2425,21 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				setState(function (current) { return Object.assign({}, current, { busy: true, error: "" }); });
 				try {
 					const result = await rpc("updateTavernSettings", { patch: { compatibilityMode: enabled } });
-					setState({ loading: false, busy: false, compatibilityMode: Boolean(result.settings && result.settings.compatibilityMode), error: "" });
+					setState({ loading: false, busy: false, compatibilityMode: Boolean(result.settings && result.settings.compatibilityMode), trustedCardMode: Boolean(result.settings && result.settings.trustedCardMode), error: "" });
 					window.dispatchEvent(new CustomEvent("dsh-tavern-settings-changed"));
+					window.dispatchEvent(new CustomEvent("dsh-tavern-data-changed"));
+				} catch (error) {
+					setState(function (current) { return Object.assign({}, current, { busy: false, error: String(error && error.message || error) }); });
+				}
+			}
+			async function setTrustedCardMode(enabled) {
+				if (enabled && !window.confirm("开启受信任人物卡模式？\n\n人物卡 HTML 与 Helper 脚本将能直接访问 DSH Tavern 页面、读取页面内容并以你的浏览器权限发起请求。只对你信任且已检查来源的人物卡开启。")) return;
+				setState(function (current) { return Object.assign({}, current, { busy: true, error: "" }); });
+				try {
+					const result = await rpc("updateTavernSettings", { patch: { trustedCardMode: enabled } });
+					setState({ loading: false, busy: false, compatibilityMode: Boolean(result.settings && result.settings.compatibilityMode), trustedCardMode: Boolean(result.settings && result.settings.trustedCardMode), error: "" });
+					window.dispatchEvent(new CustomEvent("dsh-tavern-settings-changed"));
+					window.dispatchEvent(new CustomEvent("dsh-tavern-data-changed"));
 				} catch (error) {
 					setState(function (current) { return Object.assign({}, current, { busy: false, error: String(error && error.message || error) }); });
 				}
@@ -2439,6 +2454,16 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 						),
 						React.createElement("span", { className: "dsh-tavern-settings-switch" },
 							React.createElement("input", { type: "checkbox", checked: state.compatibilityMode, disabled: state.loading || state.busy, onChange: function (event) { void setCompatibilityMode(event.target.checked); }, "aria-label": "启用兼容模式（实验性）" }),
+							React.createElement("span", { className: "dsh-tavern-settings-track", "aria-hidden": "true" })
+						)
+					),
+					React.createElement("label", { className: "dsh-tavern-settings-row" },
+						React.createElement("span", { className: "dsh-tavern-settings-copy" },
+							React.createElement("span", { className: "dsh-tavern-settings-title" }, "受信任人物卡模式"),
+							React.createElement("span", { className: "dsh-tavern-settings-desc" }, "默认关闭。开启后，人物卡界面与 Helper 脚本可直接访问父页面，以兼容依赖同源 DOM 的旧卡；这也等于允许人物卡代码以当前页面权限运行，请只对可信来源使用。")
+						),
+						React.createElement("span", { className: "dsh-tavern-settings-switch" },
+							React.createElement("input", { type: "checkbox", checked: state.trustedCardMode, disabled: state.loading || state.busy, onChange: function (event) { void setTrustedCardMode(event.target.checked); }, "aria-label": "启用受信任人物卡模式" }),
 							React.createElement("span", { className: "dsh-tavern-settings-track", "aria-hidden": "true" })
 						)
 					)

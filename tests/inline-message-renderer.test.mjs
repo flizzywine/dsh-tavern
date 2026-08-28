@@ -191,6 +191,37 @@ test('人物卡 Helper 脚本使用独立不透明 iframe，并获得脚本、�
   assert.doesNotMatch(document, /allow-same-origin/)
 })
 
+test('Helper Host 仅在明确的受信任人物卡模式中开放同源父页面', () => {
+  const frames = []
+  const hostWindow = {
+    crypto: { randomUUID() { return 'trusted-runtime-token' } },
+    setTimeout,
+    clearTimeout,
+    addEventListener() {},
+    removeEventListener() {}
+  }
+  const root = { isConnected: true, appendChild() {}, remove() {} }
+  const hostDocument = {
+    body: { appendChild() {} },
+    documentElement: { appendChild() {} },
+    createElement(tag) {
+      if (tag === 'div') return root
+      const frame = { contentWindow: { postMessage() {} }, addEventListener() {}, remove() { this.removed = true } }
+      frames.push(frame)
+      return frame
+    }
+  }
+  const runtime = client.createTavernHelperScriptRuntime({ window: hostWindow, document: hostDocument, rpc() { return Promise.resolve({}) }, reportError() {} })
+  const base = { tavernHelper: { messages: [], scriptVariables: {} }, tavernHelperScripts: [{ id: 'script', name: '脚本', content: 'void 0', data: {}, buttons: [] }] }
+
+  runtime.sync('session', base)
+  assert.equal(frames[0].sandbox, 'allow-scripts')
+
+  runtime.sync('session', Object.assign({}, base, { tavernRuntimePolicy: { trustedCardMode: true } }))
+  assert.equal(frames[0].removed, true)
+  assert.equal(frames[1].sandbox, 'allow-scripts allow-same-origin')
+})
+
 test('持久 Helper Host 复用同一脚本 iframe、发送生命周期事件并限制 RPC', async () => {
   const windowListeners = new Map()
   const frames = []

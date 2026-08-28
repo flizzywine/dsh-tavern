@@ -113,12 +113,16 @@ export async function apply(ctx) {
   }
   async function readTavernSettings() {
     const saved = await profileData.readJson(settingsPath)
-    return { compatibilityMode: Boolean(saved && saved.compatibilityMode === true) }
+    return {
+      compatibilityMode: Boolean(saved && saved.compatibilityMode === true),
+      trustedCardMode: Boolean(saved && saved.trustedCardMode === true)
+    }
   }
   async function updateTavernSettings(patch) {
     return await profileData.updateJson(settingsPath, function (current) {
       const next = current && typeof current === 'object' ? Object.assign({}, current) : {}
       if (patch && Object.prototype.hasOwnProperty.call(patch, 'compatibilityMode')) next.compatibilityMode = patch.compatibilityMode === true
+      if (patch && Object.prototype.hasOwnProperty.call(patch, 'trustedCardMode')) next.trustedCardMode = patch.trustedCardMode === true
       return next
     })
   }
@@ -992,6 +996,7 @@ export async function apply(ctx) {
     return Object.assign(cardPreparation.present({ card: card, as: 'view' }), { path: str(card.path || chat.cardPath) })
   }
   async function view(chat, card) {
+    const runtimeSettings = await readTavernSettings()
     let scriptProgress = null
     if ((chat.mode || 'story') === 'script') {
       const script = await readScript(chat.cardPath)
@@ -1060,6 +1065,7 @@ export async function apply(ctx) {
       tavernHelperScripts: helperRuntime.scripts,
       tavernHelperScriptDiagnostics: helperRuntime.diagnostics,
       tavernHelperWorldbook: helperWorldbook,
+      tavernRuntimePolicy: { trustedCardMode: runtimeSettings.trustedCardMode },
       presentationWarnings: Array.isArray(chat.presentationWarnings) ? chat.presentationWarnings : [],
       worldBookError: chat.worldBookError || null,
       lastWorldBookRecall: chat.lastWorldBookRecall || null,
