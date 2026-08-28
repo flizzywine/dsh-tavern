@@ -2545,6 +2545,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					h("button", { className: "dsh-tavern-btn", disabled: busy, "aria-label": "下一条开场白", onClick: function () { setOpeningPicker(Object.assign({}, openingPicker, { index: (openingPicker.index + 1) % openingPicker.openings.length })); } }, "→")
 				) : (openingPicker.openings.length === 0 ? h("div", { className: "dsh-tavern-side-empty" }, "这张人物卡没有开场白，将从空白场景开始。") : null),
 				selectedOpening && openingPicker.openings.length > 1 ? h("div", {
+					key: selectedOpening.id,
 					className: "dsh-tavern-greeting-preview",
 					role: "region",
 					"aria-label": openingPicker.card.name + "开场白预览"

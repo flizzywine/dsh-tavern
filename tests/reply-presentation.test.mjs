@@ -126,18 +126,32 @@ test('完整 HTML、HTML 注释和 details 均留在原位置，不转换也不�
   assert.equal(result.displayMode, 'html')
 })
 
-test('HTML 代码围栏在原位置进入统一 HTML 渲染', () => {
+test('HTML 代码围栏在原位置进入独立 HTML 渲染', () => {
   const source = '示例：\n\n```html\n<div>只展示源码</div>\n```'
   const projected = projectDisplayParts(source)
   assert.equal(displayModeOf(source), 'html')
-  assert.deepEqual(projected.parts.map(part => part.kind), ['html'])
-  assert.equal(projected.parts[0].content, '示例：\n\n<div>只展示源码</div>\n')
+  assert.deepEqual(projected.parts.map(part => part.kind), ['html', 'html'])
+  assert.match(projected.parts[0].content, /示例：/)
+  assert.equal(projected.parts[1].content, '<div>只展示源码</div>\n')
 })
 
-test('未标语言但包含 HTML 的代码围栏也进入统一 HTML 渲染', () => {
+test('独立围栏 UI 不与正文共用 iframe，避免 body.load 清空正文', () => {
+  const source = '【开局二·虞汐颜】\n\n幽暗秘境深处。\n\n```html\n<body><script>$("body").load("/status.html")</script></body>\n```'
+  const projected = projectDisplayParts(source)
+
+  assert.deepEqual(projected.parts.map(part => part.kind), ['html', 'html'])
+  assert.match(projected.parts[0].content, /幽暗秘境深处/)
+  assert.doesNotMatch(projected.parts[0].content, /body.*load/s)
+  assert.match(projected.parts[1].content, /body.*load/s)
+  assert.doesNotMatch(projected.parts[1].content, /幽暗秘境深处/)
+})
+
+test('未标语言但包含 HTML 的代码围栏也进入独立 HTML 渲染', () => {
   const projected = projectDisplayParts('正文前\n```\n<section>远程面板</section>\n```\n正文后')
-  assert.deepEqual(projected.parts.map(part => part.kind), ['html'])
-  assert.match(projected.parts[0].content, /正文前\n<section>远程面板<\/section>\n正文后/)
+  assert.deepEqual(projected.parts.map(part => part.kind), ['html', 'html', 'html'])
+  assert.match(projected.parts[0].content, /正文前/)
+  assert.match(projected.parts[1].content, /<section>远程面板<\/section>/)
+  assert.match(projected.parts[2].content, /正文后/)
 })
 
 test('首页占位符经 markdownOnly 正则变成前端代码，但 Session 保留占位符', () => {
@@ -150,8 +164,10 @@ test('首页占位符经 markdownOnly 正则变成前端代码，但 Session 保
 
   assert.equal(result.sessionText, source)
   assert.match(result.displayText, /<button>首页<\/button>/)
-  assert.deepEqual(result.displayParts.map(part => part.kind), ['html'])
-  assert.match(result.displayParts[0].content, /document\.body\.dataset\.ready/)
+  assert.deepEqual(result.displayParts.map(part => part.kind), ['html', 'html', 'html'])
+  assert.match(result.displayParts[0].content, /正文前/)
+  assert.match(result.displayParts[1].content, /document\.body\.dataset\.ready/)
+  assert.match(result.displayParts[2].content, /正文后/)
 })
 
 test('损坏规则只产生目标诊断，后续规则继续执行', () => {

@@ -162,6 +162,7 @@ test('新开游玩在创建 Session 前完成游戏准备，创建后不提供�
   assert.match(sidebar, /dsh-tavern-picker-overlay/)
   assert.match(sidebar, /role: "dialog"/)
 	assert.match(sidebar, /renderTavernProjection\(selectedOpening\.projection/)
+	assert.match(sidebar, /key: selectedOpening\.id/)
 	assert.match(sidebar, /helperContext: selectedOpening\.helperContext/)
 	assert.match(sidebar, /styleEnvironment: openingPicker\.styleEnvironment/)
 	assert.doesNotMatch(sidebar, /srcDoc: buildOpeningPreviewDocument\(selectedOpening\.text\)/)

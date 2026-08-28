@@ -72,9 +72,21 @@ function htmlDocumentContent(value) {
   return '<div class="dsh-tavern-plain-text">' + escapeHtmlText(source) + '</div>'
 }
 
-/** Build one executable HTML document for the complete visible reply. */
+/** Keep explicitly fenced UI documents isolated so document-level scripts cannot erase adjacent story text. */
 export function projectDisplayParts(value) {
-  return { parts: [{ kind: 'html', content: htmlDocumentContent(value) }], warnings: [] }
+  const segments = fencedSegments(value)
+  if (!segments.some(function (segment) { return segment.kind === 'html' })) {
+    return { parts: [{ kind: 'html', content: htmlDocumentContent(value) }], warnings: [] }
+  }
+  return {
+    parts: segments.map(function (segment) {
+      return {
+        kind: 'html',
+        content: segment.kind === 'html' ? segment.content : htmlDocumentContent(segment.text)
+      }
+    }),
+    warnings: []
+  }
 }
 
 /** Match renderable HTML regardless of whether it came from regex or model output. */
