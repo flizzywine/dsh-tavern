@@ -314,6 +314,7 @@ Frame：这次新增什么工作上下文
 
 ## 相关文档
 
+- [游玩模式前台 Frame 改造方案](foreground-frame-migration-plan.md)
 - [LLM-Harness 架构](llm-harness-architecture.md)
 - [酒馆单 Agent 协议与 DSH 前后台 Agent 架构](tavern-single-agent-vs-dsh-dual-agent.md)
 - [酒馆超集兼容运行时方案](tavern-superset-compatibility-runtime.md)
