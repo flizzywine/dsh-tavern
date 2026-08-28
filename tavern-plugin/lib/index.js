@@ -30,6 +30,11 @@ import { projectRuntimePresetRequest, runtimePresetPhaseMessages } from './domai
 import { createTavernRetryLimiter } from './domain/tavern-retry-limiter.js'
 import { createTavernMvuRuntime, readMvuWorldBookInitialState } from './domain/tavern-mvu-runtime.js'
 import {
+  projectTavernHelperContext,
+  replaceTavernHelperMessages,
+  replaceTavernHelperVariables
+} from './domain/tavern-helper-context.js'
+import {
   preserveRuntimeSource,
   projectAgentContent,
   projectOpeningCommit,
@@ -830,6 +835,22 @@ export async function apply(ctx) {
     await writeChat(chat, { source: 'display.capture' })
     return { captured: true, turn, partIndex: index, captureKind: capture.captureKind }
   }
+  async function updateTavernHelperVariables(sessionId, option, variables) {
+    const chat = await chatForSession(sessionId)
+    if (chat === undefined) throw new Error('当前会话没有绑定人物卡')
+    if (!chat.mvu || chat.mvu.enabled !== true) throw new Error('当前人物卡未启用 MVU 兼容运行时')
+    const updated = replaceTavernHelperVariables(chat, { option, variables })
+    await writeChat(chat, { source: 'tavern-helper.variables' })
+    return { updated: true, target: updated, context: projectTavernHelperContext(chat) }
+  }
+  async function updateTavernHelperMessages(sessionId, messages) {
+    const chat = await chatForSession(sessionId)
+    if (chat === undefined) throw new Error('当前会话没有绑定人物卡')
+    if (!chat.mvu || chat.mvu.enabled !== true) throw new Error('当前人物卡未启用 MVU 兼容运行时')
+    const updated = replaceTavernHelperMessages(chat, messages)
+    await writeChat(chat, { source: 'tavern-helper.messages' })
+    return { updated: true, targets: updated, context: projectTavernHelperContext(chat) }
+  }
 
   function sessionDebugEvidence(sessionId) {
     const id = str(sessionId)
@@ -953,6 +974,7 @@ export async function apply(ctx) {
       canRollback: hasRollbackMessages(chat.messages),
       presentation: null,
       replyProjections: replyDisplay.projections,
+      tavernHelper: chat.mvu && chat.mvu.enabled === true ? projectTavernHelperContext(chat) : null,
       presentationWarnings: Array.isArray(chat.presentationWarnings) ? chat.presentationWarnings : [],
       worldBookError: chat.worldBookError || null,
       lastWorldBookRecall: chat.lastWorldBookRecall || null,
@@ -2265,6 +2287,8 @@ export async function apply(ctx) {
       }
       case 'attachPlayChatDebug': return { reference: await attachPlayChatDebug(args && args.targetSessionId, args && args.sourceSessionId, args && args.turn) }
       case 'captureDisplayRuntime': return await captureDisplayRuntime(args && args.sessionId, args && args.turn, args && args.partIndex, args && args.runtime)
+      case 'updateTavernHelperVariables': return await updateTavernHelperVariables(args && args.sessionId, args && args.option, args && args.variables)
+      case 'updateTavernHelperMessages': return await updateTavernHelperMessages(args && args.sessionId, args && args.messages)
       case 'startChat': {
         try {
           return { view: await startChat(args && args.path, args && args.sessionId, args && args.mode, args && args.openingId, args && args.userName, args && args.requestMode) }
