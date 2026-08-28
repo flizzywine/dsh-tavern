@@ -39,6 +39,22 @@ test('两位数捕获组、match token 和 trimStrings 保持酒馆替换语义'
   assert.equal(result.text, 'defghijklm|a|j|m')
 })
 
+test('固定 SillyTavern 语义：trimStrings 只清理捕获内容，不删除模板常量', () => {
+  const result = applyTavernRegexText('foo', [
+    script('局部清理', '/(foo)/', '固定foo|$1', { trimStrings: ['foo'] })
+  ], { placement: 2, isMarkdown: true })
+
+  assert.equal(result.text, '固定foo|')
+})
+
+test('固定 SillyTavern 语义：支持命名捕获组并将缺失捕获替换为空串', () => {
+  const result = applyTavernRegexText('王辰-18', [
+    script('命名捕获', '/(?<name>[^-]+)-(?<age>\\d+)/', '$<name>：$<age>：$<missing>')
+  ], { placement: 2, isMarkdown: true })
+
+  assert.equal(result.text, '王辰：18：')
+})
+
 test('损坏规则只产生诊断，后续规则继续执行', () => {
   const result = applyTavernRegexText('进入校园', [
     script('损坏规则', '/[/', '<b>bad</b>'),

@@ -40,21 +40,18 @@ function replacementFor(script) {
   const trims = Array.isArray(script.trimStrings) ? script.trimStrings.map(str).filter(Boolean) : []
   return function () {
     const args = Array.from(arguments)
-    const match = str(args[0])
-    let replacement = str(script.replaceString).replace(/\{\{match\}\}/gi, match)
-    const tail = args.length > 0 && args.at(-1) !== null && typeof args.at(-1) === 'object' ? 3 : 2
-    const captures = args.slice(1, args.length - tail).map(str)
-    replacement = replacement.replace(/\$(\d{1,2})/g, function (token, digits) {
-      const index = Number(digits)
-      if (index >= 1 && index <= captures.length) return captures[index - 1]
-      if (digits.length === 2) {
-        const fallback = Number(digits[0])
-        if (fallback >= 1 && fallback <= captures.length) return captures[fallback - 1] + digits[1]
-      }
-      return token
-    })
-    for (const trim of trims) replacement = replacement.split(trim).join('')
-    return replacement
+    const groups = args.length > 0 && args.at(-1) !== null && typeof args.at(-1) === 'object' ? args.at(-1) : null
+    const filtered = function (value) {
+      let result = str(value)
+      for (const trim of trims) result = result.split(trim).join('')
+      return result
+    }
+    return str(script.replaceString)
+      .replace(/\{\{match\}\}/gi, '$0')
+      .replace(/\$(\d+)|\$<([^>]+)>/g, function (_token, digits, groupName) {
+        const match = digits !== undefined ? args[Number(digits)] : groups && groups[groupName]
+        return match ? filtered(match) : ''
+      })
   }
 }
 
