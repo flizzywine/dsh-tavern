@@ -41,6 +41,7 @@ import {
 import { applyTavernHelperVariableMacros } from './domain/tavern-helper-variable-macros.js'
 import { projectTavernHelperScripts } from './domain/tavern-helper-scripts.js'
 import { createTavernHelperEventGate } from './domain/tavern-helper-event-gate.js'
+import { createTavernRemoteAssetPinStore } from './domain/tavern-remote-assets.js'
 import { TavernPromptTemplateRuntime } from './domain/tavern-prompt-template-runtime.js'
 import {
   preserveRuntimeSource,
@@ -97,6 +98,10 @@ export async function apply(ctx) {
   const sourceRoot = fileURLToPath(new URL('../../', import.meta.url))
   const dataRoot = resolveTavernDataRoot()
   const profileData = createProfileDataStore({ dataRoot })
+  const tavernRemoteAssets = createTavernRemoteAssetPinStore({
+    readJson: async function (path) { return await profileData.readJson(path) },
+    updateJson: async function (path, updater) { return await profileData.updateJson(path, updater) }
+  })
   const settingsPath = 'tavern-settings.json'
   const promptTemplateVariablesPath = 'prompt-template-variables.json'
   async function readPromptTemplateGlobalVariables() {
@@ -1009,6 +1014,13 @@ export async function apply(ctx) {
     let cardExtensions = { regexScripts: [], helperScripts: [] }
     if ((chat.mode || 'story') === 'story' || (chat.mode || 'story') === 'script') {
       cardExtensions = await readCardExtensions(chat.cardPath) || cardExtensions
+      const pinnedExtensions = await tavernRemoteAssets.pinExtensions(cardExtensions)
+      cardExtensions = Object.assign({}, cardExtensions, {
+        helperScripts: pinnedExtensions.helperScripts,
+        regexScripts: pinnedExtensions.regexScripts,
+        remoteAssetDiagnostics: pinnedExtensions.diagnostics,
+        remoteAssetPins: pinnedExtensions.pins
+      })
       const presetRegexScripts = Array.isArray(activePresetSnapshot && activePresetSnapshot.regexScripts) ? activePresetSnapshot.regexScripts : []
       replyDisplay = projectRuntimeReplyHistory(chat.messages, {
         regexScripts: (Array.isArray(cardExtensions.regexScripts) ? cardExtensions.regexScripts : []).concat(presetRegexScripts),
@@ -1037,6 +1049,7 @@ export async function apply(ctx) {
     const helperRuntime = chat.mvu && chat.mvu.enabled === true
       ? projectTavernHelperScripts(cardExtensions.helperScripts, chat.tavernHelperScriptVariables)
       : { scripts: [], diagnostics: [] }
+    helperRuntime.diagnostics.push(...(Array.isArray(cardExtensions.remoteAssetDiagnostics) ? cardExtensions.remoteAssetDiagnostics : []))
     let helperWorldbook = null
     if (chat.mvu && chat.mvu.enabled === true && str(chat.cardPath) !== '') {
       try {
@@ -1064,6 +1077,7 @@ export async function apply(ctx) {
       tavernHelper: chat.mvu && chat.mvu.enabled === true ? projectTavernHelperContext(chat) : null,
       tavernHelperScripts: helperRuntime.scripts,
       tavernHelperScriptDiagnostics: helperRuntime.diagnostics,
+      tavernRemoteAssetPins: Array.isArray(cardExtensions.remoteAssetPins) ? cardExtensions.remoteAssetPins : [],
       tavernHelperWorldbook: helperWorldbook,
       tavernRuntimePolicy: { trustedCardMode: runtimeSettings.trustedCardMode },
       presentationWarnings: Array.isArray(chat.presentationWarnings) ? chat.presentationWarnings : [],
