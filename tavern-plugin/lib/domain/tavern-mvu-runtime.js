@@ -287,10 +287,14 @@ function applyCommand(statData, command) {
   if (command.type === 'set') {
     if (!hasAt(statData, path)) throw new Error('set 路径不存在')
     const before = clone(getAt(statData, path))
-    const value = clone(parseValue(command.args.at(-1)))
+    let value = clone(parseValue(command.args.at(-1)))
     if (path.length === 0) return { statData: object(value), before, after: clone(value) }
     const current = getAt(statData, path)
-    if (Array.isArray(current) && current.length === 2 && typeof current[1] === 'string' && !Array.isArray(current[0])) current[0] = value
+    if (Array.isArray(current) && current.length === 2 && typeof current[1] === 'string' && !Array.isArray(current[0])) {
+      if (typeof current[0] === 'number' && value !== null) value = Number(value)
+      current[0] = value
+    }
+    else if (typeof current === 'number' && value !== null && typeof value === 'string') setAt(statData, path, Number(value))
     else setAt(statData, path, value)
     return { statData, before, after: clone(getAt(statData, path)) }
   }
