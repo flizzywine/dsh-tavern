@@ -186,3 +186,24 @@ test('MVU 上游一致性：set 将数字字段中的引号数字转回 number',
 	assert.equal(typeof result.variables.stat_data.好感度[0], 'number')
 	assert.deepEqual(result.diagnostics, [])
 })
+
+test('MVU 上游一致性：修正常见的引号与空格路径', async () => {
+	const runtime = createTavernMvuRuntime()
+	const result = await runtime.settleResponse({
+		previousVariables: variables({
+			foo: { bar: { baz: 1 } },
+			root: { '字段 名': { 子: 1 } },
+			测试员: { '物品&装备': { 武器栏: { 衔尾蛇OICW原型: { 弹药系统: { '7.62mm ETC弹匣': { 载弹量: 1 } } } } } }
+		}),
+		sourceText: [
+			`_.set('foo."bar".baz', 2);//点分字段外层引号`,
+			`_.set("root.'字段 名'.子", 3);//带空格的点分字段`,
+			`_.set('测试员."物品&装备".武器栏[衔尾蛇OICW原型].弹药系统[ 7.62mm ETC弹匣 ].载弹量', 4);//复杂中文路径`
+		].join('\n')
+	})
+
+	assert.equal(result.variables.stat_data.foo.bar.baz, 2)
+	assert.equal(result.variables.stat_data.root['字段 名'].子, 3)
+	assert.equal(result.variables.stat_data.测试员['物品&装备'].武器栏.衔尾蛇OICW原型.弹药系统['7.62mm ETC弹匣'].载弹量, 4)
+	assert.deepEqual(result.diagnostics, [])
+})

@@ -132,9 +132,31 @@ function lodashPath(segments) {
   }).join('')
 }
 
+function normalizeMvuPath(path) {
+  const fixedBrackets = str(path).replace(/\[([^\]]*)\]/g, function (_match, rawInner) {
+    let inner = rawInner.trim()
+    if (inner === '') return '[]'
+    let quoted = false
+    const first = inner[0]
+    const last = inner[inner.length - 1]
+    if (inner.length >= 2 && (first === '"' || first === "'") && first === last) {
+      quoted = true
+      inner = inner.slice(1, -1)
+    }
+    if (/^\d+$/.test(inner)) return quoted ? '["' + inner.replaceAll('"', '\\"') + '"]' : '[' + inner + ']'
+    if (/\s/.test(inner)) return '["' + inner.replaceAll('"', '\\"') + '"]'
+    return '[' + inner + ']'
+  })
+  return fixedBrackets.replace(/(^|\.)(["'])([^"']*)\2(?=\.|\[|$)/g, function (_match, prefix, _quote, name) {
+    if (!/\s/.test(name) && !/[.[\]]/.test(name)) return prefix + name
+    const escaped = name.replaceAll('"', '\\"')
+    return prefix === '.' ? '["' + escaped + '"]' : prefix + '["' + escaped + '"]'
+  })
+}
+
 function pathSegments(path) {
   if (Array.isArray(path)) return path.map(String)
-  const source = str(path).trim().replace(/^["'`](.*)["'`]$/, '$1')
+  const source = normalizeMvuPath(str(path).trim().replace(/^["'`](.*)["'`]$/, '$1'))
   if (source === '') return []
   const result = []
   const matcher = /([^.[\]]+)|\[\s*(?:"((?:\\.|[^"])*)"|'((?:\\.|[^'])*)'|([^\]]+))\s*\]/g
