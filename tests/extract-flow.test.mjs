@@ -872,6 +872,15 @@ test('酒馆状态页显示人物卡脚本失败诊断，避免远程资源被�
 	assert.match(panel, /人物卡脚本兼容状态/)
 })
 
+test('酒馆状态页暴露人物卡可见脚本按钮并交还原脚本事件处理', () => {
+	const panel = between(clientSource, 'function TavernStatusPanel', 'function TavernStatusTab')
+	const runtime = between(clientSource, 'function createTavernHelperScriptRuntime', 'let tavernHelperScriptRuntime')
+	assert.match(panel, /人物卡脚本按钮/)
+	assert.match(panel, /tavernHelperScriptRuntime\.triggerButton/)
+	assert.match(runtime, /buttonEvent\(scriptId, name\)/)
+	assert.match(runtime, /dsh-tavern-helper-ui-open/)
+})
+
 test('人物卡 Helper 的世界书写入按人物卡串行，避免生命周期事件并发覆盖', () => {
 	const adapter = between(serverSource, 'const tavernHelperWorldbookMutationTails', 'async function tavernHelperEventContext')
 	assert.match(adapter, /serializeTavernHelperWorldbook\(chat\.cardPath/)

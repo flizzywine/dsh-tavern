@@ -71,6 +71,18 @@ test('消息 iframe 允许可信远程资源，同时保留不透明来源隔离
   assert.match(document, /body>\*\{white-space:normal\}/)
 })
 
+test('Helper 脚本文档提供可见弹窗容器和固定 Tavern Helper 按钮事件格式', () => {
+  const document = client.buildTavernHelperScriptDocument({
+    token: 'helper-token',
+    script: { id: 'greeting-index', name: '开场白索引', content: 'void 0', buttons: [] },
+    context: { messages: [] }
+  })
+
+  assert.match(document, /window\.SillyTavern = Object\.freeze\(\{ Popup: HelperPopup/)
+  assert.match(document, /dsh-tavern-helper-ui-open/)
+  assert.match(document, /return scriptId \+ "_" \+ stringHash/)
+})
+
 test('消息 iframe 在人物卡脚本前提供隔离的 localStorage 兼容层', () => {
   const document = client.buildTavernFrameDocument({
     content: '<script data-card-script>window.cardTheme = localStorage.getItem("theme") || "night";<\/script>',
@@ -182,6 +194,7 @@ test('人物卡 Helper 脚本使用独立不透明 iframe，并获得脚本、�
   assert.match(document, /getScriptId/)
   assert.match(document, /updateWorldbookWith/)
   assert.match(document, /appendInexistentScriptButtons/)
+	assert.match(document, /getCharData/)
   assert.match(document, /insertOrAssignVariables/)
   assert.match(document, /insertVariables/)
   assert.match(document, /localStorage/)
@@ -226,6 +239,7 @@ test('持久 Helper Host 复用同一脚本 iframe、发送生命周期事件并
   const windowListeners = new Map()
   const frames = []
   const calls = []
+	const mutations = []
   const hostWindow = {
 	crypto: { randomUUID() { return 'runtime-token' } },
 	setTimeout,
@@ -235,6 +249,7 @@ test('持久 Helper Host 复用同一脚本 iframe、发送生命周期事件并
   }
   const root = {
     isConnected: true,
+	style: {},
     children: [],
     appendChild(node) { this.children.push(node); node.parent = this },
     remove() { this.isConnected = false }
@@ -245,6 +260,7 @@ test('持久 Helper Host 复用同一脚本 iframe、发送生命周期事件并
     createElement(tag) {
       if (tag === 'div') return root
       const frame = {
+		style: {},
         contentWindow: { messages: [], postMessage(message) { this.messages.push(message) } },
         listeners: {},
         addEventListener(name, handler) { this.listeners[name] = handler },
@@ -258,10 +274,12 @@ test('持久 Helper Host 复用同一脚本 iframe、发送生命周期事件并
     window: hostWindow,
     document: hostDocument,
     rpc(method, args, sessionId) { calls.push({ method, args, sessionId }); return Promise.resolve({ ok: true }) },
+	onMutation(sessionId, method) { mutations.push({ sessionId, method }) },
     reportError() {}
   })
   function view(messages) {
     return {
+		card: { name: '灯火阑珊', first_mes: '开场一', alternate_greetings: ['开场二'] },
       tavernHelper: { messages, scriptVariables: {} },
       tavernHelperWorldbook: { name: '灯火阑珊', entries: [] },
       tavernHelperScripts: [{ id: 'dynamic', name: '动态世界书', content: 'void 0', data: { enabled: true }, buttons: [] }]
@@ -271,17 +289,37 @@ test('持久 Helper Host 复用同一脚本 iframe、发送生命周期事件并
   assert.equal(runtime.inspect().sessionId, 'session-1')
   assert.deepEqual(Array.from(runtime.inspect().scriptIds), ['dynamic'])
   assert.equal(frames[0].sandbox, 'allow-scripts')
-  frames[0].listeners.load()
-  assert.deepEqual(frames[0].contentWindow.messages.map(item => item.type), ['dsh-tavern-helper-context', 'dsh-tavern-helper-event'])
+	frames[0].listeners.load()
+	assert.deepEqual(frames[0].contentWindow.messages.map(item => item.type), ['dsh-tavern-helper-context', 'dsh-tavern-helper-event'])
+	assert.deepEqual(JSON.parse(JSON.stringify(frames[0].contentWindow.messages[0].context.character)), {
+		name: '灯火阑珊',
+		first_mes: '开场一',
+		alternate_greetings: ['开场二'],
+		data: { name: '灯火阑珊', first_mes: '开场一', alternate_greetings: ['开场二'] }
+	})
+
+	const buttonResult = runtime.triggerButton('dynamic', '开场白索引')
+	const buttonRequest = frames[0].contentWindow.messages.at(-1)
+	assert.equal(buttonRequest.name, 'dynamic_7510203320239904')
+	windowListeners.get('message')({
+		source: frames[0].contentWindow,
+		data: { type: 'dsh-tavern-helper-event-complete', token: 'runtime-token', eventId: buttonRequest.eventId, args: [] }
+	})
+	assert.deepEqual(JSON.parse(JSON.stringify(await buttonResult)), [])
+	windowListeners.get('message')({ source: frames[0].contentWindow, data: { type: 'dsh-tavern-helper-ui-open', token: 'runtime-token' } })
+	assert.equal(root.hidden, false)
+	assert.match(frames[0].style.cssText, /width:100%/)
+	windowListeners.get('message')({ source: frames[0].contentWindow, data: { type: 'dsh-tavern-helper-ui-close', token: 'runtime-token' } })
+	assert.equal(root.hidden, true)
 
 	runtime.sync('session-1', view([{ message_id: 0, role: 'assistant', message: '正文', swipe_id: 0, variables: { stat_data: { hp: 1 } } }]))
   assert.equal(frames.length, 1)
-	assert.deepEqual(frames[0].contentWindow.messages.filter(item => item.type === 'dsh-tavern-helper-event').map(item => item.name), ['CHAT_CHANGED', 'MESSAGE_RECEIVED'])
+	assert.deepEqual(frames[0].contentWindow.messages.filter(item => item.type === 'dsh-tavern-helper-event').map(item => item.name), ['CHAT_CHANGED', 'dynamic_7510203320239904', 'MESSAGE_RECEIVED'])
 
 	const explicitLifecycle = view([{ message_id: 0, role: 'assistant', message: '新正文', swipe_id: 1, variables: { stat_data: { hp: 2 } } }])
 	explicitLifecycle.tavernHelper.lifecycleRevision = 1
 	runtime.sync('session-1', explicitLifecycle)
-	assert.deepEqual(frames[0].contentWindow.messages.filter(item => item.type === 'dsh-tavern-helper-event').map(item => item.name), ['CHAT_CHANGED', 'MESSAGE_RECEIVED'])
+	assert.deepEqual(frames[0].contentWindow.messages.filter(item => item.type === 'dsh-tavern-helper-event').map(item => item.name), ['CHAT_CHANGED', 'dynamic_7510203320239904', 'MESSAGE_RECEIVED'])
 
   windowListeners.get('message')({
     source: frames[0].contentWindow,
@@ -290,6 +328,14 @@ test('持久 Helper Host 复用同一脚本 iframe、发送生命周期事件并
   await Promise.resolve()
   assert.deepEqual(calls, [{ method: 'getTavernHelperWorldbook', args: { name: '灯火阑珊' }, sessionId: 'session-1' }])
   assert.equal(frames[0].contentWindow.messages.at(-1).type, 'dsh-tavern-helper-response')
+	assert.deepEqual(mutations, [])
+
+	windowListeners.get('message')({
+		source: frames[0].contentWindow,
+		data: { type: 'dsh-tavern-helper-call', token: 'runtime-token', requestId: '2', method: 'updateTavernHelperMessages', args: { messages: [{ message_id: 0, swipe_id: 1 }] } }
+	})
+	await Promise.resolve()
+	assert.deepEqual(mutations, [{ sessionId: 'session-1', method: 'updateTavernHelperMessages' }])
 
   const emitted = runtime.emit('COMMAND_PARSED', [{ stat_data: {} }, [{ type: 'set' }]], { messages: [] })
 	const request = frames[0].contentWindow.messages.at(-1)

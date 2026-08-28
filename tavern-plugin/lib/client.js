@@ -312,6 +312,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 .dsh-tavern-status-tag { padding: 2px 6px; border-radius: 999px; background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-secondary); font-size: 10px; }
 .dsh-tavern-status-body { flex: 1; min-height: 0; overflow-y: auto; padding: 12px 14px 20px; }
 .dsh-tavern-status-section { margin-bottom: 16px; }
+.dsh-tavern-script-buttons { display: flex; flex-wrap: wrap; gap: 7px; }
 .dsh-tavern-status-label { margin-bottom: 7px; color: var(--dsw-alias-label-secondary); font-size: 11px; font-weight: 700; letter-spacing: .06em; }
 .dsh-tavern-status-now { padding: 9px 10px; border: 1px solid rgba(166,107,53,.30); border-radius: 9px; background: rgba(166,107,53,.08); font-size: 12px; line-height: 1.55; }
 .dsh-tavern-guide-list { display: flex; flex-direction: column; gap: 6px; }
@@ -1045,6 +1046,19 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				try { return structuredClone(value); }
 				catch (_) { return value === undefined ? undefined : JSON.parse(JSON.stringify(value)); }
 			}
+			function stringHash(value, seed) {
+				if (typeof value !== "string") return 0;
+				let h1 = 0xdeadbeef ^ (Number(seed) || 0), h2 = 0x41c6ce57 ^ (Number(seed) || 0);
+				for (let index = 0; index < value.length; index += 1) {
+					const code = value.charCodeAt(index);
+					h1 = Math.imul(h1 ^ code, 2654435761);
+					h2 = Math.imul(h2 ^ code, 1597334677);
+				}
+				h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+				h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+				return 4294967296 * (2097151 & h2) + (h1 >>> 0);
+			}
+			function buttonEvent(name) { return scriptId + "_" + stringHash(String(name || "")); }
 			function lastId() { return Math.max(-1, (state.messages || []).length - 1); }
 			function normalizeId(value) {
 				let id = Number(value);
@@ -1179,7 +1193,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				window.replaceScriptButtons(next);
 				return copy(next);
 			};
-			window.getButtonEvent = function (name) { return scriptId + ":button:" + String(name || ""); };
+			window.getButtonEvent = buttonEvent;
+			window.getCharData = function () { return copy(state.character || null); };
 			window.getCurrentMessageId = currentId;
 			window.getLastMessageId = lastId;
 			window.getChatMessages = messagesFor;
@@ -1261,6 +1276,43 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				parseMessage: async function () { throw new Error("当前兼容层尚未开放脚本内手动 MVU 重算"); }
 			};
 			window.waitGlobalInitialized = async function (name) { if (name === "Mvu") return window.Mvu; return window[name]; };
+			function HelperPopup(content, _type, title, options) {
+				const popup = this;
+				popup.content = content;
+				popup.options = options && typeof options === "object" ? options : {};
+				popup.root = null;
+				popup.resolve = null;
+				popup.completeAffirmative = async function () {
+					if (popup.root) popup.root.remove();
+					popup.root = null;
+					parent.postMessage({ type: "dsh-tavern-helper-ui-close", token: token }, "*");
+					if (popup.resolve) { const resolve = popup.resolve; popup.resolve = null; resolve(true); }
+					return true;
+				};
+				popup.show = function () {
+					if (popup.root) return Promise.resolve(false);
+					const overlay = document.createElement("div");
+					overlay.setAttribute("data-dsh-helper-popup", "");
+					overlay.style.cssText = "position:fixed;inset:0;z-index:10;display:grid;place-items:center;padding:24px;background:rgba(0,0,0,.64);box-sizing:border-box";
+					const panel = document.createElement("section");
+					panel.style.cssText = "width:min(920px,100%);max-height:90vh;overflow:auto;border:1px solid rgba(255,255,255,.2);border-radius:16px;padding:16px;background:#15191f;color:#eef4fb;box-shadow:0 24px 80px rgba(0,0,0,.5);box-sizing:border-box";
+					if (title) { const heading = document.createElement("h2"); heading.textContent = String(title); panel.appendChild(heading); }
+					const node = content && content.jquery ? content[0] : content;
+					if (node && typeof node.nodeType === "number") panel.appendChild(node);
+					else if (node !== undefined && node !== null) { const text = document.createElement("div"); text.textContent = String(node); panel.appendChild(text); }
+					const actions = document.createElement("div");
+					actions.style.cssText = "display:flex;justify-content:flex-end;margin-top:14px";
+					const close = document.createElement("button");
+					close.type = "button"; close.textContent = String(popup.options.okButton || "关闭");
+					close.style.cssText = "border:1px solid rgba(255,255,255,.24);border-radius:9px;padding:7px 14px;background:#273241;color:#fff;cursor:pointer";
+					close.addEventListener("click", popup.completeAffirmative);
+					actions.appendChild(close); panel.appendChild(actions); overlay.appendChild(panel); document.body.appendChild(overlay);
+					popup.root = overlay;
+					parent.postMessage({ type: "dsh-tavern-helper-ui-open", token: token }, "*");
+					return new Promise(function (resolve) { popup.resolve = resolve; });
+				};
+			}
+			window.SillyTavern = Object.freeze({ Popup: HelperPopup, POPUP_TYPE: Object.freeze({ DISPLAY: "display" }) });
 			window.errorCatched = function (factory) { return function () { try { return factory.apply(this, arguments); } catch (error) { console.error(error); return {}; } }; };
 			window.retrieveDisplayedMessage = function () { return window.jQuery ? window.jQuery() : []; };
 			window.toastr = { success: console.info, info: console.info, warning: console.warn, error: console.error };
@@ -1311,6 +1363,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const hostDocument = options && options.document || document;
 			const invoke = options && options.rpc || rpc;
 			const reportError = options && options.reportError || function (source, error) { tavernErrorHub.report(source, error); };
+			const reportMutation = options && options.onMutation || function (sessionId) { liveTavernView.invalidate(sessionId); };
 			const records = new Map();
 			const pendingEvents = new Map();
 			const allowedMethods = new Set(["updateTavernHelperVariables", "updateTavernHelperMessages", "getTavernHelperWorldbook", "replaceTavernHelperWorldbook"]);
@@ -1320,6 +1373,15 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			let eventSequence = 0;
 			function clone(value) { return value === undefined ? undefined : JSON.parse(JSON.stringify(value)); }
 			function token() { return hostWindow.crypto && typeof hostWindow.crypto.randomUUID === "function" ? hostWindow.crypto.randomUUID() : String(Date.now()) + ":" + String(Math.random()); }
+			function stringHash(value, seed) {
+				if (typeof value !== "string") return 0;
+				let h1 = 0xdeadbeef ^ (Number(seed) || 0), h2 = 0x41c6ce57 ^ (Number(seed) || 0);
+				for (let index = 0; index < value.length; index += 1) { const code = value.charCodeAt(index); h1 = Math.imul(h1 ^ code, 2654435761); h2 = Math.imul(h2 ^ code, 1597334677); }
+				h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+				h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+				return 4294967296 * (2097151 & h2) + (h1 >>> 0);
+			}
+			function buttonEvent(scriptId, name) { return String(scriptId) + "_" + stringHash(String(name || "")); }
 			function ensureRoot() {
 				if (root && root.isConnected !== false) return root;
 				root = hostDocument.createElement("div");
@@ -1332,6 +1394,9 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				const context = clone(view && view.tavernHelper || {});
 				if (!context.scriptVariables || typeof context.scriptVariables !== "object") context.scriptVariables = {};
 				if (!Object.prototype.hasOwnProperty.call(context.scriptVariables, script.id)) context.scriptVariables[script.id] = clone(script.data || {});
+				const character = clone(view && view.card || null);
+				if (character && typeof character === "object" && (!character.data || typeof character.data !== "object")) character.data = clone(character);
+				context.character = character;
 				context.worldbook = clone(view && view.tavernHelperWorldbook || null);
 				return context;
 			}
@@ -1370,6 +1435,18 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				if (!record) return;
 				record.frame.remove();
 				records.delete(id);
+			}
+			function closeRecordUi() {
+				if (!root) return;
+				root.hidden = true;
+				for (const record of records.values()) record.frame.hidden = false;
+			}
+			function openRecordUi(record) {
+				const container = ensureRoot();
+				container.hidden = false;
+				container.style.cssText = "position:fixed;inset:0;z-index:2300";
+				for (const item of records.values()) item.frame.hidden = item !== record;
+				record.frame.style.cssText = "display:block;width:100%;height:100%;border:0;background:transparent";
 			}
 			function emitToRecord(record, name, args, context) {
 				if (!record.loaded) return Promise.resolve(args);
@@ -1444,6 +1521,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				if (!data || !data.token) return;
 				const record = Array.from(records.values()).find(function (item) { return item.token === data.token && event.source === item.frame.contentWindow; });
 				if (!record) return;
+				if (data.type === "dsh-tavern-helper-ui-open") { openRecordUi(record); return; }
+				if (data.type === "dsh-tavern-helper-ui-close") { closeRecordUi(); return; }
 				if (data.type === "dsh-tavern-helper-event-complete") {
 					const pending = pendingEvents.get(String(data.eventId || ""));
 					if (!pending) return;
@@ -1464,12 +1543,23 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				}
 				invoke(data.method, mutationArgs, activeSessionId).then(function (result) {
 					post(record, { type: "dsh-tavern-helper-response", requestId: data.requestId, ok: true, result: result });
+					if ((data.method === "updateTavernHelperVariables" || data.method === "updateTavernHelperMessages" || data.method === "replaceTavernHelperWorldbook") && result && result.updated !== false && result.stale !== true) reportMutation(activeSessionId, data.method, result);
 				}, function (error) {
 					post(record, { type: "dsh-tavern-helper-response", requestId: data.requestId, ok: false, error: String(error && error.message || error) });
 				});
 			}
 			hostWindow.addEventListener("message", receive);
-			return Object.freeze({ sync: sync, emit: emit, dispose: function () { hostWindow.removeEventListener("message", receive); clear(); }, inspect: function () { return { sessionId: activeSessionId, scriptIds: Array.from(records.keys()) }; } });
+			return Object.freeze({
+				sync: sync,
+				emit: emit,
+				triggerButton: function (scriptId, name) {
+					const record = records.get(String(scriptId));
+					if (!record) return Promise.reject(new Error("人物卡脚本尚未运行"));
+					return emitToRecord(record, buttonEvent(scriptId, name), [], record.context);
+				},
+				dispose: function () { hostWindow.removeEventListener("message", receive); clear(); },
+				inspect: function () { return { sessionId: activeSessionId, scriptIds: Array.from(records.keys()) }; }
+			});
 		}
 
 		let tavernHelperScriptRuntime = null;
@@ -3530,6 +3620,12 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const debugTurns = view && Array.isArray(view.debugTurns) ? view.debugTurns : [];
 			const helperDiagnostics = view && Array.isArray(view.tavernHelperScriptDiagnostics) ? view.tavernHelperScriptDiagnostics : [];
 			const helperFailures = helperDiagnostics.filter(function (item) { return item && item.status !== "host-owned"; });
+			const helperButtons = [];
+			for (const script of view && Array.isArray(view.tavernHelperScripts) ? view.tavernHelperScripts : []) {
+				for (const button of Array.isArray(script && script.buttons) ? script.buttons : []) {
+					if (button && button.visible === true) helperButtons.push({ scriptId: String(script.id || ""), scriptName: String(script.name || script.id || "脚本"), name: String(button.name || "") });
+				}
+			}
 			const latestDebugTurn = Number(debugTurns[0] && debugTurns[0].turn) || 0;
 			React.useEffect(function () {
 				setError(liveState.error || "");
@@ -3560,6 +3656,12 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				} catch (err) { setGuideError(String(err && err.message || err)); }
 				finally { setGuideBusy(false); }
 			}
+			async function triggerHelperButton(button) {
+				try {
+					if (!tavernHelperScriptRuntime || !tavernHelperRuntimeActive) throw new Error("人物卡脚本正在其他窗口运行，或尚未加载完成");
+					await tavernHelperScriptRuntime.triggerButton(button.scriptId, button.name);
+				} catch (error) { tavernErrorHub.report("人物卡脚本按钮「" + button.name + "」", error); }
+			}
 			const h = React.createElement;
 			if (!view) return h("aside", { className: "dsh-tavern-status" },
 				h("div", { className: "dsh-tavern-status-head" }, h("div", { className: "dsh-tavern-status-title" }, "状态栏")),
@@ -3579,6 +3681,12 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				),
 					h("div", { className: "dsh-tavern-status-body" },
 					view.worldBookError ? h("div", { className: "dsh-card-error" }, "世界书召回失败：" + view.worldBookError) : null,
+					helperButtons.length ? h("section", { className: "dsh-tavern-status-section" },
+						h("div", { className: "dsh-tavern-status-label" }, "人物卡脚本按钮"),
+						h("div", { className: "dsh-tavern-script-buttons" }, helperButtons.map(function (button) {
+							return h("button", { key: button.scriptId + ":" + button.name, className: "dsh-tavern-btn", title: button.scriptName, onClick: function () { triggerHelperButton(button); } }, button.name);
+						}))
+					) : null,
 					(view.presentationWarnings || []).map(function (warning, index) {
 						return h("div", { className: "dsh-card-error", key: "presentation-warning-" + index }, warning);
 					}),

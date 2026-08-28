@@ -112,3 +112,5 @@ message
 DSH `surface replace` 只负责恢复模型消息面；DSH 的人类 transcript 按设计仍展示追加来源事件。因此，正文重生成产生的合成回合以及被回退的回合，另由 Tavern 对话中的 `suppressedDshTurns` 持久记录并投影到界面。折叠结果在刷新和换窗口后仍成立，不再依赖当前浏览器的 `localStorage`；旧版本留下的本地隐藏记录仅作为历史会话兼容回退。
 
 显示与发送正则继续按固定 SillyTavern `8172dcd` 的可观察语义收敛：`trimStrings` 只过滤被替换引用的匹配内容，不会误删替换模板中的固定文字；命名捕获组 `$<name>` 与缺失捕获组的空串行为已经纳入自动化回归。
+
+人物卡声明的 Tavern Helper 可见按钮现在由酒馆状态页承载，事件名沿用上游 `script_id + "_" + getStringHash(button_name)`。Helper iframe 提供最小 `getCharData()` 与 `SillyTavern.Popup` 兼容面；脚本通过 `setChatMessages()` 写入成功后，宿主会刷新权威对话投影。真实《灯火阑珊》“开场白索引”已能列出全部 15 个 Swipe，并在不刷新页面的情况下切换开场、变量快照和状态栏。
