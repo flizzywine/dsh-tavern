@@ -230,3 +230,4 @@ dsh-tavern 不另造简化 Patch 方言。当前所有 MVU 规则仍由前台模
 - [dsh-agent-rp：酒馆兼容运行时研究](../research/dsh-agent-rp-compat-runtime.md)
 - [dsh-agent-rp 的 MVU 与 Tavern Helper 兼容研究](../research/dsh-agent-rp-mvu-helper-compatibility.md)
 - [Liyuan 的 MVU 兼容实现研究](../research/liyuan-mvu-compatibility.md)
+- [《灯火阑珊》MVU 兼容链路验收](../research/lighthouse-mvu-compatibility-e2e-2026-08-28.md)
