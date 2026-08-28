@@ -1352,10 +1352,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				if (!before) return [];
 				if (after.count < before.count) return [{ name: "MESSAGE_DELETED", args: [before.latestId] }];
 				if (after.count > before.count) {
-					if (after.latestRole === "assistant") return [
-						{ name: "MESSAGE_RECEIVED", args: [after.latestId] },
-						{ name: "VARIABLE_UPDATE_ENDED", args: [] }
-					];
+					if (after.latestRole === "assistant") return [{ name: "MESSAGE_RECEIVED", args: [after.latestId] }];
 					return [{ name: "MESSAGE_SENT", args: [after.latestId] }];
 				}
 				if (after.latestSwipe !== before.latestSwipe) return [{ name: "MESSAGE_SWIPED", args: [after.latestId] }];

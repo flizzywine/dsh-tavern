@@ -245,7 +245,7 @@ test('持久 Helper Host 复用同一脚本 iframe、发送生命周期事件并
 
   runtime.sync('session-1', view([{ message_id: 0, role: 'assistant', message: '正文', swipe_id: 0, variables: { stat_data: { hp: 1 } } }]))
   assert.equal(frames.length, 1)
-  assert.deepEqual(frames[0].contentWindow.messages.filter(item => item.type === 'dsh-tavern-helper-event').map(item => item.name), ['CHAT_CHANGED', 'MESSAGE_RECEIVED', 'VARIABLE_UPDATE_ENDED'])
+	assert.deepEqual(frames[0].contentWindow.messages.filter(item => item.type === 'dsh-tavern-helper-event').map(item => item.name), ['CHAT_CHANGED', 'MESSAGE_RECEIVED'])
 
   windowListeners.get('message')({
     source: frames[0].contentWindow,
