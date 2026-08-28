@@ -46,6 +46,7 @@ import { applyTavernHelperVariableMacros } from './domain/tavern-helper-variable
 import { projectTavernHelperScripts } from './domain/tavern-helper-scripts.js'
 import { createTavernHelperEventGate } from './domain/tavern-helper-event-gate.js'
 import { createTavernRemoteAssetPinStore } from './domain/tavern-remote-assets.js'
+import { createTavernStaticResourceCache, projectCachedResourceBody } from './domain/tavern-static-resource-cache.js'
 import { mergeRegeneratedSwipe } from './domain/tavern-swipe-regeneration.js'
 import { TavernPromptTemplateRuntime } from './domain/tavern-prompt-template-runtime.js'
 import {
@@ -106,6 +107,17 @@ export async function apply(ctx) {
   const tavernRemoteAssets = createTavernRemoteAssetPinStore({
     readJson: async function (path) { return await profileData.readJson(path) },
     updateJson: async function (path, updater) { return await profileData.updateJson(path, updater) }
+  })
+  const tavernStaticResources = createTavernStaticResourceCache({ rootDir: dataRoot + '/cache/static-assets' })
+  void tavernStaticResources.warm([
+    'https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js',
+    'https://cdn.jsdelivr.net/npm/lodash@4.18.1/lodash.min.js',
+    'https://cdn.jsdelivr.net/npm/vue@3.5.41/dist/vue.global.prod.js',
+    'https://testingcf.jsdelivr.net/npm/zod@4.4.3/+esm',
+    'https://testingcf.jsdelivr.net/npm/pinia/+esm'
+  ]).then(function (results) {
+    const failures = results.filter(function (result) { return result.status === 'rejected' })
+    if (failures.length > 0) console.warn('dsh-tavern: 部分静态运行库暂未缓存，将在使用时重试:', failures.map(function (result) { return str(result.reason && result.reason.message || result.reason) }).join('；'))
   })
   const settingsPath = 'tavern-settings.json'
   const promptTemplateVariablesPath = 'prompt-template-variables.json'
@@ -2595,9 +2607,16 @@ export async function apply(ctx) {
       handler: async (req, res) => {
         const pathname = decodeURIComponent(new URL(req.url ?? '/', 'http://x').pathname)
         const cachedAssetMatch = /^\/api\/dsh-tavern\/remote-assets\/([0-9a-f]{64})(?:\/[^/]*)?$/i.exec(pathname)
+        const readsStaticAsset = req.method === 'GET' && pathname === '/api/dsh-tavern/static-assets'
         const origin = req.headers.origin
         const readsCachedAsset = req.method === 'GET' && cachedAssetMatch
-        if (!readsCachedAsset && typeof origin === 'string' && origin !== '' && !/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin)) {
+        const localOrOpaqueOrigin = origin === undefined || origin === '' || origin === 'null' || /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin)
+        if (readsStaticAsset && !localOrOpaqueOrigin) {
+          res.writeHead(403)
+          res.end('forbidden')
+          return
+        }
+        if (!readsCachedAsset && !readsStaticAsset && typeof origin === 'string' && origin !== '' && !/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin)) {
           res.writeHead(403)
           res.end('forbidden')
           return
@@ -2612,15 +2631,32 @@ export async function apply(ctx) {
               res.end('not found')
               return
             }
+            const body = projectCachedResourceBody({ url: asset.url, mediaType: asset.mediaType, body: Buffer.from(asset.content, 'utf8') })
             res.writeHead(200, {
               'Content-Type': str(asset.mediaType) + '; charset=utf-8',
-              'Content-Length': Buffer.byteLength(asset.content, 'utf8'),
+              'Content-Length': body.length,
               'Cache-Control': 'public, max-age=31536000, immutable',
               'Access-Control-Allow-Origin': '*',
               'Cross-Origin-Resource-Policy': 'cross-origin',
               'X-Content-Type-Options': 'nosniff'
             })
-            res.end(asset.content)
+            res.end(body)
+            return
+          }
+          if (readsStaticAsset) {
+            const target = new URL(req.url ?? '/', 'http://x')
+            const asset = await tavernStaticResources.get(target.searchParams.get('url'))
+            const body = projectCachedResourceBody(asset)
+            res.writeHead(200, {
+              'Content-Type': str(asset.mediaType),
+              'Content-Length': body.length,
+              'Cache-Control': 'public, max-age=31536000, immutable',
+              'Access-Control-Allow-Origin': '*',
+              'Cross-Origin-Resource-Policy': 'cross-origin',
+              'X-Content-Type-Options': 'nosniff',
+              'X-DSH-Tavern-Cache': asset.cache
+            })
+            res.end(body)
             return
           }
           if (req.method === 'GET' && pathname === '/api/dsh-tavern/events') {

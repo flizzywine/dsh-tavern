@@ -43,14 +43,16 @@ test('旧版整条 HTML 投影仍可只读回放', () => {
   assert.equal(parts[0].content, '<p>旧界面</p>')
 })
 
-test('消息 iframe 允许可信远程资源，同时保留不透明来源隔离和受控高度协议', () => {
+test('消息 iframe 将可信远程资源转入持久缓存，同时保留不透明来源隔离和受控高度协议', () => {
   const document = client.buildTavernFrameDocument({
     content: '<p>正文</p><style>p{color:red}</style><script src="https://cdn.jsdelivr.net/example.js"></script>',
     token: 'height-token'
   })
 
   assert.match(document, /<p>正文<\/p><style>p\{color:red\}<\/style>/)
-  assert.match(document, /cdn\.jsdelivr\.net\/example\.js/)
+  assert.match(document, /static-assets\?url=https%3A%2F%2Fcdn\.jsdelivr\.net%2Fexample\.js/)
+  assert.match(document, /data-dsh-tavern-static-cache/)
+  assert.match(document, /HTMLImageElement/)
   assert.match(document, /default-src https: http: data: blob:/)
   assert.match(document, /connect-src https: http: wss: data: blob:/)
   assert.match(document, /frame-src https: http: data: blob:/)

@@ -17,7 +17,7 @@ async function loadPreviewBuilder() {
 
 const buildOpeningPreviewDocument = await loadPreviewBuilder()
 
-test('HTML 开场白在隔离文档中保持原始 UI 并允许外部静态资源', () => {
+test('HTML 开场白在隔离文档中保持原始 UI 并缓存外部静态资源', () => {
   const opening = `<div style="text-align:center;background-image:url('https://files.catbox.moe/zle6vq.gif')">
 <img src="https://files.catbox.moe/ykgazx.png" width="30%">
 <a href="https://example.com">查看更新</a>
@@ -25,8 +25,9 @@ test('HTML 开场白在隔离文档中保持原始 UI 并允许外部静态资�
   const document = buildOpeningPreviewDocument(opening)
 
   assert.match(document, /<!doctype html>/)
-  assert.match(document, /files\.catbox\.moe\/zle6vq\.gif/)
-  assert.match(document, /files\.catbox\.moe\/ykgazx\.png/)
+  assert.match(document, /static-assets\?url=https%3A%2F%2Ffiles\.catbox\.moe%2Fzle6vq\.gif/)
+  assert.match(document, /static-assets\?url=https%3A%2F%2Ffiles\.catbox\.moe%2Fykgazx\.png/)
+  assert.match(document, /data-dsh-tavern-static-cache/)
   assert.match(document, /img-src https: http: data: blob:/)
   assert.match(document, /style-src 'unsafe-inline' https: http:/)
   assert.match(document, /script-src 'unsafe-inline' 'unsafe-eval' https: http: data: blob:/)

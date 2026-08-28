@@ -992,7 +992,10 @@ test('只有兼容模式按当前选择读取整份预设，DSH 请求不注入�
 test('隔离 Helper iframe 可以只读加载已锁定的本机远程资源', () => {
 	const handler = between(serverSource, "handler: async (req, res) => {", "if (req.method === 'GET' && pathname === '/api/dsh-tavern/events')")
 	assert.match(handler, /const readsCachedAsset = req\.method === 'GET' && cachedAssetMatch/)
-	assert.match(handler, /if \(!readsCachedAsset && typeof origin === 'string'/)
+	assert.match(handler, /const readsStaticAsset = req\.method === 'GET'/)
+	assert.match(handler, /const localOrOpaqueOrigin =/)
+	assert.match(handler, /if \(readsStaticAsset && !localOrOpaqueOrigin\)/)
+	assert.match(handler, /if \(!readsCachedAsset && !readsStaticAsset && typeof origin === 'string'/)
 	assert.match(handler, /'Access-Control-Allow-Origin': '\*'/)
 	assert.match(handler, /'Cross-Origin-Resource-Policy': 'cross-origin'/)
 })
