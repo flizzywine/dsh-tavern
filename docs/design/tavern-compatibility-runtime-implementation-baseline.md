@@ -104,3 +104,9 @@ message
 正文重新生成已改为 SillyTavern 风格的 Swipe 语义：旧正文和旧 MVU 快照留在原楼层，新正文及其快照追加为新的选中 Swipe；生成前后分别向 Helper 发出 `MESSAGE_SWIPED` 与 `MESSAGE_RECEIVED(messageId, 'swipe')`，并抑制中间回滚投影产生的伪删除事件。
 
 所有多候选助手消息现在都在消息楼层提供 Swipe 切换，不要求人物卡启用 MVU。切换会选中对应正文，并在 MVU 卡中同步恢复同下标变量快照，再触发 Helper 的 `MESSAGE_SWIPED` 生命周期。内置世界书写入按人物卡串行；资源扫描排除 durable write 的锁与待恢复文件，损坏锁也可安全回收，避免生命周期脚本把内部锁误识别成人物卡后永久阻断写入。
+
+“回退本轮”在恢复 checkpoint 并持久化消息后，会按固定 SillyTavern 基线以删除后的消息总数发出一次 `MESSAGE_DELETED`。显式生命周期修订号抑制浏览器根据消息数量变化再次推导同一事件，避免动态世界书重复结算。
+
+消息 iframe 与常驻 Helper 的变量/消息写入均携带其观察到的生命周期版本。Swipe 或回退推进版本后，迟到的旧 iframe 写入会被判为 `stale`，只返回最新上下文而不再尝试覆盖权威状态；同版本的真实字段冲突仍明确报错。
+
+DSH `surface replace` 只负责恢复模型消息面；DSH 的人类 transcript 按设计仍展示追加来源事件。因此，正文重生成产生的合成回合以及被回退的回合，另由 Tavern 对话中的 `suppressedDshTurns` 持久记录并投影到界面。折叠结果在刷新和换窗口后仍成立，不再依赖当前浏览器的 `localStorage`；旧版本留下的本地隐藏记录仅作为历史会话兼容回退。

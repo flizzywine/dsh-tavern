@@ -298,15 +298,32 @@ test('正文重新生成提供两个含义明确的入口，并复用同一替�
 	assert.match(action, /submitBodyRegeneration\(props\.sessionId, panel, ""\)/)
 	assert.match(panel, /submitBodyRegeneration\(props\.sessionId, panel, guide\)/)
 	assert.match(shared, /rpc\("regenBody", \{ guidance:/)
-	assert.match(shared, /recordHiddenTurn/)
-	assert.match(shared, /recordHiddenRegenUserTurn/)
+	assert.match(shared, /forgetHiddenTurn\(HIDDEN_TURNS_KEY/)
+	assert.match(shared, /showTurnTail\(panel\.tail\)/)
 	assert.match(regen, /const rolledMessageCount = \(chat\.messages \|\| \[\]\)\.length/)
 	assert.match(regen, /latestMsgs\.length < rolledMessageCount \+ 2/)
 	assert.match(regen, /Number\(newAssistant\.turn\) !== syntheticTurn/)
+	assert.match(regen, /committedChat\.suppressedDshTurns = Array\.from\(new Set/)
 	assert.match(regen, /mergeRegeneratedSwipe\(\{ originalChat, regeneratedChat: latest, assistantIndex: oldAssistantIndex \}\)/)
 	assert.match(regen, /'MESSAGE_SWIPED', \[oldAssistantIndex\]/)
 	assert.match(regen, /'MESSAGE_RECEIVED', \[oldAssistantIndex, 'swipe'\]/)
 	assert.match(regen, /await updateChat\(chat\.id,[\s\S]*source: 'foreground\.regen-abort'/)
+})
+
+test('回退本轮在消息落库后按 SillyTavern 语义通知 Helper', () => {
+	const rollback = between(serverSource, 'async function rollbackTurn', '// ---------- HTTP RPC')
+	assert.match(rollback, /tavernHelperLifecycleRevision = Math\.max/)
+	assert.match(rollback, /chat\.suppressedDshTurns = Array\.from\(new Set/)
+	assert.match(rollback, /await writeChat\(chat, \{ source: 'rollback' \}\)[\s\S]*'MESSAGE_DELETED', \[\(chat\.messages \|\| \[\]\)\.length\]/)
+})
+
+test('重生成与回退的 DSH 楼层折叠由对话持久状态驱动', () => {
+	const view = between(serverSource, 'async function view', 'function replyProjectionsOf')
+	const projection = between(clientSource, 'function applySuppressedDshTurns', 'async function submitBodyRegeneration')
+	const candidate = between(clientSource, 'function CandidateQuestion', 'function CandidateGuidePanel')
+	assert.match(view, /suppressedDshTurns:/)
+	assert.match(projection, /hideTurnTailWithUser/)
+	assert.match(candidate, /suppressionState[\s\S]*applySuppressedDshTurns\(suppressedDshTurns\)/)
 })
 
 test('人物卡详情支持查看、绑定和解绑唯一世界书', () => {
@@ -860,6 +877,16 @@ test('人物卡 Helper 的世界书写入按人物卡串行，避免生命周期
 	assert.match(adapter, /serializeTavernHelperWorldbook\(chat\.cardPath/)
 	assert.match(adapter, /previous\.catch\(function \(\) \{\}\)\.then\(work\)/)
 	assert.match(adapter, /await worldBooks\.update/)
+})
+
+test('Helper 写入携带生命周期版本，过期 iframe 不覆盖 Swipe 或回退后的状态', () => {
+	const runtime = between(clientSource, 'function createTavernHelperScriptRuntime', 'let tavernHelperScriptRuntime')
+	const frame = between(clientSource, 'function TavernMessageFrame', 'function tavernProjectionForTurn')
+	const adapter = between(serverSource, 'function helperMutationIsCurrent', 'async function switchTavernSwipe')
+	assert.match(runtime, /expectedLifecycleRevision/)
+	assert.match(frame, /expectedLifecycleRevision/)
+	assert.match(adapter, /staleHelperMutation/)
+	assert.match(adapter, /DSH_TAVERN_CHAT_CONFLICT/)
 })
 
 test('剧本预览只显示当前召回和后续块', () => {

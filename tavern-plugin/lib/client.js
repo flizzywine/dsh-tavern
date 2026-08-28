@@ -1458,7 +1458,11 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					return;
 				}
 				if (data.type !== "dsh-tavern-helper-call" || !allowedMethods.has(data.method)) return;
-				invoke(data.method, data.args || {}, activeSessionId).then(function (result) {
+				let mutationArgs = data.args || {};
+				if (data.method === "updateTavernHelperVariables" || data.method === "updateTavernHelperMessages") {
+					mutationArgs = Object.assign({}, mutationArgs, { expectedLifecycleRevision: Math.max(0, Number(record.context && record.context.lifecycleRevision) || 0) });
+				}
+				invoke(data.method, mutationArgs, activeSessionId).then(function (result) {
 					post(record, { type: "dsh-tavern-helper-response", requestId: data.requestId, ok: true, result: result });
 				}, function (error) {
 					post(record, { type: "dsh-tavern-helper-response", requestId: data.requestId, ok: false, error: String(error && error.message || error) });
@@ -1549,7 +1553,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 						}, 1000);
 					} else if (data.type === "dsh-tavern-helper-call" && props.sessionId) {
 						if (data.method !== "updateTavernHelperVariables" && data.method !== "updateTavernHelperMessages") return;
-						const args = Object.assign({}, data.args || {}, { sessionId: props.sessionId });
+						const args = Object.assign({}, data.args || {}, { sessionId: props.sessionId, expectedLifecycleRevision: Math.max(0, Number(props.helperContext && props.helperContext.lifecycleRevision) || 0) });
 						rpc(data.method, args, props.sessionId).then(function (result) {
 							frame.contentWindow.postMessage({ type: "dsh-tavern-helper-response", token: tokenRef.current, requestId: data.requestId, ok: true, result: result }, "*");
 						}, function (error) {
@@ -3722,31 +3726,13 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		const HIDDEN_TURNS_KEY = "dsh-tavern-hidden-turns";
 		const ROLLED_BACK_TURNS_KEY = "dsh-tavern-rolled-back-turns";
 		const HIDDEN_REGEN_USER_TURNS_KEY = "dsh-tavern-hidden-regen-user-turns";
-		function recordHiddenTurn(sessionId, turn) {
+		function forgetHiddenTurn(storageKey, sessionId, turn) {
 			try {
-				const all = JSON.parse(window.localStorage.getItem(HIDDEN_TURNS_KEY) || "{}");
-				const list = all[sessionId] || [];
-				if (list.indexOf(turn) < 0) list.push(turn);
-				all[sessionId] = list;
-				window.localStorage.setItem(HIDDEN_TURNS_KEY, JSON.stringify(all));
-			} catch (err) {}
-		}
-		function recordRolledBackTurn(sessionId, turn) {
-			try {
-				const all = JSON.parse(window.localStorage.getItem(ROLLED_BACK_TURNS_KEY) || "{}");
-				const list = all[sessionId] || [];
-				if (list.indexOf(turn) < 0) list.push(turn);
-				all[sessionId] = list;
-				window.localStorage.setItem(ROLLED_BACK_TURNS_KEY, JSON.stringify(all));
-			} catch (err) {}
-		}
-		function recordHiddenRegenUserTurn(sessionId, turn) {
-			try {
-				const all = JSON.parse(window.localStorage.getItem(HIDDEN_REGEN_USER_TURNS_KEY) || "{}");
-				const list = all[sessionId] || [];
-				if (list.indexOf(turn) < 0) list.push(turn);
-				all[sessionId] = list;
-				window.localStorage.setItem(HIDDEN_REGEN_USER_TURNS_KEY, JSON.stringify(all));
+				const all = JSON.parse(window.localStorage.getItem(storageKey) || "{}");
+				const list = Array.isArray(all[sessionId]) ? all[sessionId].filter(function (item) { return Number(item) !== Number(turn); }) : [];
+				if (list.length) all[sessionId] = list;
+				else delete all[sessionId];
+				window.localStorage.setItem(storageKey, JSON.stringify(all));
 			} catch (err) {}
 		}
 		function hideUserForTurnTail(tail) {
@@ -3784,6 +3770,17 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				const kind = sib.getAttribute("data-chat-flow-kind");
 				if (kind === "user" || kind === "turn-tail") break;
 				sib.style.display = "none";
+				sib = sib.previousElementSibling;
+			}
+		}
+		function showTurnTail(el) {
+			if (!el) return;
+			el.style.display = "";
+			let sib = el.previousElementSibling;
+			while (sib) {
+				const kind = sib.getAttribute("data-chat-flow-kind");
+				if (kind === "user" || kind === "turn-tail") break;
+				sib.style.display = "";
 				sib = sib.previousElementSibling;
 			}
 		}
@@ -3834,12 +3831,23 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				}
 			} catch (err) {}
 		}
+		function applySuppressedDshTurns(turns) {
+			const set = new Set((Array.isArray(turns) ? turns : []).map(String));
+			if (set.size === 0) return;
+			const tails = document.querySelectorAll('[data-chat-flow-kind="turn-tail"]');
+			for (let i = 0; i < tails.length; i++) {
+				const tail = tails[i];
+				if (!set.has(tailTurnOf(tail))) continue;
+				hideTurnTailWithUser(tail);
+			}
+		}
 		async function submitBodyRegeneration(sessionId, panel, guidance) {
 			const res = await rpc("regenBody", { guidance: String(guidance || "").trim() }, sessionId);
 			const adopted = res.view && res.view.adopted ? res.view.adopted : null;
-			if (adopted && Number(adopted.hiddenTurn) > 0) recordHiddenTurn(sessionId, Number(adopted.hiddenTurn));
-			if (adopted && Number(adopted.syntheticTurn) > 0) recordHiddenRegenUserTurn(sessionId, Number(adopted.syntheticTurn));
-			hideTurnTail(panel.tail);
+			if (adopted && Number(adopted.hiddenTurn) > 0) forgetHiddenTurn(HIDDEN_TURNS_KEY, sessionId, Number(adopted.hiddenTurn));
+			if (adopted && Number(adopted.syntheticTurn) > 0) forgetHiddenTurn(HIDDEN_REGEN_USER_TURNS_KEY, sessionId, Number(adopted.syntheticTurn));
+			showTurnTail(panel.tail);
+			applySuppressedDshTurns(res.view && res.view.suppressedDshTurns);
 			applyHiddenTurns(sessionId);
 			applyHiddenRegenUserTurns(sessionId);
 			setCandidatePanel(null);
@@ -3910,8 +3918,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				setRolling(true);
 				try {
 					const result = await rpc("rollbackTurn", {}, props.sessionId);
-					const rolledBack = result && result.view && result.view.rolledBack ? result.view.rolledBack : null;
-					if (rolledBack && Number(rolledBack.hiddenTurn) > 0) recordRolledBackTurn(props.sessionId, Number(rolledBack.hiddenTurn));
+					applySuppressedDshTurns(result && result.view && result.view.suppressedDshTurns);
 					applyRolledBackTurns(props.sessionId);
 					setCandidatePanel(null);
 					setRegenPanel(null);
@@ -3995,6 +4002,9 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				}
 				return null;
 			});
+			const suppressionState = useLiveTavernView(props.sessionId, "suppression:" + String(latestMessageId || "") + ":" + String(running));
+			const suppressedDshTurns = suppressionState.view && Array.isArray(suppressionState.view.suppressedDshTurns) ? suppressionState.view.suppressedDshTurns : [];
+			const suppressedDshTurnsRevision = suppressedDshTurns.join(",");
 			const [selected, setSelected] = React.useState(-1);
 			const [expanded, setExpanded] = React.useState(false);
 			React.useEffect(function () {
@@ -4005,6 +4015,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				let frame = null;
 				function applyProjectionState() {
 					frame = null;
+					applySuppressedDshTurns(suppressedDshTurns);
 					applyHiddenTurns(props.sessionId);
 					applyRolledBackTurns(props.sessionId);
 					applyHiddenRegenUserTurns(props.sessionId);
@@ -4016,7 +4027,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				const observer = new window.MutationObserver(scheduleProjection);
 				observer.observe(document.body, { childList: true, subtree: true });
 				return function () { observer.disconnect(); if (frame !== null) window.cancelAnimationFrame(frame); };
-			}, [props.sessionId, latestMessageId, running]);
+			}, [props.sessionId, latestMessageId, running, suppressedDshTurnsRevision]);
 			if (panel && panel.sessionId === props.sessionId && panel.phase === "error") {
 				return React.createElement("div", { className: "dsh-tavern-choice-error dsh-tavern-candidate-error-banner" },
 					"候选项生成失败：" + (panel.error || "未知错误") + "。请点上方“生成候选项”重试。"

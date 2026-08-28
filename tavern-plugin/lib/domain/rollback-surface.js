@@ -75,7 +75,7 @@ export function planRegenerationSurface(input) {
   }
   if (finalAssistantIndex < 0) throw new Error('重新生成流程未在当前模型消息面中产生正文')
 
-  const shadowedSeqs = nodes.slice(oldAssistantIndex, finalAssistantIndex).map(Number)
+  const shadowedSeqs = nodes.slice(oldAssistantIndex, finalAssistantIndex + 1).map(Number)
   if (shadowedSeqs.length === 0) throw new Error('重新生成流程没有需要替换的旧消息')
   return Object.freeze({
     start: shadowedSeqs[0],

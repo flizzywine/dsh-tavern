@@ -872,28 +872,53 @@ export async function apply(ctx) {
     await writeChat(chat, { source: 'display.capture' })
     return { captured: true, turn, partIndex: index, captureKind: capture.captureKind }
   }
-  async function updateTavernHelperVariables(sessionId, option, variables) {
+  function helperMutationIsCurrent(chat, expectedLifecycleRevision) {
+    if (expectedLifecycleRevision === undefined || expectedLifecycleRevision === null) return true
+    return Math.max(0, Number(chat && chat.tavernHelperLifecycleRevision) || 0) === Math.max(0, Number(expectedLifecycleRevision) || 0)
+  }
+  function staleHelperMutation(chat) {
+    return { updated: false, stale: true, context: projectTavernHelperContext(chat) }
+  }
+  async function updateTavernHelperVariables(sessionId, option, variables, expectedLifecycleRevision) {
     const chat = await chatForSession(sessionId)
     if (chat === undefined) throw new Error('当前会话没有绑定人物卡')
     if (!chat.mvu || chat.mvu.enabled !== true) throw new Error('当前人物卡未启用 MVU 兼容运行时')
+    if (!helperMutationIsCurrent(chat, expectedLifecycleRevision)) return staleHelperMutation(chat)
     const updated = replaceTavernHelperVariables(chat, { option, variables })
-    await writeChat(chat, { source: 'tavern-helper.variables' })
+    try { await writeChat(chat, { source: 'tavern-helper.variables' }) }
+    catch (error) {
+      if (error && error.code === 'DSH_TAVERN_CHAT_CONFLICT') {
+        const latest = await chatForSession(sessionId)
+        if (latest !== undefined && !helperMutationIsCurrent(latest, expectedLifecycleRevision)) return staleHelperMutation(latest)
+      }
+      throw error
+    }
     return { updated: true, target: updated, context: projectTavernHelperContext(chat) }
   }
-  async function updateTavernHelperMessages(sessionId, messages) {
+  async function updateTavernHelperMessages(sessionId, messages, expectedLifecycleRevision) {
     const chat = await chatForSession(sessionId)
     if (chat === undefined) throw new Error('当前会话没有绑定人物卡')
     if (!chat.mvu || chat.mvu.enabled !== true) throw new Error('当前人物卡未启用 MVU 兼容运行时')
+    if (!helperMutationIsCurrent(chat, expectedLifecycleRevision)) return staleHelperMutation(chat)
     const updated = replaceTavernHelperMessages(chat, messages)
-    await writeChat(chat, { source: 'tavern-helper.messages' })
+    try { await writeChat(chat, { source: 'tavern-helper.messages' }) }
+    catch (error) {
+      if (error && error.code === 'DSH_TAVERN_CHAT_CONFLICT') {
+        const latest = await chatForSession(sessionId)
+        if (latest !== undefined && !helperMutationIsCurrent(latest, expectedLifecycleRevision)) return staleHelperMutation(latest)
+      }
+      throw error
+    }
     return { updated: true, targets: updated, context: projectTavernHelperContext(chat) }
   }
   async function switchTavernSwipe(sessionId, messageId, swipeId) {
     const chat = await chatForSession(sessionId)
     if (chat === undefined || groupOfMode(chat.mode) !== 'play') throw new Error('当前会话没有绑定游玩对话')
     const updated = replaceTavernHelperMessages(chat, [{ message_id: messageId, swipe_id: swipeId }])
+    chat.tavernHelperLifecycleRevision = Math.max(0, Number(chat.tavernHelperLifecycleRevision) || 0) + 1
     chat.updatedAt = Date.now()
     await writeChat(chat, { source: 'tavern.swipe' })
+    await tavernHelperEventGate.dispatch(chat.sessionId, 'MESSAGE_SWIPED', [Number(messageId)], await tavernHelperEventContext(chat.sessionId, chat))
     return { updated: true, target: updated[0] || null }
   }
   async function tavernHelperWorldbookRecord(sessionId, requestedName) {
@@ -996,6 +1021,7 @@ export async function apply(ctx) {
       preparedWorldBookContext: '',
       preparedWorldBook: null,
       nativeCommits: {},
+      suppressedDshTurns: [],
       pendingCardChanges: {},
       createdAt: Date.now(),
       updatedAt: Date.now()
@@ -1102,6 +1128,8 @@ export async function apply(ctx) {
         const count = Math.max(Array.isArray(message.swipes) ? message.swipes.length : 0, 1)
         return { messageId, turn: Math.max(0, Number(message.turn) || (message.greeting === true ? 1 : 0)), swipeId: Math.max(0, Math.min(count - 1, Number(message.swipeId) || 0)), count }
       }).filter(function (item) { return item && item.turn > 0 }),
+      suppressedDshTurns: Array.from(new Set((Array.isArray(chat.suppressedDshTurns) ? chat.suppressedDshTurns : [])
+        .map(Number).filter(function (turn) { return Number.isSafeInteger(turn) && turn > 0 }))).sort(function (left, right) { return left - right }),
       tavernHelperScripts: helperRuntime.scripts,
       tavernHelperScriptDiagnostics: helperRuntime.diagnostics,
       tavernRemoteAssetPins: Array.isArray(cardExtensions.remoteAssetPins) ? cardExtensions.remoteAssetPins : [],
@@ -2160,9 +2188,10 @@ export async function apply(ctx) {
     committedChat.settleStatus = 'pending'
     committedChat.settleError = null
     committedChat.tavernHelperLifecycleRevision = lifecycleRevision + 1
+    committedChat.suppressedDshTurns = Array.from(new Set((Array.isArray(committedChat.suppressedDshTurns) ? committedChat.suppressedDshTurns : []).concat([syntheticTurn])))
     await writeChat(committedChat, { source: 'foreground.regen-commit' })
     await tavernHelperEventGate.dispatch(chat.sessionId, 'MESSAGE_RECEIVED', [oldAssistantIndex, 'swipe'], await tavernHelperEventContext(chat.sessionId, committedChat))
-    // 一次遮蔽旧正文、此前失败回合残留与本次合成输入；新正文保持为最后一个可见模型节点
+    // 一次遮蔽旧正文、此前失败回合残留、合成输入与新模型节点；原楼层由 Tavern Swipe 投影统一显示
     const currentNodes = session.surface !== undefined && Array.isArray(session.surface.nodes) ? session.surface.nodes : []
     const replacement = planRegenerationSurface({
       events: session.events,
@@ -2253,8 +2282,11 @@ export async function apply(ctx) {
     const rolled = storyTimeline.apply({ chat, intent: rollbackIntent })
     chat = rolled.chat
     if (rollbackCommitKey !== '') delete chat.nativeCommits[rollbackCommitKey]
+    chat.tavernHelperLifecycleRevision = Math.max(0, Number(chat.tavernHelperLifecycleRevision) || 0) + 1
+    chat.suppressedDshTurns = Array.from(new Set((Array.isArray(chat.suppressedDshTurns) ? chat.suppressedDshTurns : []).concat([hiddenTurn])))
     chat.updatedAt = Date.now()
     await writeChat(chat, { source: 'rollback' })
+    await tavernHelperEventGate.dispatch(chat.sessionId, 'MESSAGE_DELETED', [(chat.messages || []).length], await tavernHelperEventContext(chat.sessionId, chat))
 
     // 3) 原生消息面：用空消息替换最近一轮的所有 surface 节点（模型不再看到），UI 由客户端隐藏对应 turn tail
     session.append('assistant/message', {
@@ -2438,8 +2470,8 @@ export async function apply(ctx) {
       }
       case 'attachPlayChatDebug': return { reference: await attachPlayChatDebug(args && args.targetSessionId, args && args.sourceSessionId, args && args.turn) }
       case 'captureDisplayRuntime': return await captureDisplayRuntime(args && args.sessionId, args && args.turn, args && args.partIndex, args && args.runtime)
-      case 'updateTavernHelperVariables': return await updateTavernHelperVariables(args && args.sessionId, args && args.option, args && args.variables)
-      case 'updateTavernHelperMessages': return await updateTavernHelperMessages(args && args.sessionId, args && args.messages)
+      case 'updateTavernHelperVariables': return await updateTavernHelperVariables(args && args.sessionId, args && args.option, args && args.variables, args && args.expectedLifecycleRevision)
+      case 'updateTavernHelperMessages': return await updateTavernHelperMessages(args && args.sessionId, args && args.messages, args && args.expectedLifecycleRevision)
       case 'switchTavernSwipe': return await switchTavernSwipe(args && args.sessionId, args && args.messageId, args && args.swipeId)
       case 'getTavernHelperWorldbook': return await getTavernHelperWorldbook(args && args.sessionId, args && args.name)
       case 'replaceTavernHelperWorldbook': return await replaceTavernHelperWorldbook(args && args.sessionId, args && args.name, args && args.entries)

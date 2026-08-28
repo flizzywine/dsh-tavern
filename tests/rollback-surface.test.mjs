@@ -94,9 +94,9 @@ test('重新生成正文完整遮蔽旧正文、失败回合残留和合成输�
 
   assert.deepEqual(planned, {
     start: 48,
-    end: 70,
+    end: 99,
     finalAssistantSeq: 99,
-    shadowedSeqs: [48, 55, 56, 69, 70]
+    shadowedSeqs: [48, 55, 56, 69, 70, 99]
   })
 })
 
