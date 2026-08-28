@@ -127,3 +127,12 @@ test('MVU 上游一致性：JSON Patch 路径缺少开头斜杠时仍按斜杠�
   })
   assert.deepEqual(result.diagnostics, [])
 })
+
+test('MVU 上游一致性：add 只接受两个参数，命令保留含注释的 full_match', () => {
+  const valid = extractMvuCommands("_.add('player.health', 10); // 恢复生命")
+  const invalid = extractMvuCommands("_.add('player.health', 10, 20);//参数过多")
+
+  assert.equal(valid.length, 1)
+  assert.equal(valid[0].full_match, "_.add('player.health', 10); // 恢复生命")
+  assert.deepEqual(invalid, [])
+})

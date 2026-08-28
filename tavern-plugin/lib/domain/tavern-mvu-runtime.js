@@ -206,6 +206,7 @@ function jsonPatchCommands(source) {
       for (const operation of patch) {
         if (!operation || typeof operation !== 'object') continue
         const aliases = { replace: 'set', delta: 'add', add: 'insert', remove: 'delete' }
+        const fullMatch = JSON.stringify(operation)
         commands.push({
           type: aliases[operation.op] || operation.op,
           path: pointerSegments(operation.path ?? operation.to),
@@ -215,7 +216,8 @@ function jsonPatchCommands(source) {
             ? [str(operation.path ?? operation.to), str(operation.from)]
             : (operation.op === 'remove' ? [str(operation.path)] : [str(operation.path ?? operation.to), clone(operation.value)]),
           reason: 'json_patch',
-          fullMatch: JSON.stringify(operation),
+          fullMatch,
+          full_match: fullMatch,
           index: match.index
         })
       }
@@ -233,14 +235,16 @@ function lodashCommands(source) {
     if (end < 0 || source[end + 1] !== ';') continue
     const args = parseParameters(source.slice(matcher.lastIndex, end))
     const minimum = { set: 2, insert: 2, assign: 2, remove: 1, unset: 1, delete: 1, add: 2 }[match[1]]
-    if (args.length < minimum) continue
+    if (args.length < minimum || (match[1] === 'add' && args.length !== 2)) continue
     const comment = source.slice(end + 2).match(/^\s*\/\/([^\n\r]*)/)
+    const fullMatch = source.slice(match.index, end + 2 + (comment ? comment[0].length : 0))
     commands.push({
       type: ({ assign: 'insert', remove: 'delete', unset: 'delete' })[match[1]] || match[1],
       path: pathSegments(parseValue(args[0])),
       args: args.map(parseValue),
       reason: comment ? comment[1].trim() : '',
-      fullMatch: source.slice(match.index, end + 2),
+      fullMatch,
+      full_match: fullMatch,
       index: match.index
     })
     matcher.lastIndex = end + 2
