@@ -988,3 +988,17 @@ test('只有兼容模式按当前选择读取整份预设，DSH 请求不注入�
 	assert.match(preStep, /await updateChat\(chat\.id,[\s\S]*source: 'compatibility\.compile'/)
 	assert.doesNotMatch(preStep, /chat\.compatibilityTraces\[String\(payload\.turn\)\][\s\S]*await writeChat\(chat\)/)
 })
+
+test('隔离 Helper iframe 可以只读加载已锁定的本机远程资源', () => {
+	const handler = between(serverSource, "handler: async (req, res) => {", "if (req.method === 'GET' && pathname === '/api/dsh-tavern/events')")
+	assert.match(handler, /const readsCachedAsset = req\.method === 'GET' && cachedAssetMatch/)
+	assert.match(handler, /if \(!readsCachedAsset && typeof origin === 'string'/)
+	assert.match(handler, /'Access-Control-Allow-Origin': '\*'/)
+	assert.match(handler, /'Cross-Origin-Resource-Policy': 'cross-origin'/)
+})
+
+test('Helper 全部就绪后先完成 MVU 开场重放，再广播 CHAT_CHANGED', () => {
+	const sync = between(clientSource, 'function syncTavernHelperScripts', 'const TAVERN_FRAME_MAX_HEIGHT')
+	assert.match(sync, /rpc\("initializeTavernMvuOpenings"[\s\S]*rpc\("getSession"[\s\S]*tavernHelperScriptRuntime\.sync\(readySessionId, freshView\)[\s\S]*tavernHelperScriptRuntime\.emit\("CHAT_CHANGED"/)
+	assert.match(sync, /tavernHelperOpeningInitializationJobs\.set\(readySessionId, job\);[\s\S]*return job/)
+})

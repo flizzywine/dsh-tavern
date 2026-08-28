@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { createTavernHelperEventGate } from '../tavern-plugin/lib/domain/tavern-helper-event-gate.js'
+import { createTavernHelperEventGate, TAVERN_HELPER_EVENT_TIMEOUT_MS } from '../tavern-plugin/lib/domain/tavern-helper-event-gate.js'
+
+test('默认等待预算覆盖多个隔离 Helper 脚本的串行事件上限', function () {
+  assert.equal(TAVERN_HELPER_EVENT_TIMEOUT_MS, 60000)
+})
 
 test('Helper event gate skips immediately while no browser runtime is present', async function () {
   const gate = createTavernHelperEventGate()

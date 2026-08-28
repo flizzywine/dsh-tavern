@@ -6,13 +6,15 @@ function clone(value) {
   return value === undefined ? undefined : structuredClone(value)
 }
 
+export const TAVERN_HELPER_EVENT_TIMEOUT_MS = 60000
+
 /**
  * Coordinate lifecycle events that must run inside the browser-owned Tavern
  * Helper runtime before the server may continue compiling or settling a turn.
  */
 export function createTavernHelperEventGate(options = {}) {
   const now = typeof options.now === 'function' ? options.now : Date.now
-  const timeoutMs = Math.max(100, Number(options.timeoutMs) || 2500)
+  const timeoutMs = Math.max(100, Number(options.timeoutMs) || TAVERN_HELPER_EVENT_TIMEOUT_MS)
   const presenceTtlMs = Math.max(timeoutMs, Number(options.presenceTtlMs) || 5000)
   const records = new Map()
   const presence = new Map()

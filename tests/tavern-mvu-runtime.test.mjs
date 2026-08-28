@@ -89,7 +89,7 @@ test('开场 initvar 覆盖世界书初值并为每个 swipe 建立独立快照'
 })
 
 test('世界书只合并启用的 [initvar] 条目并保留嵌套对象', () => {
-  const result = readMvuWorldBookInitialState({ entries: [
+  const result = readMvuWorldBookInitialState({ name: '人物卡世界书', entries: [
     { comment: '[initvar] 基础', enabled: true, content: '角色:\n  姓名: "{{user}}"\n  属性:\n    体力: 10' },
     { comment: '[initvar] 补充', enabled: true, content: '```yaml\n角色:\n  属性:\n    灵力: 20\n```' },
     { comment: '[initvar] 禁用', enabled: false, content: '角色:\n  姓名: 错误' },
@@ -97,6 +97,7 @@ test('世界书只合并启用的 [initvar] 条目并保留嵌套对象', () => 
   ] }, { userName: '王辰' })
 
   assert.deepEqual(result.statData, { 角色: { 姓名: '王辰', 属性: { 体力: 10, 灵力: 20 } } })
+  assert.deepEqual(result.initializedLorebooks, { 人物卡世界书: [] })
   assert.deepEqual(result.diagnostics, [])
 })
 

@@ -30,6 +30,10 @@ import { projectRuntimePresetRequest, runtimePresetPhaseMessages } from './domai
 import { createTavernRetryLimiter } from './domain/tavern-retry-limiter.js'
 import { createTavernMvuRuntime, readMvuWorldBookInitialState } from './domain/tavern-mvu-runtime.js'
 import {
+  createTavernMvuOpeningReconciler,
+  MVU_OPENING_RECONCILIATION_VERSION
+} from './domain/tavern-mvu-opening-reconciliation.js'
+import {
   projectTavernHelperContext,
   replaceTavernHelperMessages,
   replaceTavernHelperVariables
@@ -977,6 +981,18 @@ export async function apply(ctx) {
 	return context
   }
 
+  const tavernMvuOpeningReconciler = createTavernMvuOpeningReconciler({
+    runtime: tavernMvu,
+    resolveChat: async function (sessionId) { return await chatForSession(sessionId) },
+    readCard: async function (chat) { return await readChatCard(chat) },
+    updateChat,
+    dispatch: async function (event) {
+      const context = await tavernHelperEventContext(event.sessionId, event.chat)
+      return await tavernHelperEventGate.dispatch(event.sessionId, event.name, event.args, context)
+    },
+    now: Date.now
+  })
+
   function sessionDebugEvidence(sessionId) {
     const id = str(sessionId)
     if (id === '') return { sessionId: '', loaded: false, events: [] }
@@ -1226,6 +1242,10 @@ export async function apply(ctx) {
       (Array.isArray(openingExtensions && openingExtensions.mvuResources) && openingExtensions.mvuResources.some(function (item) { return item.enabled !== false }))
       || openingChoices.some(function (choice) { return /<(?:initvar|json_?patch)>|_\.(?:set|insert|assign|remove|unset|delete|add)\(/i.test(choice.text) })
     )
+    const needsHelperOpeningInitialization = usesMvu && projectTavernHelperScripts(
+      Array.isArray(openingExtensions && openingExtensions.helperScripts) ? openingExtensions.helperScripts : [],
+      {}
+    ).scripts.length > 0
     let openingMvu = null
     let openingMvuDiagnostics = []
     if (usesMvu) {
@@ -1234,6 +1254,7 @@ export async function apply(ctx) {
         swipes: openingChoices.map(function (choice) { return choice.text }),
         selectedSwipeId: selectedOpeningIndex,
         baseStatData: worldBookInitial.statData,
+        initializedLorebooks: worldBookInitial.initializedLorebooks,
         macroContext: { userName: macroState.userName, charName: card.name }
       })
       openingMvuDiagnostics = worldBookInitial.diagnostics.concat(openingMvu.diagnostics)
@@ -1267,7 +1288,11 @@ export async function apply(ctx) {
       enabled: true,
       runtime: 'magvarupdate-compat',
       upstreamCommit: '0a730cd4a9b99689d1135a49b542c780b977c24c',
-      diagnostics: openingMvuDiagnostics
+      diagnostics: openingMvuDiagnostics,
+      openingInitialization: {
+        version: MVU_OPENING_RECONCILIATION_VERSION,
+        status: needsHelperOpeningInitialization ? 'pending' : 'complete'
+      }
     } : { enabled: false }
     if (groupOfMode(chat.mode) === 'play') {
       chat.cardContextSnapshot = await buildPlayCardSnapshot(chat, card)
@@ -2472,6 +2497,7 @@ export async function apply(ctx) {
       case 'captureDisplayRuntime': return await captureDisplayRuntime(args && args.sessionId, args && args.turn, args && args.partIndex, args && args.runtime)
       case 'updateTavernHelperVariables': return await updateTavernHelperVariables(args && args.sessionId, args && args.option, args && args.variables, args && args.expectedLifecycleRevision)
       case 'updateTavernHelperMessages': return await updateTavernHelperMessages(args && args.sessionId, args && args.messages, args && args.expectedLifecycleRevision)
+      case 'initializeTavernMvuOpenings': return await tavernMvuOpeningReconciler.reconcile(args && args.sessionId)
       case 'switchTavernSwipe': return await switchTavernSwipe(args && args.sessionId, args && args.messageId, args && args.swipeId)
       case 'getTavernHelperWorldbook': return await getTavernHelperWorldbook(args && args.sessionId, args && args.name)
       case 'replaceTavernHelperWorldbook': return await replaceTavernHelperWorldbook(args && args.sessionId, args && args.name, args && args.entries)
@@ -2563,16 +2589,17 @@ export async function apply(ctx) {
       kind: 'prefix',
       path: '/api/dsh-tavern',
       handler: async (req, res) => {
+        const pathname = decodeURIComponent(new URL(req.url ?? '/', 'http://x').pathname)
+        const cachedAssetMatch = /^\/api\/dsh-tavern\/remote-assets\/([0-9a-f]{64})(?:\/[^/]*)?$/i.exec(pathname)
         const origin = req.headers.origin
-        if (typeof origin === 'string' && origin !== '' && !/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin)) {
+        const readsCachedAsset = req.method === 'GET' && cachedAssetMatch
+        if (!readsCachedAsset && typeof origin === 'string' && origin !== '' && !/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin)) {
           res.writeHead(403)
           res.end('forbidden')
           return
         }
         try {
-          const pathname = decodeURIComponent(new URL(req.url ?? '/', 'http://x').pathname)
-          const cachedAssetMatch = /^\/api\/dsh-tavern\/remote-assets\/([0-9a-f]{64})(?:\/[^/]*)?$/i.exec(pathname)
-          if (req.method === 'GET' && cachedAssetMatch) {
+          if (readsCachedAsset) {
             const asset = await tavernRemoteAssets.readCached(cachedAssetMatch[1])
             if (!asset) {
               res.writeHead(404, { 'Access-Control-Allow-Origin': '*', 'X-Content-Type-Options': 'nosniff' })

@@ -1365,6 +1365,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const invoke = options && options.rpc || rpc;
 			const reportError = options && options.reportError || function (source, error) { tavernErrorHub.report(source, error); };
 			const reportMutation = options && options.onMutation || function (sessionId) { liveTavernView.invalidate(sessionId); };
+			const onReady = options && typeof options.onReady === "function" ? options.onReady : function () {};
 			const records = new Map();
 			const pendingEvents = new Map();
 			const allowedMethods = new Set(["updateTavernHelperVariables", "updateTavernHelperMessages", "getTavernHelperWorldbook", "replaceTavernHelperWorldbook"]);
@@ -1372,6 +1373,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			let root = null;
 			let previous = null;
 			let eventSequence = 0;
+			let readinessKey = "";
+			let announcedReadinessKey = "";
 			function clone(value) { return value === undefined ? undefined : JSON.parse(JSON.stringify(value)); }
 			function token() { return hostWindow.crypto && typeof hostWindow.crypto.randomUUID === "function" ? hostWindow.crypto.randomUUID() : String(Date.now()) + ":" + String(Math.random()); }
 			function stringHash(value, seed) {
@@ -1383,6 +1386,12 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				return 4294967296 * (2097151 & h2) + (h1 >>> 0);
 			}
 			function buttonEvent(scriptId, name) { return String(scriptId) + "_" + stringHash(String(name || "")); }
+			function maybeAnnounceReady() {
+				if (!readinessKey || records.size === 0 || announcedReadinessKey === readinessKey) return;
+				if (Array.from(records.values()).some(function (record) { return !record.loaded; })) return;
+				announcedReadinessKey = readinessKey;
+				Promise.resolve(onReady(activeSessionId)).catch(function (error) { reportError("人物卡脚本初始化", error); });
+			}
 			function ensureRoot() {
 				if (root && root.isConnected !== false) return root;
 				root = hostDocument.createElement("div");
@@ -1475,6 +1484,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				if (root) root.remove();
 				root = null;
 				previous = null;
+				readinessKey = "";
+				announcedReadinessKey = "";
 			}
 			function createRecord(sessionId, script, context, trustedCardMode) {
 				const frame = hostDocument.createElement("iframe");
@@ -1486,7 +1497,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				frame.addEventListener("load", function () {
 					record.loaded = true;
 					post(record, { type: "dsh-tavern-helper-context", context: record.context });
-					post(record, { type: "dsh-tavern-helper-event", name: "CHAT_CHANGED", args: [] });
+					maybeAnnounceReady();
 				});
 				ensureRoot().appendChild(frame);
 				records.set(script.id, record);
@@ -1498,6 +1509,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				activeSessionId = nextSessionId;
 				const scripts = Array.isArray(view && view.tavernHelperScripts) ? view.tavernHelperScripts : [];
 				const trustedCardMode = Boolean(view && view.tavernRuntimePolicy && view.tavernRuntimePolicy.trustedCardMode);
+				readinessKey = scripts.length === 0 ? "" : nextSessionId + "\n" + scripts.map(function (script) { return script.id + "\n" + script.content; }).join("\n---\n") + "\ntrusted=" + String(trustedCardMode);
 				const activeIds = new Set(scripts.map(function (script) { return String(script.id); }));
 				Array.from(records.keys()).forEach(function (id) { if (!activeIds.has(id)) removeRecord(id); });
 				let nextSnapshot = null;
@@ -1516,6 +1528,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					}
 				}
 				previous = nextSnapshot;
+				maybeAnnounceReady();
 			}
 			function receive(event) {
 				const data = event && event.data;
@@ -1568,17 +1581,19 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		let tavernHelperEventPollBusy = false;
 		let tavernHelperRuntimeActive = false;
 		let tavernHelperRuntimeInput = null;
+		const tavernHelperOpeningInitializationJobs = new Map();
 		const tavernHelperRuntimeId = window.crypto && typeof window.crypto.randomUUID === "function" ? window.crypto.randomUUID() : String(Date.now()) + ":" + String(Math.random());
 		function inactiveTavernHelperView(view) {
 			return Object.assign({}, view || {}, { tavernHelperScripts: [] });
 		}
-		function scheduleTavernHelperEventPoll() {
+		function scheduleTavernHelperEventPoll(delayMs) {
 			if (tavernHelperEventPollTimer !== null) return;
 			tavernHelperEventPollTimer = window.setTimeout(async function poll() {
 				tavernHelperEventPollTimer = null;
 				const runtime = tavernHelperScriptRuntime;
 				const input = tavernHelperRuntimeInput;
 				if (!runtime || !input || !input.sessionId || !Array.isArray(input.view && input.view.tavernHelperScripts) || input.view.tavernHelperScripts.length === 0) return;
+				let completedEvent = false;
 				if (!tavernHelperEventPollBusy) {
 					tavernHelperEventPollBusy = true;
 					try {
@@ -1592,15 +1607,31 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 						if (tavernHelperRuntimeActive && event) {
 							const args = await runtime.emit(event.name, event.args, event.context);
 							await rpc("completeTavernHelperEvent", { eventId: event.id, args: args, runtimeId: tavernHelperRuntimeId }, input.sessionId);
+							completedEvent = true;
 						}
 					} catch (error) { console.warn("Tavern Helper 生命周期同步失败", error); }
 					finally { tavernHelperEventPollBusy = false; }
 				}
-				scheduleTavernHelperEventPoll();
-			}, tavernHelperRuntimeActive ? 100 : 500);
+				scheduleTavernHelperEventPoll(completedEvent ? 0 : undefined);
+			}, delayMs === undefined ? (tavernHelperRuntimeActive ? 100 : 500) : Math.max(0, Number(delayMs) || 0));
 		}
 		function syncTavernHelperScripts(sessionId, view) {
-			if (!tavernHelperScriptRuntime) tavernHelperScriptRuntime = createTavernHelperScriptRuntime();
+			if (!tavernHelperScriptRuntime) tavernHelperScriptRuntime = createTavernHelperScriptRuntime({
+				onReady: function (readySessionId) {
+					if (!readySessionId || tavernHelperOpeningInitializationJobs.has(readySessionId)) return;
+					const job = rpc("initializeTavernMvuOpenings", {}, readySessionId).then(function (result) {
+						if (result && result.updated === true) liveTavernView.invalidate(readySessionId);
+						return rpc("getSession", {}, readySessionId).then(function (fresh) {
+							const freshView = fresh && fresh.view || {};
+							tavernHelperRuntimeInput = { sessionId: readySessionId, view: freshView };
+							tavernHelperScriptRuntime.sync(readySessionId, freshView);
+							return tavernHelperScriptRuntime.emit("CHAT_CHANGED", [], freshView.tavernHelper);
+						});
+					}).finally(function () { tavernHelperOpeningInitializationJobs.delete(readySessionId); });
+					tavernHelperOpeningInitializationJobs.set(readySessionId, job);
+					return job;
+				}
+			});
 			const nextSessionId = String(sessionId || "");
 			const previousSessionId = tavernHelperRuntimeInput && tavernHelperRuntimeInput.sessionId || "";
 			if (previousSessionId && previousSessionId !== nextSessionId) {

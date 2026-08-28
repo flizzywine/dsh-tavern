@@ -385,8 +385,8 @@ function applyCommand(statData, command) {
   throw new Error('不支持的 MVU 命令: ' + command.type)
 }
 
-function emptyVariables(statData = {}) {
-  return { initialized_lorebooks: {}, stat_data: clone(object(statData)), schema: { extensible: false, properties: {}, type: 'object' } }
+function emptyVariables(statData = {}, initializedLorebooks = {}) {
+  return { initialized_lorebooks: clone(object(initializedLorebooks)), stat_data: clone(object(statData)), schema: { extensible: false, properties: {}, type: 'object' } }
 }
 
 async function emitEvent(emit, events, name, ...args) {
@@ -489,7 +489,8 @@ export function readMvuWorldBookInitialState(book, macroContext = {}) {
       diagnostics.push({ entry: str(entry.comment || entry.name) || String(index), message: error instanceof Error ? error.message : String(error) })
     }
   }
-  return { statData, diagnostics }
+  const name = str(source.name).trim()
+  return { statData, initializedLorebooks: name === '' ? {} : { [name]: [] }, diagnostics }
 }
 
 /** Compatibility core for official MVU message/swipe state semantics. */
@@ -504,10 +505,10 @@ export function createTavernMvuRuntime(options = {}) {
     const diagnostics = []
     const events = []
     for (let index = 0; index < swipes.length; index += 1) {
-      let initial = emptyVariables(input.baseStatData)
+      let initial = emptyVariables(input.baseStatData, input.initializedLorebooks)
       try {
         const embedded = initBlocks(swipes[index], input.macroContext)
-        if (embedded.found) initial = emptyVariables(embedded.statData)
+        if (embedded.found) initial = emptyVariables(embedded.statData, input.initializedLorebooks)
       } catch (error) {
         diagnostics.push({ swipeId: index, message: error instanceof Error ? error.message : String(error) })
       }

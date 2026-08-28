@@ -252,6 +252,7 @@ test('持久 Helper Host 复用同一脚本 iframe、发送生命周期事件并
   const frames = []
   const calls = []
 	const mutations = []
+	const readySessions = []
   const hostWindow = {
 	crypto: { randomUUID() { return 'runtime-token' } },
 	setTimeout,
@@ -287,6 +288,7 @@ test('持久 Helper Host 复用同一脚本 iframe、发送生命周期事件并
     document: hostDocument,
     rpc(method, args, sessionId) { calls.push({ method, args, sessionId }); return Promise.resolve({ ok: true }) },
 	onMutation(sessionId, method) { mutations.push({ sessionId, method }) },
+	onReady(sessionId) { readySessions.push(sessionId) },
     reportError() {}
   })
   function view(messages) {
@@ -302,7 +304,9 @@ test('持久 Helper Host 复用同一脚本 iframe、发送生命周期事件并
   assert.deepEqual(Array.from(runtime.inspect().scriptIds), ['dynamic'])
   assert.equal(frames[0].sandbox, 'allow-scripts')
 	frames[0].listeners.load()
-	assert.deepEqual(frames[0].contentWindow.messages.map(item => item.type), ['dsh-tavern-helper-context', 'dsh-tavern-helper-event'])
+	await Promise.resolve()
+	assert.deepEqual(readySessions, ['session-1'])
+	assert.deepEqual(frames[0].contentWindow.messages.map(item => item.type), ['dsh-tavern-helper-context'])
 	assert.deepEqual(JSON.parse(JSON.stringify(frames[0].contentWindow.messages[0].context.character)), {
 		name: '灯火阑珊',
 		first_mes: '开场一',
@@ -326,12 +330,13 @@ test('持久 Helper Host 复用同一脚本 iframe、发送生命周期事件并
 
 	runtime.sync('session-1', view([{ message_id: 0, role: 'assistant', message: '正文', swipe_id: 0, variables: { stat_data: { hp: 1 } } }]))
   assert.equal(frames.length, 1)
-	assert.deepEqual(frames[0].contentWindow.messages.filter(item => item.type === 'dsh-tavern-helper-event').map(item => item.name), ['CHAT_CHANGED', 'dynamic_7510203320239904', 'MESSAGE_RECEIVED'])
+	assert.deepEqual(readySessions, ['session-1'], '同一批脚本的普通上下文刷新不得重复触发初始化')
+	assert.deepEqual(frames[0].contentWindow.messages.filter(item => item.type === 'dsh-tavern-helper-event').map(item => item.name), ['dynamic_7510203320239904', 'MESSAGE_RECEIVED'])
 
 	const explicitLifecycle = view([{ message_id: 0, role: 'assistant', message: '新正文', swipe_id: 1, variables: { stat_data: { hp: 2 } } }])
 	explicitLifecycle.tavernHelper.lifecycleRevision = 1
 	runtime.sync('session-1', explicitLifecycle)
-	assert.deepEqual(frames[0].contentWindow.messages.filter(item => item.type === 'dsh-tavern-helper-event').map(item => item.name), ['CHAT_CHANGED', 'dynamic_7510203320239904', 'MESSAGE_RECEIVED'])
+	assert.deepEqual(frames[0].contentWindow.messages.filter(item => item.type === 'dsh-tavern-helper-event').map(item => item.name), ['dynamic_7510203320239904', 'MESSAGE_RECEIVED'])
 
   windowListeners.get('message')({
     source: frames[0].contentWindow,

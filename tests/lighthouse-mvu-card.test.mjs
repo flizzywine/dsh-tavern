@@ -37,10 +37,12 @@ test('真实《灯火阑珊》通过现有卡片投影完成 MVU 多 swipe 初�
     swipes: openings.map(item => item.text),
     selectedSwipeId: 0,
     baseStatData: worldBook.statData,
+    initializedLorebooks: worldBook.initializedLorebooks,
     macroContext
   })
 
   assert.equal(initialized.variables.length, openings.length)
+  assert.deepEqual(initialized.variables[0].initialized_lorebooks, { [card.character_book.name]: [] })
   assert.ok(initialized.variables.filter(item => Object.keys(item.stat_data).length > 0).length >= openings.length - 1)
   assert.deepEqual(Object.keys(initialized.variables[0].stat_data).slice(0, 3), ['世界时钟', '世界地图', '世界图志'])
   assert.ok(initialized.diagnostics.every(item => Number.isInteger(item.swipeId)), '损坏开场初值必须定位到具体 swipe')
