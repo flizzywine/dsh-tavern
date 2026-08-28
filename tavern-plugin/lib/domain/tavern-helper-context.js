@@ -53,6 +53,7 @@ export function projectTavernHelperContext(chat) {
   }
   return {
     version: 1,
+    lifecycleRevision: Math.max(0, Number(chat && chat.tavernHelperLifecycleRevision) || 0),
     messages,
     turnMessageIds,
     chatVariables: clone(chat && chat.variables && typeof chat.variables === 'object' ? chat.variables : {}),

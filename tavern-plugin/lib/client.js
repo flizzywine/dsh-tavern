@@ -1340,6 +1340,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				const messages = Array.isArray(context && context.messages) ? context.messages : [];
 				const latest = messages[messages.length - 1] || null;
 				return {
+					lifecycleRevision: Math.max(0, Number(context && context.lifecycleRevision) || 0),
 					count: messages.length,
 					latestId: latest ? Number(latest.message_id) : -1,
 					latestRole: latest && latest.role || "",
@@ -1350,6 +1351,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			}
 			function eventsBetween(before, after) {
 				if (!before) return [];
+				if (after.lifecycleRevision !== before.lifecycleRevision) return [];
 				if (after.count < before.count) return [{ name: "MESSAGE_DELETED", args: [before.latestId] }];
 				if (after.count > before.count) {
 					if (after.latestRole === "assistant") return [{ name: "MESSAGE_RECEIVED", args: [after.latestId] }];

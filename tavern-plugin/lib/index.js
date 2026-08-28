@@ -42,6 +42,7 @@ import { applyTavernHelperVariableMacros } from './domain/tavern-helper-variable
 import { projectTavernHelperScripts } from './domain/tavern-helper-scripts.js'
 import { createTavernHelperEventGate } from './domain/tavern-helper-event-gate.js'
 import { createTavernRemoteAssetPinStore } from './domain/tavern-remote-assets.js'
+import { mergeRegeneratedSwipe } from './domain/tavern-swipe-regeneration.js'
 import { TavernPromptTemplateRuntime } from './domain/tavern-prompt-template-runtime.js'
 import {
   preserveRuntimeSource,
@@ -2072,6 +2073,16 @@ export async function apply(ctx) {
     const rollbackIntent = await prepareRollbackIntent(chat, { kind: 'turn.rollback', turn: oldTurn, legacyBefore })
     const rolled = storyTimeline.apply({ chat, intent: rollbackIntent })
     chat = rolled.chat
+    const lifecycleRevision = Math.max(0, Number(originalChat.tavernHelperLifecycleRevision) || 0) + 1
+    const pendingChat = structuredClone(originalChat)
+    pendingChat.tavernHelperLifecycleRevision = lifecycleRevision
+    const pendingAssistant = pendingChat.messages[oldAssistantIndex]
+    if (!Array.isArray(pendingAssistant.swipes)) pendingAssistant.swipes = [str(pendingAssistant.sourceText || pendingAssistant.text)]
+    pendingAssistant.swipeId = pendingAssistant.swipes.length
+    pendingAssistant.swipes.push('')
+    if (Array.isArray(pendingAssistant.variables)) pendingAssistant.variables.push(structuredClone(pendingAssistant.variables[Math.max(0, pendingAssistant.swipeId - 1)] || {}))
+    await tavernHelperEventGate.dispatch(chat.sessionId, 'MESSAGE_SWIPED', [oldAssistantIndex], await tavernHelperEventContext(chat.sessionId, pendingChat))
+    chat.tavernHelperLifecycleRevision = lifecycleRevision
     chat.regenInProgress = true
     await writeChat(chat, { source: 'rollback.regen' })
     const rolledMessageCount = (chat.messages || []).length
@@ -2113,14 +2124,18 @@ export async function apply(ctx) {
       await restoreFailedRegen()
       throw new Error('重新生成失败：模型返回空文本')
     }
-    latestMsgs[latestMsgs.length - 2].text = originalUserText
-    latestMsgs[latestMsgs.length - 2].regen = true
+    const merged = mergeRegeneratedSwipe({ originalChat, regeneratedChat: latest, assistantIndex: oldAssistantIndex })
+    const committedChat = merged.chat
     if (latest.nativeCommits !== null && typeof latest.nativeCommits === 'object') delete latest.nativeCommits[String(syntheticTurn)]
-    latest.updatedAt = Date.now()
-    delete latest.regenInProgress
-    latest.settleStatus = 'pending'
-    latest.settleError = null
-    await writeChat(latest, { source: 'foreground.regen-commit' })
+    committedChat.nativeCommits = latest.nativeCommits && typeof latest.nativeCommits === 'object' ? structuredClone(latest.nativeCommits) : {}
+    if (originalChat.nativeCommits && originalChat.nativeCommits[String(oldTurn)]) committedChat.nativeCommits[String(oldTurn)] = structuredClone(originalChat.nativeCommits[String(oldTurn)])
+    committedChat.updatedAt = Date.now()
+    delete committedChat.regenInProgress
+    committedChat.settleStatus = 'pending'
+    committedChat.settleError = null
+    committedChat.tavernHelperLifecycleRevision = lifecycleRevision + 1
+    await writeChat(committedChat, { source: 'foreground.regen-commit' })
+    await tavernHelperEventGate.dispatch(chat.sessionId, 'MESSAGE_RECEIVED', [oldAssistantIndex, 'swipe'], await tavernHelperEventContext(chat.sessionId, committedChat))
     // 一次遮蔽旧正文、此前失败回合残留与本次合成输入；新正文保持为最后一个可见模型节点
     const currentNodes = session.surface !== undefined && Array.isArray(session.surface.nodes) ? session.surface.nodes : []
     const replacement = planRegenerationSurface({
@@ -2137,8 +2152,8 @@ export async function apply(ctx) {
       surfaceOp: { op: 'replace', start: replacement.start, end: replacement.end },
       sourceEventSeqs: replacement.shadowedSeqs
     })
-    const result = await view(latest, card)
-    result.adopted = { text: body, guidance: guide, hiddenTurn: oldTurn, syntheticTurn: syntheticTurn }
+    const result = await view(committedChat, card)
+    result.adopted = { text: body, guidance: guide, hiddenTurn: oldTurn, syntheticTurn: syntheticTurn, swipeId: merged.swipeId }
     return result
   }
 

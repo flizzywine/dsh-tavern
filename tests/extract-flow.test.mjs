@@ -303,6 +303,9 @@ test('正文重新生成提供两个含义明确的入口，并复用同一替�
 	assert.match(regen, /const rolledMessageCount = \(chat\.messages \|\| \[\]\)\.length/)
 	assert.match(regen, /latestMsgs\.length < rolledMessageCount \+ 2/)
 	assert.match(regen, /Number\(newAssistant\.turn\) !== syntheticTurn/)
+	assert.match(regen, /mergeRegeneratedSwipe\(\{ originalChat, regeneratedChat: latest, assistantIndex: oldAssistantIndex \}\)/)
+	assert.match(regen, /'MESSAGE_SWIPED', \[oldAssistantIndex\]/)
+	assert.match(regen, /'MESSAGE_RECEIVED', \[oldAssistantIndex, 'swipe'\]/)
 	assert.match(regen, /await updateChat\(chat\.id,[\s\S]*source: 'foreground\.regen-abort'/)
 })
 
