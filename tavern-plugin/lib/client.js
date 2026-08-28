@@ -997,7 +997,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			return '<!doctype html><html><head><meta charset="utf-8">'
 				+ '<meta name="viewport" content="width=device-width,initial-scale=1">'
 				+ '<meta name="referrer" content="no-referrer">'
-				+ '<meta http-equiv="Content-Security-Policy" content="default-src https: data: blob:; img-src https: data: blob:; media-src https: data: blob:; font-src https: data:; style-src \'unsafe-inline\' https:; script-src \'unsafe-inline\' \'unsafe-eval\' https: data: blob:; connect-src https: wss: data: blob:; frame-src https: data: blob:; object-src \'none\'; base-uri \'none\'; form-action \'none\'">'
+				+ '<meta http-equiv="Content-Security-Policy" content="default-src https: http: data: blob:; img-src https: http: data: blob:; media-src https: http: data: blob:; font-src https: http: data:; style-src \'unsafe-inline\' https: http:; script-src \'unsafe-inline\' \'unsafe-eval\' https: http: data: blob:; connect-src https: http: wss: data: blob:; frame-src https: http: data: blob:; object-src \'none\'; base-uri \'none\'; form-action \'none\'">'
 				+ '<style>:root{color-scheme:light dark}html,body{box-sizing:border-box;margin:0;min-height:0;background:transparent;color:CanvasText;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:16px;line-height:1.75}body{padding:0 1px;overflow-wrap:anywhere;white-space:pre-wrap}body>*{white-space:normal}maintext{display:block;white-space:pre-wrap;overflow-wrap:anywhere}.dsh-tavern-plain-text{white-space:pre-wrap;overflow-wrap:anywhere}*,*:before,*:after{box-sizing:border-box}img,video,svg,canvas{max-width:100%;height:auto}pre{max-width:100%;overflow:auto;white-space:pre-wrap}table{max-width:100%;border-collapse:collapse}a{color:LinkText}</style>' + helperDependencies + storageShim + helperShim + runtimeReporter
 				+ '</head><body>' + html + layoutNormalizer + reporter + '</body></html>';
 		}
@@ -1343,14 +1343,15 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const safeContext = JSON.stringify(context).replace(/</g, "\\u003c").replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
 			const bootstrap = '(' + tavernHelperScriptBootstrap.toString() + ')(' + safeMetadata + ',' + safeContext + ');';
 			const cardSource = String(input && input.script && input.script.content || "");
-			const deferredSource = cardSource.replace(/(^|[\r\n])([ \t]*)import\s+(["'])(https:\/\/[^"']+)\3\s*;?/g, function (_match, line, indent, quote, url) {
-				return line + indent + "await import(" + quote + url + quote + ");";
+			const deferredSource = cardSource.replace(/(^|[\r\n])([ \t]*)import\s+(["'])((?:https:\/\/|\/api\/dsh-tavern\/remote-assets\/)[^"']+)\3\s*;?/g, function (_match, line, indent, quote, url) {
+				const target = url.startsWith("/") ? "new URL(" + quote + url + quote + ", document.baseURI).href" : quote + url + quote;
+				return line + indent + "await import(" + target + ");";
 			});
 			const moduleSource = 'await window.__dshTavernHelperReady;\n' + deferredSource;
 			const moduleUrl = "data:text/javascript;base64," + encodeTavernScriptSource(moduleSource);
 			return '<!doctype html><html><head><meta charset="utf-8">'
 				+ '<meta name="referrer" content="no-referrer">'
-				+ '<meta http-equiv="Content-Security-Policy" content="default-src https: data: blob:; script-src \'unsafe-inline\' \'unsafe-eval\' https: data: blob:; connect-src https: wss: data: blob:; img-src https: data: blob:; style-src \'unsafe-inline\' https:; object-src \'none\'; base-uri \'none\'; form-action \'none\'">'
+				+ '<meta http-equiv="Content-Security-Policy" content="default-src https: http: data: blob:; script-src \'unsafe-inline\' \'unsafe-eval\' https: http: data: blob:; connect-src https: http: wss: data: blob:; img-src https: http: data: blob:; style-src \'unsafe-inline\' https: http:; object-src \'none\'; base-uri \'none\'; form-action \'none\'">'
 				+ '<script src="https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js"><\/script>'
 				+ '<script src="https://cdn.jsdelivr.net/npm/lodash@4.18.1/lodash.min.js"><\/script>'
 				+ '<script src="https://cdn.jsdelivr.net/npm/vue@3.5.41/dist/vue.global.prod.js"><\/script>'

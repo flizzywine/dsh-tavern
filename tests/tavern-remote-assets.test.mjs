@@ -5,6 +5,10 @@ import { createTavernRemoteAssetPinStore, inspectMutableJsDelivrUrls } from '../
 
 const COMMIT = '0123456789abcdef0123456789abcdef01234567'
 
+function textResponse(content = 'globalThis.entryLoaded = true', mediaType = 'text/javascript') {
+  return { ok: true, headers: { get: function () { return mediaType } }, text: async function () { return content } }
+}
+
 test('识别 jsDelivr 的可漂移 GitHub 引用但忽略固定提交', function () {
   const text = "import 'https://cdn.jsdelivr.net/gh/example/repo@main/a.js'; import 'https://cdn.jsdelivr.net/gh/example/repo@" + COMMIT + "/b.js'"
   assert.deepEqual(inspectMutableJsDelivrUrls(text).map(function (item) { return [item.owner, item.repo, item.ref, item.path] }), [
@@ -15,21 +19,21 @@ test('识别 jsDelivr 的可漂移 GitHub 引用但忽略固定提交', function
 test('没有显式版本的 GitHub CDN 地址按默认分支 HEAD 锁定', async function () {
   const source = "import 'https://cdn.jsdelivr.net/gh/example/repo/artifact/bundle.js'"
   const store = createTavernRemoteAssetPinStore({
-    fetch: async function () { return { ok: false, status: 403 } },
+    fetch: async function (url) { return String(url).includes('api.github.com') ? { ok: false, status: 403 } : textResponse() },
     resolveGitRef: async function (reference) { assert.equal(reference.ref, 'HEAD'); return COMMIT }
   })
   const result = await store.pinText(source)
-  assert.match(result.text, new RegExp('repo@' + COMMIT + '/artifact'))
+  assert.match(result.text, /\/api\/dsh-tavern\/remote-assets\/[0-9a-f]{64}/)
 })
 
 test('GitHub API 配额耗尽时使用 Git 只读解析后备', async function () {
   const source = "import 'https://cdn.jsdelivr.net/gh/example/repo@main/index.js'"
   const store = createTavernRemoteAssetPinStore({
-    fetch: async function () { return { ok: false, status: 403 } },
+    fetch: async function (url) { return String(url).includes('api.github.com') ? { ok: false, status: 403 } : textResponse() },
     resolveGitRef: async function (reference) { assert.equal(reference.ref, 'main'); return COMMIT }
   })
   const result = await store.pinText(source)
-  assert.match(result.text, new RegExp('@' + COMMIT + '/'))
+  assert.match(result.text, /\/api\/dsh-tavern\/remote-assets\/[0-9a-f]{64}/)
   assert.equal(result.diagnostics.length, 0)
 })
 
@@ -39,12 +43,15 @@ test('首次解析远程分支后写入固定提交，后续启动复用持久�
   const store = createTavernRemoteAssetPinStore({
     readJson: async function () { return saved },
     updateJson: async function (_path, updater) { saved = updater(saved) },
-    fetch: async function () { requests++; return { ok: true, json: async function () { return { sha: COMMIT } } } }
+    fetch: async function (url) {
+      requests++
+      return String(url).includes('api.github.com') ? { ok: true, json: async function () { return { sha: COMMIT } } } : textResponse()
+    }
   })
   const source = "import 'https://testingcf.jsdelivr.net/gh/Alice/Apeiria@main/变量守卫/index.js'"
   const first = await store.pinText(source)
-  assert.match(first.text, new RegExp('@' + COMMIT + '/'))
-  assert.equal(requests, 1)
+  assert.match(first.text, /\/api\/dsh-tavern\/remote-assets\/[0-9a-f]{64}/)
+  assert.equal(requests, 2)
   assert.equal(saved.pins['Alice/Apeiria@main'].commit, COMMIT)
 
   const restarted = createTavernRemoteAssetPinStore({
@@ -52,7 +59,7 @@ test('首次解析远程分支后写入固定提交，后续启动复用持久�
     updateJson: async function () { throw new Error('不应重新写入') },
     fetch: async function () { throw new Error('不应重新请求') }
   })
-  assert.match((await restarted.pinText(source)).text, new RegExp('@' + COMMIT + '/'))
+  assert.equal((await restarted.pinText(source)).text, first.text)
 })
 
 test('两种解析都失败时保留人物卡原文并返回诊断', async function () {
@@ -83,4 +90,53 @@ test('无法锁定远程版本时只禁用运行时投影，不修改人物卡�
   assert.equal(helper.enabled, true)
   assert.equal(regex.enabled, true)
   assert.equal(result.diagnostics.length, 2)
+})
+
+test('已锁定入口内容按哈希缓存并改写为本机只读地址', async function () {
+  let saved = null
+  const fixedUrl = 'https://cdn.jsdelivr.net/gh/example/repo@' + COMMIT + '/bundle.js'
+  const store = createTavernRemoteAssetPinStore({
+    readJson: async function () { return saved },
+    updateJson: async function (_path, updater) { saved = updater(saved) },
+    fetch: async function (url) {
+      if (String(url).startsWith('https://api.github.com/')) return { ok: true, json: async function () { return { sha: COMMIT } } }
+      assert.equal(url, fixedUrl)
+      return { ok: true, headers: { get: function () { return 'text/javascript; charset=utf-8' } }, text: async function () { return 'globalThis.cachedEntry = true' } }
+    }
+  })
+
+  const result = await store.pinText("import 'https://cdn.jsdelivr.net/gh/example/repo@main/bundle.js'")
+  assert.match(result.text, /\/api\/dsh-tavern\/remote-assets\/[0-9a-f]{64}\/bundle\.js/)
+  const hash = result.text.match(/remote-assets\/([0-9a-f]{64})/)[1]
+  assert.equal((await store.readCached(hash)).content, 'globalThis.cachedEntry = true')
+  assert.equal(saved.assets[fixedUrl].hash, hash)
+})
+
+test('重启且断网时复用已验证内容，缓存缺失则明确诊断', async function () {
+  let saved = null
+  const online = createTavernRemoteAssetPinStore({
+    readJson: async function () { return saved },
+    updateJson: async function (_path, updater) { saved = updater(saved) },
+    fetch: async function (url) {
+      if (String(url).startsWith('https://api.github.com/')) return { ok: true, json: async function () { return { sha: COMMIT } } }
+      return { ok: true, headers: { get: function () { return 'text/html' } }, text: async function () { return '<main>状态栏</main>' } }
+    }
+  })
+  const source = "$('body').load('https://cdn.jsdelivr.net/gh/example/ui@main/status.html')"
+  const first = await online.pinText(source)
+
+  const offline = createTavernRemoteAssetPinStore({
+    readJson: async function () { return saved },
+    updateJson: async function () { throw new Error('不应重新写入') },
+    fetch: async function () { throw new Error('offline') }
+  })
+  assert.equal((await offline.pinText(source)).text, first.text)
+
+  const missing = createTavernRemoteAssetPinStore({
+    readJson: async function () { return { version: 2, pins: saved.pins, assets: {} } },
+    fetch: async function () { throw new Error('offline') }
+  })
+  const failed = await missing.pinExtensions({ helperScripts: [], regexScripts: [{ name: '状态栏', enabled: true, replaceString: source }] })
+  assert.equal(failed.regexScripts[0].enabled, false)
+  assert.match(failed.diagnostics[0].message, /缓存.*offline/)
 })

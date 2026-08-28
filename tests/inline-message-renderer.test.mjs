@@ -51,9 +51,9 @@ test('消息 iframe 允许可信远程资源，同时保留不透明来源隔离
 
   assert.match(document, /<p>正文<\/p><style>p\{color:red\}<\/style>/)
   assert.match(document, /cdn\.jsdelivr\.net\/example\.js/)
-  assert.match(document, /default-src https: data: blob:/)
-  assert.match(document, /connect-src https: wss: data: blob:/)
-  assert.match(document, /frame-src https: data: blob:/)
+  assert.match(document, /default-src https: http: data: blob:/)
+  assert.match(document, /connect-src https: http: wss: data: blob:/)
+  assert.match(document, /frame-src https: http: data: blob:/)
   assert.match(document, /object-src 'none'/)
   assert.match(document, /form-action 'none'/)
   assert.match(document, /ResizeObserver/)
@@ -203,6 +203,17 @@ test('人物卡 Helper 脚本使用独立不透明 iframe，并获得脚本、�
   assert.match(document, /dsh-tavern-helper-script-runtime/)
   assert.match(document, /object-src 'none'/)
   assert.doesNotMatch(document, /allow-same-origin/)
+})
+
+test('Helper 脚本把本机缓存入口解析为 srcdoc 所属宿主地址', () => {
+  const document = client.buildTavernHelperScriptDocument({
+    token: 'cached-script-token',
+    script: { id: 'cached', name: '缓存脚本', content: "import '/api/dsh-tavern/remote-assets/" + 'a'.repeat(64) + "/bundle.js'", data: {}, buttons: [] },
+    context: { messages: [] }
+  })
+  const encoded = document.match(/data:text\/javascript;base64,([^"']+)/)
+  const source = Buffer.from(encoded[1], 'base64').toString('utf8')
+  assert.match(source, /new URL\('\/api\/dsh-tavern\/remote-assets\/a{64}\/bundle\.js', document\.baseURI\)\.href/)
 })
 
 test('Helper Host 仅在明确的受信任人物卡模式中开放同源父页面', () => {

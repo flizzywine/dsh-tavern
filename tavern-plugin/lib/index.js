@@ -2571,6 +2571,25 @@ export async function apply(ctx) {
         }
         try {
           const pathname = decodeURIComponent(new URL(req.url ?? '/', 'http://x').pathname)
+          const cachedAssetMatch = /^\/api\/dsh-tavern\/remote-assets\/([0-9a-f]{64})(?:\/[^/]*)?$/i.exec(pathname)
+          if (req.method === 'GET' && cachedAssetMatch) {
+            const asset = await tavernRemoteAssets.readCached(cachedAssetMatch[1])
+            if (!asset) {
+              res.writeHead(404, { 'Access-Control-Allow-Origin': '*', 'X-Content-Type-Options': 'nosniff' })
+              res.end('not found')
+              return
+            }
+            res.writeHead(200, {
+              'Content-Type': str(asset.mediaType) + '; charset=utf-8',
+              'Content-Length': Buffer.byteLength(asset.content, 'utf8'),
+              'Cache-Control': 'public, max-age=31536000, immutable',
+              'Access-Control-Allow-Origin': '*',
+              'Cross-Origin-Resource-Policy': 'cross-origin',
+              'X-Content-Type-Options': 'nosniff'
+            })
+            res.end(asset.content)
+            return
+          }
           if (req.method === 'GET' && pathname === '/api/dsh-tavern/events') {
             const target = new URL(req.url ?? '/', 'http://x')
             const sessionId = str(target.searchParams.get('sessionId'))

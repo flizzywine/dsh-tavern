@@ -9,6 +9,8 @@ function clone(value) {
 const execFile = promisify(execFileCallback)
 const JSD_GH_URL = /https:\/\/(?:cdn|testingcf)\.jsdelivr\.net\/gh\/([^/\s"'<>]+)\/([^/@\s"'<>]+)(?:@([^/\s"'<>]+))?(\/[^\s"'<>]*)?/g
 const FIXED_COMMIT = /^[0-9a-f]{40}$/i
+const CONTENT_HASH = /^[0-9a-f]{64}$/i
+const MAX_ENTRY_BYTES = 5 * 1024 * 1024
 
 function validGitHubPart(value) {
   return /^[A-Za-z0-9_.-]+$/.test(value)
@@ -37,6 +39,25 @@ export function inspectMutableJsDelivrUrls(text) {
   return urls
 }
 
+function inspectFixedJsDelivrUrls(text) {
+  const urls = []
+  for (const match of str(text).matchAll(JSD_GH_URL)) {
+    if (!FIXED_COMMIT.test(match[3])) continue
+    urls.push({ url: match[0], owner: match[1], repo: match[2], commit: match[3], path: match[4] || '' })
+  }
+  return urls
+}
+
+function contentHash(content) {
+  return createHash('sha256').update(content, 'utf8').digest('hex')
+}
+
+function cachedPath(asset) {
+  const rawName = str(asset.path).split('/').filter(Boolean).at(-1) || 'asset.txt'
+  const name = rawName.replace(/[^A-Za-z0-9._-]/g, '_') || 'asset.txt'
+  return '/api/dsh-tavern/remote-assets/' + asset.hash + '/' + name
+}
+
 /** Resolve mutable jsDelivr GitHub references once and persist the commit pin. */
 export function createTavernRemoteAssetPinStore(options = {}) {
   const readJson = options.readJson
@@ -45,6 +66,8 @@ export function createTavernRemoteAssetPinStore(options = {}) {
   const gitResolver = options.resolveGitRef || resolveWithGit
   const storagePath = str(options.storagePath) || 'tavern-remote-asset-pins.json'
   const memory = new Map()
+  const assetsByUrl = new Map()
+  const assetsByHash = new Map()
   let loaded = false
   let mutationTail = Promise.resolve()
 
@@ -55,6 +78,14 @@ export function createTavernRemoteAssetPinStore(options = {}) {
     for (const [key, value] of Object.entries(pins)) {
       if (value && FIXED_COMMIT.test(str(value.commit))) memory.set(key, clone(value))
     }
+    const assets = saved && saved.assets && typeof saved.assets === 'object' ? saved.assets : {}
+    for (const [url, value] of Object.entries(assets)) {
+      if (!value || !CONTENT_HASH.test(str(value.hash)) || typeof value.content !== 'string') continue
+      if (contentHash(value.content) !== str(value.hash).toLowerCase()) continue
+      const asset = Object.assign({}, clone(value), { url })
+      assetsByUrl.set(url, asset)
+      assetsByHash.set(asset.hash, asset)
+    }
     loaded = true
   }
 
@@ -63,7 +94,7 @@ export function createTavernRemoteAssetPinStore(options = {}) {
     mutationTail = mutationTail.then(async function () {
       await updateJson(storagePath, function (current) {
         const next = current && typeof current === 'object' ? Object.assign({}, current) : {}
-        next.version = 1
+        next.version = 2
         next.pins = next.pins && typeof next.pins === 'object' ? Object.assign({}, next.pins) : {}
         next.pins[key] = clone(value)
         next.updatedAt = Date.now()
@@ -71,6 +102,48 @@ export function createTavernRemoteAssetPinStore(options = {}) {
       })
     })
     await mutationTail
+  }
+
+  async function persistAsset(asset) {
+    if (typeof updateJson !== 'function') return
+    mutationTail = mutationTail.then(async function () {
+      await updateJson(storagePath, function (current) {
+        const next = current && typeof current === 'object' ? Object.assign({}, current) : {}
+        next.version = 2
+        next.pins = next.pins && typeof next.pins === 'object' ? Object.assign({}, next.pins) : {}
+        next.assets = next.assets && typeof next.assets === 'object' ? Object.assign({}, next.assets) : {}
+        next.assets[asset.url] = {
+          hash: asset.hash,
+          path: asset.path,
+          mediaType: asset.mediaType,
+          content: asset.content,
+          cachedAt: asset.cachedAt
+        }
+        next.updatedAt = Date.now()
+        return next
+      })
+    })
+    await mutationTail
+  }
+
+  async function cacheFixed(reference) {
+    await load()
+    if (assetsByUrl.has(reference.url)) return assetsByUrl.get(reference.url)
+    if (typeof request !== 'function') throw new Error('当前运行环境不能缓存远程入口内容')
+    let response
+    try { response = await request(reference.url, { headers: { Accept: 'text/javascript, text/html, text/plain;q=0.9', 'User-Agent': 'dsh-tavern' } }) } catch (error) {
+      throw new Error('固定入口内容缓存不可用（' + str(error && error.message || error) + '）')
+    }
+    if (!response || response.ok !== true) throw new Error('固定入口内容缓存不可用（HTTP ' + str(response && response.status) + '）')
+    const content = await response.text()
+    if (Buffer.byteLength(content, 'utf8') > MAX_ENTRY_BYTES) throw new Error('固定入口内容超过 5 MiB 上限')
+    const mediaType = str(response.headers && response.headers.get && response.headers.get('content-type')).split(';')[0].trim() || (reference.path.endsWith('.html') ? 'text/html' : 'text/javascript')
+    if (!/^(text\/|application\/(javascript|json)$)/i.test(mediaType)) throw new Error('固定入口返回了不支持的内容类型: ' + mediaType)
+    const asset = { url: reference.url, hash: contentHash(content), path: reference.path, mediaType, content, cachedAt: Date.now() }
+    assetsByUrl.set(asset.url, asset)
+    assetsByHash.set(asset.hash, asset)
+    await persistAsset(asset)
+    return asset
   }
 
   async function resolvePin(reference) {
@@ -122,6 +195,15 @@ export function createTavernRemoteAssetPinStore(options = {}) {
         diagnostics.push({ status: 'unresolved-remote-asset', url: reference.url, message: str(error && error.message || error) })
       }
     }
+    const fixedReferences = new Map(inspectFixedJsDelivrUrls(result).map(function (item) { return [item.url, item] }))
+    for (const reference of fixedReferences.values()) {
+      try {
+        const asset = await cacheFixed(reference)
+        result = result.split(reference.url).join(cachedPath(asset))
+      } catch (error) {
+        diagnostics.push({ status: 'uncached-remote-asset', url: reference.url, message: str(error && error.message || error) })
+      }
+    }
     return { text: result, pins, diagnostics }
   }
 
@@ -152,7 +234,14 @@ export function createTavernRemoteAssetPinStore(options = {}) {
     return { helperScripts, regexScripts, diagnostics, pins: uniquePins }
   }
 
-  return Object.freeze({ pinText, pinExtensions, inspect: function () { return Array.from(memory.values()).map(clone) } })
+  async function readCached(hash) {
+    await load()
+    const asset = assetsByHash.get(str(hash).toLowerCase())
+    return asset ? clone(asset) : null
+  }
+
+  return Object.freeze({ pinText, pinExtensions, readCached, inspect: function () { return Array.from(memory.values()).map(clone) } })
 }
 import { execFile as execFileCallback } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { promisify } from 'node:util'
