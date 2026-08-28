@@ -7,6 +7,7 @@ import test from 'node:test'
 
 import { cardOpeningChoices } from '../tavern-plugin/lib/domain/card-openings.js'
 import { createCardPreparation } from '../tavern-plugin/lib/domain/card-preparation.js'
+import { renderTavernHelperVariableMacros } from '../tavern-plugin/lib/domain/tavern-helper-variable-macros.js'
 import { createTavernMvuRuntime, readMvuWorldBookInitialState } from '../tavern-plugin/lib/domain/tavern-mvu-runtime.js'
 
 const cardPath = process.env.DSH_TAVERN_LIGHTHOUSE_CARD
@@ -43,4 +44,13 @@ test('真实《灯火阑珊》通过现有卡片投影完成 MVU 多 swipe 初�
   assert.ok(initialized.variables.filter(item => Object.keys(item.stat_data).length > 0).length >= openings.length - 1)
   assert.deepEqual(Object.keys(initialized.variables[0].stat_data).slice(0, 3), ['世界时钟', '世界地图', '世界图志'])
   assert.ok(initialized.diagnostics.every(item => Number.isInteger(item.swipeId)), '损坏开场初值必须定位到具体 swipe')
+
+  const currentVariableEntry = card.character_book.entries.find(item => String(item.content).includes('{{format_message_variable::stat_data}}'))
+  assert.ok(currentVariableEntry, '真实卡应包含当前 MVU 状态注入条目')
+  const rendered = renderTavernHelperVariableMacros(currentVariableEntry.content, {
+    message: initialized.variables[0]
+  })
+  assert.doesNotMatch(rendered.text, /\{\{format_message_variable/)
+  assert.match(rendered.text, /世界时钟:/)
+  assert.match(rendered.text, /世界地图:/)
 })

@@ -34,6 +34,7 @@ import {
   replaceTavernHelperMessages,
   replaceTavernHelperVariables
 } from './domain/tavern-helper-context.js'
+import { applyTavernHelperVariableMacros } from './domain/tavern-helper-variable-macros.js'
 import {
   preserveRuntimeSource,
   projectAgentContent,
@@ -2635,6 +2636,15 @@ export async function apply(ctx) {
     compiled.trace.presetPath = presetPath
     compiled.trace.presetTitle = preset.title
     compiled.trace.regexCount = regexScripts.length
+    const helperMacros = applyTavernHelperVariableMacros(compiled.messages, {
+      message: tavernMvu.lastVariables(chat.messages),
+      chat: chat.variables,
+      character: extensions && extensions.variables,
+      preset: snapshot && snapshot.variables,
+      global: chat.macroState && chat.macroState.global
+    })
+    compiled.messages = helperMacros.messages
+    compiled.trace.tavernHelperVariableMacroCount = helperMacros.replacements
     const sourceMessageCount = compiled.messages.length
     compiled.messages = applySillyTavernStrictTools(compiled.messages, {
       charName: str(card.name),
