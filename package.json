@@ -15,9 +15,12 @@
   },
   "dependencies": {
     "@dsh-external/dsh-mobile-nav": "github:mexiaosqwq/dsh-web-mobile#00dd3b9deee09f0177cf90d4f11fa5581ef95dcd",
+    "@jitl/quickjs-singlefile-mjs-release-sync": "0.32.0",
     "chevrotain": "^11.2.0",
     "dsh-better-sidebar": "0.15.0",
     "dsh-tavern-plugin": "link:./tavern-plugin",
+    "ejs": "3.1.9",
+    "quickjs-emscripten-core": "0.32.0",
     "yaml": "2.9.0"
   },
   "dsh": {

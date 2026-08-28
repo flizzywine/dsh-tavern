@@ -35,6 +35,7 @@ import {
   replaceTavernHelperVariables
 } from './domain/tavern-helper-context.js'
 import { applyTavernHelperVariableMacros } from './domain/tavern-helper-variable-macros.js'
+import { TavernPromptTemplateRuntime } from './domain/tavern-prompt-template-runtime.js'
 import {
   preserveRuntimeSource,
   projectAgentContent,
@@ -81,10 +82,28 @@ export async function apply(ctx) {
   }
   const agentDefaultModel = ctx.get('agentDefaultModel')
   const tavernMvu = createTavernMvuRuntime()
+  let tavernPromptTemplateRuntime
+  async function promptTemplateRuntime() {
+    tavernPromptTemplateRuntime ??= TavernPromptTemplateRuntime.create()
+    return await tavernPromptTemplateRuntime
+  }
   const sourceRoot = fileURLToPath(new URL('../../', import.meta.url))
   const dataRoot = resolveTavernDataRoot()
   const profileData = createProfileDataStore({ dataRoot })
   const settingsPath = 'tavern-settings.json'
+  const promptTemplateVariablesPath = 'prompt-template-variables.json'
+  async function readPromptTemplateGlobalVariables() {
+    const saved = await profileData.readJson(promptTemplateVariablesPath)
+    return saved && saved.global && typeof saved.global === 'object' && !Array.isArray(saved.global) ? saved.global : {}
+  }
+  async function writePromptTemplateGlobalVariables(variables) {
+    await profileData.updateJson(promptTemplateVariablesPath, function (current) {
+      const next = current && typeof current === 'object' ? Object.assign({}, current) : {}
+      next.global = variables && typeof variables === 'object' && !Array.isArray(variables) ? variables : {}
+      next.updatedAt = Date.now()
+      return next
+    })
+  }
   async function readTavernSettings() {
     const saved = await profileData.readJson(settingsPath)
     return { compatibilityMode: Boolean(saved && saved.compatibilityMode === true) }
@@ -2583,8 +2602,14 @@ export async function apply(ctx) {
     try { worldBook = await worldBooks.bound(chat.cardPath, card) } catch {}
     const entries = Array.isArray(worldBook && worldBook.view && worldBook.view.entries) ? worldBook.view.entries : []
     const scan = (chat.messages || []).map(function (item) { return str(item.sourceText || item.text) }).concat([str(input)]).join('\n')
-    const active = entries.filter(function (entry) {
-      return entry && entry.enabled !== false && str(entry.content).trim() !== '' && compatibilityWorldBookMatch(entry, scan)
+    function promptTemplateSpecial(entry) {
+      const comment = str(entry && entry.comment)
+      const content = str(entry && entry.content)
+      return comment.startsWith('[InitialVariables]') || /^(?:@@[^\r\n]*\r?\n)*@@initial_variables(?:\s|$)/m.test(content)
+    }
+    const enabled = entries.filter(function (entry) { return entry && entry.enabled !== false && str(entry.content).trim() !== '' })
+    const active = enabled.filter(function (entry) {
+      return !promptTemplateSpecial(entry) && compatibilityWorldBookMatch(entry, scan)
     }).sort(function (left, right) {
       return (Number(right.order) || 0) - (Number(left.order) || 0) || (Number(left.displayIndex) || 0) - (Number(right.displayIndex) || 0)
     })
@@ -2595,7 +2620,21 @@ export async function apply(ctx) {
       const target = position === 0 || position === 'before_char' || position === 'before' ? before : after
       target.push(str(entry.content).trim())
     }
-    return { before: before.join('\n\n'), after: after.join('\n\n'), refs: active.map(function (entry) { return entry.ref }) }
+    return {
+      before: before.join('\n\n'),
+      after: after.join('\n\n'),
+      refs: active.map(function (entry) { return entry.ref }),
+      entries: enabled.map(function (entry) {
+        return {
+          id: str(entry.sourceUid || entry.ref),
+          name: str(entry.title),
+          comment: str(entry.comment),
+          content: str(entry.content),
+          enabled: entry.enabled !== false,
+          book: str(worldBook && worldBook.view && worldBook.view.displayName)
+        }
+      })
+    }
   }
 
   async function compileCompatibilityTurn(chat, userText) {
@@ -2645,6 +2684,33 @@ export async function apply(ctx) {
     })
     compiled.messages = helperMacros.messages
     compiled.trace.tavernHelperVariableMacroCount = helperMacros.replacements
+    const promptTemplates = await promptTemplateRuntime()
+    const transcript = (chat.messages || []).map(function (item) {
+      return { role: item.role === 'user' ? 'user' : 'assistant', content: str(item.sourceText || item.text) }
+    })
+    const templateContext = {
+      charName: str(card.name),
+      userName: str(chat.macroState && chat.macroState.userName) || '你',
+      runType: 'generate',
+      transcript,
+      worldBookEntries: worldInfo.entries,
+      scopes: {
+        global: await readPromptTemplateGlobalVariables(),
+        initial: chat.promptTemplateInitialVariables,
+        local: chat.variables,
+        message: tavernMvu.lastVariables(chat.messages)
+      }
+    }
+    const initialized = promptTemplates.initializeVariables(worldInfo.entries, templateContext)
+    const templated = promptTemplates.renderMessages(compiled.messages, Object.assign({}, templateContext, { scopes: initialized.scopes }))
+    compiled.messages = templated.messages
+    compiled.promptTemplateState = {
+      scopes: templated.scopes,
+      persist: initialized.evaluated + templated.evaluated > 0
+    }
+    compiled.diagnostics.push(...initialized.diagnostics, ...templated.diagnostics)
+    compiled.trace.promptTemplateEvaluations = initialized.evaluated + templated.evaluated
+    compiled.trace.promptTemplateDiagnostics = initialized.diagnostics.length + templated.diagnostics.length
     const sourceMessageCount = compiled.messages.length
     compiled.messages = applySillyTavernStrictTools(compiled.messages, {
       charName: str(card.name),
@@ -2718,10 +2784,24 @@ export async function apply(ctx) {
       await updateChat(chat.id, function (current) {
         if (!current || typeof current !== 'object') return current
         current.macroState = compiled.macroState
+        if (compiled.promptTemplateState && compiled.promptTemplateState.persist === true) {
+          const scopes = compiled.promptTemplateState.scopes || {}
+          current.promptTemplateInitialVariables = scopes.initial && typeof scopes.initial === 'object' ? scopes.initial : {}
+          current.variables = scopes.local && typeof scopes.local === 'object' ? scopes.local : {}
+          if (Array.isArray(current.messages) && current.messages.length > 0) {
+            replaceTavernHelperVariables(current, {
+              option: { type: 'message', message_id: 'latest' },
+              variables: scopes.message
+            })
+          }
+        }
         if (!current.compatibilityTraces || typeof current.compatibilityTraces !== 'object') current.compatibilityTraces = {}
         current.compatibilityTraces[String(payload.turn)] = Object.assign({ createdAt: Date.now() }, compiled.trace, { diagnostics: compiled.diagnostics })
         return current
       }, { source: 'compatibility.compile' })
+      if (compiled.promptTemplateState && compiled.promptTemplateState.persist === true) {
+        await writePromptTemplateGlobalVariables(compiled.promptTemplateState.scopes.global)
+      }
       compatibilityModelRequests.set(sessionId, {
         turn: Number(payload.turn) || 0,
         step: Number(payload.step) || 0,
