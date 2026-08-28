@@ -39,6 +39,7 @@ import {
   replaceTavernHelperWorldbookOperations
 } from './domain/tavern-helper-worldbook.js'
 import { applyTavernHelperVariableMacros } from './domain/tavern-helper-variable-macros.js'
+import { projectTavernHelperScripts } from './domain/tavern-helper-scripts.js'
 import { TavernPromptTemplateRuntime } from './domain/tavern-prompt-template-runtime.js'
 import {
   preserveRuntimeSource,
@@ -981,11 +982,12 @@ export async function apply(ctx) {
     }
     const activePresetSnapshot = chat.requestMode === 'sillytavern' ? await runtimePresets.fullSnapshot() : null
     let replyDisplay = { projections: replyProjectionsOf(chat), presentation: null, latestSourceBacked: false }
+    let cardExtensions = { regexScripts: [], helperScripts: [] }
     if ((chat.mode || 'story') === 'story' || (chat.mode || 'story') === 'script') {
-      const extensions = await readCardExtensions(chat.cardPath)
+      cardExtensions = await readCardExtensions(chat.cardPath) || cardExtensions
       const presetRegexScripts = Array.isArray(activePresetSnapshot && activePresetSnapshot.regexScripts) ? activePresetSnapshot.regexScripts : []
       replyDisplay = projectRuntimeReplyHistory(chat.messages, {
-        regexScripts: (Array.isArray(extensions && extensions.regexScripts) ? extensions.regexScripts : []).concat(presetRegexScripts),
+        regexScripts: (Array.isArray(cardExtensions.regexScripts) ? cardExtensions.regexScripts : []).concat(presetRegexScripts),
         placement: 2,
         isMarkdown: true,
         isEdit: false,
@@ -1008,6 +1010,18 @@ export async function apply(ctx) {
       const input = runtimeInputs[turn]
       inputSources[turn] = str(input && input.source)
     }
+    const helperRuntime = chat.mvu && chat.mvu.enabled === true
+      ? projectTavernHelperScripts(cardExtensions.helperScripts, chat.tavernHelperScriptVariables)
+      : { scripts: [], diagnostics: [] }
+    let helperWorldbook = null
+    if (chat.mvu && chat.mvu.enabled === true && str(chat.cardPath) !== '') {
+      try {
+        const record = await worldBooks.bound(chat.cardPath, card)
+        if (record !== null) helperWorldbook = projectTavernHelperWorldbook(record.view)
+      } catch (error) {
+        helperRuntime.diagnostics.push({ scriptId: '', name: '世界书', status: 'unavailable', message: str(error && error.message || error) })
+      }
+    }
     return {
       chatId: chat.id,
       mode: chat.mode || 'story',
@@ -1024,6 +1038,9 @@ export async function apply(ctx) {
       presentation: null,
       replyProjections: replyDisplay.projections,
       tavernHelper: chat.mvu && chat.mvu.enabled === true ? projectTavernHelperContext(chat) : null,
+      tavernHelperScripts: helperRuntime.scripts,
+      tavernHelperScriptDiagnostics: helperRuntime.diagnostics,
+      tavernHelperWorldbook: helperWorldbook,
       presentationWarnings: Array.isArray(chat.presentationWarnings) ? chat.presentationWarnings : [],
       worldBookError: chat.worldBookError || null,
       lastWorldBookRecall: chat.lastWorldBookRecall || null,

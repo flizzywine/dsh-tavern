@@ -998,6 +998,393 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				+ '</head><body>' + html + layoutNormalizer + reporter + '</body></html>';
 		}
 
+		function encodeTavernScriptSource(value) {
+			const binary = encodeURIComponent(String(value || "")).replace(/%([0-9A-F]{2})/g, function (_, hex) { return String.fromCharCode(parseInt(hex, 16)); });
+			if (typeof btoa === "function") return btoa(binary);
+			const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+			let result = "";
+			for (let index = 0; index < binary.length; index += 3) {
+				const a = binary.charCodeAt(index);
+				const b = index + 1 < binary.length ? binary.charCodeAt(index + 1) : 0;
+				const c = index + 2 < binary.length ? binary.charCodeAt(index + 2) : 0;
+				result += alphabet[a >> 2] + alphabet[((a & 3) << 4) | (b >> 4)]
+					+ (index + 1 < binary.length ? alphabet[((b & 15) << 2) | (c >> 6)] : "=")
+					+ (index + 2 < binary.length ? alphabet[c & 63] : "=");
+			}
+			return result;
+		}
+
+		function tavernHelperScriptBootstrap(metadata, initialContext) {
+			let state = initialContext && typeof initialContext === "object" ? initialContext : {};
+			const token = String(metadata.token || "");
+			const scriptId = String(metadata.id || "");
+			const scriptName = String(metadata.name || scriptId);
+			let scriptInfo = String(metadata.info || "");
+			let scriptButtons = Array.isArray(metadata.buttons) ? metadata.buttons : [];
+			let nextId = 1;
+			const pending = Object.create(null);
+			const listeners = Object.create(null);
+			function copy(value) {
+				try { return structuredClone(value); }
+				catch (_) { return value === undefined ? undefined : JSON.parse(JSON.stringify(value)); }
+			}
+			function lastId() { return Math.max(-1, (state.messages || []).length - 1); }
+			function normalizeId(value) {
+				let id = Number(value);
+				if (!Number.isFinite(id)) id = lastId();
+				if (id < 0) id = (state.messages || []).length + id;
+				return Math.max(0, Math.min(lastId(), id));
+			}
+			function currentId() { return lastId(); }
+			function optionOf(option) {
+				const value = option && typeof option === "object" ? copy(option) : { type: "message" };
+				if (!value.type) value.type = "message";
+				if (value.type === "message") {
+					if (value.message_id === undefined || value.message_id === null || value.message_id === "latest") value.message_id = currentId();
+				} else if (value.type === "script" && !value.script_id) value.script_id = scriptId;
+				return value;
+			}
+			function messagesFor(target, options) {
+				const all = state.messages || [];
+				let items = [];
+				if (target === undefined || target === null) items = [all[currentId()]];
+				else if (typeof target === "string" && target.includes("-")) {
+					const value = target.replace(/{{\s*lastMessageId\s*}}/gi, String(lastId()));
+					const parts = value.split("-");
+					const from = normalizeId(parts[0]);
+					const to = normalizeId(parts[1]);
+					for (let index = Math.min(from, to); index <= Math.max(from, to); index += 1) items.push(all[index]);
+				} else items = [all[normalizeId(target)]];
+				items = items.filter(Boolean);
+				if (options && options.role && options.role !== "all") items = items.filter(function (item) { return item.role === options.role; });
+				return copy(items);
+			}
+			function call(method, args) {
+				return new Promise(function (resolve, reject) {
+					const requestId = String(nextId++);
+					pending[requestId] = { resolve: resolve, reject: reject };
+					parent.postMessage({ type: "dsh-tavern-helper-call", token: token, requestId: requestId, method: method, args: copy(args || {}) }, "*");
+				});
+			}
+			function getVariables(option) {
+				const resolved = optionOf(option);
+				if (resolved.type === "chat") return copy(state.chatVariables || {});
+				if (resolved.type === "script") return copy(state.scriptVariables && state.scriptVariables[resolved.script_id] || {});
+				const message = (state.messages || [])[normalizeId(resolved.message_id)];
+				return copy(message && message.variables && typeof message.variables === "object" ? message.variables : {});
+			}
+			function localReplace(variables, option) {
+				const resolved = optionOf(option);
+				if (resolved.type === "chat") state.chatVariables = copy(variables);
+				else if (resolved.type === "script") {
+					if (!state.scriptVariables || typeof state.scriptVariables !== "object") state.scriptVariables = {};
+					state.scriptVariables[resolved.script_id] = copy(variables);
+				} else {
+					const message = (state.messages || [])[normalizeId(resolved.message_id)];
+					if (message) {
+						message.variables = copy(variables);
+						if (Array.isArray(message.swipes_data)) message.swipes_data[message.swipe_id || 0] = copy(variables);
+					}
+				}
+				return resolved;
+			}
+			function localSetMessages(patches) {
+				(patches || []).forEach(function (patch) {
+					const message = (state.messages || [])[normalizeId(patch.message_id)];
+					if (!message) return;
+					if (patch.swipe_id !== undefined) {
+						message.swipe_id = Math.max(0, Math.min((message.swipes || []).length - 1, Number(patch.swipe_id) || 0));
+						message.message = (message.swipes || [])[message.swipe_id] || message.message;
+					}
+					if (patch.message !== undefined) {
+						message.message = String(patch.message);
+						if (Array.isArray(message.swipes)) message.swipes[message.swipe_id || 0] = message.message;
+					}
+					if (patch.data !== undefined) {
+						message.variables = copy(patch.data || {});
+						if (Array.isArray(message.swipes_data)) message.swipes_data[message.swipe_id || 0] = copy(patch.data || {});
+					}
+				});
+			}
+			async function eventEmit(name) {
+				const args = Array.prototype.slice.call(arguments, 1);
+				const items = listeners[name] ? Array.from(listeners[name]) : [];
+				for (const listener of items) await listener.apply(null, args);
+			}
+			addEventListener("message", function (event) {
+				const data = event && event.data;
+				if (event.source !== parent || !data || data.token !== token) return;
+				if (data.type === "dsh-tavern-helper-context") {
+					state = Object.assign({}, state, copy(data.context || {}));
+					return;
+				}
+				if (data.type === "dsh-tavern-helper-event") {
+					if (data.name === "VARIABLE_UPDATE_ENDED") {
+						const option = { type: "message", message_id: currentId() };
+						const variables = getVariables(option);
+						const before = JSON.stringify(variables);
+						Promise.resolve(eventEmit(data.name, variables)).then(function () {
+							if (JSON.stringify(variables) === before) return;
+							localReplace(variables, option);
+							return call("updateTavernHelperVariables", { option: option, variables: variables });
+						}).catch(console.error);
+					} else Promise.resolve(eventEmit.apply(null, [data.name].concat(copy(data.args || [])))).catch(console.error);
+					return;
+				}
+				if (data.type !== "dsh-tavern-helper-response") return;
+				const task = pending[data.requestId];
+				if (!task) return;
+				delete pending[data.requestId];
+				if (data.ok) {
+					if (data.result && data.result.context) state = Object.assign({}, state, copy(data.result.context));
+					if (data.result && data.result.worldbook) state.worldbook = copy(data.result.worldbook);
+					task.resolve(data.result);
+				} else task.reject(new Error(String(data.error || "Helper 调用失败")));
+			});
+			window.getScriptId = function () { return scriptId; };
+			window.getScriptName = function () { return scriptName; };
+			window.getScriptInfo = function () { return scriptInfo; };
+			window.replaceScriptInfo = function (value) { scriptInfo = String(value || ""); };
+			window.getScriptButtons = function () { return copy(scriptButtons); };
+			window.replaceScriptButtons = function (buttons) { scriptButtons = copy(Array.isArray(buttons) ? buttons : []); };
+			window.updateScriptButtonsWith = async function (updater) { const next = await updater(copy(scriptButtons)); window.replaceScriptButtons(next); return copy(scriptButtons); };
+			window.getButtonEvent = function (name) { return scriptId + ":button:" + String(name || ""); };
+			window.getCurrentMessageId = currentId;
+			window.getLastMessageId = lastId;
+			window.getChatMessages = messagesFor;
+			window.getVariables = getVariables;
+			window.getAllVariables = function () {
+				const merged = Object.assign({}, copy(state.chatVariables || {}), getVariables({ type: "script" }));
+				for (const message of state.messages || []) Object.assign(merged, copy(message.variables || {}));
+				return merged;
+			};
+			window.replaceVariables = function (variables, option) {
+				const resolved = localReplace(copy(variables || {}), option);
+				call("updateTavernHelperVariables", { option: resolved, variables: copy(variables || {}) }).catch(console.error);
+			};
+			window.updateVariablesWith = async function (updater, option) {
+				const resolved = optionOf(option);
+				const current = getVariables(resolved);
+				let next = typeof updater === "function" ? await updater(copy(current)) : current;
+				if (next === undefined) next = current;
+				next = copy(next);
+				localReplace(next, resolved);
+				await call("updateTavernHelperVariables", { option: resolved, variables: next });
+				return copy(next);
+			};
+			window.setChatMessages = async function (patches) {
+				const plain = copy(patches || []);
+				localSetMessages(plain);
+				return await call("updateTavernHelperMessages", { messages: plain });
+			};
+			window.getWorldbookNames = function () { return state.worldbook && state.worldbook.name ? [state.worldbook.name] : []; };
+			window.getCharWorldbookNames = function () { return { primary: state.worldbook && state.worldbook.name || null, additional: [] }; };
+			window.getWorldbook = async function (name) {
+				if (state.worldbook && (name === "current" || name === state.worldbook.name)) return copy(state.worldbook.entries || []);
+				const result = await call("getTavernHelperWorldbook", { name: name });
+				state.worldbook = copy(result.worldbook);
+				return copy(state.worldbook.entries || []);
+			};
+			window.updateWorldbookWith = async function (name, updater) {
+				const current = await window.getWorldbook(name);
+				let next = typeof updater === "function" ? await updater(copy(current)) : current;
+				if (next === undefined) next = current;
+				const result = await call("replaceTavernHelperWorldbook", { name: name, entries: copy(next) });
+				state.worldbook = copy(result.worldbook);
+				return copy(state.worldbook.entries || []);
+			};
+			window.eventOn = function (name, handler) { (listeners[name] || (listeners[name] = new Set())).add(handler); return handler; };
+			window.eventMakeFirst = window.eventOn;
+			window.eventOff = function (name, handler) { if (listeners[name]) listeners[name].delete(handler); };
+			window.eventEmit = eventEmit;
+			window.tavern_events = {
+				MESSAGE_SENT: "MESSAGE_SENT", MESSAGE_RECEIVED: "MESSAGE_RECEIVED", MESSAGE_UPDATED: "MESSAGE_UPDATED",
+				MESSAGE_SWIPED: "MESSAGE_SWIPED", MESSAGE_DELETED: "MESSAGE_DELETED", MESSAGE_EDITED: "MESSAGE_EDITED",
+				CHAT_CHANGED: "CHAT_CHANGED", CHAT_CREATED: "CHAT_CREATED", CHARACTER_PAGE_LOADED: "CHARACTER_PAGE_LOADED",
+				GENERATE_BEFORE_COMBINE_PROMPTS: "GENERATE_BEFORE_COMBINE_PROMPTS"
+			};
+			window.Mvu = {
+				events: { VARIABLE_INITIALIZED: "VARIABLE_INITIALIZED", VARIABLE_UPDATE_STARTED: "VARIABLE_UPDATE_STARTED", COMMAND_PARSED: "COMMAND_PARSED", VARIABLE_UPDATE_ENDED: "VARIABLE_UPDATE_ENDED", BEFORE_MESSAGE_UPDATE: "BEFORE_MESSAGE_UPDATE" },
+				getMvuData: function (option) { return getVariables(option); },
+				replaceMvuData: async function (value, option) { await window.updateVariablesWith(function () { return value; }, option); return copy(value); },
+				parseMessage: async function () { throw new Error("当前兼容层尚未开放脚本内手动 MVU 重算"); }
+			};
+			window.waitGlobalInitialized = async function (name) { if (name === "Mvu") return window.Mvu; return window[name]; };
+			window.errorCatched = function (factory) { return function () { try { return factory.apply(this, arguments); } catch (error) { console.error(error); return {}; } }; };
+			window.retrieveDisplayedMessage = function () { return window.jQuery ? window.jQuery() : []; };
+			window.toastr = { success: console.info, info: console.info, warning: console.warn, error: console.error };
+			const ready = import("https://testingcf.jsdelivr.net/npm/zod@4.4.3/+esm").then(function (module) { window.z = module; return true; });
+			window.__dshTavernHelperReady = ready;
+			addEventListener("error", function (event) {
+				parent.postMessage({ type: "dsh-tavern-helper-script-runtime", token: token, level: "error", message: String(event.message || "人物卡脚本加载失败") }, "*");
+			});
+			addEventListener("unhandledrejection", function (event) {
+				parent.postMessage({ type: "dsh-tavern-helper-script-runtime", token: token, level: "error", message: String(event.reason && event.reason.message || event.reason || "人物卡脚本 Promise 失败") }, "*");
+			});
+			parent.postMessage({ type: "dsh-tavern-helper-script-ready", token: token }, "*");
+		}
+
+		function buildTavernHelperScriptDocument(input) {
+			const metadata = {
+				token: String(input && input.token || ""),
+				id: String(input && input.script && input.script.id || ""),
+				name: String(input && input.script && input.script.name || ""),
+				info: String(input && input.script && input.script.info || ""),
+				buttons: Array.isArray(input && input.script && input.script.buttons) ? input.script.buttons : []
+			};
+			const context = input && input.context && typeof input.context === "object" ? input.context : {};
+			const safeMetadata = JSON.stringify(metadata).replace(/</g, "\\u003c");
+			const safeContext = JSON.stringify(context).replace(/</g, "\\u003c").replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
+			const bootstrap = '(' + tavernHelperScriptBootstrap.toString() + ')(' + safeMetadata + ',' + safeContext + ');';
+			const moduleSource = String(input && input.script && input.script.content || "");
+			const moduleUrl = "data:text/javascript;base64," + encodeTavernScriptSource(moduleSource);
+			return '<!doctype html><html><head><meta charset="utf-8">'
+				+ '<meta name="referrer" content="no-referrer">'
+				+ '<meta http-equiv="Content-Security-Policy" content="default-src https: data: blob:; script-src \'unsafe-inline\' \'unsafe-eval\' https: data: blob:; connect-src https: wss: data: blob:; img-src https: data: blob:; style-src \'unsafe-inline\' https:; object-src \'none\'; base-uri \'none\'; form-action \'none\'">'
+				+ '<script src="https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js"><\/script>'
+				+ '<script src="https://cdn.jsdelivr.net/npm/lodash@4.18.1/lodash.min.js"><\/script>'
+				+ '<script src="https://cdn.jsdelivr.net/npm/vue@3.5.41/dist/vue.global.prod.js"><\/script>'
+				+ '<script data-dsh-tavern-helper-script>' + bootstrap + '<\/script>'
+				+ '</head><body><script type="module" src="' + moduleUrl + '"><\/script></body></html>';
+		}
+
+		function createTavernHelperScriptRuntime(options) {
+			const hostWindow = options && options.window || window;
+			const hostDocument = options && options.document || document;
+			const invoke = options && options.rpc || rpc;
+			const reportError = options && options.reportError || function (source, error) { tavernErrorHub.report(source, error); };
+			const records = new Map();
+			const allowedMethods = new Set(["updateTavernHelperVariables", "updateTavernHelperMessages", "getTavernHelperWorldbook", "replaceTavernHelperWorldbook"]);
+			let activeSessionId = "";
+			let root = null;
+			let previous = null;
+			function clone(value) { return value === undefined ? undefined : JSON.parse(JSON.stringify(value)); }
+			function token() { return hostWindow.crypto && typeof hostWindow.crypto.randomUUID === "function" ? hostWindow.crypto.randomUUID() : String(Date.now()) + ":" + String(Math.random()); }
+			function ensureRoot() {
+				if (root && root.isConnected !== false) return root;
+				root = hostDocument.createElement("div");
+				root.id = "dsh-tavern-helper-script-host";
+				root.hidden = true;
+				(hostDocument.body || hostDocument.documentElement).appendChild(root);
+				return root;
+			}
+			function helperContext(view, script) {
+				const context = clone(view && view.tavernHelper || {});
+				if (!context.scriptVariables || typeof context.scriptVariables !== "object") context.scriptVariables = {};
+				if (!Object.prototype.hasOwnProperty.call(context.scriptVariables, script.id)) context.scriptVariables[script.id] = clone(script.data || {});
+				context.worldbook = clone(view && view.tavernHelperWorldbook || null);
+				return context;
+			}
+			function post(record, message) {
+				if (!record.loaded || !record.frame.contentWindow) return;
+				record.frame.contentWindow.postMessage(Object.assign({ token: record.token }, message), "*");
+			}
+			function snapshot(context) {
+				const messages = Array.isArray(context && context.messages) ? context.messages : [];
+				const latest = messages[messages.length - 1] || null;
+				return {
+					count: messages.length,
+					latestId: latest ? Number(latest.message_id) : -1,
+					latestRole: latest && latest.role || "",
+					latestMessage: latest && latest.message || "",
+					latestSwipe: latest ? Number(latest.swipe_id) || 0 : 0,
+					latestVariables: JSON.stringify(latest && latest.variables || {})
+				};
+			}
+			function eventsBetween(before, after) {
+				if (!before) return [];
+				if (after.count < before.count) return [{ name: "MESSAGE_DELETED", args: [before.latestId] }];
+				if (after.count > before.count) {
+					if (after.latestRole === "assistant") return [
+						{ name: "MESSAGE_RECEIVED", args: [after.latestId] },
+						{ name: "VARIABLE_UPDATE_ENDED", args: [] }
+					];
+					return [{ name: "MESSAGE_SENT", args: [after.latestId] }];
+				}
+				if (after.latestSwipe !== before.latestSwipe) return [{ name: "MESSAGE_SWIPED", args: [after.latestId] }];
+				if (after.latestMessage !== before.latestMessage) return [{ name: "MESSAGE_EDITED", args: [after.latestId] }];
+				if (after.latestVariables !== before.latestVariables) return [{ name: "VARIABLE_UPDATE_ENDED", args: [] }];
+				return [];
+			}
+			function removeRecord(id) {
+				const record = records.get(id);
+				if (!record) return;
+				record.frame.remove();
+				records.delete(id);
+			}
+			function clear() {
+				Array.from(records.keys()).forEach(removeRecord);
+				if (root) root.remove();
+				root = null;
+				previous = null;
+			}
+			function createRecord(sessionId, script, context) {
+				const frame = hostDocument.createElement("iframe");
+				const record = { id: script.id, name: script.name, fingerprint: script.id + "\n" + script.content, token: token(), frame: frame, loaded: false, context: context, lastRuntimeError: "" };
+				frame.title = "人物卡脚本：" + script.name;
+				frame.sandbox = "allow-scripts";
+				frame.referrerPolicy = "no-referrer";
+				frame.srcdoc = buildTavernHelperScriptDocument({ token: record.token, script: script, context: context });
+				frame.addEventListener("load", function () {
+					record.loaded = true;
+					post(record, { type: "dsh-tavern-helper-context", context: record.context });
+					post(record, { type: "dsh-tavern-helper-event", name: "CHAT_CHANGED", args: [] });
+				});
+				ensureRoot().appendChild(frame);
+				records.set(script.id, record);
+				return record;
+			}
+			function sync(sessionId, view) {
+				const nextSessionId = String(sessionId || "");
+				if (activeSessionId && activeSessionId !== nextSessionId) clear();
+				activeSessionId = nextSessionId;
+				const scripts = Array.isArray(view && view.tavernHelperScripts) ? view.tavernHelperScripts : [];
+				const activeIds = new Set(scripts.map(function (script) { return String(script.id); }));
+				Array.from(records.keys()).forEach(function (id) { if (!activeIds.has(id)) removeRecord(id); });
+				let nextSnapshot = null;
+				let queuedEvents = [];
+				for (const script of scripts) {
+					const context = helperContext(view, script);
+					if (!nextSnapshot) { nextSnapshot = snapshot(context); queuedEvents = eventsBetween(previous, nextSnapshot); }
+					const fingerprint = script.id + "\n" + script.content;
+					let record = records.get(script.id);
+					if (record && record.fingerprint !== fingerprint) { removeRecord(script.id); record = null; }
+					if (!record) record = createRecord(nextSessionId, script, context);
+					else {
+						record.context = context;
+						post(record, { type: "dsh-tavern-helper-context", context: context });
+						queuedEvents.forEach(function (event) { post(record, { type: "dsh-tavern-helper-event", name: event.name, args: event.args }); });
+					}
+				}
+				previous = nextSnapshot;
+			}
+			function receive(event) {
+				const data = event && event.data;
+				if (!data || !data.token) return;
+				const record = Array.from(records.values()).find(function (item) { return item.token === data.token && event.source === item.frame.contentWindow; });
+				if (!record) return;
+				if (data.type === "dsh-tavern-helper-script-runtime") {
+					const message = String(data.message || "人物卡脚本运行失败");
+					if (message !== record.lastRuntimeError) { record.lastRuntimeError = message; reportError("人物卡脚本「" + record.name + "」", new Error(message)); }
+					return;
+				}
+				if (data.type !== "dsh-tavern-helper-call" || !allowedMethods.has(data.method)) return;
+				invoke(data.method, data.args || {}, activeSessionId).then(function (result) {
+					post(record, { type: "dsh-tavern-helper-response", requestId: data.requestId, ok: true, result: result });
+				}, function (error) {
+					post(record, { type: "dsh-tavern-helper-response", requestId: data.requestId, ok: false, error: String(error && error.message || error) });
+				});
+			}
+			hostWindow.addEventListener("message", receive);
+			return Object.freeze({ sync: sync, dispose: function () { hostWindow.removeEventListener("message", receive); clear(); }, inspect: function () { return { sessionId: activeSessionId, scriptIds: Array.from(records.keys()) }; } });
+		}
+
+		let tavernHelperScriptRuntime = null;
+		function syncTavernHelperScripts(sessionId, view) {
+			if (!tavernHelperScriptRuntime) tavernHelperScriptRuntime = createTavernHelperScriptRuntime();
+			tavernHelperScriptRuntime.sync(sessionId, view);
+		}
+
 		const TAVERN_FRAME_MAX_HEIGHT = 12000;
 		function clampTavernFrameHeight(value) {
 			return Math.max(48, Math.min(TAVERN_FRAME_MAX_HEIGHT, Math.ceil(Number(value) || 48)));
@@ -1181,6 +1568,9 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				const settled = data.status !== "running";
 				const revision = String(data.status || "") + ":" + String(data.finalNode && data.finalNode.seq || "");
 				const liveState = useLiveTavernView(props.sessionId, revision);
+				React.useEffect(function () {
+					if (liveState.view) syncTavernHelperScripts(props.sessionId, liveState.view);
+				}, [props.sessionId, liveState.view]);
 				const projection = settled ? tavernProjectionForTurn(liveState.view, turn) : null;
 				const tail = props.useTurnData("turn-tail");
 				const owner = React.useMemo(function () {
@@ -3738,6 +4128,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		exports.inject = inject;
 		exports.buildOpeningPreviewDocument = buildOpeningPreviewDocument;
 		exports.buildTavernFrameDocument = buildTavernFrameDocument;
+		exports.buildTavernHelperScriptDocument = buildTavernHelperScriptDocument;
+		exports.createTavernHelperScriptRuntime = createTavernHelperScriptRuntime;
 		exports.clampTavernFrameHeight = clampTavernFrameHeight;
 		exports.projectionPartsOf = projectionPartsOf;
 		exports.tavernUserTextForTurn = tavernUserTextForTurn;

@@ -55,7 +55,8 @@ export function projectTavernHelperContext(chat) {
     version: 1,
     messages,
     turnMessageIds,
-    chatVariables: clone(chat && chat.variables && typeof chat.variables === 'object' ? chat.variables : {})
+    chatVariables: clone(chat && chat.variables && typeof chat.variables === 'object' ? chat.variables : {}),
+    scriptVariables: clone(chat && chat.tavernHelperScriptVariables && typeof chat.tavernHelperScriptVariables === 'object' ? chat.tavernHelperScriptVariables : {})
   }
 }
 
@@ -68,7 +69,14 @@ export function replaceTavernHelperVariables(chat, request = {}) {
     chat.variables = value
     return { type: 'chat' }
   }
-  if (option.type !== 'message') throw new Error('只支持 message 或 chat 变量')
+  if (option.type === 'script') {
+    const scriptId = str(option.script_id).trim()
+    if (scriptId === '') throw new Error('脚本变量缺少 script_id')
+    if (!chat.tavernHelperScriptVariables || typeof chat.tavernHelperScriptVariables !== 'object') chat.tavernHelperScriptVariables = {}
+    chat.tavernHelperScriptVariables[scriptId] = value
+    return { type: 'script', scriptId }
+  }
+  if (option.type !== 'message') throw new Error('只支持 message、chat 或 script 变量')
   const messages = Array.isArray(chat.messages) ? chat.messages : []
   const messageId = normalizeMessageId(messages, option.message_id)
   const message = messages[messageId]

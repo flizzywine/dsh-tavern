@@ -10,8 +10,8 @@ const LOGIC = ['and_any', 'not_all', 'not_any', 'and_all']
 const ROLE = ['system', 'user', 'assistant']
 
 function strategyType(entry) {
+  if (entry.constant === true) return 'constant'
   if (entry.vectorized === true) return 'vectorized'
-  if (entry.constant === true || entry.selective !== true) return 'constant'
   return 'selective'
 }
 
@@ -45,7 +45,7 @@ function projectEntry(entry) {
       order: Number(entry.order) || 0
     },
     content: str(entry.content),
-    probability: Number.isFinite(Number(entry.probability)) ? Number(entry.probability) : 100,
+    probability: entry.probabilityEnabled === false ? 100 : (Number.isFinite(Number(entry.probability)) ? Number(entry.probability) : 100),
     recursion: {
       prevent_incoming: entry.excludeRecursion === true,
       prevent_outgoing: entry.preventRecursion === true,
@@ -81,6 +81,14 @@ export function replaceTavernHelperWorldbookOperations(view, requested) {
     if (str(after.name) !== before.name) patch.comment = str(after.name)
     if (str(after.content) !== before.content) patch.content = str(after.content)
     if (Boolean(after.enabled) !== before.enabled) patch.enabled = Boolean(after.enabled)
+    const beforeStrategy = before.strategy && before.strategy.type
+    const afterStrategy = after.strategy && after.strategy.type
+    if (afterStrategy !== beforeStrategy) {
+      if (!['constant', 'selective', 'vectorized'].includes(afterStrategy)) throw new Error('未知世界书激活策略: ' + str(afterStrategy))
+      patch.constant = afterStrategy === 'constant'
+      patch.selective = afterStrategy === 'selective'
+      patch.vectorized = afterStrategy === 'vectorized'
+    }
     if (Object.keys(patch).length > 0) operations.push({ op: 'update', ref: before.extra.dsh_tavern_ref, patch })
   }
   return operations

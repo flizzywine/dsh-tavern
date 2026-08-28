@@ -28,7 +28,9 @@ test('读取人物卡正则和 Tavern Helper 脚本，但不执行脚本', () =>
   })
   assert.equal(result.helperScripts[0].name, '开场白索引')
   assert.equal(result.helperScripts[0].content, "import 'https://example.test/opening.js'")
+  assert.deepEqual(result.helperScripts[0].data, { auto_apply: true })
   assert.equal(result.helperScripts[0].dataText, '{\n  "auto_apply": true\n}')
+  assert.deepEqual(result.helperScripts[0].buttons, [])
   assert.equal(result.helperScripts[0].buttonCount, 1)
 })
 

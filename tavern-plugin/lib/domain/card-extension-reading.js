@@ -23,6 +23,10 @@ function pretty(value) {
   return text === undefined ? str(value) : text
 }
 
+function clone(value) {
+  return value === undefined ? undefined : JSON.parse(JSON.stringify(value))
+}
+
 function depth(value) {
   return value === null || value === undefined || value === '' || !Number.isFinite(Number(value)) ? null : Number(value)
 }
@@ -71,8 +75,10 @@ function helperScriptsOf(extensions) {
       type: str(script.type).trim() || 'script',
       enabled: script.enabled !== false && script.disabled !== true,
       content,
+      data: object(script.data) ? clone(script.data) : {},
       dataText,
       info,
+      buttons: object(script.button) && Array.isArray(script.button.buttons) ? clone(script.button.buttons) : [],
       buttonCount: buttonCount(script.button),
       exportWith: script.export_with === undefined ? null : script.export_with,
       chars: content.length + dataText.length

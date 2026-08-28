@@ -170,6 +170,87 @@ test('消息 iframe 测高忽略被裁剪内容与固定悬浮元素', () => {
   assert.equal(reportedHeight, 1800)
 })
 
+test('人物卡 Helper 脚本使用独立不透明 iframe，并获得脚本、世界书和 MVU facade', () => {
+  const document = client.buildTavernHelperScriptDocument({
+    token: 'script-token',
+    script: { id: 'dynamic-worldbook', name: '动态世界书', content: "import 'https://example.test/动态世界书.js'", data: { auto_apply: true }, buttons: [] },
+    context: { messages: [], scriptVariables: { 'dynamic-worldbook': { auto_apply: true } }, worldbook: { name: '灯火阑珊', entries: [] } }
+  })
+  const encoded = document.match(/data:text\/javascript;base64,([^"']+)/)
+  assert.ok(encoded)
+  assert.equal(Buffer.from(encoded[1], 'base64').toString('utf8'), "import 'https://example.test/动态世界书.js'")
+  assert.match(document, /getScriptId/)
+  assert.match(document, /updateWorldbookWith/)
+  assert.match(document, /VARIABLE_UPDATE_ENDED/)
+  assert.match(document, /dsh-tavern-helper-script-runtime/)
+  assert.match(document, /object-src 'none'/)
+  assert.doesNotMatch(document, /allow-same-origin/)
+})
+
+test('持久 Helper Host 复用同一脚本 iframe、发送生命周期事件并限制 RPC', async () => {
+  const windowListeners = new Map()
+  const frames = []
+  const calls = []
+  const hostWindow = {
+    crypto: { randomUUID() { return 'runtime-token' } },
+    addEventListener(name, handler) { windowListeners.set(name, handler) },
+    removeEventListener(name) { windowListeners.delete(name) }
+  }
+  const root = {
+    isConnected: true,
+    children: [],
+    appendChild(node) { this.children.push(node); node.parent = this },
+    remove() { this.isConnected = false }
+  }
+  const hostDocument = {
+    body: { appendChild(node) { node.isConnected = true } },
+    documentElement: { appendChild() {} },
+    createElement(tag) {
+      if (tag === 'div') return root
+      const frame = {
+        contentWindow: { messages: [], postMessage(message) { this.messages.push(message) } },
+        listeners: {},
+        addEventListener(name, handler) { this.listeners[name] = handler },
+        remove() { this.removed = true }
+      }
+      frames.push(frame)
+      return frame
+    }
+  }
+  const runtime = client.createTavernHelperScriptRuntime({
+    window: hostWindow,
+    document: hostDocument,
+    rpc(method, args, sessionId) { calls.push({ method, args, sessionId }); return Promise.resolve({ ok: true }) },
+    reportError() {}
+  })
+  function view(messages) {
+    return {
+      tavernHelper: { messages, scriptVariables: {} },
+      tavernHelperWorldbook: { name: '灯火阑珊', entries: [] },
+      tavernHelperScripts: [{ id: 'dynamic', name: '动态世界书', content: 'void 0', data: { enabled: true }, buttons: [] }]
+    }
+  }
+  runtime.sync('session-1', view([]))
+  assert.equal(runtime.inspect().sessionId, 'session-1')
+  assert.deepEqual(Array.from(runtime.inspect().scriptIds), ['dynamic'])
+  assert.equal(frames[0].sandbox, 'allow-scripts')
+  frames[0].listeners.load()
+  assert.deepEqual(frames[0].contentWindow.messages.map(item => item.type), ['dsh-tavern-helper-context', 'dsh-tavern-helper-event'])
+
+  runtime.sync('session-1', view([{ message_id: 0, role: 'assistant', message: '正文', swipe_id: 0, variables: { stat_data: { hp: 1 } } }]))
+  assert.equal(frames.length, 1)
+  assert.deepEqual(frames[0].contentWindow.messages.filter(item => item.type === 'dsh-tavern-helper-event').map(item => item.name), ['CHAT_CHANGED', 'MESSAGE_RECEIVED', 'VARIABLE_UPDATE_ENDED'])
+
+  windowListeners.get('message')({
+    source: frames[0].contentWindow,
+    data: { type: 'dsh-tavern-helper-call', token: 'runtime-token', requestId: '1', method: 'getTavernHelperWorldbook', args: { name: '灯火阑珊' } }
+  })
+  await Promise.resolve()
+  assert.deepEqual(calls, [{ method: 'getTavernHelperWorldbook', args: { name: '灯火阑珊' }, sessionId: 'session-1' }])
+  assert.equal(frames[0].contentWindow.messages.at(-1).type, 'dsh-tavern-helper-response')
+  runtime.dispose()
+})
+
 test('Tavern 消息 renderer 以更低 priority 接管 assistant 和 user 正式 keyed slot', () => {
   const registrations = []
   const labels = []

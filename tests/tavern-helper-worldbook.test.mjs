@@ -58,13 +58,25 @@ test('世界书位置与角色编号遵循 Tavern Helper 上游定义', function
   ])
 })
 
+test('非 constant 条目默认投影为 selective，关闭概率时固定为百分百', function () {
+  const source = view()
+  source.entries[0].constant = false
+  source.entries[0].selective = false
+  source.entries[0].probabilityEnabled = false
+  source.entries[0].probability = 20
+  const entry = projectTavernHelperWorldbook(source).entries[0]
+  assert.equal(entry.strategy.type, 'selective')
+  assert.equal(entry.probability, 100)
+})
+
 test('人物卡脚本只能用同一 uid 更新已有世界书条目', function () {
   const projected = projectTavernHelperWorldbook(view())
   const requested = structuredClone(projected.entries)
   requested[0].enabled = false
   requested[0].content = '新资料'
+  requested[0].strategy.type = 'constant'
   assert.deepEqual(replaceTavernHelperWorldbookOperations(view(), requested), [{
-    op: 'update', ref: 'entry:3', patch: { content: '新资料', enabled: false }
+    op: 'update', ref: 'entry:3', patch: { content: '新资料', enabled: false, constant: true, selective: false, vectorized: false }
   }])
   assert.throws(() => replaceTavernHelperWorldbookOperations(view(), []), /不能新增或删除/)
   assert.throws(() => replaceTavernHelperWorldbookOperations(view(), [{ ...requested[0], uid: 10 }]), /编号不匹配/)

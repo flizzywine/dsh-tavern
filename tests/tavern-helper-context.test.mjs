@@ -53,6 +53,21 @@ test('Helper 变量 latest 别名写入最后一条消息', () => {
   assert.deepEqual(chat.messages[1].variables, [{ hp: 9 }])
 })
 
+test('Helper 脚本变量按脚本 ID 独立持久化并进入同步上下文', () => {
+  const chat = { messages: [], tavernHelperScriptVariables: { existing: { enabled: true } } }
+  assert.deepEqual(
+    replaceTavernHelperVariables(chat, { option: { type: 'script', script_id: 'dynamic-worldbook' }, variables: { auto_apply: false } }),
+    { type: 'script', scriptId: 'dynamic-worldbook' }
+  )
+  assert.deepEqual(projectTavernHelperContext(chat).scriptVariables, {
+    existing: { enabled: true },
+    'dynamic-worldbook': { auto_apply: false }
+  })
+  assert.throws(function () {
+    replaceTavernHelperVariables(chat, { option: { type: 'script' }, variables: {} })
+  }, /script_id/)
+})
+
 test('Helper 消息写入可切换开场 swipe 并修改当前正文', () => {
   const chat = {
     messages: [{
