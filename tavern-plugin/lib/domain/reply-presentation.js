@@ -1,4 +1,5 @@
 import { applyTavernRegexText } from './tavern-regex-display.js'
+import { marked } from 'marked'
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
@@ -68,8 +69,13 @@ function htmlDocumentContent(value) {
   const source = fencedSegments(value).map(function (segment) {
     return segment.kind === 'html' ? segment.content : segment.text
   }).join('')
-  if (hasRawHtml(source)) return source
-  return '<div class="dsh-tavern-plain-text">' + escapeHtmlText(source) + '</div>'
+  if (hasRawHtml(source) && source.trimStart().startsWith('<')) return source
+  try {
+    return marked.parse(source, { async: false, breaks: true, gfm: true })
+  } catch (_error) {
+    if (hasRawHtml(source)) return source
+    return '<div class="dsh-tavern-plain-text">' + escapeHtmlText(source) + '</div>'
+  }
 }
 
 /** Keep explicitly fenced UI documents isolated so document-level scripts cannot erase adjacent story text. */

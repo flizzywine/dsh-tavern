@@ -43,16 +43,14 @@ test('展示层把带空行和缩进的完整 HTML 原样交给同一个 iframe'
   assert.doesNotMatch(result.parts[0].content, /<pre><code>|&lt;div/)
 })
 
-test('纯文本不执行 Markdown，只转成保留原文的 HTML 文本容器', () => {
+test('纯文本按酒馆语义渲染 Markdown 并转义普通尖括号', () => {
   const source = '# 标题\n\n**不是粗体**\n2 < 3 & 5 > 4'
   const result = projectDisplayParts(source)
 
   assert.deepEqual(result.parts.map(part => part.kind), ['html'])
-  assert.match(result.parts[0].content, /class="dsh-tavern-plain-text"/)
-  assert.match(result.parts[0].content, /# 标题/)
-  assert.match(result.parts[0].content, /\*\*不是粗体\*\*/)
+  assert.match(result.parts[0].content, /<h1>标题<\/h1>/)
+  assert.match(result.parts[0].content, /<strong>不是粗体<\/strong>/)
   assert.match(result.parts[0].content, /2 &lt; 3 &amp; 5 &gt; 4/)
-  assert.doesNotMatch(result.parts[0].content, /<h1>|<strong>/)
 })
 
 test('没有展示正则的纯文本历史也生成整轮 HTML 投影', () => {
@@ -63,7 +61,7 @@ test('没有展示正则的纯文本历史也生成整轮 HTML 投影', () => {
   assert.equal(result.projections.length, 1)
   assert.equal(result.projections[0].mode, 'html')
   assert.deepEqual(result.projections[0].parts.map(part => part.kind), ['html'])
-  assert.match(result.projections[0].parts[0].content, /># 原样标题</)
+  assert.match(result.projections[0].parts[0].content, /<h1>原样标题<\/h1>/)
 })
 
 test('markdownOnly 只改变展示投影并保持替换位置', () => {
@@ -144,6 +142,17 @@ test('独立围栏 UI 不与正文共用 iframe，避免 body.load 清空正文'
   assert.doesNotMatch(projected.parts[0].content, /body.*load/s)
   assert.match(projected.parts[1].content, /body.*load/s)
   assert.doesNotMatch(projected.parts[1].content, /幽暗秘境深处/)
+})
+
+test('开场白索引渲染 Markdown，同时保留同段原始 HTML 和独立状态 UI', () => {
+  const source = '***索引页***\n\n**开局一·自定义**\n\n<details><summary>天道推演</summary></details>\n\n```html\n<body><script>$("body").load("/status.html")</script></body>\n```'
+  const projected = projectDisplayParts(source)
+
+  assert.deepEqual(projected.parts.map(part => part.kind), ['html', 'html'])
+  assert.match(projected.parts[0].content, /<em><strong>索引页<\/strong><\/em>/)
+  assert.match(projected.parts[0].content, /<strong>开局一·自定义<\/strong>/)
+  assert.match(projected.parts[0].content, /<details><summary>天道推演<\/summary><\/details>/)
+  assert.match(projected.parts[1].content, /body.*load/s)
 })
 
 test('未标语言但包含 HTML 的代码围栏也进入独立 HTML 渲染', () => {

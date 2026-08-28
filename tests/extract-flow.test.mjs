@@ -167,6 +167,7 @@ test('新开游玩在创建 Session 前完成游戏准备，创建后不提供�
 	assert.match(sidebar, /styleEnvironment: openingPicker\.styleEnvironment/)
 	assert.doesNotMatch(sidebar, /srcDoc: buildOpeningPreviewDocument\(selectedOpening\.text\)/)
 	assert.match(clientSource, /\.dsh-tavern-greeting-preview \{[^\n]*background: var\(--dsw-specific-sidebar-fill\)/)
+	assert.match(clientSource, /\.dsh-tavern-greeting-preview \{[^\n]*overflow-anchor: none/)
 	assert.doesNotMatch(clientSource, /\.dsh-tavern-greeting-preview \{[^\n]*background: #fff/)
 	assert.doesNotMatch(sidebar, /展示页不可作为开场/)
 })
