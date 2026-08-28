@@ -164,7 +164,7 @@ test('新开游玩在创建 Session 前完成游戏准备，创建后不提供�
 	assert.match(sidebar, /h\("iframe"/)
 	assert.match(sidebar, /selectedOpening && openingPicker\.openings\.length > 1 \? h\("iframe"/)
 	assert.match(sidebar, /srcDoc: buildOpeningPreviewDocument/)
-	assert.match(sidebar, /sandbox: "allow-scripts allow-forms allow-modals allow-downloads allow-popups allow-popups-to-escape-sandbox"/)
+	assert.match(sidebar, /sandbox: trustedCardMode \? undefined : "allow-scripts allow-forms allow-modals allow-downloads allow-popups allow-popups-to-escape-sandbox"/)
 	assert.doesNotMatch(sidebar, /展示页不可作为开场/)
 })
 
@@ -917,7 +917,8 @@ test('设置开启后在顶层侧栏最右侧显示实验性兼容模式', () =>
 	assert.match(clientSource, /id: "dsh-tavern"/)
 	assert.match(clientSource, /启用兼容模式（实验性）/)
 	assert.match(clientSource, /受信任人物卡模式/)
-	assert.match(clientSource, /allow-scripts allow-same-origin/)
+	assert.match(clientSource, /sandbox: props\.trustedCardMode \? undefined : "allow-scripts"/)
+	assert.match(clientSource, /if \(!trustedCardMode\) frame\.sandbox = "allow-scripts"/)
 	assert.match(serverSource, /trustedCardMode/)
 	assert.match(clientSource, /pollTavernHelperEvent", \{ runtimeId: tavernHelperRuntimeId \}/)
 	assert.match(clientSource, /Boolean\(result && result\.active\) !== tavernHelperRuntimeActive/)

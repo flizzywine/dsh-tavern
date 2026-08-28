@@ -988,6 +988,10 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			return '<script data-dsh-tavern-static-cache>(function(){function proxy(value){var source=String(value||"");return /^https:\\/\\//i.test(source)?"/api/dsh-tavern/static-assets?url="+encodeURIComponent(source):source;}function css(value){return String(value||"").replace(/url\\(\\s*(["\\\']?)(https:\\/\\/[^"\\\')\\s]+)\\1\\s*\\)/gi,function(_,quote,url){return "url("+quote+proxy(url)+quote+")";});}window.__dshTavernStaticAssetUrl=proxy;var nativeSet=Element.prototype.setAttribute;Element.prototype.setAttribute=function(name,value){var key=String(name||"").toLowerCase(),tag=String(this.tagName||"").toLowerCase();if((key==="src"||key==="poster"||(key==="href"&&tag==="link"))&&/^https:\\/\\//i.test(String(value||"")))value=proxy(value);else if(key==="style")value=css(value);return nativeSet.call(this,name,value);};[["HTMLImageElement","src"],["HTMLScriptElement","src"],["HTMLSourceElement","src"],["HTMLVideoElement","src"],["HTMLVideoElement","poster"],["HTMLAudioElement","src"],["HTMLIFrameElement","src"],["HTMLLinkElement","href"]].forEach(function(row){var Type=window[row[0]],descriptor=Type&&Object.getOwnPropertyDescriptor(Type.prototype,row[1]);if(!descriptor||!descriptor.set||!descriptor.get)return;try{Object.defineProperty(Type.prototype,row[1],{configurable:descriptor.configurable,enumerable:descriptor.enumerable,get:descriptor.get,set:function(value){return descriptor.set.call(this,proxy(value));}});}catch(e){}});if(window.CSSStyleDeclaration&&CSSStyleDeclaration.prototype.setProperty){var nativeProperty=CSSStyleDeclaration.prototype.setProperty;CSSStyleDeclaration.prototype.setProperty=function(name,value,priority){return nativeProperty.call(this,name,css(value),priority);};}new MutationObserver(function(records){records.forEach(function(record){var node=record.target;if(!node||node.nodeType!==1)return;["src","poster"].forEach(function(name){var value=node.getAttribute&&node.getAttribute(name);if(/^https:\\/\\//i.test(String(value||"")))nativeSet.call(node,name,proxy(value));});if(String(node.tagName||"").toLowerCase()==="link"){var href=node.getAttribute("href");if(/^https:\\/\\//i.test(String(href||"")))nativeSet.call(node,"href",proxy(href));}var style=node.getAttribute&&node.getAttribute("style");if(style&&/https:\\/\\//i.test(style))nativeSet.call(node,"style",css(style));});}).observe(document.documentElement,{subtree:true,attributes:true,attributeFilter:["src","href","poster","style"]});})();<\/script>';
 		}
 
+		function tavernIconDependencies() {
+			return '<link rel="stylesheet" data-dsh-tavern-icons href="' + tavernStaticAssetUrl('https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.7.2/css/all.min.css') + '">';
+		}
+
 		function buildOpeningPreviewDocument(value) {
 			const source = String(value || "");
 			const content = rewriteTavernStaticMarkup(isHtmlOpening(source)
@@ -1002,7 +1006,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				+ '<meta http-equiv="Content-Security-Policy" content="default-src https: http: data: blob:; img-src https: http: data: blob:; media-src https: http: data: blob:; style-src \'unsafe-inline\' https: http:; font-src https: http: data:; script-src \'unsafe-inline\' \'unsafe-eval\' https: http: data: blob:; connect-src https: http: ws: wss: data: blob:; frame-src https: http: data: blob:; form-action https: http:">'
 				+ '<base target="_blank">'
 				+ '<style>html,body{margin:0;min-height:100%;background:#fff;color:#1f2328;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}body{box-sizing:border-box;padding:16px}.dsh-tavern-greeting-text,.dsh-tavern-preserve-lines{white-space:pre-wrap;overflow-wrap:anywhere}.dsh-tavern-greeting-text{font-size:14px;line-height:1.7}img,video{max-width:100%;height:auto}</style>'
-				+ tavernStaticAssetShim() + '</head><body>' + content + preserveMixedTextLines + '</body></html>';
+				+ tavernIconDependencies() + tavernStaticAssetShim() + '</head><body>' + content + preserveMixedTextLines + '</body></html>';
 		}
 
 		function buildTavernFrameDocument(input) {
@@ -1022,7 +1026,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				+ '<meta name="viewport" content="width=device-width,initial-scale=1">'
 				+ '<meta name="referrer" content="no-referrer">'
 				+ '<meta http-equiv="Content-Security-Policy" content="default-src https: http: data: blob:; img-src https: http: data: blob:; media-src https: http: data: blob:; font-src https: http: data:; style-src \'unsafe-inline\' https: http:; script-src \'unsafe-inline\' \'unsafe-eval\' https: http: data: blob:; connect-src https: http: wss: data: blob:; frame-src https: http: data: blob:; object-src \'none\'; base-uri \'none\'; form-action \'none\'">'
-				+ '<style>:root{color-scheme:light dark}html,body{box-sizing:border-box;margin:0;min-height:0;background:transparent;color:CanvasText;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:16px;line-height:1.75}body{padding:0 1px;overflow-wrap:anywhere;white-space:pre-wrap}body>*{white-space:normal}maintext{display:block;white-space:pre-wrap;overflow-wrap:anywhere}.dsh-tavern-plain-text{white-space:pre-wrap;overflow-wrap:anywhere}*,*:before,*:after{box-sizing:border-box}img,video,svg,canvas{max-width:100%;height:auto}pre{max-width:100%;overflow:auto;white-space:pre-wrap}table{max-width:100%;border-collapse:collapse}a{color:LinkText}</style>' + tavernStaticAssetShim() + helperDependencies + storageShim + helperShim + runtimeReporter
+				+ '<style>:root{color-scheme:light dark}html,body{box-sizing:border-box;margin:0;min-height:0;background:transparent;color:CanvasText;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:16px;line-height:1.75}body{padding:0 1px;overflow-wrap:anywhere;white-space:pre-wrap}body>*{white-space:normal}maintext{display:block;white-space:pre-wrap;overflow-wrap:anywhere}.dsh-tavern-plain-text{white-space:pre-wrap;overflow-wrap:anywhere}*,*:before,*:after{box-sizing:border-box}img,video,svg,canvas{max-width:100%;height:auto}pre{max-width:100%;overflow:auto;white-space:pre-wrap}table{max-width:100%;border-collapse:collapse}a{color:LinkText}</style>' + tavernIconDependencies() + tavernStaticAssetShim() + helperDependencies + storageShim + helperShim + runtimeReporter
 				+ '</head><body>' + html + layoutNormalizer + reporter + '</body></html>';
 		}
 
@@ -1376,6 +1380,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			return '<!doctype html><html><head><meta charset="utf-8">'
 				+ '<meta name="referrer" content="no-referrer">'
 				+ '<meta http-equiv="Content-Security-Policy" content="default-src https: http: data: blob:; script-src \'unsafe-inline\' \'unsafe-eval\' https: http: data: blob:; connect-src https: http: wss: data: blob:; img-src https: http: data: blob:; style-src \'unsafe-inline\' https: http:; object-src \'none\'; base-uri \'none\'; form-action \'none\'">'
+				+ tavernIconDependencies()
 				+ tavernStaticAssetShim()
 				+ '<script src="' + tavernStaticAssetUrl('https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js') + '"><\/script>'
 				+ '<script src="' + tavernStaticAssetUrl('https://cdn.jsdelivr.net/npm/lodash@4.18.1/lodash.min.js') + '"><\/script>'
@@ -1516,7 +1521,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				const frame = hostDocument.createElement("iframe");
 				const record = { id: script.id, name: script.name, fingerprint: script.id + "\n" + script.content + "\ntrusted=" + String(trustedCardMode), token: token(), frame: frame, loaded: false, context: context, lastRuntimeError: "" };
 				frame.title = "人物卡脚本：" + script.name;
-				frame.sandbox = trustedCardMode ? "allow-scripts allow-same-origin" : "allow-scripts";
+				if (!trustedCardMode) frame.sandbox = "allow-scripts";
 				frame.referrerPolicy = "no-referrer";
 				frame.srcdoc = buildTavernHelperScriptDocument({ token: record.token, script: script, context: context });
 				frame.addEventListener("load", function () {
@@ -1715,7 +1720,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				ref: frameRef,
 				className: "dsh-tavern-message-frame",
 				title: "人物卡消息界面",
-				sandbox: props.trustedCardMode ? "allow-scripts allow-same-origin" : "allow-scripts",
+				sandbox: props.trustedCardMode ? undefined : "allow-scripts",
 				referrerPolicy: "no-referrer",
 				srcDoc: documentHtml,
 				style: { height: height + "px", overflow: height >= TAVERN_FRAME_MAX_HEIGHT ? "auto" : "hidden" }
@@ -1928,6 +1933,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const [uiMode, setUiMode] = React.useState("play");
 			const [requestMode, setRequestMode] = React.useState("dsh");
 			const [compatibilityAvailable, setCompatibilityAvailable] = React.useState(false);
+			const [trustedCardMode, setTrustedCardMode] = React.useState(true);
 			const [cardEntry, setCardEntry] = React.useState("");
 			const [openingPicker, setOpeningPicker] = React.useState(null);
 			const [pendingOpen, setPendingOpen] = React.useState(null);
@@ -1974,7 +1980,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				return Promise.all([call("listCards"), call("listSessions")]).then(function (all) {
 					const sessions = all[1].sessions || [];
 					const compatibilityMode = Boolean(all[1].capabilities && all[1].capabilities.compatibilityMode);
-					setCards(all[0].cards || []); setHistory(sessions); setCompatibilityAvailable(compatibilityMode); publishSessionModes(sessions);
+					const nextTrustedCardMode = !all[1].capabilities || all[1].capabilities.trustedCardMode !== false;
+					setCards(all[0].cards || []); setHistory(sessions); setCompatibilityAvailable(compatibilityMode); setTrustedCardMode(nextTrustedCardMode); publishSessionModes(sessions);
 					if (!compatibilityMode) {
 						setRequestMode("dsh");
 						window.localStorage.removeItem("dsh-tavern-request-mode");
@@ -2452,7 +2459,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				selectedOpening && openingPicker.openings.length > 1 ? h("iframe", {
 					className: "dsh-tavern-greeting-preview",
 					title: selectedOpening ? openingPicker.card.name + "开场白预览" : "开场白预览",
-					sandbox: "allow-scripts allow-forms allow-modals allow-downloads allow-popups allow-popups-to-escape-sandbox",
+					sandbox: trustedCardMode ? undefined : "allow-scripts allow-forms allow-modals allow-downloads allow-popups allow-popups-to-escape-sandbox",
 					referrerPolicy: "no-referrer",
 					srcDoc: buildOpeningPreviewDocument(selectedOpening.text)
 				}) : null,
@@ -2601,13 +2608,13 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		const tavernShellFeature = createTavernShellFeatureModule();
 
 		function TavernSettingsSection() {
-			const [state, setState] = React.useState({ loading: true, busy: false, compatibilityMode: false, trustedCardMode: false, error: "" });
+			const [state, setState] = React.useState({ loading: true, busy: false, compatibilityMode: false, trustedCardMode: true, error: "" });
 			React.useEffect(function () {
 				let active = true;
 				rpc("getTavernSettings").then(function (result) {
 					if (active) setState({ loading: false, busy: false, compatibilityMode: Boolean(result.settings && result.settings.compatibilityMode), trustedCardMode: Boolean(result.settings && result.settings.trustedCardMode), error: "" });
 				}, function (error) {
-					if (active) setState({ loading: false, busy: false, compatibilityMode: false, trustedCardMode: false, error: String(error && error.message || error) });
+					if (active) setState({ loading: false, busy: false, compatibilityMode: false, trustedCardMode: true, error: String(error && error.message || error) });
 				});
 				return function () { active = false; };
 			}, []);
@@ -2623,7 +2630,6 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				}
 			}
 			async function setTrustedCardMode(enabled) {
-				if (enabled && !window.confirm("开启受信任人物卡模式？\n\n人物卡 HTML 与 Helper 脚本将能直接访问 DSH Tavern 页面、读取页面内容并以你的浏览器权限发起请求。只对你信任且已检查来源的人物卡开启。")) return;
 				setState(function (current) { return Object.assign({}, current, { busy: true, error: "" }); });
 				try {
 					const result = await rpc("updateTavernSettings", { patch: { trustedCardMode: enabled } });
@@ -2650,7 +2656,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					React.createElement("label", { className: "dsh-tavern-settings-row" },
 						React.createElement("span", { className: "dsh-tavern-settings-copy" },
 							React.createElement("span", { className: "dsh-tavern-settings-title" }, "受信任人物卡模式"),
-							React.createElement("span", { className: "dsh-tavern-settings-desc" }, "默认关闭。开启后，人物卡界面与 Helper 脚本可直接访问父页面，以兼容依赖同源 DOM 的旧卡；这也等于允许人物卡代码以当前页面权限运行，请只对可信来源使用。")
+							React.createElement("span", { className: "dsh-tavern-settings-desc" }, "默认开启。人物卡界面与 Helper 脚本不受 iframe sandbox 限制，以最大程度兼容依赖同源页面能力的旧卡；关闭后恢复隔离运行。")
 						),
 						React.createElement("span", { className: "dsh-tavern-settings-switch" },
 							React.createElement("input", { type: "checkbox", checked: state.trustedCardMode, disabled: state.loading || state.busy, onChange: function (event) { void setTrustedCardMode(event.target.checked); }, "aria-label": "启用受信任人物卡模式" }),

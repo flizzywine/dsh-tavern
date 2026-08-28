@@ -113,6 +113,7 @@ export async function apply(ctx) {
     'https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js',
     'https://cdn.jsdelivr.net/npm/lodash@4.18.1/lodash.min.js',
     'https://cdn.jsdelivr.net/npm/vue@3.5.41/dist/vue.global.prod.js',
+    'https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.7.2/css/all.min.css',
     'https://testingcf.jsdelivr.net/npm/zod@4.4.3/+esm',
     'https://testingcf.jsdelivr.net/npm/pinia/+esm'
   ]).then(function (results) {
@@ -137,7 +138,7 @@ export async function apply(ctx) {
     const saved = await profileData.readJson(settingsPath)
     return {
       compatibilityMode: Boolean(saved && saved.compatibilityMode === true),
-      trustedCardMode: Boolean(saved && saved.trustedCardMode === true)
+      trustedCardMode: !saved || !Object.prototype.hasOwnProperty.call(saved, 'trustedCardMode') || saved.trustedCardMode === true
     }
   }
   async function updateTavernSettings(patch) {
@@ -2498,7 +2499,7 @@ export async function apply(ctx) {
       case 'updateTavernSettings': return { settings: await updateTavernSettings(args && args.patch) }
       case 'listSessions': {
         const settings = await readTavernSettings()
-        return { sessions: await listTavernSessions(), capabilities: { compatibilityMode: settings.compatibilityMode } }
+        return { sessions: await listTavernSessions(), capabilities: { compatibilityMode: settings.compatibilityMode, trustedCardMode: settings.trustedCardMode } }
       }
       case 'importCard': return { card: await importCard(args && args.payload) }
       case 'deleteCard': return await deleteCard(args && args.path)

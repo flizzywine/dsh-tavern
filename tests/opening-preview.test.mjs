@@ -28,6 +28,7 @@ test('HTML 开场白在隔离文档中保持原始 UI 并缓存外部静态资�
   assert.match(document, /static-assets\?url=https%3A%2F%2Ffiles\.catbox\.moe%2Fzle6vq\.gif/)
   assert.match(document, /static-assets\?url=https%3A%2F%2Ffiles\.catbox\.moe%2Fykgazx\.png/)
   assert.match(document, /data-dsh-tavern-static-cache/)
+  assert.match(document, /data-dsh-tavern-icons/)
   assert.match(document, /img-src https: http: data: blob:/)
   assert.match(document, /style-src 'unsafe-inline' https: http:/)
   assert.match(document, /script-src 'unsafe-inline' 'unsafe-eval' https: http: data: blob:/)

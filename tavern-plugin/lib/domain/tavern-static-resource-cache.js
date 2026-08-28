@@ -80,7 +80,7 @@ export function rewriteCachedModuleImports(source, baseUrl) {
 }
 
 function rewriteStylesheetUrls(source, baseUrl) {
-  return str(source).replace(/(url\(\s*)(["']?)(\/[^"')\s]+|https:\/\/[^"')\s]+)\2(\s*\))/gi, function (_match, prefix, quote, specifier, suffix) {
+  return str(source).replace(/(url\(\s*)(["']?)((?:https:\/\/|\/|\.\.?\/)[^"')\s]+)\2(\s*\))/gi, function (_match, prefix, quote, specifier, suffix) {
     return prefix + quote + absoluteCacheUrl(specifier, baseUrl) + quote + suffix
   })
 }

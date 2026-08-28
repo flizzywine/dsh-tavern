@@ -52,6 +52,8 @@ test('消息 iframe 将可信远程资源转入持久缓存，同时保留不透
   assert.match(document, /<p>正文<\/p><style>p\{color:red\}<\/style>/)
   assert.match(document, /static-assets\?url=https%3A%2F%2Fcdn\.jsdelivr\.net%2Fexample\.js/)
   assert.match(document, /data-dsh-tavern-static-cache/)
+  assert.match(document, /data-dsh-tavern-icons/)
+  assert.match(document, /fontawesome-free%406\.7\.2%2Fcss%2Fall\.min\.css/)
   assert.match(document, /HTMLImageElement/)
   assert.match(document, /default-src https: http: data: blob:/)
   assert.match(document, /connect-src https: http: wss: data: blob:/)
@@ -81,6 +83,7 @@ test('Helper 脚本文档提供可见弹窗容器和固定 Tavern Helper 按钮�
   })
 
   assert.match(document, /window\.SillyTavern = Object\.freeze\(\{ Popup: HelperPopup/)
+  assert.match(document, /data-dsh-tavern-icons/)
   assert.match(document, /dsh-tavern-helper-ui-open/)
   assert.match(document, /return scriptId \+ "_" \+ stringHash/)
 })
@@ -218,7 +221,7 @@ test('Helper 脚本把本机缓存入口解析为 srcdoc 所属宿主地址', ()
   assert.match(source, /new URL\('\/api\/dsh-tavern\/remote-assets\/a{64}\/bundle\.js', document\.baseURI\)\.href/)
 })
 
-test('Helper Host 仅在明确的受信任人物卡模式中开放同源父页面', () => {
+test('Helper Host 在受信任人物卡模式中完全移除 sandbox', () => {
   const frames = []
   const hostWindow = {
     crypto: { randomUUID() { return 'trusted-runtime-token' } },
@@ -246,7 +249,7 @@ test('Helper Host 仅在明确的受信任人物卡模式中开放同源父页�
 
   runtime.sync('session', Object.assign({}, base, { tavernRuntimePolicy: { trustedCardMode: true } }))
   assert.equal(frames[0].removed, true)
-  assert.equal(frames[1].sandbox, 'allow-scripts allow-same-origin')
+  assert.equal(frames[1].sandbox, undefined)
 })
 
 test('持久 Helper Host 复用同一脚本 iframe、发送生命周期事件并限制 RPC', async () => {
