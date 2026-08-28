@@ -1182,6 +1182,26 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				const resolved = localReplace(copy(variables || {}), option);
 				call("updateTavernHelperVariables", { option: resolved, variables: copy(variables || {}) }).catch(console.error);
 			};
+			window.insertOrAssignVariables = function (variables, option) {
+				const resolved = optionOf(option);
+				const current = getVariables(resolved);
+				const next = window._.mergeWith(current, copy(variables || {}), function (_left, right) {
+					return Array.isArray(right) ? right : undefined;
+				});
+				localReplace(next, resolved);
+				call("updateTavernHelperVariables", { option: resolved, variables: copy(next) }).catch(console.error);
+				return copy(next);
+			};
+			window.insertVariables = function (variables, option) {
+				const resolved = optionOf(option);
+				const current = getVariables(resolved);
+				const next = window._.mergeWith({}, copy(variables || {}), current, function (_left, right) {
+					return Array.isArray(right) ? right : undefined;
+				});
+				localReplace(next, resolved);
+				call("updateTavernHelperVariables", { option: resolved, variables: copy(next) }).catch(console.error);
+				return copy(next);
+			};
 			window.updateVariablesWith = async function (updater, option) {
 				const resolved = optionOf(option);
 				const current = getVariables(resolved);
@@ -1259,7 +1279,11 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const safeMetadata = JSON.stringify(metadata).replace(/</g, "\\u003c");
 			const safeContext = JSON.stringify(context).replace(/</g, "\\u003c").replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
 			const bootstrap = '(' + tavernHelperScriptBootstrap.toString() + ')(' + safeMetadata + ',' + safeContext + ');';
-			const moduleSource = 'await window.__dshTavernHelperReady;\n' + String(input && input.script && input.script.content || "");
+			const cardSource = String(input && input.script && input.script.content || "");
+			const deferredSource = cardSource.replace(/(^|[\r\n])([ \t]*)import\s+(["'])(https:\/\/[^"']+)\3\s*;?/g, function (_match, line, indent, quote, url) {
+				return line + indent + "await import(" + quote + url + quote + ");";
+			});
+			const moduleSource = 'await window.__dshTavernHelperReady;\n' + deferredSource;
 			const moduleUrl = "data:text/javascript;base64," + encodeTavernScriptSource(moduleSource);
 			return '<!doctype html><html><head><meta charset="utf-8">'
 				+ '<meta name="referrer" content="no-referrer">'
