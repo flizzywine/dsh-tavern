@@ -1015,6 +1015,20 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		}
 
 		function tavernHelperScriptBootstrap(metadata, initialContext) {
+			try { void window.localStorage; }
+			catch (_) {
+				let values = Object.create(null);
+				let keys = [];
+				const storage = {
+					getItem: function (key) { key = String(key); return Object.prototype.hasOwnProperty.call(values, key) ? values[key] : null; },
+					setItem: function (key, value) { key = String(key); if (!Object.prototype.hasOwnProperty.call(values, key)) keys.push(key); values[key] = String(value); },
+					removeItem: function (key) { key = String(key); if (!Object.prototype.hasOwnProperty.call(values, key)) return; delete values[key]; keys.splice(keys.indexOf(key), 1); },
+					clear: function () { values = Object.create(null); keys = []; },
+					key: function (index) { return index >= 0 && index < keys.length ? keys[index] : null; }
+				};
+				Object.defineProperty(storage, "length", { get: function () { return keys.length; } });
+				try { Object.defineProperty(window, "localStorage", { configurable: true, value: storage }); } catch (_) {}
+			}
 			let state = initialContext && typeof initialContext === "object" ? initialContext : {};
 			const token = String(metadata.token || "");
 			const scriptId = String(metadata.id || "");
@@ -1148,6 +1162,12 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			window.getScriptButtons = function () { return copy(scriptButtons); };
 			window.replaceScriptButtons = function (buttons) { scriptButtons = copy(Array.isArray(buttons) ? buttons : []); };
 			window.updateScriptButtonsWith = async function (updater) { const next = await updater(copy(scriptButtons)); window.replaceScriptButtons(next); return copy(scriptButtons); };
+			window.appendInexistentScriptButtons = function (buttons) {
+				const next = copy(scriptButtons);
+				for (const button of Array.isArray(buttons) ? buttons : []) if (!next.some(function (item) { return item && item.name === button.name; })) next.push(copy(button));
+				window.replaceScriptButtons(next);
+				return copy(next);
+			};
 			window.getButtonEvent = function (name) { return scriptId + ":button:" + String(name || ""); };
 			window.getCurrentMessageId = currentId;
 			window.getLastMessageId = lastId;
@@ -1216,7 +1236,10 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const ready = import("https://testingcf.jsdelivr.net/npm/zod@4.4.3/+esm").then(function (module) { window.z = module; return true; });
 			window.__dshTavernHelperReady = ready;
 			addEventListener("error", function (event) {
-				parent.postMessage({ type: "dsh-tavern-helper-script-runtime", token: token, level: "error", message: String(event.message || "人物卡脚本加载失败") }, "*");
+				const target = event && event.target;
+				const resource = target && target !== window ? String(target.src || target.href || "") : "";
+				const message = event && event.message ? String(event.message) : (resource ? "资源加载失败: " + resource : "人物卡脚本加载失败");
+				parent.postMessage({ type: "dsh-tavern-helper-script-runtime", token: token, level: "error", message: message }, "*");
 			});
 			addEventListener("unhandledrejection", function (event) {
 				parent.postMessage({ type: "dsh-tavern-helper-script-runtime", token: token, level: "error", message: String(event.reason && event.reason.message || event.reason || "人物卡脚本 Promise 失败") }, "*");
@@ -1236,7 +1259,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const safeMetadata = JSON.stringify(metadata).replace(/</g, "\\u003c");
 			const safeContext = JSON.stringify(context).replace(/</g, "\\u003c").replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
 			const bootstrap = '(' + tavernHelperScriptBootstrap.toString() + ')(' + safeMetadata + ',' + safeContext + ');';
-			const moduleSource = String(input && input.script && input.script.content || "");
+			const moduleSource = 'await window.__dshTavernHelperReady;\n' + String(input && input.script && input.script.content || "");
 			const moduleUrl = "data:text/javascript;base64," + encodeTavernScriptSource(moduleSource);
 			return '<!doctype html><html><head><meta charset="utf-8">'
 				+ '<meta name="referrer" content="no-referrer">'
