@@ -114,6 +114,29 @@ test('普通正则 HTML iframe 加载锁定版本的 SillyTavern CSS 兼容包',
   assert.ok(document.indexOf('public%2Fstyle.css') < document.indexOf('data-dsh-sillytavern-iframe-adapter'))
 })
 
+test('普通正则 HTML iframe 按动态顺序投影主题变量、Custom CSS 和扩展样式', () => {
+  const document = client.buildTavernFrameDocument({
+    content: '<div class="mes_text">正文</div>',
+    token: 'dynamic-style-token',
+    styleEnvironment: {
+      themeVariables: { '--SmartThemeBodyColor': 'rgb(1, 2, 3)' },
+      customCss: '.mes_text{color:var(--SmartThemeBodyColor)} @import "https://theme.example/custom.css"; </style><script>bad()</script>',
+      extensionStyles: ['https://extension.example/panel.css']
+    }
+  })
+  assert.match(document, /data-dsh-sillytavern-theme/)
+  assert.match(document, /--SmartThemeBodyColor/)
+  assert.match(document, /data-dsh-sillytavern-custom-css/)
+  assert.match(document, /static-assets\?url=https%3A%2F%2Ftheme\.example%2Fcustom\.css/)
+  assert.match(document, /data-dsh-sillytavern-extension-style="0"/)
+  assert.match(document, /static-assets\?url=https%3A%2F%2Fextension\.example%2Fpanel\.css/)
+  assert.doesNotMatch(document, /<\/style><script>bad\(\)/)
+  assert.match(document, /<\\\/style><script>bad\(\)/)
+  assert.ok(document.indexOf('data-dsh-sillytavern-iframe-adapter') < document.indexOf('data-dsh-sillytavern-theme'))
+  assert.ok(document.indexOf('data-dsh-sillytavern-theme') < document.indexOf('data-dsh-sillytavern-custom-css'))
+  assert.ok(document.indexOf('data-dsh-sillytavern-custom-css') < document.indexOf('data-dsh-sillytavern-extension-style'))
+})
+
 test('Helper 脚本文档提供可见弹窗容器和固定 Tavern Helper 按钮事件格式', () => {
   const document = client.buildTavernHelperScriptDocument({
     token: 'helper-token',

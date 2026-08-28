@@ -48,6 +48,7 @@ import { createTavernHelperEventGate } from './domain/tavern-helper-event-gate.j
 import { createTavernRemoteAssetPinStore } from './domain/tavern-remote-assets.js'
 import { createTavernStaticResourceCache, projectCachedResourceBody } from './domain/tavern-static-resource-cache.js'
 import { SILLYTAVERN_CSS_COMPAT_URLS } from './domain/sillytavern-css-compatibility.js'
+import { normalizeTavernStyleEnvironment } from './domain/tavern-style-environment.js'
 import { mergeRegeneratedSwipe } from './domain/tavern-swipe-regeneration.js'
 import { TavernPromptTemplateRuntime } from './domain/tavern-prompt-template-runtime.js'
 import {
@@ -144,16 +145,25 @@ export async function apply(ctx) {
     const saved = await profileData.readJson(settingsPath)
     return {
       compatibilityMode: Boolean(saved && saved.compatibilityMode === true),
-      trustedCardMode: !saved || !Object.prototype.hasOwnProperty.call(saved, 'trustedCardMode') || saved.trustedCardMode === true
+      trustedCardMode: !saved || !Object.prototype.hasOwnProperty.call(saved, 'trustedCardMode') || saved.trustedCardMode === true,
+      styleEnvironment: normalizeTavernStyleEnvironment(saved && saved.styleEnvironment)
     }
   }
   async function updateTavernSettings(patch) {
-    return await profileData.updateJson(settingsPath, function (current) {
+    const saved = await profileData.updateJson(settingsPath, function (current) {
       const next = current && typeof current === 'object' ? Object.assign({}, current) : {}
       if (patch && Object.prototype.hasOwnProperty.call(patch, 'compatibilityMode')) next.compatibilityMode = patch.compatibilityMode === true
       if (patch && Object.prototype.hasOwnProperty.call(patch, 'trustedCardMode')) next.trustedCardMode = patch.trustedCardMode === true
+      if (patch && Object.prototype.hasOwnProperty.call(patch, 'styleEnvironment')) next.styleEnvironment = normalizeTavernStyleEnvironment(patch.styleEnvironment)
       return next
     })
+    const settings = {
+      compatibilityMode: Boolean(saved && saved.compatibilityMode === true),
+      trustedCardMode: !saved || !Object.prototype.hasOwnProperty.call(saved, 'trustedCardMode') || saved.trustedCardMode === true,
+      styleEnvironment: normalizeTavernStyleEnvironment(saved && saved.styleEnvironment)
+    }
+    void tavernStaticResources.warm(settings.styleEnvironment.extensionStyles)
+    return settings
   }
   const applicationUpdater = createApplicationUpdater({ dataRoot, sourceRoot })
   const modelRequestLog = createModelRequestLog({
@@ -1186,6 +1196,7 @@ export async function apply(ctx) {
       tavernRemoteAssetPins: Array.isArray(cardExtensions.remoteAssetPins) ? cardExtensions.remoteAssetPins : [],
       tavernHelperWorldbook: helperWorldbook,
       tavernRuntimePolicy: { trustedCardMode: runtimeSettings.trustedCardMode },
+      tavernStyleEnvironment: runtimeSettings.styleEnvironment,
       presentationWarnings: Array.isArray(chat.presentationWarnings) ? chat.presentationWarnings : [],
       worldBookError: chat.worldBookError || null,
       lastWorldBookRecall: chat.lastWorldBookRecall || null,
