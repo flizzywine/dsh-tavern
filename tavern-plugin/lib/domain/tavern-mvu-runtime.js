@@ -194,7 +194,10 @@ function deleteAt(root, path) {
 
 function jsonPatchCommands(source) {
   const commands = []
-  const matcher = /<(json_?patch)>(?:\s*```[^\n]*\n?)?([\s\S]*?)(?:```\s*)?<\/\1>/gim
+  // Match the innermost usable block. Models sometimes repeat an opening
+  // marker (for example `<JsonPatch> <JsonPatch>[...]</JsonPatch>`); this is
+  // the same recovery rule used by the pinned MagVarUpdate parser.
+  const matcher = /<(json_?patch)>(?:\s*```[^\n]*\n?)?((?:(?!<json_?patch>)[\s\S])*?)(?:```\s*)?<\/\1>/gim
   let match
   while ((match = matcher.exec(source)) !== null) {
     try {
