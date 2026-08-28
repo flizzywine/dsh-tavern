@@ -374,11 +374,11 @@ async function updateVariables(sourceText, previous, emit) {
     try {
       if (Array.isArray(command.args) && command.args.length > 0) {
 		const rawPath = str(command.args[0])
-		command.path = rawPath.startsWith('/') ? pointerSegments(rawPath) : pathSegments(rawPath)
+		command.path = command.reason === 'json_patch' || rawPath.startsWith('/') ? pointerSegments(rawPath) : pathSegments(rawPath)
 		if (command.path[0] === 'stat_data') command.path = command.path.slice(1)
 		if (command.type === 'move' && command.args.length > 1) {
 		  const rawFrom = str(command.args[1])
-		  command.from = rawFrom.startsWith('/') ? pointerSegments(rawFrom) : pathSegments(rawFrom)
+		  command.from = command.reason === 'json_patch' || rawFrom.startsWith('/') ? pointerSegments(rawFrom) : pathSegments(rawFrom)
 		  if (command.from[0] === 'stat_data') command.from = command.from.slice(1)
 		}
       }

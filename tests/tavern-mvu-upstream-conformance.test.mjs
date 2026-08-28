@@ -114,3 +114,16 @@ _.set('data', {arr: [1, 2, {nested: "value)"}]}, {arr: [3, 4]});//更新数据
   assert.deepEqual(commands[1].args.at(-1), { arr: [3, 4] })
   assert.equal(commands[1].reason, '更新数据')
 })
+
+test('MVU 上游一致性：JSON Patch 路径缺少开头斜杠时仍按斜杠分段', async () => {
+  const runtime = createTavernMvuRuntime()
+  const result = await runtime.settleResponse({
+    previousVariables: variables({ 主角: { 备忘录: {} } }),
+    sourceText: '<JSONPatch>[{"op":"insert","path":"主角/备忘录/楼道露出任务","value":"Day1 22:00"}]</JSONPatch>'
+  })
+
+  assert.deepEqual(result.variables.stat_data, {
+    主角: { 备忘录: { 楼道露出任务: 'Day1 22:00' } }
+  })
+  assert.deepEqual(result.diagnostics, [])
+})
