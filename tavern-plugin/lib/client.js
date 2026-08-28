@@ -127,7 +127,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 .dsh-tavern-card-pick b { display: block; color: #a66b35; }
 .dsh-tavern-card-pick span { display: block; margin-top: 3px; color: var(--dsw-alias-label-secondary); font-size: 11px; line-height: 1.4; }
 .dsh-tavern-card-pick-wrap { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 7px; align-items: stretch; }
-.dsh-tavern-greeting-preview { display: block; width: 100%; height: min(52vh, 560px); box-sizing: border-box; margin: 8px 0; border: 1px solid var(--dsw-alias-border-l2); border-radius: 10px; background: #fff; }
+.dsh-tavern-greeting-preview { display: block; width: 100%; height: min(52vh, 560px); overflow: auto; box-sizing: border-box; margin: 8px 0; border: 1px solid var(--dsw-alias-border-l2); border-radius: 10px; background: #fff; }
 .dsh-tavern-greeting-nav { display: grid; grid-template-columns: auto 1fr auto; gap: 8px; align-items: center; }
 .dsh-tavern-greeting-count { color: var(--dsw-alias-label-secondary); text-align: center; font-size: 12px; }
 .dsh-tavern-player-name { display: grid; grid-template-columns: auto minmax(180px, 320px); gap: 10px; align-items: center; margin: 10px 0 8px; color: var(--dsw-alias-label-secondary); font-size: 12px; }
@@ -2155,19 +2155,19 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				const userName = String(openingPicker.userName || "你").trim() || "你";
 				const timer = window.setTimeout(async function () {
 					try {
-						const response = await call("getCardOpenings", { path: cardPath, userName: userName });
+						const response = await call("getCardOpenings", { path: cardPath, userName: userName, requestMode: compatibilityAvailable && requestMode === "sillytavern" ? "sillytavern" : "dsh" });
 						if (stopped) return;
 						setOpeningPicker(function (current) {
 							if (!current || current.card.path !== cardPath || (String(current.userName || "你").trim() || "你") !== userName) return current;
 							const openings = response.openings || [];
 							const selected = current.openings && current.openings[current.index];
 							const selectedIndex = selected ? openings.findIndex(function (item) { return item.id === selected.id; }) : -1;
-							return Object.assign({}, current, { openings: openings, index: selectedIndex >= 0 ? selectedIndex : 0 });
+							return Object.assign({}, current, { openings: openings, index: selectedIndex >= 0 ? selectedIndex : 0, trustedCardMode: response.trustedCardMode, styleEnvironment: response.styleEnvironment });
 						});
 					} catch (err) { if (!stopped) setError(String(err && err.message || err)); }
 				}, 250);
 				return function () { stopped = true; window.clearTimeout(timer); };
-			}, [openingPicker && openingPicker.card && openingPicker.card.path, openingPicker && openingPicker.userName]);
+			}, [openingPicker && openingPicker.card && openingPicker.card.path, openingPicker && openingPicker.userName, requestMode, compatibilityAvailable]);
 			React.useEffect(function () {
 				if (!readyTavernSession || typeof props.openStatusTab !== "function") return;
 				props.openStatusTab(readyTavernSession);
@@ -2346,9 +2346,9 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				playPrewarmRef.current.begin({ key: card.path, kind: "play" });
 				try {
 					const userName = window.localStorage.getItem("dsh-tavern-player-name") || "你";
-					const response = await call("getCardOpenings", { path: card.path, userName: userName });
+					const response = await call("getCardOpenings", { path: card.path, userName: userName, requestMode: compatibilityAvailable && requestMode === "sillytavern" ? "sillytavern" : "dsh" });
 					const openings = response.openings || [];
-					setOpeningPicker({ card: card, openings: openings, index: 0, userName: userName });
+					setOpeningPicker({ card: card, openings: openings, index: 0, userName: userName, trustedCardMode: response.trustedCardMode, styleEnvironment: response.styleEnvironment });
 				} catch (err) { playPrewarmRef.current.cancel(); setError(String(err && err.message || err)); }
 				finally { setBusy(false); }
 			}
@@ -2544,13 +2544,20 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					h("div", { className: "dsh-tavern-greeting-count" }, (openingPicker.index + 1) + " / " + openingPicker.openings.length),
 					h("button", { className: "dsh-tavern-btn", disabled: busy, "aria-label": "下一条开场白", onClick: function () { setOpeningPicker(Object.assign({}, openingPicker, { index: (openingPicker.index + 1) % openingPicker.openings.length })); } }, "→")
 				) : (openingPicker.openings.length === 0 ? h("div", { className: "dsh-tavern-side-empty" }, "这张人物卡没有开场白，将从空白场景开始。") : null),
-				selectedOpening && openingPicker.openings.length > 1 ? h("iframe", {
+				selectedOpening && openingPicker.openings.length > 1 ? h("div", {
 					className: "dsh-tavern-greeting-preview",
-					title: selectedOpening ? openingPicker.card.name + "开场白预览" : "开场白预览",
-					sandbox: trustedCardMode ? undefined : "allow-scripts allow-forms allow-modals allow-downloads allow-popups allow-popups-to-escape-sandbox",
-					referrerPolicy: "no-referrer",
-					srcDoc: buildOpeningPreviewDocument(selectedOpening.text)
-				}) : null,
+					role: "region",
+					"aria-label": openingPicker.card.name + "开场白预览"
+				}, renderTavernProjection(selectedOpening.projection, {
+					streaming: false,
+					codeLabels: { copyLabel: "复制", copiedLabel: "已复制" },
+					mentions: [],
+					sessionId: "",
+					turn: 1,
+					helperContext: selectedOpening.helperContext,
+					styleEnvironment: openingPicker.styleEnvironment,
+					trustedCardMode: openingPicker.trustedCardMode
+				})) : null,
 				h("div", { className: "dsh-tavern-picker-foot" }, h("button", { className: "dsh-tavern-question-primary", disabled: busy || (openingPicker.openings.length > 0 && !selectedOpening), onClick: function () { newConversation(openingPicker.card, null, selectedOpening ? selectedOpening.id : "", openingPicker.userName || "你"); } }, selectedOpening && openingPicker.openings.length > 1 ? "以此开场" : "开始游戏"))
 			) : null;
 			const playPicker = h("div", { className: "dsh-tavern-card-picker", role: "dialog", "aria-modal": "true", "aria-label": openingPicker ? "游戏准备" : "选择人物卡开始游玩" }, pickerError, openingPicker ? openingChoice : h(React.Fragment, null,

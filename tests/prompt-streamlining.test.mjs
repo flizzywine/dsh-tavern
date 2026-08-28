@@ -218,7 +218,7 @@ test('游玩固定选择一个开场白，并用它对齐剧本', () => {
   const startChat = between(serverSource, 'async function startChat', 'async function appendNativeOpening')
   const appendOpening = between(serverSource, 'async function appendNativeOpening', 'async function scriptPreviewOf')
 
-  assert.match(serverSource, /projectOpeningPreview\(opening\.text/)
+  assert.match(serverSource, /projectCardOpeningPreviews\(/)
   assert.match(startChat, /resolveCardOpening\(card, openingId\)/)
   assert.match(startChat, /projectOpeningCommit\(openingSourceText/)
   assert.doesNotMatch(startChat, /openingProjection\.presentationOnly.*throw/)

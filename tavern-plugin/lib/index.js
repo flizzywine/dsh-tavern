@@ -7,6 +7,7 @@ import { waitForWritableSession } from './domain/agent-readiness.js'
 import { createCardDeletion } from './domain/card-deletion.js'
 import { createBypassPlanModule } from './domain/bypass-plans.js'
 import { createCardPreparation } from './domain/card-preparation.js'
+import { projectCardOpeningPreviews } from './domain/card-opening-previews.js'
 import { cardOpeningChoices, resolveCardOpening } from './domain/card-openings.js'
 import { READABLE_CARD_FIELDS, readCardField } from './domain/card-reading.js'
 import { createContextPlanner } from './domain/context-planner.js'
@@ -55,7 +56,6 @@ import {
   preserveRuntimeSource,
   projectAgentContent,
   projectOpeningCommit,
-  projectOpeningPreview,
   projectRuntimeReply,
   projectRuntimeReplyHistory,
   resolveRuntimeMacroText,
@@ -763,21 +763,27 @@ export async function apply(ctx) {
       return { path: cardPath, name: card.name, script: script === undefined ? null : { path: script.path, title: script.title, sourceChars: script.sourceChars, chunkCount: script.chunks.length } }
     }))
   }
-  async function getCardOpenings(cardPath, userName) {
+  async function getCardOpenings(cardPath, userName, requestMode) {
     const card = await readCard(cardPath)
     if (card === undefined) throw new Error('人物卡不存在: ' + cardPath)
-    return cardOpeningChoices(card).map(function (opening) {
-      const preview = projectOpeningPreview(opening.text, {
-        charName: str(card.name),
-        macroState: { userName: str(userName).trim() || '你', local: {}, global: {} }
-      })
-      return {
-        id: opening.id,
-        text: preview.renderedText,
-        usesUser: /\{\{\s*user\s*\}\}/i.test(opening.text),
-        presentationOnly: preview.presentationOnly
-      }
+    const settings = await readTavernSettings()
+    const extensions = await readCardExtensions(cardPath)
+    const preset = settings.compatibilityMode && requestMode === 'sillytavern'
+      ? await runtimePresets.fullSnapshot()
+      : null
+    const previews = await projectCardOpeningPreviews({
+      card,
+      extensions,
+      runtime: tavernMvu,
+      userName,
+      presetRegexScripts: Array.isArray(preset && preset.regexScripts) ? preset.regexScripts : []
     })
+    return {
+      openings: previews.openings,
+      diagnostics: previews.diagnostics,
+      trustedCardMode: settings.trustedCardMode,
+      styleEnvironment: settings.styleEnvironment
+    }
   }
   async function listTavernResources() {
     const cards = await listCards()
@@ -2374,7 +2380,7 @@ export async function apply(ctx) {
       case 'getUpdateStatus': return { status: await applicationUpdater.status() }
       case 'checkUpdate': return { status: await applicationUpdater.check() }
       case 'startUpdate': return { status: await applicationUpdater.start() }
-      case 'getCardOpenings': return { openings: await getCardOpenings(args && args.path, args && args.userName) }
+      case 'getCardOpenings': return await getCardOpenings(args && args.path, args && args.userName, args && args.requestMode)
       case 'getCard': {
         const cardPath = normalizeResourcePath(args && args.path, 'card')
         const workspace = await readCardWorkspace(cardPath)
