@@ -115,11 +115,37 @@ test('事件顺序与上一条有效 swipe 快照符合消息结算语义', asyn
   assert.deepEqual(emitted, [
     MVU_EVENTS.updateStarted,
     MVU_EVENTS.commandParsed,
+    MVU_EVENTS.commandParsedForZod,
+    MVU_EVENTS.commandParsedEndedForZod,
     MVU_EVENTS.updateEnded,
+    MVU_EVENTS.updateEndedForZod,
     MVU_EVENTS.beforeMessageUpdate
   ])
   assert.equal(lastMvuVariables(messages).stat_data.体力, 9)
   assert.equal(lastMvuVariables(messages, 1).stat_data.体力, 3)
+})
+
+test('MVU zod 专用事件可接管命令，并在更新结束后决定本轮是否修改', async () => {
+  const emitted = []
+  const runtime = createTavernMvuRuntime({
+    emit: async function (name, current, commands) {
+      emitted.push(name)
+      if (name === MVU_EVENTS.commandParsedForZod) current.stat_data.体力 += 5
+      if (name === MVU_EVENTS.commandParsedEndedForZod) commands.splice(0)
+      if (name === MVU_EVENTS.updateEnded) current.stat_data.体力 = Math.min(current.stat_data.体力, 12)
+    }
+  })
+  const result = await runtime.settleResponse({
+    previousVariables: variables({ 体力: 10 }),
+    sourceText: '正文\n_.add("体力", 5);'
+  })
+
+  assert.equal(result.variables.stat_data.体力, 12)
+  assert.deepEqual(result.commands, [])
+  assert.ok(emitted.includes(MVU_EVENTS.commandParsedForZod))
+  assert.ok(emitted.includes(MVU_EVENTS.commandParsedEndedForZod))
+  assert.ok(emitted.includes(MVU_EVENTS.updateEndedForZod))
+  assert.match(result.sourceText, /<StatusPlaceHolderImpl\/>/)
 })
 
 test('COMMAND_PARSED 使用上游 args 形态并允许变量守卫改写命令', async () => {

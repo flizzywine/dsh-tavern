@@ -3,7 +3,8 @@ import test from 'node:test'
 
 import {
   createTavernMvuRuntime,
-  extractMvuCommands
+  extractMvuCommands,
+  MVU_EVENTS
 } from '../tavern-plugin/lib/domain/tavern-mvu-runtime.js'
 
 // Frozen conformance vectors from MagicalAstrogy/MagVarUpdate commit
@@ -144,7 +145,7 @@ test('MVU 上游一致性：JSON Patch insert 与 move 向 COMMAND_PARSED 暴露
 		previousVariables: variables({ bag: ['旧物'], source: 7, target: 0 }),
 		sourceText: '<JsonPatch>[{"op":"insert","path":"/bag/-","value":"新物"},{"op":"move","from":"/source","path":"/target"}]</JsonPatch>',
 		emit: async function (name, _variables, commands) {
-			if (name === 'COMMAND_PARSED') seen.push(structuredClone(commands))
+			if (name === MVU_EVENTS.commandParsed) seen.push(structuredClone(commands))
 		}
 	})
 

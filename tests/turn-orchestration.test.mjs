@@ -7,7 +7,7 @@ import { createStoryTimeline } from '../tavern-plugin/lib/domain/story-timeline.
 import { renderTavernMacros } from '../tavern-plugin/lib/domain/tavern-macro-engine.js'
 import { projectReplyPresentation } from '../tavern-plugin/lib/domain/reply-presentation.js'
 import { createTurnOrchestrator } from '../tavern-plugin/lib/domain/turn-orchestration.js'
-import { createTavernMvuRuntime } from '../tavern-plugin/lib/domain/tavern-mvu-runtime.js'
+import { createTavernMvuRuntime, MVU_EVENTS } from '../tavern-plugin/lib/domain/tavern-mvu-runtime.js'
 
 function clone(value) {
   return value === undefined ? undefined : structuredClone(value)
@@ -344,7 +344,7 @@ test('MVU 在落库前把 COMMAND_PARSED 交给人物卡变量守卫', async () 
 	mvu: createTavernMvuRuntime(),
 	emitMvu: async function (event) {
 	  events.push(event.name)
-	  if (event.name === 'COMMAND_PARSED') {
+	  if (event.name === MVU_EVENTS.commandParsed) {
 		event.args[1][0].args[0] = 'stat_data.体力'
 		event.args[1][0].args[1] = 7
 	  }
@@ -361,7 +361,7 @@ test('MVU 在落库前把 COMMAND_PARSED 交给人物卡变量守卫', async () 
   await run.orchestrator.prepare({ sessionId: 'session-1', turn: 2, userText: '继续' })
   await run.orchestrator.finalize({ sessionId: 'session-1', turn: 2, userText: '继续', assistantText: '正文\n_.set("错误字段", 1);' })
 
-  assert.ok(events.includes('COMMAND_PARSED'))
+  assert.ok(events.includes(MVU_EVENTS.commandParsed))
   assert.equal(run.chat().messages.at(-1).variables[0].stat_data.体力, 7)
 })
 

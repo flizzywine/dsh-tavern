@@ -5,11 +5,14 @@ import * as math from 'mathjs'
 // pinned commit recorded in lib/vendor/magvarupdate/SOURCE.md (MIT licensed).
 
 export const MVU_EVENTS = Object.freeze({
-  initialized: 'VARIABLE_INITIALIZED',
-  updateStarted: 'VARIABLE_UPDATE_STARTED',
-  commandParsed: 'COMMAND_PARSED',
-  updateEnded: 'VARIABLE_UPDATE_ENDED',
-  beforeMessageUpdate: 'BEFORE_MESSAGE_UPDATE'
+  initialized: 'mag_variable_initialized',
+  updateStarted: 'mag_variable_update_started',
+  commandParsed: 'mag_command_parsed',
+  commandParsedForZod: 'mag_command_parsed_for_zod',
+  commandParsedEndedForZod: 'mag_command_parsed_ended_for_zod',
+  updateEnded: 'mag_variable_update_ended',
+  updateEndedForZod: 'mag_variable_update_ended_for_zod',
+  beforeMessageUpdate: 'mag_before_message_update'
 })
 
 function str(value) {
@@ -417,6 +420,8 @@ async function updateVariables(sourceText, previous, emit) {
   const deltaData = {}
   await emitEvent(emit, events, MVU_EVENTS.updateStarted, variables)
   await emitEvent(emit, events, MVU_EVENTS.commandParsed, variables, commands, sourceText)
+  await emitEvent(emit, events, MVU_EVENTS.commandParsedForZod, variables, commands, sourceText)
+  await emitEvent(emit, events, MVU_EVENTS.commandParsedEndedForZod, variables, commands, sourceText)
   for (const command of commands) {
     try {
       if (Array.isArray(command.args) && command.args.length > 0) {
@@ -445,8 +450,9 @@ async function updateVariables(sourceText, previous, emit) {
   }
   variables.display_data = displayData
   variables.delta_data = deltaData
-  const modified = !same(variables.stat_data, before.stat_data)
   await emitEvent(emit, events, MVU_EVENTS.updateEnded, variables, before)
+  const modified = !same(variables.stat_data, before.stat_data)
+  await emitEvent(emit, events, MVU_EVENTS.updateEndedForZod, variables, before)
   return { variables, modified, commands, diagnostics, events }
 }
 

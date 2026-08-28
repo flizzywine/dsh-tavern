@@ -59,7 +59,8 @@ message
 - 当前聊天消息和选中 swipe；
 - YAML/JSON 与 MVU 命令解析；
 - 深路径读写、数组插入/删除/移动和数值增量；
-- `VARIABLE_INITIALIZED`、`VARIABLE_UPDATE_STARTED`、`COMMAND_PARSED`、`VARIABLE_UPDATE_ENDED`、`BEFORE_MESSAGE_UPDATE` 事件；
+- MagVarUpdate 官方 `mag_variable_initialized`、`mag_variable_update_started`、`mag_command_parsed`、`mag_variable_update_ended`、`mag_before_message_update` 事件；
+- Schema/Zod 扩展使用的 `mag_command_parsed_for_zod`、`mag_command_parsed_ended_for_zod`、`mag_variable_update_ended_for_zod` 接力事件；
 - 人物卡内嵌世界书与 `<initvar>` 读取；
 - 宏上下文；
 - Schema/变量守卫的事件接入点；
@@ -93,7 +94,7 @@ message
 
 ## 当前实施结果
 
-截至 `e46f344`，上述首轮顺序均已形成可运行实现：纯前台请求保留卡内 MVU 规则，Host 结算标准补丁并保存消息/Swipe 快照；隔离 Helper Host 常驻运行非 Host 接管脚本；动态世界书能够在发送前修改绑定世界书；变量守卫能够在 `COMMAND_PARSED` 阶段改写命令后再交还 Host 执行；状态栏能够读取结算后的变量并加载远程 CG。
+上述首轮顺序均已形成可运行实现：纯前台请求保留卡内 MVU 规则，Host 结算标准补丁并保存消息/Swipe 快照；隔离 Helper Host 常驻运行非 Host 接管脚本；动态世界书能够在发送前修改绑定世界书；变量守卫能够在 `mag_command_parsed` 阶段改写命令后再交还 Host 执行；状态栏能够读取结算后的变量并加载远程 CG。
 
 当前仍统一标记为“受限支持”，因为尚未完成固定 SillyTavern 基线的同输入、同输出差分。默认隔离模式不开放父页面同源 DOM；用户可在设置中显式开启“受信任人物卡模式”，使人物卡消息界面和常驻 Helper iframe 获得同源父页面能力。详见[《灯火阑珊》MVU 兼容链路验收](../research/lighthouse-mvu-compatibility-e2e-2026-08-28.md)。
 
@@ -116,3 +117,5 @@ DSH `surface replace` 只负责恢复模型消息面；DSH 的人类 transcript 
 人物卡声明的 Tavern Helper 可见按钮现在由酒馆状态页承载，事件名沿用上游 `script_id + "_" + getStringHash(button_name)`。Helper iframe 提供最小 `getCharData()` 与 `SillyTavern.Popup` 兼容面；脚本通过 `setChatMessages()` 写入成功后，宿主会刷新权威对话投影。真实《灯火阑珊》“开场白索引”已能列出全部 15 个 Swipe，并在不刷新页面的情况下切换开场、变量快照和状态栏。
 
 MagVarUpdate 固定基线的命令差分切片现在还覆盖无前导斜杠路径、`add` 参数校验、`COMMAND_PARSED` 的 insert/move 参数形状、上游固定版本的 mathjs 表达式、数字字段接收引号数字时的强制转换，以及点分字段引号和带空格 bracket 的常见路径修正。它用于逐步收窄差异，不代表已经运行官方整包或完成全量差分。
+
+MVU 宿主现已改用上游真实的 `mag_*` 事件名，并按官方顺序串联 Zod 三个接力事件。《灯火阑珊》真实回合已验证卡内 `registerMvuSchema` 和变量守卫不再依赖 Host 自造的大写事件名；结算后楼层保存“丑时”快照并挂载状态栏。
