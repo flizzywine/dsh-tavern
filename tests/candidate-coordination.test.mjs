@@ -49,10 +49,13 @@ test('Session、世界书、结算与候选使用同一持久同步快照', func
 })
 
 test('服务器先检查轻量存储版本，再通过 SSE 发送变化后的完整快照', function () {
+  const coordinationVersion = between(serverSource, 'async function coordinationVersion', 'const coordinationEvents')
+
   assert.match(serverSource, /createCoordinationEventPublisher/)
   assert.match(serverSource, /readVersion: async function/)
   assert.match(serverSource, /chatPersistence\.version\(chatId\)/)
   assert.match(serverSource, /profileData\.version\('card-projection-revisions\.json'\)/)
+  assert.doesNotMatch(coordinationVersion, /agentRegistry\.get|sessionStore\.get/, '高频版本检查不得跨线程读取完整 Session/Agent')
   assert.match(serverSource, /pollIntervalMs: 250/)
   assert.match(serverSource, /'Content-Type': 'text\/event-stream; charset=utf-8'/)
   assert.match(serverSource, /coordinationEvents\.subscribe\(sessionId/)
@@ -63,6 +66,13 @@ test('所有 Tavern Chat 热写入统一经过增量 Persistence', function () {
   assert.match(serverSource, /createChatJournalStore\(\{ dataRoot/)
   assert.match(serverSource, /createChatPersistence\(\{ store: chatJournalStore/)
   assert.doesNotMatch(serverSource, /(?:writeJson|updateJson)\([^\n]*chats\//)
+})
+
+test('会话列表只投影轻量索引，不逐个重建完整 Chat', function () {
+  const listing = between(serverSource, 'async function listTavernSessions', 'async function addGuide')
+
+  assert.match(listing, /conversationRegistry\.list\(\)/)
+  assert.doesNotMatch(listing, /readChat|chatForSession/)
 })
 
 test('SSE 收到人物卡展示修订后主动刷新游玩投影', function () {

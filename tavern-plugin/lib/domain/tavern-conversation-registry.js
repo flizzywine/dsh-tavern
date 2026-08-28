@@ -10,6 +10,22 @@ function chatRows(index) {
   return index && Array.isArray(index.chats) ? index.chats : []
 }
 
+function chatSummary(chat) {
+  return {
+    id: str(chat && chat.id),
+    cardPath: str(chat && chat.cardPath),
+    cardName: str(chat && chat.cardName) || '未命名角色',
+    title: str(chat && chat.title),
+    mode: str(chat && chat.mode) || 'story',
+    requestMode: chat && chat.requestMode === 'sillytavern' ? 'sillytavern' : 'dsh',
+    updatedAt: Math.max(0, Number(chat && (chat.updatedAt || chat.createdAt)) || 0)
+  }
+}
+
+function sameSummary(left, right) {
+  return left && right && ['id', 'cardPath', 'cardName', 'title', 'mode', 'requestMode', 'updatedAt'].every(function (key) { return left[key] === right[key] })
+}
+
 /**
  * Owns the consistency protocol between Tavern chats, the published chat
  * index, and DSH Session links. Ordinary chat updates remain in the chat store;
@@ -74,7 +90,7 @@ export function createTavernConversationRegistry(options = {}) {
       }
       const index = await store.readIndex()
       const rows = chatRows(index).filter(function (item) { return item.id !== chat.id })
-      rows.push({ id: chat.id, cardPath: chat.cardPath, cardName: chat.cardName, updatedAt: chat.updatedAt })
+      rows.push(chatSummary(chat))
       await store.writeIndex(Object.assign({}, index || {}, { chats: rows }))
       return chat
     } catch (error) {
@@ -89,6 +105,33 @@ export function createTavernConversationRegistry(options = {}) {
       if (chatWritten) await store.removeChat(chat.id).catch(function () {})
       throw error
     }
+  }
+
+  async function sync(chat) {
+    if (!chat || str(chat.id) === '') throw new Error('不能同步没有 id 的 Tavern Chat 摘要')
+    const index = await store.readIndex()
+    const summary = chatSummary(chat)
+    const rows = chatRows(index)
+    const current = rows.find(function (item) { return item && item.id === summary.id })
+    if (sameSummary(current, summary)) return summary
+    await store.writeIndex(Object.assign({}, index || {}, { chats: rows.filter(function (item) { return !item || item.id !== summary.id }).concat([summary]) }))
+    return summary
+  }
+
+  async function list() {
+    const currentLinks = await links()
+    const index = await store.readIndex()
+    const summaries = new Map(chatRows(index).map(function (item) { return [str(item && item.id), item] }))
+    const rows = []
+    for (const sessionId of Object.keys(currentLinks)) {
+      const chatId = str(currentLinks[sessionId])
+      const summary = summaries.get(chatId)
+      if (!summary) continue
+      const normalized = chatSummary(summary)
+      rows.push({ sessionId, chatId, cardPath: normalized.cardPath, cardName: normalized.cardName, title: normalized.title, mode: normalized.mode, requestMode: normalized.requestMode, updatedAt: normalized.updatedAt })
+    }
+    rows.sort(function (left, right) { return right.updatedAt - left.updatedAt })
+    return rows
   }
 
   async function remove(chatId) {
@@ -109,5 +152,5 @@ export function createTavernConversationRegistry(options = {}) {
     return { deleted: true }
   }
 
-  return { links, resolve, publish, remove }
+  return { links, resolve, publish, sync, list, remove }
 }

@@ -217,6 +217,31 @@ test('结算轮询请求悬挂时按时取消，并继续轮询直到完成', as
   stop()
 })
 
+test('状态请求超时后较长退避，避免服务端旧请求未结束时再次堆积', async function () {
+  const timers = fakeTimers()
+  const module = createLiveTavernViewModule({
+    loadTimeoutMs: 2000,
+    timeoutRetryDelayMs: 5000,
+    load: async function (_sessionId, request) {
+      return await new Promise(function (_resolve, reject) {
+        request.signal.addEventListener('abort', function () { reject(new Error('aborted')) })
+      })
+    },
+    shouldPoll() { return false },
+    schedule: timers.schedule,
+    cancel: timers.cancel
+  })
+  const stop = module.subscribe('session-timeout-backoff', function () {})
+
+  await timers.runNext()
+  assert.deepEqual(timers.activeDelays(), [2000])
+  await timers.runNext()
+
+  assert.equal(module.getSnapshot('session-timeout-backoff').phase, 'retrying')
+  assert.deepEqual(timers.activeDelays(), [5000])
+  stop()
+})
+
 test('候选 Agent 长时间生成时状态查询只在内部重试，不产生超时错误', async function () {
   const timers = fakeTimers()
   let generating = false

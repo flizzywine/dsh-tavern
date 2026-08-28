@@ -530,6 +530,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const stopWatchdog = typeof options.stopWatchdog === "function" ? options.stopWatchdog : function (timer) { window.clearInterval(timer); };
 			const watchdogIntervalMs = Number(options.watchdogIntervalMs) > 0 ? Number(options.watchdogIntervalMs) : 1000;
 			const loadTimeoutMs = Number(options.loadTimeoutMs) > 0 ? Number(options.loadTimeoutMs) : 0;
+			const timeoutRetryDelayMs = Number(options.timeoutRetryDelayMs) > 0 ? Number(options.timeoutRetryDelayMs) : 0;
 			const idlePollIntervalMs = Number(options.idlePollIntervalMs) > 0 ? Number(options.idlePollIntervalMs) : 0;
 			function initialState() { return { phase: "idle", view: null, error: "", updatedAt: 0 }; }
 			function recordFor(sessionId) {
@@ -586,7 +587,10 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					else if (idlePollIntervalMs > 0) schedule(record, idlePollIntervalMs);
 				} catch (error) {
 					publish(record, { phase: "retrying", view: record.state.view, error: deadlineExpired ? "" : String(error && error.message || error || ""), updatedAt: record.state.updatedAt });
-					schedule(record, shouldPoll(record.state.view) ? 300 : (idlePollIntervalMs > 0 ? Math.min(1500, idlePollIntervalMs) : 1500));
+					const retryDelay = deadlineExpired && timeoutRetryDelayMs > 0
+						? timeoutRetryDelayMs
+						: (shouldPoll(record.state.view) ? 300 : (idlePollIntervalMs > 0 ? Math.min(1500, idlePollIntervalMs) : 1500));
+					schedule(record, retryDelay);
 				} finally {
 					record.loading = false;
 					if (record.reloadRequested) { record.reloadRequested = false; schedule(record, 0); }
@@ -637,7 +641,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		}
 
 		const liveTavernView = createLiveTavernViewModule({
-			loadTimeoutMs: 2000,
+			loadTimeoutMs: 10000,
+			timeoutRetryDelayMs: 5000,
 			load: function (sessionId, request) { return rpc("getSession", {}, sessionId, request); },
 			shouldPoll: function (view) { return !!(view && view.activity && view.activity.busy); }
 		});

@@ -7,6 +7,7 @@ function memoryStore(seed = {}) {
   let index = structuredClone(seed.index || { chats: [] })
   const chats = new Map(Object.entries(structuredClone(seed.chats || {})))
   const failures = seed.failures || {}
+  let chatReads = 0
   return {
     adapter: {
       async readLinks() { return structuredClone(links) },
@@ -19,24 +20,52 @@ function memoryStore(seed = {}) {
         if (failures.writeIndex) throw new Error(failures.writeIndex)
         index = structuredClone(value)
       },
-      async readChat(id) { return chats.has(id) ? structuredClone(chats.get(id)) : undefined },
+      async readChat(id) {
+        chatReads += 1
+        if (failures.readChat) throw new Error(failures.readChat)
+        return chats.has(id) ? structuredClone(chats.get(id)) : undefined
+      },
       async writeChat(chat) { chats.set(chat.id, structuredClone(chat)) },
       async removeChat(id) { chats.delete(id) }
     },
-    snapshot() { return { links: structuredClone(links), index: structuredClone(index), chats: Object.fromEntries(chats) } }
+    snapshot() { return { links: structuredClone(links), index: structuredClone(index), chats: Object.fromEntries(chats), chatReads } }
   }
 }
 
 test('发布 Tavern Chat 时一次完成 Chat、索引和 Session 关联', async function () {
   const store = memoryStore()
   const registry = createTavernConversationRegistry({ store: store.adapter })
-  const chat = { id: 'chat-1', sessionId: 'session-1', cardPath: 'cards/a.json', cardName: 'A', updatedAt: 10 }
+  const chat = { id: 'chat-1', sessionId: 'session-1', cardPath: 'cards/a.json', cardName: 'A', title: '冒险', mode: 'story', requestMode: 'sillytavern', updatedAt: 10 }
 
   await registry.publish(chat)
 
   assert.deepEqual(store.snapshot().links, { 'session-1': 'chat-1' })
-  assert.deepEqual(store.snapshot().index.chats, [{ id: 'chat-1', cardPath: 'cards/a.json', cardName: 'A', updatedAt: 10 }])
+  assert.deepEqual(store.snapshot().index.chats, [{ id: 'chat-1', cardPath: 'cards/a.json', cardName: 'A', title: '冒险', mode: 'story', requestMode: 'sillytavern', updatedAt: 10 }])
   assert.deepEqual(await registry.resolve('session-1'), chat)
+})
+
+test('会话列表只读轻量索引，不物化完整聊天', async function () {
+  const store = memoryStore({
+    links: { 'session-heavy': 'chat-heavy' },
+    index: { chats: [{ id: 'chat-heavy', cardPath: 'cards/heavy.json', cardName: '灯火阑珊', title: '测试', mode: 'story', requestMode: 'sillytavern', updatedAt: 99 }] },
+    chats: { 'chat-heavy': { id: 'chat-heavy', messages: [{ text: 'x'.repeat(1_000_000) }] } },
+    failures: { readChat: '列表不应读取完整聊天' }
+  })
+  const registry = createTavernConversationRegistry({ store: store.adapter })
+
+  assert.deepEqual(await registry.list(), [{
+    sessionId: 'session-heavy', chatId: 'chat-heavy', cardPath: 'cards/heavy.json', cardName: '灯火阑珊', title: '测试', mode: 'story', requestMode: 'sillytavern', updatedAt: 99
+  }])
+  assert.equal(store.snapshot().chatReads, 0)
+})
+
+test('聊天更新后同步索引摘要，不把消息正文写入索引', async function () {
+  const store = memoryStore({ index: { chats: [{ id: 'chat-6', cardName: '旧名', updatedAt: 1 }] } })
+  const registry = createTavernConversationRegistry({ store: store.adapter })
+
+  await registry.sync({ id: 'chat-6', cardPath: 'cards/new.json', cardName: '新名', title: '新标题', mode: 'script', requestMode: 'dsh', updatedAt: 20, messages: [{ text: '不应进入索引' }] })
+
+  assert.deepEqual(store.snapshot().index.chats, [{ id: 'chat-6', cardPath: 'cards/new.json', cardName: '新名', title: '新标题', mode: 'script', requestMode: 'dsh', updatedAt: 20 }])
 })
 
 test('索引发布失败时回滚 Chat 和 Session 关联', async function () {

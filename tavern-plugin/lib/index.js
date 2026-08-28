@@ -668,8 +668,24 @@ export async function apply(ctx) {
   const chatPersistence = createChatPersistence({ store: chatJournalStore, normalize: normalizeChat, now: Date.now })
   async function readChat(chatId) { return await chatPersistence.read(chatId) }
   async function readChatRevision(chatId, revision) { return await chatPersistence.readRevision(chatId, revision) }
-  async function writeChat(chat, metadata) { return await chatPersistence.write(chat, metadata) }
-  async function updateChat(chatId, mutation, metadata) { return await chatPersistence.update(chatId, mutation, metadata) }
+  async function rawWriteChat(chat, metadata) { return await chatPersistence.write(chat, metadata) }
+  async function rawUpdateChat(chatId, mutation, metadata) { return await chatPersistence.update(chatId, mutation, metadata) }
+  let conversationRegistry
+  async function syncChatSummary(chat) {
+    if (!conversationRegistry || chat === undefined) return
+    try { await conversationRegistry.sync(chat) }
+    catch (error) { console.warn('dsh-tavern: 会话摘要索引同步失败，将在下次启动修复:', str(error && error.message || error)) }
+  }
+  async function writeChat(chat, metadata) {
+    const saved = await rawWriteChat(chat, metadata)
+    await syncChatSummary(saved)
+    return saved
+  }
+  async function updateChat(chatId, mutation, metadata) {
+    const saved = await rawUpdateChat(chatId, mutation, metadata)
+    await syncChatSummary(saved)
+    return saved
+  }
   async function prepareRollbackIntent(chat, intent) {
     const target = storyTimeline.rollbackTarget({ chat })
     if (target === null) return intent
@@ -677,14 +693,14 @@ export async function apply(ctx) {
     if (beforeChat === undefined) throw new Error('找不到剧情 checkpoint 对应的历史 Chat revision: ' + target.beforeRevision)
     return Object.assign({}, intent, { beforeChat })
   }
-  const conversationRegistry = createTavernConversationRegistry({
+  conversationRegistry = createTavernConversationRegistry({
     store: {
       readLinks: async function () { return await readJson('sessions.json') },
       updateLinks: async function (updater) { return await profileData.updateJson('sessions.json', updater) },
       readIndex,
       writeIndex,
       readChat,
-      writeChat,
+      writeChat: rawWriteChat,
       removeChat: async function (chatId) { await chatPersistence.remove(chatId) }
     }
   })
@@ -1692,23 +1708,7 @@ export async function apply(ctx) {
     return await sessionSync(sessionId, { requestId: task.requestId, kind: 'candidate' })
   }
   async function listTavernSessions() {
-    const map = await readSessionMap()
-    const rows = []
-    for (const sessionId of Object.keys(map)) {
-      const chat = await readChat(map[sessionId])
-      if (chat === undefined) continue
-      rows.push({
-        sessionId: sessionId,
-        chatId: chat.id,
-        title: str(chat.title),
-        cardName: chat.cardName || '未命名角色',
-        updatedAt: chat.updatedAt || chat.createdAt || 0,
-        mode: chat.mode || 'story',
-        requestMode: chat.requestMode === 'sillytavern' ? 'sillytavern' : 'dsh'
-      })
-    }
-    rows.sort(function (a, b) { return b.updatedAt - a.updatedAt })
-    return rows
+    return await conversationRegistry.list()
   }
   async function addGuide(sessionId, text) {
     const chat = await chatForSession(sessionId)
@@ -2073,6 +2073,7 @@ export async function apply(ctx) {
       const chat = await readChat(row.id)
       if (chat === undefined) continue
       try { if (await migrateLegacyChatPreset(chat)) await writeChat(chat) } catch (error) { console.warn('dsh-tavern: 旧对话预设条目配置迁移失败', chat.id, error) }
+      await syncChatSummary(chat)
     }
     await foregroundHandoff.recover((recoveredIndex.chats || []).map(function (row) { return row.id }))
     for (const row of recoveredIndex.chats || []) {
@@ -2574,10 +2575,9 @@ export async function apply(ctx) {
     const normalizedSessionId = str(sessionId)
     const links = await readSessionMap()
     const chatId = str(links && links[normalizedSessionId])
-    const liveSession = Boolean(agentRegistry.get(normalizedSessionId) && agentRegistry.get(normalizedSessionId).session)
     const chatVersion = chatId === '' ? '' : await chatPersistence.version(chatId)
     const projectionVersion = await profileData.version('card-projection-revisions.json')
-    return [runtimeGeneration, liveSession ? '1' : '0', chatId, chatVersion, projectionVersion].join(':')
+    return [runtimeGeneration, chatId, chatVersion, projectionVersion].join(':')
   }
 
   const coordinationEvents = createCoordinationEventPublisher({
