@@ -34,6 +34,10 @@ import {
   replaceTavernHelperMessages,
   replaceTavernHelperVariables
 } from './domain/tavern-helper-context.js'
+import {
+  projectTavernHelperWorldbook,
+  replaceTavernHelperWorldbookOperations
+} from './domain/tavern-helper-worldbook.js'
 import { applyTavernHelperVariableMacros } from './domain/tavern-helper-variable-macros.js'
 import { TavernPromptTemplateRuntime } from './domain/tavern-prompt-template-runtime.js'
 import {
@@ -870,6 +874,31 @@ export async function apply(ctx) {
     const updated = replaceTavernHelperMessages(chat, messages)
     await writeChat(chat, { source: 'tavern-helper.messages' })
     return { updated: true, targets: updated, context: projectTavernHelperContext(chat) }
+  }
+  async function tavernHelperWorldbookRecord(sessionId, requestedName) {
+    const chat = await chatForSession(str(sessionId))
+    if (chat === undefined) throw new Error('当前会话没有绑定人物卡')
+    if (!chat.mvu || chat.mvu.enabled !== true) throw new Error('当前人物卡未启用 MVU 兼容运行时')
+    const card = await readChatCard(chat)
+    const record = await worldBooks.bound(chat.cardPath, card)
+    if (record === null) throw new Error('当前人物卡没有绑定世界书')
+    const name = str(requestedName).trim()
+    if (name !== '' && name !== 'current' && name !== str(record.view.displayName)) {
+      throw new Error('当前兼容层只能访问人物卡绑定的世界书: ' + name)
+    }
+    return { chat, record }
+  }
+  async function getTavernHelperWorldbook(sessionId, name) {
+    const resolved = await tavernHelperWorldbookRecord(sessionId, name)
+    return { worldbook: projectTavernHelperWorldbook(resolved.record.view) }
+  }
+  async function replaceTavernHelperWorldbook(sessionId, name, entries) {
+    const resolved = await tavernHelperWorldbookRecord(sessionId, name)
+    const operations = replaceTavernHelperWorldbookOperations(resolved.record.view, entries)
+    const updated = operations.length === 0
+      ? resolved.record
+      : await worldBooks.update(resolved.record.source, { operations })
+    return { updated: operations.length > 0, worldbook: projectTavernHelperWorldbook(updated.view) }
   }
 
   function sessionDebugEvidence(sessionId) {
@@ -2309,6 +2338,8 @@ export async function apply(ctx) {
       case 'captureDisplayRuntime': return await captureDisplayRuntime(args && args.sessionId, args && args.turn, args && args.partIndex, args && args.runtime)
       case 'updateTavernHelperVariables': return await updateTavernHelperVariables(args && args.sessionId, args && args.option, args && args.variables)
       case 'updateTavernHelperMessages': return await updateTavernHelperMessages(args && args.sessionId, args && args.messages)
+      case 'getTavernHelperWorldbook': return await getTavernHelperWorldbook(args && args.sessionId, args && args.name)
+      case 'replaceTavernHelperWorldbook': return await replaceTavernHelperWorldbook(args && args.sessionId, args && args.name, args && args.entries)
       case 'startChat': {
         try {
           return { view: await startChat(args && args.path, args && args.sessionId, args && args.mode, args && args.openingId, args && args.userName, args && args.requestMode) }
