@@ -997,6 +997,17 @@ test('隔离 Helper iframe 可以只读加载已锁定的本机远程资源', ()
 	assert.match(handler, /'Cross-Origin-Resource-Policy': 'cross-origin'/)
 })
 
+test('HTTP RPC 在启动恢复前注册，并等待运行时完成初始化', () => {
+	const routeRegistration = serverSource.indexOf("ctx.effect(() => webServer.register({")
+	const runtimeInitialization = serverSource.indexOf('await initializeRuntimeState()')
+	const handler = between(serverSource, "handler: async (req, res) => {", "function contentText(message)")
+	assert.notEqual(routeRegistration, -1)
+	assert.notEqual(runtimeInitialization, -1)
+	assert.ok(routeRegistration < runtimeInitialization)
+	assert.match(handler, /const readiness = await runtimeReadiness/)
+	assert.match(handler, /if \(!readiness\.ok\) throw readiness\.error/)
+})
+
 test('Helper 全部就绪后先完成 MVU 开场重放，再广播 CHAT_CHANGED', () => {
 	const sync = between(clientSource, 'function syncTavernHelperScripts', 'const TAVERN_FRAME_MAX_HEIGHT')
 	assert.match(sync, /rpc\("initializeTavernMvuOpenings"[\s\S]*rpc\("getSession"[\s\S]*tavernHelperScriptRuntime\.sync\(readySessionId, freshView\)[\s\S]*tavernHelperScriptRuntime\.emit\("CHAT_CHANGED"/)

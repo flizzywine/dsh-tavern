@@ -2061,21 +2061,25 @@ export async function apply(ctx) {
     logger: console
   })
 
-  await fileResources.migrateLegacy(await readIndex(), readJson, writeIndex, readChat, writeChat)
-  await migrateLegacyPresetPlans()
-  await migrateActivePresetSelection()
-  await resourceGraph.recover()
-  const recoveredIndex = await readIndex()
-  for (const row of recoveredIndex.chats || []) {
-    const chat = await readChat(row.id)
-    if (chat === undefined) continue
-    try { if (await migrateLegacyChatPreset(chat)) await writeChat(chat) } catch (error) { console.warn('dsh-tavern: 旧对话预设条目配置迁移失败', chat.id, error) }
-  }
-  await foregroundHandoff.recover((recoveredIndex.chats || []).map(function (row) { return row.id }))
-  for (const row of recoveredIndex.chats || []) {
-    const recovered = await taskMailbox.recover(row.id)
-    for (const task of recovered.tasks) {
-      if (task.kind === 'candidate' && task.status === 'queued') scheduleCandidateTask(row.id, task)
+  let settleRuntimeReadiness
+  const runtimeReadiness = new Promise(function (resolve) { settleRuntimeReadiness = resolve })
+  async function initializeRuntimeState() {
+    await fileResources.migrateLegacy(await readIndex(), readJson, writeIndex, readChat, writeChat)
+    await migrateLegacyPresetPlans()
+    await migrateActivePresetSelection()
+    await resourceGraph.recover()
+    const recoveredIndex = await readIndex()
+    for (const row of recoveredIndex.chats || []) {
+      const chat = await readChat(row.id)
+      if (chat === undefined) continue
+      try { if (await migrateLegacyChatPreset(chat)) await writeChat(chat) } catch (error) { console.warn('dsh-tavern: 旧对话预设条目配置迁移失败', chat.id, error) }
+    }
+    await foregroundHandoff.recover((recoveredIndex.chats || []).map(function (row) { return row.id }))
+    for (const row of recoveredIndex.chats || []) {
+      const recovered = await taskMailbox.recover(row.id)
+      for (const task of recovered.tasks) {
+        if (task.kind === 'candidate' && task.status === 'queued') scheduleCandidateTask(row.id, task)
+      }
     }
   }
   // ---------- 重新生成正文（生成即替换，无确认） ----------
@@ -2599,6 +2603,8 @@ export async function apply(ctx) {
           return
         }
         try {
+          const readiness = await runtimeReadiness
+          if (!readiness.ok) throw readiness.error
           if (readsCachedAsset) {
             const asset = await tavernRemoteAssets.readCached(cachedAssetMatch[1])
             if (!asset) {
@@ -3765,5 +3771,13 @@ export async function apply(ctx) {
         return await restoreCurrentCard(sessionId)
       }
     }))
+  }
+
+  try {
+    await initializeRuntimeState()
+    settleRuntimeReadiness({ ok: true })
+  } catch (error) {
+    settleRuntimeReadiness({ ok: false, error })
+    throw error
   }
 }
