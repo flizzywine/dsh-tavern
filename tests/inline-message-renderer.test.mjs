@@ -196,7 +196,9 @@ test('持久 Helper Host 复用同一脚本 iframe、发送生命周期事件并
   const frames = []
   const calls = []
   const hostWindow = {
-    crypto: { randomUUID() { return 'runtime-token' } },
+	crypto: { randomUUID() { return 'runtime-token' } },
+	setTimeout,
+	clearTimeout,
     addEventListener(name, handler) { windowListeners.set(name, handler) },
     removeEventListener(name) { windowListeners.delete(name) }
   }
@@ -252,6 +254,16 @@ test('持久 Helper Host 复用同一脚本 iframe、发送生命周期事件并
   await Promise.resolve()
   assert.deepEqual(calls, [{ method: 'getTavernHelperWorldbook', args: { name: '灯火阑珊' }, sessionId: 'session-1' }])
   assert.equal(frames[0].contentWindow.messages.at(-1).type, 'dsh-tavern-helper-response')
+
+  const emitted = runtime.emit('COMMAND_PARSED', [{ stat_data: {} }, [{ type: 'set' }]], { messages: [] })
+	const request = frames[0].contentWindow.messages.at(-1)
+	assert.equal(request.type, 'dsh-tavern-helper-event')
+	assert.equal(request.name, 'COMMAND_PARSED')
+	windowListeners.get('message')({
+		source: frames[0].contentWindow,
+		data: { type: 'dsh-tavern-helper-event-complete', token: 'runtime-token', eventId: request.eventId, args: [{ stat_data: {} }, []] }
+	})
+	assert.deepEqual(JSON.parse(JSON.stringify(await emitted)), [{ stat_data: {} }, []])
   runtime.dispose()
 })
 

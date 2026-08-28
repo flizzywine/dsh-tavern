@@ -83,6 +83,7 @@ function harness(mode, options = {}) {
     scripts,
     timeline,
     mvu: options.mvu,
+	emitMvu: options.emitMvu,
     cards,
     workspace: {
       async prepare(value, turn) {
@@ -335,6 +336,33 @@ test('MVU 单条命令失败不阻止正文和上一状态快照提交', async (
   assert.equal(assistant.variables[0].stat_data.体力, 10)
   assert.equal(assistant.mvu.diagnostics.length, 1)
   assert.match(assistant.text, /^正文/)
+})
+
+test('MVU 在落库前把 COMMAND_PARSED 交给人物卡变量守卫', async () => {
+  const events = []
+  const run = harness('story', {
+	mvu: createTavernMvuRuntime(),
+	emitMvu: async function (event) {
+	  events.push(event.name)
+	  if (event.name === 'COMMAND_PARSED') {
+		event.args[1][0].args[0] = 'stat_data.体力'
+		event.args[1][0].args[1] = 7
+	  }
+	  return event.args
+	}
+  })
+  const initial = run.chat()
+  initial.messages.push({
+	role: 'assistant', text: '开场', swipeId: 0, swipes: ['开场'],
+	variables: [{ initialized_lorebooks: {}, stat_data: { 体力: 10 }, schema: { extensible: false, properties: {}, type: 'object' } }]
+  })
+  run.replaceChat(initial)
+
+  await run.orchestrator.prepare({ sessionId: 'session-1', turn: 2, userText: '继续' })
+  await run.orchestrator.finalize({ sessionId: 'session-1', turn: 2, userText: '继续', assistantText: '正文\n_.set("错误字段", 1);' })
+
+  assert.ok(events.includes('COMMAND_PARSED'))
+  assert.equal(run.chat().messages.at(-1).variables[0].stat_data.体力, 7)
 })
 
 test('真实玩家回合缺少 prepare 时仍报 operation 错误', async () => {

@@ -40,6 +40,7 @@ import {
 } from './domain/tavern-helper-worldbook.js'
 import { applyTavernHelperVariableMacros } from './domain/tavern-helper-variable-macros.js'
 import { projectTavernHelperScripts } from './domain/tavern-helper-scripts.js'
+import { createTavernHelperEventGate } from './domain/tavern-helper-event-gate.js'
 import { TavernPromptTemplateRuntime } from './domain/tavern-prompt-template-runtime.js'
 import {
   preserveRuntimeSource,
@@ -86,6 +87,7 @@ export async function apply(ctx) {
     return
   }
   const agentDefaultModel = ctx.get('agentDefaultModel')
+	const tavernHelperEventGate = createTavernHelperEventGate()
   const tavernMvu = createTavernMvuRuntime()
   let tavernPromptTemplateRuntime
   async function promptTemplateRuntime() {
@@ -900,6 +902,23 @@ export async function apply(ctx) {
       ? resolved.record
       : await worldBooks.update(resolved.record.source, { operations })
     return { updated: operations.length > 0, worldbook: projectTavernHelperWorldbook(updated.view) }
+  }
+
+  async function tavernHelperEventContext(sessionId, chat, transientUserText = '') {
+	const draft = structuredClone(chat)
+	const userText = str(transientUserText).trim()
+	if (userText !== '') {
+	  const previousVariables = tavernMvu.lastVariables(draft.messages)
+	  const message = { role: 'user', text: userText, swipeId: 0, swipes: [userText], variables: [] }
+	  if (previousVariables !== undefined) message.variables = [structuredClone(previousVariables)]
+	  draft.messages.push(message)
+	}
+	const context = projectTavernHelperContext(draft)
+	try {
+	  const resolved = await tavernHelperWorldbookRecord(sessionId, 'current')
+	  context.worldbook = projectTavernHelperWorldbook(resolved.record.view)
+	} catch {}
+	return context
   }
 
   function sessionDebugEvidence(sessionId) {
@@ -1905,6 +1924,11 @@ export async function apply(ctx) {
     scripts: scriptContinuity,
     timeline: storyTimeline,
     mvu: tavernMvu,
+	emitMvu: async function (event) {
+	  const context = await tavernHelperEventContext(event.sessionId, event.chat)
+	  const result = await tavernHelperEventGate.dispatch(event.sessionId, event.name, event.args, context)
+	  return result.args
+	},
     cards: cardPreparation,
     workspace: {
       prepare: prepareWorkspace,
@@ -2357,6 +2381,8 @@ export async function apply(ctx) {
       case 'updateTavernHelperMessages': return await updateTavernHelperMessages(args && args.sessionId, args && args.messages)
       case 'getTavernHelperWorldbook': return await getTavernHelperWorldbook(args && args.sessionId, args && args.name)
       case 'replaceTavernHelperWorldbook': return await replaceTavernHelperWorldbook(args && args.sessionId, args && args.name, args && args.entries)
+	  case 'pollTavernHelperEvent': return { event: tavernHelperEventGate.poll(args && args.sessionId) }
+	  case 'completeTavernHelperEvent': return { completed: tavernHelperEventGate.complete(args && args.sessionId, args && args.eventId, args && args.args) }
       case 'startChat': {
         try {
           return { view: await startChat(args && args.path, args && args.sessionId, args && args.mode, args && args.openingId, args && args.userName, args && args.requestMode) }
@@ -2825,6 +2851,11 @@ export async function apply(ctx) {
     if (chat && chat.requestMode === 'sillytavern') {
       const userText = payload.messages.filter(isTurnInput).map(contentText).filter(Boolean).join('\n').trim()
       if (Number(payload.step) === 1) {
+		if (chat.mvu && chat.mvu.enabled === true) {
+		  const context = await tavernHelperEventContext(sessionId, chat, userText)
+		  const messageId = Math.max(0, context.messages.length - 1)
+		  await tavernHelperEventGate.dispatch(sessionId, 'MESSAGE_SENT', [messageId], context)
+		}
         await turnOrchestrator.beginCompatibility({ sessionId, turn: payload.turn, userText })
         chat = await chatForSession(sessionId)
       }

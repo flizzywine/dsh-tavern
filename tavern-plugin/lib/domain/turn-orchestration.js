@@ -87,6 +87,7 @@ export function createTurnOrchestrator(options) {
   const workspace = options.workspace
   const timeline = options.timeline
   const mvu = options.mvu && typeof options.mvu.settleResponse === 'function' ? options.mvu : null
+	const emitMvu = typeof options.emitMvu === 'function' ? options.emitMvu : null
   const now = typeof options.now === 'function' ? options.now : Date.now
   const renderMacros = typeof options.renderMacros === 'function' ? options.renderMacros : null
   const resolvePresetRegexScripts = typeof options.resolvePresetRegexScripts === 'function'
@@ -269,7 +270,10 @@ export function createTurnOrchestrator(options) {
           mvuSettlement = await mvu.settleResponse({
             sourceText: assistantText,
             previousVariables: previousMvuVariables,
-            macroContext: { userName: chat.macroState && chat.macroState.userName, charName: chat.cardName }
+			macroContext: { userName: chat.macroState && chat.macroState.userName, charName: chat.cardName },
+			emit: emitMvu === null ? undefined : async function (name, ...args) {
+			  return await emitMvu({ sessionId: input.sessionId, chat, name, args })
+			}
           })
           assistantText = str(mvuSettlement.sourceText)
         } catch (error) {

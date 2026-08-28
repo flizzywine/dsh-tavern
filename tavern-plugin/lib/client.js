@@ -1133,16 +1133,24 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					return;
 				}
 				if (data.type === "dsh-tavern-helper-event") {
-					if (data.name === "VARIABLE_UPDATE_ENDED") {
+					const suppliedArgs = copy(data.args || []);
+					let task;
+					if (data.name === "VARIABLE_UPDATE_ENDED" && suppliedArgs.length === 0) {
 						const option = { type: "message", message_id: currentId() };
 						const variables = getVariables(option);
 						const before = JSON.stringify(variables);
-						Promise.resolve(eventEmit(data.name, variables)).then(function () {
+						task = Promise.resolve(eventEmit(data.name, variables)).then(function () {
 							if (JSON.stringify(variables) === before) return;
 							localReplace(variables, option);
 							return call("updateTavernHelperVariables", { option: option, variables: variables });
-						}).catch(console.error);
-					} else Promise.resolve(eventEmit.apply(null, [data.name].concat(copy(data.args || [])))).catch(console.error);
+						}).then(function () { return [variables]; });
+					} else task = Promise.resolve(eventEmit.apply(null, [data.name].concat(suppliedArgs))).then(function () { return suppliedArgs; });
+					task.then(function (args) {
+						if (data.eventId) parent.postMessage({ type: "dsh-tavern-helper-event-complete", token: token, eventId: data.eventId, args: copy(args || []) }, "*");
+					}).catch(function (error) {
+						console.error(error);
+						if (data.eventId) parent.postMessage({ type: "dsh-tavern-helper-event-complete", token: token, eventId: data.eventId, error: String(error && error.message || error), args: suppliedArgs }, "*");
+					});
 					return;
 				}
 				if (data.type !== "dsh-tavern-helper-response") return;
@@ -1301,10 +1309,12 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const invoke = options && options.rpc || rpc;
 			const reportError = options && options.reportError || function (source, error) { tavernErrorHub.report(source, error); };
 			const records = new Map();
+			const pendingEvents = new Map();
 			const allowedMethods = new Set(["updateTavernHelperVariables", "updateTavernHelperMessages", "getTavernHelperWorldbook", "replaceTavernHelperWorldbook"]);
 			let activeSessionId = "";
 			let root = null;
 			let previous = null;
+			let eventSequence = 0;
 			function clone(value) { return value === undefined ? undefined : JSON.parse(JSON.stringify(value)); }
 			function token() { return hostWindow.crypto && typeof hostWindow.crypto.randomUUID === "function" ? hostWindow.crypto.randomUUID() : String(Date.now()) + ":" + String(Math.random()); }
 			function ensureRoot() {
@@ -1359,6 +1369,27 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				record.frame.remove();
 				records.delete(id);
 			}
+			function emitToRecord(record, name, args, context) {
+				if (!record.loaded) return Promise.resolve(args);
+				if (context && typeof context === "object") {
+					record.context = clone(context);
+					post(record, { type: "dsh-tavern-helper-context", context: record.context });
+				}
+				const eventId = "host-event-" + (++eventSequence);
+				return new Promise(function (resolve) {
+					const timer = hostWindow.setTimeout(function () {
+						pendingEvents.delete(eventId);
+						resolve(args);
+					}, 2000);
+					pendingEvents.set(eventId, { resolve: resolve, timer: timer });
+					post(record, { type: "dsh-tavern-helper-event", eventId: eventId, name: name, args: clone(args) });
+				});
+			}
+			async function emit(name, args, context) {
+				let current = clone(Array.isArray(args) ? args : []);
+				for (const record of records.values()) current = await emitToRecord(record, name, current, context);
+				return current;
+			}
 			function clear() {
 				Array.from(records.keys()).forEach(removeRecord);
 				if (root) root.remove();
@@ -1410,6 +1441,14 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				if (!data || !data.token) return;
 				const record = Array.from(records.values()).find(function (item) { return item.token === data.token && event.source === item.frame.contentWindow; });
 				if (!record) return;
+				if (data.type === "dsh-tavern-helper-event-complete") {
+					const pending = pendingEvents.get(String(data.eventId || ""));
+					if (!pending) return;
+					pendingEvents.delete(String(data.eventId || ""));
+					hostWindow.clearTimeout(pending.timer);
+					pending.resolve(clone(Array.isArray(data.args) ? data.args : []));
+					return;
+				}
 				if (data.type === "dsh-tavern-helper-script-runtime") {
 					const message = String(data.message || "人物卡脚本运行失败");
 					if (message !== record.lastRuntimeError) { record.lastRuntimeError = message; reportError("人物卡脚本「" + record.name + "」", new Error(message)); }
@@ -1423,13 +1462,38 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				});
 			}
 			hostWindow.addEventListener("message", receive);
-			return Object.freeze({ sync: sync, dispose: function () { hostWindow.removeEventListener("message", receive); clear(); }, inspect: function () { return { sessionId: activeSessionId, scriptIds: Array.from(records.keys()) }; } });
+			return Object.freeze({ sync: sync, emit: emit, dispose: function () { hostWindow.removeEventListener("message", receive); clear(); }, inspect: function () { return { sessionId: activeSessionId, scriptIds: Array.from(records.keys()) }; } });
 		}
 
 		let tavernHelperScriptRuntime = null;
+		let tavernHelperEventPollTimer = null;
+		let tavernHelperEventPollBusy = false;
+		function scheduleTavernHelperEventPoll() {
+			if (tavernHelperEventPollTimer !== null) return;
+			tavernHelperEventPollTimer = window.setTimeout(async function poll() {
+				tavernHelperEventPollTimer = null;
+				const runtime = tavernHelperScriptRuntime;
+				const inspected = runtime && runtime.inspect();
+				if (!runtime || !inspected || !inspected.sessionId || inspected.scriptIds.length === 0) return;
+				if (!tavernHelperEventPollBusy) {
+					tavernHelperEventPollBusy = true;
+					try {
+						const result = await rpc("pollTavernHelperEvent", {}, inspected.sessionId);
+						const event = result && result.event;
+						if (event) {
+							const args = await runtime.emit(event.name, event.args, event.context);
+							await rpc("completeTavernHelperEvent", { eventId: event.id, args: args }, inspected.sessionId);
+						}
+					} catch (error) { console.warn("Tavern Helper 生命周期同步失败", error); }
+					finally { tavernHelperEventPollBusy = false; }
+				}
+				scheduleTavernHelperEventPoll();
+			}, 100);
+		}
 		function syncTavernHelperScripts(sessionId, view) {
 			if (!tavernHelperScriptRuntime) tavernHelperScriptRuntime = createTavernHelperScriptRuntime();
 			tavernHelperScriptRuntime.sync(sessionId, view);
+			scheduleTavernHelperEventPoll();
 		}
 
 		const TAVERN_FRAME_MAX_HEIGHT = 12000;

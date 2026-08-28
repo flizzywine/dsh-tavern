@@ -121,3 +121,21 @@ test('事件顺序与上一条有效 swipe 快照符合消息结算语义', asyn
   assert.equal(lastMvuVariables(messages).stat_data.体力, 9)
   assert.equal(lastMvuVariables(messages, 1).stat_data.体力, 3)
 })
+
+test('COMMAND_PARSED 使用上游 args 形态并允许变量守卫改写命令', async () => {
+  const runtime = createTavernMvuRuntime()
+  const result = await runtime.settleResponse({
+    previousVariables: variables({ 角色: { 体力: 10, 灵力: 3 } }),
+    sourceText: '_.set("角色.错误字段", 8);',
+    emit: async function (name, current, commands) {
+      if (name !== MVU_EVENTS.commandParsed) return
+      assert.deepEqual(commands[0].args, ['角色.错误字段', 8])
+	  commands[0].args[0] = 'stat_data.角色.体力'
+      commands[0].args[1] = 6
+      return [current, commands]
+    }
+  })
+
+  assert.equal(result.variables.stat_data.角色.体力, 6)
+  assert.equal(result.diagnostics.length, 0)
+})

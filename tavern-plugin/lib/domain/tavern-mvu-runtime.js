@@ -208,6 +208,9 @@ function jsonPatchCommands(source) {
           path: pointerSegments(operation.path ?? operation.to),
           from: pointerSegments(operation.from),
           value: clone(operation.value),
+          args: operation.op === 'move'
+            ? [str(operation.path ?? operation.to), str(operation.from)]
+            : (operation.op === 'remove' ? [str(operation.path)] : [str(operation.path ?? operation.to), clone(operation.value)]),
           reason: 'json_patch',
           fullMatch: JSON.stringify(operation),
           index: match.index
@@ -232,7 +235,7 @@ function lodashCommands(source) {
     commands.push({
       type: ({ assign: 'insert', remove: 'delete', unset: 'delete' })[match[1]] || match[1],
       path: pathSegments(parseValue(args[0])),
-      args: args.slice(1).map(parseValue),
+      args: args.map(parseValue),
       reason: comment ? comment[1].trim() : '',
       fullMatch: source.slice(match.index, end + 2),
       index: match.index
@@ -268,7 +271,7 @@ function applyCommand(statData, command) {
     if (!hasAt(statData, path)) throw new Error('add 路径不存在')
     const stored = getAt(statData, path)
     const value = Array.isArray(stored) && stored.length === 2 && typeof stored[1] === 'string' ? stored[0] : stored
-    const delta = command.value !== undefined ? command.value : command.args[0]
+    const delta = command.value !== undefined ? command.value : command.args.at(-1)
     if (typeof value !== 'number' || typeof delta !== 'number') throw new Error('add 只支持数值增量')
     const next = Number((value + delta).toPrecision(12))
     const before = clone(stored)
@@ -279,29 +282,30 @@ function applyCommand(statData, command) {
   if (command.type === 'insert') {
     const collection = getAt(statData, path)
     const jsonPatch = command.reason === 'json_patch'
-    const key = jsonPatch ? command.path.at(-1) : (command.args.length >= 2 ? command.args[0] : undefined)
+    const key = jsonPatch ? command.path.at(-1) : (command.args.length >= 3 ? command.args[1] : undefined)
     const containerPath = jsonPatch ? command.path.slice(0, -1) : path
     const container = jsonPatch ? getAt(statData, containerPath) : collection
     const value = jsonPatch ? command.value : command.args.at(-1)
     if (container === null || typeof container !== 'object') throw new Error('insert 目标不是集合')
     const before = clone(container)
     if (Array.isArray(container)) {
-      if (jsonPatch || command.args.length >= 2) {
+      if (jsonPatch || command.args.length >= 3) {
         const index = key === '-' || Number(key) === -1 ? container.length : Number(key)
         if (!Number.isInteger(index)) throw new Error('insert 数组索引无效')
         container.splice(index, 0, clone(value))
       } else container.push(clone(value))
-    } else if (jsonPatch || command.args.length >= 2) container[String(key)] = clone(value)
+    } else if (jsonPatch || command.args.length >= 3) container[String(key)] = clone(value)
     else if (value !== null && typeof value === 'object' && !Array.isArray(value)) Object.assign(container, clone(value))
     else throw new Error('insert 对象合并值无效')
     return { statData, before, after: clone(container), displayPath: containerPath }
   }
   if (command.type === 'delete') {
-    if (command.args && command.args.length > 0) {
+    const jsonPatch = command.reason === 'json_patch'
+    if (!jsonPatch && command.args && command.args.length > 1) {
       const collection = getAt(statData, path)
       if (collection === null || typeof collection !== 'object') throw new Error('delete 目标不是集合')
       const before = clone(collection)
-      const target = command.args[0]
+      const target = command.args[1]
       if (Array.isArray(collection)) {
         const index = typeof target === 'number' ? target : collection.findIndex(function (item) { return same(item, target) })
         if (index < 0 || index >= collection.length) throw new Error('delete 数组目标不存在')
@@ -334,7 +338,22 @@ function emptyVariables(statData = {}) {
 
 async function emitEvent(emit, events, name, ...args) {
   events.push(name)
-  if (emit) await emit(name, ...args)
+  if (!emit) return
+  const returned = await emit(name, ...args)
+  if (!Array.isArray(returned)) return
+  for (let index = 0; index < Math.min(args.length, returned.length); index += 1) {
+    const target = args[index]
+    const next = returned[index]
+    if (Array.isArray(target) && Array.isArray(next)) {
+	  const replacement = clone(next)
+	  target.splice(0, target.length, ...replacement)
+	}
+    else if (target && next && typeof target === 'object' && typeof next === 'object') {
+	  const replacement = clone(next)
+      for (const key of Object.keys(target)) delete target[key]
+	  Object.assign(target, replacement)
+    }
+  }
 }
 
 async function updateVariables(sourceText, previous, emit) {
@@ -350,6 +369,16 @@ async function updateVariables(sourceText, previous, emit) {
   await emitEvent(emit, events, MVU_EVENTS.commandParsed, variables, commands, sourceText)
   for (const command of commands) {
     try {
+      if (Array.isArray(command.args) && command.args.length > 0) {
+		const rawPath = str(command.args[0])
+		command.path = rawPath.startsWith('/') ? pointerSegments(rawPath) : pathSegments(rawPath)
+		if (command.path[0] === 'stat_data') command.path = command.path.slice(1)
+		if (command.type === 'move' && command.args.length > 1) {
+		  const rawFrom = str(command.args[1])
+		  command.from = rawFrom.startsWith('/') ? pointerSegments(rawFrom) : pathSegments(rawFrom)
+		  if (command.from[0] === 'stat_data') command.from = command.from.slice(1)
+		}
+      }
       const result = applyCommand(variables.stat_data, command)
       const displayPath = result.displayPath || command.path
       const display = displayChange(result.before, result.after, command.reason)
@@ -409,6 +438,7 @@ export function createTavernMvuRuntime(options = {}) {
   const emit = typeof options.emit === 'function' ? options.emit : null
 
   async function initializeChat(input = {}) {
+	const runtimeEmit = typeof input.emit === 'function' ? input.emit : emit
     const swipes = Array.isArray(input.swipes) ? input.swipes.map(str) : []
     const selectedSwipeId = Math.max(0, Math.min(swipes.length - 1, Number(input.selectedSwipeId) || 0))
     const variables = []
@@ -422,8 +452,8 @@ export function createTavernMvuRuntime(options = {}) {
       } catch (error) {
         diagnostics.push({ swipeId: index, message: error instanceof Error ? error.message : String(error) })
       }
-      await emitEvent(emit, events, MVU_EVENTS.initialized, initial, index)
-      const updated = await updateVariables(renderMacros(swipes[index], input.macroContext), initial, emit)
+	  await emitEvent(runtimeEmit, events, MVU_EVENTS.initialized, initial, index)
+	  const updated = await updateVariables(renderMacros(swipes[index], input.macroContext), initial, runtimeEmit)
       variables.push(updated.variables)
       diagnostics.push(...updated.diagnostics.map(function (item) { return Object.assign({ swipeId: index }, item) }))
       events.push(...updated.events)
@@ -432,12 +462,13 @@ export function createTavernMvuRuntime(options = {}) {
   }
 
   async function settleResponse(input = {}) {
+	const runtimeEmit = typeof input.emit === 'function' ? input.emit : emit
     const sourceText = renderMacros(input.sourceText, input.macroContext)
-    const updated = await updateVariables(sourceText, input.previousVariables, emit)
+	const updated = await updateVariables(sourceText, input.previousVariables, runtimeEmit)
     let messageText = sourceText
     if (updated.modified) {
       const context = { variables: updated.variables, message_content: messageText }
-      await emitEvent(emit, updated.events, MVU_EVENTS.beforeMessageUpdate, context)
+	  await emitEvent(runtimeEmit, updated.events, MVU_EVENTS.beforeMessageUpdate, context)
       messageText = str(context.message_content)
     }
     if (!messageText.includes('<StatusPlaceHolderImpl/>')) messageText += '\n\n<StatusPlaceHolderImpl/>'
