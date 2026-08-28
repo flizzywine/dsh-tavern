@@ -1,6 +1,6 @@
-# 游玩模式前台 Frame 改造方案
+# 酒馆指令到 DSH Frame 改造方案
 
-> 状态：待实施。本文只设计前台 `ForegroundFrame`；后台 Agent、`BackgroundTaskFrame` 和后台结算不在本阶段范围内。
+> 状态：目标设计与分阶段改造方案。架构同时定义 `ForegroundFrame` 与 `BackgroundTaskFrame`；当前里程碑只实现前台 Frame，后台 Frame 暂不实现。
 
 ## 决策
 
@@ -11,13 +11,28 @@ dsh-tavern 保留两条明确隔离的运行路径：
 | 兼容模式 | 每轮按 SillyTavern 语义重建完整请求 | 继续作为旧卡逃生通道和差分基线 |
 | 游玩模式 | 持续 DSH Session + 每轮追加一个 `ForegroundFrame` | 不得调用完整酒馆请求编译器 |
 
-兼容模式继续使用 `compileCompatibilityTurn()` 和临时 provider request 投影，不做改造。游玩模式只把酒馆资源解释为本轮增量输入，历史、工具轨迹、压缩和后续模型调用仍由 DSH 管理。
+兼容模式继续使用 `compileCompatibilityTurn()` 和临时 provider request 投影，不做改造。游玩模式由 Tavern Compatibility Runtime 识别酒馆指令，再由 dsh-tavern Runtime 直接将指令翻译为前台 Frame、后台 Frame、确定性行动、展示行动或明确忽略。历史、工具轨迹、压缩和后续模型调用仍由 DSH 管理。
 
-## 本阶段范围
+不增加 `ForegroundCompatibilityPlan` 一类中间编排对象。酒馆指令直接进入 dsh-tavern Runtime 的指令分派 seam。
+
+## 目标设计范围
+
+完整架构包括：
+
+- 公共 `AgentInputFrame`；
+- 前台 `ForegroundFrame`；
+- 后台 `BackgroundTaskFrame`；
+- 酒馆指令到 dsh-tavern 行动的统一分派；
+- Harness 状态提交与 Presentation 投影；
+- 无法或不值得迁移的指令采用显式忽略策略。
+
+## 当前实施范围
 
 包含：
 
 - 定义正式的 `ForegroundFrame`；
+- 定义公共 `AgentInputFrame` 和未来 `BackgroundTaskFrame` 的接口与不变量；
+- 定义完整的酒馆指令分派表；
 - 建立唯一的 `ForegroundFrameBuilder` seam；
 - 把人物卡、当前世界书、当前状态、剧本引用、Guide 和游玩写作规则收进本轮 Frame；
 - 把输入宏和发送正则作为 Frame 构建过程的一部分，只执行一次；
@@ -26,13 +41,13 @@ dsh-tavern 保留两条明确隔离的运行路径：
 
 不包含：
 
-- `BackgroundTaskFrame`；
+- `BackgroundTaskFrame` 的代码实现与 Session 接入；
 - MVU 额外模型后台路由；
 - 候选生成、状态结算和后台 Agent 改造；
 - 改写兼容模式的 Prompt Order、世界书或完整请求编译器；
 - 将旧酒馆卡自动转换成前后台双 Agent 卡。
 
-现有后台流程保持原样，只是不纳入本次 Frame 设计。
+现有后台流程保持原样。后台 Frame 已进入目标设计，但不纳入当前开发里程碑和验收范围。
 
 ## 当前问题
 
@@ -46,16 +61,30 @@ dsh-tavern 保留两条明确隔离的运行路径：
 ## 目标链路
 
 ```text
+人物卡、预设、世界书、MVU、正则、Helper
+  ↓
+Tavern Compatibility Runtime 识别酒馆指令
+  ↓
+dsh-tavern Runtime 逐条分派
+  ├── 前台上下文贡献 → ForegroundFrameBuilder
+  ├── 后台语义任务   → BackgroundTaskFrameBuilder（后续实现）
+  ├── 确定性行动     → Harness
+  ├── 显示行动       → Presentation Runtime
+  └── 不适配的语义   → ignored + diagnostics
+```
+
+前台链路：
+
+```text
 玩家输入
   ↓
 Turn Orchestrator 建立本轮 operation
   ↓
+dsh-tavern Runtime 接收本轮酒馆指令
+  ↓
 ForegroundFrameBuilder.build(...)
   ├── 投影本轮玩家输入
-  ├── 读取人物卡的当前有效语义
-  ├── 读取已经准备好的世界书上下文
-  ├── 读取当前权威状态投影
-  ├── 选择剧本引用、Guide 与写作规则
+  ├── 接收人物卡、世界书、状态、剧本、Guide 和写作规则贡献
   └── 记录资源 revision/hash
   ↓
 ForegroundFrameSessionAdapter.append(frame)
@@ -67,7 +96,27 @@ DSH 自主管理模型调用、工具轨迹、压缩与恢复
 
 第二次及后续 Agent step 不再重新构建或追加 Frame，也不重新投影人物卡、世界书和预设。它们只使用 DSH Session 已经拥有的本轮轨迹继续工作。
 
-## ForegroundFrame 模型
+## Frame 模型
+
+```text
+AgentInputFrame
+├── ForegroundFrame
+└── BackgroundTaskFrame
+```
+
+公共字段只关联权威剧情和来源：
+
+```text
+AgentInputFrame {
+  frameId
+  chatId
+  branchId
+  basedOnRevision
+  source
+}
+```
+
+### ForegroundFrame
 
 ```text
 ForegroundFrame {
@@ -111,7 +160,38 @@ Frame 不包含：
 
 `source` 用于诊断、重放和幂等判断，不是要求 Agent 阅读的提示词正文。
 
+### BackgroundTaskFrame
+
+```text
+BackgroundTaskFrame {
+  ...AgentInputFrame
+  kind: "background-task"
+  taskType
+  trigger
+  foregroundOutput
+  authoritativeState
+  taskRules
+  outputContract
+}
+```
+
+后台 Frame 用于 MVU 额外模型解析、状态结算和候选生成等任务。它只能进入后台 Session，必须绑定产生它的 branch/revision，迟到结果由 Harness 拒绝。
+
+当前里程碑只冻结这个接口和路由位置，不实现 Builder、Adapter、模型调用或结果提交。
+
 ## 核心深模块
+
+### TavernInstructionDispatcher
+
+它属于 dsh-tavern Runtime。Tavern Compatibility Runtime 给出酒馆指令后，由 Dispatcher 直接决定：
+
+```text
+applyInstruction(turnContext, instruction)
+```
+
+指令会被翻译为前台 Frame 贡献、未来后台 Frame 任务、Harness 行动、Presentation 行动或显式忽略。Dispatcher 隐藏酒馆术语与 DSH 领域行动之间的映射；调用方不维护另一份翻译表。
+
+这不是新的 Compatibility Plan。它是 dsh-tavern Runtime 内部执行酒馆指令的深模块。
 
 ### ForegroundFrameBuilder
 
@@ -121,7 +201,7 @@ Frame 不包含：
 buildForegroundFrame({ sessionId, turn, userInput }) → ForegroundFrame
 ```
 
-它在内部完成资源读取、选择、去重、宏解析、发送正则、状态投影和来源记录。调用方不需要知道人物卡、世界书、剧本、MVU 或预设分别存在哪里。
+它接收 Dispatcher 已翻译出的前台贡献，在内部完成选择、去重、状态投影和来源记录。酒馆字段的识别属于 Tavern Compatibility Runtime，酒馆指令到领域行动的翻译属于 Dispatcher，FrameBuilder 不直接理解 `prompt_order`、注入深度等酒馆实现细节。
 
 删除这个模块时，上述复杂度会重新散落到 `agent/pre-step`、Turn Orchestrator 和多个资源模块，因此它是一个有实际深度的模块，而不是转发层。
 
@@ -143,21 +223,27 @@ Adapter 必须保证：
 - 不替换 DSH 已有的完整 `messages[]`；
 - 不修改 DSH system、tools 或历史轨迹。
 
-## 酒馆能力如何进入前台 Frame
+## 酒馆指令如何分派
 
-| 酒馆能力 | 游玩模式中的位置 |
-| --- | --- |
-| 人物卡描述、性格、场景 | `cardContext` |
-| 玩家输入宏、发送正则 | `userInput.projectedText`，构建时执行一次 |
-| 当前激活世界书 | `activeWorldbook` |
-| MVU 当前变量 | `currentStateProjection` |
-| 剧本进度 | `scriptReference` |
-| Guide | `guide` |
-| 原生游玩预设和写作约束 | `writingRules` |
-| 输出正则、HTML、状态栏 | 不进入 Frame；在最终回复后由 Presentation 投影 |
-| 完整 Prompt Order 与历史重排 | 只留在兼容模式 |
+| 酒馆指令 | dsh-tavern Runtime 的翻译 | 当前里程碑 |
+| --- | --- | --- |
+| 人物卡描述、性格、场景 | 写入 `ForegroundFrame.cardContext` | 实现 |
+| 玩家输入宏、发送正则 | 转换 `ForegroundFrame.userInput.projectedText` | 实现 |
+| 激活世界书条目 | 写入 `ForegroundFrame.activeWorldbook` | 实现 |
+| 世界书插入历史指定深度 | 不复刻深度；改为本轮前台上下文，无法翻译时忽略并诊断 | 实现降级语义 |
+| MVU 当前变量 | 写入 `ForegroundFrame.currentStateProjection` | 实现 |
+| 剧本进度 | 写入 `ForegroundFrame.scriptReference` | 实现 |
+| Guide | 写入 `ForegroundFrame.guide` | 实现 |
+| 原生游玩预设和写作约束 | 写入 `ForegroundFrame.writingRules` | 实现 |
+| 完整 Prompt Order、历史重排 | 游玩模式忽略并诊断；兼容模式忠实执行 | 实现隔离 |
+| MVU 额外模型解析 | 创建 `BackgroundTaskFrame` | 仅设计 |
+| 状态结算、候选生成 | 创建对应 `BackgroundTaskFrame` | 仅设计 |
+| MVU 前台更新 | 回复完成后交给 Harness 结算 | 保持现状 |
+| 输出正则 | 回复完成后执行消息或显示投影 | 保持现状 |
+| HTML、状态栏、CG | 交给 Presentation Runtime | 保持现状 |
+| 未知或不支持的酒馆指令 | `ignored`，记录指令类型、来源和原因 | 实现 |
 
-这里的“预设进入 Frame”不是复制完整酒馆预设。游玩模式只提取 Agent 本轮需要遵守的写作和任务规则；无法可靠翻译的精确位置语义继续走兼容模式。
+这里的“预设进入 Frame”不是复制完整酒馆预设。游玩模式只提取 Agent 本轮需要遵守的写作和任务规则；无法可靠翻译的精确位置语义可以忽略，要求忠实执行时改走兼容模式。
 
 ## 当前实现的迁移落点
 
@@ -182,8 +268,9 @@ Adapter 必须保证：
 
 ### 阶段 1：引入领域模型
 
-- 新建 `foreground-frame` 模块；
-- 新建 FrameBuilder，以当前 `prepared.text` 为初始文本投影，先保持运行结果不变；
+- 定义 `AgentInputFrame`、`ForegroundFrame` 与 `BackgroundTaskFrame`；
+- 新建 TavernInstructionDispatcher 和前台 FrameBuilder；
+- 前台 FrameBuilder 以当前 `prepared.text` 为初始文本投影，先保持运行结果不变；
 - 为 `frameId`、branch/revision 和资源来源建立稳定规则；
 - 测试只通过 FrameBuilder 的公开接口验证行为。
 
@@ -209,6 +296,17 @@ Adapter 必须保证：
 
 每个阶段独立提交、独立验证；不能把领域模型、运行链路切换和旧代码清理塞进同一个提交。
 
+### 后续阶段：后台 Frame
+
+前台 seam 稳定后另行实施：
+
+- `BackgroundTaskFrameBuilder`；
+- 后台 Session Adapter；
+- MVU 额外模型、状态结算和候选生成的指令路由；
+- branch/revision 校验、迟到结果拒绝和提交协议。
+
+这些内容属于同一目标架构，但不是当前改造任务的交付物。
+
 ## 验收标准
 
 1. 游玩模式每个 turn 恰好构建并追加一个 `ForegroundFrame`。
@@ -220,6 +318,7 @@ Adapter 必须保证：
 7. 人物卡、当前世界书、当前状态、剧本、Guide 和写作规则都能从 Frame 来源追踪。
 8. 输出正则、MVU 前台结算和 HTML 展示结果不因输入架构改造而变化。
 9. DSH 压缩后可以继续从 Session Surface + 新 Frame 正常游玩。
+10. `BackgroundTaskFrame` 的接口、路由目标和权威状态约束已经固定，但没有后台实现也不影响当前里程碑完成。
 
 ## 风险与回退
 
@@ -237,7 +336,9 @@ Adapter 必须保证：
 
 ```text
 兼容模式 = 完整酒馆请求编译器
-游玩模式 = 酒馆语义编译器 → 单个 ForegroundFrame → 持续 DSH Session
+游玩模式 = 酒馆指令 → dsh-tavern Runtime 行动
+          ├── ForegroundFrame → 前台持续 DSH Session
+          └── BackgroundTaskFrame → 后台持续 DSH Session（后续实现）
 ```
 
-本阶段不以后台任务迁移为完成条件。后台 Frame 将在前台 Frame seam 稳定后单独设计。
+当前里程碑只以前台 Frame 落地为完成条件；后台 Frame 已完成架构设计，待前台 seam 稳定后单独实现。
