@@ -80,8 +80,13 @@ export function rewriteCachedModuleImports(source, baseUrl) {
 }
 
 function rewriteStylesheetUrls(source, baseUrl) {
-  return str(source).replace(/(url\(\s*)(["']?)((?:https:\/\/|\/|\.\.?\/)[^"')\s]+)\2(\s*\))/gi, function (_match, prefix, quote, specifier, suffix) {
+  const urls = str(source).replace(/(url\(\s*)(["']?)([^"')\s]+)\2(\s*\))/gi, function (_match, prefix, quote, specifier, suffix) {
+    if (/^(?:data:|blob:|#|var\()/i.test(specifier) || /^https?:/i.test(specifier) && !/^https:/i.test(specifier)) return _match
     return prefix + quote + absoluteCacheUrl(specifier, baseUrl) + quote + suffix
+  })
+  return urls.replace(/(@import\s+)(["'])([^"']+)\2/gi, function (_match, prefix, quote, specifier) {
+    if (/^(?:data:|blob:|#)/i.test(specifier) || /^https?:/i.test(specifier) && !/^https:/i.test(specifier)) return _match
+    return prefix + quote + absoluteCacheUrl(specifier, baseUrl) + quote
   })
 }
 

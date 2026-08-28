@@ -54,8 +54,10 @@ test('缓存的 ESM、CSS 和 HTML 子资源继续改写到本地缓存入口', 
   const cssBody = projectCachedResourceBody({
     url: 'https://cdn.example.test/css/all.min.css',
     mediaType: 'text/css',
-    body: Buffer.from('@font-face{src:url(../webfonts/icons.woff2)}')
+    body: Buffer.from('@import url(theme/base.css); @import "../shared/tokens.css"; @font-face{src:url(../webfonts/icons.woff2)}')
   }).toString('utf8')
+  assert.match(cssBody, /static-assets\?url=https%3A%2F%2Fcdn\.example\.test%2Fcss%2Ftheme%2Fbase\.css/)
+  assert.match(cssBody, /static-assets\?url=https%3A%2F%2Fcdn\.example\.test%2Fshared%2Ftokens\.css/)
   assert.match(cssBody, /static-assets\?url=https%3A%2F%2Fcdn\.example\.test%2Fwebfonts%2Ficons\.woff2/)
 
   const htmlBody = projectCachedResourceBody({

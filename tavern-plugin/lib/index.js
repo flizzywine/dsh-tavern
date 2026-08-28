@@ -47,6 +47,7 @@ import { projectTavernHelperScripts } from './domain/tavern-helper-scripts.js'
 import { createTavernHelperEventGate } from './domain/tavern-helper-event-gate.js'
 import { createTavernRemoteAssetPinStore } from './domain/tavern-remote-assets.js'
 import { createTavernStaticResourceCache, projectCachedResourceBody } from './domain/tavern-static-resource-cache.js'
+import { SILLYTAVERN_CSS_COMPAT_URLS } from './domain/sillytavern-css-compatibility.js'
 import { mergeRegeneratedSwipe } from './domain/tavern-swipe-regeneration.js'
 import { TavernPromptTemplateRuntime } from './domain/tavern-prompt-template-runtime.js'
 import {
@@ -121,7 +122,7 @@ export async function apply(ctx) {
     'https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.7.2/css/all.min.css',
     'https://testingcf.jsdelivr.net/npm/zod@4.4.3/+esm',
     'https://testingcf.jsdelivr.net/npm/pinia/+esm'
-  ]).then(function (results) {
+  ].concat(SILLYTAVERN_CSS_COMPAT_URLS)).then(function (results) {
     const failures = results.filter(function (result) { return result.status === 'rejected' })
     if (failures.length > 0) console.warn('dsh-tavern: 部分静态运行库暂未缓存，将在使用时重试:', failures.map(function (result) { return str(result.reason && result.reason.message || result.reason) }).join('；'))
   })

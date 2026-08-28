@@ -52,9 +52,8 @@ test('消息 iframe 将可信远程资源转入持久缓存，同时保留不透
   assert.match(document, /<p>正文<\/p><style>p\{color:red\}<\/style>/)
   assert.match(document, /static-assets\?url=https%3A%2F%2Fcdn\.jsdelivr\.net%2Fexample\.js/)
   assert.match(document, /data-dsh-tavern-static-cache/)
-  assert.match(document, /data-dsh-tavern-icons/)
-  assert.match(document, /fontawesome-free%406\.7\.2%2Fcss%2Fall\.min\.css/)
-  assert.match(document, /all\.min\.css&rev=2/)
+  assert.match(document, /data-dsh-sillytavern-css-compat="1\.18\.0"/)
+  assert.match(document, /public%2Fcss%2Fsolid\.min\.css/)
   assert.match(document, /HTMLImageElement/)
   assert.match(document, /default-src https: http: data: blob:/)
   assert.match(document, /connect-src https: http: wss: data: blob:/)
@@ -99,6 +98,20 @@ test('Tavern Helper 消息 iframe 按官方顺序加载完整前端依赖', () =
     previous = current
   }
   assert.match(document, /lodash%404\.18\.1%2Flodash\.min\.js/)
+  assert.doesNotMatch(document, /data-dsh-sillytavern-css-compat/)
+})
+
+test('普通正则 HTML iframe 加载锁定版本的 SillyTavern CSS 兼容包', () => {
+  const document = client.buildTavernFrameDocument({
+    content: '<div class="mes"><div class="mes_block"><div class="mes_text"><button class="menu_button">操作</button></div></div></div>',
+    token: 'st-css-token'
+  })
+  assert.match(document, /data-dsh-sillytavern-css-compat="1\.18\.0"/)
+  assert.match(document, /SillyTavern%408172dcd0ee672d3cd9a5e5f7af134f91a45cd2b8%2Fpublic%2Fstyle\.css/)
+  assert.match(document, /public%2Fcss%2Fst-tailwind\.css/)
+  assert.match(document, /public%2Fcss%2Fmobile-styles\.css/)
+  assert.match(document, /data-dsh-sillytavern-iframe-adapter/)
+  assert.ok(document.indexOf('public%2Fstyle.css') < document.indexOf('data-dsh-sillytavern-iframe-adapter'))
 })
 
 test('Helper 脚本文档提供可见弹窗容器和固定 Tavern Helper 按钮事件格式', () => {
