@@ -15,6 +15,8 @@ dsh-tavern 保留两条明确隔离的运行路径：
 
 本方案的核心是“酒馆指令 → dsh-tavern 行动”翻译表。酒馆指令直接进入 dsh-tavern Runtime 的指令分派 seam，不经过额外的中间编排对象。
 
+酒馆指令的来源范围、原生语义、翻译目标和当前支持状态，以 [酒馆指令清单与 dsh-tavern Runtime 翻译计划](../research/tavern-instruction-inventory.md) 为盘点基线。本文只保留改造里程碑所需的摘要，不再凭抽象名称猜测指令范围。
+
 ## 目标设计范围
 
 完整架构包括：
