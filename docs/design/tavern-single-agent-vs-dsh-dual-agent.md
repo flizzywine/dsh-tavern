@@ -26,6 +26,62 @@ Harness / Presentation Runtime：校验、提交、组合并渲染结果
 
 前后台是两套持续 Session。前台负责表演，后台负责语义计算；两者都不直接拥有权威状态，最终事实由 Harness 提交。
 
+## 前台 Frame 与后台 Frame
+
+既然前台和后台是两套职责不同的持续 Session，它们就不能共用一种含义模糊的输入。架构上应定义一个公共输入抽象，并区分两种 Frame：
+
+```text
+AgentInputFrame
+├── ForegroundFrame
+└── BackgroundTaskFrame
+```
+
+`ForegroundFrame` 表示玩家开始了新一轮，只追加到前台 Session：
+
+```text
+ForegroundFrame {
+  userInput
+  cardContext
+  activeWorldbook
+  currentStateProjection
+  writingRules
+  branch
+  revision
+}
+```
+
+它的目标是生成用户阅读的正文。一轮通常只有一个 `ForegroundFrame`。
+
+`BackgroundTaskFrame` 表示系统需要完成一项后台语义任务，只追加到后台 Session：
+
+```text
+BackgroundTaskFrame {
+  taskType
+  trigger
+  foregroundOutput
+  authoritativeState
+  taskRules
+  outputContract
+  branch
+  revision
+}
+```
+
+它的目标是生成变量补丁、状态动作、候选项或其他结构化结果。一轮可以没有后台任务，也可以依次产生多个 `BackgroundTaskFrame`。后台任务可以重试或延迟完成，但结果必须绑定触发它的前台 `branch / revision`，并由 Harness 防止重复提交或写入过期分支。
+
+两种 Frame 都只负责初始化一次 Agent 工作，不包含随后发生的模型调用、思考、工具调用和工具结果；这些轨迹由各自的 DSH Session 管理。
+
+```text
+ForegroundFrame
+  → 前台正文
+  → BackgroundTaskFrame(MVU)
+  → BackgroundTaskFrame(状态结算)
+  → BackgroundTaskFrame(候选生成)
+  → Harness 校验并提交
+```
+
+因此，Frame 不是一种统一的“每轮消息格式”，而是一组面向不同 Agent Session 的输入协议：前台接收回合 Frame，后台接收任务 Frame。
+
 ## 两种协议必须并存
 
 ### 酒馆兼容协议
