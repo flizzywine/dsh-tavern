@@ -254,8 +254,8 @@ Dispatcher 的输出不是新的 `ForegroundCompatibilityPlan`。它直接调用
 | EJS 模板 | `tavern-prompt-template-runtime.js` | 已有受限 QuickJS 与常用变量/chat/world-info API；decorator、注入和完整扩展 API 未齐 |
 | Helper 脚本宿主 | `tavern-helper-*.js` 与客户端 iframe shim | 已支持脚本加载、常用变量/消息/世界书和事件子集；不是完整酒馆助手 |
 | HTML/状态栏/CG | `reply-presentation.js` 与 iframe/static asset 路径 | 主展示链已有；ST CSS/全局/DOM 仍需按兼容面补全 |
-| ForegroundFrame | 设计文档与现有 `foreground-handoff` 雏形 | 尚未成为正式领域对象 |
-| BackgroundTaskFrame | 仅目标设计 | 本轮不实施 |
+| ForegroundFrame | `agent-input-frame.js`、`tavern-instruction-dispatcher.js`、`foreground-frame-session-adapter.js` | 已成为正式领域对象并接入前台 Session |
+| BackgroundTaskFrame | 已冻结数据接口，尚无 Builder、Session Adapter 或执行链 | 本轮不实施 |
 
 ## 九、必须保留的两种行为
 

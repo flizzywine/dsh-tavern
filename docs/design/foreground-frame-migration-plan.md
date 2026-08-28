@@ -1,6 +1,6 @@
 # 酒馆指令到 DSH Frame 改造方案
 
-> 状态：目标设计与分阶段改造方案。架构同时定义 `ForegroundFrame` 与 `BackgroundTaskFrame`；当前里程碑只实现前台 Frame，后台 Frame 暂不实现。
+> 状态：前台 Frame 代码链路已落地，真实游玩与兼容请求 hash 验收待运行环境复核。架构同时定义 `ForegroundFrame` 与 `BackgroundTaskFrame`；后台 Frame 暂不实现。
 
 ## 决策
 
@@ -51,14 +51,15 @@ dsh-tavern 保留两条明确隔离的运行路径：
 
 现有后台流程保持原样。后台 Frame 已进入目标设计，但不纳入当前开发里程碑和验收范围。
 
-## 当前问题
+## 已落地的前台边界
 
-游玩模式已经有 Frame 雏形，但尚未形成稳定架构：
+游玩模式已经形成以下稳定边界：
 
-1. `Turn Orchestrator.prepare()` 最终只返回一段 `prepared.text`，资源来源、剧情 revision 和输入投影没有成为正式领域对象。
-2. `agent/pre-step` 在第一步追加这段文本，但 Frame 的一次性、幂等和来源约束没有独立接口保证。
-3. 运行时预设的 `front/back` 仍可在 `llm/stream` 阶段重新投影 provider request。这会让游玩模式残留“每次模型调用再次拼提示词”的行为。
-4. 兼容模式与游玩模式共用同一组请求钩子，主要依靠条件分支隔离，缺少不可跨越的行为测试。
+1. Context Planner 保留带 kind、required 和 text 的结构化 section，不再只暴露拼接文本。
+2. Turn Orchestrator 把 section 翻译为统一酒馆指令，并生成带 branch/revision/source 的 `ForegroundFrame`。
+3. `agent/pre-step` 只在 `step=1` 通过 Session Adapter 追加 Frame；重试复用同一 operation 已持久化的 Frame。
+4. 游玩模式不再在 `llm/stream` 阶段投影完整前台预设或重排 provider request。
+5. 兼容模式仍独立使用完整酒馆编译和临时 provider request 替换。
 
 ## 目标链路
 
@@ -144,10 +145,10 @@ ForegroundFrame {
   }
 
   source {
-    cardRevision
-    worldbookRevision
-    stateRevision
-    presetSnapshotId
+    card { path, name, revision }
+    worldBook { branchId, revision, refs }
+    state { branchId, revision }
+    preset { id, digest }
   }
 }
 ```
@@ -262,13 +263,13 @@ Adapter 必须保证：
 
 ## 分阶段实施
 
-### 阶段 0：冻结两条路径
+### 阶段 0：冻结两条路径（代码护栏已完成，真实请求 hash 待复核）
 
 - 保存一个真实兼容请求的角色、顺序和内容 hash，防止改造破坏兼容模式；
 - 增加游玩模式护栏测试，证明其不会调用 `compileCompatibilityTurn()` 或 `createEphemeralCompatibilityRequest()`；
 - 增加多 step 测试，证明当前问题可被测试捕获。
 
-### 阶段 1：引入领域模型
+### 阶段 1：引入领域模型（已完成）
 
 - 定义 `AgentInputFrame`、`ForegroundFrame` 与 `BackgroundTaskFrame`；
 - 新建 TavernInstructionDispatcher 和前台 FrameBuilder；
@@ -276,20 +277,20 @@ Adapter 必须保证：
 - 为 `frameId`、branch/revision 和资源来源建立稳定规则；
 - 测试只通过 FrameBuilder 的公开接口验证行为。
 
-### 阶段 2：接入 DSH 游玩链路
+### 阶段 2：接入 DSH 游玩链路（已完成）
 
 - `requestMode=dsh && step=1` 时构建并追加 Frame；
 - 同一 turn 的重试复用同一个 Frame；
 - `step>1` 完全交回 DSH，不再执行 Tavern 资源投影；
 - 兼容模式分支保持原样。
 
-### 阶段 3：收回请求边界投影
+### 阶段 3：收回请求边界投影（前台已完成）
 
 - 将游玩模式的 `middle/front/back` 可翻译语义收进 `writingRules`；
 - 删除游玩模式的 `runtimePresetSnapshots` 和 `runtimePresetRedispatches` 路径；
 - `llm/stream` 不再为游玩模式重排完整请求，只保留日志、重试、压缩等 DSH 生命周期能力。
 
-### 阶段 4：收敛旧接口
+### 阶段 4：收敛旧接口（基础收敛已完成）
 
 - 删除 `prepared.text` 作为隐式 Frame 的跨模块契约；
 - 删除重复的资源读取与注入代码；
