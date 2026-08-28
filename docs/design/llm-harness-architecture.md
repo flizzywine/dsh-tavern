@@ -102,4 +102,5 @@ LLM 可以判断“发生了什么”，但只有 Harness 可以确认“什么�
 ## 相关文档
 
 - [酒馆能力在 LLM Harness 中的重新安置](tavern-capabilities-in-llm-harness.md)
+- [酒馆单 Agent 协议与 DSH 前后台 Agent 架构](tavern-single-agent-vs-dsh-dual-agent.md)
 - [DSH 原生人物卡格式备忘](dsh-native-character-card.md)
