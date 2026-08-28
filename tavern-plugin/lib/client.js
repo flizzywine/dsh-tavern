@@ -3503,6 +3503,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const view = liveState.view;
 			const loadState = liveState.phase;
 			const debugTurns = view && Array.isArray(view.debugTurns) ? view.debugTurns : [];
+			const helperDiagnostics = view && Array.isArray(view.tavernHelperScriptDiagnostics) ? view.tavernHelperScriptDiagnostics : [];
+			const helperFailures = helperDiagnostics.filter(function (item) { return item && item.status !== "host-owned"; });
 			const latestDebugTurn = Number(debugTurns[0] && debugTurns[0].turn) || 0;
 			React.useEffect(function () {
 				setError(liveState.error || "");
@@ -3550,11 +3552,19 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					(view.card.tags || []).length ? h("div", { className: "dsh-tavern-status-tags" }, (view.card.tags || []).slice(0, 8).map(function (tag) { return h("span", { key: tag, className: "dsh-tavern-status-tag" }, tag); })) : null,
 					h("div", { className: "dsh-tavern-status-settle" }, h("span", { className: "dsh-tavern-status-dot " + (view.settleStatus || "idle") }), statusText)
 				),
-				h("div", { className: "dsh-tavern-status-body" },
+					h("div", { className: "dsh-tavern-status-body" },
 					view.worldBookError ? h("div", { className: "dsh-card-error" }, "世界书召回失败：" + view.worldBookError) : null,
 					(view.presentationWarnings || []).map(function (warning, index) {
 						return h("div", { className: "dsh-card-error", key: "presentation-warning-" + index }, warning);
 					}),
+					helperDiagnostics.length ? h("details", { className: "dsh-tavern-dsh-preset-diagnostics", open: helperFailures.length > 0 },
+						h("summary", null, helperFailures.length > 0 ? "人物卡脚本有 " + helperFailures.length + " 项未运行" : "人物卡脚本兼容状态"),
+						h("ul", null, helperDiagnostics.map(function (item, index) {
+							const name = String(item && (item.name || item.asset) || "脚本");
+							const message = String(item && item.message || item && item.status || "未知状态");
+							return h("li", { key: name + ":" + index }, name + "：" + message);
+						}))
+					) : null,
 					h("section", { className: "dsh-tavern-status-section" },
 						h("div", { className: "dsh-tavern-status-label" }, "正则加载不对？前端美化不对？内容生成不对？"),
 						h("div", { className: "dsh-tavern-debug-panel" },

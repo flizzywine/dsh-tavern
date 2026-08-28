@@ -841,6 +841,13 @@ test('酒馆状态只服务游玩模式，卡片工作台面板暂不复用该�
   assert.match(status, /世界书召回失败：/)
 })
 
+test('酒馆状态页显示人物卡脚本失败诊断，避免远程资源被阻止后静默失效', () => {
+	const panel = between(clientSource, 'function TavernStatusPanel', 'function TavernStatusTab')
+	assert.match(panel, /tavernHelperScriptDiagnostics/)
+	assert.match(panel, /人物卡脚本有.*项未运行/)
+	assert.match(panel, /人物卡脚本兼容状态/)
+})
+
 test('剧本预览只显示当前召回和后续块', () => {
   assert.match(clientSource, /index === 0 \? "当前召回" : "后续"/)
   assert.doesNotMatch(clientSource, /上一块（已召回）|当前待召回|scriptPreview\.previous/)
