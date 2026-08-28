@@ -114,3 +114,5 @@ DSH `surface replace` 只负责恢复模型消息面；DSH 的人类 transcript 
 显示与发送正则继续按固定 SillyTavern `8172dcd` 的可观察语义收敛：`trimStrings` 只过滤被替换引用的匹配内容，不会误删替换模板中的固定文字；命名捕获组 `$<name>` 与缺失捕获组的空串行为已经纳入自动化回归。
 
 人物卡声明的 Tavern Helper 可见按钮现在由酒馆状态页承载，事件名沿用上游 `script_id + "_" + getStringHash(button_name)`。Helper iframe 提供最小 `getCharData()` 与 `SillyTavern.Popup` 兼容面；脚本通过 `setChatMessages()` 写入成功后，宿主会刷新权威对话投影。真实《灯火阑珊》“开场白索引”已能列出全部 15 个 Swipe，并在不刷新页面的情况下切换开场、变量快照和状态栏。
+
+MagVarUpdate 固定基线的命令差分切片现在还覆盖无前导斜杠路径、`add` 参数校验、`COMMAND_PARSED` 的 insert/move 参数形状和上游固定版本的 mathjs 表达式。它用于逐步收窄差异，不代表已经运行官方整包或完成全量差分。

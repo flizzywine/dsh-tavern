@@ -154,3 +154,19 @@ test('MVU 上游一致性：JSON Patch insert 与 move 向 COMMAND_PARSED 暴露
 	])
 	assert.deepEqual(result.variables.stat_data, { bag: ['旧物', '新物'], target: 7 })
 })
+
+test('MVU 上游一致性：lodash 命令使用固定 mathjs 解析数学表达式', async () => {
+	const runtime = createTavernMvuRuntime()
+	const result = await runtime.settleResponse({
+		previousVariables: variables({ 分数: 0, 浓度: 0, 相位: 0, 阻抗: 0 }),
+		sourceText: [
+			"_.set('分数', 100 * 2 + 50);//四则运算",
+			"_.set('浓度', log(10^3, 10) * sqrt(144));//函数",
+			"_.set('相位', cos(pi) + 2);//常数",
+			"_.set('阻抗', (2 + 3i) * (1 - 2i));//复数"
+		].join('\n')
+	})
+
+	assert.deepEqual(result.variables.stat_data, { 分数: 250, 浓度: 36, 相位: 1, 阻抗: '8 - i' })
+	assert.deepEqual(result.diagnostics, [])
+})

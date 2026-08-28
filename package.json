@@ -20,6 +20,7 @@
     "dsh-better-sidebar": "0.15.0",
     "dsh-tavern-plugin": "link:./tavern-plugin",
     "ejs": "3.1.9",
+    "mathjs": "12.4.3",
     "quickjs-emscripten-core": "0.32.0",
     "yaml": "2.9.0"
   },

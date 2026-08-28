@@ -1,4 +1,5 @@
 import { parse as parseYaml } from 'yaml'
+import * as math from 'mathjs'
 
 // Compatibility behavior is derived from MagicalAstrogy/MagVarUpdate at the
 // pinned commit recorded in lib/vendor/magvarupdate/SOURCE.md (MIT licensed).
@@ -49,6 +50,12 @@ function parseValue(value) {
   const source = str(value).trim()
   if (source === 'undefined') return undefined
   try { return JSON.parse(source) } catch {}
+  try {
+    const result = math.evaluate(source, { Math, math })
+    if (math.isComplex(result) || math.isMatrix(result)) return result.toString()
+    if (typeof result === 'number' && Number.isFinite(result)) return Number(result.toPrecision(12))
+    if (result !== undefined) return result
+  } catch {}
   try { return parseYaml(source) } catch {}
   return source.replace(/^[\\"'` ]*(.*?)[\\"'` ]*$/, '$1')
 }
