@@ -110,9 +110,14 @@ export async function apply(ctx) {
   })
   const tavernStaticResources = createTavernStaticResourceCache({ rootDir: dataRoot + '/cache/static-assets' })
   void tavernStaticResources.warm([
+    'https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.1.12/dist/index.global.js',
     'https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js',
+    'https://cdn.jsdelivr.net/npm/jquery-ui@1.14.1/dist/jquery-ui.min.js',
+    'https://cdn.jsdelivr.net/npm/jquery-ui@1.14.1/themes/base/theme.min.css',
+    'https://cdn.jsdelivr.net/npm/jquery-ui-touch-punch@0.2.3/jquery.ui.touch-punch.min.js',
     'https://cdn.jsdelivr.net/npm/lodash@4.18.1/lodash.min.js',
-    'https://cdn.jsdelivr.net/npm/vue@3.5.41/dist/vue.global.prod.js',
+    'https://cdn.jsdelivr.net/npm/vue@3.5.41/dist/vue.runtime.global.prod.js',
+    'https://cdn.jsdelivr.net/npm/vue-router@5.2.0/dist/vue-router.global.prod.js',
     'https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.7.2/css/all.min.css',
     'https://testingcf.jsdelivr.net/npm/zod@4.4.3/+esm',
     'https://testingcf.jsdelivr.net/npm/pinia/+esm'

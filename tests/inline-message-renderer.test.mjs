@@ -76,6 +76,31 @@ test('消息 iframe 将可信远程资源转入持久缓存，同时保留不透
   assert.match(document, /body>\*\{white-space:normal\}/)
 })
 
+test('Tavern Helper 消息 iframe 按官方顺序加载完整前端依赖', () => {
+  const document = client.buildTavernFrameDocument({
+    content: '<div class="card">状态栏</div>',
+    token: 'helper-dependencies-token',
+    helperContext: { messages: [] }
+  })
+  const markers = [
+    '%40fortawesome%2Ffontawesome-free%406.7.2%2Fcss%2Fall.min.css',
+    '%40tailwindcss%2Fbrowser%404.1.12%2Fdist%2Findex.global.js',
+    'jquery%403.7.1%2Fdist%2Fjquery.min.js',
+    'jquery-ui%401.14.1%2Fdist%2Fjquery-ui.min.js',
+    'jquery-ui%401.14.1%2Fthemes%2Fbase%2Ftheme.min.css',
+    'jquery-ui-touch-punch%400.2.3%2Fjquery.ui.touch-punch.min.js',
+    'vue%403.5.41%2Fdist%2Fvue.runtime.global.prod.js',
+    'vue-router%405.2.0%2Fdist%2Fvue-router.global.prod.js'
+  ]
+  let previous = -1
+  for (const marker of markers) {
+    const current = document.indexOf(marker)
+    assert.ok(current > previous, `${marker} 应按 Tavern Helper 官方顺序出现`)
+    previous = current
+  }
+  assert.match(document, /lodash%404\.18\.1%2Flodash\.min\.js/)
+})
+
 test('Helper 脚本文档提供可见弹窗容器和固定 Tavern Helper 按钮事件格式', () => {
   const document = client.buildTavernHelperScriptDocument({
     token: 'helper-token',
@@ -87,6 +112,8 @@ test('Helper 脚本文档提供可见弹窗容器和固定 Tavern Helper 按钮�
   assert.match(document, /data-dsh-tavern-icons/)
   assert.match(document, /dsh-tavern-helper-ui-open/)
   assert.match(document, /return scriptId \+ "_" \+ stringHash/)
+  assert.match(document, /vue%403\.5\.41%2Fdist%2Fvue\.runtime\.global\.prod\.js/)
+  assert.match(document, /vue-router%405\.2\.0%2Fdist%2Fvue-router\.global\.prod\.js/)
 })
 
 test('消息 iframe 在人物卡脚本前提供隔离的 localStorage 兼容层', () => {
