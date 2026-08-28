@@ -81,3 +81,14 @@ test('domain mutation 总是在锁内基于最新聊天执行', async function (
   assert.equal(app.stored().counter, 20)
   assert.equal(app.stored()._storageRevision, 20)
 })
+
+test('诊断性写入可以保留业务 updatedAt', async function () {
+  const app = harness({ id: 'chat-1', updatedAt: 600, displayRuntime: null, _storageRevision: 1 })
+  const chat = await app.persistence.read('chat-1')
+  chat.displayRuntime = { dom: '<p>ready</p>' }
+
+  await app.persistence.write(chat, { source: 'display.capture', touchUpdatedAt: false })
+
+  assert.equal(app.stored().updatedAt, 600)
+  assert.deepEqual(app.stored().displayRuntime, { dom: '<p>ready</p>' })
+})

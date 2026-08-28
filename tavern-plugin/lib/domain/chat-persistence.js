@@ -93,13 +93,14 @@ export function createChatPersistence(options = {}) {
     if (!input || typeof input !== 'object' || String(input.id || '') === '') throw new Error('不能保存没有 id 的 Tavern Chat')
     const desired = clone(input)
     const chatId = String(desired.id)
+    const touchUpdatedAt = metadata.touchUpdatedAt !== false
     const basedOn = Math.max(0, Number(desired[STORAGE_REVISION]) || 0)
     const baseline = baselines.get(chatId + ':' + basedOn)
     const saved = await records.update(chatId, function (stored) {
       if (stored === undefined) {
         if (basedOn !== 0) throw conflict(chatId, '<deleted>')
         desired[STORAGE_REVISION] = 1
-        desired.updatedAt = Math.max(Number(desired.updatedAt) || 0, now())
+        desired.updatedAt = touchUpdatedAt ? Math.max(Number(desired.updatedAt) || 0, now()) : Math.max(0, Number(desired.updatedAt) || 0)
         return desired
       }
       const latest = normalize(clone(stored))
@@ -112,7 +113,9 @@ export function createChatPersistence(options = {}) {
         next = mergeValue(baseline, latest, desired, '', chatId)
       }
       next[STORAGE_REVISION] = latestRevision + 1
-      next.updatedAt = Math.max(Number(latest.updatedAt) || 0, Number(desired.updatedAt) || 0, now())
+      next.updatedAt = touchUpdatedAt
+        ? Math.max(Number(latest.updatedAt) || 0, Number(desired.updatedAt) || 0, now())
+        : Math.max(Number(latest.updatedAt) || 0, Number(desired.updatedAt) || 0)
       return next
     }, metadata)
     const normalized = remember(normalize(clone(saved)))
@@ -123,6 +126,7 @@ export function createChatPersistence(options = {}) {
 
   async function update(chatId, mutation, metadata = {}) {
     if (typeof mutation !== 'function') throw new Error('Chat Persistence 缺少 mutation')
+    const touchUpdatedAt = metadata.touchUpdatedAt !== false
     const saved = await records.update(chatId, async function (stored) {
       if (stored === undefined) return undefined
       const latest = normalize(clone(stored))
@@ -131,7 +135,7 @@ export function createChatPersistence(options = {}) {
       if (result === undefined) return undefined
       const next = result === latest ? latest : normalize(result)
       next[STORAGE_REVISION] = currentRevision + 1
-      next.updatedAt = Math.max(Number(next.updatedAt) || 0, now())
+      next.updatedAt = touchUpdatedAt ? Math.max(Number(next.updatedAt) || 0, now()) : Math.max(0, Number(next.updatedAt) || 0)
       return next
     }, metadata)
     return saved === undefined ? undefined : remember(normalize(clone(saved)))

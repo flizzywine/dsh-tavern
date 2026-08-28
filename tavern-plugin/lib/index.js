@@ -911,6 +911,26 @@ export async function apply(ctx) {
     }
   }
 
+  function comparableDisplayRuntime(value) {
+    const runtime = value && typeof value === 'object' ? value : {}
+    return {
+      dom: str(runtime.dom),
+      console: (Array.isArray(runtime.console) ? runtime.console : []).map(function (item) {
+        return { level: item && item.level, args: item && item.args }
+      }),
+      network: (Array.isArray(runtime.network) ? runtime.network : []).map(function (item) {
+        return { kind: item && item.kind, method: item && item.method, url: item && item.url, status: item && item.status, failed: item && item.failed, error: item && item.error }
+      }),
+      errors: (Array.isArray(runtime.errors) ? runtime.errors : []).map(function (item) {
+        return { kind: item && item.kind, message: item && item.message, tag: item && item.tag, url: item && item.url, line: item && item.line, column: item && item.column }
+      })
+    }
+  }
+
+  function sameDisplayRuntimeCapture(left, right) {
+    return JSON.stringify(comparableDisplayRuntime(left)) === JSON.stringify(comparableDisplayRuntime(right))
+  }
+
   async function captureDisplayRuntime(sessionId, requestedTurn, partIndex, runtime) {
     const chat = await chatForSession(str(sessionId))
     if (chat === undefined || groupOfMode(chat.mode) !== 'play') throw new Error('当前 Session 没有绑定游玩对话')
@@ -924,10 +944,13 @@ export async function apply(ctx) {
     const latestTurn = Math.max.apply(null, (chat.messages || []).filter(function (item) { return item && item.role === 'assistant' }).map(function (item) { return Math.max(1, Number(item.turn) || 1) }).concat([1]))
     capture.captureKind = turn === latestTurn && Date.now() - sourceActivityAt < 300000 ? 'live' : 'replay'
     const current = existingRuntime || { frames: [] }
-    const frames = Array.isArray(current.frames) ? current.frames.filter(function (item) { return Number(item && item.partIndex) !== index }) : []
+    const currentFrames = Array.isArray(current.frames) ? current.frames : []
+    const existingFrame = currentFrames.find(function (item) { return Number(item && item.partIndex) === index })
+    if (existingFrame && sameDisplayRuntimeCapture(existingFrame, capture)) return { captured: false, turn, partIndex: index, captureKind: capture.captureKind }
+    const frames = currentFrames.filter(function (item) { return Number(item && item.partIndex) !== index })
     frames.push(Object.assign({ partIndex: index }, capture))
     message.displayRuntime = { version: 1, sourceActivityAt, frames: frames.sort(function (a, b) { return a.partIndex - b.partIndex }) }
-    await writeChat(chat, { source: 'display.capture' })
+    await writeChat(chat, { source: 'display.capture', touchUpdatedAt: false })
     return { captured: true, turn, partIndex: index, captureKind: capture.captureKind }
   }
   function helperMutationIsCurrent(chat, expectedLifecycleRevision) {

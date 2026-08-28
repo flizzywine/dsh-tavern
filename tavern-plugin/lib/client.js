@@ -1771,10 +1771,11 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const [height, setHeight] = React.useState(80);
 			const runtimeTimer = React.useRef(0);
 			const pendingRuntime = React.useRef(null);
+			const helperContextKey = JSON.stringify(props.helperContext || {});
 			const styleEnvironmentKey = JSON.stringify(props.styleEnvironment || {});
 			const documentHtml = React.useMemo(function () {
 				return buildTavernFrameDocument({ content: props.content, token: tokenRef.current, helperContext: props.helperContext, styleEnvironment: props.styleEnvironment, turn: props.turn });
-			}, [props.content, props.helperContext, styleEnvironmentKey, props.turn]);
+			}, [props.content, helperContextKey, styleEnvironmentKey, props.turn]);
 			React.useEffect(function () {
 				function receive(event) {
 					const frame = frameRef.current;
@@ -1794,8 +1795,10 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 						if (data.method !== "updateTavernHelperVariables" && data.method !== "updateTavernHelperMessages") return;
 						const args = Object.assign({}, data.args || {}, { sessionId: props.sessionId, expectedLifecycleRevision: Math.max(0, Number(props.helperContext && props.helperContext.lifecycleRevision) || 0) });
 						rpc(data.method, args, props.sessionId).then(function (result) {
+							if (!frame.contentWindow) return;
 							frame.contentWindow.postMessage({ type: "dsh-tavern-helper-response", token: tokenRef.current, requestId: data.requestId, ok: true, result: result }, "*");
 						}, function (error) {
+							if (!frame.contentWindow) return;
 							frame.contentWindow.postMessage({ type: "dsh-tavern-helper-response", token: tokenRef.current, requestId: data.requestId, ok: false, error: String(error && error.message || error) }, "*");
 						});
 					}
@@ -1906,6 +1909,22 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			return String(sources[key] === undefined || sources[key] === null ? "" : sources[key]);
 		}
 
+		const tavernSessionTransition = (function () {
+			let active = false;
+			const listeners = new Set();
+			function publish(next) {
+				if (active === next) return;
+				active = next;
+				listeners.forEach(function (listener) { listener(); });
+			}
+			return {
+				begin: function () { publish(true); },
+				end: function () { publish(false); },
+				getSnapshot: function () { return active; },
+				subscribe: function (listener) { listeners.add(listener); return function () { listeners.delete(listener); }; }
+			};
+		})();
+
 		function createTavernAssistantRendererFeatureModule() {
 			function TavernUserNodeView(props) {
 				const data = props.node.data;
@@ -1943,10 +1962,11 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				const settled = data.status !== "running";
 				const revision = String(data.status || "") + ":" + String(data.finalNode && data.finalNode.seq || "");
 				const liveState = useLiveTavernView(props.sessionId, revision);
+				const sessionTransitioning = React.useSyncExternalStore(tavernSessionTransition.subscribe, tavernSessionTransition.getSnapshot, tavernSessionTransition.getSnapshot);
 				const [swipeBusy, setSwipeBusy] = React.useState(false);
 				React.useEffect(function () {
-					if (liveState.view) syncTavernHelperScripts(props.sessionId, liveState.view);
-				}, [props.sessionId, liveState.view]);
+					if (!sessionTransitioning && liveState.view) syncTavernHelperScripts(props.sessionId, liveState.view);
+				}, [props.sessionId, liveState.view, sessionTransitioning]);
 				const projection = settled ? tavernProjectionForTurn(liveState.view, turn) : null;
 				const swipe = liveState.view && Array.isArray(liveState.view.tavernSwipes) ? liveState.view.tavernSwipes.find(function (item) { return Number(item.turn) === turn; }) : null;
 				async function switchSwipe(nextSwipeId) {
@@ -1964,7 +1984,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					return { turn: turnRef, seq: data.finalNode.seq, openFile: props.openFile };
 				}, [turnRef, data.finalNode, tail, props.openFile]);
 				const mentions = React.useMemo(function () { return owner === undefined ? undefined : props.fileMentions(owner); }, [owner, props.fileMentions]);
-				const rendered = renderTavernAssistantBlocks({
+				const rendered = sessionTransitioning ? [React.createElement("div", { key: "switching", className: "dsh-tavern-session-switching" }, "正在切换人物卡…")] : renderTavernAssistantBlocks({
 					blocks: data.blocks,
 					streaming: data.status === "running",
 					interrupted: data.status === "interrupted",
@@ -2004,7 +2024,6 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			}
 			return Object.freeze({ register: register });
 		}
-
 		function createTavernShellFeatureModule() {
 		function TavernSidebar(props) {
 			const collapsed = props.collapsed;
@@ -2329,6 +2348,9 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			async function newConversation(card, requestedMode, openingId, userName) {
 				const targetMode = requestedMode || (uiMode === "play" ? playModeOfCard(card) : "card");
 				const startedAt = Date.now();
+				const previousOpeningPicker = openingPicker;
+				tavernSessionTransition.begin();
+				setOpeningPicker(null);
 				setBusy(true); setError("");
 				try {
 					const resolvedUserName = String(userName || "你").trim() || "你";
@@ -2338,8 +2360,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					await conversationLifecycle.start({ kind: "play", targetMode: targetMode, card: card, openingId: openingId || "", userName: resolvedUserName, requestMode: compatibilityAvailable && requestMode === "sillytavern" ? "sillytavern" : "dsh", preparedSessionId: preparedSessionId });
 					if (targetMode !== "card") window.localStorage.setItem("dsh-tavern-player-name", resolvedUserName);
 					console.info("dsh-tavern: 开始游戏完成", (Date.now() - startedAt) + "ms", preparedSessionId ? "预热命中" : "即时创建");
-				} catch (err) { setError(String(err && err.phase || "创建对话") + "失败：" + String(err && err.message || err)); }
-				finally { setBusy(false); }
+				} catch (err) { setOpeningPicker(previousOpeningPicker); setError(String(err && err.phase || "创建对话") + "失败：" + String(err && err.message || err)); }
+				finally { tavernSessionTransition.end(); setBusy(false); }
 			}
 			async function preparePlayConversation(card) {
 				setBusy(true); setError("");

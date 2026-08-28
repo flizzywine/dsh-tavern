@@ -899,7 +899,23 @@ test('Helper 写入携带生命周期版本，过期 iframe 不覆盖 Swipe 或�
 	assert.match(runtime, /expectedLifecycleRevision/)
 	assert.match(frame, /expectedLifecycleRevision/)
 	assert.match(adapter, /staleHelperMutation/)
-	assert.match(adapter, /DSH_TAVERN_CHAT_CONFLICT/)
+  assert.match(adapter, /DSH_TAVERN_CHAT_CONFLICT/)
+})
+
+test('人物卡 iframe 不因等价上下文或切换会话而重复启动', () => {
+	const frame = between(clientSource, 'function TavernMessageFrame', 'function tavernProjectionForTurn')
+	const renderer = between(clientSource, 'function createTavernAssistantRendererFeatureModule', 'function createTavernShellFeatureModule')
+	const sidebar = between(clientSource, 'function TavernSidebar', 'function TavernResourcesTab')
+	const capture = between(serverSource, 'async function captureDisplayRuntime', 'function helperMutationIsCurrent')
+
+	assert.match(frame, /helperContextKey/)
+	assert.doesNotMatch(frame, /\[props\.content, props\.helperContext, styleEnvironmentKey, props\.turn\]/)
+	assert.match(renderer, /tavernSessionTransition\.subscribe/)
+	assert.match(renderer, /正在切换人物卡/)
+	assert.match(sidebar, /tavernSessionTransition\.begin\(\)/)
+	assert.match(sidebar, /setOpeningPicker\(null\)/)
+	assert.match(capture, /sameDisplayRuntimeCapture/)
+	assert.match(capture, /touchUpdatedAt: false/)
 })
 
 test('剧本预览只显示当前召回和后续块', () => {
