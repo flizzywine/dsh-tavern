@@ -54,6 +54,7 @@ test('消息 iframe 将可信远程资源转入持久缓存，同时保留不透
   assert.match(document, /data-dsh-tavern-static-cache/)
   assert.match(document, /data-dsh-tavern-icons/)
   assert.match(document, /fontawesome-free%406\.7\.2%2Fcss%2Fall\.min\.css/)
+  assert.match(document, /all\.min\.css&rev=2/)
   assert.match(document, /HTMLImageElement/)
   assert.match(document, /default-src https: http: data: blob:/)
   assert.match(document, /connect-src https: http: wss: data: blob:/)

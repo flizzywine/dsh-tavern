@@ -989,7 +989,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		}
 
 		function tavernIconDependencies() {
-			return '<link rel="stylesheet" data-dsh-tavern-icons href="' + tavernStaticAssetUrl('https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.7.2/css/all.min.css') + '">';
+			return '<link rel="stylesheet" data-dsh-tavern-icons href="' + tavernStaticAssetUrl('https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.7.2/css/all.min.css') + '&rev=2">';
 		}
 
 		function buildOpeningPreviewDocument(value) {
