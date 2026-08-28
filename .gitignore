@@ -12,3 +12,4 @@ data/
 # 本地上游源码参考（提交号和拉取方式记录在 references/README.md）
 references/SillyTavern/
 references/JS-Slash-Runner/
+references/ST-Prompt-Template/
