@@ -8,6 +8,8 @@ import { renderTavernMacros } from '../tavern-plugin/lib/domain/tavern-macro-eng
 import { projectReplyPresentation } from '../tavern-plugin/lib/domain/reply-presentation.js'
 import { createTurnOrchestrator } from '../tavern-plugin/lib/domain/turn-orchestration.js'
 import { createTavernMvuRuntime, MVU_EVENTS } from '../tavern-plugin/lib/domain/tavern-mvu-runtime.js'
+import { createForegroundFrameBuilder } from '../tavern-plugin/lib/domain/agent-input-frame.js'
+import { createTavernInstructionDispatcher } from '../tavern-plugin/lib/domain/tavern-instruction-dispatcher.js'
 
 function clone(value) {
   return value === undefined ? undefined : structuredClone(value)
@@ -76,12 +78,16 @@ function harness(mode, options = {}) {
     planner: {
       async plan(input) {
         plannerCalls.push(clone(input))
-        return { text: 'context:' + input.purpose }
+        return {
+          text: 'context:' + input.purpose,
+          sections: input.purpose === 'body' && Array.isArray(options.plannerSections) ? clone(options.plannerSections) : undefined
+        }
       }
     },
     worldBookRecall: options.worldBookRecall,
     scripts,
     timeline,
+    frameBuilder: createForegroundFrameBuilder({ dispatcher: createTavernInstructionDispatcher() }),
     mvu: options.mvu,
 	emitMvu: options.emitMvu,
     cards,
@@ -139,6 +145,10 @@ test('游玩回合由生命周期自动准备与提交，不再要求模型回�
   assert.equal(await run.orchestrator.modeFor('session-1'), 'story')
   const prepared = await run.orchestrator.prepare({ sessionId: 'session-1', turn: 2, userText: '推开窗' })
   assert.equal(prepared.text, 'context:body')
+  assert.equal(prepared.frame.kind, 'foreground')
+  assert.equal(prepared.frame.userInput.projectedText, '推开窗')
+  assert.equal(prepared.frame.basedOnRevision, 0)
+  assert.equal(prepared.frame.source.card.name, '阿芙拉')
 
   const saved = await run.orchestrator.finalize({ sessionId: 'session-1', turn: 2, userText: '推开窗', assistantText: '雨水扑进房间。' })
   assert.equal(saved.saved, true)
@@ -151,6 +161,37 @@ test('游玩回合由生命周期自动准备与提交，不再要求模型回�
   await run.orchestrator.finalize({ sessionId: 'session-1', turn: 2, userText: '推开窗', assistantText: '重复文本' })
   assert.equal(run.chat().messages.length, 2)
   assert.deepEqual(run.settlements, [])
+})
+
+test('同一正文 operation 重试复用 ForegroundFrame id', async () => {
+  const run = harness('story')
+  const first = await run.orchestrator.prepare({ sessionId: 'session-1', turn: 2, userText: '推开窗' })
+  const retried = await run.orchestrator.prepare({ sessionId: 'session-1', turn: 2, userText: '推开窗' })
+
+  assert.equal(retried.frame.frameId, first.frame.frameId)
+  assert.equal(retried.frame.operationId, first.frame.operationId)
+  assert.equal(retried.frame.basedOnRevision, first.frame.basedOnRevision)
+})
+
+test('正文 Planner section 按语义翻译到 ForegroundFrame 槽位', async () => {
+  const run = harness('story', {
+    plannerSections: [
+      { kind: 'base', required: true, text: '正文规则' },
+      { kind: 'world-book', text: '午夜钟楼' },
+      { kind: 'posture', text: '站在窗边' },
+      { kind: 'guide', text: '多写动作' },
+      { kind: 'card', text: '人物设定' },
+      { kind: 'script', text: '剧本片段' }
+    ]
+  })
+  const prepared = await run.orchestrator.prepare({ sessionId: 'session-1', turn: 2, userText: '继续' })
+
+  assert.equal(prepared.frame.context.writingRules, '正文规则')
+  assert.equal(prepared.frame.context.activeWorldbook, '午夜钟楼')
+  assert.equal(prepared.frame.context.currentStateProjection, '站在窗边')
+  assert.equal(prepared.frame.context.guide, '多写动作')
+  assert.equal(prepared.frame.context.cardContext, '人物设定')
+  assert.equal(prepared.frame.context.scriptReference, '剧本片段')
 })
 
 test('正文准备只读取本地已保存的下一轮世界书上下文，不再触发匹配', async () => {

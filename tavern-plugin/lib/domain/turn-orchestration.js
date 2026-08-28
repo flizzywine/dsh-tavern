@@ -73,6 +73,61 @@ function runtimeInputFor(chat, turn, source) {
   return value !== null && typeof value === 'object' && str(value.source) === source ? str(value.text) : null
 }
 
+const FRAME_INSTRUCTION_KIND = Object.freeze({
+  base: 'foreground.writing-rules',
+  'previous-source': 'foreground.current-state',
+  'world-book': 'foreground.active-worldbook',
+  posture: 'foreground.current-state',
+  guide: 'foreground.guide',
+  card: 'foreground.card-context',
+  'card-instruction': 'foreground.writing-rules',
+  script: 'foreground.script-reference'
+})
+
+function frameInstructions(plan, sourceText, projectedText) {
+  const instructions = [{
+    kind: 'foreground.user-input',
+    sourceText,
+    projectedText,
+    source: { stage: 'player-input' }
+  }]
+  const sections = Array.isArray(plan && plan.sections) && plan.sections.length > 0
+    ? plan.sections
+    : [{ kind: 'legacy-plan-text', required: true, text: str(plan && plan.text) }]
+  for (const [index, section] of sections.entries()) {
+    const sectionKind = str(section && section.kind)
+    instructions.push({
+      kind: FRAME_INSTRUCTION_KIND[sectionKind] || (sectionKind === 'legacy-plan-text' ? 'foreground.writing-rules' : 'foreground.unsupported'),
+      text: str(section && section.text),
+      required: section && section.required === true,
+      source: { stage: 'context-plan', sectionKind, index }
+    })
+  }
+  return instructions
+}
+
+function frameSource(chat, card, operation) {
+  const worldBook = object(chat && chat.preparedWorldBook)
+  const preset = object(chat && chat.runtimePresetSnapshot)
+  return {
+    card: {
+      path: cardPathOf(chat),
+      name: str(card && card.name),
+      revision: card === null || card === undefined || card.revision === undefined ? null : clone(card.revision)
+    },
+    worldBook: {
+      branchId: str(worldBook.branchId) || null,
+      revision: Number.isSafeInteger(Number(worldBook.revision)) ? Number(worldBook.revision) : null,
+      refs: Array.isArray(worldBook.refs) ? clone(worldBook.refs) : []
+    },
+    state: clone(operation.basedOn),
+    preset: {
+      id: str(preset.id) || null,
+      digest: str(preset.digest) || null
+    }
+  }
+}
+
 /**
  * Own one Tavern turn from context preparation through final state commit.
  * DSH lifecycle adapters call this small interface; model tools only stage
@@ -86,6 +141,8 @@ export function createTurnOrchestrator(options) {
   const cards = options.cards
   const workspace = options.workspace
   const timeline = options.timeline
+  const frameBuilder = options.frameBuilder
+  if (!frameBuilder || typeof frameBuilder.build !== 'function') throw new Error('缺少 ForegroundFrameBuilder')
   const mvu = options.mvu && typeof options.mvu.settleResponse === 'function' ? options.mvu : null
 	const emitMvu = typeof options.emitMvu === 'function' ? options.emitMvu : null
   const now = typeof options.now === 'function' ? options.now : Date.now
@@ -116,12 +173,14 @@ export function createTurnOrchestrator(options) {
     const userText = str(input.userText).trim()
     let runtimeUserText = userText
     let reusedRuntimeInput = false
+    let foregroundOperation = null
     const mode = chat.mode || 'story'
     let chatChanged = clearStaleStages(chat, turn)
 
     if (mode === 'story' || mode === 'script') {
       const begun = timeline.apply({ chat, intent: { kind: 'body.begin', turn, userText } })
       chat = begun.chat
+      foregroundOperation = begun.value
       chatChanged = true
       const cachedRuntimeInput = runtimeInputFor(chat, turn, userText)
       if (cachedRuntimeInput !== null) {
@@ -187,8 +246,17 @@ export function createTurnOrchestrator(options) {
     // 保存好的下一轮上下文，玩家输入和候选项选择都不能在此重新触发匹配。
     const worldBookContext = str(chat.preparedWorldBookContext).trim()
     const plan = await planner.plan({ purpose: 'body', card, chat, userText: runtimeUserText, sessionId: input.sessionId, nativeTurn: turn, scriptReference, worldBookContext })
+    const frame = frameBuilder.build({
+      chatId: chat.id,
+      branchId: foregroundOperation.basedOn.branchId,
+      basedOnRevision: foregroundOperation.basedOn.revision,
+      operationId: foregroundOperation.operationId,
+      turn,
+      instructions: frameInstructions(plan, userText, runtimeUserText),
+      source: frameSource(chat, card, foregroundOperation)
+    })
     if (chatChanged) await store.writeChat(chat, { source: 'foreground.prepare' })
-    return { ready: true, mode, cardName: card.name, text: plan.text, userText: runtimeUserText }
+    return { ready: true, mode, cardName: card.name, text: plan.text, userText: runtimeUserText, frame }
   }
 
   async function beginCompatibility(input) {

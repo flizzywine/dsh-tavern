@@ -172,7 +172,8 @@ test('外部预设只作用于兼容模式，普通游玩、后台与卡片 Agen
   assert.match(resolver, /chat\.bypassPlanId = ''/)
   assert.doesNotMatch(resolver, /bypassPlans/)
   const lifecycle = between(serverSource, '// ---------- DSH 回合生命周期 ----------', '// ---------- 模型可选工具 ----------')
-  assert.match(lifecycle, /const snapshot = await resolveChatRuntimePreset\(chat\)/)
+  assert.doesNotMatch(lifecycle, /const snapshot = await resolveChatRuntimePreset\(chat\)/)
+  assert.match(lifecycle, /foregroundFrameSessionAdapter\.append/)
   const compatibility = between(serverSource, 'async function compileCompatibilityTurn', '// ---------- DSH 回合生命周期 ----------')
   assert.match(compatibility, /const snapshot = await resolveChatRuntimePreset\(chat\)/)
   assert.match(compatibility, /const preset = await readPreset\(presetPath\)/)
@@ -203,7 +204,7 @@ test('无玩家输入的开场回合不进入正文结算', () => {
 test('游玩 Agent 接收解析后的玩家输入，不接收原始 Tavern 宏代码', () => {
   const lifecycle = between(serverSource, '// ---------- DSH 回合生命周期 ----------', '// ---------- 模型可选工具 ----------')
 
-  assert.match(lifecycle, /replaceTurnInput\(scopedDecision\.messages, prepared\.userText\)/)
+  assert.match(lifecycle, /replaceTurnInput\(scopedDecision\.messages, prepared\.frame\.userInput\.projectedText\)/)
 })
 
 test('读取 Session View 不启动后台工作，开场回合由玩家输入边界过滤', () => {

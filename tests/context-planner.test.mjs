@@ -65,6 +65,7 @@ test('正文只注入召回模块准备的世界书上下文，并解析人物�
   assert.doesNotMatch(result.text, /不要为通顺牺牲剧本/)
   assert.ok(result.audit.totalChars > 0)
   assert.ok(result.audit.included.some((item) => item.kind === 'world-book'))
+  assert.ok(result.sections.some((item) => item.kind === 'world-book'))
 })
 
 test('游戏稳定前缀只保留名称、场景、文风示例和常驻世界书', async () => {

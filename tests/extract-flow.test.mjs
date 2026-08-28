@@ -992,6 +992,9 @@ test('只有兼容模式按当前选择读取整份预设，DSH 请求不注入�
 	assert.match(serverSource, /const raw = chat\.requestMode === 'sillytavern' \? await runtimePresets\.fullSnapshot\(\) : null/)
 	assert.match(preStep, /await updateChat\(chat\.id,[\s\S]*source: 'compatibility\.compile'/)
 	assert.doesNotMatch(preStep, /chat\.compatibilityTraces\[String\(payload\.turn\)\][\s\S]*await writeChat\(chat\)/)
+	assert.doesNotMatch(preStep, /resolveChatRuntimePreset|runtimePresetPhaseMessages|runtimePresetSnapshots\.set/)
+	assert.match(preStep, /foregroundFrameSessionAdapter\.append/)
+	assert.match(preStep, /prepared\.frame\.userInput\.projectedText/)
 })
 
 test('隔离 Helper iframe 可以只读加载已锁定的本机远程资源', () => {

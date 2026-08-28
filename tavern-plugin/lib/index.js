@@ -17,6 +17,8 @@ import { createDurableTaskMailbox } from './domain/durable-task-mailbox.js'
 import { extractEpubText } from './domain/epub-text.js'
 import { createFileResourceStore, normalizeResourcePath, resourceKind } from './domain/file-resources.js'
 import { createForegroundHandoff } from './domain/foreground-handoff.js'
+import { createForegroundFrameBuilder } from './domain/agent-input-frame.js'
+import { createForegroundFrameSessionAdapter } from './domain/foreground-frame-session-adapter.js'
 import { createModelRequestLog } from './domain/model-request-log.js'
 import { previewPresetConversion } from './domain/preset-conversion-preview.js'
 import { inspectPreset, nativeRegexScriptsOf } from './domain/preset-reading.js'
@@ -27,8 +29,9 @@ import { compileSillyTavernRequest } from './domain/sillytavern-compatibility.js
 import { applySillyTavernStrictTools } from './domain/sillytavern-strict-tools.js'
 import { createEphemeralCompatibilityRequest, isCompatibilityConversationRequest } from './domain/compatibility-request.js'
 import { clearFailedTurnSurface, hasRollbackMessages, locateRollbackSurface, planRegenerationSurface } from './domain/rollback-surface.js'
-import { projectRuntimePresetRequest, runtimePresetPhaseMessages } from './domain/runtime-preset-lifecycle.js'
+import { projectRuntimePresetRequest } from './domain/runtime-preset-lifecycle.js'
 import { createTavernRetryLimiter } from './domain/tavern-retry-limiter.js'
+import { createTavernInstructionDispatcher } from './domain/tavern-instruction-dispatcher.js'
 import { createTavernMvuRuntime, readMvuWorldBookInitialState } from './domain/tavern-mvu-runtime.js'
 import {
   createTavernMvuOpeningReconciler,
@@ -2046,6 +2049,9 @@ export async function apply(ctx) {
     await writeIndex(idx)
     return { path: cardPath, card }
   }
+  const tavernInstructionDispatcher = createTavernInstructionDispatcher()
+  const foregroundFrameBuilder = createForegroundFrameBuilder({ dispatcher: tavernInstructionDispatcher })
+  const foregroundFrameSessionAdapter = createForegroundFrameSessionAdapter({ id: crypto.randomUUID })
   const turnOrchestrator = createTurnOrchestrator({
     store: {
       chatForSession,
@@ -2059,6 +2065,7 @@ export async function apply(ctx) {
     planner: contextPlanner,
     scripts: scriptContinuity,
     timeline: storyTimeline,
+    frameBuilder: foregroundFrameBuilder,
     mvu: tavernMvu,
 	emitMvu: async function (event) {
 	  const context = await tavernHelperEventContext(event.sessionId, event.chat)
@@ -3105,29 +3112,25 @@ export async function apply(ctx) {
     if (Number(payload.step) === 1) {
       const userText = payload.messages.filter(isTurnInput).map(contentText).filter(Boolean).join('\n').trim()
       const prepared = await foregroundHandoff.prepare({ sessionId, turn: payload.turn, userText })
-      agentMessages = mode === 'story' || mode === 'script'
-        ? replaceTurnInput(scopedDecision.messages, prepared.userText)
-        : scopedDecision.messages
-      agentMessages = agentMessages.concat([{
-        id: crypto.randomUUID(),
-        role: 'user',
-        content: [{ type: 'text', text: prepared.text }],
-        source: {
-          kind: 'plugin', plugin: 'dsh-tavern', form: 'snapshot',
-          sections: [{ name: 'tavern:turn', text: prepared.text }]
-        }
-      }])
+      if (mode === 'story' || mode === 'script') {
+        agentMessages = replaceTurnInput(scopedDecision.messages, prepared.frame.userInput.projectedText)
+        agentMessages = foregroundFrameSessionAdapter.append({
+          messages: agentMessages,
+          frame: prepared.frame,
+          step: payload.step
+        }).messages
+      } else {
+        agentMessages = scopedDecision.messages.concat([{
+          id: crypto.randomUUID(),
+          role: 'user',
+          content: [{ type: 'text', text: prepared.text }],
+          source: {
+            kind: 'plugin', plugin: 'dsh-tavern', form: 'snapshot',
+            sections: [{ name: 'tavern:turn', text: prepared.text }]
+          }
+        }])
+      }
     }
-    const snapshot = await resolveChatRuntimePreset(chat)
-    const messageOptions = { scope: 'foreground', turn: payload.turn, step: payload.step }
-    const middleMessages = Number(payload.step) === 1 ? runtimePresetPhaseMessages(snapshot, 'middle', messageOptions) : []
-    runtimePresetSnapshots.set(sessionId, {
-      turn: Math.max(0, Number(payload.turn) || 0),
-      step: Math.max(1, Number(payload.step) || 1),
-      scope: 'foreground',
-      snapshot: snapshot || null
-    })
-    agentMessages = agentMessages.concat(middleMessages)
     return { kind: 'enter', messages: agentMessages }
   })
 
@@ -3166,7 +3169,7 @@ export async function apply(ctx) {
     }
     const stagedRuntimePreset = runtimePresetSnapshots.get(sessionId)
     if (options !== null && typeof options === 'object' && options.purpose === undefined &&
-      stagedRuntimePreset !== undefined && !runtimePresetRedispatches.has(options)) {
+      stagedRuntimePreset !== undefined && stagedRuntimePreset.scope === 'background' && !runtimePresetRedispatches.has(options)) {
       const projectedRequest = projectRuntimePresetRequest(
         options,
         stagedRuntimePreset.snapshot,

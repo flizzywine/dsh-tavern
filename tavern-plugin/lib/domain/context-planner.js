@@ -92,6 +92,7 @@ export function createContextPlanner(options = {}) {
     const text = projected.map(function (section) { return section.text }).filter(Boolean).join('\n\n')
     return {
       text,
+      sections: projected,
       audit: {
         included: projected.map(function (section) { return { kind: section.kind, chars: section.text.length, required: section.required === true } }),
         omitted,
