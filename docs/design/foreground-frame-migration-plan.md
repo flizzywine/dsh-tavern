@@ -13,7 +13,7 @@ dsh-tavern 保留两条明确隔离的运行路径：
 
 兼容模式继续使用 `compileCompatibilityTurn()` 和临时 provider request 投影，不做改造。游玩模式由 Tavern Compatibility Runtime 识别酒馆指令，再由 dsh-tavern Runtime 直接将指令翻译为前台 Frame、后台 Frame、确定性行动、展示行动或明确忽略。历史、工具轨迹、压缩和后续模型调用仍由 DSH 管理。
 
-不增加 `ForegroundCompatibilityPlan` 一类中间编排对象。酒馆指令直接进入 dsh-tavern Runtime 的指令分派 seam。
+本方案的核心是“酒馆指令 → dsh-tavern 行动”翻译表。酒馆指令直接进入 dsh-tavern Runtime 的指令分派 seam，不经过额外的中间编排对象。
 
 ## 目标设计范围
 
