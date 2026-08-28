@@ -1466,31 +1466,49 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		let tavernHelperScriptRuntime = null;
 		let tavernHelperEventPollTimer = null;
 		let tavernHelperEventPollBusy = false;
+		let tavernHelperRuntimeActive = false;
+		let tavernHelperRuntimeInput = null;
+		const tavernHelperRuntimeId = window.crypto && typeof window.crypto.randomUUID === "function" ? window.crypto.randomUUID() : String(Date.now()) + ":" + String(Math.random());
+		function inactiveTavernHelperView(view) {
+			return Object.assign({}, view || {}, { tavernHelperScripts: [] });
+		}
 		function scheduleTavernHelperEventPoll() {
 			if (tavernHelperEventPollTimer !== null) return;
 			tavernHelperEventPollTimer = window.setTimeout(async function poll() {
 				tavernHelperEventPollTimer = null;
 				const runtime = tavernHelperScriptRuntime;
-				const inspected = runtime && runtime.inspect();
-				if (!runtime || !inspected || !inspected.sessionId || inspected.scriptIds.length === 0) return;
+				const input = tavernHelperRuntimeInput;
+				if (!runtime || !input || !input.sessionId || !Array.isArray(input.view && input.view.tavernHelperScripts) || input.view.tavernHelperScripts.length === 0) return;
 				if (!tavernHelperEventPollBusy) {
 					tavernHelperEventPollBusy = true;
 					try {
-						const result = await rpc("pollTavernHelperEvent", {}, inspected.sessionId);
+						const result = await rpc("pollTavernHelperEvent", { runtimeId: tavernHelperRuntimeId }, input.sessionId);
+						if (!tavernHelperRuntimeInput || tavernHelperRuntimeInput.sessionId !== input.sessionId) return;
+						if (Boolean(result && result.active) !== tavernHelperRuntimeActive) {
+							tavernHelperRuntimeActive = Boolean(result && result.active);
+							runtime.sync(input.sessionId, tavernHelperRuntimeActive ? input.view : inactiveTavernHelperView(input.view));
+						}
 						const event = result && result.event;
-						if (event) {
+						if (tavernHelperRuntimeActive && event) {
 							const args = await runtime.emit(event.name, event.args, event.context);
-							await rpc("completeTavernHelperEvent", { eventId: event.id, args: args }, inspected.sessionId);
+							await rpc("completeTavernHelperEvent", { eventId: event.id, args: args, runtimeId: tavernHelperRuntimeId }, input.sessionId);
 						}
 					} catch (error) { console.warn("Tavern Helper 生命周期同步失败", error); }
 					finally { tavernHelperEventPollBusy = false; }
 				}
 				scheduleTavernHelperEventPoll();
-			}, 100);
+			}, tavernHelperRuntimeActive ? 100 : 500);
 		}
 		function syncTavernHelperScripts(sessionId, view) {
 			if (!tavernHelperScriptRuntime) tavernHelperScriptRuntime = createTavernHelperScriptRuntime();
-			tavernHelperScriptRuntime.sync(sessionId, view);
+			const nextSessionId = String(sessionId || "");
+			const previousSessionId = tavernHelperRuntimeInput && tavernHelperRuntimeInput.sessionId || "";
+			if (previousSessionId && previousSessionId !== nextSessionId) {
+				rpc("releaseTavernHelperRuntime", { runtimeId: tavernHelperRuntimeId }, previousSessionId).catch(function () {});
+				tavernHelperRuntimeActive = false;
+			}
+			tavernHelperRuntimeInput = { sessionId: nextSessionId, view: view };
+			tavernHelperScriptRuntime.sync(nextSessionId, tavernHelperRuntimeActive ? view : inactiveTavernHelperView(view));
 			scheduleTavernHelperEventPoll();
 		}
 

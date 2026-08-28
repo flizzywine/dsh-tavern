@@ -2387,8 +2387,9 @@ export async function apply(ctx) {
       case 'updateTavernHelperMessages': return await updateTavernHelperMessages(args && args.sessionId, args && args.messages)
       case 'getTavernHelperWorldbook': return await getTavernHelperWorldbook(args && args.sessionId, args && args.name)
       case 'replaceTavernHelperWorldbook': return await replaceTavernHelperWorldbook(args && args.sessionId, args && args.name, args && args.entries)
-	  case 'pollTavernHelperEvent': return { event: tavernHelperEventGate.poll(args && args.sessionId) }
-	  case 'completeTavernHelperEvent': return { completed: tavernHelperEventGate.complete(args && args.sessionId, args && args.eventId, args && args.args) }
+	  case 'pollTavernHelperEvent': return tavernHelperEventGate.poll(args && args.sessionId, args && args.runtimeId)
+	  case 'completeTavernHelperEvent': return { completed: tavernHelperEventGate.complete(args && args.sessionId, args && args.eventId, args && args.args, args && args.runtimeId) }
+	  case 'releaseTavernHelperRuntime': return { released: tavernHelperEventGate.dispose(args && args.sessionId, args && args.runtimeId) }
       case 'startChat': {
         try {
           return { view: await startChat(args && args.path, args && args.sessionId, args && args.mode, args && args.openingId, args && args.userName, args && args.requestMode) }

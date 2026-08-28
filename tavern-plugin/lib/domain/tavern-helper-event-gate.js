@@ -18,25 +18,32 @@ export function createTavernHelperEventGate(options = {}) {
   const presence = new Map()
   let sequence = 0
 
-  function touch(sessionId) {
+  function touch(sessionId, runtimeId = 'legacy') {
     const id = str(sessionId)
-    if (id !== '') presence.set(id, now())
+    const owner = str(runtimeId)
+    if (id === '' || owner === '') return false
+    const current = presence.get(id)
+    if (current && current.owner !== owner && now() - current.seenAt <= presenceTtlMs) return false
+    presence.set(id, { owner, seenAt: now() })
+    return true
   }
 
-  function available(sessionId) {
-    const seenAt = presence.get(str(sessionId))
-    return Number.isFinite(seenAt) && now() - seenAt <= presenceTtlMs
+  function available(sessionId, runtimeId = '') {
+    const current = presence.get(str(sessionId))
+    if (!current || now() - current.seenAt > presenceTtlMs) return false
+    return str(runtimeId) === '' || current.owner === str(runtimeId)
   }
 
-  function poll(sessionId) {
+  function poll(sessionId, runtimeId = 'legacy') {
     const id = str(sessionId)
-    touch(id)
+    if (!touch(id, runtimeId)) return { active: false, event: null }
     const record = records.get(id)
-    return record ? clone(record.event) : null
+    return { active: true, event: record ? clone(record.event) : null }
   }
 
-  function complete(sessionId, eventId, args) {
+  function complete(sessionId, eventId, args, runtimeId = 'legacy') {
     const id = str(sessionId)
+    if (!available(id, runtimeId)) return false
     const record = records.get(id)
     if (!record || record.event.id !== str(eventId)) return false
     records.delete(id)
@@ -65,14 +72,16 @@ export function createTavernHelperEventGate(options = {}) {
     })
   }
 
-  function dispose(sessionId) {
+  function dispose(sessionId, runtimeId = '') {
     const id = str(sessionId)
+    if (runtimeId !== '' && !available(id, runtimeId)) return false
     presence.delete(id)
     const record = records.get(id)
-    if (!record) return
+    if (!record) return true
     records.delete(id)
     clearTimeout(record.timer)
     record.resolve({ handled: false, disposed: true, args: clone(record.event.args) })
+    return true
   }
 
   return Object.freeze({ touch, available, poll, complete, dispatch, dispose })
