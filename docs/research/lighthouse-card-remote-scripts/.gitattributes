@@ -1,0 +1,2 @@
+# Preserve byte-level formatting in extracted source-map evidence.
+evidence/** whitespace=-trailing-space

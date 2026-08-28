@@ -1,0 +1,33 @@
+{
+  "source": "/Users/cf/.dsh/profile-data/tavern/data/resources/cards/灯火阑珊.json",
+  "source_sha256": "6a1170f695071676020123fa05f2b1816516afa3a809de6f3b8129919544314c",
+  "tavern_helper_scripts": [
+    {
+      "name": "MVU",
+      "enabled": true,
+      "content": "import 'https://cdn.jsdelivr.net/gh/MagicalAstrogy/MagVarUpdate/artifact/bundle.js';"
+    },
+    {
+      "name": "灯火阑珊-变量结构",
+      "enabled": true,
+      "content": "import 'https://testingcf.jsdelivr.net/gh/Alice233-Alice/Apeiria@main/灯火阑珊-变量结构/index.js'"
+    },
+    {
+      "name": "灯火阑珊-动态世界书管理",
+      "enabled": true,
+      "content": "import 'https://cdn.jsdelivr.net/gh/Alice233-Alice/Apeiria@main/踏月寻仙-动态世界书管理/index.js'"
+    },
+    {
+      "name": "开场白索引",
+      "enabled": true,
+      "content": "import 'https://testingcf.jsdelivr.net/gh/Alice233-Alice/Apeiria@main/开场白索引/index.js'"
+    },
+    {
+      "name": "变量守卫",
+      "enabled": true,
+      "content": "import 'https://testingcf.jsdelivr.net/gh/Alice233-Alice/Apeiria@main/踏月寻仙-变量守卫/index.js'"
+    }
+  ],
+  "status_bar_loader": "$('body').load('https://cdn.jsdelivr.net/gh/Alice233-Alice/Apeiria@main/灯火阑珊-状态栏/index.html')",
+  "direct_image_url": "https://pub-4d14ab94aa29488b977bc5be9f2a06ef.r2.dev/picgo/古风祥云云朵85.png"
+}
