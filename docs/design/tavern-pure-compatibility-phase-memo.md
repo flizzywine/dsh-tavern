@@ -67,6 +67,7 @@ LLM-Harness 的前台 LLM、后台 LLM、Harness 三层架构仍是长期方向�
 
 ## 相关文档
 
+- [酒馆超集兼容运行时方案](tavern-superset-compatibility-runtime.md)
 - [LLM-Harness 架构总纲](llm-harness-architecture.md)
 - [酒馆能力在 LLM Harness 中的重新安置](tavern-capabilities-in-llm-harness.md)
 - [酒馆预设兼容边界备忘](../research/preset-compatibility-boundary-memo.md)
