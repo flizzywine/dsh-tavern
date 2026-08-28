@@ -29,7 +29,11 @@ test('逐次保存前后台真实请求，并可按游玩轮次完整读取', as
   const foreground = await log.record({
     chat,
     context: null,
-    coordinates: { turn: 2, step: 1 },
+    coordinates: {
+      turn: 2,
+      step: 1,
+      frame: { frameId: 'foreground:chat-1:branch-1:operation-1', basedOnRevision: 3, append: { appended: true } }
+    },
     options: {
       provider: 'test', model: 'scripted', sessionId: 'foreground-1', signal: new AbortController().signal,
       system: '系统提示', tools: [{ name: 'tool-a' }],
@@ -53,6 +57,8 @@ test('逐次保存前后台真实请求，并可按游玩轮次完整读取', as
   assert.equal(evidence.requests[0].request.messages[1].content[0].text.length, 13000)
   assert.equal(Object.prototype.hasOwnProperty.call(evidence.requests[0].request, 'signal'), false)
   assert.equal(evidence.requests[0].requestMode, 'sillytavern')
+  assert.equal(evidence.requests[0].frame.frameId, 'foreground:chat-1:branch-1:operation-1')
+  assert.equal(evidence.requests[0].frame.append.appended, true)
   assert.equal(evidence.requests[0].status, 'completed')
   assert.equal(evidence.requests[0].response.text, '完整模型结果')
   assert.deepEqual(['front', 'middle', 'back'].map(function (phase) { return evidence.requests[0].phases[phase][0].content[0].text }), ['前', '中', '后'])

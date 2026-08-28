@@ -3114,11 +3114,21 @@ export async function apply(ctx) {
       const prepared = await foregroundHandoff.prepare({ sessionId, turn: payload.turn, userText })
       if (mode === 'story' || mode === 'script') {
         agentMessages = replaceTurnInput(scopedDecision.messages, prepared.frame.userInput.projectedText)
-        agentMessages = foregroundFrameSessionAdapter.append({
+        const adapted = foregroundFrameSessionAdapter.append({
           messages: agentMessages,
           frame: prepared.frame,
           step: payload.step
-        }).messages
+        })
+        agentMessages = adapted.messages
+        requestCoordinates.set(sessionId, Object.assign({}, requestCoordinates.get(sessionId), {
+          frame: {
+            frameId: prepared.frame.frameId,
+            branchId: prepared.frame.branchId,
+            basedOnRevision: prepared.frame.basedOnRevision,
+            source: prepared.frame.source,
+            append: adapted.receipt
+          }
+        }))
       } else {
         agentMessages = scopedDecision.messages.concat([{
           id: crypto.randomUUID(),

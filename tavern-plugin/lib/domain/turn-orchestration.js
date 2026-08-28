@@ -73,6 +73,19 @@ function runtimeInputFor(chat, turn, source) {
   return value !== null && typeof value === 'object' && str(value.source) === source ? str(value.text) : null
 }
 
+function rememberedFrame(chat, operationId) {
+  const frames = object(chat && chat.foregroundFrames)
+  const frame = frames[str(operationId)]
+  return frame !== null && typeof frame === 'object' && frame.kind === 'foreground' ? clone(frame) : null
+}
+
+function rememberFrame(chat, frame) {
+  if (chat.foregroundFrames === null || typeof chat.foregroundFrames !== 'object' || Array.isArray(chat.foregroundFrames)) chat.foregroundFrames = {}
+  chat.foregroundFrames[frame.operationId] = clone(frame)
+  const ids = Object.keys(chat.foregroundFrames)
+  for (const operationId of ids.slice(0, Math.max(0, ids.length - 40))) delete chat.foregroundFrames[operationId]
+}
+
 const FRAME_INSTRUCTION_KIND = Object.freeze({
   base: 'foreground.writing-rules',
   'previous-source': 'foreground.current-state',
@@ -181,6 +194,17 @@ export function createTurnOrchestrator(options) {
       const begun = timeline.apply({ chat, intent: { kind: 'body.begin', turn, userText } })
       chat = begun.chat
       foregroundOperation = begun.value
+      const cachedFrame = rememberedFrame(chat, foregroundOperation.operationId)
+      if (cachedFrame !== null) {
+        if (chatChanged) await store.writeChat(chat, { source: 'foreground.prepare' })
+        return {
+          ready: true,
+          mode,
+          cardName: str(chat.cardName),
+          userText: cachedFrame.userInput.projectedText,
+          frame: cachedFrame
+        }
+      }
       chatChanged = true
       const cachedRuntimeInput = runtimeInputFor(chat, turn, userText)
       if (cachedRuntimeInput !== null) {
@@ -255,8 +279,10 @@ export function createTurnOrchestrator(options) {
       instructions: frameInstructions(plan, userText, runtimeUserText),
       source: frameSource(chat, card, foregroundOperation)
     })
+    rememberFrame(chat, frame)
+    chatChanged = true
     if (chatChanged) await store.writeChat(chat, { source: 'foreground.prepare' })
-    return { ready: true, mode, cardName: card.name, text: plan.text, userText: runtimeUserText, frame }
+    return { ready: true, mode, cardName: card.name, userText: runtimeUserText, frame }
   }
 
   async function beginCompatibility(input) {

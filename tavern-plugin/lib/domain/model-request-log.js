@@ -52,6 +52,7 @@ export function createModelRequestLog(options = {}) {
       compatibility: chat.requestMode === 'sillytavern' && chat.compatibilityTraces && chat.compatibilityTraces[String(turn)]
         ? JSON.parse(JSON.stringify(chat.compatibilityTraces[String(turn)]))
         : null,
+      frame: coordinates && coordinates.frame ? JSON.parse(JSON.stringify(coordinates.frame)) : null,
       bypassPlan: {
         id: str(chat.bypassPlanId || chat.runtimePresetSnapshot && chat.runtimePresetSnapshot.planId),
         name: str(chat.runtimePresetSnapshot && chat.runtimePresetSnapshot.planName),

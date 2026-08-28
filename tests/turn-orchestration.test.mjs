@@ -144,7 +144,7 @@ test('游玩回合由生命周期自动准备与提交，不再要求模型回�
   const run = harness('story')
   assert.equal(await run.orchestrator.modeFor('session-1'), 'story')
   const prepared = await run.orchestrator.prepare({ sessionId: 'session-1', turn: 2, userText: '推开窗' })
-  assert.equal(prepared.text, 'context:body')
+  assert.equal(Object.hasOwn(prepared, 'text'), false)
   assert.equal(prepared.frame.kind, 'foreground')
   assert.equal(prepared.frame.userInput.projectedText, '推开窗')
   assert.equal(prepared.frame.basedOnRevision, 0)
@@ -166,11 +166,13 @@ test('游玩回合由生命周期自动准备与提交，不再要求模型回�
 test('同一正文 operation 重试复用 ForegroundFrame id', async () => {
   const run = harness('story')
   const first = await run.orchestrator.prepare({ sessionId: 'session-1', turn: 2, userText: '推开窗' })
+  const plannerCalls = run.plannerCalls.length
   const retried = await run.orchestrator.prepare({ sessionId: 'session-1', turn: 2, userText: '推开窗' })
 
   assert.equal(retried.frame.frameId, first.frame.frameId)
   assert.equal(retried.frame.operationId, first.frame.operationId)
   assert.equal(retried.frame.basedOnRevision, first.frame.basedOnRevision)
+  assert.equal(run.plannerCalls.length, plannerCalls, '重试不得重新执行资源规划')
 })
 
 test('正文 Planner section 按语义翻译到 ForegroundFrame 槽位', async () => {
@@ -214,7 +216,7 @@ test('没有世界书关键词结果时正文直接使用空上下文', async ()
   })
   const prepared = await run.orchestrator.prepare({ sessionId: 'session-1', turn: 2, userText: '继续' })
 
-  assert.equal(prepared.text, 'context:body')
+  assert.equal(prepared.frame.contributions[0].text, 'context:body')
   assert.equal(run.plannerCalls.at(-1).worldBookContext, '')
   assert.equal(run.chat().worldBookError, undefined)
 })
