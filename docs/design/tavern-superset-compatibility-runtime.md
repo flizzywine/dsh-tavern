@@ -228,6 +228,7 @@ dsh-tavern 不另造简化 Patch 方言。当前所有 MVU 规则仍由前台模
 ## 相关文档
 
 - [酒馆兼容运行时实施基线](tavern-compatibility-runtime-implementation-baseline.md)
+- [酒馆超集兼容运行时完成度审计](tavern-superset-compatibility-completion-audit.md)
 - [酒馆纯兼容模式阶段备忘](tavern-pure-compatibility-phase-memo.md)
 - [酒馆兼容模式](sillytavern-compatibility-mode.md)
 - [LLM-Harness 架构总纲](llm-harness-architecture.md)
