@@ -5,7 +5,8 @@ import {
   createTavernMvuRuntime,
   extractMvuCommands,
   lastMvuVariables,
-  MVU_EVENTS
+  MVU_EVENTS,
+  readMvuWorldBookInitialState
 } from '../tavern-plugin/lib/domain/tavern-mvu-runtime.js'
 
 function variables(statData) {
@@ -85,6 +86,18 @@ test('开场 initvar 覆盖世界书初值并为每个 swipe 建立独立快照'
   assert.deepEqual(result.variables[0].stat_data, { 角色: { 姓名: '王辰', 体力: 12 } })
   assert.deepEqual(result.variables[1].stat_data, { 角色: { 姓名: '世界书', 体力: 1 } })
   assert.equal(emitted.filter(name => name === MVU_EVENTS.initialized).length, 2)
+})
+
+test('世界书只合并启用的 [initvar] 条目并保留嵌套对象', () => {
+  const result = readMvuWorldBookInitialState({ entries: [
+    { comment: '[initvar] 基础', enabled: true, content: '角色:\n  姓名: "{{user}}"\n  属性:\n    体力: 10' },
+    { comment: '[initvar] 补充', enabled: true, content: '```yaml\n角色:\n  属性:\n    灵力: 20\n```' },
+    { comment: '[initvar] 禁用', enabled: false, content: '角色:\n  姓名: 错误' },
+    { comment: '普通条目', enabled: true, content: '角色:\n  姓名: 错误' }
+  ] }, { userName: '王辰' })
+
+  assert.deepEqual(result.statData, { 角色: { 姓名: '王辰', 属性: { 体力: 10, 灵力: 20 } } })
+  assert.deepEqual(result.diagnostics, [])
 })
 
 test('事件顺序与上一条有效 swipe 快照符合消息结算语义', async () => {

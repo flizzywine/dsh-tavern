@@ -86,6 +86,7 @@ export function createTurnOrchestrator(options) {
   const cards = options.cards
   const workspace = options.workspace
   const timeline = options.timeline
+  const mvu = options.mvu && typeof options.mvu.settleResponse === 'function' ? options.mvu : null
   const now = typeof options.now === 'function' ? options.now : Date.now
   const renderMacros = typeof options.renderMacros === 'function' ? options.renderMacros : null
   const resolvePresetRegexScripts = typeof options.resolvePresetRegexScripts === 'function'
@@ -249,6 +250,8 @@ export function createTurnOrchestrator(options) {
     const mode = chat.mode || 'story'
     const sourceText = str(input.assistantText).trim()
     let assistantText = sourceText
+    let previousMvuVariables
+    let mvuSettlement = null
     let reply = {
       sourceText,
       projectionText: sourceText,
@@ -260,6 +263,24 @@ export function createTurnOrchestrator(options) {
     }
     if (mode === 'story' || mode === 'script') {
       if (renderMacros !== null && assistantText.includes('{{')) assistantText = renderMacros(assistantText, chat)
+      previousMvuVariables = mvu && typeof mvu.lastVariables === 'function' ? mvu.lastVariables(chat.messages) : undefined
+      if (previousMvuVariables !== undefined) {
+        try {
+          mvuSettlement = await mvu.settleResponse({
+            sourceText: assistantText,
+            previousVariables: previousMvuVariables,
+            macroContext: { userName: chat.macroState && chat.macroState.userName, charName: chat.cardName }
+          })
+          assistantText = str(mvuSettlement.sourceText)
+        } catch (error) {
+          mvuSettlement = {
+            variables: clone(previousMvuVariables),
+            modified: false,
+            diagnostics: [{ message: error instanceof Error ? error.message : String(error) }],
+            events: []
+          }
+        }
+      }
       const extensions = typeof store.readCardExtensions === 'function'
         ? await store.readCardExtensions(cardPathOf(chat))
         : null
@@ -359,7 +380,11 @@ export function createTurnOrchestrator(options) {
           scriptReference = committed.reference
           before.scriptRevision = committed.revision
         }
-        if (userText !== '') draft.messages.push({ role: 'user', text: userText, ts: now(), native: true })
+        if (userText !== '') {
+          const userMessage = { role: 'user', text: userText, ts: now(), native: true }
+          if (previousMvuVariables !== undefined) Object.assign(userMessage, { swipeId: 0, swipes: [userText], variables: [clone(previousMvuVariables)] })
+          draft.messages.push(userMessage)
+        }
         const assistantMessage = {
           role: 'assistant',
           text: assistantText,
@@ -373,6 +398,16 @@ export function createTurnOrchestrator(options) {
           native: true,
           turn: turn
         }
+        if (mvuSettlement !== null) Object.assign(assistantMessage, {
+          swipeId: 0,
+          swipes: [str(mvuSettlement.sourceText || reply.projectionText)],
+          variables: [clone(mvuSettlement.variables)],
+          mvu: {
+            modified: mvuSettlement.modified === true,
+            diagnostics: clone(Array.isArray(mvuSettlement.diagnostics) ? mvuSettlement.diagnostics : []),
+            events: clone(Array.isArray(mvuSettlement.events) ? mvuSettlement.events : [])
+          }
+        })
         draft.messages.push(assistantMessage)
         draft.presentationWarnings = Array.isArray(reply.warnings) ? clone(reply.warnings) : []
         rememberCommit(draft, turn, { mode, userText, scriptReference }, before, now)

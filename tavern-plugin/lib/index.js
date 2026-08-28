@@ -28,6 +28,7 @@ import { createEphemeralCompatibilityRequest, isCompatibilityConversationRequest
 import { clearFailedTurnSurface, hasRollbackMessages, locateRollbackSurface, planRegenerationSurface } from './domain/rollback-surface.js'
 import { projectRuntimePresetRequest, runtimePresetPhaseMessages } from './domain/runtime-preset-lifecycle.js'
 import { createTavernRetryLimiter } from './domain/tavern-retry-limiter.js'
+import { createTavernMvuRuntime, readMvuWorldBookInitialState } from './domain/tavern-mvu-runtime.js'
 import {
   preserveRuntimeSource,
   projectAgentContent,
@@ -73,6 +74,7 @@ export async function apply(ctx) {
     return
   }
   const agentDefaultModel = ctx.get('agentDefaultModel')
+  const tavernMvu = createTavernMvuRuntime()
   const sourceRoot = fileURLToPath(new URL('../../', import.meta.url))
   const dataRoot = resolveTavernDataRoot()
   const profileData = createProfileDataStore({ dataRoot })
@@ -1036,6 +1038,24 @@ export async function apply(ctx) {
     const runtimePresetSnapshot = effectiveRequestMode === 'sillytavern' ? await runtimePresets.fullSnapshot() : null
     const openingSourceText = chatMode === 'card' ? prompt('card-mode-greeting') : resolveCardOpening(card, openingId)
     const openingExtensions = chatMode === 'card' ? null : await readCardExtensions(cardPath)
+    const openingChoices = chatMode === 'card' ? [] : cardOpeningChoices(card)
+    const selectedOpeningIndex = str(openingId) === '' ? 0 : Math.max(0, openingChoices.findIndex(function (choice) { return choice.id === str(openingId) }))
+    const usesMvu = chatMode !== 'card' && (
+      (Array.isArray(openingExtensions && openingExtensions.mvuResources) && openingExtensions.mvuResources.some(function (item) { return item.enabled !== false }))
+      || openingChoices.some(function (choice) { return /<(?:initvar|json_?patch)>|_\.(?:set|insert|assign|remove|unset|delete|add)\(/i.test(choice.text) })
+    )
+    let openingMvu = null
+    let openingMvuDiagnostics = []
+    if (usesMvu) {
+      const worldBookInitial = readMvuWorldBookInitialState(card.character_book, { userName: macroState.userName, charName: card.name })
+      openingMvu = await tavernMvu.initializeChat({
+        swipes: openingChoices.map(function (choice) { return choice.text }),
+        selectedSwipeId: selectedOpeningIndex,
+        baseStatData: worldBookInitial.statData,
+        macroContext: { userName: macroState.userName, charName: card.name }
+      })
+      openingMvuDiagnostics = worldBookInitial.diagnostics.concat(openingMvu.diagnostics)
+    }
     const openingRegexScripts = (Array.isArray(openingExtensions && openingExtensions.regexScripts) ? openingExtensions.regexScripts : []).concat(
       Array.isArray(runtimePresetSnapshot && runtimePresetSnapshot.regexScripts) ? runtimePresetSnapshot.regexScripts : []
     )
@@ -1061,6 +1081,12 @@ export async function apply(ctx) {
     chat.runtimePresetSnapshot = runtimePresetSnapshot
     chat.runtimePresetPath = ''
     chat.macroState = macroState
+    chat.mvu = usesMvu ? {
+      enabled: true,
+      runtime: 'magvarupdate-compat',
+      upstreamCommit: '0a730cd4a9b99689d1135a49b542c780b977c24c',
+      diagnostics: openingMvuDiagnostics
+    } : { enabled: false }
     if (groupOfMode(chat.mode) === 'play') {
       chat.cardContextSnapshot = await buildPlayCardSnapshot(chat, card)
       chat.cardContextSnapshotVersion = 3
@@ -1071,7 +1097,7 @@ export async function apply(ctx) {
       chat.scriptState = scriptContinuity.startAligned(script, greeting, card.script_start)
     }
     if (typeof sessionId === 'string') chat.sessionId = sessionId
-    if (greeting !== '') chat.messages.push({
+    if (greeting !== '') chat.messages.push(Object.assign({
       role: 'assistant',
       text: greeting,
       sourceText: openingSourceText,
@@ -1083,7 +1109,16 @@ export async function apply(ctx) {
       ts: Date.now(),
       greeting: true,
       turn: 1
-    })
+    }, openingMvu === null ? {} : {
+      swipeId: openingMvu.swipeId,
+      swipes: openingMvu.swipes,
+      variables: openingMvu.variables,
+      mvu: {
+        modified: false,
+        diagnostics: openingMvuDiagnostics,
+        events: openingMvu.events
+      }
+    }))
     const hasSession = typeof sessionId === 'string' && sessionId !== ''
     await conversationRegistry.publish(chat)
     if (hasSession) await appendNativeOpening(sessionId, chat, card, openingTarget)
@@ -1781,6 +1816,7 @@ export async function apply(ctx) {
     planner: contextPlanner,
     scripts: scriptContinuity,
     timeline: storyTimeline,
+    mvu: tavernMvu,
     cards: cardPreparation,
     workspace: {
       prepare: prepareWorkspace,

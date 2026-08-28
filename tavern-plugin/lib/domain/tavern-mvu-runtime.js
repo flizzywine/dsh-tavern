@@ -27,6 +27,17 @@ function same(left, right) {
   return JSON.stringify(left) === JSON.stringify(right)
 }
 
+function mergeInto(target, source) {
+  if (source === null || typeof source !== 'object' || Array.isArray(source)) return target
+  for (const [key, value] of Object.entries(source)) {
+    if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+      if (target[key] === null || typeof target[key] !== 'object' || Array.isArray(target[key])) target[key] = {}
+      mergeInto(target[key], value)
+    } else target[key] = clone(value)
+  }
+  return target
+}
+
 function renderMacros(value, context) {
   const variables = object(context)
   return str(value)
@@ -364,10 +375,33 @@ function initBlocks(source, macroContext) {
   let match
   while ((match = matcher.exec(str(source))) !== null) {
     const value = parseYaml(renderMacros(match[2], macroContext))
-    if (value !== null && typeof value === 'object' && !Array.isArray(value)) Object.assign(merged, clone(value))
+    if (value !== null && typeof value === 'object' && !Array.isArray(value)) mergeInto(merged, value)
     found = true
   }
   return { found, statData: merged }
+}
+
+export function readMvuWorldBookInitialState(book, macroContext = {}) {
+  const source = object(book)
+  const entries = Array.isArray(source.entries) ? source.entries : Object.values(object(source.entries))
+  const statData = {}
+  const diagnostics = []
+  for (let index = 0; index < entries.length; index += 1) {
+    const entry = object(entries[index])
+    if (entry.enabled === false || !str(entry.comment || entry.name).toLowerCase().includes('[initvar]')) continue
+    let content = str(entry.content).trim()
+    const xml = content.match(/.*<initvar>.*\n([\s\S]*)\n.*<\/initvar>.*/m)
+    if (xml) content = xml[1]
+    const code = content.match(/```[^\n]*\n([\s\S]*)\n```/m)
+    if (code) content = code[1]
+    try {
+      const value = parseYaml(renderMacros(content, macroContext))
+      if (value !== null && typeof value === 'object' && !Array.isArray(value)) mergeInto(statData, value)
+    } catch (error) {
+      diagnostics.push({ entry: str(entry.comment || entry.name) || String(index), message: error instanceof Error ? error.message : String(error) })
+    }
+  }
+  return { statData, diagnostics }
 }
 
 /** Compatibility core for official MVU message/swipe state semantics. */
@@ -411,7 +445,7 @@ export function createTavernMvuRuntime(options = {}) {
     return Object.assign(updated, { sourceText: messageText })
   }
 
-  return Object.freeze({ initializeChat, settleResponse })
+  return Object.freeze({ initializeChat, settleResponse, lastVariables: lastMvuVariables })
 }
 
 export function lastMvuVariables(messages, endExclusive = Infinity) {

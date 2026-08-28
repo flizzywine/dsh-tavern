@@ -7,6 +7,7 @@ import { createStoryTimeline } from '../tavern-plugin/lib/domain/story-timeline.
 import { renderTavernMacros } from '../tavern-plugin/lib/domain/tavern-macro-engine.js'
 import { projectReplyPresentation } from '../tavern-plugin/lib/domain/reply-presentation.js'
 import { createTurnOrchestrator } from '../tavern-plugin/lib/domain/turn-orchestration.js'
+import { createTavernMvuRuntime } from '../tavern-plugin/lib/domain/tavern-mvu-runtime.js'
 
 function clone(value) {
   return value === undefined ? undefined : structuredClone(value)
@@ -81,6 +82,7 @@ function harness(mode, options = {}) {
     worldBookRecall: options.worldBookRecall,
     scripts,
     timeline,
+    mvu: options.mvu,
     cards,
     workspace: {
       async prepare(value, turn) {
@@ -283,6 +285,56 @@ test('游玩回复先执行人物卡宏，再分别保存原文、Session 和展
   assert.equal(run.chat().presentation, undefined)
   assert.deepEqual(run.chat().macroState.local, { stage: 1 })
   assert.equal(saved.reply.sessionText, message.projectionText)
+})
+
+test('MVU 在显示正则前结算，并把用户与助手状态保存到各自 swipe', async () => {
+  const run = harness('story', {
+    mvu: createTavernMvuRuntime(),
+    extensions: {
+      regexScripts: [{
+        id: 'status', name: '状态栏', findRegex: '<StatusPlaceHolderImpl/>', replaceString: '<aside>状态栏</aside>',
+        placement: [2], enabled: true, markdownOnly: true, promptOnly: false, runOnEdit: false
+      }]
+    }
+  })
+  const initial = run.chat()
+  initial.messages.push({
+    role: 'assistant', text: '开场', swipeId: 0, swipes: ['开场'],
+    variables: [{ initialized_lorebooks: {}, stat_data: { 体力: 10 }, schema: { extensible: false, properties: {}, type: 'object' } }]
+  })
+  run.replaceChat(initial)
+
+  await run.orchestrator.prepare({ sessionId: 'session-1', turn: 2, userText: '向前走' })
+  const saved = await run.orchestrator.finalize({
+    sessionId: 'session-1', turn: 2, userText: '向前走', assistantText: '正文\n_.add("体力", -1);'
+  })
+
+  const user = run.chat().messages.at(-2)
+  const assistant = run.chat().messages.at(-1)
+  assert.equal(user.variables[0].stat_data.体力, 10)
+  assert.equal(assistant.variables[0].stat_data.体力, 9)
+  assert.equal(assistant.swipes[0], '正文\n_.add("体力", -1);\n\n<StatusPlaceHolderImpl/>')
+  assert.equal(assistant.sourceText, '正文\n_.add("体力", -1);', '原始模型输出保持不变')
+  assert.match(assistant.displayText, /<aside>状态栏<\/aside>/)
+  assert.doesNotMatch(saved.reply.sessionText, /<aside>/)
+})
+
+test('MVU 单条命令失败不阻止正文和上一状态快照提交', async () => {
+  const run = harness('story', { mvu: createTavernMvuRuntime() })
+  const initial = run.chat()
+  initial.messages.push({
+    role: 'assistant', text: '开场', swipeId: 0, swipes: ['开场'],
+    variables: [{ initialized_lorebooks: {}, stat_data: { 体力: 10 }, schema: { extensible: false, properties: {}, type: 'object' } }]
+  })
+  run.replaceChat(initial)
+
+  await run.orchestrator.prepare({ sessionId: 'session-1', turn: 2, userText: '继续' })
+  await run.orchestrator.finalize({ sessionId: 'session-1', turn: 2, userText: '继续', assistantText: '正文\n_.set("不存在", 1);' })
+
+  const assistant = run.chat().messages.at(-1)
+  assert.equal(assistant.variables[0].stat_data.体力, 10)
+  assert.equal(assistant.mvu.diagnostics.length, 1)
+  assert.match(assistant.text, /^正文/)
 })
 
 test('真实玩家回合缺少 prepare 时仍报 operation 错误', async () => {
