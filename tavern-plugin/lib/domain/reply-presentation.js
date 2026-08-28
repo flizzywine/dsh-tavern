@@ -151,7 +151,7 @@ export function projectReplyHistory(messages, options = {}) {
     const projected = projectReplyLayers(sourceText, Object.assign({}, options, { projectionText }))
     const sessionText = str(message.text)
 
-    if (projected.displayText !== sessionText || projected.displayMode !== 'markdown') {
+    if (projected.displayText !== sessionText || projected.displayMode !== 'markdown' || (Array.isArray(message.swipes) && message.swipes.length > 1)) {
       projections.push({
         version: 2,
         turn,

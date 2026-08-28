@@ -189,3 +189,12 @@ test('历史投影从原文重算，关闭展示正则后恢复原始消息', ()
   ])
   assert.equal(disabled.presentation, null)
 })
+
+test('多 Swipe 的纯 Markdown 也生成展示投影，使旧候选可覆盖原生正文', () => {
+  const result = projectReplyHistory([{
+    role: 'assistant', turn: 3, text: '旧候选', sourceText: '旧候选', projectionText: '旧候选', swipeId: 0, swipes: ['旧候选', '新候选']
+  }])
+  assert.deepEqual(result.projections.map(function (item) { return { turn: item.turn, text: item.text, mode: item.mode } }), [
+    { turn: 3, text: '旧候选', mode: 'html' }
+  ])
+})

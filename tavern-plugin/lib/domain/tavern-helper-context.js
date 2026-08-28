@@ -112,6 +112,7 @@ export function replaceTavernHelperMessages(chat, patches) {
       while (message.swipes.length < count) message.swipes.push('')
       message.swipes[swipeId] = text
       message.sourceText = text
+      message.projectionText = text
       message.text = text
       message.sessionText = text
       message.displayText = text
@@ -123,6 +124,7 @@ export function replaceTavernHelperMessages(chat, patches) {
     message.swipeId = swipeId
     if (Array.isArray(message.swipes) && message.swipes[swipeId] !== undefined) {
       message.sourceText = message.swipes[swipeId]
+      message.projectionText = message.swipes[swipeId]
       message.text = message.swipes[swipeId]
       message.sessionText = message.swipes[swipeId]
       message.displayText = message.swipes[swipeId]

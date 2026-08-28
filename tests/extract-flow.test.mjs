@@ -446,9 +446,13 @@ test('Tavern 只接管会话区域，保留 DSH 原生设置与模型配置入�
   assert.doesNotMatch(clientSource, /slots\.inject\("sidebar",/)
 })
 
-test('游玩不提供多开场白切换器', () => {
+test('游玩不保留旧侧栏开场切换器，由消息楼层提供通用 Swipe 切换', () => {
   const sidebar = between(clientSource, 'function TavernSidebar', 'function TavernResourcesTab')
   assert.doesNotMatch(sidebar, /switchOpening\(|call\("switchOpening"/)
+	const assistant = between(clientSource, 'function TavernAssistantNodeView', 'function register')
+	assert.match(assistant, /switchTavernSwipe/)
+	assert.match(assistant, /上一个 Swipe/)
+	assert.match(assistant, /下一个 Swipe/)
 })
 
 test('酒馆状态页注册到 Better Sidebar，不再接管 DSH details', () => {
@@ -849,6 +853,13 @@ test('酒馆状态页显示人物卡脚本失败诊断，避免远程资源被�
 	assert.match(panel, /tavernHelperScriptDiagnostics/)
 	assert.match(panel, /人物卡脚本有.*项未运行/)
 	assert.match(panel, /人物卡脚本兼容状态/)
+})
+
+test('人物卡 Helper 的世界书写入按人物卡串行，避免生命周期事件并发覆盖', () => {
+	const adapter = between(serverSource, 'const tavernHelperWorldbookMutationTails', 'async function tavernHelperEventContext')
+	assert.match(adapter, /serializeTavernHelperWorldbook\(chat\.cardPath/)
+	assert.match(adapter, /previous\.catch\(function \(\) \{\}\)\.then\(work\)/)
+	assert.match(adapter, /await worldBooks\.update/)
 })
 
 test('剧本预览只显示当前召回和后续块', () => {

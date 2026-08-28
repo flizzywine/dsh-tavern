@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, readdir, rename, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
@@ -57,4 +57,16 @@ test('短暂的 Windows 占用在同一 implementation 内重试', async functio
   await files.write(target, '# Skill\n')
   assert.equal(calls, 2)
   assert.equal((await files.read(target)).toString('utf8'), '# Skill\n')
+})
+
+test('结构损坏的写入锁不会永久阻断资源', async function (t) {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-file-promotion-'))
+  t.after(async function () { await rm(root, { recursive: true, force: true }) })
+  const target = path.join(root, 'card.json')
+  await writeFile(target + '.write-lock', JSON.stringify({ kind: 'mistaken-card-workspace', raw: { pid: process.pid } }))
+
+  await createDurableFilePromotion().write(target, 'recovered')
+
+  assert.equal(await readFile(target, 'utf8'), 'recovered')
+  assert.equal((await readdir(root)).includes('card.json.write-lock'), false)
 })

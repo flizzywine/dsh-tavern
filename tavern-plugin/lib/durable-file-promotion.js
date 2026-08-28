@@ -36,8 +36,9 @@ export function createDurableFilePromotion(options = {}) {
         if (error?.code !== 'EEXIST') throw error
         let owner = null
         try { owner = JSON.parse(await readFile(lockPath, 'utf8')) } catch {}
-        let stale = Number.isSafeInteger(Number(owner && owner.pid)) && !processIsAlive(Number(owner.pid))
-        if (!owner) {
+        const validOwner = owner !== null && typeof owner === 'object' && Number.isSafeInteger(Number(owner.pid)) && Number(owner.pid) > 0
+        let stale = validOwner ? !processIsAlive(Number(owner.pid)) : owner !== null
+        if (owner === null) {
           try { stale = Date.now() - Number((await stat(lockPath)).mtimeMs) > 60_000 } catch {}
         }
         if (attempt === 0 && stale) { await rm(lockPath, { force: true }); continue }

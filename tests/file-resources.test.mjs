@@ -42,6 +42,21 @@ test('导入资料同时保存原版和可编辑工作版', async () => {
   } finally { await rm(root, { recursive: true, force: true }) }
 })
 
+test('资源列表不暴露 durable write 的内部文件', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-internal-files-'))
+  try {
+    const store = createFileResourceStore({ dataRoot: root })
+    await store.ensure()
+    const cards = path.join(root, 'resources', 'cards')
+    await writeFile(path.join(cards, 'real.json'), '{}')
+    await writeFile(path.join(cards, 'real.json.write-lock'), '{}')
+    await writeFile(path.join(cards, 'real.json.pending-1-12345678-1234-1234-1234-123456789abc'), '{}')
+    await writeFile(path.join(cards, 'real.json.pending-1-12345678-1234-1234-1234-123456789abc.staging-12345678-1234-1234-1234-123456789abc'), '{}')
+
+    assert.deepEqual(await store.list('card'), ['cards/real.json'])
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
+
 test('导入世界书分别保存不可变原版和 JSON 工作版', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-worldbook-files-'))
   try {

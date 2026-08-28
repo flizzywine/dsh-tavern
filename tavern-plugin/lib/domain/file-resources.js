@@ -5,7 +5,12 @@ import { createResourceMutationJournal } from './resource-mutation-journal.js'
 import { inspectPreset } from './preset-reading.js'
 
 const KIND_DIR = Object.freeze({ card: 'cards', preset: 'presets', source: 'materials', script: 'scripts', worldbook: 'worldbooks' })
+const INTERNAL_FILE_PATTERNS = Object.freeze([/\.write-lock$/i, /\.pending-\d+-[0-9a-f-]+$/i, /\.staging-[0-9a-f-]+$/i])
 const WINDOWS_RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i
+
+function isInternalFile(name) {
+  return INTERNAL_FILE_PATTERNS.some(function (pattern) { return pattern.test(name) })
+}
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
@@ -227,7 +232,7 @@ export function createFileResourceStore(options = {}) {
       const nextPrefix = prefix === '' ? entry.name : prefix + '/' + entry.name
       const target = path.join(folder, entry.name)
       if (entry.isDirectory()) result.push.apply(result, await scanFiles(target, nextPrefix))
-      else if (entry.isFile()) result.push(nextPrefix.normalize('NFC'))
+      else if (entry.isFile() && !isInternalFile(entry.name)) result.push(nextPrefix.normalize('NFC'))
     }
     return result.sort(function (a, b) { return a.localeCompare(b, 'zh-CN') })
   }

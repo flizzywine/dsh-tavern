@@ -32,6 +32,9 @@ window.__ModuleLoader__.load({
 .dsh-tavern-assistant-reasoning summary { cursor: pointer; user-select: none; }
 .dsh-tavern-assistant-reasoning pre { margin: 8px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
 .dsh-tavern-assistant-stopped { align-self: flex-start; border-radius: 6px; padding: 0 6px; background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-tertiary); font-size: 11px; line-height: 18px; }
+.dsh-tavern-swipe-controls { align-self: center; display: flex; align-items: center; gap: 8px; color: var(--dsw-alias-label-tertiary); font-size: 12px; line-height: 24px; }
+.dsh-tavern-swipe-controls button { min-width: 28px; height: 26px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 7px; background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-secondary); cursor: pointer; }
+.dsh-tavern-swipe-controls button:disabled { opacity: .35; cursor: default; }
 .dsh-tavern-message-frame { display: block; width: 100%; min-height: 48px; border: 0; background: transparent; overflow: hidden; }
 .dsh-tavern-user-row { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
 .dsh-tavern-user-stack { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; min-width: 0; max-width: min(525px, 82%); }
@@ -1697,10 +1700,21 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				const settled = data.status !== "running";
 				const revision = String(data.status || "") + ":" + String(data.finalNode && data.finalNode.seq || "");
 				const liveState = useLiveTavernView(props.sessionId, revision);
+				const [swipeBusy, setSwipeBusy] = React.useState(false);
 				React.useEffect(function () {
 					if (liveState.view) syncTavernHelperScripts(props.sessionId, liveState.view);
 				}, [props.sessionId, liveState.view]);
 				const projection = settled ? tavernProjectionForTurn(liveState.view, turn) : null;
+				const swipe = liveState.view && Array.isArray(liveState.view.tavernSwipes) ? liveState.view.tavernSwipes.find(function (item) { return Number(item.turn) === turn; }) : null;
+				async function switchSwipe(nextSwipeId) {
+					if (!swipe || swipeBusy || nextSwipeId < 0 || nextSwipeId >= swipe.count || nextSwipeId === swipe.swipeId) return;
+					setSwipeBusy(true);
+					try {
+						await rpc("switchTavernSwipe", { messageId: swipe.messageId, swipeId: nextSwipeId }, props.sessionId);
+						liveTavernView.invalidate(props.sessionId);
+					} catch (error) { tavernErrorHub.report("切换 Swipe", error); }
+					finally { setSwipeBusy(false); }
+				}
 				const tail = props.useTurnData("turn-tail");
 				const owner = React.useMemo(function () {
 					if (!turnRef || turnRef.status !== "closed" || !data.finalNode || !tail || !tail.closing || tail.closing.finalNode.seq !== data.finalNode.seq) return undefined;
@@ -1721,7 +1735,12 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					t: props.t
 				});
 				if (!(data.status === "running" || data.status === "interrupted" || rendered.length > 0)) return null;
-				return React.createElement("div", { className: "dsh-tavern-assistant", "data-streaming": data.status === "running" || undefined }, rendered);
+				const swipeControls = swipe && swipe.count > 1 && settled ? React.createElement("div", { className: "dsh-tavern-swipe-controls" },
+					React.createElement("button", { type: "button", disabled: swipeBusy || swipe.swipeId <= 0, "aria-label": "上一个 Swipe", onClick: function () { switchSwipe(swipe.swipeId - 1); } }, "‹"),
+					React.createElement("span", null, String(swipe.swipeId + 1) + " / " + String(swipe.count)),
+					React.createElement("button", { type: "button", disabled: swipeBusy || swipe.swipeId >= swipe.count - 1, "aria-label": "下一个 Swipe", onClick: function () { switchSwipe(swipe.swipeId + 1); } }, "›")
+				) : null;
+				return React.createElement("div", { className: "dsh-tavern-assistant", "data-streaming": data.status === "running" || undefined }, rendered, swipeControls);
 			}
 			function register(input) {
 				input.ctx.effect(function () {

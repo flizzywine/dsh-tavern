@@ -83,9 +83,12 @@ test('Helper 消息写入可切换开场 swipe 并修改当前正文', () => {
   assert.deepEqual(replaceTavernHelperMessages(chat, [{ message_id: 0, swipe_id: 1 }]), [{ messageId: 0, swipeId: 1 }])
   assert.equal(chat.messages[0].swipeId, 1)
   assert.equal(chat.messages[0].text, '开场乙')
+  assert.equal(chat.messages[0].sourceText, '开场乙')
+  assert.equal(chat.messages[0].projectionText, '开场乙')
 
   replaceTavernHelperMessages(chat, [{ message_id: 'latest', message: '自定义开场', data: { hp: 7 } }])
   assert.equal(chat.messages[0].swipes[1], '自定义开场')
   assert.equal(chat.messages[0].text, '自定义开场')
+  assert.equal(chat.messages[0].projectionText, '自定义开场')
   assert.deepEqual(chat.messages[0].variables[1], { hp: 7 })
 })

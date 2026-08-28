@@ -888,6 +888,14 @@ export async function apply(ctx) {
     await writeChat(chat, { source: 'tavern-helper.messages' })
     return { updated: true, targets: updated, context: projectTavernHelperContext(chat) }
   }
+  async function switchTavernSwipe(sessionId, messageId, swipeId) {
+    const chat = await chatForSession(sessionId)
+    if (chat === undefined || groupOfMode(chat.mode) !== 'play') throw new Error('当前会话没有绑定游玩对话')
+    const updated = replaceTavernHelperMessages(chat, [{ message_id: messageId, swipe_id: swipeId }])
+    chat.updatedAt = Date.now()
+    await writeChat(chat, { source: 'tavern.swipe' })
+    return { updated: true, target: updated[0] || null }
+  }
   async function tavernHelperWorldbookRecord(sessionId, requestedName) {
     const chat = await chatForSession(str(sessionId))
     if (chat === undefined) throw new Error('当前会话没有绑定人物卡')
@@ -905,13 +913,26 @@ export async function apply(ctx) {
     const resolved = await tavernHelperWorldbookRecord(sessionId, name)
     return { worldbook: projectTavernHelperWorldbook(resolved.record.view) }
   }
+  const tavernHelperWorldbookMutationTails = new Map()
+  async function serializeTavernHelperWorldbook(cardPath, work) {
+    const key = str(cardPath)
+    const previous = tavernHelperWorldbookMutationTails.get(key) || Promise.resolve()
+    const current = previous.catch(function () {}).then(work)
+    tavernHelperWorldbookMutationTails.set(key, current)
+    try { return await current }
+    finally { if (tavernHelperWorldbookMutationTails.get(key) === current) tavernHelperWorldbookMutationTails.delete(key) }
+  }
   async function replaceTavernHelperWorldbook(sessionId, name, entries) {
-    const resolved = await tavernHelperWorldbookRecord(sessionId, name)
-    const operations = replaceTavernHelperWorldbookOperations(resolved.record.view, entries)
-    const updated = operations.length === 0
-      ? resolved.record
-      : await worldBooks.update(resolved.record.source, { operations })
-    return { updated: operations.length > 0, worldbook: projectTavernHelperWorldbook(updated.view) }
+    const chat = await chatForSession(str(sessionId))
+    if (chat === undefined) throw new Error('当前会话没有绑定人物卡')
+    return await serializeTavernHelperWorldbook(chat.cardPath, async function () {
+      const resolved = await tavernHelperWorldbookRecord(sessionId, name)
+      const operations = replaceTavernHelperWorldbookOperations(resolved.record.view, entries)
+      const updated = operations.length === 0
+        ? resolved.record
+        : await worldBooks.update(resolved.record.source, { operations })
+      return { updated: operations.length > 0, worldbook: projectTavernHelperWorldbook(updated.view) }
+    })
   }
 
   async function tavernHelperEventContext(sessionId, chat, transientUserText = '') {
@@ -1076,6 +1097,11 @@ export async function apply(ctx) {
       presentation: null,
       replyProjections: replyDisplay.projections,
       tavernHelper: chat.mvu && chat.mvu.enabled === true ? projectTavernHelperContext(chat) : null,
+      tavernSwipes: (Array.isArray(chat.messages) ? chat.messages : []).map(function (message, messageId) {
+        if (!message || message.role !== 'assistant') return null
+        const count = Math.max(Array.isArray(message.swipes) ? message.swipes.length : 0, 1)
+        return { messageId, turn: Math.max(0, Number(message.turn) || (message.greeting === true ? 1 : 0)), swipeId: Math.max(0, Math.min(count - 1, Number(message.swipeId) || 0)), count }
+      }).filter(function (item) { return item && item.turn > 0 }),
       tavernHelperScripts: helperRuntime.scripts,
       tavernHelperScriptDiagnostics: helperRuntime.diagnostics,
       tavernRemoteAssetPins: Array.isArray(cardExtensions.remoteAssetPins) ? cardExtensions.remoteAssetPins : [],
@@ -2414,6 +2440,7 @@ export async function apply(ctx) {
       case 'captureDisplayRuntime': return await captureDisplayRuntime(args && args.sessionId, args && args.turn, args && args.partIndex, args && args.runtime)
       case 'updateTavernHelperVariables': return await updateTavernHelperVariables(args && args.sessionId, args && args.option, args && args.variables)
       case 'updateTavernHelperMessages': return await updateTavernHelperMessages(args && args.sessionId, args && args.messages)
+      case 'switchTavernSwipe': return await switchTavernSwipe(args && args.sessionId, args && args.messageId, args && args.swipeId)
       case 'getTavernHelperWorldbook': return await getTavernHelperWorldbook(args && args.sessionId, args && args.name)
       case 'replaceTavernHelperWorldbook': return await replaceTavernHelperWorldbook(args && args.sessionId, args && args.name, args && args.entries)
 	  case 'pollTavernHelperEvent': return tavernHelperEventGate.poll(args && args.sessionId, args && args.runtimeId)
