@@ -119,6 +119,12 @@ function pointerSegments(path) {
   })
 }
 
+function lodashPath(segments) {
+  return pathSegments(segments).map(function (segment) {
+    return '["' + String(segment).replaceAll('\\', '\\\\').replaceAll('"', '\\"') + '"]'
+  }).join('')
+}
+
 function pathSegments(path) {
   if (Array.isArray(path)) return path.map(String)
   const source = str(path).trim().replace(/^["'`](.*)["'`]$/, '$1')
@@ -206,15 +212,22 @@ function jsonPatchCommands(source) {
       for (const operation of patch) {
         if (!operation || typeof operation !== 'object') continue
         const aliases = { replace: 'set', delta: 'add', add: 'insert', remove: 'delete' }
+        const target = pointerSegments(operation.path ?? operation.to)
+        const source = pointerSegments(operation.from)
         const fullMatch = JSON.stringify(operation)
+        let args
+        if (operation.op === 'move') args = [lodashPath(source), lodashPath(target)]
+        else if (operation.op === 'add' || operation.op === 'insert') {
+          const key = target.at(-1) ?? ''
+          args = [lodashPath(target.slice(0, -1)), /^\d+$/.test(key) ? key : JSON.stringify(key), JSON.stringify(operation.value)]
+        } else if (operation.op === 'remove') args = [lodashPath(target)]
+        else args = [lodashPath(target), JSON.stringify(operation.value)]
         commands.push({
           type: aliases[operation.op] || operation.op,
-          path: pointerSegments(operation.path ?? operation.to),
-          from: pointerSegments(operation.from),
+          path: target,
+          from: source,
           value: clone(operation.value),
-          args: operation.op === 'move'
-            ? [str(operation.path ?? operation.to), str(operation.from)]
-            : (operation.op === 'remove' ? [str(operation.path)] : [str(operation.path ?? operation.to), clone(operation.value)]),
+          args,
           reason: 'json_patch',
           fullMatch,
           full_match: fullMatch,
@@ -241,7 +254,7 @@ function lodashCommands(source) {
     commands.push({
       type: ({ assign: 'insert', remove: 'delete', unset: 'delete' })[match[1]] || match[1],
       path: pathSegments(parseValue(args[0])),
-      args: args.map(parseValue),
+      args,
       reason: comment ? comment[1].trim() : '',
       fullMatch,
       full_match: fullMatch,
@@ -267,7 +280,7 @@ function applyCommand(statData, command) {
   if (command.type === 'set') {
     if (!hasAt(statData, path)) throw new Error('set 路径不存在')
     const before = clone(getAt(statData, path))
-    const value = command.value !== undefined ? clone(command.value) : clone(command.args.at(-1))
+    const value = clone(parseValue(command.args.at(-1)))
     if (path.length === 0) return { statData: object(value), before, after: clone(value) }
     const current = getAt(statData, path)
     if (Array.isArray(current) && current.length === 2 && typeof current[1] === 'string' && !Array.isArray(current[0])) current[0] = value
@@ -278,7 +291,7 @@ function applyCommand(statData, command) {
     if (!hasAt(statData, path)) throw new Error('add 路径不存在')
     const stored = getAt(statData, path)
     const value = Array.isArray(stored) && stored.length === 2 && typeof stored[1] === 'string' ? stored[0] : stored
-    const delta = command.value !== undefined ? command.value : command.args.at(-1)
+    const delta = parseValue(command.args.at(-1))
     if (typeof value !== 'number' || typeof delta !== 'number') throw new Error('add 只支持数值增量')
     const next = Number((value + delta).toPrecision(12))
     const before = clone(stored)
@@ -288,23 +301,20 @@ function applyCommand(statData, command) {
   }
   if (command.type === 'insert') {
     const collection = getAt(statData, path)
-    const jsonPatch = command.reason === 'json_patch'
-    const key = jsonPatch ? command.path.at(-1) : (command.args.length >= 3 ? command.args[1] : undefined)
-    const containerPath = jsonPatch ? command.path.slice(0, -1) : path
-    const container = jsonPatch ? getAt(statData, containerPath) : collection
-    const value = jsonPatch ? command.value : command.args.at(-1)
-    if (container === null || typeof container !== 'object') throw new Error('insert 目标不是集合')
-    const before = clone(container)
-    if (Array.isArray(container)) {
-      if (jsonPatch || command.args.length >= 3) {
-        const index = key === '-' || Number(key) === -1 ? container.length : Number(key)
+    const key = command.args.length >= 3 ? parseValue(command.args[1]) : undefined
+    const value = parseValue(command.args.at(-1))
+    if (collection === null || typeof collection !== 'object') throw new Error('insert 目标不是集合')
+    const before = clone(collection)
+    if (Array.isArray(collection)) {
+      if (command.args.length >= 3) {
+        const index = key === '-' || Number(key) === -1 ? collection.length : Number(key)
         if (!Number.isInteger(index)) throw new Error('insert 数组索引无效')
-        container.splice(index, 0, clone(value))
-      } else container.push(clone(value))
-    } else if (jsonPatch || command.args.length >= 3) container[String(key)] = clone(value)
-    else if (value !== null && typeof value === 'object' && !Array.isArray(value)) Object.assign(container, clone(value))
+        collection.splice(index, 0, clone(value))
+      } else collection.push(clone(value))
+    } else if (command.args.length >= 3) collection[String(key)] = clone(value)
+    else if (value !== null && typeof value === 'object' && !Array.isArray(value)) Object.assign(collection, clone(value))
     else throw new Error('insert 对象合并值无效')
-    return { statData, before, after: clone(container), displayPath: containerPath }
+    return { statData, before, after: clone(collection), displayPath: path }
   }
   if (command.type === 'delete') {
     const jsonPatch = command.reason === 'json_patch'
@@ -312,7 +322,7 @@ function applyCommand(statData, command) {
       const collection = getAt(statData, path)
       if (collection === null || typeof collection !== 'object') throw new Error('delete 目标不是集合')
       const before = clone(collection)
-      const target = command.args[1]
+      const target = parseValue(command.args[1])
       if (Array.isArray(collection)) {
         const index = typeof target === 'number' ? target : collection.findIndex(function (item) { return same(item, target) })
         if (index < 0 || index >= collection.length) throw new Error('delete 数组目标不存在')
@@ -377,14 +387,17 @@ async function updateVariables(sourceText, previous, emit) {
   for (const command of commands) {
     try {
       if (Array.isArray(command.args) && command.args.length > 0) {
-		const rawPath = str(command.args[0])
-		command.path = command.reason === 'json_patch' || rawPath.startsWith('/') ? pointerSegments(rawPath) : pathSegments(rawPath)
-		if (command.path[0] === 'stat_data') command.path = command.path.slice(1)
 		if (command.type === 'move' && command.args.length > 1) {
-		  const rawFrom = str(command.args[1])
-		  command.from = command.reason === 'json_patch' || rawFrom.startsWith('/') ? pointerSegments(rawFrom) : pathSegments(rawFrom)
+		  const rawFrom = str(command.args[0])
+		  const rawPath = str(command.args[1])
+		  command.from = rawFrom.startsWith('/') ? pointerSegments(rawFrom) : pathSegments(parseValue(rawFrom))
 		  if (command.from[0] === 'stat_data') command.from = command.from.slice(1)
+		  command.path = rawPath.startsWith('/') ? pointerSegments(rawPath) : pathSegments(parseValue(rawPath))
+		} else {
+		  const rawPath = str(command.args[0])
+		  command.path = rawPath.startsWith('/') ? pointerSegments(rawPath) : pathSegments(parseValue(rawPath))
 		}
+		if (command.path[0] === 'stat_data') command.path = command.path.slice(1)
       }
       const result = applyCommand(variables.stat_data, command)
       const displayPath = result.displayPath || command.path

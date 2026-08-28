@@ -129,7 +129,7 @@ test('COMMAND_PARSED 使用上游 args 形态并允许变量守卫改写命令',
     sourceText: '_.set("角色.错误字段", 8);',
     emit: async function (name, current, commands) {
       if (name !== MVU_EVENTS.commandParsed) return
-      assert.deepEqual(commands[0].args, ['角色.错误字段', 8])
+	  assert.deepEqual(commands[0].args, ['"角色.错误字段"', '8'])
 	  commands[0].args[0] = 'stat_data.角色.体力'
       commands[0].args[1] = 6
       return [current, commands]

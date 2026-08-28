@@ -111,7 +111,7 @@ _.set('data', {arr: [1, 2, {nested: "value)"}]}, {arr: [3, 4]});//更新数据
 
   assert.equal(commands.length, 2)
   assert.equal(commands[0].reason, '外层命令')
-  assert.deepEqual(commands[1].args.at(-1), { arr: [3, 4] })
+	assert.equal(commands[1].args.at(-1), '{arr: [3, 4]}')
   assert.equal(commands[1].reason, '更新数据')
 })
 
@@ -135,4 +135,22 @@ test('MVU 上游一致性：add 只接受两个参数，命令保留含注释的
   assert.equal(valid.length, 1)
   assert.equal(valid[0].full_match, "_.add('player.health', 10); // 恢复生命")
   assert.deepEqual(invalid, [])
+})
+
+test('MVU 上游一致性：JSON Patch insert 与 move 向 COMMAND_PARSED 暴露官方参数顺序', async () => {
+	const seen = []
+	const runtime = createTavernMvuRuntime()
+	const result = await runtime.settleResponse({
+		previousVariables: variables({ bag: ['旧物'], source: 7, target: 0 }),
+		sourceText: '<JsonPatch>[{"op":"insert","path":"/bag/-","value":"新物"},{"op":"move","from":"/source","path":"/target"}]</JsonPatch>',
+		emit: async function (name, _variables, commands) {
+			if (name === 'COMMAND_PARSED') seen.push(structuredClone(commands))
+		}
+	})
+
+	assert.deepEqual(seen[0].map(command => command.args), [
+		['["bag"]', '"-"', '"新物"'],
+		['["source"]', '["target"]']
+	])
+	assert.deepEqual(result.variables.stat_data, { bag: ['旧物', '新物'], target: 7 })
 })
