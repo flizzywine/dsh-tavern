@@ -69,7 +69,7 @@ function htmlDocumentContent(value) {
   const source = fencedSegments(value).map(function (segment) {
     return segment.kind === 'html' ? segment.content : segment.text
   }).join('')
-  if (hasRawHtml(source) && source.trimStart().startsWith('<')) return source
+  if (hasRawHtml(source)) return source
   try {
     return marked.parse(source, { async: false, breaks: true, gfm: true })
   } catch (_error) {

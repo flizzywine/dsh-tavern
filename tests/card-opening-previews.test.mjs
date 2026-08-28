@@ -85,6 +85,12 @@ test('真实《灯火阑珊》的 15 条开局全部生成 UI 与对应变量上
   })
 
   assert.equal(result.openings.length, 15)
+  const indexOpeningHtml = result.openings[0].projection.parts.map(function (part) {
+    return String(part.content || '')
+  }).join('')
+  assert.match(indexOpeningHtml, /<!-- 中间核心内容 -->/)
+  assert.match(indexOpeningHtml, /<div style="display: flex; align-items: center; justify-content: center;/)
+  assert.doesNotMatch(indexOpeningHtml, /<pre><code>[\s\S]*(?:&lt;div style=|中间核心内容)/)
   assert.ok(result.openings.every(function (opening) {
     return opening.projection.parts.some(function (part) {
       return /cultivation-var-update|\.load\(/.test(String(part.content || ''))

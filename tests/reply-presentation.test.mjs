@@ -144,14 +144,15 @@ test('独立围栏 UI 不与正文共用 iframe，避免 body.load 清空正文'
   assert.doesNotMatch(projected.parts[1].content, /幽暗秘境深处/)
 })
 
-test('开场白索引渲染 Markdown，同时保留同段原始 HTML 和独立状态 UI', () => {
+test('混合内容只要含有 HTML 就整段原样渲染，并保留独立围栏 UI', () => {
   const source = '***索引页***\n\n**开局一·自定义**\n\n<details><summary>天道推演</summary></details>\n\n```html\n<body><script>$("body").load("/status.html")</script></body>\n```'
   const projected = projectDisplayParts(source)
 
   assert.deepEqual(projected.parts.map(part => part.kind), ['html', 'html'])
-  assert.match(projected.parts[0].content, /<em><strong>索引页<\/strong><\/em>/)
-  assert.match(projected.parts[0].content, /<strong>开局一·自定义<\/strong>/)
+  assert.match(projected.parts[0].content, /\*\*\*索引页\*\*\*/)
+  assert.match(projected.parts[0].content, /\*\*开局一·自定义\*\*/)
   assert.match(projected.parts[0].content, /<details><summary>天道推演<\/summary><\/details>/)
+  assert.doesNotMatch(projected.parts[0].content, /<pre><code>/)
   assert.match(projected.parts[1].content, /body.*load/s)
 })
 
