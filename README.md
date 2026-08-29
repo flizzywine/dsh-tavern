@@ -1,3 +1,6 @@
+> [!IMPORTANT]
+> 当前适配 DSH `0.1.1-rc.2`；暂不支持最新的 DSH `0.1.2-alpha.1`。
+
 # dsh-tavern
 
 **基于 DeepSeek Harness（DSH）制作的 SillyTavern 类文字游戏 Agent。**
