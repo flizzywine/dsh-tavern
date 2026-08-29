@@ -498,6 +498,61 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			}).finally(function () { window.clearTimeout(timer); });
 		}
 
+		function createWorldBookLibraryRefreshModule(options) {
+			if (!options || typeof options.load !== "function") throw new Error("世界书库刷新缺少 load adapter");
+			let active = null;
+			let queued = false;
+			let disposed = false;
+			let idleWaiters = [];
+			function resolveIdle() {
+				if (active || queued) return;
+				const waiters = idleWaiters;
+				idleWaiters = [];
+				waiters.forEach(function (resolve) { resolve(); });
+			}
+			function start() {
+				if (disposed) return Promise.resolve();
+				if (typeof options.onBusyChange === "function") options.onBusyChange(true);
+				let loaded;
+				try { loaded = options.load(); }
+				catch (error) { loaded = Promise.reject(error); }
+				const request = Promise.resolve(loaded).then(function (value) {
+					if (!disposed && typeof options.onValue === "function") options.onValue(value);
+				}, function (error) {
+					if (!disposed && typeof options.onError === "function") options.onError(error);
+				}).finally(function () {
+					if (active !== request) return;
+					active = null;
+					if (queued && !disposed) {
+						queued = false;
+						start();
+						return;
+					}
+					if (typeof options.onBusyChange === "function") options.onBusyChange(false);
+					resolveIdle();
+				});
+				active = request;
+				return request;
+			}
+			return Object.freeze({
+				request: function () {
+					if (disposed) return Promise.resolve();
+					if (active) { queued = true; return active; }
+					return start();
+				},
+				whenIdle: function () {
+					if (!active && !queued) return Promise.resolve();
+					return new Promise(function (resolve) { idleWaiters.push(resolve); });
+				},
+				dispose: function () {
+					disposed = true;
+					queued = false;
+					if (typeof options.onBusyChange === "function") options.onBusyChange(false);
+					resolveIdle();
+				}
+			});
+		}
+
 		function openPlayChatDebugWorkspace(sourceSessionId, turn) {
 			return new Promise(function (resolve, reject) {
 				let settled = false;
@@ -2376,14 +2431,20 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const [bindingBusy, setBindingBusy] = React.useState(false);
 			const [error, setError] = usePersistentError("世界书库");
 			const importInput = React.useRef(null);
+			const refreshModule = React.useRef(null);
 			const requestedSource = props.tab && props.tab.meta && props.tab.meta.worldBookSource ? props.tab.meta.worldBookSource : null;
 			const sessionMode = useTavernSessionMode(props.scope.sessionId);
 			const h = React.createElement;
+			if (!refreshModule.current) refreshModule.current = createWorldBookLibraryRefreshModule({
+				load: function () { return rpcWithTimeout("listWorldBooks", {}, props.scope.sessionId); },
+				onValue: function (result) { setCatalog(result || { standalone: [], embedded: [] }); },
+				onError: function (err) { setError(String(err && err.message || err)); },
+				onBusyChange: setLoading
+			});
 			function refresh() {
-				setLoading(true); setError("");
-				return rpcWithTimeout("listWorldBooks", {}, props.scope.sessionId).then(function (result) {
-					setCatalog(result || { standalone: [], embedded: [] }); return result;
-				}, function (err) { setError(String(err && err.message || err)); }).finally(function () { setLoading(false); });
+				setError("");
+				refreshModule.current.request();
+				return refreshModule.current.whenIdle();
 			}
 			function load(source) {
 				if (!source) { setRecord(null); setAssociations(null); setSelectedCardPath(""); return Promise.resolve(); }
@@ -2410,15 +2471,10 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			React.useEffect(function () {
 				refresh();
 				function onData() { refresh(); }
-				function onActivate() { refresh(); }
-				function onVisibility() { if (document.visibilityState === "visible") refresh(); }
 				window.addEventListener("dsh-tavern-data-changed", onData);
-				window.addEventListener("focus", onActivate);
-				document.addEventListener("visibilitychange", onVisibility);
 				return function () {
 					window.removeEventListener("dsh-tavern-data-changed", onData);
-					window.removeEventListener("focus", onActivate);
-					document.removeEventListener("visibilitychange", onVisibility);
+					refreshModule.current.dispose();
 				};
 			}, []);
 			React.useEffect(function () { if (requestedSource) load(requestedSource); }, [JSON.stringify(requestedSource)]);
@@ -3760,6 +3816,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		exports.clampTavernFrameHeight = clampTavernFrameHeight;
 		exports.projectionPartsOf = projectionPartsOf;
 		exports.tavernUserTextForTurn = tavernUserTextForTurn;
+		exports.createWorldBookLibraryRefreshModule = createWorldBookLibraryRefreshModule;
 		exports.createLiveTavernViewModule = createLiveTavernViewModule;
 		exports.createTavernCoordinationEventModule = createTavernCoordinationEventModule;
 		exports.describeTavernActivity = describeTavernActivity;

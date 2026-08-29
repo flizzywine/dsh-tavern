@@ -72,17 +72,16 @@ export function createWorldBookLibrary(options = {}) {
         diagnostics: record.view.diagnostics.length
       }
     }))
-    const embedded = []
-    for (const cardPath of await cards.listPaths()) {
+    const embedded = (await Promise.all((await cards.listPaths()).map(async function (cardPath) {
       const card = await cards.read(cardPath)
-      if (!card || !card.character_book || typeof card.character_book !== 'object') continue
-      const record = await readRecord({ kind: 'card', cardPath })
-      embedded.push({
-        kind: 'card', cardPath, cardName: card.name, name: record.view.displayName,
-        entryCount: record.view.entryCount, enabledCount: record.view.enabledCount,
-        diagnostics: record.view.diagnostics.length
-      })
-    }
+      if (!card || !card.character_book || typeof card.character_book !== 'object') return null
+      const view = inspectWorldBookDocument(card.character_book, { filename: card.name })
+      return {
+        kind: 'card', cardPath, cardName: card.name, name: view.displayName,
+        entryCount: view.entryCount, enabledCount: view.enabledCount,
+        diagnostics: view.diagnostics.length
+      }
+    }))).filter(Boolean)
     return { standalone, embedded }
   }
 

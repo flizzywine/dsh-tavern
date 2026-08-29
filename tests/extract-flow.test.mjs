@@ -802,7 +802,9 @@ test('世界书库统一编辑独立世界书与人物卡内置世界书', () =>
   assert.match(library, /rpc\("unbindWorldBook"/)
   assert.match(library, /"正在读取世界书…"/)
   assert.match(library, /"重新读取"/)
-  assert.match(library, /window\.addEventListener\("focus", onActivate\)/)
+  assert.match(library, /createWorldBookLibraryRefreshModule/)
+  assert.doesNotMatch(library, /window\.addEventListener\("focus"/)
+  assert.doesNotMatch(library, /document\.addEventListener\("visibilitychange"/)
   assert.match(library, /未知字段与 extensions 会原样保留/)
 })
 
