@@ -701,6 +701,17 @@ test('人物卡库可以查看详情，并在当前卡片对话中引用人物�
   assert.match(clientSource, /loadCard\(requestedPath\)/)
 })
 
+test('隐藏的人物卡库不会刷新或上报迟到的读取错误', () => {
+  const library = between(clientSource, 'function CardLibraryTab', 'function CardFieldsPanel')
+
+  assert.match(library, /const visibleRef = React\.useRef\(Boolean\(props\.visible\)\)/)
+  assert.match(library, /visibleRef\.current = Boolean\(props\.visible\)/)
+  assert.match(library, /if \(!props\.visible\) return/)
+  assert.match(library, /if \(visibleRef\.current\) setError\(String\(err && err\.message \|\| err\)\)/)
+  assert.match(library, /\[selectedPath, props\.visible\]/)
+  assert.match(library, /if \(props\.visible && requestedPath && requestedPath !== selectedPath\)/)
+})
+
 test('已迁移的人物卡读取时不会再次加载原版并执行迁移', () => {
   const reader = between(serverSource, 'async function readCardWorkspace', 'async function readCard(cardPath)')
 

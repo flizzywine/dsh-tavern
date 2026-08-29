@@ -3551,12 +3551,14 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const [error, setError] = usePersistentError("人物卡库");
 			const importInput = React.useRef(null);
 			const cardRequest = React.useRef(0);
+			const visibleRef = React.useRef(Boolean(props.visible));
 			const refreshModule = React.useRef(null);
+			visibleRef.current = Boolean(props.visible);
 			if (!refreshModule.current) refreshModule.current = createCardLibraryRefreshModule();
 			const sessionMode = useTavernSessionMode(props.scope.sessionId);
 			const requestedPath = props.tab && props.tab.meta && typeof props.tab.meta.cardPath === "string" ? props.tab.meta.cardPath : "";
 			function refreshCards() {
-				return rpcWithTimeout("listCards", {}).then(function (result) { setCards(result.cards || []); setError(""); return result.cards || []; }, function (err) { setError(String(err && err.message || err)); return []; });
+				return rpcWithTimeout("listCards", {}).then(function (result) { setCards(result.cards || []); setError(""); return result.cards || []; }, function (err) { if (visibleRef.current) setError(String(err && err.message || err)); return []; });
 			}
 			function loadCard(path) {
 				if (!path) { setSelectedPath(""); setCard(null); setLoading(false); return Promise.resolve(); }
@@ -3575,6 +3577,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				});
 			}
 			React.useEffect(function () {
+				if (!props.visible) return function () { cardRequest.current += 1; refreshModule.current.dispose(); };
 				refreshCards();
 				function onData(event) {
 					if (!tavernDataChangeAffects(event, ["cards"], "cards")) return;
@@ -3595,10 +3598,10 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					document.removeEventListener("visibilitychange", onVisibility);
 					refreshModule.current.dispose();
 				};
-			}, [selectedPath]);
+			}, [selectedPath, props.visible]);
 			React.useEffect(function () {
-				if (requestedPath && requestedPath !== selectedPath) loadCard(requestedPath);
-			}, [requestedPath, selectedPath]);
+				if (props.visible && requestedPath && requestedPath !== selectedPath) loadCard(requestedPath);
+			}, [requestedPath, selectedPath, props.visible]);
 			function clearCard() {
 				cardRequest.current += 1;
 				setSelectedPath("");
