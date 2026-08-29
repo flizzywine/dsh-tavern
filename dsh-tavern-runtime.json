@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "revision": "f12b1893396da54a67718856742cf3752bccb96d",
+  "revision": "606dffe0c64ca1b992ca2c89903c11c4f00d5302",
   "files": [
     {
       "path": "bin/dsh-tavern",
@@ -104,8 +104,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "5492af2fbdd87c6a6e64d4434361032528f17b540b828e5c5998b2d613837bd4",
-      "size": 294949
+      "sha256": "4ce02fdf242100b1fcba96cab1f3ea092b5b549d84764371ad4fe863c3b228a0",
+      "size": 297824
     },
     {
       "path": "tavern-plugin/lib/domain/agent-readiness.js",
@@ -349,8 +349,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/worldbook-library.js",
-      "sha256": "fb6cbacb0881371bc69615bafa9a88c2aaea49dae91ff474142cba191e79ddb7",
-      "size": 9409
+      "sha256": "317ebd809516aef9db1882284b17e0b466855a64a6ade87d8e5e49c831c6b8df",
+      "size": 10102
     },
     {
       "path": "tavern-plugin/lib/domain/worldbook-recall.js",
