@@ -1281,6 +1281,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			let nextId = 1;
 			const pending = Object.create(null);
 			const listeners = Object.create(null);
+			let subscriptionsReady = false;
 			function copy(value) {
 				try { return structuredClone(value); }
 				catch (_) { return value === undefined ? undefined : JSON.parse(JSON.stringify(value)); }
@@ -1298,6 +1299,11 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				return 4294967296 * (2097151 & h2) + (h1 >>> 0);
 			}
 			function buttonEvent(name) { return scriptId + "_" + stringHash(String(name || "")); }
+			function reportSubscriptions(ready) {
+				if (ready === true) subscriptionsReady = true;
+				const names = Object.keys(listeners).filter(function (name) { return listeners[name] && listeners[name].size > 0; });
+				parent.postMessage({ type: "dsh-tavern-helper-subscriptions", token: token, names: names, ready: subscriptionsReady }, "*");
+			}
 			function lastId() { return Math.max(-1, (state.messages || []).length - 1); }
 			function normalizeId(value) {
 				let id = Number(value);
@@ -1498,10 +1504,11 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				state.worldbook = copy(result.worldbook);
 				return copy(state.worldbook.entries || []);
 			};
-			window.eventOn = function (name, handler) { (listeners[name] || (listeners[name] = new Set())).add(handler); return handler; };
+			window.eventOn = function (name, handler) { (listeners[name] || (listeners[name] = new Set())).add(handler); reportSubscriptions(); return handler; };
 			window.eventMakeFirst = window.eventOn;
-			window.eventOff = function (name, handler) { if (listeners[name]) listeners[name].delete(handler); };
+			window.eventOff = function (name, handler) { if (listeners[name]) listeners[name].delete(handler); reportSubscriptions(); };
 			window.eventEmit = eventEmit;
+			window.__dshTavernHelperSubscriptionsReady = function () { reportSubscriptions(true); };
 			window.tavern_events = {
 				MESSAGE_SENT: "MESSAGE_SENT", MESSAGE_RECEIVED: "MESSAGE_RECEIVED", MESSAGE_UPDATED: "MESSAGE_UPDATED",
 				MESSAGE_SWIPED: "MESSAGE_SWIPED", MESSAGE_DELETED: "MESSAGE_DELETED", MESSAGE_EDITED: "MESSAGE_EDITED",
@@ -1586,7 +1593,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				const target = url.startsWith("/") ? "new URL(" + quote + url + quote + ", document.baseURI).href" : quote + url + quote;
 				return line + indent + "await import(" + target + ");";
 			});
-			const moduleSource = 'await window.__dshTavernHelperReady;\n' + deferredSource;
+			const moduleSource = 'await window.__dshTavernHelperReady;\n' + deferredSource + '\n;window.__dshTavernHelperSubscriptionsReady();';
 			const moduleUrl = "data:text/javascript;base64," + encodeTavernScriptSource(moduleSource);
 			return '<!doctype html><html><head><meta charset="utf-8">'
 				+ '<meta name="referrer" content="no-referrer">'
@@ -1607,6 +1614,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const onReady = options && typeof options.onReady === "function" ? options.onReady : function () {};
 			const records = new Map();
 			const pendingEvents = new Map();
+			const reportedEventTimeouts = new Set();
 			const allowedMethods = new Set(["updateTavernHelperVariables", "updateTavernHelperMessages", "getTavernHelperWorldbook", "replaceTavernHelperWorldbook"]);
 			let activeSessionId = "";
 			let root = null;
@@ -1703,10 +1711,17 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					record.context = clone(context);
 					post(record, { type: "dsh-tavern-helper-context", context: record.context });
 				}
+				if (record.subscriptionsReady && !record.subscriptions.has(String(name))) return Promise.resolve(args);
 				const eventId = "host-event-" + (++eventSequence);
+				const startedAt = Date.now();
 				return new Promise(function (resolve) {
 					const timer = hostWindow.setTimeout(function () {
 						pendingEvents.delete(eventId);
+						const timeoutKey = record.id + "\n" + String(name);
+						if (!reportedEventTimeouts.has(timeoutKey)) {
+							reportedEventTimeouts.add(timeoutKey);
+							reportError("人物卡脚本「" + record.name + "」", new Error("处理事件「" + String(name) + "」超时（" + String(Date.now() - startedAt) + "ms）"));
+						}
 						resolve(args);
 					}, 2000);
 					pendingEvents.set(eventId, { resolve: resolve, timer: timer });
@@ -1728,7 +1743,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			}
 			function createRecord(sessionId, script, context, trustedCardMode) {
 				const frame = hostDocument.createElement("iframe");
-				const record = { id: script.id, name: script.name, fingerprint: script.id + "\n" + script.content + "\ntrusted=" + String(trustedCardMode), token: token(), frame: frame, loaded: false, context: context, lastRuntimeError: "" };
+				const record = { id: script.id, name: script.name, fingerprint: script.id + "\n" + script.content + "\ntrusted=" + String(trustedCardMode), token: token(), frame: frame, loaded: false, context: context, subscriptions: new Set(), subscriptionsReady: false, lastRuntimeError: "" };
 				frame.title = "人物卡脚本：" + script.name;
 				if (!trustedCardMode) frame.sandbox = "allow-scripts";
 				frame.referrerPolicy = "no-referrer";
@@ -1763,7 +1778,9 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					else {
 						record.context = context;
 						post(record, { type: "dsh-tavern-helper-context", context: context });
-						queuedEvents.forEach(function (event) { post(record, { type: "dsh-tavern-helper-event", name: event.name, args: event.args }); });
+						queuedEvents.forEach(function (event) {
+							if (!record.subscriptionsReady || record.subscriptions.has(String(event.name))) post(record, { type: "dsh-tavern-helper-event", name: event.name, args: event.args });
+						});
 					}
 				}
 				previous = nextSnapshot;
@@ -1776,6 +1793,11 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				if (!record) return;
 				if (data.type === "dsh-tavern-helper-ui-open") { openRecordUi(record); return; }
 				if (data.type === "dsh-tavern-helper-ui-close") { closeRecordUi(); return; }
+				if (data.type === "dsh-tavern-helper-subscriptions") {
+					record.subscriptions = new Set((Array.isArray(data.names) ? data.names : []).map(String));
+					if (data.ready === true) record.subscriptionsReady = true;
+					return;
+				}
 				if (data.type === "dsh-tavern-helper-event-complete") {
 					const pending = pendingEvents.get(String(data.eventId || ""));
 					if (!pending) return;

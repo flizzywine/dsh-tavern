@@ -259,7 +259,7 @@ test('人物卡 Helper 脚本使用独立不透明 iframe，并获得脚本、�
   })
   const encoded = document.match(/data:text\/javascript;base64,([^"']+)/)
   assert.ok(encoded)
-  assert.equal(Buffer.from(encoded[1], 'base64').toString('utf8'), "await window.__dshTavernHelperReady;\nawait import('https://example.test/动态世界书.js');")
+  assert.equal(Buffer.from(encoded[1], 'base64').toString('utf8'), "await window.__dshTavernHelperReady;\nawait import('https://example.test/动态世界书.js');\n;window.__dshTavernHelperSubscriptionsReady();")
   assert.match(document, /getScriptId/)
   assert.match(document, /updateWorldbookWith/)
   assert.match(document, /appendInexistentScriptButtons/)
@@ -314,6 +314,76 @@ test('Helper Host 在受信任人物卡模式中完全移除 sandbox', () => {
   runtime.sync('session', Object.assign({}, base, { tavernRuntimePolicy: { trustedCardMode: true } }))
   assert.equal(frames[0].removed, true)
   assert.equal(frames[1].sandbox, undefined)
+})
+
+test('Helper Host 只等待订阅事件的脚本，并保持订阅脚本的串行修改顺序', async () => {
+  const windowListeners = new Map()
+  const frames = []
+  let tokenSequence = 0
+  const hostWindow = {
+    crypto: { randomUUID() { tokenSequence += 1; return `runtime-token-${tokenSequence}` } },
+    setTimeout,
+    clearTimeout,
+    addEventListener(name, handler) { windowListeners.set(name, handler) },
+    removeEventListener(name) { windowListeners.delete(name) }
+  }
+  const root = { isConnected: true, appendChild() {}, remove() {} }
+  const hostDocument = {
+    body: { appendChild() {} },
+    documentElement: { appendChild() {} },
+    createElement(tag) {
+      if (tag === 'div') return root
+      const frame = {
+        contentWindow: { messages: [], postMessage(message) { this.messages.push(message) } },
+        listeners: {},
+        addEventListener(name, handler) { this.listeners[name] = handler },
+        remove() {}
+      }
+      frames.push(frame)
+      return frame
+    }
+  }
+  const runtime = client.createTavernHelperScriptRuntime({
+    window: hostWindow,
+    document: hostDocument,
+    rpc() { return Promise.resolve({}) },
+    reportError() {}
+  })
+  runtime.sync('session', {
+    tavernHelper: { messages: [], scriptVariables: {} },
+    tavernHelperScripts: [
+      { id: 'idle', name: '未订阅脚本', content: 'void 0', data: {}, buttons: [] },
+      { id: 'first', name: '变量守卫一', content: 'void 0', data: {}, buttons: [] },
+      { id: 'second', name: '变量守卫二', content: 'void 0', data: {}, buttons: [] }
+    ]
+  })
+  frames.forEach(frame => frame.listeners.load())
+  const receive = windowListeners.get('message')
+  receive({ source: frames[0].contentWindow, data: { type: 'dsh-tavern-helper-subscriptions', token: 'runtime-token-1', names: [], ready: true } })
+  receive({ source: frames[1].contentWindow, data: { type: 'dsh-tavern-helper-subscriptions', token: 'runtime-token-2', names: ['mag_command_parsed'], ready: true } })
+  receive({ source: frames[2].contentWindow, data: { type: 'dsh-tavern-helper-subscriptions', token: 'runtime-token-3', names: ['mag_command_parsed'], ready: true } })
+
+  const emitted = runtime.emit('mag_command_parsed', [{ hp: 1 }], { messages: [] })
+  await Promise.resolve()
+  assert.equal(frames[0].contentWindow.messages.some(item => item.type === 'dsh-tavern-helper-event'), false)
+  const firstRequest = frames[1].contentWindow.messages.at(-1)
+  assert.equal(firstRequest.name, 'mag_command_parsed')
+  assert.equal(frames[2].contentWindow.messages.some(item => item.type === 'dsh-tavern-helper-event'), false)
+
+  receive({
+    source: frames[1].contentWindow,
+    data: { type: 'dsh-tavern-helper-event-complete', token: 'runtime-token-2', eventId: firstRequest.eventId, args: [{ hp: 2 }] }
+  })
+  await Promise.resolve()
+  const secondRequest = frames[2].contentWindow.messages.at(-1)
+  assert.equal(secondRequest.name, 'mag_command_parsed')
+  assert.deepEqual(JSON.parse(JSON.stringify(secondRequest.args)), [{ hp: 2 }])
+  receive({
+    source: frames[2].contentWindow,
+    data: { type: 'dsh-tavern-helper-event-complete', token: 'runtime-token-3', eventId: secondRequest.eventId, args: [{ hp: 3 }] }
+  })
+  assert.deepEqual(JSON.parse(JSON.stringify(await emitted)), [{ hp: 3 }])
+  runtime.dispose()
 })
 
 test('持久 Helper Host 复用同一脚本 iframe、发送生命周期事件并限制 RPC', async () => {
