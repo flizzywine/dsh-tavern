@@ -102,8 +102,10 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 .dsh-tavern-settings-switch input:focus-visible + .dsh-tavern-settings-track { outline: 2px solid #a66b35; outline-offset: 2px; }
 .dsh-tavern-settings-error { color: #c45f5f; font-size: 13px; }
 .dsh-tavern-system-prompt-editor { display: flex; flex-direction: column; gap: 14px; padding: 18px 20px; }
-.dsh-tavern-system-prompt-warning { border: 1px solid rgba(196,95,95,.55); border-radius: 9px; padding: 11px 13px; background: rgba(196,95,95,.1); color: #d98080; font-size: 13px; line-height: 1.55; }
-.dsh-tavern-system-prompt-head { gap: 8px; flex-wrap: wrap; }
+.dsh-tavern-system-prompt-warning { margin-bottom: 14px; border: 1px solid rgba(196,95,95,.55); border-radius: 9px; padding: 11px 13px; background: rgba(196,95,95,.1); color: #d98080; font-size: 13px; line-height: 1.55; }
+.dsh-tavern-status-head.dsh-tavern-system-prompt-head { padding: 18px 20px 16px; }
+.dsh-tavern-system-prompt-top-actions { display: flex; flex-wrap: wrap; gap: 8px 10px; margin-top: 10px; }
+.dsh-tavern-preset-detail.dsh-tavern-system-prompt-body { padding: 20px 24px 28px; }
 .dsh-tavern-system-prompt-editor textarea { box-sizing: border-box; width: 100%; min-height: 320px; resize: vertical; border: 1px solid var(--dsw-alias-border-l2); border-radius: 10px; padding: 14px; background: var(--dsw-specific-input-minor); color: var(--dsw-alias-label-primary); font: 13px/1.65 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .dsh-tavern-system-prompt-editor textarea:focus { outline: 2px solid #a66b35; outline-offset: 1px; }
 .dsh-tavern-system-prompt-actions { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
@@ -2148,8 +2150,11 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 						h("div", { className: "dsh-tavern-prompt-editor-actions" }, h("button", { className: "dsh-tavern-btn", disabled: state.busy || (!item.customized && !dirty), onClick: function () { void restore(item); } }, "恢复默认"), h("button", { className: "dsh-tavern-btn", disabled: state.busy || !dirty || value.trim() === "", onClick: function () { void save(item); } }, "保存此项"))));
 			}
 			return h("div", { className: "dsh-tavern-presets" },
-				h("div", { className: "dsh-tavern-status-head dsh-tavern-system-prompt-head" }, h("div", { className: "dsh-tavern-status-title" }, "系统提示词"), h("div", { className: "dsh-tavern-question-sub" }, "DSH Tavern 当前使用的唯一一套内置提示词"), h("button", { className: "dsh-tavern-btn", disabled: state.busy, onClick: function () { importInput.current && importInput.current.click(); } }, "导入 JSON"), h("button", { className: "dsh-tavern-btn", disabled: state.busy, onClick: function () { void exportFile(); } }, "导出 JSON"), h("input", { ref: importInput, type: "file", accept: ".json,application/json", style: { display: "none" }, onChange: function (event) { const file = event.target.files && event.target.files[0]; void importFile(file); event.target.value = ""; } })),
-				h("div", { className: "dsh-tavern-preset-detail" },
+				h("div", { className: "dsh-tavern-status-head dsh-tavern-system-prompt-head" },
+					h("div", { className: "dsh-tavern-status-title" }, "系统提示词"),
+					h("div", { className: "dsh-tavern-question-sub" }, "DSH Tavern 当前使用的唯一一套内置提示词"),
+					h("div", { className: "dsh-tavern-system-prompt-top-actions" }, h("button", { className: "dsh-tavern-btn", disabled: state.busy, onClick: function () { importInput.current && importInput.current.click(); } }, "导入 JSON"), h("button", { className: "dsh-tavern-btn", disabled: state.busy, onClick: function () { void exportFile(); } }, "导出 JSON"), h("input", { ref: importInput, type: "file", accept: ".json,application/json", style: { display: "none" }, onChange: function (event) { const file = event.target.files && event.target.files[0]; void importFile(file); event.target.value = ""; } }))),
+				h("div", { className: "dsh-tavern-preset-detail dsh-tavern-system-prompt-body" },
 					h("div", { className: "dsh-tavern-system-prompt-warning", role: "note" }, "警告：修改系统提示词可能导致正文生成异常、人物卡指令冲突、后台任务失败或输出格式失效。不了解其作用时请保持默认；出现问题时请恢复默认。"),
 					h("div", { className: "dsh-tavern-preset-detail-actions" }, h("button", { className: "dsh-tavern-btn danger", disabled: state.busy || !state.prompts.some(function (item) { return item.customized; }), onClick: function () { void restoreAll(); } }, "全部恢复默认")),
 					state.notice ? h("div", { className: "dsh-tavern-system-prompt-status", role: "status" }, state.notice) : null,
