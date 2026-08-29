@@ -10,7 +10,9 @@ dsh-tavern 不应成为另一个“每轮重建完整提示词”的 SillyTavern
 酒馆生态资源
     ↓
 Tavern Compatibility Runtime
-    ↓ 兼容语义与任务意图
+    ↓ Tavern Host seam
+Tavern Host Adapter
+    ↓ dsh-tavern 领域行为
 dsh-tavern Runtime
     ├── FrameBuilder
     ├── Turn Orchestrator
@@ -58,7 +60,7 @@ SillyTavern = 全量请求编译器 + 单 Agent 输出协议
 dsh-tavern  = 增量 Frame 编译器 + 前后台 Agent Runtime
 ```
 
-## 三层 Runtime
+## 运行角色
 
 ### Tavern Compatibility Runtime
 
@@ -72,13 +74,19 @@ dsh-tavern  = 增量 Frame 编译器 + 前后台 Agent Runtime
 - Tavern Helper 的脚本、事件和额外模型请求；
 - HTML、状态栏、CG 和其他展示资源。
 
-它的产物不是“永远重新拼接好的完整 Context”，而应优先是可供宿主消费的兼容语义：本轮需要挂载什么、何时触发什么任务、输出后如何结算、界面如何投影。
+兼容 Runtime 把自己视为运行在酒馆宿主中。它不能读取或依赖 DSH Session、`agent/pre-step`、`llm/stream`、Surface、turn/step 或 provider request 的内部形状；这些宿主差异全部停留在 Tavern Host seam 之外。
+
+### Tavern Host Adapter
+
+Tavern Host Adapter 由 dsh-tavern 拥有，向兼容 Runtime 冒充 SillyTavern 宿主。兼容 Runtime 所需的消息、变量、世界书、模型调用、生命周期事件和展示能力，由这个 Adapter 映射到 dsh-tavern 的权威状态、执行轨迹和 Projection。
+
+它不是统一指令总线，也不要求前台 Frame、后台任务、Harness 和 Presentation 共享一种命令格式。不同生命周期可以落到不同领域模块；唯一共同约束是兼容 Runtime 不认识 DSH。
 
 ### dsh-tavern Runtime
 
-dsh-tavern Runtime 是酒馆语义与 DSH Harness 之间的适配器，也是整个文字游戏的领域 Runtime。它负责：
+dsh-tavern Runtime 是整个文字游戏的领域 Runtime。它通过 Tavern Host Adapter 承接兼容行为，并负责：
 
-- 接收玩家输入和兼容 Runtime 产生的意图；
+- 接收玩家输入和 Tavern Host Adapter 映射后的领域行为；
 - 构造前台与后台 Frame；
 - 把 Frame 追加到正确的 Agent Session；
 - 维护对话、分支、revision、checkpoint 和后台 operation；
@@ -284,6 +292,7 @@ Frame：这次新增什么工作上下文
 | 后台 Frame 雏形 | `backgroundPrompt` 组合权威状态、最近剧情和任务协议 | 已有文本协议，尚未形成正式结构化类型 |
 | Story Timeline | `Story Timeline`、checkpoint、operation、participant | 已有 |
 | 精确酒馆请求路径 | `compileCompatibilityTurn` 与临时 provider request 投影 | 已有，属于隔离兼容模式 |
+| Tavern Host Adapter | 兼容编译、DSH lifecycle 和请求投影仍散落在 `index.js` | TODO；尚未形成独立 seam |
 | MVU 前台结算 | `Tavern MVU Runtime.settleResponse` | 已有；当前解析前台输出中的 MVU 协议 |
 | MVU 额外模型后台路由 | 额外模型调用 → `BackgroundTaskFrame` | TODO |
 | 前后台 Frame 类型与统一 FrameBuilder | 正式领域模型和接口 | TODO |
@@ -300,17 +309,16 @@ Frame：这次新增什么工作上下文
 6. Agent 只能提出结果，Harness 才能提交权威事实。
 7. HTML 是 Presentation 投影，不是后台 Agent 的权威状态。
 8. 精确酒馆请求重建只能存在于隔离兼容路径。
-9. 兼容 Runtime 解释酒馆语义，DSH Runtime 管理 Agent 执行；两者不能互相泄漏内部模型。
+9. 兼容 Runtime 只认识酒馆宿主；DSH 与 dsh-tavern 内部模型只能出现在 Tavern Host Adapter 之后。
 10. 新增兼容能力不能破坏 DSH 的追加式 Session、多轮工具调用和压缩能力。
 
 ## 后续收敛顺序
 
-1. 从现有文本注入中提炼正式的 `ForegroundFrame` 领域模型。
-2. 将后台任务输入收敛为统一 `BackgroundTaskFrame`。
-3. 建立 FrameBuilder seam，并让普通游玩统一通过它进入 Session。
+1. 将精确兼容回合从 `index.js` 收进 Tavern Compatibility Runtime，并建立 Tavern Host Adapter seam。
+2. 保持普通游玩的 ForegroundFrame 路径独立，不让兼容模式反向主导原生架构。
+3. 将后台任务输入收敛为 `BackgroundTaskFrame`，但不建立万能指令总线。
 4. 把 MVU 额外模型调用默认路由到常驻后台 Agent。
 5. 收敛 Turn Composer，使正文、状态、候选和 UI attachment 具有统一提交协议。
-6. 保留精确兼容模式作为差分基线和旧卡逃生通道，不让它反向主导原生架构。
 
 ## 相关文档
 

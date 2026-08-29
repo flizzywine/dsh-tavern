@@ -29,10 +29,67 @@ function joined(items) {
   return items.map(function (item) { return str(item && item.text).trim() }).filter(Boolean).join('\n\n')
 }
 
-export function createForegroundFrameBuilder(options = {}) {
-  const dispatcher = options.dispatcher
-  if (!dispatcher || typeof dispatcher.dispatch !== 'function') throw new Error('ForegroundFrameBuilder 缺少 TavernInstructionDispatcher')
+function inputSource(input) {
+  const source = input && input.source
+  return source !== null && typeof source === 'object' && !Array.isArray(source) ? clone(source) : {}
+}
 
+const FOREGROUND_SLOTS = Object.freeze({
+  'foreground.card-context': 'cardContext',
+  'foreground.active-worldbook': 'activeWorldbook',
+  'foreground.current-state': 'currentStateProjection',
+  'foreground.script-reference': 'scriptReference',
+  'foreground.guide': 'guide',
+  'foreground.writing-rules': 'writingRules'
+})
+
+function collectForegroundInputs(inputs) {
+  const result = {
+    userInput: null,
+    contributions: [],
+    context: Object.fromEntries(Object.values(FOREGROUND_SLOTS).map(function (slot) { return [slot, []] })),
+    ignored: [],
+    diagnostics: []
+  }
+  for (const [index, raw] of (Array.isArray(inputs) ? inputs : []).entries()) {
+    const input = raw !== null && typeof raw === 'object' && !Array.isArray(raw) ? raw : {}
+    const kind = str(input.kind)
+    if (kind === 'foreground.user-input') {
+      result.userInput = {
+        sourceText: str(input.sourceText),
+        projectedText: str(input.projectedText),
+        source: inputSource(input)
+      }
+      continue
+    }
+    const slot = FOREGROUND_SLOTS[kind]
+    if (slot !== undefined) {
+      const text = str(input.text).trim()
+      if (text === '') continue
+      const contribution = {
+        kind,
+        slot,
+        text,
+        required: input.required === true,
+        source: inputSource(input)
+      }
+      result.context[slot].push(contribution)
+      result.contributions.push(contribution)
+      continue
+    }
+    const ignored = {
+      index,
+      kind: kind || 'unknown',
+      source: inputSource(input),
+      reason: str(input.reason) || 'unsupported-foreground-input'
+    }
+    result.ignored.push(ignored)
+    result.diagnostics.push({ code: 'FOREGROUND_FRAME_INPUT_IGNORED', severity: 'warning', input: ignored })
+  }
+  return result
+}
+
+export function createForegroundFrameBuilder() {
   function build(input = {}) {
     const chatId = requiredText(input.chatId, 'Frame chatId')
     const branchId = requiredText(input.branchId, 'Frame branchId')
@@ -40,10 +97,10 @@ export function createForegroundFrameBuilder(options = {}) {
     const turn = Math.max(0, Number(input.turn) || 0)
     if (!turn) throw new Error('ForegroundFrame turn 无效')
     const basedOnRevision = revision(input.basedOnRevision)
-    const dispatched = dispatcher.dispatch(input.instructions)
-    if (dispatched.userInput === null) throw new Error('ForegroundFrame 缺少玩家输入指令')
+    const collected = collectForegroundInputs(input.inputs)
+    if (collected.userInput === null) throw new Error('ForegroundFrame 缺少玩家输入')
     const context = {}
-    for (const [slot, values] of Object.entries(dispatched.context)) context[slot] = joined(values)
+    for (const [slot, values] of Object.entries(collected.context)) context[slot] = joined(values)
     const frame = {
       frameId: 'foreground:' + chatId + ':' + branchId + ':' + operationId,
       kind: 'foreground',
@@ -52,12 +109,12 @@ export function createForegroundFrameBuilder(options = {}) {
       basedOnRevision,
       operationId,
       turn,
-      userInput: clone(dispatched.userInput),
+      userInput: clone(collected.userInput),
       context,
-      contributions: clone(dispatched.contributions),
+      contributions: clone(collected.contributions),
       source: clone(input.source && typeof input.source === 'object' ? input.source : {}),
-      diagnostics: clone(dispatched.diagnostics),
-      ignored: clone(dispatched.ignored)
+      diagnostics: clone(collected.diagnostics),
+      ignored: clone(collected.ignored)
     }
     return deepFreeze(frame)
   }
@@ -93,4 +150,3 @@ export function foregroundFrameText(frame) {
     .filter(Boolean)
     .join('\n\n')
 }
-

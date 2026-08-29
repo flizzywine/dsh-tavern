@@ -31,7 +31,6 @@ import { createEphemeralCompatibilityRequest, isCompatibilityConversationRequest
 import { clearFailedTurnSurface, hasRollbackMessages, locateRollbackSurface, planRegenerationSurface } from './domain/rollback-surface.js'
 import { projectRuntimePresetRequest } from './domain/runtime-preset-lifecycle.js'
 import { createTavernRetryLimiter } from './domain/tavern-retry-limiter.js'
-import { createTavernInstructionDispatcher } from './domain/tavern-instruction-dispatcher.js'
 import { createTavernMvuRuntime, readMvuWorldBookInitialState } from './domain/tavern-mvu-runtime.js'
 import {
   createTavernMvuOpeningReconciler,
@@ -2072,8 +2071,7 @@ export async function apply(ctx) {
     await writeIndex(idx)
     return { path: cardPath, card }
   }
-  const tavernInstructionDispatcher = createTavernInstructionDispatcher()
-  const foregroundFrameBuilder = createForegroundFrameBuilder({ dispatcher: tavernInstructionDispatcher })
+  const foregroundFrameBuilder = createForegroundFrameBuilder()
   const foregroundFrameSessionAdapter = createForegroundFrameSessionAdapter({ id: crypto.randomUUID })
   const turnOrchestrator = createTurnOrchestrator({
     store: {

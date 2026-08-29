@@ -30,7 +30,7 @@
 1. `startChat` 调用 `initializeChat`，保存开场消息及全部 swipe 的变量快照；
 2. `turn-orchestration.finalize` 在显示投影之前调用 `settleResponse`；
 3. `reply-presentation` 只读取结算结果，不成为权威状态源；
-4. 后续 EJS 与 Helper 继续进入同一模块，由 DSH Adapter 提供模型、消息、存储、网络和 UI 能力。
+4. 后续 EJS 与 Helper 继续进入同一模块，由 Tavern Host Adapter 冒充 SillyTavern 宿主并提供模型、消息、存储、网络和 UI 能力。
 
 单项兼容资产失败时返回诊断并保留原始消息，不得让整轮生成或聊天损坏。
 

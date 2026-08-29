@@ -212,9 +212,9 @@ MVU 官方仓库说明它是“基于酒馆助手的变量状态维护脚本”�
 | 状态栏、动态图鉴、动态世界书管理 | 卡片专属程序 UI | 视为卡片 Presentation 模块；其数据读写仍走 Helper/Harness API | P + H | 卡片级部分兼容 |
 | 直接访问父页 DOM / SillyTavern 全局 | 借宿主内部结构实现功能 | 不进入 Frame。只有显式提供的兼容 Surface 有承诺；其余为 C 或明确失败 | C / I | 不承诺全量 |
 
-## 六、统一翻译协议
+## 六、语义分类，不建立统一总线
 
-Tavern Compatibility Runtime 不应直接返回一段“已经拼好的提示词”，而应产出带来源的语义指令。下列名称是设计词汇，不是当前代码接口：
+下列名称只用于盘点酒馆能力属于哪个生命周期，不是统一的 Runtime 指令接口。兼容模式由 Tavern Compatibility Runtime 通过 Tavern Host seam 请求酒馆宿主能力；普通游玩由 dsh-tavern 在各自领域模块中解释资源。两条路径都不需要一个覆盖 FG、BG、Harness 和 Presentation 的万能 Dispatcher。
 
 | 指令族 | 例子 | dsh-tavern Runtime 行动 |
 | --- | --- | --- |
@@ -227,7 +227,7 @@ Tavern Compatibility Runtime 不应直接返回一段“已经拼好的提示词
 | `presentation.*` | `presentation.html.mount`、`presentation.asset.prefetch` | 更新 Presentation Surface |
 | `compat.*` | `compat.prompt.injectAtDepth`、`compat.slash.execute` | 仅兼容模式执行；游玩模式诊断降级或忽略 |
 
-Dispatcher 的输出不是新的 `ForegroundCompatibilityPlan`。它直接调用 FrameBuilder、Harness、Presentation 或兼容路径的窄接口；翻译表只在 Dispatcher 内有一个权威实现。
+分类表仍用于确认能力归属和兼容缺口，但实际 seam 按生命周期建立：前台输入进入 ForegroundFrameBuilder，后台任务进入未来 BackgroundTaskFrame，确定性状态由 Harness 负责，显示由 Presentation 负责。它们不共享一个总线 interface。
 
 ## 七、前台里程碑的实施顺序
 
@@ -254,7 +254,7 @@ Dispatcher 的输出不是新的 `ForegroundCompatibilityPlan`。它直接调用
 | EJS 模板 | `tavern-prompt-template-runtime.js` | 已有受限 QuickJS 与常用变量/chat/world-info API；decorator、注入和完整扩展 API 未齐 |
 | Helper 脚本宿主 | `tavern-helper-*.js` 与客户端 iframe shim | 已支持脚本加载、常用变量/消息/世界书和事件子集；不是完整酒馆助手 |
 | HTML/状态栏/CG | `reply-presentation.js` 与 iframe/static asset 路径 | 主展示链已有；ST CSS/全局/DOM 仍需按兼容面补全 |
-| ForegroundFrame | `agent-input-frame.js`、`tavern-instruction-dispatcher.js`、`foreground-frame-session-adapter.js` | 已成为正式领域对象并接入前台 Session |
+| ForegroundFrame | `agent-input-frame.js`、`foreground-frame-session-adapter.js` | 已成为正式领域对象并接入前台 Session |
 | BackgroundTaskFrame | 已冻结数据接口，尚无 Builder、Session Adapter 或执行链 | 本轮不实施 |
 
 ## 九、必须保留的两种行为

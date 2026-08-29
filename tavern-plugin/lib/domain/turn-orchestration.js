@@ -117,8 +117,8 @@ function presetMiddleInstructions(snapshot) {
   })
 }
 
-function frameInstructions(plan, sourceText, projectedText, presetSnapshot) {
-  const instructions = [{
+function foregroundFrameInputs(plan, sourceText, projectedText, presetSnapshot) {
+  const inputs = [{
     kind: 'foreground.user-input',
     sourceText,
     projectedText,
@@ -129,14 +129,14 @@ function frameInstructions(plan, sourceText, projectedText, presetSnapshot) {
     : [{ kind: 'legacy-plan-text', required: true, text: str(plan && plan.text) }]
   for (const [index, section] of sections.entries()) {
     const sectionKind = str(section && section.kind)
-    instructions.push({
+    inputs.push({
       kind: FRAME_INSTRUCTION_KIND[sectionKind] || (sectionKind === 'legacy-plan-text' ? 'foreground.writing-rules' : 'foreground.unsupported'),
       text: str(section && section.text),
       required: section && section.required === true,
       source: { stage: 'context-plan', sectionKind, index }
     })
   }
-  return instructions.concat(presetMiddleInstructions(presetSnapshot))
+  return inputs.concat(presetMiddleInstructions(presetSnapshot))
 }
 
 function frameSource(chat, card, operation) {
@@ -296,7 +296,7 @@ export function createTurnOrchestrator(options) {
       basedOnRevision: foregroundOperation.basedOn.revision,
       operationId: foregroundOperation.operationId,
       turn,
-      instructions: frameInstructions(plan, userText, runtimeUserText, chat.runtimePresetSnapshot),
+      inputs: foregroundFrameInputs(plan, userText, runtimeUserText, chat.runtimePresetSnapshot),
       source: frameSource(chat, card, foregroundOperation)
     })
     rememberFrame(chat, frame)

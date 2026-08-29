@@ -3,35 +3,28 @@ import test from 'node:test'
 
 import { createBackgroundTaskFrame, createForegroundFrameBuilder, foregroundFrameText } from '../tavern-plugin/lib/domain/agent-input-frame.js'
 import { createForegroundFrameSessionAdapter } from '../tavern-plugin/lib/domain/foreground-frame-session-adapter.js'
-import { createTavernInstructionDispatcher } from '../tavern-plugin/lib/domain/tavern-instruction-dispatcher.js'
 
 function builder() {
-  return createForegroundFrameBuilder({ dispatcher: createTavernInstructionDispatcher() })
+  return createForegroundFrameBuilder()
 }
 
 function frame(instructions) {
   return builder().build({
     chatId: 'chat-1', branchId: 'branch-1', basedOnRevision: 3, operationId: 'operation-1', turn: 4,
-    instructions: [{ kind: 'foreground.user-input', sourceText: '原始输入', projectedText: '投影输入' }].concat(instructions),
+    inputs: [{ kind: 'foreground.user-input', sourceText: '原始输入', projectedText: '投影输入' }].concat(instructions),
     source: { cardRevision: 'card-hash' }
   })
 }
 
-test('Dispatcher 把酒馆指令分派到 Frame、后台、Harness、Presentation 或显式忽略', () => {
-  const result = createTavernInstructionDispatcher().dispatch([
+test('ForegroundFrameBuilder 只接受前台输入并显式诊断其他类型', () => {
+  const result = frame([
     { kind: 'foreground.card-context', text: '人物设定', source: { field: 'description' } },
-    { kind: 'background.task', task: { type: 'mvu' } },
-    { kind: 'harness.action', action: { type: 'variable.set' } },
-    { kind: 'presentation.action', action: { type: 'html.mount' } },
     { kind: 'compat.prompt-at-depth', reason: 'compatibility-only', source: { depth: 4 } }
   ])
 
-  assert.equal(result.context.cardContext[0].text, '人物设定')
-  assert.deepEqual(result.backgroundTasks, [{ type: 'mvu' }])
-  assert.deepEqual(result.harnessActions, [{ type: 'variable.set' }])
-  assert.deepEqual(result.presentationActions, [{ type: 'html.mount' }])
-  assert.deepEqual(result.ignored, [{ index: 4, kind: 'compat.prompt-at-depth', source: { depth: 4 }, reason: 'compatibility-only' }])
-  assert.equal(result.diagnostics[0].code, 'TAVERN_INSTRUCTION_IGNORED')
+  assert.equal(result.context.cardContext, '人物设定')
+  assert.deepEqual(result.ignored, [{ index: 2, kind: 'compat.prompt-at-depth', source: { depth: 4 }, reason: 'compatibility-only' }])
+  assert.equal(result.diagnostics[0].code, 'FOREGROUND_FRAME_INPUT_IGNORED')
 })
 
 test('ForegroundFrame 保留结构化槽位、原始顺序、权威 revision 与稳定 id', () => {
@@ -83,4 +76,3 @@ test('BackgroundTaskFrame 只冻结接口，不触发任何后台执行', () => 
   assert.equal(value.taskType, 'mvu-variable-analysis')
   assert.equal(Object.isFrozen(value.authoritativeState), true)
 })
-

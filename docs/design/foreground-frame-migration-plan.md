@@ -11,9 +11,9 @@ dsh-tavern 保留两条明确隔离的运行路径：
 | 兼容模式 | 每轮按 SillyTavern 语义重建完整请求 | 继续作为旧卡逃生通道和差分基线 |
 | 游玩模式 | 持续 DSH Session + 每轮追加一个 `ForegroundFrame` | 不得调用完整酒馆请求编译器 |
 
-兼容模式继续使用 `compileCompatibilityTurn()` 和临时 provider request 投影，不做改造。游玩模式由 Tavern Compatibility Runtime 识别酒馆指令，再由 dsh-tavern Runtime 直接将指令翻译为前台 Frame、后台 Frame、确定性行动、展示行动或明确忽略。历史、工具轨迹、压缩和后续模型调用仍由 DSH 管理。
+兼容模式继续使用 `compileCompatibilityTurn()` 和临时 provider request 投影，但长期必须收进不认识 DSH 的 Tavern Compatibility Runtime；dsh-tavern 通过 Tavern Host Adapter 冒充 SillyTavern 宿主。游玩模式不是兼容 Runtime 的下游，而是 dsh-tavern 对酒馆资源的原生解释路径。历史、工具轨迹、压缩和后续模型调用仍由 DSH 管理。
 
-本方案的核心是“酒馆指令 → dsh-tavern 行动”翻译表。酒馆指令直接进入 dsh-tavern Runtime 的指令分派 seam，不经过额外的中间编排对象。
+本方案不建立统一酒馆指令总线。前台 Frame、后台任务、Harness 和 Presentation 发生在不同生命周期，不要求共享一种命令格式；隔离只由 Tavern Host seam 保证。
 
 酒馆指令的来源范围、原生语义、翻译目标和当前支持状态，以 [酒馆指令清单与 dsh-tavern Runtime 翻译计划](../research/tavern-instruction-inventory.md) 为盘点基线。本文只保留改造里程碑所需的摘要，不再凭抽象名称猜测指令范围。
 
@@ -24,7 +24,7 @@ dsh-tavern 保留两条明确隔离的运行路径：
 - 公共 `AgentInputFrame`；
 - 前台 `ForegroundFrame`；
 - 后台 `BackgroundTaskFrame`；
-- 酒馆指令到 dsh-tavern 行动的统一分派；
+- Tavern Compatibility Runtime 与 Tavern Host Adapter 的单向依赖；
 - Harness 状态提交与 Presentation 投影；
 - 无法或不值得迁移的指令采用显式忽略策略。
 
@@ -34,7 +34,6 @@ dsh-tavern 保留两条明确隔离的运行路径：
 
 - 定义正式的 `ForegroundFrame`；
 - 定义公共 `AgentInputFrame` 和未来 `BackgroundTaskFrame` 的接口与不变量；
-- 定义完整的酒馆指令分派表；
 - 建立唯一的 `ForegroundFrameBuilder` seam；
 - 把人物卡、当前世界书、当前状态、剧本引用、Guide 和游玩写作规则收进本轮 Frame；
 - 把输入宏和发送正则作为 Frame 构建过程的一部分，只执行一次；
@@ -56,7 +55,7 @@ dsh-tavern 保留两条明确隔离的运行路径：
 游玩模式已经形成以下稳定边界：
 
 1. Context Planner 保留带 kind、required 和 text 的结构化 section，不再只暴露拼接文本。
-2. Turn Orchestrator 把 section 翻译为统一酒馆指令，并生成带 branch/revision/source 的 `ForegroundFrame`。
+2. Turn Orchestrator 把 section 作为前台输入交给 ForegroundFrameBuilder，并生成带 branch/revision/source 的 `ForegroundFrame`。
 3. `agent/pre-step` 只在 `step=1` 通过 Session Adapter 追加 Frame；重试复用同一 operation 已持久化的 Frame。
 4. 游玩模式只在 `llm/stream` 阶段临时投影预设头尾；预设中段进入 `ForegroundFrame`，三者都不重建 Session 历史。
 5. 兼容模式仍独立使用完整酒馆编译和临时 provider request 替换。
@@ -64,16 +63,15 @@ dsh-tavern 保留两条明确隔离的运行路径：
 ## 目标链路
 
 ```text
-人物卡、预设、世界书、MVU、正则、Helper
-  ↓
-Tavern Compatibility Runtime 识别酒馆指令
-  ↓
-dsh-tavern Runtime 逐条分派
-  ├── 前台上下文贡献 → ForegroundFrameBuilder
-  ├── 后台语义任务   → BackgroundTaskFrameBuilder（后续实现）
-  ├── 确定性行动     → Harness
-  ├── 显示行动       → Presentation Runtime
-  └── 不适配的语义   → ignored + diagnostics
+兼容模式：
+酒馆资源 → Tavern Compatibility Runtime ↔ Tavern Host seam
+                                      ↓
+                              Tavern Host Adapter
+                                      ↓
+                              dsh-tavern Runtime
+
+游玩模式：
+酒馆资源 → dsh-tavern 原生解释 → ForegroundFrame / 后台任务 / Harness / Presentation
 ```
 
 前台链路：
@@ -83,7 +81,7 @@ dsh-tavern Runtime 逐条分派
   ↓
 Turn Orchestrator 建立本轮 operation
   ↓
-dsh-tavern Runtime 接收本轮酒馆指令
+dsh-tavern Runtime 准备本轮前台输入
   ↓
 ForegroundFrameBuilder.build(...)
   ├── 投影本轮玩家输入
@@ -184,18 +182,6 @@ BackgroundTaskFrame {
 
 ## 核心深模块
 
-### TavernInstructionDispatcher
-
-它属于 dsh-tavern Runtime。Tavern Compatibility Runtime 给出酒馆指令后，由 Dispatcher 直接决定：
-
-```text
-applyInstruction(turnContext, instruction)
-```
-
-指令会被翻译为前台 Frame 贡献、未来后台 Frame 任务、Harness 行动、Presentation 行动或显式忽略。Dispatcher 隐藏酒馆术语与 DSH 领域行动之间的映射；调用方不维护另一份翻译表。
-
-这不是新的 Compatibility Plan。它是 dsh-tavern Runtime 内部执行酒馆指令的深模块。
-
 ### ForegroundFrameBuilder
 
 唯一外部接口：
@@ -204,7 +190,7 @@ applyInstruction(turnContext, instruction)
 buildForegroundFrame({ sessionId, turn, userInput }) → ForegroundFrame
 ```
 
-它接收 Dispatcher 已翻译出的前台贡献，在内部完成选择、去重、状态投影和来源记录。酒馆字段的识别属于 Tavern Compatibility Runtime，酒馆指令到领域行动的翻译属于 Dispatcher，FrameBuilder 不直接理解 `prompt_order`、注入深度等酒馆实现细节。
+它只接收普通游玩需要的前台输入，在内部完成槽位归类、状态投影和来源记录。它不处理后台任务、Harness 行动或 Presentation 行动，也不理解兼容模式的 `prompt_order`、注入深度等精确酒馆语义。
 
 删除这个模块时，上述复杂度会重新散落到 `agent/pre-step`、Turn Orchestrator 和多个资源模块，因此它是一个有实际深度的模块，而不是转发层。
 
@@ -272,7 +258,7 @@ Adapter 必须保证：
 ### 阶段 1：引入领域模型（已完成）
 
 - 定义 `AgentInputFrame`、`ForegroundFrame` 与 `BackgroundTaskFrame`；
-- 新建 TavernInstructionDispatcher 和前台 FrameBuilder；
+- 新建前台 FrameBuilder，并只承诺已经接通的前台输入；
 - 前台 FrameBuilder 以当前 `prepared.text` 为初始文本投影，先保持运行结果不变；
 - 为 `frameId`、branch/revision 和资源来源建立稳定规则；
 - 测试只通过 FrameBuilder 的公开接口验证行为。

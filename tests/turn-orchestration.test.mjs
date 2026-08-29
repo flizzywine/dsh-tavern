@@ -9,7 +9,6 @@ import { projectReplyPresentation } from '../tavern-plugin/lib/domain/reply-pres
 import { createTurnOrchestrator } from '../tavern-plugin/lib/domain/turn-orchestration.js'
 import { createTavernMvuRuntime, MVU_EVENTS } from '../tavern-plugin/lib/domain/tavern-mvu-runtime.js'
 import { createForegroundFrameBuilder } from '../tavern-plugin/lib/domain/agent-input-frame.js'
-import { createTavernInstructionDispatcher } from '../tavern-plugin/lib/domain/tavern-instruction-dispatcher.js'
 
 function clone(value) {
   return value === undefined ? undefined : structuredClone(value)
@@ -87,7 +86,7 @@ function harness(mode, options = {}) {
     worldBookRecall: options.worldBookRecall,
     scripts,
     timeline,
-    frameBuilder: createForegroundFrameBuilder({ dispatcher: createTavernInstructionDispatcher() }),
+    frameBuilder: createForegroundFrameBuilder(),
     mvu: options.mvu,
 	emitMvu: options.emitMvu,
     cards,
