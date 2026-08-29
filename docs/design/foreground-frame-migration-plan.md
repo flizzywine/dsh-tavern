@@ -1,5 +1,7 @@
 # 酒馆指令到 DSH Frame 改造方案
 
+> 术语更新：普通游玩和兼容模式现定义为两种编排策略；顶层“兼容层”已取消。本文保留 ForegroundFrame 实施记录，目标关系以[编排策略与酒馆脚本运行模块架构](orchestration-strategies-and-tavern-script-module.md)为准。
+
 > 状态：前台 Frame 代码链路已落地，真实游玩与兼容请求 hash 验收待运行环境复核。架构同时定义 `ForegroundFrame` 与 `BackgroundTaskFrame`；后台 Frame 暂不实现。
 
 ## 决策

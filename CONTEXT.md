@@ -50,17 +50,27 @@ Story Timeline 中 Background Operation 生命周期的只读投影，用于回�
 
 ## Compatibility Mode
 
-普通用户可以在设置中主动开启的实验性游玩模式。中文正式名称为“兼容模式（实验性）”。它按 SillyTavern 语义构造前台模型请求，不运行游玩模式的后台状态结算；候选项可以按需手动生成。该设置默认关闭，只控制入口与新建权限；已有兼容对话不会因关闭设置而被改写。
+普通用户可以在设置中主动开启的实验性游玩模式。中文正式名称为“兼容模式（实验性）”。它选择兼容编排策略，不运行普通游玩编排策略的后台状态结算；候选项可以按需手动生成。该设置默认关闭，只控制入口与新建权限；已有兼容对话不会因关闭设置而被改写。
 
-## 兼容层
+## Orchestration Strategy
 
-解释 SillyTavern 人物卡及其扩展生态可观察语义的运行环境。它把自己视为运行在酒馆宿主中，不认识 DSH Session、DSH lifecycle 或 dsh-tavern 的内部领域模型。
-_Avoid_: Tavern Compatibility Runtime、酒馆兼容 Runtime
+决定一轮游戏如何解释资源、组织上下文和调用执行能力的策略。中文正式名称为“编排策略”；普通游玩和兼容模式是两种编排策略，不是两个独立运行时。
+
+## Native Play Orchestration Strategy
+
+以持续 DSH Session 和增量 Frame 为核心的编排策略。中文正式名称为“普通游玩编排策略”；它原生解释人物卡、世界书、宏和正则，并按需调用酒馆脚本运行模块。
+
+## Compatibility Orchestration Strategy
+
+按 SillyTavern 可观察语义重建完整请求的编排策略。中文正式名称为“兼容编排策略”；它负责 Prompt Order、历史重排和精确注入位置，并与普通游玩共享酒馆脚本运行模块。
+
+## Tavern Script Execution Module
+
+运行人物卡携带的 Tavern Helper、MVU、EJS 和其他 JavaScript 程序的独立模块。中文正式名称为“酒馆脚本运行模块”；它只认识酒馆脚本和酒馆宿主接口，通过 Host Adapter 与 dsh-tavern 隔离。
 
 ## Host Adapter（桥接层）
 
-dsh-tavern 的执行模块。它向兼容层呈现酒馆形状的宿主能力，并把兼容行为与普通游玩行为落实为 Frame、权威状态、执行轨迹和 Projection。
-_Avoid_: Tavern Host Adapter、dsh-tavern Runtime（指执行模块时）
+dsh-tavern 向酒馆脚本运行模块提供的宿主适配器。它把脚本对消息、变量、世界书、模型和展示的操作映射到 dsh-tavern 的权威状态、执行轨迹和 Projection。
 
 ## Stable Prefix
 
