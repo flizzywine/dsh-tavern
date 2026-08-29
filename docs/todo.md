@@ -76,5 +76,7 @@
 
 ## P3：酒馆生态兼容
 
-- [ ] EJS 与兼容脚本：在隔离环境中执行，只开放受控数据接口。
+- [x] ST Prompt Template/EJS 当前保留受控兼容子集；现阶段不为尚未出现的兼容问题提前扩建。
+- [ ] 真实人物卡暴露模板兼容缺口时，锁定 ST-Prompt-Template 上游版本并移植完整源码，通过专用 Host Adapter 映射到 dsh-tavern 原生消息、变量、世界书、正则、请求编排和 Presentation；保留上游 AGPL 许可与修改记录。
+- [ ] 全量移植以真实 SillyTavern 差分测试为验收依据，覆盖生成、渲染、变量作用域、世界书装饰器、Prompt Injection、swipe 和事件顺序；达到行为一致后再替换当前子集。
 - [ ] Tavern Helper、MVU 和轻量 HTML 按真实需求逐步桥接，不获得宿主权限。
