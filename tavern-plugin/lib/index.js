@@ -27,9 +27,8 @@ import { createPresetEditor } from './domain/preset-editor.js'
 import { createRuntimePresetModule, resolveRuntimePresetMacros } from './domain/runtime-presets.js'
 import { compileSillyTavernRequest } from './domain/sillytavern-compatibility.js'
 import { applySillyTavernStrictTools } from './domain/sillytavern-strict-tools.js'
-import { createEphemeralCompatibilityRequest, isCompatibilityConversationRequest } from './domain/compatibility-request.js'
+import { createForegroundOrchestrationStrategies } from './domain/foreground-orchestration-strategies.js'
 import { clearFailedTurnSurface, hasRollbackMessages, locateRollbackSurface, planRegenerationSurface } from './domain/rollback-surface.js'
-import { projectRuntimePresetRequest } from './domain/runtime-preset-lifecycle.js'
 import { createTavernRetryLimiter } from './domain/tavern-retry-limiter.js'
 import { createTavernMvuRuntime, readMvuWorldBookInitialState } from './domain/tavern-mvu-runtime.js'
 import {
@@ -2824,19 +2823,6 @@ export async function apply(ctx) {
     return null
   }
 
-  function replaceTurnInput(messages, text) {
-    const result = Array.isArray(messages) ? messages.slice() : []
-    for (let index = result.length - 1; index >= 0; index--) {
-      const message = result[index]
-      if (!isTurnInput(message)) continue
-      result[index] = Object.assign({}, message, {
-        content: [{ type: 'text', text: str(text).trim() || '（玩家已更新酒馆运行状态）' }]
-      })
-      break
-    }
-    return result
-  }
-
   function replaceAssistantReply(session, result, bodyText) {
     if (result === null || result.text === bodyText) return
     const previous = result.event && result.event.data && result.event.data.message
@@ -3033,9 +3019,6 @@ export async function apply(ctx) {
 
   // ---------- DSH 回合生命周期 ----------
   const requestCoordinates = new Map()
-  const compatibilityModelRequests = new Map()
-  const compatibilityRedispatches = new WeakSet()
-  const runtimePresetRedispatches = new WeakSet()
   const storyCompactionRequests = new WeakSet()
   const tavernRetryLimiter = createTavernRetryLimiter({
     owns: async function (agent) {
@@ -3050,7 +3033,7 @@ export async function apply(ctx) {
     if (session === undefined) return 0
     const sessionId = session.id
     requestCoordinates.delete(sessionId)
-    runtimePresetSnapshots.delete(sessionId)
+    foregroundStrategies.clearRequestState(sessionId)
   }
 
   function compatibilityMessages(compiled) {
@@ -3069,6 +3052,70 @@ export async function apply(ctx) {
     })
   }
 
+  const controlledToolNames = new Set(['bash', 'pwsh', 'str_replace_editor', 'skill', 'tavern_save_skill', 'tavern_read_card', 'tavern_read_card_raw', 'tavern_read_play_chat', 'tavern_read_script', 'tavern_read_worldbook', 'tavern_update_worldbook', 'tavern_read_preset', 'tavern_update_preset', 'tavern_update_card', 'tavern_restore_card'])
+  const foregroundStrategies = createForegroundOrchestrationStrategies({
+    compatibility: {
+      beforeTurn: async function (input) {
+        if (!input.chat.mvu || input.chat.mvu.enabled !== true) return
+        const context = await tavernHelperEventContext(input.sessionId, input.chat, input.userText)
+        const messageId = Math.max(0, context.messages.length - 1)
+        await tavernHelperEventGate.dispatch(input.sessionId, 'MESSAGE_SENT', [messageId], context)
+      },
+      beginTurn: async function (input) { await turnOrchestrator.beginCompatibility(input) },
+      chatForSession,
+      compileTurn: compileCompatibilityTurn,
+      persistCompiled: async function (input) {
+        const compiled = input.compiled
+        await updateChat(input.chat.id, function (current) {
+          if (!current || typeof current !== 'object') return current
+          current.macroState = compiled.macroState
+          if (compiled.promptTemplateState && compiled.promptTemplateState.persist === true) {
+            const scopes = compiled.promptTemplateState.scopes || {}
+            current.promptTemplateInitialVariables = scopes.initial && typeof scopes.initial === 'object' ? scopes.initial : {}
+            current.variables = scopes.local && typeof scopes.local === 'object' ? scopes.local : {}
+            if (Array.isArray(current.messages) && current.messages.length > 0) {
+              replaceTavernHelperVariables(current, {
+                option: { type: 'message', message_id: 'latest' },
+                variables: scopes.message
+              })
+            }
+          }
+          if (!current.compatibilityTraces || typeof current.compatibilityTraces !== 'object') current.compatibilityTraces = {}
+          current.compatibilityTraces[String(input.turn)] = Object.assign({ createdAt: Date.now() }, compiled.trace, { diagnostics: compiled.diagnostics })
+          return current
+        }, { source: 'compatibility.compile' })
+        if (compiled.promptTemplateState && compiled.promptTemplateState.persist === true) {
+          await writePromptTemplateGlobalVariables(compiled.promptTemplateState.scopes.global)
+        }
+      },
+      projectMessages: compatibilityMessages
+    },
+    nativePlay: {
+      stagedRequests: runtimePresetSnapshots,
+      modeFor: async function (sessionId) { return await turnOrchestrator.modeFor(sessionId) },
+      filterMessages: filterSkillMessages,
+      resolvePreset: resolveChatRuntimePreset,
+      prepareTurn: async function (input) { return await foregroundHandoff.prepare(input) },
+      appendFrame: function (input) { return foregroundFrameSessionAdapter.append(input) },
+      recordFrame: function (sessionId, frame, receipt) {
+        requestCoordinates.set(sessionId, Object.assign({}, requestCoordinates.get(sessionId), {
+          frame: {
+            frameId: frame.frameId,
+            branchId: frame.branchId,
+            basedOnRevision: frame.basedOnRevision,
+            source: frame.source,
+            append: receipt
+          }
+        }))
+      },
+      visibleTools: async function (sessionId) { return await turnOrchestrator.visibleTools(sessionId) },
+      modePrompt: function (mode) { return prompt(mode === 'card' ? 'card-mode' : 'play-mode') },
+      workspaceContext: resourceWorkspaceContext,
+      ensureCardSnapshot: async function (chat) { return await ensurePlayCardSnapshot(chat) },
+      controlledToolNames
+    }
+  })
+
   ctx.on('agent/request', async function (payload, next) {
     const sessionId = payload.agent && payload.agent.session ? payload.agent.session.id : ''
     if (sessionId !== '') requestCoordinates.set(sessionId, { turn: payload.turn, step: payload.step })
@@ -3082,96 +3129,8 @@ export async function apply(ctx) {
     if (backgroundAgentRunner.owns(sessionId)) return next()
     const decision = await next()
     if (decision.kind === 'reject') return decision
-    let chat = await chatForSession(sessionId)
-    if (chat && chat.requestMode === 'sillytavern') {
-      const userText = payload.messages.filter(isTurnInput).map(contentText).filter(Boolean).join('\n').trim()
-      if (Number(payload.step) === 1) {
-		if (chat.mvu && chat.mvu.enabled === true) {
-		  const context = await tavernHelperEventContext(sessionId, chat, userText)
-		  const messageId = Math.max(0, context.messages.length - 1)
-		  await tavernHelperEventGate.dispatch(sessionId, 'MESSAGE_SENT', [messageId], context)
-		}
-        await turnOrchestrator.beginCompatibility({ sessionId, turn: payload.turn, userText })
-        chat = await chatForSession(sessionId)
-      }
-      const compiled = await compileCompatibilityTurn(chat, userText)
-      await updateChat(chat.id, function (current) {
-        if (!current || typeof current !== 'object') return current
-        current.macroState = compiled.macroState
-        if (compiled.promptTemplateState && compiled.promptTemplateState.persist === true) {
-          const scopes = compiled.promptTemplateState.scopes || {}
-          current.promptTemplateInitialVariables = scopes.initial && typeof scopes.initial === 'object' ? scopes.initial : {}
-          current.variables = scopes.local && typeof scopes.local === 'object' ? scopes.local : {}
-          if (Array.isArray(current.messages) && current.messages.length > 0) {
-            replaceTavernHelperVariables(current, {
-              option: { type: 'message', message_id: 'latest' },
-              variables: scopes.message
-            })
-          }
-        }
-        if (!current.compatibilityTraces || typeof current.compatibilityTraces !== 'object') current.compatibilityTraces = {}
-        current.compatibilityTraces[String(payload.turn)] = Object.assign({ createdAt: Date.now() }, compiled.trace, { diagnostics: compiled.diagnostics })
-        return current
-      }, { source: 'compatibility.compile' })
-      if (compiled.promptTemplateState && compiled.promptTemplateState.persist === true) {
-        await writePromptTemplateGlobalVariables(compiled.promptTemplateState.scopes.global)
-      }
-      compatibilityModelRequests.set(sessionId, {
-        turn: Number(payload.turn) || 0,
-        step: Number(payload.step) || 0,
-        messages: compatibilityMessages(compiled)
-      })
-      return {
-        kind: 'enter',
-        messages: payload.messages
-      }
-    }
-    const mode = await turnOrchestrator.modeFor(sessionId)
-    const visibleMessages = filterSkillMessages(decision.messages, mode)
-    const scopedDecision = visibleMessages === decision.messages ? decision : { ...decision, messages: visibleMessages }
-    let agentMessages = scopedDecision.messages
-    const snapshot = mode === 'story' || mode === 'script' ? await resolveChatRuntimePreset(chat) : null
-    if (mode === 'story' || mode === 'script') {
-      runtimePresetSnapshots.set(sessionId, {
-        turn: Math.max(0, Number(payload.turn) || 0),
-        step: Math.max(1, Number(payload.step) || 1),
-        scope: 'foreground',
-        snapshot: snapshot || null
-      })
-    }
-    if (Number(payload.step) === 1) {
-      const userText = payload.messages.filter(isTurnInput).map(contentText).filter(Boolean).join('\n').trim()
-      const prepared = await foregroundHandoff.prepare({ sessionId, turn: payload.turn, userText })
-      if (mode === 'story' || mode === 'script') {
-        agentMessages = replaceTurnInput(scopedDecision.messages, prepared.frame.userInput.projectedText)
-        const adapted = foregroundFrameSessionAdapter.append({
-          messages: agentMessages,
-          frame: prepared.frame,
-          step: payload.step
-        })
-        agentMessages = adapted.messages
-        requestCoordinates.set(sessionId, Object.assign({}, requestCoordinates.get(sessionId), {
-          frame: {
-            frameId: prepared.frame.frameId,
-            branchId: prepared.frame.branchId,
-            basedOnRevision: prepared.frame.basedOnRevision,
-            source: prepared.frame.source,
-            append: adapted.receipt
-          }
-        }))
-      } else {
-        agentMessages = scopedDecision.messages.concat([{
-          id: crypto.randomUUID(),
-          role: 'user',
-          content: [{ type: 'text', text: prepared.text }],
-          source: {
-            kind: 'plugin', plugin: 'dsh-tavern', form: 'snapshot',
-            sections: [{ name: 'tavern:turn', text: prepared.text }]
-          }
-        }])
-      }
-    }
-    return { kind: 'enter', messages: agentMessages }
+    const chat = await chatForSession(sessionId)
+    return await foregroundStrategies.prepareStep({ sessionId, payload, decision, chat })
   })
 
   ctx.on('llm/stream', function (options, next) {
@@ -3199,31 +3158,8 @@ export async function apply(ctx) {
         yield * ctx.llm.stream(request)
       })()
     }
-    const stagedCompatibility = compatibilityModelRequests.get(sessionId)
-    const shouldRedispatch = !compatibilityRedispatches.has(options) &&
-      isCompatibilityConversationRequest(options, stagedCompatibility, coordinates)
-    if (shouldRedispatch) {
-      const compatibilityRequest = createEphemeralCompatibilityRequest(options, stagedCompatibility.messages)
-      compatibilityRedispatches.add(compatibilityRequest)
-      return ctx.llm.stream(compatibilityRequest)
-    }
-    const stagedRuntimePreset = runtimePresetSnapshots.get(sessionId)
-    if (options !== null && typeof options === 'object' && options.purpose === undefined &&
-      stagedRuntimePreset !== undefined && !runtimePresetRedispatches.has(options)) {
-      const projectedRequest = projectRuntimePresetRequest(
-        options,
-        stagedRuntimePreset.snapshot,
-        {
-          scope: stagedRuntimePreset.scope,
-          turn: stagedRuntimePreset.turn,
-          step: stagedRuntimePreset.step
-        }
-      )
-      if (projectedRequest !== options) {
-        runtimePresetRedispatches.add(projectedRequest)
-        return ctx.llm.stream(projectedRequest)
-      }
-    }
+    const projectedRequest = foregroundStrategies.projectRequest(options, coordinates)
+    if (projectedRequest !== null) return ctx.llm.stream(projectedRequest)
     const stream = next()
     const backgroundContext = backgroundAgentRunner.requestContext(sessionId)
     const ownerSessionId = backgroundContext ? backgroundContext.parentSessionId : sessionId
@@ -3248,8 +3184,7 @@ export async function apply(ctx) {
         throw error
       } finally {
         const completed = finish && finish.kind !== 'error' && finish.kind !== 'aborted'
-        if (stagedCompatibility && compatibilityRedispatches.has(options) && completed) compatibilityModelRequests.delete(sessionId)
-        if (runtimePresetRedispatches.has(options) && completed) runtimePresetSnapshots.delete(sessionId)
+        foregroundStrategies.completeRequest(options, completed)
         if (chat && requestRecord) {
           try { await modelRequestLog.complete({ chatId: chat.id, id: requestRecord.id, text: responseText, finish, error: failure }) }
           catch (error) { console.error('dsh-tavern: 模型结果日志写入失败', str(error && error.message || error)) }
@@ -3282,42 +3217,23 @@ export async function apply(ctx) {
 
   ctx.on('session/event', function (session, event) {
     if (!event || event.type !== 'turn/end') return
-    compatibilityModelRequests.delete(session.id)
+    foregroundStrategies.endTurn(session.id)
     if (backgroundAgentRunner.owns(session.id)) return
     const reason = event.data && event.data.reason ? event.data.reason.kind : ''
     foregroundHandoff.end({ sessionId: session.id, turn: event.data && event.data.turn, reason })
   })
 
-  const controlledToolNames = new Set(['bash', 'pwsh', 'str_replace_editor', 'skill', 'tavern_save_skill', 'tavern_read_card', 'tavern_read_card_raw', 'tavern_read_play_chat', 'tavern_read_script', 'tavern_read_worldbook', 'tavern_update_worldbook', 'tavern_read_preset', 'tavern_update_preset', 'tavern_update_card', 'tavern_restore_card'])
   ctx.on('system-prompt/assemble', async function (_assembly, context, next) {
     const assembly = await next()
     const agent = context && context.agent
     if (agent === undefined || agent.session === undefined) return assembly
     if (backgroundAgentRunner.owns(agent.session.id)) return assembly
-    const mode = await turnOrchestrator.modeFor(agent.session.id)
     const chat = await chatForSession(agent.session.id)
-    if (chat && chat.requestMode === 'sillytavern') {
-      assembly.sections = []
-      assembly.contexts = []
-      assembly.tools = []
-      return assembly
-    }
-    const visible = new Set(await turnOrchestrator.visibleTools(agent.session.id))
-    const sections = []
-    sections.push({
-      name: 'tavern:mode-persona',
-      text: prompt(mode === 'card' ? 'card-mode' : 'play-mode')
+    return await foregroundStrategies.assembleSystemPrompt(assembly, {
+      sessionId: agent.session.id,
+      chat,
+      cwd: agent.session.header && agent.session.header.cwd
     })
-    if (mode === 'card') {
-      const workspaceContext = resourceWorkspaceContext(agent.session.header && agent.session.header.cwd)
-      if (workspaceContext !== '') sections.push({ name: 'tavern:resource-workspace', text: workspaceContext })
-    } else {
-      const cardSnapshot = await ensurePlayCardSnapshot(chat)
-      if (cardSnapshot !== '') sections.push({ name: 'tavern:card-snapshot', text: cardSnapshot })
-    }
-    assembly.sections = sections
-    assembly.tools = assembly.tools.filter(function (schema) { return !controlledToolNames.has(schema.name) || visible.has(schema.name) })
-    return assembly
   })
 
   // ---------- 模型可选工具 ----------
