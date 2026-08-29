@@ -2879,6 +2879,8 @@ export async function apply(ctx) {
       text: prompt(mode === 'card' ? 'card-mode' : 'play-mode')
     })
     if (mode === 'card') {
+      const cordisInstructions = assembly.sections.find(function (section) { return section.name === 'tool:cordis' })
+      if (cordisInstructions !== undefined) sections.push(cordisInstructions)
       const workspaceContext = resourceWorkspaceContext(agent.session.header && agent.session.header.cwd)
       if (workspaceContext !== '') sections.push({ name: 'tavern:resource-workspace', text: workspaceContext })
     } else {

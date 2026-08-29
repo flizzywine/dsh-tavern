@@ -888,7 +888,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 						phase = "等待 DSH Session 就绪";
 						await options.waitForSession(sessionId);
 						phase = "切换到酒馆模式";
-						await options.ensurePreset(sessionId);
+						await options.ensurePreset(sessionId, request);
 						phase = request.kind === "card" ? "创建卡片工作台对话" : "写入人物卡开场白";
 						await options.createChat(request, sessionId);
 						phase = "同步并打开 DSH Session";
@@ -1557,12 +1557,13 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					return next;
 				});
 			}
-			async function ensureTavernPreset(sessionId) {
+			async function ensureTavernPreset(sessionId, request) {
 				// DSH may reuse a persisted blank Session whose Agent has not been resumed yet.
-				// Confirming the preset through the Host restores that Agent before Tavern writes the opening.
-				const presetResponse = await props.connection.api.agentPresets.select({ sessionId: sessionId, agentPreset: "tavern" });
+				// Card workbenches use DSH's official creation preset; play sessions use Tavern's composition.
+				const agentPreset = request.kind === "card" ? "cordis" : "tavern";
+				const presetResponse = await props.connection.api.agentPresets.select({ sessionId: sessionId, agentPreset: agentPreset });
 				if (!presetResponse.result.ok) throw new Error(presetResponse.result.error && presetResponse.result.error.message ? presetResponse.result.error.message : "无法切换到酒馆模式");
-				props.sessions.noteAgentPreset(sessionId, "tavern");
+				props.sessions.noteAgentPreset(sessionId, agentPreset);
 			}
 			async function archiveCurrentBlankSession(protectedSessionId) {
 				const currentSummary = current ? summaries[current] : null;
