@@ -1,4 +1,4 @@
-import { exportSillyTavernWorldBook, inspectWorldBookDocument, prepareWorldBookImport, updateWorldBookDocument } from './worldbook-resource.js'
+import { exportCharacterBook, exportSillyTavernWorldBook, inspectWorldBookDocument, prepareWorldBookImport, updateWorldBookDocument } from './worldbook-resource.js'
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
@@ -217,9 +217,17 @@ export function createWorldBookLibrary(options = {}) {
     return { name: record.view.displayName, document: exportSillyTavernWorldBook(record.document) }
   }
 
+  async function characterBookForCard(cardPath) {
+    const current = await binding(cardPath)
+    if (current.kind === 'none') return null
+    if (current.available !== true) throw new Error('绑定的世界书不存在，请重新绑定或解绑')
+    const record = await readRecord(current.source)
+    return exportCharacterBook(record.document)
+  }
+
   async function remove(path) {
     return await removeStandalone(normalizePath(path, 'worldbook'))
   }
 
-  return Object.freeze({ catalog, get, binding, associations, bound, bind, unbind, import: importBook, update, export: exportBook, remove })
+  return Object.freeze({ catalog, get, binding, associations, bound, bind, unbind, import: importBook, update, export: exportBook, characterBookForCard, remove })
 }

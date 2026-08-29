@@ -231,3 +231,16 @@ test('人物卡内嵌世界书导出为 SillyTavern 可见的独立世界书', a
   assert.deepEqual(exported.document.entries['0'].key, ['钟楼'])
   assert.equal(exported.document.entries['0'].disable, false)
 })
+
+test('人物卡导出读取绑定世界书并转换为 character_book', async () => {
+  const run = harness()
+  await run.library.bind('cards/空白.json', { kind: 'standalone', path: 'worldbooks/王都.json' })
+
+  const book = await run.library.characterBookForCard('cards/空白.json')
+
+  assert.equal(Array.isArray(book.entries), true)
+  assert.equal(book.entries[0].content, '城门日落关闭。')
+  assert.deepEqual(book.entries[0].keys, ['城门'])
+  assert.equal(book.entries[0].enabled, true)
+  assert.equal(book.entries[0].id, 7)
+})

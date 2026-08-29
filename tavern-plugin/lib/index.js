@@ -2296,9 +2296,11 @@ export async function apply(ctx) {
         return { operationId: prepared.operationId, basedOn: prepared.basedOn }
       }
       case 'exportCard': {
-        const workspace = await readCardWorkspace(args && args.path)
+        const cardPath = args && args.path
+        const workspace = await readCardWorkspace(cardPath)
         if (workspace === undefined) throw new Error('人物卡不存在: ' + (args && args.path))
-        return { document: cardPreparation.present({ card: workspace, as: 'sillytavern-v3' }) }
+        const characterBook = await worldBooks.characterBookForCard(cardPath)
+        return { document: cardPreparation.present({ card: workspace, as: 'sillytavern-v3', characterBook }) }
       }
       case 'addGuide': return { guides: await addGuide(args && args.sessionId, args && args.text) }
       case 'deleteGuide': return { guides: await deleteGuide(args && args.sessionId, args && args.index) }

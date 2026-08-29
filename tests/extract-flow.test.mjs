@@ -689,6 +689,13 @@ test('已迁移的人物卡读取时不会再次加载原版并执行迁移', ()
   assert.match(reader, /return await fileResources\.ensureCardWorkspace/)
 })
 
+test('人物卡导出读取当前绑定世界书并只写入导出副本', () => {
+  const exporter = between(serverSource, "case 'exportCard':", "case 'addGuide':")
+
+  assert.match(exporter, /worldBooks\.characterBookForCard\(cardPath\)/)
+  assert.match(exporter, /cardPreparation\.present\(\{ card: workspace, as: 'sillytavern-v3', characterBook \}\)/)
+})
+
 test('人物卡 Agent 保存后重新读取已打开的详情，未变化时不重置表单', () => {
   const library = between(clientSource, 'function CardLibraryTab', 'function CardFieldsPanel')
   const listener = between(library, 'function onData(event)', 'window.addEventListener("dsh-tavern-data-changed"')

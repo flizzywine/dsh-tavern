@@ -192,6 +192,71 @@ export function exportSillyTavernWorldBook(document) {
   return exported
 }
 
+function embeddedEntryFromStandalone(value, index, original) {
+  const entry = object(value) || {}
+  const previous = object(original) || {}
+  const extensions = Object.assign({}, object(previous.extensions) || {}, object(entry.extensions) || {})
+  const uid = numberOr(entry.uid, index)
+  const position = numberOr(entry.position, 0)
+  const exported = Object.assign({}, clone(previous), {
+    id: uid,
+    keys: array(entry.key).map(str),
+    secondary_keys: array(entry.keysecondary).map(str),
+    comment: str(entry.comment || entry.name),
+    content: str(entry.content),
+    constant: entry.constant === true,
+    selective: entry.selective === true,
+    insertion_order: numberOr(entry.order, 100),
+    enabled: entry.disable !== true,
+    position: position === 1 ? 'after_char' : 'before_char',
+    case_sensitive: entry.caseSensitive === true,
+    extensions
+  })
+  const optional = [
+    ['displayIndex', 'display_index'],
+    ['selectiveLogic', 'selective_logic'],
+    ['vectorized', 'vectorized'],
+    ['depth', 'depth'],
+    ['role', 'role'],
+    ['useProbability', 'use_probability'],
+    ['probability', 'probability'],
+    ['scanDepth', 'scan_depth'],
+    ['matchWholeWords', 'match_whole_words'],
+    ['excludeRecursion', 'exclude_recursion'],
+    ['preventRecursion', 'prevent_recursion'],
+    ['delayUntilRecursion', 'delay_until_recursion'],
+    ['group', 'group'],
+    ['sticky', 'sticky'],
+    ['cooldown', 'cooldown'],
+    ['delay', 'delay']
+  ]
+  extensions.position = position
+  for (const [source, target] of optional) {
+    if (hasOwn(entry, source)) extensions[target] = clone(entry[source])
+  }
+  return exported
+}
+
+/** Convert any supported source into a Character Card character_book. */
+export function exportCharacterBook(document) {
+  const identified = identifyDocument(document)
+  if (identified.format !== 'sillytavern-worldbook') return clone(identified.book)
+  const book = identified.book
+  const original = object(book.originalData) || {}
+  const exported = clone(original)
+  if (hasOwn(book, 'name')) exported.name = str(book.name)
+  if (hasOwn(book, 'description')) exported.description = str(book.description)
+  exported.extensions = Object.assign({}, object(original.extensions) || {}, object(book.extensions) || {})
+  const originals = new Map(array(original.entries).map(function (entry, index) {
+    return [numberOr(entry && entry.id, index), entry]
+  }))
+  exported.entries = Object.values(book.entries).map(function (entry, index) {
+    const uid = numberOr(entry && entry.uid, index)
+    return embeddedEntryFromStandalone(entry, index, originals.get(uid))
+  })
+  return exported
+}
+
 function nextId(entries, field) {
   return entries.reduce(function (maximum, entry) { return Math.max(maximum, numberOr(entry && entry[field], -1)) }, -1) + 1
 }

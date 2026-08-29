@@ -533,7 +533,14 @@ export function createCardPreparation(options = {}) {
       return Object.assign({ id: card.id }, editable, { extensions: inspectCardExtensions(request.card) })
     }
     if (request.as === 'raw') return clone(rawOf(request.card))
-    if (request.as === 'sillytavern-v3') return sillyTavernV3Raw(request.card)
+    if (request.as === 'sillytavern-v3') {
+      const exported = sillyTavernV3Raw(request.card)
+      if (Object.prototype.hasOwnProperty.call(request, 'characterBook')) {
+        if (object(request.characterBook)) exported.data.character_book = clone(request.characterBook)
+        else delete exported.data.character_book
+      }
+      return exported
+    }
     throw new Error('未知人物卡展示类型: ' + str(request.as))
   }
 

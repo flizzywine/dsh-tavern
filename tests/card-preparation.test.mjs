@@ -101,6 +101,24 @@ test('旧版 DSH 扁平人物卡导出为 SillyTavern 可导入的 V3', () => {
   assert.equal(Object.prototype.hasOwnProperty.call(exported, 'name'), false)
 })
 
+test('SillyTavern V3 导出只在副本中写入当前绑定世界书', () => {
+  const cards = moduleUnderTest()
+  const workspace = cards.create({
+    kind: 'import',
+    payload: { spec: 'chara_card_v3', spec_version: '3.0', data: { name: '绑定角色' } }
+  })
+  const characterBook = {
+    name: '绑定书',
+    entries: [{ id: 3, keys: ['港口'], content: '港口设定', enabled: true, extensions: {} }],
+    extensions: {}
+  }
+
+  const exported = cards.present({ card: workspace, as: 'sillytavern-v3', characterBook })
+
+  assert.deepEqual(exported.data.character_book, characterBook)
+  assert.equal(cards.present({ card: workspace, as: 'raw' }).data.character_book, undefined)
+})
+
 test('人物卡工作 raw 在普通字段修改后仍保留 user 和 char 宏', () => {
   const cards = moduleUnderTest()
   const workspace = cards.create({
