@@ -525,6 +525,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			if (!options || typeof options.load !== "function") throw new Error("Live Tavern View 缺少 load adapter");
 			const records = new Map();
 			const shouldPoll = typeof options.shouldPoll === "function" ? options.shouldPoll : function (view) { return view && view.settleStatus === "running"; };
+			const isTerminalError = typeof options.isTerminalError === "function" ? options.isTerminalError : function () { return false; };
 			const scheduleTimer = typeof options.schedule === "function" ? options.schedule : function (run, delay) { return window.setTimeout(run, delay); };
 			const cancelTimer = typeof options.cancel === "function" ? options.cancel : function (timer) { window.clearTimeout(timer); };
 			const startWatchdog = typeof options.startWatchdog === "function" ? options.startWatchdog : function (run, delay) { return window.setInterval(run, delay); };
@@ -586,8 +587,12 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					if (shouldPoll(view)) schedule(record, 200);
 					else if (idlePollIntervalMs > 0) schedule(record, idlePollIntervalMs);
 				} catch (error) {
-					publish(record, { phase: "retrying", view: record.state.view, error: deadlineExpired ? "" : String(error && error.message || error || ""), updatedAt: record.state.updatedAt });
-					schedule(record, shouldPoll(record.state.view) ? 300 : (idlePollIntervalMs > 0 ? Math.min(1500, idlePollIntervalMs) : 1500));
+					const terminal = !deadlineExpired && isTerminalError(error);
+					if (terminal) publish(record, { phase: "unavailable", view: null, error: String(error && error.message || error || ""), updatedAt: record.state.updatedAt });
+					else {
+						publish(record, { phase: "retrying", view: record.state.view, error: deadlineExpired ? "" : String(error && error.message || error || ""), updatedAt: record.state.updatedAt });
+						schedule(record, shouldPoll(record.state.view) ? 300 : (idlePollIntervalMs > 0 ? Math.min(1500, idlePollIntervalMs) : 1500));
+					}
 				} finally {
 					record.loading = false;
 					if (record.reloadRequested) { record.reloadRequested = false; schedule(record, 0); }
@@ -637,10 +642,15 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			};
 		}
 
+		function isMissingTavernCardError(value) {
+			return /^人物卡不存在:\s*/.test(String(value && value.message || value || ""));
+		}
+
 		const liveTavernView = createLiveTavernViewModule({
 			loadTimeoutMs: 2000,
 			load: function (sessionId, request) { return rpc("getSession", {}, sessionId, request); },
-			shouldPoll: function (view) { return !!(view && view.activity && view.activity.busy); }
+			shouldPoll: function (view) { return !!(view && view.activity && view.activity.busy); },
+			isTerminalError: isMissingTavernCardError
 		});
 		function coordinationView(result, sessionId) {
 			const sync = result && result.sync ? result.sync : (result || {});
@@ -2969,11 +2979,12 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const liveState = useLiveTavernView(props.sessionId, stateKey);
 			const view = liveState.view;
 			const loadState = liveState.phase;
+			const missingCard = isMissingTavernCardError(liveState.error);
 			const debugTurns = view && Array.isArray(view.debugTurns) ? view.debugTurns : [];
 			const latestDebugTurn = Number(debugTurns[0] && debugTurns[0].turn) || 0;
 			React.useEffect(function () {
-				setError(liveState.error || "");
-			}, [liveState.error]);
+				setError(missingCard ? "" : (liveState.error || ""));
+			}, [liveState.error, missingCard]);
 			async function openDebugger() {
 				if (!latestDebugTurn || debugBusy) return;
 				setDebugBusy(true);
@@ -3004,8 +3015,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			if (!view) return h("aside", { className: "dsh-tavern-status" },
 				h("div", { className: "dsh-tavern-status-head" }, h("div", { className: "dsh-tavern-status-title" }, "状态栏")),
 				h("div", { className: "dsh-tavern-status-body" },
-					h("div", { className: "dsh-tavern-status-empty" }, loadState === "retrying" ? "正在重新连接酒馆状态…" : (error || (loadState === "loading" ? "正在加载酒馆状态…" : "选择人物卡后，这里会显示持续状态。"))),
-					loadState === "retrying" ? h("button", { className: "dsh-tavern-btn", onClick: function () { liveTavernView.invalidate(props.sessionId); } }, "重新加载") : null
+					h("div", { className: "dsh-tavern-status-empty" }, missingCard ? "人物卡已删除，酒馆状态不可用；已有对话仍可查看。" : (loadState === "retrying" ? "正在重新连接酒馆状态…" : (error || (loadState === "loading" ? "正在加载酒馆状态…" : "选择人物卡后，这里会显示持续状态。")))),
+					loadState === "retrying" || missingCard ? h("button", { className: "dsh-tavern-btn", onClick: function () { liveTavernView.invalidate(props.sessionId); } }, "重新加载") : null
 				)
 			);
 			if (view.mode === "card") return null;

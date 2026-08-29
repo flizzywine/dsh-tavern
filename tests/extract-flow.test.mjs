@@ -858,6 +858,10 @@ test('酒馆状态页等待会话绑定就绪后自动刷新', () => {
   assert.match(statusPanel, /loadState = liveState\.phase/)
   assert.doesNotMatch(statusPanel, /rpc\("getSession"/)
   assert.match(statusPanel, /正在重新连接酒馆状态/)
+  assert.match(clientSource, /isTerminalError: isMissingTavernCardError/)
+  assert.match(statusPanel, /setError\(missingCard \? "" : \(liveState\.error \|\| ""\)\)/)
+  assert.match(statusPanel, /人物卡已删除，酒馆状态不可用；已有对话仍可查看。/)
+  assert.match(statusPanel, /loadState === "retrying" \|\| missingCard/)
   assert.match(statusPanel, /重新加载/)
 })
 

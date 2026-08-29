@@ -258,6 +258,29 @@ test('候选 Agent 长时间生成时状态查询只在内部重试，不产生�
   stop()
 })
 
+test('人物卡删除后的状态错误进入不可用终态，不再自动重试并重复弹错', async function () {
+  const timers = fakeTimers()
+  let loads = 0
+  const module = createLiveTavernViewModule({
+    load: async function () { loads += 1; throw new Error('人物卡不存在: cards/Erin.json') },
+    shouldPoll() { return false },
+    isTerminalError(error) { return /人物卡不存在:/.test(String(error && error.message || error || '')) },
+    schedule: timers.schedule,
+    cancel: timers.cancel
+  })
+  const stop = module.subscribe('deleted-card-session', function () {})
+
+  await timers.runNext()
+  const snapshot = module.getSnapshot('deleted-card-session')
+  const delays = timers.activeDelays()
+  stop()
+
+  assert.equal(loads, 1)
+  assert.equal(snapshot.phase, 'unavailable')
+  assert.match(snapshot.error, /人物卡不存在: cards\/Erin\.json/)
+  assert.deepEqual(delays, [])
+})
+
 test('协调快照空闲时保持低频探测，发现 Session 失联后切换为快速探测', async function () {
   const timers = fakeTimers()
   const snapshots = [
