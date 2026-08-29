@@ -97,6 +97,29 @@ test('后台 Activity busy 时由 module 统一快速轮询，完成后停止', 
   stop()
 })
 
+test('生成期完整视图不自动轮询，只在状态事件失效后重读', async function () {
+  const timers = fakeTimers()
+  let loads = 0
+  const module = createLiveTavernViewModule({
+    load: async function () { loads += 1; return { view: { activity: { busy: loads === 1 } } } },
+    shouldPoll(view) { return !!(view && view.activity && view.activity.busy) },
+    pollWhileBusy: false,
+    schedule: timers.schedule,
+    cancel: timers.cancel
+  })
+  const stop = module.subscribe('session-event-driven', function () {})
+
+  await timers.runNext()
+  assert.equal(loads, 1)
+  assert.deepEqual(timers.activeDelays(), [])
+
+  module.invalidate('session-event-driven')
+  await timers.runNext()
+  assert.equal(loads, 2)
+  assert.equal(module.getSnapshot('session-event-driven').view.activity.busy, false)
+  stop()
+})
+
 test('后台已空闲但主轮询定时器丢失时，watchdog 会恢复权威查询并解除 busy', async function () {
   const timers = fakeTimers()
   const watchdog = fakeIntervals()

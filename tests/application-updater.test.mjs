@@ -62,6 +62,33 @@ test('检查更新只返回最新提交状态，不启动安装进程', async ()
   }
 })
 
+test('高频状态读取复用本地身份，显式检查只重新验证一次', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-updater-identity-cache-'))
+  try {
+    let identityReads = 0
+    const updater = createApplicationUpdater({
+      dataRoot: path.join(root, 'data'), sourceRoot: root, runtimeHost: 'cli',
+      readLocalIdentity: async () => {
+        identityReads += 1
+        return { currentVersion: '0.9.2', currentCommit: 'a'.repeat(40) }
+      },
+      fetchManifest: async () => ({ version: '0.9.2' }),
+      fetchLatestCommit: async () => 'a'.repeat(40),
+      now: () => 240,
+    })
+
+    await updater.status()
+    await updater.status()
+    await updater.status()
+    assert.equal(identityReads, 1)
+
+    await updater.check()
+    assert.equal(identityReads, 2)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test('GitHub 最新提交仅发布运行清单时，以父提交作为最新运行构建', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-updater-manifest-commit-'))
   try {

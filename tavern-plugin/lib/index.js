@@ -187,6 +187,7 @@ export async function apply(ctx) {
     return prefix + '-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8)
   }
   const runtimeGeneration = uid('runtime')
+  let coordinationEvents = null
   function str(v) {
     return typeof v === 'string' ? v : (v === undefined || v === null ? '' : String(v))
   }
@@ -209,12 +210,14 @@ export async function apply(ctx) {
   }
   async function bumpCardProjectionRevision(cardPath) {
     const normalized = normalizeResourcePath(cardPath, 'card')
-    return await profileData.updateJson(CARD_PROJECTION_REVISIONS, function (value) {
+    const saved = await profileData.updateJson(CARD_PROJECTION_REVISIONS, function (value) {
       const state = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
       const cards = state.cards && typeof state.cards === 'object' && !Array.isArray(state.cards) ? state.cards : {}
       const version = Math.max(0, Number(state.version) || 0) + 1
       return { version, cards: Object.assign({}, cards, { [normalized]: version }) }
     })
+    void coordinationEvents?.publishAll()
+    return saved
   }
   function groupOfMode(mode) {
     const m = mode || 'story'
@@ -364,6 +367,7 @@ export async function apply(ctx) {
     const normalized = normalizeResourcePath(cardPath, 'card')
     const existing = await fileResources.readCard(normalized)
     if (existing === undefined) return undefined
+    if (cardPreparation.isWorkspace(existing)) return existing
     return await fileResources.ensureCardWorkspace(normalized, function (working, payload) {
       return cardPreparation.migrate({ working, payload })
     })
@@ -703,11 +707,13 @@ export async function apply(ctx) {
   async function writeChat(chat, metadata) {
     const saved = await rawWriteChat(chat, metadata)
     await syncChatSummary(saved)
+    void coordinationEvents?.publish(saved.sessionId)
     return saved
   }
   async function updateChat(chatId, mutation, metadata) {
     const saved = await rawUpdateChat(chatId, mutation, metadata)
     await syncChatSummary(saved)
+    if (saved !== undefined) void coordinationEvents?.publish(saved.sessionId)
     return saved
   }
   async function prepareRollbackIntent(chat, intent) {
@@ -784,6 +790,7 @@ export async function apply(ctx) {
     const cards = await listCards()
     const sources = await listSources()
     return {
+      cards,
       resources: sources.map(function (source) {
         const boundCards = cards.filter(function (card) { return card.script !== null && card.script.path === source.path }).map(function (card) { return { path: card.path, name: card.name } })
         return { path: source.path, previewPath: fileResources.absolute(source.path), title: source.title, sourceChars: Number(source.sourceChars) || 0, chunkCount: Number(source.chunkCount) || 0, boundCards }
@@ -2540,10 +2547,10 @@ export async function apply(ctx) {
     return [runtimeGeneration, chatId, chatVersion, projectionVersion].join(':')
   }
 
-  const coordinationEvents = createCoordinationEventPublisher({
+  coordinationEvents = createCoordinationEventPublisher({
     readVersion: async function (sessionId) { return await coordinationVersion(sessionId) },
     load: async function (sessionId) { return await sessionSync(sessionId, { kind: 'candidate' }) },
-    pollIntervalMs: 250,
+    fallbackIntervalMs: 5000,
     onError(error) { console.warn('dsh-tavern: 协调文件读取失败，将继续重试:', str(error && error.message || error)) }
   })
 

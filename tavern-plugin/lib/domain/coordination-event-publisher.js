@@ -20,50 +20,83 @@ export function coordinationEventId(snapshot) {
   ].join(':')
 }
 
-/** Poll file-backed coordination state on the server and publish changed snapshots. */
+/** Publish coordination state after local writes, with a low-frequency file fallback. */
 export function createCoordinationEventPublisher(options = {}) {
   if (typeof options.load !== 'function') throw new Error('Coordination Event Publisher 缺少快照读取 adapter')
   const startInterval = typeof options.startInterval === 'function' ? options.startInterval : setInterval
   const stopInterval = typeof options.stopInterval === 'function' ? options.stopInterval : clearInterval
-  const pollIntervalMs = Number(options.pollIntervalMs) > 0 ? Number(options.pollIntervalMs) : 250
+  const fallbackIntervalMs = Number(options.fallbackIntervalMs) > 0 ? Number(options.fallbackIntervalMs) : 5000
+  const records = new Map()
 
-  function subscribe(sessionId, listener) {
-    let stopped = false
-    let loading = false
-    let lastId = ''
-    let hasVersion = false
-    let lastVersion
-    async function poll() {
-      if (stopped || loading) return
-      loading = true
-      try {
-        const version = typeof options.readVersion === 'function' ? await options.readVersion(str(sessionId)) : undefined
-        if (hasVersion && Object.is(version, lastVersion)) return
-        const snapshot = await options.load(str(sessionId))
-        if (stopped || snapshot === null || snapshot === undefined) return
-        if (typeof options.readVersion === 'function') {
-          lastVersion = version
-          hasVersion = true
-        }
-        const eventId = coordinationEventId(snapshot)
-        if (eventId === lastId) return
-        lastId = eventId
-        listener(snapshot, eventId)
-      } catch (error) {
-        if (typeof options.onError === 'function') options.onError(error)
-      } finally {
-        loading = false
-      }
+  function recordFor(sessionId) {
+    const id = str(sessionId)
+    if (!records.has(id)) records.set(id, { id, listeners: new Set(), timer: null, loading: false, reloadRequested: false, forceRequested: false, lastId: '', hasVersion: false, lastVersion: undefined })
+    return records.get(id)
+  }
+
+  async function refresh(record, checkVersion) {
+    if (record.listeners.size === 0) return
+    if (record.loading) {
+      record.reloadRequested = true
+      if (!checkVersion) record.forceRequested = true
+      return
     }
-    void poll()
-    const timer = startInterval(function () { void poll() }, pollIntervalMs)
-    if (timer && typeof timer.unref === 'function') timer.unref()
-    return function () {
-      if (stopped) return
-      stopped = true
-      stopInterval(timer)
+    record.loading = true
+    try {
+      const version = checkVersion && typeof options.readVersion === 'function' ? await options.readVersion(record.id) : undefined
+      if (checkVersion && record.hasVersion && Object.is(version, record.lastVersion)) return
+      const snapshot = await options.load(record.id)
+      if (record.listeners.size === 0 || snapshot === null || snapshot === undefined) return
+      if (checkVersion && typeof options.readVersion === 'function') {
+        record.lastVersion = version
+        record.hasVersion = true
+      }
+      const eventId = coordinationEventId(snapshot)
+      if (eventId === record.lastId) return
+      record.lastId = eventId
+      record.listeners.forEach(function (listener) { listener(snapshot, eventId) })
+    } catch (error) {
+      if (typeof options.onError === 'function') options.onError(error)
+    } finally {
+      record.loading = false
+      if (record.reloadRequested) {
+        const force = record.forceRequested
+        record.reloadRequested = false
+        record.forceRequested = false
+        await refresh(record, !force)
+      }
     }
   }
 
-  return Object.freeze({ subscribe })
+  function subscribe(sessionId, listener) {
+    const record = recordFor(sessionId)
+    record.listeners.add(listener)
+    if (record.listeners.size === 1) {
+      void refresh(record, true)
+      record.timer = startInterval(function () { void refresh(record, true) }, fallbackIntervalMs)
+      if (record.timer && typeof record.timer.unref === 'function') record.timer.unref()
+    }
+    let stopped = false
+    return function () {
+      if (stopped) return
+      stopped = true
+      record.listeners.delete(listener)
+      if (record.listeners.size === 0 && record.timer !== null) {
+        stopInterval(record.timer)
+        record.timer = null
+      }
+    }
+  }
+
+  async function publish(sessionId) {
+    const record = records.get(str(sessionId))
+    if (record === undefined) return
+    await refresh(record, false)
+  }
+
+  async function publishAll() {
+    await Promise.all(Array.from(records.values()).map(function (record) { return refresh(record, false) }))
+  }
+
+  return Object.freeze({ subscribe, publish, publishAll })
 }

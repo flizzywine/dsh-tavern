@@ -44,6 +44,11 @@ export function createTavernConversationRegistry(options = {}) {
   async function resolve(sessionId) {
     const id = str(sessionId)
     if (id === '') return undefined
+    const links = normalizeLinks(await store.readLinks())
+    if (typeof links[id] === 'string') {
+      const mapped = await store.readChat(links[id])
+      if (mapped !== undefined) return mapped
+    }
     let found
     await store.updateLinks(async function (value) {
       const current = Object.assign({}, normalizeLinks(value))

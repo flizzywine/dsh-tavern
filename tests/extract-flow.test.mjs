@@ -462,7 +462,7 @@ test('空白工作台确认后自动创建人物卡，不再提供二次保存�
   assert.doesNotMatch(clientSource, /CardDraftPanel|finalizeCard|保存为新人物卡|写入草稿/)
   assert.doesNotMatch(serverSource, /case 'finalizeCard'/)
   assert.match(sidebar, /const currentSummary = current \? summaries\[current\] : null;/)
-  assert.match(sidebar, /if \(!currentSummary \|\| currentSummary\.blank\) return;\s*notifyDataChanged\(\);/)
+  assert.match(sidebar, /if \(!currentSummary \|\| currentSummary\.blank\) return;\s*notifyDataChanged\(\["sessions"\]\);/)
 })
 
 test('Tavern 只接管会话区域，保留 DSH 原生设置与模型配置入口', () => {
@@ -676,7 +676,8 @@ test('卡片模式预加载人物卡、预设、世界书和剧本四个库', ()
 test('剧本库可以把未绑定剧本绑定给未绑定人物卡，并可直接解绑', () => {
   const library = between(clientSource, 'function TavernResourcesTab', 'function register(input)')
 
-  assert.match(library, /rpc\("listCards"/)
+  assert.match(library, /setCards\(all\[0\] && all\[0\]\.cards \|\| \[\]\)/)
+  assert.doesNotMatch(library, /rpc\("listCards"/)
   assert.match(library, /card\.script == null/)
   assert.match(library, /rpc\("bindScript", \{ cardPath: cardPath, path: item\.path \}/)
   assert.match(library, /rpc\("deleteScript", \{ cardPath: boundCard\.path \}/)
@@ -699,9 +700,17 @@ test('人物卡库可以查看详情，并在当前卡片对话中引用人物�
   assert.match(clientSource, /loadCard\(requestedPath\)/)
 })
 
+test('已迁移的人物卡读取时不会再次加载原版并执行迁移', () => {
+  const reader = between(serverSource, 'async function readCardWorkspace', 'async function readCard(cardPath)')
+
+  assert.match(reader, /const existing = await fileResources\.readCard\(normalized\)/)
+  assert.match(reader, /if \(cardPreparation\.isWorkspace\(existing\)\) return existing/)
+  assert.match(reader, /return await fileResources\.ensureCardWorkspace/)
+})
+
 test('人物卡 Agent 保存后重新读取已打开的详情，未变化时不重置表单', () => {
   const library = between(clientSource, 'function CardLibraryTab', 'function CardFieldsPanel')
-  const listener = between(library, 'function onData()', 'window.addEventListener("dsh-tavern-data-changed"')
+  const listener = between(library, 'function onData(event)', 'window.addEventListener("dsh-tavern-data-changed"')
 
   assert.match(listener, /loadCard\(selectedPath\)/)
   assert.match(library, /setCard\(function \(current\)/)
@@ -772,7 +781,7 @@ test('人物卡库通过列表进入详情，世界书编辑跳转到独立世�
   assert.match(clientSource, /"导入新剧本并绑定"/)
   assert.match(serverSource, /Object\.assign\(\{\}, info, \{ path: script\.path \}\)/)
   assert.match(clientSource, /className: "dsh-tavern-script-hero"/)
-  assert.match(clientSource, /h\("details", \{ className: "dsh-tavern-script-hero" \}/)
+  assert.match(clientSource, /h\("details", \{ className: "dsh-tavern-script-hero", onToggle:/)
   assert.match(clientSource, /script \? \("剧本模式 · " \+ script\.title\) : "剧本模式 · 未绑定"/)
   assert.match(clientSource, /绑定剧本后，新开的游玩对话会自动进入剧本模式/)
   assert.match(clientSource, /更换或解绑会影响所有使用这张人物卡的剧本对话/)
@@ -786,6 +795,17 @@ test('人物卡库通过列表进入详情，世界书编辑跳转到独立世�
   assert.match(clientSource, /"重命名文件"/)
   assert.match(clientSource, /"导出"/)
   assert.match(clientSource, /"删除"/)
+})
+
+test('人物卡详情只在展开绑定面板后读取剧本和世界书全库', () => {
+  const panel = between(clientSource, 'function CardFieldsPanel', 'function TavernPlayerNameAction')
+  const scriptBinding = between(panel, 'function loadScript()', 'function loadScriptCatalog()')
+  const worldBookBinding = between(panel, 'function loadWorldBookBinding()', 'function loadWorldBookCatalog()')
+
+  assert.doesNotMatch(scriptBinding, /listResources/)
+  assert.doesNotMatch(worldBookBinding, /listWorldBooks/)
+  assert.match(panel, /onToggle: function \(event\) \{ if \(event\.currentTarget\.open\) loadScriptCatalog\(\); \}/)
+  assert.match(panel, /onToggle: function \(event\) \{ if \(event\.currentTarget\.open\) loadWorldBookCatalog\(\); \}/)
 })
 
 test('人物卡全部字段合并在默认展开的基本信息中，并位于世界书上方', () => {
@@ -833,7 +853,9 @@ test('世界书库统一编辑独立世界书与人物卡内置世界书', () =>
   assert.match(library, /rpc\("unbindWorldBook"/)
   assert.match(library, /"正在读取世界书…"/)
   assert.match(library, /"重新读取"/)
-  assert.match(library, /window\.addEventListener\("focus", onActivate\)/)
+  assert.match(library, /createWorldBookLibraryRefreshModule/)
+  assert.doesNotMatch(library, /window\.addEventListener\("focus"/)
+  assert.doesNotMatch(library, /document\.addEventListener\("visibilitychange"/)
   assert.match(library, /未知字段与 extensions 会原样保留/)
 })
 

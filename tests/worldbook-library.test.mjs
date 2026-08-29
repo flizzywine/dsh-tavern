@@ -74,6 +74,42 @@ test('World Book Library 用同一 interface 投影独立与人物卡内嵌世�
   assert.equal((await run.library.get({ kind: 'card', cardPath: 'cards/命运.json' })).view.entries[0].ref, 'entry:0')
 })
 
+test('World Book Library 目录并行读取每张人物卡一次', async () => {
+  const documents = new Map([
+    ['cards/甲.json', { name: '甲', character_book: { name: '甲世界书', entries: [] } }],
+    ['cards/乙.json', { name: '乙', character_book: { name: '乙世界书', entries: [] } }],
+    ['cards/丙.json', { name: '丙', character_book: { name: '丙世界书', entries: [] } }]
+  ])
+  const reads = new Map()
+  let activeReads = 0
+  let maxActiveReads = 0
+  const library = createWorldBookLibrary({
+    normalizePath(path) { return path },
+    resources: {
+      async list() { return [] },
+      async bindingForCard() { return { kind: 'default' } }
+    },
+    cards: {
+      async listPaths() { return Array.from(documents.keys()) },
+      async read(path) {
+        reads.set(path, (reads.get(path) || 0) + 1)
+        activeReads += 1
+        maxActiveReads = Math.max(maxActiveReads, activeReads)
+        await new Promise(function (resolve) { setTimeout(resolve, 5) })
+        activeReads -= 1
+        return clone(documents.get(path))
+      }
+    },
+    async removeStandalone() {}
+  })
+
+  const catalog = await library.catalog()
+
+  assert.deepEqual(catalog.embedded.map(function (book) { return book.name }), ['甲世界书', '乙世界书', '丙世界书'])
+  assert.deepEqual(Array.from(reads.values()), [1, 1, 1])
+  assert.equal(maxActiveReads, 3)
+})
+
 test('World Book Library 隐藏默认内嵌、解绑和独立绑定的存储差异', async () => {
   const run = harness()
 

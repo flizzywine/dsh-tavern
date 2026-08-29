@@ -7,6 +7,7 @@ const RENAME_RETRY_DELAYS_MS = [25, 75, 150]
 const WINDOWS_RENAME_RETRY_DELAYS_MS = [50, 100, 200, 400, 800, 1600, 2000]
 const PENDING_MARKER = '.pending-'
 const WRITE_LOCK_SUFFIX = '.write-lock'
+const WRITE_LOCK_STALE_MS = 60_000
 
 function bytes(value) {
   if (Buffer.isBuffer(value)) return value
@@ -17,14 +18,40 @@ function bytes(value) {
 /** Durable, crash-recoverable promotion for one absolute filesystem target. */
 export function createDurableFilePromotion(options = {}) {
   const renameFile = options.rename ?? rename
+  const removeFile = options.remove ?? rm
   const sleep = options.sleep ?? ((delay) => new Promise((resolve) => setTimeout(resolve, delay)))
   const platform = options.platform ?? process.platform
   const renameRetryDelays = platform === 'win32' ? WINDOWS_RENAME_RETRY_DELAYS_MS : RENAME_RETRY_DELAYS_MS
+  const writerId = options.writerId ?? randomUUID()
+  const writeLockStaleMs = Number.isFinite(options.writeLockStaleMs) ? Math.max(1, Number(options.writeLockStaleMs)) : WRITE_LOCK_STALE_MS
   const writeQueues = new Map()
 
   function processIsAlive(pid) {
     if (!Number.isSafeInteger(pid) || pid <= 0) return false
     try { process.kill(pid, 0); return true } catch (error) { return error?.code === 'EPERM' }
+  }
+
+  async function removeWriteLock(lockPath) {
+    for (let attempt = 0; ; attempt += 1) {
+      try { await removeFile(lockPath, { force: true }); return } catch (error) {
+        const delay = renameRetryDelays[attempt]
+        if (!TRANSIENT_RENAME_ERRORS.has(error?.code) || delay === undefined) throw error
+        await sleep(delay)
+      }
+    }
+  }
+
+  async function staleWriteLock(lockPath, owner) {
+    const validOwner = owner !== null && typeof owner === 'object' && Number.isSafeInteger(Number(owner.pid)) && Number(owner.pid) > 0
+    if (owner !== null && !validOwner) return true
+    if (owner && owner.writerId === writerId) return true
+    const pid = Number(owner && owner.pid)
+    if (Number.isSafeInteger(pid) && pid > 0 && !processIsAlive(pid)) return true
+    let createdAt = Number(owner && owner.createdAt)
+    if (!Number.isFinite(createdAt) || createdAt <= 0) {
+      try { createdAt = Number((await stat(lockPath)).mtimeMs) } catch { return false }
+    }
+    return Date.now() - createdAt > writeLockStaleMs
   }
 
   async function withWriteLock(target, operation) {
@@ -36,12 +63,8 @@ export function createDurableFilePromotion(options = {}) {
         if (error?.code !== 'EEXIST') throw error
         let owner = null
         try { owner = JSON.parse(await readFile(lockPath, 'utf8')) } catch {}
-        const validOwner = owner !== null && typeof owner === 'object' && Number.isSafeInteger(Number(owner.pid)) && Number(owner.pid) > 0
-        let stale = validOwner ? !processIsAlive(Number(owner.pid)) : owner !== null
-        if (owner === null) {
-          try { stale = Date.now() - Number((await stat(lockPath)).mtimeMs) > 60_000 } catch {}
-        }
-        if (attempt === 0 && stale) { await rm(lockPath, { force: true }); continue }
+        const stale = await staleWriteLock(lockPath, owner)
+        if (attempt === 0 && stale) { await removeWriteLock(lockPath); continue }
         const conflict = new Error(`另一个 Tavern 写入进程正在更新同一文件，拒绝并发覆盖：${target}`)
         conflict.code = 'DSH_TAVERN_WRITE_CONFLICT'
         conflict.owner = owner
@@ -50,12 +73,12 @@ export function createDurableFilePromotion(options = {}) {
     }
     if (!handle) throw new Error(`无法取得 Tavern 写入锁：${target}`)
     try {
-      await handle.writeFile(JSON.stringify({ pid: process.pid, createdAt: Date.now() }) + '\n', 'utf8')
+      await handle.writeFile(JSON.stringify({ pid: process.pid, writerId, createdAt: Date.now() }) + '\n', 'utf8')
       await handle.sync()
       return await operation()
     } finally {
       await handle.close().catch(function () {})
-      await rm(lockPath, { force: true }).catch(function () {})
+      await removeWriteLock(lockPath)
     }
   }
 

@@ -8,10 +8,12 @@ function memoryStore(seed = {}) {
   const chats = new Map(Object.entries(structuredClone(seed.chats || {})))
   const failures = seed.failures || {}
   let chatReads = 0
+  let linkUpdates = 0
   return {
     adapter: {
       async readLinks() { return structuredClone(links) },
       async updateLinks(updater) {
+        linkUpdates += 1
         const result = await updater(structuredClone(links))
         if (result !== undefined) links = structuredClone(result)
       },
@@ -28,9 +30,19 @@ function memoryStore(seed = {}) {
       async writeChat(chat) { chats.set(chat.id, structuredClone(chat)) },
       async removeChat(id) { chats.delete(id) }
     },
-    snapshot() { return { links: structuredClone(links), index: structuredClone(index), chats: Object.fromEntries(chats), chatReads } }
+    snapshot() { return { links: structuredClone(links), index: structuredClone(index), chats: Object.fromEntries(chats), chatReads } },
+    counts() { return { linkUpdates } }
   }
 }
+
+test('有效 Session 映射只做普通读取，不进入加锁更新', async function () {
+  const chat = { id: 'chat-fast', sessionId: 'session-fast', cardPath: '', cardName: 'Fast' }
+  const store = memoryStore({ links: { 'session-fast': 'chat-fast' }, chats: { 'chat-fast': chat } })
+  const registry = createTavernConversationRegistry({ store: store.adapter })
+
+  assert.deepEqual(await registry.resolve('session-fast'), chat)
+  assert.equal(store.counts().linkUpdates, 0)
+})
 
 test('发布 Tavern Chat 时一次完成 Chat、索引和 Session 关联', async function () {
   const store = memoryStore()
