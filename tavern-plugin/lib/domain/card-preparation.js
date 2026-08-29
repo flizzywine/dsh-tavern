@@ -6,6 +6,9 @@ const TEXT_FIELDS = Object.freeze([
 ])
 
 const CARD_FIELDS = new Set(TEXT_FIELDS.concat(['tags', 'alternate_greetings', 'character_book']))
+const V3_DATA_FIELDS = Object.freeze(Array.from(new Set(Array.from(CARD_FIELDS).concat([
+  'creator', 'character_version', 'extensions', 'group_only_greetings'
+]))))
 const WORKSPACE_KIND = 'dsh-tavern-character-workspace'
 const WORKSPACE_VERSION = 1
 
@@ -246,6 +249,34 @@ function legacyRaw(working) {
     }
     source.data = data
   }
+  return source
+}
+
+function sillyTavernV3Raw(value) {
+  const source = clone(rawOf(value))
+  if (!object(source)) throw new Error('人物卡格式错误')
+  const data = object(source.data) ? clone(source.data) : {}
+  if (!object(source.data)) {
+    for (const field of V3_DATA_FIELDS) {
+      if (Object.prototype.hasOwnProperty.call(source, field)) data[field] = clone(source[field])
+      delete source[field]
+    }
+  }
+  const projected = projectedCard(value)
+  for (const field of TEXT_FIELDS) {
+    if (!Object.prototype.hasOwnProperty.call(data, field)) data[field] = str(projected[field])
+  }
+  if (!Array.isArray(data.tags)) data.tags = clone(projected.tags || [])
+  if (!Array.isArray(data.alternate_greetings)) data.alternate_greetings = clone(projected.alternate_greetings || [])
+  if (!Array.isArray(data.group_only_greetings)) data.group_only_greetings = []
+  if (!object(data.extensions)) data.extensions = {}
+  if (typeof data.creator !== 'string') data.creator = ''
+  if (typeof data.character_version !== 'string') data.character_version = ''
+  if (!object(data.character_book)) delete data.character_book
+  for (const field of ['id', 'path', 'importedAt', 'updatedAt', 'revision_history', 'revision_chat']) delete source[field]
+  source.spec = 'chara_card_v3'
+  source.spec_version = '3.0'
+  source.data = data
   return source
 }
 
@@ -501,7 +532,15 @@ export function createCardPreparation(options = {}) {
     if (request.as === 'detail') {
       return Object.assign({ id: card.id }, editable, { extensions: inspectCardExtensions(request.card) })
     }
-    if (request.as === 'raw' || request.as === 'sillytavern-v3') return clone(rawOf(request.card))
+    if (request.as === 'raw') return clone(rawOf(request.card))
+    if (request.as === 'sillytavern-v3') {
+      const exported = sillyTavernV3Raw(request.card)
+      if (Object.prototype.hasOwnProperty.call(request, 'characterBook')) {
+        if (object(request.characterBook)) exported.data.character_book = clone(request.characterBook)
+        else delete exported.data.character_book
+      }
+      return exported
+    }
     throw new Error('未知人物卡展示类型: ' + str(request.as))
   }
 

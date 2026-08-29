@@ -1,4 +1,5 @@
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import { randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { createBackgroundAgentRunner, executeBackgroundCompaction } from './background-agent-runner.js'
 import { createApplicationUpdater } from './application-updater.js'
@@ -1343,7 +1344,7 @@ export async function apply(ctx) {
     target.session.append('turn/start', { turn: turn })
     target.session.append('step/start', { turn: turn, step: step })
     const message = {
-      id: crypto.randomUUID(),
+      id: randomUUID(),
       role: 'assistant',
       content: [{ type: 'text', text: text }],
       source: { kind: 'model', provider: selected.provider, model: selected.model }
@@ -2147,7 +2148,7 @@ export async function apply(ctx) {
     const beforeLastTurn = agent.phase !== undefined && agent.phase !== null && Number.isFinite(Number(agent.phase.lastTurn)) ? Number(agent.phase.lastTurn) : 0
     try {
       agent.followup({
-        id: crypto.randomUUID(),
+        id: randomUUID(),
         role: 'user',
         content: [{ type: 'text', text: syntheticText }],
         source: { kind: 'plugin', plugin: 'dsh-tavern-regen' }
@@ -2204,7 +2205,7 @@ export async function apply(ctx) {
     session.append('assistant/message', {
       turn: oldTurn,
       step: 1,
-      message: { id: crypto.randomUUID(), role: 'assistant', content: [], source: oldSource }
+      message: { id: randomUUID(), role: 'assistant', content: [], source: oldSource }
     }, {
       surfaceOp: { op: 'replace', start: replacement.start, end: replacement.end },
       sourceEventSeqs: replacement.shadowedSeqs
@@ -2295,7 +2296,7 @@ export async function apply(ctx) {
       turn: rollbackSurface.turn,
       step: rollbackSurface.step,
       message: {
-        id: crypto.randomUUID(),
+        id: randomUUID(),
         role: 'assistant',
         content: [],
         source: rollbackSurface.source
@@ -2531,9 +2532,11 @@ export async function apply(ctx) {
         return { operationId: prepared.operationId, basedOn: prepared.basedOn }
       }
       case 'exportCard': {
-        const workspace = await readCardWorkspace(args && args.path)
+        const cardPath = args && args.path
+        const workspace = await readCardWorkspace(cardPath)
         if (workspace === undefined) throw new Error('人物卡不存在: ' + (args && args.path))
-        return { document: cardPreparation.present({ card: workspace, as: 'raw' }) }
+        const characterBook = await worldBooks.characterBookForCard(cardPath)
+        return { document: cardPreparation.present({ card: workspace, as: 'sillytavern-v3', characterBook }) }
       }
       case 'addGuide': return { guides: await addGuide(args && args.sessionId, args && args.text) }
       case 'deleteGuide': return { guides: await deleteGuide(args && args.sessionId, args && args.index) }
@@ -2753,7 +2756,7 @@ export async function apply(ctx) {
       turn: Number(result.event.data && result.event.data.turn) || 0,
       step: Number(result.event.data && result.event.data.step) || 1,
       message: Object.assign({}, previous, {
-        id: crypto.randomUUID(),
+        id: randomUUID(),
         content: [{ type: 'text', text: bodyText }]
       })
     }, {
@@ -2962,7 +2965,7 @@ export async function apply(ctx) {
     return compiled.messages.map(function (item, index) {
       const label = str(item.source && (item.source.identifier || item.source.kind)) || 'message-' + (index + 1)
       return {
-        id: crypto.randomUUID(),
+        id: randomUUID(),
         role: item.role,
         content: [{ type: 'text', text: item.content }],
         source: {

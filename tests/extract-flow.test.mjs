@@ -342,7 +342,7 @@ test('人物卡详情支持查看、绑定和解绑唯一世界书', () => {
   assert.match(dispatch, /case 'bindWorldBook'/)
   assert.match(dispatch, /case 'unbindWorldBook'/)
   assert.match(panel, /call\("getWorldBookBinding", \{ cardPath: cardPath \}\)/)
-  assert.match(panel, /call\("listWorldBooks"\)/)
+	assert.match(panel, /rpcWithTimeout\("listWorldBooks", \{\}\)/)
   assert.match(panel, /"人物卡自带世界书"/)
   assert.match(panel, /call\("bindWorldBook", \{ cardPath: cardPath, source: source \}\)/)
   assert.match(panel, /call\("unbindWorldBook", \{ cardPath: cardPath \}\)/)
@@ -351,6 +351,17 @@ test('人物卡详情支持查看、绑定和解绑唯一世界书', () => {
   assert.match(panel, /hasWorldBookBinding \? null : h\("button", \{ className: "dsh-tavern-script-primary"/)
   assert.match(panel, /props\.onOpenWorldBook\(worldBookBinding\.source\)/)
   assert.match(panel, /"打开世界书"/)
+})
+
+test('人物卡绑定下拉框同时列出独立与其他人物卡的内置世界书', () => {
+  const panel = between(clientSource, 'function CardFieldsPanel', 'function TavernPlayerNameAction')
+
+  assert.match(panel, /\(result\.standalone \|\| \[\]\)\.concat\(result\.embedded \|\| \[\]\)/)
+  assert.match(panel, /return item\.kind === "card" \? "card:" \+ item\.cardPath : "standalone:" \+ item\.path/)
+  assert.match(panel, /return \{ kind: "card", cardPath: value\.slice\(5\) \}/)
+  assert.match(panel, /return \{ kind: "standalone", path: value\.slice\(11\) \}/)
+  assert.match(panel, /item\.kind === "card" && item\.cardPath === cardPath/)
+  assert.match(panel, /item\.name \+ "（人物卡：" \+ item\.cardName/)
 })
 
 test('新建对话把缺失的当前空 Session 视为已归档', () => {
@@ -730,6 +741,13 @@ test('已迁移的人物卡读取时不会再次加载原版并执行迁移', ()
   assert.match(reader, /return await fileResources\.ensureCardWorkspace/)
 })
 
+test('人物卡导出读取当前绑定世界书并只写入导出副本', () => {
+  const exporter = between(serverSource, "case 'exportCard':", "case 'addGuide':")
+
+  assert.match(exporter, /worldBooks\.characterBookForCard\(cardPath\)/)
+  assert.match(exporter, /cardPreparation\.present\(\{ card: workspace, as: 'sillytavern-v3', characterBook \}\)/)
+})
+
 test('人物卡 Agent 保存后重新读取已打开的详情，未变化时不重置表单', () => {
   const library = between(clientSource, 'function CardLibraryTab', 'function CardFieldsPanel')
   const listener = between(library, 'function onData(event)', 'window.addEventListener("dsh-tavern-data-changed"')
@@ -822,12 +840,31 @@ test('人物卡库通过列表进入详情，世界书编辑跳转到独立世�
 test('人物卡详情只在展开绑定面板后读取剧本和世界书全库', () => {
   const panel = between(clientSource, 'function CardFieldsPanel', 'function TavernPlayerNameAction')
   const scriptBinding = between(panel, 'function loadScript()', 'function loadScriptCatalog()')
-  const worldBookBinding = between(panel, 'function loadWorldBookBinding()', 'function loadWorldBookCatalog()')
+  const worldBookBinding = between(panel, 'function loadWorldBookBinding()', 'function loadWorldBookCatalog(force)')
 
   assert.doesNotMatch(scriptBinding, /listResources/)
   assert.doesNotMatch(worldBookBinding, /listWorldBooks/)
   assert.match(panel, /onToggle: function \(event\) \{ if \(event\.currentTarget\.open\) loadScriptCatalog\(\); \}/)
   assert.match(panel, /onToggle: function \(event\) \{ if \(event\.currentTarget\.open\) loadWorldBookCatalog\(\); \}/)
+})
+
+test('人物卡绑定面板在世界书变化后刷新已打开的目录', () => {
+  const panel = between(clientSource, 'function CardFieldsPanel', 'function TavernPlayerNameAction')
+
+  assert.match(panel, /const worldBookDetailsRef = React\.useRef\(null\)/)
+  assert.match(panel, /window\.addEventListener\("dsh-tavern-data-changed", onWorldBookDataChanged\)/)
+  assert.match(panel, /tavernDataChangeAffects\(event, \["worldbooks", "cards"\]\)/)
+  assert.match(panel, /worldBookDetailsRef\.current && worldBookDetailsRef\.current\.open/)
+  assert.match(panel, /loadWorldBookCatalog\(true\)/)
+})
+
+test('人物卡绑定目录超时后可在原位置重新读取', () => {
+  const panel = between(clientSource, 'function CardFieldsPanel', 'function TavernPlayerNameAction')
+  const catalogLoader = between(panel, 'function loadWorldBookCatalog(force)', 'React.useEffect(function ()')
+
+  assert.match(catalogLoader, /rpcWithTimeout\("listWorldBooks", \{\}\)/)
+  assert.match(panel, /"重新读取"/)
+  assert.match(panel, /onClick: function \(\) \{ loadWorldBookCatalog\(true\); \}/)
 })
 
 test('人物卡全部字段合并在默认展开的基本信息中，并位于世界书上方', () => {
@@ -875,6 +912,9 @@ test('世界书库统一编辑独立世界书与人物卡内置世界书', () =>
   assert.match(library, /rpc\("unbindWorldBook"/)
   assert.match(library, /"正在读取世界书…"/)
   assert.match(library, /"重新读取"/)
+  assert.match(clientSource, /function worldBookCatalogDiagnostic\(result\)/)
+  assert.match(cardPanel, /setWorldBookCatalogWarning\(worldBookCatalogDiagnostic\(result\)\)/)
+  assert.match(library, /setCatalogWarning\(worldBookCatalogDiagnostic\(result\)\)/)
   assert.match(library, /createWorldBookLibraryRefreshModule/)
   assert.doesNotMatch(library, /window\.addEventListener\("focus"/)
   assert.doesNotMatch(library, /document\.addEventListener\("visibilitychange"/)

@@ -1,4 +1,4 @@
-import { inspectWorldBookDocument, prepareWorldBookImport, updateWorldBookDocument } from './worldbook-resource.js'
+import { exportCharacterBook, exportSillyTavernWorldBook, inspectWorldBookDocument, prepareWorldBookImport, updateWorldBookDocument } from './worldbook-resource.js'
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
@@ -64,25 +64,36 @@ export function createWorldBookLibrary(options = {}) {
   }
 
   async function catalog() {
-    const standalone = await Promise.all((await resources.list('worldbook')).map(async function (path) {
-      const record = await readRecord({ kind: 'standalone', path })
-      return {
-        kind: 'standalone', path: record.source.path, name: record.view.displayName,
-        entryCount: record.view.entryCount, enabledCount: record.view.enabledCount,
-        diagnostics: record.view.diagnostics.length
+    const standaloneResults = await Promise.all((await resources.list('worldbook')).map(async function (path) {
+      try {
+        const record = await readRecord({ kind: 'standalone', path })
+        return { row: {
+          kind: 'standalone', path: record.source.path, name: record.view.displayName,
+          entryCount: record.view.entryCount, enabledCount: record.view.enabledCount,
+          diagnostics: record.view.diagnostics.length
+        } }
+      } catch (error) {
+        return { diagnostic: { kind: 'standalone', path, message: str(error && error.message || error) } }
       }
     }))
-    const embedded = (await Promise.all((await cards.listPaths()).map(async function (cardPath) {
-      const card = await cards.read(cardPath)
-      if (!card || !card.character_book || typeof card.character_book !== 'object') return null
-      const view = inspectWorldBookDocument(card.character_book, { filename: card.name })
-      return {
-        kind: 'card', cardPath, cardName: card.name, name: view.displayName,
-        entryCount: view.entryCount, enabledCount: view.enabledCount,
-        diagnostics: view.diagnostics.length
+    const embeddedResults = await Promise.all((await cards.listPaths()).map(async function (cardPath) {
+      try {
+        const card = await cards.read(cardPath)
+        if (!card || !card.character_book || typeof card.character_book !== 'object') return {}
+        const view = inspectWorldBookDocument(card.character_book, { filename: card.name })
+        return { row: {
+          kind: 'card', cardPath, cardName: card.name, name: view.displayName,
+          entryCount: view.entryCount, enabledCount: view.enabledCount,
+          diagnostics: view.diagnostics.length
+        } }
+      } catch (error) {
+        return { diagnostic: { kind: 'card', path: cardPath, message: str(error && error.message || error) } }
       }
-    }))).filter(Boolean)
-    return { standalone, embedded }
+    }))
+    const standalone = standaloneResults.map(function (result) { return result.row }).filter(Boolean)
+    const embedded = embeddedResults.map(function (result) { return result.row }).filter(Boolean)
+    const diagnostics = standaloneResults.concat(embeddedResults).map(function (result) { return result.diagnostic }).filter(Boolean)
+    return { standalone, embedded, diagnostics }
   }
 
   async function binding(cardPath) {
@@ -203,12 +214,20 @@ export function createWorldBookLibrary(options = {}) {
 
   async function exportBook(locator) {
     const record = await readRecord(locator)
-    return { name: record.view.displayName, document: clone(record.document) }
+    return { name: record.view.displayName, document: exportSillyTavernWorldBook(record.document) }
+  }
+
+  async function characterBookForCard(cardPath) {
+    const current = await binding(cardPath)
+    if (current.kind === 'none') return null
+    if (current.available !== true) throw new Error('绑定的世界书不存在，请重新绑定或解绑')
+    const record = await readRecord(current.source)
+    return exportCharacterBook(record.document)
   }
 
   async function remove(path) {
     return await removeStandalone(normalizePath(path, 'worldbook'))
   }
 
-  return Object.freeze({ catalog, get, binding, associations, bound, bind, unbind, import: importBook, update, export: exportBook, remove })
+  return Object.freeze({ catalog, get, binding, associations, bound, bind, unbind, import: importBook, update, export: exportBook, characterBookForCard, remove })
 }

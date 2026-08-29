@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto'
+
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
 }
@@ -23,7 +25,7 @@ export function createModelRequestLog(options = {}) {
   const writeJson = options.writeJson
   const updateJson = options.updateJson
   const now = typeof options.now === 'function' ? options.now : Date.now
-  const id = typeof options.id === 'function' ? options.id : function () { return crypto.randomUUID() }
+  const id = typeof options.id === 'function' ? options.id : function () { return randomUUID() }
   if (typeof readJson !== 'function' || typeof writeJson !== 'function' || typeof updateJson !== 'function') throw new TypeError('模型请求日志缺少存储适配器')
 
   async function record(input) {
