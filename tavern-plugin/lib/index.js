@@ -292,6 +292,7 @@ export async function apply(ctx) {
     const normalized = normalizeResourcePath(cardPath, 'card')
     const existing = await fileResources.readCard(normalized)
     if (existing === undefined) return undefined
+    if (cardPreparation.isWorkspace(existing)) return existing
     return await fileResources.ensureCardWorkspace(normalized, function (working, payload) {
       return cardPreparation.migrate({ working, payload })
     })

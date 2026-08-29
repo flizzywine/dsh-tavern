@@ -669,6 +669,14 @@ test('人物卡库可以查看详情，并在当前卡片对话中引用人物�
   assert.match(clientSource, /loadCard\(requestedPath\)/)
 })
 
+test('已迁移的人物卡读取时不会再次加载原版并执行迁移', () => {
+  const reader = between(serverSource, 'async function readCardWorkspace', 'async function readCard(cardPath)')
+
+  assert.match(reader, /const existing = await fileResources\.readCard\(normalized\)/)
+  assert.match(reader, /if \(cardPreparation\.isWorkspace\(existing\)\) return existing/)
+  assert.match(reader, /return await fileResources\.ensureCardWorkspace/)
+})
+
 test('人物卡 Agent 保存后重新读取已打开的详情，未变化时不重置表单', () => {
   const library = between(clientSource, 'function CardLibraryTab', 'function CardFieldsPanel')
   const listener = between(library, 'function onData(event)', 'window.addEventListener("dsh-tavern-data-changed"')
