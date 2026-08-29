@@ -124,6 +124,66 @@ test('本地 HEAD 仅发布运行清单时，以清单中的运行提交作为�
   }
 })
 
+test('安装器记录清单发布提交后，重启检查仍识别实际运行构建', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-updater-installed-manifest-'))
+  try {
+    const runtimeCommit = 'a'.repeat(40)
+    const manifestCommit = 'b'.repeat(40)
+    const packageText = JSON.stringify({ version: '0.9.2' })
+    await writeFile(path.join(root, 'package.json'), packageText)
+    await writeFile(path.join(root, '.dsh-tavern-release.json'), JSON.stringify({ commit: manifestCommit }))
+    await writeFile(path.join(root, 'dsh-tavern-runtime.json'), JSON.stringify({
+      schemaVersion: 1,
+      revision: runtimeCommit,
+      files: [{ path: 'package.json', sha256: createHash('sha256').update(packageText).digest('hex') }],
+    }))
+    const updater = createApplicationUpdater({
+      dataRoot: path.join(root, 'data'), sourceRoot: root, runtimeHost: 'desktop',
+      fetchManifest: async () => ({ version: '0.9.2' }),
+      fetchLatestCommit: async () => ({
+        sha: manifestCommit,
+        parents: [{ sha: runtimeCommit }],
+        files: [{ filename: 'dsh-tavern-runtime.json' }],
+      }),
+      now: () => 270,
+    })
+
+    const result = await updater.check()
+    assert.equal(result.phase, 'up-to-date')
+    assert.equal(result.currentCommit, runtimeCommit)
+    assert.equal(result.latestCommit, runtimeCommit)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('缺少可校验运行清单时，发布提交也不会造成重复更新', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-updater-published-commit-'))
+  try {
+    const runtimeCommit = 'a'.repeat(40)
+    const manifestCommit = 'b'.repeat(40)
+    await writeFile(path.join(root, 'package.json'), JSON.stringify({ version: '0.9.2' }))
+    await writeFile(path.join(root, '.dsh-tavern-release.json'), JSON.stringify({ commit: manifestCommit }))
+    const updater = createApplicationUpdater({
+      dataRoot: path.join(root, 'data'), sourceRoot: root, runtimeHost: 'desktop',
+      fetchManifest: async () => ({ version: '0.9.2' }),
+      fetchLatestCommit: async () => ({
+        sha: manifestCommit,
+        parents: [{ sha: runtimeCommit }],
+        files: [{ filename: 'dsh-tavern-runtime.json' }],
+      }),
+      now: () => 280,
+    })
+
+    const result = await updater.check()
+    assert.equal(result.phase, 'up-to-date')
+    assert.equal(result.currentCommit, runtimeCommit)
+    assert.equal(result.latestCommit, runtimeCommit)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test('检查更新失败时保留当前构建信息且不启动安装', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-updater-check-failed-'))
   try {
