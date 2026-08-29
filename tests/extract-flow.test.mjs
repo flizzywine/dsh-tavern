@@ -1012,6 +1012,8 @@ test('右侧系统提示词面板编辑唯一一套提示词并支持整套导�
 	assert.match(panel, /resetSystemPrompts/)
 	assert.match(panel, /importSystemPrompts/)
 	assert.match(panel, /exportSystemPrompts/)
+	assert.match(panel, /dsh-tavern-system-prompt-head/)
+	assert.match(clientSource, /\.dsh-tavern-system-prompt-head \{ gap: 8px; flex-wrap: wrap; \}/)
 	assert.match(serverSource, /spec: 'dsh-tavern\.system-prompts'/)
 	assert.match(serverSource, /createContextPlanner\(\{ prompt: runtimePrompt/)
 	assert.match(serverSource, /prompt: runtimePrompt/)
