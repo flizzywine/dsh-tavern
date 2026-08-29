@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "revision": "39ad1ec495194a9f5bc37af5e44c3fd14eefb2e0",
+  "revision": "3e09e2d0b116345fc2c3fcf69655acf85b537c0b",
   "files": [
     {
       "path": "bin/dsh-tavern",
@@ -14,8 +14,8 @@
     },
     {
       "path": "bin/dsh-tavern.mjs",
-      "sha256": "b71d6bd7a134e3770361edf99f301211eb88665d4fb0664a7dc750b8044e612b",
-      "size": 36230
+      "sha256": "117266b785cae9beda5493436f68e457d102790b6776f7a4267c65cbf7a87b50",
+      "size": 37032
     },
     {
       "path": "bin/profile-configuration.mjs",
