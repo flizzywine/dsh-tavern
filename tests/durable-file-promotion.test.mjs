@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, readdir, rename, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
@@ -57,4 +57,52 @@ test('短暂的 Windows 占用在同一 implementation 内重试', async functio
   await files.write(target, '# Skill\n')
   assert.equal(calls, 2)
   assert.equal((await files.read(target)).toString('utf8'), '# Skill\n')
+})
+
+test('同一 writer 遗留的写锁会在下一次写入时自愈', async function (t) {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-file-promotion-'))
+  t.after(async function () { await rm(root, { recursive: true, force: true }) })
+  const target = path.join(root, 'card.json')
+  const files = createDurableFilePromotion({ writerId: 'writer-a' })
+  await writeFile(target, '{}')
+  await writeFile(target + '.write-lock', JSON.stringify({ pid: process.pid, writerId: 'writer-a', createdAt: Date.now() }) + '\n')
+
+  await files.write(target, '{"saved":true}')
+
+  assert.equal((await readFile(target, 'utf8')), '{"saved":true}')
+})
+
+test('超过安全期限的写锁即使 PID 存活也会被回收', async function (t) {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-file-promotion-'))
+  t.after(async function () { await rm(root, { recursive: true, force: true }) })
+  const target = path.join(root, 'card.json')
+  await writeFile(target, '{}')
+  await writeFile(target + '.write-lock', JSON.stringify({ pid: process.pid, writerId: 'old-writer', createdAt: Date.now() - 120_000 }) + '\n')
+
+  await createDurableFilePromotion({ writerId: 'writer-b' }).write(target, '{"saved":true}')
+
+  assert.equal((await readFile(target, 'utf8')), '{"saved":true}')
+})
+
+test('Windows 短暂拒绝删除写锁时会重试清理', async function (t) {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-file-promotion-'))
+  t.after(async function () { await rm(root, { recursive: true, force: true }) })
+  const target = path.join(root, 'card.json')
+  let lockRemovalAttempts = 0
+  const files = createDurableFilePromotion({
+    platform: 'win32',
+    sleep: async function () {},
+    remove: async function (file, options) {
+      if (file.endsWith('.write-lock')) {
+        lockRemovalAttempts += 1
+        if (lockRemovalAttempts === 1) { const error = new Error('busy'); error.code = 'EPERM'; throw error }
+      }
+      await rm(file, options)
+    }
+  })
+
+  await files.write(target, '{"saved":true}')
+
+  assert.equal(lockRemovalAttempts, 2)
+  assert.equal((await readFile(target, 'utf8')), '{"saved":true}')
 })
