@@ -544,6 +544,7 @@ test('预设库选择整份预设，并可交给卡片 Agent 编辑或在当前�
   assert.match(panel, /DSH Tavern 已自带原生运行预设/)
   assert.match(panel, /除非坚持要使用预设，否则建议保持“不使用预设”/)
   assert.match(panel, /开启外部预设可能导致系统行为异常，请用户自行判断/)
+  assert.match(panel, /建议通过改卡将偏好写入人物卡，或使用 Guide 注入偏好/)
   assert.match(panel, /普通游玩模式：/)
   assert.match(panel, /可以使用外部预设，但不能保证完全适配 SillyTavern/)
   assert.doesNotMatch(panel, /按头部、中部和尾部加入 DSH 前台正文请求/)

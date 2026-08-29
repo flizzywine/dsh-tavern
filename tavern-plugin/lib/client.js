@@ -2214,7 +2214,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 						h("label", { className: "dsh-tavern-preset-selector" }, h("span", null, "当前使用的预设"), h("select", { value: catalog.activePresetPath, disabled: busy, onChange: function (event) { selectPreset(event.target.value); } }, h("option", { value: "" }, "不使用预设（推荐）"), catalog.presets.filter(function (item) { return item.valid === true && item.recognized === true; }).map(function (item) { return h("option", { key: item.path, value: item.path }, item.title); }))),
 						h("div", { className: "dsh-tavern-preset-summary dsh-tavern-external-preset-notice" },
 						h("strong", null, catalog.activePresetPath ? "当前预设：" + catalog.activePresetTitle : "当前不使用预设"),
-						h("p", { className: "dsh-tavern-preset-warning" }, h("strong", null, "使用建议："), "DSH Tavern 已自带原生运行预设。除非坚持要使用预设，否则建议保持“不使用预设”；开启外部预设可能导致系统行为异常，请用户自行判断。"),
+						h("p", { className: "dsh-tavern-preset-warning" }, h("strong", null, "使用建议："), "DSH Tavern 已自带原生运行预设。除非坚持要使用预设，否则建议保持“不使用预设”；开启外部预设可能导致系统行为异常，请用户自行判断。如果要调整内容偏好，建议通过改卡将偏好写入人物卡，或使用 Guide 注入偏好。"),
 						h("p", null, h("strong", null, "普通游玩模式："), "可以使用外部预设，但不能保证完全适配 SillyTavern，也不保证达到破限效果。"),
 						h("p", null, h("strong", null, "兼容模式："), "会尽最大可能复刻 SillyTavern 的消息结构与预设行为，对预设的适配度更高。进入“设置 → DSH Tavern”，开启“兼容模式（实验性）”；开启后左侧会显示“兼容（实验性）”入口。"),
 						h("p", null, "修改预设后，下一轮游玩请求直接生效；卡片模式中的引用仅供 Agent 阅读和编辑，后台 Agent 不运行预设。")),
