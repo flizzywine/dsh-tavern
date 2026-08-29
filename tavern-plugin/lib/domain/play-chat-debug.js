@@ -127,7 +127,7 @@ export function readPlayChatDebugTurn(editorChat, sourceChat, reference, request
   if (!reference || reference.kind !== 'play-chat' || str(reference.chatId) !== str(sourceChat.id)) throw new Error('该游玩记录尚未挂载到当前对话')
   if (str(editorChat.cardPath) !== str(sourceChat.cardPath)) throw new Error('游玩记录与当前人物卡不一致')
 
-  const turn = Math.max(1, Number(request.turn) || Number(reference.turn) || latestAssistantTurn(sourceChat))
+  const turn = Math.max(1, Number(request.turn) || latestAssistantTurn(sourceChat))
   const found = messageForTurn(sourceChat, turn)
   if (found === null) throw new Error('游玩记录中不存在第 ' + turn + ' 轮回复')
   const message = found.message

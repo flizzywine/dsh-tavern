@@ -82,6 +82,20 @@ test('卡片 Agent 从最新轮次渐进披露，并可按需读取整场证据'
   assert.match(iframe.text, /example\.com\/a/)
 })
 
+test('挂载后继续游玩时默认读取当前最新轮次，显式 turn 仍可读取旧轮次', () => {
+  const { source, editor } = chats()
+  const ref = createPlayChatDebugReference(editor, source, 2)
+  source.messages.push(
+    { role: 'user', text: '继续调查' },
+    { role: 'assistant', text: '最新 Session 正文', sourceText: '最新模型原文', turn: 3 }
+  )
+
+  const latest = readPlayChatDebugTurn(editor, source, ref, { layer: 'source' })
+  assert.equal(latest.turn, 3)
+  assert.equal(latest.text, '最新模型原文')
+  assert.equal(readPlayChatDebugTurn(editor, source, ref, { turn: 2, layer: 'source' }).text, '模型原文')
+})
+
 test('未挂载记录、错误轮次和跨人物卡读取会被拒绝', () => {
   const { source, editor } = chats()
   const ref = createPlayChatDebugReference(editor, source, 2)
