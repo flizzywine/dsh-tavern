@@ -1002,16 +1002,19 @@ test('设置开启后在顶层侧栏最右侧显示实验性兼容模式', () =>
 	assert.match(clientSource, /不运行游玩模式的后台状态结算；候选项可按需手动生成/)
 })
 
-test('设置中提供独立的系统内置提示词面板', () => {
-	const panel = between(clientSource, 'function SystemPromptSettingsSection', 'function createResourcesLibraryFeatureModule')
-	assert.match(clientSource, /id: "dsh-tavern-system-prompts"/)
-	assert.match(clientSource, /return "系统内置提示词"/)
-	assert.match(panel, /正文 Agent 核心提示词/)
-	assert.match(panel, /storyPrompt: state\.text/)
-	assert.match(panel, /storyPrompt: null/)
-	assert.match(panel, /恢复默认/)
-	assert.match(serverSource, /resolveSystemPrompt\(tavernSettingsDocument, name, prompt\)/)
+test('右侧系统提示词面板编辑唯一一套提示词并支持整套导入导出', () => {
+	const panel = between(clientSource, 'function SystemPromptSidebarTab', 'function createResourcesLibraryFeatureModule')
+	assert.match(clientSource, /id: "dsh-tavern:system-prompts"/)
+	assert.match(clientSource, /title: "系统提示词"/)
+	assert.match(panel, /当前使用的唯一一套内置提示词/)
+	assert.match(panel, /修改系统提示词可能导致正文生成异常、人物卡指令冲突、后台任务失败或输出格式失效/)
+	assert.match(panel, /updateSystemPrompt/)
+	assert.match(panel, /resetSystemPrompts/)
+	assert.match(panel, /importSystemPrompts/)
+	assert.match(panel, /exportSystemPrompts/)
+	assert.match(serverSource, /spec: 'dsh-tavern\.system-prompts'/)
 	assert.match(serverSource, /createContextPlanner\(\{ prompt: runtimePrompt/)
+	assert.match(serverSource, /prompt: runtimePrompt/)
 })
 
 test('普通游玩投影当前预设，兼容模式继续按 SillyTavern 结构编译', () => {

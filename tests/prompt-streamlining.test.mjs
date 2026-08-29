@@ -83,7 +83,7 @@ test('卡片 Agent 以极简模式工具为底座，游玩 Agent 不暴露文件
   assert.doesNotMatch(tavernPresetSource, /@deepseek-ai\/dsh-tool-cordis/)
   assert.match(tavernPresetSource, /text: ''/)
   assert.doesNotMatch(tavernPresetSource, /complete: true/)
-  assert.match(serverSource, /text: prompt\(mode === 'card' \? 'card-mode' : 'play-mode'\)/)
+  assert.match(serverSource, /text: runtimePrompt\(mode === 'card' \? 'card-mode' : 'play-mode'\)/)
   assert.match(serverSource, /section\.name === 'tool:cordis'/)
   assert.match(serverSource, /resourceWorkspaceContext\(agent\.session\.header && agent\.session\.header\.cwd\)/)
   assert.match(serverSource, /name: 'tavern:resource-workspace'/)
