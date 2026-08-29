@@ -42,6 +42,21 @@ test('游玩对话通过一个 interface 严格完成创建生命周期', async 
   assert.equal(result.pending.targetMode, 'free')
 })
 
+test('游玩与卡片工作台把会话类型交给 preset 选择器', async function () {
+  const selected = []
+  const play = harness({
+    ensurePreset: async function (sessionId, request) { selected.push([sessionId, request.kind]) }
+  })
+  await play.module.start({ kind: 'play', targetMode: 'story' })
+
+  const card = harness({
+    ensurePreset: async function (sessionId, request) { selected.push([sessionId, request.kind]) }
+  })
+  await card.module.start({ kind: 'card', targetMode: 'card' })
+
+  assert.deepEqual(selected, [['session-1', 'play'], ['session-1', 'card']])
+})
+
 test('卡片工作台保留任务元数据直到打开完成', async function () {
   let opened
   const { module } = harness({ finishOpen: async function (pending) { opened = pending } })

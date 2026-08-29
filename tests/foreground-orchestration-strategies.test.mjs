@@ -85,3 +85,32 @@ test('兼容策略清空系统提示，普通策略保留原生人格和卡片�
   assert.deepEqual(nativeAssembly.sections.map(function (section) { return section.name }), ['tavern:mode-persona', 'tavern:card-snapshot'])
   assert.deepEqual(nativeAssembly.tools.map(function (tool) { return tool.name }), ['read'])
 })
+
+test('卡片策略保留官方 Cordis 工具说明', async () => {
+  const run = strategies({
+    nativePlay: {
+      async modeFor() { return 'card' },
+      filterMessages(messages) { return messages },
+      async resolvePreset() { return null },
+      async prepareTurn() { return { text: '' } },
+      appendFrame(input) { return { messages: input.messages, receipt: {} } },
+      recordFrame() {},
+      async visibleTools() { return [] },
+      modePrompt() { return 'card' },
+      workspaceContext() { return '/resources' },
+      async ensureCardSnapshot() { return '' },
+      controlledToolNames: new Set()
+    }
+  })
+  const assembly = await run.value.assembleSystemPrompt({
+    sections: [{ name: 'tool:cordis', text: 'Cordis instructions' }],
+    contexts: [],
+    tools: []
+  }, { sessionId: 'native', chat: run.chats.get('native'), cwd: '/workspace' })
+
+  assert.deepEqual(assembly.sections.map(function (section) { return section.name }), [
+    'tavern:mode-persona',
+    'tool:cordis',
+    'tavern:resource-workspace'
+  ])
+})
