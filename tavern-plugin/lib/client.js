@@ -1707,71 +1707,102 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			});
 		}
 
-		let tavernHelperScriptRuntime = null;
-		let tavernHelperEventPollTimer = null;
-		let tavernHelperEventPollBusy = false;
-		let tavernHelperRuntimeActive = false;
-		let tavernHelperRuntimeInput = null;
-		const tavernHelperOpeningInitializationJobs = new Map();
-		const tavernHelperRuntimeId = window.crypto && typeof window.crypto.randomUUID === "function" ? window.crypto.randomUUID() : String(Date.now()) + ":" + String(Math.random());
-		function inactiveTavernHelperView(view) {
-			return Object.assign({}, view || {}, { tavernHelperScripts: [] });
-		}
-		function scheduleTavernHelperEventPoll(delayMs) {
-			if (tavernHelperEventPollTimer !== null) return;
-			tavernHelperEventPollTimer = window.setTimeout(async function poll() {
-				tavernHelperEventPollTimer = null;
-				const runtime = tavernHelperScriptRuntime;
-				const input = tavernHelperRuntimeInput;
-				if (!runtime || !input || !input.sessionId || !Array.isArray(input.view && input.view.tavernHelperScripts) || input.view.tavernHelperScripts.length === 0) return;
-				let completedEvent = false;
-				if (!tavernHelperEventPollBusy) {
-					tavernHelperEventPollBusy = true;
-					try {
-						const result = await rpc("pollTavernHelperEvent", { runtimeId: tavernHelperRuntimeId }, input.sessionId);
-						if (!tavernHelperRuntimeInput || tavernHelperRuntimeInput.sessionId !== input.sessionId) return;
-						if (Boolean(result && result.active) !== tavernHelperRuntimeActive) {
-							tavernHelperRuntimeActive = Boolean(result && result.active);
-							runtime.sync(input.sessionId, tavernHelperRuntimeActive ? input.view : inactiveTavernHelperView(input.view));
-						}
-						const event = result && result.event;
-						if (tavernHelperRuntimeActive && event) {
-							const args = await runtime.emit(event.name, event.args, event.context);
-							await rpc("completeTavernHelperEvent", { eventId: event.id, args: args, runtimeId: tavernHelperRuntimeId }, input.sessionId);
-							completedEvent = true;
-						}
-					} catch (error) { console.warn("Tavern Helper 生命周期同步失败", error); }
-					finally { tavernHelperEventPollBusy = false; }
-				}
-				scheduleTavernHelperEventPoll(completedEvent ? 0 : undefined);
-			}, delayMs === undefined ? (tavernHelperRuntimeActive ? 100 : 500) : Math.max(0, Number(delayMs) || 0));
-		}
-		function syncTavernHelperScripts(sessionId, view) {
-			if (!tavernHelperScriptRuntime) tavernHelperScriptRuntime = createTavernHelperScriptRuntime({
-				onReady: function (readySessionId) {
-					if (!readySessionId || tavernHelperOpeningInitializationJobs.has(readySessionId)) return;
-					const job = rpc("initializeTavernMvuOpenings", {}, readySessionId).then(function (result) {
-						if (result && result.updated === true) liveTavernView.invalidate(readySessionId);
-						return rpc("getSession", {}, readySessionId).then(function (fresh) {
-							const freshView = fresh && fresh.view || {};
-							tavernHelperRuntimeInput = { sessionId: readySessionId, view: freshView };
-							tavernHelperScriptRuntime.sync(readySessionId, freshView);
-							return tavernHelperScriptRuntime.emit("CHAT_CHANGED", [], freshView.tavernHelper);
-						});
-					}).finally(function () { tavernHelperOpeningInitializationJobs.delete(readySessionId); });
-					tavernHelperOpeningInitializationJobs.set(readySessionId, job);
-					return job;
-				}
-			});
-			const nextSessionId = String(sessionId || "");
-			const previousSessionId = tavernHelperRuntimeInput && tavernHelperRuntimeInput.sessionId || "";
-			if (previousSessionId && previousSessionId !== nextSessionId) {
-				rpc("releaseTavernHelperRuntime", { runtimeId: tavernHelperRuntimeId }, previousSessionId).catch(function () {});
-				tavernHelperRuntimeActive = false;
+		function createTavernScriptExecutionModule(options) {
+			const invoke = options && options.rpc || rpc;
+			const invalidate = options && options.invalidate || function () {};
+			const runtimeId = window.crypto && typeof window.crypto.randomUUID === "function" ? window.crypto.randomUUID() : String(Date.now()) + ":" + String(Math.random());
+			const openingInitializationJobs = new Map();
+			let runtime = null;
+			let pollTimer = null;
+			let pollBusy = false;
+			let active = false;
+			let input = null;
+
+			function inactiveView(view) {
+				return Object.assign({}, view || {}, { tavernHelperScripts: [] });
 			}
-			tavernHelperRuntimeInput = { sessionId: nextSessionId, view: view };
-			tavernHelperScriptRuntime.sync(nextSessionId, tavernHelperRuntimeActive ? view : inactiveTavernHelperView(view));
-			scheduleTavernHelperEventPoll();
+
+			function ensureRuntime() {
+				if (runtime) return runtime;
+				runtime = createTavernHelperScriptRuntime({
+					rpc: invoke,
+					onReady: function (readySessionId) {
+						if (!readySessionId || openingInitializationJobs.has(readySessionId)) return;
+						const job = invoke("initializeTavernMvuOpenings", {}, readySessionId).then(function (result) {
+							if (result && result.updated === true) invalidate(readySessionId);
+							return invoke("getSession", {}, readySessionId).then(function (fresh) {
+								const freshView = fresh && fresh.view || {};
+								input = { sessionId: readySessionId, view: freshView };
+								runtime.sync(readySessionId, freshView);
+								return runtime.emit("CHAT_CHANGED", [], freshView.tavernHelper);
+							});
+						}).finally(function () { openingInitializationJobs.delete(readySessionId); });
+						openingInitializationJobs.set(readySessionId, job);
+						return job;
+					}
+				});
+				return runtime;
+			}
+
+			function schedulePoll(delayMs) {
+				if (pollTimer !== null) return;
+				pollTimer = window.setTimeout(async function poll() {
+					pollTimer = null;
+					const currentRuntime = runtime;
+					const currentInput = input;
+					if (!currentRuntime || !currentInput || !currentInput.sessionId || !Array.isArray(currentInput.view && currentInput.view.tavernHelperScripts) || currentInput.view.tavernHelperScripts.length === 0) return;
+					let completedEvent = false;
+					if (!pollBusy) {
+						pollBusy = true;
+						try {
+							const result = await invoke("pollTavernHelperEvent", { runtimeId: runtimeId }, currentInput.sessionId);
+							if (!input || input.sessionId !== currentInput.sessionId) return;
+							if (Boolean(result && result.active) !== active) {
+								active = Boolean(result && result.active);
+								currentRuntime.sync(currentInput.sessionId, active ? currentInput.view : inactiveView(currentInput.view));
+							}
+							const event = result && result.event;
+							if (active && event) {
+								const args = await currentRuntime.emit(event.name, event.args, event.context);
+								await invoke("completeTavernHelperEvent", { eventId: event.id, args: args, runtimeId: runtimeId }, currentInput.sessionId);
+								completedEvent = true;
+							}
+						} catch (error) { console.warn("Tavern Helper 生命周期同步失败", error); }
+						finally { pollBusy = false; }
+					}
+					schedulePoll(completedEvent ? 0 : undefined);
+				}, delayMs === undefined ? (active ? 100 : 500) : Math.max(0, Number(delayMs) || 0));
+			}
+
+			function sync(sessionId, view) {
+				const currentRuntime = ensureRuntime();
+				const nextSessionId = String(sessionId || "");
+				const previousSessionId = input && input.sessionId || "";
+				if (previousSessionId && previousSessionId !== nextSessionId) {
+					invoke("releaseTavernHelperRuntime", { runtimeId: runtimeId }, previousSessionId).catch(function () {});
+					active = false;
+				}
+				input = { sessionId: nextSessionId, view: view };
+				currentRuntime.sync(nextSessionId, active ? view : inactiveView(view));
+				schedulePoll();
+			}
+
+			return Object.freeze({
+				sync: sync,
+				triggerButton: function (scriptId, name) {
+					if (!runtime || !active) return Promise.reject(new Error("人物卡脚本正在其他窗口运行，或尚未加载完成"));
+					return runtime.triggerButton(scriptId, name);
+				},
+				inspect: function () { return { active: active, input: input, runtime: runtime && runtime.inspect() }; }
+			});
+		}
+
+		const tavernScriptExecutionModule = createTavernScriptExecutionModule({
+			rpc: rpc,
+			invalidate: function (sessionId) { liveTavernView.invalidate(sessionId); }
+		});
+		function syncTavernHelperScripts(sessionId, view) {
+			tavernScriptExecutionModule.sync(sessionId, view);
 		}
 
 		const TAVERN_FRAME_MAX_HEIGHT = 12000;
@@ -3934,8 +3965,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			}
 			async function triggerHelperButton(button) {
 				try {
-					if (!tavernHelperScriptRuntime || !tavernHelperRuntimeActive) throw new Error("人物卡脚本正在其他窗口运行，或尚未加载完成");
-					await tavernHelperScriptRuntime.triggerButton(button.scriptId, button.name);
+					await tavernScriptExecutionModule.triggerButton(button.scriptId, button.name);
 				} catch (error) { tavernErrorHub.report("人物卡脚本按钮「" + button.name + "」", error); }
 			}
 			const h = React.createElement;

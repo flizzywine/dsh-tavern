@@ -5,6 +5,7 @@ import test from 'node:test'
 const clientSource = await readFile(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
 const serverSource = await readFile(new URL('../tavern-plugin/lib/index.js', import.meta.url), 'utf8')
 const orchestrationStrategiesSource = await readFile(new URL('../tavern-plugin/lib/domain/foreground-orchestration-strategies.js', import.meta.url), 'utf8')
+const scriptHostAdapterSource = await readFile(new URL('../tavern-plugin/lib/domain/tavern-script-host-adapter.js', import.meta.url), 'utf8')
 const presetConversionSource = await readFile(new URL('../tavern-plugin/lib/domain/preset-conversion-preview.js', import.meta.url), 'utf8')
 const turnOrchestrationSource = await readFile(new URL('../tavern-plugin/lib/domain/turn-orchestration.js', import.meta.url), 'utf8')
 
@@ -311,8 +312,8 @@ test('正文重新生成提供两个含义明确的入口，并复用同一替�
 	assert.match(regen, /Number\(newAssistant\.turn\) !== syntheticTurn/)
 	assert.match(regen, /committedChat\.suppressedDshTurns = Array\.from\(new Set/)
 	assert.match(regen, /mergeRegeneratedSwipe\(\{ originalChat, regeneratedChat: latest, assistantIndex: oldAssistantIndex \}\)/)
-	assert.match(regen, /'MESSAGE_SWIPED', \[oldAssistantIndex\]/)
-	assert.match(regen, /'MESSAGE_RECEIVED', \[oldAssistantIndex, 'swipe'\]/)
+	assert.match(regen, /name: 'MESSAGE_SWIPED', args: \[oldAssistantIndex\]/)
+	assert.match(regen, /name: 'MESSAGE_RECEIVED', args: \[oldAssistantIndex, 'swipe'\]/)
 	assert.match(regen, /await updateChat\(chat\.id,[\s\S]*source: 'foreground\.regen-abort'/)
 })
 
@@ -320,7 +321,7 @@ test('回退本轮在消息落库后按 SillyTavern 语义通知 Helper', () => 
 	const rollback = between(serverSource, 'async function rollbackTurn', '// ---------- HTTP RPC')
 	assert.match(rollback, /tavernHelperLifecycleRevision = Math\.max/)
 	assert.match(rollback, /chat\.suppressedDshTurns = Array\.from\(new Set/)
-	assert.match(rollback, /await writeChat\(chat, \{ source: 'rollback' \}\)[\s\S]*'MESSAGE_DELETED', \[\(chat\.messages \|\| \[\]\)\.length\]/)
+	assert.match(rollback, /await writeChat\(chat, \{ source: 'rollback' \}\)[\s\S]*name: 'MESSAGE_DELETED', args: \[\(chat\.messages \|\| \[\]\)\.length\]/)
 })
 
 test('重生成与回退的 DSH 楼层折叠由对话持久状态驱动', () => {
@@ -912,35 +913,33 @@ test('酒馆状态页显示人物卡脚本失败诊断，避免远程资源被�
 
 test('酒馆状态页暴露人物卡可见脚本按钮并交还原脚本事件处理', () => {
 	const panel = between(clientSource, 'function TavernStatusPanel', 'function TavernStatusTab')
-	const runtime = between(clientSource, 'function createTavernHelperScriptRuntime', 'let tavernHelperScriptRuntime')
+	const runtime = between(clientSource, 'function createTavernHelperScriptRuntime', 'function createTavernScriptExecutionModule')
 	assert.match(panel, /人物卡脚本按钮/)
-	assert.match(panel, /tavernHelperScriptRuntime\.triggerButton/)
+	assert.match(panel, /tavernScriptExecutionModule\.triggerButton/)
 	assert.match(runtime, /buttonEvent\(scriptId, name\)/)
 	assert.match(runtime, /dsh-tavern-helper-ui-open/)
 })
 
 test('人物卡 Helper 的世界书写入按人物卡串行，避免生命周期事件并发覆盖', () => {
-	const adapter = between(serverSource, 'const tavernHelperWorldbookMutationTails', 'async function tavernHelperEventContext')
-	assert.match(adapter, /serializeTavernHelperWorldbook\(chat\.cardPath/)
-	assert.match(adapter, /previous\.catch\(function \(\) \{\}\)\.then\(work\)/)
-	assert.match(adapter, /await worldBooks\.update/)
+	assert.match(scriptHostAdapterSource, /serializeWorldbook\(chat\.cardPath/)
+	assert.match(scriptHostAdapterSource, /previous\.catch\(function \(\) \{\}\)\.then\(work\)/)
+	assert.match(scriptHostAdapterSource, /await options\.worldBooks\.update/)
 })
 
 test('Helper 写入携带生命周期版本，过期 iframe 不覆盖 Swipe 或回退后的状态', () => {
-	const runtime = between(clientSource, 'function createTavernHelperScriptRuntime', 'let tavernHelperScriptRuntime')
+	const runtime = between(clientSource, 'function createTavernHelperScriptRuntime', 'function createTavernScriptExecutionModule')
 	const frame = between(clientSource, 'function TavernMessageFrame', 'function tavernProjectionForTurn')
-	const adapter = between(serverSource, 'function helperMutationIsCurrent', 'async function switchTavernSwipe')
 	assert.match(runtime, /expectedLifecycleRevision/)
 	assert.match(frame, /expectedLifecycleRevision/)
-	assert.match(adapter, /staleHelperMutation/)
-  assert.match(adapter, /DSH_TAVERN_CHAT_CONFLICT/)
+	assert.match(scriptHostAdapterSource, /staleMutation/)
+  assert.match(scriptHostAdapterSource, /DSH_TAVERN_CHAT_CONFLICT/)
 })
 
 test('人物卡 iframe 不因等价上下文或切换会话而重复启动', () => {
 	const frame = between(clientSource, 'function TavernMessageFrame', 'function tavernProjectionForTurn')
 	const renderer = between(clientSource, 'function createTavernAssistantRendererFeatureModule', 'function createTavernShellFeatureModule')
 	const sidebar = between(clientSource, 'function TavernSidebar', 'function TavernResourcesTab')
-	const capture = between(serverSource, 'async function captureDisplayRuntime', 'function helperMutationIsCurrent')
+	const capture = between(serverSource, 'async function captureDisplayRuntime', 'const tavernScriptHostAdapter')
 
 	assert.match(frame, /helperContextKey/)
 	assert.doesNotMatch(frame, /\[props\.content, props\.helperContext, styleEnvironmentKey, props\.turn\]/)
@@ -974,8 +973,8 @@ test('设置开启后在顶层侧栏最右侧显示实验性兼容模式', () =>
 	assert.match(clientSource, /sandbox: props\.trustedCardMode \? undefined : "allow-scripts"/)
 	assert.match(clientSource, /if \(!trustedCardMode\) frame\.sandbox = "allow-scripts"/)
 	assert.match(serverSource, /trustedCardMode/)
-	assert.match(clientSource, /pollTavernHelperEvent", \{ runtimeId: tavernHelperRuntimeId \}/)
-	assert.match(clientSource, /Boolean\(result && result\.active\) !== tavernHelperRuntimeActive/)
+	assert.match(clientSource, /pollTavernHelperEvent", \{ runtimeId: runtimeId \}/)
+	assert.match(clientSource, /Boolean\(result && result\.active\) !== active/)
 	assert.match(clientSource, /releaseTavernHelperRuntime/)
 	assert.match(clientSource, /兼容模式可用于测试外部预设条目的兼容效果，但不保证游戏体验良好/)
 	assert.match(clientSource, /updateTavernSettings/)
@@ -1073,7 +1072,7 @@ test('HTTP RPC 在启动恢复前注册，并等待运行时完成初始化', ()
 })
 
 test('Helper 全部就绪后先完成 MVU 开场重放，再广播 CHAT_CHANGED', () => {
-	const sync = between(clientSource, 'function syncTavernHelperScripts', 'const TAVERN_FRAME_MAX_HEIGHT')
-	assert.match(sync, /rpc\("initializeTavernMvuOpenings"[\s\S]*rpc\("getSession"[\s\S]*tavernHelperScriptRuntime\.sync\(readySessionId, freshView\)[\s\S]*tavernHelperScriptRuntime\.emit\("CHAT_CHANGED"/)
-	assert.match(sync, /tavernHelperOpeningInitializationJobs\.set\(readySessionId, job\);[\s\S]*return job/)
+	const module = between(clientSource, 'function createTavernScriptExecutionModule', 'const tavernScriptExecutionModule')
+	assert.match(module, /invoke\("initializeTavernMvuOpenings"[\s\S]*invoke\("getSession"[\s\S]*runtime\.sync\(readySessionId, freshView\)[\s\S]*runtime\.emit\("CHAT_CHANGED"/)
+	assert.match(module, /openingInitializationJobs\.set\(readySessionId, job\);[\s\S]*return job/)
 })

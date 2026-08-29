@@ -256,12 +256,12 @@ MVU Core 保存最终楼层变量快照
 
 | 架构概念 | 当前实现 | 状态 |
 | --- | --- | --- |
-| 普通游玩编排策略 | `ForegroundFrameBuilder`、`Turn Orchestrator`、持续 DSH Session | 已有主要链路 |
-| 兼容编排策略 | `compileCompatibilityTurn` 与临时 provider request 投影 | 已有主要链路，仍散落在 `index.js` |
+| 普通游玩编排策略 | `foreground-orchestration-strategies.js` 中的 Native Play Strategy、`ForegroundFrameBuilder`、持续 DSH Session | 已收敛为独立策略 |
+| 兼容编排策略 | `foreground-orchestration-strategies.js` 中的 Compatibility Strategy、`compileCompatibilityTurn` 与临时 provider request 投影 | 已收敛为独立策略 |
 | MVU Core | `Tavern MVU Runtime` | 已有；宿主原生重实现 |
 | Prompt Template Runtime | Prompt Template/EJS 相关 domain modules | 已有受支持语义 |
-| 酒馆脚本运行模块 | 卡片脚本读取、浏览器 iframe runtime、事件投递 | 已有能力，尚未物理收敛为独立 module |
-| Host Adapter | Helper 上下文投影、消息/变量/世界书 mutation、UI 与事件桥接 | 已有子集，当前散落在客户端桥和服务端 domain modules |
+| 酒馆脚本运行模块 | 浏览器端 `createTavernScriptExecutionModule`、每脚本 iframe runtime、事件轮询与按钮调用 | 已收敛为客户端 module；因 DSH 客户端以单 bundle 注入，暂不拆成第二个客户端文件 |
+| Host Adapter | `tavern-script-host-adapter.js` | 已收敛；统一承接消息、变量、Swipe、世界书和事件翻译 |
 | DSH Runtime | Session、模型和工具 Harness | 已有 |
 
 ## 架构不变量
@@ -277,13 +277,13 @@ MVU Core 保存最终楼层变量快照
 9. 精确酒馆请求重建只属于兼容编排策略。
 10. 新增脚本能力不能破坏 DSH 的追加式 Session、工具轨迹和上下文压缩。
 
-## 后续物理收敛
+## 当前物理边界
 
-1. 把浏览器脚本加载、iframe 生命周期、事件投递和错误诊断收进酒馆脚本运行模块。
-2. 为酒馆脚本运行模块定义小而稳定的 Host interface。
-3. 把客户端消息桥、服务端 RPC 和状态转换收敛成 Host Adapter 的实现。
-4. 保持 MVU Core、Prompt Template Runtime 和原生资源 modules 独立。
-5. 将兼容请求编译从 `index.js` 收进兼容编排策略，不与脚本执行混合。
+1. 浏览器脚本加载、iframe 生命周期、事件投递、会话切换和按钮调用由 `createTavernScriptExecutionModule` 统一持有。
+2. 人物卡脚本仍只调用 Tavern Helper 形状的固定 RPC，不接触 dsh-tavern Chat 或世界书结构。
+3. 服务端 RPC 只把调用交给 `tavern-script-host-adapter.js`；消息、变量、Swipe、世界书和事件的状态转换都在该 Adapter 内完成。
+4. MVU Core、Prompt Template Runtime 和原生资源 modules 保持独立；当前保留“启用 MVU 后才运行 Helper 脚本”的产品门控。
+5. 普通游玩与兼容请求投影均由独立编排策略承担，不与脚本执行混合。
 
 ## 相关文档
 

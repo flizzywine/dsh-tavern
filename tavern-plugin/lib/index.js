@@ -35,18 +35,12 @@ import {
   createTavernMvuOpeningReconciler,
   MVU_OPENING_RECONCILIATION_VERSION
 } from './domain/tavern-mvu-opening-reconciliation.js'
-import {
-  projectTavernHelperContext,
-  replaceTavernHelperMessages,
-  replaceTavernHelperVariables
-} from './domain/tavern-helper-context.js'
-import {
-  projectTavernHelperWorldbook,
-  replaceTavernHelperWorldbookOperations
-} from './domain/tavern-helper-worldbook.js'
+import { projectTavernHelperContext } from './domain/tavern-helper-context.js'
+import { projectTavernHelperWorldbook } from './domain/tavern-helper-worldbook.js'
 import { applyTavernHelperVariableMacros } from './domain/tavern-helper-variable-macros.js'
 import { projectTavernHelperScripts } from './domain/tavern-helper-scripts.js'
 import { createTavernHelperEventGate } from './domain/tavern-helper-event-gate.js'
+import { createTavernScriptHostAdapter } from './domain/tavern-script-host-adapter.js'
 import { createTavernRemoteAssetPinStore } from './domain/tavern-remote-assets.js'
 import { createTavernStaticResourceCache, projectCachedResourceBody } from './domain/tavern-static-resource-cache.js'
 import { SILLYTAVERN_CSS_COMPAT_URLS } from './domain/sillytavern-css-compatibility.js'
@@ -951,110 +945,15 @@ export async function apply(ctx) {
     await writeChat(chat, { source: 'display.capture', touchUpdatedAt: false })
     return { captured: true, turn, partIndex: index, captureKind: capture.captureKind }
   }
-  function helperMutationIsCurrent(chat, expectedLifecycleRevision) {
-    if (expectedLifecycleRevision === undefined || expectedLifecycleRevision === null) return true
-    return Math.max(0, Number(chat && chat.tavernHelperLifecycleRevision) || 0) === Math.max(0, Number(expectedLifecycleRevision) || 0)
-  }
-  function staleHelperMutation(chat) {
-    return { updated: false, stale: true, context: projectTavernHelperContext(chat) }
-  }
-  async function updateTavernHelperVariables(sessionId, option, variables, expectedLifecycleRevision) {
-    const chat = await chatForSession(sessionId)
-    if (chat === undefined) throw new Error('当前会话没有绑定人物卡')
-    if (!chat.mvu || chat.mvu.enabled !== true) throw new Error('当前人物卡未启用 MVU 兼容运行时')
-    if (!helperMutationIsCurrent(chat, expectedLifecycleRevision)) return staleHelperMutation(chat)
-    const updated = replaceTavernHelperVariables(chat, { option, variables })
-    try { await writeChat(chat, { source: 'tavern-helper.variables' }) }
-    catch (error) {
-      if (error && error.code === 'DSH_TAVERN_CHAT_CONFLICT') {
-        const latest = await chatForSession(sessionId)
-        if (latest !== undefined && !helperMutationIsCurrent(latest, expectedLifecycleRevision)) return staleHelperMutation(latest)
-      }
-      throw error
-    }
-    return { updated: true, target: updated, context: projectTavernHelperContext(chat) }
-  }
-  async function updateTavernHelperMessages(sessionId, messages, expectedLifecycleRevision) {
-    const chat = await chatForSession(sessionId)
-    if (chat === undefined) throw new Error('当前会话没有绑定人物卡')
-    if (!chat.mvu || chat.mvu.enabled !== true) throw new Error('当前人物卡未启用 MVU 兼容运行时')
-    if (!helperMutationIsCurrent(chat, expectedLifecycleRevision)) return staleHelperMutation(chat)
-    const updated = replaceTavernHelperMessages(chat, messages)
-    try { await writeChat(chat, { source: 'tavern-helper.messages' }) }
-    catch (error) {
-      if (error && error.code === 'DSH_TAVERN_CHAT_CONFLICT') {
-        const latest = await chatForSession(sessionId)
-        if (latest !== undefined && !helperMutationIsCurrent(latest, expectedLifecycleRevision)) return staleHelperMutation(latest)
-      }
-      throw error
-    }
-    return { updated: true, targets: updated, context: projectTavernHelperContext(chat) }
-  }
-  async function switchTavernSwipe(sessionId, messageId, swipeId) {
-    const chat = await chatForSession(sessionId)
-    if (chat === undefined || groupOfMode(chat.mode) !== 'play') throw new Error('当前会话没有绑定游玩对话')
-    const updated = replaceTavernHelperMessages(chat, [{ message_id: messageId, swipe_id: swipeId }])
-    chat.tavernHelperLifecycleRevision = Math.max(0, Number(chat.tavernHelperLifecycleRevision) || 0) + 1
-    chat.updatedAt = Date.now()
-    await writeChat(chat, { source: 'tavern.swipe' })
-    await tavernHelperEventGate.dispatch(chat.sessionId, 'MESSAGE_SWIPED', [Number(messageId)], await tavernHelperEventContext(chat.sessionId, chat))
-    return { updated: true, target: updated[0] || null }
-  }
-  async function tavernHelperWorldbookRecord(sessionId, requestedName) {
-    const chat = await chatForSession(str(sessionId))
-    if (chat === undefined) throw new Error('当前会话没有绑定人物卡')
-    if (!chat.mvu || chat.mvu.enabled !== true) throw new Error('当前人物卡未启用 MVU 兼容运行时')
-    const card = await readChatCard(chat)
-    const record = await worldBooks.bound(chat.cardPath, card)
-    if (record === null) throw new Error('当前人物卡没有绑定世界书')
-    const name = str(requestedName).trim()
-    if (name !== '' && name !== 'current' && name !== str(record.view.displayName)) {
-      throw new Error('当前兼容层只能访问人物卡绑定的世界书: ' + name)
-    }
-    return { chat, record }
-  }
-  async function getTavernHelperWorldbook(sessionId, name) {
-    const resolved = await tavernHelperWorldbookRecord(sessionId, name)
-    return { worldbook: projectTavernHelperWorldbook(resolved.record.view) }
-  }
-  const tavernHelperWorldbookMutationTails = new Map()
-  async function serializeTavernHelperWorldbook(cardPath, work) {
-    const key = str(cardPath)
-    const previous = tavernHelperWorldbookMutationTails.get(key) || Promise.resolve()
-    const current = previous.catch(function () {}).then(work)
-    tavernHelperWorldbookMutationTails.set(key, current)
-    try { return await current }
-    finally { if (tavernHelperWorldbookMutationTails.get(key) === current) tavernHelperWorldbookMutationTails.delete(key) }
-  }
-  async function replaceTavernHelperWorldbook(sessionId, name, entries) {
-    const chat = await chatForSession(str(sessionId))
-    if (chat === undefined) throw new Error('当前会话没有绑定人物卡')
-    return await serializeTavernHelperWorldbook(chat.cardPath, async function () {
-      const resolved = await tavernHelperWorldbookRecord(sessionId, name)
-      const operations = replaceTavernHelperWorldbookOperations(resolved.record.view, entries)
-      const updated = operations.length === 0
-        ? resolved.record
-        : await worldBooks.update(resolved.record.source, { operations })
-      return { updated: operations.length > 0, worldbook: projectTavernHelperWorldbook(updated.view) }
-    })
-  }
-
-  async function tavernHelperEventContext(sessionId, chat, transientUserText = '') {
-	const draft = structuredClone(chat)
-	const userText = str(transientUserText).trim()
-	if (userText !== '') {
-	  const previousVariables = tavernMvu.lastVariables(draft.messages)
-	  const message = { role: 'user', text: userText, swipeId: 0, swipes: [userText], variables: [] }
-	  if (previousVariables !== undefined) message.variables = [structuredClone(previousVariables)]
-	  draft.messages.push(message)
-	}
-	const context = projectTavernHelperContext(draft)
-	try {
-	  const resolved = await tavernHelperWorldbookRecord(sessionId, 'current')
-	  context.worldbook = projectTavernHelperWorldbook(resolved.record.view)
-	} catch {}
-	return context
-  }
+  const tavernScriptHostAdapter = createTavernScriptHostAdapter({
+    resolveChat: chatForSession,
+    writeChat,
+    readCard: readChatCard,
+    worldBooks,
+    mvu: tavernMvu,
+    eventGate: tavernHelperEventGate,
+    isPlayChat: function (chat) { return groupOfMode(chat.mode) === 'play' }
+  })
 
   const tavernMvuOpeningReconciler = createTavernMvuOpeningReconciler({
     runtime: tavernMvu,
@@ -1062,8 +961,7 @@ export async function apply(ctx) {
     readCard: async function (chat) { return await readChatCard(chat) },
     updateChat,
     dispatch: async function (event) {
-      const context = await tavernHelperEventContext(event.sessionId, event.chat)
-      return await tavernHelperEventGate.dispatch(event.sessionId, event.name, event.args, context)
+      return await tavernScriptHostAdapter.dispatchEvent(event)
     },
     now: Date.now
   })
@@ -2088,8 +1986,7 @@ export async function apply(ctx) {
     frameBuilder: foregroundFrameBuilder,
     mvu: tavernMvu,
 	emitMvu: async function (event) {
-	  const context = await tavernHelperEventContext(event.sessionId, event.chat)
-	  const result = await tavernHelperEventGate.dispatch(event.sessionId, event.name, event.args, context)
+	  const result = await tavernScriptHostAdapter.dispatchEvent(event)
 	  return result.args
 	},
     cards: cardPreparation,
@@ -2228,7 +2125,7 @@ export async function apply(ctx) {
     pendingAssistant.swipeId = pendingAssistant.swipes.length
     pendingAssistant.swipes.push('')
     if (Array.isArray(pendingAssistant.variables)) pendingAssistant.variables.push(structuredClone(pendingAssistant.variables[Math.max(0, pendingAssistant.swipeId - 1)] || {}))
-    await tavernHelperEventGate.dispatch(chat.sessionId, 'MESSAGE_SWIPED', [oldAssistantIndex], await tavernHelperEventContext(chat.sessionId, pendingChat))
+    await tavernScriptHostAdapter.dispatchEvent({ sessionId: chat.sessionId, chat: pendingChat, name: 'MESSAGE_SWIPED', args: [oldAssistantIndex] })
     chat.tavernHelperLifecycleRevision = lifecycleRevision
     chat.regenInProgress = true
     await writeChat(chat, { source: 'rollback.regen' })
@@ -2283,7 +2180,7 @@ export async function apply(ctx) {
     committedChat.tavernHelperLifecycleRevision = lifecycleRevision + 1
     committedChat.suppressedDshTurns = Array.from(new Set((Array.isArray(committedChat.suppressedDshTurns) ? committedChat.suppressedDshTurns : []).concat([syntheticTurn])))
     await writeChat(committedChat, { source: 'foreground.regen-commit' })
-    await tavernHelperEventGate.dispatch(chat.sessionId, 'MESSAGE_RECEIVED', [oldAssistantIndex, 'swipe'], await tavernHelperEventContext(chat.sessionId, committedChat))
+    await tavernScriptHostAdapter.dispatchEvent({ sessionId: chat.sessionId, chat: committedChat, name: 'MESSAGE_RECEIVED', args: [oldAssistantIndex, 'swipe'] })
     // 一次遮蔽旧正文、此前失败回合残留、合成输入与新模型节点；原楼层由 Tavern Swipe 投影统一显示
     const currentNodes = session.surface !== undefined && Array.isArray(session.surface.nodes) ? session.surface.nodes : []
     const replacement = planRegenerationSurface({
@@ -2379,7 +2276,7 @@ export async function apply(ctx) {
     chat.suppressedDshTurns = Array.from(new Set((Array.isArray(chat.suppressedDshTurns) ? chat.suppressedDshTurns : []).concat([hiddenTurn])))
     chat.updatedAt = Date.now()
     await writeChat(chat, { source: 'rollback' })
-    await tavernHelperEventGate.dispatch(chat.sessionId, 'MESSAGE_DELETED', [(chat.messages || []).length], await tavernHelperEventContext(chat.sessionId, chat))
+    await tavernScriptHostAdapter.dispatchEvent({ sessionId: chat.sessionId, chat, name: 'MESSAGE_DELETED', args: [(chat.messages || []).length] })
 
     // 3) 原生消息面：用空消息替换最近一轮的所有 surface 节点（模型不再看到），UI 由客户端隐藏对应 turn tail
     session.append('assistant/message', {
@@ -2563,15 +2460,15 @@ export async function apply(ctx) {
       }
       case 'attachPlayChatDebug': return { reference: await attachPlayChatDebug(args && args.targetSessionId, args && args.sourceSessionId, args && args.turn) }
       case 'captureDisplayRuntime': return await captureDisplayRuntime(args && args.sessionId, args && args.turn, args && args.partIndex, args && args.runtime)
-      case 'updateTavernHelperVariables': return await updateTavernHelperVariables(args && args.sessionId, args && args.option, args && args.variables, args && args.expectedLifecycleRevision)
-      case 'updateTavernHelperMessages': return await updateTavernHelperMessages(args && args.sessionId, args && args.messages, args && args.expectedLifecycleRevision)
+      case 'updateTavernHelperVariables': return await tavernScriptHostAdapter.updateVariables(args && args.sessionId, args && args.option, args && args.variables, args && args.expectedLifecycleRevision)
+      case 'updateTavernHelperMessages': return await tavernScriptHostAdapter.updateMessages(args && args.sessionId, args && args.messages, args && args.expectedLifecycleRevision)
       case 'initializeTavernMvuOpenings': return await tavernMvuOpeningReconciler.reconcile(args && args.sessionId)
-      case 'switchTavernSwipe': return await switchTavernSwipe(args && args.sessionId, args && args.messageId, args && args.swipeId)
-      case 'getTavernHelperWorldbook': return await getTavernHelperWorldbook(args && args.sessionId, args && args.name)
-      case 'replaceTavernHelperWorldbook': return await replaceTavernHelperWorldbook(args && args.sessionId, args && args.name, args && args.entries)
-	  case 'pollTavernHelperEvent': return tavernHelperEventGate.poll(args && args.sessionId, args && args.runtimeId)
-	  case 'completeTavernHelperEvent': return { completed: tavernHelperEventGate.complete(args && args.sessionId, args && args.eventId, args && args.args, args && args.runtimeId) }
-	  case 'releaseTavernHelperRuntime': return { released: tavernHelperEventGate.dispose(args && args.sessionId, args && args.runtimeId) }
+      case 'switchTavernSwipe': return await tavernScriptHostAdapter.switchSwipe(args && args.sessionId, args && args.messageId, args && args.swipeId)
+      case 'getTavernHelperWorldbook': return await tavernScriptHostAdapter.getWorldbook(args && args.sessionId, args && args.name)
+      case 'replaceTavernHelperWorldbook': return await tavernScriptHostAdapter.replaceWorldbook(args && args.sessionId, args && args.name, args && args.entries)
+	  case 'pollTavernHelperEvent': return tavernScriptHostAdapter.pollEvent(args && args.sessionId, args && args.runtimeId)
+	  case 'completeTavernHelperEvent': return { completed: tavernScriptHostAdapter.completeEvent(args && args.sessionId, args && args.eventId, args && args.args, args && args.runtimeId) }
+	  case 'releaseTavernHelperRuntime': return { released: tavernScriptHostAdapter.releaseRuntime(args && args.sessionId, args && args.runtimeId) }
       case 'startChat': {
         try {
           return { view: await startChat(args && args.path, args && args.sessionId, args && args.mode, args && args.openingId, args && args.userName, args && args.requestMode) }
@@ -3057,9 +2954,9 @@ export async function apply(ctx) {
     compatibility: {
       beforeTurn: async function (input) {
         if (!input.chat.mvu || input.chat.mvu.enabled !== true) return
-        const context = await tavernHelperEventContext(input.sessionId, input.chat, input.userText)
+        const context = await tavernScriptHostAdapter.context(input.sessionId, input.chat, input.userText)
         const messageId = Math.max(0, context.messages.length - 1)
-        await tavernHelperEventGate.dispatch(input.sessionId, 'MESSAGE_SENT', [messageId], context)
+        await tavernScriptHostAdapter.dispatchEvent({ sessionId: input.sessionId, context, name: 'MESSAGE_SENT', args: [messageId] })
       },
       beginTurn: async function (input) { await turnOrchestrator.beginCompatibility(input) },
       chatForSession,
