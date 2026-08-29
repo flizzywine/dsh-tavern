@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "revision": "bdbad7192c392e96b697ddb489499872653f866b",
+  "revision": "2429ab263ba192e16293e27803b3151a3d1e9b42",
   "files": [
     {
       "path": "bin/dsh-tavern",
@@ -64,8 +64,8 @@
     },
     {
       "path": "presets/tavern/agent.cordis.yml",
-      "sha256": "3b112ab9696f8a2022ad88e7a41f6f9e33f095258342f181a5d6e22107668cab",
-      "size": 1961
+      "sha256": "bd885f17d3f4717454a71ebc320f107e2edaab15073fea0a157c3d1f84055005",
+      "size": 2193
     },
     {
       "path": "presets/tavern/preset.yml",
@@ -104,8 +104,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "a5651ae16295875a3da98caa3cb9157689d0c5a9915f0134d17b1b67168abb57",
-      "size": 294683
+      "sha256": "5be6638761ce78340ccfb40158aa5d196068d9c63437dd980bac8c4ec3a8af10",
+      "size": 294854
     },
     {
       "path": "tavern-plugin/lib/domain/agent-readiness.js",
@@ -273,6 +273,11 @@
       "size": 13111
     },
     {
+      "path": "tavern-plugin/lib/domain/session-turn-result.js",
+      "sha256": "e2170c129fb8d7ec60b0eb3c3e7f086e9677d5a83d8de2d1746c0c5d6b54789b",
+      "size": 1561
+    },
+    {
       "path": "tavern-plugin/lib/domain/sillytavern-compatibility.js",
       "sha256": "317cb0000ecf59b8cd428ce97b93ead699258e84b107e5902add4c6c2c6ad2d8",
       "size": 8804
@@ -334,8 +339,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/turn-orchestration.js",
-      "sha256": "fbdfee73a8a84c8cc538ac8d274557c975eab2f7f5cfe43ab3703a79ddaa1fdf",
-      "size": 21196
+      "sha256": "5663704e10287dae7ebeb7a854c2bada5c648b1f2e24d4175b62eb0fea26bed9",
+      "size": 23698
     },
     {
       "path": "tavern-plugin/lib/domain/workspace-resources.js",
@@ -364,8 +369,8 @@
     },
     {
       "path": "tavern-plugin/lib/index.js",
-      "sha256": "dc773ea826779b252533a618f7c52aa8706d8d3065b468fc5863639a04fbeb19",
-      "size": 180840
+      "sha256": "6c0aa69e8ddeba1dfb5635493af8665df92029a93d1ab7fc481898e1a43f92f5",
+      "size": 182394
     },
     {
       "path": "tavern-plugin/lib/profile-data-store.js",
@@ -464,8 +469,8 @@
     },
     {
       "path": "tavern-plugin/prompts/card-mode.md",
-      "sha256": "6ba5fe134316384c9788e9d6a0033959962d0d77a9b35ea1f3fc7bc9b3315e80",
-      "size": 5267
+      "sha256": "95c808ec31c0f8ef231720bc88b247936184f77bea249e351477cc2cb24d334d",
+      "size": 5652
     },
     {
       "path": "tavern-plugin/prompts/card-task-debug-play.md",
