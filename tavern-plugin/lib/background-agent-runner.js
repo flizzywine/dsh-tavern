@@ -1,4 +1,5 @@
 import { snapshotSubagentDescriptor } from '@deepseek-ai/dsh-subagent'
+import { randomUUID } from 'node:crypto'
 import { runtimePresetPhaseMessages } from './domain/runtime-preset-lifecycle.js'
 
 function str(value) {
@@ -90,7 +91,7 @@ export function createBackgroundAgentRunner(options) {
   const compactAgent = typeof options.compactAgent === 'function' ? options.compactAgent : null
   const setupAgent = typeof options.setupAgent === 'function' ? options.setupAgent : null
   const agentPreset = str(options.agentPreset)
-  const makeId = typeof options.id === 'function' ? options.id : function () { return 'background-' + crypto.randomUUID() }
+  const makeId = typeof options.id === 'function' ? options.id : function () { return 'background-' + randomUUID() }
   const activeSessions = new Set()
   const requestContexts = new Map()
   const requestSessions = new Map()
@@ -129,7 +130,7 @@ export function createBackgroundAgentRunner(options) {
     session.append('assistant/message', {
       turn,
       step,
-      message: { id: crypto.randomUUID(), role: 'assistant', content: [], source }
+      message: { id: randomUUID(), role: 'assistant', content: [], source }
     }, {
       surfaceOp: { op: 'replace', start: shadowed[0], end: shadowed[shadowed.length - 1] },
       sourceEventSeqs: shadowed
@@ -298,7 +299,7 @@ export function createBackgroundAgentRunner(options) {
     try {
       const eventStart = Array.isArray(handle.agent.session.events) ? handle.agent.session.events.length : 0
       handle.agent.followup({
-        id: crypto.randomUUID(),
+        id: randomUUID(),
         role: 'user',
         content: [{ type: 'text', text: backgroundPrompt(input.messages, input.turnContext, input.task, input.system) }],
         source: { kind: 'plugin', plugin: 'dsh-tavern' }

@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto'
+
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
 }
@@ -68,7 +70,7 @@ export function runtimePresetPhaseMessages(snapshot, phase, options = {}) {
   }).map(function (entry) {
     const text = str(entry.content)
     return {
-      id: 'dsh-tavern-runtime-preset-' + scope + '-' + phase + '-' + turn + '-' + step + '-' + crypto.randomUUID(),
+      id: 'dsh-tavern-runtime-preset-' + scope + '-' + phase + '-' + turn + '-' + step + '-' + randomUUID(),
       role: entry.role === 'user' || entry.role === 'assistant' ? entry.role : 'system',
       content: [{ type: 'text', text }],
       source: {
@@ -106,7 +108,7 @@ export function projectRuntimePresetRequest(request, snapshot, options = {}) {
   const moveSystem = front.length > 0 && systemText !== ''
   if (!moveSystem && front.length === 0 && back.length === 0 && ordinary.length === source.length) return request
   const systemMessages = moveSystem ? [{
-    id: 'dsh-tavern-runtime-system-' + crypto.randomUUID(),
+    id: 'dsh-tavern-runtime-system-' + randomUUID(),
     role: 'system',
     content: [{ type: 'text', text: systemText }],
     source: {

@@ -12,6 +12,26 @@ function phaseMessage(phase, text) {
   return runtimePresetPhaseMessages({ [phase]: { entries: [{ role: 'system', content: text }] } }, phase, { scope: 'foreground', turn: 4, step: 1 })[0]
 }
 
+test('服务端消息 ID 不依赖可能被代理的 Web Crypto this', () => {
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'crypto')
+  const originalCrypto = globalThis.crypto
+  Object.defineProperty(globalThis, 'crypto', {
+    configurable: true,
+    value: new Proxy(originalCrypto, {})
+  })
+  try {
+    const [message] = runtimePresetPhaseMessages(
+      { middle: { entries: [{ role: 'system', content: '中段' }] } },
+      'middle',
+      { scope: 'foreground', turn: 2, step: 1 }
+    )
+    assert.match(message.id, /^dsh-tavern-runtime-preset-foreground-middle-2-1-/)
+  } finally {
+    if (descriptor) Object.defineProperty(globalThis, 'crypto', descriptor)
+    else delete globalThis.crypto
+  }
+})
+
 test('前中后保留原角色，只有前后属于请求边界消息', () => {
   const snapshot = {
     front: { entries: [{ role: 'system', content: '前' }] },

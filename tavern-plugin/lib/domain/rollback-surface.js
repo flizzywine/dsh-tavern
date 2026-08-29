@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto'
+
 function object(value) {
   return value !== null && typeof value === 'object' ? value : null
 }
@@ -127,7 +129,7 @@ export function clearFailedTurnSurface(input) {
     turn: input.turn
   })
   if (cleanup === null) return 0
-  const makeId = typeof input.id === 'function' ? input.id : function () { return crypto.randomUUID() }
+  const makeId = typeof input.id === 'function' ? input.id : function () { return randomUUID() }
   const turn = Math.max(0, Number(input.turn) || 0)
   session.append('assistant/message', {
     turn,

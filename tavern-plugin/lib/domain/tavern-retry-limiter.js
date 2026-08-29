@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto'
+
 const POLICY_KEY = 'dsh-tavern:max-attempts:2'
 const MAX_RETRIES = 1
 
@@ -36,7 +38,7 @@ function cancellableDelay(delayMs, signal) {
 export function createTavernRetryLimiter(options = {}) {
   const owns = typeof options.owns === 'function' ? options.owns : function () { return false }
   const wait = typeof options.wait === 'function' ? options.wait : cancellableDelay
-  const id = typeof options.id === 'function' ? options.id : function () { return crypto.randomUUID() }
+  const id = typeof options.id === 'function' ? options.id : function () { return randomUUID() }
 
   async function handle(payload, next) {
     if (!await owns(payload.agent)) return next()
