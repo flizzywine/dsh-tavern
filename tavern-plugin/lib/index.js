@@ -26,6 +26,7 @@ import { compileSillyTavernRequest } from './domain/sillytavern-compatibility.js
 import { applySillyTavernStrictTools } from './domain/sillytavern-strict-tools.js'
 import { createEphemeralCompatibilityRequest, isCompatibilityConversationRequest } from './domain/compatibility-request.js'
 import { clearFailedTurnSurface, hasRollbackMessages, locateRollbackSurface, planRegenerationSurface } from './domain/rollback-surface.js'
+import { assistantResultForTurn } from './domain/session-turn-result.js'
 import { projectRuntimePresetRequest, runtimePresetPhaseMessages } from './domain/runtime-preset-lifecycle.js'
 import { createTavernRetryLimiter } from './domain/tavern-retry-limiter.js'
 import {
@@ -883,6 +884,7 @@ export async function apply(ctx) {
       settleStatus: 'idle',
       settleError: null,
       lastSettle: null,
+      foregroundError: null,
       preparedWorldBookContext: '',
       preparedWorldBook: null,
       nativeCommits: {},
@@ -966,6 +968,7 @@ export async function apply(ctx) {
       replyProjections: replyDisplay.projections,
       presentationWarnings: Array.isArray(chat.presentationWarnings) ? chat.presentationWarnings : [],
       worldBookError: chat.worldBookError || null,
+      foregroundError: chat.foregroundError || null,
       lastWorldBookRecall: chat.lastWorldBookRecall || null,
       activity,
       settleStatus: activity.busy ? 'running' : (activity.phase === 'failed' && activity.role === 'settlement' ? 'error' : 'done'),
@@ -2461,18 +2464,6 @@ export async function apply(ctx) {
     return ''
   }
 
-  function assistantResultForTurn(session, turn) {
-    const events = Array.isArray(session && session.events) ? session.events : []
-    const start = turnStartIndex(session, turn)
-    for (let index = events.length - 1; index > start; index--) {
-      const event = events[index]
-      if (!event || event.type !== 'assistant/message' || Number(event.data && event.data.turn) !== Number(turn)) continue
-      const text = contentText(event.data && event.data.message)
-      if (text !== '') return { index, event, text }
-    }
-    return null
-  }
-
   function replaceTurnInput(messages, text) {
     const result = Array.isArray(messages) ? messages.slice() : []
     for (let index = result.length - 1; index >= 0; index--) {
@@ -2831,6 +2822,20 @@ export async function apply(ctx) {
     if (userText === '') return
     const requestId = requestIdForTurn(session, payload.turn)
     const assistant = assistantResultForTurn(session, payload.turn)
+    if (assistant === null || assistant.text === '') {
+      const reasoningOnly = assistant !== null && assistant.reasoningOnly === true
+      const message = reasoningOnly
+        ? '模型本轮只返回了思考过程，没有返回正文；请重新生成本轮正文。'
+        : '模型本轮没有返回正文；请重新生成本轮正文。'
+      await turnOrchestrator.recordFailure({
+        sessionId,
+        turn: payload.turn,
+        requestId,
+        code: reasoningOnly ? 'reasoning-only' : 'empty-response',
+        message
+      })
+      throw new Error(message)
+    }
     const saved = await foregroundHandoff.finalize({
       sessionId,
       turn: payload.turn,

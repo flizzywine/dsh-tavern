@@ -136,6 +136,10 @@ export function createTurnOrchestrator(options) {
     let reusedRuntimeInput = false
     const mode = chat.mode || 'story'
     let chatChanged = clearStaleStages(chat, turn)
+    if (chat.foregroundError !== null && chat.foregroundError !== undefined) {
+      chat.foregroundError = null
+      chatChanged = true
+    }
 
     if (mode === 'story' || mode === 'script') {
       const begun = timeline.apply({ chat, intent: { kind: 'body.begin', turn, userText } })
@@ -228,6 +232,7 @@ export function createTurnOrchestrator(options) {
     }
     const begun = timeline.apply({ chat, intent: { kind: 'body.begin', turn, userText } })
     chat = begun.chat
+    chat.foregroundError = null
     rememberRuntimeInput(chat, turn, userText, userText)
     await store.writeChat(chat)
     return { ready: true, mode, userText }
@@ -340,6 +345,7 @@ export function createTurnOrchestrator(options) {
       workspace.commit(chat, turn)
       if (userText !== '') chat.messages.push({ role: 'user', text: userText, ts: now(), native: true })
       chat.messages.push({ role: 'assistant', text: assistantText, ts: now(), native: true, changed })
+      chat.foregroundError = null
       chat.cardName = created === null ? (str(state.draft && state.draft.name) || '卡片工作台') : created.card.name
       rememberCommit(chat, turn, { mode, userText, requestId, changed }, null, now)
       await store.writeChat(chat, { source: 'card.commit' })
@@ -367,6 +373,7 @@ export function createTurnOrchestrator(options) {
       workspace.commit(chat, turn)
       if (userText !== '') chat.messages.push({ role: 'user', text: userText, ts: now(), native: true })
       chat.messages.push({ role: 'assistant', text: assistantText, ts: now(), native: true, changed })
+      chat.foregroundError = null
       chat.cardName = savedCard.name
       rememberCommit(chat, turn, { mode, userText, requestId, changed }, null, now)
       await store.writeChat(chat, { source: 'card.commit' })
@@ -415,6 +422,7 @@ export function createTurnOrchestrator(options) {
           turn: turn
         }
         draft.messages.push(assistantMessage)
+        draft.foregroundError = null
         draft.presentationWarnings = Array.isArray(reply.warnings) ? clone(reply.warnings) : []
         rememberCommit(draft, turn, { mode, userText, requestId, scriptReference }, before, now)
       }
@@ -423,6 +431,20 @@ export function createTurnOrchestrator(options) {
     if (completed.value.status !== 'committed') throw new Error('正文生成期间剧情状态已变化，本轮结果已作废')
     await store.writeChat(chat, { source: 'foreground.commit', operationId: operation.id })
     return { saved: true, mode, changed: false, chatId: chat.id, cardName: chat.cardName, reply }
+  }
+
+  async function recordFailure(input) {
+    const chat = await store.chatForSession(input.sessionId)
+    if (chat === undefined) return false
+    chat.foregroundError = {
+      turn: Math.max(0, Number(input.turn) || 0),
+      requestId: str(input.requestId).trim(),
+      code: str(input.code).trim() || 'foreground-failed',
+      message: str(input.message).trim() || '前台正文生成失败，请重新生成本轮正文。',
+      at: now()
+    }
+    await store.writeChat(chat, { source: 'foreground.failure' })
+    return true
   }
 
   async function discard(input) {
@@ -474,5 +496,5 @@ export function createTurnOrchestrator(options) {
     return chat === undefined ? null : (chat.mode || 'story')
   }
 
-  return Object.freeze({ prepare, beginCompatibility, stageChanges, finalize, discard, visibleTools, modeFor })
+  return Object.freeze({ prepare, beginCompatibility, stageChanges, finalize, recordFailure, discard, visibleTools, modeFor })
 }

@@ -165,6 +165,27 @@ test('同一 DSH rpcId 即使被重放到新回合也不会再次推进酒馆状
   }), false)
 })
 
+test('无正文失败会保留诊断，下一次正式重试开始时自动清除', async () => {
+  const run = harness('story')
+  await run.orchestrator.prepare({ sessionId: 'session-1', turn: 2, requestId: 'rpc-empty', userText: '继续' })
+  await run.orchestrator.recordFailure({
+    sessionId: 'session-1', turn: 2, requestId: 'rpc-empty',
+    code: 'reasoning-only', message: '模型本轮只返回了思考过程，没有返回正文；请重新生成本轮正文。'
+  })
+  await run.orchestrator.discard({ sessionId: 'session-1', turn: 2 })
+
+  assert.deepEqual(run.chat().foregroundError, {
+    turn: 2,
+    requestId: 'rpc-empty',
+    code: 'reasoning-only',
+    message: '模型本轮只返回了思考过程，没有返回正文；请重新生成本轮正文。',
+    at: 2000
+  })
+
+  await run.orchestrator.prepare({ sessionId: 'session-1', turn: 3, requestId: 'rpc-retry', userText: '继续' })
+  assert.equal(run.chat().foregroundError, null)
+})
+
 test('正文准备只读取本地已保存的下一轮世界书上下文，不再触发匹配', async () => {
   let recallCalls = 0
   const run = harness('story', {
