@@ -576,6 +576,8 @@ test('预设库选择整份预设，并可交给卡片 Agent 编辑或在当前�
   assert.match(panel, /rpc\("updatePresetEntry"/)
   assert.match(panel, /rpc\("updatePresetRegex"/)
   assert.match(panel, /dsh-tavern-preset-detail-actions/)
+  assert.match(panel, /className: "dsh-tavern-btn danger"[\s\S]*"删除"/)
+  assert.ok(panel.indexOf('dsh-tavern-preset-detail-actions') < panel.indexOf('"提示词条目 · "'))
   assert.doesNotMatch(panel, /"编辑预设"|dsh-tavern-edit-preset/)
   assert.match(panel, /item\.path === catalog\.activePresetPath[\s\S]*rpc\("selectPreset", \{ path: result\.resource\.path \}/)
   assert.match(panel, /item\.path === catalog\.activePresetPath[\s\S]*rpc\("selectPreset", \{ path: "" \}/)
