@@ -14,6 +14,31 @@ async function loadExports() {
 const client = await loadExports()
 const createConversationLifecycleModule = client.createConversationLifecycleModule
 const createConversationPrewarmModule = client.createConversationPrewarmModule
+const createPlayWorkspaceResolver = client.createPlayWorkspaceResolver
+
+test('没有现成 Workspace 时自动创建 Tavern 资源 Workspace', async function () {
+  const calls = []
+  const resolveWorkspace = createPlayWorkspaceResolver({
+    currentWorkspaceId: function () { return '' },
+    resourceRoot: async function () { calls.push('root'); return { path: '/data/resources' } },
+    createWorkspace: async function (input) { calls.push(['create', input.path]); return { workspaceId: 'workspace-tavern' } }
+  })
+
+  assert.equal(await resolveWorkspace(), 'workspace-tavern')
+  assert.deepEqual(calls, ['root', ['create', '/data/resources']])
+})
+
+test('预热与正式启动并发解析时只创建一个 Tavern 资源 Workspace', async function () {
+  let creates = 0
+  const resolveWorkspace = createPlayWorkspaceResolver({
+    currentWorkspaceId: function () { return '' },
+    resourceRoot: async function () { return { path: '/data/resources' } },
+    createWorkspace: async function () { creates += 1; return { workspaceId: 'workspace-tavern' } }
+  })
+
+  assert.deepEqual(await Promise.all([resolveWorkspace(), resolveWorkspace()]), ['workspace-tavern', 'workspace-tavern'])
+  assert.equal(creates, 1)
+})
 
 function harness(overrides = {}) {
   const calls = []

@@ -874,6 +874,27 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			return state;
 		}
 
+		function createPlayWorkspaceResolver(options) {
+			for (const method of ["currentWorkspaceId", "resourceRoot", "createWorkspace"]) {
+				if (!options || typeof options[method] !== "function") throw new Error("Play Workspace Resolver 缺少 " + method + " adapter");
+			}
+			let fallbackPromise = null;
+			return async function () {
+				const currentWorkspaceId = String(options.currentWorkspaceId() || "");
+				if (currentWorkspaceId) return currentWorkspaceId;
+				if (!fallbackPromise) {
+					fallbackPromise = (async function () {
+						const root = await options.resourceRoot();
+						const created = await options.createWorkspace({ path: root.path });
+						if (!created || !created.workspaceId) throw new Error("无法创建 DSH Tavern Workspace");
+						return created.workspaceId;
+					})();
+					fallbackPromise.catch(function () { fallbackPromise = null; });
+				}
+				return fallbackPromise;
+			};
+		}
+
 		function createConversationLifecycleModule(options) {
 			for (const method of ["archiveCurrent", "resolveWorkspace", "connectWorkspace", "waitForSession", "ensurePreset", "createChat", "rememberPending", "finishOpen"]) {
 				if (!options || typeof options[method] !== "function") throw new Error("Conversation Lifecycle 缺少 " + method + " adapter");
@@ -1357,15 +1378,20 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const fileRef = React.useRef(null);
 			const initialImportRef = React.useRef(null);
 			const playWorkspaceIdRef = React.useRef(workspaceId);
+			const playWorkspaceResolverRef = React.useRef(null);
 			const playPrewarmRef = React.useRef(null);
 			playWorkspaceIdRef.current = workspaceId;
+			if (playWorkspaceResolverRef.current === null) {
+				playWorkspaceResolverRef.current = createPlayWorkspaceResolver({
+					currentWorkspaceId: function () { return playWorkspaceIdRef.current; },
+					resourceRoot: function () { return call("getResourceWorkspace"); },
+					createWorkspace: function (input) { return props.workspaces.create(input); }
+				});
+			}
 			if (playPrewarmRef.current === null) {
 				playPrewarmRef.current = createConversationPrewarmModule({
 					sessionIds: function () { return Object.keys(props.sessions.list.getSnapshot().byId || {}); },
-					resolveWorkspace: async function () {
-						if (!playWorkspaceIdRef.current) throw new Error("当前没有可用的 Workspace");
-						return playWorkspaceIdRef.current;
-					},
+					resolveWorkspace: playWorkspaceResolverRef.current,
 					connectWorkspace: function (targetWorkspaceId) { return props.workspaces.connectWorkspace(targetWorkspaceId); },
 					archiveSession: async function (sessionId) {
 						try { await props.workspaces.archiveSession(sessionId); }
@@ -1618,10 +1644,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const conversationLifecycle = createConversationLifecycleModule({
 				archiveCurrent: archiveCurrentBlankSession,
 				resolveWorkspace: async function (request) {
-					if (request.kind !== "card") {
-						if (!workspaceId) throw new Error("当前没有可用的 Workspace");
-						return workspaceId;
-					}
+					if (request.kind !== "card") return playWorkspaceResolverRef.current();
 					const resourceRoot = await call("getResourceWorkspace");
 					const resourceWorkspace = await props.workspaces.create({ path: resourceRoot.path });
 					return resourceWorkspace.workspaceId;
@@ -3947,6 +3970,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		exports.createLiveTavernViewModule = createLiveTavernViewModule;
 		exports.createTavernCoordinationEventModule = createTavernCoordinationEventModule;
 		exports.describeTavernActivity = describeTavernActivity;
+		exports.createPlayWorkspaceResolver = createPlayWorkspaceResolver;
 		exports.createConversationLifecycleModule = createConversationLifecycleModule;
 		exports.createConversationPrewarmModule = createConversationPrewarmModule;
 		exports.createResourcesLibraryFeatureModule = createResourcesLibraryFeatureModule;
