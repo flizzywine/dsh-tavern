@@ -29,6 +29,7 @@ import { compileSillyTavernRequest } from './domain/sillytavern-compatibility.js
 import { applySillyTavernStrictTools } from './domain/sillytavern-strict-tools.js'
 import { createForegroundOrchestrationStrategies } from './domain/foreground-orchestration-strategies.js'
 import { clearFailedTurnSurface, hasRollbackMessages, locateRollbackSurface, planRegenerationSurface } from './domain/rollback-surface.js'
+import { assistantResultForTurn } from './domain/session-turn-result.js'
 import { createTavernRetryLimiter } from './domain/tavern-retry-limiter.js'
 import { createTavernMvuRuntime, readMvuWorldBookInitialState } from './domain/tavern-mvu-runtime.js'
 import {
@@ -65,7 +66,7 @@ import { createTavernSkillModule } from './domain/tavern-skills.js'
 import { createTavernConversationRegistry } from './domain/tavern-conversation-registry.js'
 import { applyTavernRegexText } from './domain/tavern-regex-display.js'
 import { createTavernCompactionCoordinator } from './domain/tavern-compaction.js'
-import { createTurnOrchestrator } from './domain/turn-orchestration.js'
+import { cordisToolNames, createTurnOrchestrator } from './domain/turn-orchestration.js'
 import { resourceWorkspaceContext } from './domain/workspace-resources.js'
 import { createWorldBookLibrary } from './domain/worldbook-library.js'
 import { constantWorldBookContext, prepareWorldBookRecall } from './domain/worldbook-recall.js'
@@ -1014,6 +1015,7 @@ export async function apply(ctx) {
       settleStatus: 'idle',
       settleError: null,
       lastSettle: null,
+      foregroundError: null,
       preparedWorldBookContext: '',
       preparedWorldBook: null,
       nativeCommits: {},
@@ -1134,6 +1136,7 @@ export async function apply(ctx) {
       tavernStyleEnvironment: runtimeSettings.styleEnvironment,
       presentationWarnings: Array.isArray(chat.presentationWarnings) ? chat.presentationWarnings : [],
       worldBookError: chat.worldBookError || null,
+      foregroundError: chat.foregroundError || null,
       lastWorldBookRecall: chat.lastWorldBookRecall || null,
       activity,
       settleStatus: activity.busy ? 'running' : (activity.phase === 'failed' && activity.role === 'settlement' ? 'error' : 'done'),
@@ -2715,16 +2718,29 @@ export async function apply(ctx) {
     return ''
   }
 
-  function assistantResultForTurn(session, turn) {
+  function requestIdOf(message) {
+    const source = message && message.source
+    return source && source.kind === 'user' ? str(source.rpcId).trim() : ''
+  }
+
+  function requestIdForTurn(session, turn) {
     const events = Array.isArray(session && session.events) ? session.events : []
     const start = turnStartIndex(session, turn)
-    for (let index = events.length - 1; index > start; index--) {
+    if (start < 0) return ''
+    for (let index = Math.max(0, start + 1); index < events.length; index++) {
       const event = events[index]
-      if (!event || event.type !== 'assistant/message' || Number(event.data && event.data.turn) !== Number(turn)) continue
-      const text = contentText(event.data && event.data.message)
-      if (text !== '') return { index, event, text }
+      if (!event || event.type !== 'user/message' || !isTurnInput(event.data)) continue
+      return requestIdOf(event.data)
     }
-    return null
+    return ''
+  }
+
+  function requestIdForMessages(messages) {
+    const list = Array.isArray(messages) ? messages : []
+    for (let index = list.length - 1; index >= 0; index--) {
+      if (isTurnInput(list[index])) return requestIdOf(list[index])
+    }
+    return ''
   }
 
   function replaceAssistantReply(session, result, bodyText) {
@@ -2956,7 +2972,7 @@ export async function apply(ctx) {
     })
   }
 
-  const controlledToolNames = new Set(['bash', 'pwsh', 'str_replace_editor', 'skill', 'tavern_save_skill', 'tavern_read_card', 'tavern_read_card_raw', 'tavern_read_play_chat', 'tavern_read_script', 'tavern_read_worldbook', 'tavern_update_worldbook', 'tavern_read_preset', 'tavern_update_preset', 'tavern_update_card', 'tavern_restore_card'])
+  const controlledToolNames = new Set(['bash', 'pwsh', 'str_replace_editor', 'skill', 'tavern_save_skill', ...cordisToolNames, 'tavern_read_card', 'tavern_read_card_raw', 'tavern_read_play_chat', 'tavern_read_script', 'tavern_read_worldbook', 'tavern_update_worldbook', 'tavern_read_preset', 'tavern_update_preset', 'tavern_update_card', 'tavern_restore_card'])
   const foregroundStrategies = createForegroundOrchestrationStrategies({
     compatibility: {
       beforeTurn: async function (input) {
@@ -3034,7 +3050,13 @@ export async function apply(ctx) {
     const decision = await next()
     if (decision.kind === 'reject') return decision
     const chat = await chatForSession(sessionId)
-    return await foregroundStrategies.prepareStep({ sessionId, payload, decision, chat })
+    return await foregroundStrategies.prepareStep({
+      sessionId,
+      payload,
+      decision,
+      chat,
+      requestId: requestIdForMessages(payload.messages)
+    })
   })
 
   ctx.on('llm/stream', function (options, next) {
@@ -3105,10 +3127,26 @@ export async function apply(ctx) {
     if (backgroundAgentRunner.owns(sessionId)) return
     const userText = userTextForTurn(session, payload.turn)
     if (userText === '') return
+    const requestId = requestIdForTurn(session, payload.turn)
     const assistant = assistantResultForTurn(session, payload.turn)
+    if (assistant === null || assistant.text === '') {
+      const reasoningOnly = assistant !== null && assistant.reasoningOnly === true
+      const message = reasoningOnly
+        ? '模型本轮只返回了思考过程，没有返回正文；请重新生成本轮正文。'
+        : '模型本轮没有返回正文；请重新生成本轮正文。'
+      await turnOrchestrator.recordFailure({
+        sessionId,
+        turn: payload.turn,
+        requestId,
+        code: reasoningOnly ? 'reasoning-only' : 'empty-response',
+        message
+      })
+      throw new Error(message)
+    }
     const saved = await foregroundHandoff.finalize({
       sessionId,
       turn: payload.turn,
+      requestId,
       userText,
       assistantText: assistant === null ? '' : assistant.text
     })

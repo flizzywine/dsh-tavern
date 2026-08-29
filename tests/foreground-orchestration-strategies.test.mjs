@@ -13,7 +13,7 @@ function strategies(overrides = {}) {
   const value = createForegroundOrchestrationStrategies({
     compatibility: {
       async beforeTurn(input) { calls.push(['compat.before', input.userText]) },
-      async beginTurn(input) { calls.push(['compat.begin', input.turn]) },
+      async beginTurn(input) { calls.push(['compat.begin', input.turn, input.requestId]) },
       async chatForSession(sessionId) { return chats.get(sessionId) },
       async compileTurn(_chat, userText) { calls.push(['compat.compile', userText]); return { messages: [{ role: 'system', content: 'compat' }] } },
       async persistCompiled(input) { calls.push(['compat.persist', input.turn]) },
@@ -24,7 +24,7 @@ function strategies(overrides = {}) {
       filterMessages(messages) { return messages },
       async resolvePreset() { return { front: { text: 'preset' } } },
       async prepareTurn(input) {
-        calls.push(['native.prepare', input.userText])
+        calls.push(['native.prepare', input.userText, input.requestId])
         return { frame: { frameId: 'frame-1', branchId: 'b', basedOnRevision: 1, source: {}, userInput: { projectedText: 'projected' } } }
       },
       appendFrame(input) { return { messages: input.messages.concat([{ role: 'user', content: [{ type: 'text', text: 'frame' }] }]), receipt: { appended: true } } },
@@ -43,17 +43,17 @@ function strategies(overrides = {}) {
 test('普通游玩与兼容模式只在策略选择点分叉', async () => {
   const run = strategies()
   const nativePayload = { turn: 2, step: 1, messages: [userMessage('继续')] }
-  const native = await run.value.prepareStep({ sessionId: 'native', payload: nativePayload, decision: { kind: 'enter', messages: nativePayload.messages }, chat: run.chats.get('native') })
+  const native = await run.value.prepareStep({ sessionId: 'native', payload: nativePayload, decision: { kind: 'enter', messages: nativePayload.messages }, chat: run.chats.get('native'), requestId: 'rpc-native' })
   assert.deepEqual(native.messages.map(function (message) { return message.content[0].text }), ['projected', 'frame'])
 
   const compatPayload = { turn: 3, step: 1, messages: [userMessage('向前走')] }
-  const compat = await run.value.prepareStep({ sessionId: 'compat', payload: compatPayload, decision: { kind: 'enter', messages: compatPayload.messages }, chat: run.chats.get('compat') })
+  const compat = await run.value.prepareStep({ sessionId: 'compat', payload: compatPayload, decision: { kind: 'enter', messages: compatPayload.messages }, chat: run.chats.get('compat'), requestId: 'rpc-compat' })
   assert.equal(compat.messages, compatPayload.messages)
   assert.deepEqual(run.calls, [
-    ['native.prepare', '继续'],
+    ['native.prepare', '继续', 'rpc-native'],
     ['native.frame', 'frame-1'],
     ['compat.before', '向前走'],
-    ['compat.begin', 3],
+    ['compat.begin', 3, 'rpc-compat'],
     ['compat.compile', '向前走'],
     ['compat.persist', 3]
   ])

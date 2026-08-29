@@ -57,7 +57,8 @@ export function createCompatibilityOrchestrationStrategy(options) {
     const userText = userTextOf(payload.messages)
     if (Number(payload.step) === 1) {
       await options.beforeTurn({ sessionId, chat, userText })
-      await options.beginTurn({ sessionId, turn: payload.turn, userText })
+      const begun = await options.beginTurn({ sessionId, turn: payload.turn, requestId: input.requestId, userText })
+      if (begun && begun.duplicate) throw new Error('该消息已由酒馆处理，请勿重复发送')
       chat = await options.chatForSession(sessionId)
     }
     const compiled = await options.compileTurn(chat, userText)
@@ -120,7 +121,8 @@ export function createNativePlayOrchestrationStrategy(options) {
       })
     }
     if (Number(payload.step) === 1) {
-      const prepared = await options.prepareTurn({ sessionId, turn: payload.turn, userText: userTextOf(payload.messages) })
+      const prepared = await options.prepareTurn({ sessionId, turn: payload.turn, requestId: input.requestId, userText: userTextOf(payload.messages) })
+      if (prepared && prepared.duplicate) throw new Error('该消息已由酒馆处理，请勿重复发送')
       if (mode === 'story' || mode === 'script') {
         agentMessages = replaceTurnInput(decision.messages, prepared.frame.userInput.projectedText)
         const adapted = options.appendFrame({ messages: agentMessages, frame: prepared.frame, step: payload.step })

@@ -195,6 +195,42 @@ test('正文 Planner section 按语义翻译到 ForegroundFrame 槽位', async (
   assert.equal(prepared.frame.context.scriptReference, '剧本片段')
 })
 
+test('同一 DSH rpcId 即使被重放到新回合也不会再次推进酒馆状态', async () => {
+  const run = harness('story')
+  await run.orchestrator.prepare({ sessionId: 'session-1', turn: 2, requestId: 'rpc-1', userText: '推开窗' })
+  await run.orchestrator.finalize({ sessionId: 'session-1', turn: 2, requestId: 'rpc-1', userText: '推开窗', assistantText: '雨水扑进房间。' })
+
+  const duplicate = await run.orchestrator.prepare({ sessionId: 'session-1', turn: 3, requestId: 'rpc-1', userText: '推开窗' })
+
+  assert.equal(duplicate.duplicate, true)
+  assert.equal(duplicate.committedTurn, 2)
+  assert.equal(run.chat().messages.length, 2)
+  assert.equal(Object.values(run.timeline.inspect({ chat: run.chat() }).operations).some(function (item) {
+    return Number(item.turn) === 3
+  }), false)
+})
+
+test('无正文失败会保留诊断，下一次正式重试开始时自动清除', async () => {
+  const run = harness('story')
+  await run.orchestrator.prepare({ sessionId: 'session-1', turn: 2, requestId: 'rpc-empty', userText: '继续' })
+  await run.orchestrator.recordFailure({
+    sessionId: 'session-1', turn: 2, requestId: 'rpc-empty',
+    code: 'reasoning-only', message: '模型本轮只返回了思考过程，没有返回正文；请重新生成本轮正文。'
+  })
+  await run.orchestrator.discard({ sessionId: 'session-1', turn: 2 })
+
+  assert.deepEqual(run.chat().foregroundError, {
+    turn: 2,
+    requestId: 'rpc-empty',
+    code: 'reasoning-only',
+    message: '模型本轮只返回了思考过程，没有返回正文；请重新生成本轮正文。',
+    at: 2000
+  })
+
+  await run.orchestrator.prepare({ sessionId: 'session-1', turn: 3, requestId: 'rpc-retry', userText: '继续' })
+  assert.equal(run.chat().foregroundError, null)
+})
+
 test('正文准备只读取本地已保存的下一轮世界书上下文，不再触发匹配', async () => {
   let recallCalls = 0
   const run = harness('story', {
@@ -496,6 +532,13 @@ test('卡片修改先校验暂存，只在最终回复完成后写入', async ()
     'str_replace_editor',
     'skill',
     'tavern_save_skill',
+    'cordis_inspect_list',
+    'cordis_inspect_query',
+    'cordis_inspect_self',
+    'cordis_define',
+    'cordis_run',
+    'cordis_stop',
+    'cordis_undefine',
     'tavern_read_card',
     'tavern_read_card_raw',
     'tavern_read_play_chat',
@@ -527,6 +570,13 @@ test('Windows 卡片模式暴露 PowerShell 而不是 Bash', async () => {
     'str_replace_editor',
     'skill',
     'tavern_save_skill',
+    'cordis_inspect_list',
+    'cordis_inspect_query',
+    'cordis_inspect_self',
+    'cordis_define',
+    'cordis_run',
+    'cordis_stop',
+    'cordis_undefine',
     'tavern_read_card',
     'tavern_read_card_raw',
     'tavern_read_play_chat',
@@ -556,7 +606,7 @@ test('空白卡片工作台确认完整设定后直接创建并绑定正式人�
   const duplicate = await run.orchestrator.finalize({ sessionId: 'session-1', turn: 6, userText: '确认角色和玩家', assistantText: '重复回调' })
   assert.equal(duplicate.duplicate, true)
   assert.equal(run.createdCards.length, 1)
-  assert.deepEqual(await run.orchestrator.visibleTools('session-1'), ['bash', 'str_replace_editor', 'skill', 'tavern_save_skill', 'tavern_read_card', 'tavern_read_card_raw', 'tavern_read_play_chat', 'tavern_read_worldbook', 'tavern_update_worldbook', 'tavern_read_preset', 'tavern_update_preset', 'tavern_update_card', 'tavern_restore_card'])
+  assert.deepEqual(await run.orchestrator.visibleTools('session-1'), ['bash', 'str_replace_editor', 'skill', 'tavern_save_skill', 'cordis_inspect_list', 'cordis_inspect_query', 'cordis_inspect_self', 'cordis_define', 'cordis_run', 'cordis_stop', 'cordis_undefine', 'tavern_read_card', 'tavern_read_card_raw', 'tavern_read_play_chat', 'tavern_read_worldbook', 'tavern_update_worldbook', 'tavern_read_preset', 'tavern_update_preset', 'tavern_update_card', 'tavern_restore_card'])
 })
 
 test('空白工作台缺少新卡必填信息时不接受确认提交', async () => {

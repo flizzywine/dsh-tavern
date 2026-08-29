@@ -65,6 +65,7 @@ Better Sidebar 提供四个职责分离的库：
 - `tavern_update_card`：暂存并在本轮最终回复后提交已确认的人物卡最小变更；
 - `tavern_restore_card`：仅在灾难性损坏且用户再次确认后从原版恢复；
 - `skill` 与 `tavern_save_skill`：按需使用或创建 Tavern 专属 Skill。
+- `cordis_inspect_*`、`cordis_define`、`cordis_run`、`cordis_stop` 与 `cordis_undefine`：复用 DSH 创造模式，在当前进程中检查 Runtime，并创建、运行或移除临时插件和工具；只向卡片 Agent 开放。
 
 目标预设只作为待编辑数据，不成为当前 Agent 的提示词，也不启用预设提示词或正则效果。游玩 Agent 和后台 Agent 不获得卡片工作区文件工具或 Skill。
 

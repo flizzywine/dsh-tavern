@@ -1,6 +1,16 @@
 import { rememberTavernResources } from './workspace-resources.js'
 import { projectBackgroundInput } from './runtime-content-projection.js'
 
+export const cordisToolNames = Object.freeze([
+  'cordis_inspect_list',
+  'cordis_inspect_query',
+  'cordis_inspect_self',
+  'cordis_define',
+  'cordis_run',
+  'cordis_stop',
+  'cordis_undefine'
+])
+
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
 }
@@ -19,6 +29,15 @@ function commitFor(chat, turn) {
   if (!turn || chat.nativeCommits === null || typeof chat.nativeCommits !== 'object') return null
   const value = chat.nativeCommits[String(turn)]
   return value !== null && typeof value === 'object' ? value : null
+}
+
+function commitForRequest(chat, requestId) {
+  const target = str(requestId).trim()
+  if (target === '' || chat.nativeCommits === null || typeof chat.nativeCommits !== 'object') return null
+  for (const value of Object.values(chat.nativeCommits)) {
+    if (value !== null && typeof value === 'object' && str(value.requestId).trim() === target) return value
+  }
+  return null
 }
 
 function rememberCommit(chat, turn, value, before, now) {
@@ -203,12 +222,27 @@ export function createTurnOrchestrator(options) {
       }
     }
     const turn = Math.max(0, Number(input.turn) || 0)
+    const requestId = str(input.requestId).trim()
     const userText = str(input.userText).trim()
+    const requestCommit = commitForRequest(chat, requestId)
+    if (requestCommit !== null) {
+      return {
+        ready: false,
+        duplicate: true,
+        committedTurn: Math.max(0, Number(requestCommit.turn) || 0),
+        mode: chat.mode || 'story',
+        cardName: str(chat.cardName)
+      }
+    }
     let runtimeUserText = userText
     let reusedRuntimeInput = false
     let foregroundOperation = null
     const mode = chat.mode || 'story'
     let chatChanged = clearStaleStages(chat, turn)
+    if (chat.foregroundError !== null && chat.foregroundError !== undefined) {
+      chat.foregroundError = null
+      chatChanged = true
+    }
 
     if (mode === 'story' || mode === 'script') {
       const begun = timeline.apply({ chat, intent: { kind: 'body.begin', turn, userText } })
@@ -311,9 +345,20 @@ export function createTurnOrchestrator(options) {
     const mode = chat.mode || 'story'
     if (mode !== 'story' && mode !== 'script') throw new Error('酒馆兼容模式只适用于游玩对话')
     const turn = Math.max(0, Number(input.turn) || 0)
+    const requestId = str(input.requestId).trim()
     const userText = str(input.userText).trim()
+    const requestCommit = commitForRequest(chat, requestId)
+    if (requestCommit !== null) {
+      return {
+        ready: false,
+        duplicate: true,
+        committedTurn: Math.max(0, Number(requestCommit.turn) || 0),
+        mode
+      }
+    }
     const begun = timeline.apply({ chat, intent: { kind: 'body.begin', turn, userText } })
     chat = begun.chat
+    chat.foregroundError = null
     rememberRuntimeInput(chat, turn, userText, userText)
     await store.writeChat(chat)
     return { ready: true, mode, userText }
@@ -359,6 +404,17 @@ export function createTurnOrchestrator(options) {
     let chat = await store.chatForSession(input.sessionId)
     if (chat === undefined) return { saved: false, reason: 'unbound' }
     const turn = Math.max(0, Number(input.turn) || 0)
+    const requestId = str(input.requestId).trim()
+    const requestCommit = commitForRequest(chat, requestId)
+    if (requestCommit !== null) {
+      return {
+        saved: true,
+        duplicate: true,
+        committedTurn: Math.max(0, Number(requestCommit.turn) || 0),
+        mode: chat.mode || 'story',
+        changed: requestCommit.changed === true
+      }
+    }
     const prior = commitFor(chat, turn)
     if (prior !== null) return { saved: true, duplicate: true, mode: chat.mode || 'story', changed: prior.changed === true }
     const userText = str(input.userText).trim()
@@ -438,8 +494,9 @@ export function createTurnOrchestrator(options) {
       workspace.commit(chat, turn)
       if (userText !== '') chat.messages.push({ role: 'user', text: userText, ts: now(), native: true })
       chat.messages.push({ role: 'assistant', text: assistantText, ts: now(), native: true, changed })
+      chat.foregroundError = null
       chat.cardName = created === null ? (str(state.draft && state.draft.name) || '卡片工作台') : created.card.name
-      rememberCommit(chat, turn, { mode, userText, changed }, null, now)
+      rememberCommit(chat, turn, { mode, userText, requestId, changed }, null, now)
       await store.writeChat(chat, { source: 'card.commit' })
       return {
         saved: true,
@@ -465,8 +522,9 @@ export function createTurnOrchestrator(options) {
       workspace.commit(chat, turn)
       if (userText !== '') chat.messages.push({ role: 'user', text: userText, ts: now(), native: true })
       chat.messages.push({ role: 'assistant', text: assistantText, ts: now(), native: true, changed })
+      chat.foregroundError = null
       chat.cardName = savedCard.name
-      rememberCommit(chat, turn, { mode, userText, changed }, null, now)
+      rememberCommit(chat, turn, { mode, userText, requestId, changed }, null, now)
       await store.writeChat(chat, { source: 'card.commit' })
       return { saved: true, mode, changed, chatId: chat.id, cardName: savedCard.name }
     }
@@ -527,14 +585,29 @@ export function createTurnOrchestrator(options) {
           }
         })
         draft.messages.push(assistantMessage)
+        draft.foregroundError = null
         draft.presentationWarnings = Array.isArray(reply.warnings) ? clone(reply.warnings) : []
-        rememberCommit(draft, turn, { mode, userText, scriptReference }, before, now)
+        rememberCommit(draft, turn, { mode, userText, requestId, scriptReference }, before, now)
       }
     })
     chat = completed.chat
     if (completed.value.status !== 'committed') throw new Error('正文生成期间剧情状态已变化，本轮结果已作废')
     await store.writeChat(chat, { source: 'foreground.commit', operationId: operation.id })
     return { saved: true, mode, changed: false, chatId: chat.id, cardName: chat.cardName, reply }
+  }
+
+  async function recordFailure(input) {
+    const chat = await store.chatForSession(input.sessionId)
+    if (chat === undefined) return false
+    chat.foregroundError = {
+      turn: Math.max(0, Number(input.turn) || 0),
+      requestId: str(input.requestId).trim(),
+      code: str(input.code).trim() || 'foreground-failed',
+      message: str(input.message).trim() || '前台正文生成失败，请重新生成本轮正文。',
+      at: now()
+    }
+    await store.writeChat(chat, { source: 'foreground.failure' })
+    return true
   }
 
   async function discard(input) {
@@ -577,7 +650,7 @@ export function createTurnOrchestrator(options) {
     if (chat === undefined) return []
     const mode = chat.mode || 'story'
     if (mode === 'script') return ['tavern_read_script']
-    if (mode === 'card') return [shellToolName, 'str_replace_editor', 'skill', 'tavern_save_skill', 'tavern_read_card', 'tavern_read_card_raw', 'tavern_read_play_chat', 'tavern_read_worldbook', 'tavern_update_worldbook', 'tavern_read_preset', 'tavern_update_preset', 'tavern_update_card', 'tavern_restore_card']
+    if (mode === 'card') return [shellToolName, 'str_replace_editor', 'skill', 'tavern_save_skill', ...cordisToolNames, 'tavern_read_card', 'tavern_read_card_raw', 'tavern_read_play_chat', 'tavern_read_worldbook', 'tavern_update_worldbook', 'tavern_read_preset', 'tavern_update_preset', 'tavern_update_card', 'tavern_restore_card']
     return []
   }
 
@@ -586,5 +659,5 @@ export function createTurnOrchestrator(options) {
     return chat === undefined ? null : (chat.mode || 'story')
   }
 
-  return Object.freeze({ prepare, beginCompatibility, stageChanges, finalize, discard, visibleTools, modeFor })
+  return Object.freeze({ prepare, beginCompatibility, stageChanges, finalize, recordFailure, discard, visibleTools, modeFor })
 }

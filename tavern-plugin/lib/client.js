@@ -4120,6 +4120,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				),
 					h("div", { className: "dsh-tavern-status-body" },
 					view.worldBookError ? h("div", { className: "dsh-card-error" }, "世界书召回失败：" + view.worldBookError) : null,
+					view.foregroundError ? h("div", { className: "dsh-card-error" }, view.foregroundError.message || "前台正文生成失败，请重新生成本轮正文。") : null,
 					helperButtons.length ? h("section", { className: "dsh-tavern-status-section" },
 						h("div", { className: "dsh-tavern-status-label" }, "人物卡脚本按钮"),
 						h("div", { className: "dsh-tavern-script-buttons" }, helperButtons.map(function (button) {
