@@ -326,6 +326,17 @@ test('人物卡详情支持查看、绑定和解绑唯一世界书', () => {
   assert.match(panel, /"打开世界书"/)
 })
 
+test('人物卡绑定下拉框同时列出独立与其他人物卡的内置世界书', () => {
+  const panel = between(clientSource, 'function CardFieldsPanel', 'function TavernPlayerNameAction')
+
+  assert.match(panel, /\(result\.standalone \|\| \[\]\)\.concat\(result\.embedded \|\| \[\]\)/)
+  assert.match(panel, /return item\.kind === "card" \? "card:" \+ item\.cardPath : "standalone:" \+ item\.path/)
+  assert.match(panel, /return \{ kind: "card", cardPath: value\.slice\(5\) \}/)
+  assert.match(panel, /return \{ kind: "standalone", path: value\.slice\(11\) \}/)
+  assert.match(panel, /item\.kind === "card" && item\.cardPath === cardPath/)
+  assert.match(panel, /item\.name \+ "（人物卡：" \+ item\.cardName/)
+})
+
 test('新建对话把缺失的当前空 Session 视为已归档', () => {
 	const sidebar = between(clientSource, 'function TavernSidebar', 'function TavernResourcesTab')
 	const archiveBlank = between(sidebar, 'async function archiveCurrentBlankSession', 'async function waitForSessionSummary')

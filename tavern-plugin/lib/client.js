@@ -2733,6 +2733,15 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const scriptFileRef = React.useRef(null);
 			const cardPath = props.view.card.path;
 			function call(method, args) { return rpc(method, args); }
+			function worldBookChoiceValue(item) {
+				if (!item) return "";
+				return item.kind === "card" ? "card:" + item.cardPath : "standalone:" + item.path;
+			}
+			function worldBookChoiceSource(value) {
+				if (value.indexOf("card:") === 0) return { kind: "card", cardPath: value.slice(5) };
+				if (value.indexOf("standalone:") === 0) return { kind: "standalone", path: value.slice(11) };
+				return null;
+			}
 			function loadScript() {
 				if (!cardPath) return;
 				call("getScriptInfo", { path: cardPath }).then(function (result) {
@@ -2757,7 +2766,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				call("getWorldBookBinding", { cardPath: cardPath }).then(function (result) {
 					const binding = result.binding || { kind: "none", source: null, name: "" };
 					setWorldBookBinding(binding);
-					setSelectedWorldBook(binding.kind === "embedded" ? "__embedded__" : (binding.kind === "standalone" && binding.source ? binding.source.path : ""));
+					setSelectedWorldBook(binding.source ? worldBookChoiceValue(binding.source) : "");
 					setWorldBookError("");
 				}, function (err) { setWorldBookError(String(err && err.message || err)); });
 			}
@@ -2765,7 +2774,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				if (!cardPath || worldBookCatalogLoaded || worldBookCatalogLoading) return;
 				setWorldBookCatalogLoading(true);
 				call("listWorldBooks").then(function (result) {
-					setAvailableWorldBooks(result.standalone || []);
+					setAvailableWorldBooks((result.standalone || []).concat(result.embedded || []));
 					setWorldBookCatalogLoaded(true);
 					setWorldBookError("");
 				}, function (err) { setWorldBookError(String(err && err.message || err)); })
@@ -2840,7 +2849,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				if (!cardPath || !selectedWorldBook) return;
 				setWorldBookBusy(true); setWorldBookError("");
 				try {
-					const source = selectedWorldBook === "__embedded__" ? { kind: "card", cardPath: cardPath } : { kind: "standalone", path: selectedWorldBook };
+					const source = worldBookChoiceSource(selectedWorldBook);
+					if (!source) throw new Error("请选择世界书");
 					const result = await call("bindWorldBook", { cardPath: cardPath, source: source });
 					setWorldBookBinding(result.binding || null);
 					notifyTavernDataChanged(["worldbooks", "cards"], "cards");
@@ -2941,13 +2951,14 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				scriptError ? h("div", { className: "dsh-card-error" }, scriptError) : null
 			);
 			const hasWorldBookBinding = Boolean(worldBookBinding && worldBookBinding.kind !== "none");
+			const worldBookChoices = availableWorldBooks.filter(function (item) { return !(item.kind === "card" && item.cardPath === cardPath); });
 			const worldBookPanel = h("div", { className: "dsh-tavern-worldbook" },
 				h("div", { className: "dsh-tavern-worldbook-note" }, hasWorldBookBinding ? "当前绑定：" + (worldBookBinding.name || "世界书不可用") : "当前未绑定世界书。人物卡有自带世界书时默认绑定自带内容。"),
 				h("div", { className: "dsh-tavern-script-row" },
 					hasWorldBookBinding ? null : h("select", { value: selectedWorldBook, disabled: worldBookBusy || worldBookCatalogLoading, onChange: function (event) { setSelectedWorldBook(event.target.value); } },
 						h("option", { value: "" }, worldBookCatalogLoading ? "正在读取世界书库…" : "选择世界书"),
-						worldBookEntries.length ? h("option", { value: "__embedded__" }, "人物卡自带世界书") : null,
-						availableWorldBooks.map(function (item) { return h("option", { key: item.path, value: item.path }, item.name); })
+						props.view.card.character_book && typeof props.view.card.character_book === "object" ? h("option", { value: worldBookChoiceValue({ kind: "card", cardPath: cardPath }) }, "人物卡自带世界书") : null,
+						worldBookChoices.map(function (item) { const value = worldBookChoiceValue(item); return h("option", { key: value, value: value }, item.kind === "card" ? item.name + "（人物卡：" + item.cardName + "）" : item.name + "（独立世界书）"); })
 					),
 					hasWorldBookBinding ? null : h("button", { className: "dsh-tavern-script-primary", disabled: worldBookBusy || !selectedWorldBook, onClick: bindSelectedWorldBook }, worldBookBusy ? "处理中…" : "绑定"),
 					hasWorldBookBinding ? h("button", { className: "dsh-tavern-script-file", disabled: worldBookBusy, onClick: unbindWorldBook }, "解绑") : null,
