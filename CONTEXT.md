@@ -66,7 +66,15 @@ Story Timeline 中 Background Operation 生命周期的只读投影，用于回�
 
 ## Tavern Script Execution Module
 
-运行人物卡携带的 Tavern Helper、MVU、EJS 和其他 JavaScript 程序的独立模块。中文正式名称为“酒馆脚本运行模块”；它只认识酒馆脚本和酒馆宿主接口，通过 Host Adapter 与 dsh-tavern 隔离。
+执行人物卡携带的 Tavern Helper 和其他 JavaScript 程序的独立模块。中文正式名称为“酒馆脚本运行模块”；它由 dsh-tavern 重新实现，复刻人物卡脚本可观察到的酒馆 API、事件与运行环境，只认识酒馆脚本和酒馆宿主接口，通过 Host Adapter 与 dsh-tavern 隔离。
+
+## Tavern MVU Core
+
+由 dsh-tavern 重新实现的 MVU 协议解析器和变量状态机。中文正式名称为“MVU 核心”；它读取模型原始输出、提取变量命令、计算楼层与 swipe 变量，并向酒馆脚本运行模块产生 MVU 生命周期事件。它不属于酒馆脚本运行模块。
+
+## Prompt Template Runtime
+
+由 dsh-tavern 重新实现的 ST Prompt Template/EJS 运行模块。中文正式名称为“提示词模板运行模块”；它在请求构造阶段处理模板、变量和提示词加工，不属于酒馆脚本运行模块。
 
 ## Host Adapter（桥接层）
 
