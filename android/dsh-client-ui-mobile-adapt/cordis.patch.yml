@@ -1,6 +1,0 @@
-# The dsh-client-ui-mobile-adapt bundle patch: one browser-plugin row over the
-# web-app layer. Applied after dsh-web-app's insert, so it appends the
-# mobile-adapt client plugin to the browser roster.
-- insert:
-    - id: ui-mobile-adapt
-      name: 'dsh-client-ui-mobile-adapt'

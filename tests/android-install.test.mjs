@@ -14,20 +14,12 @@ const setup = await readFile(new URL('../android/setup.sh', import.meta.url), 'u
 const updater = await readFile(new URL('../android/update.sh', import.meta.url), 'utf8')
 const entryClient = await readFile(new URL('../android/dsh-tavern-entry/client.js', import.meta.url), 'utf8')
 const entryManifest = JSON.parse(await readFile(new URL('../android/dsh-tavern-entry/package.json', import.meta.url), 'utf8'))
-const mobileManifest = JSON.parse(await readFile(new URL('../android/dsh-client-ui-mobile-adapt/package.json', import.meta.url), 'utf8'))
 
-test('两个 Android 插件的包入口与实际源码一致', async () => {
-  for (const [directory, manifest] of [
-    ['android/dsh-tavern-entry', entryManifest],
-    ['android/dsh-client-ui-mobile-adapt', mobileManifest],
-  ]) {
-    const main = path.resolve(new URL(directory + '/', root).pathname, manifest.main)
-    await access(main)
-  }
+test('Android 酒馆入口的包入口与实际源码一致', async () => {
+  const main = path.resolve(new URL('android/dsh-tavern-entry/', root).pathname, entryManifest.main)
+  await access(main)
   assert.equal(entryManifest.exports['.'], './index.js')
   assert.equal(entryManifest.exports['./client'], './client.js')
-  assert.equal(mobileManifest.exports['.'].default, './index.js')
-  assert.equal(mobileManifest.exports['./client'].default, './client.js')
 })
 
 test('自动拉起插件默认使用 3088，并优先读取 Tavern Profile 的真实源码目录', async (t) => {
@@ -97,7 +89,7 @@ test('Android 安装脚本增量配置两个 Profile，失败不会伪装成成�
   assert.match(installer, /DSH_TAVERN_PORT="\$\{TAVERN_PORT\}"/)
   assert.match(installer, /configure-profiles\.mjs/)
   assert.match(installer, /dsh-tavern-entry/)
-  assert.match(installer, /dsh-client-ui-mobile-adapt/)
+  assert.doesNotMatch(installer, /dsh-client-ui-mobile-adapt/)
   assert.match(installer, /install --host android/)
   assert.match(installer, /DSH_TAVERN_RUNTIME_HOST="android"/)
   assert.doesNotMatch(installer, /dsh-cost-meter/)
@@ -286,8 +278,8 @@ test('Android Profile 配置保留已有内容并幂等加入所需插件', asyn
   await mkdir(web, { recursive: true })
   const initial = {
     private: true,
-    dependencies: { existing: '1.0.0' },
-    dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', 'existing'] } },
+    dependencies: { existing: '1.0.0', 'dsh-client-ui-mobile-adapt': 'link:/old/mobile-adapt' },
+    dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', 'existing', 'dsh-client-ui-mobile-adapt'] } },
   }
   await writeFile(path.join(tavern, 'package.json'), JSON.stringify(initial), 'utf8')
   await writeFile(path.join(web, 'package.json'), JSON.stringify(initial), 'utf8')
@@ -298,7 +290,10 @@ test('Android Profile 配置保留已有内容并幂等加入所需插件', asyn
   const tavernPkg = JSON.parse(await readFile(path.join(tavern, 'package.json'), 'utf8'))
   const webPkg = JSON.parse(await readFile(path.join(web, 'package.json'), 'utf8'))
   assert.equal(tavernPkg.dependencies.existing, '1.0.0')
-  assert.equal(tavernPkg.dsh.profile.bundles.filter((name) => name === 'dsh-client-ui-mobile-adapt').length, 1)
+  assert.equal(tavernPkg.dependencies['dsh-client-ui-mobile-adapt'], undefined)
+  assert.equal(webPkg.dependencies['dsh-client-ui-mobile-adapt'], undefined)
+  assert.equal(tavernPkg.dsh.profile.bundles.includes('dsh-client-ui-mobile-adapt'), false)
+  assert.equal(webPkg.dsh.profile.bundles.includes('dsh-client-ui-mobile-adapt'), false)
   assert.equal(webPkg.dsh.profile.bundles.filter((name) => name === 'dsh-tavern-entry').length, 1)
   assert.match(webPkg.dependencies['dsh-tavern-entry'], /^link:\//)
 })
