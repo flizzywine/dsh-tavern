@@ -315,7 +315,7 @@ test('人物卡详情支持查看、绑定和解绑唯一世界书', () => {
   assert.match(dispatch, /case 'bindWorldBook'/)
   assert.match(dispatch, /case 'unbindWorldBook'/)
   assert.match(panel, /call\("getWorldBookBinding", \{ cardPath: cardPath \}\)/)
-  assert.match(panel, /call\("listWorldBooks"\)/)
+	assert.match(panel, /rpcWithTimeout\("listWorldBooks", \{\}\)/)
   assert.match(panel, /"人物卡自带世界书"/)
   assert.match(panel, /call\("bindWorldBook", \{ cardPath: cardPath, source: source \}\)/)
   assert.match(panel, /call\("unbindWorldBook", \{ cardPath: cardPath \}\)/)
@@ -797,6 +797,15 @@ test('人物卡绑定面板在世界书变化后刷新已打开的目录', () =>
   assert.match(panel, /tavernDataChangeAffects\(event, \["worldbooks", "cards"\]\)/)
   assert.match(panel, /worldBookDetailsRef\.current && worldBookDetailsRef\.current\.open/)
   assert.match(panel, /loadWorldBookCatalog\(true\)/)
+})
+
+test('人物卡绑定目录超时后可在原位置重新读取', () => {
+  const panel = between(clientSource, 'function CardFieldsPanel', 'function TavernPlayerNameAction')
+  const catalogLoader = between(panel, 'function loadWorldBookCatalog(force)', 'React.useEffect(function ()')
+
+  assert.match(catalogLoader, /rpcWithTimeout\("listWorldBooks", \{\}\)/)
+  assert.match(panel, /"重新读取"/)
+  assert.match(panel, /onClick: function \(\) \{ loadWorldBookCatalog\(true\); \}/)
 })
 
 test('人物卡全部字段合并在默认展开的基本信息中，并位于世界书上方', () => {

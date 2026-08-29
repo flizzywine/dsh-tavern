@@ -2784,8 +2784,9 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			function loadWorldBookCatalog(force) {
 				if (!cardPath || (!force && worldBookCatalogLoaded)) return Promise.resolve();
 				if (worldBookCatalogRequestRef.current) return worldBookCatalogRequestRef.current;
+				setWorldBookError("");
 				setWorldBookCatalogLoading(true);
-				const request = call("listWorldBooks").then(function (result) {
+				const request = rpcWithTimeout("listWorldBooks", {}).then(function (result) {
 					setAvailableWorldBooks((result.standalone || []).concat(result.embedded || []));
 					setWorldBookCatalogLoaded(true);
 					setWorldBookCatalogWarning(worldBookCatalogDiagnostic(result));
@@ -2994,7 +2995,10 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					hasWorldBookBinding ? h("button", { className: "dsh-tavern-script-file", disabled: worldBookBusy, onClick: unbindWorldBook }, "解绑") : null,
 					hasWorldBookBinding ? h("button", { className: "dsh-tavern-worldbook-add", disabled: worldBookBusy, onClick: function () { if (typeof props.onOpenWorldBook === "function") props.onOpenWorldBook(worldBookBinding.source); } }, "打开世界书") : null
 				),
-				worldBookError ? h("div", { className: "dsh-card-error" }, worldBookError) : null,
+				worldBookError ? h("div", { className: "dsh-card-error" },
+					worldBookError,
+					h("button", { className: "dsh-tavern-btn", disabled: worldBookCatalogLoading, onClick: function () { loadWorldBookCatalog(true); } }, worldBookCatalogLoading ? "正在读取…" : "重新读取")
+				) : null,
 				worldBookCatalogWarning ? h("div", { className: "dsh-card-error" }, worldBookCatalogWarning) : null
 			);
 			return h("aside", { className: "dsh-tavern-status" },
