@@ -51,6 +51,14 @@ if ! command -v pnpm >/dev/null 2>&1; then
   printf '\n未检测到 pnpm，正在安装……\n'
   npm install --global pnpm
 fi
+# Android 的 proot 会把硬链接模拟成符号链接，pnpm 默认导入方式可能因此
+# 生成无法进行相对 require 的包目录。DSHA 中的所有后续安装也必须沿用复制模式。
+pnpm config set package-import-method copy --location=user
+pnpm config set side-effects-cache false --location=user
+
+run_dsh() {
+  node --expose-internals "$(command -v dsh)" "$@"
+}
 [ -f "${REPO_ROOT}/package.json" ] || fail "脚本必须位于完整的 dsh-tavern 仓库中。"
 [ -f "${SCRIPT_DIR}/dsh-tavern-entry/package.json" ] || fail "缺少 dsh-tavern-entry。"
 [ -f "${SCRIPT_DIR}/dsh-client-ui-mobile-adapt/package.json" ] || fail "缺少 dsh-client-ui-mobile-adapt。"
@@ -67,8 +75,8 @@ node "${SCRIPT_DIR}/configure-profiles.mjs" "${REPO_ROOT}" "${TAVERN_PROFILE_DIR
 
 pnpm --dir "${TAVERN_PROFILE_DIR}" install
 pnpm --dir "${WEB_PROFILE_DIR}" install
-dsh --profile tavern --dump-config >/dev/null
-dsh --profile "${WEB_PROFILE_NAME}" --dump-config >/dev/null
+run_dsh --profile tavern --dump-config >/dev/null
+run_dsh --profile "${WEB_PROFILE_NAME}" --dump-config >/dev/null
 
 printf '\n正在启动 3088 酒馆服务……\n'
 DSH_HOME="${DSH_ROOT}" DSH_TAVERN_PORT="${TAVERN_PORT}" \

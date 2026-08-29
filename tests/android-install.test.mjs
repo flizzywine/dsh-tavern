@@ -92,6 +92,8 @@ test('Android 入口未安装 Tavern 时明确拒绝伪更新', async (t) => {
 
 test('Android 安装脚本增量配置两个 Profile，失败不会伪装成成功', () => {
   assert.match(installer, /^#!\/usr\/bin\/env bash\nset -euo pipefail/m)
+  assert.match(installer, /pnpm config set package-import-method copy --location=user/)
+  assert.match(installer, /pnpm config set side-effects-cache false --location=user/)
   assert.match(installer, /DSH_TAVERN_PORT="\$\{TAVERN_PORT\}"/)
   assert.match(installer, /configure-profiles\.mjs/)
   assert.match(installer, /dsh-tavern-entry/)

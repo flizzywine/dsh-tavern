@@ -19,6 +19,7 @@ import {
   parseInstallHost,
   parseUpdateOptions,
   recordInstalledRelease,
+  resolveDshInvocation,
   resolveUpdateProgram,
   renderWindowsLauncher,
   restartBrowserTarget,
@@ -71,6 +72,17 @@ test('命令行启动端口默认 3081，安卓环境可显式使用 3088', () =
   assert.equal(resolveServicePort('3088'), 3088)
   assert.throws(() => resolveServicePort('0'), /1 到 65535/)
   assert.throws(() => resolveServicePort('not-a-port'), /1 到 65535/)
+})
+
+test('Android 通过 Node expose-internals 运行 DSH，其他宿主保持原命令', () => {
+  assert.deepEqual(resolveDshInvocation('/usr/local/bin/dsh', ['--version'], 'android', '/usr/local/bin/node'), {
+    command: '/usr/local/bin/node',
+    args: ['--expose-internals', '/usr/local/bin/dsh', '--version'],
+  })
+  assert.deepEqual(resolveDshInvocation('/usr/local/bin/dsh', ['--version'], 'cli', '/usr/local/bin/node'), {
+    command: '/usr/local/bin/dsh',
+    args: ['--version'],
+  })
 })
 
 test('升级时只用本次启动标识引导一次新页面，之后交给页面自动恢复', () => {
@@ -450,7 +462,8 @@ test('启动器保留显式 Android 运行宿主，普通命令行仍默认 CLI'
 
 test('共享 Profile 不固定端口，CLI Adapter 启动时显式使用 3081', () => {
   assert.doesNotMatch(profilePatch, /^\s*(?:host|port):/m)
-  assert.match(launcherSource, /spawn\(dsh, \['--profile', PROFILE, '--host', CLI_HOST, '--port', String\(CLI_PORT\), '--no-open'\]/)
+  assert.match(launcherSource, /\['--profile', PROFILE, '--host', CLI_HOST, '--port', String\(CLI_PORT\), '--no-open'\]/)
+  assert.match(launcherSource, /spawn\(invocation\.command, invocation\.args/)
 })
 
 test('Tavern 依赖安装时与当前宿主 DSH 版本对齐', () => {
@@ -480,5 +493,8 @@ test('port probe distinguishes an open listener from a closed port', async () =>
 test('Web 服务就绪检查要求 HTTP 成功响应', async () => {
   assert.equal(await isServiceReady(3081, async () => ({ ok: true })), true)
   assert.equal(await isServiceReady(3081, async () => ({ ok: false })), false)
+  assert.equal(await isServiceReady(3088, async () => ({ ok: false, status: 403 }), 'android'), true)
+  assert.equal(await isServiceReady(3081, async () => ({ ok: false, status: 403 }), 'cli'), false)
+  assert.equal(await isServiceReady(3088, async () => ({ ok: false, status: 500 }), 'android'), false)
   assert.equal(await isServiceReady(3081, async () => { throw new Error('offline') }), false)
 })

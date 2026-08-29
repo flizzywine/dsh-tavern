@@ -253,7 +253,10 @@ function commandExists(command) {
 }
 
 function findDshCommand() {
-  if (commandExists('dsh')) return 'dsh'
+  if (commandExists('dsh')) {
+    if (process.platform === 'win32') return 'dsh'
+    return run('sh', ['-c', 'command -v dsh'], { capture: true })
+  }
 
   const bundledDsh = process.platform === 'win32'
     ? path.join(DSH_ROOT, 'runtime', 'dsh.cmd')
@@ -274,6 +277,11 @@ function findDshCommand() {
   }
 
   throw new Error('找不到 dsh，请先安装 DeepSeek Harness，并重新打开终端。')
+}
+
+export function resolveDshInvocation(command, args, host = 'cli', nodePath = process.execPath) {
+  if (host !== 'android') return { command, args }
+  return { command: nodePath, args: ['--expose-internals', command, ...args] }
 }
 
 function requireCommand(command, installHint = '') {
@@ -523,7 +531,7 @@ async function installProfile(host = 'cli') {
   requireCommand('node', '请安装 Node.js 22.19 或更高版本')
   requireCommand('pnpm', '请运行 npm install -g pnpm')
   verifySource()
-  const dshVersion = extractDshVersion(runDsh(dsh, ['--version'], { capture: true }))
+  const dshVersion = extractDshVersion(runDsh(dsh, ['--version'], { capture: true, host }))
 
   mkdirSync(PROFILE_DIR, { recursive: true })
   mkdirSync(LOG_DIR, { recursive: true })
@@ -551,7 +559,7 @@ async function installProfile(host = 'cli') {
   try {
     copyFileSync(path.join(SOURCE_ROOT, 'pnpm-workspace.yaml'), path.join(PROFILE_DIR, 'pnpm-workspace.yaml'))
     run('pnpm', ['--dir', PROFILE_DIR, 'install'])
-    runDsh(dsh, ['--profile', PROFILE, '--dump-config'], { stdio: 'ignore' })
+    runDsh(dsh, ['--profile', PROFILE, '--dump-config'], { stdio: 'ignore', host })
     ensureSidebarDefaults()
     transaction.commit()
   } catch (error) {
@@ -627,10 +635,10 @@ export function isPortOpen(port, host = '127.0.0.1', timeout = 300) {
   })
 }
 
-export async function isServiceReady(port, request = fetch) {
+export async function isServiceReady(port, request = fetch, host = process.env.DSH_TAVERN_RUNTIME_HOST || 'cli') {
   try {
     const response = await request(`http://127.0.0.1:${port}/`, { signal: AbortSignal.timeout(1000) })
-    return response.ok
+    return response.ok || (host === 'android' && response.status === 403)
   } catch {
     return false
   }
@@ -715,7 +723,12 @@ async function stopService() {
 }
 
 function runDsh(command, args, options = {}) {
-  const result = spawnSync(command, args, { encoding: 'utf8', shell: process.platform === 'win32', ...options })
+  const invocation = resolveDshInvocation(command, args, options.host)
+  const spawnOptions = { ...options }
+  delete spawnOptions.host
+  const result = spawnSync(invocation.command, invocation.args, {
+    encoding: 'utf8', shell: process.platform === 'win32', ...spawnOptions,
+  })
   if (result.error) throw new Error(`无法运行 dsh：${result.error.message}`)
   if (result.status !== 0) throw new Error('dsh 配置验证失败。')
   return options.capture ? result.stdout.trim() : ''
@@ -737,11 +750,17 @@ async function startService() {
   }
 
   const dsh = findDshCommand()
+  const runtimeHost = process.env.DSH_TAVERN_RUNTIME_HOST || 'cli'
+  const invocation = resolveDshInvocation(
+    dsh,
+    ['--profile', PROFILE, '--host', CLI_HOST, '--port', String(CLI_PORT), '--no-open'],
+    runtimeHost,
+  )
   mkdirSync(LOG_DIR, { recursive: true })
   const logDescriptor = openSync(LOG_FILE, 'a')
   let child
   try {
-    child = spawn(dsh, ['--profile', PROFILE, '--host', CLI_HOST, '--port', String(CLI_PORT), '--no-open'], {
+    child = spawn(invocation.command, invocation.args, {
       cwd: SOURCE_ROOT,
       detached: true,
       env: { ...process.env, DSH_TAVERN_RUNTIME_HOST: process.env.DSH_TAVERN_RUNTIME_HOST || 'cli' },
