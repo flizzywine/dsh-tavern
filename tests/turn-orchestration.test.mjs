@@ -150,6 +150,21 @@ test('游玩回合由生命周期自动准备与提交，不再要求模型回�
   assert.deepEqual(run.settlements, [])
 })
 
+test('同一 DSH rpcId 即使被重放到新回合也不会再次推进酒馆状态', async () => {
+  const run = harness('story')
+  await run.orchestrator.prepare({ sessionId: 'session-1', turn: 2, requestId: 'rpc-1', userText: '推开窗' })
+  await run.orchestrator.finalize({ sessionId: 'session-1', turn: 2, requestId: 'rpc-1', userText: '推开窗', assistantText: '雨水扑进房间。' })
+
+  const duplicate = await run.orchestrator.prepare({ sessionId: 'session-1', turn: 3, requestId: 'rpc-1', userText: '推开窗' })
+
+  assert.equal(duplicate.duplicate, true)
+  assert.equal(duplicate.committedTurn, 2)
+  assert.equal(run.chat().messages.length, 2)
+  assert.equal(Object.values(run.timeline.inspect({ chat: run.chat() }).operations).some(function (item) {
+    return Number(item.turn) === 3
+  }), false)
+})
+
 test('正文准备只读取本地已保存的下一轮世界书上下文，不再触发匹配', async () => {
   let recallCalls = 0
   const run = harness('story', {

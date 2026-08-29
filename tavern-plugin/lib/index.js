@@ -2436,6 +2436,31 @@ export async function apply(ctx) {
     return ''
   }
 
+  function requestIdOf(message) {
+    const source = message && message.source
+    return source && source.kind === 'user' ? str(source.rpcId).trim() : ''
+  }
+
+  function requestIdForTurn(session, turn) {
+    const events = Array.isArray(session && session.events) ? session.events : []
+    const start = turnStartIndex(session, turn)
+    if (start < 0) return ''
+    for (let index = Math.max(0, start + 1); index < events.length; index++) {
+      const event = events[index]
+      if (!event || event.type !== 'user/message' || !isTurnInput(event.data)) continue
+      return requestIdOf(event.data)
+    }
+    return ''
+  }
+
+  function requestIdForMessages(messages) {
+    const list = Array.isArray(messages) ? messages : []
+    for (let index = list.length - 1; index >= 0; index--) {
+      if (isTurnInput(list[index])) return requestIdOf(list[index])
+    }
+    return ''
+  }
+
   function assistantResultForTurn(session, turn) {
     const events = Array.isArray(session && session.events) ? session.events : []
     const start = turnStartIndex(session, turn)
@@ -2653,8 +2678,10 @@ export async function apply(ctx) {
     let chat = await chatForSession(sessionId)
     if (chat && chat.requestMode === 'sillytavern') {
       const userText = payload.messages.filter(isTurnInput).map(contentText).filter(Boolean).join('\n').trim()
+      const requestId = requestIdForMessages(payload.messages)
       if (Number(payload.step) === 1) {
-        await turnOrchestrator.beginCompatibility({ sessionId, turn: payload.turn, userText })
+        const begun = await turnOrchestrator.beginCompatibility({ sessionId, turn: payload.turn, requestId, userText })
+        if (begun.duplicate) throw new Error('该消息已由酒馆处理，请勿重复发送')
         chat = await chatForSession(sessionId)
       }
       const compiled = await compileCompatibilityTurn(chat, userText)
@@ -2681,7 +2708,9 @@ export async function apply(ctx) {
     let agentMessages = scopedDecision.messages
     if (Number(payload.step) === 1) {
       const userText = payload.messages.filter(isTurnInput).map(contentText).filter(Boolean).join('\n').trim()
-      const prepared = await foregroundHandoff.prepare({ sessionId, turn: payload.turn, userText })
+      const requestId = requestIdForMessages(payload.messages)
+      const prepared = await foregroundHandoff.prepare({ sessionId, turn: payload.turn, requestId, userText })
+      if (prepared.duplicate) throw new Error('该消息已由酒馆处理，请勿重复发送')
       agentMessages = mode === 'story' || mode === 'script'
         ? replaceTurnInput(scopedDecision.messages, prepared.userText)
         : scopedDecision.messages
@@ -2800,10 +2829,12 @@ export async function apply(ctx) {
     if (backgroundAgentRunner.owns(sessionId)) return
     const userText = userTextForTurn(session, payload.turn)
     if (userText === '') return
+    const requestId = requestIdForTurn(session, payload.turn)
     const assistant = assistantResultForTurn(session, payload.turn)
     const saved = await foregroundHandoff.finalize({
       sessionId,
       turn: payload.turn,
+      requestId,
       userText,
       assistantText: assistant === null ? '' : assistant.text
     })

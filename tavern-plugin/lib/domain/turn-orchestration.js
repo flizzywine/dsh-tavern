@@ -21,6 +21,15 @@ function commitFor(chat, turn) {
   return value !== null && typeof value === 'object' ? value : null
 }
 
+function commitForRequest(chat, requestId) {
+  const target = str(requestId).trim()
+  if (target === '' || chat.nativeCommits === null || typeof chat.nativeCommits !== 'object') return null
+  for (const value of Object.values(chat.nativeCommits)) {
+    if (value !== null && typeof value === 'object' && str(value.requestId).trim() === target) return value
+  }
+  return null
+}
+
 function rememberCommit(chat, turn, value, before, now) {
   if (!turn) return
   if (chat.nativeCommits === null || typeof chat.nativeCommits !== 'object') chat.nativeCommits = {}
@@ -111,7 +120,18 @@ export function createTurnOrchestrator(options) {
       }
     }
     const turn = Math.max(0, Number(input.turn) || 0)
+    const requestId = str(input.requestId).trim()
     const userText = str(input.userText).trim()
+    const requestCommit = commitForRequest(chat, requestId)
+    if (requestCommit !== null) {
+      return {
+        ready: false,
+        duplicate: true,
+        committedTurn: Math.max(0, Number(requestCommit.turn) || 0),
+        mode: chat.mode || 'story',
+        cardName: str(chat.cardName)
+      }
+    }
     let runtimeUserText = userText
     let reusedRuntimeInput = false
     const mode = chat.mode || 'story'
@@ -195,7 +215,17 @@ export function createTurnOrchestrator(options) {
     const mode = chat.mode || 'story'
     if (mode !== 'story' && mode !== 'script') throw new Error('酒馆兼容模式只适用于游玩对话')
     const turn = Math.max(0, Number(input.turn) || 0)
+    const requestId = str(input.requestId).trim()
     const userText = str(input.userText).trim()
+    const requestCommit = commitForRequest(chat, requestId)
+    if (requestCommit !== null) {
+      return {
+        ready: false,
+        duplicate: true,
+        committedTurn: Math.max(0, Number(requestCommit.turn) || 0),
+        mode
+      }
+    }
     const begun = timeline.apply({ chat, intent: { kind: 'body.begin', turn, userText } })
     chat = begun.chat
     rememberRuntimeInput(chat, turn, userText, userText)
@@ -243,6 +273,17 @@ export function createTurnOrchestrator(options) {
     let chat = await store.chatForSession(input.sessionId)
     if (chat === undefined) return { saved: false, reason: 'unbound' }
     const turn = Math.max(0, Number(input.turn) || 0)
+    const requestId = str(input.requestId).trim()
+    const requestCommit = commitForRequest(chat, requestId)
+    if (requestCommit !== null) {
+      return {
+        saved: true,
+        duplicate: true,
+        committedTurn: Math.max(0, Number(requestCommit.turn) || 0),
+        mode: chat.mode || 'story',
+        changed: requestCommit.changed === true
+      }
+    }
     const prior = commitFor(chat, turn)
     if (prior !== null) return { saved: true, duplicate: true, mode: chat.mode || 'story', changed: prior.changed === true }
     const userText = str(input.userText).trim()
@@ -300,7 +341,7 @@ export function createTurnOrchestrator(options) {
       if (userText !== '') chat.messages.push({ role: 'user', text: userText, ts: now(), native: true })
       chat.messages.push({ role: 'assistant', text: assistantText, ts: now(), native: true, changed })
       chat.cardName = created === null ? (str(state.draft && state.draft.name) || '卡片工作台') : created.card.name
-      rememberCommit(chat, turn, { mode, userText, changed }, null, now)
+      rememberCommit(chat, turn, { mode, userText, requestId, changed }, null, now)
       await store.writeChat(chat, { source: 'card.commit' })
       return {
         saved: true,
@@ -327,7 +368,7 @@ export function createTurnOrchestrator(options) {
       if (userText !== '') chat.messages.push({ role: 'user', text: userText, ts: now(), native: true })
       chat.messages.push({ role: 'assistant', text: assistantText, ts: now(), native: true, changed })
       chat.cardName = savedCard.name
-      rememberCommit(chat, turn, { mode, userText, changed }, null, now)
+      rememberCommit(chat, turn, { mode, userText, requestId, changed }, null, now)
       await store.writeChat(chat, { source: 'card.commit' })
       return { saved: true, mode, changed, chatId: chat.id, cardName: savedCard.name }
     }
@@ -375,7 +416,7 @@ export function createTurnOrchestrator(options) {
         }
         draft.messages.push(assistantMessage)
         draft.presentationWarnings = Array.isArray(reply.warnings) ? clone(reply.warnings) : []
-        rememberCommit(draft, turn, { mode, userText, scriptReference }, before, now)
+        rememberCommit(draft, turn, { mode, userText, requestId, scriptReference }, before, now)
       }
     })
     chat = completed.chat
