@@ -220,3 +220,14 @@ test('World Book Library 通过来源 adapter 原子编辑、导入、导出和�
   assert.deepEqual(await run.library.remove(imported.path), { removed: 'worldbooks/海港.json' })
   assert.deepEqual(run.removed, ['worldbooks/海港.json'])
 })
+
+test('人物卡内嵌世界书导出为 SillyTavern 可见的独立世界书', async () => {
+  const run = harness()
+
+  const exported = await run.library.export({ kind: 'card', cardPath: 'cards/命运.json' })
+
+  assert.equal(Array.isArray(exported.document.entries), false)
+  assert.equal(exported.document.entries['0'].content, '钟楼只在午夜开放。')
+  assert.deepEqual(exported.document.entries['0'].key, ['钟楼'])
+  assert.equal(exported.document.entries['0'].disable, false)
+})

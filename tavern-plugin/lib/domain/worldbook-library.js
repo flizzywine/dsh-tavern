@@ -1,4 +1,4 @@
-import { inspectWorldBookDocument, prepareWorldBookImport, updateWorldBookDocument } from './worldbook-resource.js'
+import { exportSillyTavernWorldBook, inspectWorldBookDocument, prepareWorldBookImport, updateWorldBookDocument } from './worldbook-resource.js'
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
@@ -214,7 +214,7 @@ export function createWorldBookLibrary(options = {}) {
 
   async function exportBook(locator) {
     const record = await readRecord(locator)
-    return { name: record.view.displayName, document: clone(record.document) }
+    return { name: record.view.displayName, document: exportSillyTavernWorldBook(record.document) }
   }
 
   async function remove(path) {

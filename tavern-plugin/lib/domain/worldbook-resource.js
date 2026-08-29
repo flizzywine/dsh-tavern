@@ -31,6 +31,10 @@ function extensionValue(entry, names, fallback) {
   return fallback
 }
 
+function hasOwn(value, name) {
+  return value !== null && typeof value === 'object' && Object.prototype.hasOwnProperty.call(value, name)
+}
+
 function identifyDocument(document) {
   const raw = object(document)
   if (raw === null) throw new Error('世界书必须是 JSON 对象')
@@ -119,6 +123,73 @@ export function inspectWorldBookDocument(document, options = {}) {
     diagnostics: diagnosticsOf(book, identified.format, entries),
     raw: clone(book),
   }
+}
+
+function standaloneEntryFromEmbedded(value, index) {
+  const entry = object(value) || {}
+  const extensions = object(entry.extensions) || {}
+  const uid = numberOr(entry.id, index)
+  const position = extensionValue(entry, ['position'], entry.position === 'after_char' ? 1 : 0)
+  const exported = Object.assign({}, clone(entry), {
+    uid,
+    key: array(entry.keys).map(str),
+    keysecondary: array(entry.secondary_keys).map(str),
+    comment: str(entry.comment || entry.name),
+    content: str(entry.content),
+    constant: entry.constant === true,
+    selective: entry.selective === true,
+    order: numberOr(entry.insertion_order, 100),
+    position: numberOr(position, entry.position === 'after_char' ? 1 : 0),
+    disable: entry.enabled === false,
+    extensions: clone(extensions)
+  })
+  delete exported.id
+  delete exported.keys
+  delete exported.secondary_keys
+  delete exported.enabled
+  delete exported.insertion_order
+  delete exported.case_sensitive
+
+  const optional = [
+    ['displayIndex', ['display_index', 'displayIndex']],
+    ['selectiveLogic', ['selective_logic', 'selectiveLogic']],
+    ['vectorized', ['vectorized']],
+    ['depth', ['depth']],
+    ['role', ['role']],
+    ['useProbability', ['use_probability', 'useProbability']],
+    ['probability', ['probability']],
+    ['scanDepth', ['scan_depth']],
+    ['matchWholeWords', ['match_whole_words']],
+    ['excludeRecursion', ['exclude_recursion']],
+    ['preventRecursion', ['prevent_recursion']],
+    ['delayUntilRecursion', ['delay_until_recursion']],
+    ['group', ['group']],
+    ['sticky', ['sticky']],
+    ['cooldown', ['cooldown']],
+    ['delay', ['delay']]
+  ]
+  for (const [target, names] of optional) {
+    const name = names.find(function (candidate) { return hasOwn(extensions, candidate) })
+    if (name !== undefined) exported[target] = clone(extensions[name])
+  }
+  if (hasOwn(entry, 'case_sensitive')) exported.caseSensitive = entry.case_sensitive === true
+  else if (hasOwn(extensions, 'case_sensitive')) exported.caseSensitive = extensions.case_sensitive === true
+  return exported
+}
+
+/** Convert any supported source into SillyTavern's standalone World Info shape. */
+export function exportSillyTavernWorldBook(document) {
+  const identified = identifyDocument(document)
+  if (identified.format === 'sillytavern-worldbook') return clone(identified.book)
+  const book = identified.book
+  const exported = clone(book)
+  exported.originalData = clone(book)
+  exported.entries = {}
+  array(book.entries).forEach(function (entry, index) {
+    const converted = standaloneEntryFromEmbedded(entry, index)
+    exported.entries[String(converted.uid)] = converted
+  })
+  return exported
 }
 
 function nextId(entries, field) {
