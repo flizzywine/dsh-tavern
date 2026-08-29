@@ -13,6 +13,14 @@ async function clientExports() {
 
 const browser = await clientExports()
 
+test('资源变化只刷新相关资料库，并忽略来源资料库自己的通知', function () {
+  const affects = browser.tavernDataChangeAffects
+  assert.equal(affects({ detail: { kinds: ['cards'], source: 'cards' } }, ['cards'], 'cards'), false)
+  assert.equal(affects({ detail: { kinds: ['cards'], source: 'card-agent' } }, ['cards'], 'cards'), true)
+  assert.equal(affects({ detail: { kinds: ['worldbooks'], source: 'worldbooks' } }, ['presets'], 'presets'), false)
+  assert.equal(affects({}, ['cards'], 'cards'), true)
+})
+
 test('剧本库 Feature module 只向宿主暴露注册 interface', function () {
   const feature = browser.createResourcesLibraryFeatureModule()
   let registration

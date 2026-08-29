@@ -690,6 +690,7 @@ export async function apply(ctx) {
     const cards = await listCards()
     const sources = await listSources()
     return {
+      cards,
       resources: sources.map(function (source) {
         const boundCards = cards.filter(function (card) { return card.script !== null && card.script.path === source.path }).map(function (card) { return { path: card.path, name: card.name } })
         return { path: source.path, previewPath: fileResources.absolute(source.path), title: source.title, sourceChars: Number(source.sourceChars) || 0, chunkCount: Number(source.chunkCount) || 0, boundCards }

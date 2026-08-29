@@ -435,7 +435,7 @@ test('空白工作台确认后自动创建人物卡，不再提供二次保存�
   assert.doesNotMatch(clientSource, /CardDraftPanel|finalizeCard|保存为新人物卡|写入草稿/)
   assert.doesNotMatch(serverSource, /case 'finalizeCard'/)
   assert.match(sidebar, /const currentSummary = current \? summaries\[current\] : null;/)
-  assert.match(sidebar, /if \(!currentSummary \|\| currentSummary\.blank\) return;\s*notifyDataChanged\(\);/)
+  assert.match(sidebar, /if \(!currentSummary \|\| currentSummary\.blank\) return;\s*notifyDataChanged\(\["sessions"\]\);/)
 })
 
 test('Tavern 只接管会话区域，保留 DSH 原生设置与模型配置入口', () => {
@@ -645,7 +645,8 @@ test('卡片模式预加载人物卡、预设、世界书和剧本四个库', ()
 test('剧本库可以把未绑定剧本绑定给未绑定人物卡，并可直接解绑', () => {
   const library = between(clientSource, 'function TavernResourcesTab', 'function register(input)')
 
-  assert.match(library, /rpc\("listCards"/)
+  assert.match(library, /setCards\(all\[0\] && all\[0\]\.cards \|\| \[\]\)/)
+  assert.doesNotMatch(library, /rpc\("listCards"/)
   assert.match(library, /card\.script == null/)
   assert.match(library, /rpc\("bindScript", \{ cardPath: cardPath, path: item\.path \}/)
   assert.match(library, /rpc\("deleteScript", \{ cardPath: boundCard\.path \}/)
@@ -670,7 +671,7 @@ test('人物卡库可以查看详情，并在当前卡片对话中引用人物�
 
 test('人物卡 Agent 保存后重新读取已打开的详情，未变化时不重置表单', () => {
   const library = between(clientSource, 'function CardLibraryTab', 'function CardFieldsPanel')
-  const listener = between(library, 'function onData()', 'window.addEventListener("dsh-tavern-data-changed"')
+  const listener = between(library, 'function onData(event)', 'window.addEventListener("dsh-tavern-data-changed"')
 
   assert.match(listener, /loadCard\(selectedPath\)/)
   assert.match(library, /setCard\(function \(current\)/)
