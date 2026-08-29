@@ -316,14 +316,33 @@ function prepareProfileConfiguration(host, dshVersion) {
   return { manifest, patchText }
 }
 
+function dshDependencyVersionExists(packageName, version) {
+  const result = spawnSync(commandName('pnpm'), ['view', `${packageName}@${version}`, 'version'], {
+    encoding: 'utf8',
+    shell: process.platform === 'win32',
+  })
+  if (result.error || result.status !== 0) return false
+  return result.stdout.trim() === version
+}
+
 function installPluginDependencies(dshVersion) {
   const pluginDirectory = path.join(SOURCE_ROOT, 'tavern-plugin')
   const workspacePath = path.join(pluginDirectory, 'pnpm-workspace.yaml')
   const original = readFileSync(workspacePath, 'utf8')
   const workspace = parseDocument(original)
   if (workspace.errors.length > 0) throw new Error(`无法读取插件 workspace：${workspace.errors[0].message}`)
-  workspace.setIn(['overrides', '@deepseek-ai/dsh-subagent'], dshVersion)
-  workspace.setIn(['overrides', '@deepseek-ai/dsh-tools'], dshVersion)
+  const subagentAvailable = dshDependencyVersionExists('@deepseek-ai/dsh-subagent', dshVersion)
+  const toolsAvailable = dshDependencyVersionExists('@deepseek-ai/dsh-tools', dshVersion)
+  if (subagentAvailable && toolsAvailable) {
+    workspace.setIn(['overrides', '@deepseek-ai/dsh-subagent'], dshVersion)
+    workspace.setIn(['overrides', '@deepseek-ai/dsh-tools'], dshVersion)
+  } else {
+    const missing = [
+      subagentAvailable ? '' : '@deepseek-ai/dsh-subagent',
+      toolsAvailable ? '' : '@deepseek-ai/dsh-tools',
+    ].filter(Boolean).join('、')
+    console.warn(`npm 上不存在 ${missing}@${dshVersion}，已跳过版本对齐，将按 tavern-plugin 声明的版本范围安装。`)
+  }
   const temporary = `${workspacePath}.tmp-${process.pid}`
   try {
     writeFileSync(temporary, workspace.toString(), 'utf8')

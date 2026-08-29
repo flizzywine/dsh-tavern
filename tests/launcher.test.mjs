@@ -460,6 +460,12 @@ test('Tavern 依赖安装时与当前宿主 DSH 版本对齐', () => {
   assert.match(launcherSource, /install', '--lockfile=false'/)
 })
 
+test('宿主 DSH 版本未发布到 npm 时跳过版本对齐而非失败', () => {
+  assert.match(launcherSource, /dshDependencyVersionExists\(/)
+  assert.match(launcherSource, /subagentAvailable && toolsAvailable/)
+  assert.match(launcherSource, /已跳过版本对齐/)
+})
+
 test('升级后用户数据固定在 Profile 目录，并在安装时迁移旧源码数据', () => {
   assert.match(launcherSource, /resolveTavernDataRoot\(\{ dshHome: DSH_ROOT \}\)/)
   assert.match(launcherSource, /migrateLegacyTavernData\(\{/)
