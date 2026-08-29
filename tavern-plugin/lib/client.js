@@ -498,6 +498,12 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			}).finally(function () { window.clearTimeout(timer); });
 		}
 
+		function worldBookCatalogDiagnostic(result) {
+			const diagnostics = result && Array.isArray(result.diagnostics) ? result.diagnostics : [];
+			if (!diagnostics.length) return "";
+			return "已跳过 " + diagnostics.length + " 个损坏资源：\n" + diagnostics.map(function (item) { return String(item.path || "未知资源") + "：" + String(item.message || "无法读取"); }).join("\n");
+		}
+
 		function notifyTavernDataChanged(kinds, source) {
 			const changedKinds = Array.isArray(kinds) ? kinds.filter(Boolean) : [];
 			window.dispatchEvent(new CustomEvent("dsh-tavern-data-changed", { detail: { kinds: changedKinds, source: String(source || "") } }));
@@ -2468,6 +2474,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 
 		function WorldBookLibraryTab(props) {
 			const [catalog, setCatalog] = React.useState(null);
+			const [catalogWarning, setCatalogWarning] = React.useState("");
 			const [record, setRecord] = React.useState(null);
 			const [associations, setAssociations] = React.useState(null);
 			const [selectedCardPath, setSelectedCardPath] = React.useState("");
@@ -2483,7 +2490,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const h = React.createElement;
 			if (!refreshModule.current) refreshModule.current = createWorldBookLibraryRefreshModule({
 				load: function () { return rpcWithTimeout("listWorldBooks", {}, props.scope.sessionId); },
-				onValue: function (result) { setCatalog(result || { standalone: [], embedded: [] }); },
+				onValue: function (result) { setCatalog(result || { standalone: [], embedded: [] }); setCatalogWarning(worldBookCatalogDiagnostic(result)); },
 				onError: function (err) { setError(String(err && err.message || err)); },
 				onBusyChange: setLoading
 			});
@@ -2578,6 +2585,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				h("div", { className: "dsh-tavern-worldbook-note" }, "常驻条目随人物卡进入稳定前缀；非常驻条目按关键词确定性匹配，每轮最多注入 3 条，实际注入后冷却 10 个剧情回合。世界书不再调用后台 Agent。尚未支持的酒馆字段仍会原样保留。"),
 				loading && !catalog ? h("div", { className: "dsh-tavern-empty" }, "正在读取世界书…") : null,
 				error ? h("div", { className: "dsh-tavern-dock-error" }, error, h("button", { className: "dsh-tavern-btn", onClick: refresh }, "重新读取")) : null,
+				catalogWarning ? h("div", { className: "dsh-tavern-dock-error" }, catalogWarning) : null,
 				catalog ? group("独立世界书", catalog.standalone || []) : null,
 				catalog ? group("人物卡内置世界书", catalog.embedded || []) : null));
 		}
@@ -2727,6 +2735,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const [availableWorldBooks, setAvailableWorldBooks] = React.useState([]);
 			const [worldBookCatalogLoaded, setWorldBookCatalogLoaded] = React.useState(false);
 			const [worldBookCatalogLoading, setWorldBookCatalogLoading] = React.useState(false);
+			const [worldBookCatalogWarning, setWorldBookCatalogWarning] = React.useState("");
 			const [selectedWorldBook, setSelectedWorldBook] = React.useState("");
 			const [worldBookBusy, setWorldBookBusy] = React.useState(false);
 			const [worldBookError, setWorldBookError] = usePersistentError("世界书绑定");
@@ -2779,6 +2788,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				const request = call("listWorldBooks").then(function (result) {
 					setAvailableWorldBooks((result.standalone || []).concat(result.embedded || []));
 					setWorldBookCatalogLoaded(true);
+					setWorldBookCatalogWarning(worldBookCatalogDiagnostic(result));
 					setWorldBookError("");
 				}, function (err) { setWorldBookError(String(err && err.message || err)); })
 					.finally(function () {
@@ -2800,6 +2810,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			React.useEffect(function () {
 				setAvailableResources([]); setScriptCatalogLoaded(false); setScriptCatalogLoading(false);
 				setAvailableWorldBooks([]); setWorldBookCatalogLoaded(false); setWorldBookCatalogLoading(false);
+				setWorldBookCatalogWarning("");
 				loadScript();
 				loadWorldBookBinding();
 			}, [cardPath]);
@@ -2983,7 +2994,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					hasWorldBookBinding ? h("button", { className: "dsh-tavern-script-file", disabled: worldBookBusy, onClick: unbindWorldBook }, "解绑") : null,
 					hasWorldBookBinding ? h("button", { className: "dsh-tavern-worldbook-add", disabled: worldBookBusy, onClick: function () { if (typeof props.onOpenWorldBook === "function") props.onOpenWorldBook(worldBookBinding.source); } }, "打开世界书") : null
 				),
-				worldBookError ? h("div", { className: "dsh-card-error" }, worldBookError) : null
+				worldBookError ? h("div", { className: "dsh-card-error" }, worldBookError) : null,
+				worldBookCatalogWarning ? h("div", { className: "dsh-card-error" }, worldBookCatalogWarning) : null
 			);
 			return h("aside", { className: "dsh-tavern-status" },
 				h("div", { className: "dsh-tavern-status-head" },

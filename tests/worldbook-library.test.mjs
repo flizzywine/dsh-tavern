@@ -110,6 +110,31 @@ test('World Book Library 目录并行读取每张人物卡一次', async () => {
   assert.equal(maxActiveReads, 3)
 })
 
+test('单本世界书或人物卡损坏时目录保留正常项目并返回诊断', async () => {
+  const library = createWorldBookLibrary({
+    normalizePath(path) { return path },
+    resources: {
+      async list() { return ['worldbooks/正常.json', 'worldbooks/损坏.json'] },
+      async readText(path) { return path.endsWith('正常.json') ? JSON.stringify({ name: '正常', entries: {} }) : 'not-json' },
+      async bindingForCard() { return { kind: 'none' } }
+    },
+    cards: {
+      async listPaths() { return ['cards/正常.json', 'cards/损坏.json'] },
+      async read(path) {
+        if (path.endsWith('损坏.json')) throw new Error('人物卡 JSON 损坏')
+        return { name: '正常人物', character_book: { name: '正常内置书', entries: [] } }
+      }
+    },
+    async removeStandalone() {}
+  })
+
+  const catalog = await library.catalog()
+
+  assert.deepEqual(catalog.standalone.map(function (book) { return book.name }), ['正常'])
+  assert.deepEqual(catalog.embedded.map(function (book) { return book.name }), ['正常内置书'])
+  assert.deepEqual(catalog.diagnostics.map(function (item) { return item.path }), ['worldbooks/损坏.json', 'cards/损坏.json'])
+})
+
 test('World Book Library 隐藏默认内嵌、解绑和独立绑定的存储差异', async () => {
   const run = harness()
 

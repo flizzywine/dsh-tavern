@@ -64,25 +64,36 @@ export function createWorldBookLibrary(options = {}) {
   }
 
   async function catalog() {
-    const standalone = await Promise.all((await resources.list('worldbook')).map(async function (path) {
-      const record = await readRecord({ kind: 'standalone', path })
-      return {
-        kind: 'standalone', path: record.source.path, name: record.view.displayName,
-        entryCount: record.view.entryCount, enabledCount: record.view.enabledCount,
-        diagnostics: record.view.diagnostics.length
+    const standaloneResults = await Promise.all((await resources.list('worldbook')).map(async function (path) {
+      try {
+        const record = await readRecord({ kind: 'standalone', path })
+        return { row: {
+          kind: 'standalone', path: record.source.path, name: record.view.displayName,
+          entryCount: record.view.entryCount, enabledCount: record.view.enabledCount,
+          diagnostics: record.view.diagnostics.length
+        } }
+      } catch (error) {
+        return { diagnostic: { kind: 'standalone', path, message: str(error && error.message || error) } }
       }
     }))
-    const embedded = (await Promise.all((await cards.listPaths()).map(async function (cardPath) {
-      const card = await cards.read(cardPath)
-      if (!card || !card.character_book || typeof card.character_book !== 'object') return null
-      const view = inspectWorldBookDocument(card.character_book, { filename: card.name })
-      return {
-        kind: 'card', cardPath, cardName: card.name, name: view.displayName,
-        entryCount: view.entryCount, enabledCount: view.enabledCount,
-        diagnostics: view.diagnostics.length
+    const embeddedResults = await Promise.all((await cards.listPaths()).map(async function (cardPath) {
+      try {
+        const card = await cards.read(cardPath)
+        if (!card || !card.character_book || typeof card.character_book !== 'object') return {}
+        const view = inspectWorldBookDocument(card.character_book, { filename: card.name })
+        return { row: {
+          kind: 'card', cardPath, cardName: card.name, name: view.displayName,
+          entryCount: view.entryCount, enabledCount: view.enabledCount,
+          diagnostics: view.diagnostics.length
+        } }
+      } catch (error) {
+        return { diagnostic: { kind: 'card', path: cardPath, message: str(error && error.message || error) } }
       }
-    }))).filter(Boolean)
-    return { standalone, embedded }
+    }))
+    const standalone = standaloneResults.map(function (result) { return result.row }).filter(Boolean)
+    const embedded = embeddedResults.map(function (result) { return result.row }).filter(Boolean)
+    const diagnostics = standaloneResults.concat(embeddedResults).map(function (result) { return result.diagnostic }).filter(Boolean)
+    return { standalone, embedded, diagnostics }
   }
 
   async function binding(cardPath) {
