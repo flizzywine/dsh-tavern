@@ -36,6 +36,25 @@ function chat(messages = [{ role: 'assistant', text: '开场', greeting: true }]
   }
 }
 
+test('正文规划使用宿主提供的自定义核心提示词', async () => {
+  const planner = createContextPlanner({
+    prompt(name) { return name === 'story' ? '用户自定义正文核心提示词' : prompt(name) }
+  })
+  const result = await planner.plan({
+    purpose: 'body',
+    card: card(),
+    chat: chat(),
+    userText: '去钟楼看看',
+    sessionId: 'session-1',
+    nativeTurn: 2,
+    scriptReference: null,
+    worldBookContext: ''
+  })
+
+  assert.match(result.text, /^用户自定义正文核心提示词/)
+  assert.doesNotMatch(result.text, /你是小说续写引擎/)
+})
+
 test('正文只注入召回模块准备的世界书上下文，并解析人物卡环境宏', async () => {
   const planner = createContextPlanner({ prompt })
   const result = await planner.plan({

@@ -101,6 +101,15 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 .dsh-tavern-settings-switch input:checked + .dsh-tavern-settings-track::after { transform: translateX(18px); background: #fff; }
 .dsh-tavern-settings-switch input:focus-visible + .dsh-tavern-settings-track { outline: 2px solid #a66b35; outline-offset: 2px; }
 .dsh-tavern-settings-error { color: #c45f5f; font-size: 13px; }
+.dsh-tavern-system-prompt-editor { display: flex; flex-direction: column; gap: 14px; padding: 18px 20px; }
+.dsh-tavern-system-prompt-editor textarea { box-sizing: border-box; width: 100%; min-height: 320px; resize: vertical; border: 1px solid var(--dsw-alias-border-l2); border-radius: 10px; padding: 14px; background: var(--dsw-specific-input-minor); color: var(--dsw-alias-label-primary); font: 13px/1.65 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.dsh-tavern-system-prompt-editor textarea:focus { outline: 2px solid #a66b35; outline-offset: 1px; }
+.dsh-tavern-system-prompt-actions { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.dsh-tavern-system-prompt-status { color: var(--dsw-alias-label-secondary); font-size: 13px; }
+.dsh-tavern-system-prompt-buttons { display: flex; gap: 10px; }
+.dsh-tavern-system-prompt-button { border: 1px solid var(--dsw-alias-border-l2); border-radius: 9px; padding: 8px 14px; background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); cursor: pointer; }
+.dsh-tavern-system-prompt-button-primary { border-color: #9a622f; color: #9a622f; }
+.dsh-tavern-system-prompt-button:disabled { cursor: default; opacity: .5; }
 .dsh-tavern-player-action { border: 1px solid var(--dsw-alias-border-l2); border-radius: 7px; padding: 4px 8px; background: transparent; color: var(--dsw-alias-label-secondary); cursor: pointer; font-size: 11px; }
 .dsh-tavern-player-action:hover { border-color: #a66b35; color: #a66b35; background: rgba(166,107,53,.08); }
 .dsh-tavern-preset-status { max-width: min(260px, 28vw); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border: 1px solid var(--dsw-alias-border-l2); border-radius: 7px; padding: 4px 8px; color: var(--dsw-alias-label-secondary); font-size: 11px; }
@@ -2080,6 +2089,73 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			);
 		}
 
+		function SystemPromptSettingsSection() {
+			const [state, setState] = React.useState({ loading: true, busy: false, text: "", savedText: "", customized: false, error: "", notice: "" });
+			React.useEffect(function () {
+				let active = true;
+				rpc("getTavernSettings").then(function (result) {
+					if (!active) return;
+					const settings = result && result.settings || {};
+					const text = String(settings.storyPrompt || "");
+					setState({ loading: false, busy: false, text: text, savedText: text, customized: settings.storyPromptCustomized === true, error: "", notice: "" });
+				}, function (error) {
+					if (active) setState({ loading: false, busy: false, text: "", savedText: "", customized: false, error: String(error && error.message || error), notice: "" });
+				});
+				return function () { active = false; };
+			}, []);
+			async function save() {
+				setState(function (current) { return Object.assign({}, current, { busy: true, error: "", notice: "" }); });
+				try {
+					const result = await rpc("updateTavernSettings", { patch: { storyPrompt: state.text } });
+					const settings = result && result.settings || {};
+					const text = String(settings.storyPrompt || "");
+					setState({ loading: false, busy: false, text: text, savedText: text, customized: settings.storyPromptCustomized === true, error: "", notice: "已保存，将从下一轮正文生成开始生效。" });
+					window.dispatchEvent(new CustomEvent("dsh-tavern-settings-changed"));
+				} catch (error) {
+					setState(function (current) { return Object.assign({}, current, { busy: false, error: String(error && error.message || error) }); });
+				}
+			}
+			async function restoreDefault() {
+				if (!state.customized) {
+					setState(function (current) { return Object.assign({}, current, { text: current.savedText, error: "", notice: "" }); });
+					return;
+				}
+				if (!window.confirm("恢复当前版本的默认正文 Agent 核心提示词？")) return;
+				setState(function (current) { return Object.assign({}, current, { busy: true, error: "", notice: "" }); });
+				try {
+					const result = await rpc("updateTavernSettings", { patch: { storyPrompt: null } });
+					const settings = result && result.settings || {};
+					const text = String(settings.storyPrompt || "");
+					setState({ loading: false, busy: false, text: text, savedText: text, customized: false, error: "", notice: "已恢复默认，将从下一轮正文生成开始生效。" });
+					window.dispatchEvent(new CustomEvent("dsh-tavern-settings-changed"));
+				} catch (error) {
+					setState(function (current) { return Object.assign({}, current, { busy: false, error: String(error && error.message || error) }); });
+				}
+			}
+			const dirty = state.text !== state.savedText;
+			return React.createElement("div", { className: "dsh-tavern-settings-section" },
+				React.createElement("p", { className: "dsh-tavern-settings-intro" }, "修改 DSH Tavern 自身 Agent 的工作方式。这里不是 SillyTavern 外部预设，内容会始终参与普通游玩模式的正文生成。"),
+				React.createElement("div", { className: "dsh-tavern-settings-group" },
+					React.createElement("div", { className: "dsh-tavern-system-prompt-editor" },
+						React.createElement("div", { className: "dsh-tavern-settings-copy" },
+							React.createElement("span", { className: "dsh-tavern-settings-title" }, "正文 Agent 核心提示词"),
+							React.createElement("span", { className: "dsh-tavern-settings-desc" }, "控制正文 Agent 如何理解本轮演出指引并续写故事。修改可能影响正文质量与行为，请自行判断。")
+						),
+						React.createElement("textarea", { value: state.text, disabled: state.loading || state.busy, onChange: function (event) { const text = event.target.value; setState(function (current) { return Object.assign({}, current, { text: text, error: "", notice: "" }); }); }, "aria-label": "正文 Agent 核心提示词" }),
+						React.createElement("div", { className: "dsh-tavern-system-prompt-actions" },
+							React.createElement("span", { className: "dsh-tavern-system-prompt-status" }, state.loading ? "正在读取…" : (state.customized ? "当前使用用户自定义内容" : "当前使用系统默认内容")),
+							React.createElement("span", { className: "dsh-tavern-system-prompt-buttons" },
+								React.createElement("button", { type: "button", className: "dsh-tavern-system-prompt-button", disabled: state.loading || state.busy || (!state.customized && !dirty), onClick: function () { void restoreDefault(); } }, "恢复默认"),
+								React.createElement("button", { type: "button", className: "dsh-tavern-system-prompt-button dsh-tavern-system-prompt-button-primary", disabled: state.loading || state.busy || !dirty || state.text.trim() === "", onClick: function () { void save(); } }, state.busy ? "保存中…" : "保存")
+							)
+						)
+					)
+				),
+				state.notice ? React.createElement("div", { className: "dsh-tavern-system-prompt-status", role: "status" }, state.notice) : null,
+				state.error ? React.createElement("div", { className: "dsh-tavern-settings-error", role: "alert" }, "保存失败：" + state.error) : null
+			);
+		}
+
 		function createResourcesLibraryFeatureModule() {
 			function TavernResourcesTab(props) {
 				const [resources, setResources] = React.useState({ resources: [] });
@@ -3940,6 +4016,14 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					label: function () { return "DSH Tavern"; }
 				}, TavernSettingsSection); });
 			}, "dsh-tavern: settings section");
+			ctx.effect(function () {
+				return slots.inject("settings.section", function () { return slots.register({
+					name: "settings.section",
+					id: "dsh-tavern-system-prompts",
+					order: 111,
+					label: function () { return "系统内置提示词"; }
+				}, SystemPromptSettingsSection); });
+			}, "dsh-tavern: system prompt settings section");
 			presetLibraryFeature.register({ ctx: ctx, appendMention: appendMention });
 			resourcesLibraryFeature.register({ ctx: ctx, appendMention: appendMention });
 			worldBookLibraryFeature.register({ ctx: ctx, appendMention: appendMention });

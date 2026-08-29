@@ -1002,6 +1002,18 @@ test('设置开启后在顶层侧栏最右侧显示实验性兼容模式', () =>
 	assert.match(clientSource, /不运行游玩模式的后台状态结算；候选项可按需手动生成/)
 })
 
+test('设置中提供独立的系统内置提示词面板', () => {
+	const panel = between(clientSource, 'function SystemPromptSettingsSection', 'function createResourcesLibraryFeatureModule')
+	assert.match(clientSource, /id: "dsh-tavern-system-prompts"/)
+	assert.match(clientSource, /return "系统内置提示词"/)
+	assert.match(panel, /正文 Agent 核心提示词/)
+	assert.match(panel, /storyPrompt: state\.text/)
+	assert.match(panel, /storyPrompt: null/)
+	assert.match(panel, /恢复默认/)
+	assert.match(serverSource, /resolveSystemPrompt\(tavernSettingsDocument, name, prompt\)/)
+	assert.match(serverSource, /createContextPlanner\(\{ prompt: runtimePrompt/)
+})
+
 test('普通游玩投影当前预设，兼容模式继续按 SillyTavern 结构编译', () => {
 	const panel = between(clientSource, 'function createExternalPresetAndBypassPlanFeatureModule', 'function createWorldBookLibraryFeatureModule')
 	const compile = between(serverSource, 'async function compileCompatibilityTurn', 'function compatibilityMessages')

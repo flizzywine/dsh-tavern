@@ -61,6 +61,7 @@ import { createProfileDataStore } from './profile-data-store.js'
 import { createChatPersistence } from './domain/chat-persistence.js'
 import { createChatJournalStore } from './domain/chat-journal-store.js'
 import { createResourceGraph } from './domain/resource-graph.js'
+import { applyTavernSettingsPatch, presentTavernSettings, resolveSystemPrompt } from './domain/tavern-settings.js'
 import { prompt } from './prompt-catalog.js'
 
 // dsh-tavern 宿主插件（profile 组合行）
@@ -79,16 +80,19 @@ export async function apply(ctx) {
   const dataRoot = resolveTavernDataRoot()
   const profileData = createProfileDataStore({ dataRoot })
   const settingsPath = 'tavern-settings.json'
+  let tavernSettingsDocument = await profileData.readJson(settingsPath)
   async function readTavernSettings() {
-    const saved = await profileData.readJson(settingsPath)
-    return { compatibilityMode: Boolean(saved && saved.compatibilityMode === true) }
+    tavernSettingsDocument = await profileData.readJson(settingsPath)
+    return presentTavernSettings(tavernSettingsDocument, { story: prompt('story') })
   }
   async function updateTavernSettings(patch) {
-    return await profileData.updateJson(settingsPath, function (current) {
-      const next = current && typeof current === 'object' ? Object.assign({}, current) : {}
-      if (patch && Object.prototype.hasOwnProperty.call(patch, 'compatibilityMode')) next.compatibilityMode = patch.compatibilityMode === true
-      return next
+    tavernSettingsDocument = await profileData.updateJson(settingsPath, function (current) {
+      return applyTavernSettingsPatch(current, patch)
     })
+    return presentTavernSettings(tavernSettingsDocument, { story: prompt('story') })
+  }
+  function runtimePrompt(name) {
+    return resolveSystemPrompt(tavernSettingsDocument, name, prompt)
   }
   const applicationUpdater = createApplicationUpdater({ dataRoot, sourceRoot })
   const modelRequestLog = createModelRequestLog({
@@ -1204,7 +1208,7 @@ export async function apply(ctx) {
     if (isCard) result.workspace = workspaceViewOf(chat)
     return result
   }
-  const contextPlanner = createContextPlanner({ prompt: prompt, callModel: callModel, now: Date.now, logger: console })
+  const contextPlanner = createContextPlanner({ prompt: runtimePrompt, callModel: callModel, now: Date.now, logger: console })
   const cardSnapshotBuilds = new Map()
   async function stableWorldBookContext(chat, card) {
     try {
