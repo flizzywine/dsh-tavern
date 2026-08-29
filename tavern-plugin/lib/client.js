@@ -511,6 +511,38 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			return detail.kinds.indexOf("*") >= 0 || expected.some(function (kind) { return detail.kinds.indexOf(kind) >= 0; });
 		}
 
+		function createCardLibraryRefreshModule(options) {
+			const settings = options || {};
+			const schedule = typeof settings.schedule === "function" ? settings.schedule : function (run, delay) { return window.setTimeout(run, delay); };
+			const cancel = typeof settings.cancel === "function" ? settings.cancel : function (timer) { window.clearTimeout(timer); };
+			const activationDelayMs = Number(settings.activationDelayMs) >= 0 ? Number(settings.activationDelayMs) : 100;
+			const activeLoads = new Map();
+			let activationTimer = null;
+			function activate(run) {
+				if (activationTimer !== null) cancel(activationTimer);
+				activationTimer = schedule(function () {
+					activationTimer = null;
+					run();
+				}, activationDelayMs);
+			}
+			function load(key, run) {
+				const id = String(key || "");
+				if (activeLoads.has(id)) return activeLoads.get(id);
+				let loaded;
+				try { loaded = run(); }
+				catch (error) { return Promise.reject(error); }
+				let request;
+				request = Promise.resolve(loaded).finally(function () { if (activeLoads.get(id) === request) activeLoads.delete(id); });
+				activeLoads.set(id, request);
+				return request;
+			}
+			function dispose() {
+				if (activationTimer !== null) cancel(activationTimer);
+				activationTimer = null;
+			}
+			return Object.freeze({ activate: activate, load: load, dispose: dispose });
+		}
+
 		function createWorldBookLibraryRefreshModule(options) {
 			if (!options || typeof options.load !== "function") throw new Error("世界书库刷新缺少 load adapter");
 			let active = null;
@@ -2574,24 +2606,28 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const [error, setError] = usePersistentError("人物卡库");
 			const importInput = React.useRef(null);
 			const cardRequest = React.useRef(0);
+			const refreshModule = React.useRef(null);
+			if (!refreshModule.current) refreshModule.current = createCardLibraryRefreshModule();
 			const sessionMode = useTavernSessionMode(props.scope.sessionId);
 			const requestedPath = props.tab && props.tab.meta && typeof props.tab.meta.cardPath === "string" ? props.tab.meta.cardPath : "";
 			function refreshCards() {
 				return rpcWithTimeout("listCards", {}).then(function (result) { setCards(result.cards || []); setError(""); return result.cards || []; }, function (err) { setError(String(err && err.message || err)); return []; });
 			}
 			function loadCard(path) {
-				const request = ++cardRequest.current;
 				if (!path) { setSelectedPath(""); setCard(null); setLoading(false); return Promise.resolve(); }
-				if (path !== selectedPath) setCard(null);
-				setSelectedPath(path); setLoading(true); setError("");
-				return rpcWithTimeout("getCard", { path: path }).then(function (result) {
-					if (request !== cardRequest.current) return;
-					const next = result.card || null;
-					setCard(function (current) { return JSON.stringify(current) === JSON.stringify(next) ? current : next; });
-				}, function (err) {
-					if (request !== cardRequest.current) return;
-					setError(String(err && err.message || err)); setCard(null);
-				}).finally(function () { if (request === cardRequest.current) setLoading(false); });
+				return refreshModule.current.load(path, function () {
+					const request = ++cardRequest.current;
+					if (path !== selectedPath) setCard(null);
+					setSelectedPath(path); setLoading(true); setError("");
+					return rpcWithTimeout("getCard", { path: path }).then(function (result) {
+						if (request !== cardRequest.current) return;
+						const next = result.card || null;
+						setCard(function (current) { return JSON.stringify(current) === JSON.stringify(next) ? current : next; });
+					}, function (err) {
+						if (request !== cardRequest.current) return;
+						setError(String(err && err.message || err)); setCard(null);
+					}).finally(function () { if (request === cardRequest.current) setLoading(false); });
+				});
 			}
 			React.useEffect(function () {
 				refreshCards();
@@ -2603,7 +2639,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 						loadCard(selectedPath);
 					});
 				}
-				function onActivate() { if (selectedPath) loadCard(selectedPath); else refreshCards(); }
+				function onActivate() { refreshModule.current.activate(function () { if (selectedPath) loadCard(selectedPath); else refreshCards(); }); }
 				function onVisibility() { if (document.visibilityState === "visible") onActivate(); }
 				window.addEventListener("dsh-tavern-data-changed", onData);
 				window.addEventListener("focus", onActivate);
@@ -2612,6 +2648,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					window.removeEventListener("dsh-tavern-data-changed", onData);
 					window.removeEventListener("focus", onActivate);
 					document.removeEventListener("visibilitychange", onVisibility);
+					refreshModule.current.dispose();
 				};
 			}, [selectedPath]);
 			React.useEffect(function () {
@@ -3857,6 +3894,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		exports.projectionPartsOf = projectionPartsOf;
 		exports.tavernUserTextForTurn = tavernUserTextForTurn;
 		exports.createWorldBookLibraryRefreshModule = createWorldBookLibraryRefreshModule;
+		exports.createCardLibraryRefreshModule = createCardLibraryRefreshModule;
 		exports.tavernDataChangeAffects = tavernDataChangeAffects;
 		exports.createLiveTavernViewModule = createLiveTavernViewModule;
 		exports.createTavernCoordinationEventModule = createTavernCoordinationEventModule;
