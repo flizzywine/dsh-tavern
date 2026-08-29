@@ -80,7 +80,8 @@ import { createProfileDataStore } from './profile-data-store.js'
 import { createChatPersistence } from './domain/chat-persistence.js'
 import { createChatJournalStore } from './domain/chat-journal-store.js'
 import { createResourceGraph } from './domain/resource-graph.js'
-import { prompt } from './prompt-catalog.js'
+import { applyTavernSettingsPatch, presentTavernSettings, resolveSystemPrompt } from './domain/tavern-settings.js'
+import { prompt, SYSTEM_PROMPT_DEFINITIONS, SYSTEM_PROMPT_NAMES } from './prompt-catalog.js'
 
 // dsh-tavern 宿主插件（profile 组合行）
 // RPC：同源 HTTP 路由 /api/dsh-tavern/<method>（客户端 fetch 调用）
@@ -139,29 +140,48 @@ export async function apply(ctx) {
       return next
     })
   }
+  let tavernSettingsDocument = await profileData.readJson(settingsPath)
+  function promptDefaults() {
+    return Object.fromEntries(SYSTEM_PROMPT_NAMES.map(function (name) { return [name, prompt(name)] }))
+  }
   async function readTavernSettings() {
-    const saved = await profileData.readJson(settingsPath)
-    return {
-      compatibilityMode: Boolean(saved && saved.compatibilityMode === true),
-      trustedCardMode: !saved || !Object.prototype.hasOwnProperty.call(saved, 'trustedCardMode') || saved.trustedCardMode === true,
-      styleEnvironment: normalizeTavernStyleEnvironment(saved && saved.styleEnvironment)
-    }
+    tavernSettingsDocument = await profileData.readJson(settingsPath)
+    return presentTavernSettings(tavernSettingsDocument, promptDefaults())
   }
   async function updateTavernSettings(patch) {
-    const saved = await profileData.updateJson(settingsPath, function (current) {
-      const next = current && typeof current === 'object' ? Object.assign({}, current) : {}
-      if (patch && Object.prototype.hasOwnProperty.call(patch, 'compatibilityMode')) next.compatibilityMode = patch.compatibilityMode === true
-      if (patch && Object.prototype.hasOwnProperty.call(patch, 'trustedCardMode')) next.trustedCardMode = patch.trustedCardMode === true
-      if (patch && Object.prototype.hasOwnProperty.call(patch, 'styleEnvironment')) next.styleEnvironment = normalizeTavernStyleEnvironment(patch.styleEnvironment)
-      return next
+    tavernSettingsDocument = await profileData.updateJson(settingsPath, function (current) {
+      return applyTavernSettingsPatch(current, patch)
     })
-    const settings = {
-      compatibilityMode: Boolean(saved && saved.compatibilityMode === true),
-      trustedCardMode: !saved || !Object.prototype.hasOwnProperty.call(saved, 'trustedCardMode') || saved.trustedCardMode === true,
-      styleEnvironment: normalizeTavernStyleEnvironment(saved && saved.styleEnvironment)
-    }
+    const settings = presentTavernSettings(tavernSettingsDocument, promptDefaults())
     void tavernStaticResources.warm(settings.styleEnvironment.extensionStyles)
     return settings
+  }
+  function runtimePrompt(name) {
+    return resolveSystemPrompt(tavernSettingsDocument, name, prompt)
+  }
+  function presentSystemPrompts(settings) {
+    const byName = Object.fromEntries((settings.systemPrompts || []).map(function (item) { return [item.name, item] }))
+    return {
+      spec: 'dsh-tavern.system-prompts',
+      version: 1,
+      prompts: SYSTEM_PROMPT_DEFINITIONS.map(function (definition) {
+        return Object.assign({}, definition, byName[definition.name] || { text: prompt(definition.name), customized: false })
+      })
+    }
+  }
+  function importSystemPromptDocument(payload) {
+    const prepared = prepareTextImport(payload, '系统提示词文件为空')
+    let document
+    try { document = JSON.parse(prepared.text) } catch (error) { throw new Error('系统提示词 JSON 无效: ' + str(error && error.message || error)) }
+    if (!document || document.spec !== 'dsh-tavern.system-prompts') throw new Error('不是 DSH Tavern 系统提示词文件')
+    if (Number(document.version) !== 1) throw new Error('不支持的系统提示词版本: ' + String(document.version))
+    const source = document.prompts && typeof document.prompts === 'object' && !Array.isArray(document.prompts) ? document.prompts : {}
+    const values = {}
+    for (const name of SYSTEM_PROMPT_NAMES) {
+      if (typeof source[name] !== 'string' || source[name].trim() === '') throw new Error('系统提示词文件缺少有效内容: ' + name)
+      values[name] = source[name]
+    }
+    return values
   }
   const applicationUpdater = createApplicationUpdater({ dataRoot, sourceRoot })
   const modelRequestLog = createModelRequestLog({
@@ -1233,7 +1253,7 @@ export async function apply(ctx) {
     }
     const macroState = { userName: str(userName).trim().slice(0, 80) || '你', local: {}, global: {} }
     const runtimePresetSnapshot = groupOfMode(chatMode) === 'play' ? await runtimePresets.fullSnapshot() : null
-    const openingSourceText = chatMode === 'card' ? prompt('card-mode-greeting') : resolveCardOpening(card, openingId)
+    const openingSourceText = chatMode === 'card' ? runtimePrompt('card-mode-greeting') : resolveCardOpening(card, openingId)
     const openingExtensions = chatMode === 'card' ? null : await readCardExtensions(cardPath)
     const openingChoices = chatMode === 'card' ? [] : cardOpeningChoices(card)
     const selectedOpeningIndex = str(openingId) === '' ? 0 : Math.max(0, openingChoices.findIndex(function (choice) { return choice.id === str(openingId) }))
@@ -1338,7 +1358,7 @@ export async function apply(ctx) {
     const mode = chat.mode || 'story'
     let text
     if (mode === 'card') {
-      text = prompt('card-mode-greeting')
+      text = runtimePrompt('card-mode-greeting')
     } else if (typeof chat.openingText === 'string') {
       text = chat.openingText
     } else {
@@ -1428,7 +1448,7 @@ export async function apply(ctx) {
     if (isCard) result.workspace = workspaceViewOf(chat)
     return result
   }
-  const contextPlanner = createContextPlanner({ prompt: prompt, callModel: callModel, now: Date.now, logger: console })
+  const contextPlanner = createContextPlanner({ prompt: runtimePrompt, callModel: callModel, now: Date.now, logger: console })
   const cardSnapshotBuilds = new Map()
   async function stableWorldBookContext(chat, card) {
     try {
@@ -1544,7 +1564,7 @@ export async function apply(ctx) {
       runCandidate: backgroundAgentRunner.run
     },
     planner: contextPlanner,
-    prompt: prompt,
+    prompt: runtimePrompt,
     scripts: scriptContinuity,
     timeline: storyTimeline,
     tasks: backgroundTasks,
@@ -1864,7 +1884,7 @@ export async function apply(ctx) {
                 content: [{ type: 'text', text: settleUserText(snapshot) }],
                 source: { kind: 'plugin', plugin: 'dsh-tavern' }
               }],
-              system: prompt('posture-settlement'),
+              system: runtimePrompt('posture-settlement'),
               turnContext: '',
               tools: [],
               temperature: 0.2,
@@ -2340,7 +2360,7 @@ export async function apply(ctx) {
         const task = str(args && args.task)
         const promptName = cardTaskPrompts[task]
         if (promptName === undefined) throw new Error('未知卡片任务: ' + task)
-        return { task, text: prompt(promptName) }
+        return { task, text: runtimePrompt(promptName) }
       }
       case 'getResourceWorkspace': return { path: dataRoot + '/resources' }
       case 'listResources': return await listTavernResources()
@@ -2469,6 +2489,19 @@ export async function apply(ctx) {
       }
       case 'getTavernSettings': return { settings: await readTavernSettings() }
       case 'updateTavernSettings': return { settings: await updateTavernSettings(args && args.patch) }
+      case 'getSystemPrompts': return { systemPrompts: presentSystemPrompts(await readTavernSettings()) }
+      case 'updateSystemPrompt': {
+        const name = str(args && args.name)
+        if (!SYSTEM_PROMPT_NAMES.includes(name)) throw new Error('未知系统提示词: ' + name)
+        return { systemPrompts: presentSystemPrompts(await updateTavernSettings({ systemPrompt: { name, text: args && args.text } })) }
+      }
+      case 'resetSystemPrompts': return { systemPrompts: presentSystemPrompts(await updateTavernSettings({ resetSystemPrompts: SYSTEM_PROMPT_NAMES })) }
+      case 'importSystemPrompts': return { systemPrompts: presentSystemPrompts(await updateTavernSettings({ systemPrompts: importSystemPromptDocument(args && args.payload) })) }
+      case 'exportSystemPrompts': {
+        const current = presentSystemPrompts(await readTavernSettings())
+        const document = { spec: current.spec, version: current.version, prompts: Object.fromEntries(current.prompts.map(function (item) { return [item.name, item.text] })) }
+        return { name: 'dsh-tavern-system-prompts.json', text: JSON.stringify(document, null, 2) + '\n' }
+      }
       case 'listSessions': {
         const settings = await readTavernSettings()
         return { sessions: await listTavernSessions(), capabilities: { compatibilityMode: settings.compatibilityMode, trustedCardMode: settings.trustedCardMode } }
@@ -3046,7 +3079,7 @@ export async function apply(ctx) {
         }))
       },
       visibleTools: async function (sessionId) { return await turnOrchestrator.visibleTools(sessionId) },
-      modePrompt: function (mode) { return prompt(mode === 'card' ? 'card-mode' : 'play-mode') },
+      modePrompt: function (mode) { return runtimePrompt(mode === 'card' ? 'card-mode' : 'play-mode') },
       workspaceContext: resourceWorkspaceContext,
       ensureCardSnapshot: async function (chat) { return await ensurePlayCardSnapshot(chat) },
       controlledToolNames
@@ -3092,7 +3125,7 @@ export async function apply(ctx) {
           yield * fallback
           return
         }
-        const request = createStoryCompactionRequest(options, prompt('story-compaction'))
+        const request = createStoryCompactionRequest(options, runtimePrompt('story-compaction'))
         if (request === options) {
           yield * fallback
           return

@@ -113,6 +113,19 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 .dsh-tavern-style-actions { display: flex; align-items: center; gap: 10px; }
 .dsh-tavern-style-saved { color: #4c9b72; font-size: 12px; }
 .dsh-tavern-settings-error { color: #c45f5f; font-size: 13px; }
+.dsh-tavern-system-prompt-editor { display: flex; flex-direction: column; gap: 14px; padding: 18px 20px; }
+.dsh-tavern-system-prompt-warning { margin-bottom: 14px; border: 1px solid rgba(196,95,95,.55); border-radius: 9px; padding: 11px 13px; background: rgba(196,95,95,.1); color: #d98080; font-size: 13px; line-height: 1.55; }
+.dsh-tavern-status-head.dsh-tavern-system-prompt-head { padding: 18px 20px 16px; }
+.dsh-tavern-system-prompt-top-actions { display: flex; flex-wrap: wrap; gap: 8px 10px; margin-top: 10px; }
+.dsh-tavern-preset-detail.dsh-tavern-system-prompt-body { padding: 20px 24px 28px; }
+.dsh-tavern-system-prompt-editor textarea { box-sizing: border-box; width: 100%; min-height: 320px; resize: vertical; border: 1px solid var(--dsw-alias-border-l2); border-radius: 10px; padding: 14px; background: var(--dsw-specific-input-minor); color: var(--dsw-alias-label-primary); font: 13px/1.65 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.dsh-tavern-system-prompt-editor textarea:focus { outline: 2px solid #a66b35; outline-offset: 1px; }
+.dsh-tavern-system-prompt-actions { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.dsh-tavern-system-prompt-status { color: var(--dsw-alias-label-secondary); font-size: 13px; }
+.dsh-tavern-system-prompt-buttons { display: flex; gap: 10px; }
+.dsh-tavern-system-prompt-button { border: 1px solid var(--dsw-alias-border-l2); border-radius: 9px; padding: 8px 14px; background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); cursor: pointer; }
+.dsh-tavern-system-prompt-button-primary { border-color: #9a622f; color: #9a622f; }
+.dsh-tavern-system-prompt-button:disabled { cursor: default; opacity: .5; }
 .dsh-tavern-player-action { border: 1px solid var(--dsw-alias-border-l2); border-radius: 7px; padding: 4px 8px; background: transparent; color: var(--dsw-alias-label-secondary); cursor: pointer; font-size: 11px; }
 .dsh-tavern-player-action:hover { border-color: #a66b35; color: #a66b35; background: rgba(166,107,53,.08); }
 .dsh-tavern-preset-status { max-width: min(260px, 28vw); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border: 1px solid var(--dsw-alias-border-l2); border-radius: 7px; padding: 4px 8px; color: var(--dsw-alias-label-secondary); font-size: 11px; }
@@ -3051,6 +3064,75 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			);
 		}
 
+		function SystemPromptSidebarTab() {
+			const h = React.createElement;
+			const [state, setState] = React.useState({ loading: true, busy: false, prompts: [], drafts: {}, error: "", notice: "" });
+			const importInput = React.useRef(null);
+			function accept(result, notice) {
+				const value = result && result.systemPrompts || {};
+				setState({ loading: false, busy: false, prompts: Array.isArray(value.prompts) ? value.prompts : [], drafts: {}, error: "", notice: notice || "" });
+			}
+			async function load() {
+				try { accept(await rpc("getSystemPrompts"), ""); }
+				catch (error) { setState(function (current) { return Object.assign({}, current, { loading: false, error: String(error && error.message || error) }); }); }
+			}
+			React.useEffect(function () { void load(); }, []);
+			function draft(item) { return Object.prototype.hasOwnProperty.call(state.drafts, item.name) ? state.drafts[item.name] : String(item.text || ""); }
+			function edit(name, value) { setState(function (current) { return Object.assign({}, current, { drafts: Object.assign({}, current.drafts, { [name]: value }), error: "", notice: "" }); }); }
+			async function save(item) {
+				setState(function (current) { return Object.assign({}, current, { busy: true, error: "", notice: "" }); });
+				try { accept(await rpc("updateSystemPrompt", { name: item.name, text: draft(item) }), "已保存，将从下一次相关调用开始生效。"); }
+				catch (error) { setState(function (current) { return Object.assign({}, current, { busy: false, error: String(error && error.message || error) }); }); }
+			}
+			async function restore(item) {
+				if (!item.customized) { edit(item.name, String(item.text || "")); return; }
+				if (!window.confirm("恢复“" + item.label + "”的系统默认内容？")) return;
+				setState(function (current) { return Object.assign({}, current, { busy: true, error: "", notice: "" }); });
+				try { accept(await rpc("updateSystemPrompt", { name: item.name, text: null }), "已恢复该项默认内容。"); }
+				catch (error) { setState(function (current) { return Object.assign({}, current, { busy: false, error: String(error && error.message || error) }); }); }
+			}
+			async function restoreAll() {
+				if (!window.confirm("恢复全部系统提示词为当前版本默认内容？此操作会清除全部自定义修改。")) return;
+				setState(function (current) { return Object.assign({}, current, { busy: true, error: "", notice: "" }); });
+				try { accept(await rpc("resetSystemPrompts"), "全部系统提示词已恢复默认。"); }
+				catch (error) { setState(function (current) { return Object.assign({}, current, { busy: false, error: String(error && error.message || error) }); }); }
+			}
+			async function importFile(file) {
+				if (!file || !window.confirm("导入将覆盖当前整套系统提示词，是否继续？")) return;
+				setState(function (current) { return Object.assign({}, current, { busy: true, error: "", notice: "" }); });
+				try { accept(await rpc("importSystemPrompts", { payload: await parseTextResourceFile(file) }), "整套系统提示词已导入并生效。"); }
+				catch (error) { setState(function (current) { return Object.assign({}, current, { busy: false, error: String(error && error.message || error) }); }); }
+			}
+			async function exportFile() {
+				setState(function (current) { return Object.assign({}, current, { busy: true, error: "", notice: "" }); });
+				try {
+					const result = await rpc("exportSystemPrompts");
+					const blob = new Blob([result.text], { type: "application/json" }); const url = URL.createObjectURL(blob); const link = document.createElement("a");
+					link.href = url; link.download = result.name || "dsh-tavern-system-prompts.json"; document.body.appendChild(link); link.click(); link.remove(); URL.revokeObjectURL(url);
+					setState(function (current) { return Object.assign({}, current, { busy: false, notice: "已导出当前整套系统提示词。" }); });
+				} catch (error) { setState(function (current) { return Object.assign({}, current, { busy: false, error: String(error && error.message || error) }); }); }
+			}
+			function row(item) {
+				const value = draft(item); const dirty = value !== String(item.text || "");
+				return h("details", { key: item.name, className: "dsh-tavern-prompt-row role-system" },
+					h("summary", { className: "dsh-tavern-prompt-head" }, h("span", { className: "dsh-tavern-prompt-role" }, "SYSTEM"), h("span", { className: "dsh-tavern-prompt-title" }, h("b", null, item.label), h("span", null, item.description)), h("span", { className: "dsh-tavern-prompt-state " + (item.customized ? "on" : "off") }, item.customized ? "已修改" : "默认")),
+					h("div", { className: "dsh-tavern-prompt-editor" },
+						h("label", { className: "dsh-tavern-prompt-editor-field full" }, "内容", h("textarea", { value: value, disabled: state.busy, onChange: function (event) { edit(item.name, event.target.value); }, "aria-label": item.label })),
+						h("div", { className: "dsh-tavern-prompt-editor-actions" }, h("button", { className: "dsh-tavern-btn", disabled: state.busy || (!item.customized && !dirty), onClick: function () { void restore(item); } }, "恢复默认"), h("button", { className: "dsh-tavern-btn", disabled: state.busy || !dirty || value.trim() === "", onClick: function () { void save(item); } }, "保存此项"))));
+			}
+			return h("div", { className: "dsh-tavern-presets" },
+				h("div", { className: "dsh-tavern-status-head dsh-tavern-system-prompt-head" },
+					h("div", { className: "dsh-tavern-status-title" }, "系统提示词"),
+					h("div", { className: "dsh-tavern-question-sub" }, "DSH Tavern 当前使用的唯一一套内置提示词"),
+					h("div", { className: "dsh-tavern-system-prompt-top-actions" }, h("button", { className: "dsh-tavern-btn", disabled: state.busy, onClick: function () { importInput.current && importInput.current.click(); } }, "导入 JSON"), h("button", { className: "dsh-tavern-btn", disabled: state.busy, onClick: function () { void exportFile(); } }, "导出 JSON"), h("input", { ref: importInput, type: "file", accept: ".json,application/json", style: { display: "none" }, onChange: function (event) { const file = event.target.files && event.target.files[0]; void importFile(file); event.target.value = ""; } }))),
+				h("div", { className: "dsh-tavern-preset-detail dsh-tavern-system-prompt-body" },
+					h("div", { className: "dsh-tavern-system-prompt-warning", role: "note" }, "警告：修改系统提示词可能导致正文生成异常、人物卡指令冲突、后台任务失败或输出格式失效。不了解其作用时请保持默认；出现问题时请恢复默认。"),
+					h("div", { className: "dsh-tavern-preset-detail-actions" }, h("button", { className: "dsh-tavern-btn danger", disabled: state.busy || !state.prompts.some(function (item) { return item.customized; }), onClick: function () { void restoreAll(); } }, "全部恢复默认")),
+					state.notice ? h("div", { className: "dsh-tavern-system-prompt-status", role: "status" }, state.notice) : null,
+					state.error ? h("div", { className: "dsh-tavern-dock-error", role: "alert" }, state.error) : null,
+					state.loading ? h("div", { className: "dsh-tavern-status-empty" }, "正在读取系统提示词…") : state.prompts.map(row)));
+		}
+
 		function createResourcesLibraryFeatureModule() {
 			function TavernResourcesTab(props) {
 				const [resources, setResources] = React.useState({ resources: [] });
@@ -4948,6 +5030,10 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					label: function () { return "DSH Tavern"; }
 				}, TavernSettingsSection); });
 			}, "dsh-tavern: settings section");
+			ctx.effect(function () {
+				const dispose = ctx.betterSidebar.registerTab({ id: "dsh-tavern:system-prompts", title: "系统提示词", order: 5, single: true, component: SystemPromptSidebarTab });
+				return function () { if (typeof dispose === "function") dispose(); };
+			}, "dsh-tavern: system prompt sidebar tab");
 			presetLibraryFeature.register({ ctx: ctx, appendMention: appendMention });
 			resourcesLibraryFeature.register({ ctx: ctx, appendMention: appendMention });
 			worldBookLibraryFeature.register({ ctx: ctx, appendMention: appendMention });
