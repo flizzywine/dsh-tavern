@@ -8,6 +8,8 @@ function linkSpec(source) {
   return `link:${path.resolve(source).replaceAll(path.sep, '/')}`
 }
 
+const LEGACY_ANDROID_PLUGINS = Object.freeze(['dsh-client-ui-mobile-adapt'])
+
 export function updateAndroidProfile(directory, plugins) {
   const manifest = path.join(directory, 'package.json')
   if (!existsSync(manifest)) throw new Error(`Profile 配置不存在：${manifest}`)
@@ -15,7 +17,10 @@ export function updateAndroidProfile(directory, plugins) {
   pkg.dependencies = pkg.dependencies || {}
   pkg.dsh = pkg.dsh || {}
   pkg.dsh.profile = pkg.dsh.profile || {}
-  const bundles = Array.isArray(pkg.dsh.profile.bundles) ? pkg.dsh.profile.bundles : []
+  for (const name of LEGACY_ANDROID_PLUGINS) delete pkg.dependencies[name]
+  const bundles = (Array.isArray(pkg.dsh.profile.bundles) ? pkg.dsh.profile.bundles : []).filter(function (name) {
+    return !LEGACY_ANDROID_PLUGINS.includes(name)
+  })
   for (const plugin of plugins) {
     pkg.dependencies[plugin.name] = linkSpec(plugin.source)
     if (!bundles.includes(plugin.name)) bundles.push(plugin.name)
@@ -28,14 +33,10 @@ export function updateAndroidProfile(directory, plugins) {
 }
 
 export function configureAndroidProfiles({ repoRoot, tavernProfile, webProfile }) {
-  const mobile = path.join(repoRoot, 'android', 'dsh-client-ui-mobile-adapt')
   const entry = path.join(repoRoot, 'android', 'dsh-tavern-entry')
-  updateAndroidProfile(tavernProfile, [
-    { name: 'dsh-client-ui-mobile-adapt', source: mobile },
-  ])
+  updateAndroidProfile(tavernProfile, [])
   updateAndroidProfile(webProfile, [
     { name: 'dsh-tavern-entry', source: entry },
-    { name: 'dsh-client-ui-mobile-adapt', source: mobile },
   ])
 }
 

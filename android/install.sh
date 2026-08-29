@@ -61,7 +61,6 @@ run_dsh() {
 }
 [ -f "${REPO_ROOT}/package.json" ] || fail "脚本必须位于完整的 dsh-tavern 仓库中。"
 [ -f "${SCRIPT_DIR}/dsh-tavern-entry/package.json" ] || fail "缺少 dsh-tavern-entry。"
-[ -f "${SCRIPT_DIR}/dsh-client-ui-mobile-adapt/package.json" ] || fail "缺少 dsh-client-ui-mobile-adapt。"
 
 WEB_PROFILE_NAME="$(find_web_profile)"
 WEB_PROFILE_DIR="${DSH_ROOT}/profiles/${WEB_PROFILE_NAME}"
@@ -92,4 +91,4 @@ if probe_port 3080; then
 else
   printf '提示：3080 当前未监听；重启 DSHA 后再检查。\n'
 fi
-printf '请重启一次 DSHA，使自动拉起和手机适配插件正式加载。\n'
+printf '请重启一次 DSHA，使自动拉起和移动端界面正式加载。\n'
