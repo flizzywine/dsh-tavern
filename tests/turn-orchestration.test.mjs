@@ -312,6 +312,26 @@ test('旧对话保留提示词快照，新回复使用实时预设正则', async
   assert.equal(run.chat().presentation, undefined)
 })
 
+test('普通游玩的预设中段作为写作规则进入 ForegroundFrame', async () => {
+  const run = harness('story', {
+    runtimePresetSnapshot: {
+      presetPath: 'presets/叙事.json',
+      digest: 'preset-digest',
+      middle: {
+        entries: [{ id: 'middle-1', role: 'system', content: '保持第三人称限知视角。' }]
+      }
+    }
+  })
+
+  const prepared = await run.orchestrator.prepare({ sessionId: 'session-1', turn: 2, userText: '继续' })
+
+  assert.match(prepared.frame.context.writingRules, /保持第三人称限知视角。/)
+  const presetContribution = prepared.frame.contributions.find(function (item) { return item.source.stage === 'runtime-preset' })
+  assert.equal(presetContribution.text, '保持第三人称限知视角。')
+  assert.equal(presetContribution.source.phase, 'middle')
+  assert.equal(prepared.frame.source.preset.digest, 'preset-digest')
+})
+
 test('游玩回复先执行人物卡宏，再分别保存原文、Session 和展示投影', async () => {
   const run = harness('story', { macros: true })
   await run.orchestrator.prepare({ sessionId: 'session-1', turn: 2, userText: '查看状态' })

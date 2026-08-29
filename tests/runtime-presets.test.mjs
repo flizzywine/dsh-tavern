@@ -67,6 +67,7 @@ test('首次导入沿用酒馆预设自己的条目和正则默认状态', async
 
   const view = await value.module.view('presets/先导入.json')
 
+  assert.equal(value.getState().activePreset, '')
   assert.equal(view.enabledCount, 1)
   assert.deepEqual(view.entries.map(function (entry) { return entry.runtimeEnabled }), [true, false, false])
   assert.equal(view.entries[0].enabled, true)

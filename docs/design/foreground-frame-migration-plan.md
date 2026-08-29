@@ -58,7 +58,7 @@ dsh-tavern 保留两条明确隔离的运行路径：
 1. Context Planner 保留带 kind、required 和 text 的结构化 section，不再只暴露拼接文本。
 2. Turn Orchestrator 把 section 翻译为统一酒馆指令，并生成带 branch/revision/source 的 `ForegroundFrame`。
 3. `agent/pre-step` 只在 `step=1` 通过 Session Adapter 追加 Frame；重试复用同一 operation 已持久化的 Frame。
-4. 游玩模式不再在 `llm/stream` 阶段投影完整前台预设或重排 provider request。
+4. 游玩模式只在 `llm/stream` 阶段临时投影预设头尾；预设中段进入 `ForegroundFrame`，三者都不重建 Session 历史。
 5. 兼容模式仍独立使用完整酒馆编译和临时 provider request 替换。
 
 ## 目标链路
@@ -97,7 +97,7 @@ ForegroundFrameSessionAdapter.append(frame)
 DSH 自主管理模型调用、工具轨迹、压缩与恢复
 ```
 
-第二次及后续 Agent step 不再重新构建或追加 Frame，也不重新投影人物卡、世界书和预设。它们只使用 DSH Session 已经拥有的本轮轨迹继续工作。
+第二次及后续 Agent step 不再重新构建或追加 Frame，也不重新投影人物卡、世界书和预设中段。预设头尾仍按模型请求临时投影，不写入 Session 历史。
 
 ## Frame 模型
 
@@ -257,7 +257,7 @@ Adapter 必须保证：
 | `planner.plan({ purpose: "body" })` | 变成 FrameBuilder 内部的文本投影实现，不再是跨模块返回的隐式 Frame |
 | `agent/pre-step` 手写 snapshot 消息 | 改为调用 Session Adapter；只处理 `step=1` |
 | `runtimePresetPhaseMessages(..., "middle")` | 翻译为 `writingRules`，随 Frame 一次性进入 Session |
-| `projectRuntimePresetRequest()` | 从游玩模式移除；兼容模式不使用它且保持不变 |
+| `projectRuntimePresetRequest()` | 普通游玩只用于预设头尾的临时请求投影；兼容模式不使用它且保持不变 |
 | `compileCompatibilityTurn()` | 只允许兼容模式调用，增加隔离测试 |
 | `createEphemeralCompatibilityRequest()` | 只允许兼容模式替换 provider request |
 
@@ -284,11 +284,11 @@ Adapter 必须保证：
 - `step>1` 完全交回 DSH，不再执行 Tavern 资源投影；
 - 兼容模式分支保持原样。
 
-### 阶段 3：收回请求边界投影（前台已完成）
+### 阶段 3：收敛请求边界投影（前台已完成）
 
-- 将游玩模式的 `middle/front/back` 可翻译语义收进 `writingRules`；
-- 删除游玩模式的 `runtimePresetSnapshots` 和 `runtimePresetRedispatches` 路径；
-- `llm/stream` 不再为游玩模式重排完整请求，只保留日志、重试、压缩等 DSH 生命周期能力。
+- 将游玩模式的 `middle` 可翻译语义收进 `writingRules`；
+- `front/back` 只在 `llm/stream` 临时投影，不写入 Session 或重建完整历史；
+- 后台与卡片 Agent 不继承外部预设，兼容模式继续使用独立完整编译路径。
 
 ### 阶段 4：收敛旧接口（基础收敛已完成）
 

@@ -68,13 +68,15 @@ function compareVersions(left, right) {
   return 0
 }
 
-function runtimeCommitOf(value) {
-  if (typeof value === 'string') return value
-  const commit = String(value?.sha || '')
+function runtimeCommitIdentityOf(value) {
+  if (typeof value === 'string') return { publishedCommit: value, runtimeCommit: value }
+  const publishedCommit = String(value?.sha || '')
   const parent = String(value?.parents?.[0]?.sha || '')
   const files = Array.isArray(value?.files) ? value.files : []
-  if (files.length === 1 && files[0]?.filename === 'dsh-tavern-runtime.json' && /^[0-9a-f]{40}$/i.test(parent)) return parent
-  return commit
+  const runtimeCommit = files.length === 1 && files[0]?.filename === 'dsh-tavern-runtime.json' && /^[0-9a-f]{40}$/i.test(parent)
+    ? parent
+    : publishedCommit
+  return { publishedCommit, runtimeCommit }
 }
 
 function installHostOf(manifest) {
@@ -93,6 +95,8 @@ function processIsAlive(pid) {
 }
 
 async function readRecordedCommit(sourceRoot, dshHome) {
+  const runtimeCommit = await readVerifiedRuntimeCommit(sourceRoot)
+  if (runtimeCommit) return runtimeCommit
   try {
     const content = await readFile(path.join(sourceRoot, RELEASE_FILE), 'utf8')
     const commit = String(JSON.parse(content.replace(/^\uFEFF/, ''))?.commit || '')
@@ -100,8 +104,6 @@ async function readRecordedCommit(sourceRoot, dshHome) {
   } catch (error) {
     if (error?.code !== 'ENOENT') throw error
   }
-  const runtimeCommit = await readVerifiedRuntimeCommit(sourceRoot)
-  if (runtimeCommit) return runtimeCommit
   try {
     const gitRoot = path.join(sourceRoot, '.git')
     const head = (await readFile(path.join(gitRoot, 'HEAD'), 'utf8')).trim()
@@ -188,14 +190,17 @@ export function createApplicationUpdater(options) {
     if (currentVersion === 'unknown') return { currentVersion, latestVersion: 'unknown', currentCommit, latestCommit: '', updateAvailable: true }
     try {
       const [remote, latestCommitResult] = await Promise.all([fetchManifest(), fetchLatestCommit()])
-      const latestCommit = runtimeCommitOf(latestCommitResult)
+      const { publishedCommit, runtimeCommit: latestCommit } = runtimeCommitIdentityOf(latestCommitResult)
       const latestVersion = String(remote?.version || '')
       if (currentVersion === '' || latestVersion === '') throw new Error('版本信息不完整')
       if (!/^[0-9a-f]{40}$/i.test(latestCommit)) throw new Error('GitHub 返回的提交号无效')
       const versionAhead = compareVersions(latestVersion, currentVersion) > 0
+      const normalizedCurrentCommit = currentCommit.toLowerCase() === publishedCommit.toLowerCase()
+        ? latestCommit
+        : currentCommit
       return {
-        currentVersion, latestVersion, currentCommit, latestCommit, checkSource: 'github',
-        updateAvailable: versionAhead || currentCommit.toLowerCase() !== latestCommit.toLowerCase(),
+        currentVersion, latestVersion, currentCommit: normalizedCurrentCommit, latestCommit, checkSource: 'github',
+        updateAvailable: versionAhead || normalizedCurrentCommit.toLowerCase() !== latestCommit.toLowerCase(),
       }
     } catch (githubError) {
       try {

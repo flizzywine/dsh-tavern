@@ -97,7 +97,27 @@ const FRAME_INSTRUCTION_KIND = Object.freeze({
   script: 'foreground.script-reference'
 })
 
-function frameInstructions(plan, sourceText, projectedText) {
+function presetMiddleInstructions(snapshot) {
+  const entries = Array.isArray(snapshot && snapshot.middle && snapshot.middle.entries)
+    ? snapshot.middle.entries
+    : []
+  return entries.map(function (entry, index) {
+    return {
+      kind: 'foreground.writing-rules',
+      text: str(entry && entry.content),
+      required: false,
+      source: {
+        stage: 'runtime-preset',
+        phase: 'middle',
+        role: str(entry && entry.role) || 'system',
+        entryId: str(entry && (entry.id || entry.entryKey)),
+        index
+      }
+    }
+  })
+}
+
+function frameInstructions(plan, sourceText, projectedText, presetSnapshot) {
   const instructions = [{
     kind: 'foreground.user-input',
     sourceText,
@@ -116,7 +136,7 @@ function frameInstructions(plan, sourceText, projectedText) {
       source: { stage: 'context-plan', sectionKind, index }
     })
   }
-  return instructions
+  return instructions.concat(presetMiddleInstructions(presetSnapshot))
 }
 
 function frameSource(chat, card, operation) {
@@ -276,7 +296,7 @@ export function createTurnOrchestrator(options) {
       basedOnRevision: foregroundOperation.basedOn.revision,
       operationId: foregroundOperation.operationId,
       turn,
-      instructions: frameInstructions(plan, userText, runtimeUserText),
+      instructions: frameInstructions(plan, userText, runtimeUserText, chat.runtimePresetSnapshot),
       source: frameSource(chat, card, foregroundOperation)
     })
     rememberFrame(chat, frame)

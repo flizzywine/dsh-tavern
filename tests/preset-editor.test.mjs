@@ -84,6 +84,18 @@ test('条目表单同步修改 prompts 与 prompt_order 的默认状态', async 
   })
 })
 
+test('条目开关只修改启用状态并保留其他字段', async () => {
+  const run = harness({
+    prompts: [{ identifier: 'main', name: '原名称', role: 'system', content: '原正文', enabled: true, unknown: 42 }],
+    prompt_order: [{ order: [{ identifier: 'main', enabled: true }] }]
+  })
+
+  const result = await run.editor.updateEntry('presets/写作.json', 'main#1', { enabled: false })
+
+  assert.deepEqual(result.changed, ['/prompts/0/enabled', '/prompt_order/0/order/0/enabled'])
+  assert.deepEqual(run.document().prompts[0], { identifier: 'main', name: '原名称', role: 'system', content: '原正文', enabled: false, unknown: 42 })
+})
+
 test('条目表单拒绝未知字段与非法角色', async () => {
   const run = harness({ prompts: [{ identifier: 'main', content: '正文' }] })
 
