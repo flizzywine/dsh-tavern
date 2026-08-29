@@ -339,6 +339,30 @@ export function createFileResourceStore(options = {}) {
     return await legacyScriptForCard(normalized)
   }
 
+  async function scriptBindingsForCards(cardPaths) {
+    const cards = Array.from(new Set((Array.isArray(cardPaths) ? cardPaths : []).map(function (cardPath) {
+      return normalizeResourcePath(cardPath, 'card')
+    })))
+    if (cards.length === 0) return {}
+    const [bindings, materialPaths, legacyPaths] = await Promise.all([readBindings(), list('source'), list('script')])
+    const availableMaterials = new Set(materialPaths)
+    const result = {}
+    for (const cardPath of cards) {
+      const materialPath = bindings[cardPath]
+      if (typeof materialPath === 'string') {
+        try {
+          const normalizedMaterial = normalizeResourcePath(materialPath, 'source')
+          if (availableMaterials.has(normalizedMaterial)) { result[cardPath] = normalizedMaterial; continue }
+        } catch {}
+      }
+      const stem = path.posix.basename(cardPath, path.posix.extname(cardPath))
+      const prefix = 'scripts/' + stem + '/'
+      const legacyPath = legacyPaths.find(function (candidate) { return candidate.startsWith(prefix) })
+      if (legacyPath) result[cardPath] = legacyPath
+    }
+    return result
+  }
+
   async function bindMaterial(cardPath, materialPath) {
     const card = normalizeResourcePath(cardPath, 'card')
     const material = normalizeResourcePath(materialPath, 'source')
@@ -796,5 +820,5 @@ export function createFileResourceStore(options = {}) {
     return result
   }
 
-  return Object.freeze({ absolute, bindMaterial, bindWorldBook, cardsForMaterial, ensure, ensureCardWorkspace, importCard, importText, importWorldBook, list, migrateLegacy, readCard, readText, remove, rename: renameResource, replaceScript, restoreCard, scriptForCard, unbindMaterial, unbindWorldBook, worldBookBindingForCard, writeWorking })
+  return Object.freeze({ absolute, bindMaterial, bindWorldBook, cardsForMaterial, ensure, ensureCardWorkspace, importCard, importText, importWorldBook, list, migrateLegacy, readCard, readText, remove, rename: renameResource, replaceScript, restoreCard, scriptBindingsForCards, scriptForCard, unbindMaterial, unbindWorldBook, worldBookBindingForCard, writeWorking })
 }

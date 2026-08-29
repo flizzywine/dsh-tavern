@@ -759,10 +759,12 @@ export async function apply(ctx) {
     return { path: cardPath, name: card.name, description: card.description, tags: card.tags }
   }
   async function listCards() {
-    return await Promise.all((await fileResources.list('card')).map(async function (cardPath) {
+    const cardPaths = await fileResources.list('card')
+    const scriptBindings = await fileResources.scriptBindingsForCards(cardPaths)
+    return await Promise.all(cardPaths.map(async function (cardPath) {
       const card = await readCard(cardPath)
-      const script = await readScript(cardPath)
-      return { path: cardPath, name: card.name, script: script === undefined ? null : { path: script.path, title: script.title, sourceChars: script.sourceChars, chunkCount: script.chunks.length } }
+      const scriptPath = scriptBindings[cardPath]
+      return { path: cardPath, name: card.name, script: scriptPath === undefined ? null : { path: scriptPath, title: scriptPath.split('/').pop() } }
     }))
   }
   async function getCardOpenings(cardPath, userName, requestMode) {

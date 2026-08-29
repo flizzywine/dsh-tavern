@@ -712,6 +712,16 @@ test('隐藏的人物卡库不会刷新或上报迟到的读取错误', () => {
   assert.match(library, /if \(props\.visible && requestedPath && requestedPath !== selectedPath\)/)
 })
 
+test('人物卡目录只读取卡片名称和剧本绑定，不加载或切分完整剧本', () => {
+  const listing = between(serverSource, 'async function listCards()', 'async function getCardOpenings')
+  const sidebar = between(clientSource, 'function TavernSidebar', 'function TavernResourcesTab')
+
+  assert.match(listing, /fileResources\.scriptBindingsForCards\(cardPaths\)/)
+  assert.doesNotMatch(listing, /readScript|splitNovelText|sourceChars|chunkCount/)
+  assert.match(sidebar, /"剧本：" \+ card\.script\.title/)
+  assert.doesNotMatch(sidebar, /card\.script\.chunkCount/)
+})
+
 test('已迁移的人物卡读取时不会再次加载原版并执行迁移', () => {
   const reader = between(serverSource, 'async function readCardWorkspace', 'async function readCard(cardPath)')
 

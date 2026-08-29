@@ -333,6 +333,21 @@ test('人物卡绑定资料只保存路径引用，重命名任一端都会保�
   } finally { await rm(root, { recursive: true, force: true }) }
 })
 
+test('人物卡目录批量读取剧本绑定时不加载剧本正文', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-card-bindings-'))
+  try {
+    const store = createFileResourceStore({ dataRoot: root })
+    const firstCard = await store.importCard({ name: '甲.json', text: '{"name":"甲"}' }, { name: '甲' })
+    const secondCard = await store.importCard({ name: '乙.json', text: '{"name":"乙"}' }, { name: '乙' })
+    const scriptPath = await store.importText('source', { name: '长篇故事.txt', text: '不应由人物卡目录读取的完整正文' })
+    await store.bindMaterial(firstCard, scriptPath)
+
+    assert.deepEqual(await store.scriptBindingsForCards([firstCard, secondCard]), {
+      [firstCard]: scriptPath
+    })
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
+
 test('人物卡重命名中途崩溃后，重启从 journal 恢复文件与绑定的新图', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-files-'))
   try {
