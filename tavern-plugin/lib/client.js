@@ -2195,13 +2195,18 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				return h("div", { className: "dsh-tavern-presets" },
 					h("div", { className: "dsh-tavern-status-head" }, h("div", { className: "dsh-tavern-status-title" }, "预设库（实验性）"), h("div", { className: "dsh-tavern-question-sub" }, "选择游玩使用的预设，或交给卡片 Agent 编辑"), h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { importInput.current && importInput.current.click(); } }, "导入外部预设"), h("input", { ref: importInput, type: "file", accept: ".json,application/json", style: { display: "none" }, onChange: function (event) { const file = event.target.files && event.target.files[0]; importFile(file); event.target.value = ""; } })),
 					h("div", { className: "dsh-tavern-preset-list" }, error ? h("div", { className: "dsh-tavern-dock-error" }, error) : null,
+						h("label", { className: "dsh-tavern-preset-selector" }, h("span", null, "当前使用的预设"), h("select", { value: catalog.activePresetPath, disabled: busy, onChange: function (event) { selectPreset(event.target.value); } }, h("option", { value: "" }, "不使用预设（默认）"), catalog.presets.filter(function (item) { return item.valid === true && item.recognized === true; }).map(function (item) { return h("option", { key: item.path, value: item.path }, item.title); }))),
 						h("div", { className: "dsh-tavern-preset-summary dsh-tavern-external-preset-notice" },
-						h("strong", null, catalog.activePresetPath ? "当前预设：" + catalog.activePresetTitle : "当前未选择预设"),
-						h("p", null, h("strong", null, "普通游玩："), "把可识别的启用提示词按头部、中部和尾部加入 DSH 前台正文请求，并应用受支持的预设正则。历史仍保持 DSH 的追加式结构。"),
-						h("p", null, h("strong", null, "兼容边界："), "普通游玩只是“能够使用”预设，并非完整复刻 SillyTavern。部分占位、宏、消息顺序、模型参数和第三方扩展可能不生效或表现不同，也不保证达到破限效果。"),
-						h("p", null, h("strong", null, "兼容模式："), "会进一步按 SillyTavern 的消息结构编译请求，但仍属于实验能力，不能保证完全适配。"),
+						h("strong", null, catalog.activePresetPath ? "当前预设：" + catalog.activePresetTitle : "当前不使用预设"),
+						h("p", null, h("strong", null, "普通游玩模式："), "把可识别的启用提示词按头部、中部和尾部加入 DSH 前台正文请求，并应用受支持的预设正则；历史仍保持 DSH 的追加式结构。它只是能够使用预设，并非完整复刻 SillyTavern，部分占位、宏、消息顺序、模型参数和第三方扩展可能不生效或表现不同，也不保证达到破限效果。"),
+						h("p", null, h("strong", null, "兼容模式："), "会尽最大可能复刻 SillyTavern 的消息结构与预设行为，对预设的适配度更高。进入“设置 → DSH Tavern”，开启“兼容模式（实验性）”；开启后左侧会显示“兼容（实验性）”入口。"),
 						h("p", null, "修改预设后，下一轮游玩请求直接生效；卡片模式中的引用仅供 Agent 阅读和编辑，后台 Agent 不运行预设。")),
-					catalog.presets.length ? catalog.presets.map(function (item) { const selected = item.path === catalog.activePresetPath; const runnable = item.valid === true && item.recognized === true; return h("div", { key: item.path, className: "dsh-tavern-preset-row" }, h("div", { className: "dsh-tavern-preset-row-head" }, h("button", { className: "dsh-tavern-preset-row-main", disabled: busy, title: "查看并编辑预设", onClick: function () { loadPreset(item.path); } }, h("b", null, (selected ? "✓ " : "") + item.title), h("span", null, item.promptCount + " 个提示词 · " + item.regexCount + " 条正则")), h("div", { className: "dsh-tavern-preset-row-actions" }, h("button", { className: "dsh-tavern-resource-at" + (selected ? " mounted" : ""), disabled: busy || selected || !runnable, title: runnable ? "在普通游玩和兼容模式中使用预设" : "该文件没有可运行的 SillyTavern prompts 结构", onClick: function () { selectPreset(item.path); } }, selected ? "使用中" : runnable ? "使用预设" : "无法使用"), inCardMode ? h("button", { className: "dsh-tavern-resource-at", disabled: busy, onClick: function () { props.appendMention("preset", item.path, item.title); } }, "在对话中引用") : null))); }) : h("div", { className: "dsh-tavern-status-empty" }, "还没有外部预设。请先导入。")));
+					catalog.presets.length ? catalog.presets.map(function (item) {
+						return h("div", { key: item.path, className: "dsh-tavern-preset-row" },
+							h("div", { className: "dsh-tavern-preset-row-head" }, h("button", { className: "dsh-tavern-preset-row-main", disabled: busy, title: "查看并编辑预设", onClick: function () { loadPreset(item.path); } }, h("b", null, item.title), h("span", null, item.promptCount + " 个提示词 · " + item.regexCount + " 条正则"))),
+							inCardMode ? h("div", { className: "dsh-tavern-preset-row-actions" }, h("button", { className: "dsh-tavern-resource-at", disabled: busy, onClick: function () { props.appendMention("preset", item.path, item.title); } }, "在对话中引用")) : null
+						);
+					}) : h("div", { className: "dsh-tavern-status-empty" }, "还没有外部预设。请先导入。")));
 			}
 
 			function register(input) {
