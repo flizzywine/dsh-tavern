@@ -75,6 +75,32 @@ test('SillyTavern v3 导入与导出共享字段政策，并保持 world book �
   assert.deepEqual(exported.data.character_book.entries[0].extensions, { depth: 4 })
 })
 
+test('旧版 DSH 扁平人物卡导出为 SillyTavern 可导入的 V3', () => {
+  const cards = moduleUnderTest()
+  const workspace = cards.create({
+    kind: 'import',
+    payload: {
+      spec: 'chara_card_v3',
+      name: '旧版角色',
+      description: '旧版扁平描述',
+      first_mes: '你好',
+      tags: ['旧卡'],
+      unknown_root: { keep: true }
+    }
+  })
+
+  const exported = cards.present({ card: workspace, as: 'sillytavern-v3' })
+
+  assert.equal(exported.spec, 'chara_card_v3')
+  assert.equal(exported.spec_version, '3.0')
+  assert.equal(exported.data.name, '旧版角色')
+  assert.equal(exported.data.description, '旧版扁平描述')
+  assert.equal(exported.data.first_mes, '你好')
+  assert.deepEqual(exported.data.tags, ['旧卡'])
+  assert.deepEqual(exported.unknown_root, { keep: true })
+  assert.equal(Object.prototype.hasOwnProperty.call(exported, 'name'), false)
+})
+
 test('人物卡工作 raw 在普通字段修改后仍保留 user 和 char 宏', () => {
   const cards = moduleUnderTest()
   const workspace = cards.create({
