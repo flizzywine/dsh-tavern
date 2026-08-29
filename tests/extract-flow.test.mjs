@@ -781,12 +781,22 @@ test('人物卡库通过列表进入详情，世界书编辑跳转到独立世�
 test('人物卡详情只在展开绑定面板后读取剧本和世界书全库', () => {
   const panel = between(clientSource, 'function CardFieldsPanel', 'function TavernPlayerNameAction')
   const scriptBinding = between(panel, 'function loadScript()', 'function loadScriptCatalog()')
-  const worldBookBinding = between(panel, 'function loadWorldBookBinding()', 'function loadWorldBookCatalog()')
+  const worldBookBinding = between(panel, 'function loadWorldBookBinding()', 'function loadWorldBookCatalog(force)')
 
   assert.doesNotMatch(scriptBinding, /listResources/)
   assert.doesNotMatch(worldBookBinding, /listWorldBooks/)
   assert.match(panel, /onToggle: function \(event\) \{ if \(event\.currentTarget\.open\) loadScriptCatalog\(\); \}/)
   assert.match(panel, /onToggle: function \(event\) \{ if \(event\.currentTarget\.open\) loadWorldBookCatalog\(\); \}/)
+})
+
+test('人物卡绑定面板在世界书变化后刷新已打开的目录', () => {
+  const panel = between(clientSource, 'function CardFieldsPanel', 'function TavernPlayerNameAction')
+
+  assert.match(panel, /const worldBookDetailsRef = React\.useRef\(null\)/)
+  assert.match(panel, /window\.addEventListener\("dsh-tavern-data-changed", onWorldBookDataChanged\)/)
+  assert.match(panel, /tavernDataChangeAffects\(event, \["worldbooks", "cards"\]\)/)
+  assert.match(panel, /worldBookDetailsRef\.current && worldBookDetailsRef\.current\.open/)
+  assert.match(panel, /loadWorldBookCatalog\(true\)/)
 })
 
 test('人物卡全部字段合并在默认展开的基本信息中，并位于世界书上方', () => {

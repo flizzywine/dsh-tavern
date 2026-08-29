@@ -2731,6 +2731,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const [worldBookBusy, setWorldBookBusy] = React.useState(false);
 			const [worldBookError, setWorldBookError] = usePersistentError("世界书绑定");
 			const scriptFileRef = React.useRef(null);
+			const worldBookDetailsRef = React.useRef(null);
+			const worldBookCatalogRequestRef = React.useRef(null);
 			const cardPath = props.view.card.path;
 			function call(method, args) { return rpc(method, args); }
 			function worldBookChoiceValue(item) {
@@ -2770,15 +2772,22 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					setWorldBookError("");
 				}, function (err) { setWorldBookError(String(err && err.message || err)); });
 			}
-			function loadWorldBookCatalog() {
-				if (!cardPath || worldBookCatalogLoaded || worldBookCatalogLoading) return;
+			function loadWorldBookCatalog(force) {
+				if (!cardPath || (!force && worldBookCatalogLoaded)) return Promise.resolve();
+				if (worldBookCatalogRequestRef.current) return worldBookCatalogRequestRef.current;
 				setWorldBookCatalogLoading(true);
-				call("listWorldBooks").then(function (result) {
+				const request = call("listWorldBooks").then(function (result) {
 					setAvailableWorldBooks((result.standalone || []).concat(result.embedded || []));
 					setWorldBookCatalogLoaded(true);
 					setWorldBookError("");
 				}, function (err) { setWorldBookError(String(err && err.message || err)); })
-					.finally(function () { setWorldBookCatalogLoading(false); });
+					.finally(function () {
+						if (worldBookCatalogRequestRef.current !== request) return;
+						worldBookCatalogRequestRef.current = null;
+						setWorldBookCatalogLoading(false);
+					});
+				worldBookCatalogRequestRef.current = request;
+				return request;
 			}
 			React.useEffect(function () {
 				const card = props.view.card;
@@ -2793,6 +2802,16 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				setAvailableWorldBooks([]); setWorldBookCatalogLoaded(false); setWorldBookCatalogLoading(false);
 				loadScript();
 				loadWorldBookBinding();
+			}, [cardPath]);
+			React.useEffect(function () {
+				function onWorldBookDataChanged(event) {
+					if (!tavernDataChangeAffects(event, ["worldbooks", "cards"])) return;
+					setAvailableWorldBooks([]);
+					setWorldBookCatalogLoaded(false);
+					if (worldBookDetailsRef.current && worldBookDetailsRef.current.open) loadWorldBookCatalog(true);
+				}
+				window.addEventListener("dsh-tavern-data-changed", onWorldBookDataChanged);
+				return function () { window.removeEventListener("dsh-tavern-data-changed", onWorldBookDataChanged); };
 			}, [cardPath]);
 			function field(name, value) { setDraft(Object.assign({}, draft, { [name]: value })); }
 			async function save() {
@@ -2976,7 +2995,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				scriptHero,
 				h("div", { className: "dsh-tavern-card-fields" },
 					h("details", { className: "dsh-tavern-card-advanced", open: true }, h("summary", null, "基本信息"), F("name", "角色名称"), F("tags", "标签"), F("description", "角色描述", true), F("personality", "性格"), F("scenario", "场景设定"), F("first_mes", "开场白", true), F("alternate_greetings", "备选开场白（--- 分隔）"), F("system_prompt", "系统提示"), F("post_history_instructions", "历史后指令"), F("mes_example", "对话示例", true), F("creator_notes", "创作者备注")),
-					h("details", { className: "dsh-tavern-card-advanced", onToggle: function (event) { if (event.currentTarget.open) loadWorldBookCatalog(); } }, h("summary", null, "世界书 · " + worldBookEntries.length + " 条"), worldBookPanel),
+					h("details", { ref: worldBookDetailsRef, className: "dsh-tavern-card-advanced", onToggle: function (event) { if (event.currentTarget.open) loadWorldBookCatalog(); } }, h("summary", null, "世界书 · " + worldBookEntries.length + " 条"), worldBookPanel),
 					h("details", { className: "dsh-tavern-card-advanced" }, h("summary", null, "扩展内容 · " + extensionCount + " 项"), extensionPanel),
 					error ? h("div", { className: "dsh-card-error" }, error) : null,
 					h("div", { className: "dsh-tavern-card-save" }, h("button", { className: "dsh-card-primary", disabled: busy, onClick: save }, busy ? "保存中…" : "保存字段"))
