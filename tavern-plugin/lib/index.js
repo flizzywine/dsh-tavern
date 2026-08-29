@@ -1982,7 +1982,7 @@ export async function apply(ctx) {
     return { path: cardPath, card }
   }
   const foregroundFrameBuilder = createForegroundFrameBuilder()
-  const foregroundFrameSessionAdapter = createForegroundFrameSessionAdapter({ id: crypto.randomUUID })
+  const foregroundFrameSessionAdapter = createForegroundFrameSessionAdapter({ id: randomUUID })
   const turnOrchestrator = createTurnOrchestrator({
     store: {
       chatForSession,

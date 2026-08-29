@@ -1133,6 +1133,11 @@ test('普通游玩投影当前预设，兼容模式继续按 SillyTavern 结构�
 	assert.match(orchestrationStrategiesSource, /prepared\.frame\.userInput\.projectedText/)
 })
 
+test('Foreground Frame 使用无需 Web Crypto 接收者的 UUID 回调', () => {
+	assert.match(serverSource, /createForegroundFrameSessionAdapter\(\{ id: randomUUID \}\)/)
+	assert.doesNotMatch(serverSource, /createForegroundFrameSessionAdapter\(\{ id: crypto\.randomUUID \}\)/)
+})
+
 test('隔离 Helper iframe 可以只读加载已锁定的本机远程资源', () => {
 	const handler = between(serverSource, "handler: async (req, res) => {", "if (req.method === 'GET' && pathname === '/api/dsh-tavern/events')")
 	assert.match(handler, /const readsCachedAsset = req\.method === 'GET' && cachedAssetMatch/)
