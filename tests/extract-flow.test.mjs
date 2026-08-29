@@ -112,11 +112,11 @@ test('游玩中可修改玩家称呼，Tavern 不接管正文发送状态', () =
   assert.doesNotMatch(clientSource, /dsh-tavern-signal-timeout/)
 })
 
-test('Tavern 对话顶栏只在兼容对话显示当前选择的整份预设', () => {
+test('Tavern 游玩对话顶栏显示当前选择的整份预设', () => {
   const player = between(clientSource, 'function TavernPlayerNameAction', 'function TavernStatusPanel')
   const view = between(serverSource, 'async function view(chat, card)', 'function replyProjectionsOf')
 
-  assert.match(view, /chat\.requestMode === 'sillytavern' \? await runtimePresets\.fullSnapshot\(\) : null/)
+  assert.match(view, /groupOfMode\(chat\.mode\) === 'play' \? await runtimePresets\.fullSnapshot\(\) : null/)
   assert.match(view, /runtimePreset: activePresetSnapshot === null \? null : \{ id: activePresetSnapshot\.presetPath, name: activePresetSnapshot\.presetName \}/)
   assert.match(player, /const presetName = view\.runtimePreset && view\.runtimePreset\.name \? view\.runtimePreset\.name : "无"/)
   assert.match(player, /"当前预设：" \+ presetName/)
@@ -540,15 +540,17 @@ test('预设库选择整份预设，并可交给卡片 Agent 编辑或在当前�
   assert.match(panel, /"使用预设"/)
   assert.match(panel, /"使用中"/)
   assert.doesNotMatch(panel, /"停用预设"/)
-  assert.match(panel, /只有兼容模式会使用当前预设。游玩模式和卡片模式不会运行外部预设。/)
-  assert.match(panel, /进入“设置 → DSH Tavern”，开启“兼容模式（实验性）”。开启后，侧栏最右侧会显示“兼容（实验性）”。/)
-  assert.match(panel, /修改预设后，下一轮兼容请求直接生效；卡片模式中的引用仅供 Agent 阅读和编辑。/)
+  assert.match(panel, /普通游玩只是“能够使用”预设，并非完整复刻 SillyTavern/)
+  assert.match(panel, /部分占位、宏、消息顺序、模型参数和第三方扩展可能不生效或表现不同，也不保证达到破限效果/)
+  assert.match(panel, /兼容模式：/)
+  assert.match(panel, /后台 Agent 不运行预设/)
   assert.match(panel, /"在对话中引用"/)
   assert.match(panel, /props\.appendMention\("preset"/)
   assert.match(panel, /"← 返回预设库"/)
   assert.match(panel, /编辑预设提示词和正则/)
-  assert.match(panel, /点击条目展开编辑，保存后会直接写回预设文件。当前预设仅在兼容模式中生效，下一轮兼容请求会使用修改后的内容。/)
-  assert.match(panel, /卡片模式中的引用只供 Agent 阅读和编辑，不会运行预设。/)
+  assert.match(panel, /普通游玩和兼容模式会在下一轮请求中使用修改后的内容/)
+  assert.match(panel, /这不是完整的 SillyTavern 运行环境/)
+  assert.match(panel, /卡片模式中的引用只供 Agent 阅读和编辑，后台 Agent 也不会运行预设/)
   assert.match(panel, /"提示词条目 · "/)
   assert.match(panel, /"正则脚本 · "/)
   assert.match(panel, /dsh-tavern-prompt-row/)
@@ -907,7 +909,7 @@ test('设置开启后在顶层侧栏最右侧显示实验性兼容模式', () =>
 	assert.match(clientSource, /不运行游玩模式的后台状态结算；候选项可按需手动生成/)
 })
 
-test('只有兼容模式按当前选择读取整份预设，DSH 请求不注入外部预设', () => {
+test('普通游玩投影当前预设，兼容模式继续按 SillyTavern 结构编译', () => {
 	const panel = between(clientSource, 'function createExternalPresetAndBypassPlanFeatureModule', 'function createWorldBookLibraryFeatureModule')
 	const compile = between(serverSource, 'async function compileCompatibilityTurn', 'function compatibilityMessages')
 	const preStep = between(serverSource, "ctx.on('agent/pre-step'", "ctx.on('llm/stream'")
@@ -921,7 +923,9 @@ test('只有兼容模式按当前选择读取整份预设，DSH 请求不注入�
 	assert.match(compile, /const presetDocument = await readPresetDocument\(presetPath\)/)
 	assert.match(compile, /Array\.isArray\(snapshot\.regexScripts\) \? snapshot\.regexScripts : \[\]/)
 	assert.doesNotMatch(compile, /bypassPlans/)
-	assert.match(serverSource, /const raw = chat\.requestMode === 'sillytavern' \? await runtimePresets\.fullSnapshot\(\) : null/)
+	assert.match(serverSource, /const raw = groupOfMode\(chat\.mode\) === 'play' \? await runtimePresets\.fullSnapshot\(\) : null/)
+	assert.match(preStep, /runtimePresetPhaseMessages\(snapshot, 'middle'/)
+	assert.match(preStep, /scope: 'foreground'/)
 	assert.match(preStep, /await updateChat\(chat\.id,[\s\S]*source: 'compatibility\.compile'/)
 	assert.doesNotMatch(preStep, /chat\.compatibilityTraces\[String\(payload\.turn\)\][\s\S]*await writeChat\(chat\)/)
 })

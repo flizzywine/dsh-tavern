@@ -907,7 +907,7 @@ export async function apply(ctx) {
         scriptProgress = scriptContinuity.inspect({ script: script, state: chat.scriptState, request: { kind: 'progress' } })
       }
     }
-    const activePresetSnapshot = chat.requestMode === 'sillytavern' ? await runtimePresets.fullSnapshot() : null
+    const activePresetSnapshot = groupOfMode(chat.mode) === 'play' ? await runtimePresets.fullSnapshot() : null
     let replyDisplay = { projections: replyProjectionsOf(chat), presentation: null, latestSourceBacked: false }
     if ((chat.mode || 'story') === 'story' || (chat.mode || 'story') === 'script') {
       const extensions = await readCardExtensions(chat.cardPath)
@@ -1033,7 +1033,7 @@ export async function apply(ctx) {
       }
     }
     const macroState = { userName: str(userName).trim().slice(0, 80) || '你', local: {}, global: {} }
-    const runtimePresetSnapshot = effectiveRequestMode === 'sillytavern' ? await runtimePresets.fullSnapshot() : null
+    const runtimePresetSnapshot = groupOfMode(chatMode) === 'play' ? await runtimePresets.fullSnapshot() : null
     const openingSourceText = chatMode === 'card' ? prompt('card-mode-greeting') : resolveCardOpening(card, openingId)
     const openingExtensions = chatMode === 'card' ? null : await readCardExtensions(cardPath)
     const openingRegexScripts = (Array.isArray(openingExtensions && openingExtensions.regexScripts) ? openingExtensions.regexScripts : []).concat(
@@ -1247,9 +1247,9 @@ export async function apply(ctx) {
       await sessions.flush(session)
     },
     resolveRuntimePresetSnapshot: async function (input) {
-      const chat = await chatForSession(input.sessionId)
-      if (!chat) return null
-      return await resolveChatRuntimePreset(chat)
+      // 外部 Tavern 预设只投影到前台正文请求。后台 Agent 有自己的结构化任务协议，
+      // 继承整份预设可能破坏候选生成和状态结算的输出契约。
+      return null
     },
     stageRuntimePresetSnapshot: function (input) {
       runtimePresetSnapshots.set(str(input.sessionId), {
@@ -1791,7 +1791,7 @@ export async function apply(ctx) {
     },
     projectReply: projectRuntimeReply,
     resolvePresetRegexScripts: async function (chat) {
-      if (!chat || chat.requestMode !== 'sillytavern') return []
+      if (!chat || groupOfMode(chat.mode) !== 'play') return []
       const snapshot = await runtimePresets.fullSnapshot()
       return Array.isArray(snapshot && snapshot.regexScripts) ? snapshot.regexScripts : []
     },
@@ -2467,7 +2467,7 @@ export async function apply(ctx) {
 
   async function resolveChatRuntimePreset(chat) {
     if (!chat) return null
-    const raw = chat.requestMode === 'sillytavern' ? await runtimePresets.fullSnapshot() : null
+    const raw = groupOfMode(chat.mode) === 'play' ? await runtimePresets.fullSnapshot() : null
     const presetPath = str(raw && raw.presetPath)
     if (presetPath === '') {
       const needsClearing = chat.runtimePresetSnapshot !== null || str(chat.bypassPlanId) !== '' || str(chat.runtimePresetPath) !== ''

@@ -153,7 +153,7 @@ Tavern Profile 是 CLI 与 DSH Desktop 共用的宿主 seam，本身不声明 We
 | Live Tavern View | `getSnapshot`、`subscribe`、`invalidate` | 向 Web UI 提供单一的实时 Tavern 视图缓存、刷新和重试入口 |
 | Conversation Lifecycle | `start` | 把新建游玩或卡片工作台拆成可诊断的顺序阶段，并统一失败位置 |
 | Preset Reading | `inspectPreset` | 把不同 SillyTavern JSON 预设投影为统一的只读摘要和有序提示词条目，不改写原文件 |
-| Preset Compatibility | `inspectPreset`、`selectPreset`、`fullSnapshot`、`compileCompatibilityTurn` | 用户在预设库中选择一份外部预设；兼容模式每轮从源文件读取原始启用状态并按 SillyTavern 语义编译，普通游玩与卡片 Agent 不运行该预设 |
+| Preset Compatibility | `inspectPreset`、`selectPreset`、`fullSnapshot`、`compileCompatibilityTurn` | 用户在预设库中选择一份外部预设；普通游玩把可识别提示词按头、中、尾投影到 DSH 前台请求并应用受支持的正则；兼容模式按 SillyTavern 语义编译；后台与卡片 Agent 不运行该预设 |
 
 Web 端按产品能力划分为 Tavern Shell、Play Controls、Card Library、World Book Library、Resources Library 和 Preset Library 六个 Feature Module。它们不是机械拆文件：每个模块从界面、状态到注册形成完整 seam，删除某一模块即可同时移除该能力及其宿主注册，`apply()` 只负责组合这些接口。
 
@@ -171,7 +171,7 @@ Web 端按产品能力划分为 Tavern Shell、Play Controls、Card Library、Wo
 8. 人物卡、世界书、剧本、Guide 和玩家输入等外部内容进入游玩 Agent 前，必须经过统一运行时投影。读取型宏按当前上下文解析；会修改变量的宏只在明确的权威生命周期执行一次；HTML 进入展示层，不进入正文或后台任务。卡片模式编辑的是原始内容，不执行这条投影。
 9. 开场白选择是运行时投影的特殊预览边界：选择阶段使用隔离变量渲染并保留完整正文与 HTML；用户确认后才重新从原始开场白解析一次、提交变量，并将剧情正文写入 Agent、HTML 写入酒馆状态。纯展示页也是有效开场白，可以创建会话；没有正文时使用一个不可见空白字符维持原生开场消息结构，不把 HTML 送入 Agent。
 10. 后台任务不使用插件自定的小型统一输出上限。已知模型按官方最大输出能力运行；未知模型交由 DSH 适配器选择上限，且保留当前会话选择的推理等级。
-11. 外部预设兼容代码属于保留中的实验 seam，不得因当前禁用而删除；在完成酒馆预设编译语义验证前，提示词注入和预设正则均不得进入正式运行链路。
+11. 外部预设属于实验能力。普通游玩只在前台正文请求中投影可识别提示词和受支持的正则，不改变 DSH 追加式历史，也不进入后台或卡片 Agent；兼容模式另行执行 SillyTavern 消息编译。两种路径都不得宣称完整适配或保证破限效果。
 
 ## 源码地图
 
