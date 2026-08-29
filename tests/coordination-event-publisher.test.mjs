@@ -19,11 +19,39 @@ function intervals() {
       await new Promise((resolve) => setImmediate(resolve))
       return timer.delay
     },
-    count() { return active.filter((item) => !item.stopped).length }
+    count() { return active.filter((item) => !item.stopped).length },
+    delays() { return active.filter((item) => !item.stopped).map((item) => item.delay) }
   }
 }
 
-test('服务器轮询文件快照并在 busy 变为 idle 时立即发布完整状态', async function () {
+test('写入通知立即发布快照，文件检查只作为低频兜底', async function () {
+  const clock = intervals()
+  let phase = 'running'
+  let loads = 0
+  const publisher = createCoordinationEventPublisher({
+    readVersion: async function () { return phase },
+    load: async function () {
+      loads += 1
+      return { mailboxVersion: loads, activity: { busy: phase === 'running', phase, updatedAt: loads }, task: null }
+    },
+    startInterval: clock.start,
+    stopInterval: clock.stop,
+    fallbackIntervalMs: 5000
+  })
+  const received = []
+  const close = publisher.subscribe('session-active', function (snapshot) { received.push(snapshot) })
+  await new Promise((resolve) => setImmediate(resolve))
+
+  assert.deepEqual(clock.delays(), [5000])
+  phase = 'idle'
+  await publisher.publish('session-active')
+
+  assert.equal(loads, 2)
+  assert.equal(received.at(-1).activity.phase, 'idle')
+  close()
+})
+
+test('低频兜底发现 busy 变为 idle 时发布完整状态', async function () {
   const clock = intervals()
   const snapshots = [
     { mailboxVersion: 1, activity: { busy: true, phase: 'running', updatedAt: 10 }, task: { taskId: 'task-1', status: 'running', version: 1 } },
@@ -32,8 +60,7 @@ test('服务器轮询文件快照并在 busy 变为 idle 时立即发布完整�
   const publisher = createCoordinationEventPublisher({
     load: async function () { return snapshots.shift() || snapshots.at(-1) },
     startInterval: clock.start,
-    stopInterval: clock.stop,
-    pollIntervalMs: 250
+    stopInterval: clock.stop
   })
   const received = []
   const close = publisher.subscribe('session-1', function (snapshot) { received.push(snapshot) })

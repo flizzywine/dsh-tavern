@@ -48,12 +48,13 @@ test('Session、世界书、结算与候选使用同一持久同步快照', func
   assert.match(clientSync, /projectionRevision/)
 })
 
-test('服务器先检查轻量存储版本，再通过 SSE 发送变化后的完整快照', function () {
+test('服务器在 Chat 写入后主动发布 SSE，只保留低频文件版本兜底', function () {
   assert.match(serverSource, /createCoordinationEventPublisher/)
+  assert.match(serverSource, /coordinationEvents\?\.publish\(saved\.sessionId\)/)
   assert.match(serverSource, /readVersion: async function/)
   assert.match(serverSource, /chatPersistence\.version\(chatId\)/)
   assert.match(serverSource, /profileData\.version\('card-projection-revisions\.json'\)/)
-  assert.match(serverSource, /pollIntervalMs: 250/)
+  assert.match(serverSource, /fallbackIntervalMs: 5000/)
   assert.match(serverSource, /'Content-Type': 'text\/event-stream; charset=utf-8'/)
   assert.match(serverSource, /coordinationEvents\.subscribe\(sessionId/)
   assert.match(serverSource, /data: ' \+ JSON\.stringify\(snapshot\)/)

@@ -115,6 +115,7 @@ export async function apply(ctx) {
     return prefix + '-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8)
   }
   const runtimeGeneration = uid('runtime')
+  let coordinationEvents = null
   function str(v) {
     return typeof v === 'string' ? v : (v === undefined || v === null ? '' : String(v))
   }
@@ -137,12 +138,14 @@ export async function apply(ctx) {
   }
   async function bumpCardProjectionRevision(cardPath) {
     const normalized = normalizeResourcePath(cardPath, 'card')
-    return await profileData.updateJson(CARD_PROJECTION_REVISIONS, function (value) {
+    const saved = await profileData.updateJson(CARD_PROJECTION_REVISIONS, function (value) {
       const state = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
       const cards = state.cards && typeof state.cards === 'object' && !Array.isArray(state.cards) ? state.cards : {}
       const version = Math.max(0, Number(state.version) || 0) + 1
       return { version, cards: Object.assign({}, cards, { [normalized]: version }) }
     })
+    void coordinationEvents?.publishAll()
+    return saved
   }
   function groupOfMode(mode) {
     const m = mode || 'story'
@@ -621,8 +624,16 @@ export async function apply(ctx) {
   const chatPersistence = createChatPersistence({ store: chatJournalStore, normalize: normalizeChat, now: Date.now })
   async function readChat(chatId) { return await chatPersistence.read(chatId) }
   async function readChatRevision(chatId, revision) { return await chatPersistence.readRevision(chatId, revision) }
-  async function writeChat(chat, metadata) { return await chatPersistence.write(chat, metadata) }
-  async function updateChat(chatId, mutation, metadata) { return await chatPersistence.update(chatId, mutation, metadata) }
+  async function writeChat(chat, metadata) {
+    const saved = await chatPersistence.write(chat, metadata)
+    void coordinationEvents?.publish(saved.sessionId)
+    return saved
+  }
+  async function updateChat(chatId, mutation, metadata) {
+    const saved = await chatPersistence.update(chatId, mutation, metadata)
+    if (saved !== undefined) void coordinationEvents?.publish(saved.sessionId)
+    return saved
+  }
   async function prepareRollbackIntent(chat, intent) {
     const target = storyTimeline.rollbackTarget({ chat })
     if (target === null) return intent
@@ -2303,10 +2314,10 @@ export async function apply(ctx) {
     return [runtimeGeneration, liveSession ? '1' : '0', chatId, chatVersion, projectionVersion].join(':')
   }
 
-  const coordinationEvents = createCoordinationEventPublisher({
+  coordinationEvents = createCoordinationEventPublisher({
     readVersion: async function (sessionId) { return await coordinationVersion(sessionId) },
     load: async function (sessionId) { return await sessionSync(sessionId, { kind: 'candidate' }) },
-    pollIntervalMs: 250,
+    fallbackIntervalMs: 5000,
     onError(error) { console.warn('dsh-tavern: 协调文件读取失败，将继续重试:', str(error && error.message || error)) }
   })
 
