@@ -37,6 +37,11 @@
 - id: tool-skill
   name: '@deepseek-ai/dsh-tool-skill'
 
+# 卡片工作台复用 DSH 创造模式的自引用 Cordis 工具集。
+# Tavern 在请求装配时只向 card 会话展示这些工具；游玩与后台 Agent 不可见。
+- id: tool-cordis
+  name: '@deepseek-ai/dsh-tool-cordis'
+
 # 复用 DSH 原生上下文压缩能力，并恢复 /compact 命令。
 # 压缩器与工具结果裁剪器共享同一隔离域，保持与 DSH 标准模式一致。
 - id: compaction
