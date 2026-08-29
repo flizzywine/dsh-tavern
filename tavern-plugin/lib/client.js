@@ -239,6 +239,9 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 .dsh-tavern-prompt-state { display: flex; align-items: center; gap: 5px; color: var(--dsw-alias-label-secondary); font-size: 9px; white-space: nowrap; }
 .dsh-tavern-prompt-state::before { width: 8px; height: 8px; border: 2px solid #23bd63; border-radius: 999px; content: ""; }
 .dsh-tavern-prompt-state.off::before { border-color: #91a0b5; }
+.dsh-tavern-prompt-state.is-toggle { border: 0; border-radius: 6px; padding: 4px 5px; background: transparent; font: inherit; cursor: pointer; }
+.dsh-tavern-prompt-state.is-toggle:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
+.dsh-tavern-prompt-state.is-toggle:disabled { opacity: .45; cursor: default; }
 .dsh-tavern-extract-state { gap: 8px; color: var(--dsw-alias-label-primary); font-size: 13px; font-weight: 650; }
 .dsh-tavern-extract-state::before { width: 11px; height: 11px; }
 .dsh-tavern-extract-state input[type="checkbox"] { width: 18px; height: 18px; margin: 0; accent-color: #23bd63; }
@@ -2132,6 +2135,17 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					try { const result = await rpc("updatePresetRegex", { path: preset.path, regexKey: script.regexKey, patch: { name: draft.name, findRegex: draft.findRegex, replaceString: draft.replaceString, enabled: draft.enabled } }, props.scope.sessionId); setPreset(result.preset || null); setRegexDrafts(function (current) { const next = Object.assign({}, current); delete next[script.regexKey]; return next; }); await refresh(); window.dispatchEvent(new CustomEvent("dsh-tavern-data-changed")); }
 					catch (err) { setError(String(err && err.message || err)); } finally { setBusy(false); }
 				}
+				async function togglePresetEntry(entry) {
+					if (!preset || entry.marker === true || !entry.edit || !Array.isArray(entry.edit.enabledPaths) || entry.edit.enabledPaths.length === 0) return;
+					const enabled = entry.enabled !== true; setBusy(true); setError("");
+					try { await rpc("updatePresetEntry", { path: preset.path, entryKey: entry.entryKey, patch: { enabled: enabled } }, props.scope.sessionId); const result = await rpc("getPreset", { path: preset.path }, props.scope.sessionId); setPreset(result.preset || null); setEntryDrafts(function (current) { if (!Object.prototype.hasOwnProperty.call(current, entry.entryKey)) return current; return Object.assign({}, current, { [entry.entryKey]: Object.assign({}, current[entry.entryKey], { enabled: enabled }) }); }); await refresh(); window.dispatchEvent(new CustomEvent("dsh-tavern-data-changed")); }
+					catch (err) { setError(String(err && err.message || err)); } finally { setBusy(false); }
+				}
+				async function togglePresetRegex(script) {
+					if (!preset) return; const enabled = script.enabled !== true; setBusy(true); setError("");
+					try { const result = await rpc("updatePresetRegex", { path: preset.path, regexKey: script.regexKey, patch: { enabled: enabled } }, props.scope.sessionId); setPreset(result.preset || null); setRegexDrafts(function (current) { if (!Object.prototype.hasOwnProperty.call(current, script.regexKey)) return current; return Object.assign({}, current, { [script.regexKey]: Object.assign({}, current[script.regexKey], { enabled: enabled }) }); }); await refresh(); window.dispatchEvent(new CustomEvent("dsh-tavern-data-changed")); }
+					catch (err) { setError(String(err && err.message || err)); } finally { setBusy(false); }
+				}
 				async function rename(item) {
 					const current = item.path.split("/").pop(); const name = window.prompt("重命名外部预设", current);
 					if (name === null || !name.trim() || name.trim() === current) return;
@@ -2163,8 +2177,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				const inCardMode = catalog.sessionMode === "card";
 				function entryRow(entry) {
 					const role = String(entry.role || "system").toUpperCase();
-					const draft = entryDraft(entry); const editable = entry.marker !== true && entry.edit && entry.edit.promptPath; const dirty = JSON.stringify(draft) !== JSON.stringify(entryValue(entry));
-					const state = h("span", { className: "dsh-tavern-prompt-state " + (entry.enabled ? "on" : "off") }, entry.enabled ? "启用" : "停用");
+					const draft = entryDraft(entry); const editable = entry.marker !== true && entry.edit && entry.edit.promptPath; const toggleable = entry.marker !== true && entry.edit && Array.isArray(entry.edit.enabledPaths) && entry.edit.enabledPaths.length > 0; const dirty = JSON.stringify(draft) !== JSON.stringify(entryValue(entry));
+					const state = toggleable ? h("button", { type: "button", className: "dsh-tavern-prompt-state is-toggle " + (entry.enabled ? "on" : "off"), disabled: busy, title: entry.enabled ? "点击停用此条目" : "点击启用此条目", "aria-pressed": entry.enabled === true, onClick: function (event) { event.preventDefault(); event.stopPropagation(); togglePresetEntry(entry); } }, entry.enabled ? "启用" : "停用") : h("span", { className: "dsh-tavern-prompt-state " + (entry.enabled ? "on" : "off"), title: "系统占位状态只读" }, entry.enabled ? "启用" : "停用");
 					return h("details", { key: entry.entryKey, className: "dsh-tavern-prompt-row role-" + String(entry.role || "system") },
 						h("summary", { className: "dsh-tavern-prompt-head" }, h("span", { className: "dsh-tavern-prompt-role" }, role), h("span", { className: "dsh-tavern-prompt-title" }, h("b", null, entry.name), h("span", null, String(entry.content || "").replace(/\s+/g, " ").trim() || (entry.marker ? "系统占位" : "空条目"))), state),
 						editable ? h("div", { className: "dsh-tavern-prompt-editor" },
@@ -2177,7 +2191,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				}
 				function regexRow(script) {
 					const draft = regexDraft(script); const dirty = JSON.stringify(draft) !== JSON.stringify(regexValue(script));
-					const state = h("span", { className: "dsh-tavern-prompt-state " + (script.enabled ? "on" : "off") }, script.enabled ? "启用" : "停用");
+					const state = h("button", { type: "button", className: "dsh-tavern-prompt-state is-toggle " + (script.enabled ? "on" : "off"), disabled: busy, title: script.enabled ? "点击停用此正则" : "点击启用此正则", "aria-pressed": script.enabled === true, onClick: function (event) { event.preventDefault(); event.stopPropagation(); togglePresetRegex(script); } }, script.enabled ? "启用" : "停用");
 					return h("details", { key: script.regexKey, className: "dsh-tavern-prompt-row role-regex" },
 						h("summary", { className: "dsh-tavern-prompt-head" }, h("span", { className: "dsh-tavern-prompt-role" }, "REGEX"), h("span", { className: "dsh-tavern-prompt-title" }, h("b", null, script.name), h("span", null, script.findRegex || "空查找规则")), state),
 						h("div", { className: "dsh-tavern-prompt-editor" },
