@@ -171,7 +171,7 @@ export function createApplicationUpdater(options) {
   }
   const store = createProfileDataStore({ dataRoot })
 
-  async function localIdentity() {
+  const loadLocalIdentity = typeof options.readLocalIdentity === 'function' ? options.readLocalIdentity : async function () {
     let local
     try {
       local = JSON.parse(await readFile(path.join(sourceRoot, 'package.json'), 'utf8'))
@@ -184,9 +184,22 @@ export function createApplicationUpdater(options) {
       currentCommit: await readRecordedCommit(sourceRoot, dshHome),
     }
   }
+  let identitySnapshot = null
+  let identityLoad = null
 
-  async function versions() {
-    const { currentVersion, currentCommit } = await localIdentity()
+  async function localIdentity(refresh = false) {
+    if (!refresh && identitySnapshot !== null) return identitySnapshot
+    if (identityLoad === null) {
+      identityLoad = Promise.resolve().then(loadLocalIdentity).then(function (identity) {
+        identitySnapshot = identity
+        return identity
+      }).finally(function () { identityLoad = null })
+    }
+    return await identityLoad
+  }
+
+  async function versions(identity) {
+    const { currentVersion, currentCommit } = identity
     if (currentVersion === 'unknown') return { currentVersion, latestVersion: 'unknown', currentCommit, latestCommit: '', updateAvailable: true }
     try {
       const [remote, latestCommitResult] = await Promise.all([fetchManifest(), fetchLatestCommit()])
@@ -227,8 +240,7 @@ export function createApplicationUpdater(options) {
     }
   }
 
-  async function status() {
-    const identity = await localIdentity()
+  async function statusWithIdentity(identity) {
     const current = await store.readJson(STATUS_FILE)
     if (current !== undefined) {
       const checkedAt = now()
@@ -265,15 +277,20 @@ export function createApplicationUpdater(options) {
     return { phase: 'idle', host: await host(), ...identity }
   }
 
+  async function status() {
+    return await statusWithIdentity(await localIdentity())
+  }
+
   async function check() {
-    const current = await status()
+    const identity = await localIdentity(true)
+    const current = await statusWithIdentity(identity)
     if (current.phase === 'running' && now() - Number(current.startedAt || 0) < RUNNING_TIMEOUT_MS) {
       throw new Error('更新正在进行，暂时无法重新检查')
     }
     const installHost = await host()
     let version
     try {
-      version = await versions()
+      version = await versions(identity)
     } catch (error) {
       const failed = {
         phase: 'check-failed', host: installHost, checkedAt: now(),
@@ -295,14 +312,15 @@ export function createApplicationUpdater(options) {
   }
 
   async function start() {
-    const current = await status()
+    const identity = await localIdentity(true)
+    const current = await statusWithIdentity(identity)
     if (current.phase === 'running' && now() - Number(current.startedAt || 0) < RUNNING_TIMEOUT_MS) {
       throw new Error('更新正在进行，请勿重复启动')
     }
     const installHost = await host()
     let version
     try {
-      version = await versions()
+      version = await versions(identity)
     } catch (error) {
       const failed = { phase: 'failed', host: installHost, failedAt: now(), error: `无法检查最新版，尚未开始下载：${sanitizeUpdateError(error?.message || error)}` }
       await store.writeJson(STATUS_FILE, failed)
