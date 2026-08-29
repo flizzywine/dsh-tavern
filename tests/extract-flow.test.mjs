@@ -750,7 +750,7 @@ test('人物卡库通过列表进入详情，世界书编辑跳转到独立世�
   assert.match(clientSource, /"导入新剧本并绑定"/)
   assert.match(serverSource, /Object\.assign\(\{\}, info, \{ path: script\.path \}\)/)
   assert.match(clientSource, /className: "dsh-tavern-script-hero"/)
-  assert.match(clientSource, /h\("details", \{ className: "dsh-tavern-script-hero" \}/)
+  assert.match(clientSource, /h\("details", \{ className: "dsh-tavern-script-hero", onToggle:/)
   assert.match(clientSource, /script \? \("剧本模式 · " \+ script\.title\) : "剧本模式 · 未绑定"/)
   assert.match(clientSource, /绑定剧本后，新开的游玩对话会自动进入剧本模式/)
   assert.match(clientSource, /更换或解绑会影响所有使用这张人物卡的剧本对话/)
@@ -764,6 +764,17 @@ test('人物卡库通过列表进入详情，世界书编辑跳转到独立世�
   assert.match(clientSource, /"重命名文件"/)
   assert.match(clientSource, /"导出"/)
   assert.match(clientSource, /"删除"/)
+})
+
+test('人物卡详情只在展开绑定面板后读取剧本和世界书全库', () => {
+  const panel = between(clientSource, 'function CardFieldsPanel', 'function TavernPlayerNameAction')
+  const scriptBinding = between(panel, 'function loadScript()', 'function loadScriptCatalog()')
+  const worldBookBinding = between(panel, 'function loadWorldBookBinding()', 'function loadWorldBookCatalog()')
+
+  assert.doesNotMatch(scriptBinding, /listResources/)
+  assert.doesNotMatch(worldBookBinding, /listWorldBooks/)
+  assert.match(panel, /onToggle: function \(event\) \{ if \(event\.currentTarget\.open\) loadScriptCatalog\(\); \}/)
+  assert.match(panel, /onToggle: function \(event\) \{ if \(event\.currentTarget\.open\) loadWorldBookCatalog\(\); \}/)
 })
 
 test('人物卡全部字段合并在默认展开的基本信息中，并位于世界书上方', () => {

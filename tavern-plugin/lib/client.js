@@ -2678,11 +2678,15 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const [error, setError] = usePersistentError("人物卡详情");
 			const [script, setScript] = React.useState(null);
 			const [availableResources, setAvailableResources] = React.useState([]);
+			const [scriptCatalogLoaded, setScriptCatalogLoaded] = React.useState(false);
+			const [scriptCatalogLoading, setScriptCatalogLoading] = React.useState(false);
 			const [selectedScriptPath, setSelectedScriptPath] = React.useState("");
 			const [scriptBusy, setScriptBusy] = React.useState(false);
 			const [scriptError, setScriptError] = usePersistentError("剧本管理");
 			const [worldBookBinding, setWorldBookBinding] = React.useState(null);
 			const [availableWorldBooks, setAvailableWorldBooks] = React.useState([]);
+			const [worldBookCatalogLoaded, setWorldBookCatalogLoaded] = React.useState(false);
+			const [worldBookCatalogLoading, setWorldBookCatalogLoading] = React.useState(false);
 			const [selectedWorldBook, setSelectedWorldBook] = React.useState("");
 			const [worldBookBusy, setWorldBookBusy] = React.useState(false);
 			const [worldBookError, setWorldBookError] = usePersistentError("世界书绑定");
@@ -2691,23 +2695,41 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			function call(method, args) { return rpc(method, args); }
 			function loadScript() {
 				if (!cardPath) return;
-				Promise.all([call("getScriptInfo", { path: cardPath }), call("listResources")]).then(function (all) {
-					const currentScript = all[0].script || null;
+				call("getScriptInfo", { path: cardPath }).then(function (result) {
+					const currentScript = result.script || null;
 					setScript(currentScript);
-					setAvailableResources(all[1].resources || []);
 					setSelectedScriptPath(currentScript ? currentScript.path : "");
 					setScriptError("");
 				}, function (err) { setScriptError(String(err && err.message || err)); });
 			}
+			function loadScriptCatalog() {
+				if (!cardPath || scriptCatalogLoaded || scriptCatalogLoading) return;
+				setScriptCatalogLoading(true);
+				call("listResources").then(function (result) {
+					setAvailableResources(result.resources || []);
+					setScriptCatalogLoaded(true);
+					setScriptError("");
+				}, function (err) { setScriptError(String(err && err.message || err)); })
+					.finally(function () { setScriptCatalogLoading(false); });
+			}
 			function loadWorldBookBinding() {
 				if (!cardPath) return;
-				Promise.all([call("getWorldBookBinding", { cardPath: cardPath }), call("listWorldBooks")]).then(function (all) {
-					const binding = all[0].binding || { kind: "none", source: null, name: "" };
+				call("getWorldBookBinding", { cardPath: cardPath }).then(function (result) {
+					const binding = result.binding || { kind: "none", source: null, name: "" };
 					setWorldBookBinding(binding);
-					setAvailableWorldBooks(all[1].standalone || []);
 					setSelectedWorldBook(binding.kind === "embedded" ? "__embedded__" : (binding.kind === "standalone" && binding.source ? binding.source.path : ""));
 					setWorldBookError("");
 				}, function (err) { setWorldBookError(String(err && err.message || err)); });
+			}
+			function loadWorldBookCatalog() {
+				if (!cardPath || worldBookCatalogLoaded || worldBookCatalogLoading) return;
+				setWorldBookCatalogLoading(true);
+				call("listWorldBooks").then(function (result) {
+					setAvailableWorldBooks(result.standalone || []);
+					setWorldBookCatalogLoaded(true);
+					setWorldBookError("");
+				}, function (err) { setWorldBookError(String(err && err.message || err)); })
+					.finally(function () { setWorldBookCatalogLoading(false); });
 			}
 			React.useEffect(function () {
 				const card = props.view.card;
@@ -2716,9 +2738,13 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					first_mes: card.first_mes || "", alternate_greetings: (card.alternate_greetings || []).join("\n---\n"), mes_example: card.mes_example || "", system_prompt: card.system_prompt || "",
 					post_history_instructions: card.post_history_instructions || "", creator_notes: card.creator_notes || ""
 				});
+			}, [props.view.card]);
+			React.useEffect(function () {
+				setAvailableResources([]); setScriptCatalogLoaded(false); setScriptCatalogLoading(false);
+				setAvailableWorldBooks([]); setWorldBookCatalogLoaded(false); setWorldBookCatalogLoading(false);
 				loadScript();
 				loadWorldBookBinding();
-			}, [cardPath, props.view.card]);
+			}, [cardPath]);
 			function field(name, value) { setDraft(Object.assign({}, draft, { [name]: value })); }
 			async function save() {
 				setBusy(true); setError("");
@@ -2862,13 +2888,13 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const selectableResources = availableResources.filter(function (item) { return !Array.isArray(item.boundCards) || item.boundCards.length === 0 || item.boundCards.some(function (boundCard) { return boundCard.path === cardPath; }); });
 			const scriptPanel = h("div", { className: "dsh-tavern-script-row" },
 				h("div", { className: "dsh-tavern-script-info" }, script ? h("span", null, h("b", null, "当前剧本："), script.title + " · " + script.chunkCount + " 块 · " + script.sourceChars + " 字") : h("span", null, "未绑定剧本；游玩时按自由故事推进")),
-				h("select", { value: selectedScriptPath, disabled: scriptBusy || !selectableResources.length, onChange: function (event) { setSelectedScriptPath(event.target.value); } }, h("option", { value: "" }, "选择已有剧本"), selectableResources.map(function (item) { return h("option", { key: item.path, value: item.path }, item.title); })),
+				h("select", { value: selectedScriptPath, disabled: scriptBusy || scriptCatalogLoading || !scriptCatalogLoaded || !selectableResources.length, onChange: function (event) { setSelectedScriptPath(event.target.value); } }, h("option", { value: "" }, scriptCatalogLoading ? "正在读取剧本库…" : "选择已有剧本"), selectableResources.map(function (item) { return h("option", { key: item.path, value: item.path }, item.title); })),
 				h("button", { className: script ? "dsh-tavern-script-file" : "dsh-tavern-script-primary", disabled: scriptBusy || !selectedScriptPath || !!(script && script.path === selectedScriptPath), onClick: bindSelectedScript }, script ? "更换绑定" : "绑定"),
 				h("input", { ref: scriptFileRef, type: "file", accept: ".txt,.md,.epub,text/plain,text/markdown,application/epub+zip", style: { display: "none" }, onChange: function (e) { const f = e.target.files && e.target.files[0]; if (f) importScriptFile(f); e.target.value = ""; } }),
 				h("button", { className: "dsh-tavern-script-file", disabled: scriptBusy, onClick: function () { scriptFileRef.current && scriptFileRef.current.click(); } }, "导入新剧本并绑定"),
 				script ? h("button", { className: "dsh-tavern-script-file", disabled: scriptBusy, onClick: deleteScript }, "解绑") : null
 			);
-			const scriptHero = h("details", { className: "dsh-tavern-script-hero" },
+			const scriptHero = h("details", { className: "dsh-tavern-script-hero", onToggle: function (event) { if (event.currentTarget.open) loadScriptCatalog(); } },
 				h("summary", { className: "dsh-tavern-script-hero-title" }, script ? ("剧本模式 · " + script.title) : "剧本模式 · 未绑定"),
 				h("div", { className: "dsh-tavern-script-hero-help" }, "绑定剧本后，新开的游玩对话会自动进入剧本模式。Agent 按剧情进度分段读取当前片段并围绕它续写，每轮完成后推进阅读位置；不会一次载入整本剧本，也不要求玩家照原文行动。更换或解绑会影响所有使用这张人物卡的剧本对话。"),
 				scriptPanel,
@@ -2878,8 +2904,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const worldBookPanel = h("div", { className: "dsh-tavern-worldbook" },
 				h("div", { className: "dsh-tavern-worldbook-note" }, hasWorldBookBinding ? "当前绑定：" + (worldBookBinding.name || "世界书不可用") : "当前未绑定世界书。人物卡有自带世界书时默认绑定自带内容。"),
 				h("div", { className: "dsh-tavern-script-row" },
-					hasWorldBookBinding ? null : h("select", { value: selectedWorldBook, disabled: worldBookBusy, onChange: function (event) { setSelectedWorldBook(event.target.value); } },
-						h("option", { value: "" }, "选择世界书"),
+					hasWorldBookBinding ? null : h("select", { value: selectedWorldBook, disabled: worldBookBusy || worldBookCatalogLoading, onChange: function (event) { setSelectedWorldBook(event.target.value); } },
+						h("option", { value: "" }, worldBookCatalogLoading ? "正在读取世界书库…" : "选择世界书"),
 						worldBookEntries.length ? h("option", { value: "__embedded__" }, "人物卡自带世界书") : null,
 						availableWorldBooks.map(function (item) { return h("option", { key: item.path, value: item.path }, item.name); })
 					),
@@ -2899,7 +2925,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				scriptHero,
 				h("div", { className: "dsh-tavern-card-fields" },
 					h("details", { className: "dsh-tavern-card-advanced", open: true }, h("summary", null, "基本信息"), F("name", "角色名称"), F("tags", "标签"), F("description", "角色描述", true), F("personality", "性格"), F("scenario", "场景设定"), F("first_mes", "开场白", true), F("alternate_greetings", "备选开场白（--- 分隔）"), F("system_prompt", "系统提示"), F("post_history_instructions", "历史后指令"), F("mes_example", "对话示例", true), F("creator_notes", "创作者备注")),
-					h("details", { className: "dsh-tavern-card-advanced" }, h("summary", null, "世界书 · " + worldBookEntries.length + " 条"), worldBookPanel),
+					h("details", { className: "dsh-tavern-card-advanced", onToggle: function (event) { if (event.currentTarget.open) loadWorldBookCatalog(); } }, h("summary", null, "世界书 · " + worldBookEntries.length + " 条"), worldBookPanel),
 					h("details", { className: "dsh-tavern-card-advanced" }, h("summary", null, "扩展内容 · " + extensionCount + " 项"), extensionPanel),
 					error ? h("div", { className: "dsh-card-error" }, error) : null,
 					h("div", { className: "dsh-tavern-card-save" }, h("button", { className: "dsh-card-primary", disabled: busy, onClick: save }, busy ? "保存中…" : "保存字段"))
