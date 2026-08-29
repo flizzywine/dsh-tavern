@@ -11,11 +11,11 @@ dsh-tavern 保留两条明确隔离的运行路径：
 | 兼容模式 | 每轮按 SillyTavern 语义重建完整请求 | 继续作为旧卡逃生通道和差分基线 |
 | 游玩模式 | 持续 DSH Session + 每轮追加一个 `ForegroundFrame` | 不得调用完整酒馆请求编译器 |
 
-兼容模式继续使用 `compileCompatibilityTurn()` 和临时 provider request 投影，但长期必须收进不认识 DSH 的 Tavern Compatibility Runtime；dsh-tavern 通过 Tavern Host Adapter 冒充 SillyTavern 宿主。游玩模式不是兼容 Runtime 的下游，而是 dsh-tavern 对酒馆资源的原生解释路径。历史、工具轨迹、压缩和后续模型调用仍由 DSH 管理。
+兼容模式继续使用 `compileCompatibilityTurn()` 和临时 provider request 投影，但长期必须收进不认识 DSH 的兼容层；Host Adapter（桥接层）冒充 SillyTavern 宿主。游玩模式不经过兼容层，由桥接层直接解释酒馆资源。历史、工具轨迹、压缩和后续模型调用仍由 DSH 管理。
 
-本方案不建立统一酒馆指令总线。前台 Frame、后台任务、Harness 和 Presentation 发生在不同生命周期，不要求共享一种命令格式；隔离只由 Tavern Host seam 保证。
+本方案不建立统一酒馆指令总线。前台 Frame、后台任务、Harness 和 Presentation 发生在不同生命周期，不要求共享一种命令格式；隔离只由 Host seam 保证。
 
-酒馆指令的来源范围、原生语义、翻译目标和当前支持状态，以 [酒馆指令清单与 dsh-tavern Runtime 翻译计划](../research/tavern-instruction-inventory.md) 为盘点基线。本文只保留改造里程碑所需的摘要，不再凭抽象名称猜测指令范围。
+酒馆指令的来源范围、原生语义、执行目标和当前支持状态，以 [酒馆指令清单与 Host Adapter 执行计划](../research/tavern-instruction-inventory.md) 为盘点基线。本文只保留改造里程碑所需的摘要，不再凭抽象名称猜测指令范围。
 
 ## 目标设计范围
 
@@ -24,7 +24,7 @@ dsh-tavern 保留两条明确隔离的运行路径：
 - 公共 `AgentInputFrame`；
 - 前台 `ForegroundFrame`；
 - 后台 `BackgroundTaskFrame`；
-- Tavern Compatibility Runtime 与 Tavern Host Adapter 的单向依赖；
+- 兼容层与 Host Adapter 的单向依赖；
 - Harness 状态提交与 Presentation 投影；
 - 无法或不值得迁移的指令采用显式忽略策略。
 
@@ -64,14 +64,16 @@ dsh-tavern 保留两条明确隔离的运行路径：
 
 ```text
 兼容模式：
-酒馆资源 → Tavern Compatibility Runtime ↔ Tavern Host seam
+酒馆资源 → 兼容层 ↔ Host seam
                                       ↓
-                              Tavern Host Adapter
+                              Host Adapter（桥接层）
                                       ↓
-                              dsh-tavern Runtime
+                                  DSH Runtime
 
 游玩模式：
-酒馆资源 → dsh-tavern 原生解释 → ForegroundFrame / 后台任务 / Harness / Presentation
+酒馆资源 → Host Adapter 原生解释 → ForegroundFrame / 后台任务 / Harness / Presentation
+                                      ↓
+                                  DSH Runtime
 ```
 
 前台链路：
@@ -81,7 +83,7 @@ dsh-tavern 保留两条明确隔离的运行路径：
   ↓
 Turn Orchestrator 建立本轮 operation
   ↓
-dsh-tavern Runtime 准备本轮前台输入
+桥接层准备本轮前台输入
   ↓
 ForegroundFrameBuilder.build(...)
   ├── 投影本轮玩家输入
@@ -214,7 +216,7 @@ Adapter 必须保证：
 
 ## 酒馆指令如何分派
 
-| 酒馆指令 | dsh-tavern Runtime 的翻译 | 当前里程碑 |
+| 酒馆指令 | 桥接层的执行 | 当前里程碑 |
 | --- | --- | --- |
 | 人物卡描述、性格、场景 | 写入 `ForegroundFrame.cardContext` | 实现 |
 | 玩家输入宏、发送正则 | 转换 `ForegroundFrame.userInput.projectedText` | 实现 |
@@ -325,7 +327,7 @@ Adapter 必须保证：
 
 ```text
 兼容模式 = 完整酒馆请求编译器
-游玩模式 = 酒馆指令 → dsh-tavern Runtime 行动
+游玩模式 = 酒馆资源 → 桥接层原生解释
           ├── ForegroundFrame → 前台持续 DSH Session
           └── BackgroundTaskFrame → 后台持续 DSH Session（后续实现）
 ```

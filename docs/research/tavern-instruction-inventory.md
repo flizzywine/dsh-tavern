@@ -1,4 +1,4 @@
-# 酒馆指令清单与 dsh-tavern Runtime 翻译计划
+# 酒馆指令清单与 Host Adapter 执行计划
 
 > 状态：调研与目标语义。本文不改变运行代码。
 >
@@ -18,10 +18,10 @@
 因此，游玩模式不能把所有酒馆资源重新拼成一份 `messages[]`，也不能把所有内容都塞进 `ForegroundFrame`。正确翻译是：
 
 ```text
-Tavern Compatibility Runtime
+兼容层
   识别来源格式并产出语义指令
         ↓
-dsh-tavern Runtime
+Host Adapter（桥接层）
   ├── ForegroundFrame：本轮给前台 Agent 的新输入
   ├── BackgroundTaskFrame：后台 Agent 的语义任务（后续实现）
   ├── Harness：确定性状态和时间线行动
@@ -121,7 +121,7 @@ SillyTavern 宏既有纯替换，也有副作用。变量宏的官方实现包�
 | 时间、日期、随机、骰子、条件、trim、comment | 纯计算或带随机的文本生成 | Harness 确定性执行；随机结果绑定 frame/turn seed | H → FG | 部分已有 |
 | local/chat/global/message 变量读取 | 从不同作用域取值 | 映射到明确的 DSH 状态 scope | H → FG/P | Helper/MVU 子集已有 |
 | set/add/inc/dec/delete 变量 | 宏求值时产生副作用 | 生成状态事务，Frame 成功追加后再提交；失败不留半次写入 | H | 目前缺统一事务边界 |
-| 未知扩展宏 | 由扩展自行注册 | 交给已注册兼容 Runtime；无法解析则保留原文并诊断 | C / I | 部分支持 |
+| 未知扩展宏 | 由扩展自行注册 | 交给已注册兼容层；无法解析则保留原文并诊断 | C / I | 部分支持 |
 
 ### 正则
 
@@ -159,7 +159,7 @@ SillyTavern 宏既有纯替换，也有副作用。变量宏的官方实现包�
 | `triggerSlash(command)` | 打开 SillyTavern 全部 slash 命令面 | 不逐条透传。建立 allowlist：查询/变量/消息/资源类翻译为 H；生成类为 BG；UI/服务器/未知命令为 C 或 I | H / BG / C / I | 尚无完整 allowlist |
 | 任意网络、文件、浏览器全局和第三方库 | 执行通用 JavaScript | 不属于 Frame；按受信任脚本能力运行并记录来源。不可用能力应显式失败，不能静默伪造 | P / H / C | 受信任 iframe 部分兼容 |
 
-关键约束：酒馆助手 API 返回的是“酒馆形状的数据”，但权威对象仍必须是 DSH 的 Story Timeline、资源仓库和状态仓库。兼容层只能做投影与命令翻译，不能建立第二份权威聊天历史。
+关键约束：酒馆助手 API 返回的是“酒馆形状的数据”，但权威对象仍必须是 DSH 的 Story Timeline、资源仓库和状态仓库。兼容层只决定酒馆语义并请求宿主能力；具体执行由桥接层完成，兼容层不能建立第二份权威聊天历史。
 
 ## 三、ST Prompt Template
 
@@ -214,9 +214,9 @@ MVU 官方仓库说明它是“基于酒馆助手的变量状态维护脚本”�
 
 ## 六、语义分类，不建立统一总线
 
-下列名称只用于盘点酒馆能力属于哪个生命周期，不是统一的 Runtime 指令接口。兼容模式由 Tavern Compatibility Runtime 通过 Tavern Host seam 请求酒馆宿主能力；普通游玩由 dsh-tavern 在各自领域模块中解释资源。两条路径都不需要一个覆盖 FG、BG、Harness 和 Presentation 的万能 Dispatcher。
+下列名称只用于盘点酒馆能力属于哪个生命周期，不是统一的 Runtime 指令接口。兼容模式由兼容层通过 Host seam 请求酒馆宿主能力；普通游玩由桥接层直接解释资源。两条路径都不需要一个覆盖 FG、BG、Harness 和 Presentation 的万能 Dispatcher。
 
-| 指令族 | 例子 | dsh-tavern Runtime 行动 |
+| 指令族 | 例子 | 桥接层的执行 |
 | --- | --- | --- |
 | `context.*` | `context.card.contribute`、`context.worldbook.activate`、`context.rules.contribute` | 收入当前 `ForegroundFrame` 的对应领域槽位 |
 | `transform.*` | `transform.input.regex`、`transform.output.regex`、`transform.template.render` | Harness 在声明阶段执行一次，结果进入 FG 或 P |
@@ -294,4 +294,4 @@ MVU 官方仓库说明它是“基于酒馆助手的变量状态维护脚本”�
 | ST Prompt Template | `master@9bf9bcdfa8d0d38ab1f4f7342067bc16f347d85d` | [`README.md`](https://github.com/zonde306/ST-Prompt-Template/blob/9bf9bcdfa8d0d38ab1f4f7342067bc16f347d85d/README.md)、[`features.md`](https://github.com/zonde306/ST-Prompt-Template/blob/9bf9bcdfa8d0d38ab1f4f7342067bc16f347d85d/docs/features.md)、[`reference.md`](https://github.com/zonde306/ST-Prompt-Template/blob/9bf9bcdfa8d0d38ab1f4f7342067bc16f347d85d/docs/reference.md) |
 | MVU / MagVarUpdate | `0a730cd4a9b99689d1135a49b542c780b977c24c` | [`README.md`](https://github.com/MagicalAstrogy/MagVarUpdate/blob/0a730cd4a9b99689d1135a49b542c780b977c24c/README.md)、[`variable_init.ts`](https://github.com/MagicalAstrogy/MagVarUpdate/blob/0a730cd4a9b99689d1135a49b542c780b977c24c/src/function/initvar/variable_init.ts)、[`update_variables.ts`](https://github.com/MagicalAstrogy/MagVarUpdate/blob/0a730cd4a9b99689d1135a49b542c780b977c24c/src/function/update_variables.ts)、[`on_message_received.ts`](https://github.com/MagicalAstrogy/MagVarUpdate/blob/0a730cd4a9b99689d1135a49b542c780b977c24c/src/function/update/on_message_received.ts) |
 
-相关目标架构见：[Frame 与 dsh-tavern Runtime 架构](../design/frame-and-dsh-tavern-runtime-architecture.md) 与 [酒馆指令到 DSH Frame 改造方案](../design/foreground-frame-migration-plan.md)。
+相关目标架构见：[Frame 与 Host Adapter 架构](../design/frame-and-host-adapter-architecture.md) 与 [酒馆指令到 DSH Frame 改造方案](../design/foreground-frame-migration-plan.md)。

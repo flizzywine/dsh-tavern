@@ -1,4 +1,4 @@
-# 酒馆超集兼容运行时方案
+# 酒馆超集兼容层方案
 
 > 决定日期：2026-08-28
 >
@@ -8,7 +8,7 @@
 
 ## 目标
 
-dsh-tavern 建立一套**酒馆超集兼容运行时**：现有 SillyTavern 人物卡、世界书、预设、正则、MVU 和 Tavern Helper 脚本应尽可能不经改造即可运行；在完整承接旧生态之后，再增加 DSH 能力。
+dsh-tavern 建立一套**酒馆超集兼容层**：现有 SillyTavern 人物卡、世界书、预设、正则、MVU 和 Tavern Helper 脚本应尽可能不经改造即可运行；在完整承接旧生态之后，再增加 DSH 能力。
 
 当前阶段坚持**纯前台 MVU**：人物卡原有 MVU 提示词继续进入前台上下文，前台模型同时生成正文和标准 MVU 更新协议。暂不抽取规则给后台模型，也不设计自有变量更新方言。
 
@@ -20,7 +20,7 @@ dsh-tavern 建立一套**酒馆超集兼容运行时**：现有 SillyTavern 人�
 
 1. **兼容以原实现和可观察行为为权威。** 不凭文档印象重新设计 MVU、EJS 或 Tavern Helper。
 2. **优先受控移植上游代码。** 能合法、稳定复用时，使用固定版本的原实现，而不是编写“差不多”的替代品。
-3. **宿主差异集中在 Tavern Host Adapter。** 上游运行时不直接了解 DSH；模型、会话、存储、网络和 UI 由 dsh-tavern 冒充 SillyTavern 宿主提供。
+3. **宿主差异集中在 Host Adapter（桥接层）。** 上游运行时不直接了解 DSH；模型、会话、存储、网络和 UI 由 dsh-tavern 冒充 SillyTavern 宿主提供。
 4. **SillyTavern 暂不整体搬入。** 它首先是规范来源、依赖来源和差分测试基准；只逐步收入人物卡实际依赖的语义。
 5. **未知能力保守处理。** 不认识的字段、脚本和提示词原样保留；不得因优化或推断而静默删除。
 6. **兼容失败局部隔离。** 单条模板、正则、世界书或脚本失败不能摧毁正文、消息和整局会话。
@@ -30,7 +30,7 @@ dsh-tavern 建立一套**酒馆超集兼容运行时**：现有 SillyTavern 人�
 ```text
 人物卡 / 世界书 / 预设 / 正则 / Helper 脚本
                         ↓
-             Tavern Compatibility Runtime
+             兼容层
     ┌──────────────────────────────────────────┐
     │ SillyTavern 提示词、宏与世界书语义      │
     │ ST Prompt Template / EJS                 │
@@ -40,12 +40,12 @@ dsh-tavern 建立一套**酒馆超集兼容运行时**：现有 SillyTavern 人�
     │ 消息、变量、事件、Swipe 与 UI 生命周期  │
     └──────────────────────────────────────────┘
                         ↓
-               Tavern Host Adapter
+               Host Adapter（桥接层）
                         ↓
           DSH 模型调用 / Session / 存储 / UI
 ```
 
-`Tavern Compatibility Runtime` 是一个深模块。调用方只需要理解少量接口，酒馆生态的复杂执行顺序、错误模式和状态语义全部留在模块内部。
+`兼容层` 是一个深模块。调用方只需要理解少量接口，酒馆生态的复杂执行顺序、错误模式和状态语义全部留在模块内部。
 
 建议外部 seam 最终收敛为三个阶段性接口：
 
@@ -91,7 +91,7 @@ dsh-tavern 不另造简化 Patch 方言。当前所有 MVU 规则仍由前台模
 
 ### Tavern Helper
 
-目标不是只模拟几个常用函数，而是让原有 Helper 脚本尽可能运行。应优先研究直接移植其运行时，再由 Tavern Host Adapter 提供它依赖的宿主能力，包括：
+目标不是只模拟几个常用函数，而是让原有 Helper 脚本尽可能运行。应优先研究直接移植其运行时，再由 Host Adapter（桥接层）提供它依赖的宿主能力，包括：
 
 - 聊天消息、消息编号与 Swipe；
 - 全局、聊天和消息变量；
@@ -122,7 +122,7 @@ dsh-tavern 不另造简化 Patch 方言。当前所有 MVU 规则仍由前台模
     ↓
 前台 LLM 输出正文 + 标准 MVU 协议 + 卡片所需标签
     ↓
-兼容运行时按原顺序执行发送后处理、MVU、事件与消息保存
+兼容层按原顺序执行发送后处理、MVU、事件与消息保存
     ↓
 显示正则、Helper 脚本和状态栏读取更新后的状态
     ↓
@@ -140,7 +140,7 @@ dsh-tavern 不另造简化 Patch 方言。当前所有 MVU 规则仍由前台模
 
 ## 状态与生命周期原则
 
-兼容运行时必须明确区分：
+兼容层必须明确区分：
 
 - 原始模型输出；
 - 清理协议后的正文；
@@ -223,12 +223,12 @@ dsh-tavern 不另造简化 Patch 方言。当前所有 MVU 规则仍由前台模
 
 ## 一句话结论
 
-> **先用受控移植建立一个行为上忠于酒馆生态的兼容运行时，再由 Tavern Host Adapter 冒充 SillyTavern 宿主并承接底层差异；旧卡原样运行是底座，DSH 新能力是可选超集。**
+> **先用受控移植建立一个行为上忠于酒馆生态的兼容层，再由 Host Adapter（桥接层）冒充 SillyTavern 宿主并承接底层差异；旧卡原样运行是底座，DSH 新能力是可选超集。**
 
 ## 相关文档
 
-- [酒馆兼容运行时实施基线](tavern-compatibility-runtime-implementation-baseline.md)
-- [酒馆超集兼容运行时完成度审计](tavern-superset-compatibility-completion-audit.md)
+- [兼容层实施基线](tavern-compatibility-layer-implementation-baseline.md)
+- [酒馆超集兼容层完成度审计](tavern-superset-compatibility-layer-completion-audit.md)
 - [酒馆纯兼容模式阶段备忘](tavern-pure-compatibility-phase-memo.md)
 - [酒馆兼容模式](sillytavern-compatibility-mode.md)
 - [LLM-Harness 架构总纲](llm-harness-architecture.md)

@@ -52,13 +52,15 @@ Story Timeline 中 Background Operation 生命周期的只读投影，用于回�
 
 普通用户可以在设置中主动开启的实验性游玩模式。中文正式名称为“兼容模式（实验性）”。它按 SillyTavern 语义构造前台模型请求，不运行游玩模式的后台状态结算；候选项可以按需手动生成。该设置默认关闭，只控制入口与新建权限；已有兼容对话不会因关闭设置而被改写。
 
-## Tavern Compatibility Runtime
+## 兼容层
 
 解释 SillyTavern 人物卡及其扩展生态可观察语义的运行环境。它把自己视为运行在酒馆宿主中，不认识 DSH Session、DSH lifecycle 或 dsh-tavern 的内部领域模型。
+_Avoid_: Tavern Compatibility Runtime、酒馆兼容 Runtime
 
-## Tavern Host Adapter
+## Host Adapter（桥接层）
 
-dsh-tavern 提供的酒馆宿主实现。它向 Tavern Compatibility Runtime 呈现酒馆形状的宿主能力，并把兼容行为映射到 dsh-tavern 的权威状态、执行轨迹和 Projection。
+dsh-tavern 的执行模块。它向兼容层呈现酒馆形状的宿主能力，并把兼容行为与普通游玩行为落实为 Frame、权威状态、执行轨迹和 Projection。
+_Avoid_: Tavern Host Adapter、dsh-tavern Runtime（指执行模块时）
 
 ## Stable Prefix
 

@@ -315,7 +315,7 @@ dsh-tavern 对话与世界书
 
 1. **每个脚本独立 iframe**：一项失败不拖垮整张卡；按 character/preset/global + script id 建立身份。
 2. **快照 + mutation 协议**：frame 收到只读镜像，所有写入都变成显式 RPC；Host 是唯一权威状态。
-3. **统一 facade**：`SillyTavern`、`TavernHelper`、消息、变量、世界书和事件都集中在一个兼容运行时，不把兼容代码散到业务层。
+3. **统一 facade**：`SillyTavern`、`TavernHelper`、消息、变量、世界书和事件都集中在兼容层，不把兼容代码散到业务层。
 4. **生命周期因果标识**：`replySeq` 把脚本 mutation 绑定到触发它的回复版本，避免切换回复后应用迟到写入。
 
 ### 不建议直接复用的部分

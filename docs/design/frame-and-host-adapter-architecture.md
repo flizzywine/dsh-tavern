@@ -1,4 +1,4 @@
-# Frame 与 dsh-tavern Runtime 架构
+# Frame 与 Host Adapter 架构
 
 > 状态：目标架构与当前实现映射。本文定义长期模块关系，不把尚未落地的接口写成完成状态。
 
@@ -9,11 +9,9 @@ dsh-tavern 不应成为另一个“每轮重建完整提示词”的 SillyTavern
 ```text
 酒馆生态资源
     ↓
-Tavern Compatibility Runtime
-    ↓ Tavern Host seam
-Tavern Host Adapter
-    ↓ dsh-tavern 领域行为
-dsh-tavern Runtime
+兼容层
+    ↓ Host seam
+Host Adapter（桥接层）
     ├── FrameBuilder
     ├── Turn Orchestrator
     ├── Background Dispatcher
@@ -62,9 +60,9 @@ dsh-tavern  = 增量 Frame 编译器 + 前后台 Agent Runtime
 
 ## 运行角色
 
-### Tavern Compatibility Runtime
+### 兼容层
 
-兼容 Runtime 负责理解酒馆生态，不负责管理 DSH Session。它解释：
+兼容层负责理解酒馆生态，不负责管理 DSH Session。它解释：
 
 - 人物卡、开场白和示例对话；
 - 预设、Prompt Order、宏和 EJS；
@@ -74,19 +72,15 @@ dsh-tavern  = 增量 Frame 编译器 + 前后台 Agent Runtime
 - Tavern Helper 的脚本、事件和额外模型请求；
 - HTML、状态栏、CG 和其他展示资源。
 
-兼容 Runtime 把自己视为运行在酒馆宿主中。它不能读取或依赖 DSH Session、`agent/pre-step`、`llm/stream`、Surface、turn/step 或 provider request 的内部形状；这些宿主差异全部停留在 Tavern Host seam 之外。
+兼容层把自己视为运行在酒馆宿主中。它不能读取或依赖 DSH Session、`agent/pre-step`、`llm/stream`、Surface、turn/step 或 provider request 的内部形状；这些宿主差异全部停留在 Host seam 之外。
 
-### Tavern Host Adapter
+### Host Adapter（桥接层）
 
-Tavern Host Adapter 由 dsh-tavern 拥有，向兼容 Runtime 冒充 SillyTavern 宿主。兼容 Runtime 所需的消息、变量、世界书、模型调用、生命周期事件和展示能力，由这个 Adapter 映射到 dsh-tavern 的权威状态、执行轨迹和 Projection。
+Host Adapter（中文：桥接层）由 dsh-tavern 拥有，向兼容层冒充 SillyTavern 宿主。兼容层所需的消息、变量、世界书、模型调用、生命周期事件和展示能力，由桥接层映射到 Frame、权威状态、执行轨迹和 Projection。
 
-它不是统一指令总线，也不要求前台 Frame、后台任务、Harness 和 Presentation 共享一种命令格式。不同生命周期可以落到不同领域模块；唯一共同约束是兼容 Runtime 不认识 DSH。
+桥接层也是整个文字游戏的执行模块。普通游玩不经过兼容层，而是由桥接层直接解释酒馆资源。桥接层负责：
 
-### dsh-tavern Runtime
-
-dsh-tavern Runtime 是整个文字游戏的领域 Runtime。它通过 Tavern Host Adapter 承接兼容行为，并负责：
-
-- 接收玩家输入和 Tavern Host Adapter 映射后的领域行为；
+- 接收玩家输入和兼容层请求的酒馆行为；
 - 构造前台与后台 Frame；
 - 把 Frame 追加到正确的 Agent Session；
 - 维护对话、分支、revision、checkpoint 和后台 operation；
@@ -95,7 +89,7 @@ dsh-tavern Runtime 是整个文字游戏的领域 Runtime。它通过 Tavern Hos
 - 组合正文、结构化状态和 UI attachment；
 - 将确定性的显示结果交给浏览器渲染。
 
-`DSH Adapter` 不需要成为独立的顶层 Runtime。它可以作为 dsh-tavern Runtime 内部的适配器存在，把领域 Frame 和 operation 映射到 DSH 生命周期、Session、工具与模型调用。物理上合并，逻辑 seam 仍然保留。
+它不是统一指令总线，也不要求前台 Frame、后台任务、Harness 和 Presentation 共享一种命令格式。不同生命周期可以落到桥接层内部的不同领域模块；唯一共同约束是兼容层不认识 DSH。
 
 ### DSH Runtime
 
@@ -213,7 +207,7 @@ FrameBuilder 不负责：
 1. 用户提交输入
 2. Turn Orchestrator 在 Story Timeline 建立正文 operation
 3. FrameBuilder 构造 ForegroundFrame
-4. dsh-tavern Runtime 把 Frame append 到前台 DSH Session
+4. 桥接层把 Frame append 到前台 DSH Session
 5. 前台 Agent 自主进行模型调用、思考和工具调用
 6. 前台最终正文完成
 7. Turn Composer 取得原始输出并执行确定性输出投影
@@ -225,22 +219,22 @@ FrameBuilder 不负责：
 
 “一轮输入”与“一次模型调用”不是同一个概念。一个 Frame 可以在 DSH 内触发多次模型调用和工具调用，Frame 不需要也不应该记录这些后续步骤。
 
-## 兼容模式的两条路径
+## 两条运行路径
 
-### Frame 兼容路径
+### 游玩模式原生路径
 
-能够自然拆分的酒馆资源先由兼容 Runtime 解释，再进入 Frame：
+桥接层直接解释能够自然拆分的酒馆资源，再写入 Frame；这条路径不经过兼容层：
 
 ```text
 酒馆资源
-  → 兼容语义
+  → Host Adapter 原生解释
   → ForegroundFrame / BackgroundTaskFrame
   → DSH Session
 ```
 
 MVU 的“额外模型解析”是最清晰的后台 seam。dsh-tavern 可以拦截这次模型调用，将原提示词、正文、变量和输出要求包装成 `BackgroundTaskFrame`，交给常驻后台 Agent；MVU 仍负责原有补丁解析、变量提交和事件语义。
 
-### 精确请求兼容路径
+### 兼容模式路径
 
 部分旧卡依赖 SillyTavern 的完整 Prompt Order、历史重排、注入深度和单 Agent 输出协议。为了验证或运行这类资源，可以保留隔离的精确兼容路径：
 
@@ -292,7 +286,7 @@ Frame：这次新增什么工作上下文
 | 后台 Frame 雏形 | `backgroundPrompt` 组合权威状态、最近剧情和任务协议 | 已有文本协议，尚未形成正式结构化类型 |
 | Story Timeline | `Story Timeline`、checkpoint、operation、participant | 已有 |
 | 精确酒馆请求路径 | `compileCompatibilityTurn` 与临时 provider request 投影 | 已有，属于隔离兼容模式 |
-| Tavern Host Adapter | 兼容编译、DSH lifecycle 和请求投影仍散落在 `index.js` | TODO；尚未形成独立 seam |
+| Host Adapter（桥接层） | 兼容编译、DSH lifecycle 和请求投影仍散落在 `index.js` | TODO；尚未形成独立 seam |
 | MVU 前台结算 | `Tavern MVU Runtime.settleResponse` | 已有；当前解析前台输出中的 MVU 协议 |
 | MVU 额外模型后台路由 | 额外模型调用 → `BackgroundTaskFrame` | TODO |
 | 前后台 Frame 类型与统一 FrameBuilder | 正式领域模型和接口 | TODO |
@@ -309,12 +303,12 @@ Frame：这次新增什么工作上下文
 6. Agent 只能提出结果，Harness 才能提交权威事实。
 7. HTML 是 Presentation 投影，不是后台 Agent 的权威状态。
 8. 精确酒馆请求重建只能存在于隔离兼容路径。
-9. 兼容 Runtime 只认识酒馆宿主；DSH 与 dsh-tavern 内部模型只能出现在 Tavern Host Adapter 之后。
+9. 兼容层只认识酒馆宿主；DSH 与 dsh-tavern 内部模型只能出现在桥接层之后。
 10. 新增兼容能力不能破坏 DSH 的追加式 Session、多轮工具调用和压缩能力。
 
 ## 后续收敛顺序
 
-1. 将精确兼容回合从 `index.js` 收进 Tavern Compatibility Runtime，并建立 Tavern Host Adapter seam。
+1. 将精确兼容回合从 `index.js` 收进兼容层，并建立 Host Adapter seam。
 2. 保持普通游玩的 ForegroundFrame 路径独立，不让兼容模式反向主导原生架构。
 3. 将后台任务输入收敛为 `BackgroundTaskFrame`，但不建立万能指令总线。
 4. 把 MVU 额外模型调用默认路由到常驻后台 Agent。
@@ -325,6 +319,6 @@ Frame：这次新增什么工作上下文
 - [酒馆指令到 DSH Frame 改造方案](foreground-frame-migration-plan.md)
 - [LLM-Harness 架构](llm-harness-architecture.md)
 - [酒馆单 Agent 协议与 DSH 前后台 Agent 架构](tavern-single-agent-vs-dsh-dual-agent.md)
-- [酒馆超集兼容运行时方案](tavern-superset-compatibility-runtime.md)
+- [酒馆超集兼容层方案](tavern-superset-compatibility-layer.md)
 - [跨 Agent 剧情时间线设计](agent-timeline.md)
 - [酒馆能力在 LLM Harness 中的重新安置](tavern-capabilities-in-llm-harness.md)
