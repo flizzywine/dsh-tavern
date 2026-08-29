@@ -101,6 +101,18 @@ test('Tavern Helper 消息 iframe 按官方顺序加载完整前端依赖', () =
   assert.doesNotMatch(document, /data-dsh-sillytavern-css-compat/)
 })
 
+test('消息 iframe 在实际读取 MVU 数据时标记自身为 MVU View', () => {
+  const document = client.buildTavernFrameDocument({
+    content: '<script>Mvu.getMvuData({ type: "message" })</script>',
+    token: 'mvu-view-token',
+    helperContext: { messages: [{ variables: { hp: 10 } }] }
+  })
+
+  assert.match(document, /__dshTavernMvuViewUsed/)
+  assert.match(document, /dsh-tavern-mvu-view-used/)
+  assert.match(document, /mvuViewUsed/)
+})
+
 test('普通正则 HTML iframe 加载锁定版本的 SillyTavern CSS 兼容包', () => {
   const document = client.buildTavernFrameDocument({
     content: '<div class="mes"><div class="mes_block"><div class="mes_text"><button class="menu_button">操作</button></div></div></div>',

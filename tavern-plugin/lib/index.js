@@ -21,6 +21,7 @@ import { createForegroundHandoff } from './domain/foreground-handoff.js'
 import { createForegroundFrameBuilder } from './domain/agent-input-frame.js'
 import { createForegroundFrameSessionAdapter } from './domain/foreground-frame-session-adapter.js'
 import { createModelRequestLog } from './domain/model-request-log.js'
+import { retainLatestMvuView } from './domain/mvu-view-liveness.js'
 import { previewPresetConversion } from './domain/preset-conversion-preview.js'
 import { inspectPreset, nativeRegexScriptsOf } from './domain/preset-reading.js'
 import { createPlayChatDebugReference, readPlayChatDebugTurn } from './domain/play-chat-debug.js'
@@ -901,6 +902,7 @@ export async function apply(ctx) {
     }
     return {
       capturedAt: Math.max(0, Number(input.capturedAt) || Date.now()),
+      mvuViewUsed: input.mvuViewUsed === true,
       dom: str(input.dom).slice(0, 100000),
       console: (Array.isArray(input.console) ? input.console : []).slice(-100).map(function (item) {
         return { at: Math.max(0, Number(item && item.at) || 0), level: ['log', 'info', 'warn', 'error'].includes(item && item.level) ? item.level : 'log', args: scalar(item && item.args, 12000) }
@@ -917,6 +919,7 @@ export async function apply(ctx) {
   function comparableDisplayRuntime(value) {
     const runtime = value && typeof value === 'object' ? value : {}
     return {
+      mvuViewUsed: runtime.mvuViewUsed === true,
       dom: str(runtime.dom),
       console: (Array.isArray(runtime.console) ? runtime.console : []).map(function (item) {
         return { level: item && item.level, args: item && item.args }
@@ -941,7 +944,7 @@ export async function apply(ctx) {
     const message = assistantMessageAtTurn(chat, turn)
     if (message === null) throw new Error('游玩记录中不存在第 ' + turn + ' 轮回复')
     const index = Math.max(0, Math.min(100, Number(partIndex) || 0))
-    const capture = sanitizeDisplayRuntime(runtime)
+    let capture = sanitizeDisplayRuntime(runtime)
     const existingRuntime = message.displayRuntime && typeof message.displayRuntime === 'object' ? message.displayRuntime : null
     const sourceActivityAt = Math.max(0, Number(existingRuntime && existingRuntime.sourceActivityAt) || Number(chat.updatedAt) || 0)
     const latestTurn = Math.max.apply(null, (chat.messages || []).filter(function (item) { return item && item.role === 'assistant' }).map(function (item) { return Math.max(1, Number(item.turn) || 1) }).concat([1]))
@@ -949,6 +952,14 @@ export async function apply(ctx) {
     const current = existingRuntime || { frames: [] }
     const currentFrames = Array.isArray(current.frames) ? current.frames : []
     const existingFrame = currentFrames.find(function (item) { return Number(item && item.partIndex) === index })
+    if (existingFrame && existingFrame.mvuViewUsed === true) capture.mvuViewUsed = true
+    if (existingFrame && capture.mvuViewUsed === true && capture.dom === '' && capture.console.length === 0 && capture.network.length === 0 && capture.errors.length === 0) {
+      capture = Object.assign({}, existingFrame, {
+        capturedAt: capture.capturedAt,
+        captureKind: capture.captureKind,
+        mvuViewUsed: true
+      })
+    }
     if (existingFrame && sameDisplayRuntimeCapture(existingFrame, capture)) return { captured: false, turn, partIndex: index, captureKind: capture.captureKind }
     const frames = currentFrames.filter(function (item) { return Number(item && item.partIndex) !== index })
     frames.push(Object.assign({ partIndex: index }, capture))
@@ -1078,6 +1089,7 @@ export async function apply(ctx) {
         isEdit: false,
         depth: 0
       })
+      replyDisplay.projections = retainLatestMvuView(chat.messages, replyDisplay.projections)
       replyDisplay.projections = withLegacyPresentationProjection(chat, replyDisplay.projections)
     }
     const activity = backgroundTasks.activity(chat)
