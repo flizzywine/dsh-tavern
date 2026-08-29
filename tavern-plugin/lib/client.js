@@ -601,6 +601,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const watchdogIntervalMs = Number(options.watchdogIntervalMs) > 0 ? Number(options.watchdogIntervalMs) : 1000;
 			const loadTimeoutMs = Number(options.loadTimeoutMs) > 0 ? Number(options.loadTimeoutMs) : 0;
 			const idlePollIntervalMs = Number(options.idlePollIntervalMs) > 0 ? Number(options.idlePollIntervalMs) : 0;
+			const pollWhileBusy = options.pollWhileBusy !== false;
 			function initialState() { return { phase: "idle", view: null, error: "", updatedAt: 0 }; }
 			function recordFor(sessionId) {
 				const id = String(sessionId || "");
@@ -646,20 +647,20 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					try { result = await load; }
 					finally { if (deadlineTimer !== null) cancelTimer(deadlineTimer); }
 					const view = result && result.view ? result.view : null;
-					if (record.optimisticBusy && !shouldPoll(view)) {
+					if (pollWhileBusy && record.optimisticBusy && !shouldPoll(view)) {
 						schedule(record, 200);
 						return;
 					}
 					if (shouldPoll(view)) record.optimisticBusy = false;
 					publish(record, { phase: "ready", view: view, error: "", updatedAt: Date.now() });
-					if (shouldPoll(view)) schedule(record, 200);
+					if (pollWhileBusy && shouldPoll(view)) schedule(record, 200);
 					else if (idlePollIntervalMs > 0) schedule(record, idlePollIntervalMs);
 				} catch (error) {
 					const terminal = !deadlineExpired && isTerminalError(error);
 					if (terminal) publish(record, { phase: "unavailable", view: null, error: String(error && error.message || error || ""), updatedAt: record.state.updatedAt });
 					else {
 						publish(record, { phase: "retrying", view: record.state.view, error: deadlineExpired ? "" : String(error && error.message || error || ""), updatedAt: record.state.updatedAt });
-						schedule(record, shouldPoll(record.state.view) ? 300 : (idlePollIntervalMs > 0 ? Math.min(1500, idlePollIntervalMs) : 1500));
+						schedule(record, pollWhileBusy && shouldPoll(record.state.view) ? 300 : (idlePollIntervalMs > 0 ? Math.min(1500, idlePollIntervalMs) : 1500));
 					}
 				} finally {
 					record.loading = false;
@@ -679,7 +680,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					const record = recordFor(sessionId);
 					record.optimisticBusy = shouldPoll(view);
 					publish(record, { phase: "ready", view: view, error: "", updatedAt: Date.now() });
-					if (shouldPoll(view)) schedule(record, 0);
+					if (pollWhileBusy && shouldPoll(view)) schedule(record, 0);
 					let released = false;
 					return function () {
 						if (released) return;
@@ -695,7 +696,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					schedule(record, 0);
 					if (record.watchdog === null) {
 						record.watchdog = startWatchdog(function () {
-							if (record.listeners.size > 0 && (shouldPoll(record.state.view) || idlePollIntervalMs > 0)) void refresh(record);
+							if (record.listeners.size > 0 && ((pollWhileBusy && shouldPoll(record.state.view)) || idlePollIntervalMs > 0)) void refresh(record);
 						}, watchdogIntervalMs);
 					}
 					return function () {
@@ -718,6 +719,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			loadTimeoutMs: 2000,
 			load: function (sessionId, request) { return rpc("getSession", {}, sessionId, request); },
 			shouldPoll: function (view) { return !!(view && view.activity && view.activity.busy); },
+			pollWhileBusy: false,
 			isTerminalError: isMissingTavernCardError
 		});
 		function coordinationView(result, sessionId) {
