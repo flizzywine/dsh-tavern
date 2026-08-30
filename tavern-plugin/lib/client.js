@@ -2211,7 +2211,9 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					if (!pollBusy) {
 						pollBusy = true;
 						try {
-							const result = await invoke("pollTavernHelperEvent", { runtimeId: runtimeId }, currentInput.sessionId);
+							const inspection = currentRuntime.inspect();
+							const runtimeReady = Boolean(inspection && inspection.runtime && inspection.runtime.scripts.length > 0 && inspection.runtime.scripts.every(function (script) { return script.subscriptionsReady || script.initializationFailed; }));
+							const result = await invoke("pollTavernHelperEvent", { runtimeId: runtimeId, ready: runtimeReady }, currentInput.sessionId);
 							if (!input || input.sessionId !== currentInput.sessionId) return;
 							if (Boolean(result && result.active) !== active) {
 								active = Boolean(result && result.active);

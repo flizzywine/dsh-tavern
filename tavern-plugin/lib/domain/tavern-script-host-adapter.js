@@ -158,7 +158,7 @@ export function createTavernScriptHostAdapter(options = {}) {
     switchSwipe,
     getWorldbook,
     replaceWorldbook,
-    pollEvent: function (sessionId, runtimeId) { return options.eventGate.poll(sessionId, runtimeId) },
+    pollEvent: function (sessionId, runtimeId, ready) { return options.eventGate.poll(sessionId, runtimeId, ready) },
     completeEvent: function (sessionId, eventId, args, runtimeId) { return options.eventGate.complete(sessionId, eventId, args, runtimeId) },
     releaseRuntime: function (sessionId, runtimeId) { return options.eventGate.dispose(sessionId, runtimeId) }
   })

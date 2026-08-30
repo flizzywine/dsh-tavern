@@ -20,27 +20,28 @@ export function createTavernHelperEventGate(options = {}) {
   const presence = new Map()
   let sequence = 0
 
-  function touch(sessionId, runtimeId = 'legacy') {
+  function touch(sessionId, runtimeId = 'legacy', ready = false) {
     const id = str(sessionId)
     const owner = str(runtimeId)
     if (id === '' || owner === '') return false
     const current = presence.get(id)
     if (current && current.owner !== owner && now() - current.seenAt <= presenceTtlMs) return false
-    presence.set(id, { owner, seenAt: now() })
+    presence.set(id, { owner, seenAt: now(), ready: ready === true })
     return true
   }
 
-  function available(sessionId, runtimeId = '') {
+  function available(sessionId, runtimeId = '', requireReady = false) {
     const current = presence.get(str(sessionId))
     if (!current || now() - current.seenAt > presenceTtlMs) return false
-    return str(runtimeId) === '' || current.owner === str(runtimeId)
+    if (str(runtimeId) !== '' && current.owner !== str(runtimeId)) return false
+    return requireReady !== true || current.ready === true
   }
 
-  function poll(sessionId, runtimeId = 'legacy') {
+  function poll(sessionId, runtimeId = 'legacy', ready = false) {
     const id = str(sessionId)
-    if (!touch(id, runtimeId)) return { active: false, event: null }
+    if (!touch(id, runtimeId, ready)) return { active: false, ready: false, event: null }
     const record = records.get(id)
-    return { active: true, event: record ? clone(record.event) : null }
+    return { active: true, ready: ready === true, event: ready === true && record ? clone(record.event) : null }
   }
 
   function complete(sessionId, eventId, args, runtimeId = 'legacy') {
@@ -56,7 +57,7 @@ export function createTavernHelperEventGate(options = {}) {
 
   async function dispatch(sessionId, name, args = [], context = null) {
     const id = str(sessionId)
-    if (id === '' || !available(id) || records.has(id)) return { handled: false, args: clone(args) }
+    if (id === '' || !available(id, '', true) || records.has(id)) return { handled: false, args: clone(args) }
     const event = {
       id: 'helper-event-' + (++sequence),
       name: str(name),
