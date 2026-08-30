@@ -560,6 +560,7 @@ test('官方 MVU 与人物卡脚本共用沙箱时仍先提供全局 Zod', () =>
   assert.ok(encoded)
   const loader = Buffer.from(encoded[1], 'base64').toString('utf8')
 
+  assert.match(document, /const officialMvuEnabled = metadata\.officialMvu === true/)
   assert.match(document, /const ready = import\(window\.__dshTavernStaticAssetUrl\("https:\/\/testingcf\.jsdelivr\.net\/npm\/zod@4\.4\.3\/\+esm"\)\)\.then\(function \(module\) \{ window\.z = module; return true; \}\)/)
   assert.doesNotMatch(document, /officialMvuEnabled\s*\?\s*Promise\.resolve/)
   assert.ok(loader.indexOf('await window.__dshTavernHelperReady') < loader.indexOf('for(const script of scripts)'))

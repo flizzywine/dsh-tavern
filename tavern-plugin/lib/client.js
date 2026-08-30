@@ -1457,6 +1457,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			}
 			let state = initialContext && typeof initialContext === "object" ? initialContext : {};
 			const token = String(metadata.token || "");
+			const officialMvuEnabled = metadata.officialMvu === true;
 			const extensionSettings = Object.create(null);
 			let lorebookSettings = { selected_global_lorebooks: [] };
 			const scriptList = (Array.isArray(metadata.scripts) ? metadata.scripts : [metadata]).map(function (script) {
