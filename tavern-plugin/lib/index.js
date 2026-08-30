@@ -2094,7 +2094,9 @@ export async function apply(ctx) {
     await migrateLegacyPresetPlans()
     await migrateActivePresetSelection()
     await resourceGraph.recover()
-    const recoveredIndex = await readIndex()
+    return await readIndex()
+  }
+  async function recoverRuntimeHistory(recoveredIndex) {
     for (const row of recoveredIndex.chats || []) {
       const chat = await readChat(row.id)
       if (chat === undefined) continue
@@ -3806,8 +3808,13 @@ export async function apply(ctx) {
   }
 
   try {
-    await initializeRuntimeState()
+    const recoveredIndex = await initializeRuntimeState()
     settleRuntimeReadiness({ ok: true })
+    setImmediate(function () {
+      recoverRuntimeHistory(recoveredIndex).catch(function (error) {
+        console.error('dsh-tavern: 后台恢复历史对话失败', error && error.message || error)
+      })
+    })
   } catch (error) {
     settleRuntimeReadiness({ ok: false, error })
     throw error
