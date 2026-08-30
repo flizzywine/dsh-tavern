@@ -298,6 +298,13 @@ test('后台结算期间禁用候选项按钮，完成后自动恢复', () => {
   assert.doesNotMatch(action, /rpc\("getSession"/)
 })
 
+test('酒馆状态读取 MVU 回执时使用当前模块可用的复制能力', () => {
+	const receipts = between(serverSource, 'function mvuReceiptsOf', 'function withLegacyPresentationProjection')
+
+	assert.match(receipts, /structuredClone\(stored\)/)
+	assert.doesNotMatch(receipts, /\bclone\(stored\)/)
+})
+
 test('正文重新生成提供两个含义明确的入口，并复用同一替换流程', () => {
 	const action = between(clientSource, 'function CandidateAction', 'function CandidateDockActions')
 	const shared = between(clientSource, 'async function submitBodyRegeneration', 'function CandidateAction')

@@ -1213,7 +1213,7 @@ export async function apply(ctx) {
       if (turn === 0) continue
       const stored = message.mvu.receipt
       const diagnostics = Array.isArray(message.mvu.diagnostics) ? message.mvu.diagnostics : []
-      const receipt = stored && typeof stored === 'object' ? clone(stored) : {
+      const receipt = stored && typeof stored === 'object' ? structuredClone(stored) : {
         version: 1,
         status: diagnostics.length > 0 ? 'error' : (message.mvu.modified === true ? 'updated' : 'unchanged'),
         summary: '',
