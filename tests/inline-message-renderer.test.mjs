@@ -263,6 +263,19 @@ test('消息 iframe 测高忽略被裁剪内容与固定悬浮元素', () => {
   assert.equal(reportedHeight, 1800)
 })
 
+test('消息 iframe 在依赖和 DOM 稳定后报告可原子替换', () => {
+  const documentHtml = client.buildTavernFrameDocument({
+    content: '<div>状态栏</div>',
+    token: 'ready-token',
+    helperContext: { messages: [] }
+  })
+
+  assert.match(documentHtml, /data-dsh-tavern-frame-ready/)
+  assert.match(documentHtml, /type:"dsh-tavern-frame-ready"/)
+  assert.match(documentHtml, /Promise\.resolve\(window\.__dshTavernHelperReady\)/)
+  assert.match(documentHtml, /new MutationObserver\(schedule\)/)
+})
+
 test('人物卡 Helper 脚本使用独立不透明 iframe，并获得脚本、世界书和 MVU facade', () => {
   const document = client.buildTavernHelperScriptDocument({
     token: 'script-token',
