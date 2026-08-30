@@ -1,6 +1,7 @@
 import { snapshotSubagentDescriptor } from '@deepseek-ai/dsh-subagent'
 import { randomUUID } from 'node:crypto'
 import { runtimePresetPhaseMessages } from './domain/runtime-preset-lifecycle.js'
+import { ensureSessionStablePrefix, readSessionStablePrefix } from './domain/session-stable-prefix.js'
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
@@ -157,7 +158,7 @@ export function createBackgroundAgentRunner(options) {
   }
 
   function setupFor(state, descriptor, appendDescriptor) {
-    const backgroundPersona = '{{tavern_background_context}}你是与前台正文生成隔离的酒馆后台 Agent。你会在同一个剧情分支中依次承担状态结算与候选生成；严格按本轮任务输出，不得把某类任务的输出格式混入另一类任务。最新权威状态优先于 Session 中的旧动态状态。\n\n【本轮任务规则】\n{{tavern_background_task}}'
+    const backgroundPersona = '你是与前台正文生成隔离的酒馆后台 Agent。你会在同一个剧情分支中依次承担状态结算与候选生成；严格按本轮任务输出，不得把某类任务的输出格式混入另一类任务。最新权威状态优先于 Session 中的旧动态状态。\n\n【本轮任务规则】\n{{tavern_background_task}}'
     let descriptorAppended = !appendDescriptor
     return async function (childCtx) {
       if (setupAgent !== null) await setupAgent(childCtx)
@@ -183,11 +184,6 @@ export function createBackgroundAgentRunner(options) {
         })
       })
       childCtx.systemPrompt.variable('tavern_background_task', function () { return str(state.input && state.input.system) })
-      childCtx.systemPrompt.variable('tavern_background_context', function () {
-        const input = state.input || {}
-        const context = input.task === 'candidate' ? str(input.backgroundContext).trim() : ''
-        return context ? context + '\n\n' : ''
-      })
       childCtx.systemPrompt.section({
         name: 'deployment:persona',
         order: 0,
@@ -308,6 +304,12 @@ export function createBackgroundAgentRunner(options) {
     const removeTaskTools = installTaskTools(state, runtimeInput)
 
     try {
+      if (!readSessionStablePrefix(handle.agent.session)) {
+        const background = typeof options.resolveStablePrefix === 'function'
+          ? await options.resolveStablePrefix(input) : input.backgroundContext
+        const prefix = ensureSessionStablePrefix(handle.agent.session, background)
+        if (prefix && typeof options.flushSession === 'function') await options.flushSession(handle.agent.session)
+      }
       const eventStart = Array.isArray(handle.agent.session.events) ? handle.agent.session.events.length : 0
       handle.agent.followup({
         id: randomUUID(),

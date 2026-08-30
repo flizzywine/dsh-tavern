@@ -1,5 +1,6 @@
 import { createEphemeralCompatibilityRequest, isCompatibilityConversationRequest } from './compatibility-request.js'
 import { projectRuntimePresetRequest } from './runtime-preset-lifecycle.js'
+import { projectSessionStablePrefix } from './session-stable-prefix.js'
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
@@ -113,6 +114,7 @@ export function createNativePlayOrchestrationStrategy(options) {
     let agentMessages = decision.messages
     const snapshot = mode === 'story' || mode === 'script' ? await options.resolvePreset(input.chat) : null
     if (mode === 'story' || mode === 'script') {
+      if (typeof options.ensureSessionPrefix === 'function') await options.ensureSessionPrefix(input)
       stagedRequests.set(sessionId, {
         turn: Math.max(0, Number(payload.turn) || 0),
         step: Math.max(1, Number(payload.step) || 1),
@@ -139,11 +141,12 @@ export function createNativePlayOrchestrationStrategy(options) {
     const sessionId = str(optionsValue && optionsValue.sessionId)
     const staged = stagedRequests.get(sessionId)
     if (optionsValue === null || typeof optionsValue !== 'object' || optionsValue.purpose !== undefined || staged === undefined || redispatches.has(optionsValue)) return null
-    const request = projectRuntimePresetRequest(optionsValue, staged.snapshot, {
+    let request = projectRuntimePresetRequest(optionsValue, staged.snapshot, {
       scope: staged.scope,
       turn: staged.turn,
       step: staged.step
     })
+    if (typeof options.sessionPrefix === 'function') request = projectSessionStablePrefix(request, options.sessionPrefix(sessionId))
     if (request === optionsValue) return null
     redispatches.add(request)
     return request
@@ -168,9 +171,6 @@ export function createNativePlayOrchestrationStrategy(options) {
       if (cordisInstructions !== undefined) sections.push(cordisInstructions)
       const workspace = options.workspaceContext(input.cwd)
       if (workspace !== '') sections.push({ name: 'tavern:resource-workspace', text: workspace })
-    } else {
-      const cardSnapshot = await options.ensureCardSnapshot(input.chat)
-      if (cardSnapshot !== '') sections.push({ name: 'tavern:card-snapshot', text: cardSnapshot })
     }
     assembly.sections = sections
     assembly.tools = assembly.tools.filter(function (schema) {

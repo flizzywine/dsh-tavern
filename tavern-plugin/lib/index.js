@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { createBackgroundAgentRunner, executeBackgroundCompaction } from './background-agent-runner.js'
 import { createApplicationUpdater } from './application-updater.js'
 import { createCandidateGenerator } from './domain/candidate-generation.js'
+import { ensureSessionStablePrefix, readSessionStablePrefix } from './domain/session-stable-prefix.js'
 import { waitForWritableSession } from './domain/agent-readiness.js'
 import { createCardDeletion } from './domain/card-deletion.js'
 import { createBypassPlanModule } from './domain/bypass-plans.js'
@@ -1363,8 +1364,12 @@ export async function apply(ctx) {
       }) : undefined
       text = storedGreeting === undefined ? renderCardText(card.first_mes, card, chat.macroState) : storedGreeting.text
     }
-    if (text === '') return
     const target = readyTarget || await waitForWritableSession({ registry: agentRegistry, sessions: sessionStore, sessionId: sessionId, sleep: sleep })
+    if (groupOfMode(mode) === 'play' && chat.requestMode !== 'sillytavern') {
+      ensureSessionStablePrefix(target.session, await ensurePlayCardSnapshot(chat, card))
+      await sessionStore.flush(target.session)
+    }
+    if (text === '') return
     if (target.agent === undefined) console.warn('dsh-tavern: Agent 尚未注册，直接使用已绑定 Session 写入开场白', { sessionId })
     const selected = modelSelection(sessionId) || { provider: 'dsh-tavern', model: 'character-card' }
     const turn = 1
@@ -1494,6 +1499,10 @@ export async function apply(ctx) {
   const backgroundAgentRunner = createBackgroundAgentRunner({
     agents: agentRegistry,
     agentPreset: 'tavern-background',
+    resolveStablePrefix: async function (input) {
+      const chat = await chatForSession(input.sessionId)
+      return chat ? await ensurePlayCardSnapshot(chat) : ''
+    },
     setupAgent: async function (childCtx) {
       await agentPresets.mount(childCtx, 'tavern-background')
     },
@@ -3229,7 +3238,16 @@ export async function apply(ctx) {
       visibleTools: async function (sessionId) { return await turnOrchestrator.visibleTools(sessionId) },
       modePrompt: function (mode) { return runtimePrompt(mode === 'card' ? 'card-mode' : 'play-mode') },
       workspaceContext: resourceWorkspaceContext,
-      ensureCardSnapshot: async function (chat) { return await ensurePlayCardSnapshot(chat) },
+      ensureSessionPrefix: async function (input) {
+        const session = input.payload.agent.session
+        if (readSessionStablePrefix(session)) return
+        ensureSessionStablePrefix(session, await ensurePlayCardSnapshot(input.chat))
+        await sessionStore.flush(session)
+      },
+      sessionPrefix: function (sessionId) {
+        const session = backgroundAgentRunner.requestSession(sessionId) || agentRegistry.get(sessionId)?.session || sessionStore.get(sessionId)
+        return readSessionStablePrefix(session)
+      },
       controlledToolNames
     }
   })
