@@ -129,6 +129,21 @@ test('消息 iframe 在实际读取 MVU 数据时标记自身为 MVU View', () =
   assert.match(document, /VARIABLE_UPDATE_ENDED/)
 })
 
+test('持久状态 Runtime 关闭重复识别和消息级诊断采集', () => {
+  const document = client.buildTavernFrameDocument({
+    content: '<script>Mvu.getMvuData()</script>',
+    token: 'persistent-status-token',
+    helperContext: { messages: [] },
+    observeMvuView: false,
+    runtimeReporting: false
+  })
+
+  assert.match(document, /data-dsh-tavern-helper/)
+  assert.doesNotMatch(document, /data-dsh-tavern-mvu-view-observer/)
+  assert.doesNotMatch(document, /dsh-tavern-frame-runtime/)
+  assert.match(document, /dsh-tavern-frame-height/)
+})
+
 test('消息 iframe 只在首次加载或错误诊断时采集 DOM，不监听普通 DOM mutation', () => {
   const document = client.buildTavernFrameDocument({ content: '<div>状态栏</div>', token: 'diagnostic-token' })
   const runtimeReporter = document.match(/<script data-dsh-tavern-frame>\(function\(\)\{var token=[\s\S]*?<\/script>/)?.[0] || ''
