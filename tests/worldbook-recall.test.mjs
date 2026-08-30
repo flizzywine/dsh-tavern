@@ -3,6 +3,7 @@ import test from 'node:test'
 
 import {
   constantWorldBookContext,
+  mvuUpdateRulesFromWorldBook,
   prepareWorldBookRecall
 } from '../tavern-plugin/lib/domain/worldbook-recall.js'
 
@@ -124,4 +125,13 @@ test('条目正文改变后立即解除冷却，空世界书直接跳过', funct
   const prepared = prepareWorldBookRecall({ card: card(), chat: current, turn: 3, worldBook: { view: { entries: [changed] } } })
   assert.deepEqual(prepared.refs, ['entry:0'])
   assert.equal(prepared.context, '修改后的新设定。')
+})
+
+test('[mvu_update] 只进入后台变量规则，不再要求前台剧情模型输出协议', function () {
+  const update = entry('entry:0', '每轮按正文更新体力。', { constant: true, title: '[mvu_update]变量更新' })
+  const plot = entry('entry:1', '古殿深处传来水声。', { constant: true, title: '[mvu_plot]剧情规则' })
+  const worldBook = { view: { entries: [update, plot] } }
+
+  assert.equal(constantWorldBookContext({ worldBook }).context, '古殿深处传来水声。')
+  assert.deepEqual(mvuUpdateRulesFromWorldBook(worldBook), ['每轮按正文更新体力。'])
 })

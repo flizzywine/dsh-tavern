@@ -3,7 +3,7 @@ import test from 'node:test'
 
 import { createForegroundHandoff } from '../tavern-plugin/lib/domain/foreground-handoff.js'
 
-test('Foreground Turn 完成后保留待处理 Cycle，不自动启动后台工作', async () => {
+test('Foreground Turn 完成后立即排队待处理的后台结算', async () => {
   const deferred = []
   const queued = []
   const chat = { id: 'chat-1' }
@@ -19,7 +19,27 @@ test('Foreground Turn 完成后保留待处理 Cycle，不自动启动后台工�
   await handoff.finalize({ sessionId: 'session-1', turn: 1, userText: '向前走', assistantText: '雨夜。' })
   assert.equal(handoff.end({ sessionId: 'session-1', turn: 1, reason: 'completed' }), true)
   assert.deepEqual(queued, [])
-  assert.deepEqual(deferred, [])
+  assert.equal(deferred.length, 1)
+  deferred[0]()
+  await new Promise(function (resolve) { setImmediate(resolve) })
+  assert.deepEqual(queued, ['chat-1'])
+})
+
+test('正文重生成的临时 DSH 回合不启动变量结算', async () => {
+  const deferred = []
+  const queued = []
+  const handoff = createForegroundHandoff({
+    turns: { async finalize() {}, async discard() {} },
+    store: { async chatForSession() { return { id: 'chat-1', regenInProgress: true } } },
+    tasks: { activity() { return { phase: 'pending', busy: false, role: 'settlement' } } },
+    async queueBackground(chatId) { queued.push(chatId) },
+    defer(run) { deferred.push(run) },
+    logger: { error() {} }
+  })
+
+  handoff.end({ sessionId: 'session-1', turn: 2, reason: 'completed' })
+  deferred[0]()
+  await new Promise(function (resolve) { setImmediate(resolve) })
   assert.deepEqual(queued, [])
 })
 

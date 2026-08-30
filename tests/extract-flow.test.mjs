@@ -319,6 +319,14 @@ test('酒馆状态读取 MVU 回执时使用当前模块可用的复制能力', 
 	assert.doesNotMatch(receipts, /\bclone\(stored\)/)
 })
 
+test('失败或过期的最新 MVU 结算可以原地重试', () => {
+	const retry = between(serverSource, 'async function retryMvuSettlement', 'async function pullBackgroundCycle')
+	assert.match(retry, /只能重试当前最新正文的变量结算/)
+	assert.match(retry, /target\.message\.mvu = \{ pending: true/)
+	assert.match(retry, /void queueSettlement\(chat\.id\)/)
+	assert.match(serverSource, /case 'retryMvuSettlement': return \{ view: await retryMvuSettlement/)
+})
+
 test('正文重新生成提供两个含义明确的入口，并复用同一替换流程', () => {
 	const action = between(clientSource, 'function CandidateAction', 'function CandidateDockActions')
 	const shared = between(clientSource, 'async function submitBodyRegeneration', 'function CandidateAction')
@@ -340,7 +348,8 @@ test('正文重新生成提供两个含义明确的入口，并复用同一替�
 	assert.match(regen, /committedChat\.suppressedDshTurns = Array\.from\(new Set/)
 	assert.match(regen, /mergeRegeneratedSwipe\(\{ originalChat, regeneratedChat: latest, assistantIndex: oldAssistantIndex \}\)/)
 	assert.match(regen, /name: 'MESSAGE_SWIPED', args: \[oldAssistantIndex\]/)
-	assert.match(regen, /name: 'MESSAGE_RECEIVED', args: \[oldAssistantIndex, 'swipe'\]/)
+	assert.doesNotMatch(regen, /name: 'MESSAGE_RECEIVED', args: \[oldAssistantIndex, 'swipe'\]/)
+	assert.match(regen, /void queueSettlement\(committedChat\.id\)/)
 	assert.match(regen, /await updateChat\(chat\.id,[\s\S]*source: 'foreground\.regen-abort'/)
 })
 
@@ -925,8 +934,8 @@ test('人物卡详情只提交用户实际改动，避免投影往返覆盖完�
 })
 
 test('人物卡稳定前缀升级到 v3，旧会话会按新的字段边界重建', () => {
-  assert.match(serverSource, /Number\(chat\.cardContextSnapshotVersion\) >= 3/)
-  assert.equal((serverSource.match(/cardContextSnapshotVersion = 3/g) || []).length, 2)
+  assert.match(serverSource, /Number\(chat\.cardContextSnapshotVersion\) >= 4/)
+  assert.equal((serverSource.match(/cardContextSnapshotVersion = 4/g) || []).length, 2)
 })
 
 test('世界书库统一编辑独立世界书与人物卡内置世界书', () => {
@@ -1161,8 +1170,9 @@ test('设置开启后在顶层侧栏最右侧显示实验性兼容模式', () =>
 	assert.match(orchestrationStrategiesSource, /assembly\.contexts = \[\]/)
 	assert.match(orchestrationStrategiesSource, /assembly\.tools = \[\]/)
 	assert.doesNotMatch(serverSource, /酒馆兼容模式不运行 DSH 后台候选项/)
-	assert.match(serverSource, /waitUntilSettled: async function \(chat\) \{[\s\S]*if \(chat\.requestMode === 'sillytavern'\) return/)
-	assert.match(clientSource, /不运行游玩模式的后台状态结算；候选项可按需手动生成/)
+	assert.doesNotMatch(serverSource, /waitUntilSettled: async function \(chat\) \{[\s\S]*if \(chat\.requestMode === 'sillytavern'\) return/)
+	assert.doesNotMatch(serverSource, /choiceChat\.requestMode !== 'sillytavern' && !await pullBackgroundCycle/)
+	assert.match(clientSource, /后台变量结算与普通游玩共用同一链路，候选项可按需手动生成/)
 })
 
 test('右侧系统提示词面板编辑唯一一套提示词并支持整套导入导出', () => {

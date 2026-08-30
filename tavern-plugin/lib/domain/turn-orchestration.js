@@ -30,10 +30,6 @@ function usesOfficialMvu(chat) {
   return Boolean(chat && chat.mvu && chat.mvu.enabled === true && chat.mvu.owner === 'official')
 }
 
-function sameValue(left, right) {
-  return JSON.stringify(left) === JSON.stringify(right)
-}
-
 function commitFor(chat, turn) {
   if (!turn || chat.nativeCommits === null || typeof chat.nativeCommits !== 'object') return null
   const value = chat.nativeCommits[String(turn)]
@@ -145,7 +141,7 @@ function presetMiddleInstructions(snapshot) {
   })
 }
 
-function foregroundFrameInputs(plan, sourceText, projectedText, presetSnapshot) {
+function foregroundFrameInputs(plan, sourceText, projectedText, presetSnapshot, chat) {
   const inputs = [{
     kind: 'foreground.user-input',
     sourceText,
@@ -162,6 +158,14 @@ function foregroundFrameInputs(plan, sourceText, projectedText, presetSnapshot) 
       text: str(section && section.text),
       required: section && section.required === true,
       source: { stage: 'context-plan', sectionKind, index }
+    })
+  }
+  if (usesOfficialMvu(chat)) {
+    inputs.push({
+      kind: 'foreground.writing-rules',
+      text: '变量更新由正文提交后的后台 Agent 独立结算。只输出剧情正文，不要输出 <UpdateVariable>、JSON Patch 或变量更新说明。',
+      required: true,
+      source: { stage: 'mvu-background-owner' }
     })
   }
   return inputs.concat(presetMiddleInstructions(presetSnapshot))
@@ -204,7 +208,6 @@ export function createTurnOrchestrator(options) {
   const timeline = options.timeline
   const frameBuilder = options.frameBuilder
   if (!frameBuilder || typeof frameBuilder.build !== 'function') throw new Error('缺少 ForegroundFrameBuilder')
-  const emitMvu = typeof options.emitMvu === 'function' ? options.emitMvu : null
   const now = typeof options.now === 'function' ? options.now : Date.now
   const renderMacros = typeof options.renderMacros === 'function' ? options.renderMacros : null
   const resolvePresetRegexScripts = typeof options.resolvePresetRegexScripts === 'function'
@@ -338,7 +341,7 @@ export function createTurnOrchestrator(options) {
       basedOnRevision: foregroundOperation.basedOn.revision,
       operationId: foregroundOperation.operationId,
       turn,
-      inputs: foregroundFrameInputs(plan, userText, runtimeUserText, chat.runtimePresetSnapshot),
+      inputs: foregroundFrameInputs(plan, userText, runtimeUserText, chat.runtimePresetSnapshot, chat),
       source: frameSource(chat, card, foregroundOperation)
     })
     rememberFrame(chat, frame)
@@ -430,7 +433,6 @@ export function createTurnOrchestrator(options) {
     const sourceText = str(input.assistantText).trim()
     let assistantText = sourceText
     let previousMvuVariables
-    let mvuSettlement = null
     let reply = {
       sourceText,
       projectionText: sourceText,
@@ -568,23 +570,6 @@ export function createTurnOrchestrator(options) {
           variables: [clone(previousMvuVariables || {})],
           mvu: { pending: true, modified: false, diagnostics: [], events: [] }
         })
-        if (mvuSettlement !== null) Object.assign(assistantMessage, {
-          swipeId: 0,
-          swipes: [str(mvuSettlement.sourceText || reply.projectionText)],
-          variables: [clone(mvuSettlement.variables)],
-          mvu: {
-            modified: mvuSettlement.modified === true,
-            diagnostics: clone(Array.isArray(mvuSettlement.diagnostics) ? mvuSettlement.diagnostics : []),
-            events: clone(Array.isArray(mvuSettlement.events) ? mvuSettlement.events : []),
-            receipt: clone(mvuSettlement.receipt || {
-              version: 1,
-              status: mvuSettlement.modified === true ? 'updated' : 'unchanged',
-              summary: '',
-              changes: [],
-              failures: []
-            })
-          }
-        })
         draft.messages.push(assistantMessage)
         draft.foregroundError = null
         draft.presentationWarnings = Array.isArray(reply.warnings) ? clone(reply.warnings) : []
@@ -594,58 +579,6 @@ export function createTurnOrchestrator(options) {
     chat = completed.chat
     if (completed.value.status !== 'committed') throw new Error('正文生成期间剧情状态已变化，本轮结果已作废')
     await store.writeChat(chat, { source: 'foreground.commit', operationId: operation.id })
-    if (usesOfficialMvu(chat)) {
-      const assistantIndex = chat.messages.findLastIndex(function (message) {
-        return message && message.role === 'assistant' && Number(message.turn) === turn
-      })
-      const dispatched = emitMvu === null ? { handled: false } : await emitMvu({
-        sessionId: input.sessionId,
-        chat,
-        name: 'MESSAGE_RECEIVED',
-        args: [assistantIndex]
-      })
-      let settled = await store.chatForSession(input.sessionId)
-      if (settled === undefined) throw new Error('官方 MVU 结算后对话不存在')
-      const message = settled.messages[assistantIndex]
-      if (!message || message.role !== 'assistant') throw new Error('官方 MVU 结算后正文楼层不存在')
-      const selected = Math.max(0, Number(message.swipeId) || 0)
-      const currentVariables = Array.isArray(message.variables) ? message.variables[selected] : undefined
-      const sourceAfterMvu = str(message.sourceText || message.text)
-      const extensions = typeof store.readCardExtensions === 'function'
-        ? await store.readCardExtensions(cardPathOf(settled))
-        : null
-      const presetRegexScripts = await resolvePresetRegexScripts(settled)
-      reply = projectReply(sourceAfterMvu, {
-        projectionText: sourceAfterMvu,
-        regexScripts: (Array.isArray(extensions && extensions.regexScripts) ? extensions.regexScripts : []).concat(presetRegexScripts),
-        placement: 2,
-        isEdit: false,
-        depth: 0
-      })
-      message.sourceText = str(reply.sourceText)
-      message.projectionText = str(reply.projectionText)
-      message.text = str(reply.sessionText).trim()
-      message.displayText = str(reply.displayText)
-      message.displayMode = 'html'
-      message.projectionVersion = 2
-      message.projectionWarnings = Array.isArray(reply.warnings) ? clone(reply.warnings) : []
-      message.mvu = {
-        pending: false,
-        modified: dispatched.handled === true && !sameValue(previousMvuVariables, currentVariables),
-        diagnostics: dispatched.handled === true ? [] : [{ message: '官方 MVU 浏览器运行时尚未就绪，本轮未执行变量结算' }],
-        events: dispatched.handled === true ? ['MESSAGE_RECEIVED'] : [],
-        receipt: {
-          version: 1,
-          status: dispatched.handled !== true ? 'error' : (!sameValue(previousMvuVariables, currentVariables) ? 'updated' : 'unchanged'),
-          summary: '',
-          changes: [],
-          failures: dispatched.handled === true ? [] : [{ command: '', message: '官方 MVU 浏览器运行时尚未就绪，本轮未执行变量结算' }]
-        }
-      }
-      settled.presentationWarnings = message.projectionWarnings
-      await store.writeChat(settled, { source: 'foreground.mvu-official-settle', operationId: operation.id })
-      chat = settled
-    }
     return { saved: true, mode, changed: false, chatId: chat.id, cardName: chat.cardName, reply }
   }
 

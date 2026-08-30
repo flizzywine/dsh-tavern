@@ -31,6 +31,16 @@ function enabledEntries(worldBook) {
   })
 }
 
+export function isMvuUpdateEntry(entry) {
+  return /^\s*\[mvu_update\]/i.test(str(entry && (entry.comment || entry.title || entry.name)))
+}
+
+export function mvuUpdateRulesFromWorldBook(worldBook) {
+  return enabledEntries(worldBook).filter(isMvuUpdateEntry).map(function (entry) {
+    return str(entry.content).trim()
+  })
+}
+
 function tavernOrder(entries) {
   return entries.map(function (entry, index) { return { entry, index } }).sort(function (left, right) {
     const order = (Number(right.entry.order) || 0) - (Number(left.entry.order) || 0)
@@ -126,7 +136,9 @@ function readRecorder(entries, turn) {
 
 /** Constant Tavern entries are part of the stable play prefix and never enter cooldown. */
 export function constantWorldBookContext(input = {}) {
-  const entries = tavernOrder(enabledEntries(input.worldBook).filter(function (entry) { return entry.constant === true }))
+  const entries = tavernOrder(enabledEntries(input.worldBook).filter(function (entry) {
+    return entry.constant === true && !isMvuUpdateEntry(entry)
+  }))
   return {
     context: entries.map(function (entry) { return str(entry.content).trim() }).filter(Boolean).join('\n\n'),
     refs: entries.map(function (entry) { return str(entry.ref) }),
@@ -137,7 +149,7 @@ export function constantWorldBookContext(input = {}) {
 
 /** Deterministically activate at most three non-constant entries for the next foreground turn. */
 export function prepareWorldBookRecall(input = {}) {
-  const all = enabledEntries(input.worldBook)
+  const all = enabledEntries(input.worldBook).filter(function (entry) { return !isMvuUpdateEntry(entry) })
   const emptyRecorder = readRecorder([], input.turn)
   if (!input.worldBook || !input.worldBook.view) {
     return { kind: 'skip', context: '', refs: [], totalChars: 0, reason: 'unbound', recordReads: emptyRecorder }

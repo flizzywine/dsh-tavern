@@ -69,6 +69,41 @@ function object(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value : {}
 }
 
+function sameValue(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right)
+}
+
+function pointerSegment(value) {
+  return str(value).replaceAll('~', '~0').replaceAll('/', '~1')
+}
+
+function displayValue(value) {
+  if (value === undefined) return '（不存在）'
+  if (typeof value === 'string') return value
+  const text = JSON.stringify(value)
+  return text === undefined ? str(value) : text
+}
+
+function diffValues(before, after, path = '', result = []) {
+  if (sameValue(before, after) || result.length >= 200) return result
+  const beforeObject = before !== null && typeof before === 'object'
+  const afterObject = after !== null && typeof after === 'object'
+  if (beforeObject && afterObject && Array.isArray(before) === Array.isArray(after)) {
+    const keys = new Set(Array.isArray(before)
+      ? Array.from({ length: Math.max(before.length, after.length) }, function (_value, index) { return String(index) })
+      : Object.keys(before).concat(Object.keys(after)))
+    for (const key of keys) diffValues(before[key], after[key], path + '/' + pointerSegment(key), result)
+    return result
+  }
+  result.push({
+    operation: before === undefined ? 'insert' : (after === undefined ? 'delete' : 'set'),
+    path: path || '/',
+    before: displayValue(before),
+    after: displayValue(after)
+  })
+  return result
+}
+
 function assertPointer(value, label) {
   const pointer = str(value)
   if (pointer === '' || pointer[0] !== '/') throw new Error(label + ' 必须是 JSON Pointer')
@@ -201,4 +236,103 @@ export function projectMvuBackgroundRequest(frame) {
     ].join('\n'),
     tools: [MVU_SUBMIT_UPDATE_TOOL]
   }
+}
+
+/** Own model/tool/runtime details behind one variable-settlement action. */
+export function createMvuSettlementModule(options = {}) {
+  if (!options.model || typeof options.model.run !== 'function') throw new Error('MVU Settlement 缺少后台模型 adapter')
+  if (!options.runtime || typeof options.runtime.settleMvuUpdate !== 'function') throw new Error('MVU Settlement 缺少官方 Runtime adapter')
+  const maxAttempts = Math.max(1, Math.min(2, Number(options.maxAttempts) || 2))
+
+  async function settleVariables(input = {}) {
+    const frame = createMvuBackgroundTaskFrame(input)
+    const request = projectMvuBackgroundRequest(frame)
+    let lastError = null
+    let traceSessionId = str(input.persistentSessionId)
+    let traceBoundary = null
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      const submissions = []
+      let attemptedCalls = 0
+      try {
+        const run = await options.model.run({
+          task: 'settlement',
+          persistent: true,
+          persistentSessionId: traceSessionId,
+          rewindTo: -1,
+          selection: input.selection,
+          messages: request.messages,
+          turnContext: request.turnContext,
+          system: [str(input.system).trim(), request.system].filter(Boolean).join('\n\n'),
+          tools: request.tools,
+          maxToolCalls: 2,
+          temperature: 0.1,
+          sessionId: input.sessionId,
+          turn: Math.max(0, Number(input.turn) || 0),
+          async onToolCall(call) {
+            attemptedCalls++
+            if (!call || call.name !== MVU_SUBMIT_UPDATE_TOOL_NAME) throw new Error('后台 Agent 调用了未授权的变量工具')
+            if (submissions.length > 0) throw new Error('mvu_submit_update 每轮只能调用一次')
+            const submission = normalizeMvuToolSubmission(call.arguments)
+            submissions.push(submission)
+            return JSON.stringify({ accepted: true, operationCount: submission.operations.length })
+          }
+        })
+        traceSessionId = str(run.traceSessionId)
+        traceBoundary = Number.isSafeInteger(run.traceBoundary) ? run.traceBoundary : null
+        if (attemptedCalls !== 1 || submissions.length !== 1) {
+          throw new Error(attemptedCalls === 0 ? '后台 Agent 未调用 mvu_submit_update' : 'mvu_submit_update 每轮只能调用一次')
+        }
+        const submission = submissions[0]
+        const applied = await options.runtime.settleMvuUpdate({
+          sessionId: input.sessionId,
+          messageId: input.messageId,
+          swipeId: input.swipeId,
+          expectedLifecycleRevision: input.expectedLifecycleRevision,
+          storyText: frame.foregroundOutput.storyText,
+          command: formatMvuUpdateCommand(submission)
+        })
+        if (applied.stale === true) {
+          return {
+            frame,
+            text: str(run.text),
+            traceSessionId,
+            traceBoundary,
+            receipt: {
+              version: 1, status: 'stale', summary: '变量结算目标已经变化，迟到结果未写入。',
+              changes: [], failures: []
+            }
+          }
+        }
+        const projected = applied.context && Array.isArray(applied.context.messages)
+          ? applied.context.messages[input.messageId]
+          : null
+        const after = clone(projected && projected.variables || {})
+        const changes = diffValues(input.currentVariables, after)
+        return {
+          frame,
+          text: str(run.text),
+          traceSessionId,
+          traceBoundary,
+          variables: after,
+          submission,
+          receipt: {
+            version: 1,
+            status: changes.length > 0 ? 'updated' : 'unchanged',
+            summary: submission.analysis,
+            changes,
+            failures: []
+          }
+        }
+      } catch (error) {
+        if (traceSessionId === '') traceSessionId = str(error && error.traceSessionId)
+        lastError = error
+      }
+    }
+    const failure = new Error(str(lastError && lastError.message || lastError) || 'MVU 后台变量结算失败', { cause: lastError })
+    failure.traceSessionId = traceSessionId
+    failure.traceBoundary = traceBoundary
+    throw failure
+  }
+
+  return Object.freeze({ settleVariables })
 }

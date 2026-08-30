@@ -38,12 +38,16 @@ window.__ModuleLoader__.load({
 .dsh-tavern-swipe-controls button { min-width: 28px; height: 26px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 7px; background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-secondary); cursor: pointer; }
 .dsh-tavern-swipe-controls button:disabled { opacity: .35; cursor: default; }
 .dsh-tavern-mvu-receipt { align-self: flex-start; width: min(100%, 760px); border: 1px solid var(--dsw-alias-border-l2); border-radius: 9px; background: var(--dsw-specific-input-major); color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 20px; }
+.dsh-tavern-mvu-receipt[data-status="pending"] { border-color: rgba(68,126,230,.42); }
 .dsh-tavern-mvu-receipt[data-status="updated"] { border-color: rgba(70,160,105,.42); }
+.dsh-tavern-mvu-receipt[data-status="stale"] { border-color: rgba(196,132,42,.46); }
 .dsh-tavern-mvu-receipt[data-status="partial"], .dsh-tavern-mvu-receipt[data-status="error"] { border-color: rgba(220,94,94,.48); }
 .dsh-tavern-mvu-receipt-summary { display: flex; align-items: center; gap: 7px; padding: 7px 10px; cursor: pointer; user-select: none; font-weight: 750; }
 .dsh-tavern-mvu-receipt-summary::-webkit-details-marker { display: none; }
 .dsh-tavern-mvu-receipt-dot { width: 7px; height: 7px; border-radius: 999px; background: var(--dsw-alias-label-tertiary); }
+.dsh-tavern-mvu-receipt[data-status="pending"] .dsh-tavern-mvu-receipt-dot { background: #447ee6; }
 .dsh-tavern-mvu-receipt[data-status="updated"] .dsh-tavern-mvu-receipt-dot { background: #4da66d; }
+.dsh-tavern-mvu-receipt[data-status="stale"] .dsh-tavern-mvu-receipt-dot { background: #c4842a; }
 .dsh-tavern-mvu-receipt[data-status="partial"] .dsh-tavern-mvu-receipt-dot, .dsh-tavern-mvu-receipt[data-status="error"] .dsh-tavern-mvu-receipt-dot { background: #dc5e5e; }
 .dsh-tavern-mvu-receipt-body { display: grid; gap: 8px; padding: 0 10px 9px; border-top: 1px solid var(--dsw-alias-border-l2); }
 .dsh-tavern-mvu-receipt-reason { margin-top: 8px; color: var(--dsw-alias-label-primary); }
@@ -51,6 +55,8 @@ window.__ModuleLoader__.load({
 .dsh-tavern-mvu-change-path { color: #a66b35; font-family: ui-monospace,SFMono-Regular,Menlo,monospace; overflow-wrap: anywhere; }
 .dsh-tavern-mvu-change-values { overflow-wrap: anywhere; }
 .dsh-tavern-mvu-failure { color: #d96767; overflow-wrap: anywhere; }
+.dsh-tavern-mvu-retry { justify-self: start; border: 1px solid var(--dsw-alias-border-l2); border-radius: 7px; padding: 4px 9px; background: transparent; color: var(--dsw-alias-label-primary); cursor: pointer; }
+.dsh-tavern-mvu-retry:disabled { cursor: wait; opacity: .58; }
 .dsh-tavern-message-frame-slot { display: block; width: 100%; min-height: 48px; overflow: hidden; }
 .dsh-tavern-message-frame { display: block; width: 100%; min-height: 48px; border: 0; background: transparent; overflow: hidden; }
 .dsh-tavern-status-runtime { width: 100%; min-width: 0; margin: 0 0 10px; overflow: hidden; border: 1px solid var(--dsw-alias-border-l2); border-radius: 12px; background: var(--dsw-alias-bg-base); }
@@ -2599,19 +2605,34 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 
 		function TavernMvuReceipt(props) {
 			const h = React.createElement;
+			const [retrying, setRetrying] = React.useState(false);
 			const receipt = props.receipt || {};
 			const changes = Array.isArray(receipt.changes) ? receipt.changes : [];
 			const failures = Array.isArray(receipt.failures) ? receipt.failures : [];
-			const status = ["updated", "partial", "error", "unchanged"].includes(receipt.status) ? receipt.status : "unchanged";
+			const status = ["pending", "updated", "partial", "error", "stale", "unchanged"].includes(receipt.status) ? receipt.status : "unchanged";
 			const labels = {
+				pending: "变量结算中…",
 				updated: changes.length > 0 ? "变量已更新 · " + changes.length + " 项" : "变量已更新 · 旧记录无明细",
 				partial: "变量部分更新 · " + changes.length + " 项成功 · " + failures.length + " 项失败",
 				error: "变量更新失败 · " + failures.length + " 项",
+				stale: "变量结算已过期，未覆盖当前状态",
 				unchanged: "本轮变量未更新"
 			};
 			const operationLabels = { set: "设置", add: "增减", insert: "新增", delete: "删除", move: "移动" };
 			const summary = h("div", { className: "dsh-tavern-mvu-receipt-summary" }, h("span", { className: "dsh-tavern-mvu-receipt-dot" }), h("span", null, labels[status]));
-			const hasDetails = String(receipt.summary || "") !== "" || changes.length > 0 || failures.length > 0;
+			async function retry() {
+				if (retrying) return;
+				setRetrying(true);
+				try {
+					await rpc("retryMvuSettlement", { turn: props.turn }, props.sessionId);
+					liveTavernView.invalidate(props.sessionId);
+				} catch (error) { tavernErrorHub.report("重试变量结算", error); }
+				finally { setRetrying(false); }
+			}
+			const retryButton = (status === "error" || status === "stale")
+				? h("button", { type: "button", className: "dsh-tavern-mvu-retry", disabled: retrying, onClick: retry }, retrying ? "重试中…" : "重试变量结算")
+				: null;
+			const hasDetails = String(receipt.summary || "") !== "" || changes.length > 0 || failures.length > 0 || retryButton;
 			if (!hasDetails) return h("div", { className: "dsh-tavern-mvu-receipt", "data-status": status }, summary);
 			return h("details", { className: "dsh-tavern-mvu-receipt", "data-status": status },
 				h("summary", { className: "dsh-tavern-mvu-receipt-summary" }, h("span", { className: "dsh-tavern-mvu-receipt-dot" }), h("span", null, labels[status])),
@@ -2621,7 +2642,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 						h("div", { className: "dsh-tavern-mvu-change-path" }, (operationLabels[change.operation] || "更新") + " " + String(change.path || "/")),
 						h("div", { className: "dsh-tavern-mvu-change-values" }, String(change.before) + " → " + String(change.after))
 					); }),
-					failures.map(function (failure, index) { return h("div", { key: "failure:" + index, className: "dsh-tavern-mvu-failure" }, "失败：" + String(failure.message || "未知错误")); })
+					failures.map(function (failure, index) { return h("div", { key: "failure:" + index, className: "dsh-tavern-mvu-failure" }, "失败：" + String(failure.message || "未知错误")); }),
+					retryButton
 				)
 			);
 		}
@@ -2824,7 +2846,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					React.createElement("span", null, String(swipe.swipeId + 1) + " / " + String(swipe.count)),
 					React.createElement("button", { type: "button", disabled: swipeBusy || swipe.swipeId >= swipe.count - 1, "aria-label": "下一个 Swipe", onClick: function () { switchSwipe(swipe.swipeId + 1); } }, "›")
 				) : null;
-				const mvuReceiptNode = mvuReceipt ? React.createElement(TavernMvuReceipt, { receipt: mvuReceipt }) : null;
+				const mvuReceiptNode = mvuReceipt ? React.createElement(TavernMvuReceipt, { receipt: mvuReceipt, sessionId: props.sessionId, turn: turn }) : null;
 				return React.createElement("div", { className: "dsh-tavern-assistant", "data-streaming": data.status === "running" || undefined }, rendered, mvuReceiptNode, swipeControls);
 			}
 			function register(input) {
@@ -3503,7 +3525,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				h("div", { className: "dsh-tavern-mode-switch" + (compatibilityAvailable ? " compatibility-enabled" : "") },
 					h("button", { className: uiMode === "play" && requestMode === "dsh" ? "active" : "", disabled: busy, onClick: function () { switchPlayRequestMode("dsh"); } }, "游玩"),
 					h("button", { className: uiMode === "card" ? "active" : "", disabled: busy, onClick: function () { switchMode("card"); } }, "卡片"),
-					compatibilityAvailable ? h("button", { className: uiMode === "play" && requestMode === "sillytavern" ? "active" : "", disabled: busy, title: "按 SillyTavern 语义构造请求；不运行游玩模式的后台状态结算，候选项可按需手动生成", onClick: function () { switchPlayRequestMode("sillytavern"); } }, "兼容（实验性）") : null
+					compatibilityAvailable ? h("button", { className: uiMode === "play" && requestMode === "sillytavern" ? "active" : "", disabled: busy, title: "按 SillyTavern 语义构造正文请求；后台变量结算与普通游玩共用同一链路，候选项可按需手动生成", onClick: function () { switchPlayRequestMode("sillytavern"); } }, "兼容（实验性）") : null
 				),
 				h("button", { className: "dsh-tavern-side-new", disabled: busy, onClick: function () { openPicker(); } }, uiMode === "play" ? (requestMode === "sillytavern" ? "＋ 选择人物卡 · 新开兼容对话" : "＋ 选择人物卡 · 新开游玩") : "＋ 新建卡片工作台对话"),
 				uiMode === "play" && requestMode === "sillytavern" ? h("div", { className: "dsh-tavern-compatibility-notice" },
@@ -3635,7 +3657,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					React.createElement("label", { className: "dsh-tavern-settings-row" },
 						React.createElement("span", { className: "dsh-tavern-settings-copy" },
 							React.createElement("span", { className: "dsh-tavern-settings-title" }, "启用兼容模式（实验性）"),
-							React.createElement("span", { className: "dsh-tavern-settings-desc" }, "开启后，侧栏最右侧会显示兼容模式。该模式按 SillyTavern 语义构造请求，不运行游玩模式的后台状态结算；候选项可按需手动生成。兼容效果可能因预设、模型和供应商而异。兼容模式可用于测试外部预设条目的兼容效果，但不保证游戏体验良好。")
+							React.createElement("span", { className: "dsh-tavern-settings-desc" }, "开启后，侧栏最右侧会显示兼容模式。该模式按 SillyTavern 语义构造正文请求；后台变量结算与普通游玩共用同一链路，候选项可按需手动生成。兼容效果可能因预设、模型和供应商而异。兼容模式可用于测试外部预设条目的兼容效果，但不保证游戏体验良好。")
 						),
 						React.createElement("span", { className: "dsh-tavern-settings-switch" },
 							React.createElement("input", { type: "checkbox", checked: state.compatibilityMode, disabled: state.loading || state.busy, onChange: function (event) { void setCompatibilityMode(event.target.checked); }, "aria-label": "启用兼容模式（实验性）" }),

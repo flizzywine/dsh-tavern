@@ -21,6 +21,7 @@ import { createForegroundHandoff } from './domain/foreground-handoff.js'
 import { createForegroundFrameBuilder } from './domain/agent-input-frame.js'
 import { createForegroundFrameSessionAdapter } from './domain/foreground-frame-session-adapter.js'
 import { createModelRequestLog } from './domain/model-request-log.js'
+import { createMvuSettlementModule } from './domain/mvu-background-settlement.js'
 import { projectPersistentStatusView } from './domain/persistent-status-view.js'
 import { previewPresetConversion } from './domain/preset-conversion-preview.js'
 import { inspectPreset, nativeRegexScriptsOf } from './domain/preset-reading.js'
@@ -67,7 +68,7 @@ import { createTavernCompactionCoordinator } from './domain/tavern-compaction.js
 import { cordisToolNames, createTurnOrchestrator } from './domain/turn-orchestration.js'
 import { resourceWorkspaceContext } from './domain/workspace-resources.js'
 import { createWorldBookLibrary } from './domain/worldbook-library.js'
-import { constantWorldBookContext, prepareWorldBookRecall } from './domain/worldbook-recall.js'
+import { constantWorldBookContext, mvuUpdateRulesFromWorldBook, prepareWorldBookRecall } from './domain/worldbook-recall.js'
 import {
   createBackgroundTaskCoordinator,
   isOpeningAwaitingSettlement
@@ -1202,7 +1203,7 @@ export async function apply(ctx) {
       const diagnostics = Array.isArray(message.mvu.diagnostics) ? message.mvu.diagnostics : []
       const receipt = stored && typeof stored === 'object' ? structuredClone(stored) : {
         version: 1,
-        status: diagnostics.length > 0 ? 'error' : (message.mvu.modified === true ? 'updated' : 'unchanged'),
+        status: message.mvu.pending === true ? 'pending' : (diagnostics.length > 0 ? 'error' : (message.mvu.modified === true ? 'updated' : 'unchanged')),
         summary: '',
         changes: [],
         failures: diagnostics.map(function (item) { return { command: str(item.command), message: str(item.message) } })
@@ -1310,7 +1311,7 @@ export async function apply(ctx) {
     } : { enabled: false }
     if (groupOfMode(chat.mode) === 'play') {
       chat.cardContextSnapshot = await buildPlayCardSnapshot(chat, card)
-      chat.cardContextSnapshotVersion = 3
+      chat.cardContextSnapshotVersion = 4
     }
     chat.openingText = greeting
     chat.presentationWarnings = openingProjection.warnings
@@ -1465,7 +1466,7 @@ export async function apply(ctx) {
   async function ensurePlayCardSnapshot(chat, card) {
     if (chat === undefined || groupOfMode(chat.mode) !== 'play') return ''
     const existing = str(chat.cardContextSnapshot)
-    if (existing !== '' && Number(chat.cardContextSnapshotVersion) >= 3) {
+    if (existing !== '' && Number(chat.cardContextSnapshotVersion) >= 4) {
       const sanitized = sanitizeAgentProjectionText(existing)
       if (sanitized !== existing) {
         chat.cardContextSnapshot = sanitized
@@ -1478,7 +1479,7 @@ export async function apply(ctx) {
       const resolvedCard = card === undefined ? await readChatCard(chat) : card
       const snapshot = await buildPlayCardSnapshot(chat, resolvedCard)
       chat.cardContextSnapshot = snapshot
-      chat.cardContextSnapshotVersion = 3
+      chat.cardContextSnapshotVersion = 4
       await writeChat(chat, { source: 'card-context.snapshot' })
       return snapshot
     })()
@@ -1515,6 +1516,10 @@ export async function apply(ctx) {
         snapshot: input.snapshot || null
       })
     }
+  })
+  const mvuSettlement = createMvuSettlementModule({
+    model: backgroundAgentRunner,
+    runtime: tavernScriptHostAdapter
   })
   ctx.effect(() => () => backgroundAgentRunner.dispose(), 'dsh-tavern: dispose resident background agents')
   let tavernCompaction = null
@@ -1564,7 +1569,6 @@ export async function apply(ctx) {
     timeline: storyTimeline,
     tasks: backgroundTasks,
     waitUntilSettled: async function (chat) {
-      if (chat.requestMode === 'sillytavern') return
       let current = await readChat(chat.id)
       if (current === undefined) return
       let shouldRun = false
@@ -1811,6 +1815,30 @@ export async function apply(ctx) {
     }
     return 0
   }
+  function pendingMvuTarget(chat) {
+    const messages = Array.isArray(chat && chat.messages) ? chat.messages : []
+    for (let messageId = messages.length - 1; messageId >= 0; messageId--) {
+      const message = messages[messageId]
+      if (!message || message.role !== 'assistant' || !message.mvu || message.mvu.pending !== true) continue
+      const swipeId = Math.max(0, Number(message.swipeId) || 0)
+      const variables = Array.isArray(message.variables) ? message.variables[swipeId] : undefined
+      return {
+        messageId,
+        swipeId,
+        message,
+        variables: variables && typeof variables === 'object' ? structuredClone(variables) : {}
+      }
+    }
+    return null
+  }
+  async function mvuUpdateRules(chat, card) {
+    try {
+      const worldBook = await worldBooks.bound(chat.cardPath, card)
+      return mvuUpdateRulesFromWorldBook(worldBook)
+    } catch (_error) {
+      return []
+    }
+  }
   async function prepareNextWorldBookContext(snapshot) {
     const turn = settlementTurn(snapshot)
     const inspected = storyTimeline.inspect({ chat: snapshot })
@@ -1860,53 +1888,95 @@ export async function apply(ctx) {
       let backgroundSessionId = str(taskRun.participantRequest.sessionId)
       let backgroundBoundary = null
       try {
-        await readChatCard(snapshot)
+        const card = await readChatCard(snapshot)
+        const mvuTarget = snapshot.mvu && snapshot.mvu.enabled === true && snapshot.mvu.owner === 'official'
+          ? pendingMvuTarget(snapshot)
+          : null
         let text = ''
         let result = null
         let lastError = null
-        for (let attempt = 1; attempt <= 2; attempt++) {
-          try {
-            const selection = modelSelection(snapshot.sessionId)
-            if (selection === null) throw new Error('没有可用的模型配置，请先在当前会话的模型选择器中选择模型')
-            const run = await backgroundAgentRunner.run({
-              task: 'settlement',
-              persistent: true,
-              persistentSessionId: backgroundSessionId,
-              rewindTo: taskRun.participantRequest.rewindTo,
-              selection,
-              messages: [{
-                id: 'settle-' + Date.now().toString(36),
-                role: 'user',
-                regexPlacement: 2,
-                content: [{ type: 'text', text: settleUserText(snapshot) }],
-                source: { kind: 'plugin', plugin: 'dsh-tavern' }
-              }],
-              system: runtimePrompt('posture-settlement'),
-              turnContext: '',
-              tools: [],
-              temperature: 0.2,
-              sessionId: snapshot.sessionId
-            })
-            text = run.text
-            backgroundSessionId = str(run.traceSessionId)
-            backgroundBoundary = Number.isSafeInteger(run.traceBoundary) ? run.traceBoundary : null
-            result = parseJsonLenient(text)
-            if (str(result.posture).trim() === '') throw new Error('模型返回的姿势 JSON 无效')
-            lastError = null
-            break
-          } catch (err) {
-            if (backgroundSessionId === '') backgroundSessionId = str(err && err.traceSessionId)
-            lastError = err
-            if (attempt < 2) console.warn('dsh-tavern: 结算输出无效，自动重试', str(err && err.message || err))
+        let mvuResult = null
+        const selection = modelSelection(snapshot.sessionId)
+        if (selection === null) throw new Error('没有可用的模型配置，请先在当前会话的模型选择器中选择模型')
+        if (mvuTarget !== null) {
+          mvuResult = await mvuSettlement.settleVariables({
+            operationId: taskRun.operationId,
+            chatId: snapshot.id,
+            branchId: taskRun.basedOn.branchId,
+            basedOnRevision: taskRun.basedOn.revision,
+            sessionId: snapshot.sessionId,
+            turn: settlementTurn(snapshot),
+            messageId: mvuTarget.messageId,
+            swipeId: mvuTarget.swipeId,
+            expectedLifecycleRevision: Math.max(0, Number(snapshot.tavernHelperLifecycleRevision) || 0),
+            storyText: str(mvuTarget.message.sourceText || mvuTarget.message.projectionText || mvuTarget.message.text),
+            currentVariables: mvuTarget.variables,
+            variableSchema: mvuTarget.variables.schema,
+            updateRules: await mvuUpdateRules(snapshot, card),
+            system: runtimePrompt('posture-settlement'),
+            selection,
+            persistentSessionId: backgroundSessionId
+          })
+          text = mvuResult.text
+          backgroundSessionId = str(mvuResult.traceSessionId)
+          backgroundBoundary = Number.isSafeInteger(mvuResult.traceBoundary) ? mvuResult.traceBoundary : null
+          result = parseJsonLenient(text)
+        } else {
+          for (let attempt = 1; attempt <= 2; attempt++) {
+            try {
+              const run = await backgroundAgentRunner.run({
+                task: 'settlement',
+                persistent: true,
+                persistentSessionId: backgroundSessionId,
+                rewindTo: taskRun.participantRequest.rewindTo,
+                selection,
+                messages: [{
+                  id: 'settle-' + Date.now().toString(36),
+                  role: 'user',
+                  regexPlacement: 2,
+                  content: [{ type: 'text', text: settleUserText(snapshot) }],
+                  source: { kind: 'plugin', plugin: 'dsh-tavern' }
+                }],
+                system: runtimePrompt('posture-settlement'),
+                turnContext: '',
+                tools: [],
+                temperature: 0.2,
+                sessionId: snapshot.sessionId
+              })
+              text = run.text
+              backgroundSessionId = str(run.traceSessionId)
+              backgroundBoundary = Number.isSafeInteger(run.traceBoundary) ? run.traceBoundary : null
+              result = parseJsonLenient(text)
+              if (str(result.posture).trim() === '') throw new Error('模型返回的姿势 JSON 无效')
+              lastError = null
+              break
+            } catch (err) {
+              if (backgroundSessionId === '') backgroundSessionId = str(err && err.traceSessionId)
+              lastError = err
+              if (attempt < 2) console.warn('dsh-tavern: 结算输出无效，自动重试', str(err && err.message || err))
+            }
           }
+          if (lastError !== null) throw lastError
         }
-        if (lastError !== null) throw lastError
         let stat = { postureUpdated: false }
         const completed = await taskRun.commit({
-          stateChanged: true,
+          stateChanged: Boolean(mvuResult && mvuResult.receipt && mvuResult.receipt.status === 'updated') || str(result && result.posture).trim() !== '',
           participant: taskRun.participant({ sessionId: backgroundSessionId, boundary: backgroundBoundary }),
           apply(draft) {
             stat = applySettlement(draft, result)
+            if (mvuResult !== null) {
+              const target = draft.messages[mvuTarget.messageId]
+              if (target && target.role === 'assistant' && Math.max(0, Number(target.swipeId) || 0) === mvuTarget.swipeId) {
+                const receipt = structuredClone(mvuResult.receipt)
+                target.mvu = {
+                  pending: false,
+                  modified: receipt.status === 'updated',
+                  diagnostics: receipt.status === 'stale' ? [{ message: receipt.summary }] : [],
+                  events: receipt.status === 'stale' ? [] : ['MESSAGE_RECEIVED'],
+                  receipt
+                }
+              }
+            }
             draft.settleStatus = 'done'
             draft.settleError = null
             draft.lastSettle = { ts: Date.now(), posture: stat.postureUpdated, raw: text.slice(0, 200) }
@@ -1921,6 +1991,8 @@ export async function apply(ctx) {
         console.log('dsh-tavern: 结算原始输出:', text.slice(0, 200))
         return
       } catch (err) {
+        if (backgroundSessionId === '') backgroundSessionId = str(err && err.traceSessionId)
+        if (backgroundBoundary === null && Number.isSafeInteger(err && err.traceBoundary)) backgroundBoundary = err.traceBoundary
         const failed = await taskRun.commit({
           status: 'failed',
           stateChanged: false,
@@ -1928,6 +2000,21 @@ export async function apply(ctx) {
         })
         if (failed.status === 'missing') return
         if (failed.status === 'stale' && backgroundTasks.activity(failed.chat).busy) continue
+        const latest = await readChat(chatId)
+        const target = pendingMvuTarget(latest)
+        if (target !== null) {
+          const message = str(err && err.message || err) || 'MVU 后台变量结算失败'
+          target.message.mvu = {
+            pending: false,
+            modified: false,
+            diagnostics: [{ message }],
+            events: [],
+            receipt: { version: 1, status: 'error', summary: '', changes: [], failures: [{ command: '', message }] }
+          }
+          latest.settleStatus = 'failed'
+          latest.settleError = message
+          await writeChat(latest, { source: 'settlement.mvu-failed' })
+        }
         console.error('dsh-tavern: 结算失败', chatId, str(err && err.message || err))
         return
       }
@@ -1939,6 +2026,33 @@ export async function apply(ctx) {
     const job = runSettlement(chatId).finally(function () { settlementJobs.delete(chatId) })
     settlementJobs.set(chatId, job)
     return job
+  }
+  async function retryMvuSettlement(sessionId, turn) {
+    const chat = await chatForSession(sessionId)
+    if (chat === undefined) throw new Error('当前会话没有绑定人物卡')
+    if (!chat.mvu || chat.mvu.enabled !== true || chat.mvu.owner !== 'official') throw new Error('当前对话没有启用官方 MVU')
+    const activity = backgroundTasks.activity(chat)
+    if (activity.busy) throw new Error('后台 Agent 正在运行，请稍候')
+    const messages = Array.isArray(chat.messages) ? chat.messages : []
+    let target = null
+    for (let messageId = messages.length - 1; messageId >= 0; messageId--) {
+      const message = messages[messageId]
+      if (!message || message.role !== 'assistant' || !message.mvu) continue
+      target = { messageId, message }
+      break
+    }
+    if (target === null || Math.max(0, Number(target.message.turn) || 0) !== Math.max(0, Number(turn) || 0)) {
+      throw new Error('只能重试当前最新正文的变量结算')
+    }
+    target.message.mvu = { pending: true, modified: false, diagnostics: [], events: [] }
+    chat.settleStatus = 'pending'
+    chat.settleError = null
+    chat.updatedAt = Date.now()
+    await writeChat(chat, { source: 'settlement.mvu-retry' })
+    void queueSettlement(chat.id).catch(function (error) {
+      console.error('dsh-tavern: 重试变量结算失败', str(error && error.message || error))
+    })
+    return await view(chat, await readChatCard(chat))
   }
   async function pullBackgroundCycle(sessionId) {
     let chat = await chatForSession(sessionId)
@@ -2026,9 +2140,6 @@ export async function apply(ctx) {
     scripts: scriptContinuity,
     timeline: storyTimeline,
     frameBuilder: foregroundFrameBuilder,
-	emitMvu: async function (event) {
-	  return await tavernScriptHostAdapter.dispatchEvent(event)
-	},
     cards: cardPreparation,
     workspace: {
       prepare: prepareWorkspace,
@@ -2222,7 +2333,11 @@ export async function apply(ctx) {
     committedChat.tavernHelperLifecycleRevision = lifecycleRevision + 1
     committedChat.suppressedDshTurns = Array.from(new Set((Array.isArray(committedChat.suppressedDshTurns) ? committedChat.suppressedDshTurns : []).concat([syntheticTurn])))
     await writeChat(committedChat, { source: 'foreground.regen-commit' })
-    await tavernScriptHostAdapter.dispatchEvent({ sessionId: chat.sessionId, chat: committedChat, name: 'MESSAGE_RECEIVED', args: [oldAssistantIndex, 'swipe'] })
+    // 重生成正文也只交给后台变量 Agent 结算。这里不能再把正文直接作为
+    // MESSAGE_RECEIVED 交给官方 MVU，否则会与后台所有权重复执行。
+    void queueSettlement(committedChat.id).catch(function (error) {
+      console.error('dsh-tavern: 启动重生成变量结算失败', str(error && error.message || error))
+    })
     // 一次遮蔽旧正文、此前失败回合残留、合成输入与新模型节点；原楼层由 Tavern Swipe 投影统一显示
     const currentNodes = session.surface !== undefined && Array.isArray(session.surface.nodes) ? session.surface.nodes : []
     const replacement = planRegenerationSurface({
@@ -2558,7 +2673,7 @@ export async function apply(ctx) {
       case 'startChoices': {
         const choiceChat = await chatForSession(args && args.sessionId)
         if (choiceChat === undefined) throw new Error('当前会话没有绑定人物卡')
-        if (choiceChat.requestMode !== 'sillytavern' && !await pullBackgroundCycle(args && args.sessionId)) return { preparing: true }
+        if (!await pullBackgroundCycle(args && args.sessionId)) return { preparing: true }
         const prepared = await candidateGenerator.prepare({
           sessionId: args && args.sessionId,
           messageId: args && args.messageId,
@@ -2583,6 +2698,7 @@ export async function apply(ctx) {
       case 'deleteGuide': return { guides: await deleteGuide(args && args.sessionId, args && args.index) }
       case 'regenBody': return { view: await regenBody(args && args.chatId, args && args.guidance, args && args.sessionId) }
       case 'rollbackTurn': return { view: await rollbackTurn(args && args.sessionId, args && args.chatId) }
+      case 'retryMvuSettlement': return { view: await retryMvuSettlement(args && args.sessionId, args && args.turn) }
       default: throw new Error('未知方法: ' + method)
     }
   }

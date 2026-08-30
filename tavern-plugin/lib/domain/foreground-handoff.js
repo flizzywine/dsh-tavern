@@ -40,7 +40,20 @@ export function createForegroundHandoff(options = {}) {
 
   function end(input = {}) {
     const reason = str(input.reason)
-    if (reason === 'completed' || reason === 'max-tokens') return true
+    if (reason === 'completed' || reason === 'max-tokens') {
+      later(async function () {
+        const chat = await store.chatForSession(input.sessionId)
+        if (chat === undefined) return
+        // 正文重生成会先产生一个临时 DSH 回合，再把它合并为原楼层的新 Swipe。
+        // 临时回合不能启动变量结算，否则可能把尚未采用的正文写进正式状态。
+        if (chat.regenInProgress === true) return
+        const activity = tasks.activity(chat)
+        if (activity.role === 'settlement' && (activity.phase === 'pending' || activity.phase === 'running')) {
+          await queueBackground(chat.id)
+        }
+      }, '启动后台结算')
+      return true
+    }
     later(async function () {
       const target = { sessionId: input.sessionId, turn: input.turn }
       await turns.discard(target)
