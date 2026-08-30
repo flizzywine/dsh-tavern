@@ -1134,8 +1134,10 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					emit();
 				},
 				dismiss: function (id) { items = items.filter(function (item) { return item.id !== id; }); emit(); },
-				resolve: function (source) {
+				resolve: function (source, beforeAt) {
 					if (!items[0] || items[0].source !== String(source || "")) return;
+					const cutoff = Number(beforeAt);
+					if (Number.isFinite(cutoff) && Number(items[0].lastAt) >= cutoff) return;
 					items = [];
 					emit();
 				},
@@ -1862,6 +1864,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const hostDocument = options && options.document || document;
 			const invoke = options && options.rpc || rpc;
 			const reportError = options && options.reportError || function (source, error) { tavernErrorHub.report(source, error); };
+			const resolveError = options && options.resolveError || function (source, beforeAt) { tavernErrorHub.resolve(source, beforeAt); };
 			const reportMutation = options && options.onMutation || function (sessionId) { liveTavernView.invalidate(sessionId); };
 			const onReady = options && typeof options.onReady === "function" ? options.onReady : function () {};
 			const initializationTimeoutMs = Math.max(1000, Number(options && options.initializationTimeoutMs) || 15000);
@@ -2025,6 +2028,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				const record = {
 					id: "shared",
 					name: "共享脚本沙箱",
+					startedAt: Date.now(),
 					fingerprint: fingerprint,
 					token: token(),
 					frame: frame,
@@ -2110,11 +2114,13 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 						if (!script) continue;
 						script.subscriptionsReady = status.ready === true;
 						script.initializationFailed = status.failed === true;
+						if (script.subscriptionsReady && !script.initializationFailed) resolveError("人物卡脚本「" + script.name + "」", record.startedAt);
 					}
 					if (statuses.length === 0 && record.scripts.size === 1 && data.ready === true) record.scripts.values().next().value.subscriptionsReady = true;
 					if (data.ready === true) {
 						record.subscriptionsReady = true;
 						record.initializationFailed = false;
+						resolveError("人物卡共享脚本沙箱", record.startedAt);
 						settleInitialization(record);
 					}
 					return;

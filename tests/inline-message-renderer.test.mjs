@@ -698,6 +698,61 @@ test('Helper Host 在共享沙箱全部脚本完成初始化后才开放事件',
   runtime.dispose()
 })
 
+test('Helper Host 成功初始化后只请求清除本次启动前的同源错误', async () => {
+  const windowListeners = new Map()
+  const resolved = []
+  const hostWindow = {
+    crypto: { randomUUID() { return 'resolve-old-error-token' } },
+    setTimeout,
+    clearTimeout,
+    addEventListener(name, handler) { windowListeners.set(name, handler) },
+    removeEventListener(name) { windowListeners.delete(name) }
+  }
+  const root = { isConnected: true, appendChild() {}, remove() {} }
+  let frame
+  const hostDocument = {
+    body: { appendChild() {} },
+    documentElement: { appendChild() {} },
+    createElement(tag) {
+      if (tag === 'div') return root
+      frame = {
+        contentWindow: { postMessage() {} },
+        listeners: {},
+        addEventListener(name, handler) { this.listeners[name] = handler },
+        remove() {}
+      }
+      return frame
+    }
+  }
+  const runtime = client.createTavernHelperScriptRuntime({
+    window: hostWindow,
+    document: hostDocument,
+    rpc() { return Promise.resolve({}) },
+    reportError() {},
+    resolveError(source, beforeAt) { resolved.push({ source, beforeAt }) }
+  })
+
+  runtime.sync('session', {
+    tavernHelper: { messages: [], scriptVariables: {} },
+    tavernHelperScripts: [{ id: 'schema', name: '变量结构', content: 'void 0', data: {}, buttons: [] }]
+  })
+  frame.listeners.load()
+  windowListeners.get('message')({
+    source: frame.contentWindow,
+    data: {
+      type: 'dsh-tavern-helper-subscriptions',
+      token: 'resolve-old-error-token',
+      names: [],
+      ready: true,
+      scripts: [{ id: 'schema', names: [], ready: true, failed: false }]
+    }
+  })
+
+  assert.deepEqual(resolved.map(item => item.source), ['人物卡脚本「变量结构」', '人物卡共享脚本沙箱'])
+  assert.ok(resolved.every(item => Number.isFinite(item.beforeAt)))
+  runtime.dispose()
+})
+
 test('Helper Host 初始化超时只结算一次并继续启动其他能力', async () => {
   const windowListeners = new Map()
   const timers = new Map()
