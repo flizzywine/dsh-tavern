@@ -1390,7 +1390,6 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			}
 			let state = initialContext && typeof initialContext === "object" ? initialContext : {};
 			const token = String(metadata.token || "");
-			const officialMvuEnabled = metadata.officialMvu === true;
 			const extensionSettings = Object.create(null);
 			let lorebookSettings = { selected_global_lorebooks: [] };
 			const scriptList = (Array.isArray(metadata.scripts) ? metadata.scripts : [metadata]).map(function (script) {
@@ -1801,9 +1800,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			window.errorCatched = function (factory) { return function () { try { return factory.apply(this, arguments); } catch (error) { console.error(error); return {}; } }; };
 			window.retrieveDisplayedMessage = function () { return window.jQuery ? window.jQuery() : []; };
 			window.toastr = { success: console.info, info: console.info, warning: console.warn, error: console.error };
-			const ready = officialMvuEnabled
-				? Promise.resolve(true)
-				: import(window.__dshTavernStaticAssetUrl("https://testingcf.jsdelivr.net/npm/zod@4.4.3/+esm")).then(function (module) { window.z = module; return true; });
+			const ready = import(window.__dshTavernStaticAssetUrl("https://testingcf.jsdelivr.net/npm/zod@4.4.3/+esm")).then(function (module) { window.z = module; return true; });
 			window.__dshTavernHelperReady = ready;
 			addEventListener("error", function (event) {
 				const target = event && event.target;

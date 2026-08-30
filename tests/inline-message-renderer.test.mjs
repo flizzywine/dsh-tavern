@@ -479,6 +479,24 @@ test('人物卡 Helper 脚本使用独立不透明 iframe，并获得脚本、�
   assert.doesNotMatch(document, /allow-same-origin/)
 })
 
+test('官方 MVU 与人物卡脚本共用沙箱时仍先提供全局 Zod', () => {
+  const document = client.buildTavernHelperScriptDocument({
+    token: 'official-mvu-zod-token',
+    scripts: [
+      { id: 'official-mvu', name: '官方 MVU', system: 'official-mvu', content: 'void 0', buttons: [] },
+      { id: 'variable-schema', name: '变量结构', content: 'const schema = z.z.object({}); void schema', buttons: [] }
+    ],
+    context: { messages: [] }
+  })
+  const encoded = document.match(/data:text\/javascript;base64,([^"']+)/)
+  assert.ok(encoded)
+  const loader = Buffer.from(encoded[1], 'base64').toString('utf8')
+
+  assert.match(document, /const ready = import\(window\.__dshTavernStaticAssetUrl\("https:\/\/testingcf\.jsdelivr\.net\/npm\/zod@4\.4\.3\/\+esm"\)\)\.then\(function \(module\) \{ window\.z = module; return true; \}\)/)
+  assert.doesNotMatch(document, /officialMvuEnabled\s*\?\s*Promise\.resolve/)
+  assert.ok(loader.indexOf('await window.__dshTavernHelperReady') < loader.indexOf('for(const script of scripts)'))
+})
+
 test('Helper 脚本把本机缓存入口解析为 srcdoc 所属宿主地址', () => {
   const document = client.buildTavernHelperScriptDocument({
     token: 'cached-script-token',
