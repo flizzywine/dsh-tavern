@@ -490,8 +490,9 @@ test('port probe distinguishes an open listener from a closed port', async () =>
   assert.equal(await isPortOpen(address.port), false)
 })
 
-test('Web 服务就绪检查要求 HTTP 成功响应', async () => {
+test('Web 服务就绪检查接受 alpha.2 鉴权响应', async () => {
   assert.equal(await isServiceReady(3081, async () => ({ ok: true })), true)
+  assert.equal(await isServiceReady(3081, async () => ({ ok: false, status: 401 })), true)
   assert.equal(await isServiceReady(3081, async () => ({ ok: false })), false)
   assert.equal(await isServiceReady(3088, async () => ({ ok: false, status: 403 }), 'android'), true)
   assert.equal(await isServiceReady(3081, async () => ({ ok: false, status: 403 }), 'cli'), false)

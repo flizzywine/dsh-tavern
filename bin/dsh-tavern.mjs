@@ -643,7 +643,7 @@ export function isPortOpen(port, host = '127.0.0.1', timeout = 300) {
 export async function isServiceReady(port, request = fetch, host = process.env.DSH_TAVERN_RUNTIME_HOST || 'cli') {
   try {
     const response = await request(`http://127.0.0.1:${port}/`, { signal: AbortSignal.timeout(1000) })
-    return response.ok || (host === 'android' && response.status === 403)
+    return response.ok || response.status === 401 || (host === 'android' && response.status === 403)
   } catch {
     return false
   }
