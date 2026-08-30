@@ -1,4 +1,5 @@
 import {
+  lastTavernHelperVariables,
   projectTavernHelperContext,
   replaceTavernHelperMessages,
   replaceTavernHelperVariables
@@ -25,7 +26,7 @@ export function createTavernScriptHostAdapter(options = {}) {
   const mutationTails = new Map()
 
   function assertDependencies() {
-    for (const name of ['resolveChat', 'writeChat', 'readCard', 'worldBooks', 'mvu', 'eventGate']) {
+    for (const name of ['resolveChat', 'writeChat', 'readCard', 'worldBooks', 'eventGate']) {
       if (!options[name]) throw new Error('Tavern Script Host Adapter 缺少依赖: ' + name)
     }
   }
@@ -133,7 +134,7 @@ export function createTavernScriptHostAdapter(options = {}) {
     const draft = structuredClone(chat)
     const userText = str(transientUserText).trim()
     if (userText !== '') {
-      const previousVariables = options.mvu.lastVariables(draft.messages)
+      const previousVariables = lastTavernHelperVariables(draft.messages)
       const message = { role: 'user', text: userText, swipeId: 0, swipes: [userText], variables: [] }
       if (previousVariables !== undefined) message.variables = [structuredClone(previousVariables)]
       draft.messages.push(message)

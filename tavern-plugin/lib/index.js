@@ -33,8 +33,7 @@ import { createForegroundOrchestrationStrategies } from './domain/foreground-orc
 import { clearFailedTurnSurface, hasRollbackMessages, locateRollbackSurface, planRegenerationSurface } from './domain/rollback-surface.js'
 import { assistantResultForTurn } from './domain/session-turn-result.js'
 import { createTavernRetryLimiter } from './domain/tavern-retry-limiter.js'
-import { createTavernMvuRuntime } from './domain/tavern-mvu-runtime.js'
-import { projectTavernHelperContext } from './domain/tavern-helper-context.js'
+import { lastTavernHelperVariables, projectTavernHelperContext } from './domain/tavern-helper-context.js'
 import { projectTavernHelperWorldbook } from './domain/tavern-helper-worldbook.js'
 import { applyTavernHelperVariableMacros } from './domain/tavern-helper-variable-macros.js'
 import { projectTavernHelperScripts } from './domain/tavern-helper-scripts.js'
@@ -93,7 +92,6 @@ export async function apply(ctx) {
   }
   const agentDefaultModel = ctx.get('agentDefaultModel')
 	const tavernHelperEventGate = createTavernHelperEventGate()
-  const tavernMvu = createTavernMvuRuntime()
   let tavernPromptTemplateRuntime
   async function promptTemplateRuntime() {
     tavernPromptTemplateRuntime ??= TavernPromptTemplateRuntime.create()
@@ -797,7 +795,6 @@ export async function apply(ctx) {
     const previews = await projectCardOpeningPreviews({
       card,
       extensions,
-      runtime: tavernMvu,
       userName,
       presetRegexScripts: Array.isArray(preset && preset.regexScripts) ? preset.regexScripts : []
     })
@@ -989,7 +986,6 @@ export async function apply(ctx) {
     writeChat,
     readCard: readChatCard,
     worldBooks,
-    mvu: tavernMvu,
     eventGate: tavernHelperEventGate,
     isPlayChat: function (chat) { return groupOfMode(chat.mode) === 'play' }
   })
@@ -2028,7 +2024,6 @@ export async function apply(ctx) {
     scripts: scriptContinuity,
     timeline: storyTimeline,
     frameBuilder: foregroundFrameBuilder,
-    mvu: tavernMvu,
 	emitMvu: async function (event) {
 	  return await tavernScriptHostAdapter.dispatchEvent(event)
 	},
@@ -2956,7 +2951,7 @@ export async function apply(ctx) {
     compiled.trace.presetTitle = preset.title
     compiled.trace.regexCount = regexScripts.length
     const helperMacros = applyTavernHelperVariableMacros(compiled.messages, {
-      message: tavernMvu.lastVariables(chat.messages),
+      message: lastTavernHelperVariables(chat.messages),
       chat: chat.variables,
       character: extensions && extensions.variables,
       preset: snapshot && snapshot.variables,
@@ -2978,7 +2973,7 @@ export async function apply(ctx) {
         global: await readPromptTemplateGlobalVariables(),
         initial: chat.promptTemplateInitialVariables,
         local: chat.variables,
-        message: tavernMvu.lastVariables(chat.messages)
+        message: lastTavernHelperVariables(chat.messages)
       }
     }
     const initialized = promptTemplates.initializeVariables(worldInfo.entries, templateContext)

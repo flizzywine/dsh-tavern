@@ -42,12 +42,6 @@ function harness(chatValue = chat()) {
         return worldbook
       }
     },
-    mvu: {
-      lastVariables: function (messages) {
-        const last = messages[messages.length - 1]
-        return last && last.variables && last.variables[last.swipeId || 0]
-      }
-    },
     eventGate: {
       dispatch: async function (sessionId, name, args, context) { events.push({ sessionId, name, args, context }); return { handled: true, args } },
       poll: function () { return { active: true, event: null } },

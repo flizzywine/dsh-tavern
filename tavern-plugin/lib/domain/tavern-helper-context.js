@@ -24,6 +24,19 @@ function normalizeMessageId(messages, value) {
   return messageId
 }
 
+/** Read the selected variable snapshot from the latest message that has one. */
+export function lastTavernHelperVariables(messages) {
+  const source = Array.isArray(messages) ? messages : []
+  for (let messageId = source.length - 1; messageId >= 0; messageId--) {
+    const message = source[messageId]
+    if (!message || !Array.isArray(message.variables) || message.variables.length === 0) continue
+    const swipeId = selectedSwipe(message)
+    const variables = message.variables[swipeId]
+    if (variables !== undefined) return clone(variables)
+  }
+  return undefined
+}
+
 /** Project authoritative Chat state into the synchronous Tavern Helper read API. */
 export function projectTavernHelperContext(chat) {
   const messages = []

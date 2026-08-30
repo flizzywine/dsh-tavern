@@ -7,12 +7,11 @@ import test from 'node:test'
 
 import { projectCardOpeningPreviews } from '../tavern-plugin/lib/domain/card-opening-previews.js'
 import { createCardPreparation } from '../tavern-plugin/lib/domain/card-preparation.js'
-import { createTavernMvuRuntime } from '../tavern-plugin/lib/domain/tavern-mvu-runtime.js'
 
 const lighthouseCardPath = process.env.DSH_TAVERN_LIGHTHOUSE_CARD
   || path.join(homedir(), '.dsh/profile-data/tavern/data/resources/cards/灯火阑珊.json')
 
-test('开局预览执行人物卡正则并为每个 swipe 投影对应的 MVU 变量', async () => {
+test('开局选择只执行人物卡正则，MVU 留到对话建立后由官方运行时初始化', async () => {
   const card = {
     name: '测试卡',
     first_mes: '第一幕 <UpdateVariable>hp: 10</UpdateVariable>',
@@ -34,32 +33,17 @@ test('开局预览执行人物卡正则并为每个 swipe 投影对应的 MVU �
     ],
     mvuResources: [{ enabled: true }]
   }
-  const runtime = {
-    async initializeChat(input) {
-      assert.deepEqual(input.swipes, [card.first_mes, card.alternate_greetings[0]])
-      return {
-        swipeId: 0,
-        swipes: input.swipes,
-        variables: [{ stat_data: { hp: 10 } }, { stat_data: { hp: 20 } }],
-        diagnostics: [], events: []
-      }
-    }
-  }
-
   const result = await projectCardOpeningPreviews({
     card,
     extensions,
-    runtime,
     userName: '玩家'
   })
 
   assert.equal(result.openings.length, 2)
   assert.match(result.openings[0].projection.parts[0].content, /class="variable-ui"/)
   assert.match(result.openings[1].projection.parts[0].content, /class="status-ui"/)
-  assert.deepEqual(result.openings[0].helperContext.messages[0].variables, { stat_data: { hp: 10 } })
-  assert.deepEqual(result.openings[1].helperContext.messages[0].variables, { stat_data: { hp: 20 } })
-  assert.equal(result.openings[0].helperContext.messages[0].swipe_id, 0)
-  assert.equal(result.openings[1].helperContext.messages[0].swipe_id, 1)
+  assert.equal(result.openings[0].helperContext, null)
+  assert.equal(result.openings[1].helperContext, null)
 })
 
 test('普通人物卡无需伪造 MVU Helper 上下文', async () => {
@@ -74,13 +58,12 @@ test('普通人物卡无需伪造 MVU Helper 上下文', async () => {
   assert.equal(result.openings[0].helperContext, null)
 })
 
-test('真实《灯火阑珊》的 15 条开局全部生成 UI 与对应变量上下文', { skip: !existsSync(lighthouseCardPath) }, async () => {
+test('真实《灯火阑珊》的 15 条开局只生成选择 UI，不执行第二套 MVU', { skip: !existsSync(lighthouseCardPath) }, async () => {
   const workspace = JSON.parse(await readFile(lighthouseCardPath, 'utf8'))
   const cards = createCardPreparation({ id: () => 'lighthouse', now: () => 0 })
   const result = await projectCardOpeningPreviews({
     card: cards.project(workspace),
     extensions: cards.present({ card: workspace, as: 'card-extensions' }),
-    runtime: createTavernMvuRuntime(),
     userName: '王辰'
   })
 
@@ -96,7 +79,5 @@ test('真实《灯火阑珊》的 15 条开局全部生成 UI 与对应变量上
       return /cultivation-var-update|\.load\(/.test(String(part.content || ''))
     })
   }))
-  assert.deepEqual(result.openings.map(function (opening) {
-    return opening.helperContext.messages[0].swipe_id
-  }), Array.from({ length: 15 }, function (_, index) { return index }))
+  assert.ok(result.openings.every(function (opening) { return opening.helperContext === null }))
 })

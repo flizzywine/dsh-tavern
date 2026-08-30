@@ -1,5 +1,6 @@
 import { rememberTavernResources } from './workspace-resources.js'
 import { projectBackgroundInput } from './runtime-content-projection.js'
+import { lastTavernHelperVariables } from './tavern-helper-context.js'
 
 export const cordisToolNames = Object.freeze([
   'cordis_inspect_list',
@@ -203,7 +204,6 @@ export function createTurnOrchestrator(options) {
   const timeline = options.timeline
   const frameBuilder = options.frameBuilder
   if (!frameBuilder || typeof frameBuilder.build !== 'function') throw new Error('缺少 ForegroundFrameBuilder')
-  const mvu = options.mvu && typeof options.mvu.settleResponse === 'function' ? options.mvu : null
   const emitMvu = typeof options.emitMvu === 'function' ? options.emitMvu : null
   const now = typeof options.now === 'function' ? options.now : Date.now
   const renderMacros = typeof options.renderMacros === 'function' ? options.renderMacros : null
@@ -442,35 +442,7 @@ export function createTurnOrchestrator(options) {
     }
     if (mode === 'story' || mode === 'script') {
       if (renderMacros !== null && assistantText.includes('{{')) assistantText = renderMacros(assistantText, chat)
-      previousMvuVariables = mvu && typeof mvu.lastVariables === 'function' ? mvu.lastVariables(chat.messages) : undefined
-      if (previousMvuVariables !== undefined && !usesOfficialMvu(chat)) {
-        try {
-          mvuSettlement = await mvu.settleResponse({
-            sourceText: assistantText,
-            previousVariables: previousMvuVariables,
-			macroContext: { userName: chat.macroState && chat.macroState.userName, charName: chat.cardName },
-			emit: emitMvu === null ? undefined : async function (name, ...args) {
-			  const result = await emitMvu({ sessionId: input.sessionId, chat, name, args })
-			  return result && Array.isArray(result.args) ? result.args : result
-			}
-          })
-          assistantText = str(mvuSettlement.sourceText)
-        } catch (error) {
-          mvuSettlement = {
-            variables: clone(previousMvuVariables),
-            modified: false,
-            diagnostics: [{ message: error instanceof Error ? error.message : String(error) }],
-            events: [],
-            receipt: {
-              version: 1,
-              status: 'error',
-              summary: '',
-              changes: [],
-              failures: [{ command: '', message: error instanceof Error ? error.message : String(error) }]
-            }
-          }
-        }
-      }
+      previousMvuVariables = lastTavernHelperVariables(chat.messages)
       const extensions = typeof store.readCardExtensions === 'function'
         ? await store.readCardExtensions(cardPathOf(chat))
         : null
