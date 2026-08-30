@@ -126,7 +126,9 @@ export function createBackgroundTaskFrame(input = {}) {
   const chatId = requiredText(input.chatId, 'Frame chatId')
   const branchId = requiredText(input.branchId, 'Frame branchId')
   const taskType = requiredText(input.taskType, 'BackgroundTaskFrame taskType')
-  const trigger = requiredText(input.trigger, 'BackgroundTaskFrame trigger')
+  const trigger = input.trigger !== null && typeof input.trigger === 'object' && !Array.isArray(input.trigger)
+    ? clone(input.trigger)
+    : requiredText(input.trigger, 'BackgroundTaskFrame trigger')
   const basedOnRevision = revision(input.basedOnRevision)
   return deepFreeze({
     frameId: requiredText(input.frameId, 'Frame frameId'),
@@ -136,7 +138,9 @@ export function createBackgroundTaskFrame(input = {}) {
     basedOnRevision,
     taskType,
     trigger,
-    foregroundOutput: str(input.foregroundOutput),
+    foregroundOutput: input.foregroundOutput !== null && typeof input.foregroundOutput === 'object'
+      ? clone(input.foregroundOutput)
+      : str(input.foregroundOutput),
     authoritativeState: clone(input.authoritativeState || {}),
     taskRules: clone(input.taskRules || {}),
     outputContract: clone(input.outputContract || {}),
