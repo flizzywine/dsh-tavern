@@ -70,6 +70,29 @@ test('缓存的 ESM、CSS 和 HTML 子资源继续改写到本地缓存入口', 
   assert.match(htmlBody, /<a href="https:\/\/example\.org">/)
 })
 
+test('HTML 资源改写不会把脚本中的 readAsDataURL 当成 CSS url', function () {
+  const htmlBody = projectCachedResourceBody({
+    url: 'https://cards.example.test/ui/index.html',
+    mediaType: 'text/html',
+    body: Buffer.from([
+      '<script type="module">',
+      'import value from "/dep.js";',
+      'const reader = new FileReader(); reader.readAsDataURL(value);',
+      '</script>',
+      '<script src="/app.js"></script>',
+      '<style>.hero{background:url(./scene.png)}</style>',
+      '<div style="background:url(https://img.example/card.png)"></div>'
+    ].join(''))
+  }).toString('utf8')
+
+  assert.match(htmlBody, /reader\.readAsDataURL\(value\)/)
+  assert.match(htmlBody, /static-assets\?url=https%3A%2F%2Fcards\.example\.test%2Fdep\.js/)
+  assert.match(htmlBody, /static-assets\?url=https%3A%2F%2Fcards\.example\.test%2Fapp\.js/)
+  assert.match(htmlBody, /static-assets\?url=https%3A%2F%2Fcards\.example\.test%2Fui%2Fscene\.png/)
+  assert.match(htmlBody, /static-assets\?url=https%3A%2F%2Fimg\.example%2Fcard\.png/)
+  assert.doesNotMatch(htmlBody, /readAsDataURL\(\/api\/dsh-tavern\/static-assets/)
+})
+
 test('静态缓存拒绝非 HTTPS、本机和内网地址', function () {
   assert.throws(function () { normalizeCacheableResourceUrl('http://example.com/a.js') }, /HTTPS/)
   assert.throws(function () { normalizeCacheableResourceUrl('https://localhost/a.js') }, /内网/)

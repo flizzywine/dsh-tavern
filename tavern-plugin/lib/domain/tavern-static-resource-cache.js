@@ -100,6 +100,31 @@ function rewriteHtmlResourceAttributes(source, baseUrl) {
     })
 }
 
+function rewriteHtmlStyles(source, baseUrl) {
+  return str(source)
+    .replace(/(<style\b[^>]*>)([\s\S]*?)(<\/style\s*>)/gi, function (_match, opening, css, closing) {
+      return opening + rewriteStylesheetUrls(css, baseUrl) + closing
+    })
+    .replace(/(\bstyle\s*=\s*)(["'])([^"']*)\2/gi, function (_match, prefix, quote, css) {
+      return prefix + quote + rewriteStylesheetUrls(css, baseUrl) + quote
+    })
+}
+
+function rewriteHtmlDocumentResources(source, baseUrl) {
+  const scripts = []
+  let marker = '__DSH_TAVERN_SCRIPT_'
+  while (str(source).includes(marker)) marker = '_' + marker
+  const markup = str(source).replace(/(<script\b[^>]*>)([\s\S]*?)(<\/script\s*>)/gi, function (_match, opening, javascript, closing) {
+    const index = scripts.length
+    scripts.push(rewriteHtmlResourceAttributes(opening, baseUrl) + rewriteCachedModuleImports(javascript, baseUrl) + closing)
+    return marker + index + '__'
+  })
+  const rewritten = rewriteHtmlStyles(rewriteHtmlResourceAttributes(markup, baseUrl), baseUrl)
+  return rewritten.replace(new RegExp(marker + '(\\d+)__', 'g'), function (_match, index) {
+    return scripts[Number(index)] || ''
+  })
+}
+
 export function projectCachedResourceBody(asset) {
   let mediaType = str(asset && asset.mediaType).toLowerCase()
   let extension = ''
@@ -116,10 +141,7 @@ export function projectCachedResourceBody(asset) {
   }
   if (mediaType === 'text/html' || mediaType === 'image/svg+xml') {
     const baseUrl = asset.finalUrl || asset.url
-    let content = rewriteHtmlResourceAttributes(body.toString('utf8'), baseUrl)
-    content = rewriteStylesheetUrls(content, baseUrl)
-    content = rewriteCachedModuleImports(content, baseUrl)
-    return Buffer.from(content, 'utf8')
+    return Buffer.from(rewriteHtmlDocumentResources(body.toString('utf8'), baseUrl), 'utf8')
   }
   return body
 }
