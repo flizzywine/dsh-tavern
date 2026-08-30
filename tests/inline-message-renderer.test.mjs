@@ -144,6 +144,53 @@ test('持久状态 Runtime 关闭重复识别和消息级诊断采集', () => {
   assert.match(document, /dsh-tavern-frame-height/)
 })
 
+test('Helper Context 首次快照后只发送消息和变量增量', () => {
+  const previous = {
+    version: 1,
+    stateRevision: 4,
+    lifecycleRevision: 0,
+    messages: [{ message_id: 0, role: 'assistant', message: '开场', variables: { hp: 10 } }],
+    turnMessageIds: { 1: 0 },
+    chatVariables: {},
+    scriptVariables: {}
+  }
+  const next = {
+    version: 1,
+    stateRevision: 5,
+    lifecycleRevision: 0,
+    messages: [
+      { message_id: 0, role: 'assistant', message: '开场', variables: { hp: 9 } },
+      { message_id: 1, role: 'assistant', message: '正文', variables: { hp: 8 } }
+    ],
+    turnMessageIds: { 1: 0, 2: 1 },
+    chatVariables: {},
+    scriptVariables: {}
+  }
+
+  const update = client.createTavernHelperContextUpdate(previous, next, 1, 2)
+
+  assert.equal(update.kind, 'patch')
+  assert.equal(update.baseRevision, 4)
+  assert.deepEqual(JSON.parse(JSON.stringify(update.operations.map(item => item.op))), ['message.replace', 'messages.append', 'value.replace'])
+  assert.deepEqual(JSON.parse(JSON.stringify(update.events)), ['MESSAGE_RECEIVED', 'MESSAGE_UPDATED', 'mag_variable_update_ended'])
+  assert.deepEqual(JSON.parse(JSON.stringify(client.applyTavernHelperContextUpdate(previous, update))), { context: next, turn: 2, events: JSON.parse(JSON.stringify(update.events)) })
+  assert.throws(function () {
+    client.applyTavernHelperContextUpdate(Object.assign({}, previous, { stateRevision: 3 }), update)
+  }, /版本失配/)
+})
+
+test('Helper iframe 在增量版本失配时请求完整快照，不自行重载', () => {
+  const document = client.buildTavernFrameDocument({
+    content: '<script>getVariables()</script>',
+    token: 'context-patch-token',
+    helperContext: { version: 1, stateRevision: 1, messages: [] }
+  })
+
+  assert.match(document, /dsh-tavern-helper-context-update/)
+  assert.match(document, /dsh-tavern-helper-context-request/)
+  assert.match(document, /Helper Context 版本失配/)
+})
+
 test('消息 iframe 只在首次加载或错误诊断时采集 DOM，不监听普通 DOM mutation', () => {
   const document = client.buildTavernFrameDocument({ content: '<div>状态栏</div>', token: 'diagnostic-token' })
   const runtimeReporter = document.match(/<script data-dsh-tavern-frame>\(function\(\)\{var token=[\s\S]*?<\/script>/)?.[0] || ''

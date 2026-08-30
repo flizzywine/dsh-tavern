@@ -9,6 +9,7 @@ import {
 
 test('Helper 上下文按当前 swipe 投影消息、变量和回合楼层', () => {
   const chat = {
+    _storageRevision: 7,
     variables: { theme: 'red' },
     messages: [
       { role: 'assistant', greeting: true, turn: 1, swipeId: 1, swipes: ['开场甲', '开场乙'], variables: [{ stat_data: { hp: 1 } }, { stat_data: { hp: 2 } }] },
@@ -19,6 +20,7 @@ test('Helper 上下文按当前 swipe 投影消息、变量和回合楼层', () 
 
   const context = projectTavernHelperContext(chat)
 
+  assert.equal(context.stateRevision, 7)
   assert.equal(context.messages[0].message, '开场乙')
   assert.equal(context.messages[0].variables.stat_data.hp, 2)
   assert.deepEqual(context.messages[0].swipes_data.map(item => item.stat_data.hp), [1, 2])
