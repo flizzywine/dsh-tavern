@@ -193,11 +193,4 @@ else
   fi
   echo "DSH Tavern 安装完成：http://127.0.0.1:3081"
   echo "以后可以使用：dsh-tavern {start|stop|restart|status|update}（新终端生效）"
-  if [ "${DSH_TAVERN_NO_OPEN:-0}" != "1" ]; then
-    if command -v open >/dev/null 2>&1; then
-      open http://127.0.0.1:3081 >/dev/null 2>&1 || true
-    elif command -v xdg-open >/dev/null 2>&1; then
-      xdg-open http://127.0.0.1:3081 >/dev/null 2>&1 || true
-    fi
-  fi
 fi

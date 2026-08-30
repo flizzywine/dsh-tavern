@@ -217,9 +217,6 @@ try {
     Assert-LastCommand 'DSH Tavern 启动失败。'
     Write-Host 'DSH Tavern 安装完成：http://127.0.0.1:3081'
     Write-Host '以后可以使用：dsh-tavern start、stop、restart、status、update（新 PowerShell 生效）'
-    if ($env:DSH_TAVERN_NO_OPEN -ne '1') {
-      Start-Process 'http://127.0.0.1:3081'
-    }
   }
 }
 catch {

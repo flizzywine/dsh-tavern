@@ -14,6 +14,7 @@ import {
   readdirSync,
   rmSync,
   renameSync,
+  statSync,
   symlinkSync,
   unlinkSync,
   writeFileSync,
@@ -44,7 +45,7 @@ const LOG_DIR = path.join(DSH_ROOT, 'logs')
 const LOG_FILE = path.join(LOG_DIR, 'tavern.log')
 const PID_FILE = path.join(LOG_DIR, 'tavern.pid.json')
 const FRONTEND_BOOTSTRAP_FILE = path.join(LOG_DIR, 'tavern.frontend-bootstrap.json')
-const FRONTEND_BOOTSTRAP_VERSION = 1
+const FRONTEND_BOOTSTRAP_VERSION = 2
 const RELEASE_FILE = '.dsh-tavern-release.json'
 const DEFAULT_COMMIT_URL = 'https://api.github.com/repos/flizzywine/dsh-tavern/commits/main'
 const SETTINGS_FILE = path.join(DSH_ROOT, 'settings.yaml')
@@ -92,8 +93,15 @@ export function resolveServicePort(value, fallback = 3081) {
   return port
 }
 
-export function restartBrowserTarget(port, runtimeGeneration) {
-  return `http://127.0.0.1:${port}/?tavern-boot=${encodeURIComponent(String(runtimeGeneration))}`
+export function webUrlFromLogChunk(source) {
+  const matches = [...String(source || '').matchAll(/^dsh web: (https?:\/\/\S+)$/gm)]
+  return matches.length > 0 ? matches[matches.length - 1][1] : ''
+}
+
+export function restartBrowserTarget(port, runtimeGeneration, webUrl = `http://127.0.0.1:${port}/`) {
+  const target = new URL(webUrl)
+  target.searchParams.set('tavern-boot', String(runtimeGeneration))
+  return target.toString()
 }
 
 export function browserOpenCommand(url, platform = process.platform) {
@@ -114,13 +122,14 @@ export function needsFrontendBootstrap(record, requiredVersion = FRONTEND_BOOTST
 }
 
 function bootstrapFrontendOnce(state) {
+  if (process.env.DSH_TAVERN_NO_OPEN === '1') return false
   let record = null
   try { record = JSON.parse(readFileSync(FRONTEND_BOOTSTRAP_FILE, 'utf8')) } catch {}
   if (!needsFrontendBootstrap(record)) return false
-  const target = restartBrowserTarget(state.port, state.runtimeGeneration)
+  const target = restartBrowserTarget(state.port, state.runtimeGeneration, state.webUrl)
   openBrowserTarget(target)
   mkdirSync(LOG_DIR, { recursive: true })
-  writeFileSync(FRONTEND_BOOTSTRAP_FILE, `${JSON.stringify({ version: FRONTEND_BOOTSTRAP_VERSION, target, completedAt: new Date().toISOString() }, null, 2)}\n`)
+  writeFileSync(FRONTEND_BOOTSTRAP_FILE, `${JSON.stringify({ version: FRONTEND_BOOTSTRAP_VERSION, completedAt: new Date().toISOString() }, null, 2)}\n`)
   console.log(`已一次性打开新版前端：${target}`)
   return true
 }
@@ -762,6 +771,7 @@ async function startService() {
     runtimeHost,
   )
   mkdirSync(LOG_DIR, { recursive: true })
+  const logOffset = existsSync(LOG_FILE) ? statSync(LOG_FILE).size : 0
   const logDescriptor = openSync(LOG_FILE, 'a')
   let child
   try {
@@ -785,9 +795,16 @@ async function startService() {
 
   for (let attempt = 0; attempt < 150; attempt += 1) {
     if (await isPortOpen(state.port) && await isServiceReady(state.port)) {
+      let webUrl = ''
+      for (let logAttempt = 0; logAttempt < 50 && webUrl === ''; logAttempt += 1) {
+        const logChunk = readFileSync(LOG_FILE).subarray(logOffset).toString('utf8')
+        webUrl = webUrlFromLogChunk(logChunk)
+        if (webUrl === '') await sleep(100)
+      }
+      if (webUrl === '') webUrl = `http://127.0.0.1:${state.port}/`
       console.log(`DSH Tavern 已启动：PID ${child.pid}，http://127.0.0.1:${state.port}`)
       console.log(`日志：${LOG_FILE}`)
-      return { port: state.port, runtimeGeneration: `${child.pid}-${Date.now()}` }
+      return { port: state.port, runtimeGeneration: `${child.pid}-${Date.now()}`, webUrl }
     }
     if (!isProcessAlive(child.pid)) {
       removePidRecord()
@@ -942,7 +959,10 @@ async function main() {
       await updateApplication(parseUpdateOptions(process.argv.slice(3)))
       break
     case 'start':
-      await startService()
+      {
+        const state = await startService()
+        bootstrapFrontendOnce(state)
+      }
       break
     case 'stop':
       await stopService()

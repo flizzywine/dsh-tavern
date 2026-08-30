@@ -23,6 +23,7 @@ import {
   resolveUpdateProgram,
   renderWindowsLauncher,
   restartBrowserTarget,
+  webUrlFromLogChunk,
   resolveServicePort,
   updateApplication,
 } from '../bin/dsh-tavern.mjs'
@@ -87,13 +88,17 @@ test('Android 通过 Node expose-internals 运行 DSH，其他宿主保持原命
 
 test('升级时只用本次启动标识引导一次新页面，之后交给页面自动恢复', () => {
   assert.equal(
-    restartBrowserTarget(3081, 'runtime-a b'),
-    'http://127.0.0.1:3081/?tavern-boot=runtime-a%20b',
+    restartBrowserTarget(3081, 'runtime-a b', 'http://127.0.0.1:3081/?token=alpha2-token'),
+    'http://127.0.0.1:3081/?token=alpha2-token&tavern-boot=runtime-a+b',
   )
+  assert.equal(webUrlFromLogChunk('old\ndsh web: http://127.0.0.1:3081/?token=fresh\n'), 'http://127.0.0.1:3081/?token=fresh')
+  assert.equal(webUrlFromLogChunk('dsh web: http://127.0.0.1:3081/?token=old\ndsh web: http://127.0.0.1:3081/?token=new\n'), 'http://127.0.0.1:3081/?token=new')
+  assert.match(launcherSource, /for \(let logAttempt = 0; logAttempt < 50 && webUrl === ''; logAttempt \+= 1\)/)
   assert.equal(needsFrontendBootstrap(null), true)
   assert.equal(needsFrontendBootstrap({ version: 0 }), true)
-  assert.equal(needsFrontendBootstrap({ version: 1 }), false)
-  assert.match(launcherSource, /const target = restartBrowserTarget\(state\.port, state\.runtimeGeneration\)/)
+  assert.equal(needsFrontendBootstrap({ version: 1 }), true)
+  assert.equal(needsFrontendBootstrap({ version: 2 }), false)
+  assert.match(launcherSource, /const target = restartBrowserTarget\(state\.port, state\.runtimeGeneration, state\.webUrl\)/)
   assert.match(launcherSource, /openBrowserTarget\(target\)/)
   assert.match(launcherSource, /if \(!bootstrapFrontendOnce\(state\)\)/)
   assert.doesNotMatch(launcherSource, /Shift \+ R 强制刷新/)
