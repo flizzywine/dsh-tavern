@@ -24,6 +24,7 @@ function isOfficialMvuData(value) {
  */
 export function createTavernScriptHostAdapter(options = {}) {
   const mutationTails = new Map()
+  const settlementTransactions = new Map()
 
   function assertDependencies() {
     for (const name of ['resolveChat', 'writeChat', 'readCard', 'worldBooks', 'eventGate']) {
@@ -51,11 +52,30 @@ export function createTavernScriptHostAdapter(options = {}) {
     return chat
   }
 
+  async function mutationChat(sessionId) {
+    const transaction = settlementTransactions.get(str(sessionId))
+    return transaction === undefined ? await resolveChat(sessionId) : transaction.draft
+  }
+
+  function transactionResult(sessionId, target, multiple = false) {
+    const transaction = settlementTransactions.get(str(sessionId))
+    if (transaction === undefined) return null
+    transaction.mutations++
+    return {
+      updated: true,
+      transactional: true,
+      ...(multiple ? { targets: target } : { target }),
+      context: projectTavernHelperContext(transaction.draft)
+    }
+  }
+
   async function updateVariables(sessionId, option, variables, expectedLifecycleRevision) {
-    const chat = await resolveChat(sessionId)
+    const chat = await mutationChat(sessionId)
     assertMvuEnabled(chat)
     if (!mutationIsCurrent(chat, expectedLifecycleRevision)) return staleMutation(chat)
     const updated = replaceTavernHelperVariables(chat, { option, variables })
+    const transactional = transactionResult(sessionId, updated)
+    if (transactional !== null) return transactional
     try { await options.writeChat(chat, { source: 'tavern-helper.variables' }) }
     catch (error) {
       if (error && error.code === 'DSH_TAVERN_CHAT_CONFLICT') {
@@ -68,10 +88,19 @@ export function createTavernScriptHostAdapter(options = {}) {
   }
 
   async function updateMessages(sessionId, messages, expectedLifecycleRevision) {
-    const chat = await resolveChat(sessionId)
+    const transaction = settlementTransactions.get(str(sessionId))
+    const chat = transaction === undefined ? await resolveChat(sessionId) : transaction.draft
     assertMvuEnabled(chat)
     if (!mutationIsCurrent(chat, expectedLifecycleRevision)) return staleMutation(chat)
-    const updated = replaceTavernHelperMessages(chat, messages)
+    const patches = transaction === undefined ? messages : (Array.isArray(messages) ? messages : []).map(function (raw) {
+      const patch = raw && typeof raw === 'object' ? structuredClone(raw) : raw
+      if (!patch || Number(patch.message_id) !== transaction.messageId) return patch
+      const swipeId = Object.prototype.hasOwnProperty.call(patch, 'swipe_id') ? Number(patch.swipe_id) : transaction.swipeId
+      if (swipeId !== transaction.swipeId) return patch
+      delete patch.message
+      return patch
+    })
+    const updated = replaceTavernHelperMessages(chat, patches)
     if (chat.mvu && chat.mvu.owner === 'official') {
       const opening = Array.isArray(chat.messages) ? chat.messages[0] : null
       const snapshots = opening && Array.isArray(opening.variables) ? opening.variables : []
@@ -79,6 +108,8 @@ export function createTavernScriptHostAdapter(options = {}) {
         chat.mvu.openingInitialization = { version: 2, status: 'complete', completedAt: Date.now() }
       }
     }
+    const transactional = transactionResult(sessionId, updated, true)
+    if (transactional !== null) return transactional
     try { await options.writeChat(chat, { source: 'tavern-helper.messages' }) }
     catch (error) {
       if (error && error.code === 'DSH_TAVERN_CHAT_CONFLICT') {
@@ -152,6 +183,66 @@ export function createTavernScriptHostAdapter(options = {}) {
     return await options.eventGate.dispatch(input.sessionId, input.name, input.args, eventContext)
   }
 
+  /** Run one internal MVU command against an isolated draft and commit once. */
+  async function settleMvuUpdate(input = {}) {
+    const sessionId = str(input.sessionId)
+    if (settlementTransactions.has(sessionId)) throw new Error('当前对话已有 MVU 变量结算正在执行')
+    const current = await resolveChat(sessionId)
+    assertMvuEnabled(current)
+    const expectedLifecycleRevision = Math.max(0, Number(input.expectedLifecycleRevision) || 0)
+    if (!mutationIsCurrent(current, expectedLifecycleRevision)) return { updated: false, stale: true, context: projectTavernHelperContext(current) }
+    const messageId = Number(input.messageId)
+    if (!Number.isInteger(messageId) || messageId < 0 || messageId >= current.messages.length) throw new Error('MVU 变量结算楼层不存在')
+    const message = current.messages[messageId]
+    const swipeId = Number(input.swipeId)
+    if (!Number.isInteger(swipeId) || swipeId < 0 || swipeId !== Math.max(0, Number(message.swipeId) || 0)) {
+      return { updated: false, stale: true, context: projectTavernHelperContext(current) }
+    }
+    const command = str(input.command).trim()
+    if (command === '') throw new Error('MVU 变量结算命令为空')
+    const originalText = str((message.swipes && message.swipes[swipeId]) ?? message.sourceText ?? message.text)
+    const transaction = {
+      draft: structuredClone(current),
+      messageId,
+      swipeId,
+      mutations: 0
+    }
+    settlementTransactions.set(sessionId, transaction)
+    try {
+      const eventContext = projectTavernHelperContext(transaction.draft)
+      const projected = eventContext.messages[messageId]
+      if (!projected) throw new Error('MVU 变量结算投影楼层不存在')
+      const internalText = str(input.storyText).trim() + '\n\n' + command
+      projected.message = internalText
+      if (!Array.isArray(projected.swipes)) projected.swipes = [originalText]
+      projected.swipes[swipeId] = internalText
+      const dispatched = await options.eventGate.dispatch(sessionId, 'MESSAGE_RECEIVED', [messageId], eventContext)
+      if (dispatched.handled !== true) throw new Error('官方 MVU 浏览器运行时尚未就绪，本轮未执行变量结算')
+      const settled = transaction.draft.messages[messageId]
+      if (!settled || Math.max(0, Number(settled.swipeId) || 0) !== swipeId) {
+        return { updated: false, stale: true, context: projectTavernHelperContext(current) }
+      }
+      if (!Array.isArray(settled.swipes)) settled.swipes = [originalText]
+      settled.swipes[swipeId] = originalText
+      settled.sourceText = originalText
+      settled.projectionText = originalText
+      settled.text = originalText
+      settled.sessionText = originalText
+      settled.displayText = originalText
+      transaction.draft.updatedAt = Date.now()
+      await options.writeChat(transaction.draft, { source: 'tavern-helper.mvu-settlement' })
+      return {
+        updated: true,
+        mutations: transaction.mutations,
+        messageId,
+        swipeId,
+        context: projectTavernHelperContext(transaction.draft)
+      }
+    } finally {
+      settlementTransactions.delete(sessionId)
+    }
+  }
+
   async function switchSwipe(sessionId, messageId, swipeId) {
     const chat = await resolveChat(sessionId)
     if (typeof options.isPlayChat === 'function' && !options.isPlayChat(chat)) throw new Error('当前会话没有绑定游玩对话')
@@ -166,6 +257,7 @@ export function createTavernScriptHostAdapter(options = {}) {
   return Object.freeze({
     context,
     dispatchEvent,
+    settleMvuUpdate,
     updateVariables,
     updateMessages,
     switchSwipe,

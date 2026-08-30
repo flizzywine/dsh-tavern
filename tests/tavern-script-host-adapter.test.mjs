@@ -53,6 +53,61 @@ function harness(chatValue = chat()) {
   return { adapter, chat: chatValue, writes, events, worldbook }
 }
 
+test('后台 MVU 命令只在隔离草稿执行并原子提交，协议不进入正文历史', async function () {
+  const value = chat()
+  value.mvu.owner = 'official'
+  let adapter
+  const writes = []
+  const adapterOptions = {
+    resolveChat: async function () { return value },
+    writeChat: async function (draft, metadata) {
+      writes.push({ draft: structuredClone(draft), metadata })
+      Object.assign(value, structuredClone(draft))
+    },
+    readCard: async function () { return { name: '测试卡' } },
+    worldBooks: { bound: async function () { return null } },
+    eventGate: {
+      async dispatch(_sessionId, _name, _args, context) {
+        assert.match(context.messages[0].message, /<UpdateVariable>/)
+        await adapter.updateMessages('session-1', [{
+          message_id: 0,
+          message: context.messages[0].message,
+          data: { hp: 7, schema: { type: 'object' }, stat_data: { hp: 7 } }
+        }], 2)
+        return { handled: true }
+      },
+      poll: function () {}, complete: function () {}, dispose: function () {}
+    }
+  }
+  adapter = createTavernScriptHostAdapter(adapterOptions)
+
+  const result = await adapter.settleMvuUpdate({
+    sessionId: 'session-1', messageId: 0, swipeId: 0, expectedLifecycleRevision: 2,
+    storyText: '旧正文',
+    command: '<UpdateVariable><JSONPatch>[{"op":"replace","path":"/hp","value":7}]</JSONPatch></UpdateVariable>'
+  })
+
+  assert.equal(result.updated, true)
+  assert.equal(result.mutations, 1)
+  assert.equal(writes.length, 1)
+  assert.equal(writes[0].metadata.source, 'tavern-helper.mvu-settlement')
+  assert.equal(value.messages[0].text, '旧正文')
+  assert.equal(value.messages[0].swipes[0], '旧正文')
+  assert.doesNotMatch(JSON.stringify(value.messages[0]), /UpdateVariable/)
+  assert.equal(value.messages[0].variables[0].stat_data.hp, 7)
+})
+
+test('后台 MVU 结算遇到过期生命周期时不触发脚本和写入', async function () {
+  const run = harness()
+  const result = await run.adapter.settleMvuUpdate({
+    sessionId: 'session-1', messageId: 0, swipeId: 0, expectedLifecycleRevision: 1,
+    storyText: '旧正文', command: '<UpdateVariable></UpdateVariable>'
+  })
+  assert.equal(result.stale, true)
+  assert.equal(run.events.length, 0)
+  assert.equal(run.writes.length, 0)
+})
+
 test('Host Adapter 把脚本变量和消息调用写回 dsh-tavern 权威 Chat', async function () {
   const run = harness()
   const variables = await run.adapter.updateVariables('session-1', { type: 'message', message_id: 0 }, { hp: 7 }, 2)
