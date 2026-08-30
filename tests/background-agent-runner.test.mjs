@@ -211,7 +211,7 @@ test('后台 Runner 执行候选任务，查询超限后提示开始推理而不
   assert.deepEqual(await requestListener.listener({}, async function () { return { provider: 'test', model: 'scripted' } }), { provider: 'test', model: 'scripted', temperature: 0.8 })
   assert.deepEqual(appended, [{
     type: 'subagent/descriptor',
-    data: { version: 2, mode: 'one-shot', provider: 'dsh-tavern-background', label: '候选研究' }
+    data: { version: 3, mode: 'one-shot', provider: 'dsh-tavern-background', label: '候选研究' }
   }])
   assert.deepEqual(calls, [
     { name: 'tavern_point_script', arguments: { position: 3 } },
@@ -393,7 +393,7 @@ test('状态结算与候选生成复用同一个常驻后台 Agent，并且每�
   assert.equal(runner.owns('candidate-session-1'), true)
   assert.equal(appended.filter(function (event) { return event.type === 'subagent/descriptor' }).length, 1)
   assert.deepEqual(appended[0].data, {
-    version: 2,
+    version: 3,
     mode: 'continuable',
     provider: 'dsh-tavern-background',
     label: '酒馆后台 Agent',
