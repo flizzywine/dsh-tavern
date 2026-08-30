@@ -2212,7 +2212,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 						pollBusy = true;
 						try {
 							const inspection = currentRuntime.inspect();
-							const runtimeReady = Boolean(inspection && inspection.runtime && inspection.runtime.scripts.length > 0 && inspection.runtime.scripts.every(function (script) { return script.subscriptionsReady || script.initializationFailed; }));
+							const runtimeReady = tavernScriptRuntimeReady(inspection);
 							const result = await invoke("pollTavernHelperEvent", { runtimeId: runtimeId, ready: runtimeReady }, currentInput.sessionId);
 							if (!input || input.sessionId !== currentInput.sessionId) return;
 							if (Boolean(result && result.active) !== active) {
@@ -2252,6 +2252,13 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					return runtime.triggerButton(scriptId, name);
 				},
 				inspect: function () { return { active: active, input: input, runtime: runtime && runtime.inspect() }; }
+			});
+		}
+
+		function tavernScriptRuntimeReady(inspection) {
+			const scripts = inspection && Array.isArray(inspection.scripts) ? inspection.scripts : [];
+			return scripts.length > 0 && scripts.every(function (script) {
+				return script && (script.subscriptionsReady === true || script.initializationFailed === true);
 			});
 		}
 
@@ -5624,6 +5631,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		exports.buildTavernFrameDocument = buildTavernFrameDocument;
 		exports.buildTavernHelperScriptDocument = buildTavernHelperScriptDocument;
 		exports.createTavernHelperScriptRuntime = createTavernHelperScriptRuntime;
+		exports.tavernScriptRuntimeReady = tavernScriptRuntimeReady;
 		exports.clampTavernFrameHeight = clampTavernFrameHeight;
 		exports.createTavernHelperContextUpdate = createTavernHelperContextUpdate;
 		exports.applyTavernHelperContextUpdate = applyTavernHelperContextUpdate;

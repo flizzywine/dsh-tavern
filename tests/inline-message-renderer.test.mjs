@@ -14,6 +14,26 @@ async function loadClient() {
 
 const client = await loadClient()
 
+test('脚本执行模块按 Helper Runtime 的真实检查结构报告 MVU 已就绪', () => {
+  const inspection = {
+    sessionId: 'session-a',
+    frameCount: 1,
+    scriptIds: ['__dsh_official_mvu__'],
+    scripts: [{
+      id: '__dsh_official_mvu__',
+      loaded: true,
+      subscriptionsReady: true,
+      initializationFailed: false
+    }]
+  }
+
+  assert.equal(client.tavernScriptRuntimeReady(inspection), true)
+  inspection.scripts[0].subscriptionsReady = false
+  assert.equal(client.tavernScriptRuntimeReady(inspection), false)
+  inspection.scripts[0].initializationFailed = true
+  assert.equal(client.tavernScriptRuntimeReady(inspection), true)
+})
+
 test('普通长消息自动展开，只有极端高度才限制为单轮滚动', () => {
   assert.equal(client.clampTavernFrameHeight(48), 48)
   assert.equal(client.clampTavernFrameHeight(5000), 5000)
