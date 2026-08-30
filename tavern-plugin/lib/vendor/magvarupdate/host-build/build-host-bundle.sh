@@ -3,7 +3,7 @@ set -eu
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 vendor_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
-expected_sha=6fe5444525e3d126f7c0bb11d70bb78a340312e53230a7e8d6f4628c878fc128
+expected_sha=3550e05773e7ed84c6411ebd182e87d68e7eb2b692c34e117f09ceb520a71b02
 build_root=$(mktemp -d "${TMPDIR:-/tmp}/dsh-mvu-host-build.XXXXXX")
 
 cleanup() {
@@ -22,7 +22,7 @@ node "$script_dir/prepare-host-build.mjs" "$build_root/webpack.config.ts"
 
 actual_sha=$(shasum -a 256 "$build_root/artifact/bundle.js" | awk '{ print $1 }')
 if [ "$actual_sha" != "$expected_sha" ]; then
-  echo "官方 MVU 宿主产物哈希不一致：期望 $expected_sha，实际 $actual_sha" >&2
+  echo "官方 MVU 宿主产物哈希不一致：期望 ${expected_sha}，实际 ${actual_sha}" >&2
   exit 1
 fi
 
@@ -36,4 +36,4 @@ else
   cmp "$build_root/artifact/bundle.js.LICENSE.txt" "$script_dir/artifact/bundle.js.LICENSE.txt"
 fi
 
-echo "官方 MVU 宿主产物验证通过：$actual_sha"
+echo "官方 MVU 宿主产物验证通过：${actual_sha}"

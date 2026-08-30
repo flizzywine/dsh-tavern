@@ -1,4 +1,5 @@
 import { readFile, writeFile } from 'node:fs/promises'
+import path from 'node:path'
 
 const configPath = process.argv[2]
 if (!configPath) {
@@ -64,5 +65,50 @@ source = replaceExactlyOnce(
 `,
   'bundle non-host dependencies'
 )
+source = replaceExactlyOnce(
+  source,
+  `                yaml: 'YAML',
+                zod: 'z',
+`,
+  '',
+  'bundle YAML and Zod into the host artifact'
+)
+source = replaceExactlyOnce(
+  source,
+  `            new webpack.DefinePlugin({
+`,
+  `            new webpack.ProvidePlugin({ YAML: 'yaml' }),
+            new webpack.DefinePlugin({
+`,
+  'provide the upstream YAML global from the bundled dependency'
+)
 
 await writeFile(configPath, source)
+
+const root = path.dirname(configPath)
+const uniqueScriptPath = path.join(root, 'util/script.ts')
+let uniqueScript = await readFile(uniqueScriptPath, 'utf8')
+uniqueScript = replaceExactlyOnce(
+  uniqueScript,
+  `        // 从共享状态中取出已注册实例集合（跨脚本实例共享在 window.parent）。
+        const registered_scripts = _.get(window.parent, path, new Set<string>());
+        // 以页面上实际存在的脚本顺序为准，选出“最后一个仍有效”的实例作为优先实例。
+        return _($('#tavern_helper').find('div[data-script-id]').toArray())
+            .map(element => String($(element).attr('data-script-id')))
+            .filter(element => registered_scripts.has(element))
+            .last();
+`,
+  `        // dsh-tavern guarantees one official MVU core per chat sandbox. Keep the
+        // uniqueness registry inside that sandbox instead of inspecting the Host DOM.
+        const registered_scripts = _.get(window, path, new Set<string>());
+        return Array.from(registered_scripts).at(-1);
+`,
+  'keep unique-script selection inside the isolated chat sandbox'
+)
+uniqueScript = uniqueScript.replaceAll('window.parent', 'window')
+await writeFile(uniqueScriptPath, uniqueScript)
+
+const globalPath = path.join(root, 'src/function/global/index.ts')
+let globalSource = await readFile(globalPath, 'utf8')
+globalSource = globalSource.replaceAll('window.parent', 'window')
+await writeFile(globalPath, globalSource)
