@@ -1515,6 +1515,10 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 						message.variables = copy(patch.data || {});
 						if (Array.isArray(message.swipes_data)) message.swipes_data[message.swipe_id || 0] = copy(patch.data || {});
 					}
+					if (patch.swipes_data !== undefined) {
+						message.swipes_data = copy(Array.isArray(patch.swipes_data) ? patch.swipes_data : []);
+						message.variables = copy(message.swipes_data[message.swipe_id || 0] || {});
+					}
 				});
 			}
 			async function eventEmit(name) {

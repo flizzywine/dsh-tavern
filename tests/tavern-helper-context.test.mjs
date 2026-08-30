@@ -94,3 +94,27 @@ test('Helper 消息写入可切换开场 swipe 并修改当前正文', () => {
   assert.equal(chat.messages[0].projectionText, '自定义开场')
   assert.deepEqual(chat.messages[0].variables[1], { hp: 7 })
 })
+
+test('官方 MVU 可以一次写回所有开场 swipe 的独立变量快照', () => {
+  const chat = {
+    messages: [{
+      role: 'assistant',
+      swipeId: 1,
+      swipes: ['开场甲', '开场乙'],
+      variables: [],
+      sourceText: '开场乙',
+      text: '开场乙'
+    }]
+  }
+
+  replaceTavernHelperMessages(chat, [{
+    message_id: 0,
+    swipes_data: [
+      { stat_data: { route: '甲' }, schema: { type: 'object', properties: {} } },
+      { stat_data: { route: '乙' }, schema: { type: 'object', properties: {} } }
+    ]
+  }])
+
+  assert.deepEqual(chat.messages[0].variables.map(item => item.stat_data.route), ['甲', '乙'])
+  assert.equal(projectTavernHelperContext(chat).messages[0].variables.stat_data.route, '乙')
+})

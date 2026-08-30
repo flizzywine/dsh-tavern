@@ -122,6 +122,12 @@ export function replaceTavernHelperMessages(chat, patches) {
       if (!Array.isArray(message.variables)) message.variables = []
       message.variables[swipeId] = clone(patch.data && typeof patch.data === 'object' ? patch.data : {})
     }
+    if (Object.prototype.hasOwnProperty.call(patch, 'swipes_data')) {
+      const values = Array.isArray(patch.swipes_data) ? patch.swipes_data : []
+      message.variables = values.map(function (value) {
+        return clone(value && typeof value === 'object' ? value : {})
+      })
+    }
     message.swipeId = swipeId
     if (Array.isArray(message.swipes) && message.swipes[swipeId] !== undefined) {
       message.sourceText = message.swipes[swipeId]
