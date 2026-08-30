@@ -309,6 +309,23 @@ test('普通正则 HTML iframe 按动态顺序投影主题变量、Custom CSS �
   assert.ok(document.indexOf('data-dsh-sillytavern-custom-css') < document.indexOf('data-dsh-sillytavern-extension-style'))
 })
 
+test('透明 iframe 默认跟随宿主明暗主题且不加文字阴影，卡片主题仍可覆盖', () => {
+  const cardStyle = '<style>:root{--SmartThemeBodyColor:gold;--shadowWidth:3}p{color:red;text-shadow:1px 1px blue}</style>'
+  const document = client.buildTavernFrameDocument({
+    content: cardStyle + '<p>开场正文</p>',
+    token: 'readable-frame',
+    styleEnvironment: { themeVariables: { '--SmartThemeBodyColor': 'orange', '--shadowWidth': '4' } }
+  })
+  const adapter = document.match(/<style data-dsh-sillytavern-iframe-adapter>([\s\S]*?)<\/style>/)?.[1] || ''
+  assert.match(adapter, /:root\{--SmartThemeBodyColor:CanvasText;--shadowWidth:0\}/)
+  assert.match(adapter, /body\{[^}]*color-scheme:inherit/)
+  assert.doesNotMatch(adapter, /(?:color|text-shadow|--SmartThemeBodyColor|--shadowWidth):[^;}]*!important/)
+  assert.ok(document.indexOf('public%2Fstyle.css') < document.indexOf('data-dsh-sillytavern-iframe-adapter'))
+  assert.ok(document.indexOf('data-dsh-sillytavern-iframe-adapter') < document.indexOf('data-dsh-sillytavern-theme'))
+  assert.ok(document.indexOf('data-dsh-sillytavern-theme') < document.indexOf(cardStyle))
+  assert.ok(document.includes(cardStyle))
+})
+
 test('Helper 脚本文档提供可见弹窗容器和固定 Tavern Helper 按钮事件格式', () => {
   const document = client.buildTavernHelperScriptDocument({
     token: 'helper-token',
