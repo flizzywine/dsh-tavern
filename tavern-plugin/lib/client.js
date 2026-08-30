@@ -1718,6 +1718,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const reportError = options && options.reportError || function (source, error) { tavernErrorHub.report(source, error); };
 			const reportMutation = options && options.onMutation || function (sessionId) { liveTavernView.invalidate(sessionId); };
 			const onReady = options && typeof options.onReady === "function" ? options.onReady : function () {};
+			const initializationTimeoutMs = Math.max(1000, Number(options && options.initializationTimeoutMs) || 15000);
 			const records = new Map();
 			const pendingEvents = new Map();
 			const reportedEventTimeouts = new Set();
@@ -1741,9 +1742,22 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			function buttonEvent(scriptId, name) { return String(scriptId) + "_" + stringHash(String(name || "")); }
 			function maybeAnnounceReady() {
 				if (!readinessKey || records.size === 0 || announcedReadinessKey === readinessKey) return;
-				if (Array.from(records.values()).some(function (record) { return !record.loaded; })) return;
+				if (Array.from(records.values()).some(function (record) { return !record.subscriptionsReady && !record.initializationFailed; })) return;
 				announcedReadinessKey = readinessKey;
 				Promise.resolve(onReady(activeSessionId)).catch(function (error) { reportError("人物卡脚本初始化", error); });
+			}
+			function settleInitialization(record, error) {
+				if (record.initializationTimer) hostWindow.clearTimeout(record.initializationTimer);
+				record.initializationTimer = null;
+				if (error && !record.subscriptionsReady) {
+					record.initializationFailed = true;
+					const message = String(error && error.message || error || "初始化失败");
+					if (message !== record.lastRuntimeError) {
+						record.lastRuntimeError = message;
+						reportError("人物卡脚本「" + record.name + "」", new Error(message));
+					}
+				}
+				maybeAnnounceReady();
 			}
 			function ensureRoot() {
 				if (root && root.isConnected !== false) return root;
@@ -1796,6 +1810,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			function removeRecord(id) {
 				const record = records.get(id);
 				if (!record) return;
+				if (record.initializationTimer) hostWindow.clearTimeout(record.initializationTimer);
 				record.frame.remove();
 				records.delete(id);
 			}
@@ -1812,12 +1827,12 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				record.frame.style.cssText = "display:block;width:100%;height:100%;border:0;background:transparent";
 			}
 			function emitToRecord(record, name, args, context) {
-				if (!record.loaded) return Promise.resolve(args);
+				if (!record.subscriptionsReady || record.initializationFailed) return Promise.resolve(args);
 				if (context && typeof context === "object") {
 					record.context = clone(context);
 					post(record, { type: "dsh-tavern-helper-context", context: record.context });
 				}
-				if (record.subscriptionsReady && !record.subscriptions.has(String(name))) return Promise.resolve(args);
+				if (!record.subscriptions.has(String(name))) return Promise.resolve(args);
 				const eventId = "host-event-" + (++eventSequence);
 				const startedAt = Date.now();
 				return new Promise(function (resolve) {
@@ -1849,7 +1864,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			}
 			function createRecord(sessionId, script, context, trustedCardMode) {
 				const frame = hostDocument.createElement("iframe");
-				const record = { id: script.id, name: script.name, fingerprint: script.id + "\n" + script.content + "\ntrusted=" + String(trustedCardMode), token: token(), frame: frame, loaded: false, context: context, subscriptions: new Set(), subscriptionsReady: false, lastRuntimeError: "" };
+				const record = { id: script.id, name: script.name, fingerprint: script.id + "\n" + script.content + "\ntrusted=" + String(trustedCardMode), token: token(), frame: frame, loaded: false, context: context, subscriptions: new Set(), subscriptionsReady: false, initializationFailed: false, initializationTimer: null, lastRuntimeError: "" };
 				frame.title = "人物卡脚本：" + script.name;
 				if (!trustedCardMode) frame.sandbox = "allow-scripts";
 				frame.referrerPolicy = "no-referrer";
@@ -1857,7 +1872,11 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				frame.addEventListener("load", function () {
 					record.loaded = true;
 					post(record, { type: "dsh-tavern-helper-context", context: record.context });
-					maybeAnnounceReady();
+					if (!record.subscriptionsReady && !record.initializationFailed) {
+						record.initializationTimer = hostWindow.setTimeout(function () {
+							settleInitialization(record, new Error("初始化超时（" + String(initializationTimeoutMs) + "ms）"));
+						}, initializationTimeoutMs);
+					}
 				});
 				ensureRoot().appendChild(frame);
 				records.set(script.id, record);
@@ -1885,7 +1904,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 						record.context = context;
 						post(record, { type: "dsh-tavern-helper-context", context: context });
 						queuedEvents.forEach(function (event) {
-							if (!record.subscriptionsReady || record.subscriptions.has(String(event.name))) post(record, { type: "dsh-tavern-helper-event", name: event.name, args: event.args });
+							if (record.subscriptionsReady && record.subscriptions.has(String(event.name))) post(record, { type: "dsh-tavern-helper-event", name: event.name, args: event.args });
 						});
 					}
 				}
@@ -1901,7 +1920,11 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				if (data.type === "dsh-tavern-helper-ui-close") { closeRecordUi(); return; }
 				if (data.type === "dsh-tavern-helper-subscriptions") {
 					record.subscriptions = new Set((Array.isArray(data.names) ? data.names : []).map(String));
-					if (data.ready === true) record.subscriptionsReady = true;
+					if (data.ready === true) {
+						record.subscriptionsReady = true;
+						record.initializationFailed = false;
+						settleInitialization(record);
+					}
 					return;
 				}
 				if (data.type === "dsh-tavern-helper-event-complete") {
@@ -1939,7 +1962,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					return emitToRecord(record, buttonEvent(scriptId, name), [], record.context);
 				},
 				dispose: function () { hostWindow.removeEventListener("message", receive); clear(); },
-				inspect: function () { return { sessionId: activeSessionId, scriptIds: Array.from(records.keys()) }; }
+				inspect: function () { return { sessionId: activeSessionId, scriptIds: Array.from(records.keys()), scripts: Array.from(records.values()).map(function (record) { return { id: record.id, loaded: record.loaded, subscriptionsReady: record.subscriptionsReady, initializationFailed: record.initializationFailed }; }) }; }
 			});
 		}
 
