@@ -2030,8 +2030,7 @@ export async function apply(ctx) {
     frameBuilder: foregroundFrameBuilder,
     mvu: tavernMvu,
 	emitMvu: async function (event) {
-	  const result = await tavernScriptHostAdapter.dispatchEvent(event)
-	  return result.args
+	  return await tavernScriptHostAdapter.dispatchEvent(event)
 	},
     cards: cardPreparation,
     workspace: {

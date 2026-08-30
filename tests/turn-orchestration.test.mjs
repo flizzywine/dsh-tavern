@@ -425,6 +425,49 @@ test('MVU 在显示正则前结算，并把用户与助手状态保存到各自 
   assert.doesNotMatch(saved.reply.sessionText, /<aside>/)
 })
 
+test('官方 MVU owner 只在正文落库后结算一次，并以写回结果重建展示投影', async function () {
+  const events = []
+  let run
+  run = harness('story', {
+    mvu: createTavernMvuRuntime(),
+    extensions: {
+      regexScripts: [{
+        id: 'status', name: '状态栏', findRegex: '<StatusPlaceHolderImpl/>', replaceString: '<aside>官方状态栏</aside>',
+        placement: [2], enabled: true, markdownOnly: true, promptOnly: false, runOnEdit: false
+      }]
+    },
+    emitMvu: async function (event) {
+      events.push(event.name)
+      const value = run.chat()
+      const assistant = value.messages.at(-1)
+      assistant.sourceText = '正文\n_.add("体力", -1);\n\n<StatusPlaceHolderImpl/>'
+      assistant.text = assistant.sourceText
+      assistant.swipes = [assistant.sourceText]
+      assistant.variables = [{ initialized_lorebooks: {}, stat_data: { 体力: 9 }, schema: { extensible: false, properties: {}, type: 'object' } }]
+      run.replaceChat(value)
+      return { handled: true, args: event.args }
+    }
+  })
+  const initial = run.chat()
+  initial.mvu = { enabled: true, owner: 'official', runtime: 'magvarupdate' }
+  initial.messages.push({
+    role: 'assistant', text: '开场', swipeId: 0, swipes: ['开场'],
+    variables: [{ initialized_lorebooks: {}, stat_data: { 体力: 10 }, schema: { extensible: false, properties: {}, type: 'object' } }]
+  })
+  run.replaceChat(initial)
+
+  await run.orchestrator.prepare({ sessionId: 'session-1', turn: 2, userText: '继续' })
+  const saved = await run.orchestrator.finalize({ sessionId: 'session-1', turn: 2, userText: '继续', assistantText: '正文\n_.add("体力", -1);' })
+
+  const assistant = run.chat().messages.at(-1)
+  assert.deepEqual(events, ['MESSAGE_RECEIVED'])
+  assert.equal(assistant.variables[0].stat_data.体力, 9)
+  assert.equal(assistant.mvu.pending, false)
+  assert.equal(assistant.mvu.receipt.status, 'updated')
+  assert.match(assistant.displayText, /<aside>官方状态栏<\/aside>/)
+  assert.doesNotMatch(saved.reply.sessionText, /<aside>/)
+})
+
 test('MVU 单条命令失败不阻止正文和上一状态快照提交', async () => {
   const run = harness('story', { mvu: createTavernMvuRuntime() })
   const initial = run.chat()

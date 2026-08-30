@@ -2072,7 +2072,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				if (scripts.length === 0) { clear(); activeSessionId = nextSessionId; return; }
 				const context = helperContext(view, scripts);
 				const nextSnapshot = snapshot(context);
-				const queuedEvents = eventsBetween(previous, nextSnapshot);
+				const officialOwner = Boolean(view && view.tavernMvuRuntime && view.tavernMvuRuntime.owner === "official");
+				const queuedEvents = officialOwner ? [] : eventsBetween(previous, nextSnapshot);
 				const fingerprint = scripts.map(function (script) { return script.id + "\n" + script.content; }).join("\n---\n") + "\ntrusted=" + String(trustedCardMode);
 				let record = records.get("shared");
 				if (record && record.fingerprint !== fingerprint) { removeRecord("shared"); record = null; }

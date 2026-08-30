@@ -3,11 +3,12 @@ import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 import vm from 'node:vm'
 
+const clientSource = await readFile(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
+
 async function loadClient() {
-  const source = await readFile(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
   let descriptor
   const sandbox = { window: { __ModuleLoader__: { load(value) { descriptor = value } } }, console }
-  vm.runInNewContext(source, sandbox)
+  vm.runInNewContext(clientSource, sandbox)
   return descriptor.factory(function () { return {} })
 }
 
@@ -312,6 +313,7 @@ test('官方 MVU owner 作为共享沙箱首个系统模块本地加载', () => 
   assert.match(loader, /await window\.waitGlobalInitialized\("Mvu"\)/)
   assert.match(loader, /finally\{window\.__dshTavernResolveCompanionScriptsReady\(\);\}/)
   assert.match(frames[0].srcdoc, /id="extensions_settings2" hidden/)
+  assert.match(clientSource, /const queuedEvents = officialOwner \? \[\] : eventsBetween\(previous, nextSnapshot\)/)
   runtime.dispose()
 })
 
