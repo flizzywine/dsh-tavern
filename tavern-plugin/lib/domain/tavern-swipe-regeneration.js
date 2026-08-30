@@ -11,6 +11,35 @@ function selectedSwipe(message) {
   return Math.max(0, Math.min(count - 1, Number(message && message.swipeId) || 0))
 }
 
+function regenerationConflict(reason) {
+  const error = new Error('重新生成期间正文已被另一项操作修改：' + reason)
+  error.code = 'DSH_TAVERN_REGEN_CONFLICT'
+  return error
+}
+
+/**
+ * Reject a genuinely stale regeneration target while allowing presentation
+ * captures and message-scoped variable metadata to change concurrently.
+ */
+export function assertRegenerationSourceCurrent(input = {}) {
+  const originalChat = input.originalChat
+  const currentChat = input.currentChat
+  const assistantIndex = Number(input.assistantIndex)
+  if (!originalChat || !currentChat || !Array.isArray(originalChat.messages) || !Array.isArray(currentChat.messages)) throw regenerationConflict('聊天状态不完整')
+  const originalBranch = str(originalChat.timeline && originalChat.timeline.branchId)
+  const currentBranch = str(currentChat.timeline && currentChat.timeline.branchId)
+  if (originalBranch !== '' && currentBranch !== originalBranch) throw regenerationConflict('剧情分支已经切换')
+  if (currentChat.messages.length !== originalChat.messages.length) throw regenerationConflict('对话轮次已经变化')
+  const originalUser = originalChat.messages[assistantIndex - 1]
+  const currentUser = currentChat.messages[assistantIndex - 1]
+  const originalAssistant = originalChat.messages[assistantIndex]
+  const currentAssistant = currentChat.messages[assistantIndex]
+  if (!originalUser || !currentUser || originalUser.role !== 'user' || currentUser.role !== 'user' || str(currentUser.text) !== str(originalUser.text)) throw regenerationConflict('玩家输入已经变化')
+  if (!originalAssistant || !currentAssistant || originalAssistant.role !== 'assistant' || currentAssistant.role !== 'assistant' || Number(currentAssistant.turn) !== Number(originalAssistant.turn)) throw regenerationConflict('正文楼层已经变化')
+  if (str(currentAssistant.text) !== str(originalAssistant.text) || str(currentAssistant.sourceText) !== str(originalAssistant.sourceText)) throw regenerationConflict('正文内容已经变化')
+  return currentChat
+}
+
 /** Merge a regenerated DSH turn back into the original Tavern assistant message as a new selected swipe. */
 export function mergeRegeneratedSwipe(input = {}) {
   const originalChat = clone(input.originalChat)

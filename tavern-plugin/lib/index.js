@@ -45,7 +45,7 @@ import { OFFICIAL_MVU_VERSION, readOfficialMvuBundle } from './domain/official-m
 import { createTavernStaticResourceCache, projectCachedResourceBody } from './domain/tavern-static-resource-cache.js'
 import { SILLYTAVERN_CSS_COMPAT_URLS } from './domain/sillytavern-css-compatibility.js'
 import { normalizeTavernStyleEnvironment } from './domain/tavern-style-environment.js'
-import { mergeRegeneratedSwipe } from './domain/tavern-swipe-regeneration.js'
+import { assertRegenerationSourceCurrent, mergeRegeneratedSwipe } from './domain/tavern-swipe-regeneration.js'
 import { TavernPromptTemplateRuntime } from './domain/tavern-prompt-template-runtime.js'
 import {
   preserveRuntimeSource,
@@ -2268,8 +2268,6 @@ export async function apply(ctx) {
       }
     }
     const rollbackIntent = await prepareRollbackIntent(chat, { kind: 'turn.rollback', turn: oldTurn, legacyBefore })
-    const rolled = storyTimeline.apply({ chat, intent: rollbackIntent })
-    chat = rolled.chat
     const lifecycleRevision = Math.max(0, Number(originalChat.tavernHelperLifecycleRevision) || 0) + 1
     const pendingChat = structuredClone(originalChat)
     pendingChat.tavernHelperLifecycleRevision = lifecycleRevision
@@ -2279,9 +2277,13 @@ export async function apply(ctx) {
     pendingAssistant.swipes.push('')
     if (Array.isArray(pendingAssistant.variables)) pendingAssistant.variables.push(structuredClone(pendingAssistant.variables[Math.max(0, pendingAssistant.swipeId - 1)] || {}))
     await tavernScriptHostAdapter.dispatchEvent({ sessionId: chat.sessionId, chat: pendingChat, name: 'MESSAGE_SWIPED', args: [oldAssistantIndex] })
-    chat.tavernHelperLifecycleRevision = lifecycleRevision
-    chat.regenInProgress = true
-    await writeChat(chat, { source: 'rollback.regen' })
+    chat = await updateChat(chat.id, function (current) {
+      assertRegenerationSourceCurrent({ originalChat, currentChat: current, assistantIndex: oldAssistantIndex })
+      const next = storyTimeline.apply({ chat: current, intent: rollbackIntent }).chat
+      next.tavernHelperLifecycleRevision = lifecycleRevision
+      next.regenInProgress = true
+      return next
+    }, { source: 'rollback.regen' })
     const rolledMessageCount = (chat.messages || []).length
     const guide = str(guidance).trim()
     const syntheticText = '【重新生成正文】\n原玩家输入：\n' + originalUserText + '\n\n指导意见：\n' + (guide !== '' ? guide : '（无）') + '\n\n请根据原玩家输入和指导意见重新生成小说正文。'
@@ -2321,18 +2323,27 @@ export async function apply(ctx) {
       await restoreFailedRegen()
       throw new Error('重新生成失败：模型返回空文本')
     }
-    const merged = mergeRegeneratedSwipe({ originalChat, regeneratedChat: latest, assistantIndex: oldAssistantIndex })
-    const committedChat = merged.chat
-    if (latest.nativeCommits !== null && typeof latest.nativeCommits === 'object') delete latest.nativeCommits[String(syntheticTurn)]
-    committedChat.nativeCommits = latest.nativeCommits && typeof latest.nativeCommits === 'object' ? structuredClone(latest.nativeCommits) : {}
-    if (originalChat.nativeCommits && originalChat.nativeCommits[String(oldTurn)]) committedChat.nativeCommits[String(oldTurn)] = structuredClone(originalChat.nativeCommits[String(oldTurn)])
-    committedChat.updatedAt = Date.now()
-    delete committedChat.regenInProgress
-    committedChat.settleStatus = 'pending'
-    committedChat.settleError = null
-    committedChat.tavernHelperLifecycleRevision = lifecycleRevision + 1
-    committedChat.suppressedDshTurns = Array.from(new Set((Array.isArray(committedChat.suppressedDshTurns) ? committedChat.suppressedDshTurns : []).concat([syntheticTurn])))
-    await writeChat(committedChat, { source: 'foreground.regen-commit' })
+    let mergedSwipeId = 0
+    const committedChat = await updateChat(latest.id, function (current) {
+      const currentMessages = Array.isArray(current && current.messages) ? current.messages : []
+      const currentUser = currentMessages[currentMessages.length - 2]
+      const currentAssistant = currentMessages[currentMessages.length - 1]
+      if (currentMessages.length < rolledMessageCount + 2 || currentUser === null || typeof currentUser !== 'object' || currentUser.role !== 'user' ||
+          currentAssistant === null || typeof currentAssistant !== 'object' || currentAssistant.role !== 'assistant' || Number(currentAssistant.turn) !== syntheticTurn ||
+          str(currentAssistant.text).trim() !== body) throw new Error('重新生成流程的正文已被另一项操作修改')
+      const merged = mergeRegeneratedSwipe({ originalChat, regeneratedChat: current, assistantIndex: oldAssistantIndex })
+      mergedSwipeId = merged.swipeId
+      const next = merged.chat
+      if (next.nativeCommits !== null && typeof next.nativeCommits === 'object') delete next.nativeCommits[String(syntheticTurn)]
+      next.nativeCommits = next.nativeCommits && typeof next.nativeCommits === 'object' ? structuredClone(next.nativeCommits) : {}
+      if (originalChat.nativeCommits && originalChat.nativeCommits[String(oldTurn)]) next.nativeCommits[String(oldTurn)] = structuredClone(originalChat.nativeCommits[String(oldTurn)])
+      delete next.regenInProgress
+      next.settleStatus = 'pending'
+      next.settleError = null
+      next.tavernHelperLifecycleRevision = lifecycleRevision + 1
+      next.suppressedDshTurns = Array.from(new Set((Array.isArray(next.suppressedDshTurns) ? next.suppressedDshTurns : []).concat([syntheticTurn])))
+      return next
+    }, { source: 'foreground.regen-commit' })
     // 重生成正文也只交给后台变量 Agent 结算。这里不能再把正文直接作为
     // MESSAGE_RECEIVED 交给官方 MVU，否则会与后台所有权重复执行。
     void queueSettlement(committedChat.id).catch(function (error) {
@@ -2355,7 +2366,7 @@ export async function apply(ctx) {
       sourceEventSeqs: replacement.shadowedSeqs
     })
     const result = await view(committedChat, card)
-    result.adopted = { text: body, guidance: guide, hiddenTurn: oldTurn, syntheticTurn: syntheticTurn, swipeId: merged.swipeId }
+    result.adopted = { text: body, guidance: guide, hiddenTurn: oldTurn, syntheticTurn: syntheticTurn, swipeId: mergedSwipeId }
     return result
   }
 
