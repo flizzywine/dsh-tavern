@@ -256,6 +256,19 @@ test('候选项列表限制高度并独立滚动，底部操作保持在滚动�
   assert.ok(question.indexOf('className: "dsh-tavern-question-body"') < question.indexOf('className: "dsh-tavern-question-foot"'))
 })
 
+test('自由行动只聚焦输入框并保留已生成候选项', () => {
+  const question = between(clientSource, 'function CandidateQuestion', 'function CandidateGuidePanel')
+  const label = '"✎ 自由行动（直接在下方输入）"'
+  const labelIndex = question.indexOf(label)
+  const handlerStart = question.lastIndexOf('onClick:', labelIndex)
+  const handler = question.slice(handlerStart, labelIndex)
+
+  assert.notEqual(labelIndex, -1)
+  assert.match(handler, /document\.querySelector\("\[data-composer-card\] textarea"\)/)
+  assert.match(handler, /input\.focus\(\)/)
+  assert.doesNotMatch(handler, /setCandidatePanel\(null\)/)
+})
+
 test('后台结算期间禁用候选项按钮，完成后自动恢复', () => {
   const action = between(clientSource, 'function CandidateAction', 'function CandidateDockActions')
   const coordination = between(clientSource, 'const tavernCoordination', 'function describeTavernActivity')

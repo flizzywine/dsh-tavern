@@ -3793,7 +3793,6 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					);
 				})) : null,
 				expanded && panel.phase === "ready" ? h("button", { className: "dsh-tavern-question-free", onClick: function () {
-					setCandidatePanel(null);
 					window.requestAnimationFrame(function () {
 						const input = document.querySelector("[data-composer-card] textarea");
 						if (input) input.focus();
