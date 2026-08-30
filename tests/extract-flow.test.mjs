@@ -64,8 +64,10 @@ test('新建对话按会话类型选择 preset 以恢复被复用的冷 Session 
 	const playFlow = between(sidebar, 'async function newConversation', 'async function importCard')
 	const cardFlow = between(sidebar, 'async function newCardConversation', 'function formatTime')
 
-	assert.match(guard, /agentPresets\.select/)
-	assert.match(guard, /request\.kind === "card" \? "cordis" : "tavern"/)
+	assert.match(guard, /props\.conversationHost\.ensurePreset\(sessionId, request\)/)
+	const adapter = between(clientSource, 'function createConversationHostAdapter', 'function createConversationLifecycleModule')
+	assert.match(adapter, /remote\.agentPresets\.select\(sessionId, agentPreset\)/)
+	assert.match(adapter, /request\.kind === "card" \? "cordis" : "tavern"/)
 	assert.doesNotMatch(guard, /agentPreset === "tavern"\) return/)
 	assert.match(lifecycle, /ensurePreset: ensureTavernPreset/)
 	assert.match(playFlow, /conversationLifecycle\.start/)
@@ -77,7 +79,7 @@ test('新建对话按会话类型选择 preset 以恢复被复用的冷 Session 
 test('新建游玩和卡片对话等待前端 Session 列表就绪后再继续', () => {
 	const sidebar = between(clientSource, 'function TavernSidebar', 'function TavernResourcesTab')
 	const waitFlow = between(sidebar, 'async function waitForSessionSummary', 'function isUnknownSessionSelectError')
-	const recovery = between(clientSource, 'function createSessionListRecoveryModule', 'function createConversationLifecycleModule')
+	const recovery = between(clientSource, 'function createSessionListRecoveryModule', 'function createConversationHostAdapter')
 	const lifecycle = between(sidebar, 'const conversationLifecycle = createConversationLifecycleModule', 'async function retryPendingOpen')
 	const playFlow = between(sidebar, 'async function newConversation', 'async function importCard')
 	const cardFlow = between(sidebar, 'async function newCardConversation', 'function formatTime')
@@ -92,7 +94,7 @@ test('新建游玩和卡片对话等待前端 Session 列表就绪后再继续',
 test('已创建 Session 在前端列表短暂不同步时刷新并重连同一个 Session', () => {
   const sidebar = between(clientSource, 'function TavernSidebar', 'function TavernResourcesTab')
   const openFlow = between(sidebar, 'async function openSessionWhenReady', 'async function finishPendingOpen')
-  const recovery = between(clientSource, 'function createSessionListRecoveryModule', 'function createConversationLifecycleModule')
+  const recovery = between(clientSource, 'function createSessionListRecoveryModule', 'function createConversationHostAdapter')
 
   assert.match(recovery, /options\.summary\(sessionId\) && options\.binding\(sessionId\)/)
   assert.match(recovery, /await options\.refresh\(\)/)

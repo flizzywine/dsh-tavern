@@ -1079,6 +1079,26 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			return Object.freeze({ ready: ready, wait: wait, open: open });
 		}
 
+		// alpha.2 exposes Session creation and preset selection on separate controllers.
+		function createConversationHostAdapter(ctx) {
+			return Object.freeze({
+				workspaceId: function (snapshot, sessionId) {
+					const items = snapshot.items || [];
+					const owner = sessionId && items.find(function (item) { return (item.sessionIds || []).includes(sessionId); });
+					return (owner || items[0] || {}).workspaceId || "";
+				},
+				// uiWorkspace.connectWorkspace may reuse a blank Session that already has a
+				// Tavern opening and a locked preset. New conversations must have their own Session.
+				connectWorkspace: function (workspaceId) { return ctx.sessions.create({ workspaceId: workspaceId }); },
+				ensurePreset: async function (sessionId, request) {
+					// Select before writing the opening; the Session stream publishes preset state.
+					const agentPreset = request.kind === "card" ? "cordis" : "tavern";
+					const result = await ctx.remote.agentPresets.select(sessionId, agentPreset);
+					if (!result.ok) throw new Error(result.error && result.error.message || "无法切换到酒馆模式");
+				}
+			});
+		}
+
 		function createConversationLifecycleModule(options) {
 			for (const method of ["archiveCurrent", "resolveWorkspace", "connectWorkspace", "waitForSession", "ensurePreset", "createChat", "rememberPending", "finishOpen"]) {
 				if (!options || typeof options[method] !== "function") throw new Error("Conversation Lifecycle 缺少 " + method + " adapter");
@@ -2966,7 +2986,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const collapsed = props.collapsed;
 			const current = props.useSessions(function (state) { return state.current; });
 			const summaries = props.useSessions(function (state) { return state.byId; });
-			const workspaceId = props.useWorkspaces(function (state) { return state.recentWorkspaceId || (state.items[0] && state.items[0].id); });
+			const workspaceId = props.useWorkspaces(function (state) { return props.conversationHost.workspaceId(state, current); });
 			const [cards, setCards] = React.useState([]);
 			const [initialResources, setInitialResources] = React.useState([]);
 			const [selectedInitialResources, setSelectedInitialResources] = React.useState({});
@@ -3004,7 +3024,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				playPrewarmRef.current = createConversationPrewarmModule({
 					sessionIds: function () { return Object.keys(props.sessions.list.getSnapshot().byId || {}); },
 					resolveWorkspace: playWorkspaceResolverRef.current,
-					connectWorkspace: function (targetWorkspaceId) { return props.workspaces.connectWorkspace(targetWorkspaceId); },
+					connectWorkspace: function (targetWorkspaceId) { return props.conversationHost.connectWorkspace(targetWorkspaceId); },
 					archiveSession: async function (sessionId) {
 						try { await props.workspaces.archiveSession(sessionId); }
 						catch (error) { if (!isMissingSessionArchiveError(error)) throw error; }
@@ -3222,17 +3242,14 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				});
 			}
 			async function ensureTavernPreset(sessionId, request) {
-				// DSH may reuse a persisted blank Session whose Agent has not been resumed yet.
-				// Card workbenches use DSH's official creation preset; play sessions use Tavern's composition.
-				const agentPreset = request.kind === "card" ? "cordis" : "tavern";
-				const presetResponse = await props.connection.api.agentPresets.select({ sessionId: sessionId, agentPreset: agentPreset });
-				if (!presetResponse.result.ok) throw new Error(presetResponse.result.error && presetResponse.result.error.message ? presetResponse.result.error.message : "无法切换到酒馆模式");
-				props.sessions.noteAgentPreset(sessionId, agentPreset);
+				await props.conversationHost.ensurePreset(sessionId, request);
 			}
 			async function archiveCurrentBlankSession(protectedSessionId) {
 				const currentSummary = current ? summaries[current] : null;
 				if (!current || !currentSummary || !currentSummary.blank) return;
 				if (current === protectedSessionId) return;
+				// DSH's blank flag does not mean an existing Tavern opening can be discarded.
+				if (history.some(function (entry) { return entry.sessionId === current; })) return;
 				try { await props.workspaces.archiveSession(current); }
 				catch (archiveError) { if (!isMissingSessionArchiveError(archiveError)) throw archiveError; }
 			}
@@ -3272,7 +3289,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					const resourceWorkspace = await props.workspaces.create({ path: resourceRoot.path });
 					return resourceWorkspace.workspaceId;
 				},
-				connectWorkspace: function (targetWorkspaceId) { return props.workspaces.connectWorkspace(targetWorkspaceId); },
+				connectWorkspace: function (targetWorkspaceId) { return props.conversationHost.connectWorkspace(targetWorkspaceId); },
 				waitForSession: waitForSessionSummary,
 				ensurePreset: ensureTavernPreset,
 				createChat: function (request, sessionId) {
@@ -3652,7 +3669,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					embedded: true,
 					sessions: ctx.sessions,
 					workspaces: ctx.workspaces,
-					connection: ctx.get("connection"),
+					conversationHost: createConversationHostAdapter(ctx),
 					renameSession: async function (sessionId, title) {
 						const session = ctx.sessions.binding(sessionId)?.session;
 						if (session === undefined) throw new Error("找不到该对话");
@@ -5689,7 +5706,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		const playControlsFeature = createPlayControlsFeatureModule();
 		const assistantRendererFeature = createTavernAssistantRendererFeatureModule();
 
-		const inject = ["slots", "sessions", "workspaces", "layout", "connection", "conversation", "betterSidebar", "remote", "remote.commands"];
+		const inject = ["slots", "sessions", "workspaces", "layout", "connection", "conversation", "betterSidebar", "remote", "remote.commands", "remote.agentPresets"];
 
 		function apply(ctx) {
 			const slots = ctx.slots;
@@ -5806,6 +5823,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		exports.createPlayWorkspaceResolver = createPlayWorkspaceResolver;
 		exports.createSessionListRecoveryModule = createSessionListRecoveryModule;
 		exports.createConversationLifecycleModule = createConversationLifecycleModule;
+		exports.createConversationHostAdapter = createConversationHostAdapter;
 		exports.createConversationPrewarmModule = createConversationPrewarmModule;
 		exports.createResourcesLibraryFeatureModule = createResourcesLibraryFeatureModule;
 		exports.createPresetLibraryFeatureModule = createExternalPresetAndBypassPlanFeatureModule;
