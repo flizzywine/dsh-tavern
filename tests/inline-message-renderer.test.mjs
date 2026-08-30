@@ -265,7 +265,7 @@ test('Helper 脚本文档提供可见弹窗容器和固定 Tavern Helper 按钮�
   assert.match(document, /window\.SillyTavern = Object\.freeze\(\{ Popup: HelperPopup/)
   assert.match(document, /data-dsh-tavern-icons/)
   assert.match(document, /dsh-tavern-helper-ui-open/)
-  assert.match(document, /return scriptId \+ "_" \+ stringHash/)
+  assert.match(document, /return String\(scriptId \|\| currentScript\(\)\.id\) \+ "_" \+ stringHash/)
   assert.match(document, /vue%403\.5\.41%2Fdist%2Fvue\.runtime\.global\.prod\.js/)
   assert.match(document, /vue-router%405\.2\.0%2Fdist%2Fvue-router\.global\.prod\.js/)
 })
@@ -392,7 +392,12 @@ test('人物卡 Helper 脚本使用独立不透明 iframe，并获得脚本、�
   })
   const encoded = document.match(/data:text\/javascript;base64,([^"']+)/)
   assert.ok(encoded)
-  assert.equal(Buffer.from(encoded[1], 'base64').toString('utf8'), "await window.__dshTavernHelperReady;\nawait import('https://example.test/动态世界书.js');\n;window.__dshTavernHelperSubscriptionsReady();")
+  const loader = Buffer.from(encoded[1], 'base64').toString('utf8')
+  const modules = JSON.parse(loader.match(/const scripts=(\[.*\]);/)[1])
+  const source = Buffer.from(modules[0].url.split(',')[1], 'base64').toString('utf8')
+  assert.equal(source, "await import('https://example.test/动态世界书.js');")
+  assert.match(loader, /__dshTavernHelperSetCurrentScript\(script\.id\)/)
+  assert.match(loader, /__dshTavernHelperSubscriptionsReady\(script\.id\)/)
   assert.match(document, /getScriptId/)
   assert.match(document, /updateWorldbookWith/)
   assert.match(document, /appendInexistentScriptButtons/)
@@ -414,7 +419,9 @@ test('Helper 脚本把本机缓存入口解析为 srcdoc 所属宿主地址', ()
     context: { messages: [] }
   })
   const encoded = document.match(/data:text\/javascript;base64,([^"']+)/)
-  const source = Buffer.from(encoded[1], 'base64').toString('utf8')
+  const loader = Buffer.from(encoded[1], 'base64').toString('utf8')
+  const modules = JSON.parse(loader.match(/const scripts=(\[.*\]);/)[1])
+  const source = Buffer.from(modules[0].url.split(',')[1], 'base64').toString('utf8')
   assert.match(source, /new URL\('\/api\/dsh-tavern\/remote-assets\/a{64}\/bundle\.js', document\.baseURI\)\.href/)
 })
 
@@ -449,12 +456,11 @@ test('Helper Host 在受信任人物卡模式中完全移除 sandbox', () => {
   assert.equal(frames[1].sandbox, undefined)
 })
 
-test('Helper Host 只等待订阅事件的脚本，并保持订阅脚本的串行修改顺序', async () => {
+test('Helper Host 每个对话只创建一个共享脚本沙箱并只投递一次事件', async () => {
   const windowListeners = new Map()
   const frames = []
-  let tokenSequence = 0
   const hostWindow = {
-    crypto: { randomUUID() { tokenSequence += 1; return `runtime-token-${tokenSequence}` } },
+    crypto: { randomUUID() { return 'shared-runtime-token' } },
     setTimeout,
     clearTimeout,
     addEventListener(name, handler) { windowListeners.set(name, handler) },
@@ -490,42 +496,43 @@ test('Helper Host 只等待订阅事件的脚本，并保持订阅脚本的串�
       { id: 'second', name: '变量守卫二', content: 'void 0', data: {}, buttons: [] }
     ]
   })
-  frames.forEach(frame => frame.listeners.load())
+  assert.equal(frames.length, 1)
+  frames[0].listeners.load()
   const receive = windowListeners.get('message')
-  receive({ source: frames[0].contentWindow, data: { type: 'dsh-tavern-helper-subscriptions', token: 'runtime-token-1', names: [], ready: true } })
-  receive({ source: frames[1].contentWindow, data: { type: 'dsh-tavern-helper-subscriptions', token: 'runtime-token-2', names: ['mag_command_parsed'], ready: true } })
-  receive({ source: frames[2].contentWindow, data: { type: 'dsh-tavern-helper-subscriptions', token: 'runtime-token-3', names: ['mag_command_parsed'], ready: true } })
+  receive({
+    source: frames[0].contentWindow,
+    data: {
+      type: 'dsh-tavern-helper-subscriptions',
+      token: 'shared-runtime-token',
+      names: ['mag_command_parsed'],
+      ready: true,
+      scripts: [
+        { id: 'idle', names: [], ready: true, failed: false },
+        { id: 'first', names: ['mag_command_parsed'], ready: true, failed: false },
+        { id: 'second', names: ['mag_command_parsed'], ready: true, failed: false }
+      ]
+    }
+  })
 
   const emitted = runtime.emit('mag_command_parsed', [{ hp: 1 }], { messages: [] })
   await Promise.resolve()
-  assert.equal(frames[0].contentWindow.messages.some(item => item.type === 'dsh-tavern-helper-event'), false)
-  const firstRequest = frames[1].contentWindow.messages.at(-1)
-  assert.equal(firstRequest.name, 'mag_command_parsed')
-  assert.equal(frames[2].contentWindow.messages.some(item => item.type === 'dsh-tavern-helper-event'), false)
-
+  const requests = frames[0].contentWindow.messages.filter(item => item.type === 'dsh-tavern-helper-event')
+  assert.equal(requests.length, 1)
+  assert.equal(requests[0].name, 'mag_command_parsed')
   receive({
-    source: frames[1].contentWindow,
-    data: { type: 'dsh-tavern-helper-event-complete', token: 'runtime-token-2', eventId: firstRequest.eventId, args: [{ hp: 2 }] }
-  })
-  await Promise.resolve()
-  const secondRequest = frames[2].contentWindow.messages.at(-1)
-  assert.equal(secondRequest.name, 'mag_command_parsed')
-  assert.deepEqual(JSON.parse(JSON.stringify(secondRequest.args)), [{ hp: 2 }])
-  receive({
-    source: frames[2].contentWindow,
-    data: { type: 'dsh-tavern-helper-event-complete', token: 'runtime-token-3', eventId: secondRequest.eventId, args: [{ hp: 3 }] }
+    source: frames[0].contentWindow,
+    data: { type: 'dsh-tavern-helper-event-complete', token: 'shared-runtime-token', eventId: requests[0].eventId, args: [{ hp: 3 }] }
   })
   assert.deepEqual(JSON.parse(JSON.stringify(await emitted)), [{ hp: 3 }])
   runtime.dispose()
 })
 
-test('Helper Host 主动初始化全部启用脚本，未完成初始化的脚本不阻塞事件', async () => {
+test('Helper Host 在共享沙箱全部脚本完成初始化后才开放事件', async () => {
   const windowListeners = new Map()
   const frames = []
-  let tokenSequence = 0
   const readySessions = []
   const hostWindow = {
-    crypto: { randomUUID() { tokenSequence += 1; return `init-token-${tokenSequence}` } },
+    crypto: { randomUUID() { return 'init-token' } },
     setTimeout,
     clearTimeout,
     addEventListener(name, handler) { windowListeners.set(name, handler) },
@@ -562,23 +569,43 @@ test('Helper Host 主动初始化全部启用脚本，未完成初始化的脚�
       { id: 'loading', name: '初始化中', content: 'void 0', data: {}, buttons: [] }
     ]
   })
-  assert.equal(frames.length, 2, '进入对话时应立即为每个启用脚本建立运行 iframe')
-  frames.forEach(frame => frame.listeners.load())
+  assert.equal(frames.length, 1, '进入对话时应立即建立一个共享脚本 iframe')
+  frames[0].listeners.load()
   const receive = windowListeners.get('message')
-  receive({ source: frames[0].contentWindow, data: { type: 'dsh-tavern-helper-subscriptions', token: 'init-token-1', names: ['mag_command_parsed'], ready: true } })
+  receive({
+    source: frames[0].contentWindow,
+    data: {
+      type: 'dsh-tavern-helper-subscriptions', token: 'init-token', names: ['mag_command_parsed'], ready: false,
+      scripts: [
+        { id: 'ready', names: ['mag_command_parsed'], ready: true, failed: false },
+        { id: 'loading', names: [], ready: false, failed: false }
+      ]
+    }
+  })
   assert.deepEqual(readySessions, [], '仍有脚本初始化中时不得提前宣布整组脚本就绪')
+
+  assert.deepEqual(JSON.parse(JSON.stringify(await runtime.emit('mag_command_parsed', [{ hp: 1 }], { messages: [] }))), [{ hp: 1 }])
+  assert.equal(frames[0].contentWindow.messages.some(item => item.type === 'dsh-tavern-helper-event'), false)
+
+  receive({
+    source: frames[0].contentWindow,
+    data: {
+      type: 'dsh-tavern-helper-subscriptions', token: 'init-token', names: ['mag_command_parsed'], ready: true,
+      scripts: [
+        { id: 'ready', names: ['mag_command_parsed'], ready: true, failed: false },
+        { id: 'loading', names: [], ready: true, failed: false }
+      ]
+    }
+  })
+  await Promise.resolve()
+  assert.deepEqual(readySessions, ['session'])
 
   const emitted = runtime.emit('mag_command_parsed', [{ hp: 1 }], { messages: [] })
   await Promise.resolve()
   const request = frames[0].contentWindow.messages.at(-1)
   assert.equal(request.name, 'mag_command_parsed')
-  assert.equal(frames[1].contentWindow.messages.some(item => item.type === 'dsh-tavern-helper-event'), false)
-  receive({ source: frames[0].contentWindow, data: { type: 'dsh-tavern-helper-event-complete', token: 'init-token-1', eventId: request.eventId, args: [{ hp: 2 }] } })
+  receive({ source: frames[0].contentWindow, data: { type: 'dsh-tavern-helper-event-complete', token: 'init-token', eventId: request.eventId, args: [{ hp: 2 }] } })
   assert.deepEqual(JSON.parse(JSON.stringify(await emitted)), [{ hp: 2 }])
-
-  receive({ source: frames[1].contentWindow, data: { type: 'dsh-tavern-helper-subscriptions', token: 'init-token-2', names: [], ready: true } })
-  await Promise.resolve()
-  assert.deepEqual(readySessions, ['session'])
   assert.deepEqual(JSON.parse(JSON.stringify(runtime.inspect().scripts)), [
     { id: 'ready', loaded: true, subscriptionsReady: true, initializationFailed: false },
     { id: 'loading', loaded: true, subscriptionsReady: true, initializationFailed: false }
