@@ -4996,14 +4996,6 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const loadState = liveState.phase;
 			const missingCard = isMissingTavernCardError(liveState.error);
 			const debugTurns = view && Array.isArray(view.debugTurns) ? view.debugTurns : [];
-			const helperDiagnostics = view && Array.isArray(view.tavernHelperScriptDiagnostics) ? view.tavernHelperScriptDiagnostics : [];
-			const helperFailures = helperDiagnostics.filter(function (item) { return item && item.status !== "host-owned"; });
-			const helperButtons = [];
-			for (const script of view && Array.isArray(view.tavernHelperScripts) ? view.tavernHelperScripts : []) {
-				for (const button of Array.isArray(script && script.buttons) ? script.buttons : []) {
-					if (button && button.visible === true) helperButtons.push({ scriptId: String(script.id || ""), scriptName: String(script.name || script.id || "脚本"), name: String(button.name || "") });
-				}
-			}
 			const latestDebugTurn = Number(debugTurns[0] && debugTurns[0].turn) || 0;
 			React.useEffect(function () {
 				setError(missingCard ? "" : (liveState.error || ""));
@@ -5034,11 +5026,6 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				} catch (err) { setGuideError(String(err && err.message || err)); }
 				finally { setGuideBusy(false); }
 			}
-			async function triggerHelperButton(button) {
-				try {
-					await tavernScriptExecutionModule.triggerButton(button.scriptId, button.name);
-				} catch (error) { tavernErrorHub.report("人物卡脚本按钮「" + button.name + "」", error); }
-			}
 			const h = React.createElement;
 			if (!view) return h("aside", { className: "dsh-tavern-status" },
 				h("div", { className: "dsh-tavern-status-head" }, h("div", { className: "dsh-tavern-status-title" }, "状态栏")),
@@ -5063,23 +5050,9 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 						h("div", { className: "dsh-tavern-status-label" }, "人物卡状态栏"),
 						h(TavernPersistentStatusRuntime, { sessionId: props.sessionId, view: view })
 					) : null,
-					helperButtons.length ? h("section", { className: "dsh-tavern-status-section" },
-						h("div", { className: "dsh-tavern-status-label" }, "人物卡脚本按钮"),
-						h("div", { className: "dsh-tavern-script-buttons" }, helperButtons.map(function (button) {
-							return h("button", { key: button.scriptId + ":" + button.name, className: "dsh-tavern-btn", title: button.scriptName, onClick: function () { triggerHelperButton(button); } }, button.name);
-						}))
-					) : null,
 					(view.presentationWarnings || []).map(function (warning, index) {
 						return h("div", { className: "dsh-card-error", key: "presentation-warning-" + index }, warning);
 					}),
-					helperDiagnostics.length ? h("details", { className: "dsh-tavern-dsh-preset-diagnostics", open: helperFailures.length > 0 },
-						h("summary", null, helperFailures.length > 0 ? "人物卡脚本有 " + helperFailures.length + " 项未运行" : "人物卡脚本兼容状态"),
-						h("ul", null, helperDiagnostics.map(function (item, index) {
-							const name = String(item && (item.name || item.asset) || "脚本");
-							const message = String(item && item.message || item && item.status || "未知状态");
-							return h("li", { key: name + ":" + index }, name + "：" + message);
-						}))
-					) : null,
 					h("section", { className: "dsh-tavern-status-section" },
 						h("div", { className: "dsh-tavern-status-label" }, "正则加载不对？前端美化不对？内容生成不对？"),
 						h("div", { className: "dsh-tavern-debug-panel" },
