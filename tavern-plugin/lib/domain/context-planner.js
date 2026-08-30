@@ -163,7 +163,8 @@ export function createContextPlanner(options = {}) {
 
     if (input.purpose === 'candidate') {
       const projectText = playProjector(input, warnings)
-      const stableSections = [{ kind: 'candidate-task', required: true, text: str(input.task) }]
+      const taskSection = { kind: 'candidate-task', required: true, text: str(input.task) }
+      const stableSections = []
       const dynamicSections = []
       const plannedCardSections = cardSections({
         card: input.card,
@@ -172,7 +173,7 @@ export function createContextPlanner(options = {}) {
         includeName: true,
         includeDetails: true,
         includeStyleExample: input.scriptWindow === null || input.scriptWindow === undefined,
-        includeInstructions: true,
+        includeInstructions: false,
         stableFirst: true
       }, projectText)
       for (const section of plannedCardSections) {
@@ -188,9 +189,18 @@ export function createContextPlanner(options = {}) {
             : window.chunks.map(function (chunk) { return '[' + chunk.id + ']\n' + projectText(chunk.text) }).join('\n\n'))
         })
       }
-      const result = resultOf(stableSections.concat(dynamicSections), warnings, [{ kind: 'card-instruction', reason: '候选项不需要正文特殊指令' }])
+      const systemPromptText = projectText(input.card.system_prompt)
+      const postHistoryText = projectText(input.card.post_history_instructions)
+      const instructionSections = [
+        ...(systemPromptText ? [{ kind: 'card-system-prompt', required: true, text: '【人物卡系统提示】\n' + systemPromptText }] : []),
+        ...(postHistoryText ? [{ kind: 'card-post-history', required: true, text: '【人物卡历史后指令】\n' + postHistoryText }] : [])
+      ]
+      const result = resultOf([taskSection].concat(stableSections, instructionSections, dynamicSections), warnings)
       result.stableText = stableSections.map(function (section) { return str(section.text) }).filter(Boolean).join('\n\n')
       result.dynamicText = dynamicSections.map(function (section) { return str(section.text) }).filter(Boolean).join('\n\n')
+      result.taskText = taskSection.text
+      result.systemPromptText = systemPromptText
+      result.postHistoryText = postHistoryText
       return result
     }
 

@@ -44,6 +44,9 @@ function harness({ mode = 'story', outputs, initialCandidates, initialCandidateA
   function remember(options) {
     modelRequests.push({
       system: options.system,
+      backgroundContext: options.backgroundContext,
+      systemPromptText: options.systemPromptText,
+      postHistoryText: options.postHistoryText,
       turnContext: options.turnContext,
       messages: structuredClone(options.messages),
       tools: structuredClone(options.tools || []),
@@ -79,7 +82,7 @@ function harness({ mode = 'story', outputs, initialCandidates, initialCandidateA
   const planner = {
     async plan(input) {
       plannerCalls.push(input)
-      return { text: '候选项上下文', stableText: '稳定候选上下文', dynamicText: '本轮游标、Guide 与姿势', audit: { included: [], omitted: [], warnings: [], totalChars: 7 } }
+      return { text: '候选项上下文', stableText: '稳定候选上下文', taskText: '候选格式规则', systemPromptText: '本轮系统提示', postHistoryText: '本轮历史后指令', dynamicText: '本轮游标、Guide 与姿势', audit: { included: [], omitted: [], warnings: [], totalChars: 7 } }
     }
   }
   const candidates = createCandidateGenerator({
@@ -98,6 +101,20 @@ function harness({ mode = 'story', outputs, initialCandidates, initialCandidateA
     mutateChat(change) { change(chat) }
   }
 }
+
+test('普通和剧本候选都分离固定背景、逐轮指令与动态状态', async () => {
+  for (const mode of ['story', 'script']) {
+    const run = harness({ mode, outputs: [JSON.stringify({ choices: mode === 'script' ? storyChoices.slice(0, 1) : storyChoices })] })
+    await run.candidates.generate({ sessionId: 'session-1', messageId: 'm1' })
+    const request = run.modelRequests[0]
+    assert.equal(request.backgroundContext, '稳定候选上下文')
+    assert.equal(request.system, '候选格式规则')
+    assert.equal(request.turnContext, '本轮游标、Guide 与姿势')
+    assert.equal(request.systemPromptText, '本轮系统提示')
+    assert.equal(request.postHistoryText, '本轮历史后指令')
+    assert.doesNotMatch(JSON.stringify(request.messages), /稳定候选上下文/)
+  }
+})
 
 test('开场白后的首次候选会先等待完整后台结算，再规划候选', async () => {
   const order = []
@@ -391,7 +408,8 @@ test('剧本候选保存并复用持久 Agent，会话建立后每轮只追加�
   assert.equal(run.chat().candidateAgent.mode, 'continuable')
   assert.equal(run.modelRequests[0].persistent, true)
   assert.equal(run.modelRequests[0].persistentSessionId, '')
-  assert.equal(run.modelRequests[0].system, '稳定候选上下文')
+  assert.equal(run.modelRequests[0].system, '候选格式规则')
+  assert.equal(run.modelRequests[0].backgroundContext, '稳定候选上下文')
   assert.equal(run.modelRequests[0].turnContext, '本轮游标、Guide 与姿势')
 
   run.setMessages([

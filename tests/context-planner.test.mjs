@@ -223,6 +223,21 @@ test('命运候选在进入后台 Agent 前解析默认值宏但保留人物卡�
   assert.deepEqual(current.macroState, before)
 })
 
+test('候选固定背景不包含逐轮指令，系统提示和历史后指令单独投影', async () => {
+  const planner = createContextPlanner({ prompt })
+  for (const scriptWindow of [null, { cursor: 0, total: 1, chunks: [{ id: 's1', text: '本轮剧本' }] }]) {
+    const result = await planner.plan({ purpose: 'candidate', card: card(), chat: chat(), task: '候选格式规则', scriptWindow })
+    for (const text of ['阿芙拉', '银发佣兵', '谨慎而直接', '旅店遇见']) assert.ok(result.stableText.includes(text))
+    assert.doesNotMatch(result.stableText, /保持冷静|避免替玩家决定|候选格式规则|多写动作|右手按着剑柄/)
+    assert.equal(result.taskText, '候选格式规则')
+    assert.match(result.systemPromptText, /保持冷静/)
+    assert.match(result.postHistoryText, /避免替玩家决定/)
+    assert.match(result.dynamicText, /多写动作/)
+    assert.match(result.dynamicText, /右手按着剑柄/)
+    assert.doesNotMatch(result.dynamicText, /银发佣兵|谨慎而直接|旅店遇见|保持冷静|避免替玩家决定/)
+  }
+})
+
 test('剧本候选注入人物卡但排除文风示例，剧本块放在动态上下文末尾', async () => {
   const planner = createContextPlanner({ prompt, callModel: async () => '{"ids":[]}' })
   const task = '剧本候选任务：只输出 JSON。'
