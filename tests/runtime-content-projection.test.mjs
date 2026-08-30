@@ -66,6 +66,27 @@ test('开场白预览保留完整渲染结果，不提前剥离 HTML 或提交�
   assert.deepEqual(state.local, { stage: 1 })
 })
 
+test('开场白展示正则生成 HTML 时，正文 Markdown 与界面分开渲染', () => {
+  const result = projectOpeningPreview(
+    '***索引页***\n\n<UpdateVariable>hp: 10</UpdateVariable>',
+    {
+      regexPlacement: 2,
+      regexScripts: [{
+        id: 'variable-ui',
+        name: '变量界面',
+        enabled: true,
+        placement: [2],
+        findRegex: '/<UpdateVariable>([\\s\\S]*?)<\\/UpdateVariable>/gi',
+        replaceString: '<section class="variable-ui">$1</section>'
+      }]
+    }
+  )
+
+  assert.deepEqual(result.displayParts.map((part) => part.kind), ['markdown', 'html'])
+  assert.equal(result.displayParts[0].text.trim(), '***索引页***')
+  assert.match(result.displayParts[1].content, /<section class="variable-ui">hp: 10<\/section>/)
+})
+
 test('确认开场白后仍保留正文与 HTML 的原始顺序', () => {
   const mixed = projectOpeningCommit('序章<div class="panel">状态</div>')
   const page = projectOpeningCommit('<div class="cover">封面</div>')

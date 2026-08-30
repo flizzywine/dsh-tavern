@@ -1,6 +1,6 @@
-import { projectReplyHistory, projectReplyLayers } from './reply-presentation.js'
+import { projectDisplayParts, projectReplyHistory, projectReplyLayers } from './reply-presentation.js'
 import { renderTavernMacros } from './tavern-macro-engine.js'
-import { applyTavernRegexText } from './tavern-regex-display.js'
+import { applyTavernRegexText, renderTavernRegexDisplay } from './tavern-regex-display.js'
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
@@ -82,7 +82,23 @@ export function projectAgentContent(value, options = {}) {
 
 /** Render a chooser preview while keeping the complete rendered opening. */
 export function projectOpeningPreview(value, options = {}) {
-  return contentProjection(value, options, true, false)
+  const projection = contentProjection(value, options, true, false)
+  const display = renderTavernRegexDisplay(projection.renderedText, options && options.regexScripts, {
+    placement: options && options.regexPlacement,
+    isMarkdown: true,
+    isEdit: options && options.isEdit,
+    depth: options && options.depth
+  })
+  if (!display.changed || !display.presentationText.trim()) return projection
+
+  const parts = []
+  if (display.bodyText.trim()) parts.push({ kind: 'markdown', text: display.bodyText })
+  if (/<!--[\s\S]*?-->|<\/?[a-z][\w:-]*(?:\s[^<>]*?)?>/i.test(display.presentationText)) {
+    parts.push(...projectDisplayParts(display.presentationText).parts)
+  } else {
+    parts.push({ kind: 'markdown', text: display.presentationText })
+  }
+  return Object.assign({}, projection, { displayParts: parts })
 }
 
 /** Commit an opening as story text plus an isolated presentation projection. */

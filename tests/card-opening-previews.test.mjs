@@ -40,8 +40,10 @@ test('开局选择只执行人物卡正则，MVU 留到对话建立后由官方�
   })
 
   assert.equal(result.openings.length, 2)
-  assert.match(result.openings[0].projection.parts[0].content, /class="variable-ui"/)
-  assert.match(result.openings[1].projection.parts[0].content, /class="status-ui"/)
+  assert.deepEqual(result.openings[0].projection.parts.map((part) => part.kind), ['markdown', 'html'])
+  assert.match(result.openings[0].projection.parts[1].content, /class="variable-ui"/)
+  assert.deepEqual(result.openings[1].projection.parts.map((part) => part.kind), ['markdown', 'html'])
+  assert.match(result.openings[1].projection.parts[1].content, /class="status-ui"/)
   assert.equal(result.openings[0].helperContext, null)
   assert.equal(result.openings[1].helperContext, null)
 })
@@ -71,6 +73,8 @@ test('真实《灯火阑珊》的 15 条开局只生成选择 UI，不执行第�
   const indexOpeningHtml = result.openings[0].projection.parts.map(function (part) {
     return String(part.content || '')
   }).join('')
+  assert.equal(result.openings[0].projection.parts[0].kind, 'markdown')
+  assert.match(result.openings[0].projection.parts[0].text, /\*\*\*索引页\*\*\*/)
   assert.match(indexOpeningHtml, /<!-- 中间核心内容 -->/)
   assert.match(indexOpeningHtml, /<div style="display: flex; align-items: center; justify-content: center;/)
   assert.doesNotMatch(indexOpeningHtml, /<pre><code>[\s\S]*(?:&lt;div style=|中间核心内容)/)
