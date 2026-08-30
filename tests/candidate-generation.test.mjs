@@ -87,6 +87,11 @@ function harness({ mode = 'story', outputs, initialCandidates, initialCandidateA
   }
   const candidates = createCandidateGenerator({
     store, model, planner, prompt, scripts: continuity,
+    async stableWorldBookContext(currentChat, currentCard) {
+      assert.equal(currentChat.id, chat.id)
+      assert.equal(currentCard.name, card.name)
+      return '常驻世界设定'
+    },
     timeline: createStoryTimeline({ id: (prefix) => prefix + '-' + Math.random().toString(36).slice(2), now: () => 123456 }),
     waitUntilSettled: waitUntilSettled || (async () => {}), sleep: async () => {}, now: () => 123456,
     logger: { error() {}, warn(message) { warnings.push(String(message)) } }
@@ -107,6 +112,7 @@ test('普通和剧本候选都分离固定背景、逐轮指令与动态状态',
     const run = harness({ mode, outputs: [JSON.stringify({ choices: mode === 'script' ? storyChoices.slice(0, 1) : storyChoices })] })
     await run.candidates.generate({ sessionId: 'session-1', messageId: 'm1' })
     const request = run.modelRequests[0]
+    assert.equal(run.plannerCalls[0].constantWorldBookContext, '常驻世界设定')
     assert.equal(request.backgroundContext, '稳定候选上下文')
     assert.equal(request.system, '候选格式规则')
     assert.equal(request.turnContext, '本轮游标、Guide 与姿势')

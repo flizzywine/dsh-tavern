@@ -936,9 +936,9 @@ test('人物卡详情只提交用户实际改动，避免投影往返覆盖完�
   assert.match(panel, /call\("updateCard", \{ path: cardPath, patch: patch \}\)/)
 })
 
-test('人物卡稳定前缀升级到 v3，旧会话会按新的字段边界重建', () => {
-  assert.match(serverSource, /Number\(chat\.cardContextSnapshotVersion\) >= 4/)
-  assert.equal((serverSource.match(/cardContextSnapshotVersion = 4/g) || []).length, 2)
+test('人物卡稳定前缀升级到 v5，旧会话会按新的字段边界重建', () => {
+  assert.match(serverSource, /Number\(chat\.cardContextSnapshotVersion\) >= 5/)
+  assert.equal((serverSource.match(/cardContextSnapshotVersion = 5/g) || []).length, 2)
 })
 
 test('世界书库统一编辑独立世界书与人物卡内置世界书', () => {
