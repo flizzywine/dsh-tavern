@@ -1472,6 +1472,8 @@ export async function apply(ctx) {
       runtimeGeneration,
       liveSession: Boolean(agent && agent.session),
       requestMode: chat.requestMode === 'sillytavern' ? 'sillytavern' : 'dsh',
+      cardPath: str(chat.cardPath),
+      cardName: str(chat.cardName),
       projectionRevision: await cardProjectionRevision(chat.cardPath),
       activity,
       mailboxVersion: synced.mailboxVersion,
@@ -1508,6 +1510,7 @@ export async function apply(ctx) {
         chatId: chat.id,
         title: str(chat.title),
         cardName: chat.cardName || '未命名角色',
+        cardPath: str(chat.cardPath),
         updatedAt: chat.updatedAt || chat.createdAt || 0,
         mode: chat.mode || 'story',
         requestMode: chat.requestMode === 'sillytavern' ? 'sillytavern' : 'dsh'
