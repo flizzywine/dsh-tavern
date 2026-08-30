@@ -57,6 +57,26 @@ test('空白展示 part 不创建消息 iframe', () => {
   assert.equal(parts[0].content, '<p>有效内容</p>')
 })
 
+test('没有文字、属性或运行能力的空 HTML 容器不创建消息 iframe', () => {
+  const parts = client.projectionPartsOf({
+    version: 2,
+    mode: 'rich',
+    parts: [
+      { kind: 'html', content: '<statusplaceholderimpl></statusplaceholderimpl>' },
+      { kind: 'html', content: '<div><span></span></div>' },
+      { kind: 'html', content: '<div class="styled"></div>' },
+      { kind: 'html', content: '<script>mountStatus()</script>' },
+      { kind: 'html', content: '<p>正文</p>' }
+    ]
+  })
+
+  assert.deepEqual(parts.map(part => part.content), [
+    '<div class="styled"></div>',
+    '<script>mountStatus()</script>',
+    '<p>正文</p>'
+  ])
+})
+
 test('消息 iframe 将可信远程资源转入持久缓存，同时保留不透明来源隔离和受控高度协议', () => {
   const document = client.buildTavernFrameDocument({
     content: '<p>正文</p><style>p{color:red}</style><script src="https://cdn.jsdelivr.net/example.js"></script>',
@@ -285,13 +305,15 @@ test('消息 iframe 清理完整 HTML 文档泄漏到正文层的顶级排版空
   assert.ok(document.indexOf('data-status') < document.lastIndexOf('<script data-dsh-tavern-layout>'))
 
   const topLevelWhitespace = { nodeType: 3, nodeValue: '\n\n    ' }
+  const inlineSpace = { nodeType: 3, nodeValue: ' ' }
   const meaningfulText = { nodeType: 3, nodeValue: '正文内容' }
   const nestedWhitespace = { nodeType: 3, nodeValue: '\n保留', parentNode: {} }
-  const body = { childNodes: [topLevelWhitespace, meaningfulText] }
+  const body = { childNodes: [topLevelWhitespace, inlineSpace, meaningfulText] }
   nestedWhitespace.parentNode = { childNodes: [nestedWhitespace] }
   vm.runInNewContext(normalizer[1], { document: { body }, Array })
 
-  assert.equal(topLevelWhitespace.nodeValue, ' ')
+  assert.equal(topLevelWhitespace.nodeValue, '')
+  assert.equal(inlineSpace.nodeValue, ' ')
   assert.equal(meaningfulText.nodeValue, '正文内容')
   assert.equal(nestedWhitespace.nodeValue, '\n保留')
 })
