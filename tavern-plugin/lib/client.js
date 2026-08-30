@@ -51,6 +51,7 @@ window.__ModuleLoader__.load({
 .dsh-tavern-mvu-change-path { color: #a66b35; font-family: ui-monospace,SFMono-Regular,Menlo,monospace; overflow-wrap: anywhere; }
 .dsh-tavern-mvu-change-values { overflow-wrap: anywhere; }
 .dsh-tavern-mvu-failure { color: #d96767; overflow-wrap: anywhere; }
+.dsh-tavern-message-frame-slot { display: block; width: 100%; min-height: 48px; overflow: hidden; }
 .dsh-tavern-message-frame { display: block; width: 100%; min-height: 48px; border: 0; background: transparent; overflow: hidden; }
 .dsh-tavern-user-row { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
 .dsh-tavern-user-stack { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; min-width: 0; max-width: min(525px, 82%); }
@@ -1988,12 +1989,29 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		function clampTavernFrameHeight(value) {
 			return Math.max(48, Math.min(TAVERN_FRAME_MAX_HEIGHT, Math.ceil(Number(value) || 48)));
 		}
+		function estimatedTavernFrameHeight(content) {
+			const chars = String(content || "").length;
+			return clampTavernFrameHeight(Math.max(160, Math.min(1200, 160 + Math.ceil(chars / 80) * 18)));
+		}
+		function tavernFrameHeightKey(props) {
+			return ["dsh-tavern-frame-height", String(props.sessionId || ""), String(props.turn || 0), String(props.partIndex || 0), String(String(props.content || "").length)].join(":");
+		}
+		function restoredTavernFrameHeight(key, content) {
+			try {
+				const saved = Number(window.sessionStorage.getItem(key));
+				if (Number.isFinite(saved) && saved >= 48) return clampTavernFrameHeight(saved);
+			} catch (_) {}
+			return estimatedTavernFrameHeight(content);
+		}
 
 		function TavernMessageFrame(props) {
 			const frameRef = React.useRef(null);
+			const slotRef = React.useRef(null);
 			const tokenRef = React.useRef("");
 			if (tokenRef.current === "") tokenRef.current = window.crypto && typeof window.crypto.randomUUID === "function" ? window.crypto.randomUUID() : String(Date.now()) + ":" + String(Math.random());
-			const [height, setHeight] = React.useState(80);
+			const heightKey = tavernFrameHeightKey(props);
+			const [height, setHeight] = React.useState(function () { return restoredTavernFrameHeight(heightKey, props.content); });
+			const [activated, setActivated] = React.useState(props.eager === true);
 			const runtimeTimer = React.useRef(0);
 			const pendingRuntime = React.useRef(null);
 			const helperContextKey = JSON.stringify(props.helperContext || {});
@@ -2002,6 +2020,24 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				return buildTavernFrameDocument({ content: props.content, token: tokenRef.current, helperContext: props.helperContext, styleEnvironment: props.styleEnvironment, turn: props.turn });
 			}, [props.content, helperContextKey, styleEnvironmentKey, props.turn]);
 			React.useEffect(function () {
+				setHeight(restoredTavernFrameHeight(heightKey, props.content));
+			}, [heightKey]);
+			React.useEffect(function () {
+				if (props.eager === true) { setActivated(true); return; }
+				if (activated || typeof window.IntersectionObserver !== "function") { setActivated(true); return; }
+				let observer = null;
+				const timer = window.setTimeout(function () {
+					if (!slotRef.current) return;
+					observer = new window.IntersectionObserver(function (entries) {
+						if (!entries.some(function (entry) { return entry.isIntersecting; })) return;
+						setActivated(true);
+						observer.disconnect();
+					}, { rootMargin: "240px 0px" });
+					observer.observe(slotRef.current);
+				}, 120);
+				return function () { window.clearTimeout(timer); if (observer) observer.disconnect(); };
+			}, [activated, props.eager]);
+			React.useEffect(function () {
 				function receive(event) {
 					const frame = frameRef.current;
 					const data = event && event.data;
@@ -2009,6 +2045,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					if (data.type === "dsh-tavern-frame-height") {
 						const next = clampTavernFrameHeight(data.height);
 						setHeight(next);
+						try { window.sessionStorage.setItem(heightKey, String(next)); } catch (_) {}
 					} else if (data.type === "dsh-tavern-mvu-view-used" && props.sessionId && props.turn > 0) {
 						rpc("captureDisplayRuntime", { turn: props.turn, partIndex: props.partIndex, runtime: { capturedAt: Date.now(), mvuViewUsed: true } }, props.sessionId).then(function () {
 							liveTavernView.invalidate(props.sessionId);
@@ -2034,16 +2071,18 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				}
 				window.addEventListener("message", receive);
 				return function () { window.removeEventListener("message", receive); if (runtimeTimer.current) window.clearTimeout(runtimeTimer.current); };
-			}, [props.sessionId, props.turn, props.partIndex]);
-			return React.createElement("iframe", {
+			}, [props.sessionId, props.turn, props.partIndex, heightKey]);
+			const frame = activated ? React.createElement("iframe", {
 				ref: frameRef,
 				className: "dsh-tavern-message-frame",
 				title: "人物卡消息界面",
 				sandbox: props.trustedCardMode ? undefined : "allow-scripts",
 				referrerPolicy: "no-referrer",
+				loading: "lazy",
 				srcDoc: documentHtml,
 				style: { height: height + "px", overflow: height >= TAVERN_FRAME_MAX_HEIGHT ? "auto" : "hidden" }
-			});
+			}) : null;
+			return React.createElement("div", { ref: slotRef, className: "dsh-tavern-message-frame-slot", style: { height: height + "px" } }, frame);
 		}
 
 		function tavernProjectionForTurn(view, turn) {
@@ -2106,7 +2145,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			return projectionPartsOf(projection).map(function (part, index) {
 				if (part.kind === "markdown") return h(DshUi.MarkdownText, { key: index, text: String(part.text || ""), streaming: options.streaming, codeLabels: options.codeLabels, fileMentions: options.mentions });
 				const content = String(part.content !== undefined ? part.content : part.html || "");
-				return h(TavernMessageFrame, { key: index, content: content, sessionId: options.sessionId, turn: options.turn, partIndex: index, helperContext: options.helperContext, styleEnvironment: options.styleEnvironment, trustedCardMode: options.trustedCardMode });
+				return h(TavernMessageFrame, { key: index, content: content, sessionId: options.sessionId, turn: options.turn, partIndex: index, helperContext: options.helperContext, styleEnvironment: options.styleEnvironment, trustedCardMode: options.trustedCardMode, eager: options.eagerFrame });
 			});
 		}
 
@@ -2130,7 +2169,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				if (block.kind === "text") {
 					if (input.projection && projected) continue;
 					const projection = input.projection;
-					if (projection) rendered.push(h(React.Fragment, { key: index }, renderTavernProjection(projection, { streaming: input.streaming, codeLabels: codeLabels, mentions: input.mentions, sessionId: input.sessionId, turn: input.turn, helperContext: input.helperContext, styleEnvironment: input.styleEnvironment, trustedCardMode: input.trustedCardMode })));
+					if (projection) rendered.push(h(React.Fragment, { key: index }, renderTavernProjection(projection, { streaming: input.streaming, codeLabels: codeLabels, mentions: input.mentions, sessionId: input.sessionId, turn: input.turn, helperContext: input.helperContext, styleEnvironment: input.styleEnvironment, trustedCardMode: input.trustedCardMode, eagerFrame: input.eagerFrame })));
 					else rendered.push(h(DshUi.MarkdownText, { key: index, text: String(block.text || ""), streaming: input.streaming, codeLabels: codeLabels, fileMentions: input.mentions }));
 					projected = true;
 					continue;
@@ -2149,7 +2188,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				if (block.kind !== "tool-call") rendered.push(h(DshUi.JsonBlock, { key: index, label: translate("message.unknownBlock"), payload: block.block || block, truncatedLabel: function (total) { return translate("json.truncated", { total: total }); } }));
 			}
 			if (input.projection && !projected) {
-				rendered.push(h(React.Fragment, { key: "projection" }, renderTavernProjection(input.projection, { streaming: false, codeLabels: codeLabels, mentions: input.mentions, sessionId: input.sessionId, turn: input.turn, helperContext: input.helperContext, styleEnvironment: input.styleEnvironment, trustedCardMode: input.trustedCardMode })));
+				rendered.push(h(React.Fragment, { key: "projection" }, renderTavernProjection(input.projection, { streaming: false, codeLabels: codeLabels, mentions: input.mentions, sessionId: input.sessionId, turn: input.turn, helperContext: input.helperContext, styleEnvironment: input.styleEnvironment, trustedCardMode: input.trustedCardMode, eagerFrame: input.eagerFrame })));
 			}
 			if (input.interrupted) rendered.push(h("span", { key: "stopped", className: "dsh-tavern-assistant-stopped" }, translate("message.stopped")));
 			return rendered;
@@ -2233,8 +2272,9 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				React.useEffect(function () {
 					if (!sessionTransitioning && liveState.view) syncTavernHelperScripts(props.sessionId, liveState.view);
 				}, [props.sessionId, liveState.view, sessionTransitioning]);
-				const projection = settled ? tavernProjectionForTurn(liveState.view, turn) : null;
-				const mvuReceipt = settled ? tavernMvuReceiptForTurn(liveState.view, turn) : null;
+					const projection = settled ? tavernProjectionForTurn(liveState.view, turn) : null;
+					const mvuReceipt = settled ? tavernMvuReceiptForTurn(liveState.view, turn) : null;
+					const latestProjectionTurn = liveState.view && Array.isArray(liveState.view.replyProjections) ? liveState.view.replyProjections.reduce(function (latest, item) { return Math.max(latest, Number(item && item.turn) || 0); }, 0) : 0;
 				const swipe = liveState.view && Array.isArray(liveState.view.tavernSwipes) ? liveState.view.tavernSwipes.find(function (item) { return Number(item.turn) === turn; }) : null;
 				async function switchSwipe(nextSwipeId) {
 					if (!swipe || swipeBusy || nextSwipeId < 0 || nextSwipeId >= swipe.count || nextSwipeId === swipe.swipeId) return;
@@ -2259,6 +2299,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					helperContext: liveState.view && liveState.view.tavernHelper,
 					styleEnvironment: liveState.view && liveState.view.tavernStyleEnvironment,
 					trustedCardMode: Boolean(liveState.view && liveState.view.tavernRuntimePolicy && liveState.view.tavernRuntimePolicy.trustedCardMode),
+					eagerFrame: turn > 0 && turn === latestProjectionTurn,
 					sessionId: props.sessionId,
 					turn: turn,
 					renderMessageImages: props.renderMessageImages,
