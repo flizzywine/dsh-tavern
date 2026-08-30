@@ -1161,6 +1161,11 @@ export async function apply(ctx) {
       tavernStatusView: replyDisplay.statusView || null,
       mvuReceipts: mvuReceiptsOf(chat),
       tavernHelper: chat.mvu && chat.mvu.enabled === true ? projectTavernHelperContext(chat) : null,
+      tavernMvuRuntime: chat.mvu && chat.mvu.enabled === true ? {
+        owner: chat.mvu.owner === 'official' ? 'official' : 'legacy',
+        commit: OFFICIAL_MVU_VERSION.commit,
+        assetUrl: OFFICIAL_MVU_VERSION.assetUrl
+      } : null,
       tavernSwipes: (Array.isArray(chat.messages) ? chat.messages : []).map(function (message, messageId) {
         if (!message || message.role !== 'assistant') return null
         const count = Math.max(Array.isArray(message.swipes) ? message.swipes.length : 0, 1)
@@ -1330,6 +1335,7 @@ export async function apply(ctx) {
     chat.macroState = macroState
     chat.mvu = usesMvu ? {
       enabled: true,
+      owner: 'legacy',
       runtime: 'magvarupdate-compat',
       upstreamCommit: '0a730cd4a9b99689d1135a49b542c780b977c24c',
       diagnostics: openingMvuDiagnostics,

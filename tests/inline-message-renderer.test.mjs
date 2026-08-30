@@ -262,12 +262,56 @@ test('Helper 脚本文档提供可见弹窗容器和固定 Tavern Helper 按钮�
     context: { messages: [] }
   })
 
-  assert.match(document, /window\.SillyTavern = Object\.freeze\(\{ Popup: HelperPopup/)
+  assert.match(document, /window\.SillyTavern = Object\.freeze\(sillyTavern\)/)
   assert.match(document, /data-dsh-tavern-icons/)
   assert.match(document, /dsh-tavern-helper-ui-open/)
   assert.match(document, /return String\(scriptId \|\| currentScript\(\)\.id\) \+ "_" \+ stringHash/)
   assert.match(document, /vue%403\.5\.41%2Fdist%2Fvue\.runtime\.global\.prod\.js/)
   assert.match(document, /vue-router%405\.2\.0%2Fdist%2Fvue-router\.global\.prod\.js/)
+})
+
+test('官方 MVU owner 作为共享沙箱首个系统模块本地加载', () => {
+  const frames = []
+  const hostWindow = {
+    crypto: { randomUUID() { return 'official-runtime-token' } },
+    setTimeout,
+    clearTimeout,
+    addEventListener() {},
+    removeEventListener() {}
+  }
+  const root = { isConnected: true, appendChild() {}, remove() {} }
+  const hostDocument = {
+    body: { appendChild() {} },
+    documentElement: { appendChild() {} },
+    createElement(tag) {
+      if (tag === 'div') return root
+      const frame = { contentWindow: { postMessage() {} }, addEventListener() {}, remove() {} }
+      frames.push(frame)
+      return frame
+    }
+  }
+  const runtime = client.createTavernHelperScriptRuntime({ window: hostWindow, document: hostDocument, rpc() { return Promise.resolve({}) }, reportError() {} })
+
+  runtime.sync('session', {
+    chatId: 'chat-1',
+    playerName: '你',
+    card: { name: '角色' },
+    tavernHelper: { messages: [], scriptVariables: {} },
+    tavernHelperScripts: [{ id: 'guard', name: '变量守卫', content: 'void 0', data: {}, buttons: [] }],
+    tavernMvuRuntime: { owner: 'official', assetUrl: '/api/dsh-tavern/vendor/magvarupdate/bundle.js' }
+  })
+
+  assert.equal(frames.length, 1)
+  assert.match(frames[0].srcdoc, /"officialMvu":true/)
+  assert.ok(frames[0].srcdoc.indexOf('__dsh_official_mvu__') < frames[0].srcdoc.indexOf('guard'))
+  const loaderUrl = frames[0].srcdoc.match(/<script type="module" src="data:text\/javascript;base64,([^"]+)"/)[1]
+  const loader = Buffer.from(loaderUrl, 'base64').toString('utf8')
+  const modules = JSON.parse(loader.match(/const scripts=(\[[\s\S]*?\]);\nfor/)[1])
+  const officialModule = Buffer.from(modules[0].url.split(',')[1], 'base64').toString('utf8')
+  assert.match(officialModule, /vendor\/magvarupdate\/bundle\.js/)
+  assert.match(loader, /await window\.waitGlobalInitialized\("Mvu"\)/)
+  assert.match(frames[0].srcdoc, /id="extensions_settings2" hidden/)
+  runtime.dispose()
 })
 
 test('消息 iframe 在人物卡脚本前提供隔离的 localStorage 兼容层', () => {

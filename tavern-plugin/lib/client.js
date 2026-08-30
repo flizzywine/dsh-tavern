@@ -1380,6 +1380,9 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			}
 			let state = initialContext && typeof initialContext === "object" ? initialContext : {};
 			const token = String(metadata.token || "");
+			const officialMvuEnabled = metadata.officialMvu === true;
+			const extensionSettings = Object.create(null);
+			let lorebookSettings = { selected_global_lorebooks: [] };
 			const scriptList = (Array.isArray(metadata.scripts) ? metadata.scripts : [metadata]).map(function (script) {
 				return {
 					id: String(script && script.id || ""),
@@ -1501,9 +1504,11 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					if (patch.swipe_id !== undefined) {
 						message.swipe_id = Math.max(0, Math.min((message.swipes || []).length - 1, Number(patch.swipe_id) || 0));
 						message.message = (message.swipes || [])[message.swipe_id] || message.message;
+						message.mes = message.message;
 					}
 					if (patch.message !== undefined) {
 						message.message = String(patch.message);
+						message.mes = message.message;
 						if (Array.isArray(message.swipes)) message.swipes[message.swipe_id || 0] = message.message;
 					}
 					if (patch.data !== undefined) {
@@ -1581,7 +1586,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			};
 			window.replaceVariables = function (variables, option) {
 				const resolved = localReplace(copy(variables || {}), option);
-				call("updateTavernHelperVariables", { option: resolved, variables: copy(variables || {}) }).catch(console.error);
+				return call("updateTavernHelperVariables", { option: resolved, variables: copy(variables || {}) }).catch(function (error) { console.error(error); throw error; });
 			};
 			window.insertOrAssignVariables = function (variables, option) {
 				const resolved = optionOf(option);
@@ -1613,6 +1618,13 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				await call("updateTavernHelperVariables", { option: resolved, variables: next });
 				return copy(next);
 			};
+			window.deleteVariable = async function (path, option) {
+				const resolved = optionOf(option);
+				const next = getVariables(resolved);
+				window._.unset(next, String(path || ""));
+				await window.replaceVariables(next, resolved);
+				return copy(next);
+			};
 			window.setChatMessages = async function (patches) {
 				const plain = copy(patches || []);
 				localSetMessages(plain);
@@ -1626,6 +1638,11 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				state.worldbook = copy(result.worldbook);
 				return copy(state.worldbook.entries || []);
 			};
+			window.getLorebookEntries = window.getWorldbook;
+			window.getCharLorebooks = async function () { return window.getCharWorldbookNames(); };
+			window.getCurrentCharPrimaryLorebook = function () { return window.getCharWorldbookNames().primary; };
+			window.getLorebookSettings = function () { return copy(lorebookSettings); };
+			window.setLorebookSettings = function (settings) { lorebookSettings = Object.assign({}, lorebookSettings, copy(settings || {})); return copy(lorebookSettings); };
 			window.updateWorldbookWith = async function (name, updater) {
 				const current = await window.getWorldbook(name);
 				let next = typeof updater === "function" ? await updater(copy(current)) : current;
@@ -1640,6 +1657,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				if (listeners[name]) for (const entry of Array.from(listeners[name])) if (entry.handler === handler && entry.scriptId === currentScript().id) listeners[name].delete(entry);
 				reportSubscriptions();
 			};
+			window.eventRemoveListener = window.eventOff;
 			window.eventEmit = eventEmit;
 			window.__dshTavernHelperSetCurrentScript = function (scriptId) { if (scriptsById[String(scriptId)]) currentScriptId = String(scriptId); };
 			window.__dshTavernHelperSubscriptionsReady = function (scriptId) { const script = scriptsById[String(scriptId || currentScript().id)]; if (script) script.ready = true; reportSubscriptions(); };
@@ -1655,13 +1673,26 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				CHAT_CHANGED: "CHAT_CHANGED", CHAT_CREATED: "CHAT_CREATED", CHARACTER_PAGE_LOADED: "CHARACTER_PAGE_LOADED",
 				GENERATE_BEFORE_COMBINE_PROMPTS: "GENERATE_BEFORE_COMBINE_PROMPTS"
 			};
-			window.Mvu = {
+			if (!officialMvuEnabled) window.Mvu = {
 				events: { VARIABLE_INITIALIZED: "mag_variable_initialized", VARIABLE_UPDATE_STARTED: "mag_variable_update_started", COMMAND_PARSED: "mag_command_parsed", VARIABLE_UPDATE_ENDED: "mag_variable_update_ended", BEFORE_MESSAGE_UPDATE: "mag_before_message_update" },
 				getMvuData: function (option) { return getVariables(option); },
 				replaceMvuData: async function (value, option) { await window.updateVariablesWith(function () { return value; }, option); return copy(value); },
 				parseMessage: async function () { throw new Error("当前兼容层尚未开放脚本内手动 MVU 重算"); }
 			};
-			window.waitGlobalInitialized = async function (name) { if (name === "Mvu") return window.Mvu; return window[name]; };
+			window.waitGlobalInitialized = async function (name) {
+				if (window[name] !== undefined) return window[name];
+				return await new Promise(function (resolve) {
+					const eventName = "global_" + String(name) + "_initialized";
+					const listener = function () { window.eventOff(eventName, listener); resolve(window[name]); };
+					window.eventOn(eventName, listener);
+				});
+			};
+			window.getTavernHelperVersion = async function () { return "3.4.17"; };
+			window.substitudeMacros = function (value) {
+				return String(value || "")
+					.replace(/{{\s*user\s*}}/gi, String(state.playerName || "你"))
+					.replace(/{{\s*char\s*}}/gi, String(state.characterName || "角色"));
+			};
 			function HelperPopup(content, _type, title, options) {
 				const popup = this;
 				popup.content = content;
@@ -1698,11 +1729,51 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					return new Promise(function (resolve) { popup.resolve = resolve; });
 				};
 			}
-			window.SillyTavern = Object.freeze({ Popup: HelperPopup, POPUP_TYPE: Object.freeze({ DISPLAY: "display" }) });
+			const sillyTavern = {
+				Popup: HelperPopup,
+				POPUP_TYPE: Object.freeze({ DISPLAY: "display", TEXT: "text", CONFIRM: "confirm", INPUT: "input" }),
+				POPUP_RESULT: Object.freeze({ AFFIRMATIVE: 1, NEGATIVE: 0, CANCELLED: null, CUSTOM1: 2 }),
+				extensionSettings: extensionSettings,
+				characters: [],
+				characterId: 0,
+				chatCompletionSettings: {},
+				ToolManager: Object.freeze({ isToolCallingSupported: function () { return false; } }),
+				getCurrentChatId: function () { return String(state.chatId || ""); },
+				getCurrentLocale: function () { return "zh-CN"; },
+				getCharacterCardFields: function () { return copy(state.character && (state.character.data || state.character) || {}); },
+				getRequestHeaders: function () { return {}; },
+				getChatCompletionModel: function () { return ""; },
+				loadWorldInfo: async function (name) {
+					const entries = await window.getWorldbook(name);
+					const raw = {};
+					for (const entry of entries) raw[String(entry.uid)] = Object.assign({ uid: entry.uid, comment: entry.name, content: entry.content, disable: entry.enabled === false, displayIndex: entry.uid }, copy(entry));
+					return { entries: raw };
+				},
+				callGenericPopup: function (content, type, title, options) { return new HelperPopup(content, type, title, options).show(); },
+				saveChat: async function () { return true; },
+				saveSettingsDebounced: function () {},
+				registerMacro: function () {}, unregisterMacro: function () {},
+				registerFunctionTool: function () {}, unregisterFunctionTool: function () {}
+			};
+			Object.defineProperties(sillyTavern, {
+				chat: { enumerable: true, get: function () {
+					return (state.messages || []).map(function (message) {
+						return Object.assign({}, message, {
+							mes: String(message && message.message || ""),
+							is_user: Boolean(message && message.role === "user"),
+							variables: Array.isArray(message && message.swipes_data) ? message.swipes_data : []
+						});
+					});
+				} },
+				name2: { enumerable: true, get: function () { return String(state.characterName || "角色"); } }
+			});
+			window.SillyTavern = Object.freeze(sillyTavern);
 			window.errorCatched = function (factory) { return function () { try { return factory.apply(this, arguments); } catch (error) { console.error(error); return {}; } }; };
 			window.retrieveDisplayedMessage = function () { return window.jQuery ? window.jQuery() : []; };
 			window.toastr = { success: console.info, info: console.info, warning: console.warn, error: console.error };
-			const ready = import(window.__dshTavernStaticAssetUrl("https://testingcf.jsdelivr.net/npm/zod@4.4.3/+esm")).then(function (module) { window.z = module; return true; });
+			const ready = officialMvuEnabled
+				? Promise.resolve(true)
+				: import(window.__dshTavernStaticAssetUrl("https://testingcf.jsdelivr.net/npm/zod@4.4.3/+esm")).then(function (module) { window.z = module; return true; });
 			window.__dshTavernHelperReady = ready;
 			addEventListener("error", function (event) {
 				const target = event && event.target;
@@ -1722,12 +1793,14 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				: (input && input.script ? [input.script] : []);
 			const metadata = {
 				token: String(input && input.token || ""),
+				officialMvu: scripts.some(function (script) { return script && script.system === "official-mvu"; }),
 				scripts: scripts.map(function (script) {
 					return {
 						id: String(script && script.id || ""),
 						name: String(script && script.name || ""),
 						info: String(script && script.info || ""),
-						buttons: Array.isArray(script && script.buttons) ? script.buttons : []
+						buttons: Array.isArray(script && script.buttons) ? script.buttons : [],
+						system: String(script && script.system || "")
 					};
 				})
 			};
@@ -1741,11 +1814,11 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					const target = url.startsWith("/") ? "new URL(" + quote + url + quote + ", document.baseURI).href" : quote + url + quote;
 					return line + indent + "await import(" + target + ");";
 				});
-				return { id: String(script && script.id || ""), url: "data:text/javascript;base64," + encodeTavernScriptSource(deferredSource) };
+				return { id: String(script && script.id || ""), system: String(script && script.system || ""), url: "data:text/javascript;base64," + encodeTavernScriptSource(deferredSource) };
 			});
 			const loaderSource = 'await window.__dshTavernHelperReady;\n'
 				+ 'const scripts=' + JSON.stringify(modules).replace(/</g, "\\u003c") + ';\n'
-				+ 'for(const script of scripts){window.__dshTavernHelperSetCurrentScript(script.id);try{await import(script.url);window.__dshTavernHelperSubscriptionsReady(script.id);}catch(error){window.__dshTavernHelperSubscriptionsFailed(script.id,error);}}';
+				+ 'for(const script of scripts){window.__dshTavernHelperSetCurrentScript(script.id);try{await import(script.url);if(script.system==="official-mvu")await window.waitGlobalInitialized("Mvu");window.__dshTavernHelperSubscriptionsReady(script.id);}catch(error){window.__dshTavernHelperSubscriptionsFailed(script.id,error);}}';
 			const moduleUrl = "data:text/javascript;base64," + encodeTavernScriptSource(loaderSource);
 			return '<!doctype html><html><head><meta charset="utf-8">'
 				+ '<meta name="referrer" content="no-referrer">'
@@ -1754,7 +1827,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				+ tavernStaticAssetShim()
 				+ tavernHelperScriptDependencies()
 				+ '<script data-dsh-tavern-helper-script>' + bootstrap + '<\/script>'
-				+ '</head><body><script type="module" src="' + moduleUrl + '"><\/script></body></html>';
+				+ '</head><body><div id="extensions_settings2" hidden></div><div id="tavern_helper" hidden></div><script type="module" src="' + moduleUrl + '"><\/script></body></html>';
 		}
 
 		function createTavernHelperScriptRuntime(options) {
@@ -1823,6 +1896,14 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				const character = clone(view && view.card || null);
 				if (character && typeof character === "object" && (!character.data || typeof character.data !== "object")) character.data = clone(character);
 				context.character = character;
+				context.chatId = String(view && view.chatId || "");
+				context.playerName = String(view && view.playerName || "你");
+				context.characterName = String(character && character.name || "角色");
+				for (const message of Array.isArray(context.messages) ? context.messages : []) {
+					message.is_user = message.role === "user";
+					message.name = message.is_user ? context.playerName : context.characterName;
+					message.mes = String(message.message || "");
+				}
 				context.worldbook = clone(view && view.tavernHelperWorldbook || null);
 				return context;
 			}
@@ -1947,11 +2028,25 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				records.set(record.id, record);
 				return record;
 			}
+			function scriptsForView(view) {
+				const scripts = Array.isArray(view && view.tavernHelperScripts) ? view.tavernHelperScripts.slice() : [];
+				const mvu = view && view.tavernMvuRuntime;
+				if (mvu && mvu.owner === "official" && mvu.assetUrl) {
+					scripts.unshift({
+						id: "__dsh_official_mvu__",
+						name: "官方 MVU Core",
+						system: "official-mvu",
+						content: 'await import(new URL(' + JSON.stringify(String(mvu.assetUrl)) + ', document.baseURI).href);',
+						data: {}, buttons: [], info: ""
+					});
+				}
+				return scripts;
+			}
 			function sync(sessionId, view) {
 				const nextSessionId = String(sessionId || "");
 				if (activeSessionId && activeSessionId !== nextSessionId) clear();
 				activeSessionId = nextSessionId;
-				const scripts = Array.isArray(view && view.tavernHelperScripts) ? view.tavernHelperScripts : [];
+				const scripts = scriptsForView(view);
 				const trustedCardMode = Boolean(view && view.tavernRuntimePolicy && view.tavernRuntimePolicy.trustedCardMode);
 				readinessKey = scripts.length === 0 ? "" : nextSessionId + "\n" + scripts.map(function (script) { return script.id + "\n" + script.content; }).join("\n---\n") + "\ntrusted=" + String(trustedCardMode);
 				if (scripts.length === 0) { clear(); activeSessionId = nextSessionId; return; }
@@ -2053,7 +2148,14 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			let input = null;
 
 			function inactiveView(view) {
-				return Object.assign({}, view || {}, { tavernHelperScripts: [] });
+				return Object.assign({}, view || {}, { tavernHelperScripts: [], tavernMvuRuntime: null });
+			}
+
+			function hasScriptRuntime(view) {
+				return Boolean(
+					(Array.isArray(view && view.tavernHelperScripts) && view.tavernHelperScripts.length > 0)
+					|| (view && view.tavernMvuRuntime && view.tavernMvuRuntime.owner === "official")
+				);
 			}
 
 			function ensureRuntime() {
@@ -2084,7 +2186,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					pollTimer = null;
 					const currentRuntime = runtime;
 					const currentInput = input;
-					if (!currentRuntime || !currentInput || !currentInput.sessionId || !Array.isArray(currentInput.view && currentInput.view.tavernHelperScripts) || currentInput.view.tavernHelperScripts.length === 0) return;
+					if (!currentRuntime || !currentInput || !currentInput.sessionId || !hasScriptRuntime(currentInput.view)) return;
 					let completedEvent = false;
 					if (!pollBusy) {
 						pollBusy = true;
