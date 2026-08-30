@@ -1,0 +1,62 @@
+import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
+import test from 'node:test'
+import vm from 'node:vm'
+
+const source = await readFile(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
+function functionSource(name, next) {
+  return source.slice(source.indexOf('function ' + name + '('), source.indexOf('function ' + next + '('))
+}
+function dockWith(nodes, mode = 'story') {
+  const selections = []
+  const context = {
+    React: { createElement: (type, props, ...children) => ({ type, props, children }) },
+    useTavernSessionMode: () => mode,
+    isPlayMode: value => ['story', 'free', 'script'].includes(value),
+    CandidateAction: 'actions', TavernCompactionAction: 'compact',
+    props: {
+      sessionId: 'session1',
+      useSession(selector) { selections.push('session'); return selector({ running: false, blank: false }) },
+      useChat(selector) { selections.push('chat'); return selector({ legacy: { nodes } }) }
+    }
+  }
+  // Execute the actual dock component, with alpha.2's split lifecycle/Chat props.
+  const helper = source.includes('function latestTavernAssistantMessageId(')
+    ? functionSource('latestTavernAssistantMessageId', 'createPlayControlsFeatureModule') : ''
+  const dock = functionSource('CandidateDockActions', 'CandidateQuestion')
+  const rendered = vm.runInNewContext(helper + dock + '\nCandidateDockActions(props)', context)
+  return { rendered, selections }
+}
+
+test('alpha.2 dock keeps play controls when messages only exist on the Chat snapshot', () => {
+  for (const mode of ['story', 'free', 'script']) {
+    const { rendered, selections } = dockWith([
+      { kind: 'assistant', messageId: 'opening' },
+      { kind: 'assistant', messageId: 'reply2' },
+      { kind: 'tool-result' }
+    ], mode)
+    assert.equal(rendered.children[0]?.type, 'actions')
+    assert.equal(rendered.children[0].props.messageId, 'reply2')
+    assert.deepEqual(selections, ['chat'])
+  }
+})
+
+test('empty Chat keeps compaction but does not invent a response or show play controls in card mode', () => {
+  assert.equal(dockWith([]).rendered.children[0], null)
+  assert.equal(dockWith([]).rendered.children[1].type, 'compact')
+  assert.equal(dockWith([{ kind: 'assistant', messageId: 'a' }], 'card').rendered.children[0], null)
+})
+
+test('all dependent panels read messages from Chat, never from Session lifecycle', () => {
+  for (const [name, next] of [
+    ['CandidateAction', 'CandidateDockActions'],
+    ['CandidateQuestion', 'CandidateGuidePanel'],
+    ['CandidateGuidePanel', 'RegenPanel'],
+    ['TavernStatusPanel', 'TavernStatusTab']
+  ]) {
+    const component = functionSource(name, next)
+    assert.match(component, /props\.useChat\(latestTavernAssistantMessageId\)/, name)
+    assert.doesNotMatch(component, /snapshot\.nodes/, name)
+  }
+  assert.match(functionSource('TavernStatusTab', 'setCandidatePanel'), /uiConversation\.binding\(binding\)\.target\("chat"\)/)
+})

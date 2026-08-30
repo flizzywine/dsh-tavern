@@ -4895,6 +4895,15 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			}));
 		}
 
+		function latestTavernAssistantMessageId(snapshot) {
+			// alpha.2 keeps message projections on Chat, separate from Session lifecycle.
+			const nodes = snapshot && snapshot.legacy && snapshot.legacy.nodes || [];
+			for (let index = nodes.length - 1; index >= 0; index -= 1) {
+				if (nodes[index].kind === "assistant" && nodes[index].messageId) return nodes[index].messageId;
+			}
+			return null;
+		}
+
 		function createPlayControlsFeatureModule() {
 			function TavernConversationExportAction(props) {
 				const [available, setAvailable] = React.useState(false);
@@ -5002,14 +5011,9 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const [guideBusy, setGuideBusy] = React.useState(false);
 			const [guideError, setGuideError] = usePersistentError("Guide");
 			const [debugBusy, setDebugBusy] = React.useState(false);
-			const stateKey = props.useSession(function (snapshot) {
-				const nodes = snapshot.nodes || [];
-				let latest = "";
-				for (let index = nodes.length - 1; index >= 0; index -= 1) {
-					if (nodes[index].kind === "assistant" && nodes[index].messageId) { latest = nodes[index].messageId; break; }
-				}
-				return String(snapshot.running) + ":" + latest;
-			});
+			const running = props.useSession(function (snapshot) { return snapshot.running; });
+			const latestMessageId = props.useChat(latestTavernAssistantMessageId);
+			const stateKey = String(running) + ":" + String(latestMessageId || "");
 			const liveState = useLiveTavernView(props.sessionId, stateKey);
 			const view = liveState.view;
 			const loadState = liveState.phase;
@@ -5135,7 +5139,15 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					function () { return selector(binding.session.getSnapshot()); }
 				);
 			}
-			return h(TavernStatusPanel, { sessionId: props.sessionId, useSession: useSession });
+			const chat = props.uiConversation.binding(binding).target("chat");
+			function useChat(selector) {
+				return React.useSyncExternalStore(
+					function (listener) { return chat.subscribe(listener); },
+					function () { return selector(chat.getSnapshot()); },
+					function () { return selector(chat.getSnapshot()); }
+				);
+			}
+			return h(TavernStatusPanel, { sessionId: props.sessionId, useSession: useSession, useChat: useChat });
 		}
 
 		const candidatePanel = { value: null, listeners: new Set() };
@@ -5342,13 +5354,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const regenPanelState = useRegenPanel();
 			const sessionMode = useTavernSessionMode(props.sessionId);
 			const frontRunning = props.useSession(function (snapshot) { return snapshot.running === true; });
-			const latestMessageId = props.useSession(function (snapshot) {
-				const nodes = snapshot.nodes || [];
-				for (let index = nodes.length - 1; index >= 0; index -= 1) {
-					if (nodes[index].kind === "assistant" && nodes[index].messageId) return nodes[index].messageId;
-				}
-				return null;
-			});
+			const latestMessageId = props.useChat(latestTavernAssistantMessageId);
 			const rollbackViewState = useLiveTavernView(props.sessionId, String(frontRunning) + ":" + String(latestMessageId || ""));
 			const activityState = useTavernCoordination(props.sessionId, String(frontRunning) + ":" + String(latestMessageId || ""));
 			const activity = describeTavernActivity(activityState.view && activityState.view.activity);
@@ -5458,13 +5464,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 
 		function CandidateDockActions(props) {
 			const sessionMode = useTavernSessionMode(props.sessionId);
-			const latestMessageId = props.useSession(function (snapshot) {
-				const nodes = snapshot.nodes || [];
-				for (let index = nodes.length - 1; index >= 0; index -= 1) {
-					if (nodes[index].kind === "assistant" && nodes[index].messageId) return nodes[index].messageId;
-				}
-				return null;
-			});
+			const latestMessageId = props.useChat(latestTavernAssistantMessageId);
 			const h = React.createElement;
 			if (!sessionMode) return null;
 			return h("div", { className: "dsh-tavern-dock-actions" },
@@ -5477,13 +5477,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const panel = useCandidatePanel();
 			const sessionMode = useTavernSessionMode(props.sessionId);
 			const running = props.useSession(function (snapshot) { return snapshot.running; });
-			const latestMessageId = props.useSession(function (snapshot) {
-				const nodes = snapshot.nodes || [];
-				for (let index = nodes.length - 1; index >= 0; index -= 1) {
-					if (nodes[index].kind === "assistant" && nodes[index].messageId) return nodes[index].messageId;
-				}
-				return null;
-			});
+			const latestMessageId = props.useChat(latestTavernAssistantMessageId);
 			const suppressionState = useLiveTavernView(props.sessionId, "suppression:" + String(latestMessageId || "") + ":" + String(running));
 			const suppressedDshTurns = suppressionState.view && Array.isArray(suppressionState.view.suppressedDshTurns) ? suppressionState.view.suppressedDshTurns : [];
 			const suppressedDshTurnsRevision = suppressedDshTurns.join(",");
@@ -5569,13 +5563,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const panel = useCandidateGuidePanel();
 			const sessionMode = useTavernSessionMode(props.sessionId);
 			const running = props.useSession(function (snapshot) { return snapshot.running; });
-			const latestMessageId = props.useSession(function (snapshot) {
-				const nodes = snapshot.nodes || [];
-				for (let index = nodes.length - 1; index >= 0; index -= 1) {
-					if (nodes[index].kind === "assistant" && nodes[index].messageId) return nodes[index].messageId;
-				}
-				return null;
-			});
+			const latestMessageId = props.useChat(latestTavernAssistantMessageId);
 			const [guidance, setGuidance] = React.useState("");
 			const h = React.createElement;
 			if (!isPlayMode(sessionMode) || running || !panel || panel.sessionId !== props.sessionId || panel.messageId !== latestMessageId) {
@@ -5672,7 +5660,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					return { tab: { id: "dsh-tavern:status", type: "dsh-tavern:status", title: "酒馆状态" }, patch: { panelOpen: true } };
 				},
 				component: function (props) {
-					return React.createElement(TavernStatusTab, { sessions: ctx.sessions, sessionId: props.scope.sessionId });
+					return React.createElement(TavernStatusTab, { sessions: ctx.sessions, uiConversation: ctx.uiConversation, sessionId: props.scope.sessionId });
 				}
 			}), "dsh-tavern: Better Sidebar status tab");
 			ctx.effect(() => slots.inject("conversation.session.header.actions", () => slots.register(
@@ -5708,7 +5696,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		const playControlsFeature = createPlayControlsFeatureModule();
 		const assistantRendererFeature = createTavernAssistantRendererFeatureModule();
 
-		const inject = ["slots", "sessions", "workspaces", "layout", "connection", "conversation", "betterSidebar", "remote", "remote.commands", "remote.agentPresets"];
+		const inject = ["slots", "sessions", "workspaces", "layout", "connection", "conversation", "uiConversation", "betterSidebar", "remote", "remote.commands", "remote.agentPresets"];
 
 		function apply(ctx) {
 			const slots = ctx.slots;
