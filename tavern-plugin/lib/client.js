@@ -815,6 +815,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				runtimeGeneration: String(sync.runtimeGeneration || ""),
 				liveSession: sync.liveSession === true,
 				requestMode: sync.requestMode === "sillytavern" ? "sillytavern" : "dsh",
+				cardPath: String(sync.cardPath || ""),
+				cardName: String(sync.cardName || ""),
 				activity: background ? { phase: background.status === "queued" ? "pending" : (background.status === "succeeded" ? "idle" : background.status), busy: background.busy === true, role: background.kind, operationId: background.operationId, updatedAt: background.updatedAt } : (sync.activity || null),
 				task: tasks.candidate || sync.task || null,
 				tasks: tasks,
@@ -882,8 +884,16 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			};
 		}
 
+		const coordinatedCardPaths = new Map();
 		const tavernCoordination = createTavernCoordinationEventModule({
-			onView: function (sessionId) { liveTavernView.invalidate(sessionId); },
+			onView: function (sessionId, view) {
+				liveTavernView.invalidate(sessionId);
+				const cardPath = String(view && view.cardPath || "");
+				const observed = coordinatedCardPaths.has(sessionId);
+				const previous = observed ? coordinatedCardPaths.get(sessionId) : cardPath;
+				coordinatedCardPaths.set(sessionId, cardPath);
+				if (observed && previous === "" && cardPath !== "") notifyTavernDataChanged(["cards", "sessions"], "coordination");
+			},
 			connect: function (sessionId, handlers) {
 				const target = "/api/dsh-tavern/events?sessionId=" + encodeURIComponent(sessionId) + "&kind=candidate";
 				const source = new window.EventSource(target);
@@ -2866,6 +2876,10 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				return function () { window.removeEventListener("dsh-tavern-data-changed", onData); };
 			}, []);
 			React.useEffect(function () {
+				if (!current) return;
+				return tavernCoordination.subscribe(current, function () {});
+			}, [current]);
+			React.useEffect(function () {
 				return function () { playPrewarmRef.current.cancel(); };
 			}, []);
 			React.useEffect(function () {
@@ -3285,7 +3299,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					} catch (err) { setError(String(err && err.message || err)); }
 				} },
 					h("div", { className: "dsh-tavern-side-row-name" }, title),
-					h("div", { className: "dsh-tavern-side-row-meta" }, h("span", null, modeLabel(item.mode || "story") + " · " + item.cardName), h("span", null, formatTime(summary ? summary.updatedAt : item.updatedAt)))
+					h("div", { className: "dsh-tavern-side-row-meta" }, h("span", null, item.mode === "card" ? (item.cardPath ? ("已创建：" + item.cardName) : "尚未创建正式人物卡") : (modeLabel(item.mode || "story") + " · " + item.cardName)), h("span", null, formatTime(summary ? summary.updatedAt : item.updatedAt)))
 					),
 					h("button", { className: "dsh-tavern-side-row-more", title: "对话操作", "aria-expanded": menuSession === item.sessionId ? "true" : "false", onClick: function () { setMenuSession(menuSession === item.sessionId ? null : item.sessionId); } }, "⋯"),
 					menuSession === item.sessionId ? h("div", { className: "dsh-tavern-side-row-menu" },
@@ -5341,7 +5355,6 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					);
 				})) : null,
 				expanded && panel.phase === "ready" ? h("button", { className: "dsh-tavern-question-free", onClick: function () {
-					setCandidatePanel(null);
 					window.requestAnimationFrame(function () {
 						const input = document.querySelector("[data-composer-card] textarea");
 						if (input) input.focus();

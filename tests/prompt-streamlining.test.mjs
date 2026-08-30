@@ -51,6 +51,17 @@ test('世界书工具统一使用 entry 编号，当前人物卡可省略 path',
   assert.match(updater, /省略 path 时修改当前人物卡绑定的世界书/)
 })
 
+test('卡片工作台挂载只提供发现上下文，不限制按合法路径访问资源', () => {
+  const cardReader = between(serverSource, "name: 'tavern_read_card'", "name: 'tavern_read_play_chat'")
+  const scriptReader = between(serverSource, "name: 'tavern_read_script'", "name: 'tavern_read_worldbook'")
+  const worldBookTools = between(serverSource, "name: 'tavern_read_worldbook'", "name: 'tavern_read_preset'")
+  const presetTools = between(serverSource, "name: 'tavern_read_preset'", "name: 'tavern_update_card'")
+
+  for (const source of [cardReader, scriptReader, worldBookTools, presetTools]) {
+    assert.doesNotMatch(source, /mountedResource|尚未挂载到当前对话/)
+  }
+})
+
 test('模型工具只保留按需读取和明确修改', () => {
   assert.doesNotMatch(serverSource, /name: 'tavern_session'|action=context|action=commit|assistantText.*description/)
   assert.match(serverSource, /name: 'tavern_read_script'/)

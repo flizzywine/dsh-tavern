@@ -1680,6 +1680,8 @@ export async function apply(ctx) {
       runtimeGeneration,
       liveSession: Boolean(agent && agent.session),
       requestMode: chat.requestMode === 'sillytavern' ? 'sillytavern' : 'dsh',
+      cardPath: str(chat.cardPath),
+      cardName: str(chat.cardName),
       projectionRevision: await cardProjectionRevision(chat.cardPath),
       activity,
       mailboxVersion: synced.mailboxVersion,
@@ -3241,12 +3243,6 @@ export async function apply(ctx) {
   // ---------- 模型可选工具 ----------
   const tools = ctx.get('tools')
   if (tools !== undefined) {
-    function mountedResource(chat, kind, resourcePath) {
-      return Array.isArray(chat && chat.workspace && chat.workspace.mountedResources) && chat.workspace.mountedResources.some(function (item) {
-        return item !== null && typeof item === 'object' && item.kind === kind && item.path === resourcePath
-      })
-    }
-
     tools.register(defineTool({
       name: 'tavern_save_skill',
       description: '仅当用户明确要求创建或修改 Tavern Skill 时，把结构化内容安全保存到用户 Skill 目录。不能覆盖内置 Skill；修改同名用户 Skill 必须明确 overwrite=true。',
@@ -3285,7 +3281,7 @@ export async function apply(ctx) {
       name: 'tavern_read_card',
       description: '在卡片工作台中按字段、分段读取当前人物卡或尚未创建的新卡设定。默认上下文只有字段目录，先按任务选择字段，不要一次读取全部字段。',
       parameters: {
-        path: { type: 'string', description: '可选的已挂载人物卡相对路径；省略时读取当前人物卡或尚未创建的新卡设定' },
+        path: { type: 'string', description: '可选的人物卡相对路径；省略时读取当前人物卡或尚未创建的新卡设定' },
         field: { type: 'string', required: true, enum: READABLE_CARD_FIELDS, description: '要读取的人物卡字段' },
         offset: { type: 'integer', description: '可选的 1 起始字符位置，默认 1' },
         limit: { type: 'integer', description: '本次最多读取字符数，默认 6000，最大 12000' }
@@ -3314,7 +3310,6 @@ export async function apply(ctx) {
         if (chat === undefined) throw new Error('尚未选择人物卡。')
         if ((chat.mode || 'story') !== 'card') throw new Error('人物卡字段只能在卡片工作台中读取')
         const resourcePath = str(args.path).trim()
-        if (resourcePath !== '' && resourcePath !== str(chat.cardPath) && !mountedResource(chat, 'card', resourcePath)) throw new Error('该人物卡尚未挂载到当前对话')
         const card = resourcePath !== ''
           ? await readCard(resourcePath)
           : (str(chat.cardPath) === '' ? ((chat.workspace && chat.workspace.draft) || {}) : await readChatCard(chat))
@@ -3327,7 +3322,7 @@ export async function apply(ctx) {
       name: 'tavern_read_card_raw',
       description: '在卡片工作台中按 JSON Pointer 分段读取完整工作 raw。只在标准字段工具无法覆盖正则、脚本、MVU 或未知扩展时使用；pointer 为空可查看根结构。',
       parameters: {
-        path: { type: 'string', description: '可选的已挂载人物卡相对路径；省略时读取当前人物卡' },
+        path: { type: 'string', description: '可选的人物卡相对路径；省略时读取当前人物卡' },
         pointer: { type: 'string', description: 'JSON Pointer，例如 /data/extensions/regex_scripts；V1 卡可使用 /extensions。省略时读取根节点' },
         offset: { type: 'integer', description: '可选的 1 起始字符位置，默认 1' },
         limit: { type: 'integer', description: '本次最多读取字符数，默认 6000，最大 12000' }
@@ -3355,7 +3350,6 @@ export async function apply(ctx) {
         if (chat === undefined || (chat.mode || 'story') !== 'card') throw new Error('人物卡 raw 只能在卡片工作台中读取')
         const resourcePath = str(args.path).trim() || str(chat.cardPath)
         if (resourcePath === '') throw new Error('空白工作台还没有正式人物卡 raw')
-        if (resourcePath !== str(chat.cardPath) && !mountedResource(chat, 'card', resourcePath)) throw new Error('该人物卡尚未挂载到当前对话')
         const workspace = await readCardWorkspace(resourcePath)
         if (workspace === undefined) throw new Error('人物卡资源不存在: ' + resourcePath)
         return cardPreparation.present({ card: workspace, as: 'raw-section', pointer: args.pointer, offset: args.offset, limit: args.limit })
@@ -3458,7 +3452,7 @@ export async function apply(ctx) {
       name: 'tavern_read_script',
       description: '按需读取已绑定剧本。剧本游玩中优先读取当前游标附近；卡片设定中可检索整本剧本。',
       parameters: {
-        path: { type: 'string', description: '卡片工作台中可指定已挂载剧本相对路径；游玩模式省略并读取当前人物卡绑定剧本' },
+        path: { type: 'string', description: '卡片工作台中可指定剧本相对路径；游玩模式省略并读取当前人物卡绑定剧本' },
         query: { type: 'string', description: '可选关键词；剧本游玩只检索当前游标前后 10 块' },
         offset: { type: 'integer', description: '可选的 1 起始块号' },
         limit: { type: 'integer', description: '连续读取块数；游玩最多 21，卡片设定最多 6' }
@@ -3480,8 +3474,7 @@ export async function apply(ctx) {
         if (mode !== 'script' && mode !== 'card') throw new Error('当前模式不能读取剧本')
         const requestedPath = str(args.path).trim()
         const resourcePath = mode === 'card' && requestedPath !== '' ? requestedPath : str(chat.cardPath)
-        if (resourcePath === '') return { found: false, message: '当前工作台尚未挂载人物卡或剧本。', title: '', totalChunks: 0, from: 0, to: 0, cursor: 0, chunks: [] }
-        if (mode === 'card' && resourcePath !== str(chat.cardPath) && !mountedResource(chat, 'source', resourcePath) && !mountedResource(chat, 'script', resourcePath)) throw new Error('该剧本尚未挂载到当前对话')
+        if (resourcePath === '') return { found: false, message: '当前工作台尚未指定人物卡或剧本。', title: '', totalChunks: 0, from: 0, to: 0, cursor: 0, chunks: [] }
         const script = await readScript(resourcePath)
         if (script === undefined || !Array.isArray(script.chunks) || script.chunks.length === 0) return { found: false, message: '当前人物卡没有绑定剧本。', title: '', totalChunks: 0, from: 0, to: 0, cursor: 0, chunks: [] }
         const windowResult = scriptContinuity.inspect({
@@ -3511,9 +3504,9 @@ export async function apply(ctx) {
 
     tools.register(defineTool({
       name: 'tavern_read_worldbook',
-      description: '在卡片设定对话中按编号、关键词或分页读取已引用的世界书正文。省略 path 时读取当前人物卡绑定的世界书。',
+      description: '在卡片设定对话中按编号、关键词或分页读取世界书正文。省略 path 时读取当前人物卡绑定的世界书。',
       parameters: {
-        path: { type: 'string', description: '已引用世界书的相对路径；独立世界书为 worldbooks/...，人物卡内置世界书为 cards/...' },
+        path: { type: 'string', description: '世界书相对路径；独立世界书为 worldbooks/...，人物卡内置世界书为 cards/...' },
         ref: { type: 'string', description: '目录中的条目编号，例如 entry:0' },
         query: { type: 'string', description: '可选关键词' },
         offset: { type: 'integer', description: '可选的 1 起始条目序号' },
@@ -3554,7 +3547,6 @@ export async function apply(ctx) {
           const normalized = normalizeResourcePath(requestedPath)
           const kind = resourceKind(normalized)
           if (kind !== 'worldbook' && kind !== 'card') throw new Error('世界书引用路径类型不正确')
-          if (!mountedResource(chat, 'worldbook', normalized) && normalized !== str(chat.cardPath)) throw new Error('该世界书尚未挂载到当前对话')
           record = await worldBooks.get(kind === 'card' ? { kind: 'card', cardPath: normalized } : { kind: 'standalone', path: normalized })
         } else {
           if (str(chat.cardPath) === '') return { found: false, message: '当前工作台尚未引用世界书。', name: '', total: 0, entries: [] }
@@ -3579,9 +3571,9 @@ export async function apply(ctx) {
 
     tools.register(defineTool({
       name: 'tavern_update_worldbook',
-      description: '仅在用户明确确认后，对已引用世界书提交条目级最小修改。支持独立世界书和人物卡内置世界书；省略 path 时修改当前人物卡绑定的世界书。不要重写整本世界书。',
+      description: '仅在用户明确确认后，对世界书提交条目级最小修改。支持独立世界书和人物卡内置世界书；省略 path 时修改当前人物卡绑定的世界书。不要重写整本世界书。',
       parameters: {
-        path: { type: 'string', description: '可选的已引用世界书路径；省略时使用当前人物卡，或填写 worldbooks/...、cards/...' },
+        path: { type: 'string', description: '可选的世界书路径；省略时使用当前人物卡，或填写 worldbooks/...、cards/...' },
         name: { type: 'string', description: '可选的新世界书名称' },
         description: { type: 'string', description: '可选的新世界书说明' },
         operations: {
@@ -3618,7 +3610,6 @@ export async function apply(ctx) {
         const normalized = requestedPath === '' ? normalizeResourcePath(chat.cardPath, 'card') : normalizeResourcePath(requestedPath)
         const kind = resourceKind(normalized)
         if (kind !== 'worldbook' && kind !== 'card') throw new Error('世界书引用路径类型不正确')
-        if (!mountedResource(chat, 'worldbook', normalized) && normalized !== str(chat.cardPath)) throw new Error('该世界书尚未挂载到当前对话')
         const source = kind === 'card' ? { kind: 'card', cardPath: normalized } : { kind: 'standalone', path: normalized }
         const request = { operations: args.operations }
         if (Object.prototype.hasOwnProperty.call(args, 'name')) request.name = args.name
@@ -3630,9 +3621,9 @@ export async function apply(ctx) {
 
     tools.register(defineTool({
       name: 'tavern_read_preset',
-      description: '按 JSON Pointer 分段读取已引用预设的原始工作 JSON。目标预设只用于编辑，不会应用到当前 Agent。',
+      description: '按 JSON Pointer 分段读取预设的原始工作 JSON。目标预设只用于编辑，不会应用到当前 Agent。',
       parameters: {
-        path: { type: 'string', required: true, description: '已引用的 presets/... 相对路径' },
+        path: { type: 'string', required: true, description: 'presets/... 相对路径' },
         pointer: { type: 'string', description: 'JSON Pointer，例如 /prompts/0；省略时读取根节点' },
         offset: { type: 'integer', description: '可选的 1 起始字符位置' },
         limit: { type: 'integer', description: '本次最多读取字符数，默认 6000，最大 12000' }
@@ -3653,16 +3644,15 @@ export async function apply(ctx) {
         const chat = await chatForSession(sessionId)
         if (chat === undefined || (chat.mode || 'story') !== 'card') throw new Error('预设只能在卡片工作台中读取')
         const normalized = normalizeResourcePath(args.path, 'preset')
-        if (!mountedResource(chat, 'preset', normalized)) throw new Error('该预设尚未挂载到当前对话')
         return await presetEditor.read(normalized, args)
       }
     }))
 
     tools.register(defineTool({
       name: 'tavern_update_preset',
-      description: '仅在用户明确确认后，按 JSON Pointer 修改已引用预设的最小路径并重新校验。不会应用或运行目标预设。',
+      description: '仅在用户明确确认后，按 JSON Pointer 修改预设的最小路径并重新校验。不会应用或运行目标预设。',
       parameters: {
-        path: { type: 'string', required: true, description: '已引用的 presets/... 相对路径' },
+        path: { type: 'string', required: true, description: 'presets/... 相对路径' },
         operations: {
           type: 'array', required: true,
           items: {
@@ -3691,7 +3681,6 @@ export async function apply(ctx) {
         const chat = await chatForSession(sessionId)
         if (chat === undefined || (chat.mode || 'story') !== 'card') throw new Error('预设只能在卡片工作台中修改')
         const normalized = normalizeResourcePath(args.path, 'preset')
-        if (!mountedResource(chat, 'preset', normalized)) throw new Error('该预设尚未挂载到当前对话')
         return await presetEditor.update(normalized, args.operations)
       }
     }))

@@ -268,6 +268,19 @@ test('候选项列表限制高度并独立滚动，底部操作保持在滚动�
   assert.ok(question.indexOf('className: "dsh-tavern-question-body"') < question.indexOf('className: "dsh-tavern-question-foot"'))
 })
 
+test('自由行动只聚焦输入框并保留已生成候选项', () => {
+  const question = between(clientSource, 'function CandidateQuestion', 'function CandidateGuidePanel')
+  const label = '"✎ 自由行动（直接在下方输入）"'
+  const labelIndex = question.indexOf(label)
+  const handlerStart = question.lastIndexOf('onClick:', labelIndex)
+  const handler = question.slice(handlerStart, labelIndex)
+
+  assert.notEqual(labelIndex, -1)
+  assert.match(handler, /document\.querySelector\("\[data-composer-card\] textarea"\)/)
+  assert.match(handler, /input\.focus\(\)/)
+  assert.doesNotMatch(handler, /setCandidatePanel\(null\)/)
+})
+
 test('后台结算期间禁用候选项按钮，完成后自动恢复', () => {
   const action = between(clientSource, 'function CandidateAction', 'function CandidateDockActions')
   const coordination = between(clientSource, 'const tavernCoordination', 'function describeTavernActivity')
@@ -482,11 +495,21 @@ test('卡片任务只在创建对话时追加提示词，不占用输入框上�
 
 test('空白工作台确认后自动创建人物卡，不再提供二次保存按钮', () => {
   const sidebar = between(clientSource, 'function TavernSidebar', 'function TavernResourcesTab')
+  const sessionList = between(serverSource, 'async function listTavernSessions()', 'async function addGuide')
+  const coordination = between(clientSource, 'const tavernCoordination = createTavernCoordinationEventModule', 'function describeTavernActivity')
 
   assert.doesNotMatch(clientSource, /CardDraftPanel|finalizeCard|保存为新人物卡|写入草稿/)
   assert.doesNotMatch(serverSource, /case 'finalizeCard'/)
   assert.match(sidebar, /const currentSummary = current \? summaries\[current\] : null;/)
   assert.match(sidebar, /if \(!currentSummary \|\| currentSummary\.blank\) return;\s*notifyDataChanged\(\["sessions"\]\);/)
+  assert.match(sessionList, /return await conversationRegistry\.list\(\)/)
+  assert.match(serverSource, /cardPath: str\(chat\.cardPath\)/)
+  assert.match(clientSource, /cardPath: String\(sync\.cardPath \|\| ""\)/)
+  assert.match(coordination, /previous === "" && cardPath !== ""/)
+  assert.match(coordination, /notifyTavernDataChanged\(\["cards", "sessions"\], "coordination"\)/)
+  assert.match(sidebar, /tavernCoordination\.subscribe\(current, function \(\) \{\}\)/)
+  assert.match(sidebar, /尚未创建正式人物卡/)
+  assert.match(sidebar, /已创建：/)
 })
 
 test('Tavern 只接管会话区域，保留 DSH 原生设置与模型配置入口', () => {
