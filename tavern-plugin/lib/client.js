@@ -2160,7 +2160,6 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const invoke = options && options.rpc || rpc;
 			const invalidate = options && options.invalidate || function () {};
 			const runtimeId = window.crypto && typeof window.crypto.randomUUID === "function" ? window.crypto.randomUUID() : String(Date.now()) + ":" + String(Math.random());
-			const openingInitializationJobs = new Map();
 			let runtime = null;
 			let pollTimer = null;
 			let pollBusy = false;
@@ -2183,18 +2182,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				runtime = createTavernHelperScriptRuntime({
 					rpc: invoke,
 					onReady: function (readySessionId) {
-						if (!readySessionId || openingInitializationJobs.has(readySessionId)) return;
-						const job = invoke("initializeTavernMvuOpenings", {}, readySessionId).then(function (result) {
-							if (result && result.updated === true) invalidate(readySessionId);
-							return invoke("getSession", {}, readySessionId).then(function (fresh) {
-								const freshView = fresh && fresh.view || {};
-								input = { sessionId: readySessionId, view: freshView };
-								runtime.sync(readySessionId, freshView);
-								return runtime.emit("CHAT_CHANGED", [], freshView.tavernHelper);
-							});
-						}).finally(function () { openingInitializationJobs.delete(readySessionId); });
-						openingInitializationJobs.set(readySessionId, job);
-						return job;
+						if (!readySessionId || !input || input.sessionId !== readySessionId) return;
+						return runtime.emit("CHAT_CHANGED", [], input.view && input.view.tavernHelper);
 					}
 				});
 				return runtime;

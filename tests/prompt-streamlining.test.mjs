@@ -241,6 +241,14 @@ test('游玩固定选择一个开场白，并用它对齐剧本', () => {
   assert.doesNotMatch(serverSource, /switchOpening|openingViewOf|switchable: !hasStory/)
 })
 
+test('新 MVU 对话直接交给固定官方运行时初始化，不再调用旧结算器', () => {
+  const startChat = between(serverSource, 'async function startChat', 'async function appendNativeOpening')
+  assert.match(startChat, /owner: 'official'/)
+  assert.match(startChat, /runtime: 'magvarupdate'/)
+  assert.match(startChat, /variables: openingChoices\.map\(function \(\) \{ return \{\} \}\)/)
+  assert.doesNotMatch(startChat, /tavernMvu\.initializeChat|readMvuWorldBookInitialState/)
+})
+
 test('人物卡稳定字段固定为会话前缀，角色约束改为每轮注入', () => {
   const startChat = between(serverSource, 'async function startChat', 'async function appendNativeOpening')
   const buildSnapshot = between(serverSource, 'async function buildPlayCardSnapshot', 'async function ensurePlayCardSnapshot')

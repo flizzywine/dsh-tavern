@@ -33,11 +33,7 @@ import { createForegroundOrchestrationStrategies } from './domain/foreground-orc
 import { clearFailedTurnSurface, hasRollbackMessages, locateRollbackSurface, planRegenerationSurface } from './domain/rollback-surface.js'
 import { assistantResultForTurn } from './domain/session-turn-result.js'
 import { createTavernRetryLimiter } from './domain/tavern-retry-limiter.js'
-import { createTavernMvuRuntime, readMvuWorldBookInitialState } from './domain/tavern-mvu-runtime.js'
-import {
-  createTavernMvuOpeningReconciler,
-  MVU_OPENING_RECONCILIATION_VERSION
-} from './domain/tavern-mvu-opening-reconciliation.js'
+import { createTavernMvuRuntime } from './domain/tavern-mvu-runtime.js'
 import { projectTavernHelperContext } from './domain/tavern-helper-context.js'
 import { projectTavernHelperWorldbook } from './domain/tavern-helper-worldbook.js'
 import { applyTavernHelperVariableMacros } from './domain/tavern-helper-variable-macros.js'
@@ -998,17 +994,6 @@ export async function apply(ctx) {
     isPlayChat: function (chat) { return groupOfMode(chat.mode) === 'play' }
   })
 
-  const tavernMvuOpeningReconciler = createTavernMvuOpeningReconciler({
-    runtime: tavernMvu,
-    resolveChat: async function (sessionId) { return await chatForSession(sessionId) },
-    readCard: async function (chat) { return await readChatCard(chat) },
-    updateChat,
-    dispatch: async function (event) {
-      return await tavernScriptHostAdapter.dispatchEvent(event)
-    },
-    now: Date.now
-  })
-
   function sessionDebugEvidence(sessionId) {
     const id = str(sessionId)
     if (id === '') return { sessionId: '', loaded: false, events: [] }
@@ -1291,23 +1276,6 @@ export async function apply(ctx) {
       (Array.isArray(openingExtensions && openingExtensions.mvuResources) && openingExtensions.mvuResources.some(function (item) { return item.enabled !== false }))
       || openingChoices.some(function (choice) { return /<(?:initvar|json_?patch)>|_\.(?:set|insert|assign|remove|unset|delete|add)\(/i.test(choice.text) })
     )
-    const needsHelperOpeningInitialization = usesMvu && projectTavernHelperScripts(
-      Array.isArray(openingExtensions && openingExtensions.helperScripts) ? openingExtensions.helperScripts : [],
-      {}
-    ).scripts.length > 0
-    let openingMvu = null
-    let openingMvuDiagnostics = []
-    if (usesMvu) {
-      const worldBookInitial = readMvuWorldBookInitialState(card.character_book, { userName: macroState.userName, charName: card.name })
-      openingMvu = await tavernMvu.initializeChat({
-        swipes: openingChoices.map(function (choice) { return choice.text }),
-        selectedSwipeId: selectedOpeningIndex,
-        baseStatData: worldBookInitial.statData,
-        initializedLorebooks: worldBookInitial.initializedLorebooks,
-        macroContext: { userName: macroState.userName, charName: card.name }
-      })
-      openingMvuDiagnostics = worldBookInitial.diagnostics.concat(openingMvu.diagnostics)
-    }
     const openingRegexScripts = (Array.isArray(openingExtensions && openingExtensions.regexScripts) ? openingExtensions.regexScripts : []).concat(
       Array.isArray(runtimePresetSnapshot && runtimePresetSnapshot.regexScripts) ? runtimePresetSnapshot.regexScripts : []
     )
@@ -1335,13 +1303,13 @@ export async function apply(ctx) {
     chat.macroState = macroState
     chat.mvu = usesMvu ? {
       enabled: true,
-      owner: 'legacy',
-      runtime: 'magvarupdate-compat',
-      upstreamCommit: '0a730cd4a9b99689d1135a49b542c780b977c24c',
-      diagnostics: openingMvuDiagnostics,
+      owner: 'official',
+      runtime: 'magvarupdate',
+      upstreamCommit: OFFICIAL_MVU_VERSION.commit,
+      diagnostics: [],
       openingInitialization: {
-        version: MVU_OPENING_RECONCILIATION_VERSION,
-        status: needsHelperOpeningInitialization ? 'pending' : 'complete'
+        version: 2,
+        status: 'pending'
       }
     } : { enabled: false }
     if (groupOfMode(chat.mode) === 'play') {
@@ -1366,14 +1334,14 @@ export async function apply(ctx) {
       ts: Date.now(),
       greeting: true,
       turn: 1
-    }, openingMvu === null ? {} : {
-      swipeId: openingMvu.swipeId,
-      swipes: openingMvu.swipes,
-      variables: openingMvu.variables,
+    }, usesMvu !== true ? {} : {
+      swipeId: selectedOpeningIndex,
+      swipes: openingChoices.map(function (choice) { return choice.text }),
+      variables: openingChoices.map(function () { return {} }),
       mvu: {
         modified: false,
-        diagnostics: openingMvuDiagnostics,
-        events: openingMvu.events
+        diagnostics: [],
+        events: []
       }
     }))
     const hasSession = typeof sessionId === 'string' && sessionId !== ''
@@ -2553,7 +2521,6 @@ export async function apply(ctx) {
       case 'captureDisplayRuntime': return await captureDisplayRuntime(args && args.sessionId, args && args.turn, args && args.partIndex, args && args.runtime)
       case 'updateTavernHelperVariables': return await tavernScriptHostAdapter.updateVariables(args && args.sessionId, args && args.option, args && args.variables, args && args.expectedLifecycleRevision)
       case 'updateTavernHelperMessages': return await tavernScriptHostAdapter.updateMessages(args && args.sessionId, args && args.messages, args && args.expectedLifecycleRevision)
-      case 'initializeTavernMvuOpenings': return await tavernMvuOpeningReconciler.reconcile(args && args.sessionId)
       case 'switchTavernSwipe': return await tavernScriptHostAdapter.switchSwipe(args && args.sessionId, args && args.messageId, args && args.swipeId)
       case 'getTavernHelperWorldbook': return await tavernScriptHostAdapter.getWorldbook(args && args.sessionId, args && args.name)
       case 'replaceTavernHelperWorldbook': return await tavernScriptHostAdapter.replaceWorldbook(args && args.sessionId, args && args.name, args && args.entries)

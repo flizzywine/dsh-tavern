@@ -85,6 +85,18 @@ test('Host Adapter 保留 MVU 门控并拒绝过期 iframe 覆盖新状态', asy
   assert.equal(stale.writes.length, 0)
 })
 
+test('官方 MVU 写回全部开场 Swipe 后由 Host 标记初始化完成', async function () {
+  const value = chat()
+  value.mvu = { enabled: true, owner: 'official', openingInitialization: { version: 2, status: 'pending' } }
+  const run = harness(value)
+  const first = { stat_data: { hp: 10 }, schema: { type: 'object' } }
+  const second = { stat_data: { hp: 8 }, schema: { type: 'object' } }
+  await run.adapter.updateMessages('session-1', [{ message_id: 0, swipes_data: [first, second] }], 2)
+  assert.equal(run.chat.mvu.openingInitialization.status, 'complete')
+  assert.equal(run.chat.mvu.openingInitialization.version, 2)
+  assert.equal(typeof run.chat.mvu.openingInitialization.completedAt, 'number')
+})
+
 test('Host Adapter 统一翻译世界书、Swipe 与生命周期事件', async function () {
   const run = harness()
   const projected = await run.adapter.getWorldbook('session-1', 'current')

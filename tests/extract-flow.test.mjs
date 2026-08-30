@@ -1217,8 +1217,8 @@ test('HTTP RPC 在启动恢复前注册，并等待运行时完成初始化', ()
 	assert.match(handler, /if \(!readiness\.ok\) throw readiness\.error/)
 })
 
-test('Helper 全部就绪后先完成 MVU 开场重放，再广播 CHAT_CHANGED', () => {
+test('Helper 全部就绪后直接广播 CHAT_CHANGED，官方 MVU 自行完成开场初始化', () => {
 	const module = between(clientSource, 'function createTavernScriptExecutionModule', 'const tavernScriptExecutionModule')
-	assert.match(module, /invoke\("initializeTavernMvuOpenings"[\s\S]*invoke\("getSession"[\s\S]*runtime\.sync\(readySessionId, freshView\)[\s\S]*runtime\.emit\("CHAT_CHANGED"/)
-	assert.match(module, /openingInitializationJobs\.set\(readySessionId, job\);[\s\S]*return job/)
+	assert.match(module, /onReady: function \(readySessionId\)[\s\S]*runtime\.emit\("CHAT_CHANGED", \[\], input\.view && input\.view\.tavernHelper\)/)
+	assert.doesNotMatch(module, /initializeTavernMvuOpenings/)
 })

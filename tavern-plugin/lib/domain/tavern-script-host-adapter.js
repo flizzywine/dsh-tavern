@@ -12,6 +12,11 @@ function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
 }
 
+function isOfficialMvuData(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    && value.stat_data !== undefined && value.schema !== undefined
+}
+
 /**
  * Translate the Tavern-shaped host API exposed to card scripts into mutations
  * of dsh-tavern's authoritative chat and worldbook state.
@@ -66,6 +71,13 @@ export function createTavernScriptHostAdapter(options = {}) {
     assertMvuEnabled(chat)
     if (!mutationIsCurrent(chat, expectedLifecycleRevision)) return staleMutation(chat)
     const updated = replaceTavernHelperMessages(chat, messages)
+    if (chat.mvu && chat.mvu.owner === 'official') {
+      const opening = Array.isArray(chat.messages) ? chat.messages[0] : null
+      const snapshots = opening && Array.isArray(opening.variables) ? opening.variables : []
+      if (snapshots.length > 0 && snapshots.every(isOfficialMvuData)) {
+        chat.mvu.openingInitialization = { version: 2, status: 'complete', completedAt: Date.now() }
+      }
+    }
     try { await options.writeChat(chat, { source: 'tavern-helper.messages' }) }
     catch (error) {
       if (error && error.code === 'DSH_TAVERN_CHAT_CONFLICT') {
