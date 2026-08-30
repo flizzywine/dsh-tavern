@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { createForegroundOrchestrationStrategies } from '../tavern-plugin/lib/domain/foreground-orchestration-strategies.js'
+import { ensureSessionStablePrefix, readSessionStablePrefix } from '../tavern-plugin/lib/domain/session-stable-prefix.js'
 
 function userMessage(text) {
   return { role: 'user', content: [{ type: 'text', text }], source: { kind: 'user' } }
@@ -32,13 +33,43 @@ function strategies(overrides = {}) {
       async visibleTools() { return [] },
       modePrompt() { return 'play' },
       workspaceContext() { return '' },
-      async ensureCardSnapshot() { return 'card' },
+      async ensureSessionPrefix() {},
       controlledToolNames: new Set(['bash'])
     },
     ...overrides
   })
   return { value, calls, chats }
 }
+
+test('前台固定背景位于全部历史之前，不进入当轮 system、Frame 或预设注入', async () => {
+  const session = { id: 'native', events: [], append(type, data) { this.events.push({ type, data }) } }
+  let cardText = '人物卡固定基本信息\n常驻世界书'
+  const run = strategies({ nativePlay: {
+    async modeFor() { return 'story' },
+    filterMessages(messages) { return messages },
+    async resolvePreset() { return { front: { text: '预设前置指令' } } },
+    async ensureSessionPrefix() { ensureSessionStablePrefix(session, cardText) },
+    sessionPrefix() { return readSessionStablePrefix(session) },
+    async prepareTurn() { return { frame: { userInput: { projectedText: '本轮玩家输入' } } } },
+    appendFrame(input) { return { messages: input.messages.concat(userMessage('本轮动态指令')), receipt: {} } },
+    recordFrame() {}, async visibleTools() { return [] },
+    modePrompt() { return '正文任务' }, controlledToolNames: new Set()
+  } })
+  for (const turn of [2, 3]) {
+    const history = [userMessage('开场历史'), userMessage('新输入')]
+    const prepared = await run.value.prepareStep({ sessionId: 'native', payload: { turn, step: 1, messages: history }, decision: { kind: 'enter', messages: history }, chat: run.chats.get('native') })
+    const assembly = await run.value.assembleSystemPrompt({ sections: [], tools: [] }, { sessionId: 'native', chat: run.chats.get('native') })
+    const system = assembly.sections.map(section => section.text).join('\n')
+    assert.doesNotMatch(system, /人物卡固定基本信息|常驻世界书/)
+    assert.doesNotMatch(JSON.stringify(prepared.messages), /人物卡固定基本信息|常驻世界书/)
+    const request = run.value.projectRequest({ sessionId: 'native', system, messages: prepared.messages })
+    assert.equal(request.messages[0].content[0].text, '人物卡固定基本信息\n常驻世界书')
+    assert.equal(request.messages[0].source.form, 'session-prefix')
+    assert.equal(run.value.projectRequest(request), null)
+    cardText = '后续轮次不重新覆盖最初背景'
+  }
+  assert.equal(session.events.length, 1)
+})
 
 test('普通游玩与兼容模式只在策略选择点分叉', async () => {
   const run = strategies()
@@ -82,7 +113,7 @@ test('兼容策略清空系统提示，普通策略保留原生人格和卡片�
   assert.deepEqual(compatAssembly, { sections: [], contexts: [], tools: [] })
 
   const nativeAssembly = await run.value.assembleSystemPrompt({ sections: [], contexts: [], tools: [{ name: 'bash' }, { name: 'read' }] }, { sessionId: 'native', chat: run.chats.get('native') })
-  assert.deepEqual(nativeAssembly.sections.map(function (section) { return section.name }), ['tavern:mode-persona', 'tavern:card-snapshot'])
+  assert.deepEqual(nativeAssembly.sections.map(function (section) { return section.name }), ['tavern:mode-persona'])
   assert.deepEqual(nativeAssembly.tools.map(function (tool) { return tool.name }), ['read'])
 })
 
@@ -98,7 +129,7 @@ test('卡片策略保留官方 Cordis 工具说明', async () => {
       async visibleTools() { return [] },
       modePrompt() { return 'card' },
       workspaceContext() { return '/resources' },
-      async ensureCardSnapshot() { return '' },
+      async ensureSessionPrefix() {},
       controlledToolNames: new Set()
     }
   })

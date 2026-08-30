@@ -3,15 +3,21 @@ import test from 'node:test'
 
 import { createBackgroundAgentRunner, executeBackgroundCompaction, maximumBackgroundTokens } from '../tavern-plugin/lib/background-agent-runner.js'
 import { createContextPlanner } from '../tavern-plugin/lib/domain/context-planner.js'
+import { readSessionStablePrefix } from '../tavern-plugin/lib/domain/session-stable-prefix.js'
+import { createNativePlayOrchestrationStrategy } from '../tavern-plugin/lib/domain/foreground-orchestration-strategies.js'
 
-test('候选连续输入不累计固定背景，逐轮指令保留且卡片修改、恢复后读取最新背景', async () => {
+test('后台固定背景只保存一次，连续候选、结算和恢复均从 Session 开头复用而非 system', async () => {
   const packets = []
   const events = []
+  const history = []
   const planner = createContextPlanner({ prompt: () => '' })
   const card = { name: '测试人物', description: '固定背景A', personality: '固定性格', scenario: '固定场景', mes_example: '固定示例', system_prompt: '每轮系统要求', post_history_instructions: '每轮末尾要求' }
   let creates = 0
   let resumes = 0
   async function open(options) {
+    const session = { id: 'background', events, append(type, data) { events.push({ type, data: structuredClone(data) }) } }
+    const stagedRequests = new Map()
+    const projection = createNativePlayOrchestrationStrategy({ stagedRequests, sessionPrefix: () => readSessionStablePrefix(session) })
     const variables = new Map()
     const sections = []
     await options.setup({
@@ -20,10 +26,14 @@ test('候选连续输入不累计固定背景，逐轮指令保留且卡片修�
     })
     return {
       agent: {
-        session: { events },
+        session,
         followup(message) {
           const system = sections.map(section => section.text.replace(/\{\{([^}]+)\}\}/g, (_, name) => variables.get(name)())).join('\n')
-          packets.push({ system, text: message.content[0].text })
+          history.push(message)
+          stagedRequests.set('background', { scope: 'background', snapshot: null, turn: packets.length + 1, step: 1 })
+          const request = projection.projectRequest({ sessionId: 'background', system, messages: history })
+          assert.equal(projection.projectRequest(request), null, '重新分发不能重复拼接前缀')
+          packets.push({ system: request.system, messages: request.messages, text: message.content[0].text })
           events.push({ type: 'assistant/message', data: { message: { content: [{ type: 'text', text: '{"choices":[]}' }] } } })
         }, async whenIdle() {}
       }, async dispose() {}
@@ -54,10 +64,12 @@ test('候选连续输入不累计固定背景，逐轮指令保留且卡片修�
   assert.equal(creates, 1)
   assert.equal(resumes, 1)
   for (const [index, packet] of packets.entries()) {
-    const background = index < 2 ? '固定背景A' : '固定背景B'
-    assert.equal(packet.system.split(background).length - 1, 1)
-    assert.equal(packet.system.split('固定世界设定').length - 1, 1)
-    assert.ok(packet.system.startsWith('【故事设定 · 人物卡】'))
+    assert.doesNotMatch(packet.system, /固定背景|固定世界设定|固定性格|固定场景|固定示例/)
+    const texts = packet.messages.map(message => message.content.map(block => block.text).join('')).join('\n')
+    assert.equal(texts.split('固定背景A').length - 1, 1)
+    assert.equal(texts.split('固定世界设定').length - 1, 1)
+    assert.equal(packet.messages[0].source.form, 'session-prefix')
+    assert.doesNotMatch(texts, /固定背景B/)
     assert.doesNotMatch(packet.system, /每轮系统要求|每轮末尾要求|修改后的末尾要求|最新Guide|最新姿势/)
     assert.doesNotMatch(packet.text, /固定背景|固定性格|固定场景|固定示例|固定世界设定/)
     assert.equal(packet.text.split('每轮系统要求').length - 1, 1)
@@ -67,9 +79,10 @@ test('候选连续输入不累计固定背景，逐轮指令保留且卡片修�
     assert.match(packet.text, /本轮候选意见/)
     assert.ok(packet.text.endsWith(index < 2 ? '每轮末尾要求' : '修改后的末尾要求'))
   }
-  assert.doesNotMatch(packets[2].system, /固定背景A/)
   await runner.run({ sessionId: 'parent', persistent: true, persistentSessionId: 'background', task: 'settlement', selection: { provider: 'test', model: 'fake' }, system: '结算规则', messages: [], backgroundContext: '不应带入的候选背景', systemPromptText: '不应带入的系统要求', postHistoryText: '不应带入的末尾要求' })
-  assert.doesNotMatch(JSON.stringify(packets.at(-1)), /不应带入|固定背景B|每轮系统要求/)
+  assert.doesNotMatch(packets.at(-1).system, /不应带入|固定背景|每轮系统要求/)
+  assert.match(packets.at(-1).messages[0].content[0].text, /固定背景A/)
+  assert.equal(events.filter(event => event.type === 'dsh-tavern/stable-prefix').length, 1)
   await runner.dispose()
 })
 
