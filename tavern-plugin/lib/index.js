@@ -1155,6 +1155,7 @@ export async function apply(ctx) {
       canRollback: hasRollbackMessages(chat.messages),
       presentation: null,
       replyProjections: replyDisplay.projections,
+      mvuReceipts: mvuReceiptsOf(chat),
       tavernHelper: chat.mvu && chat.mvu.enabled === true ? projectTavernHelperContext(chat) : null,
       tavernSwipes: (Array.isArray(chat.messages) ? chat.messages : []).map(function (message, messageId) {
         if (!message || message.role !== 'assistant') return null
@@ -1199,6 +1200,26 @@ export async function apply(ctx) {
       })
     }
     return projections
+  }
+  function mvuReceiptsOf(chat) {
+    const messages = Array.isArray(chat && chat.messages) ? chat.messages : []
+    const receipts = []
+    for (const message of messages) {
+      if (!message || message.role !== 'assistant' || !message.mvu) continue
+      const turn = Math.max(0, Number(message.turn) || (message.greeting === true ? 1 : 0))
+      if (turn === 0) continue
+      const stored = message.mvu.receipt
+      const diagnostics = Array.isArray(message.mvu.diagnostics) ? message.mvu.diagnostics : []
+      const receipt = stored && typeof stored === 'object' ? clone(stored) : {
+        version: 1,
+        status: diagnostics.length > 0 ? 'error' : (message.mvu.modified === true ? 'updated' : 'unchanged'),
+        summary: '',
+        changes: [],
+        failures: diagnostics.map(function (item) { return { command: str(item.command), message: str(item.message) } })
+      }
+      receipts.push({ turn, receipt })
+    }
+    return receipts
   }
   function withLegacyPresentationProjection(chat, projections) {
     const result = Array.isArray(projections) ? projections.slice() : []

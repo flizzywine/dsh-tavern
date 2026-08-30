@@ -37,6 +37,20 @@ window.__ModuleLoader__.load({
 .dsh-tavern-swipe-controls { align-self: center; display: flex; align-items: center; gap: 8px; color: var(--dsw-alias-label-tertiary); font-size: 12px; line-height: 24px; }
 .dsh-tavern-swipe-controls button { min-width: 28px; height: 26px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 7px; background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-secondary); cursor: pointer; }
 .dsh-tavern-swipe-controls button:disabled { opacity: .35; cursor: default; }
+.dsh-tavern-mvu-receipt { align-self: flex-start; width: min(100%, 760px); border: 1px solid var(--dsw-alias-border-l2); border-radius: 9px; background: var(--dsw-specific-input-major); color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 20px; }
+.dsh-tavern-mvu-receipt[data-status="updated"] { border-color: rgba(70,160,105,.42); }
+.dsh-tavern-mvu-receipt[data-status="partial"], .dsh-tavern-mvu-receipt[data-status="error"] { border-color: rgba(220,94,94,.48); }
+.dsh-tavern-mvu-receipt-summary { display: flex; align-items: center; gap: 7px; padding: 7px 10px; cursor: pointer; user-select: none; font-weight: 750; }
+.dsh-tavern-mvu-receipt-summary::-webkit-details-marker { display: none; }
+.dsh-tavern-mvu-receipt-dot { width: 7px; height: 7px; border-radius: 999px; background: var(--dsw-alias-label-tertiary); }
+.dsh-tavern-mvu-receipt[data-status="updated"] .dsh-tavern-mvu-receipt-dot { background: #4da66d; }
+.dsh-tavern-mvu-receipt[data-status="partial"] .dsh-tavern-mvu-receipt-dot, .dsh-tavern-mvu-receipt[data-status="error"] .dsh-tavern-mvu-receipt-dot { background: #dc5e5e; }
+.dsh-tavern-mvu-receipt-body { display: grid; gap: 8px; padding: 0 10px 9px; border-top: 1px solid var(--dsw-alias-border-l2); }
+.dsh-tavern-mvu-receipt-reason { margin-top: 8px; color: var(--dsw-alias-label-primary); }
+.dsh-tavern-mvu-change { display: grid; gap: 2px; padding: 6px 8px; border-radius: 7px; background: var(--dsw-alias-bg-base); }
+.dsh-tavern-mvu-change-path { color: #a66b35; font-family: ui-monospace,SFMono-Regular,Menlo,monospace; overflow-wrap: anywhere; }
+.dsh-tavern-mvu-change-values { overflow-wrap: anywhere; }
+.dsh-tavern-mvu-failure { color: #d96767; overflow-wrap: anywhere; }
 .dsh-tavern-message-frame { display: block; width: 100%; min-height: 48px; border: 0; background: transparent; overflow: hidden; }
 .dsh-tavern-user-row { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
 .dsh-tavern-user-stack { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; min-width: 0; max-width: min(525px, 82%); }
@@ -2041,6 +2055,43 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			return null;
 		}
 
+		function tavernMvuReceiptForTurn(view, turn) {
+			const receipts = view && Array.isArray(view.mvuReceipts) ? view.mvuReceipts : [];
+			for (let index = receipts.length - 1; index >= 0; index -= 1) {
+				if (Number(receipts[index] && receipts[index].turn) === Number(turn)) return receipts[index].receipt || null;
+			}
+			return null;
+		}
+
+		function TavernMvuReceipt(props) {
+			const h = React.createElement;
+			const receipt = props.receipt || {};
+			const changes = Array.isArray(receipt.changes) ? receipt.changes : [];
+			const failures = Array.isArray(receipt.failures) ? receipt.failures : [];
+			const status = ["updated", "partial", "error", "unchanged"].includes(receipt.status) ? receipt.status : "unchanged";
+			const labels = {
+				updated: changes.length > 0 ? "变量已更新 · " + changes.length + " 项" : "变量已更新 · 旧记录无明细",
+				partial: "变量部分更新 · " + changes.length + " 项成功 · " + failures.length + " 项失败",
+				error: "变量更新失败 · " + failures.length + " 项",
+				unchanged: "本轮变量未更新"
+			};
+			const operationLabels = { set: "设置", add: "增减", insert: "新增", delete: "删除", move: "移动" };
+			const summary = h("div", { className: "dsh-tavern-mvu-receipt-summary" }, h("span", { className: "dsh-tavern-mvu-receipt-dot" }), h("span", null, labels[status]));
+			const hasDetails = String(receipt.summary || "") !== "" || changes.length > 0 || failures.length > 0;
+			if (!hasDetails) return h("div", { className: "dsh-tavern-mvu-receipt", "data-status": status }, summary);
+			return h("details", { className: "dsh-tavern-mvu-receipt", "data-status": status },
+				h("summary", { className: "dsh-tavern-mvu-receipt-summary" }, h("span", { className: "dsh-tavern-mvu-receipt-dot" }), h("span", null, labels[status])),
+				h("div", { className: "dsh-tavern-mvu-receipt-body" },
+					receipt.summary ? h("div", { className: "dsh-tavern-mvu-receipt-reason" }, "原因：" + String(receipt.summary)) : null,
+					changes.map(function (change, index) { return h("div", { key: "change:" + index, className: "dsh-tavern-mvu-change" },
+						h("div", { className: "dsh-tavern-mvu-change-path" }, (operationLabels[change.operation] || "更新") + " " + String(change.path || "/")),
+						h("div", { className: "dsh-tavern-mvu-change-values" }, String(change.before) + " → " + String(change.after))
+					); }),
+					failures.map(function (failure, index) { return h("div", { key: "failure:" + index, className: "dsh-tavern-mvu-failure" }, "失败：" + String(failure.message || "未知错误")); })
+				)
+			);
+		}
+
 		function projectionPartsOf(projection) {
 			if (!projection) return [];
 			if (Array.isArray(projection.parts)) return projection.parts.filter(function (part) {
@@ -2183,6 +2234,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					if (!sessionTransitioning && liveState.view) syncTavernHelperScripts(props.sessionId, liveState.view);
 				}, [props.sessionId, liveState.view, sessionTransitioning]);
 				const projection = settled ? tavernProjectionForTurn(liveState.view, turn) : null;
+				const mvuReceipt = settled ? tavernMvuReceiptForTurn(liveState.view, turn) : null;
 				const swipe = liveState.view && Array.isArray(liveState.view.tavernSwipes) ? liveState.view.tavernSwipes.find(function (item) { return Number(item.turn) === turn; }) : null;
 				async function switchSwipe(nextSwipeId) {
 					if (!swipe || swipeBusy || nextSwipeId < 0 || nextSwipeId >= swipe.count || nextSwipeId === swipe.swipeId) return;
@@ -2219,7 +2271,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					React.createElement("span", null, String(swipe.swipeId + 1) + " / " + String(swipe.count)),
 					React.createElement("button", { type: "button", disabled: swipeBusy || swipe.swipeId >= swipe.count - 1, "aria-label": "下一个 Swipe", onClick: function () { switchSwipe(swipe.swipeId + 1); } }, "›")
 				) : null;
-				return React.createElement("div", { className: "dsh-tavern-assistant", "data-streaming": data.status === "running" || undefined }, rendered, swipeControls);
+				const mvuReceiptNode = mvuReceipt ? React.createElement(TavernMvuReceipt, { receipt: mvuReceipt }) : null;
+				return React.createElement("div", { className: "dsh-tavern-assistant", "data-streaming": data.status === "running" || undefined }, rendered, mvuReceiptNode, swipeControls);
 			}
 			function register(input) {
 				input.ctx.effect(function () {
@@ -5059,6 +5112,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		exports.createTavernHelperScriptRuntime = createTavernHelperScriptRuntime;
 		exports.clampTavernFrameHeight = clampTavernFrameHeight;
 		exports.projectionPartsOf = projectionPartsOf;
+		exports.tavernMvuReceiptForTurn = tavernMvuReceiptForTurn;
 		exports.tavernUserTextForTurn = tavernUserTextForTurn;
 		exports.createWorldBookLibraryRefreshModule = createWorldBookLibraryRefreshModule;
 		exports.createCardLibraryRefreshModule = createCardLibraryRefreshModule;

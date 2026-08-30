@@ -413,6 +413,13 @@ test('MVU 在显示正则前结算，并把用户与助手状态保存到各自 
   assert.equal(user.variables[0].stat_data.体力, 10)
   assert.equal(assistant.variables[0].stat_data.体力, 9)
   assert.equal(assistant.swipes[0], '正文\n_.add("体力", -1);\n\n<StatusPlaceHolderImpl/>')
+  assert.deepEqual(assistant.mvu.receipt, {
+    version: 1,
+    status: 'updated',
+    summary: '',
+    changes: [{ operation: 'add', path: '/体力', before: '10', after: '9' }],
+    failures: []
+  })
   assert.equal(assistant.sourceText, '正文\n_.add("体力", -1);', '原始模型输出保持不变')
   assert.match(assistant.displayText, /<aside>状态栏<\/aside>/)
   assert.doesNotMatch(saved.reply.sessionText, /<aside>/)

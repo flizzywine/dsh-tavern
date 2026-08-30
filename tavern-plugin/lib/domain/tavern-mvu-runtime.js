@@ -31,6 +31,35 @@ function same(left, right) {
   return JSON.stringify(left) === JSON.stringify(right)
 }
 
+function analysisSummary(source) {
+  const match = str(source).match(/<analysis>([\s\S]*?)<\/analysis>/i)
+  return match ? match[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 300) : ''
+}
+
+function pointerPath(segments) {
+  const path = Array.isArray(segments) ? segments : []
+  return '/' + path.map(function (item) { return str(item).replaceAll('~', '~0').replaceAll('/', '~1') }).join('/')
+}
+
+function receiptValue(value) {
+  if (value === undefined) return '不存在'
+  if (typeof value === 'string') return value.length > 240 ? value.slice(0, 240) + '…' : value
+  const serialized = JSON.stringify(value)
+  if (serialized === undefined) return str(value)
+  return serialized.length > 240 ? serialized.slice(0, 240) + '…' : serialized
+}
+
+function updateReceipt(source, commands, changes, diagnostics) {
+  const failures = diagnostics.map(function (item) {
+    return { command: str(item.command), message: str(item.message) }
+  })
+  const summary = analysisSummary(source) || commands.map(function (command) {
+    return command.reason === 'json_patch' ? '' : str(command.reason).trim()
+  }).filter(Boolean).join('；').slice(0, 300)
+  const status = failures.length > 0 ? (changes.length > 0 ? 'partial' : 'error') : (changes.length > 0 ? 'updated' : 'unchanged')
+  return { version: 1, status, summary, changes, failures }
+}
+
 function mergeInto(target, source) {
   if (source === null || typeof source !== 'object' || Array.isArray(source)) return target
   for (const [key, value] of Object.entries(source)) {
@@ -341,16 +370,33 @@ function applyCommand(statData, command) {
     const value = parseValue(command.args.at(-1))
     if (collection === null || typeof collection !== 'object') throw new Error('insert 目标不是集合')
     const before = clone(collection)
+    let receiptPath = path
+    let receiptBefore = before
+    let receiptAfter
     if (Array.isArray(collection)) {
       if (command.args.length >= 3) {
         const index = key === '-' || Number(key) === -1 ? collection.length : Number(key)
         if (!Number.isInteger(index)) throw new Error('insert 数组索引无效')
+        receiptPath = path.concat(index)
+        receiptBefore = undefined
         collection.splice(index, 0, clone(value))
-      } else collection.push(clone(value))
-    } else if (command.args.length >= 3) collection[String(key)] = clone(value)
+        receiptAfter = clone(collection[index])
+      } else {
+        receiptPath = path.concat(collection.length)
+        receiptBefore = undefined
+        collection.push(clone(value))
+        receiptAfter = clone(collection.at(-1))
+      }
+    } else if (command.args.length >= 3) {
+      receiptPath = path.concat(String(key))
+      receiptBefore = clone(collection[String(key)])
+      collection[String(key)] = clone(value)
+      receiptAfter = clone(collection[String(key)])
+    }
     else if (value !== null && typeof value === 'object' && !Array.isArray(value)) Object.assign(collection, clone(value))
     else throw new Error('insert 对象合并值无效')
-    return { statData, before, after: clone(collection), displayPath: path }
+    if (receiptAfter === undefined && command.args.length < 3) receiptAfter = clone(collection)
+    return { statData, before, after: clone(collection), displayPath: path, receiptPath, receiptBefore, receiptAfter }
   }
   if (command.type === 'delete') {
     const jsonPatch = command.reason === 'json_patch'
@@ -411,11 +457,15 @@ async function emitEvent(emit, events, name, ...args) {
 
 async function updateVariables(sourceText, previous, emit) {
   const variables = clone(previous && typeof previous === 'object' ? previous : emptyVariables())
-  if (!variables.stat_data || typeof variables.stat_data !== 'object') return { variables, modified: false, commands: [], diagnostics: [], events: [] }
+  if (!variables.stat_data || typeof variables.stat_data !== 'object') {
+    const diagnostics = [{ message: 'MVU stat_data 不存在' }]
+    return { variables, modified: false, commands: [], diagnostics, events: [], receipt: updateReceipt(sourceText, [], [], diagnostics) }
+  }
   const before = clone(variables)
   const commands = extractMvuCommands(sourceText)
   const diagnostics = []
   const events = []
+  const changes = []
   const displayData = clone(variables.stat_data)
   const deltaData = {}
   await emitEvent(emit, events, MVU_EVENTS.updateStarted, variables)
@@ -444,6 +494,14 @@ async function updateVariables(sourceText, previous, emit) {
       else setAt(displayData, displayPath, display)
       if (displayPath.length === 0) Object.assign(deltaData, { $root: display })
       else setAt(deltaData, displayPath, display)
+      const receiptBefore = Object.prototype.hasOwnProperty.call(result, 'receiptBefore') ? result.receiptBefore : result.before
+      const receiptAfter = Object.prototype.hasOwnProperty.call(result, 'receiptAfter') ? result.receiptAfter : result.after
+      if (!same(receiptBefore, receiptAfter)) changes.push({
+        operation: command.type,
+        path: pointerPath(result.receiptPath || displayPath),
+        before: receiptValue(receiptBefore),
+        after: receiptValue(receiptAfter)
+      })
     } catch (error) {
       diagnostics.push({ command: command.fullMatch, message: error instanceof Error ? error.message : String(error) })
     }
@@ -453,7 +511,7 @@ async function updateVariables(sourceText, previous, emit) {
   await emitEvent(emit, events, MVU_EVENTS.updateEnded, variables, before)
   const modified = !same(variables.stat_data, before.stat_data)
   await emitEvent(emit, events, MVU_EVENTS.updateEndedForZod, variables, before)
-  return { variables, modified, commands, diagnostics, events }
+  return { variables, modified, commands, diagnostics, events, receipt: updateReceipt(sourceText, commands, changes, diagnostics) }
 }
 
 function initBlocks(source, macroContext) {

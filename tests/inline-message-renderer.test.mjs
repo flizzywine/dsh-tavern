@@ -559,3 +559,13 @@ test('用户气泡优先展示持久化原始输入，不展示 promptOnly 的 S
   assert.equal(client.tavernUserTextForTurn({ inputSources: { 2: '原始输入' } }, 2, sessionContent), '原始输入')
   assert.equal(client.tavernUserTextForTurn({}, 2, sessionContent), '<interactive_input>\n原始输入\n</interactive_input>')
 })
+
+test('变量更新回执按正文轮次定位，避免展示到错误消息下方', () => {
+  const first = { status: 'unchanged', changes: [], failures: [] }
+  const second = { status: 'updated', changes: [{ path: '/体力' }], failures: [] }
+  const view = { mvuReceipts: [{ turn: 2, receipt: first }, { turn: 3, receipt: second }] }
+
+  assert.equal(client.tavernMvuReceiptForTurn(view, 2), first)
+  assert.equal(client.tavernMvuReceiptForTurn(view, 3), second)
+  assert.equal(client.tavernMvuReceiptForTurn(view, 4), null)
+})

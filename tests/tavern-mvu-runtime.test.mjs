@@ -52,6 +52,37 @@ test('MVU 执行标准 JSON Patch 别名、JSON Pointer 转义和数组操作', 
   assert.deepEqual(before.stat_data.角色.储物, ['剑'], '上一楼层快照不得被修改')
 })
 
+test('MVU 为前端生成基于实际执行结果的变量更新回执', async () => {
+  const runtime = createTavernMvuRuntime()
+  const result = await runtime.settleResponse({
+    previousVariables: variables({ 本尊: { 修为: 100, 背包: {} } }),
+    sourceText: `<UpdateVariable>
+<Analysis>本轮炼化丹药，修为增加，并将青玉丹收入背包。</Analysis>
+<JSONPatch>[
+  {"op":"delta","path":"/本尊/修为","value":18},
+  {"op":"insert","path":"/本尊/背包/青玉丹","value":{"名称":"青玉丹","数量":1}},
+  {"op":"replace","path":"/不存在","value":1}
+]</JSONPatch>
+</UpdateVariable>`
+  })
+
+  assert.equal(result.receipt.status, 'partial')
+  assert.equal(result.receipt.summary, '本轮炼化丹药，修为增加，并将青玉丹收入背包。')
+  assert.deepEqual(result.receipt.changes, [
+    { operation: 'add', path: '/本尊/修为', before: '100', after: '118' },
+    { operation: 'insert', path: '/本尊/背包/青玉丹', before: '不存在', after: '{"名称":"青玉丹","数量":1}' }
+  ])
+  assert.equal(result.receipt.failures.length, 1)
+  assert.match(result.receipt.failures[0].message, /路径不存在/)
+})
+
+test('MVU 没有更新命令时仍生成无变化回执', async () => {
+  const runtime = createTavernMvuRuntime()
+  const result = await runtime.settleResponse({ previousVariables: variables({ 体力: 10 }), sourceText: '只是继续交谈。' })
+
+  assert.deepEqual(result.receipt, { version: 1, status: 'unchanged', summary: '', changes: [], failures: [] })
+})
+
 test('MVU 兼容 set、insert、remove、add 并隔离单条失败命令', async () => {
   const runtime = createTavernMvuRuntime()
   const result = await runtime.settleResponse({

@@ -451,7 +451,14 @@ export function createTurnOrchestrator(options) {
             variables: clone(previousMvuVariables),
             modified: false,
             diagnostics: [{ message: error instanceof Error ? error.message : String(error) }],
-            events: []
+            events: [],
+            receipt: {
+              version: 1,
+              status: 'error',
+              summary: '',
+              changes: [],
+              failures: [{ command: '', message: error instanceof Error ? error.message : String(error) }]
+            }
           }
         }
       }
@@ -581,7 +588,14 @@ export function createTurnOrchestrator(options) {
           mvu: {
             modified: mvuSettlement.modified === true,
             diagnostics: clone(Array.isArray(mvuSettlement.diagnostics) ? mvuSettlement.diagnostics : []),
-            events: clone(Array.isArray(mvuSettlement.events) ? mvuSettlement.events : [])
+            events: clone(Array.isArray(mvuSettlement.events) ? mvuSettlement.events : []),
+            receipt: clone(mvuSettlement.receipt || {
+              version: 1,
+              status: mvuSettlement.modified === true ? 'updated' : 'unchanged',
+              summary: '',
+              changes: [],
+              failures: []
+            })
           }
         })
         draft.messages.push(assistantMessage)
