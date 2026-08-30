@@ -43,6 +43,20 @@ test('旧版整条 HTML 投影仍可只读回放', () => {
   assert.equal(parts[0].content, '<p>旧界面</p>')
 })
 
+test('空白展示 part 不创建消息 iframe', () => {
+  const parts = client.projectionPartsOf({
+    version: 2,
+    mode: 'rich',
+    parts: [
+      { kind: 'html', content: '   \n' },
+      { kind: 'markdown', text: '' },
+      { kind: 'html', content: '<p>有效内容</p>' }
+    ]
+  })
+  assert.equal(parts.length, 1)
+  assert.equal(parts[0].content, '<p>有效内容</p>')
+})
+
 test('消息 iframe 将可信远程资源转入持久缓存，同时保留不透明来源隔离和受控高度协议', () => {
   const document = client.buildTavernFrameDocument({
     content: '<p>正文</p><style>p{color:red}</style><script src="https://cdn.jsdelivr.net/example.js"></script>',
@@ -111,6 +125,16 @@ test('消息 iframe 在实际读取 MVU 数据时标记自身为 MVU View', () =
   assert.match(document, /__dshTavernMvuViewUsed/)
   assert.match(document, /dsh-tavern-mvu-view-used/)
   assert.match(document, /mvuViewUsed/)
+  assert.match(document, /dsh-tavern-helper-context/)
+  assert.match(document, /VARIABLE_UPDATE_ENDED/)
+})
+
+test('消息 iframe 只在首次加载或错误诊断时采集 DOM，不监听普通 DOM mutation', () => {
+  const document = client.buildTavernFrameDocument({ content: '<div>状态栏</div>', token: 'diagnostic-token' })
+  const runtimeReporter = document.match(/<script data-dsh-tavern-frame>\(function\(\)\{var token=[\s\S]*?<\/script>/)?.[0] || ''
+  assert.match(runtimeReporter, /document\.body\.cloneNode\(true\)/)
+  assert.match(runtimeReporter, /addEventListener\("load",schedule\)/)
+  assert.doesNotMatch(runtimeReporter, /new MutationObserver\(schedule\)/)
 })
 
 test('普通正则 HTML iframe 加载锁定版本的 SillyTavern CSS 兼容包', () => {
