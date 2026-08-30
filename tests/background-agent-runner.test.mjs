@@ -2,6 +2,75 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { createBackgroundAgentRunner, executeBackgroundCompaction, maximumBackgroundTokens } from '../tavern-plugin/lib/background-agent-runner.js'
+import { createContextPlanner } from '../tavern-plugin/lib/domain/context-planner.js'
+
+test('候选连续输入不累计固定背景，逐轮指令保留且卡片修改、恢复后读取最新背景', async () => {
+  const packets = []
+  const events = []
+  const planner = createContextPlanner({ prompt: () => '' })
+  const card = { name: '测试人物', description: '固定背景A', personality: '固定性格', scenario: '固定场景', mes_example: '固定示例', system_prompt: '每轮系统要求', post_history_instructions: '每轮末尾要求' }
+  let creates = 0
+  let resumes = 0
+  async function open(options) {
+    const variables = new Map()
+    const sections = []
+    await options.setup({
+      systemPrompt: { variable(name, value) { variables.set(name, value) }, section(value) { sections.push(value) }, suppressRuntimeContext() {} },
+      tools: { restrict() {}, register() {} }, on() {}
+    })
+    return {
+      agent: {
+        session: { events },
+        followup(message) {
+          const system = sections.map(section => section.text.replace(/\{\{([^}]+)\}\}/g, (_, name) => variables.get(name)())).join('\n')
+          packets.push({ system, text: message.content[0].text })
+          events.push({ type: 'assistant/message', data: { message: { content: [{ type: 'text', text: '{"choices":[]}' }] } } })
+        }, async whenIdle() {}
+      }, async dispose() {}
+    }
+  }
+  const agents = {
+    get: () => ({ id: 'parent', session: { header: {} } }),
+    async create(options) { creates++; return open(options) },
+    async resume(options) { resumes++; return open(options) }
+  }
+  let runner = createBackgroundAgentRunner({ agents, id: () => 'background' })
+  async function candidate(persistentSessionId = '') {
+    const context = await planner.plan({ purpose: 'candidate', card, chat: { guides: [{ text: '最新Guide' }], posture: '最新姿势' }, task: '候选JSON规则' })
+    return runner.run({ sessionId: 'parent', persistent: true, persistentSessionId, task: 'candidate', selection: { provider: 'test', model: 'fake' },
+      system: context.taskText, backgroundContext: context.stableText, turnContext: context.dynamicText,
+      systemPromptText: context.systemPromptText, postHistoryText: context.postHistoryText,
+      messages: [{ role: 'assistant', content: [{ type: 'text', text: '最新正文' }] }, { role: 'user', content: [{ type: 'text', text: '本轮候选意见' }] }]
+    })
+  }
+  await candidate()
+  await candidate('background')
+  card.description = '固定背景B'
+  card.post_history_instructions = '修改后的末尾要求'
+  await candidate('background')
+  await runner.dispose()
+  runner = createBackgroundAgentRunner({ agents })
+  await candidate('background')
+  assert.equal(creates, 1)
+  assert.equal(resumes, 1)
+  for (const [index, packet] of packets.entries()) {
+    const background = index < 2 ? '固定背景A' : '固定背景B'
+    assert.equal(packet.system.split(background).length - 1, 1)
+    assert.ok(packet.system.startsWith('【故事设定 · 人物卡】'))
+    assert.doesNotMatch(packet.system, /每轮系统要求|每轮末尾要求|修改后的末尾要求|最新Guide|最新姿势/)
+    assert.doesNotMatch(packet.text, /固定背景|固定性格|固定场景|固定示例/)
+    assert.equal(packet.text.split('每轮系统要求').length - 1, 1)
+    assert.match(packet.text, /最新正文/)
+    assert.match(packet.text, /最新Guide/)
+    assert.match(packet.text, /最新姿势/)
+    assert.match(packet.text, /本轮候选意见/)
+    assert.ok(packet.text.endsWith(index < 2 ? '每轮末尾要求' : '修改后的末尾要求'))
+  }
+  assert.doesNotMatch(packets[2].system, /固定背景A/)
+  await runner.run({ sessionId: 'parent', persistent: true, persistentSessionId: 'background', task: 'settlement', selection: { provider: 'test', model: 'fake' }, system: '结算规则', messages: [], backgroundContext: '不应带入的候选背景', systemPromptText: '不应带入的系统要求', postHistoryText: '不应带入的末尾要求' })
+  assert.doesNotMatch(JSON.stringify(packets.at(-1)), /不应带入|固定背景B|每轮系统要求/)
+  await runner.dispose()
+})
 
 test('DeepSeek V4 后台任务采用官方最大输出，其他模型交给适配器', () => {
   assert.equal(maximumBackgroundTokens({ provider: 'deepseek-official', model: 'deepseek-v4-flash' }), 384000)

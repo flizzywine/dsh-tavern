@@ -11,8 +11,11 @@ function messageText(message) {
   return blocks.filter(function (block) { return block && block.type === 'text' }).map(function (block) { return str(block.text) }).join('')
 }
 
-function backgroundPrompt(messages, turnContext, task, taskProtocol) {
+function backgroundPrompt(messages, turnContext, task, taskProtocol, input = {}) {
   const sections = []
+  if (task === 'candidate' && str(input.systemPromptText).trim()) {
+    sections.push('【人物卡系统提示】\n' + str(input.systemPromptText).trim())
+  }
   const authoritative = str(turnContext).trim()
   if (authoritative !== '') {
     sections.push('【本轮权威状态】\n以下内容是当前最新状态；若与后台会话中的旧游标、姿势或指导冲突，以本节为准。\n' + authoritative)
@@ -25,6 +28,9 @@ function backgroundPrompt(messages, turnContext, task, taskProtocol) {
   sections.push('【最近剧情与本次任务】\n任务类型：' + taskName + '\n' + recent)
   const protocol = str(taskProtocol).trim()
   if (protocol !== '') sections.push('【DSH 后台任务协议（最终指令）】\n' + protocol)
+  if (task === 'candidate' && str(input.postHistoryText).trim()) {
+    sections.push('【人物卡历史后指令】\n' + str(input.postHistoryText).trim())
+  }
   return sections.join('\n\n')
 }
 
@@ -151,7 +157,7 @@ export function createBackgroundAgentRunner(options) {
   }
 
   function setupFor(state, descriptor, appendDescriptor) {
-    const backgroundPersona = '你是与前台正文生成隔离的酒馆后台 Agent。你会在同一个剧情分支中依次承担状态结算与候选生成；严格按本轮任务输出，不得把某类任务的输出格式混入另一类任务。最新权威状态优先于 Session 中的旧动态状态。\n\n【本轮任务规则】\n{{tavern_background_task}}'
+    const backgroundPersona = '{{tavern_background_context}}你是与前台正文生成隔离的酒馆后台 Agent。你会在同一个剧情分支中依次承担状态结算与候选生成；严格按本轮任务输出，不得把某类任务的输出格式混入另一类任务。最新权威状态优先于 Session 中的旧动态状态。\n\n【本轮任务规则】\n{{tavern_background_task}}'
     let descriptorAppended = !appendDescriptor
     return async function (childCtx) {
       if (setupAgent !== null) await setupAgent(childCtx)
@@ -177,6 +183,11 @@ export function createBackgroundAgentRunner(options) {
         })
       })
       childCtx.systemPrompt.variable('tavern_background_task', function () { return str(state.input && state.input.system) })
+      childCtx.systemPrompt.variable('tavern_background_context', function () {
+        const input = state.input || {}
+        const context = input.task === 'candidate' ? str(input.backgroundContext).trim() : ''
+        return context ? context + '\n\n' : ''
+      })
       childCtx.systemPrompt.section({
         name: 'deployment:persona',
         order: 0,
@@ -301,7 +312,7 @@ export function createBackgroundAgentRunner(options) {
       handle.agent.followup({
         id: randomUUID(),
         role: 'user',
-        content: [{ type: 'text', text: backgroundPrompt(input.messages, input.turnContext, input.task, input.system) }],
+        content: [{ type: 'text', text: backgroundPrompt(input.messages, input.turnContext, input.task, input.system, input) }],
         source: { kind: 'plugin', plugin: 'dsh-tavern' }
       })
       await handle.agent.whenIdle()
