@@ -942,6 +942,60 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			};
 		}
 
+		function createSessionListRecoveryModule(options) {
+			for (const method of ["summary", "binding", "refresh", "open"]) {
+				if (!options || typeof options[method] !== "function") throw new Error("Session List Recovery 缺少 " + method + " adapter");
+			}
+			const now = typeof options.now === "function" ? options.now : Date.now;
+			const sleep = typeof options.sleep === "function" ? options.sleep : function (ms) { return new Promise(function (resolve) { window.setTimeout(resolve, ms); }); };
+			const timeoutMs = Math.max(100, Number(options.timeoutMs || 8000));
+			const retryDelays = Array.isArray(options.retryDelays) && options.retryDelays.length ? options.retryDelays : [0, 150, 350, 700, 1200, 1800, 2500];
+			const isUnknownSession = typeof options.isUnknownSession === "function" ? options.isUnknownSession : function (error) {
+				return /sessions\.select: unknown session/i.test(String(error && error.message || error || ""));
+			};
+			const active = new Map();
+
+			function ready(sessionId) {
+				return Boolean(options.summary(sessionId) && options.binding(sessionId));
+			}
+
+			async function synchronize(sessionId) {
+				const expiresAt = now() + timeoutMs;
+				let attempt = 0;
+				while (!ready(sessionId) && now() < expiresAt) {
+					try { await options.refresh(); }
+					catch (error) {
+						// An aborted or temporarily failed list request is recoverable here. The
+						// deadline still bounds retries when the DSH service is genuinely down.
+					}
+					if (ready(sessionId)) return;
+					const remaining = expiresAt - now();
+					if (remaining <= 0) break;
+					const delay = Math.max(0, Number(retryDelays[Math.min(attempt, retryDelays.length - 1)]) || 0);
+					attempt += 1;
+					await sleep(Math.min(delay, remaining));
+				}
+				if (!ready(sessionId)) throw new Error("DSH Session 列表同步超时，请刷新页面后重试：" + sessionId);
+			}
+
+			function wait(sessionId) {
+				if (ready(sessionId)) return Promise.resolve();
+				if (active.has(sessionId)) return active.get(sessionId);
+				const task = synchronize(sessionId).finally(function () { active.delete(sessionId); });
+				active.set(sessionId, task);
+				return task;
+			}
+
+			async function open(sessionId) {
+				try { options.open(sessionId); return; }
+				catch (error) { if (!isUnknownSession(error)) throw error; }
+				await wait(sessionId);
+				options.open(sessionId);
+			}
+
+			return Object.freeze({ ready: ready, wait: wait, open: open });
+		}
+
 		function createConversationLifecycleModule(options) {
 			for (const method of ["archiveCurrent", "resolveWorkspace", "connectWorkspace", "waitForSession", "ensurePreset", "createChat", "rememberPending", "finishOpen"]) {
 				if (!options || typeof options[method] !== "function") throw new Error("Conversation Lifecycle 缺少 " + method + " adapter");
@@ -2507,6 +2561,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const playWorkspaceIdRef = React.useRef(workspaceId);
 			const playWorkspaceResolverRef = React.useRef(null);
 			const playPrewarmRef = React.useRef(null);
+			const sessionListRecoveryRef = React.useRef(null);
 			playWorkspaceIdRef.current = workspaceId;
 			if (playWorkspaceResolverRef.current === null) {
 				playWorkspaceResolverRef.current = createPlayWorkspaceResolver({
@@ -2531,9 +2586,24 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					}
 				});
 			}
+			if (sessionListRecoveryRef.current === null) {
+				sessionListRecoveryRef.current = createSessionListRecoveryModule({
+					summary: function (sessionId) { return props.sessions.list.getSnapshot().byId[sessionId]; },
+					binding: function (sessionId) { return props.sessions.binding(sessionId); },
+					refresh: function () { return typeof props.sessions.refresh === "function" ? props.sessions.refresh() : Promise.resolve(); },
+					open: function (sessionId) { props.sessions.open(sessionId); },
+					isUnknownSession: isUnknownSessionSelectError
+				});
+			}
 			const currentSummary = current ? summaries[current] : null;
 			const readyTavernSession = current && summaries[current] && summaries[current].blank === false && history.some(function (entry) { return entry.sessionId === current && isPlayMode(entry.mode); }) ? current : "";
 			const readyCardSession = current && summaries[current] && summaries[current].blank === false && history.some(function (entry) { return entry.sessionId === current && entry.mode === "card"; }) ? current : "";
+			React.useEffect(function () {
+				if (!current || !summaries[current] || !props.sessions.binding(current)) return;
+				const latest = tavernErrorHub.getSnapshot()[0];
+				if (!latest || latest.source !== "左侧栏操作") return;
+				if (latest.message === "DSH Session 列表同步超时，请刷新页面后重试：" + current) setError("");
+			}, [current, summaries]);
 			function call(method, args) { return rpc(method, args); }
 			function isMissingUpdateApiError(error) {
 				return String(error && error.message || error || "").indexOf("未知方法: getUpdateStatus") >= 0;
@@ -2733,23 +2803,14 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				catch (archiveError) { if (!isMissingSessionArchiveError(archiveError)) throw archiveError; }
 			}
 			async function waitForSessionSummary(sessionId) {
-				const expiresAt = Date.now() + 8000;
-				while (!props.sessions.list.getSnapshot().byId[sessionId] || !props.sessions.binding(sessionId)) {
-					if (Date.now() >= expiresAt) throw new Error("DSH Session 列表同步超时，请刷新页面后重试：" + sessionId);
-					await new Promise(function (resolve) { window.setTimeout(resolve, 50); });
-				}
+				await sessionListRecoveryRef.current.wait(sessionId);
 			}
 			function isUnknownSessionSelectError(error) {
 				return /sessions\.select: unknown session/i.test(String(error && error.message || error || ""));
 			}
 			async function openSessionWhenReady(sessionId) {
-				try { props.sessions.open(sessionId); }
-				catch (error) {
-					if (!isUnknownSessionSelectError(error)) throw error;
-					if (typeof props.sessions.refresh === "function") await props.sessions.refresh();
-					await waitForSessionSummary(sessionId);
-					props.sessions.open(sessionId);
-				}
+				await sessionListRecoveryRef.current.open(sessionId);
+				setError("");
 			}
 			async function finishPendingOpen(pending) {
 				await openSessionWhenReady(pending.sessionId);
@@ -5353,6 +5414,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		exports.createTavernCoordinationEventModule = createTavernCoordinationEventModule;
 		exports.describeTavernActivity = describeTavernActivity;
 		exports.createPlayWorkspaceResolver = createPlayWorkspaceResolver;
+		exports.createSessionListRecoveryModule = createSessionListRecoveryModule;
 		exports.createConversationLifecycleModule = createConversationLifecycleModule;
 		exports.createConversationPrewarmModule = createConversationPrewarmModule;
 		exports.createResourcesLibraryFeatureModule = createResourcesLibraryFeatureModule;

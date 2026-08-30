@@ -77,12 +77,13 @@ test('新建对话按会话类型选择 preset 以恢复被复用的冷 Session 
 test('新建游玩和卡片对话等待前端 Session 列表就绪后再继续', () => {
 	const sidebar = between(clientSource, 'function TavernSidebar', 'function TavernResourcesTab')
 	const waitFlow = between(sidebar, 'async function waitForSessionSummary', 'function isUnknownSessionSelectError')
+	const recovery = between(clientSource, 'function createSessionListRecoveryModule', 'function createConversationLifecycleModule')
 	const lifecycle = between(sidebar, 'const conversationLifecycle = createConversationLifecycleModule', 'async function retryPendingOpen')
 	const playFlow = between(sidebar, 'async function newConversation', 'async function importCard')
 	const cardFlow = between(sidebar, 'async function newCardConversation', 'function formatTime')
 
-  assert.match(waitFlow, /props\.sessions\.list\.getSnapshot\(\)\.byId\[sessionId\]/)
-  assert.match(waitFlow, /DSH Session 列表同步超时/)
+	assert.match(waitFlow, /sessionListRecoveryRef\.current\.wait\(sessionId\)/)
+	assert.match(recovery, /DSH Session 列表同步超时/)
 	assert.match(lifecycle, /waitForSession: waitForSessionSummary/)
 	assert.match(playFlow, /conversationLifecycle\.start/)
 	assert.match(cardFlow, /conversationLifecycle\.start/)
@@ -90,17 +91,19 @@ test('新建游玩和卡片对话等待前端 Session 列表就绪后再继续',
 
 test('已创建 Session 在前端列表短暂不同步时刷新并重连同一个 Session', () => {
   const sidebar = between(clientSource, 'function TavernSidebar', 'function TavernResourcesTab')
-  const waitFlow = between(sidebar, 'async function waitForSessionSummary', 'function isUnknownSessionSelectError')
   const openFlow = between(sidebar, 'async function openSessionWhenReady', 'async function finishPendingOpen')
+  const recovery = between(clientSource, 'function createSessionListRecoveryModule', 'function createConversationLifecycleModule')
 
-  assert.match(waitFlow, /props\.sessions\.binding\(sessionId\)/)
-  assert.match(openFlow, /typeof props\.sessions\.refresh === "function"/)
-  assert.match(openFlow, /isUnknownSessionSelectError\(error\)/)
-  assert.match(openFlow, /await waitForSessionSummary\(sessionId\)/)
-  assert.match(openFlow, /props\.sessions\.open\(sessionId\)/)
-  const normalPath = openFlow.slice(0, openFlow.indexOf('catch (error)'))
-  assert.doesNotMatch(normalPath, /sessions\.refresh|waitForSessionSummary/)
-  assert.doesNotMatch(openFlow, /connectWorkspace|startChat/)
+  assert.match(recovery, /options\.summary\(sessionId\) && options\.binding\(sessionId\)/)
+  assert.match(recovery, /await options\.refresh\(\)/)
+  assert.match(recovery, /active\.has\(sessionId\)/)
+  assert.match(recovery, /if \(!isUnknownSession\(error\)\) throw error/)
+  assert.match(openFlow, /sessionListRecoveryRef\.current\.open\(sessionId\)/)
+  assert.match(openFlow, /setError\(""\)/)
+  const moduleOpen = between(recovery, 'async function open(sessionId)', 'return Object.freeze')
+  const normalPath = moduleOpen.slice(0, moduleOpen.indexOf('catch (error)'))
+  assert.doesNotMatch(normalPath, /refresh|wait/)
+  assert.doesNotMatch(recovery, /connectWorkspace|startChat/)
 })
 
 test('游玩中可修改玩家称呼，Tavern 不接管正文发送状态', () => {
@@ -219,6 +222,8 @@ test('Tavern 错误面板只保留最新错误，左侧栏连接恢复后撤销�
   assert.match(sidebar, /if \(collapsed\) return h\(React\.Fragment, null,\s*h\(TavernErrorCenter\)/)
   assert.match(sidebar, /return h\(React\.Fragment, null, h\(TavernErrorCenter\)/)
   assert.match(clientSource, /usePersistentError\("左侧栏操作"\)/)
+  assert.match(sidebar, /latest\.message === "DSH Session 列表同步超时，请刷新页面后重试：" \+ current/)
+  assert.match(sidebar, /latest\.source !== "左侧栏操作"/)
   assert.match(sidebar, /tavernErrorHub\.resolve\("左侧栏"\)/)
   assert.match(sidebar, /tavernErrorHub\.report\("左侧栏", err\)/)
   assert.match(clientSource, /usePersistentError\("剧本库"\)/)
