@@ -7,7 +7,9 @@ import { createStoryTimeline } from '../tavern-plugin/lib/domain/story-timeline.
 import { renderTavernMacros } from '../tavern-plugin/lib/domain/tavern-macro-engine.js'
 import { projectReplyPresentation } from '../tavern-plugin/lib/domain/reply-presentation.js'
 import { createTurnOrchestrator } from '../tavern-plugin/lib/domain/turn-orchestration.js'
-import { createForegroundFrameBuilder } from '../tavern-plugin/lib/domain/agent-input-frame.js'
+import { createForegroundFrameBuilder, foregroundFrameText } from '../tavern-plugin/lib/domain/agent-input-frame.js'
+import { createContextPlanner } from '../tavern-plugin/lib/domain/context-planner.js'
+import { createForegroundFrameSessionAdapter } from '../tavern-plugin/lib/domain/foreground-frame-session-adapter.js'
 
 function clone(value) {
   return value === undefined ? undefined : structuredClone(value)
@@ -26,7 +28,7 @@ function script() {
 function harness(mode, options = {}) {
   const cards = createCardPreparation({ id: () => 'card-1', now: () => 1000 })
   const scripts = createScriptContinuity()
-  let cardWorkspace = cards.create({ kind: 'import', payload: { name: '阿芙拉', description: '旧描述' } })
+  let cardWorkspace = cards.create({ kind: 'import', payload: options.cardData || { name: '阿芙拉', description: '旧描述' } })
   let card = cards.project(cardWorkspace)
   let chat = {
     id: 'chat-1', cardPath: options.draft ? '' : 'cards/阿芙拉.json', cardName: options.draft ? '卡片工作台' : card.name, mode,
@@ -76,6 +78,7 @@ function harness(mode, options = {}) {
     planner: {
       async plan(input) {
         plannerCalls.push(clone(input))
+        if (options.planner) return options.planner.plan(input)
         return {
           text: 'context:' + input.purpose,
           sections: input.purpose === 'body' && Array.isArray(options.plannerSections) ? clone(options.plannerSections) : undefined
@@ -135,6 +138,36 @@ function harness(mode, options = {}) {
     replaceChat(next) { chat = clone(next) }
   }
 }
+
+test('连续正文回合的实际 Frame 消息不重复基本信息和常驻世界书', async () => {
+  const planner = createContextPlanner({ prompt: () => '正文写作规则' })
+  const cardData = { name: '阿芙拉', description: '固定描述', personality: '固定性格', scenario: '固定场景', mes_example: '固定示例', system_prompt: '逐轮系统指令', post_history_instructions: '逐轮历史后指令' }
+  for (const mode of ['story', 'script']) {
+    const run = harness(mode, { planner, cardData, preparedWorldBookContext: '本轮动态世界书' })
+    const prefix = await planner.plan({ purpose: 'play-card-snapshot', card: run.card(), chat: run.chat(), worldBookContext: '固定世界设定', worldBookLabel: '常驻世界书' })
+    const adapter = createForegroundFrameSessionAdapter()
+    let messages = []
+    for (const turn of [2, 3]) {
+      const input = { sessionId: 'session-1', turn, userText: '继续' }
+      const prepared = await run.orchestrator.prepare(input)
+      const text = foregroundFrameText(prepared.frame)
+      assert.equal(prepared.frame.context.cardContext, '')
+      assert.match(text, /逐轮系统指令/)
+      assert.match(text, /逐轮历史后指令/)
+      assert.match(text, /本轮动态世界书/)
+      messages = adapter.append({ messages, frame: prepared.frame, step: 1 }).messages
+      await run.orchestrator.finalize({ ...input, assistantText: '雨水敲着窗。' })
+    }
+    const historyText = messages.map(message => message.content[0].text).join('\n')
+    const requestText = prefix.text + '\n' + historyText
+    for (const fixed of ['固定描述', '固定性格', '固定场景', '固定示例', '固定世界设定']) {
+      assert.equal(requestText.split(fixed).length - 1, 1)
+      assert.ok(!historyText.includes(fixed))
+    }
+    assert.equal(historyText.split('逐轮系统指令').length - 1, 2)
+    assert.equal(historyText.split('逐轮历史后指令').length - 1, 2)
+  }
+})
 
 test('游玩回合由生命周期自动准备与提交，不再要求模型回传正文', async () => {
   const run = harness('story')

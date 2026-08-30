@@ -36,7 +36,7 @@ test('候选连续输入不累计固定背景，逐轮指令保留且卡片修�
   }
   let runner = createBackgroundAgentRunner({ agents, id: () => 'background' })
   async function candidate(persistentSessionId = '') {
-    const context = await planner.plan({ purpose: 'candidate', card, chat: { guides: [{ text: '最新Guide' }], posture: '最新姿势' }, task: '候选JSON规则' })
+    const context = await planner.plan({ purpose: 'candidate', card, chat: { guides: [{ text: '最新Guide' }], posture: '最新姿势' }, task: '候选JSON规则', constantWorldBookContext: '固定世界设定' })
     return runner.run({ sessionId: 'parent', persistent: true, persistentSessionId, task: 'candidate', selection: { provider: 'test', model: 'fake' },
       system: context.taskText, backgroundContext: context.stableText, turnContext: context.dynamicText,
       systemPromptText: context.systemPromptText, postHistoryText: context.postHistoryText,
@@ -56,9 +56,10 @@ test('候选连续输入不累计固定背景，逐轮指令保留且卡片修�
   for (const [index, packet] of packets.entries()) {
     const background = index < 2 ? '固定背景A' : '固定背景B'
     assert.equal(packet.system.split(background).length - 1, 1)
+    assert.equal(packet.system.split('固定世界设定').length - 1, 1)
     assert.ok(packet.system.startsWith('【故事设定 · 人物卡】'))
     assert.doesNotMatch(packet.system, /每轮系统要求|每轮末尾要求|修改后的末尾要求|最新Guide|最新姿势/)
-    assert.doesNotMatch(packet.text, /固定背景|固定性格|固定场景|固定示例/)
+    assert.doesNotMatch(packet.text, /固定背景|固定性格|固定场景|固定示例|固定世界设定/)
     assert.equal(packet.text.split('每轮系统要求').length - 1, 1)
     assert.match(packet.text, /最新正文/)
     assert.match(packet.text, /最新Guide/)

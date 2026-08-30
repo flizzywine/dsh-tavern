@@ -113,8 +113,8 @@ export function createContextPlanner(options = {}) {
         worldBookLabel: input.worldBookLabel,
         includeName: true,
         includeDetails: true,
-        includeDescription: false,
-        includePersonality: false,
+        includeDescription: true,
+        includePersonality: true,
         includeScenario: true,
         includeStyleExample: true,
         includeInstructions: false,
@@ -144,8 +144,8 @@ export function createContextPlanner(options = {}) {
         worldBookContext: input.worldBookContext,
         includeName: false,
         includeDetails: true,
-        includeDescription: true,
-        includePersonality: true,
+        includeDescription: false,
+        includePersonality: false,
         includeScenario: false,
         includeStyleExample: false,
         includeInstructions: true,
@@ -158,7 +158,7 @@ export function createContextPlanner(options = {}) {
         sections.push({ kind: 'script', required: true, text: '【本轮剧本参考' + position + '】\n' + projectText(input.scriptReference.text) })
         sections.push({ kind: 'script', required: true, text: prompt('script-story') })
       }
-      return resultOf(sections, warnings, [{ kind: 'stable-card-details', reason: '角色名称、场景和文风示例已固定在游戏会话稳定前缀' }])
+      return resultOf(sections, warnings, [{ kind: 'stable-card-details', reason: '人物卡基本信息和常驻世界书已固定在游戏会话稳定前缀' }])
     }
 
     if (input.purpose === 'candidate') {
@@ -169,7 +169,8 @@ export function createContextPlanner(options = {}) {
       const plannedCardSections = cardSections({
         card: input.card,
         chat: input.chat,
-        worldBookContext: '',
+        worldBookContext: input.constantWorldBookContext,
+        worldBookLabel: '常驻世界书',
         includeName: true,
         includeDetails: true,
         includeStyleExample: input.scriptWindow === null || input.scriptWindow === undefined,

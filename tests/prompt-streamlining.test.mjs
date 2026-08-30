@@ -260,7 +260,7 @@ test('新 MVU 对话直接交给固定官方运行时初始化，不再调用旧
   assert.doesNotMatch(startChat, /tavernMvu\.initializeChat|readMvuWorldBookInitialState/)
 })
 
-test('人物卡稳定字段固定为会话前缀，角色约束改为每轮注入', () => {
+test('人物卡基本信息固定为会话前缀，仅系统和历史后指令逐轮注入', () => {
   const startChat = between(serverSource, 'async function startChat', 'async function appendNativeOpening')
   const buildSnapshot = between(serverSource, 'async function buildPlayCardSnapshot', 'async function ensurePlayCardSnapshot')
   const ensureSnapshot = between(serverSource, 'async function ensurePlayCardSnapshot', 'const backgroundAgentRunner')
@@ -275,8 +275,8 @@ test('人物卡稳定字段固定为会话前缀，角色约束改为每轮注�
   assert.match(ensureSnapshot, /await writeChat\(chat, \{ source: 'card-context\.(?:sanitize|snapshot)' \}\)/)
   assert.match(orchestrationStrategiesSource, /name: 'tavern:card-snapshot'/)
   assert.match(bodyPlanner, /includeDetails: true/)
-  assert.match(bodyPlanner, /includeDescription: true/)
-  assert.match(bodyPlanner, /includePersonality: true/)
+  assert.match(bodyPlanner, /includeDescription: false/)
+  assert.match(bodyPlanner, /includePersonality: false/)
   assert.match(bodyPlanner, /includeScenario: false/)
   assert.match(bodyPlanner, /includeStyleExample: false/)
   assert.match(bodyPlanner, /includeSystemPrompt: true/)

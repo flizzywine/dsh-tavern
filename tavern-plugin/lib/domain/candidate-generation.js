@@ -305,7 +305,9 @@ export function createCandidateGenerator(options) {
       scriptWindow = scripts.inspect({ script, state: chat.scriptState, request: { kind: 'choice' } })
     }
     const task = prompt(scriptMode ? 'candidate-script' : 'candidate-story')
-    const context = await planner.plan({ purpose: 'candidate', card, chat, task, scriptWindow })
+    const constantWorldBookContext = typeof options.stableWorldBookContext === 'function'
+      ? await options.stableWorldBookContext(chat, card) : ''
+    const context = await planner.plan({ purpose: 'candidate', card, chat, task, scriptWindow, constantWorldBookContext })
     taskRun = await tasks.begin(chat, 'candidate', { requestId })
     chat = taskRun.chat
     const duplicate = preparedValue()

@@ -72,7 +72,9 @@ test('正文只注入召回模块准备的世界书上下文，并解析人物�
   assert.match(result.text, /钟楼藏着失踪商队的线索/)
   assert.doesNotMatch(result.text, /遥远王都/)
   assert.doesNotMatch(result.text, /停用条目/)
-  assert.match(result.text, /银发佣兵|表示玩家|谨慎而直接|保持冷静|避免替玩家决定/)
+  assert.match(result.text, /保持冷静/)
+  assert.match(result.text, /避免替玩家决定/)
+  assert.doesNotMatch(result.text, /银发佣兵|表示玩家|谨慎而直接/)
   assert.doesNotMatch(result.text, /旅店遇见|文风示例|跟紧我/)
   assert.doesNotMatch(result.text, /\{\{char\}\}|\{\{user\}\}/)
   assert.match(result.text, /本轮剧本参考 · 第 8 块/)
@@ -87,7 +89,7 @@ test('正文只注入召回模块准备的世界书上下文，并解析人物�
   assert.ok(result.sections.some((item) => item.kind === 'world-book'))
 })
 
-test('游戏稳定前缀只保留名称、场景、文风示例和常驻世界书', async () => {
+test('游戏稳定前缀包含全部人物卡基本信息和常驻世界书，不含逐轮指令与状态', async () => {
   const planner = createContextPlanner({ prompt, callModel: async () => '{"ids":[]}' })
   const current = chat()
   current.macroState = { userName: '叶天邪', local: {}, global: {} }
@@ -102,7 +104,9 @@ test('游戏稳定前缀只保留名称、场景、文风示例和常驻世界�
   assert.match(result.text, /名字: 阿芙拉/)
   assert.match(result.text, /叶天邪 在旅店遇见 阿芙拉|文风示例/)
   assert.match(result.text, /【常驻世界书】\n阿芙拉 的故乡黑麦镇常年下雨/)
-  assert.doesNotMatch(result.text, /银发佣兵|谨慎而直接|保持冷静|避免替玩家决定|多写动作|右手按着剑柄/)
+  assert.match(result.text, /阿芙拉 是银发佣兵/)
+  assert.match(result.text, /谨慎而直接/)
+  assert.doesNotMatch(result.text, /保持冷静|避免替玩家决定|多写动作|右手按着剑柄/)
   assert.doesNotMatch(result.text, /\{\{user\}\}/)
 })
 
@@ -133,7 +137,7 @@ test('游戏稳定前缀注入人物卡文风示例', async () => {
   assert.match(result.text, /阿芙拉 对 你 说：跟紧我/)
 })
 
-test('每轮正文注入角色描述、性格、系统提示和历史后指令', async () => {
+test('每轮正文仅保留人物卡系统提示和历史后指令，不再追加基本信息', async () => {
   const planner = createContextPlanner({ prompt, callModel: async () => '{"ids":[]}' })
   const result = await planner.plan({
     purpose: 'body',
@@ -148,8 +152,7 @@ test('每轮正文注入角色描述、性格、系统提示和历史后指令',
     nativeTurn: 3
   })
 
-  assert.match(result.text, /银发佣兵/)
-  assert.match(result.text, /谨慎而直接/)
+  assert.doesNotMatch(result.text, /银发佣兵|谨慎而直接/)
   assert.match(result.text, /保持冷静/)
   assert.match(result.text, /右手按着剑柄/)
   assert.match(result.text, /多写动作/)
@@ -226,9 +229,11 @@ test('命运候选在进入后台 Agent 前解析默认值宏但保留人物卡�
 test('候选固定背景不包含逐轮指令，系统提示和历史后指令单独投影', async () => {
   const planner = createContextPlanner({ prompt })
   for (const scriptWindow of [null, { cursor: 0, total: 1, chunks: [{ id: 's1', text: '本轮剧本' }] }]) {
-    const result = await planner.plan({ purpose: 'candidate', card: card(), chat: chat(), task: '候选格式规则', scriptWindow })
+    const result = await planner.plan({ purpose: 'candidate', card: card(), chat: chat(), task: '候选格式规则', scriptWindow, constantWorldBookContext: '{{char}} 的故乡黑麦镇常年下雨。' })
     for (const text of ['阿芙拉', '银发佣兵', '谨慎而直接', '旅店遇见']) assert.ok(result.stableText.includes(text))
     assert.doesNotMatch(result.stableText, /保持冷静|避免替玩家决定|候选格式规则|多写动作|右手按着剑柄/)
+    assert.match(result.stableText, /【常驻世界书】\n阿芙拉 的故乡黑麦镇常年下雨/)
+    assert.doesNotMatch(result.dynamicText, /常驻世界书|黑麦镇常年下雨/)
     assert.equal(result.taskText, '候选格式规则')
     assert.match(result.systemPromptText, /保持冷静/)
     assert.match(result.postHistoryText, /避免替玩家决定/)
