@@ -21,7 +21,7 @@ import { createForegroundHandoff } from './domain/foreground-handoff.js'
 import { createForegroundFrameBuilder } from './domain/agent-input-frame.js'
 import { createForegroundFrameSessionAdapter } from './domain/foreground-frame-session-adapter.js'
 import { createModelRequestLog } from './domain/model-request-log.js'
-import { retainLatestMvuView } from './domain/mvu-view-liveness.js'
+import { projectPersistentStatusView } from './domain/mvu-view-liveness.js'
 import { previewPresetConversion } from './domain/preset-conversion-preview.js'
 import { inspectPreset, nativeRegexScriptsOf } from './domain/preset-reading.js'
 import { createPlayChatDebugReference, readPlayChatDebugTurn } from './domain/play-chat-debug.js'
@@ -1109,7 +1109,9 @@ export async function apply(ctx) {
         isEdit: false,
         depth: 0
       })
-      replyDisplay.projections = retainLatestMvuView(chat.messages, replyDisplay.projections)
+      const persistentStatus = projectPersistentStatusView(chat.messages, replyDisplay.projections)
+      replyDisplay.projections = persistentStatus.projections
+      replyDisplay.statusView = persistentStatus.statusView
       replyDisplay.projections = withLegacyPresentationProjection(chat, replyDisplay.projections)
     }
     const activity = backgroundTasks.activity(chat)
@@ -1155,6 +1157,7 @@ export async function apply(ctx) {
       canRollback: hasRollbackMessages(chat.messages),
       presentation: null,
       replyProjections: replyDisplay.projections,
+      tavernStatusView: replyDisplay.statusView || null,
       mvuReceipts: mvuReceiptsOf(chat),
       tavernHelper: chat.mvu && chat.mvu.enabled === true ? projectTavernHelperContext(chat) : null,
       tavernSwipes: (Array.isArray(chat.messages) ? chat.messages : []).map(function (message, messageId) {

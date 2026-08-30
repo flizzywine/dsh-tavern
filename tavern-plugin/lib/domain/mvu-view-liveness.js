@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto'
+
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
 }
@@ -6,25 +8,42 @@ function turnOf(message, fallback = 1) {
   return Math.max(1, Number(message && message.turn) || (message && message.greeting === true ? 1 : fallback))
 }
 
-function hasMvuState(messages) {
-  return messages.some(function (message) {
-    return message && Array.isArray(message.variables) && message.variables.length > 0
-  })
+function contentOf(part) {
+  return str(part && (part.content !== undefined ? part.content : part.html))
+}
+
+function isRenderablePart(part) {
+  return part && (part.kind === 'markdown' || part.kind === 'html') && str(part.kind === 'html' ? contentOf(part) : part.text).trim() !== ''
 }
 
 function isExecutableView(part) {
-  return part && part.kind === 'html' && /<(?:script|iframe|object|embed)\b/i.test(str(part.content !== undefined ? part.content : part.html))
+  return part && part.kind === 'html' && /<(?:script|iframe|object|embed)\b/i.test(contentOf(part))
+}
+
+function renderedPartAt(projection, partIndex) {
+  const parts = Array.isArray(projection && projection.parts) ? projection.parts : []
+  let renderedIndex = 0
+  for (let sourceIndex = 0; sourceIndex < parts.length; sourceIndex += 1) {
+    if (!isRenderablePart(parts[sourceIndex])) continue
+    if (renderedIndex === partIndex) return { part: parts[sourceIndex], sourceIndex }
+    renderedIndex += 1
+  }
+  return null
+}
+
+function templateRevisionOf(content) {
+  return createHash('sha256').update(content).digest('hex').slice(0, 16)
 }
 
 /**
- * Keep a previously observed MVU-consuming iframe available on the latest
- * assistant floor. Observation comes from runtime behaviour, never card names
- * or model-specific output tags.
+ * Promote the latest iframe that actually consumed the MVU API into one
+ * conversation-level status view. Classification is based on captured runtime
+ * behaviour, never a card name, output tag, CSS selector, or template shape.
  */
-export function retainLatestMvuView(messages, projections) {
+export function projectPersistentStatusView(messages, projections) {
   const sourceMessages = Array.isArray(messages) ? messages : []
   const sourceProjections = Array.isArray(projections) ? projections : []
-  if (!hasMvuState(sourceMessages) || sourceProjections.length === 0) return sourceProjections
+  if (sourceProjections.length === 0) return { projections: sourceProjections, statusView: null }
 
   const projectionByTurn = new Map()
   for (const projection of sourceProjections) {
@@ -45,29 +64,38 @@ export function retainLatestMvuView(messages, projections) {
     const turn = turnOf(message, inferredTurn)
     latestTurn = Math.max(latestTurn, turn)
     const projection = projectionByTurn.get(turn)
-    const parts = Array.isArray(projection && projection.parts) ? projection.parts : []
     const frames = Array.isArray(message.displayRuntime && message.displayRuntime.frames) ? message.displayRuntime.frames : []
     for (const frame of frames) {
       if (!frame || frame.mvuViewUsed !== true) continue
       const partIndex = Math.max(0, Number(frame.partIndex) || 0)
-      const part = parts[partIndex]
-      if (!isExecutableView(part)) continue
-      if (observed === null || turn >= observed.turn) observed = { turn, content: str(part.content !== undefined ? part.content : part.html) }
+      const rendered = renderedPartAt(projection, partIndex)
+      if (!rendered || !isExecutableView(rendered.part)) continue
+      const content = contentOf(rendered.part)
+      if (observed === null || turn >= observed.sourceTurn) {
+        observed = { sourceTurn: turn, sourcePartIndex: partIndex, content }
+      }
     }
   }
 
-  if (observed === null || latestTurn <= 0) return sourceProjections
-  const latestIndex = sourceProjections.findLastIndex(function (projection) {
-    return Math.max(1, Number(projection && projection.turn) || 1) === latestTurn
+  if (observed === null) return { projections: sourceProjections, statusView: null }
+  const projected = sourceProjections.map(function (projection) {
+    const parts = Array.isArray(projection && projection.parts) ? projection.parts : []
+    const filtered = parts.filter(function (part) {
+      return !(part && part.kind === 'html' && contentOf(part) === observed.content)
+    })
+    return filtered.length === parts.length ? projection : Object.assign({}, projection, { parts: filtered })
   })
-  if (latestIndex < 0) return sourceProjections
-  const latest = sourceProjections[latestIndex]
-  const parts = Array.isArray(latest.parts) ? latest.parts : []
-  if (parts.some(function (part) { return part && part.kind === 'html' && str(part.content !== undefined ? part.content : part.html) === observed.content })) return sourceProjections
 
-  const result = sourceProjections.slice()
-  result[latestIndex] = Object.assign({}, latest, {
-    parts: parts.concat([{ kind: 'html', content: observed.content, retainedMvuView: true }])
-  })
-  return result
+  return {
+    projections: projected,
+    statusView: {
+      version: 1,
+      viewId: 'primary',
+      sourceTurn: observed.sourceTurn,
+      sourcePartIndex: observed.sourcePartIndex,
+      targetTurn: latestTurn || observed.sourceTurn,
+      templateRevision: templateRevisionOf(observed.content),
+      content: observed.content
+    }
+  }
 }
