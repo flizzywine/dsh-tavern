@@ -1,6 +1,6 @@
 {
   "name": "dsh-tavern-plugin",
-  "version": "0.9.2",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "main": "lib/index.js",
