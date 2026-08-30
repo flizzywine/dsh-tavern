@@ -1479,6 +1479,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const scriptsById = Object.create(null);
 			for (const script of scriptList) scriptsById[script.id] = script;
 			let currentScriptId = scriptList[0] ? scriptList[0].id : "";
+			let activeHostEventId = "";
 			let nextId = 1;
 			const pending = Object.create(null);
 			const listeners = Object.create(null);
@@ -1555,7 +1556,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				return new Promise(function (resolve, reject) {
 					const requestId = String(nextId++);
 					pending[requestId] = { resolve: resolve, reject: reject };
-					parent.postMessage({ type: "dsh-tavern-helper-call", token: token, scriptId: currentScript().id, requestId: requestId, method: method, args: copy(args || {}) }, "*");
+					parent.postMessage({ type: "dsh-tavern-helper-call", token: token, eventId: activeHostEventId, scriptId: currentScript().id, requestId: requestId, method: method, args: copy(args || {}) }, "*");
 				});
 			}
 			function getVariables(option) {
@@ -1609,6 +1610,19 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				const items = listeners[name] ? Array.from(listeners[name]) : [];
 				for (const entry of items) await withScript(entry.scriptId, function () { return entry.handler.apply(null, args); });
 			}
+			async function emitHostEvent(eventId, name, args) {
+				const items = listeners[name] ? Array.from(listeners[name]) : [];
+				for (const entry of items) {
+					parent.postMessage({ type: "dsh-tavern-helper-event-progress", token: token, eventId: eventId, scriptId: entry.scriptId, phase: "started" }, "*");
+					try { await withScript(entry.scriptId, function () { return entry.handler.apply(null, args); }); }
+					catch (error) {
+						if (error && typeof error === "object") error.dshTavernScriptId = entry.scriptId;
+						parent.postMessage({ type: "dsh-tavern-helper-event-progress", token: token, eventId: eventId, scriptId: entry.scriptId, phase: "failed" }, "*");
+						throw error;
+					}
+					parent.postMessage({ type: "dsh-tavern-helper-event-progress", token: token, eventId: eventId, scriptId: entry.scriptId, phase: "completed" }, "*");
+				}
+			}
 			addEventListener("message", function (event) {
 				const data = event && event.data;
 				if (event.source !== parent || !data || data.token !== token) return;
@@ -1618,22 +1632,30 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				}
 				if (data.type === "dsh-tavern-helper-event") {
 					const suppliedArgs = copy(data.args || []);
-					let task;
-					if (data.name === "mag_variable_update_ended" && suppliedArgs.length === 0) {
-						const option = { type: "message", message_id: currentId() };
-						const variables = getVariables(option);
-						const before = JSON.stringify(variables);
-						task = Promise.resolve(eventEmit(data.name, variables)).then(function () {
-							if (JSON.stringify(variables) === before) return;
-							localReplace(variables, option);
-							return call("updateTavernHelperVariables", { option: option, variables: variables });
-						}).then(function () { return [variables]; });
-					} else task = Promise.resolve(eventEmit.apply(null, [data.name].concat(suppliedArgs))).then(function () { return suppliedArgs; });
+					const task = (async function () {
+						const previousEventId = activeHostEventId;
+						activeHostEventId = String(data.eventId || "");
+						try {
+							if (data.name === "mag_variable_update_ended" && suppliedArgs.length === 0) {
+								const option = { type: "message", message_id: currentId() };
+								const variables = getVariables(option);
+								const before = JSON.stringify(variables);
+								await emitHostEvent(data.eventId, data.name, [variables]);
+								if (JSON.stringify(variables) !== before) {
+									localReplace(variables, option);
+									await call("updateTavernHelperVariables", { option: option, variables: variables });
+								}
+								return [variables];
+							}
+							await emitHostEvent(data.eventId, data.name, suppliedArgs);
+							return suppliedArgs;
+						} finally { activeHostEventId = previousEventId; }
+					})();
 					task.then(function (args) {
 						if (data.eventId) parent.postMessage({ type: "dsh-tavern-helper-event-complete", token: token, eventId: data.eventId, args: copy(args || []) }, "*");
 					}).catch(function (error) {
 						console.error(error);
-						if (data.eventId) parent.postMessage({ type: "dsh-tavern-helper-event-complete", token: token, eventId: data.eventId, error: String(error && error.message || error), args: suppliedArgs }, "*");
+						if (data.eventId) parent.postMessage({ type: "dsh-tavern-helper-event-complete", token: token, eventId: data.eventId, scriptId: String(error && error.dshTavernScriptId || ""), error: String(error && error.message || error), args: suppliedArgs }, "*");
 					});
 					return;
 				}
@@ -1940,8 +1962,11 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const reportMutation = options && options.onMutation || function (sessionId) { liveTavernView.invalidate(sessionId); };
 			const onReady = options && typeof options.onReady === "function" ? options.onReady : function () {};
 			const initializationTimeoutMs = Math.max(1000, Number(options && options.initializationTimeoutMs) || 15000);
+			const eventTimeoutMs = Math.max(10, Number(options && options.eventTimeoutMs) || 15000);
 			const records = new Map();
 			const pendingEvents = new Map();
+			const closedEventIds = new Set();
+			const closedEventOrder = [];
 			const reportedEventTimeouts = new Set();
 			const allowedMethods = new Set(["updateTavernHelperVariables", "updateTavernHelperMessages", "getTavernHelperWorldbook", "replaceTavernHelperWorldbook"]);
 			let activeSessionId = "";
@@ -1961,6 +1986,13 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				return 4294967296 * (2097151 & h2) + (h1 >>> 0);
 			}
 			function buttonEvent(scriptId, name) { return String(scriptId) + "_" + stringHash(String(name || "")); }
+			function closeEventId(eventId) {
+				const id = String(eventId || "");
+				if (!id || closedEventIds.has(id)) return;
+				closedEventIds.add(id);
+				closedEventOrder.push(id);
+				while (closedEventOrder.length > 100) closedEventIds.delete(closedEventOrder.shift());
+			}
 			function maybeAnnounceReady() {
 				if (!readinessKey || records.size === 0 || announcedReadinessKey === readinessKey) return;
 				if (Array.from(records.values()).some(function (record) { return !record.subscriptionsReady && !record.initializationFailed; })) return;
@@ -2067,17 +2099,22 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				if (!record.subscriptions.has(String(name))) return Promise.resolve(args);
 				const eventId = "host-event-" + (++eventSequence);
 				const startedAt = Date.now();
-				return new Promise(function (resolve) {
+				return new Promise(function (resolve, reject) {
 					const timer = hostWindow.setTimeout(function () {
+						const pending = pendingEvents.get(eventId);
 						pendingEvents.delete(eventId);
+						closeEventId(eventId);
+						const script = pending && record.scripts.get(String(pending.activeScriptId || ""));
+						const source = script ? "人物卡脚本「" + script.name + "」" : "人物卡脚本「" + record.name + "」";
+						const error = new Error((script ? "人物卡脚本「" + script.name + "」" : "共享脚本沙箱") + "处理事件「" + String(name) + "」超时（" + String(Date.now() - startedAt) + "ms）");
 						const timeoutKey = record.id + "\n" + String(name);
 						if (!reportedEventTimeouts.has(timeoutKey)) {
 							reportedEventTimeouts.add(timeoutKey);
-							reportError("人物卡脚本「" + record.name + "」", new Error("处理事件「" + String(name) + "」超时（" + String(Date.now() - startedAt) + "ms）"));
+							reportError(source, error);
 						}
-						resolve(args);
-					}, 2000);
-					pendingEvents.set(eventId, { resolve: resolve, timer: timer });
+						reject(error);
+					}, eventTimeoutMs);
+					pendingEvents.set(eventId, { resolve: resolve, reject: reject, timer: timer, name: String(name), activeScriptId: "" });
 					post(record, { type: "dsh-tavern-helper-event", eventId: eventId, name: name, args: clone(args) });
 				});
 			}
@@ -2087,12 +2124,20 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				return current;
 			}
 			function clear() {
+				for (const [eventId, pending] of pendingEvents) {
+					hostWindow.clearTimeout(pending.timer);
+					closeEventId(eventId);
+					pending.reject(new Error("人物卡脚本运行时已重置，事件未完成"));
+				}
+				pendingEvents.clear();
 				Array.from(records.keys()).forEach(removeRecord);
 				if (root) root.remove();
 				root = null;
 				previous = null;
 				readinessKey = "";
 				announcedReadinessKey = "";
+				closedEventIds.clear();
+				closedEventOrder.length = 0;
 			}
 			function createRecord(sessionId, scripts, context, trustedCardMode) {
 				const frame = hostDocument.createElement("iframe");
@@ -2197,12 +2242,24 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					}
 					return;
 				}
+				if (data.type === "dsh-tavern-helper-event-progress") {
+					const pending = pendingEvents.get(String(data.eventId || ""));
+					if (pending) pending.activeScriptId = data.phase === "completed" ? "" : String(data.scriptId || "");
+					return;
+				}
 				if (data.type === "dsh-tavern-helper-event-complete") {
 					const pending = pendingEvents.get(String(data.eventId || ""));
 					if (!pending) return;
 					pendingEvents.delete(String(data.eventId || ""));
+					closeEventId(data.eventId);
 					hostWindow.clearTimeout(pending.timer);
-					pending.resolve(clone(Array.isArray(data.args) ? data.args : []));
+					if (data.error) {
+						const script = record.scripts.get(String(data.scriptId || pending.activeScriptId || ""));
+						const prefix = script ? "人物卡脚本「" + script.name + "」" : "共享脚本沙箱";
+						const error = new Error(prefix + "处理事件「" + pending.name + "」失败：" + String(data.error));
+						reportError(script ? "人物卡脚本「" + script.name + "」" : "人物卡共享脚本沙箱", error);
+						pending.reject(error);
+					} else pending.resolve(clone(Array.isArray(data.args) ? data.args : []));
 					return;
 				}
 				if (data.type === "dsh-tavern-helper-script-runtime") {
@@ -2213,6 +2270,10 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					return;
 				}
 				if (data.type !== "dsh-tavern-helper-call" || !allowedMethods.has(data.method)) return;
+				if (data.eventId && closedEventIds.has(String(data.eventId))) {
+					post(record, { type: "dsh-tavern-helper-response", requestId: data.requestId, ok: false, error: "事件已经结束，已拒绝迟到写入" });
+					return;
+				}
 				let mutationArgs = data.args || {};
 				if (data.method === "updateTavernHelperVariables" || data.method === "updateTavernHelperMessages") {
 					mutationArgs = Object.assign({}, mutationArgs, { expectedLifecycleRevision: Math.max(0, Number(record.context && record.context.lifecycleRevision) || 0) });
@@ -2285,6 +2346,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					let completedEvent = false;
 					if (!pollBusy) {
 						pollBusy = true;
+						let currentEvent = null;
 						try {
 							const inspection = currentRuntime.inspect();
 							const runtimeReady = tavernScriptRuntimeReady(inspection);
@@ -2294,13 +2356,21 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 								active = Boolean(result && result.active);
 								currentRuntime.sync(currentInput.sessionId, active ? currentInput.view : inactiveView(currentInput.view));
 							}
-							const event = result && result.event;
-							if (active && event) {
-								const args = await currentRuntime.emit(event.name, event.args, event.context);
-								await invoke("completeTavernHelperEvent", { eventId: event.id, args: args, runtimeId: runtimeId }, currentInput.sessionId);
+							currentEvent = result && result.event;
+							if (active && currentEvent) {
+								const args = await currentRuntime.emit(currentEvent.name, currentEvent.args, currentEvent.context);
+								await invoke("completeTavernHelperEvent", { eventId: currentEvent.id, args: args, runtimeId: runtimeId }, currentInput.sessionId);
 								completedEvent = true;
 							}
-						} catch (error) { console.warn("Tavern Helper 生命周期同步失败", error); }
+						} catch (error) {
+							console.warn("Tavern Helper 生命周期同步失败", error);
+							if (currentEvent) {
+								try {
+									await invoke("completeTavernHelperEvent", { eventId: currentEvent.id, args: currentEvent.args, error: String(error && error.message || error), runtimeId: runtimeId }, currentInput.sessionId);
+									completedEvent = true;
+								} catch (completeError) { console.warn("Tavern Helper 失败回执同步失败", completeError); }
+							}
+						}
 						finally { pollBusy = false; }
 					}
 					schedulePoll(completedEvent ? 0 : undefined);

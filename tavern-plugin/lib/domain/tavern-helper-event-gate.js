@@ -44,14 +44,17 @@ export function createTavernHelperEventGate(options = {}) {
     return { active: true, ready: ready === true, event: ready === true && record ? clone(record.event) : null }
   }
 
-  function complete(sessionId, eventId, args, runtimeId = 'legacy') {
+  function complete(sessionId, eventId, args, runtimeId = 'legacy', error = '') {
     const id = str(sessionId)
     if (!available(id, runtimeId)) return false
     const record = records.get(id)
     if (!record || record.event.id !== str(eventId)) return false
     records.delete(id)
     clearTimeout(record.timer)
-    record.resolve({ handled: true, args: clone(Array.isArray(args) ? args : record.event.args) })
+    const message = str(error).trim()
+    record.resolve(message === ''
+      ? { handled: true, args: clone(Array.isArray(args) ? args : record.event.args) }
+      : { handled: false, error: message, args: clone(Array.isArray(args) ? args : record.event.args) })
     return true
   }
 

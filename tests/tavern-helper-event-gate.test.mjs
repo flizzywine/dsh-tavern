@@ -25,6 +25,17 @@ test('Helper event gate publishes one event and returns browser mutations', asyn
   assert.equal(gate.poll('session-a', 'legacy', true).event, null)
 })
 
+test('Helper event gate propagates browser script failure instead of reporting handled', async function () {
+  const gate = createTavernHelperEventGate({ timeoutMs: 500 })
+  gate.touch('session-a', 'browser-a', true)
+  const pending = gate.dispatch('session-a', 'MESSAGE_RECEIVED', [2])
+  const event = gate.poll('session-a', 'browser-a', true).event
+
+  assert.equal(gate.complete('session-a', event.id, event.args, 'browser-a', '变量守卫执行超时'), true)
+  assert.deepEqual(await pending, { handled: false, error: '变量守卫执行超时', args: [2] })
+  assert.equal(gate.poll('session-a', 'browser-a', true).event, null)
+})
+
 test('Helper event gate times out without blocking later events', async function () {
   let clock = 0
   const gate = createTavernHelperEventGate({ timeoutMs: 100, presenceTtlMs: 1000, now: function () { return clock } })

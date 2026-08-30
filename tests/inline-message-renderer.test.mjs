@@ -688,6 +688,79 @@ test('Helper Host 每个对话只创建一个共享脚本沙箱并只投递一�
   runtime.dispose()
 })
 
+test('Helper Host 超时会指出正在执行的脚本、拒绝事件并屏蔽迟到写入', async () => {
+  const windowListeners = new Map()
+  const frames = []
+  const errors = []
+  const rpcCalls = []
+  const hostWindow = {
+    crypto: { randomUUID() { return 'timeout-runtime-token' } },
+    setTimeout,
+    clearTimeout,
+    addEventListener(name, handler) { windowListeners.set(name, handler) },
+    removeEventListener(name) { windowListeners.delete(name) }
+  }
+  const root = { isConnected: true, appendChild() {}, remove() {} }
+  const hostDocument = {
+    body: { appendChild() {} },
+    documentElement: { appendChild() {} },
+    createElement(tag) {
+      if (tag === 'div') return root
+      const frame = {
+        contentWindow: { messages: [], postMessage(message) { this.messages.push(message) } },
+        listeners: {},
+        addEventListener(name, handler) { this.listeners[name] = handler },
+        remove() {}
+      }
+      frames.push(frame)
+      return frame
+    }
+  }
+  const runtime = client.createTavernHelperScriptRuntime({
+    window: hostWindow,
+    document: hostDocument,
+    eventTimeoutMs: 25,
+    rpc(method, args) { rpcCalls.push({ method, args }); return Promise.resolve({ updated: true }) },
+    reportError(source, error) { errors.push({ source, message: error.message }) }
+  })
+  runtime.sync('session', {
+    tavernHelper: { messages: [], scriptVariables: {}, lifecycleRevision: 1 },
+    tavernHelperScripts: [{ id: 'guard', name: '变量守卫', content: 'void 0', data: {}, buttons: [] }]
+  })
+  frames[0].listeners.load()
+  const receive = windowListeners.get('message')
+  receive({
+    source: frames[0].contentWindow,
+    data: {
+      type: 'dsh-tavern-helper-subscriptions', token: 'timeout-runtime-token', names: ['MESSAGE_RECEIVED'], ready: true,
+      scripts: [{ id: 'guard', names: ['MESSAGE_RECEIVED'], ready: true, failed: false }]
+    }
+  })
+
+  const emitted = runtime.emit('MESSAGE_RECEIVED', [2], { messages: [], lifecycleRevision: 1 })
+  await Promise.resolve()
+  const request = frames[0].contentWindow.messages.find(item => item.type === 'dsh-tavern-helper-event')
+  receive({
+    source: frames[0].contentWindow,
+    data: { type: 'dsh-tavern-helper-event-progress', token: 'timeout-runtime-token', eventId: request.eventId, scriptId: 'guard', phase: 'started' }
+  })
+
+  await assert.rejects(emitted, /变量守卫.*MESSAGE_RECEIVED.*超时/)
+  assert.deepEqual(errors.map(item => item.source), ['人物卡脚本「变量守卫」'])
+
+  receive({
+    source: frames[0].contentWindow,
+    data: {
+      type: 'dsh-tavern-helper-call', token: 'timeout-runtime-token', eventId: request.eventId,
+      requestId: 'late-call', method: 'updateTavernHelperVariables', args: { variables: { hp: 1 } }
+    }
+  })
+  await Promise.resolve()
+  assert.equal(rpcCalls.length, 0)
+  assert.equal(frames[0].contentWindow.messages.find(item => item.requestId === 'late-call').ok, false)
+  runtime.dispose()
+})
+
 test('Helper Host 在共享沙箱全部脚本完成初始化后才开放事件', async () => {
   const windowListeners = new Map()
   const frames = []

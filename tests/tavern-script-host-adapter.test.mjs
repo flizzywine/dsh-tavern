@@ -108,6 +108,34 @@ test('后台 MVU 结算遇到过期生命周期时不触发脚本和写入', asy
   assert.equal(run.writes.length, 0)
 })
 
+test('后台 MVU 脚本链失败时丢弃整份事务草稿', async function () {
+  const value = chat()
+  let adapter
+  const writes = []
+  adapter = createTavernScriptHostAdapter({
+    resolveChat: async function () { return value },
+    writeChat: async function (draft, metadata) { writes.push({ draft: structuredClone(draft), metadata }) },
+    readCard: async function () { return { name: '测试卡' } },
+    worldBooks: { bound: async function () { return null } },
+    eventGate: {
+      async dispatch() {
+        await adapter.updateMessages('session-1', [{ message_id: 0, data: { hp: 1 } }], 2)
+        return { handled: false, error: '人物卡脚本「变量守卫」处理事件超时' }
+      },
+      poll: function () {}, complete: function () {}, dispose: function () {}
+    }
+  })
+
+  await assert.rejects(function () {
+    return adapter.settleMvuUpdate({
+      sessionId: 'session-1', messageId: 0, swipeId: 0, expectedLifecycleRevision: 2,
+      storyText: '旧正文', command: '<UpdateVariable></UpdateVariable>'
+    })
+  }, /变量守卫.*超时/)
+  assert.equal(writes.length, 0)
+  assert.deepEqual(value.messages[0].variables[0], { hp: 10 })
+})
+
 test('Host Adapter 把脚本变量和消息调用写回 dsh-tavern 权威 Chat', async function () {
   const run = harness()
   const variables = await run.adapter.updateVariables('session-1', { type: 'message', message_id: 0 }, { hp: 7 }, 2)

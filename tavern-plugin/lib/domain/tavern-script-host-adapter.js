@@ -217,7 +217,9 @@ export function createTavernScriptHostAdapter(options = {}) {
       if (!Array.isArray(projected.swipes)) projected.swipes = [originalText]
       projected.swipes[swipeId] = internalText
       const dispatched = await options.eventGate.dispatch(sessionId, 'MESSAGE_RECEIVED', [messageId], eventContext)
-      if (dispatched.handled !== true) throw new Error('官方 MVU 浏览器运行时尚未就绪，本轮未执行变量结算')
+      if (dispatched.handled !== true) {
+        throw new Error(str(dispatched.error).trim() || '官方 MVU 浏览器运行时尚未就绪，本轮未执行变量结算')
+      }
       const settled = transaction.draft.messages[messageId]
       if (!settled || Math.max(0, Number(settled.swipeId) || 0) !== swipeId) {
         return { updated: false, stale: true, context: projectTavernHelperContext(current) }
@@ -264,7 +266,7 @@ export function createTavernScriptHostAdapter(options = {}) {
     getWorldbook,
     replaceWorldbook,
     pollEvent: function (sessionId, runtimeId, ready) { return options.eventGate.poll(sessionId, runtimeId, ready) },
-    completeEvent: function (sessionId, eventId, args, runtimeId) { return options.eventGate.complete(sessionId, eventId, args, runtimeId) },
+    completeEvent: function (sessionId, eventId, args, runtimeId, error) { return options.eventGate.complete(sessionId, eventId, args, runtimeId, error) },
     releaseRuntime: function (sessionId, runtimeId) { return options.eventGate.dispose(sessionId, runtimeId) }
   })
 }
