@@ -516,6 +516,70 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			});
 		}
 
+		function createTavernRuntimeGenerationMonitor(options) {
+			const settings = options || {};
+			const load = typeof settings.load === "function" ? settings.load : function () { return Promise.resolve(null); };
+			const refresh = typeof settings.refresh === "function" ? settings.refresh : function () {};
+			const schedule = typeof settings.schedule === "function" ? settings.schedule : function (run, delay) { return window.setTimeout(run, delay); };
+			const cancel = typeof settings.cancel === "function" ? settings.cancel : function (timer) { window.clearTimeout(timer); };
+			const intervalMs = Math.max(5000, Number(settings.intervalMs) || 30000);
+			let observed = "";
+			let timer = null;
+			let started = false;
+			let refreshing = false;
+			function observe(value) {
+				const next = String(value || "");
+				if (!next) return false;
+				if (!observed) { observed = next; return false; }
+				if (next === observed || refreshing) return false;
+				observed = next;
+				refreshing = true;
+				Promise.resolve().then(refresh).catch(function (error) {
+					refreshing = false;
+					console.warn("DSH Tavern 前端自动刷新失败", error);
+				});
+				return true;
+			}
+			function queue() {
+				if (!started || timer !== null) return;
+				timer = schedule(check, intervalMs);
+			}
+			function check() {
+				timer = null;
+				return Promise.resolve().then(load).then(function (result) {
+					observe(result && result.runtimeGeneration);
+				}, function () {}).finally(queue);
+			}
+			function stop() {
+				started = false;
+				if (timer !== null) cancel(timer);
+				timer = null;
+			}
+			return Object.freeze({
+				observe: observe,
+				start: function () { if (!started) { started = true; void check(); } return stop; },
+				stop: stop,
+				inspect: function () { return { observed: observed, refreshing: refreshing, started: started }; }
+			});
+		}
+
+		function reloadTavernClient() {
+			const script = Array.from(document.scripts || []).find(function (item) {
+				return String(item && item.src || "").includes("/plugins/dsh-tavern-plugin/client.js");
+			});
+			const warm = script && script.src
+				? fetch(script.src, { cache: "reload" }).catch(function () {})
+				: Promise.resolve();
+			return warm.then(function () { window.location.reload(); });
+		}
+
+		const tavernRuntimeGenerationMonitor = createTavernRuntimeGenerationMonitor({
+			load: function () {
+				return fetch("/api/dsh-tavern/runtime-generation", { cache: "no-store" }).then(function (response) { return response.json(); });
+			},
+			refresh: reloadTavernClient
+		});
+
 		function rpc(method, args, sessionId, requestOptions) {
 			const payload = Object.assign({}, args || {});
 			if (sessionId) payload.sessionId = sessionId;
@@ -526,6 +590,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			};
 			if (requestOptions && requestOptions.signal) request.signal = requestOptions.signal;
 			return fetch("/api/dsh-tavern/" + method, request).then(function (response) { return response.json(); }).then(function (result) {
+				tavernRuntimeGenerationMonitor.observe(result && result.runtimeGeneration);
 				if (!result || !result.ok) throw new Error(result && result.error ? result.error : "操作失败");
 				return result;
 			});
@@ -5539,6 +5604,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		function apply(ctx) {
 			const slots = ctx.slots;
 			if (slots === undefined) return;
+			ctx.effect(function () { return tavernRuntimeGenerationMonitor.start(); }, "dsh-tavern: runtime generation monitor");
 			function reconcileLibraryTabTitles() {
 				if (!ctx.betterSidebar || typeof ctx.betterSidebar.getSnapshot !== "function" || typeof ctx.betterSidebar.updateTab !== "function") return;
 				const snapshot = ctx.betterSidebar.getSnapshot();
@@ -5658,6 +5724,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		exports.createPlayControlsFeatureModule = createPlayControlsFeatureModule;
 		exports.createTavernAssistantRendererFeatureModule = createTavernAssistantRendererFeatureModule;
 		exports.createTavernShellFeatureModule = createTavernShellFeatureModule;
+		exports.createTavernRuntimeGenerationMonitor = createTavernRuntimeGenerationMonitor;
 		return module.exports;
 	}
 });

@@ -2626,6 +2626,14 @@ export async function apply(ctx) {
           res.end('forbidden')
           return
         }
+        if (req.method === 'GET' && pathname === '/api/dsh-tavern/runtime-generation') {
+          res.writeHead(200, {
+            'Content-Type': 'application/json; charset=utf-8',
+            'Cache-Control': 'no-store, max-age=0'
+          })
+          res.end(JSON.stringify({ ok: true, runtimeGeneration }))
+          return
+        }
         try {
           const readiness = await runtimeReadiness
           if (!readiness.ok) throw readiness.error
@@ -2735,7 +2743,7 @@ export async function apply(ctx) {
           }
           const result = await dispatch(method, args)
           res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' })
-          res.end(JSON.stringify(Object.assign({ ok: true }, result)))
+          res.end(JSON.stringify(Object.assign({ ok: true }, result, { runtimeGeneration })))
         } catch (err) {
           res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' })
           res.end(JSON.stringify({ ok: false, error: str(err && err.message || err) }))

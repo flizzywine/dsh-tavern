@@ -20,7 +20,7 @@ test('Tavern 不导出正文锁定或 Session 恢复协调器', function () {
   assert.equal(client.createRuntimeConnectionCoordinator, undefined)
 })
 
-test('Tavern 客户端不保存恢复草稿、不重载页面、不注入超时恢复 UI', function () {
+test('Tavern 客户端不保存 Session 恢复草稿，也不注入超时恢复 UI', function () {
   assert.doesNotMatch(source, /dsh-tavern:runtime-generation:v1/)
   assert.doesNotMatch(source, /dsh-tavern:reconnect-draft:v1/)
   assert.doesNotMatch(source, /TavernSignalTimeoutNotice/)

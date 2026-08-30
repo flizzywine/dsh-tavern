@@ -1241,6 +1241,19 @@ test('HTTP RPC 在启动恢复前注册，并等待运行时完成初始化', ()
 	assert.match(handler, /if \(!readiness\.ok\) throw readiness\.error/)
 })
 
+test('Tavern 用独立启动标识刷新旧插件前端，不复用 Session 恢复守卫', () => {
+	const handler = between(serverSource, "handler: async (req, res) => {", "function contentText(message)")
+	assert.match(handler, /pathname === '\/api\/dsh-tavern\/runtime-generation'/)
+	assert.match(handler, /'Cache-Control': 'no-store, max-age=0'/)
+	assert.match(handler, /JSON\.stringify\(\{ ok: true, runtimeGeneration \}\)/)
+	assert.match(handler, /Object\.assign\(\{ ok: true \}, result, \{ runtimeGeneration \}\)/)
+	assert.match(clientSource, /createTavernRuntimeGenerationMonitor/)
+	assert.match(clientSource, /fetch\(script\.src, \{ cache: "reload" \}\)/)
+	assert.match(clientSource, /fetch\("\/api\/dsh-tavern\/runtime-generation", \{ cache: "no-store" \}\)/)
+	assert.doesNotMatch(clientSource, /dsh-tavern:runtime-generation:v1/)
+	assert.doesNotMatch(clientSource, /dsh-tavern:reconnect-draft:v1/)
+})
+
 test('Helper 全部就绪后直接广播 CHAT_CHANGED，官方 MVU 自行完成开场初始化', () => {
 	const module = between(clientSource, 'function createTavernScriptExecutionModule', 'const tavernScriptExecutionModule')
 	assert.match(module, /onReady: function \(readySessionId\)[\s\S]*runtime\.emit\("CHAT_CHANGED", \[\], input\.view && input\.view\.tavernHelper\)/)

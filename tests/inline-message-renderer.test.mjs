@@ -14,6 +14,32 @@ async function loadClient() {
 
 const client = await loadClient()
 
+test('服务端启动标识变化时只触发一次前端刷新', async () => {
+  let refreshCount = 0
+  const scheduled = []
+  const monitor = client.createTavernRuntimeGenerationMonitor({
+    load: async function () { return { runtimeGeneration: 'runtime-a' } },
+    refresh: function () { refreshCount += 1 },
+    schedule(run, delay) { scheduled.push({ run, delay }); return scheduled.length },
+    cancel() {},
+    intervalMs: 30000
+  })
+
+  const stop = monitor.start()
+  await new Promise(function (resolve) { setImmediate(resolve) })
+  assert.equal(monitor.inspect().observed, 'runtime-a')
+  assert.equal(refreshCount, 0)
+  assert.equal(scheduled.length, 1)
+  assert.equal(scheduled[0].delay, 30000)
+
+  assert.equal(monitor.observe('runtime-a'), false)
+  assert.equal(monitor.observe('runtime-b'), true)
+  assert.equal(monitor.observe('runtime-c'), false)
+  await new Promise(function (resolve) { setImmediate(resolve) })
+  assert.equal(refreshCount, 1)
+  stop()
+})
+
 test('脚本执行模块按 Helper Runtime 的真实检查结构报告 MVU 已就绪', () => {
   const inspection = {
     sessionId: 'session-a',
