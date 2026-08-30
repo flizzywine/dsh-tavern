@@ -1642,7 +1642,15 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				state.worldbook = copy(result.worldbook);
 				return copy(state.worldbook.entries || []);
 			};
-			window.getLorebookEntries = window.getWorldbook;
+			window.getLorebookEntries = async function (name) {
+				const entries = await window.getWorldbook(name);
+				return entries.map(function (entry) {
+					return Object.assign({}, entry, {
+						comment: String(entry && (entry.comment || entry.name) || ""),
+						disable: Boolean(entry && entry.enabled === false)
+					});
+				});
+			};
 			window.getCharLorebooks = async function () { return window.getCharWorldbookNames(); };
 			window.getCurrentCharPrimaryLorebook = function () { return window.getCharWorldbookNames().primary; };
 			window.getLorebookSettings = function () { return copy(lorebookSettings); };
@@ -1663,6 +1671,14 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			};
 			window.eventRemoveListener = window.eventOff;
 			window.eventEmit = eventEmit;
+			let resolveCompanionScriptsReady;
+			window.__dshTavernCompanionScriptsReady = new Promise(function (resolve) { resolveCompanionScriptsReady = resolve; });
+			window.__dshTavernResolveCompanionScriptsReady = function () {
+				if (!resolveCompanionScriptsReady) return;
+				const resolve = resolveCompanionScriptsReady;
+				resolveCompanionScriptsReady = null;
+				resolve();
+			};
 			window.__dshTavernHelperSetCurrentScript = function (scriptId) { if (scriptsById[String(scriptId)]) currentScriptId = String(scriptId); };
 			window.__dshTavernHelperSubscriptionsReady = function (scriptId) { const script = scriptsById[String(scriptId || currentScript().id)]; if (script) script.ready = true; reportSubscriptions(); };
 			window.__dshTavernHelperSubscriptionsFailed = function (scriptId, error) {
@@ -1822,7 +1838,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			});
 			const loaderSource = 'await window.__dshTavernHelperReady;\n'
 				+ 'const scripts=' + JSON.stringify(modules).replace(/</g, "\\u003c") + ';\n'
-				+ 'for(const script of scripts){window.__dshTavernHelperSetCurrentScript(script.id);try{await import(script.url);if(script.system==="official-mvu")await window.waitGlobalInitialized("Mvu");window.__dshTavernHelperSubscriptionsReady(script.id);}catch(error){window.__dshTavernHelperSubscriptionsFailed(script.id,error);}}';
+				+ 'try{for(const script of scripts){window.__dshTavernHelperSetCurrentScript(script.id);try{await import(script.url);if(script.system==="official-mvu")await window.waitGlobalInitialized("Mvu");window.__dshTavernHelperSubscriptionsReady(script.id);}catch(error){window.__dshTavernHelperSubscriptionsFailed(script.id,error);}}}finally{window.__dshTavernResolveCompanionScriptsReady();}';
 			const moduleUrl = "data:text/javascript;base64," + encodeTavernScriptSource(loaderSource);
 			return '<!doctype html><html><head><meta charset="utf-8">'
 				+ '<meta name="referrer" content="no-referrer">'

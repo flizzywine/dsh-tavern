@@ -9,7 +9,7 @@ test('官方 MVU 固定产物可离线读取且内容哈希匹配', async functi
   assert.equal(OFFICIAL_MVU_VERSION.commit, '0a730cd4a9b99689d1135a49b542c780b977c24c')
   assert.equal(OFFICIAL_MVU_VERSION.assetUrl, '/api/dsh-tavern/vendor/magvarupdate/bundle.js')
   assert.equal(asset.sha256, OFFICIAL_MVU_VERSION.bundleSha256)
-  assert.equal(asset.body.length, 1250728)
+  assert.equal(asset.body.length, 1250774)
   assert.match(asset.body.toString('utf8', 0, 300), /For license information/)
   assert.doesNotMatch(asset.body.toString('utf8'), /(?:^|;)import[^;]*?from['"]https?:\/\//)
   assert.doesNotMatch(asset.body.toString('utf8'), /testingcf\.jsdelivr\.net\/npm/)

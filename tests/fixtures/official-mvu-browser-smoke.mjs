@@ -16,7 +16,7 @@ vm.runInNewContext(clientSource, {
 const client = descriptor.factory(() => ({}))
 
 const initialMvu = {
-  stat_data: { 角色: { 络络: { 好感度: 1 } } },
+  stat_data: {},
   schema: { type: 'object', properties: {} },
   display_data: {},
   delta_data: {},
@@ -27,18 +27,31 @@ const probe = String.raw`
 const output = document.createElement('pre');
 output.id = 'official-mvu-smoke-result';
 document.body.appendChild(output);
+let guardObserved = false;
+const guard = () => { guardObserved = true; };
+eventOn(window.Mvu.events.VARIABLE_INITIALIZED, guard);
+setTimeout(async function verifyOfficialMvuAfterCompanionsLoad() {
 try {
   if (!window.Mvu || typeof window.Mvu.parseMessage !== 'function') throw new Error('Mvu.parseMessage 不存在');
-  const before = ${JSON.stringify(initialMvu)};
+  let initializedValue;
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    initializedValue = _.get(getVariables({ type: 'message', message_id: 0 }), 'stat_data.角色.络络.好感度');
+    if (initializedValue !== undefined) break;
+    await new Promise(resolve => setTimeout(resolve, 25));
+  }
+  eventOff(window.Mvu.events.VARIABLE_INITIALIZED, guard);
+  if (!guardObserved || initializedValue !== 30) throw new Error('人物卡脚本未观察到开场初始化: ' + String(initializedValue));
+  const before = ${JSON.stringify({ ...initialMvu, stat_data: { 角色: { 络络: { 好感度: 1 } } } })};
   const after = await window.Mvu.parseMessage("_.set('角色.络络.好感度', 30); // browser smoke", before);
   const value = _.get(after, 'stat_data.角色.络络.好感度');
   if (value !== 30) throw new Error('parseMessage 结果错误: ' + String(value));
   output.dataset.status = 'pass';
-  output.textContent = 'MVU_READY\nPARSE_MESSAGE=30\nCOMPANION_SHARED_INSTANCE=' + String(window.Mvu === window.parent.Mvu);
+  output.textContent = 'MVU_READY\nOPENING_COMPANION_OBSERVED=true\nPARSE_MESSAGE=30\nCOMPANION_SHARED_INSTANCE=' + String(window.Mvu === window.parent.Mvu);
 } catch (error) {
   output.dataset.status = 'fail';
   output.textContent = 'MVU_ERROR: ' + String(error && error.stack || error);
 }
+}, 0);
 `
 
 const document = client.buildTavernHelperScriptDocument({
@@ -68,15 +81,23 @@ const document = client.buildTavernHelperScriptDocument({
     messages: [{
       message_id: 0,
       role: 'assistant',
-      message: '开场白',
+      message: "开场白\n_.set('角色.络络.好感度', 30); // opening",
       swipe_id: 0,
-      swipes: ['开场白'],
+      swipes: ["开场白\n_.set('角色.络络.好感度', 30); // opening"],
       variables: initialMvu,
       swipes_data: [initialMvu]
     }],
     chatVariables: initialMvu,
     scriptVariables: {},
-    worldbook: null
+    worldbook: {
+      name: '络络世界书',
+      entries: [{
+        uid: 1,
+        name: '[initvar]基础变量',
+        enabled: true,
+        content: '角色:\n  络络:\n    好感度: 1'
+      }]
+    }
   }
 })
 

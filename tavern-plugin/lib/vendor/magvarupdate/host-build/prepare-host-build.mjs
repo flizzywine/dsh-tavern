@@ -112,3 +112,24 @@ const globalPath = path.join(root, 'src/function/global/index.ts')
 let globalSource = await readFile(globalPath, 'utf8')
 globalSource = globalSource.replaceAll('window.parent', 'window')
 await writeFile(globalPath, globalSource)
+
+const mainPath = path.join(root, 'src/main.ts')
+let mainSource = await readFile(mainPath, 'utf8')
+mainSource = replaceExactlyOnce(
+  mainSource,
+  `    stop_list.push(initGlobals());
+
+    let chat_level_stop_list: Stop[] = [];
+`,
+  `    stop_list.push(initGlobals());
+
+    // The Host loads the official core before card companion scripts so they can
+    // resolve Mvu. Delay only chat-level initialization until those scripts have
+    // registered their official MVU event handlers.
+    await (window as any).__dshTavernCompanionScriptsReady;
+
+    let chat_level_stop_list: Stop[] = [];
+`,
+  'wait for card companion scripts before chat initialization'
+)
+await writeFile(mainPath, mainSource)
