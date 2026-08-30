@@ -54,6 +54,8 @@ window.__ModuleLoader__.load({
 .dsh-tavern-mvu-change { display: grid; gap: 2px; padding: 6px 8px; border-radius: 7px; background: var(--dsw-alias-bg-base); }
 .dsh-tavern-mvu-change-path { color: #a66b35; font-family: ui-monospace,SFMono-Regular,Menlo,monospace; overflow-wrap: anywhere; }
 .dsh-tavern-mvu-change-values { overflow-wrap: anywhere; }
+.dsh-tavern-mvu-side-effect-title { color: var(--dsw-alias-label-tertiary); font-weight: 700; }
+.dsh-tavern-mvu-change[data-origin="card-script"] .dsh-tavern-mvu-change-path { color: var(--dsw-alias-label-secondary); }
 .dsh-tavern-mvu-failure { color: #d96767; overflow-wrap: anywhere; }
 .dsh-tavern-mvu-retry { justify-self: start; border: 1px solid var(--dsw-alias-border-l2); border-radius: 7px; padding: 4px 9px; background: transparent; color: var(--dsw-alias-label-primary); cursor: pointer; }
 .dsh-tavern-mvu-retry:disabled { cursor: wait; opacity: .58; }
@@ -2689,15 +2691,17 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const [retrying, setRetrying] = React.useState(false);
 			const receipt = props.receipt || {};
 			const changes = Array.isArray(receipt.changes) ? receipt.changes : [];
+			const sideEffects = Array.isArray(receipt.sideEffects) ? receipt.sideEffects : [];
 			const failures = Array.isArray(receipt.failures) ? receipt.failures : [];
 			const status = ["pending", "updated", "partial", "error", "stale", "unchanged"].includes(receipt.status) ? receipt.status : "unchanged";
+			const sideEffectSuffix = sideEffects.length > 0 ? " · 人物卡联动 " + sideEffects.length + " 项" : "";
 			const labels = {
 				pending: "变量结算中…",
-				updated: changes.length > 0 ? "变量已更新 · " + changes.length + " 项" : "变量已更新 · 旧记录无明细",
-				partial: "变量部分更新 · " + changes.length + " 项成功 · " + failures.length + " 项失败",
-				error: "变量更新失败 · " + failures.length + " 项",
+				updated: (changes.length > 0 ? "变量已更新 · " + changes.length + " 项" : "变量已更新 · 旧记录无明细") + sideEffectSuffix,
+				partial: "变量部分更新 · " + changes.length + " 项成功 · " + failures.length + " 项失败" + sideEffectSuffix,
+				error: "变量更新失败 · " + failures.length + " 项" + sideEffectSuffix,
 				stale: "变量结算已过期，未覆盖当前状态",
-				unchanged: "本轮变量未更新"
+				unchanged: (sideEffects.length > 0 ? "Agent 未更新变量" : "本轮变量未更新") + sideEffectSuffix
 			};
 			const operationLabels = { set: "设置", add: "增减", insert: "新增", delete: "删除", move: "移动" };
 			const summary = h("div", { className: "dsh-tavern-mvu-receipt-summary" }, h("span", { className: "dsh-tavern-mvu-receipt-dot" }), h("span", null, labels[status]));
@@ -2713,7 +2717,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const retryButton = (status === "error" || status === "stale")
 				? h("button", { type: "button", className: "dsh-tavern-mvu-retry", disabled: retrying, onClick: retry }, retrying ? "重试中…" : "重试变量结算")
 				: null;
-			const hasDetails = String(receipt.summary || "") !== "" || changes.length > 0 || failures.length > 0 || retryButton;
+			const hasDetails = String(receipt.summary || "") !== "" || changes.length > 0 || sideEffects.length > 0 || failures.length > 0 || retryButton;
 			if (!hasDetails) return h("div", { className: "dsh-tavern-mvu-receipt", "data-status": status }, summary);
 			return h("details", { className: "dsh-tavern-mvu-receipt", "data-status": status },
 				h("summary", { className: "dsh-tavern-mvu-receipt-summary" }, h("span", { className: "dsh-tavern-mvu-receipt-dot" }), h("span", null, labels[status])),
@@ -2723,7 +2727,16 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 						h("div", { className: "dsh-tavern-mvu-change-path" }, (operationLabels[change.operation] || "更新") + " " + String(change.path || "/")),
 						h("div", { className: "dsh-tavern-mvu-change-values" }, String(change.before) + " → " + String(change.after))
 					); }),
-					failures.map(function (failure, index) { return h("div", { key: "failure:" + index, className: "dsh-tavern-mvu-failure" }, "失败：" + String(failure.message || "未知错误")); }),
+					sideEffects.length > 0 ? h("div", { className: "dsh-tavern-mvu-side-effect-title" }, "人物卡脚本联动") : null,
+					sideEffects.map(function (change, index) { return h("div", { key: "side-effect:" + index, className: "dsh-tavern-mvu-change", "data-origin": "card-script" },
+						h("div", { className: "dsh-tavern-mvu-change-path" }, (operationLabels[change.operation] || "更新") + " " + String(change.path || "/")),
+						h("div", { className: "dsh-tavern-mvu-change-values" }, String(change.before) + " → " + String(change.after))
+					); }),
+					failures.map(function (failure, index) {
+						const operation = operationLabels[failure.operation] || String(failure.operation || "操作");
+						const path = String(failure.path || failure.command || "/");
+						return h("div", { key: "failure:" + index, className: "dsh-tavern-mvu-failure" }, "失败：" + operation + " " + path + "：" + String(failure.message || "未知错误"));
+					}),
 					retryButton
 				)
 			);

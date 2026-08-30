@@ -104,6 +104,79 @@ function diffValues(before, after, path = '', result = []) {
   return result
 }
 
+function pointerSegments(pointer) {
+  return str(pointer).split('/').slice(1).map(function (segment) {
+    return segment.replaceAll('~1', '/').replaceAll('~0', '~')
+  })
+}
+
+function variablesPointer(pointer) {
+  const segments = pointerSegments(pointer)
+  if (segments[0] === 'stat_data') return '/' + segments.map(pointerSegment).join('/')
+  return '/stat_data/' + segments.map(pointerSegment).join('/')
+}
+
+function valueAtPointer(value, pointer) {
+  let current = value
+  for (const segment of pointerSegments(pointer)) {
+    if (current === null || current === undefined || !Object.prototype.hasOwnProperty.call(Object(current), segment)) {
+      return { exists: false, value: undefined }
+    }
+    current = current[segment]
+  }
+  return { exists: true, value: current }
+}
+
+function pathsOverlap(left, right) {
+  return left === right || left.startsWith(right + '/') || right.startsWith(left + '/')
+}
+
+function operationPointers(operation) {
+  if (operation.op === 'move') return [variablesPointer(operation.from), variablesPointer(operation.path)]
+  const target = variablesPointer(operation.path)
+  if ((operation.op === 'insert' || operation.op === 'add') && target.endsWith('/-')) {
+    return [target.slice(0, -2)]
+  }
+  return [target]
+}
+
+function operationNeedsMutation(operation, before) {
+  const target = valueAtPointer(before, variablesPointer(operation.path))
+  if (operation.op === 'remove') return target.exists
+  if (operation.op === 'move') return valueAtPointer(before, variablesPointer(operation.from)).exists
+  if (operation.op === 'delta') return operation.value !== 0
+  return !target.exists || !sameValue(target.value, operation.value)
+}
+
+/** Attribute final state changes to submitted operations and expose silent runtime rejection. */
+function auditMvuSettlement(before, after, operations) {
+  const allChanges = diffValues(before, after)
+  const claimed = new Set()
+  const failures = []
+  for (const operation of operations) {
+    const pointers = operationPointers(operation)
+    const matches = []
+    for (let index = 0; index < allChanges.length; index++) {
+      if (pointers.some(function (pointer) { return pathsOverlap(allChanges[index].path, pointer) })) {
+        matches.push(index)
+        claimed.add(index)
+      }
+    }
+    if (matches.length === 0 && operationNeedsMutation(operation, before)) {
+      failures.push({
+        operation: operation.op,
+        path: operation.path,
+        message: '操作执行后未生效，可能被人物卡变量结构校验拒绝'
+      })
+    }
+  }
+  return {
+    changes: allChanges.filter(function (_change, index) { return claimed.has(index) }),
+    sideEffects: allChanges.filter(function (_change, index) { return !claimed.has(index) }),
+    failures
+  }
+}
+
 function assertPointer(value, label) {
   const pointer = str(value)
   if (pointer === '' || pointer[0] !== '/') throw new Error(label + ' 必须是 JSON Pointer')
@@ -274,7 +347,11 @@ export function createMvuSettlementModule(options = {}) {
             if (submissions.length > 0) throw new Error('mvu_submit_update 每轮只能调用一次')
             const submission = normalizeMvuToolSubmission(call.arguments)
             submissions.push(submission)
-            return JSON.stringify({ accepted: true, operationCount: submission.operations.length })
+            return JSON.stringify({
+              received: true,
+              operationCount: submission.operations.length,
+              note: '仅表示已接收；是否生效将在官方 MVU Runtime 执行后逐项核验'
+            })
           }
         })
         traceSessionId = str(run.traceSessionId)
@@ -299,7 +376,7 @@ export function createMvuSettlementModule(options = {}) {
             traceBoundary,
             receipt: {
               version: 1, status: 'stale', summary: '变量结算目标已经变化，迟到结果未写入。',
-              changes: [], failures: []
+              changes: [], sideEffects: [], failures: []
             }
           }
         }
@@ -307,7 +384,10 @@ export function createMvuSettlementModule(options = {}) {
           ? applied.context.messages[input.messageId]
           : null
         const after = clone(projected && projected.variables || {})
-        const changes = diffValues(input.currentVariables, after)
+        const audit = auditMvuSettlement(input.currentVariables, after, submission.operations)
+        const status = audit.failures.length > 0
+          ? (audit.changes.length > 0 ? 'partial' : 'error')
+          : (audit.changes.length > 0 ? 'updated' : 'unchanged')
         return {
           frame,
           text: str(run.text),
@@ -317,10 +397,11 @@ export function createMvuSettlementModule(options = {}) {
           submission,
           receipt: {
             version: 1,
-            status: changes.length > 0 ? 'updated' : 'unchanged',
+            status,
             summary: submission.analysis,
-            changes,
-            failures: []
+            changes: audit.changes,
+            sideEffects: audit.sideEffects,
+            failures: audit.failures
           }
         }
       } catch (error) {

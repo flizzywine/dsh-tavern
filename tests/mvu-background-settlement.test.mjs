@@ -65,6 +65,67 @@ test('深模块强制一次工具调用并以官方 Runtime 的实际差异生�
   assert.deepEqual(result.receipt.changes, [{ operation: 'set', path: '/stat_data/体力', before: '10', after: '9' }])
 })
 
+test('深模块逐项核验提交结果并把人物卡脚本联动与失败操作分开记录', async function () {
+  const module = createMvuSettlementModule({
+    maxAttempts: 1,
+    model: {
+      async run(input) {
+        await input.onToolCall({
+          name: 'mvu_submit_update',
+          arguments: {
+            analysis: '正文确认进入长廊并发现石门',
+            operations: [
+              { op: 'replace', path: '/本尊/行踪/当前区域', value: '古殿·幽暗长廊' },
+              { op: 'replace', path: '/当前处境', value: '正走向石门' }
+            ]
+          }
+        })
+        return { text: '{"posture":"走向石门"}' }
+      }
+    },
+    runtime: {
+      async settleMvuUpdate() {
+        return {
+          updated: true,
+          context: {
+            messages: [{
+              variables: {
+                stat_data: {
+                  本尊: { 行踪: { 当前区域: '古殿·幽暗长廊' } },
+                  当前处境: '',
+                  $宗门推断: { 当前域: '归墟' }
+                }
+              }
+            }]
+          }
+        }
+      }
+    }
+  })
+  const result = await module.settleVariables({
+    operationId: 'operation-partial', chatId: 'chat-1', branchId: 'branch-1', basedOnRevision: 5,
+    sessionId: 'session-1', messageId: 0, swipeId: 0, storyText: '他走入长廊，望见石门。',
+    currentVariables: {
+      stat_data: {
+        本尊: { 行踪: { 当前区域: '未知之地' } },
+        当前处境: '',
+        $宗门推断: { 当前域: '' }
+      }
+    }
+  })
+
+  assert.equal(result.receipt.status, 'partial')
+  assert.deepEqual(result.receipt.changes, [{
+    operation: 'set', path: '/stat_data/本尊/行踪/当前区域', before: '未知之地', after: '古殿·幽暗长廊'
+  }])
+  assert.deepEqual(result.receipt.failures, [{
+    operation: 'replace', path: '/当前处境', message: '操作执行后未生效，可能被人物卡变量结构校验拒绝'
+  }])
+  assert.deepEqual(result.receipt.sideEffects, [{
+    operation: 'set', path: '/stat_data/$宗门推断/当前域', before: '', after: '归墟'
+  }])
+})
+
 test('深模块把有效空 Patch 记录为 unchanged，把漏调用工具记录为失败', async function () {
   const unchanged = createMvuSettlementModule({
     maxAttempts: 1,
