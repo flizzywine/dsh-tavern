@@ -4419,47 +4419,27 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		}
 		const cardLibraryFeature = createCardLibraryFeatureModule();
 
-		function createPersistentStatusViewFeatureModule() {
-			function PersistentStatusView(props) {
-				const stateKey = props.useSession(function (snapshot) {
-					const nodes = snapshot.nodes || [];
-					let latest = "";
-					for (let index = nodes.length - 1; index >= 0; index -= 1) {
-						if (nodes[index].kind === "assistant" && nodes[index].messageId) { latest = nodes[index].messageId; break; }
-					}
-					return "status:" + String(snapshot.running) + ":" + latest;
-				});
-				const liveState = useLiveTavernView(props.sessionId, stateKey);
-				const view = liveState.view;
-				const statusView = view && isPlayMode(view.mode) ? view.tavernStatusView : null;
-				if (!statusView || !statusView.content || !view.tavernHelper) return null;
-				return React.createElement("section", {
-					className: "dsh-tavern-status-runtime",
-					"data-status-view-id": String(statusView.viewId || "primary"),
-					"data-template-revision": String(statusView.templateRevision || "")
-				}, React.createElement(TavernMessageFrame, {
-					content: String(statusView.content),
-					sessionId: props.sessionId,
-					turn: Math.max(1, Number(statusView.targetTurn) || 1),
-					partIndex: Math.max(0, Number(statusView.sourcePartIndex) || 0),
-					helperContext: view.tavernHelper,
-					styleEnvironment: view.tavernStyleEnvironment,
-					trustedCardMode: Boolean(view.tavernRuntimePolicy && view.tavernRuntimePolicy.trustedCardMode),
-					eager: true,
-					persistent: true,
-					observeMvuView: false,
-					runtimeReporting: false
-				}));
-			}
-			function register(input) {
-				const ctx = input.ctx;
-				const slots = input.slots;
-				ctx.effect(() => slots.inject("conversation.input.dock", () => slots.register(
-					{ name: "conversation.input.dock", id: "dsh-tavern-persistent-status-view", order: -140, label: "人物卡状态" },
-					PersistentStatusView
-				)), "dsh-tavern: persistent status view runtime");
-			}
-			return Object.freeze({ register: register });
+		function TavernPersistentStatusRuntime(props) {
+			const view = props.view;
+			const statusView = view && isPlayMode(view.mode) ? view.tavernStatusView : null;
+			if (!statusView || !statusView.content || !view.tavernHelper) return null;
+			return React.createElement("section", {
+				className: "dsh-tavern-status-runtime",
+				"data-status-view-id": String(statusView.viewId || "primary"),
+				"data-template-revision": String(statusView.templateRevision || "")
+			}, React.createElement(TavernMessageFrame, {
+				content: String(statusView.content),
+				sessionId: props.sessionId,
+				turn: Math.max(1, Number(statusView.targetTurn) || 1),
+				partIndex: Math.max(0, Number(statusView.sourcePartIndex) || 0),
+				helperContext: view.tavernHelper,
+				styleEnvironment: view.tavernStyleEnvironment,
+				trustedCardMode: Boolean(view.tavernRuntimePolicy && view.tavernRuntimePolicy.trustedCardMode),
+				eager: true,
+				persistent: true,
+				observeMvuView: false,
+				runtimeReporting: false
+			}));
 		}
 
 		function createPlayControlsFeatureModule() {
@@ -4645,6 +4625,10 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					h("div", { className: "dsh-tavern-status-body" },
 					view.worldBookError ? h("div", { className: "dsh-card-error" }, "世界书召回失败：" + view.worldBookError) : null,
 					view.foregroundError ? h("div", { className: "dsh-card-error" }, view.foregroundError.message || "前台正文生成失败，请重新生成本轮正文。") : null,
+					view.tavernStatusView && view.tavernStatusView.content && view.tavernHelper ? h("section", { className: "dsh-tavern-status-section" },
+						h("div", { className: "dsh-tavern-status-label" }, "人物卡状态栏"),
+						h(TavernPersistentStatusRuntime, { sessionId: props.sessionId, view: view })
+					) : null,
 					helperButtons.length ? h("section", { className: "dsh-tavern-status-section" },
 						h("div", { className: "dsh-tavern-status-label" }, "人物卡脚本按钮"),
 						h("div", { className: "dsh-tavern-script-buttons" }, helperButtons.map(function (button) {
@@ -5298,7 +5282,6 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		}
 		const playControlsFeature = createPlayControlsFeatureModule();
 		const assistantRendererFeature = createTavernAssistantRendererFeatureModule();
-		const persistentStatusViewFeature = createPersistentStatusViewFeatureModule();
 
 		const inject = ["slots", "sessions", "workspaces", "layout", "connection", "conversation", "betterSidebar", "remote", "remote.commands"];
 
@@ -5365,7 +5348,6 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			}
 			playControlsFeature.register({ ctx: ctx, slots: slots });
 			assistantRendererFeature.register({ ctx: ctx, slots: slots });
-			persistentStatusViewFeature.register({ ctx: ctx, slots: slots });
 			ctx.effect(function () {
 				return slots.inject("settings.section", function () { return slots.register({
 					name: "settings.section",
@@ -5422,7 +5404,6 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		exports.createWorldBookLibraryFeatureModule = createWorldBookLibraryFeatureModule;
 		exports.createCardLibraryFeatureModule = createCardLibraryFeatureModule;
 		exports.createPlayControlsFeatureModule = createPlayControlsFeatureModule;
-		exports.createPersistentStatusViewFeatureModule = createPersistentStatusViewFeatureModule;
 		exports.createTavernAssistantRendererFeatureModule = createTavernAssistantRendererFeatureModule;
 		exports.createTavernShellFeatureModule = createTavernShellFeatureModule;
 		return module.exports;

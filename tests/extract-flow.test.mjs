@@ -985,6 +985,12 @@ test('酒馆状态页等待会话绑定就绪后自动刷新', () => {
   assert.match(statusPanel, /重新加载/)
 })
 
+test('人物卡持久状态栏由酒馆状态面板承载，不再覆盖对话正文', () => {
+	const statusPanel = between(clientSource, 'function TavernStatusPanel', 'function TavernStatusTab')
+	assert.match(statusPanel, /TavernPersistentStatusRuntime/)
+	assert.doesNotMatch(clientSource, /dsh-tavern-persistent-status-view/)
+})
+
 test('酒馆状态只服务游玩模式，卡片工作台面板暂不复用该侧栏', () => {
   const status = between(clientSource, 'function TavernStatusPanel', 'function TavernStatusTab')
   const view = between(serverSource, 'async function view(chat, card)', 'function replyProjectionsOf')

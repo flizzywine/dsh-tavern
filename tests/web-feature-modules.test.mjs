@@ -119,22 +119,8 @@ test('游玩控制 Feature module 统一注册状态栏与对话控制面板', f
   ])
 })
 
-test('持久状态视图 Runtime 独立注册在对话级固定区域', function () {
-  const feature = browser.createPersistentStatusViewFeatureModule()
-  const registrations = []
-  const ctx = { effect(activate) { return activate() } }
-  const slots = {
-    inject(name, activate) { assert.equal(name, 'conversation.input.dock'); return activate() },
-    register(descriptor, component) { registrations.push({ descriptor, component }); return function () {} }
-  }
-
-  feature.register({ ctx, slots })
-
-  assert.deepEqual(Object.keys(feature), ['register'])
-  assert.equal(registrations.length, 1)
-  assert.equal(registrations[0].descriptor.id, 'dsh-tavern-persistent-status-view')
-  assert.equal(registrations[0].descriptor.order, -140)
-  assert.equal(typeof registrations[0].component, 'function')
+test('持久状态视图不再注册到粘滞输入区域', function () {
+	assert.equal(browser.createPersistentStatusViewFeatureModule, undefined)
 })
 
 test('酒馆 Shell Feature module 封装工作区入口并只暴露注册 interface', function () {

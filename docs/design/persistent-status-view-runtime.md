@@ -192,7 +192,7 @@ sessionId → {
 
 Registry 只记录身份和生命周期，不保存第二份权威 MVU 数据。
 
-状态栏应放在 Conversation View 的固定区域，例如消息列表末尾、输入框之前。新消息追加在它之前，因此 React 不需要把 iframe 从一个消息节点移动到另一个消息节点。
+状态栏放在 Better Sidebar 已有的“酒馆状态”面板中，不占用正文消息流或 DSH 的粘滞输入区域。新消息只更新状态数据，React 不需要把 iframe 从一个消息节点移动到另一个消息节点；切换右侧标签时面板只隐藏，不销毁状态 iframe。
 
 ### Module 4：Host Adapter
 
@@ -498,7 +498,7 @@ Interface 是主要测试面。
 
 1. `mvuViewUsed` 重复上报、空白展示 part 和普通 DOM mutation 不再触发无意义的完整刷新；
 2. 服务端从消息展示投影中提取唯一的 `tavernStatusView`，不再把状态栏 HTML 逐轮复制到最新助手消息；
-3. 前端在输入区之前挂载 Conversation 级固定状态区域，每个当前对话最多保留一个活动状态 iframe；
+3. 前端在右侧“酒馆状态”面板挂载 Conversation 级固定状态区域，每个当前对话最多保留一个活动状态 iframe；
 4. `stateRevision`、消息轮次和 Helper Context 变化不再进入状态 iframe 的文档 identity；
 5. 首次挂载发送完整 Helper Context，后续发送带 revision 的增量 patch；revision 断裂时由 iframe 请求完整 snapshot；
 6. 状态栏模板或样式环境变化仍沿用原子双缓冲替换，旧画面在新 iframe ready 前保持可见；
