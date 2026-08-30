@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { projectPersistentStatusView } from '../tavern-plugin/lib/domain/mvu-view-liveness.js'
+import { projectPersistentStatusView } from '../tavern-plugin/lib/domain/persistent-status-view.js'
 
 function projection(turn, parts) {
   return { version: 2, turn, mode: 'html', text: '', parts, warnings: [] }
