@@ -261,7 +261,7 @@ test('Tavern no longer bundles dsh-codex-connect and removes it from existing pr
 })
 
 test('Tavern profile installs Better Sidebar as its right-panel foundation', () => {
-  assert.equal(rootManifest.dependencies['dsh-better-sidebar'], '0.15.0')
+  assert.equal(rootManifest.dependencies['dsh-better-sidebar'], '0.17.1')
   assert.ok(rootManifest.dsh.profile.bundles.includes('dsh-better-sidebar'))
   assert.match(profileConfigurationSource, /managedDependencies/)
 })

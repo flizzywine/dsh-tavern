@@ -89,6 +89,27 @@ export function mergeProfileManifest({ source, current = {}, pluginPath, dataRoo
   }
 }
 
+export function syncProfileDependencyPatches({ sourceRoot, profileDir, workspaceText }) {
+  const document = parseDocument(String(workspaceText || ''))
+  if (document.errors.length > 0) throw new Error(`无法读取 pnpm workspace 配置：${document.errors[0].message}`)
+  const patchedDependencies = object(document.toJS()?.patchedDependencies)
+  const copied = []
+  for (const relativePath of Object.values(patchedDependencies)) {
+    if (typeof relativePath !== 'string' || relativePath === '') continue
+    const normalized = path.normalize(relativePath)
+    if (path.isAbsolute(normalized) || normalized === '..' || normalized.startsWith(`..${path.sep}`)) {
+      throw new Error(`依赖补丁路径必须位于 Tavern 源码内：${relativePath}`)
+    }
+    const sourcePath = path.join(sourceRoot, normalized)
+    if (!existsSync(sourcePath)) throw new Error(`缺少依赖补丁文件：${relativePath}`)
+    const targetPath = path.join(profileDir, normalized)
+    mkdirSync(path.dirname(targetPath), { recursive: true })
+    copyFileSync(sourcePath, targetPath)
+    copied.push(normalized)
+  }
+  return copied
+}
+
 function parsedSequence(source, label) {
   const document = parseDocument(String(source || ''))
   if (document.errors.length > 0) throw new Error(`无法读取${label}：${document.errors[0].message}`)

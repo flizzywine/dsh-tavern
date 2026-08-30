@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { existsSync } from 'node:fs'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
@@ -13,6 +13,7 @@ import {
   mergeProfileManifest,
   migrateLegacyProfilePatch,
   prepareProfilePatch,
+  syncProfileDependencyPatches,
 } from '../bin/profile-configuration.mjs'
 
 const legacyPatch = await readFile(new URL('../config/legacy-profile-patch-v0.6.yml', import.meta.url), 'utf8')
@@ -67,6 +68,26 @@ test('Profile 更新替换项目管理项并保留用户额外插件', () => {
   assert.deepEqual(next.dshTavern.managedBundles, sourceManifest().dsh.profile.bundles)
   assert.deepEqual(next.dshTavern.managedDependencies, ['@dsh-external/dsh-mobile-nav', 'dsh-better-sidebar', 'dsh-tavern-plugin'])
   assert.equal(next.dshTavern.profileConfigurationVersion, PROFILE_CONFIGURATION_VERSION)
+})
+
+test('Profile 安装同步 pnpm 声明的受管依赖补丁', async () => {
+  const sourceRoot = await mkdtemp(path.join(tmpdir(), 'dsh-tavern-patch-source-'))
+  const profileDir = await mkdtemp(path.join(tmpdir(), 'dsh-tavern-patch-profile-'))
+  const relativePath = path.join('patches', 'sidebar.patch')
+  await mkdir(path.dirname(path.join(sourceRoot, relativePath)), { recursive: true })
+  await writeFile(path.join(sourceRoot, relativePath), 'patched\n')
+  try {
+    const copied = syncProfileDependencyPatches({
+      sourceRoot,
+      profileDir,
+      workspaceText: `patchedDependencies:\n  dsh-better-sidebar@0.17.1: ${relativePath}\n`,
+    })
+    assert.deepEqual(copied, [relativePath])
+    assert.equal(await readFile(path.join(profileDir, relativePath), 'utf8'), 'patched\n')
+  } finally {
+    await rm(sourceRoot, { recursive: true, force: true })
+    await rm(profileDir, { recursive: true, force: true })
+  }
 })
 
 test('后续更新依据上次管理清单删除退役项目项，不误删用户项', () => {

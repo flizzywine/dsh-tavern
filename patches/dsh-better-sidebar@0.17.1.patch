@@ -1,0 +1,14 @@
+diff --git a/lib/index.js b/lib/index.js
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -11 +11 @@
+-import { SettingsConflictError, settingsNamespace } from "@deepseek-ai/dsh-settings";
++import { SettingsConflictError } from "@deepseek-ai/dsh-settings";
+@@ -4133 +4133 @@
+-		const ns = settingsNamespace(SIDEBAR_PREFS_NS);
++		const ns = SIDEBAR_PREFS_NS;
+diff --git a/package.json b/package.json
+--- a/package.json
++++ b/package.json
+@@ -48 +48,0 @@
+-        "@deepseek-ai/dsh-client-runtime",

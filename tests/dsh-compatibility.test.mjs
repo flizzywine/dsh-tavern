@@ -16,3 +16,10 @@ test('Tavern uses open DSH ecosystem package ranges instead of an exact host rel
   assert.match(launcherSource, /run\('pnpm', \['--dir', pluginDirectory, 'install', '--lockfile=false'\]\)/)
   assert.doesNotMatch(launcherSource, /'install'[\s\S]{0,40}'--ignore-workspace'/)
 })
+
+test('Tavern client bootstrap uses the modular DSH client graph', () => {
+  const injected = pluginManifest.dsh.client.inject
+  assert.ok(injected.includes('@deepseek-ai/dsh-client-ui-primitives'))
+  assert.ok(injected.includes('dsh-better-sidebar'))
+  assert.ok(!injected.includes('@deepseek-ai/dsh-client-runtime'))
+})

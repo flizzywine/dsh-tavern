@@ -28,6 +28,7 @@ import {
   loadProfileManifest,
   mergeProfileManifest,
   prepareProfilePatch,
+  syncProfileDependencyPatches,
 } from './profile-configuration.mjs'
 
 const PROFILE = 'tavern'
@@ -557,7 +558,9 @@ async function installProfile(host = 'cli') {
     if (backup !== null) console.log(`已备份原配置：${backup}`)
   }
   try {
+    const workspaceText = readFileSync(path.join(SOURCE_ROOT, 'pnpm-workspace.yaml'), 'utf8')
     copyFileSync(path.join(SOURCE_ROOT, 'pnpm-workspace.yaml'), path.join(PROFILE_DIR, 'pnpm-workspace.yaml'))
+    syncProfileDependencyPatches({ sourceRoot: SOURCE_ROOT, profileDir: PROFILE_DIR, workspaceText })
     run('pnpm', ['--dir', PROFILE_DIR, 'install'])
     runDsh(dsh, ['--profile', PROFILE, '--dump-config'], { stdio: 'ignore', host })
     ensureSidebarDefaults()
