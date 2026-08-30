@@ -688,6 +688,76 @@ test('Helper Host 每个对话只创建一个共享脚本沙箱并只投递一�
   runtime.dispose()
 })
 
+test('Helper Host 生命周期事件保留官方 MVU 识别角色回复所需的消息身份', async () => {
+  const windowListeners = new Map()
+  const frames = []
+  const hostWindow = {
+    crypto: { randomUUID() { return 'identity-runtime-token' } },
+    setTimeout,
+    clearTimeout,
+    addEventListener(name, handler) { windowListeners.set(name, handler) },
+    removeEventListener(name) { windowListeners.delete(name) }
+  }
+  const root = { isConnected: true, appendChild() {}, remove() {} }
+  const hostDocument = {
+    body: { appendChild() {} },
+    documentElement: { appendChild() {} },
+    createElement(tag) {
+      if (tag === 'div') return root
+      const frame = {
+        contentWindow: { messages: [], postMessage(message) { this.messages.push(message) } },
+        listeners: {},
+        addEventListener(name, handler) { this.listeners[name] = handler },
+        remove() {}
+      }
+      frames.push(frame)
+      return frame
+    }
+  }
+  const runtime = client.createTavernHelperScriptRuntime({
+    window: hostWindow,
+    document: hostDocument,
+    rpc() { return Promise.resolve({}) },
+    reportError() {}
+  })
+  runtime.sync('session', {
+    chatId: 'chat-1',
+    playerName: '你',
+    card: { name: '灯火阑珊' },
+    tavernHelper: { messages: [], scriptVariables: {} },
+    tavernHelperScripts: [{ id: 'official', name: '官方 MVU Core', content: 'void 0', data: {}, buttons: [] }]
+  })
+  frames[0].listeners.load()
+  const receive = windowListeners.get('message')
+  receive({
+    source: frames[0].contentWindow,
+    data: {
+      type: 'dsh-tavern-helper-subscriptions', token: 'identity-runtime-token', names: ['MESSAGE_RECEIVED'], ready: true,
+      scripts: [{ id: 'official', names: ['MESSAGE_RECEIVED'], ready: true, failed: false }]
+    }
+  })
+
+  const emitted = runtime.emit('MESSAGE_RECEIVED', [0], {
+    lifecycleRevision: 2,
+    messages: [{ message_id: 0, role: 'assistant', message: '正文\n\n<UpdateVariable>...</UpdateVariable>', swipe_id: 0 }]
+  })
+  await Promise.resolve()
+  const contextMessage = frames[0].contentWindow.messages.filter(item => item.type === 'dsh-tavern-helper-context').at(-1)
+  assert.equal(contextMessage.context.characterName, '灯火阑珊')
+  assert.equal(contextMessage.context.playerName, '你')
+  assert.equal(contextMessage.context.messages[0].name, '灯火阑珊')
+  assert.equal(contextMessage.context.messages[0].is_user, false)
+  assert.equal(contextMessage.context.messages[0].mes, '正文\n\n<UpdateVariable>...</UpdateVariable>')
+
+  const request = frames[0].contentWindow.messages.find(item => item.type === 'dsh-tavern-helper-event')
+  receive({
+    source: frames[0].contentWindow,
+    data: { type: 'dsh-tavern-helper-event-complete', token: 'identity-runtime-token', eventId: request.eventId, args: [0] }
+  })
+  assert.deepEqual(JSON.parse(JSON.stringify(await emitted)), [0])
+  runtime.dispose()
+})
+
 test('Helper Host 超时会指出正在执行的脚本、拒绝事件并屏蔽迟到写入', async () => {
   const windowListeners = new Map()
   const frames = []

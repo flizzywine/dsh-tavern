@@ -2023,6 +2023,22 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				(hostDocument.body || hostDocument.documentElement).appendChild(root);
 				return root;
 			}
+			function decorateHelperContext(value, fallback) {
+				const context = clone(value && typeof value === "object" ? value : {});
+				const previous = fallback && typeof fallback === "object" ? fallback : {};
+				for (const key of ["character", "chatId", "playerName", "characterName", "worldbook"]) {
+					if (context[key] === undefined && previous[key] !== undefined) context[key] = clone(previous[key]);
+				}
+				if (!context.scriptVariables || typeof context.scriptVariables !== "object") context.scriptVariables = clone(previous.scriptVariables || {});
+				context.playerName = String(context.playerName || "你");
+				context.characterName = String(context.characterName || context.character && context.character.name || "角色");
+				for (const message of Array.isArray(context.messages) ? context.messages : []) {
+					message.is_user = message.role === "user";
+					message.name = message.is_user ? context.playerName : context.characterName;
+					message.mes = String(message.message || "");
+				}
+				return context;
+			}
 			function helperContext(view, scripts) {
 				const context = clone(view && view.tavernHelper || {});
 				if (!context.scriptVariables || typeof context.scriptVariables !== "object") context.scriptVariables = {};
@@ -2033,13 +2049,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				context.chatId = String(view && view.chatId || "");
 				context.playerName = String(view && view.playerName || "你");
 				context.characterName = String(character && character.name || "角色");
-				for (const message of Array.isArray(context.messages) ? context.messages : []) {
-					message.is_user = message.role === "user";
-					message.name = message.is_user ? context.playerName : context.characterName;
-					message.mes = String(message.message || "");
-				}
 				context.worldbook = clone(view && view.tavernHelperWorldbook || null);
-				return context;
+				return decorateHelperContext(context);
 			}
 			function post(record, message) {
 				if (!record.loaded || !record.frame.contentWindow) return;
@@ -2093,7 +2104,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			function emitToRecord(record, name, args, context) {
 				if (!record.subscriptionsReady || record.initializationFailed) return Promise.resolve(args);
 				if (context && typeof context === "object") {
-					record.context = clone(context);
+					record.context = decorateHelperContext(context, record.context);
 					post(record, { type: "dsh-tavern-helper-context", context: record.context });
 				}
 				if (!record.subscriptions.has(String(name))) return Promise.resolve(args);
