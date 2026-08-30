@@ -1,0 +1,10 @@
+{
+    "extends": "./tsconfig.json",
+    "compilerOptions": {
+        "declaration": true,
+        "emitDeclarationOnly": true,
+        "outDir": "artifact",
+        "skipLibCheck": true
+    },
+    "files": ["src/variable_def.ts", "src/function/global/index.ts"]
+}

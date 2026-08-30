@@ -45,6 +45,7 @@ import { projectTavernHelperScripts } from './domain/tavern-helper-scripts.js'
 import { createTavernHelperEventGate } from './domain/tavern-helper-event-gate.js'
 import { createTavernScriptHostAdapter } from './domain/tavern-script-host-adapter.js'
 import { createTavernRemoteAssetPinStore } from './domain/tavern-remote-assets.js'
+import { OFFICIAL_MVU_VERSION, readOfficialMvuBundle } from './domain/official-mvu-assets.js'
 import { createTavernStaticResourceCache, projectCachedResourceBody } from './domain/tavern-static-resource-cache.js'
 import { SILLYTAVERN_CSS_COMPAT_URLS } from './domain/sillytavern-css-compatibility.js'
 import { normalizeTavernStyleEnvironment } from './domain/tavern-style-environment.js'
@@ -2642,6 +2643,7 @@ export async function apply(ctx) {
         const pathname = decodeURIComponent(new URL(req.url ?? '/', 'http://x').pathname)
         const cachedAssetMatch = /^\/api\/dsh-tavern\/remote-assets\/([0-9a-f]{64})(?:\/[^/]*)?$/i.exec(pathname)
         const readsStaticAsset = req.method === 'GET' && pathname === '/api/dsh-tavern/static-assets'
+        const readsOfficialMvu = req.method === 'GET' && pathname === OFFICIAL_MVU_VERSION.assetUrl
         const origin = req.headers.origin
         const readsCachedAsset = req.method === 'GET' && cachedAssetMatch
         const localOrOpaqueOrigin = origin === undefined || origin === '' || origin === 'null' || /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin)
@@ -2650,7 +2652,7 @@ export async function apply(ctx) {
           res.end('forbidden')
           return
         }
-        if (!readsCachedAsset && !readsStaticAsset && typeof origin === 'string' && origin !== '' && !/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin)) {
+        if (!readsCachedAsset && !readsStaticAsset && !readsOfficialMvu && typeof origin === 'string' && origin !== '' && !/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin)) {
           res.writeHead(403)
           res.end('forbidden')
           return
@@ -2658,6 +2660,21 @@ export async function apply(ctx) {
         try {
           const readiness = await runtimeReadiness
           if (!readiness.ok) throw readiness.error
+          if (readsOfficialMvu) {
+            const asset = await readOfficialMvuBundle()
+            res.writeHead(200, {
+              'Content-Type': asset.mediaType,
+              'Content-Length': asset.body.length,
+              'Cache-Control': 'public, max-age=31536000, immutable',
+              'ETag': asset.etag,
+              'Access-Control-Allow-Origin': '*',
+              'Cross-Origin-Resource-Policy': 'cross-origin',
+              'X-Content-Type-Options': 'nosniff',
+              'X-DSH-Tavern-MVU-Commit': asset.commit
+            })
+            res.end(asset.body)
+            return
+          }
           if (readsCachedAsset) {
             const asset = await tavernRemoteAssets.readCached(cachedAssetMatch[1])
             if (!asset) {
