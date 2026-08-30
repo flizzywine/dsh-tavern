@@ -12,6 +12,7 @@ import {
   readlinkSync,
   realpathSync,
   readdirSync,
+  rmSync,
   renameSync,
   symlinkSync,
   unlinkSync,
@@ -337,6 +338,7 @@ function installPluginDependencies(dshVersion) {
   try {
     writeFileSync(temporary, workspace.toString(), 'utf8')
     renameSync(temporary, workspacePath)
+    rmSync(path.join(pluginDirectory, 'node_modules'), { recursive: true, force: true })
     run('pnpm', ['--dir', pluginDirectory, 'install', '--lockfile=false'])
   } finally {
     if (existsSync(temporary)) unlinkSync(temporary)

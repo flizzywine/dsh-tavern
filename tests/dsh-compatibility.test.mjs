@@ -13,6 +13,7 @@ test('Tavern uses open DSH ecosystem package ranges instead of an exact host rel
   assert.match(pluginSource, /from '@deepseek-ai\/dsh-tools'/)
   assert.match(backgroundSource, /from '@deepseek-ai\/dsh-subagent'/)
   assert.match(launcherSource, /function installPluginDependencies\(dshVersion\)/)
+  assert.match(launcherSource, /rmSync\(path\.join\(pluginDirectory, 'node_modules'\), \{ recursive: true, force: true \}\)/)
   assert.match(launcherSource, /run\('pnpm', \['--dir', pluginDirectory, 'install', '--lockfile=false'\]\)/)
   assert.doesNotMatch(launcherSource, /'install'[\s\S]{0,40}'--ignore-workspace'/)
 })
