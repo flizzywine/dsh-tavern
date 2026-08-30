@@ -400,12 +400,12 @@ test('消息 iframe 测高忽略被裁剪内容与固定悬浮元素', () => {
   const reporter = reporters.at(-1)
   assert.ok(reporter)
 
-  function element({ top, bottom, position = 'static', overflow = 'visible', parent = null }) {
+  function element({ top, bottom, position = 'static', overflow = 'visible', marginBottom = '0px', parent = null }) {
     return {
       parentElement: parent,
       scrollHeight: Math.max(0, bottom - top),
       getBoundingClientRect() { return { top, bottom, width: 100, height: bottom - top } },
-      style: { position, overflow, overflowX: overflow, overflowY: overflow }
+      style: { position, overflow, overflowX: overflow, overflowY: overflow, marginBottom }
     }
   }
 
@@ -436,6 +436,48 @@ test('消息 iframe 测高忽略被裁剪内容与固定悬浮元素', () => {
   })
 
   assert.equal(reportedHeight, 1800)
+})
+
+test('消息 iframe 测高包含末尾折叠外边距，避免宿主与 iframe 双层滚动', () => {
+  const documentHtml = client.buildTavernFrameDocument({ content: '正文', token: 'collapsed-margin-height-token' })
+  const reporters = Array.from(documentHtml.matchAll(/<script data-dsh-tavern-frame>([\s\S]*?)<\/script>/g))
+  const reporter = reporters.at(-1)
+  assert.ok(reporter)
+
+  const root = { scrollHeight: 1820, parentElement: null }
+  const body = {
+    parentElement: root,
+    scrollHeight: 1800,
+    getBoundingClientRect() { return { top: 0, bottom: 1800, width: 100, height: 1800 } },
+    style: { position: 'static', overflow: 'visible', overflowX: 'visible', overflowY: 'visible', marginBottom: '0px' }
+  }
+  const trailingCard = {
+    parentElement: body,
+    scrollHeight: 200,
+    getBoundingClientRect() { return { top: 1600, bottom: 1800, width: 100, height: 200 } },
+    style: { position: 'static', overflow: 'visible', overflowX: 'visible', overflowY: 'visible', marginBottom: '20px' }
+  }
+  body.querySelectorAll = () => [trailingCard]
+
+  let reportedHeight = 0
+  class Observer { observe() {} }
+  vm.runInNewContext(reporter[1], {
+    document: { documentElement: root, body },
+    window: { scrollY: 0 },
+    parent: { postMessage(message) { reportedHeight = message.height } },
+    getComputedStyle(node) { return node.style || { position: 'static', overflow: 'visible', overflowX: 'visible', overflowY: 'visible', marginBottom: '0px' } },
+    ResizeObserver: Observer,
+    MutationObserver: Observer,
+    requestAnimationFrame(callback) { callback() },
+    addEventListener() {},
+    Array,
+    Math,
+    Number,
+    String,
+    parseFloat
+  })
+
+  assert.equal(reportedHeight, 1820)
 })
 
 test('消息 iframe 在依赖和 DOM 稳定后报告可原子替换', () => {
