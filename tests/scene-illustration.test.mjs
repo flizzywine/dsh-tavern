@@ -10,6 +10,7 @@ import { createBackgroundAgentRunner } from '../tavern-plugin/lib/background-age
 import { createHash } from 'node:crypto'
 import { imageZip } from './fixtures/scene-image-zip.mjs'
 import { comfyGraph } from './fixtures/scene-image-comfy-workflow.mjs'
+import { createSceneImageDiagnostics } from '../tavern-plugin/lib/domain/scene-image-diagnostics.js'
 
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aKfoAAAAASUVORK5CYII=', 'base64')
 const imagePath = 'scene-images/' + createHash('sha256').update('test-chat').digest('hex') + '/'
@@ -79,6 +80,50 @@ async function fixture(t, overrides = {}) {
   await service.configure({ enabled: true })
   return { service, createService, deps, store, chat: () => chat, setChat: value => { chat = value }, imageCalls: () => imageCalls }
 }
+
+test('image journal retains failed attempts, validation feedback, actual inputs and later success without exposing internals in status', async t => {
+  let submissions = 0
+  const fx = await fixture(t, { runAgent: async input => {
+    submissions++
+    if (submissions === 1) {
+      await input.onToolCall({ arguments: { plan: { broken: true } } })
+      await input.onToolCall({ arguments: { plan: { broken: true } } })
+    } else await input.onToolCall({ arguments: { plan: planFixture() } })
+    return { traceSessionId: 'image-child-log' }
+  } })
+  const key = sceneTarget(fx.chat(), 2).key
+  const first = await fx.service.start('parent', 2, key)
+  await until(async () => (await fx.service.status('parent', 2)).status === 'failed')
+  await fx.service.dispose()
+  const restarted = fx.createService()
+  const second = await restarted.start('parent', 2, key)
+  await until(async () => (await restarted.status('parent', 2)).status === 'succeeded')
+  await restarted.dispose()
+  const journal = await createSceneImageDiagnostics(fx.store).read('test-chat')
+  assert.deepEqual(journal.records.map(item => item.requestId), [first.requestId, second.requestId])
+  assert.equal(journal.records[0].details.diagnostics.validations.length, 2)
+  assert.match(JSON.stringify(journal.records[0].details.diagnostics.input), /她站在窗边/)
+  assert.equal(journal.records[0].outcome, 'not_requested')
+  assert.equal(journal.records[1].status, 'succeeded')
+  assert.equal(journal.records[1].traceSessionId, 'image-child-log')
+  assert.equal(journal.records[1].usage.status, 'not-provided')
+  assert.ok(journal.records[1].events.some(event => event.stage === 'saving'))
+  assert.equal(fx.imageCalls(), 1)
+  const visible = await restarted.status('parent', 2)
+  assert.equal(visible.diagnosticContext, undefined)
+  assert.equal(visible.diagnostics, undefined)
+})
+
+test('diagnostic storage failure cannot fail a successful paid image or trigger another request', async t => {
+  let failures = 0
+  const fx = await fixture(t, { diagnostics: { async record() { throw new Error('diagnostic storage broken') } }, onStorageError() { failures++ } })
+  const key = sceneTarget(fx.chat(), 2).key
+  await fx.service.start('parent', 2, key)
+  await until(async () => (await fx.service.status('parent', 2)).status === 'succeeded')
+  assert.ok(failures > 0)
+  assert.equal(fx.imageCalls(), 1)
+  assert.ok((await fx.service.readImage('parent', 2, key)).data.length)
+})
 
 test('provider reports explicit rejection separately from ambiguous transport and response failures', async () => {
   const input = { provider: 'openai', baseURL: 'https://provider.example/v1', apiKey: 'secret', prompt: 'scene' }

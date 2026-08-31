@@ -10,6 +10,7 @@ import { createPendingSceneImages } from './scene-image-pending.js'
 import { createSceneImageQueue } from './scene-image-queue.js'
 import { createSceneReferences } from './scene-references.js'
 import { sceneStateSources } from './scene-state.js'
+import { createSceneImageDiagnostics, sceneAttemptDiagnostic } from './scene-image-diagnostics.js'
 
 export const IMAGE_CREDENTIAL = 'DSH_TAVERN_IMAGE_API_KEY'
 const hash = value => createHash('sha256').update(value).digest('hex')
@@ -97,6 +98,14 @@ export function createSceneIllustrations(deps) {
   const ownerId = randomUUID()
   const jobs = new Map()
   const starts = new Map()
+  const diagnosticSecrets = new Map()
+  const diagnostics = deps.diagnostics || createSceneImageDiagnostics(deps.store)
+  async function logAttempt(record, event) {
+    const context = record?.diagnosticContext
+    if (!context) return
+    try { await diagnostics.record(context.chatId, sceneAttemptDiagnostic(context.sessionId, record, event), diagnosticSecrets.get(record.requestId) || []) }
+    catch { deps.onStorageError?.() }
+  }
   imageHosts.set(ownerId, path => jobs.has(path) || starts.has(path))
   imageAborters.set(ownerId, (path, requestId) => { const job = jobs.get(path); if (job?.requestId === requestId) job.controller.abort() })
   const { config, settings, configure, capture } = createSceneImageSettings(deps)
@@ -114,13 +123,15 @@ export function createSceneIllustrations(deps) {
     const record = await deps.store.readJson(path)
     if (record?.status === 'running' && !ownerIsLive(record, path)) {
       const recoverable = await pendingImages.has(path, record.requestId)
-      return deps.store.updateJson(path, current => current?.requestId === record.requestId && current.status === 'running' && !ownerIsLive(current, path)
+      const interrupted = await deps.store.updateJson(path, current => current?.requestId === record.requestId && current.status === 'running' && !ownerIsLive(current, path)
         ? { ...current, status: current.cancelRequestedAt ? 'cancelled' : 'failed', outcome: recoverable ? 'received' : current.outcome || (['planning', 'queued'].includes(current.stage) ? 'not_requested' : 'unconfirmed'), ...(recoverable ? { recovery: 'save' } : {}), error: recoverable ? '图片已生成，保存被中断；请重试保存，不会重新生图。' : current.outcome === 'not_requested' || !current.outcome && ['planning', 'queued'].includes(current.stage) ? '生图任务中断，尚未请求图片。' : '结果未确认，服务可能已计费；不会自动重新生图。' } : current)
+      await logAttempt(interrupted, 'owner-interrupted')
+      return interrupted
     }
     return record
   }
   function present(target, record) {
-    const { attachment, savedAttachment, diagnostics, plan, requests, versions, deletedVersions, ownerId, ownerPid, ...publicRecord } = record || {}
+    const { attachment, savedAttachment, diagnostics, diagnosticContext, providerRequests, plan, requests, versions, deletedVersions, ownerId, ownerPid, ...publicRecord } = record || {}
     const configuration = value => value?.workflow ? { ...value, workflow: { name: value.workflow.name, digest: value.workflow.digest } } : value
     return { key: target.key, turn: target.turn, status: 'idle', ...publicRecord, ...(publicRecord.configuration ? { configuration: configuration(publicRecord.configuration) } : {}), versions: versionsOf(record).map(({ attachment, plan, ...item }) => ({ ...item, configuration: configuration(item.configuration), description: plan?.description || '', profile: plan?.profile || '' })) }
   }
@@ -136,11 +147,13 @@ export function createSceneIllustrations(deps) {
     if (needsPurchaseConfirmation(record) && options.confirmNewRequestId !== record.requestId) throw new Error('上次结果未确认，服务可能已计费。请确认重新生图后再请求，不会自动重试。')
   }
   async function writeJob(path, record, next = record) {
-    return deps.store.updateJson(path, current => {
+    const written = await deps.store.updateJson(path, current => {
       if (current?.requestId !== record.requestId || current.ownerId !== record.ownerId || current.status !== 'running') throw new Error('图片任务已结束或被替换')
       if (current.cancelRequestedAt) throw new Error('图片任务已取消')
       return next
     })
+    await logAttempt(written)
+    return written
   }
   function watchCancellation(path, record, controller) {
     let checking = false
@@ -155,7 +168,7 @@ export function createSceneIllustrations(deps) {
     return () => clearInterval(timer)
   }
   async function failJob(path, record, error) {
-    await deps.store.updateJson(path, current => {
+    const failed = await deps.store.updateJson(path, current => {
       if (current?.requestId !== record.requestId || current.ownerId !== record.ownerId || current.status !== 'running') return current
       const status = current.cancelRequestedAt ? 'cancelled' : 'failed'
       const outcome = record.outcome || 'not_requested'
@@ -164,6 +177,7 @@ export function createSceneIllustrations(deps) {
           : outcome === 'unconfirmed' ? '结果未确认，服务可能已计费；不会自动重新生图。' : error
       return { ...record, ...(current.cancelRequestedAt ? { cancelRequestedAt: current.cancelRequestedAt } : {}), status, outcome, error: message, requests: { ...record.requests, [record.requestId]: { ...record.requests[record.requestId], status, outcome } } }
     })
+    await logAttempt(failed)
   }
   async function cancel(sessionId, turn, key, requestId) {
     const { target, path } = await resolve(sessionId, turn)
@@ -175,6 +189,7 @@ export function createSceneIllustrations(deps) {
       return { ...current, cancelRequestedAt: Date.now(), stage: 'cancelling' }
     })
     if (record.cancelRequestedAt) imageAborters.get(record.ownerId)?.(path, record.requestId)
+    await logAttempt(record, 'cancel-requested')
     return present(target, record)
   }
   async function start(sessionId, turn, expectedKey, options = {}) {
@@ -248,10 +263,15 @@ export function createSceneIllustrations(deps) {
         return { key: target.key, turn: target.turn, status: 'running', outcome: providerTask ? 'unconfirmed' : 'not_requested', stage: prepared.saved ? 'generating' : 'planning', kind, instruction, baseVersionId: options.versionId || '', createdAt: Date.now(), requestId, ownerId, ownerPid: process.pid, error: '', ...(providerTask ? { providerTask } : {}), versions: versionsOf(current), deletedVersions: current?.deletedVersions || [], requests: { ...current?.requests, [requestId]: { status: 'running', ...(options.confirmNewRequestId ? { confirmedReplacementOf: options.confirmNewRequestId } : {}) } } }
       })
       if (!claimed) return present(target, record)
+      record.diagnosticContext = { chatId: chat.id, sessionId }
+      record.configuration = { ...channelSettings(active), style: active.style }
+      record.diagnostics = { input: prepared.input, omitted: material.omitted, references: [],
+        state: { omitted: material.stateAudit || [], sources: (prepared.sources || []).filter(source => source.origin?.kind === 'mvu-state') }, validations: [] }
+      diagnosticSecrets.set(record.requestId, [apiKey])
       const job = { controller, requestId: record.requestId, promise: null }
       jobs.set(path, job)
       job.promise = execute({ sessionId, chatId: chat.id, target, path, record, prepared, material, references, adjustment, basePlan, profile, style, active, apiKey, selection, controller })
-        .finally(() => jobs.delete(path))
+        .finally(() => { jobs.delete(path); diagnosticSecrets.delete(record.requestId) })
       // Failure to persist a failure is reported locally, never as an unhandled rejection.
       job.promise.catch(() => deps.onStorageError?.())
       return present(target, record)
@@ -265,6 +285,7 @@ export function createSceneIllustrations(deps) {
     const stopWatching = watchCancellation(path, record, controller)
     let attempted = false, plan = input.prepared.saved, providerError = '', validationError = '', result
     try {
+      await writeJob(path, record)
       if (!plan) {
         let submissions = 0, submitting = false
         try { result = await deps.runAgent({
@@ -297,6 +318,8 @@ export function createSceneIllustrations(deps) {
               controller.signal.throwIfAborted()
               const result = input.references.read(call.arguments)
               input.prepared.sources.push(...result.sources)
+              record.diagnostics.references = input.references.audit
+              await logAttempt(record, 'reference-read')
               return JSON.stringify(result)
             }
             submissions++
@@ -313,6 +336,8 @@ export function createSceneIllustrations(deps) {
               return '方案已校验保存。程序将请求一张图片；不要再调用工具。'
             } catch (error) {
               validationError = redactImageError(error.message || '方案校验失败', input.apiKey).slice(0, 500)
+              record.diagnostics.validations.push({ at: Date.now(), attempt: submissions, error: validationError })
+              await logAttempt(record, 'plan-rejected')
               return '方案校验失败：' + validationError + (submissions < 2 ? '。尚未收费，可修正一次。' : '。修正次数已用完，停止。')
             } finally { submitting = false }
           }
@@ -331,7 +356,7 @@ export function createSceneIllustrations(deps) {
       record.configuration = { ...channelSettings(active), style: active.style }
       record.traceSessionId = result?.traceSessionId || record.traceSessionId || ''
       record.stage = 'queued'
-      record.diagnostics = { input: input.prepared.input, omitted: input.material.omitted,
+      record.diagnostics = { ...record.diagnostics, input: input.prepared.input, omitted: input.material.omitted,
         state: { omitted: input.material.stateAudit || [], sources: (input.prepared.sources || []).filter(source => source.origin?.kind === 'mvu-state') },
         references: input.references?.audit || [], planId: plan.id }
       await writeJob(path, record)
@@ -343,7 +368,12 @@ export function createSceneIllustrations(deps) {
         await writeJob(path, record)
         controller.signal.throwIfAborted()
         attempted = true
-        try { return await (deps.generate || generateSceneImage)({ ...active, apiKey: input.apiKey, prompt, plan, providerTask: record.providerTask, async onProviderTask(task) { record.providerTask = task; await writeJob(path, record) }, signal: controller.signal, maxBytes: deps.attachments()?.imageLimits?.maxImageBytes }) }
+        try { return await (deps.generate || generateSceneImage)({ ...active, apiKey: input.apiKey, prompt, plan, providerTask: record.providerTask,
+          async onProviderRequest(event) {
+            if ((record.providerRequests || []).length >= 100) record.diagnostics.droppedProviderEvents = (record.diagnostics.droppedProviderEvents || 0) + 1
+            record.providerRequests = [...(record.providerRequests || []), event].slice(-100)
+            await logAttempt(record, 'provider-request')
+          }, async onProviderTask(task) { record.providerTask = task; await writeJob(path, record) }, signal: controller.signal, maxBytes: deps.attachments()?.imageLimits?.maxImageBytes }) }
         catch (error) { record.outcome = record.providerTask ? (['rejected', 'failed'].includes(record.providerTask.state) ? 'rejected' : 'unconfirmed') : error.imageOutcome || 'unconfirmed'; providerError = redactImageError(error.message || '生图失败', input.apiKey); throw error }
       })
       record.stage = 'saving'
@@ -355,6 +385,7 @@ export function createSceneIllustrations(deps) {
     } catch (error) {
       if (!attempted && !record.providerTask) record.outcome = 'not_requested'
       const detail = providerError || validationError || String(error.message || '生图 Agent 未完成任务，请检查当前对话模型或导出日志')
+      if (input.references) record.diagnostics.references = input.references.audit
       if (record.recovery === 'save') record.diagnostics = { ...record.diagnostics, storageError: redactImageError(detail, input.apiKey).slice(0, 500) }
       record.planId = plan?.id || ''
       record.traceSessionId ||= error.traceSessionId || ''
@@ -395,6 +426,7 @@ export function createSceneIllustrations(deps) {
         return { ...current, cancelRequestedAt: undefined, status: 'running', stage: 'saving', ownerId, ownerPid: process.pid, error: '', requests: { ...current.requests, [requestId]: { status: 'running' } } }
       })
       if (!claimed) return present(target, record)
+      await logAttempt(record, 'retry-save')
       const controller = new AbortController()
       const job = { controller, requestId: record.requestId, promise: null }
       jobs.set(path, job)

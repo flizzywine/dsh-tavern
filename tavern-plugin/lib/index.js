@@ -6,6 +6,7 @@ import { createApplicationUpdater } from './application-updater.js'
 import { createCandidateGenerator } from './domain/candidate-generation.js'
 import { createSceneIllustrations, sceneTarget } from './domain/scene-illustration.js'
 import { createSceneWorldbooks, sceneWorldbookBinding } from './domain/scene-worldbook.js'
+import { createSceneImageDiagnostics } from './domain/scene-image-diagnostics.js'
 import { createSessionStablePrefixStorage, ensureSessionStablePrefix, readSessionStablePrefix } from './domain/session-stable-prefix.js'
 import { waitForWritableSession } from './domain/agent-readiness.js'
 import { createCardDeletion } from './domain/card-deletion.js'
@@ -104,6 +105,7 @@ export async function apply(ctx) {
   const stablePrefixStorage = createSessionStablePrefixStorage(dataRoot + '/session-prefixes')
   const profileData = createProfileDataStore({ dataRoot })
   const sceneWorldbooks = createSceneWorldbooks({ store: profileData })
+  const sceneDiagnostics = createSceneImageDiagnostics(profileData)
   async function captureSceneWorldbook(chat, card, preparedBook) {
     try {
       const worldBook = preparedBook === undefined ? await worldBooks.bound(chat.cardPath, card) : preparedBook
@@ -698,7 +700,10 @@ export async function apply(ctx) {
     if (!chat) throw new Error('当前 Session 没有绑定 Tavern 对话')
     const diagnostic = await mvuDiagnostics.read(sessionId)
     const backgroundSessionIds = [...new Set(diagnostic.records.map(record => record.traceSessionId).filter(Boolean))]
-    const exported = await createMvuDiagnosticExport({ sessionId, backgroundSessionIds, store: mvuDiagnostics, sessions: sessionStore, persistence: ctx.get('sessionPersistence'), query: ctx.get('sessionQuery'), attachments: ctx.get('attachments'), environment: { mvu: OFFICIAL_MVU_VERSION } })
+    let imageDiagnostic
+    try { imageDiagnostic = await sceneDiagnostics.read(chat.id) }
+    catch { imageDiagnostic = { version: 1, records: [], error: '生图诊断读取失败，仍导出 Session 与 MVU 日志。' } }
+    const exported = await createMvuDiagnosticExport({ sessionId, backgroundSessionIds, store: mvuDiagnostics, sceneDiagnostics: imageDiagnostic, sessions: sessionStore, persistence: ctx.get('sessionPersistence'), query: ctx.get('sessionQuery'), attachments: ctx.get('attachments'), environment: { mvu: OFFICIAL_MVU_VERSION } })
     return { filename: exported.filename, base64: exported.buffer.toString('base64') }
   }
   async function attachPlayChatDebug(targetSessionId, sourceSessionId, turn) {
@@ -1144,7 +1149,7 @@ export async function apply(ctx) {
   })
   ctx.effect(() => () => backgroundAgentRunner.dispose(), 'dsh-tavern: dispose resident background agents')
   const sceneIllustrations = createSceneIllustrations({
-    store: profileData, chatForSession, selection: modelSelection,
+    store: profileData, diagnostics: sceneDiagnostics, chatForSession, selection: modelSelection,
     worldbookAtTarget: async (chat, target) => {
       try { return await sceneWorldbooks.read(sceneWorldbookBinding(chat, target)) }
       catch (_error) { return { unavailable: '历史世界书快照读取失败，未读取当前世界书。' } }

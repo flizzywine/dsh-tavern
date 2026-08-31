@@ -8,6 +8,7 @@ import { imageStyleSettings } from './scene-image-style.js'
 import { channelSettings, imageChannelRequest, channelImageResult } from './scene-image-channels.js'
 import { sceneImageFromZip } from './scene-image-zip.js'
 import { generateComfyImage } from './scene-image-comfy.js'
+import { redactSceneDiagnostic } from './scene-image-diagnostics.js'
 
 export function imageSettings(value = {}) {
   return {
@@ -83,11 +84,31 @@ function downloadPublicImage(url, signal) {
 export async function generateSceneImage(input, deps = {}) {
   let outcome = 'not_requested'
   const request = deps.fetch || fetch
+  let sequence = 0
+  async function emit(event) {
+    try { await input.onProviderRequest?.(redactSceneDiagnostic(event, [input.apiKey])) }
+    catch { /* Diagnostic errors must not alter dispatch, acceptance or retries. */ }
+  }
+  async function observedRequest(url, init, send = request) {
+    const requestId = ++sequence, method = init?.method || 'GET'
+    let body
+    if (typeof init?.body === 'string') { try { body = JSON.parse(init.body) } catch { body = '[non-JSON request omitted]' } }
+    await emit({ requestId, at: Date.now(), phase: 'dispatch', method, url: String(url), ...(body ? { body } : {}) })
+    if (method === 'POST') outcome = 'unconfirmed'
+    const began = Date.now()
+    try {
+      const response = await send(url, init)
+      await emit({ requestId, at: Date.now(), phase: 'response', method, status: response.status, durationMs: Date.now() - began,
+        providerRequestId: response.headers?.get?.('x-request-id') || response.headers?.get?.('request-id') || null })
+      return response
+    } catch (error) {
+      await emit({ requestId, at: Date.now(), phase: 'transport-error', method, durationMs: Date.now() - began, error: String(error.message || error) })
+      throw error
+    }
+  }
   try {
-    return await requestSceneImage(input, { ...deps, fetch: async (url, init) => {
-      if (init?.method === 'POST') outcome = 'unconfirmed'
-      return request(url, init)
-    }, usePublicDownload: !deps.fetch })
+    return await requestSceneImage(input, { ...deps, fetch: observedRequest,
+      publicDownload: (url, signal) => observedRequest(url, { signal }, (address, options) => downloadPublicImage(address, options.signal)), usePublicDownload: !deps.fetch })
   } catch (error) {
     error.imageOutcome ||= outcome
     throw error
@@ -145,7 +166,7 @@ async function requestSceneImage(input, deps) {
   const baseURL = channelSettings(input).baseURL
   const url = await (deps.validateDownload || validateImageDownload)(item.url, baseURL)
   const downloaded = deps.usePublicDownload && new URL(url).origin !== new URL(baseURL).origin
-    ? await downloadPublicImage(url, input.signal)
+    ? await deps.publicDownload(url, input.signal)
     : await request(url, { redirect: 'error', signal: input.signal })
   if (!downloaded.ok) { await downloaded.body?.cancel(); throw new Error('图片下载失败（HTTP ' + downloaded.status + '）') }
   return finish(await boundedBytes(downloaded, maxBytes))

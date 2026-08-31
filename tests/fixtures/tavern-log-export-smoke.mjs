@@ -3,14 +3,18 @@
 import { createServer } from 'node:http'
 import { readFile } from 'node:fs/promises'
 import { createMvuDiagnosticExport, createMvuDiagnosticStore } from '../../tavern-plugin/lib/domain/mvu-diagnostics.js'
+import { createSceneImageDiagnostics } from '../../tavern-plugin/lib/domain/scene-image-diagnostics.js'
 
 const source = await readFile(new URL('../../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
 const start = source.indexOf('function TavernConversationExportAction(')
 const component = source.slice(start, source.indexOf('function TavernCompactionAction(', start))
 const state = new Map()
-const store = createMvuDiagnosticStore({ readJson: async key => state.get(key), updateJson: async (key, update) => state.set(key, update(state.get(key))) })
+const storage = { readJson: async key => state.get(key), updateJson: async (key, update) => state.set(key, update(state.get(key))) }
+const store = createMvuDiagnosticStore(storage)
+const images = createSceneImageDiagnostics(storage)
 await store.record('fixture', { stage: 'runtime-completed', diagnosticId: 'fixture:1', diagnostics: [{ level: 'warn', message: '测试警告' }] })
-const archive = await createMvuDiagnosticExport({ sessionId: 'fixture', store, persistence: { readRaw: async () => ({ content: '{"type":"session","id":"fixture"}\n' }) } })
+await images.record('fixture-chat', { requestId: 'fixture-image', targetKey: 'fixture-body', status: 'succeeded', stage: 'completed', traceSessionId: 'fixture-image-child', details: { prompt: '窗边看雨' } })
+const archive = await createMvuDiagnosticExport({ sessionId: 'fixture', store, sceneDiagnostics: await images.read('fixture-chat'), persistence: { readRaw: async id => ({ content: JSON.stringify({ type: 'session', id }) + '\n' }) } })
 const html = `<!doctype html><meta charset="utf-8"><style>
 body{font:16px system-ui;padding:48px;background:#fff;--dsw-alias-border-l2:#ddd;--dsw-alias-label-primary:#16181b}
 header{display:flex;gap:12px;align-items:center;border-bottom:1px solid #eee;padding:16px}h1{font-size:20px;margin-right:auto}
@@ -22,7 +26,7 @@ const node=type==='fragment'?document.createDocumentFragment():['svg','path'].in
 for(const [key,value] of Object.entries(props||{})){if(key==='onClick')node.addEventListener('click',value);else if(key==='className')node.setAttribute('class',value);else if(value!==false&&value!=null)node.setAttribute(key.replace('strokeWidth','stroke-width').replace('strokeLinecap','stroke-linecap').replace('strokeLinejoin','stroke-linejoin'),value===true?'':value)}
 for(const child of children.flat(Infinity))if(child!=null&&child!==false)node.append(child instanceof Node?child:document.createTextNode(String(child)));return node}};
 const tavernErrorHub={report(_source,error){document.querySelector('#result').textContent='FAIL: '+error.message}};
-async function rpc(method){if(method!=='exportTavernLogs')throw Error('unexpected RPC');const response=await fetch('/archive');const data=await response.json();document.querySelector('#result').textContent='PASS: 已生成 ZIP，包含 Session 与 MVU 记录';return data}
+async function rpc(method){if(method!=='exportTavernLogs')throw Error('unexpected RPC');const response=await fetch('/archive');const data=await response.json();document.querySelector('#result').textContent='PASS: 已生成 ZIP，包含 Session、MVU 与生图记录';return data}
 document.addEventListener('click',event=>{if(event.target.matches('a[download]')){event.preventDefault();document.querySelector('#result').textContent+='；已触发下载：'+event.target.download}});
 ${component}
 document.querySelector('#actions').append(TavernConversationExportAction({sessionId:'fixture'}));

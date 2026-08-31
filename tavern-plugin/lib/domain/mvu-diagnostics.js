@@ -85,9 +85,13 @@ export function diagnosticZip(entries) {
   return Buffer.concat([...local, directory, end])
 }
 
-export async function createMvuDiagnosticExport({ sessionId, backgroundSessionIds = [], store, sessions, persistence, query, attachments, environment = {} }) {
+export async function createMvuDiagnosticExport({ sessionId, backgroundSessionIds = [], store, sessions, persistence, query, attachments, sceneDiagnostics, environment = {} }) {
   const notes = ['包含对话文本、附件与变量信息，分享前请检查隐私。凭据已尽力脱敏。MVU 记录有容量限制，旧故障不会被追溯补录。']
-  const ids = new Set([sessionId, ...backgroundSessionIds.filter(Boolean)])
+  const ids = new Set([sessionId, ...backgroundSessionIds.filter(Boolean), ...(sceneDiagnostics?.records || []).map(record => record.traceSessionId).filter(Boolean)])
+  const sceneContent = sceneDiagnostics ? JSON.stringify(redactDiagnostic(sceneDiagnostics)) : ''
+  const sceneBytes = Buffer.byteLength(sceneContent)
+  const logLimit = MAX_EXPORT_BYTES - MAX_STORE_BYTES - 65536 - sceneBytes
+  if (sceneBytes) notes.push('scene-images/diagnostics.json 包含生图材料、方案、请求参数、耗时与失败；不包含生图图片字节。记录有容量限制，未记录的旧任务不追溯补录。用量未提供不代表零费用。')
   try {
     const lineage = await query?.traceSession(sessionId)
     const visit = nodes => { for (const node of nodes || []) { const id = node.session?.header?.id; if (id && !ids.has(id) && ids.size < 100) { ids.add(id); visit(node.descendants) } } }
@@ -108,7 +112,7 @@ export async function createMvuDiagnosticExport({ sessionId, backgroundSessionId
       if (live) await sessions.flush(live)
       const raw = await persistence?.readRaw(id)
       if (!raw) { notes.push('缺失 Session 日志：' + id); continue }
-      if (bytes + Buffer.byteLength(raw.content) > MAX_EXPORT_BYTES - MAX_STORE_BYTES - 65536) { notes.push('容量限制，跳过 Session 日志：' + id); continue }
+      if (bytes + Buffer.byteLength(raw.content) > logLimit) { notes.push('容量限制，跳过 Session 日志：' + id); continue }
       const content = raw.content.split('\n').map(line => {
         if (!line) return ''
         try { const parsed = JSON.parse(line); collectMedia(parsed); return JSON.stringify(redactDiagnostic(parsed)) } catch { return '[无法解析的日志行，已省略]' }
@@ -121,13 +125,14 @@ export async function createMvuDiagnosticExport({ sessionId, backgroundSessionId
     try {
       const image = await attachments?.readImage(reference)
       if (!image?.data) { notes.push('缺失附件：' + id); continue }
-      if (bytes + image.data.length > MAX_EXPORT_BYTES - MAX_STORE_BYTES - 65536) { notes.push('容量限制，跳过附件：' + id); continue }
+      if (bytes + image.data.length > logLimit) { notes.push('容量限制，跳过附件：' + id); continue }
       entries.push({ path: 'media/' + id.replace(/[^a-zA-Z0-9_-]/g, '_') + '.' + mediaExtensions[reference.mediaType], content: image.data })
       bytes += image.data.length
     } catch { notes.push('附件读取失败：' + id) }
   }
   entries.push({ path: 'mvu/diagnostics.json', content: JSON.stringify(redactDiagnostic(await store.read(sessionId))) })
   entries.push({ path: 'mvu/environment.json', content: JSON.stringify(redactDiagnostic(environment), null, 2) })
+  if (sceneBytes) entries.push({ path: 'scene-images/diagnostics.json', content: sceneContent })
   entries.push({ path: 'README.txt', content: notes.join('\n') })
   return { filename: 'dsh-tavern-diagnostics-' + String(sessionId).replace(/[^a-zA-Z0-9_-]/g, '_') + '.zip', buffer: diagnosticZip(entries) }
 }

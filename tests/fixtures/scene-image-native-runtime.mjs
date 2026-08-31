@@ -11,6 +11,8 @@ import { createSceneIllustrations, IMAGE_CREDENTIAL } from '../../tavern-plugin/
 import { createProfileDataStore } from '../../tavern-plugin/lib/profile-data-store.js'
 import { imageZip } from './scene-image-zip.mjs'
 import { createSceneWorldbooks, bindSceneWorldbook, sceneWorldbookBinding } from '../../tavern-plugin/lib/domain/scene-worldbook.js'
+import { createSceneImageDiagnostics } from '../../tavern-plugin/lib/domain/scene-image-diagnostics.js'
+import { createMvuDiagnosticStore, createMvuDiagnosticExport } from '../../tavern-plugin/lib/domain/mvu-diagnostics.js'
 
 export async function createSceneImageNativeRuntime(bootPath) {
   const bootUrl = pathToFileURL(bootPath)
@@ -125,6 +127,11 @@ export async function createSceneImageNativeRuntime(bootPath) {
     holdNextImage() { holdNext = true },
     lookupReferences(query) { referenceQuery = query },
     useVisualState() { useVisualState = true },
+    async exportLogs() {
+      return createMvuDiagnosticExport({ sessionId: 'scene-parent', store: createMvuDiagnosticStore(store),
+        sceneDiagnostics: await createSceneImageDiagnostics(store).read(chat.id),
+        sessions: ctx.sessions, persistence: ctx.get('sessionPersistence'), query: ctx.get('sessionQuery'), attachments: ctx.attachments })
+    },
     async archiveWorldbook(worldBook, turn = 1) {
       const ref = await worldbooks.capture({ worldBook, chat, card: { name: '林岚' } })
       bindSceneWorldbook(chat.messages.find(message => message.role === 'assistant' && message.turn === turn), ref)

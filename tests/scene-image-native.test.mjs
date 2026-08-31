@@ -45,6 +45,39 @@ test('原生 DSH 仅接收已就绪可视变量，引用衣着片段并跨重启
   assert.equal(runtime.parent.agent.session.events.length, before)
 })
 
+test('日志 ZIP 连接真实生图子 Session 与成功失败诊断，不导出密钥或图片字节', { skip: !process.env.DSH_BOOT_MODULE }, async t => {
+  const runtime = await createSceneImageNativeRuntime(process.env.DSH_BOOT_MODULE)
+  t.after(() => runtime.dispose())
+  const before = runtime.parent.agent.session.events.length
+  const target = await runtime.service.status('scene-parent', 1)
+  async function finish() {
+    for (let index = 0; index < 300; index++) {
+      const result = await runtime.service.status('scene-parent', 1)
+      if (result.status !== 'running') return result
+      await new Promise(resolve => setTimeout(resolve, 20))
+    }
+    assert.fail('log fixture timed out')
+  }
+  runtime.failNext()
+  const failed = await runtime.service.start('scene-parent', 1, target.key)
+  assert.equal((await finish()).status, 'failed')
+  await runtime.restart()
+  await runtime.service.start('scene-parent', 1, target.key, { confirmNewRequestId: failed.requestId })
+  assert.equal((await finish()).status, 'succeeded')
+  const exported = await runtime.exportLogs()
+  const zip = exported.buffer.toString('utf8')
+  assert.match(zip, /scene-images\/diagnostics.json/)
+  assert.match(zip, /subagents\/[^/]+\/session.jsonl/)
+  assert.match(zip, /submit_scene_plan/)
+  assert.match(zip, /providerRequests/)
+  assert.match(zip, /503/)
+  assert.match(zip, /stageDurationsMs/)
+  assert.match(zip, /not-provided/)
+  assert.doesNotMatch(zip, /fixture-key|iVBORw0KGgo|media\//)
+  assert.equal(runtime.imageRequests.length, 2)
+  assert.equal(runtime.parent.agent.session.events.length, before)
+})
+
 test('原生 DSH 生图 Agent 按需读历史设定、引用片段，前台不注入且重画不重读', { skip: !process.env.DSH_BOOT_MODULE }, async t => {
   const runtime = await createSceneImageNativeRuntime(process.env.DSH_BOOT_MODULE)
   t.after(() => runtime.dispose())
