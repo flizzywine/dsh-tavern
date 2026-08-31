@@ -133,9 +133,14 @@ export function createContextPlanner(options = {}) {
         return message && message.role === 'assistant' && str(message.sourceText) !== '' && str(message.sourceText) !== str(message.text)
       })
       if (projectedReply !== undefined) {
+        // Resolve only identity macros here. Do not execute stateful macros a
+        // second time or discard hidden narrative while comparing with history.
+        const previousSource = str(projectedReply.sourceText).replace(/\{\{(user|char)\}\}/gi, function (_match, name) {
+          return name.toLowerCase() === 'user' ? (str(input.chat.macroState && input.chat.macroState.userName) || '你') : str(input.card.name)
+        })
         sections.push({
           kind: 'previous-source', required: true,
-          text: '【上一轮正文源文本 · 展示正则已从可见正文移除，续写时保持剧情连续】\n' + str(projectedReply.sourceText)
+          text: '【上一轮正文源文本 · 展示正则已从可见正文移除，续写时保持剧情连续】\n' + previousSource
         })
       }
       sections.push.apply(sections, cardSections({

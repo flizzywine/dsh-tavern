@@ -28,7 +28,7 @@ function backgroundPrompt(messages, turnContext, task, taskProtocol, input = {})
   const taskName = task === 'settlement' ? '状态结算' : '候选生成'
   sections.push('【最近剧情与本次任务】\n任务类型：' + taskName + '\n' + recent)
   const protocol = str(taskProtocol).trim()
-  if (protocol !== '') sections.push('【DSH 后台任务协议（最终指令）】\n' + protocol)
+  if (protocol !== '') sections.push('【DSH 后台任务协议（最终指令）】\n按系统提示中的本轮任务规则执行。')
   if (task === 'candidate' && str(input.postHistoryText).trim()) {
     sections.push('【人物卡历史后指令】\n' + str(input.postHistoryText).trim())
   }

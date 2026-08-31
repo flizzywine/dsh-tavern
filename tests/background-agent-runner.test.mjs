@@ -98,6 +98,8 @@ test('后台固定背景只保存一次，连续候选、结算和恢复均从 S
   assert.equal(creates, 1)
   assert.equal(resumes, 1)
   for (const [index, packet] of packets.entries()) {
+    assert.equal(packet.system.split('候选JSON规则').length - 1, 1)
+    assert.doesNotMatch(packet.text, /候选JSON规则/, '完整任务协议仅在系统提示中，尾部只保留提醒')
     assert.doesNotMatch(packet.system, /固定背景|固定世界设定|固定性格|固定场景|固定示例/)
     const texts = packet.messages.map(message => message.content.map(block => block.text).join('')).join('\n')
     assert.equal(texts.split('固定背景A').length - 1, 1)
@@ -315,7 +317,8 @@ test('后台 Runner 执行候选任务，查询超限后提示开始推理而不
   assert.match(requestMessages[1].content[0].text, /最近剧情/)
   assert.match(requestMessages[1].content[0].text, /候选生成/)
   assert.match(requestMessages[1].content[0].text, /DSH 后台任务协议（最终指令）/)
-  assert.match(requestMessages[1].content[0].text, /候选系统提示/)
+  assert.doesNotMatch(requestMessages[1].content[0].text, /候选系统提示/)
+  assert.match(requestMessages[1].content[0].text, /按系统提示中的本轮任务规则执行/)
   assert.equal(stagedSnapshots.length, 1)
   assert.equal(stagedSnapshots[0].sessionId, 'candidate-session-1')
   assert.equal(stagedSnapshots[0].scope, 'background')

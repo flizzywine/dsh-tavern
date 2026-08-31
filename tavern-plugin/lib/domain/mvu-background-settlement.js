@@ -328,6 +328,7 @@ export function projectMvuBackgroundRequest(frame) {
       '只根据【正文】中已经确认发生的事实结算变量，不得读取或推断玩家意图。',
       '不得根据旧轮剧情、隐藏思考、候选项或未发生事件更新变量。',
       '必须调用 mvu_submit_update，以工具返回的实际执行校验结果为准。最多提交三次。',
+      '变量通过工具提交，不在回复中输出 XML 变量协议；人物卡中的变量含义、更新条件和校验规则仍须遵守。',
       '有变化时提交完整 operations；没有变化时也必须提交 operations: []。',
       '若 ok=false 且 retryable=true，读取 error、failures 和 runtimeDiagnostics，根据 currentVariables 与变量结构修正完整 operations 后再次调用；不要原样反复提交。',
       'rolledBack=true 表示整批变量修改未保存，可以基于原快照重新提交完整更新；不得用空 operations 掩盖尚未修复的失败。',
