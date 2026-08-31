@@ -4,6 +4,58 @@ import { createSceneImageNativeRuntime } from './fixtures/scene-image-native-run
 import { SCENE_IMAGE_CHANNELS } from '../tavern-plugin/lib/domain/scene-image-channels.js'
 import { comfyGraph } from './fixtures/scene-image-comfy-workflow.mjs'
 
+test('显式单人参考跨轮与重启传给 Gemini，取消后不再发送，也不进入文字轨迹或日志字节', { skip: !process.env.DSH_BOOT_MODULE }, async t => {
+  const runtime = await createSceneImageNativeRuntime(process.env.DSH_BOOT_MODULE)
+  t.after(() => runtime.dispose())
+  await runtime.service.configure({ provider: 'gemini', model: 'gemini-3.1-flash-image', baseURL: runtime.endpoint, apiKey: 'fixture-reference-key' })
+  await runtime.service.configure({ enabled: true })
+  runtime.chat.settleStatus = 'done'
+  const message = runtime.chat.messages[0]
+  Object.assign(message, { sourceText: '林岚站在窗边。', swipes: ['林岚站在窗边。'], swipeId: 0, mvu: { pending: false },
+    variables: [{ stat_data: { 人物: { 林岚: { 衣着: '青色外套' } } } }] })
+  runtime.useVisualState()
+  const before = runtime.parent.agent.session.events.length
+  async function finish(turn, options) {
+    const target = await runtime.service.status('scene-parent', turn)
+    await runtime.service.start('scene-parent', turn, target.key, options)
+    for (let index = 0; index < 300; index++) {
+      const status = await runtime.service.status('scene-parent', turn)
+      if (status.status !== 'running') { assert.equal(status.status, 'succeeded', status.error); return status }
+      await new Promise(resolve => setTimeout(resolve, 20))
+    }
+    assert.fail('reference fixture timed out')
+  }
+  const first = await finish(1)
+  assert.equal(first.versions[0].referencePerson, '林岚')
+  await runtime.service.setReference('scene-parent', 1, first.key, first.versions[0].id, first.reference.gateway)
+  assert.equal(runtime.imageRequests.length, 1, 'binding alone does not request an image')
+  assert.equal(runtime.imageRequests[0].input.some(item => item.type === 'image'), false)
+  runtime.chat.messages.push({ ...structuredClone(message), turn: 2, greeting: false, sourceText: '林岚来到窗前，回头微笑。', swipes: ['林岚来到窗前，回头微笑。'] })
+  await runtime.restart()
+  const second = await finish(2)
+  const image = runtime.imageRequests[1].input.find(item => item.type === 'image')
+  assert.ok(image?.data)
+  assert.equal(image.mime_type, 'image/png')
+  assert.equal(second.versions[0].referenceImages[0].source.versionId, first.versions[0].id)
+  assert.equal(second.versions[0].referenceImages[0].person.name, '林岚')
+  assert.equal(JSON.stringify(runtime.requests).includes(image.data.slice(0, 100)), false)
+  assert.equal((await runtime.exportLogs()).buffer.toString('utf8').includes(image.data.slice(0, 100)), false)
+  await runtime.service.configure({ provider: 'openai' })
+  await runtime.service.configure({ enabled: true })
+  assert.match((await runtime.service.status('scene-parent', 2)).reference.warning, /仅使用文字/)
+  await runtime.service.configure({ enabled: false })
+  const current = await runtime.service.status('scene-parent', 1)
+  assert.ok(current.reference.versions.includes(first.versions[0].id), 'can revoke even when disabled or using an unsupported channel')
+  await runtime.service.setReference('scene-parent', 1, first.key, first.versions[0].id, current.reference.gateway, false)
+  await runtime.service.configure({ provider: 'gemini' })
+  await runtime.service.configure({ enabled: true })
+  const textRequests = runtime.requests.length
+  await finish(2, { kind: 'repaint', versionId: second.versions[0].id })
+  assert.equal(runtime.imageRequests[2].input.some(item => item.type === 'image'), false)
+  assert.equal(runtime.requests.length, textRequests)
+  assert.equal(runtime.parent.agent.session.events.length, before)
+})
+
 test('原生 DSH 仅接收已就绪可视变量，引用衣着片段并跨重启复用，不写前台', { skip: !process.env.DSH_BOOT_MODULE }, async t => {
   const runtime = await createSceneImageNativeRuntime(process.env.DSH_BOOT_MODULE)
   t.after(() => runtime.dispose())

@@ -14,7 +14,7 @@ export function redactSceneDiagnostic(value, secrets = [], depth = 0) {
   }
   if (Array.isArray(value)) return value.map(item => redactSceneDiagnostic(item, secrets, depth + 1))
   if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, item]) => [key,
-    /^(?:base64|b64_json|image_data|image_bytes|image_base64)$/i.test(key) ? '[image bytes omitted]'
+    /^(?:base64|b64_json|image_data|image_bytes|image_base64)$/i.test(key) || value.type === 'image' && key === 'data' ? '[image bytes omitted]'
       : /^(?:authorization|proxy-authorization|cookie|set-cookie|api[-_]?key|access[-_]?token|refresh[-_]?token|token|password|secret|client[-_]?secret)$/i.test(key) ? '[REDACTED]'
         : redactSceneDiagnostic(item, secrets, depth + 1)]))
   return value

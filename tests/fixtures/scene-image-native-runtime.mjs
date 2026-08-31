@@ -44,8 +44,10 @@ export async function createSceneImageNativeRuntime(bootPath) {
         }).find(value => Array.isArray(value?.sources))
         const source = material?.sources.find(item => item.origin?.kind === 'mvu-state' && item.text.includes('衣着：青色外套'))
         if (source) {
-          plan.subjects = ['state-person']
-          plan.characters = [{ id: 'state-person', name: '林岚', identity: { source: 'target', quote: '林岚' }, fields: {
+          const known = material.characters?.find(person => person.name === '林岚')
+          const person = known ? { id: known.id } : { id: 'state-person', name: '林岚', identity: { source: 'target', quote: '林岚' } }
+          plan.subjects = [person.id]
+          plan.characters = [{ ...person, fields: {
             clothing: { text: '青色外套', tags: 'blue coat', evidence: [{ source: source.id, quote: '青色外套' }] }
           } }]
         }

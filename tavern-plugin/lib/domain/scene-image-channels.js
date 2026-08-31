@@ -1,5 +1,6 @@
 import { novelaiSettings, novelaiRequest } from './scene-image-novelai.js'
 import { comfyWorkflow } from './scene-image-comfy-workflow.js'
+import { imageReferenceCapability } from './scene-image-reference.js'
 
 // Protocol presets are versioned here, not inferred by issuing paid probes.
 const channels = [
@@ -65,6 +66,9 @@ export function imageExpressionGuidance(config) {
 
 export function imageChannelRequest(input) {
   const config = channelSettings(input)
+  const references = input.referenceImages || []
+  const capability = imageReferenceCapability(config)
+  if (!Array.isArray(references) || references.length && (!capability.supported || references.length > capability.maxImages)) throw new Error('当前渠道不支持所选参考图，未发送请求')
   if (config.provider === 'comfyui') throw new Error('ComfyUI 须通过任务提交与查询流程调用')
   if (!channelReady(config, input.apiKey)) throw new Error('请先配置生图渠道地址、模型与密钥')
   const headers = { 'content-type': 'application/json', authorization: 'Bearer ' + input.apiKey }
@@ -82,6 +86,11 @@ export function imageChannelRequest(input) {
   } else if (config.provider === 'gemini') {
     path = 'interactions'; delete headers.authorization; headers['x-goog-api-key'] = input.apiKey
     body = { model: config.model, input: [{ type: 'text', text: prompt }], response_format: { type: 'image', mime_type: 'image/png', aspect_ratio: config.aspectRatio, image_size: config.size } }
+    for (const image of references) {
+      if (!Buffer.isBuffer(image.data) || !image.data.length || image.data.length > 8 * 1024 * 1024 || !['image/png', 'image/jpeg', 'image/webp'].includes(image.mediaType)) throw new Error('参考图数据不合法')
+      body.input.push({ type: 'text', text: 'Identity reference for ' + image.name + '. Use only identity/appearance cues. Follow the written scene for clothing, pose, expression, placement and background; do not copy the old composition or outfit.' },
+        { type: 'image', mime_type: image.mediaType, data: image.data.toString('base64') })
+    }
   } else if (config.provider === 'banana') {
     path = 'chat/completions'
     body = { model: config.model, messages: [{ role: 'user', content: [{ type: 'text', text: prompt }] }], size: config.size, stream: false }

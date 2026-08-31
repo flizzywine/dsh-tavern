@@ -11,6 +11,7 @@ import { createSceneImageQueue } from './scene-image-queue.js'
 import { createSceneReferences } from './scene-references.js'
 import { sceneStateSources } from './scene-state.js'
 import { createSceneImageDiagnostics, sceneAttemptDiagnostic } from './scene-image-diagnostics.js'
+import { createSceneImageReferences } from './scene-image-reference.js'
 
 export const IMAGE_CREDENTIAL = 'DSH_TAVERN_IMAGE_API_KEY'
 const hash = value => createHash('sha256').update(value).digest('hex')
@@ -65,9 +66,12 @@ export function sceneInput(chat, target, stateAtTarget) {
   return { text, posture, ...(state.sources.length || state.omitted.length ? { state } : {}) }
 }
 
-function sceneSources(chat, target, snapshot, sinceTurn = target.turn) {
-  const lineage = (chat.messages || []).filter(item => item.role === 'assistant' && Number(item.turn || (item.greeting ? 1 : 0)) <= target.turn)
+function sceneLineage(chat, target) {
+  return (chat.messages || []).filter(item => item.role === 'assistant' && Number(item.turn || (item.greeting ? 1 : 0)) <= target.turn)
     .map(item => sceneTarget(chat, Number(item.turn || 1)))
+}
+function sceneSources(chat, target, snapshot, sinceTurn = target.turn) {
+  const lineage = sceneLineage(chat, target)
   const sources = [], omitted = []
   let remaining = 12000
   const add = (id, turn, body) => {
@@ -113,6 +117,7 @@ export function createSceneIllustrations(deps) {
   const styles = createSceneImageStyles({ store: deps.store })
   const pendingImages = createPendingSceneImages(deps.store)
   const imageQueue = createSceneImageQueue(deps)
+  const imageReferences = createSceneImageReferences({ store: deps.store })
   const pathFor = (chatId, key) => 'scene-images/' + hash(String(chatId)) + '/' + key + '.json'
   async function resolve(sessionId, turn) {
     const chat = await deps.chatForSession(sessionId)
@@ -131,14 +136,31 @@ export function createSceneIllustrations(deps) {
     return record
   }
   function present(target, record) {
-    const { attachment, savedAttachment, diagnostics, diagnosticContext, providerRequests, plan, requests, versions, deletedVersions, ownerId, ownerPid, ...publicRecord } = record || {}
+    const { attachment, savedAttachment, diagnostics, diagnosticContext, providerRequests, referenceImages, plan, requests, versions, deletedVersions, ownerId, ownerPid, ...publicRecord } = record || {}
     const configuration = value => value?.workflow ? { ...value, workflow: { name: value.workflow.name, digest: value.workflow.digest } } : value
-    return { key: target.key, turn: target.turn, status: 'idle', ...publicRecord, ...(publicRecord.configuration ? { configuration: configuration(publicRecord.configuration) } : {}), versions: versionsOf(record).map(({ attachment, plan, ...item }) => ({ ...item, configuration: configuration(item.configuration), description: plan?.description || '', profile: plan?.profile || '' })) }
+    return { key: target.key, turn: target.turn, status: 'idle', ...publicRecord, ...(publicRecord.configuration ? { configuration: configuration(publicRecord.configuration) } : {}), versions: versionsOf(record).map(({ attachment, plan, ...item }) => ({ ...item, configuration: configuration(item.configuration), description: plan?.description || '', profile: plan?.profile || '',
+      referencePerson: plan?.people?.length === 1 && plan.subjects?.length === 1 && plan.people[0].id === plan.subjects[0] && plan.people[0].identity?.quote ? plan.people[0].name : '' })) }
   }
   async function status(sessionId, turn) {
-    const { target, path } = await resolve(sessionId, turn)
+    const { chat, target, path } = await resolve(sessionId, turn)
     const current = await config()
-    return { ...present(target, await readRecord(path)), enabled: current.enabled, profile: imageExpressionProfile(current) }
+    const last = [...chat.messages].reverse().find(item => item.role === 'assistant')
+    const reference = await imageReferences.select({ chatId: chat.id, lineage: sceneLineage(chat, sceneTarget(chat, Number(last.turn || 1))), config: current })
+    return { ...present(target, await readRecord(path)), enabled: current.enabled, profile: imageExpressionProfile(current),
+      reference: { ...reference.capability, warning: reference.warning, versions: reference.active.filter(record => record.source.key === target.key).map(record => record.source.versionId) } }
+  }
+  async function setReference(sessionId, turn, key, versionId, consent, enabled = true) {
+    const { chat, target, path } = await resolve(sessionId, turn)
+    if (key !== target.key) throw new Error('正文版本已变化，请刷新后选择参考图')
+    const active = await config()
+    if (enabled && !active.enabled) throw new Error('请先启用场景生图')
+    const version = versionsOf(await readRecord(path)).find(item => item.id === versionId)
+    if (!version?.attachment) throw new Error('参考图片不存在或已删除')
+    const latest = [...chat.messages].reverse().find(item => item.role === 'assistant')
+    const activation = sceneTarget(chat, Number(latest.turn || 1))
+    const image = enabled ? await deps.attachments()?.readImage(version.attachment) : undefined
+    await imageReferences.bind({ chatId: chat.id, source: target, activation, version, config: active, consent, image, enabled })
+    return status(sessionId, turn)
   }
   function needsPurchaseConfirmation(record) {
     return record?.outcome === 'unconfirmed' && !record.providerTask
@@ -214,6 +236,7 @@ export function createSceneIllustrations(deps) {
       // An explicit retry waits for that cleanup, rather than returning the old failure.
       if (jobs.has(path)) await jobs.get(path).promise
       if (!channelReady(active, apiKey)) throw new Error('请先在设置中完成生图渠道配置（地址、模型或 API Key）')
+      const selectedImageReferences = await imageReferences.select({ chatId: chat.id, lineage: sceneLineage(chat, target), config: active })
       if (typeof deps.attachments()?.saveImage !== 'function' || typeof deps.attachments()?.readImage !== 'function') throw new Error('当前 DSH 未提供图片附件服务，无法保存插画')
       const profile = imageExpressionProfile(active)
       const style = await styles.resolve(active.style, profile)
@@ -270,7 +293,7 @@ export function createSceneIllustrations(deps) {
       diagnosticSecrets.set(record.requestId, [apiKey])
       const job = { controller, requestId: record.requestId, promise: null }
       jobs.set(path, job)
-      job.promise = execute({ sessionId, chatId: chat.id, target, path, record, prepared, material, references, adjustment, basePlan, profile, style, active, apiKey, selection, controller })
+      job.promise = execute({ sessionId, chatId: chat.id, target, path, record, prepared, material, references, selectedImageReferences, adjustment, basePlan, profile, style, active, apiKey, selection, controller })
         .finally(() => { jobs.delete(path); diagnosticSecrets.delete(record.requestId) })
       // Failure to persist a failure is reported locally, never as an unhandled rejection.
       job.promise.catch(() => deps.onStorageError?.())
@@ -363,12 +386,18 @@ export function createSceneIllustrations(deps) {
       clearTimeout(timer)
       const generated = await imageQueue.run({ requestId: record.requestId, signal: controller.signal }, async () => {
         timer = setTimeout(() => controller.abort(), deps.timeoutMs || 300000)
+        const reference = await imageReferences.load({ selected: input.selectedImageReferences, plan,
+          readImage: attachment => deps.attachments().readImage(attachment),
+          readVersion: async source => versionsOf(await deps.store.readJson(pathFor(input.chatId, source.key))).find(version => version.id === source.versionId) })
+        record.referenceImages = reference.images.map(image => image.reference)
+        record.referenceWarning = reference.warnings.join(' ')
+        record.diagnostics.imageReferences = { references: record.referenceImages, warnings: reference.warnings }
         record.stage = 'generating'
         record.outcome = 'unconfirmed'
         await writeJob(path, record)
         controller.signal.throwIfAborted()
         attempted = true
-        try { return await (deps.generate || generateSceneImage)({ ...active, apiKey: input.apiKey, prompt, plan, providerTask: record.providerTask,
+        try { return await (deps.generate || generateSceneImage)({ ...active, apiKey: input.apiKey, prompt, plan, referenceImages: reference.images, providerTask: record.providerTask,
           async onProviderRequest(event) {
             if ((record.providerRequests || []).length >= 100) record.diagnostics.droppedProviderEvents = (record.diagnostics.droppedProviderEvents || 0) + 1
             record.providerRequests = [...(record.providerRequests || []), event].slice(-100)
@@ -403,7 +432,7 @@ export function createSceneIllustrations(deps) {
     await writeJob(path, record)
     signal.throwIfAborted()
     const prompt = composeSceneImagePrompt(record.plan)
-    const version = { id: record.requestId, requestId: record.requestId, attachment, plan: record.plan, configuration: record.configuration, prompt, model: generated.metadata?.model || record.configuration.model, ...(generated.metadata ? { generation: generated.metadata } : {}), createdAt: Date.now() }
+    const version = { id: record.requestId, requestId: record.requestId, attachment, plan: record.plan, configuration: record.configuration, prompt, model: generated.metadata?.model || record.configuration.model, ...(generated.metadata ? { generation: generated.metadata } : {}), referenceImages: record.referenceImages || [], referenceWarning: record.referenceWarning || '', createdAt: Date.now() }
     const { recovery, savedAttachment, ...completed } = record
     await writeJob(path, record, { ...completed, status: 'succeeded', stage: 'completed', attachment, prompt, model: version.model, versions: [...record.versions, version], requests: { ...record.requests, [record.requestId]: { ...record.requests[record.requestId], status: 'succeeded', outcome: 'received', versionId: version.id } }, completedAt: Date.now() })
     // Cleanup cannot turn a published success into a retryable failure.
@@ -466,7 +495,7 @@ export function createSceneIllustrations(deps) {
     })
     return present(target, next)
   }
-  return { settings, configure, status, start, cancel, retrySave, readImage, removeImage,
+  return { settings, configure, status, start, cancel, retrySave, readImage, removeImage, setReference,
     async dispose() { for (const job of jobs.values()) job.controller.abort(); await Promise.allSettled([...jobs.values()].map(job => job.promise)); imageHosts.delete(ownerId); imageAborters.delete(ownerId) }
   }
 }

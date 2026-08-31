@@ -3519,6 +3519,14 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					catch (e) { setError(String(e.message || e)); }
 					finally { setBusy(false); notify(); }
 				}
+				async function setReference(enabled) {
+					if (!version || locked) return;
+					if (enabled && !window.confirm("确认这张图的主体是「" + version.referencePerson + "」？从当前游戏进度起，后续相关生图会把此图发送给：" + state.reference.service + "。仅辅助外貌一致，不保证锁脸，也不沿用旧服装。")) return;
+					setBusy(true); setError("");
+					try { await rpc("setSceneImageReference", { turn: props.turn, key: state.key, versionId: version.id, consent: state.reference.gateway, enabled: enabled }, props.sessionId); }
+					catch (e) { setError(String(e.message || e)); }
+					finally { setBusy(false); notify(); }
+				}
 				const url = version ? "/api/dsh-tavern/scene-image?" + new URLSearchParams({ sessionId: props.sessionId, turn: String(props.turn), key: state.key, versionId: version.id }).toString() : "";
 				if (!state || state.status === "idle") return null;
 				const locked = busy || state.status === "running" || state.recovery === "save";
@@ -3535,12 +3543,14 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 							React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: locked, onClick: function () { setAdjusting(true); } }, "调整")
 						) : null,
 						React.createElement("details", null, React.createElement("summary", { "aria-label": "更多插图操作" }, "⋯"),
+							state.reference && version.referencePerson && (state.reference.versions.includes(version.id) || state.enabled && state.reference.supported) ? React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: locked, onClick: function () { return setReference(!state.reference.versions.includes(version.id)); } }, state.reference.versions.includes(version.id) ? "取消造型参考" : "用作造型参考") : null,
 							React.createElement("a", { href: url, download: "scene-illustration" }, "下载"),
 							React.createElement("details", null, React.createElement("summary", null, "查看说明"), React.createElement("p", null, version.description || "旧图片没有保存画面说明")),
 							React.createElement("button", { type: "button", disabled: locked, onClick: remove }, "删除")
 						)
 					) : null,
 					version && state.enabled && version.profile && version.profile !== state.profile ? React.createElement("span", { role: "status" }, "将按新渠道重新整理画面，可能产生文字模型费用。") : null,
+					state.referenceWarning || state.reference && state.reference.warning ? React.createElement("span", { role: "status" }, state.referenceWarning || state.reference.warning) : null,
 					adjusting && state.enabled ? React.createElement("div", { className: "dsh-tavern-image-adjust", role: "region", "aria-label": "调整插图" },
 						React.createElement("label", null, "想怎样调整？", React.createElement("textarea", { value: instruction, maxLength: 2000, placeholder: "例如：改成雨夜，镜头拉近", onChange: function (event) { setInstruction(event.target.value); }, disabled: locked })),
 						React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: locked || !instruction.trim(), onClick: function () { return generate("adjust"); } }, "生成"),
