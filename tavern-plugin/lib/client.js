@@ -72,6 +72,7 @@ window.__ModuleLoader__.load({
 .dsh-tavern-sidebar { height: 100%; box-sizing: border-box; display: flex; flex-direction: column; padding: 12px; color: var(--dsw-alias-label-primary); background: var(--dsw-specific-sidebar-fill); }
 .dsh-tavern-sidebar.collapsed { padding: 12px 10px; align-items: center; }
 body.dsh-tavern-shell-active button[aria-label="新建会话"], body.dsh-tavern-shell-active button[aria-label="New session"] { display: none !important; }
+body.dsh-tavern-shell-active [data-phase="hero"] div:has(> [data-slot="conversation.hero.agentPreset"]) { display: none !important; }
 body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px); min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .dsh-tavern-side-head { height: 48px; display: flex; align-items: center; gap: 8px; flex: none; }
 .dsh-tavern-side-brand { flex: 1; min-width: 0; font-size: 16px; font-weight: 800; color: #9a622f; white-space: nowrap; overflow: hidden; }
@@ -3018,6 +3019,46 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			}
 			return Object.freeze({ register: register });
 		}
+		function mountTavernHomePlaceholder(doc, Observer) {
+			const text = "选择人物卡后开始游戏，或者在卡片工作台中编辑人物卡";
+			const changed = new Map();
+			function read(element, attribute) { return attribute ? element.getAttribute(attribute) : element.textContent; }
+			function write(element, attribute, value) {
+				if (attribute) element.setAttribute(attribute, value);
+				else element.textContent = value;
+			}
+			function restore(element, attributes) {
+				for (const [attribute, original] of attributes) {
+					if (read(element, attribute) === text) write(element, attribute, original);
+				}
+			}
+			function refresh() {
+				const elements = new Set(doc.querySelectorAll('[data-phase="hero"] [data-composer-card] [data-placeholder], [data-phase="hero"] [data-composer-card] textarea[placeholder], [data-phase="hero"] [data-composer-card] [data-composer-placeholder]'));
+				for (const [element, attributes] of changed) {
+					if (!elements.has(element)) { restore(element, attributes); changed.delete(element); }
+				}
+				for (const element of elements) {
+					const attributes = element.hasAttribute("data-composer-placeholder") ? [""] : ["data-placeholder", "placeholder", "aria-label"];
+					for (const attribute of attributes) {
+						const current = read(element, attribute);
+						// Change only the native home hint, never workspace/error prompts or editor content.
+						if (!current || current === text || !/^(描述你想要构建的内容|Describe what you want to build)/.test(current)) continue;
+						if (!changed.has(element)) changed.set(element, new Map());
+						changed.get(element).set(attribute, current);
+						write(element, attribute, text);
+					}
+				}
+			}
+			const observer = new Observer(refresh);
+			observer.observe(doc.body, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ["data-phase", "data-placeholder", "placeholder", "aria-label"] });
+			refresh();
+			return function () {
+				observer.disconnect();
+				for (const [element, attributes] of changed) restore(element, attributes);
+				changed.clear();
+			};
+		}
+
 		function createTavernShellFeatureModule() {
 		function TavernSidebar(props) {
 			const collapsed = props.collapsed;
@@ -3711,6 +3752,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				document.body.classList.add("dsh-tavern-shell-active");
 				return function () { document.body.classList.remove("dsh-tavern-shell-active"); };
 			}, "dsh-tavern: shell marker");
+			ctx.effect(function () { return mountTavernHomePlaceholder(document, MutationObserver); }, "dsh-tavern: home placeholder");
 			ctx.effect(() => slots.inject("sidebar.workspaces", () => slots.register(
 				{ name: "sidebar.workspaces", priority: -1 },
 				function (props) { return React.createElement(TavernSidebar, Object.assign({}, props, {
@@ -5949,6 +5991,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		exports.createPlayControlsFeatureModule = createPlayControlsFeatureModule;
 		exports.createTavernAssistantRendererFeatureModule = createTavernAssistantRendererFeatureModule;
 		exports.createTavernShellFeatureModule = createTavernShellFeatureModule;
+		exports.mountTavernHomePlaceholder = mountTavernHomePlaceholder;
 		exports.createTavernRuntimeGenerationMonitor = createTavernRuntimeGenerationMonitor;
 		return module.exports;
 	}
