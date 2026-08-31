@@ -37,21 +37,36 @@ export function sceneInput(chat, target) {
 export function createSceneIllustrations(deps) {
   const jobs = new Map()
   const starts = new Map()
+  let configurationWrite = Promise.resolve()
   const settingsPath = 'scene-images/settings.json'
   const pathFor = (chatId, key) => 'scene-images/' + hash(String(chatId)) + '/' + key + '.json'
   async function config() { return imageSettings(await deps.store.readJson(settingsPath) || {}) }
   async function settings() {
     const credential = await deps.credentials()?.resolve(IMAGE_CREDENTIAL)
-    return { ...await config(), hasKey: Boolean(credential?.value) }
+    const current = await config()
+    return { ...current, hasKey: Boolean(credential?.value), ready: Boolean(current.model && credential?.value) }
   }
-  async function configure(input = {}) {
-    const next = imageSettings(input)
+  function configure(input = {}) {
+    // Serialize partial saves/toggles so concurrent tabs cannot lose settings.
+    const write = configurationWrite.then(() => saveConfiguration(input))
+    configurationWrite = write.catch(() => {})
+    return write
+  }
+  async function saveConfiguration(input) {
+    if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('生图配置必须是对象')
+    if (input.enabled !== undefined && typeof input.enabled !== 'boolean') throw new Error('启用状态必须为布尔值')
+    const current = await settings()
+    const next = imageSettings({ ...current, ...input })
     if (input.apiKey !== undefined && typeof input.apiKey !== 'string') throw new Error('API Key 必须是文本')
+    // Configuration and explicit opt-in are separate operations. Old credentials
+    // alone are not permission to start a paid request after upgrading.
+    if (input.enabled === true && (!current.ready || !next.model)) throw new Error('请先保存完整生图配置，再手动启用')
     if (input.apiKey?.trim()) {
       const credentials = deps.credentials()
       if (typeof credentials?.set !== 'function') throw new Error('当前 DSH 不支持保存凭据，请配置 DSH_TAVERN_IMAGE_API_KEY')
       await credentials.set(IMAGE_CREDENTIAL, input.apiKey.trim())
     }
+    if (!next.model) next.enabled = false
     await deps.store.writeJson(settingsPath, next)
     return settings()
   }
@@ -81,12 +96,14 @@ export function createSceneIllustrations(deps) {
     if (expectedKey !== target.key) throw new Error('正文版本已变化，请刷新后生图')
     if (starts.has(path)) return starts.get(path)
     const starting = (async () => {
+      const active = await config()
+      if (!active.enabled) throw new Error('请先在设置 → DSH Tavern → 场景生图中手动启用')
+      if (await deps.isRunning?.(sessionId)) throw new Error('请等待当前正文生成完成后再生图')
       const existing = await readRecord(path)
       if (existing?.status === 'succeeded' || existing?.status === 'running' && jobs.has(path)) return present(target, existing)
       // A failure may reach disk just before the job's finally removes its handle.
       // An explicit retry waits for that cleanup, rather than returning the old failure.
       if (jobs.has(path)) await jobs.get(path).promise
-      const active = await config()
       if (!active.model) throw new Error('请先在设置 → DSH Tavern → 场景生图中填写模型与 API Key')
       const credential = await deps.credentials()?.resolve(IMAGE_CREDENTIAL)
       if (!credential?.value) throw new Error('请先在设置中配置生图 API Key')
@@ -95,7 +112,7 @@ export function createSceneIllustrations(deps) {
       if (!selection) throw new Error('请先为当前对话选择模型，供生图 Agent 理解场景')
       const snapshot = sceneInput(chat, target)
       const controller = new AbortController()
-      const record = { key: target.key, turn: target.turn, status: 'running', createdAt: Date.now(), requestId: randomUUID(), error: '' }
+      const record = { key: target.key, turn: target.turn, status: 'running', stage: 'planning', createdAt: Date.now(), requestId: randomUUID(), error: '' }
       await deps.store.writeJson(path, record)
       const job = { controller, promise: null }
       jobs.set(path, job)
@@ -129,8 +146,12 @@ export function createSceneIllustrations(deps) {
               controller.signal.throwIfAborted()
               prompt = String(call.arguments?.prompt || '').trim()
               if (!prompt || prompt.length > 12000) throw new Error('画面描述为空或过长')
+              record.stage = 'generating'
+              await deps.store.writeJson(path, record)
               const generated = await (deps.generate || generateSceneImage)({ ...active, apiKey: input.apiKey, prompt, signal: controller.signal, maxBytes: deps.attachments()?.imageLimits?.maxImageBytes })
               controller.signal.throwIfAborted()
+              record.stage = 'saving'
+              await deps.store.writeJson(path, record)
               attachment = await deps.attachments().saveImage({ ...generated, name: 'scene-illustration' })
               return '图片已保存。简短确认即可，不要再次调用工具。'
             } catch (error) {
@@ -146,7 +167,7 @@ export function createSceneIllustrations(deps) {
       if (!attachment) throw new Error(providerError || '生图 Agent 没有生成图片，请重试')
       const current = await deps.chatForSession(input.sessionId)
       if (!current || current.id !== input.chatId || sceneTarget(current, target.turn).key !== target.key) throw new Error('正文已切换或被删除，图片未挂载到其他版本')
-      await deps.store.writeJson(path, { ...record, status: 'succeeded', attachment, prompt, model: active.model, traceSessionId: result?.traceSessionId || '', completedAt: Date.now() })
+      await deps.store.writeJson(path, { ...record, status: 'succeeded', stage: 'completed', attachment, prompt, model: active.model, traceSessionId: result?.traceSessionId || '', completedAt: Date.now() })
     } catch (error) {
       const detail = providerError || (attempted ? String(error.message || '生图失败') : '生图 Agent 未完成任务，请检查当前对话模型或导出日志')
       await deps.store.writeJson(path, { ...record, status: 'failed', traceSessionId: error.traceSessionId || '', error: controller.signal.aborted ? '生图已超时或取消，供应商可能已计费，请确认后重试。' : detail.replaceAll(input.apiKey, '[已隐藏]').slice(0, 500) })

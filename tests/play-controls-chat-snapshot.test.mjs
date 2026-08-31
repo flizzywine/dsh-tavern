@@ -12,8 +12,9 @@ function dockWith(nodes, mode = 'story') {
   const context = {
     React: { createElement: (type, props, ...children) => ({ type, props, children }) },
     useTavernSessionMode: () => mode,
+    useLiveTavernView: () => ({ view: { replyProjections: nodes.some(node => node.kind === 'assistant') ? [{ turn: 1 }, { turn: 2 }] : [] } }),
     isPlayMode: value => ['story', 'free', 'script'].includes(value),
-    CandidateAction: 'actions', TavernCompactionAction: 'compact',
+    CandidateAction: 'actions', TavernCompactionAction: 'compact', SceneImageAction: 'scene-image',
     props: {
       sessionId: 'session1',
       useSession(selector) { selections.push('session'); return selector({ running: false, blank: false }) },
@@ -37,14 +38,19 @@ test('alpha.2 dock keeps play controls when messages only exist on the Chat snap
     ], mode)
     assert.equal(rendered.children[0]?.type, 'actions')
     assert.equal(rendered.children[0].props.messageId, 'reply2')
-    assert.deepEqual(selections, ['chat'])
+    assert.equal(rendered.children[1]?.type, 'scene-image')
+    assert.equal(rendered.children[1].props.turn, 2)
+    assert.equal(rendered.children[1].props.running, false)
+    assert.deepEqual(selections, ['chat', 'session'])
   }
 })
 
 test('empty Chat keeps compaction but does not invent a response or show play controls in card mode', () => {
   assert.equal(dockWith([]).rendered.children[0], null)
-  assert.equal(dockWith([]).rendered.children[1].type, 'compact')
+  assert.equal(dockWith([]).rendered.children[1].props.turn, 0)
+  assert.equal(dockWith([]).rendered.children[2].type, 'compact')
   assert.equal(dockWith([{ kind: 'assistant', messageId: 'a' }], 'card').rendered.children[0], null)
+  assert.equal(dockWith([{ kind: 'assistant', messageId: 'a' }], 'card').rendered.children[1], null)
 })
 
 test('all dependent panels read messages from Chat, never from Session lifecycle', () => {

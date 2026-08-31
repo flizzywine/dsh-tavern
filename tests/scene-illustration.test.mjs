@@ -69,8 +69,49 @@ async function fixture(t, overrides = {}) {
   const service = createSceneIllustrations(deps)
   t.after(async () => { await service.dispose(); await rm(root, { recursive: true, force: true }) })
   await service.configure({ model: 'test-image', baseURL: 'https://provider.example/v1', size: '1024x1024', apiKey: key })
+  await service.configure({ enabled: true })
   return { service, deps, store, chat: () => chat, setChat: value => { chat = value }, imageCalls: () => imageCalls }
 }
+
+test('explicit opt-in, partial saves and legacy migration never cause paid requests', async t => {
+  let agentCalls = 0
+  const fx = await fixture(t, { runAgent: async () => { agentCalls++ } })
+  await fx.store.writeJson('scene-images/settings.json', { model: 'legacy', baseURL: 'https://provider.example/v1' })
+  assert.equal((await fx.service.settings()).enabled, false)
+  assert.equal((await fx.service.settings()).ready, true)
+  const target = sceneTarget(fx.chat(), 2)
+  await assert.rejects(fx.service.start('parent', 2, target.key), /手动启用/)
+  await fx.service.configure({ model: 'new-model' })
+  assert.equal((await fx.service.settings()).enabled, false)
+  await fx.service.configure({ enabled: true })
+  assert.equal((await fx.service.settings()).model, 'new-model')
+  assert.equal((await fx.service.settings()).enabled, true)
+  await Promise.all([fx.service.configure({ model: 'concurrent' }), fx.service.configure({ enabled: false })])
+  assert.equal((await fx.service.settings()).model, 'concurrent')
+  assert.equal((await fx.service.settings()).enabled, false)
+  await assert.rejects(fx.service.configure({ enabled: 'true' }), /布尔/)
+  await fx.service.configure({ model: '' })
+  await assert.rejects(fx.service.configure({ enabled: true, model: 'new' }), /先保存/)
+  assert.equal(agentCalls, 0)
+  assert.equal(fx.imageCalls(), 0)
+})
+
+test('disabling keeps saved images accessible but rejects generation from another client', async t => {
+  const fx = await fixture(t), key = sceneTarget(fx.chat(), 2).key
+  await fx.service.start('parent', 2, key)
+  await until(async () => (await fx.service.status('parent', 2)).status === 'succeeded')
+  await fx.service.configure({ enabled: false })
+  assert.equal((await fx.service.status('parent', 2)).status, 'succeeded')
+  assert.deepEqual((await fx.service.readImage('parent', 2, key)).data, png)
+  await assert.rejects(fx.service.start('parent', 2, key), /手动启用/)
+  assert.equal(fx.imageCalls(), 1)
+})
+
+test('server rejects generation during foreground streaming before running an Agent', async t => {
+  const fx = await fixture(t, { isRunning: () => true, runAgent: () => assert.fail('must not start') })
+  await assert.rejects(fx.service.start('parent', 2, sceneTarget(fx.chat(), 2).key), /正文生成完成/)
+  assert.equal(fx.imageCalls(), 0)
+})
 
 test('complete one-click native child Agent flow, no foreground writes, durable image, duplicate suppression', async t => {
   let followup, registered, childOptions, persona, descriptor, disposed = 0

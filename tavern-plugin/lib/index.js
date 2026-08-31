@@ -1548,6 +1548,7 @@ export async function apply(ctx) {
   ctx.effect(() => () => backgroundAgentRunner.dispose(), 'dsh-tavern: dispose resident background agents')
   const sceneIllustrations = createSceneIllustrations({
     store: profileData, chatForSession, selection: modelSelection,
+    isRunning: sessionId => ctx.get('agents')?.get(sessionId)?.phase?.kind === 'running',
     credentials: () => ctx.get('credentials'), attachments: () => ctx.get('attachments'),
     runAgent: input => backgroundAgentRunner.run(input),
     onStorageError: () => console.error('dsh-tavern: 生图状态保存失败，请检查数据目录权限')

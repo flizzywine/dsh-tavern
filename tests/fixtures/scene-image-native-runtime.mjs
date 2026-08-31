@@ -55,6 +55,7 @@ export async function createSceneImageNativeRuntime(bootPath) {
   let service = createSceneIllustrations(deps)
   const endpoint = 'http://127.0.0.1:' + imageServer.address().port + '/v1'
   await service.configure({ model: 'fixture-image', baseURL: endpoint, apiKey: key })
+  await service.configure({ enabled: true })
   return { get service() { return service }, chat, before, requests, imageRequests, parent, endpoint,
     failNext() { failNext = true },
     async restart() { await service.dispose(); service = createSceneIllustrations(deps) },

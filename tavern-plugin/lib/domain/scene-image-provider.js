@@ -7,6 +7,7 @@ import { Readable } from 'node:stream'
 
 export function imageSettings(value = {}) {
   const config = {
+    enabled: value.enabled === true,
     baseURL: String(value.baseURL || 'https://api.openai.com/v1').trim(),
     model: String(value.model || '').trim(),
     size: String(value.size || '1024x1024').trim()
