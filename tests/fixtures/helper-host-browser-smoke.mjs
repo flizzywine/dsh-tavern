@@ -5,9 +5,12 @@ import { readFile } from 'node:fs/promises'
 import { createHelperWorldbookHost } from './helper-worldbook-host.mjs'
 
 const host = await createHelperWorldbookHost()
+async function browserClientSource() {
 let source = await readFile(new URL('../../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
 source = source.replace('import(window.__dshTavernStaticAssetUrl("https://testingcf.jsdelivr.net/npm/zod@4.4.3/+esm"))', 'Promise.resolve({})')
-for (const dependency of ['tavernIconDependencies', 'tavernStaticAssetShim', 'tavernHelperScriptDependencies']) source = source.replace('+ ' + dependency + '()', "+ ''")
+for (const dependency of ['tavernIconDependencies', 'tavernStaticAssetShim', 'tavernHelperScriptDependencies']) source = source.replaceAll('+ ' + dependency + '()', "+ ''")
+return source
+}
 function cardScript(readonly) {
   return `
     const api = window.TavernHelper;
@@ -27,13 +30,14 @@ function cardScript(readonly) {
 const server = createServer(async (request, response) => {
   try {
     const url = new URL(request.url, 'http://localhost')
-    if (url.pathname === '/client.js') { response.setHeader('Content-Type', 'text/javascript'); response.end(source); return }
+    if (url.pathname === '/client.js') { response.setHeader('Content-Type', 'text/javascript'); response.end(await browserClientSource()); return }
     if (url.pathname === '/rpc') {
       let body = ''; for await (const chunk of request) body += chunk
       const { method, args } = JSON.parse(body)
       const result = await host.invoke(method, args)
       response.setHeader('Content-Type', 'application/json'); response.end(JSON.stringify(result)); return
     }
+    if (url.pathname === '/favicon.ico') { response.writeHead(204); response.end(); return }
     if (url.pathname !== '/') { response.writeHead(404); response.end(); return }
     const readonly = url.searchParams.has('read')
     const initial = await host.adapter.getWorldbook('audit', 'current')

@@ -84,3 +84,32 @@ test('变量合并写入等待宿主保存，拒绝及过期结果均向插件�
     await assert.rejects(stale, /未保存/)
   }
 })
+
+test('快速脚本先完成订阅时仍等待 iframe load，再宣布就绪和派发首个事件', async () => {
+  const { helperClient } = await import('./fixtures/helper-host-harness.mjs')
+  const listeners = {}, sent = [], ready = []
+  let frame, emitted
+  const hostWindow = { crypto: { randomUUID: () => 'early-ready' }, setTimeout, clearTimeout,
+    addEventListener(name, fn) { listeners[name] = fn }, removeEventListener() {} }
+  const root = { isConnected: true, appendChild() {}, remove() {} }
+  const document = { body: { appendChild() {} }, createElement(tag) {
+    if (tag === 'div') return root
+    frame = { contentWindow: { postMessage(message) { sent.push(message) } }, listeners: {},
+      addEventListener(name, fn) { this.listeners[name] = fn }, remove() {} }
+    return frame
+  } }
+  const runtime = helperClient.createTavernHelperScriptRuntime({ window: hostWindow, document, rpc: async () => ({}), reportError() {}, resolveError() {},
+    onReady(id) { ready.push(id); emitted = runtime.emit('MESSAGE_SENT', [1]) } })
+  runtime.sync('audit', { tavernHelper: { messages: [] }, tavernHelperScripts: [{ id: 'quick', content: 'void 0' }] })
+  listeners.message({ source: frame.contentWindow, data: { token: 'early-ready', type: 'dsh-tavern-helper-subscriptions', ready: true, names: ['MESSAGE_SENT'] } })
+  assert.equal(ready.length, 0)
+  await runtime.emit('MESSAGE_SENT', [0])
+  assert.equal(sent.length, 0)
+  frame.listeners.load()
+  assert.deepEqual(ready, ['audit'])
+  const event = sent.find(message => message.type === 'dsh-tavern-helper-event')
+  assert(event, '首个事件必须真正发到 iframe，不能创建一个永远得不到回执的等待')
+  listeners.message({ source: frame.contentWindow, data: { token: 'early-ready', type: 'dsh-tavern-helper-event-complete', eventId: event.eventId, args: [1] } })
+  await emitted
+  runtime.dispose()
+})

@@ -2257,7 +2257,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			}
 			function maybeAnnounceReady() {
 				if (!readinessKey || records.size === 0 || announcedReadinessKey === readinessKey) return;
-				if (Array.from(records.values()).some(function (record) { return !record.subscriptionsReady && !record.initializationFailed; })) return;
+				if (Array.from(records.values()).some(function (record) { return !record.loaded || (!record.subscriptionsReady && !record.initializationFailed); })) return;
 				announcedReadinessKey = readinessKey;
 				Promise.resolve(onReady(activeSessionId)).catch(function (error) { reportError("人物卡脚本初始化", error); });
 			}
@@ -2373,7 +2373,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			}
 			function emitToRecord(record, name, args, context, diagnostics) {
 				if (diagnostics) diagnostics.push({ kind: "dispatch", name: name, ready: record.subscriptionsReady, initializationFailed: record.initializationFailed, subscribed: record.subscriptions.has(String(name)) });
-				if (!record.subscriptionsReady || record.initializationFailed) return Promise.resolve(args);
+				if (!record.loaded || !record.subscriptionsReady || record.initializationFailed) return Promise.resolve(args);
 				if (context && typeof context === "object") {
 					record.context = decorateHelperContext(context, record.context);
 					post(record, { type: "dsh-tavern-helper-context", context: record.context });
@@ -2449,6 +2449,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 							settleInitialization(record, new Error("初始化超时（" + String(initializationTimeoutMs) + "ms）"));
 						}, initializationTimeoutMs);
 					}
+					maybeAnnounceReady();
 				});
 				ensureRoot().appendChild(frame);
 				records.set(record.id, record);
