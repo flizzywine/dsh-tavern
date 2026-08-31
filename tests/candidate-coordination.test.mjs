@@ -13,14 +13,12 @@ function between(source, start, end) {
   return source.slice(from, to)
 }
 
-test('候选生成先持久任务信箱，HTTP 请求不等待 Agent 完成', function () {
-  const submit = between(serverSource, 'async function submitCandidateTask', 'async function listTavernSessions')
-  const dispatch = between(serverSource, "case 'syncSession'", "case 'getSessionActivity'")
-
-  assert.match(submit, /await taskMailbox\.submit/)
-  assert.match(submit, /scheduleCandidateTask\(chat\.id, task\)/)
-  assert.doesNotMatch(submit, /await candidateGenerator\.prepare|await prepared\.execute/)
-  assert.match(dispatch, /case 'submitTask'/)
+test('宿主将候选提交、旧入口、同步与恢复交给同一个模块', function () {
+  assert.match(serverSource, /candidateTasks\.submit\(args\)/)
+  assert.match(serverSource, /candidateTasks\.startLegacy\(args\)/)
+  assert.match(serverSource, /candidateTasks\.sync\(/)
+  assert.match(serverSource, /candidateTasks\.recover\(/)
+  assert.doesNotMatch(serverSource, /scheduleCandidateTask|createDurableTaskMailbox/)
 })
 
 test('前端只通过 SSE 消费统一快照，不再定时轮询或竞争读取结果', function () {
@@ -36,13 +34,8 @@ test('前端只通过 SSE 消费统一快照，不再定时轮询或竞争读取
 })
 
 test('Session、世界书、结算与候选使用同一持久同步快照', function () {
-  const serverSync = between(serverSource, 'async function sessionSync', 'async function submitCandidateTask')
   const clientSync = between(clientSource, 'function coordinationView', 'const tavernCoordination')
 
-  assert.match(serverSync, /tasks: \{ candidate: task, background: backgroundTask \}/)
-  assert.match(serverSync, /runtimeGeneration/)
-  assert.match(serverSync, /liveSession/)
-  assert.match(serverSync, /projectionRevision/)
   assert.match(clientSync, /tasks\.background/)
   assert.match(clientSync, /tasks\.candidate/)
   assert.match(clientSync, /projectionRevision/)

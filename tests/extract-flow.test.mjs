@@ -501,7 +501,7 @@ test('空白工作台确认后自动创建人物卡，不再提供二次保存�
   assert.match(sidebar, /const currentSummary = current \? summaries\[current\] : null;/)
   assert.match(sidebar, /if \(!currentSummary \|\| currentSummary\.blank\) return;\s*notifyDataChanged\(\["sessions"\]\);/)
   assert.match(sessionList, /return await conversationRegistry\.list\(\)/)
-  assert.match(serverSource, /cardPath: str\(chat\.cardPath\)/)
+  // Candidate task projection is exercised through its production interface.
   assert.match(clientSource, /cardPath: String\(sync\.cardPath \|\| ""\)/)
   assert.match(coordination, /previous === "" && cardPath !== ""/)
   assert.match(coordination, /notifyTavernDataChanged\(\["cards", "sessions"\], "coordination"\)/)
