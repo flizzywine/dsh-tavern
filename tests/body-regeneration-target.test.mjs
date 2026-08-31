@@ -1,19 +1,15 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { readFileSync } from 'node:fs'
 import * as surface from '../tavern-plugin/lib/domain/rollback-surface.js'
 
-// Exercise the actual host selection block, stopping before any regeneration writes.
-const code = readFileSync(new URL('../tavern-plugin/lib/index.js', import.meta.url), 'utf8')
-const start = code.indexOf('  async function regenBody(')
-const selection = code.slice(code.indexOf('    const nodes =', start), code.indexOf('    const originalUserText =', start))
-const run = new Function('session', 'chat', 'locateRegenerationSurface', selection + '\nreturn { oldSeq, oldTurn, oldSource, oldAssistantIndex };')
+import { selectRegenerationTarget } from '../tavern-plugin/lib/domain/round-history.js'
 const model = { kind: 'model', provider: 'test', model: 'test-model' }
 const assistant = (seq, turn, source = model, content = [{ type: 'text', text: '正文' }]) => ({ seq, type: 'assistant/message', data: { turn, step: 1, message: { role: 'assistant', source, content } } })
 const cleanup = (seq, turn) => assistant(seq, turn, { kind: 'plugin', plugin: 'dsh-tavern-failed-turn-cleanup' }, [])
 const chat = { messages: [{ role: 'assistant', greeting: true, turn: 1 }, { role: 'user', text: '继续' }, { role: 'assistant', turn: 6, text: '已保存正文' }] }
 function select(events, nodes) {
-  return run({ events, surface: { nodes } }, chat, surface.locateRegenerationSurface)
+  const { oldSeq, oldTurn, oldSource, oldAssistantIndex } = selectRegenerationTarget(chat, { events, surface: { nodes } })
+  return { oldSeq, oldTurn, oldSource, oldAssistantIndex }
 }
 
 test('失败清理节点不能被当作旧正文，重试定位权威剧情轮次', () => {

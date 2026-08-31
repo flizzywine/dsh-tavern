@@ -5202,7 +5202,156 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			}
 			return { apply: apply, dispose: dispose };
 		}
+		// One owner for persisted suppression and legacy browser-only history records.
+		// Kept in the loader bundle so DSH needs no new browser module protocol.
+		function createTurnHistoryProjection(options) {
+			options = options || {};
+			const root = options.root || function () { return document; };
+			const storage = options.storage || function () { return window.localStorage; };
+		const HIDDEN_TURNS_KEY = "dsh-tavern-hidden-turns";
+		const ROLLED_BACK_TURNS_KEY = "dsh-tavern-rolled-back-turns";
+		const HIDDEN_REGEN_USER_TURNS_KEY = "dsh-tavern-hidden-regen-user-turns";
+		function forgetHiddenTurn(storageKey, sessionId, turn) {
+			try {
+				const all = JSON.parse(storage().getItem(storageKey) || "{}");
+				const list = Array.isArray(all[sessionId]) ? all[sessionId].filter(function (item) { return Number(item) !== Number(turn); }) : [];
+				if (list.length) all[sessionId] = list;
+				else delete all[sessionId];
+				storage().setItem(storageKey, JSON.stringify(all));
+			} catch (err) {}
+		}
+		function hideUserForTurnTail(tail) {
+			if (!tail) return;
+			let sib = tail.previousElementSibling;
+			while (sib) {
+				const kind = sib.getAttribute("data-chat-flow-kind");
+				if (kind === "user") {
+					sib.style.display = "none";
+					break;
+				}
+				if (kind === "turn-tail") break;
+				sib = sib.previousElementSibling;
+			}
+		}
+		function applyHiddenRegenUserTurns(sessionId) {
+			try {
+				const all = JSON.parse(storage().getItem(HIDDEN_REGEN_USER_TURNS_KEY) || "{}");
+				const turns = all[sessionId];
+				if (!Array.isArray(turns) || turns.length === 0) return;
+				const set = new Set(turns.map(String));
+				const tails = root().querySelectorAll('[data-chat-flow-kind="turn-tail"]');
+				for (let i = 0; i < tails.length; i++) {
+					const tail = tails[i];
+					if (!set.has(tailTurnOf(tail))) continue;
+					hideUserForTurnTail(tail);
+				}
+			} catch (err) {}
+		}
+		function hideTurnTail(el) {
+			if (!el) return;
+			el.style.display = "none";
+			let sib = el.previousElementSibling;
+			while (sib) {
+				const kind = sib.getAttribute("data-chat-flow-kind");
+				if (kind === "user" || kind === "turn-tail") break;
+				sib.style.display = "none";
+				sib = sib.previousElementSibling;
+			}
+		}
+		function showTurnTail(el) {
+			if (!el) return;
+			el.style.display = "";
+			let sib = el.previousElementSibling;
+			while (sib) {
+				const kind = sib.getAttribute("data-chat-flow-kind");
+				if (kind === "user" || kind === "turn-tail") break;
+				sib.style.display = "";
+				sib = sib.previousElementSibling;
+			}
+		}
+		function hideTurnTailWithUser(el) {
+			if (!el) return;
+			el.style.display = "none";
+			const turn = el.getAttribute("data-chat-turn");
+			let sib = el.previousElementSibling;
+			while (sib) {
+				const kind = sib.getAttribute("data-chat-flow-kind");
+				if (kind === "turn-tail") break;
+				const siblingTurn = sib.getAttribute("data-chat-turn");
+				if (turn && siblingTurn && siblingTurn !== turn) break;
+				// System prompts precede the user row. Hide through the turn boundary,
+				// not just through its input; alpha also supplies explicit ownership.
+				sib.style.display = "none";
+				sib = sib.previousElementSibling;
+			}
+		}
+		function tailTurnOf(el) {
+			if (!el) return "";
+			if (el.getAttribute("data-turn-tail")) return el.getAttribute("data-turn-tail");
+			const inner = el.querySelector("[data-turn-tail]");
+			return inner ? inner.getAttribute("data-turn-tail") : "";
+		}
+		function applyHiddenTurns(sessionId) {
+			try {
+				const all = JSON.parse(storage().getItem(HIDDEN_TURNS_KEY) || "{}");
+				const turns = all[sessionId];
+				if (!Array.isArray(turns) || turns.length === 0) return;
+				const set = new Set(turns.map(String));
+				const tails = root().querySelectorAll('[data-chat-flow-kind="turn-tail"]');
+				for (let i = 0; i < tails.length; i++) {
+					const tail = tails[i];
+					if (!set.has(tailTurnOf(tail))) continue;
+					hideTurnTail(tail);
+				}
+			} catch (err) {}
+		}
+		function applyRolledBackTurns(sessionId) {
+			try {
+				const all = JSON.parse(storage().getItem(ROLLED_BACK_TURNS_KEY) || "{}");
+				const turns = all[sessionId];
+				if (!Array.isArray(turns) || turns.length === 0) return;
+				const set = new Set(turns.map(String));
+				const tails = root().querySelectorAll('[data-chat-flow-kind="turn-tail"]');
+				for (let i = 0; i < tails.length; i++) {
+					const tail = tails[i];
+					if (!set.has(tailTurnOf(tail))) continue;
+					hideTurnTailWithUser(tail);
+				}
+			} catch (err) {}
+		}
+		function applySuppressedDshTurns(turns) {
+			const set = new Set((Array.isArray(turns) ? turns : []).map(String));
+			if (set.size === 0) return;
+			const tails = root().querySelectorAll('[data-chat-flow-kind="turn-tail"]');
+			for (let i = 0; i < tails.length; i++) {
+				const tail = tails[i];
+				if (!set.has(tailTurnOf(tail))) continue;
+				hideTurnTailWithUser(tail);
+			}
+		}
+			function apply(sessionId, turns) {
+				applySuppressedDshTurns(turns);
+				applyHiddenTurns(sessionId);
+				applyRolledBackTurns(sessionId);
+				applyHiddenRegenUserTurns(sessionId);
+			}
+			function regenerated(sessionId, view, tail) {
+				const adopted = view && view.adopted;
+				if (adopted && Number(adopted.hiddenTurn) > 0) forgetHiddenTurn(HIDDEN_TURNS_KEY, sessionId, Number(adopted.hiddenTurn));
+				if (adopted && Number(adopted.syntheticTurn) > 0) forgetHiddenTurn(HIDDEN_REGEN_USER_TURNS_KEY, sessionId, Number(adopted.syntheticTurn));
+				showTurnTail(tail);
+				applySuppressedDshTurns(view && view.suppressedDshTurns);
+				applyHiddenTurns(sessionId);
+				applyHiddenRegenUserTurns(sessionId);
+			}
+			function rolledBack(sessionId, view) {
+				applySuppressedDshTurns(view && view.suppressedDshTurns);
+				applyRolledBackTurns(sessionId);
+			}
+			return Object.freeze({ apply: apply, regenerated: regenerated, rolledBack: rolledBack });
+		}
 		function createPlayControlsFeatureModule() {
+			const historyProjection = createTurnHistoryProjection();
 			function TavernConversationExportAction(props) {
 				const [available, setAvailable] = React.useState(false);
 				const [busy, setBusy] = React.useState(false);
@@ -5532,136 +5681,9 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			return value;
 		}
 
-		const HIDDEN_TURNS_KEY = "dsh-tavern-hidden-turns";
-		const ROLLED_BACK_TURNS_KEY = "dsh-tavern-rolled-back-turns";
-		const HIDDEN_REGEN_USER_TURNS_KEY = "dsh-tavern-hidden-regen-user-turns";
-		function forgetHiddenTurn(storageKey, sessionId, turn) {
-			try {
-				const all = JSON.parse(window.localStorage.getItem(storageKey) || "{}");
-				const list = Array.isArray(all[sessionId]) ? all[sessionId].filter(function (item) { return Number(item) !== Number(turn); }) : [];
-				if (list.length) all[sessionId] = list;
-				else delete all[sessionId];
-				window.localStorage.setItem(storageKey, JSON.stringify(all));
-			} catch (err) {}
-		}
-		function hideUserForTurnTail(tail) {
-			if (!tail) return;
-			let sib = tail.previousElementSibling;
-			while (sib) {
-				const kind = sib.getAttribute("data-chat-flow-kind");
-				if (kind === "user") {
-					sib.style.display = "none";
-					break;
-				}
-				if (kind === "turn-tail") break;
-				sib = sib.previousElementSibling;
-			}
-		}
-		function applyHiddenRegenUserTurns(sessionId) {
-			try {
-				const all = JSON.parse(window.localStorage.getItem(HIDDEN_REGEN_USER_TURNS_KEY) || "{}");
-				const turns = all[sessionId];
-				if (!Array.isArray(turns) || turns.length === 0) return;
-				const set = new Set(turns.map(String));
-				const tails = document.querySelectorAll('[data-chat-flow-kind="turn-tail"]');
-				for (let i = 0; i < tails.length; i++) {
-					const tail = tails[i];
-					if (!set.has(tailTurnOf(tail))) continue;
-					hideUserForTurnTail(tail);
-				}
-			} catch (err) {}
-		}
-		function hideTurnTail(el) {
-			if (!el) return;
-			el.style.display = "none";
-			let sib = el.previousElementSibling;
-			while (sib) {
-				const kind = sib.getAttribute("data-chat-flow-kind");
-				if (kind === "user" || kind === "turn-tail") break;
-				sib.style.display = "none";
-				sib = sib.previousElementSibling;
-			}
-		}
-		function showTurnTail(el) {
-			if (!el) return;
-			el.style.display = "";
-			let sib = el.previousElementSibling;
-			while (sib) {
-				const kind = sib.getAttribute("data-chat-flow-kind");
-				if (kind === "user" || kind === "turn-tail") break;
-				sib.style.display = "";
-				sib = sib.previousElementSibling;
-			}
-		}
-		function hideTurnTailWithUser(el) {
-			if (!el) return;
-			el.style.display = "none";
-			const turn = el.getAttribute("data-chat-turn");
-			let sib = el.previousElementSibling;
-			while (sib) {
-				const kind = sib.getAttribute("data-chat-flow-kind");
-				if (kind === "turn-tail") break;
-				const siblingTurn = sib.getAttribute("data-chat-turn");
-				if (turn && siblingTurn && siblingTurn !== turn) break;
-				// System prompts precede the user row. Hide through the turn boundary,
-				// not just through its input; alpha also supplies explicit ownership.
-				sib.style.display = "none";
-				sib = sib.previousElementSibling;
-			}
-		}
-		function tailTurnOf(el) {
-			if (!el) return "";
-			if (el.getAttribute("data-turn-tail")) return el.getAttribute("data-turn-tail");
-			const inner = el.querySelector("[data-turn-tail]");
-			return inner ? inner.getAttribute("data-turn-tail") : "";
-		}
-		function applyHiddenTurns(sessionId) {
-			try {
-				const all = JSON.parse(window.localStorage.getItem(HIDDEN_TURNS_KEY) || "{}");
-				const turns = all[sessionId];
-				if (!Array.isArray(turns) || turns.length === 0) return;
-				const set = new Set(turns.map(String));
-				const tails = document.querySelectorAll('[data-chat-flow-kind="turn-tail"]');
-				for (let i = 0; i < tails.length; i++) {
-					const tail = tails[i];
-					if (!set.has(tailTurnOf(tail))) continue;
-					hideTurnTail(tail);
-				}
-			} catch (err) {}
-		}
-		function applyRolledBackTurns(sessionId) {
-			try {
-				const all = JSON.parse(window.localStorage.getItem(ROLLED_BACK_TURNS_KEY) || "{}");
-				const turns = all[sessionId];
-				if (!Array.isArray(turns) || turns.length === 0) return;
-				const set = new Set(turns.map(String));
-				const tails = document.querySelectorAll('[data-chat-flow-kind="turn-tail"]');
-				for (let i = 0; i < tails.length; i++) {
-					const tail = tails[i];
-					if (!set.has(tailTurnOf(tail))) continue;
-					hideTurnTailWithUser(tail);
-				}
-			} catch (err) {}
-		}
-		function applySuppressedDshTurns(turns) {
-			const set = new Set((Array.isArray(turns) ? turns : []).map(String));
-			if (set.size === 0) return;
-			const tails = document.querySelectorAll('[data-chat-flow-kind="turn-tail"]');
-			for (let i = 0; i < tails.length; i++) {
-				const tail = tails[i];
-				if (!set.has(tailTurnOf(tail))) continue;
-				hideTurnTailWithUser(tail);
-			}
-		}
 		async function submitBodyRegeneration(sessionId, panel, guidance) {
 			const res = await rpc("regenBody", { guidance: String(guidance || "").trim() }, sessionId);
-			const adopted = res.view && res.view.adopted ? res.view.adopted : null;
-			if (adopted && Number(adopted.hiddenTurn) > 0) forgetHiddenTurn(HIDDEN_TURNS_KEY, sessionId, Number(adopted.hiddenTurn));
-			if (adopted && Number(adopted.syntheticTurn) > 0) forgetHiddenTurn(HIDDEN_REGEN_USER_TURNS_KEY, sessionId, Number(adopted.syntheticTurn));
-			showTurnTail(panel.tail);
-			applySuppressedDshTurns(res.view && res.view.suppressedDshTurns);
-			applyHiddenTurns(sessionId);
-			applyHiddenRegenUserTurns(sessionId);
+			historyProjection.regenerated(sessionId, res.view, panel.tail);
 			setCandidatePanel(null);
 		}
 
@@ -5724,8 +5746,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				setRolling(true);
 				try {
 					const result = await rpc("rollbackTurn", {}, props.sessionId);
-					applySuppressedDshTurns(result && result.view && result.view.suppressedDshTurns);
-					applyRolledBackTurns(props.sessionId);
+					historyProjection.rolledBack(props.sessionId, result && result.view);
 					setCandidatePanel(null);
 					setRegenPanel(null);
 					setCandidateGuidePanel(null);
@@ -5814,28 +5835,17 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			}, [props.sessionId, revision]);
 			return React.createElement("span", { ref: marker, hidden: true, "data-tavern-error-projection": props.sessionId });
 		}
-		function CandidateQuestion(props) {
-			const panel = useCandidatePanel();
-			const sessionMode = useTavernSessionMode(props.sessionId);
+		function TurnHistoryProjection(props) {
 			const running = props.useSession(function (snapshot) { return snapshot.running; });
 			const latestMessageId = props.useChat(latestTavernAssistantMessageId);
 			const suppressionState = useLiveTavernView(props.sessionId, "suppression:" + String(latestMessageId || "") + ":" + String(running));
 			const suppressedDshTurns = suppressionState.view && Array.isArray(suppressionState.view.suppressedDshTurns) ? suppressionState.view.suppressedDshTurns : [];
 			const suppressedDshTurnsRevision = suppressedDshTurns.join(",");
-			const [selected, setSelected] = React.useState(-1);
-			const [expanded, setExpanded] = React.useState(false);
-			React.useEffect(function () {
-				setSelected(sessionMode === "script" && panel && Array.isArray(panel.choices) && panel.choices.length === 1 ? 0 : -1);
-				setExpanded(panel !== null && panel.phase === "error");
-			}, [panel, sessionMode]);
 			React.useEffect(function () {
 				let frame = null;
 				function applyProjectionState() {
 					frame = null;
-					applySuppressedDshTurns(suppressedDshTurns);
-					applyHiddenTurns(props.sessionId);
-					applyRolledBackTurns(props.sessionId);
-					applyHiddenRegenUserTurns(props.sessionId);
+					historyProjection.apply(props.sessionId, suppressedDshTurns);
 				}
 				function scheduleProjection() {
 					if (frame === null) frame = window.requestAnimationFrame(applyProjectionState);
@@ -5845,6 +5855,19 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				observer.observe(document.body, { childList: true, subtree: true });
 				return function () { observer.disconnect(); if (frame !== null) window.cancelAnimationFrame(frame); };
 			}, [props.sessionId, latestMessageId, running, suppressedDshTurnsRevision]);
+			return null;
+		}
+		function CandidateQuestion(props) {
+			const panel = useCandidatePanel();
+			const sessionMode = useTavernSessionMode(props.sessionId);
+			const running = props.useSession(function (snapshot) { return snapshot.running; });
+			const latestMessageId = props.useChat(latestTavernAssistantMessageId);
+			const [selected, setSelected] = React.useState(-1);
+			const [expanded, setExpanded] = React.useState(false);
+			React.useEffect(function () {
+				setSelected(sessionMode === "script" && panel && Array.isArray(panel.choices) && panel.choices.length === 1 ? 0 : -1);
+				setExpanded(panel !== null && panel.phase === "error");
+			}, [panel, sessionMode]);
 			if (panel && panel.sessionId === props.sessionId && panel.phase === "error") {
 				return React.createElement("div", { className: "dsh-tavern-choice-error dsh-tavern-candidate-error-banner" },
 					"候选项生成失败：" + (panel.error || "未知错误") + "。请点上方“生成候选项”重试。"
@@ -6023,6 +6046,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				{ name: "conversation.input.dock", id: "dsh-tavern-question", order: -120, label: "下一步行动" },
 				function (props) { return React.createElement(React.Fragment, null,
 					React.createElement(SupersededTurnErrors, Object.assign({}, props, { key: props.sessionId })),
+					React.createElement(TurnHistoryProjection, Object.assign({}, props, { key: "history:" + props.sessionId })),
 					React.createElement(CandidateQuestion, Object.assign({}, props, { sessions: ctx.sessions }))
 				); }
 			)), "dsh-tavern: candidate question panel");
@@ -6136,6 +6160,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		}
 
 		exports.apply = apply;
+		exports.createTurnHistoryProjection = createTurnHistoryProjection;
 		exports.createSupersededErrorProjection = createSupersededErrorProjection;
 		exports.inject = inject;
 		exports.buildOpeningPreviewDocument = buildOpeningPreviewDocument;

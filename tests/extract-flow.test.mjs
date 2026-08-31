@@ -334,7 +334,6 @@ test('正文重新生成提供两个含义明确的入口，并复用同一替�
 	const action = between(clientSource, 'function CandidateAction', 'function CandidateDockActions')
 	const shared = between(clientSource, 'async function submitBodyRegeneration', 'function CandidateAction')
 	const panel = between(clientSource, 'function RegenPanel', 'function register')
-	const regen = between(serverSource, 'async function regenBody', '// ---------- 回退本轮')
 
 	assert.match(action, /"一键重新生成正文"/)
 	assert.match(action, /"带意见重新生成正文"/)
@@ -343,36 +342,19 @@ test('正文重新生成提供两个含义明确的入口，并复用同一替�
 	assert.match(action, /submitBodyRegeneration\(props\.sessionId, panel, ""\)/)
 	assert.match(panel, /submitBodyRegeneration\(props\.sessionId, panel, guide\)/)
 	assert.match(shared, /rpc\("regenBody", \{ guidance:/)
-	assert.match(shared, /forgetHiddenTurn\(HIDDEN_TURNS_KEY/)
-	assert.match(shared, /showTurnTail\(panel\.tail\)/)
-	assert.match(regen, /const rolledMessageCount = \(chat\.messages \|\| \[\]\)\.length/)
-	assert.match(regen, /latestMsgs\.length < rolledMessageCount \+ 2/)
-	assert.match(regen, /Number\(newAssistant\.turn\) !== syntheticTurn/)
-	assert.match(regen, /next\.suppressedDshTurns = Array\.from\(new Set/)
-	assert.match(regen, /mergeRegeneratedSwipe\(\{ originalChat, regeneratedChat: current, assistantIndex: oldAssistantIndex \}\)/)
-	assert.match(regen, /name: 'MESSAGE_SWIPED', args: \[oldAssistantIndex\]/)
-	assert.doesNotMatch(regen, /name: 'MESSAGE_RECEIVED', args: \[oldAssistantIndex, 'swipe'\]/)
-	assert.match(regen, /void queueSettlement\(committedChat\.id\)/)
-	assert.match(regen, /await updateChat\(chat\.id,[\s\S]*source: 'foreground\.regen-abort'/)
-	assert.match(regen, /chat = await updateChat\(chat\.id,[\s\S]*source: 'rollback\.regen'/)
-	assert.match(regen, /const committedChat = await updateChat\(latest\.id,[\s\S]*source: 'foreground\.regen-commit'/)
-	assert.doesNotMatch(regen, /await writeChat\(/)
+	assert.match(shared, /historyProjection\.regenerated\(sessionId, res.view, panel.tail\)/)
+
 })
 
-test('回退本轮在消息落库后按 SillyTavern 语义通知 Helper', () => {
-	const rollback = between(serverSource, 'async function rollbackTurn', '// ---------- HTTP RPC')
-	assert.match(rollback, /tavernHelperLifecycleRevision = Math\.max/)
-	assert.match(rollback, /chat\.suppressedDshTurns = Array\.from\(new Set/)
-	assert.match(rollback, /await writeChat\(chat, \{ source: 'rollback' \}\)[\s\S]*name: 'MESSAGE_DELETED', args: \[\(chat\.messages \|\| \[\]\)\.length\]/)
-})
-
-test('重生成与回退的 DSH 楼层折叠由对话持久状态驱动', () => {
-	const view = between(serverSource, 'async function view', 'function replyProjectionsOf')
-	const projection = between(clientSource, 'function applySuppressedDshTurns', 'async function submitBodyRegeneration')
-	const candidate = between(clientSource, 'function CandidateQuestion', 'function CandidateGuidePanel')
-	assert.match(view, /suppressedDshTurns:/)
-	assert.match(projection, /hideTurnTailWithUser/)
-	assert.match(candidate, /suppressionState[\s\S]*applySuppressedDshTurns\(suppressedDshTurns\)/)
+test('回合操作接入独立流程，历史投影不再由候选面板维护', () => {
+  assert.match(serverSource, /createRoundHistory\(\{/)
+  assert.match(serverSource, /case 'regenBody': return \{ view: await regenBody/)
+  assert.match(serverSource, /case 'rollbackTurn': return \{ view: await rollbackTurn/)
+  const candidate = between(clientSource, 'function CandidateQuestion', 'function CandidateGuidePanel')
+  assert.doesNotMatch(candidate, /MutationObserver|applySuppressedDshTurns|suppressionState/)
+  const history = between(clientSource, 'function TurnHistoryProjection', 'function CandidateQuestion')
+  assert.match(history, /historyProjection\.apply\(props.sessionId, suppressedDshTurns\)/)
+  assert.match(clientSource, /createElement\(TurnHistoryProjection,/)
 })
 
 test('人物卡详情支持查看、绑定和解绑唯一世界书', () => {
@@ -1148,7 +1130,6 @@ test('设置开启后在顶层侧栏最右侧显示实验性兼容模式', () =>
 	assert.match(action, /canRollback \? h\("button"[\s\S]*"回退本轮"/)
 	assert.match(action, /liveTavernView\.invalidate\(props\.sessionId\)[\s\S]*tavernCoordination\.invalidate\(props\.sessionId\)/)
 	assert.match(serverSource, /canRollback: hasRollbackMessages\(chat\.messages\)/)
-	assert.match(serverSource, /locateRollbackSurface\(\{ events, nodes \}\)/)
 	assert.doesNotMatch(player, /setRequestMode|请求：酒馆兼容/)
 	assert.doesNotMatch(clientSource, /"请求模式".*"select"/s)
 	assert.doesNotMatch(serverSource, /resolveDeveloperMode|DSH_TAVERN_DEV_MODE|仅在开发模式下可用/)

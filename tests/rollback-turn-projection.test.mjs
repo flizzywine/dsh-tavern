@@ -4,7 +4,9 @@ import { readFile } from 'node:fs/promises'
 import vm from 'node:vm'
 
 const source = await readFile(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
-const projectionSource = source.slice(source.indexOf('function hideTurnTail(el)'), source.indexOf('async function submitBodyRegeneration('))
+let descriptor
+vm.runInNewContext(source, { window: { __ModuleLoader__: { load(value) { descriptor = value } } }, console })
+const client = descriptor.factory(() => ({}))
 
 function row(kind, turn, alpha) {
   const attrs = { 'data-chat-flow-kind': kind }
@@ -25,7 +27,8 @@ function harness(rows) {
     assert.equal(selector, '[data-chat-flow-kind="turn-tail"]')
     return rows.filter(row => row.getAttribute('data-chat-flow-kind') === 'turn-tail')
   } }
-  return vm.runInNewContext(projectionSource + '\n({ applySuppressedDshTurns, hideTurnTailWithUser })', { document })
+  const projection = client.createTurnHistoryProjection({ root: () => document, storage: () => ({ getItem: () => '{}' }) })
+  return { applySuppressedDshTurns: turns => projection.apply('test-session', turns) }
 }
 
 for (const alpha of [false, true]) {
