@@ -3,6 +3,7 @@ import { projectAgentContent } from './runtime-content-projection.js'
 import { generateSceneImage, imageSettings } from './scene-image-provider.js'
 import { createScenePlans, SCENE_PLAN_INSTRUCTION, SCENE_PLAN_TOOL } from './scene-plan.js'
 import { imageAdjustmentInput, applyImageAdjustment, legacyImagePlan, SCENE_ADJUSTMENT_INSTRUCTION, SCENE_ADJUSTMENT_TOOL } from './scene-image-adjustment.js'
+import { createSceneImageStyles, applyImageStyle, composeSceneImagePrompt, imageStyleSettings, SCENE_STYLE_PRESETS } from './scene-image-style.js'
 
 export const IMAGE_CREDENTIAL = 'DSH_TAVERN_IMAGE_API_KEY'
 const hash = value => createHash('sha256').update(value).digest('hex')
@@ -84,13 +85,14 @@ export function createSceneIllustrations(deps) {
   imageHosts.set(ownerId, path => jobs.has(path) || starts.has(path))
   let configurationWrite = Promise.resolve()
   const plans = createScenePlans({ store: deps.store })
+  const styles = createSceneImageStyles({ store: deps.store })
   const settingsPath = 'scene-images/settings.json'
   const pathFor = (chatId, key) => 'scene-images/' + hash(String(chatId)) + '/' + key + '.json'
   async function config() { return imageSettings(await deps.store.readJson(settingsPath) || {}) }
   async function settings() {
     const credential = await deps.credentials()?.resolve(IMAGE_CREDENTIAL)
     const current = await config()
-    return { ...current, hasKey: Boolean(credential?.value), ready: Boolean(current.model && credential?.value) }
+    return { ...current, stylePresets: SCENE_STYLE_PRESETS, hasKey: Boolean(credential?.value), ready: Boolean(current.model && credential?.value) }
   }
   function configure(input = {}) {
     // Serialize partial saves/toggles so concurrent tabs cannot lose settings.
@@ -102,7 +104,8 @@ export function createSceneIllustrations(deps) {
     if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('生图配置必须是对象')
     if (input.enabled !== undefined && typeof input.enabled !== 'boolean') throw new Error('启用状态必须为布尔值')
     const current = await settings()
-    const next = imageSettings({ ...current, ...input })
+    if (input.style !== undefined) imageStyleSettings(input.style)
+    const next = imageSettings({ ...current, ...input, style: { ...current.style, ...input.style } })
     if (input.apiKey !== undefined && typeof input.apiKey !== 'string') throw new Error('API Key 必须是文本')
     // Configuration and explicit opt-in are separate operations. Old credentials
     // alone are not permission to start a paid request after upgrading.
@@ -162,14 +165,15 @@ export function createSceneIllustrations(deps) {
       if (!credential?.value) throw new Error('请先在设置中配置生图 API Key')
       if (typeof deps.attachments()?.saveImage !== 'function' || typeof deps.attachments()?.readImage !== 'function') throw new Error('当前 DSH 未提供图片附件服务，无法保存插画')
       const profile = 'scene-tags-v1:' + active.model
+      const style = await styles.resolve(active.style, profile)
       let prepared, material = { omitted: [] }, basePlan, adjustment = false
       if (kind !== 'generate') {
         const version = versionsOf(existing).find(item => item.id === options.versionId)
         if (!version) throw new Error('找不到要重画或调整的图片版本')
-        basePlan = version.plan || legacyImagePlan(version, 'scene-tags-v1:' + version.model)
+        basePlan = applyImageStyle(version.plan || legacyImagePlan(version, 'scene-tags-v1:' + version.model), style)
         adjustment = kind === 'adjust' ? 'adjust' : basePlan.profile !== profile ? 'convert' : false
         prepared = { saved: adjustment ? null : basePlan, input: adjustment ? imageAdjustmentInput(basePlan, instruction, profile, adjustment) : null }
-        if (existing?.status === 'failed' && existing.plan && existing.kind === kind && existing.instruction === instruction && existing.baseVersionId === options.versionId && existing.plan.profile === profile) prepared.saved = existing.plan
+        if (existing?.status === 'failed' && existing.plan && existing.kind === kind && existing.instruction === instruction && existing.baseVersionId === options.versionId && existing.plan.profile === profile && existing.plan.style?.id === style.id) prepared.saved = existing.plan
       } else {
         const historical = await deps.stateAtTarget?.(chat, target)
         const snapshot = sceneInput(chat, target, historical)
@@ -193,7 +197,7 @@ export function createSceneIllustrations(deps) {
       if (!claimed) return present(target, record)
       const job = { controller, promise: null }
       jobs.set(path, job)
-      job.promise = execute({ sessionId, chatId: chat.id, target, path, record, prepared, material, adjustment, basePlan, profile, active, apiKey: credential.value, selection, controller })
+      job.promise = execute({ sessionId, chatId: chat.id, target, path, record, prepared, material, adjustment, basePlan, profile, style, active, apiKey: credential.value, selection, controller })
         .finally(() => jobs.delete(path))
       // Failure to persist a failure is reported locally, never as an unhandled rejection.
       job.promise.catch(() => deps.onStorageError?.())
@@ -242,16 +246,18 @@ export function createSceneIllustrations(deps) {
       }
       if (!plan) throw new Error(validationError || '生图 Agent 没有提交有效画面方案')
       controller.signal.throwIfAborted()
+      plan = applyImageStyle(plan, input.style)
+      const prompt = composeSceneImagePrompt(plan)
       record.planId = plan.id
       record.plan = plan
-      record.configuration = { baseURL: active.baseURL, model: active.model, size: active.size }
+      record.configuration = { baseURL: active.baseURL, model: active.model, size: active.size, style: active.style }
       record.traceSessionId = result?.traceSessionId || record.traceSessionId || ''
       record.stage = 'generating'
       record.diagnostics = { input: input.prepared.input, omitted: input.material.omitted, planId: plan.id }
       await deps.store.writeJson(path, record)
       attempted = true
       let generated
-      try { generated = await (deps.generate || generateSceneImage)({ ...active, apiKey: input.apiKey, prompt: plan.prompt, signal: controller.signal, maxBytes: deps.attachments()?.imageLimits?.maxImageBytes }) }
+      try { generated = await (deps.generate || generateSceneImage)({ ...active, apiKey: input.apiKey, prompt, signal: controller.signal, maxBytes: deps.attachments()?.imageLimits?.maxImageBytes }) }
       catch (error) { providerError = String(error.message || '生图失败').replaceAll(input.apiKey, '[已隐藏]'); throw error }
       controller.signal.throwIfAborted()
       record.stage = 'saving'
@@ -259,8 +265,8 @@ export function createSceneIllustrations(deps) {
       attachment = await deps.attachments().saveImage({ ...generated, name: 'scene-illustration' })
       // The record remains under the frozen target key, even if another swipe is
       // selected while the request runs. Reading still requires the exact target.
-      const version = { id: record.requestId, requestId: record.requestId, attachment, plan, configuration: record.configuration, prompt: plan.prompt, model: active.model, createdAt: Date.now() }
-      await deps.store.writeJson(path, { ...record, status: 'succeeded', stage: 'completed', attachment, prompt: plan.prompt, model: active.model, versions: [...record.versions, version], requests: { ...record.requests, [record.requestId]: { status: 'succeeded', versionId: version.id } }, completedAt: Date.now() })
+      const version = { id: record.requestId, requestId: record.requestId, attachment, plan, configuration: record.configuration, prompt, model: active.model, createdAt: Date.now() }
+      await deps.store.writeJson(path, { ...record, status: 'succeeded', stage: 'completed', attachment, prompt, model: active.model, versions: [...record.versions, version], requests: { ...record.requests, [record.requestId]: { status: 'succeeded', versionId: version.id } }, completedAt: Date.now() })
     } catch (error) {
       const detail = providerError || validationError || String(error.message || '生图 Agent 未完成任务，请检查当前对话模型或导出日志')
       await deps.store.writeJson(path, { ...record, status: 'failed', requests: { ...record.requests, [record.requestId]: { status: 'failed' } }, planId: plan?.id || '', traceSessionId: record.traceSessionId || error.traceSessionId || '', error: controller.signal.aborted ? (attempted ? '生图已超时或取消，供应商可能已计费，请确认后重试。' : '整理画面已超时或取消，尚未请求图片。') : detail.replaceAll(input.apiKey, '[已隐藏]').slice(0, 500) })

@@ -69,11 +69,13 @@ async function fixture(t, overrides = {}) {
     runAgent: async input => { await input.onToolCall({ arguments: { plan: planFixture() } }); return { traceSessionId: 'image-child' } },
     ...overrides
   }
-  const service = createSceneIllustrations(deps)
-  t.after(async () => { await service.dispose(); await rm(root, { recursive: true, force: true }) })
+  const services = []
+  const createService = () => { const instance = createSceneIllustrations(deps); services.push(instance); return instance }
+  const service = createService()
+  t.after(async () => { for (const instance of services) await instance.dispose(); await rm(root, { recursive: true, force: true }) })
   await service.configure({ model: 'test-image', baseURL: 'https://provider.example/v1', size: '1024x1024', apiKey: key })
   await service.configure({ enabled: true })
-  return { service, deps, store, chat: () => chat, setChat: value => { chat = value }, imageCalls: () => imageCalls }
+  return { service, createService, deps, store, chat: () => chat, setChat: value => { chat = value }, imageCalls: () => imageCalls }
 }
 
 test('explicit opt-in, partial saves and legacy migration never cause paid requests', async t => {
@@ -152,7 +154,7 @@ test('complete one-click native child Agent flow, no foreground writes, durable 
   assert.equal(disposed, 1)
   assert.deepEqual(fx.chat(), before)
   assert.equal(status.attachment, undefined)
-  const restarted = createSceneIllustrations(fx.deps)
+  const restarted = fx.createService()
   assert.equal((await restarted.status('parent', 2)).status, 'succeeded')
   assert.deepEqual((await restarted.readImage('parent', 2, target.key)).data, png)
   await restarted.start('parent', 2, target.key)
@@ -266,13 +268,12 @@ test('repaint bypasses text Agent, retains each version and deduplicates replaye
   await fx.service.start('parent', 2, key)
   const first = await until(async () => { const state = await fx.service.status('parent', 2); return state.status === 'succeeded' && state })
   const versionId = first.versions[0].id
-  assert.deepEqual(first.versions[0].configuration, { model: 'test-image', baseURL: 'https://provider.example/v1', size: '1024x1024' })
+  assert.deepEqual(first.versions[0].configuration, { model: 'test-image', baseURL: 'https://provider.example/v1', size: '1024x1024', style: { preset: 'default', custom: '' } })
   const options = { kind: 'repaint', versionId, requestId: 'same-request-id' }
   const values = await Promise.all([fx.service.start('parent', 2, key, options), fx.service.start('parent', 2, key, options)])
   assert.equal(values[0].requestId, values[1].requestId)
   await until(async () => (await fx.service.status('parent', 2)).status === 'succeeded')
-  const restarted = createSceneIllustrations(fx.deps)
-  t.after(() => restarted.dispose())
+  const restarted = fx.createService()
   await restarted.start('parent', 2, key, options)
   const final = await restarted.status('parent', 2)
   assert.equal(final.versions.length, 2)
@@ -332,8 +333,7 @@ test('another service instance cannot steal a live paid job, and switching away 
   const key = sceneTarget(fx.chat(), 2).key
   await fx.service.start('parent', 2, key)
   await until(() => release)
-  const other = createSceneIllustrations(fx.deps)
-  t.after(() => other.dispose())
+  const other = fx.createService()
   assert.equal((await other.status('parent', 2)).status, 'running')
   assert.equal((await other.start('parent', 2, key)).status, 'running')
   fx.chat().messages[1].swipeId = 1
@@ -343,4 +343,72 @@ test('another service instance cannot steal a live paid job, and switching away 
   fx.chat().messages[1].swipeId = 0
   assert.equal((await other.status('parent', 2)).versions.length, 1)
   assert.ok(await other.readImage('parent', 2, key))
+})
+
+test('style saves do not charge; repaint restyles without text work, frozen jobs keep their style and canonical plans stay unchanged', async t => {
+  const prompts = []
+  let calls = 0, release
+  const fx = await fixture(t, {
+    runAgent: async input => { calls++; await input.onToolCall({ arguments: { plan: planFixture() } }); return {} },
+    generate: async input => {
+      prompts.push(input.prompt)
+      if (prompts.length === 1) await new Promise(resolve => { release = resolve })
+      return { data: png, mediaType: 'image/png' }
+    }
+  })
+  await fx.service.configure({ style: { preset: 'watercolor', custom: '  低饱和  ' } })
+  assert.equal(calls, 0)
+  assert.equal(prompts.length, 0)
+  const key = sceneTarget(fx.chat(), 2).key
+  await fx.service.start('parent', 2, key)
+  await until(() => release)
+  await fx.service.configure({ style: { preset: 'ink' } })
+  assert.equal((await fx.service.settings()).style.custom, '  低饱和  ', 'partial style saves retain custom text')
+  release()
+  const first = await until(async () => { const record = await fx.service.status('parent', 2); return record.status === 'succeeded' && record })
+  assert.match(first.versions[0].prompt, /watercolor.*低饱和/)
+  assert.equal(first.versions[0].configuration.style.preset, 'watercolor')
+  assert.doesNotMatch(first.versions[0].prompt, /ink wash/)
+  const canonical = await fx.store.readJson(imagePath + 'plans.json')
+  const restarted = fx.createService()
+  assert.equal((await restarted.settings()).style.preset, 'ink')
+  await restarted.start('parent', 2, key, { kind: 'repaint', versionId: first.versions[0].id })
+  const second = await until(async () => { const record = await restarted.status('parent', 2); return record.status === 'succeeded' && record })
+  assert.match(second.versions[1].prompt, /ink wash.*低饱和/)
+  assert.doesNotMatch(second.versions[1].prompt, /watercolor/)
+  assert.equal(first.versions[0].prompt, second.versions[0].prompt)
+  assert.equal(calls, 1, 'global style changes need no text reanalysis for the Images channel')
+  assert.deepEqual(await fx.store.readJson(imagePath + 'plans.json'), canonical)
+})
+
+test('image-only style adjustment is saved only on its picture and global style wins after a settings change', async t => {
+  let calls = 0
+  const fx = await fixture(t, { runAgent: async input => {
+    calls++
+    if (input.tools[0].name === 'submit_scene_plan') await input.onToolCall({ arguments: { plan: planFixture() } })
+    else await input.onToolCall({ arguments: { update: { description: '单图胶片', patches: [], style: { text: '胶片', tags: 'film grain' } } } })
+    return {}
+  } })
+  await fx.service.configure({ style: { preset: 'watercolor' } })
+  const key = sceneTarget(fx.chat(), 2).key
+  const complete = () => until(async () => { const record = await fx.service.status('parent', 2); return record.status === 'succeeded' && record })
+  await fx.service.start('parent', 2, key)
+  const first = await complete(), id = first.versions[0].id
+  const canonical = await fx.store.readJson(imagePath + 'plans.json')
+  await fx.service.start('parent', 2, key, { kind: 'adjust', versionId: id, instruction: '仅这张改胶片' })
+  const adjusted = await complete()
+  assert.match(adjusted.versions[1].prompt, /film grain/)
+  assert.doesNotMatch(adjusted.versions[1].prompt, /watercolor/)
+  assert.equal((await fx.service.settings()).style.preset, 'watercolor')
+  await fx.service.start('parent', 2, key, { kind: 'repaint', versionId: adjusted.versions[1].id })
+  assert.match((await complete()).versions[2].prompt, /film grain/)
+  await fx.service.start('parent', 2, key, { kind: 'repaint', versionId: id })
+  assert.match((await complete()).versions[3].prompt, /watercolor/)
+  await fx.service.configure({ style: { preset: 'ink' } })
+  await fx.service.start('parent', 2, key, { kind: 'repaint', versionId: adjusted.versions[1].id })
+  const changed = await complete()
+  assert.match(changed.versions[4].prompt, /ink wash/)
+  assert.doesNotMatch(changed.versions[4].prompt, /film grain/)
+  assert.equal(calls, 2)
+  assert.deepEqual(await fx.store.readJson(imagePath + 'plans.json'), canonical)
 })

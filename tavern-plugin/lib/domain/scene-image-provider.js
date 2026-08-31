@@ -4,13 +4,15 @@ import { lookup } from 'node:dns/promises'
 import { isIP } from 'node:net'
 import { request as httpsRequest } from 'node:https'
 import { Readable } from 'node:stream'
+import { imageStyleSettings } from './scene-image-style.js'
 
 export function imageSettings(value = {}) {
   const config = {
     enabled: value.enabled === true,
     baseURL: String(value.baseURL || 'https://api.openai.com/v1').trim(),
     model: String(value.model || '').trim(),
-    size: String(value.size || '1024x1024').trim()
+    size: String(value.size || '1024x1024').trim(),
+    style: imageStyleSettings(value.style)
   }
   const url = new URL(config.baseURL)
   if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw new Error('生图地址须为不含密钥、查询参数的 HTTP(S) API 根地址')

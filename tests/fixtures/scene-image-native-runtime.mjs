@@ -28,7 +28,10 @@ export async function createSceneImageNativeRuntime(bootPath) {
       requests.push(structuredClone({ system: input.system, messages: input.messages, tools: input.tools }))
       const tool = input.tools?.find(item => ['submit_scene_plan', 'submit_image_adjustment'].includes(item.name))
       const plan = { description: '窗边单幅画面', subjects: [], characters: [], continuity: 'uncertain', scene: { composition: { text: '窗边单幅画面', tags: 'A woman standing beside a rain-streaked window, left hand on the frame, quiet evening light.', evidence: [] } } }
-      const args = tool?.name === 'submit_image_adjustment' ? { update: { description: '改为雨夜近景', patches: [{ owner: 'scene', field: 'composition', text: '雨夜近景', tags: 'rainy night, close-up at the window' }] } } : { plan }
+      const update = JSON.stringify(input.messages).includes('仅这张改成胶片风格')
+        ? { description: '仅这张胶片风格', patches: [], style: { text: '胶片', tags: 'film grain' } }
+        : { description: '改为雨夜近景', patches: [{ owner: 'scene', field: 'composition', text: '雨夜近景', tags: 'rainy night, close-up at the window' }] }
+      const args = tool?.name === 'submit_image_adjustment' ? { update } : { plan }
       const block = tool ? { type: 'tool-call', id: 'image-call', name: tool.name, arguments: JSON.stringify(args) } : { type: 'text', text: '方案已提交。' }
       yield { type: 'block-start', index: 0, blockType: block.type }
       yield { type: 'block-end', index: 0, block }

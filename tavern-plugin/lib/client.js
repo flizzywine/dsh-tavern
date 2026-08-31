@@ -37,7 +37,7 @@ window.__ModuleLoader__.load({
 .dsh-tavern-image-adjust textarea { box-sizing: border-box; display: block; width: 100%; min-height: 80px; margin: 8px 0; }
 .dsh-tavern-image-settings { display: flex; flex-direction: column; gap: 12px; padding: 20px; }
 .dsh-tavern-image-settings label { display: flex; flex-direction: column; gap: 5px; }
-.dsh-tavern-image-settings input { width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 6px; color: inherit; background: var(--dsw-specific-sidebar-fill); }
+.dsh-tavern-image-settings input, .dsh-tavern-image-settings select, .dsh-tavern-image-settings textarea { width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 6px; color: inherit; background: var(--dsw-specific-sidebar-fill); }
 .dsh-tavern-assistant-reasoning { color: var(--dsw-alias-label-secondary); font-size: 14px; line-height: 22px; }
 .dsh-tavern-assistant-reasoning summary { cursor: pointer; user-select: none; }
 .dsh-tavern-assistant-reasoning pre { margin: 8px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
@@ -3998,7 +3998,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			async function save(patch) {
 				setBusy(true); setNotice("");
 				try {
-					const input = patch || { baseURL: form.baseURL, model: form.model, size: form.size, apiKey: key };
+					const input = patch || { baseURL: form.baseURL, model: form.model, size: form.size, style: form.style, apiKey: key };
 					const result = await rpc("saveSceneImageSettings", input); setForm(result.settings); setKey(""); setDirty(false); setNotice("已保存");
 					window.dispatchEvent(new CustomEvent("dsh-tavern-image-settings-changed"));
 				}
@@ -4013,6 +4013,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 						["baseURL", "API 根地址（通常以 /v1 结尾）"], ["model", "生图模型名称"], ["size", "图片尺寸"]
 					].map(function (field) { return React.createElement("label", { key: field[0] }, field[1], React.createElement("input", { value: form[field[0]], disabled: busy, onChange: function (e) { const value = e.target.value; setDirty(true); setForm(function (current) { return Object.assign({}, current, { [field[0]]: value }); }); } })); }) : null,
 					React.createElement("label", null, "API Key" + (form && form.hasKey ? "（已配置，留空保留）" : ""), React.createElement("input", { type: "password", autoComplete: "new-password", value: key, disabled: busy, onChange: function (e) { setKey(e.target.value); setDirty(true); } })),
+					form ? React.createElement("label", null, "风格预设", React.createElement("select", { value: form.style.preset, disabled: busy, onChange: function (e) { const value = e.target.value; setDirty(true); setForm(function (current) { return Object.assign({}, current, { style: Object.assign({}, current.style, { preset: value }) }); }); } }, (form.stylePresets || []).map(function (preset) { return React.createElement("option", { key: preset.id, value: preset.id }, preset.label); }))) : null,
+					form ? React.createElement("label", null, "补充描述／标签（选填）", React.createElement("textarea", { value: form.style.custom, rows: 2, maxLength: 2000, placeholder: "例如：低饱和、柔和光线、胶片质感", disabled: busy, onChange: function (e) { const value = e.target.value; setDirty(true); setForm(function (current) { return Object.assign({}, current, { style: Object.assign({}, current.style, { custom: value }) }); }); } })) : null,
 					React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: !form || busy, onClick: function () { return save(); } }, busy ? "保存中…" : "保存生图设置"),
 					form ? React.createElement("label", { className: "dsh-tavern-settings-row" }, "启用场景生图", React.createElement("input", { type: "checkbox", role: "switch", checked: form.enabled === true, disabled: busy || (!form.enabled && (dirty || !form.ready)), onChange: function (event) { return save({ enabled: event.target.checked }); } })) : null,
 					notice ? React.createElement("span", { role: "status" }, notice) : null
