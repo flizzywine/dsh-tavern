@@ -176,7 +176,7 @@ irm https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@main/install.ps1 | iex
 curl -fsSL https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@main/install.sh | sh
 ```
 
-安装程序会自动安装依赖、启动 dsh-tavern，并打开 <http://127.0.0.1:3081>。更新时优先使用 Git 增量同步；Git 不可用或同步失败时才下载完整 ZIP。
+安装程序会自动安装依赖、启动 dsh-tavern，并在首次安装时打开网页。关闭页面后，运行 `dsh-tavern open` 可重新打开；也可运行 `dsh-tavern status`，复制显示的完整访问地址（含鉴权 token，请勿分享）。不要只输入不带 token 的地址，以免出现鉴权提示。更新时优先使用 Git 增量同步；Git 不可用或同步失败时才下载完整 ZIP。
 
 首次使用时，在左侧栏底部打开 **设置 → 模型**，填写模型服务的 API 密钥。
 
@@ -200,7 +200,7 @@ pnpm run install:tavern
 pnpm run start:tavern
 ```
 
-然后打开 <http://127.0.0.1:3081>。
+然后使用终端显示的完整访问地址，或运行 `dsh-tavern open`。若当前终端尚未识别该命令，可在仓库目录运行 `node ./bin/dsh-tavern.mjs open`。
 
 如果使用 DSH Desktop，请从托盘打开 **DSH Terminal**，在解压目录运行：
 

@@ -101,6 +101,28 @@ export function webUrlFromLogChunk(source) {
   return matches.length > 0 ? matches[matches.length - 1][1] : ''
 }
 
+export async function resolveServiceWebUrl({ port, record = {}, log = Buffer.alloc(0), request = fetch }) {
+  const origin = `http://127.0.0.1:${port}`
+  const bytes = Buffer.isBuffer(log) ? log : Buffer.from(log)
+  // New PID records delimit this process's output; old installations use the latest URL.
+  const offset = Number.isSafeInteger(record.logOffset) && record.logOffset >= 0 ? record.logOffset : 0
+  const candidate = webUrlFromLogChunk(bytes.subarray(offset).toString('utf8'))
+  const candidates = []
+  try {
+    const url = new URL(candidate)
+    if (url.origin === origin && !url.username && !url.password) candidates.push(url.href)
+  } catch {}
+  candidates.push(`${origin}/`)
+  for (const url of new Set(candidates)) {
+    try {
+      const response = await request(url, { redirect: 'manual', signal: AbortSignal.timeout(1000) })
+      await response.body?.cancel()
+      if (response.status >= 200 && response.status < 400) return url
+    } catch {}
+  }
+  return ''
+}
+
 export function restartBrowserTarget(port, runtimeGeneration, webUrl = `http://127.0.0.1:${port}/`) {
   const target = new URL(webUrl)
   target.searchParams.set('tavern-boot', String(runtimeGeneration))
@@ -125,6 +147,7 @@ export function needsFrontendBootstrap(record, requiredVersion = FRONTEND_BOOTST
 }
 
 function bootstrapFrontendOnce(state) {
+  if (!state?.webUrl) return false
   if (process.env.DSH_TAVERN_NO_OPEN === '1') return false
   let record = null
   try { record = JSON.parse(readFileSync(FRONTEND_BOOTSTRAP_FILE, 'utf8')) } catch {}
@@ -622,8 +645,8 @@ function readPidRecord() {
   }
 }
 
-function writePidRecord(pid, port) {
-  writeFileSync(PID_FILE, `${JSON.stringify({ pid, port, profile: PROFILE, source: SOURCE_ROOT, startedAt: new Date().toISOString() }, null, 2)}\n`)
+function writePidRecord(pid, port, logOffset) {
+  writeFileSync(PID_FILE, `${JSON.stringify({ pid, port, logOffset, profile: PROFILE, source: SOURCE_ROOT, startedAt: new Date().toISOString() }, null, 2)}\n`)
 }
 
 function removePidRecord() {
@@ -692,7 +715,8 @@ async function statusService() {
   verifyProfile()
   const state = await serviceState()
   if (state.record && state.ready) {
-    console.log(`DSH Tavern 正在运行：PID ${state.record.pid}，http://127.0.0.1:${state.port}`)
+    console.log(`DSH Tavern 正在运行：PID ${state.record.pid}`)
+    printServiceWebUrl(await currentServiceWebUrl(state))
     return
   }
   if (state.portOpen) {
@@ -704,6 +728,31 @@ async function statusService() {
     return
   }
   fail(`DSH Tavern 未运行（端口 ${state.port}）。`)
+}
+
+async function currentServiceWebUrl(state) {
+  let log = Buffer.alloc(0)
+  try { log = readFileSync(LOG_FILE) } catch {}
+  return resolveServiceWebUrl({ port: state.port, record: state.record || {}, log })
+}
+
+function printServiceWebUrl(url) {
+  if (!url) {
+    console.log('尚未取得有效的 Web 访问链接。请稍后运行 dsh-tavern status；仍无法获取时，请运行 dsh-tavern restart。')
+    return
+  }
+  console.log(`打开网页（请复制完整地址）：${url}`)
+  console.log('带 token 的地址包含访问凭证，请勿分享。关掉页面后可运行 dsh-tavern open 重新打开。')
+}
+
+async function openService() {
+  verifyProfile()
+  const state = await serviceState()
+  if (!state.record || !state.ready) throw new Error('DSH Tavern 尚未就绪，请先运行 dsh-tavern start。')
+  const url = await currentServiceWebUrl(state)
+  printServiceWebUrl(url)
+  if (!url) { process.exitCode = 1; return }
+  openBrowserTarget(url)
 }
 
 async function stopService() {
@@ -759,7 +808,9 @@ async function startService() {
   const state = await serviceState()
   if (state.record && state.ready) {
     console.log(`DSH Tavern 已经在运行：PID ${state.record.pid}。`)
-    return
+    const webUrl = await currentServiceWebUrl(state)
+    printServiceWebUrl(webUrl)
+    return { ...state, webUrl, runtimeGeneration: state.record.pid }
   }
   if (state.record) {
     throw new Error(`已有 DSH Tavern 进程正在启动：PID ${state.record.pid}。`)
@@ -802,7 +853,7 @@ async function startService() {
     closeSync(logDescriptor)
   }
   child.unref()
-  writePidRecord(child.pid, state.port)
+  writePidRecord(child.pid, state.port, logOffset)
 
   for (let attempt = 0; attempt < 150; attempt += 1) {
     if (await isPortOpen(state.port) && await isServiceReady(state.port)) {
@@ -812,8 +863,9 @@ async function startService() {
         webUrl = webUrlFromLogChunk(logChunk)
         if (webUrl === '') await sleep(100)
       }
-      if (webUrl === '') webUrl = `http://127.0.0.1:${state.port}/`
-      console.log(`DSH Tavern 已启动：PID ${child.pid}，http://127.0.0.1:${state.port}`)
+      webUrl = await currentServiceWebUrl({ port: state.port, record: { logOffset } })
+      console.log(`DSH Tavern 已启动：PID ${child.pid}`)
+      printServiceWebUrl(webUrl)
       console.log(`日志：${LOG_FILE}`)
       return { port: state.port, runtimeGeneration: `${child.pid}-${Date.now()}`, webUrl }
     }
@@ -957,7 +1009,7 @@ export function resolveUpdateProgram(host, platform = process.platform, sourceRo
 }
 
 function usage() {
-  console.log('用法：dsh-tavern install [--host cli|desktop|android] | {update|start|stop|restart|status}')
+  console.log('用法：dsh-tavern install [--host cli|desktop|android] | {update|start|open|stop|restart|status}')
 }
 
 async function main() {
@@ -982,11 +1034,14 @@ async function main() {
       await stopService()
       {
         const state = await startService()
-        if (!bootstrapFrontendOnce(state)) console.log('浏览器页面会自动识别本次后台重启并恢复连接。')
+        if (!bootstrapFrontendOnce(state)) console.log('如页面未恢复连接，请运行 dsh-tavern open，或使用上方完整地址重新进入。')
       }
       break
     case 'status':
       await statusService()
+      break
+    case 'open':
+      await openService()
       break
     case '-h':
     case '--help':

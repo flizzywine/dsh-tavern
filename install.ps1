@@ -223,8 +223,8 @@ try {
   else {
     & node (Join-Path $AppDir 'bin\dsh-tavern.mjs') start
     Assert-LastCommand 'DSH Tavern 启动失败。'
-    Write-Host 'DSH Tavern 安装完成：http://127.0.0.1:3081'
-    Write-Host '以后可以使用：dsh-tavern start、stop、restart、status、update（新 PowerShell 生效）'
+    Write-Host 'DSH Tavern 安装完成。请使用上方完整访问地址，或运行 dsh-tavern open 打开网页。'
+    Write-Host '以后可以使用：dsh-tavern start、open、stop、restart、status、update（新 PowerShell 生效）'
   }
 }
 catch {

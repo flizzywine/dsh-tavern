@@ -193,6 +193,6 @@ else
   if [ ! -f "${SHELL_PROFILE}" ] || ! grep -F "${PATH_LINE}" "${SHELL_PROFILE}" >/dev/null 2>&1; then
     printf '\n# DSH Tavern\n%s\n' "${PATH_LINE}" >>"${SHELL_PROFILE}"
   fi
-  echo "DSH Tavern 安装完成：http://127.0.0.1:3081"
-  echo "以后可以使用：dsh-tavern {start|stop|restart|status|update}（新终端生效）"
+  echo "DSH Tavern 安装完成。请使用上方完整访问地址，或运行 dsh-tavern open 打开网页。"
+  echo "以后可以使用：dsh-tavern {start|open|stop|restart|status|update}（新终端生效）"
 fi
