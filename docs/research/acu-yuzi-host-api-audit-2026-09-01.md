@@ -239,3 +239,39 @@ DSH 中已有的能力由 adapter 翻译；没有的通用能力在宿主层补�
 - `tests/fixtures/helper-chat-data-browser-smoke.mjs`：真实 Chromium + 生产 srcdoc/模块加载器/RPC 令牌与白名单检查 + 生产宿主/存储。默认 `allow-scripts` 沙箱保存通过；销毁页面后的只读回读通过；受信任模式只读回读通过。原文、预置 Frame 和剧情 revision 保持不变。
 - 浏览器故意尝试改写旧正文时收到预期拒绝。首次夹具还因未接入无关的诊断记录入口出现一次 500，已在夹具中单独接收诊断，重新运行保存与回读均通过，仅保留故意改写历史触发的预期错误；此项不属于存档 RPC 失败。浏览器测试排除了无关 CDN 依赖，不连接用户 Profile，也不发模型请求。
 - 最终全量 `node --test tests/*.test.mjs`：**1169 项，1156 通过、13 跳过、0 失败**，约 31 秒。`git diff --check` 通过。测试期间工作区有其他并行任务，但未提交或修改它们的文件。
+
+## 第四批实现：缺失能力记录与安全空实现（2026-09-01）
+
+本轮不把缺失功能算作已兼容，也不改写旧历史。使用统一的显式能力目录，覆盖共享人物卡脚本环境里的 22 个已知缺口；后续扩充目录即可复用记录机制，不按人物卡逐个写补丁。
+
+| 处理方式 | 接口 | 行为 |
+| --- | --- | --- |
+| 安全空操作 | ST `scrollChatToBottom`、`showLoader`、`hideLoader`、`unregisterMacro`、`unregisterFunctionTool` | 记录调用，返回 `undefined`；不执行 UI 操作或模型/存储操作 |
+| 明确拒绝 | ST `registerMacro`、`registerFunctionTool`、`getRequestHeaders`、`getChatCompletionModel` | 替换原来会假装成功的占位，先记录再抛 `TAVERN_CAPABILITY_UNSUPPORTED`；没有注册结果、请求头或模型名可用 |
+| 保留缺失并记录探测 | Helper `generate`、`generateRaw`、`triggerSlash`；ST `generate`、`generateRaw`、`stopGeneration`、`deleteLastMessage`、`deleteMessage`、`clearChat`、`reloadCurrentChat`、`openCharacterChat`、`openGroupChat`、`executeSlashCommandsWithOptions` | getter 返回 `undefined`，`typeof fn === 'function'` 仍为 false，允许插件走回退；记录的是 lookup，不是已发生的函数调用 |
+
+Helper 缺失入口同时覆盖 `TavernHelper.name` 和 `window.name`，插件仍可自行赋值安装回退。ST 入口同时通过 `SillyTavern` 与其 `getContext()` 暴露。已有真实保存接口保持原行为，失败不能被空实现吞掉。`ToolManager.isToolCallingSupported()` 继续如实返回 false。
+
+### 记录与获取方式
+
+- 使用现有 **导出日志**，诊断 ZIP 新增 `compatibility/missing-capabilities.json`。
+- 每条包含接口、脚本 ID/名称、运行实例、首次/最近接收时间、累计次数、`lookup/call`、`unavailable/noop/rejected` 和最近一次参数类型摘要；只保留前 12 个参数类型，不读取参数值、对象键、回调内容、堆栈或 URL。
+- 默认 iframe 来源与通信令牌校验保持不变。父窗口验证脚本和接口，脚本名取自宿主配置；独立的诊断实例标识不复用通信令牌。服务端再次按目录校验，忽略调用方伪造的处理结果和额外内容。
+- 父窗口每 250ms 合并发送，单批最多 64 条；按运行实例、脚本、接口存储累计快照，重复或乱序上报不叠加次数。每个 Session 最多保留 400 条聚合记录，淘汰数量见 `dropped`。
+- 存入 Profile 独立的 `diagnostics/compatibility-*.json`，不写 Chat、剧情 Timeline、Frame 或模型输入。切换聊天时把待写记录交给旧 Session，旧 iframe 后续消息不被接收。
+- 保存失败会在错误提示中明确说明“部分调用可能未记录”，不打断安全空操作，不进行无限重试。日志导出读取该记录失败时，仍导出其他日志并注明错误。
+
+### 边界
+
+1. 只覆盖目录里的已知缺口，不拦截任意未知属性；消息 HTML iframe 的旧 shim、ST 模块导入/HTTP 路径缺失不在本轮范围内。
+2. 只保留 `typeof`/取值判断的回退语义。新增 getter 会改变 `in`、`hasOwnProperty` 等属性存在性判断，不能声称与完全不存在的属性在所有检测方式下等价。
+3. 脚本归属使用现有运行时的当前脚本身份；模块初始化和受管理的事件回调已验证，脱离这些入口的定时器/异步回调可能归属不精确。记录明确标记 `runtime-current-script`，不伪造准确调用栈。
+4. 首末时间为服务端接收批次的时间；页面突然关闭、磁盘故障、导出前尚未写入的最近批次可能漏记。记录系统不是审计级无损追踪。
+5. 宏或工具注册原先无声成功，现在会明确报错；依赖这些缺失功能的插件可能更早暴露错误。这属于防止伪兼容，不代表其业务已经能运行。空操作和 lookup 都不计为“功能已实现”。
+6. 仅新建缺失能力记录不含参数正文；完整导出包仍可能包含已有 Session 对话日志，分享前仍须检查隐私。
+
+### 验证
+
+- `tests/helper-missing-capabilities.test.mjs`：空操作继续运行、核心拒绝、功能探测回退、插件自行安装回退、参数 getter/序列化不被触发、脚本身份、伪造消息拒绝、切换聊天、保存失败、真实文件回读、累计快照去重、限量和 ZIP 导出。
+- `tests/fixtures/helper-compatibility-browser-smoke.mjs`：真实 Chromium、生产 bootstrap/共享模块加载/父窗口校验、临时真实 Profile 存储与生产 ZIP 导出；默认 `allow-scripts` 沙箱和受信任模式均通过，重新加载保留旧记录并分开统计新运行实例。实际点击下载后的 ZIP 校验通过。脚本甲 100 次滚动空调用聚合为 count=100，脚本乙和两者事件回调分别归档，宏注册记为 rejected，生成函数探测记为 lookup；导出包不含测试参数里的密钥和正文，Chat/Frame 完全不变。夹具仅排除无关 CDN，不连接用户 Profile，不调用模型。
+- 全量回归：1181 项，1166 通过、15 跳过、0 失败，约 32 秒；包含同工作区其他任务的最新测试。`git diff --check` 通过。

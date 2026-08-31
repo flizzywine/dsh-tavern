@@ -1791,6 +1791,39 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			return { sync: sync, save: save, updateMetadata: updateMetadata, chat: () => chat, metadata: () => metadata };
 		}
 
+		function installTavernCompatibilityDiagnostics(options) {
+			const counts = new Map();
+			for (const entry of options.catalog || []) {
+				const target = options.surfaces[entry.surface];
+				if (!target || !["noop", "reject", "missing"].includes(entry.policy)) continue;
+				function record(args) {
+					const scriptId = options.currentScript().id;
+					const key = scriptId + "\n" + entry.id;
+					const count = Math.min(Number.MAX_SAFE_INTEGER, (counts.get(key) || 0) + 1);
+					counts.set(key, count);
+					// typeof never traverses plugin objects, invokes getters or serializes secrets.
+					const argumentTypes = Array.from(args).slice(0, 12).map(value => value === null ? "null" : typeof value);
+					options.post({ type: "dsh-tavern-helper-compatibility", scriptId: scriptId, capabilityId: entry.id, count: count, argumentTypes: argumentTypes });
+				}
+				if (entry.policy === "missing") {
+					// Preserve typeof-based fallbacks. This records a lookup, never a successful call.
+					Object.defineProperty(target, entry.name, { configurable: true, get: function () { record([]); return undefined; },
+						set: function (value) { Object.defineProperty(target, entry.name, { value: value, configurable: true, writable: true }); } });
+				} else target[entry.name] = function () {
+					record(arguments);
+					if (entry.policy === "reject") {
+						const error = new Error("[unsupported] " + entry.id + " 尚未实现，操作未执行");
+						error.code = "TAVERN_CAPABILITY_UNSUPPORTED";
+						throw error;
+					}
+				};
+				// Helper scripts also use the same APIs as bare window globals.
+				if (entry.surface === "TavernHelper") Object.defineProperty(options.window, entry.name, {
+					configurable: true, get: function () { return target[entry.name]; }, set: function (value) { target[entry.name] = value; }
+				});
+			}
+		}
+
 		function installTavernHelperFacade(options) {
 			const nativeWorldInfoSnapshots = new WeakMap();
 			const nativeWorldInfoByName = new Map();
@@ -1858,8 +1891,6 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				getCurrentChatId: function () { return String(context().chatId || ""); },
 				getCurrentLocale: function () { return "zh-CN"; },
 				getCharacterCardFields: function () { return copy(context().character && (context().character.data || context().character) || {}); },
-				getRequestHeaders: function () { return {}; },
-				getChatCompletionModel: function () { return ""; },
 				loadWorldInfo: async function (name) {
 					const result = await call("loadTavernWorldInfo", { name: name });
 					const document = copy(result.worldInfo);
@@ -1881,9 +1912,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				saveMetadata: chatData.save,
 				saveMetadataDebounced: chatData.save,
 				updateChatMetadata: chatData.updateMetadata,
-				saveSettingsDebounced: saveExtensionSettings,
-				registerMacro: function () {}, unregisterMacro: function () {},
-				registerFunctionTool: function () {}, unregisterFunctionTool: function () {}
+				saveSettingsDebounced: saveExtensionSettings
 			};
 			Object.defineProperties(sillyTavern, {
 				chatId: { enumerable: true, get: function () { return String(context().chatId || ""); } },
@@ -1892,6 +1921,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				chatMetadata: { enumerable: true, get: chatData.metadata },
 				name2: { enumerable: true, get: function () { return String(context().characterName || "角色"); } }
 			});
+			options.installCompatibility({ catalog: context().compatibilityCapabilities, surfaces: { TavernHelper: helper, SillyTavern: sillyTavern }, window: window, currentScript: options.currentScript, post: options.post });
 			window.SillyTavern = Object.freeze(sillyTavern);
 			window.getContext = sillyTavern.getContext;
 			window.errorCatched = function (factory) { return function () { try { return factory.apply(this, arguments); } catch (error) { console.error(error); return {}; } }; };
@@ -2326,7 +2356,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					.replace(/{{\s*user\s*}}/gi, String(state.playerName || "你"))
 					.replace(/{{\s*char\s*}}/gi, String(state.characterName || "角色"));
 			};
-			facade = modules.installFacade({ createChatData: modules.createChatData, window: window, copy: copy, request: call, context: function () { return state; },
+			facade = modules.installFacade({ installCompatibility: modules.installCompatibility, currentScript: currentScript, post: transport.post, createChatData: modules.createChatData, window: window, copy: copy, request: call, context: function () { return state; },
 				Popup: modules.createPopup({ document: window.document, parent: parent, token: token }) });
 			// MVU reports some rejected operations through warn/toastr without throwing.
 			let diagnosticCount = 0;
@@ -2409,6 +2439,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				+ 'createTransport:' + createTavernHelperTransport.toString() + ','
 				+ 'createEvents:' + createTavernHelperEventBus.toString() + ','
 				+ 'createPopup:' + createTavernHelperPopup.toString() + ','
+				+ 'installCompatibility:' + installTavernCompatibilityDiagnostics.toString() + ','
 				+ 'createChatData:' + createTavernChatDataFacade.toString() + ','
 				+ 'installFacade:' + installTavernHelperFacade.toString() + '});';
 			const modules = scripts.map(function (script) {
@@ -2558,9 +2589,26 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				if (after.latestVariables !== before.latestVariables) return [{ name: "mag_variable_update_ended", args: [] }];
 				return [];
 			}
+			function flushCompatibility(record) {
+				if (record.compatibilityTimer) hostWindow.clearTimeout(record.compatibilityTimer);
+				record.compatibilityTimer = null;
+				const calls = Array.from(record.compatibilityPending.values());
+				record.compatibilityPending.clear();
+				const task = record.compatibilityTail.then(async function () {
+					for (let offset = 0; offset < calls.length; offset += 64) {
+						await invoke("recordTavernCompatibilityCalls", { runtimeId: record.compatibilityId, calls: calls.slice(offset, offset + 64) }, record.sessionId);
+					}
+				});
+				record.compatibilityTail = task.catch(function () {
+					// Recording failures are visible, but must not break the plugin's safe no-op.
+					reportError("兼容能力调用记录", new Error("缺失能力记录保存失败，部分调用可能未记录"));
+				});
+				return record.compatibilityTail;
+			}
 			function removeRecord(id) {
 				const record = records.get(id);
 				if (!record) return;
+				void flushCompatibility(record);
 				for (const [eventId, pending] of pendingEvents) {
 					if (pending.record !== record) continue;
 					hostWindow.clearTimeout(pending.timer);
@@ -2639,6 +2687,11 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					startedAt: Date.now(),
 					fingerprint: fingerprint,
 					token: token(),
+					compatibilityId: token(),
+					compatibilityCatalog: new Map((context.compatibilityCapabilities || []).map(function (entry) { return [entry.id, entry]; })),
+					compatibilityPending: new Map(),
+					compatibilityTail: Promise.resolve(),
+					compatibilityTimer: null,
 					frame: frame,
 					loaded: false,
 					context: context,
@@ -2714,6 +2767,20 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				if (!data || !data.token) return;
 				const record = Array.from(records.values()).find(function (item) { return item.token === data.token && event.source === item.frame.contentWindow; });
 				if (!record) return;
+				if (data.type === "dsh-tavern-helper-compatibility") {
+					const script = record.scripts.get(data.scriptId);
+					const entry = record.compatibilityCatalog.get(data.capabilityId);
+					if (!script || !entry || !Number.isSafeInteger(data.count) || data.count < 1) return;
+					const key = script.id + "\n" + entry.id;
+					const previous = record.compatibilityPending.get(key);
+					if (!previous && record.compatibilityPending.size >= 512) { void flushCompatibility(record); }
+					if (!previous || previous.count < data.count) record.compatibilityPending.set(key, {
+						scriptId: script.id, scriptName: script.name, capabilityId: entry.id, count: data.count,
+						argumentTypes: (Array.isArray(data.argumentTypes) ? data.argumentTypes : []).slice(0, 12).map(type => ["undefined", "null", "boolean", "number", "bigint", "string", "symbol", "function", "object"].includes(type) ? type : "unknown")
+					});
+					if (!record.compatibilityTimer) record.compatibilityTimer = hostWindow.setTimeout(function () { void flushCompatibility(record); }, 250);
+					return;
+				}
 				if (data.type === "dsh-tavern-helper-diagnostic") {
 					const diagnostic = { kind: "console", level: data.level === "error" ? "error" : "warn", scriptId: String(data.scriptId || ""), message: String(data.message || "").slice(0, 4000) };
 					const pending = pendingEvents.get(String(data.eventId || ""));
@@ -2790,6 +2857,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			return Object.freeze({
 				sync: sync,
 				emit: emit,
+				flushCompatibilityDiagnostics: function () { return Promise.all(Array.from(records.values()).map(flushCompatibility)); },
 				triggerButton: function (scriptId, name) {
 					const record = records.get("shared");
 					if (!record || !record.scripts.has(String(scriptId))) return Promise.reject(new Error("人物卡脚本尚未运行"));

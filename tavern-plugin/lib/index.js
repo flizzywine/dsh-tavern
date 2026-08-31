@@ -26,6 +26,7 @@ import { createForegroundFrameBuilder } from './domain/agent-input-frame.js'
 import { createForegroundFrameSessionAdapter } from './domain/foreground-frame-session-adapter.js'
 import { createModelRequestLog } from './domain/model-request-log.js'
 import { createMvuSettlementModule } from './domain/mvu-background-settlement.js'
+import { TAVERN_COMPATIBILITY_CAPABILITIES, createTavernCompatibilityDiagnosticStore } from './domain/tavern-compatibility-diagnostics.js'
 import { createMvuDiagnosticStore, createMvuDiagnosticExport, sanitizeRuntimeDiagnostics } from './domain/mvu-diagnostics.js'
 import { projectPersistentStatusView } from './domain/persistent-status-view.js'
 import { createPlayChatDebugReference, readPlayChatDebugTurn } from './domain/play-chat-debug.js'
@@ -117,6 +118,7 @@ export async function apply(ctx) {
   }
   const tavernExtensionSettings = createTavernExtensionSettings(profileData)
   const mvuDiagnostics = createMvuDiagnosticStore(profileData)
+  const compatibilityDiagnostics = createTavernCompatibilityDiagnosticStore(profileData)
   const tavernRemoteAssets = createTavernRemoteAssetPinStore({
     readJson: async function (path) { return await profileData.readJson(path) },
     updateJson: async function (path, updater) { return await profileData.updateJson(path, updater) }
@@ -703,7 +705,10 @@ export async function apply(ctx) {
     let imageDiagnostic
     try { imageDiagnostic = await sceneDiagnostics.read(chat.id) }
     catch { imageDiagnostic = { version: 1, records: [], error: '生图诊断读取失败，仍导出 Session 与 MVU 日志。' } }
-    const exported = await createMvuDiagnosticExport({ sessionId, backgroundSessionIds, store: mvuDiagnostics, sceneDiagnostics: imageDiagnostic, sessions: sessionStore, persistence: ctx.get('sessionPersistence'), query: ctx.get('sessionQuery'), attachments: ctx.get('attachments'), environment: { mvu: OFFICIAL_MVU_VERSION } })
+    let compatibilityDiagnostic
+    try { compatibilityDiagnostic = await compatibilityDiagnostics.read(sessionId) }
+    catch { compatibilityDiagnostic = { version: 1, records: [], error: '兼容能力诊断读取失败，仍导出其他日志。' } }
+    const exported = await createMvuDiagnosticExport({ sessionId, backgroundSessionIds, compatibilityDiagnostics: compatibilityDiagnostic, store: mvuDiagnostics, sceneDiagnostics: imageDiagnostic, sessions: sessionStore, persistence: ctx.get('sessionPersistence'), query: ctx.get('sessionQuery'), attachments: ctx.get('attachments'), environment: { mvu: OFFICIAL_MVU_VERSION } })
     return { filename: exported.filename, base64: exported.buffer.toString('base64') }
   }
   async function attachPlayChatDebug(targetSessionId, sourceSessionId, turn) {
@@ -941,7 +946,7 @@ export async function apply(ctx) {
       replyProjections: replyDisplay.projections,
       tavernStatusView: replyDisplay.statusView || null,
       mvuReceipts: mvuReceiptsOf(chat),
-      tavernHelper: helperEnabled ? { ...projectTavernHelperContext(chat), extensionSettings: await tavernExtensionSettings.read() } : null,
+      tavernHelper: helperEnabled ? { ...projectTavernHelperContext(chat), compatibilityCapabilities: TAVERN_COMPATIBILITY_CAPABILITIES, extensionSettings: await tavernExtensionSettings.read() } : null,
       tavernMvuRuntime: chat.mvu && chat.mvu.enabled === true ? {
         owner: chat.mvu.owner === 'official' ? 'official' : 'legacy',
         commit: OFFICIAL_MVU_VERSION.commit,
@@ -1883,6 +1888,12 @@ export async function apply(ctx) {
       case 'deleteChat': return await deleteChat(args && args.chatId)
       case 'exportConversation': return await exportConversation(args && args.chatId, args && args.sessionId, args && args.title)
       case 'exportTavernLogs': return await exportTavernLogs(args && args.sessionId)
+      case 'recordTavernCompatibilityCalls': {
+        const chat = await chatForSession(str(args && args.sessionId))
+        if (!chat) throw new Error('当前 Session 没有绑定 Tavern 对话')
+        await compatibilityDiagnostics.record(chat.sessionId, args && args.runtimeId, args && args.calls)
+        return { recorded: true }
+      }
       case 'recordMvuRuntimeDiagnostic': {
         const chat = await chatForSession(str(args && args.sessionId))
         if (!chat) throw new Error('当前 Session 没有绑定 Tavern 对话')

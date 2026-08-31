@@ -85,12 +85,15 @@ export function diagnosticZip(entries) {
   return Buffer.concat([...local, directory, end])
 }
 
-export async function createMvuDiagnosticExport({ sessionId, backgroundSessionIds = [], store, sessions, persistence, query, attachments, sceneDiagnostics, environment = {} }) {
+export async function createMvuDiagnosticExport({ sessionId, backgroundSessionIds = [], store, sessions, persistence, query, attachments, sceneDiagnostics, compatibilityDiagnostics, environment = {} }) {
   const notes = ['包含对话文本、附件与变量信息，分享前请检查隐私。凭据已尽力脱敏。MVU 记录有容量限制，旧故障不会被追溯补录。']
   const ids = new Set([sessionId, ...backgroundSessionIds.filter(Boolean), ...(sceneDiagnostics?.records || []).map(record => record.traceSessionId).filter(Boolean)])
   const sceneContent = sceneDiagnostics ? JSON.stringify(redactDiagnostic(sceneDiagnostics)) : ''
   const sceneBytes = Buffer.byteLength(sceneContent)
-  const logLimit = MAX_EXPORT_BYTES - MAX_STORE_BYTES - 65536 - sceneBytes
+  const compatibilityContent = compatibilityDiagnostics ? JSON.stringify(redactDiagnostic(compatibilityDiagnostics)) : ''
+  const compatibilityBytes = Buffer.byteLength(compatibilityContent)
+  const logLimit = MAX_EXPORT_BYTES - MAX_STORE_BYTES - 65536 - sceneBytes - compatibilityBytes
+  if (compatibilityBytes) notes.push('compatibility/missing-capabilities.json 区分接口探测（lookup）、空操作（noop）和拒绝执行（rejected）。次数按脚本运行实例累计；不表示能力已实现。只记录参数类型，不记录参数值；脚本归属为运行时当前脚本，脱离事件的异步回调可能不精确。记录限量且异步写入，突然关闭页面可能漏记。')
   if (sceneBytes) notes.push('scene-images/diagnostics.json 包含生图材料、方案、请求参数、耗时与失败；不包含生图图片字节。记录有容量限制，未记录的旧任务不追溯补录。用量未提供不代表零费用。')
   try {
     const lineage = await query?.traceSession(sessionId)
@@ -132,6 +135,7 @@ export async function createMvuDiagnosticExport({ sessionId, backgroundSessionId
   }
   entries.push({ path: 'mvu/diagnostics.json', content: JSON.stringify(redactDiagnostic(await store.read(sessionId))) })
   entries.push({ path: 'mvu/environment.json', content: JSON.stringify(redactDiagnostic(environment), null, 2) })
+  if (compatibilityBytes) entries.push({ path: 'compatibility/missing-capabilities.json', content: compatibilityContent })
   if (sceneBytes) entries.push({ path: 'scene-images/diagnostics.json', content: sceneContent })
   entries.push({ path: 'README.txt', content: notes.join('\n') })
   return { filename: 'dsh-tavern-diagnostics-' + String(sessionId).replace(/[^a-zA-Z0-9_-]/g, '_') + '.zip', buffer: diagnosticZip(entries) }

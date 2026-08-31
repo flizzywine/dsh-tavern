@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import vm from 'node:vm'
+import { TAVERN_COMPATIBILITY_CAPABILITIES } from '../../tavern-plugin/lib/domain/tavern-compatibility-diagnostics.js'
 
 let descriptor
 vm.runInNewContext(await readFile(new URL('../../tavern-plugin/lib/client.js', import.meta.url), 'utf8'), {
@@ -10,7 +11,7 @@ export const helperClient = descriptor.factory(() => ({}))
 
 export function helperHostHarness(context = {}, options = {}) {
   const scripts = [{ id: 'a', content: '' }, { id: 'b', content: '' }]
-  const html = helperClient.buildTavernHelperScriptDocument({ token: 'host-test', scripts, context })
+  const html = helperClient.buildTavernHelperScriptDocument({ token: 'host-test', scripts, context: { compatibilityCapabilities: TAVERN_COMPATIBILITY_CAPABILITIES, ...context } })
   let source = html.match(/<script data-dsh-tavern-helper-script>([\s\S]*?)<\/script>/)[1]
   const download = 'import(window.__dshTavernStaticAssetUrl("https://testingcf.jsdelivr.net/npm/zod@4.4.3/+esm"))'
   assert(source.includes(download))
