@@ -9,7 +9,8 @@ import { createProfileDataStore } from '../tavern-plugin/lib/profile-data-store.
 import { createBackgroundAgentRunner } from '../tavern-plugin/lib/background-agent-runner.js'
 
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aKfoAAAAASUVORK5CYII=', 'base64')
-const chatFixture = () => ({ id: 'test-chat', mode: 'story', sessionId: 'parent', posture: '站在窗边，左手扶窗', messages: [{ role: 'user', text: '走到窗边' }, { role: 'assistant', turn: 2, sourceText: '她站在窗边看雨。', swipes: ['她站在窗边看雨。', '她坐在椅子上。'], swipeId: 0 }] })
+const chatFixture = () => ({ id: 'test-chat', mode: 'story', sessionId: 'parent', settleStatus: 'done', posture: '站在窗边，左手扶窗', messages: [{ role: 'user', text: '走到窗边' }, { role: 'assistant', turn: 2, sourceText: '她站在窗边看雨。', swipes: ['她站在窗边看雨。', '她坐在椅子上。'], swipeId: 0 }] })
+const planFixture = (tags = 'A woman standing at a rainy window') => ({ description: '窗边一景', subjects: [], characters: [], continuity: 'uncertain', scene: { composition: { text: '窗边一景', tags, evidence: [] } } })
 async function until(check) { for (let n = 0; n < 400; n++) { const value = await check(); if (value) return value; await new Promise(resolve => setTimeout(resolve, 10)) } throw new Error('condition timeout') }
 
 test('OpenAI compatible request, inline data and remote download never forward key', async () => {
@@ -63,7 +64,7 @@ async function fixture(t, overrides = {}) {
     credentials: () => ({ resolve: async ref => { assert.equal(ref, IMAGE_CREDENTIAL); return { value: key } }, set: async (_ref, value) => { key = value } }),
     attachments: () => ({ saveImage: async image => { const ref = { attachmentId: 'test-image', mediaType: image.mediaType }; saved.set(ref.attachmentId, image); return ref }, readImage: async ref => ({ ref, ...saved.get(ref.attachmentId) }) }),
     generate: async () => { imageCalls++; return { data: png, mediaType: 'image/png' } },
-    runAgent: async input => { await input.onToolCall({ arguments: { prompt: 'A woman standing at a rainy window' } }); return { traceSessionId: 'image-child' } },
+    runAgent: async input => { await input.onToolCall({ arguments: { plan: planFixture() } }); return { traceSessionId: 'image-child' } },
     ...overrides
   }
   const service = createSceneIllustrations(deps)
@@ -128,7 +129,7 @@ test('complete one-click native child Agent flow, no foreground writes, durable 
       })
       const agent = { session, followup: value => { followup = value }, async whenIdle() {
         await hooks['agent/pre-step']({ agent, turn: 1, step: 1 }, async () => ({ kind: 'enter', messages: [] }))
-        await registered.execute({ prompt: 'A woman at a rainy window' })
+        await registered.execute({ plan: planFixture('A woman at a rainy window') })
         events.push({ type: 'assistant/message', data: { message: { content: [{ type: 'text', text: '完成' }] } } })
       } }
       return { agent, async dispose() { disposed++ } }
@@ -160,8 +161,11 @@ test('complete one-click native child Agent flow, no foreground writes, durable 
 })
 
 test('provider failure is visible, not auto-retried, explicit retry works', async t => {
-  let calls = 0
-  const fx = await fixture(t, { generate: async () => { if (++calls === 1) throw new Error('service failed'); return { data: png, mediaType: 'image/png' } } })
+  let calls = 0, agentCalls = 0
+  const fx = await fixture(t, {
+    runAgent: async input => { agentCalls++; await input.onToolCall({ arguments: { plan: planFixture() } }); return { traceSessionId: 'image-child' } },
+    generate: async () => { if (++calls === 1) throw new Error('service failed'); return { data: png, mediaType: 'image/png' } }
+  })
   const key = sceneTarget(fx.chat(), 2).key
   await fx.service.start('parent', 2, key)
   const failed = await until(async () => { const s = await fx.service.status('parent', 2); return s.status === 'failed' && s })
@@ -170,6 +174,56 @@ test('provider failure is visible, not auto-retried, explicit retry works', asyn
   await fx.service.start('parent', 2, key)
   await until(async () => (await fx.service.status('parent', 2)).status === 'succeeded')
   assert.equal(calls, 2)
+  assert.equal(agentCalls, 1, 'valid persistent plan survives provider failure and is reused')
+})
+
+test('format repair happens before image request; a saved plan survives failed final acknowledgement', async t => {
+  const fx = await fixture(t, { runAgent: async input => {
+    assert.deepEqual(input.tools.map(tool => tool.name), ['submit_scene_plan'])
+    assert.equal(input.maxToolCalls, 2)
+    const error = await input.onToolCall({ arguments: { plan: { prompt: 'not the schema' } } })
+    assert.match(error, /未知字段.*尚未收费.*修正一次/)
+    assert.equal(fx.imageCalls(), 0)
+    assert.equal(input.stopToolsWhen(), false)
+    const result = await input.onToolCall({ arguments: { plan: planFixture() } })
+    assert.match(result, /已校验保存/)
+    assert.equal(input.stopToolsWhen(), true)
+    assert.equal(fx.imageCalls(), 0, 'image request is host-controlled, not a tool side effect')
+    await input.onToolCall({ arguments: { plan: planFixture('duplicate') } })
+    throw new Error('acknowledgement failed')
+  } })
+  await fx.service.start('parent', 2, sceneTarget(fx.chat(), 2).key)
+  await until(async () => (await fx.service.status('parent', 2)).status === 'succeeded')
+  assert.equal(fx.imageCalls(), 1)
+})
+
+test('two invalid submissions stop before charging and preserve the concrete validation error', async t => {
+  const fx = await fixture(t, { runAgent: async input => {
+    await input.onToolCall({ arguments: { plan: {} } })
+    assert.match(await input.onToolCall({ arguments: { plan: {} } }), /次数已用完/)
+    assert.equal(input.stopToolsWhen(), true)
+  } })
+  await fx.service.start('parent', 2, sceneTarget(fx.chat(), 2).key)
+  const status = await until(async () => { const value = await fx.service.status('parent', 2); return value.status === 'failed' && value })
+  assert.match(status.error, /continuity/)
+  assert.equal(fx.imageCalls(), 0)
+})
+
+test('historical source never borrows a later posture, and skipped rounds enter the next planning input', async t => {
+  const chat = chatFixture(), target = sceneTarget(chat, 2)
+  chat.messages.push({ role: 'assistant', turn: 3, text: '她走进室内，换了红衣。' })
+  chat.posture = '未来的姿态'
+  assert.equal(sceneInput(chat, target).posture, '')
+  assert.equal(sceneInput(chat, target, { posture: '历史姿态' }).posture, '历史姿态')
+  const inputs = []
+  const fx = await fixture(t, { runAgent: async input => { inputs.push(JSON.parse(input.messages[0].content[0].text)); await input.onToolCall({ arguments: { plan: planFixture() } }); return {} } })
+  await fx.service.start('parent', 2, sceneTarget(fx.chat(), 2).key)
+  await until(async () => (await fx.service.status('parent', 2)).status === 'succeeded')
+  fx.chat().messages.push({ role: 'assistant', turn: 3, text: '她走进室内，换了红衣。' }, { role: 'assistant', turn: 4, text: '她坐下。' })
+  await fx.service.start('parent', 4, sceneTarget(fx.chat(), 4).key)
+  await until(async () => (await fx.service.status('parent', 4)).status === 'succeeded')
+  assert.ok(inputs[1].sources.some(source => source.turn === 3 && source.text.includes('红衣')))
+  assert.equal(inputs[1].sources.some(source => source.turn === 2), false, 'already aligned body is not resent')
 })
 
 test('late picture cannot attach to a replaced swipe; saved picture survives failed Agent acknowledgement', async t => {
@@ -183,7 +237,7 @@ test('late picture cannot attach to a replaced swipe; saved picture survives fai
   await fx.service.dispose()
   assert.equal((await fx.service.status('parent', 2)).status, 'idle')
   await assert.rejects(fx.service.readImage('parent', 2, key), /版本/)
-  const other = await fixture(t, { runAgent: async input => { await input.onToolCall({ arguments: { prompt: 'Scene' } }); throw new Error('final text failed') } })
+  const other = await fixture(t, { runAgent: async input => { await input.onToolCall({ arguments: { plan: planFixture('Scene') } }); throw new Error('final text failed') } })
   await other.service.start('parent', 2, sceneTarget(other.chat(), 2).key)
   await until(async () => (await other.service.status('parent', 2)).status === 'succeeded')
 })

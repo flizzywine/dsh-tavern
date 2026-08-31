@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { createBackgroundAgentRunner, executeBackgroundCompaction } from './background-agent-runner.js'
 import { createApplicationUpdater } from './application-updater.js'
 import { createCandidateGenerator } from './domain/candidate-generation.js'
-import { createSceneIllustrations } from './domain/scene-illustration.js'
+import { createSceneIllustrations, sceneTarget } from './domain/scene-illustration.js'
 import { createSessionStablePrefixStorage, ensureSessionStablePrefix, readSessionStablePrefix } from './domain/session-stable-prefix.js'
 import { waitForWritableSession } from './domain/agent-readiness.js'
 import { createCardDeletion } from './domain/card-deletion.js'
@@ -1549,6 +1549,18 @@ export async function apply(ctx) {
   const sceneIllustrations = createSceneIllustrations({
     store: profileData, chatForSession, selection: modelSelection,
     isRunning: sessionId => ctx.get('agents')?.get(sessionId)?.phase?.kind === 'running',
+    stateAtTarget: async (chat, target) => {
+      // The next turn's beforeRevision contains the settled state of this turn.
+      const next = (chat.timeline?.checkpoints || []).find(item => Number(item.turn) > target.turn && Number.isSafeInteger(item.beforeRevision))
+      if (!next) return undefined
+      const historical = await readChatRevision(chat.id, next.beforeRevision)
+      if (!historical) return undefined
+      const last = [...(historical.messages || [])].reverse().find(item => item.role === 'assistant')
+      const lastTurn = Number(last?.turn || (last?.greeting ? 1 : 0))
+      if (lastTurn !== target.turn || historical.settleStatus !== 'done') return undefined
+      const original = sceneTarget(historical, target.turn)
+      return original.key === target.key ? historical : undefined
+    },
     credentials: () => ctx.get('credentials'), attachments: () => ctx.get('attachments'),
     runAgent: input => backgroundAgentRunner.run(input),
     onStorageError: () => console.error('dsh-tavern: 生图状态保存失败，请检查数据目录权限')

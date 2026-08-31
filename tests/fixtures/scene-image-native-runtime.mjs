@@ -26,8 +26,9 @@ export async function createSceneImageNativeRuntime(bootPath) {
   class FixtureModel extends LlmAdapter {
     async *stream(input) {
       requests.push(structuredClone({ system: input.system, messages: input.messages, tools: input.tools }))
-      const tool = input.tools?.find(item => item.name === 'generate_scene_image')
-      const block = tool ? { type: 'tool-call', id: 'image-call', name: tool.name, arguments: JSON.stringify({ prompt: 'A woman standing beside a rain-streaked window, left hand on the frame, quiet evening light.' }) } : { type: 'text', text: '插画完成。' }
+      const tool = input.tools?.find(item => item.name === 'submit_scene_plan')
+      const plan = { description: '窗边单幅画面', subjects: [], characters: [], continuity: 'uncertain', scene: { composition: { text: '窗边单幅画面', tags: 'A woman standing beside a rain-streaked window, left hand on the frame, quiet evening light.', evidence: [] } } }
+      const block = tool ? { type: 'tool-call', id: 'image-call', name: tool.name, arguments: JSON.stringify({ plan }) } : { type: 'text', text: '方案已提交。' }
       yield { type: 'block-start', index: 0, blockType: block.type }
       yield { type: 'block-end', index: 0, block }
       yield { type: 'finish', reason: { kind: tool ? 'tool-calls' : 'stop' } }
