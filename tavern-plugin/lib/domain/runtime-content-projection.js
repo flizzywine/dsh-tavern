@@ -80,6 +80,13 @@ export function projectAgentContent(value, options = {}) {
   return contentProjection(value, options, false, true)
 }
 
+function openingPreviewParts(text) {
+  if (/<!--[\s\S]*?-->|<\/?[a-z][\w:-]*(?:\s[^<>]*?)?>/i.test(text)) {
+    return projectDisplayParts(text).parts
+  }
+  return [{ kind: 'markdown', text }]
+}
+
 /** Render a chooser preview while keeping the complete rendered opening. */
 export function projectOpeningPreview(value, options = {}) {
   const projection = contentProjection(value, options, true, false)
@@ -92,12 +99,9 @@ export function projectOpeningPreview(value, options = {}) {
   if (!display.changed || !display.presentationText.trim()) return projection
 
   const parts = []
-  if (display.bodyText.trim()) parts.push({ kind: 'markdown', text: display.bodyText })
-  if (/<!--[\s\S]*?-->|<\/?[a-z][\w:-]*(?:\s[^<>]*?)?>/i.test(display.presentationText)) {
-    parts.push(...projectDisplayParts(display.presentationText).parts)
-  } else {
-    parts.push({ kind: 'markdown', text: display.presentationText })
-  }
+  // Preserve body HTML while keeping regex-generated UI in a separate frame.
+  if (display.bodyText.trim()) parts.push(...openingPreviewParts(display.bodyText))
+  parts.push(...openingPreviewParts(display.presentationText))
   return Object.assign({}, projection, { displayParts: parts })
 }
 

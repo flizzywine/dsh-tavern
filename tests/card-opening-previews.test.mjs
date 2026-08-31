@@ -48,6 +48,37 @@ test('开局选择只执行人物卡正则，MVU 留到对话建立后由官方�
   assert.equal(result.openings[1].helperContext, null)
 })
 
+test('MVU 展示入口不会把原有开场 HTML 降为 Markdown，且状态栏仍独立渲染', async () => {
+  const html = '<div class="opening"><h1>开场说明</h1></div>'
+  const card = {
+    name: '预览测试卡',
+    first_mes: html + '\n<mvu-status/>',
+    alternate_greetings: ['```html\n' + html + '\n```\n<mvu-status/>', '***开场说明***\n<mvu-status/>']
+  }
+  const before = structuredClone(card)
+  const result = await projectCardOpeningPreviews({
+    card,
+    extensions: { regexScripts: [{
+      id: 'mvu-status', name: 'MVU 状态视图', enabled: true,
+      findRegex: '/<mvu-status\\s*\\/>/g',
+      replaceString: '```html\n<div class="status-ui">状态</div>\n```',
+      placement: [2], markdownOnly: true
+    }] }
+  })
+
+  for (const opening of result.openings.slice(0, 2)) {
+    const parts = opening.projection.parts
+    assert.deepEqual(parts.map((part) => part.kind), ['html', 'html'])
+    assert.match(parts[0].content, /<div class="opening"><h1>开场说明<\/h1><\/div>/)
+    assert.doesNotMatch(parts[0].content, /status-ui|&lt;div|```/)
+    assert.match(parts[1].content, /<div class="status-ui">状态<\/div>/)
+    assert.doesNotMatch(parts[1].content, /class="opening"/)
+  }
+  assert.deepEqual(result.openings[2].projection.parts.map((part) => part.kind), ['markdown', 'html'])
+  assert.equal(result.openings[2].projection.parts[0].text.trim(), '***开场说明***')
+  assert.deepEqual(card, before)
+})
+
 test('普通人物卡无需伪造 MVU Helper 上下文', async () => {
   const result = await projectCardOpeningPreviews({
     card: { name: '普通卡', first_mes: '你好，{{user}}。', alternate_greetings: [] },
