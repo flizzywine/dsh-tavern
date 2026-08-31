@@ -10,7 +10,7 @@ function object(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
 
-function isHostOwnedMvu(script) {
+export function isHostOwnedMvu(script) {
   return /^mvu$/i.test(str(script && script.name).trim()) || /MagicalAstrogy\/MagVarUpdate/i.test(str(script && script.content))
 }
 

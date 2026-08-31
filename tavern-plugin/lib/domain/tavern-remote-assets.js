@@ -1,3 +1,5 @@
+import { isHostOwnedMvu } from './tavern-helper-scripts.js'
+
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
 }
@@ -213,6 +215,12 @@ export function createTavernRemoteAssetPinStore(options = {}) {
     const diagnostics = []
     const pins = []
     for (const script of Array.isArray(extensions && extensions.helperScripts) ? extensions.helperScripts : []) {
+      // Keep the original identity for runtime ownership filtering. Rewriting
+      // to a hash URL would hide renamed MVU cores (e.g. MVUZOD) from that filter.
+      if (isHostOwnedMvu(script)) {
+        helperScripts.push(clone(script))
+        continue
+      }
       const resolved = await pinText(script.content)
       helperScripts.push(Object.assign({}, script, {
         content: resolved.text,
