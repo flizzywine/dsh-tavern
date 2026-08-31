@@ -1,4 +1,5 @@
 import { isDeepStrictEqual } from 'node:util'
+import { applyChatPluginData, validateChatPluginRequest } from './tavern-chat-plugin-data.js'
 import {
   lastTavernHelperVariables,
   projectTavernHelperContext,
@@ -202,6 +203,23 @@ export function createTavernScriptHostAdapter(options = {}) {
     })
   }
 
+  async function saveChatData(sessionId, request) {
+    const revisions = validateChatPluginRequest(request)
+    const chat = await resolveChat(sessionId)
+    await assertScriptEnabled(chat)
+    if (chat.id !== request.chatId) throw new Error('聊天已切换，插件数据未保存')
+    if (!options.readChatRevision || !options.updateChat) throw new Error('插件聊天存储未连接')
+    if (settlementTransactions.has(str(sessionId))) throw new Error('临时 MVU 结算期间不能保存聊天插件数据，请稍后重试')
+    const baselines = new Map(await Promise.all(revisions.map(async revision => [revision, await options.readChatRevision(chat.id, revision)])))
+    const saved = await options.updateChat(chat.id, async function (latest) {
+      await assertScriptEnabled(latest)
+      if (latest.sessionId && str(latest.sessionId) !== str(sessionId)) throw new Error('聊天绑定已变化，插件数据未保存')
+      return applyChatPluginData(latest, baselines, request)
+    }, { source: 'tavern-helper.chat-plugin-data' })
+    if (!saved) throw new Error('聊天已不存在，插件数据未保存')
+    return { updated: true, context: projectTavernHelperContext(saved) }
+  }
+
   async function saveExtensionSettings(sessionId, settings, expectedSettings) {
     await assertScriptEnabled(await resolveChat(sessionId))
     if (!options.extensionSettings) throw new Error('插件设置存储未连接')
@@ -348,6 +366,7 @@ export function createTavernScriptHostAdapter(options = {}) {
     getWorldbook,
     replaceWorldbook,
     saveExtensionSettings,
+    saveChatData,
     loadWorldInfo,
     saveWorldInfo,
     pollEvent: function (sessionId, runtimeId, ready) { return options.eventGate.poll(sessionId, runtimeId, ready) },

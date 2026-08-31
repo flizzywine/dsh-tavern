@@ -811,6 +811,8 @@ export async function apply(ctx) {
   const tavernScriptHostAdapter = createTavernScriptHostAdapter({
     resolveChat: chatForSession,
     writeChat,
+    updateChat,
+    readChatRevision,
     readCard: readChatCard,
     worldBooks,
     eventGate: tavernHelperEventGate,
@@ -1898,6 +1900,7 @@ export async function apply(ctx) {
       case 'updateTavernHelperVariables': return await tavernScriptHostAdapter.updateVariables(args && args.sessionId, args && args.option, args && args.variables, args && args.expectedLifecycleRevision)
       case 'updateTavernHelperMessages': return await tavernScriptHostAdapter.updateMessages(args && args.sessionId, args && args.messages, args && args.expectedLifecycleRevision)
       case 'switchTavernSwipe': return await tavernScriptHostAdapter.switchSwipe(args && args.sessionId, args && args.messageId, args && args.swipeId)
+      case 'saveTavernChatData': return await tavernScriptHostAdapter.saveChatData(args && args.sessionId, args && args.request)
       case 'saveTavernExtensionSettings': return await tavernScriptHostAdapter.saveExtensionSettings(args && args.sessionId, args && args.settings, args && args.expectedSettings)
       case 'loadTavernWorldInfo': return await tavernScriptHostAdapter.loadWorldInfo(args && args.sessionId, args && args.name)
       case 'saveTavernWorldInfo': return await tavernScriptHostAdapter.saveWorldInfo(args && args.sessionId, args && args.name, args && args.worldInfo, args && args.expectedWorldInfo)

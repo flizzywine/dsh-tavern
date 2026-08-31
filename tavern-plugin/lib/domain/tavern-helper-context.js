@@ -52,6 +52,7 @@ export function projectTavernHelperContext(chat) {
       : [str(source.sourceText || source.text)]
     const variables = Array.isArray(source.variables) ? clone(source.variables) : []
     const projected = {
+      pluginData: clone(source.tavernPluginData || {}),
       message_id: messageId,
       role: source.role === 'user' ? 'user' : 'assistant',
       message: swipes[swipeId] ?? swipes[0] ?? '',
@@ -68,6 +69,8 @@ export function projectTavernHelperContext(chat) {
   }
   return {
     version: 1,
+    chatId: str(chat && chat.id),
+    chatMetadata: clone(chat && chat.tavernPluginMetadata || {}),
     mvuEnabled: chat?.mvu?.enabled === true,
     stateRevision: Math.max(0, Number(chat && chat._storageRevision) || 0),
     lifecycleRevision: Math.max(0, Number(chat && chat.tavernHelperLifecycleRevision) || 0),

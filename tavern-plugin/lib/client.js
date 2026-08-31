@@ -1545,7 +1545,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			function request(method, args) {
 				return new Promise(function (resolve, reject) {
 					const requestId = String(nextId++);
-					pending[requestId] = { resolve: resolve, reject: reject };
+					pending[requestId] = { resolve: resolve, reject: reject, method: method };
 					post(Object.assign({ type: "dsh-tavern-helper-call", requestId: requestId, method: method, args: copy(args || {}) }, identity()));
 				});
 			}
@@ -1558,7 +1558,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				const task = pending[data.requestId];
 				if (!task) return;
 				delete pending[data.requestId];
-				if (data.ok) { onContext(data.result || {}); task.resolve(data.result); }
+				if (data.ok) { onContext(data.result || {}, task.method); task.resolve(data.result); }
 				else task.reject(new Error(String(data.error || "Helper 调用失败")));
 			}
 			options.listen(receive);
@@ -1667,10 +1667,133 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			return HelperPopup;
 		}
 
+		function createTavernChatDataFacade(options) {
+			const { copy, request } = options;
+			const own = (value, key) => Object.prototype.hasOwnProperty.call(value, key);
+			const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+			const reserved = new Set(["message_id", "message", "mes", "role", "is_user", "is_system", "name", "send_date", "swipe_id", "swipes", "swipes_data", "variables", "pluginData", "original_avatar", "force_avatar"]);
+			let chat = [], metadata = {}, rows = [], metadataBase = {}, metadataRevision = 0;
+			let binding = "", chatId = "", lifecycleRevision = 0, lastRevision = -1;
+			let tail = Promise.resolve(), saving = false, deferred = null;
+			function keyOf(value) { return String(value.chatId || "") + ":" + Number(value.lifecycleRevision || 0); }
+			function set(target, key, value) {
+				Object.defineProperty(target, key, { value: copy(value), writable: true, configurable: true, enumerable: true });
+			}
+			function reconcile(target, source) {
+				for (const key of Object.keys(target)) if (!own(source, key)) delete target[key];
+				for (const key of Object.keys(source)) {
+					const a = own(target, key) ? target[key] : undefined, b = source[key];
+					if (a && b && typeof a === "object" && typeof b === "object" && Array.isArray(a) === Array.isArray(b)) {
+						reconcile(a, b); if (Array.isArray(a)) a.length = b.length;
+					} else set(target, key, b);
+				}
+			}
+			function pluginData(value) {
+				const result = {};
+				for (const key of Object.keys(value)) if (!reserved.has(key)) set(result, key, value[key]);
+				return result;
+			}
+			function mergeView(target, base, remote, fields) {
+				for (const key of new Set(Object.keys(base).concat(Object.keys(remote)))) {
+					if (fields && !fields(key)) continue;
+					if (own(target, key) !== own(base, key) || !same(target[key], base[key])) continue;
+					if (!own(remote, key)) delete target[key];
+					else if (target[key] && remote[key] && typeof target[key] === "object" && typeof remote[key] === "object" && Array.isArray(target[key]) === Array.isArray(remote[key])) {
+						reconcile(target[key], remote[key]); if (Array.isArray(target[key])) target[key].length = remote[key].length;
+					} else set(target, key, remote[key]);
+				}
+			}
+			function coreOf(message) {
+				const core = copy(message); delete core.pluginData;
+				core.mes = String(message.message || ""); core.is_user = message.role === "user";
+				core.variables = copy(message.swipes_data || []);
+				return core;
+			}
+			function identity(core) { return [core.message_id, core.role, core.message, core.swipe_id, core.swipes]; }
+			function layoutMatches() { return chat.length === rows.length && rows.every((row, index) => chat[index] === row.view); }
+			function dirty() { return !layoutMatches() || !same(metadata, metadataBase) || rows.some(row => !same(pluginData(row.view), row.base)); }
+			function sync(value, acknowledged) {
+				if (!value) return;
+				if (saving && !acknowledged) {
+					if (!deferred || keyOf(value) !== keyOf(deferred) || Number(value.stateRevision || 0) >= Number(deferred.stateRevision || 0)) deferred = copy(value);
+					return;
+				}
+				const nextBinding = keyOf(value), revision = Number(value.stateRevision || 0);
+				if (binding !== nextBinding) {
+					if (binding && dirty()) console.warn("聊天或历史版本已切换，未保存的插件编辑已隔离，请在当前聊天重新操作");
+					chat = []; rows = []; metadata = {}; metadataBase = {}; metadataRevision = revision; lastRevision = -1;
+					binding = nextBinding;
+				}
+				if (revision < lastRevision && !acknowledged) return;
+				chatId = String(value.chatId || ""); lifecycleRevision = Number(value.lifecycleRevision || 0);
+				// Do not conceal an unsupported local splice/reorder with a host refresh.
+				if (!layoutMatches()) return;
+				const nextRows = (value.messages || []).map(function (message, index) {
+					const core = coreOf(message), remote = copy(message.pluginData || {});
+					let row = rows[index];
+					if (!row || !same(identity(row.core), identity(core))) {
+						const view = copy(remote); for (const key of Object.keys(core)) set(view, key, core[key]);
+						return { view: view, core: core, base: remote, revision: revision };
+					}
+					const ack = acknowledged && acknowledged.messages.find(item => item.message_id === core.message_id);
+					mergeView(row.view, ack ? ack.data : row.base, remote, key => !reserved.has(key));
+					mergeView(row.view, row.core, core, key => reserved.has(key));
+					row.core = core;
+					if (ack || same(pluginData(row.view), remote)) { row.base = remote; row.revision = revision; }
+					return row;
+				});
+				rows = nextRows; chat.splice(0, chat.length, ...rows.map(row => row.view));
+				const remoteMetadata = copy(value.chatMetadata || {}), ackMetadata = acknowledged && acknowledged.metadata;
+				mergeView(metadata, ackMetadata ? ackMetadata.data : metadataBase, remoteMetadata);
+				if (ackMetadata || same(metadata, remoteMetadata)) { metadataBase = remoteMetadata; metadataRevision = revision; }
+				lastRevision = revision;
+			}
+			function snapshot() {
+				if (!layoutMatches()) throw new Error("saveChat 不支持新增、删除、替换或重排历史消息");
+				const messages = [];
+				for (const row of rows) {
+					for (const key of reserved) if (own(row.view, key) !== own(row.core, key) || !same(row.view[key], row.core[key])) throw new Error("saveChat 只保存插件数据，不支持修改正文、身份或消息版本: " + key);
+					const data = pluginData(row.view);
+					if (!same(data, row.base)) messages.push({ message_id: row.core.message_id, stateRevision: row.revision, data: data });
+				}
+				const result = { chatId: chatId, lifecycleRevision: lifecycleRevision, messages: messages };
+				if (!same(metadata, metadataBase)) result.metadata = { stateRevision: metadataRevision, data: copy(metadata) };
+				return result;
+			}
+			function save() {
+				const requestedBinding = binding;
+				const task = tail.catch(function () {}).then(async function () {
+					if (binding !== requestedBinding) throw new Error("聊天已切换，已取消旧聊天的排队保存");
+					const submitted = snapshot();
+					if (!submitted.messages.length && !submitted.metadata) return;
+					saving = true;
+					try {
+						const result = await request("saveTavernChatData", { request: submitted });
+						if (!result || result.updated !== true || !result.context) throw new Error("插件聊天数据未保存");
+						sync(result.context, submitted);
+					} finally {
+						saving = false;
+						const pending = deferred; deferred = null; if (pending) sync(pending);
+					}
+				});
+				tail = task;
+				task.catch(function (error) { console.error(error); });
+				return task;
+			}
+			function updateMetadata(values, reset) {
+				if (!values || typeof values !== "object" || Array.isArray(values)) throw new Error("聊天元数据必须是对象");
+				if (reset) reconcile(metadata, values);
+				else for (const key of Object.keys(values)) set(metadata, key, values[key]);
+			}
+			sync(options.context());
+			return { sync: sync, save: save, updateMetadata: updateMetadata, chat: () => chat, metadata: () => metadata };
+		}
+
 		function installTavernHelperFacade(options) {
 			const nativeWorldInfoSnapshots = new WeakMap();
 			const nativeWorldInfoByName = new Map();
 			const { window, copy, context, request: call, Popup: HelperPopup } = options;
+			const chatData = options.createChatData({ copy: copy, context: context, request: call });
 			const extensionSettings = Object.assign(Object.create(null), copy(context().extensionSettings || {}));
 			let savedExtensionSettings = copy(extensionSettings);
 			let settingsTail = Promise.resolve();
@@ -1752,7 +1875,10 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					context().worldbook = copy(result.worldbook);
 				},
 				callGenericPopup: function (content, type, title, options) { return new HelperPopup(content, type, title, options).show(); },
-				saveChat: async function () { return true; },
+				saveChat: chatData.save,
+				saveMetadata: chatData.save,
+				saveMetadataDebounced: chatData.save,
+				updateChatMetadata: chatData.updateMetadata,
 				saveSettingsDebounced: saveExtensionSettings,
 				registerMacro: function () {}, unregisterMacro: function () {},
 				registerFunctionTool: function () {}, unregisterFunctionTool: function () {}
@@ -1760,15 +1886,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			Object.defineProperties(sillyTavern, {
 				chatId: { enumerable: true, get: function () { return String(context().chatId || ""); } },
 				name1: { enumerable: true, get: function () { return String(context().playerName || "你"); } },
-				chat: { enumerable: true, get: function () {
-					return (context().messages || []).map(function (message) {
-						return Object.assign({}, message, {
-							mes: String(message && message.message || ""),
-							is_user: Boolean(message && message.role === "user"),
-							variables: Array.isArray(message && message.swipes_data) ? message.swipes_data : []
-						});
-					});
-				} },
+				chat: { enumerable: true, get: chatData.chat },
+				chatMetadata: { enumerable: true, get: chatData.metadata },
 				name2: { enumerable: true, get: function () { return String(context().characterName || "角色"); } }
 			});
 			window.SillyTavern = Object.freeze(sillyTavern);
@@ -1776,6 +1895,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			window.errorCatched = function (factory) { return function () { try { return factory.apply(this, arguments); } catch (error) { console.error(error); return {}; } }; };
 			window.retrieveDisplayedMessage = function () { return window.jQuery ? window.jQuery() : []; };
 			window.toastr = { success: console.info, info: console.info, warning: console.warn, error: console.error };
+			return { sync: chatData.sync };
 		}
 
 		function tavernHelperScriptBootstrap(metadata, initialContext, modules) {
@@ -1811,12 +1931,19 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			for (const script of scriptList) scriptsById[script.id] = script;
 			let currentScriptId = scriptList[0] ? scriptList[0].id : "";
 			let activeHostEventId = "";
+			let facade;
 			const transport = modules.createTransport({ parent: parent, token: token, copy: copy,
 				identity: function () { return { eventId: activeHostEventId, scriptId: currentScript().id }; },
 				listen: function (receive) { addEventListener("message", receive); },
-				onContext: function (result) {
-					if (result.context) state = Object.assign({}, state, copy(result.context));
+				onContext: function (result, method) {
+					const incoming = result.context;
+					// An old RPC reply must not restore a context that the host has left.
+					if (method && incoming && ((incoming.chatId && state.chatId && incoming.chatId !== state.chatId)
+						|| Number(incoming.lifecycleRevision || 0) < Number(state.lifecycleRevision || 0))) return;
+					if (incoming) state = Object.assign({}, state, copy(incoming));
 					if (result.worldbook) state.worldbook = copy(result.worldbook);
+					// Chat-data saves acknowledge their own submitted snapshot separately.
+					if (incoming && facade && method !== "saveTavernChatData") facade.sync(state);
 				},
 				onEvent: function (data) {
 					diagnosticCount = 0;
@@ -2197,7 +2324,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					.replace(/{{\s*user\s*}}/gi, String(state.playerName || "你"))
 					.replace(/{{\s*char\s*}}/gi, String(state.characterName || "角色"));
 			};
-			modules.installFacade({ window: window, copy: copy, request: call, context: function () { return state; },
+			facade = modules.installFacade({ createChatData: modules.createChatData, window: window, copy: copy, request: call, context: function () { return state; },
 				Popup: modules.createPopup({ document: window.document, parent: parent, token: token }) });
 			// MVU reports some rejected operations through warn/toastr without throwing.
 			let diagnosticCount = 0;
@@ -2280,6 +2407,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				+ 'createTransport:' + createTavernHelperTransport.toString() + ','
 				+ 'createEvents:' + createTavernHelperEventBus.toString() + ','
 				+ 'createPopup:' + createTavernHelperPopup.toString() + ','
+				+ 'createChatData:' + createTavernChatDataFacade.toString() + ','
 				+ 'installFacade:' + installTavernHelperFacade.toString() + '});';
 			const modules = scripts.map(function (script) {
 				return { id: String(script && script.id || ""), system: String(script && script.system || ""), content: String(script && script.content || "") };
@@ -2314,7 +2442,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const closedEventIds = new Set();
 			const closedEventOrder = [];
 			const reportedEventTimeouts = new Set();
-			const allowedMethods = new Set(["updateTavernHelperVariables", "updateTavernHelperMessages", "getTavernHelperWorldbook", "replaceTavernHelperWorldbook", "saveTavernExtensionSettings", "loadTavernWorldInfo", "saveTavernWorldInfo"]);
+			const allowedMethods = new Set(["updateTavernHelperVariables", "updateTavernHelperMessages", "getTavernHelperWorldbook", "replaceTavernHelperWorldbook", "saveTavernExtensionSettings", "loadTavernWorldInfo", "saveTavernWorldInfo", "saveTavernChatData"]);
 			let activeSessionId = "";
 			let root = null;
 			let previous = null;
@@ -2651,7 +2779,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				}
 				invoke(data.method, mutationArgs, record.sessionId).then(function (result) {
 					post(record, { type: "dsh-tavern-helper-response", requestId: data.requestId, ok: true, result: result });
-					if ((data.method === "updateTavernHelperVariables" || data.method === "updateTavernHelperMessages" || data.method === "replaceTavernHelperWorldbook" || data.method === "saveTavernExtensionSettings" || data.method === "saveTavernWorldInfo") && result && result.updated !== false && result.stale !== true && records.get(record.id) === record) reportMutation(record.sessionId, data.method, result);
+					if ((data.method === "updateTavernHelperVariables" || data.method === "updateTavernHelperMessages" || data.method === "replaceTavernHelperWorldbook" || data.method === "saveTavernExtensionSettings" || data.method === "saveTavernWorldInfo" || data.method === "saveTavernChatData") && result && result.updated !== false && result.stale !== true && records.get(record.id) === record) reportMutation(record.sessionId, data.method, result);
 				}, function (error) {
 					post(record, { type: "dsh-tavern-helper-response", requestId: data.requestId, ok: false, error: String(error && error.message || error) });
 				});
