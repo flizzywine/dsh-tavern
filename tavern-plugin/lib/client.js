@@ -1653,6 +1653,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					return;
 				}
 				if (data.type === "dsh-tavern-helper-event") {
+					diagnosticCount = 0;
 					const suppliedArgs = copy(data.args || []);
 					const task = (async function () {
 						const previousEventId = activeHostEventId;
@@ -1918,6 +1919,21 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			window.errorCatched = function (factory) { return function () { try { return factory.apply(this, arguments); } catch (error) { console.error(error); return {}; } }; };
 			window.retrieveDisplayedMessage = function () { return window.jQuery ? window.jQuery() : []; };
 			window.toastr = { success: console.info, info: console.info, warning: console.warn, error: console.error };
+			// MVU reports some rejected operations through warn/toastr without throwing.
+			let diagnosticCount = 0;
+			for (const level of ["warn", "error"]) {
+				const original = console[level].bind(console);
+				console[level] = function () {
+					original.apply(null, arguments);
+					if (diagnosticCount++ >= 50) return;
+					try {
+						const message = Array.from(arguments).map(function (value) { return typeof value === "string" ? value : value && value.message || "[structured diagnostic omitted]"; }).join(" ").slice(0, 4000);
+						parent.postMessage({ type: "dsh-tavern-helper-diagnostic", token: token, eventId: activeHostEventId, scriptId: currentScript().id, level: level, message: message }, "*");
+					} catch (_) {}
+				};
+			}
+			window.toastr.warning = console.warn;
+			window.toastr.error = console.error;
 			const ready = import(window.__dshTavernStaticAssetUrl("https://testingcf.jsdelivr.net/npm/zod@4.4.3/+esm")).then(function (module) { window.z = module; return true; });
 			window.__dshTavernHelperReady = ready;
 			addEventListener("error", function (event) {
@@ -2123,7 +2139,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				for (const item of records.values()) item.frame.hidden = item !== record;
 				record.frame.style.cssText = "display:block;width:100%;height:100%;border:0;background:transparent";
 			}
-			function emitToRecord(record, name, args, context) {
+			function emitToRecord(record, name, args, context, diagnostics) {
+				if (diagnostics) diagnostics.push({ kind: "dispatch", name: name, ready: record.subscriptionsReady, initializationFailed: record.initializationFailed, subscribed: record.subscriptions.has(String(name)) });
 				if (!record.subscriptionsReady || record.initializationFailed) return Promise.resolve(args);
 				if (context && typeof context === "object") {
 					record.context = decorateHelperContext(context, record.context);
@@ -2147,13 +2164,13 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 						}
 						reject(error);
 					}, eventTimeoutMs);
-					pendingEvents.set(eventId, { resolve: resolve, reject: reject, timer: timer, name: String(name), activeScriptId: "" });
+					pendingEvents.set(eventId, { resolve: resolve, reject: reject, timer: timer, name: String(name), activeScriptId: "", diagnostics: diagnostics });
 					post(record, { type: "dsh-tavern-helper-event", eventId: eventId, name: name, args: clone(args) });
 				});
 			}
-			async function emit(name, args, context) {
+			async function emit(name, args, context, diagnostics) {
 				let current = clone(Array.isArray(args) ? args : []);
-				for (const record of records.values()) current = await emitToRecord(record, name, current, context);
+				for (const record of records.values()) current = await emitToRecord(record, name, current, context, diagnostics);
 				return current;
 			}
 			function clear() {
@@ -2254,6 +2271,13 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				if (!data || !data.token) return;
 				const record = Array.from(records.values()).find(function (item) { return item.token === data.token && event.source === item.frame.contentWindow; });
 				if (!record) return;
+				if (data.type === "dsh-tavern-helper-diagnostic") {
+					const diagnostic = { kind: "console", level: data.level === "error" ? "error" : "warn", scriptId: String(data.scriptId || ""), message: String(data.message || "").slice(0, 4000) };
+					const pending = pendingEvents.get(String(data.eventId || ""));
+					if (pending && pending.diagnostics) { if (pending.diagnostics.length < 50) pending.diagnostics.push(diagnostic); }
+					else if (!data.eventId) invoke("recordMvuRuntimeDiagnostic", { diagnostic: diagnostic }, activeSessionId).catch(function () {});
+					return;
+				}
 				if (data.type === "dsh-tavern-helper-ui-open") { openRecordUi(record); return; }
 				if (data.type === "dsh-tavern-helper-ui-close") { closeRecordUi(); return; }
 				if (data.type === "dsh-tavern-helper-subscriptions") {
@@ -2299,6 +2323,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					const message = String(data.message || "人物卡脚本运行失败");
 					const script = record.scripts.get(String(data.scriptId || ""));
 					const source = script ? "人物卡脚本「" + script.name + "」" : "人物卡" + record.name;
+					invoke("recordMvuRuntimeDiagnostic", { diagnostic: { level: "error", scriptId: String(data.scriptId || ""), message: message.slice(0, 4000) } }, activeSessionId).catch(function () {});
 					if (message !== record.lastRuntimeError) { record.lastRuntimeError = message; reportError(source, new Error(message)); }
 					return;
 				}
@@ -2380,6 +2405,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					if (!pollBusy) {
 						pollBusy = true;
 						let currentEvent = null;
+						const diagnostics = [];
 						try {
 							const inspection = currentRuntime.inspect();
 							const runtimeReady = tavernScriptRuntimeReady(inspection);
@@ -2391,15 +2417,15 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 							}
 							currentEvent = result && result.event;
 							if (active && currentEvent) {
-								const args = await currentRuntime.emit(currentEvent.name, currentEvent.args, currentEvent.context);
-								await invoke("completeTavernHelperEvent", { eventId: currentEvent.id, args: args, runtimeId: runtimeId }, currentInput.sessionId);
+								const args = await currentRuntime.emit(currentEvent.name, currentEvent.args, currentEvent.context, diagnostics);
+								await invoke("completeTavernHelperEvent", { eventId: currentEvent.id, args: args, runtimeId: runtimeId, diagnostics: diagnostics }, currentInput.sessionId);
 								completedEvent = true;
 							}
 						} catch (error) {
 							console.warn("Tavern Helper 生命周期同步失败", error);
 							if (currentEvent) {
 								try {
-									await invoke("completeTavernHelperEvent", { eventId: currentEvent.id, args: currentEvent.args, error: String(error && error.message || error), runtimeId: runtimeId }, currentInput.sessionId);
+									await invoke("completeTavernHelperEvent", { eventId: currentEvent.id, args: currentEvent.args, error: String(error && error.message || error), runtimeId: runtimeId, diagnostics: diagnostics }, currentInput.sessionId);
 									completedEvent = true;
 								} catch (completeError) { console.warn("Tavern Helper 失败回执同步失败", completeError); }
 							}
@@ -2738,7 +2764,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				stale: "变量结算已过期，未覆盖当前状态",
 				unchanged: (sideEffects.length > 0 ? "Agent 未更新变量" : "本轮变量未更新") + sideEffectSuffix
 			};
-			const operationLabels = { set: "设置", add: "增减", insert: "新增", delete: "删除", move: "移动" };
+			const operationLabels = { set: "设置", replace: "设置", add: "新增", delta: "增减", insert: "新增", delete: "删除", remove: "删除", move: "移动" };
 			const summary = h("div", { className: "dsh-tavern-mvu-receipt-summary" }, h("span", { className: "dsh-tavern-mvu-receipt-dot" }), h("span", null, labels[status]));
 			async function retry() {
 				if (retrying) return;
@@ -2772,6 +2798,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 						const path = String(failure.path || failure.command || "/");
 						return h("div", { key: "failure:" + index, className: "dsh-tavern-mvu-failure" }, "失败：" + operation + " " + path + "：" + String(failure.message || "未知错误"));
 					}),
+					(status === "error" || status === "partial") && Array.isArray(receipt.runtimeDiagnostics) ? receipt.runtimeDiagnostics.filter(function (item) { return item && item.message && ["warn", "error"].includes(item.level); }).slice(-3).map(function (item, index) { return h("div", { key: "runtime:" + index, className: "dsh-tavern-mvu-failure" }, "运行时：" + String(item.message)); }) : null,
 					retryButton
 				)
 			);
@@ -4925,7 +4952,24 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					} catch (err) { tavernErrorHub.report("导出纯对话", err); }
 					finally { setBusy(false); }
 				}
-				return React.createElement("button", { className: "dsh-tavern-export-action", disabled: busy, title: "导出只包含玩家与角色正文的 TXT", onClick: exportText }, busy ? "导出中…" : "纯对话 TXT ↓");
+				async function exportLogs() {
+					setBusy(true);
+					try {
+						const result = await rpc("exportTavernLogs", {}, props.sessionId);
+						const bytes = Uint8Array.from(atob(result.base64), function (value) { return value.charCodeAt(0); });
+						const url = URL.createObjectURL(new Blob([bytes], { type: "application/zip" }));
+						const link = document.createElement("a");
+						link.href = url; link.download = result.filename;
+						document.body.appendChild(link); link.click(); link.remove();
+						window.setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+					} catch (err) { tavernErrorHub.report("导出日志", err); }
+					finally { setBusy(false); }
+				}
+				return React.createElement(React.Fragment, null,
+					React.createElement("style", null, 'body:has([data-tavern-log-export]) button[class*="_sessionLogButton"]{display:none!important}.dsh-tavern-log-export{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--dsw-alias-border-l2);border-radius:18px;background:transparent;color:var(--dsw-alias-label-primary);padding:6px 12px;height:32px;font:inherit;font-size:13px;cursor:pointer}.dsh-tavern-log-export:disabled{cursor:wait;opacity:.6}'),
+					React.createElement("button", { className: "dsh-tavern-log-export", "data-tavern-log-export": "", disabled: busy, "aria-label": "日志", "aria-busy": busy, title: "下载 Session 与 MVU 执行日志；含对话内容，分享前请检查隐私", onClick: exportLogs }, "日志",
+						React.createElement("svg", { width: 16, height: 16, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true }, React.createElement("path", { d: "M12 3v12m-5-5 5 5 5-5M5 16v4h14v-4" }))),
+					React.createElement("button", { className: "dsh-tavern-export-action", disabled: busy, title: "导出只包含玩家与角色正文的 TXT", onClick: exportText }, "纯对话 TXT ↓"));
 			}
 
 			function TavernCompactionAction(props) {

@@ -23,6 +23,7 @@ import { createForegroundFrameBuilder } from './domain/agent-input-frame.js'
 import { createForegroundFrameSessionAdapter } from './domain/foreground-frame-session-adapter.js'
 import { createModelRequestLog } from './domain/model-request-log.js'
 import { createMvuSettlementModule } from './domain/mvu-background-settlement.js'
+import { createMvuDiagnosticStore, createMvuDiagnosticExport, sanitizeRuntimeDiagnostics } from './domain/mvu-diagnostics.js'
 import { projectPersistentStatusView } from './domain/persistent-status-view.js'
 import { previewPresetConversion } from './domain/preset-conversion-preview.js'
 import { inspectPreset, nativeRegexScriptsOf } from './domain/preset-reading.js'
@@ -102,6 +103,7 @@ export async function apply(ctx) {
   const dataRoot = resolveTavernDataRoot()
   const stablePrefixStorage = createSessionStablePrefixStorage(dataRoot + '/session-prefixes')
   const profileData = createProfileDataStore({ dataRoot })
+  const mvuDiagnostics = createMvuDiagnosticStore(profileData)
   const tavernRemoteAssets = createTavernRemoteAssetPinStore({
     readJson: async function (path) { return await profileData.readJson(path) },
     updateJson: async function (path, updater) { return await profileData.updateJson(path, updater) }
@@ -878,6 +880,14 @@ export async function apply(ctx) {
     if (exported.messageCount === 0) throw new Error('暂无可导出的对话')
     return exported
   }
+  async function exportTavernLogs(sessionId) {
+    const chat = await chatForSession(str(sessionId))
+    if (!chat) throw new Error('当前 Session 没有绑定 Tavern 对话')
+    const diagnostic = await mvuDiagnostics.read(sessionId)
+    const backgroundSessionIds = [...new Set(diagnostic.records.map(record => record.traceSessionId).filter(Boolean))]
+    const exported = await createMvuDiagnosticExport({ sessionId, backgroundSessionIds, store: mvuDiagnostics, sessions: sessionStore, persistence: ctx.get('sessionPersistence'), query: ctx.get('sessionQuery'), attachments: ctx.get('attachments'), environment: { mvu: OFFICIAL_MVU_VERSION } })
+    return { filename: exported.filename, base64: exported.buffer.toString('base64') }
+  }
   async function attachPlayChatDebug(targetSessionId, sourceSessionId, turn) {
     const editorChat = await chatForSession(str(targetSessionId))
     const sourceChat = await chatForSession(str(sourceSessionId))
@@ -986,6 +996,7 @@ export async function apply(ctx) {
     readCard: readChatCard,
     worldBooks,
     eventGate: tavernHelperEventGate,
+    diagnostics: mvuDiagnostics,
     isPlayChat: function (chat) { return groupOfMode(chat.mode) === 'play' }
   })
 
@@ -1529,7 +1540,8 @@ export async function apply(ctx) {
   })
   const mvuSettlement = createMvuSettlementModule({
     model: backgroundAgentRunner,
-    runtime: tavernScriptHostAdapter
+    runtime: tavernScriptHostAdapter,
+    diagnostics: mvuDiagnostics
   })
   ctx.effect(() => () => backgroundAgentRunner.dispose(), 'dsh-tavern: dispose resident background agents')
   let tavernCompaction = null
@@ -2635,6 +2647,14 @@ export async function apply(ctx) {
       case 'deleteCard': return await deleteCard(args && args.path)
       case 'deleteChat': return await deleteChat(args && args.chatId)
       case 'exportConversation': return await exportConversation(args && args.chatId, args && args.sessionId, args && args.title)
+      case 'exportTavernLogs': return await exportTavernLogs(args && args.sessionId)
+      case 'recordMvuRuntimeDiagnostic': {
+        const chat = await chatForSession(str(args && args.sessionId))
+        if (!chat) throw new Error('当前 Session 没有绑定 Tavern 对话')
+        const diagnostic = args && args.diagnostic || {}
+        await mvuDiagnostics.record(chat.sessionId, { stage: 'script-runtime', diagnostic: { level: diagnostic.level === 'error' ? 'error' : 'warn', scriptId: str(diagnostic.scriptId).slice(0, 200), message: str(diagnostic.message).slice(0, 4000) } })
+        return { recorded: true }
+      }
       case 'getPlayChatDebugTarget': {
         const sourceChat = await chatForSession(args && args.sessionId)
         if (sourceChat === undefined || ((sourceChat.mode || 'story') !== 'story' && (sourceChat.mode || 'story') !== 'script')) throw new Error('当前对话不是游玩对话')
@@ -2649,7 +2669,7 @@ export async function apply(ctx) {
       case 'getTavernHelperWorldbook': return await tavernScriptHostAdapter.getWorldbook(args && args.sessionId, args && args.name)
       case 'replaceTavernHelperWorldbook': return await tavernScriptHostAdapter.replaceWorldbook(args && args.sessionId, args && args.name, args && args.entries)
 	  case 'pollTavernHelperEvent': return tavernScriptHostAdapter.pollEvent(args && args.sessionId, args && args.runtimeId, args && args.ready)
-	  case 'completeTavernHelperEvent': return { completed: tavernScriptHostAdapter.completeEvent(args && args.sessionId, args && args.eventId, args && args.args, args && args.runtimeId, args && args.error) }
+	  case 'completeTavernHelperEvent': return { completed: tavernScriptHostAdapter.completeEvent(args && args.sessionId, args && args.eventId, args && args.args, args && args.runtimeId, args && args.error, sanitizeRuntimeDiagnostics(args && args.diagnostics)) }
 	  case 'releaseTavernHelperRuntime': return { released: tavernScriptHostAdapter.releaseRuntime(args && args.sessionId, args && args.runtimeId) }
       case 'startChat': {
         try {

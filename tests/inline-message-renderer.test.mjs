@@ -767,10 +767,11 @@ test('Helper Host 生命周期事件保留官方 MVU 识别角色回复所需的
     }
   })
 
+  const diagnostics = []
   const emitted = runtime.emit('MESSAGE_RECEIVED', [0], {
     lifecycleRevision: 2,
     messages: [{ message_id: 0, role: 'assistant', message: '正文\n\n<UpdateVariable>...</UpdateVariable>', swipe_id: 0 }]
-  })
+  }, diagnostics)
   await Promise.resolve()
   const contextMessage = frames[0].contentWindow.messages.filter(item => item.type === 'dsh-tavern-helper-context').at(-1)
   assert.equal(contextMessage.context.characterName, '灯火阑珊')
@@ -780,11 +781,16 @@ test('Helper Host 生命周期事件保留官方 MVU 识别角色回复所需的
   assert.equal(contextMessage.context.messages[0].mes, '正文\n\n<UpdateVariable>...</UpdateVariable>')
 
   const request = frames[0].contentWindow.messages.find(item => item.type === 'dsh-tavern-helper-event')
+  receive({ source: frames[0].contentWindow, data: { type: 'dsh-tavern-helper-diagnostic', token: 'identity-runtime-token', eventId: request.eventId, scriptId: 'official', level: 'warn', message: '初始化尚未完成' } })
+  receive({ source: {}, data: { type: 'dsh-tavern-helper-diagnostic', token: 'identity-runtime-token', eventId: request.eventId, level: 'warn', message: 'forged' } })
   receive({
     source: frames[0].contentWindow,
     data: { type: 'dsh-tavern-helper-event-complete', token: 'identity-runtime-token', eventId: request.eventId, args: [0] }
   })
   assert.deepEqual(JSON.parse(JSON.stringify(await emitted)), [0])
+  assert.equal(diagnostics.length, 2)
+  assert.equal(diagnostics[0].subscribed, true)
+  assert.equal(diagnostics[1].message, '初始化尚未完成')
   runtime.dispose()
 })
 

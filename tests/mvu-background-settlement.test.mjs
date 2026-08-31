@@ -119,7 +119,7 @@ test('深模块逐项核验提交结果并把人物卡脚本联动与失败操�
     operation: 'set', path: '/stat_data/本尊/行踪/当前区域', before: '未知之地', after: '古殿·幽暗长廊'
   }])
   assert.deepEqual(result.receipt.failures, [{
-    operation: 'replace', path: '/当前处境', message: '操作执行后未生效，可能被人物卡变量结构校验拒绝'
+    operation: 'replace', path: '/当前处境', message: '未观察到对应变量变化；请通过“日志”导出执行记录'
   }])
   assert.deepEqual(result.receipt.sideEffects, [{
     operation: 'set', path: '/stat_data/$宗门推断/当前域', before: '', after: '归墟'

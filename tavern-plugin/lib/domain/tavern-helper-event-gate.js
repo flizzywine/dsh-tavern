@@ -44,7 +44,7 @@ export function createTavernHelperEventGate(options = {}) {
     return { active: true, ready: ready === true, event: ready === true && record ? clone(record.event) : null }
   }
 
-  function complete(sessionId, eventId, args, runtimeId = 'legacy', error = '') {
+  function complete(sessionId, eventId, args, runtimeId = 'legacy', error = '', diagnostics) {
     const id = str(sessionId)
     if (!available(id, runtimeId)) return false
     const record = records.get(id)
@@ -52,9 +52,10 @@ export function createTavernHelperEventGate(options = {}) {
     records.delete(id)
     clearTimeout(record.timer)
     const message = str(error).trim()
+    const extra = Array.isArray(diagnostics) ? { diagnostics: clone(diagnostics.slice(-50)) } : {}
     record.resolve(message === ''
-      ? { handled: true, args: clone(Array.isArray(args) ? args : record.event.args) }
-      : { handled: false, error: message, args: clone(Array.isArray(args) ? args : record.event.args) })
+      ? { handled: true, args: clone(Array.isArray(args) ? args : record.event.args), ...extra }
+      : { handled: false, error: message, args: clone(Array.isArray(args) ? args : record.event.args), ...extra })
     return true
   }
 
@@ -90,5 +91,11 @@ export function createTavernHelperEventGate(options = {}) {
     return true
   }
 
-  return Object.freeze({ touch, available, poll, complete, dispatch, dispose })
+  function status(sessionId) {
+    const current = presence.get(str(sessionId))
+    const present = Boolean(current && now() - current.seenAt <= presenceTtlMs)
+    return { present, ready: present && current.ready === true, busy: records.has(str(sessionId)) }
+  }
+
+  return Object.freeze({ touch, available, poll, complete, dispatch, dispose, status })
 }

@@ -186,6 +186,9 @@ export function createTavernScriptHostAdapter(options = {}) {
   /** Run one internal MVU command against an isolated draft and commit once. */
   async function settleMvuUpdate(input = {}) {
     const sessionId = str(input.sessionId)
+    async function record(stage, details = {}) {
+      try { await options.diagnostics?.record(sessionId, { diagnosticId: input.diagnosticId, messageId: input.messageId, swipeId: input.swipeId, stage, ...details }) } catch {}
+    }
     if (settlementTransactions.has(sessionId)) throw new Error('当前对话已有 MVU 变量结算正在执行')
     const current = await resolveChat(sessionId)
     assertMvuEnabled(current)
@@ -216,7 +219,9 @@ export function createTavernScriptHostAdapter(options = {}) {
       projected.message = internalText
       if (!Array.isArray(projected.swipes)) projected.swipes = [originalText]
       projected.swipes[swipeId] = internalText
+      await record('runtime-dispatch', { availability: options.eventGate.status?.(sessionId) })
       const dispatched = await options.eventGate.dispatch(sessionId, 'MESSAGE_RECEIVED', [messageId], eventContext)
+      await record('runtime-completed', { handled: dispatched.handled === true, timedOut: dispatched.timedOut === true, disposed: dispatched.disposed === true, error: dispatched.error, diagnostics: dispatched.diagnostics || [] })
       if (dispatched.handled !== true) {
         throw new Error(str(dispatched.error).trim() || '官方 MVU 浏览器运行时尚未就绪，本轮未执行变量结算')
       }
@@ -233,13 +238,18 @@ export function createTavernScriptHostAdapter(options = {}) {
       settled.displayText = originalText
       transaction.draft.updatedAt = Date.now()
       await options.writeChat(transaction.draft, { source: 'tavern-helper.mvu-settlement' })
+      await record('persisted', { mutations: transaction.mutations })
       return {
         updated: true,
+        diagnostics: dispatched.diagnostics || [],
         mutations: transaction.mutations,
         messageId,
         swipeId,
         context: projectTavernHelperContext(transaction.draft)
       }
+    } catch (error) {
+      await record('runtime-or-persistence-failed', { error: str(error && error.message || error) })
+      throw error
     } finally {
       settlementTransactions.delete(sessionId)
     }
@@ -266,7 +276,7 @@ export function createTavernScriptHostAdapter(options = {}) {
     getWorldbook,
     replaceWorldbook,
     pollEvent: function (sessionId, runtimeId, ready) { return options.eventGate.poll(sessionId, runtimeId, ready) },
-    completeEvent: function (sessionId, eventId, args, runtimeId, error) { return options.eventGate.complete(sessionId, eventId, args, runtimeId, error) },
+    completeEvent: function (sessionId, eventId, args, runtimeId, error, diagnostics) { return options.eventGate.complete(sessionId, eventId, args, runtimeId, error, diagnostics) },
     releaseRuntime: function (sessionId, runtimeId) { return options.eventGate.dispose(sessionId, runtimeId) }
   })
 }

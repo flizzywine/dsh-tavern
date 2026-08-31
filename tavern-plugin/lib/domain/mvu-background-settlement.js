@@ -1,4 +1,5 @@
 import { createBackgroundTaskFrame } from './agent-input-frame.js'
+import { variableDiagnosticSummary } from './mvu-diagnostics.js'
 
 export const MVU_SUBMIT_UPDATE_TOOL_NAME = 'mvu_submit_update'
 
@@ -166,7 +167,7 @@ function auditMvuSettlement(before, after, operations) {
       failures.push({
         operation: operation.op,
         path: operation.path,
-        message: '操作执行后未生效，可能被人物卡变量结构校验拒绝'
+        message: '未观察到对应变量变化；请通过“日志”导出执行记录'
       })
     }
   }
@@ -326,6 +327,11 @@ export function createMvuSettlementModule(options = {}) {
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       const submissions = []
       let attemptedCalls = 0
+      const diagnosticId = frame.frameId + ':attempt-' + attempt
+      async function record(stage, details = {}) {
+        try { await options.diagnostics?.record(input.sessionId, { diagnosticId, operationId: input.operationId, chatId: input.chatId, branchId: input.branchId, basedOnRevision: input.basedOnRevision, messageId: input.messageId, swipeId: input.swipeId, attempt, traceSessionId, stage, ...details }) } catch { /* Diagnostics must not change settlement behaviour. */ }
+      }
+      await record('start', { variables: variableDiagnosticSummary(input.currentVariables) })
       try {
         const run = await options.model.run({
           task: 'settlement',
@@ -345,8 +351,14 @@ export function createMvuSettlementModule(options = {}) {
             attemptedCalls++
             if (!call || call.name !== MVU_SUBMIT_UPDATE_TOOL_NAME) throw new Error('后台 Agent 调用了未授权的变量工具')
             if (submissions.length > 0) throw new Error('mvu_submit_update 每轮只能调用一次')
-            const submission = normalizeMvuToolSubmission(call.arguments)
+            let submission
+            try { submission = normalizeMvuToolSubmission(call.arguments) }
+            catch (error) {
+              await record('submission-rejected', { error: error.message, argumentKeys: Object.keys(object(call.arguments)), operations: object(call.arguments).operations })
+              throw error
+            }
             submissions.push(submission)
+            await record('submitted', { operations: submission.operations })
             return JSON.stringify({
               received: true,
               operationCount: submission.operations.length,
@@ -365,10 +377,12 @@ export function createMvuSettlementModule(options = {}) {
           messageId: input.messageId,
           swipeId: input.swipeId,
           expectedLifecycleRevision: input.expectedLifecycleRevision,
+          diagnosticId,
           storyText: frame.foregroundOutput.storyText,
           command: formatMvuUpdateCommand(submission)
         })
         if (applied.stale === true) {
+          await record('stale')
           return {
             frame,
             text: str(run.text),
@@ -388,6 +402,7 @@ export function createMvuSettlementModule(options = {}) {
         const status = audit.failures.length > 0
           ? (audit.changes.length > 0 ? 'partial' : 'error')
           : (audit.changes.length > 0 ? 'updated' : 'unchanged')
+        await record('result', { status, variables: variableDiagnosticSummary(after), changes: audit.changes, sideEffects: audit.sideEffects, failures: audit.failures, runtimeDiagnostics: applied.diagnostics || [] })
         return {
           frame,
           text: str(run.text),
@@ -399,6 +414,8 @@ export function createMvuSettlementModule(options = {}) {
             version: 1,
             status,
             summary: submission.analysis,
+            diagnosticId,
+            runtimeDiagnostics: applied.diagnostics || [],
             changes: audit.changes,
             sideEffects: audit.sideEffects,
             failures: audit.failures
@@ -407,6 +424,7 @@ export function createMvuSettlementModule(options = {}) {
       } catch (error) {
         if (traceSessionId === '') traceSessionId = str(error && error.traceSessionId)
         lastError = error
+        await record('failed', { error: str(error && error.message || error) })
       }
     }
     const failure = new Error(str(lastError && lastError.message || lastError) || 'MVU 后台变量结算失败', { cause: lastError })
