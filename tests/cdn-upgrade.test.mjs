@@ -94,6 +94,9 @@ test('旧版 Desktop 经最新安装脚本走 CDN 覆盖升级：补丁落盘、
   }
   const searchPath = Object.entries(process.env).find(([key]) => key.toLowerCase() === 'path')?.[1] || ''
   for (const key of Object.keys(env)) if (key.toLowerCase() === 'path') delete env[key]
+  // CI starts Node from PowerShell 7; Windows PowerShell 5.1 must rebuild its
+  // own builtin module search path instead of inheriting the incompatible one.
+  if (isWindows) for (const key of Object.keys(env)) if (key.toLowerCase() === 'psmodulepath') delete env[key]
   env[isWindows ? 'Path' : 'PATH'] = mocks + path.delimiter + searchPath
   const run = () => execute(isWindows ? 'powershell.exe' : 'sh', isWindows
     ? ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', bootstrap] : [bootstrap], { env, timeout: 45000, maxBuffer: 1024 * 1024 })
