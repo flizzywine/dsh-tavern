@@ -14,6 +14,27 @@ async function loadClient() {
 
 const client = await loadClient()
 
+test('预览与正文 iframe 缓存不带引号的资源地址，保留其他属性与跳转链接', () => {
+  const content = [
+    '<img src=https://assets.example/image.png width=30% />',
+    '<video poster=https://assets.example/poster.png></video>',
+    '<script src=https://assets.example/app.js></script>',
+    '<link rel=stylesheet href=https://assets.example/style.css>',
+    '<img src="https://assets.example/quoted.png">',
+    '<a href=https://example.com/page>查看更新</a>',
+    '<div data-src=https://assets.example/lazy.png></div>'
+  ].join('\n')
+  for (const document of [client.buildOpeningPreviewDocument(content), client.buildTavernFrameDocument({ content })]) {
+    for (const name of ['image.png', 'poster.png', 'app.js', 'style.css', 'quoted.png']) {
+      assert.ok(document.includes('/api/dsh-tavern/static-assets?url=' + encodeURIComponent('https://assets.example/' + name)), name)
+    }
+    assert.ok(document.includes('width=30% />'))
+    assert.ok(document.includes('<a href=https://example.com/page>'))
+    assert.ok(document.includes('data-src=https://assets.example/lazy.png'))
+    assert.ok(!document.includes('src=https://assets.example/image.png'))
+  }
+})
+
 test('服务端启动标识变化时只触发一次前端刷新', async () => {
   let refreshCount = 0
   const scheduled = []

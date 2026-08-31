@@ -98,6 +98,12 @@ function rewriteHtmlResourceAttributes(source, baseUrl) {
     .replace(/(<link\b[^>]*\bhref\s*=\s*)(["'])(\/[^"']+|https:\/\/[^"']+)\2/gi, function (_match, prefix, quote, specifier) {
       return prefix + quote + absoluteCacheUrl(specifier, baseUrl) + quote
     })
+    .replace(/(\s(?:src|poster)\s*=\s*)(\/[^\s"'`<>]+|https:\/\/[^\s"'`<>]+)/gi, function (_match, prefix, specifier) {
+      return prefix + '"' + absoluteCacheUrl(specifier, baseUrl) + '"'
+    })
+    .replace(/(<link\b[^>]*\shref\s*=\s*)(\/[^\s"'`<>]+|https:\/\/[^\s"'`<>]+)/gi, function (_match, prefix, specifier) {
+      return prefix + '"' + absoluteCacheUrl(specifier, baseUrl) + '"'
+    })
 }
 
 function rewriteHtmlStyles(source, baseUrl) {

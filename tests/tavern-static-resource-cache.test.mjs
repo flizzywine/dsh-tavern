@@ -93,6 +93,19 @@ test('HTML 资源改写不会把脚本中的 readAsDataURL 当成 CSS url', func
   assert.doesNotMatch(htmlBody, /readAsDataURL\(\/api\/dsh-tavern\/static-assets/)
 })
 
+test('缓存 HTML 的不带引号子资源地址也进入本地缓存', function () {
+  const html = projectCachedResourceBody({
+    url: 'https://assets.example/page.html', mediaType: 'text/html',
+    body: Buffer.from('<img src=https://assets.example/image.png width=30% /><video poster=/poster.png></video><script src=https://assets.example/app.js></script><link rel=stylesheet href=https://assets.example/style.css><a href=https://example.com/page>跳转</a><div data-src=https://assets.example/lazy.png></div>')
+  }).toString('utf8')
+  for (const name of ['image.png', 'poster.png', 'app.js', 'style.css']) {
+    assert.ok(html.includes('/api/dsh-tavern/static-assets?url=' + encodeURIComponent('https://assets.example/' + name)), name)
+  }
+  assert.ok(html.includes('width=30% />'))
+  assert.ok(html.includes('<a href=https://example.com/page>'))
+  assert.ok(html.includes('data-src=https://assets.example/lazy.png'))
+})
+
 test('静态缓存拒绝非 HTTPS、本机和内网地址', function () {
   assert.throws(function () { normalizeCacheableResourceUrl('http://example.com/a.js') }, /HTTPS/)
   assert.throws(function () { normalizeCacheableResourceUrl('https://localhost/a.js') }, /内网/)
