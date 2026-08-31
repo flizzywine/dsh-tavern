@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "revision": "480de561a024ad006d21746c5115f2b01e46239b",
+  "revision": "6a99f4167782a408c468fa7e834182b064fad248",
   "files": [
     {
       "path": "bin/dsh-compatibility.mjs",
@@ -49,18 +49,23 @@
     },
     {
       "path": "install.ps1",
-      "sha256": "35b677855ace558ea1de76c9c5e92a4660c2ecd8b7c4aee9425d10f3dfd182e6",
-      "size": 11762
+      "sha256": "eae3daf49842674bc78d9e04207d2b655d3e6769f81e7f44ac49bbef18ee13dd",
+      "size": 11775
     },
     {
       "path": "install.sh",
-      "sha256": "e85d7a9acd27dbffccc2f6b6f657983d7aaa2fa57e02aee30825d54002e6c538",
-      "size": 9150
+      "sha256": "e3542a496238e7ab9b136e247ab1e4b3179038bc6b29c378bd8f02921f1bdae7",
+      "size": 9158
     },
     {
       "path": "package.json",
       "sha256": "a22736aea592668c4833876b6c5b6f5756ee1ec2a2a588abfbfeb04eb75f24ad",
       "size": 1126
+    },
+    {
+      "path": "patches/dsh-better-sidebar@0.17.1.patch",
+      "sha256": "7a52a0f297b795762438b7490834078a77e43b6075146b4a6297fc3d80bd1d1f",
+      "size": 488
     },
     {
       "path": "pnpm-lock.yaml",
