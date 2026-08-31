@@ -1,0 +1,92 @@
+// Protocol presets are versioned here, not inferred by issuing paid probes.
+const channels = [
+  { id: 'openai', label: 'OpenAI / Images 兼容中转', baseURL: 'https://api.openai.com/v1', model: 'gpt-image-2', size: '1024x1024', fields: ['baseURL', 'model', 'size'], hint: '官方可使用默认地址与模型；兼容中转请填写自己的地址和模型。' },
+  { id: 'gemini', label: 'Google Gemini 原生', baseURL: 'https://generativelanguage.googleapis.com/v1beta', model: 'gemini-3.1-flash-image', size: '1K', aspectRatio: '1:1', fields: ['baseURL', 'model', 'size', 'aspectRatio'], hint: '使用 Interactions API，不是聊天兼容地址。' },
+  { id: 'banana', label: 'Banana / Gemini 聊天兼容中转', baseURL: '', model: '', size: '1K', fields: ['baseURL', 'model', 'size'], hint: '填写支持 chat/completions 生图的中转地址与模型；不自动猜测接口。' },
+  { id: 'grok', label: 'Grok Images', baseURL: 'https://api.x.ai/v1', model: 'grok-imagine-image-2.0', size: '1k', aspectRatio: '1:1', fields: ['baseURL', 'model', 'size', 'aspectRatio'], hint: '使用 Images 接口；图片分辨率为 1k 或 2k。' },
+  { id: 'seedream', label: 'Seedream / 火山方舟', baseURL: 'https://ark.cn-beijing.volces.com/api/v3', model: 'doubao-seedream-5-0-260128', size: '2K', fields: ['baseURL', 'model', 'size'], hint: '可填账号可用的模型或接入点；关闭组图，每次只请求一张。' },
+  { id: 'qwen', label: '百炼 Qwen-Image', baseURL: 'https://dashscope.aliyuncs.com/api/v1', model: 'qwen-image-3.0', size: '1024*1024', fields: ['baseURL', 'model', 'size'], hint: '默认北京地址。其他地域或工作空间请填写控制台提供的 API 根地址，密钥须属于相同地域。' }
+]
+export const SCENE_IMAGE_CHANNELS = channels.map(({ id, label, fields, hint }) => ({ id, label, fields, hint }))
+export function sceneImageChannel(id = 'openai') {
+  const channel = channels.find(item => item.id === id)
+  if (!channel) throw new Error('未知或尚未接入的生图渠道')
+  return channel
+}
+export function channelSettings(value = {}, id = value.provider || 'openai') {
+  const defaults = sceneImageChannel(id)
+  const result = { provider: id }
+  for (const field of defaults.fields) {
+    if (value[field] !== undefined && typeof value[field] !== 'string') throw new Error('渠道配置须为文本')
+    result[field] = (value[field] ?? defaults[field] ?? '').trim()
+    if (result[field].length > (field === 'baseURL' ? 2000 : 200)) throw new Error('渠道配置过长')
+  }
+  if (result.baseURL) {
+    const url = new URL(result.baseURL)
+    if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw new Error('生图地址须为不含密钥、查询参数的 HTTP(S) API 根地址')
+  }
+  return result
+}
+export function imageCredentialRef(provider = 'openai') {
+  sceneImageChannel(provider)
+  return provider === 'openai' ? 'DSH_TAVERN_IMAGE_API_KEY' : 'DSH_TAVERN_IMAGE_' + provider.toUpperCase() + '_API_KEY'
+}
+export function channelReady(config, hasKey) { return Boolean(config.baseURL && config.model && hasKey) }
+export function imageExpressionProfile(config) {
+  // Preserve old OpenAI plans while isolating other protocol/model expressions.
+  return config.provider === 'openai' || !config.provider ? 'scene-tags-v1:' + config.model : 'scene-tags-v1:' + config.provider + ':' + config.model
+}
+
+export function imageChannelRequest(input) {
+  const config = channelSettings(input)
+  if (!channelReady(config, input.apiKey)) throw new Error('请先配置生图渠道地址、模型与密钥')
+  const headers = { 'content-type': 'application/json', authorization: 'Bearer ' + input.apiKey }
+  const prompt = input.prompt
+  let path = 'images/generations', body
+  if (config.provider === 'gemini') {
+    path = 'interactions'; delete headers.authorization; headers['x-goog-api-key'] = input.apiKey
+    body = { model: config.model, input: [{ type: 'text', text: prompt }], response_format: { type: 'image', mime_type: 'image/png', aspect_ratio: config.aspectRatio, image_size: config.size } }
+  } else if (config.provider === 'banana') {
+    path = 'chat/completions'
+    body = { model: config.model, messages: [{ role: 'user', content: [{ type: 'text', text: prompt }] }], size: config.size, stream: false }
+  } else if (config.provider === 'qwen') {
+    if (!config.model.startsWith('qwen-image')) throw new Error('百炼渠道当前只接入 Qwen-Image，不支持其他万相模型')
+    path = 'services/aigc/multimodal-generation/generation'
+    body = { model: config.model, input: { messages: [{ role: 'user', content: [{ text: prompt }] }] }, parameters: { size: config.size, n: 1, prompt_extend: false } }
+  } else if (config.provider === 'grok') {
+    if (!['1k', '2k'].includes(config.size)) throw new Error('Grok 分辨率须为 1k 或 2k')
+    body = { model: config.model, prompt, n: 1, aspect_ratio: config.aspectRatio, resolution: config.size }
+  } else if (config.provider === 'seedream') {
+    body = { model: config.model, prompt, size: config.size, sequential_image_generation: 'disabled', stream: false, response_format: 'url' }
+  } else body = { model: config.model, prompt, size: config.size, n: 1 }
+  return { url: new URL(path, config.baseURL.replace(/\/+$/, '') + '/').href, headers, body }
+}
+
+/** Only image-bearing fields count as results, never a thought or arbitrary link. */
+export function channelImageResult(provider = 'openai', payload) {
+  if (provider === 'gemini') {
+    const direct = payload?.output_image
+    const parts = (Array.isArray(payload?.steps) ? payload.steps : []).filter(step => step?.type === 'model_output').flatMap(step => Array.isArray(step.content) ? step.content : [])
+    const image = typeof direct?.data === 'string' ? direct : parts.find(part => part?.type === 'image' && typeof part.data === 'string')
+    return image ? { b64_json: image.data } : undefined
+  }
+  if (provider === 'qwen') {
+    if (payload?.code) throw new Error('百炼未生成图片，请检查模型、地域和账号配置')
+    const parts = payload?.output?.choices?.[0]?.message?.content
+    const image = Array.isArray(parts) ? parts.find(part => typeof part?.image === 'string') : undefined
+    return image ? { url: image.image } : undefined
+  }
+  if (provider === 'banana') {
+    const message = payload?.choices?.[0]?.message
+    const parts = [message?.content, message?.images, message?.reasoning_details?.images].filter(Array.isArray).flat()
+    const image = parts.find(part => part?.type === 'image_url' && part.image_url)
+    if (image) return { url: typeof image.image_url === 'string' ? image.image_url : image.image_url.url }
+    if (typeof message?.content === 'string') {
+      const url = message.content.match(/!\[[^\]]*\]\(((?:https?:\/\/|data:image\/[^;]+;base64,)[^\s)]+)\)/)?.[1]
+      if (url) return { url }
+    }
+    return undefined
+  }
+  const images = payload?.data || payload?.images || payload?.output
+  return Array.isArray(images) ? images[0] : undefined
+}

@@ -1,6 +1,34 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createSceneImageNativeRuntime } from './fixtures/scene-image-native-runtime.mjs'
+import { SCENE_IMAGE_CHANNELS } from '../tavern-plugin/lib/domain/scene-image-channels.js'
+
+test('六种云端协议均通过真实 DSH 子任务和附件持久化，渠道配置不会自动收费', { skip: !process.env.DSH_BOOT_MODULE }, async t => {
+  const runtime = await createSceneImageNativeRuntime(process.env.DSH_BOOT_MODULE)
+  t.after(() => runtime.dispose())
+  const before = runtime.parent.agent.session.events.length
+  let count = 0
+  for (const { id: provider } of SCENE_IMAGE_CHANNELS) {
+    await runtime.service.configure({ provider, baseURL: runtime.endpoint, ...(provider === 'banana' ? { model: 'fixture-relay-image' } : {}), apiKey: 'fixture-' + provider })
+    await runtime.service.configure({ enabled: true })
+    assert.equal(runtime.imageRequests.length, count)
+    runtime.chat.messages.push({ role: 'assistant', turn: count + 2, sourceText: '她站在窗边看雨。' })
+    const target = await runtime.service.status('scene-parent', count + 2)
+    await runtime.service.start('scene-parent', count + 2, target.key)
+    let result
+    for (let n = 0; n < 300; n++) {
+      result = await runtime.service.status('scene-parent', count + 2)
+      if (result.status !== 'running') break
+      await new Promise(resolve => setTimeout(resolve, 20))
+    }
+    assert.equal(result.status, 'succeeded', provider + ': ' + result.error)
+    assert.equal(result.versions.at(-1).configuration.provider, provider)
+    await runtime.restart()
+    assert.equal((await runtime.service.readImage('scene-parent', count + 2, target.key)).ref.mediaType, 'image/png')
+    assert.equal(runtime.imageRequests.length, ++count)
+    assert.equal(runtime.parent.agent.session.events.length, before)
+  }
+})
 
 test('真实 DSH 子 Agent 调用生图工具，HTTP 返回图经宿主校验落盘，前台不新增消息', { skip: !process.env.DSH_BOOT_MODULE }, async t => {
   const runtime = await createSceneImageNativeRuntime(process.env.DSH_BOOT_MODULE)

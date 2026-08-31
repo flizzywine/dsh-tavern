@@ -118,6 +118,32 @@ test('server rejects generation during foreground streaming before running an Ag
   assert.equal(fx.imageCalls(), 0)
 })
 
+test('a channel change during planning cannot change the frozen paid request or its key', async t => {
+  const keys = new Map(), generated = []
+  let release, started
+  const waiting = new Promise(resolve => { release = resolve })
+  const began = new Promise(resolve => { started = resolve })
+  t.after(() => release())
+  const fx = await fixture(t, {
+    credentials: () => ({ resolve: async ref => ({ value: keys.get(ref) }), set: async (ref, value) => { keys.set(ref, value) } }),
+    runAgent: async input => { started(); await waiting; await input.onToolCall({ arguments: { plan: planFixture() } }); return {} },
+    generate: async input => { generated.push(input); return { data: png, mediaType: 'image/png' } }
+  })
+  await fx.service.start('parent', 2, sceneTarget(fx.chat(), 2).key)
+  await began
+  await fx.service.configure({ baseURL: 'https://new.example/v1', apiKey: 'rotated-openai-key' })
+  await fx.service.configure({ provider: 'gemini', apiKey: 'gemini-key' })
+  release()
+  await until(async () => (await fx.service.status('parent', 2)).status === 'succeeded')
+  assert.equal(generated[0].provider, 'openai')
+  assert.equal(generated[0].baseURL, 'https://provider.example/v1')
+  assert.equal(generated[0].apiKey, 'secret')
+  const current = await fx.service.status('parent', 2)
+  assert.equal(current.versions[0].configuration.provider, 'openai')
+  assert.match(current.profile, /gemini/)
+  assert.equal(current.enabled, false)
+})
+
 test('complete one-click native child Agent flow, no foreground writes, durable image, duplicate suppression', async t => {
   let followup, registered, childOptions, persona, descriptor, disposed = 0
   const runner = createBackgroundAgentRunner({ agents: {
@@ -268,7 +294,7 @@ test('repaint bypasses text Agent, retains each version and deduplicates replaye
   await fx.service.start('parent', 2, key)
   const first = await until(async () => { const state = await fx.service.status('parent', 2); return state.status === 'succeeded' && state })
   const versionId = first.versions[0].id
-  assert.deepEqual(first.versions[0].configuration, { model: 'test-image', baseURL: 'https://provider.example/v1', size: '1024x1024', style: { preset: 'default', custom: '' } })
+  assert.deepEqual(first.versions[0].configuration, { provider: 'openai', model: 'test-image', baseURL: 'https://provider.example/v1', size: '1024x1024', style: { preset: 'default', custom: '' } })
   const options = { kind: 'repaint', versionId, requestId: 'same-request-id' }
   const values = await Promise.all([fx.service.start('parent', 2, key, options), fx.service.start('parent', 2, key, options)])
   assert.equal(values[0].requestId, values[1].requestId)

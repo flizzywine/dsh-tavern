@@ -2161,7 +2161,7 @@ export async function apply(ctx) {
         return { card: change.card, changed: change.changed }
       }
       case 'getTavernSettings': return { settings: await readTavernSettings() }
-      case 'getSceneImageSettings': return { settings: await sceneIllustrations.settings() }
+      case 'getSceneImageSettings': return { settings: await sceneIllustrations.settings(args?.provider) }
       case 'saveSceneImageSettings': return { settings: await sceneIllustrations.configure(args) }
       case 'sceneImageStatus': return { illustration: await sceneIllustrations.status(args.sessionId, args.turn) }
       case 'generateSceneImage': return { illustration: await sceneIllustrations.start(args.sessionId, args.turn, args.key, args) }

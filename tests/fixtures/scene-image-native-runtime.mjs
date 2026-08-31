@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { createRequire } from 'node:module'
 import { createBackgroundAgentRunner } from '../../tavern-plugin/lib/background-agent-runner.js'
-import { createSceneIllustrations } from '../../tavern-plugin/lib/domain/scene-illustration.js'
+import { createSceneIllustrations, IMAGE_CREDENTIAL } from '../../tavern-plugin/lib/domain/scene-illustration.js'
 import { createProfileDataStore } from '../../tavern-plugin/lib/profile-data-store.js'
 
 export async function createSceneImageNativeRuntime(bootPath) {
@@ -43,23 +43,29 @@ export async function createSceneImageNativeRuntime(bootPath) {
   const runner = createBackgroundAgentRunner({ agents: ctx.agents })
   const chat = { id: 'scene-chat', sessionId: 'scene-parent', mode: 'story', posture: '站在窗边，左手扶窗', messages: [{ role: 'assistant', turn: 1, greeting: true, sourceText: '她站在窗边看雨，左手轻轻搭着窗框。', swipes: ['她站在窗边看雨，左手轻轻搭着窗框。', '她坐在椅子上。'], swipeId: 0 }] }
   const before = JSON.stringify(chat)
-  let key = 'fixture-key', failNext = false
+  const keys = new Map([[IMAGE_CREDENTIAL, 'fixture-key']])
+  let failNext = false
   const imageServer = createServer(async (req, res) => {
+    if (req.method === 'GET' && req.url === '/picture') { res.setHeader('Content-Type', 'image/png'); res.end(png); return }
     let body = ''; for await (const chunk of req) body += chunk
     imageRequests.push(JSON.parse(body))
     if (failNext) { failNext = false; res.writeHead(503).end('test failure'); return }
-    res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ data: [{ b64_json: png.toString('base64') }] }))
+    const payload = req.url.endsWith('/interactions') ? { steps: [{ type: 'model_output', content: [{ type: 'image', data: png.toString('base64') }] }] }
+      : req.url.endsWith('/chat/completions') ? { choices: [{ message: { content: [{ type: 'image_url', image_url: { url: 'data:image/png;base64,' + png.toString('base64') } }] } }] }
+        : req.url.includes('/multimodal-generation/') ? { output: { choices: [{ message: { content: [{ image: 'http://127.0.0.1:' + imageServer.address().port + '/picture' }] } }] } }
+          : { data: [{ b64_json: png.toString('base64') }] }
+    res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(payload))
   })
   await new Promise(resolve => imageServer.listen(0, '127.0.0.1', resolve))
   const deps = {
     store: createProfileDataStore({ dataRoot: root }), chatForSession: async () => structuredClone(chat),
     selection: () => ({ provider: 'scene-fixture', model: 'fixture-text' }),
-    credentials: () => ({ resolve: async () => ({ value: key }), set: async (_ref, value) => { key = value } }),
+    credentials: () => ({ resolve: async ref => ({ value: keys.get(ref) }), set: async (ref, value) => { keys.set(ref, value) } }),
     attachments: () => ctx.attachments, runAgent: runner.run
   }
   let service = createSceneIllustrations(deps)
   const endpoint = 'http://127.0.0.1:' + imageServer.address().port + '/v1'
-  await service.configure({ model: 'fixture-image', baseURL: endpoint, apiKey: key })
+  await service.configure({ model: 'fixture-image', baseURL: endpoint, apiKey: keys.get(IMAGE_CREDENTIAL) })
   await service.configure({ enabled: true })
   return { get service() { return service }, chat, before, requests, imageRequests, parent, endpoint,
     failNext() { failNext = true },

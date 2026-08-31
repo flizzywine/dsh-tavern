@@ -1,9 +1,11 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { projectAgentContent } from './runtime-content-projection.js'
-import { generateSceneImage, imageSettings } from './scene-image-provider.js'
+import { generateSceneImage } from './scene-image-provider.js'
+import { createSceneImageSettings } from './scene-image-settings.js'
+import { channelSettings, imageExpressionProfile } from './scene-image-channels.js'
 import { createScenePlans, SCENE_PLAN_INSTRUCTION, SCENE_PLAN_TOOL } from './scene-plan.js'
 import { imageAdjustmentInput, applyImageAdjustment, legacyImagePlan, SCENE_ADJUSTMENT_INSTRUCTION, SCENE_ADJUSTMENT_TOOL } from './scene-image-adjustment.js'
-import { createSceneImageStyles, applyImageStyle, composeSceneImagePrompt, imageStyleSettings, SCENE_STYLE_PRESETS } from './scene-image-style.js'
+import { createSceneImageStyles, applyImageStyle, composeSceneImagePrompt } from './scene-image-style.js'
 
 export const IMAGE_CREDENTIAL = 'DSH_TAVERN_IMAGE_API_KEY'
 const hash = value => createHash('sha256').update(value).digest('hex')
@@ -83,42 +85,10 @@ export function createSceneIllustrations(deps) {
   const jobs = new Map()
   const starts = new Map()
   imageHosts.set(ownerId, path => jobs.has(path) || starts.has(path))
-  let configurationWrite = Promise.resolve()
+  const { config, settings, configure, capture } = createSceneImageSettings(deps)
   const plans = createScenePlans({ store: deps.store })
   const styles = createSceneImageStyles({ store: deps.store })
-  const settingsPath = 'scene-images/settings.json'
   const pathFor = (chatId, key) => 'scene-images/' + hash(String(chatId)) + '/' + key + '.json'
-  async function config() { return imageSettings(await deps.store.readJson(settingsPath) || {}) }
-  async function settings() {
-    const credential = await deps.credentials()?.resolve(IMAGE_CREDENTIAL)
-    const current = await config()
-    return { ...current, stylePresets: SCENE_STYLE_PRESETS, hasKey: Boolean(credential?.value), ready: Boolean(current.model && credential?.value) }
-  }
-  function configure(input = {}) {
-    // Serialize partial saves/toggles so concurrent tabs cannot lose settings.
-    const write = configurationWrite.then(() => saveConfiguration(input))
-    configurationWrite = write.catch(() => {})
-    return write
-  }
-  async function saveConfiguration(input) {
-    if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('生图配置必须是对象')
-    if (input.enabled !== undefined && typeof input.enabled !== 'boolean') throw new Error('启用状态必须为布尔值')
-    const current = await settings()
-    if (input.style !== undefined) imageStyleSettings(input.style)
-    const next = imageSettings({ ...current, ...input, style: { ...current.style, ...input.style } })
-    if (input.apiKey !== undefined && typeof input.apiKey !== 'string') throw new Error('API Key 必须是文本')
-    // Configuration and explicit opt-in are separate operations. Old credentials
-    // alone are not permission to start a paid request after upgrading.
-    if (input.enabled === true && (!current.ready || !next.model)) throw new Error('请先保存完整生图配置，再手动启用')
-    if (input.apiKey?.trim()) {
-      const credentials = deps.credentials()
-      if (typeof credentials?.set !== 'function') throw new Error('当前 DSH 不支持保存凭据，请配置 DSH_TAVERN_IMAGE_API_KEY')
-      await credentials.set(IMAGE_CREDENTIAL, input.apiKey.trim())
-    }
-    if (!next.model) next.enabled = false
-    await deps.store.writeJson(settingsPath, next)
-    return settings()
-  }
   async function resolve(sessionId, turn) {
     const chat = await deps.chatForSession(sessionId)
     const target = sceneTarget(chat, turn)
@@ -139,7 +109,7 @@ export function createSceneIllustrations(deps) {
   async function status(sessionId, turn) {
     const { target, path } = await resolve(sessionId, turn)
     const current = await config()
-    return { ...present(target, await readRecord(path)), enabled: current.enabled, profile: 'scene-tags-v1:' + current.model }
+    return { ...present(target, await readRecord(path)), enabled: current.enabled, profile: imageExpressionProfile(current) }
   }
   async function start(sessionId, turn, expectedKey, options = {}) {
     const kind = options.kind || 'generate'
@@ -152,7 +122,7 @@ export function createSceneIllustrations(deps) {
     if (expectedKey !== target.key) throw new Error('正文版本已变化，请刷新后生图')
     if (starts.has(path)) return starts.get(path)
     const starting = (async () => {
-      const active = await config()
+      const { active, apiKey } = await capture()
       if (!active.enabled) throw new Error('请先在设置 → DSH Tavern → 场景生图中手动启用')
       if (await deps.isRunning?.(sessionId)) throw new Error('请等待当前正文生成完成后再生图')
       const existing = await readRecord(path)
@@ -160,11 +130,10 @@ export function createSceneIllustrations(deps) {
       // A failure may reach disk just before the job's finally removes its handle.
       // An explicit retry waits for that cleanup, rather than returning the old failure.
       if (jobs.has(path)) await jobs.get(path).promise
-      if (!active.model) throw new Error('请先在设置 → DSH Tavern → 场景生图中填写模型与 API Key')
-      const credential = await deps.credentials()?.resolve(IMAGE_CREDENTIAL)
-      if (!credential?.value) throw new Error('请先在设置中配置生图 API Key')
+      if (!active.model || !active.baseURL) throw new Error('请先在设置 → DSH Tavern → 场景生图中填写地址与模型')
+      if (!apiKey) throw new Error('请先在设置中配置生图 API Key')
       if (typeof deps.attachments()?.saveImage !== 'function' || typeof deps.attachments()?.readImage !== 'function') throw new Error('当前 DSH 未提供图片附件服务，无法保存插画')
-      const profile = 'scene-tags-v1:' + active.model
+      const profile = imageExpressionProfile(active)
       const style = await styles.resolve(active.style, profile)
       let prepared, material = { omitted: [] }, basePlan, adjustment = false
       if (kind !== 'generate') {
@@ -197,7 +166,7 @@ export function createSceneIllustrations(deps) {
       if (!claimed) return present(target, record)
       const job = { controller, promise: null }
       jobs.set(path, job)
-      job.promise = execute({ sessionId, chatId: chat.id, target, path, record, prepared, material, adjustment, basePlan, profile, style, active, apiKey: credential.value, selection, controller })
+      job.promise = execute({ sessionId, chatId: chat.id, target, path, record, prepared, material, adjustment, basePlan, profile, style, active, apiKey, selection, controller })
         .finally(() => jobs.delete(path))
       // Failure to persist a failure is reported locally, never as an unhandled rejection.
       job.promise.catch(() => deps.onStorageError?.())
@@ -250,7 +219,7 @@ export function createSceneIllustrations(deps) {
       const prompt = composeSceneImagePrompt(plan)
       record.planId = plan.id
       record.plan = plan
-      record.configuration = { baseURL: active.baseURL, model: active.model, size: active.size, style: active.style }
+      record.configuration = { ...channelSettings(active), style: active.style }
       record.traceSessionId = result?.traceSessionId || record.traceSessionId || ''
       record.stage = 'generating'
       record.diagnostics = { input: input.prepared.input, omitted: input.material.omitted, planId: plan.id }

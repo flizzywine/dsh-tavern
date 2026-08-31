@@ -5,19 +5,14 @@ import { isIP } from 'node:net'
 import { request as httpsRequest } from 'node:https'
 import { Readable } from 'node:stream'
 import { imageStyleSettings } from './scene-image-style.js'
+import { channelSettings, imageChannelRequest, channelImageResult } from './scene-image-channels.js'
 
 export function imageSettings(value = {}) {
-  const config = {
+  return {
+    ...channelSettings(value),
     enabled: value.enabled === true,
-    baseURL: String(value.baseURL || 'https://api.openai.com/v1').trim(),
-    model: String(value.model || '').trim(),
-    size: String(value.size || '1024x1024').trim(),
     style: imageStyleSettings(value.style)
   }
-  const url = new URL(config.baseURL)
-  if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw new Error('生图地址须为不含密钥、查询参数的 HTTP(S) API 根地址')
-  if (config.model.length > 200 || config.size.length > 40 || config.baseURL.length > 2000) throw new Error('生图配置过长')
-  return config
 }
 
 async function boundedBytes(response, limit) {
@@ -86,18 +81,18 @@ function downloadPublicImage(url, signal) {
 export async function generateSceneImage(input, deps = {}) {
   const request = deps.fetch || fetch
   const maxBytes = input.maxBytes || 20 * 1024 * 1024
-  const endpoint = new URL('images/generations', input.baseURL.replace(/\/+$/, '') + '/').href
-  const response = await request(endpoint, {
+  const spec = imageChannelRequest(input)
+  const response = await request(spec.url, {
     method: 'POST', redirect: 'error', signal: input.signal,
-    headers: { authorization: 'Bearer ' + input.apiKey, 'content-type': 'application/json' },
-    body: JSON.stringify({ model: input.model, prompt: input.prompt, size: input.size, n: 1 })
+    headers: spec.headers,
+    body: JSON.stringify(spec.body)
   })
   // Provider errors can echo secrets; return status rather than raw bodies.
   if (!response.ok) { await response.body?.cancel(); throw new Error('生图服务请求失败（HTTP ' + response.status + '）') }
   let payload
   try { payload = JSON.parse((await boundedBytes(response, Math.ceil(maxBytes * 1.4) + 4096)).toString('utf8')) }
   catch (error) { if (error.message === '生图响应过大') throw error; throw new Error('生图服务返回的不是有效 JSON') }
-  const item = (payload.data || payload.images || payload.output || [])[0]
+  const item = channelImageResult(input.provider, payload)
   if (!item || typeof item !== 'object') throw new Error('生图服务没有返回图片')
   const inline = typeof item.b64_json === 'string' ? item.b64_json : /^data:image\/[\w.+-]+;base64,/i.test(item.url || '') ? item.url.split(',')[1] : null
   if (inline !== null) {
@@ -106,8 +101,9 @@ export async function generateSceneImage(input, deps = {}) {
     return imageBytes(Buffer.from(clean, 'base64'), maxBytes)
   }
   if (typeof item.url !== 'string') throw new Error('生图服务没有返回图片数据')
-  const url = await (deps.validateDownload || validateImageDownload)(item.url, input.baseURL)
-  const downloaded = !deps.fetch && new URL(url).origin !== new URL(input.baseURL).origin
+  const baseURL = channelSettings(input).baseURL
+  const url = await (deps.validateDownload || validateImageDownload)(item.url, baseURL)
+  const downloaded = !deps.fetch && new URL(url).origin !== new URL(baseURL).origin
     ? await downloadPublicImage(url, input.signal)
     : await request(url, { redirect: 'error', signal: input.signal })
   if (!downloaded.ok) { await downloaded.body?.cancel(); throw new Error('图片下载失败（HTTP ' + downloaded.status + '）') }

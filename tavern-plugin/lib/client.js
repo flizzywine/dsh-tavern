@@ -3998,25 +3998,39 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			async function save(patch) {
 				setBusy(true); setNotice("");
 				try {
-					const input = patch || { baseURL: form.baseURL, model: form.model, size: form.size, style: form.style, apiKey: key };
+					const channel = form.channels.find(function (item) { return item.id === form.provider; });
+					const input = patch ? Object.assign({ provider: form.provider }, patch) : { provider: form.provider, style: form.style, apiKey: key };
+					if (!patch) channel.fields.forEach(function (field) { input[field] = form[field]; });
 					const result = await rpc("saveSceneImageSettings", input); setForm(result.settings); setKey(""); setDirty(false); setNotice("已保存");
 					window.dispatchEvent(new CustomEvent("dsh-tavern-image-settings-changed"));
 				}
 				catch (e) { setNotice(String(e.message || e)); }
 				finally { setBusy(false); }
 			}
+			async function chooseChannel(provider) {
+				setBusy(true); setNotice("");
+				try {
+					const result = await rpc("getSceneImageSettings", { provider });
+					setForm(result.settings); setKey(""); setDirty(true);
+					setNotice("已读取此渠道配置；保存后再手动启用。未保存的修改不保留。");
+				} catch (e) { setNotice(String(e.message || e)); }
+				finally { setBusy(false); }
+			}
+			const selectedChannel = form && (form.channels || []).find(function (item) { return item.id === form.provider; });
 			return React.createElement("details", { className: "dsh-tavern-settings-group" },
 				React.createElement("summary", { className: "dsh-tavern-settings-row" }, "场景生图"),
 				React.createElement("div", { className: "dsh-tavern-image-settings" },
-					React.createElement("p", { className: "dsh-tavern-settings-intro" }, "配置并手动启用后，在输入框上方点「生图」。生图会使用文字模型整理画面，并调用生图服务，可能产生额外费用。当前已接入 OpenAI 兼容 Images API。"),
-					form ? [
-						["baseURL", "API 根地址（通常以 /v1 结尾）"], ["model", "生图模型名称"], ["size", "图片尺寸"]
-					].map(function (field) { return React.createElement("label", { key: field[0] }, field[1], React.createElement("input", { value: form[field[0]], disabled: busy, onChange: function (e) { const value = e.target.value; setDirty(true); setForm(function (current) { return Object.assign({}, current, { [field[0]]: value }); }); } })); }) : null,
+					React.createElement("p", { className: "dsh-tavern-settings-intro" }, "配置并手动启用后，在输入框上方点「生图」。生图会使用文字模型整理画面，并调用生图服务，可能产生额外费用。只需配置自己使用的渠道。"),
+					form ? React.createElement("label", null, "生图渠道", React.createElement("select", { value: form.provider, disabled: busy, onChange: function (e) { return chooseChannel(e.target.value); } }, (form.channels || []).map(function (item) { return React.createElement("option", { key: item.id, value: item.id }, item.label); }))) : null,
+					selectedChannel ? React.createElement("details", { key: form.provider, open: form.provider === "banana" ? true : undefined },
+						React.createElement("summary", null, "地址、模型与尺寸（官方渠道可用默认值）"),
+						React.createElement("p", null, selectedChannel.hint),
+						selectedChannel.fields.map(function (field) { const labels = { baseURL: "API 根地址", model: "生图模型名称", size: "图片尺寸／分辨率", aspectRatio: "画面比例" }; return React.createElement("label", { key: field }, labels[field] || field, React.createElement("input", { value: form[field], disabled: busy, onChange: function (e) { const value = e.target.value; setDirty(true); setForm(function (current) { return Object.assign({}, current, { [field]: value }); }); } })); })) : null,
 					React.createElement("label", null, "API Key" + (form && form.hasKey ? "（已配置，留空保留）" : ""), React.createElement("input", { type: "password", autoComplete: "new-password", value: key, disabled: busy, onChange: function (e) { setKey(e.target.value); setDirty(true); } })),
 					form ? React.createElement("label", null, "风格预设", React.createElement("select", { value: form.style.preset, disabled: busy, onChange: function (e) { const value = e.target.value; setDirty(true); setForm(function (current) { return Object.assign({}, current, { style: Object.assign({}, current.style, { preset: value }) }); }); } }, (form.stylePresets || []).map(function (preset) { return React.createElement("option", { key: preset.id, value: preset.id }, preset.label); }))) : null,
 					form ? React.createElement("label", null, "补充描述／标签（选填）", React.createElement("textarea", { value: form.style.custom, rows: 2, maxLength: 2000, placeholder: "例如：低饱和、柔和光线、胶片质感", disabled: busy, onChange: function (e) { const value = e.target.value; setDirty(true); setForm(function (current) { return Object.assign({}, current, { style: Object.assign({}, current.style, { custom: value }) }); }); } })) : null,
 					React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: !form || busy, onClick: function () { return save(); } }, busy ? "保存中…" : "保存生图设置"),
-					form ? React.createElement("label", { className: "dsh-tavern-settings-row" }, "启用场景生图", React.createElement("input", { type: "checkbox", role: "switch", checked: form.enabled === true, disabled: busy || (!form.enabled && (dirty || !form.ready)), onChange: function (event) { return save({ enabled: event.target.checked }); } })) : null,
+					form ? React.createElement("label", { className: "dsh-tavern-settings-row" }, "启用场景生图", React.createElement("input", { type: "checkbox", role: "switch", checked: form.enabled === true, disabled: busy || dirty || !form.ready, onChange: function (event) { return save({ enabled: event.target.checked }); } })) : null,
 					notice ? React.createElement("span", { role: "status" }, notice) : null
 				)
 			);
