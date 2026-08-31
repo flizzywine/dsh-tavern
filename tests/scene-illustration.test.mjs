@@ -149,13 +149,143 @@ test('ComfyUI retry after restart or attachment failure queries the saved job wi
   await restarted.configure({ baseURL: 'http://localhost:8188' })
   offline = false
   const second = await finish(restarted)
-  assert.equal(second.status, 'failed'); assert.match(second.error, /disk/)
+  assert.equal(second.status, 'failed'); assert.equal(second.recovery, 'save')
   assert.equal(second.providerTask.state, 'succeeded')
-  const third = await finish(fx.createService())
+  const finalService = fx.createService()
+  await finalService.retrySave('parent', 2, target.key, second.requestId)
+  const third = await until(async () => { const value = await finalService.status('parent', 2); return value.status !== 'running' && value })
   assert.equal(third.status, 'succeeded', third.error)
   assert.equal(posts, 1); assert.equal(texts, 1)
   assert.equal(third.versions[0].generation.promptId, jobId)
   assert.equal(third.configuration.workflow.prompt, undefined, 'polling must not return a complete workflow graph')
+})
+
+test('attachment failure recovers received bytes after restart with settings disabled and no credentials or model', async t => {
+  let saves = 0, texts = 0, images = 0
+  const fx = await fixture(t, {
+    runAgent: async input => { texts++; await input.onToolCall({ arguments: { plan: planFixture() } }) },
+    generate: async () => { images++; return { data: png, mediaType: 'image/png', metadata: { seed: 71, model: 'original-model' } } },
+    attachments: () => ({ saveImage: async () => { if (++saves === 1) throw new Error('storage offline'); return { attachmentId: 'recovered-image' } }, readImage: async ref => ({ ref, data: png }) })
+  })
+  const key = sceneTarget(fx.chat(), 2).key
+  await fx.service.start('parent', 2, key, { requestId: 'original-image-request' })
+  const failed = await until(async () => { const value = await fx.service.status('parent', 2); return value.status === 'failed' && value })
+  assert.equal(failed.recovery, 'save')
+  assert.equal(failed.savedAttachment, undefined)
+  assert.ok(!JSON.stringify(failed).includes(png.toString('base64')))
+  await assert.rejects(fx.service.start('parent', 2, key), /重试保存/)
+  await fx.service.configure({ enabled: false, model: 'different-model' })
+  await fx.service.dispose()
+  fx.deps.credentials = () => { throw new Error('save must not resolve credentials') }
+  fx.deps.selection = () => { throw new Error('save must not select an Agent') }
+  const restarted = fx.createService()
+  await assert.rejects(restarted.retrySave('parent', 2, key, 'another-request'), /任务已变化/)
+  await Promise.all([restarted.retrySave('parent', 2, key, failed.requestId), fx.createService().retrySave('parent', 2, key, failed.requestId)])
+  const ready = await until(async () => { const value = await restarted.status('parent', 2); return value.status === 'succeeded' && value })
+  assert.equal(ready.enabled, false)
+  assert.equal(ready.recovery, undefined)
+  assert.equal(ready.versions.length, 1)
+  assert.equal(ready.versions[0].model, 'original-model')
+  assert.equal(ready.versions[0].generation.seed, 71)
+  assert.equal(ready.versions[0].id, failed.requestId)
+  await restarted.retrySave('parent', 2, key, failed.requestId)
+  assert.equal(images, 1); assert.equal(texts, 1); assert.equal(saves, 2)
+  assert.deepEqual((await restarted.readImage('parent', 2, key)).data, png)
+  const pendingPath = imagePath + key + '.json.received-' + createHash('sha256').update(failed.requestId).digest('hex') + '.json'
+  await until(async () => (await fx.store.readJson(pendingPath)) === undefined)
+})
+
+test('failed final publication retains the attachment reference and original image version', async t => {
+  const fx = await fixture(t)
+  const underlying = fx.deps.store
+  let breakPublish = true, saves = 0
+  const attachments = fx.deps.attachments()
+  fx.deps.attachments = () => ({ ...attachments, saveImage: async image => { saves++; return attachments.saveImage(image) } })
+  fx.deps.store = { ...underlying, writeJson: async (path, value) => {
+    if (value?.status === 'succeeded' && breakPublish) { breakPublish = false; throw new Error('publication disk failure') }
+    return underlying.writeJson(path, value)
+  } }
+  const service = fx.createService(), key = sceneTarget(fx.chat(), 2).key
+  await service.start('parent', 2, key)
+  const failed = await until(async () => { const value = await service.status('parent', 2); return value.status === 'failed' && value })
+  assert.equal(failed.recovery, 'save')
+  assert.equal(failed.savedAttachment, undefined, 'internal attachment handle is not exposed')
+  const restarted = fx.createService()
+  await restarted.retrySave('parent', 2, key, failed.requestId)
+  await until(async () => (await restarted.status('parent', 2)).status === 'succeeded')
+  assert.equal(saves, 1); assert.equal(fx.imageCalls(), 1)
+})
+
+test('failed outbox write keeps received bytes in the live host and never resubmits generation', async t => {
+  const fx = await fixture(t), underlying = fx.deps.store
+  let failPending = true
+  fx.deps.store = { ...underlying, writeJson: async (path, value) => {
+    if (path.includes('.received-') && failPending) { failPending = false; throw new Error('disk temporarily full') }
+    return underlying.writeJson(path, value)
+  } }
+  const service = fx.createService(), key = sceneTarget(fx.chat(), 2).key
+  await service.start('parent', 2, key)
+  const failed = await until(async () => { const value = await service.status('parent', 2); return value.status === 'failed' && value })
+  assert.equal(failed.recovery, 'save')
+  await service.retrySave('parent', 2, key, failed.requestId)
+  await until(async () => (await service.status('parent', 2)).status === 'succeeded')
+  assert.equal(fx.imageCalls(), 1)
+})
+
+test('missing pending bytes cannot silently fall back to paid generation', async t => {
+  const fx = await fixture(t, { attachments: () => ({ saveImage: async () => { throw new Error('disk offline') }, readImage() {} }) })
+  const key = sceneTarget(fx.chat(), 2).key
+  await fx.service.start('parent', 2, key)
+  const failed = await until(async () => { const value = await fx.service.status('parent', 2); return value.status === 'failed' && value })
+  const pendingPath = imagePath + key + '.json.received-' + createHash('sha256').update(failed.requestId).digest('hex') + '.json'
+  await fx.store.remove(pendingPath)
+  await fx.service.retrySave('parent', 2, key, failed.requestId)
+  await until(async () => (await fx.service.status('parent', 2)).status === 'failed')
+  await assert.rejects(fx.service.start('parent', 2, key), /重试保存/)
+  assert.equal(fx.imageCalls(), 1)
+})
+
+test('abandoned task discovers durable bytes even if saving stage was never published', async t => {
+  const fx = await fixture(t, { attachments: () => ({ saveImage: async () => { throw new Error('storage offline') }, readImage() {} }) })
+  const key = sceneTarget(fx.chat(), 2).key, path = imagePath + key + '.json'
+  await fx.service.start('parent', 2, key)
+  await until(async () => (await fx.service.status('parent', 2)).status === 'failed')
+  await fx.service.dispose()
+  await fx.store.updateJson(path, record => ({ ...record, status: 'running', stage: 'generating', recovery: undefined }))
+  const restarted = fx.createService()
+  const recovered = await restarted.status('parent', 2)
+  assert.equal(recovered.status, 'failed')
+  assert.equal(recovered.recovery, 'save')
+  assert.match(recovered.error, /不会重新生图/)
+  assert.equal(fx.imageCalls(), 1)
+})
+
+test('pending-file cleanup failure does not turn a published image into a failed job', async t => {
+  const fx = await fixture(t), underlying = fx.deps.store
+  let warnings = 0
+  fx.deps.onStorageError = () => { warnings++ }
+  fx.deps.store = { ...underlying, remove: async () => { throw new Error('cleanup unavailable') } }
+  const service = fx.createService(), key = sceneTarget(fx.chat(), 2).key
+  await service.start('parent', 2, key)
+  const ready = await until(async () => { const value = await service.status('parent', 2); return value.status === 'succeeded' && value })
+  await until(() => warnings === 1)
+  await service.retrySave('parent', 2, key, ready.requestId)
+  assert.equal((await service.status('parent', 2)).versions.length, 1)
+  assert.equal(fx.imageCalls(), 1)
+})
+
+test('corrupted received bytes fail closed without a new paid request', async t => {
+  let saves = 0
+  const fx = await fixture(t, { attachments: () => ({ saveImage: async () => { saves++; throw new Error('storage offline') }, readImage() {} }) })
+  const key = sceneTarget(fx.chat(), 2).key
+  await fx.service.start('parent', 2, key)
+  const failed = await until(async () => { const value = await fx.service.status('parent', 2); return value.status === 'failed' && value })
+  const pendingPath = imagePath + key + '.json.received-' + createHash('sha256').update(failed.requestId).digest('hex') + '.json'
+  await fx.store.updateJson(pendingPath, image => ({ ...image, data: Buffer.from('damaged').toString('base64') }))
+  await fx.service.retrySave('parent', 2, key, failed.requestId)
+  await until(async () => (await fx.service.status('parent', 2)).status === 'failed')
+  assert.equal(saves, 1, 'corrupt bytes must not reach the attachment service')
+  assert.equal(fx.imageCalls(), 1)
 })
 
 test('explicit opt-in, partial saves and legacy migration never cause paid requests', async t => {

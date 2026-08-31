@@ -45,6 +45,7 @@ modules['react-dom/client'].createRoot(document.querySelector('#settings')).rend
 document.querySelector('#restart').onclick=async()=>{await rpc('fixtureRestart');location.reload();};
 document.querySelector('#swipe').onclick=async()=>{await rpc('fixtureSwipe');location.reload();};
 document.querySelector('#fail').onclick=async()=>{await rpc('fixtureFail');location.reload();};
+document.querySelector('#failSave').onclick=async()=>{await rpc('fixtureFailSave');location.reload();};
 document.querySelector('#evidence').onclick=async()=>{document.querySelector('#result').textContent=JSON.stringify(await rpc('fixtureEvidence'),null,2);};
 `
 const server = createServer(async (req, res) => {
@@ -52,7 +53,7 @@ const server = createServer(async (req, res) => {
     const url = new URL(req.url, 'http://127.0.0.1')
     if (url.pathname === '/runner.js') { res.writeHead(200, { 'Content-Type': 'text/javascript' }).end(script); return }
     if (url.pathname === '/') {
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }).end(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>场景生图完整流程验证</title><style>:root{--dsw-alias-label-primary:#222;--dsw-alias-label-secondary:#666;--dsw-alias-border-l2:#ddd;--dsw-specific-sidebar-fill:#fff}body{font:16px sans-serif;max-width:880px;margin:32px auto;padding:12px}${css}</style><h1>场景生图验证 · 测试图片</h1><div id="app"></div><div id="dock"></div><textarea aria-label="输入框" placeholder="输入下一步行动"></textarea><hr><div id="settings"></div><hr><button id="restart">模拟重启并刷新</button> <button id="swipe">切换正文版本</button> <button id="fail">下一张模拟失败</button> <button id="evidence">核对调用记录</button><pre id="result"></pre><script src="/runner.js"></script>`)
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }).end(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>场景生图完整流程验证</title><style>:root{--dsw-alias-label-primary:#222;--dsw-alias-label-secondary:#666;--dsw-alias-border-l2:#ddd;--dsw-specific-sidebar-fill:#fff}body{font:16px sans-serif;max-width:880px;margin:32px auto;padding:12px}${css}</style><h1>场景生图验证 · 测试图片</h1><div id="app"></div><div id="dock"></div><textarea aria-label="输入框" placeholder="输入下一步行动"></textarea><hr><div id="settings"></div><hr><button id="restart">模拟重启并刷新</button> <button id="swipe">切换正文版本</button> <button id="fail">下一张模拟失败</button> <button id="failSave">下一张模拟保存失败</button> <button id="evidence">核对调用记录</button><pre id="result"></pre><script src="/runner.js"></script>`)
       return
     }
     const method = url.pathname.split('/').pop()
@@ -68,10 +69,12 @@ const server = createServer(async (req, res) => {
     else if (method === 'saveSceneImageSettings') result = { settings: await runtime.service.configure(args) }
     else if (method === 'sceneImageStatus') result = { illustration: await runtime.service.status('scene-parent', 1) }
     else if (method === 'generateSceneImage') result = { illustration: await runtime.service.start('scene-parent', 1, args.key, args) }
+    else if (method === 'retrySceneImageSave') result = { illustration: await runtime.service.retrySave('scene-parent', 1, args.key, args.requestId) }
     else if (method === 'removeSceneImage') result = { illustration: await runtime.service.removeImage('scene-parent', 1, args.key, args.versionId) }
     else if (method === 'fixtureRestart') await runtime.restart()
     else if (method === 'fixtureSwipe') runtime.chat.messages[0].swipeId = 1 - runtime.chat.messages[0].swipeId
     else if (method === 'fixtureFail') runtime.failNext()
+    else if (method === 'fixtureFailSave') runtime.failNextSave()
     else if (method === 'fixtureEvidence') result = { modelRequests: runtime.requests.length, imageRequests: runtime.imageRequests.length, parentMessages: runtime.parent.agent.session.events.filter(e => /message/.test(e.type)).length, prompt: runtime.imageRequests.at(-1)?.prompt, status: await runtime.service.status('scene-parent', 1) }
     res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ ok: true, ...result }))
   } catch (error) { res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ ok: false, error: error.message })) }

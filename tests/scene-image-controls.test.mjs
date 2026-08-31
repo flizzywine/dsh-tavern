@@ -42,6 +42,35 @@ test('main image action preserves request ID on ambiguous transport errors and c
   assert.equal(button.props.disabled, true)
   await button.props.onClick()
   assert.equal(calls.length, 2)
+  record.versions = []; record.recovery = 'save'
+  const pending = render().children[0]
+  assert.equal(pending.props.disabled, true)
+  assert.ok(pending.children.includes('图片待保存'))
+  await pending.props.onClick()
+  assert.equal(calls.length, 2, 'must not send generation while bytes await saving')
+})
+
+test('received image can be saved from the renderer while generation is disabled', async () => {
+  const slots = [], calls = []
+  let cursor = 0
+  const record = { key: 'frozen-key', requestId: 'original-image', status: 'failed', recovery: 'save', versions: [], enabled: false }
+  const context = vm.createContext({
+    React: { Fragment: 'fragment', createElement: (type, props, ...children) => ({ type, props, children }), useEffect() {},
+      useState(initial) { const n = cursor++; if (!(n in slots)) slots[n] = initial; return [slots[n], value => { slots[n] = value }] },
+      useRef(initial) { const n = cursor++; return slots[n] ||= { current: initial } }
+    },
+    useSceneImageRecord: () => record, window: { dispatchEvent() {} }, CustomEvent: class {},
+    rpc: async (method, args) => { calls.push({ method, args }) }
+  })
+  const Component = vm.runInContext(extract('SceneIllustration', 'TavernAssistantNodeView') + ';SceneIllustration', context)
+  const nodes = tree => tree && typeof tree === 'object' ? [tree, ...(tree.children || []).flat(Infinity).flatMap(nodes)] : []
+  const render = () => { cursor = 0; return nodes(Component({ sessionId: 'session', turn: 1 })) }
+  const controls = render()
+  assert.equal(controls.filter(node => node.type === 'button').length, 1)
+  await controls.find(node => node.type === 'button' && node.children.includes('重试保存')).props.onClick()
+  assert.equal(calls[0].method, 'retrySceneImageSave')
+  assert.equal(calls[0].args.requestId, record.requestId)
+  assert.equal(calls[0].args.key, record.key)
 })
 
 test('ComfyUI file chooser stores the parsed graph only on explicit save and has no JSON editor', async () => {

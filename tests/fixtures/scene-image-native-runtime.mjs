@@ -72,11 +72,16 @@ export async function createSceneImageNativeRuntime(bootPath) {
     res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(payload))
   })
   await new Promise(resolve => imageServer.listen(0, '127.0.0.1', resolve))
+  let failSave = false
   const deps = {
     store: createProfileDataStore({ dataRoot: root }), chatForSession: async () => structuredClone(chat),
     selection: () => ({ provider: 'scene-fixture', model: 'fixture-text' }),
     credentials: () => ({ resolve: async ref => ({ value: keys.get(ref) }), set: async (ref, value) => { keys.set(ref, value) } }),
-    attachments: () => ctx.attachments, runAgent: runner.run
+    attachments: () => ({
+      imageLimits: ctx.attachments.imageLimits,
+      async saveImage(image) { if (failSave) { failSave = false; throw new Error('fixture attachment storage unavailable') } return ctx.attachments.saveImage(image) },
+      readImage: ref => ctx.attachments.readImage(ref)
+    }), runAgent: runner.run
   }
   let service = createSceneIllustrations(deps)
   const endpoint = 'http://127.0.0.1:' + imageServer.address().port + '/v1'
@@ -84,6 +89,7 @@ export async function createSceneImageNativeRuntime(bootPath) {
   await service.configure({ enabled: true })
   return { get service() { return service }, chat, before, requests, imageRequests, parent, endpoint,
     failNext() { failNext = true },
+    failNextSave() { failSave = true },
     async restart() { await service.dispose(); service = createSceneIllustrations(deps) },
     async dispose() { await service.dispose(); await runner.dispose(); await parent.dispose(); await ctx.fiber.dispose(); await new Promise(resolve => imageServer.close(resolve)); await rm(root, { recursive: true, force: true }) }
   }

@@ -3140,6 +3140,13 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					}
 				}, [state && state.requestId, state && state.status]);
 				function notify() { window.dispatchEvent(new CustomEvent("dsh-tavern-image-changed", { detail: { sessionId: props.sessionId } })); }
+				async function retrySave() {
+					if (busy || !state || state.status === "running") return;
+					setBusy(true); setError("");
+					try { await rpc("retrySceneImageSave", { turn: props.turn, key: state.key, requestId: state.requestId }, props.sessionId); }
+					catch (e) { setError(String(e.message || e)); }
+					finally { setBusy(false); notify(); }
+				}
 				async function generate(kind) {
 					if (!version || busy || state.status === "running") return;
 					setBusy(true); setError("");
@@ -3160,7 +3167,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				}
 				const url = version ? "/api/dsh-tavern/scene-image?" + new URLSearchParams({ sessionId: props.sessionId, turn: String(props.turn), key: state.key, versionId: version.id }).toString() : "";
 				if (!state || state.status === "idle") return null;
-				const locked = busy || state.status === "running";
+				const locked = busy || state.status === "running" || state.recovery === "save";
 				return React.createElement("div", { className: "dsh-tavern-illustration" },
 					url ? React.createElement("a", { href: url, target: "_blank", rel: "noopener noreferrer" }, React.createElement("img", { src: url, alt: "本段场景插画", loading: "lazy", onError: function () { setError("图片加载失败，请刷新后重试"); } })) : null,
 					version ? React.createElement("div", { className: "dsh-tavern-image-actions" },
@@ -3186,6 +3193,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 						React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: busy, onClick: function () { setAdjusting(false); } }, "取消")
 					) : null,
 					state.status === "running" ? React.createElement("span", { role: "status" }, sceneImageStageLabel(state)) : null,
+					state.recovery === "save" && state.status !== "running" ? React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: busy, onClick: retrySave }, "重试保存") : null,
 					error || state && state.error ? React.createElement("span", { role: "alert", className: "dsh-tavern-settings-error" }, error || state.error) : null
 				);
 			}
@@ -4042,7 +4050,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				return function () { active = false; window.clearInterval(timer); window.removeEventListener("dsh-tavern-image-settings-changed", refresh); window.removeEventListener("focus", refresh); };
 			}, []);
 			async function generate() {
-				if (!state || busy || props.running || state.status === "running" || state.versions && state.versions.length) return;
+				if (!state || busy || props.running || state.status === "running" || state.recovery === "save" || state.versions && state.versions.length) return;
 				setBusy(true); setError("");
 				if (!requestRef.current || requestRef.current.key !== state.key) requestRef.current = { key: state.key, id: sceneImageRequestId() };
 				try { await rpc("generateSceneImage", { turn: props.turn, key: state.key, requestId: requestRef.current.id }, props.sessionId); requestRef.current = null; }
@@ -4052,7 +4060,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			if (!settings || !settings.enabled) return null;
 			const working = state && state.status === "running";
 			return React.createElement(React.Fragment, null,
-				React.createElement("button", { type: "button", className: "dsh-tavern-choice-trigger", disabled: !settings.ready || !state || props.running || busy || working || state.versions && state.versions.length > 0, onClick: generate }, busy ? "整理画面…" : working ? sceneImageStageLabel(state) : state && state.status === "failed" && !state.versions.length ? "重试生图" : "生图"),
+				React.createElement("button", { type: "button", className: "dsh-tavern-choice-trigger", disabled: !settings.ready || !state || props.running || busy || working || state.recovery === "save" || state.versions && state.versions.length > 0, onClick: generate }, busy ? "整理画面…" : working ? sceneImageStageLabel(state) : state && state.recovery === "save" ? "图片待保存" : state && state.status === "failed" && !state.versions.length ? "重试生图" : "生图"),
 				error ? React.createElement("span", { role: "alert", className: "dsh-tavern-settings-error" }, error) : null
 			);
 		}

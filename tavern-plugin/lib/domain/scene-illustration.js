@@ -6,6 +6,7 @@ import { channelSettings, channelReady, imageExpressionProfile, imageExpressionG
 import { createScenePlans, SCENE_PLAN_INSTRUCTION, SCENE_PLAN_TOOL } from './scene-plan.js'
 import { imageAdjustmentInput, applyImageAdjustment, legacyImagePlan, SCENE_ADJUSTMENT_INSTRUCTION, SCENE_ADJUSTMENT_TOOL } from './scene-image-adjustment.js'
 import { createSceneImageStyles, applyImageStyle, composeSceneImagePrompt } from './scene-image-style.js'
+import { createPendingSceneImages } from './scene-image-pending.js'
 
 export const IMAGE_CREDENTIAL = 'DSH_TAVERN_IMAGE_API_KEY'
 const hash = value => createHash('sha256').update(value).digest('hex')
@@ -89,6 +90,7 @@ export function createSceneIllustrations(deps) {
   const { config, settings, configure, capture } = createSceneImageSettings(deps)
   const plans = createScenePlans({ store: deps.store })
   const styles = createSceneImageStyles({ store: deps.store })
+  const pendingImages = createPendingSceneImages(deps.store)
   const pathFor = (chatId, key) => 'scene-images/' + hash(String(chatId)) + '/' + key + '.json'
   async function resolve(sessionId, turn) {
     const chat = await deps.chatForSession(sessionId)
@@ -97,14 +99,15 @@ export function createSceneIllustrations(deps) {
   }
   async function readRecord(path) {
     const record = await deps.store.readJson(path)
-    if (record?.status === 'running' && !jobs.has(path) && !starts.has(path) && !ownerIsLive(record, path)) {
-      return deps.store.updateJson(path, current => current?.status === 'running' && !ownerIsLive(current, path)
-        ? { ...current, status: 'failed', error: '生图因服务重启中断。供应商可能已计费，请确认后重试。' } : current)
+    if (record?.status === 'running' && !ownerIsLive(record, path)) {
+      const recoverable = await pendingImages.has(path, record.requestId)
+      return deps.store.updateJson(path, current => current?.requestId === record.requestId && current.status === 'running' && !ownerIsLive(current, path)
+        ? { ...current, status: 'failed', ...(recoverable ? { recovery: 'save' } : {}), error: recoverable ? '图片已生成，保存被中断；请重试保存，不会重新生图。' : '生图因服务重启中断。供应商可能已计费，请确认后重试。' } : current)
     }
     return record
   }
   function present(target, record) {
-    const { attachment, diagnostics, plan, requests, versions, deletedVersions, ownerId, ownerPid, ...publicRecord } = record || {}
+    const { attachment, savedAttachment, diagnostics, plan, requests, versions, deletedVersions, ownerId, ownerPid, ...publicRecord } = record || {}
     const configuration = value => value?.workflow ? { ...value, workflow: { name: value.workflow.name, digest: value.workflow.digest } } : value
     return { key: target.key, turn: target.turn, status: 'idle', ...publicRecord, ...(publicRecord.configuration ? { configuration: configuration(publicRecord.configuration) } : {}), versions: versionsOf(record).map(({ attachment, plan, ...item }) => ({ ...item, configuration: configuration(item.configuration), description: plan?.description || '', profile: plan?.profile || '' })) }
   }
@@ -124,10 +127,11 @@ export function createSceneIllustrations(deps) {
     if (expectedKey !== target.key) throw new Error('正文版本已变化，请刷新后生图')
     if (starts.has(path)) return starts.get(path)
     const starting = (async () => {
+      const existing = await readRecord(path)
+      if (existing?.recovery === 'save') throw new Error('图片已生成，请先重试保存；不会再次请求图片渠道')
       const { active, apiKey } = await capture()
       if (!active.enabled) throw new Error('请先在设置 → DSH Tavern → 场景生图中手动启用')
       if (await deps.isRunning?.(sessionId)) throw new Error('请等待当前正文生成完成后再生图')
-      const existing = await readRecord(path)
       if (Object.hasOwn(existing?.requests || {}, requestId) || (kind === 'generate' && existing?.status === 'succeeded') || existing?.status === 'running' && (jobs.has(path) || ownerIsLive(existing, path))) return present(target, existing)
       // A failure may reach disk just before the job's finally removes its handle.
       // An explicit retry waits for that cleanup, rather than returning the old failure.
@@ -165,6 +169,7 @@ export function createSceneIllustrations(deps) {
       const controller = new AbortController()
       let claimed = false
       const record = await deps.store.updateJson(path, current => {
+        if (current?.recovery === 'save') throw new Error('图片已生成，请先重试保存；不会再次请求图片渠道')
         if (Object.hasOwn(current?.requests || {}, requestId) || kind === 'generate' && current?.status === 'succeeded' || current?.status === 'running' && ownerIsLive(current, path)) return current
         claimed = true
         return { key: target.key, turn: target.turn, status: 'running', stage: prepared.saved ? 'generating' : 'planning', kind, instruction, baseVersionId: options.versionId || '', createdAt: Date.now(), requestId, ownerId, ownerPid: process.pid, error: '', ...(providerTask ? { providerTask } : {}), versions: versionsOf(current), deletedVersions: current?.deletedVersions || [], requests: { ...current?.requests, [requestId]: { status: 'running' } } }
@@ -184,7 +189,7 @@ export function createSceneIllustrations(deps) {
   async function execute(input) {
     const { controller, path, target, record, active } = input
     const timer = setTimeout(() => controller.abort(), deps.timeoutMs || 300000)
-    let attempted = false, attachment, plan = input.prepared.saved, providerError = '', validationError = '', result
+    let attempted = false, plan = input.prepared.saved, providerError = '', validationError = '', result
     try {
       if (!plan) {
         let submissions = 0, submitting = false
@@ -234,18 +239,62 @@ export function createSceneIllustrations(deps) {
       let generated
       try { generated = await (deps.generate || generateSceneImage)({ ...active, apiKey: input.apiKey, prompt, plan, providerTask: record.providerTask, async onProviderTask(task) { record.providerTask = task; await deps.store.writeJson(path, record) }, signal: controller.signal, maxBytes: deps.attachments()?.imageLimits?.maxImageBytes }) }
       catch (error) { providerError = redactImageError(error.message || '生图失败', input.apiKey); throw error }
-      controller.signal.throwIfAborted()
       record.stage = 'saving'
+      record.recovery = 'save'
+      await pendingImages.put(path, record.requestId, generated, deps.attachments()?.imageLimits?.maxImageBytes)
       await deps.store.writeJson(path, record)
-      attachment = await deps.attachments().saveImage({ data: generated.data, mediaType: generated.mediaType, name: 'scene-illustration' })
-      // The record remains under the frozen target key, even if another swipe is
-      // selected while the request runs. Reading still requires the exact target.
-      const version = { id: record.requestId, requestId: record.requestId, attachment, plan, configuration: record.configuration, prompt, model: generated.metadata?.model || active.model, ...(generated.metadata ? { generation: generated.metadata } : {}), createdAt: Date.now() }
-      await deps.store.writeJson(path, { ...record, status: 'succeeded', stage: 'completed', attachment, prompt, model: version.model, versions: [...record.versions, version], requests: { ...record.requests, [record.requestId]: { status: 'succeeded', versionId: version.id } }, completedAt: Date.now() })
+      await savePendingImage(path, record, controller.signal)
     } catch (error) {
       const detail = providerError || validationError || String(error.message || '生图 Agent 未完成任务，请检查当前对话模型或导出日志')
-      await deps.store.writeJson(path, { ...record, status: 'failed', requests: { ...record.requests, [record.requestId]: { status: 'failed' } }, planId: plan?.id || '', traceSessionId: record.traceSessionId || error.traceSessionId || '', error: controller.signal.aborted ? (attempted ? '生图已超时或取消，供应商可能已计费，请确认后重试。' : '整理画面已超时或取消，尚未请求图片。') : redactImageError(detail, input.apiKey).slice(0, 500) })
+      if (record.recovery === 'save') record.diagnostics = { ...record.diagnostics, storageError: redactImageError(detail, input.apiKey).slice(0, 500) }
+      await deps.store.writeJson(path, { ...record, status: 'failed', requests: { ...record.requests, [record.requestId]: { status: 'failed' } }, planId: plan?.id || '', traceSessionId: record.traceSessionId || error.traceSessionId || '', error: record.recovery === 'save' ? '图片已生成，请重试保存，不会重新生图。' : controller.signal.aborted ? (attempted ? '生图已超时或取消，供应商可能已计费，请确认后重试。' : '整理画面已超时或取消，尚未请求图片。') : redactImageError(detail, input.apiKey).slice(0, 500) })
     } finally { clearTimeout(timer) }
+  }
+  async function savePendingImage(path, record, signal) {
+    const generated = await pendingImages.read(path, record.requestId)
+    signal.throwIfAborted()
+    // A successfully written attachment reference survives a failed publication.
+    // Recovery can publish that same attachment instead of creating a duplicate.
+    const attachment = record.savedAttachment || await deps.attachments().saveImage({ data: generated.data, mediaType: generated.mediaType, name: 'scene-illustration' })
+    record.savedAttachment = attachment
+    await deps.store.writeJson(path, record)
+    signal.throwIfAborted()
+    const prompt = composeSceneImagePrompt(record.plan)
+    const version = { id: record.requestId, requestId: record.requestId, attachment, plan: record.plan, configuration: record.configuration, prompt, model: generated.metadata?.model || record.configuration.model, ...(generated.metadata ? { generation: generated.metadata } : {}), createdAt: Date.now() }
+    const { recovery, savedAttachment, ...completed } = record
+    await deps.store.writeJson(path, { ...completed, status: 'succeeded', stage: 'completed', attachment, prompt, model: version.model, versions: [...record.versions, version], requests: { ...record.requests, [record.requestId]: { status: 'succeeded', versionId: version.id } }, completedAt: Date.now() })
+    // Cleanup cannot turn a published success into a retryable failure.
+    try { await pendingImages.remove(path, record.requestId) } catch { deps.onStorageError?.() }
+  }
+  async function retrySave(sessionId, turn, key, requestId) {
+    const { target, path } = await resolve(sessionId, turn)
+    if (target.key !== key) throw new Error('正文版本已变化，请返回原版本重试保存')
+    if (starts.has(path)) { await starts.get(path); return retrySave(sessionId, turn, key, requestId) }
+    const starting = (async () => {
+      const existing = await readRecord(path)
+      if (!existing || existing.requestId !== requestId) throw new Error('保存任务已变化，请刷新后重试')
+      if (existing.status === 'succeeded' || existing.status === 'running' && ownerIsLive(existing, path)) return present(target, existing)
+      if (existing.recovery !== 'save') throw new Error('没有待恢复的图片；此操作不会请求图片渠道')
+      if (jobs.has(path)) await jobs.get(path).promise
+      let claimed = false
+      const record = await deps.store.updateJson(path, current => {
+        if (current?.requestId !== requestId || current.recovery !== 'save' || current.status === 'running' && ownerIsLive(current, path)) return current
+        claimed = true
+        return { ...current, status: 'running', stage: 'saving', ownerId, ownerPid: process.pid, error: '', requests: { ...current.requests, [requestId]: { status: 'running' } } }
+      })
+      if (!claimed) return present(target, record)
+      const controller = new AbortController()
+      const job = { controller, promise: null }
+      jobs.set(path, job)
+      job.promise = (async () => {
+        try { await savePendingImage(path, record, controller.signal) }
+        catch { await deps.store.writeJson(path, { ...record, status: 'failed', error: '图片保存仍未完成，请检查存储后重试保存；不会重新生图。', requests: { ...record.requests, [requestId]: { status: 'failed' } } }) }
+      })().finally(() => jobs.delete(path))
+      job.promise.catch(() => deps.onStorageError?.())
+      return present(target, record)
+    })()
+    starts.set(path, starting)
+    try { return await starting } finally { starts.delete(path) }
   }
   async function readImage(sessionId, turn, key, versionId) {
     const { target, path } = await resolve(sessionId, turn)
@@ -261,6 +310,7 @@ export function createSceneIllustrations(deps) {
     if (target.key !== key) throw new Error('正文版本已变化')
     const next = await deps.store.updateJson(path, record => {
       if (record?.status === 'running') throw new Error('请等待当前生图任务结束后删除图片')
+      if (record?.recovery === 'save') throw new Error('请先恢复待保存的图片，再删除图片版本')
       const versions = versionsOf(record)
       const removed = versions.find(item => item.id === versionId)
       if (!removed) throw new Error('图片版本不存在')
@@ -271,7 +321,7 @@ export function createSceneIllustrations(deps) {
     })
     return present(target, next)
   }
-  return { settings, configure, status, start, readImage, removeImage,
+  return { settings, configure, status, start, retrySave, readImage, removeImage,
     async dispose() { for (const job of jobs.values()) job.controller.abort(); await Promise.allSettled([...jobs.values()].map(job => job.promise)); imageHosts.delete(ownerId) }
   }
 }

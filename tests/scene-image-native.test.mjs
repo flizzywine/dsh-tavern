@@ -4,7 +4,7 @@ import { createSceneImageNativeRuntime } from './fixtures/scene-image-native-run
 import { SCENE_IMAGE_CHANNELS } from '../tavern-plugin/lib/domain/scene-image-channels.js'
 import { comfyGraph } from './fixtures/scene-image-comfy-workflow.mjs'
 
-test('所有已接入协议均通过真实 DSH 子任务和附件持久化，渠道配置不会自动收费', { skip: !process.env.DSH_BOOT_MODULE }, async t => {
+test('九种协议通过真实 DSH 子任务；附件失败后重启仅保存，不再请求文字或图片', { skip: !process.env.DSH_BOOT_MODULE }, async t => {
   const runtime = await createSceneImageNativeRuntime(process.env.DSH_BOOT_MODULE)
   t.after(() => runtime.dispose())
   const before = runtime.parent.agent.session.events.length
@@ -15,6 +15,7 @@ test('所有已接入协议均通过真实 DSH 子任务和附件持久化，渠
     assert.equal(runtime.imageRequests.length, count)
     runtime.chat.messages.push({ role: 'assistant', turn: count + 2, sourceText: '她站在窗边看雨。' })
     const target = await runtime.service.status('scene-parent', count + 2)
+    runtime.failNextSave()
     await runtime.service.start('scene-parent', count + 2, target.key)
     let result
     for (let n = 0; n < 300; n++) {
@@ -22,7 +23,19 @@ test('所有已接入协议均通过真实 DSH 子任务和附件持久化，渠
       if (result.status !== 'running') break
       await new Promise(resolve => setTimeout(resolve, 20))
     }
+    assert.equal(result.status, 'failed', provider + ': must reach injected attachment failure')
+    assert.equal(result.recovery, 'save')
+    const textCount = runtime.requests.length
+    await runtime.service.configure({ enabled: false })
+    await runtime.restart()
+    await runtime.service.retrySave('scene-parent', count + 2, target.key, result.requestId)
+    for (let n = 0; n < 300; n++) {
+      result = await runtime.service.status('scene-parent', count + 2)
+      if (result.status !== 'running') break
+      await new Promise(resolve => setTimeout(resolve, 20))
+    }
     assert.equal(result.status, 'succeeded', provider + ': ' + result.error)
+    assert.equal(runtime.requests.length, textCount, 'saving must not call the Agent again')
     assert.equal(result.versions.at(-1).configuration.provider, provider)
     if (provider === 'webui') {
       assert.equal((await runtime.service.settings()).hasKey, false)
