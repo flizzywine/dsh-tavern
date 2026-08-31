@@ -28,6 +28,15 @@ test('所有已接入协议均通过真实 DSH 子任务和附件持久化，渠
       assert.equal(result.versions.at(-1).model, 'fixture-server-model')
       assert.equal(result.versions.at(-1).generation.seed, 42)
     }
+    if (provider === 'novelai') {
+      const generation = result.versions.at(-1).generation
+      assert.equal(generation.request.action, 'generate')
+      assert.equal(generation.request.parameters.n_samples, 1)
+      assert.equal(generation.request.parameters.seed, generation.seed)
+      assert.match(generation.request.input, /window/)
+      assert.equal(generation.request.parameters.v4_prompt.caption.char_captions.length, 0)
+      assert.equal(JSON.stringify(generation).includes('fixture-novelai'), false)
+    }
     await runtime.restart()
     assert.equal((await runtime.service.readImage('scene-parent', count + 2, target.key)).ref.mediaType, 'image/png')
     assert.equal(runtime.imageRequests.length, ++count)

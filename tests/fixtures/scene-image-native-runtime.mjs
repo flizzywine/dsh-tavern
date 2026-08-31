@@ -9,6 +9,7 @@ import { createRequire } from 'node:module'
 import { createBackgroundAgentRunner } from '../../tavern-plugin/lib/background-agent-runner.js'
 import { createSceneIllustrations, IMAGE_CREDENTIAL } from '../../tavern-plugin/lib/domain/scene-illustration.js'
 import { createProfileDataStore } from '../../tavern-plugin/lib/profile-data-store.js'
+import { imageZip } from './scene-image-zip.mjs'
 
 export async function createSceneImageNativeRuntime(bootPath) {
   const bootUrl = pathToFileURL(bootPath)
@@ -50,6 +51,7 @@ export async function createSceneImageNativeRuntime(bootPath) {
     let body = ''; for await (const chunk of req) body += chunk
     imageRequests.push(JSON.parse(body))
     if (failNext) { failNext = false; res.writeHead(503).end('test failure'); return }
+    if (req.url.endsWith('/ai/generate-image')) { res.writeHead(200, { 'Content-Type': 'application/zip' }).end(imageZip(png, { compressed: true })); return }
     const payload = req.url.endsWith('/txt2img') ? { images: [png.toString('base64')], info: JSON.stringify({ seed: 42, sd_model_name: 'fixture-server-model' }) }
       : req.url.endsWith('/interactions') ? { steps: [{ type: 'model_output', content: [{ type: 'image', data: png.toString('base64') }] }] }
       : req.url.endsWith('/chat/completions') ? { choices: [{ message: { content: [{ type: 'image_url', image_url: { url: 'data:image/png;base64,' + png.toString('base64') } }] } }] }

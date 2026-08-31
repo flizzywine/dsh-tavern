@@ -8,6 +8,7 @@ import { generateSceneImage, imageSettings, validateImageDownload } from '../tav
 import { createProfileDataStore } from '../tavern-plugin/lib/profile-data-store.js'
 import { createBackgroundAgentRunner } from '../tavern-plugin/lib/background-agent-runner.js'
 import { createHash } from 'node:crypto'
+import { imageZip } from './fixtures/scene-image-zip.mjs'
 
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aKfoAAAAASUVORK5CYII=', 'base64')
 const imagePath = 'scene-images/' + createHash('sha256').update('test-chat').digest('hex') + '/'
@@ -77,6 +78,48 @@ async function fixture(t, overrides = {}) {
   await service.configure({ enabled: true })
   return { service, createService, deps, store, chat: () => chat, setChat: value => { chat = value }, imageCalls: () => imageCalls }
 }
+
+test('NovelAI service sends frozen structured people and saves the exact key-free request across restart/repaint', async t => {
+  let agentCalls = 0
+  const requests = []
+  const fx = await fixture(t, {
+    credentials: () => ({ resolve: async () => ({ value: 'nai-secret' }), set: async () => {} }),
+    runAgent: async input => {
+      agentCalls++
+      assert.match(JSON.stringify(input.messages), /NovelAI.*英文绘图标签/)
+      const makeField = (text, tags, quote) => ({ text, tags, evidence: [{ source: 'target', quote }] })
+      await input.onToolCall({ arguments: { plan: {
+        description: '两人在站台', subjects: ['a', 'b'], continuity: 'uncertain',
+        characters: [
+          { id: 'a', name: '林岚', identity: { source: 'target', quote: '林岚黑发蓝衣' }, fields: { appearance: makeField('黑发', 'black hair', '林岚黑发蓝衣'), clothing: makeField('蓝衣', 'blue coat', '林岚黑发蓝衣') } },
+          { id: 'b', name: '白青', identity: { source: 'target', quote: '白青银发白衣' }, fields: { appearance: makeField('银发', 'silver hair', '白青银发白衣'), clothing: makeField('白衣', 'white jacket', '白青银发白衣') } }
+        ], scene: { composition: { text: '两人站台远景', tags: 'two people, station, wide shot', evidence: [] } }
+      } } })
+    },
+    generate: input => generateSceneImage(input, { fetch: async (_url, init) => { requests.push(JSON.parse(init.body)); return new Response(imageZip(png)) } })
+  })
+  fx.chat().messages[1].sourceText = '林岚黑发蓝衣，白青银发白衣，两人在站台等车。'
+  delete fx.chat().messages[1].swipes
+  await fx.service.configure({ provider: 'novelai' })
+  await fx.service.configure({ enabled: true })
+  const target = sceneTarget(fx.chat(), 2)
+  await fx.service.start('parent', 2, target.key)
+  const first = await until(async () => { const result = await fx.service.status('parent', 2); return result.status !== 'running' && result })
+  assert.equal(first.status, 'succeeded', first.error)
+  assert.equal(requests[0].input, 'two people, station, wide shot')
+  assert.deepEqual(requests[0].parameters.v4_prompt.caption.char_captions.map(item => item.char_caption), ['black hair, blue coat', 'silver hair, white jacket'])
+  assert.deepEqual(first.versions[0].generation.request, requests[0])
+  const next = fx.createService()
+  await next.start('parent', 2, target.key, { kind: 'repaint', versionId: first.versions[0].id })
+  const second = await until(async () => { const result = await next.status('parent', 2); return result.status !== 'running' && result })
+  assert.equal(second.status, 'succeeded', second.error)
+  assert.equal(agentCalls, 1)
+  assert.equal(second.versions.length, 2)
+  assert.deepEqual(second.versions[0].generation.request, requests[0])
+  assert.deepEqual(second.versions[1].generation.request, requests[1])
+  assert.equal(requests.length, 2)
+  assert.equal(JSON.stringify(second).includes('nai-secret'), false)
+})
 
 test('explicit opt-in, partial saves and legacy migration never cause paid requests', async t => {
   let agentCalls = 0

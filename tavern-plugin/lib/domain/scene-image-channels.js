@@ -1,5 +1,8 @@
+import { novelaiSettings, novelaiRequest } from './scene-image-novelai.js'
+
 // Protocol presets are versioned here, not inferred by issuing paid probes.
 const channels = [
+  { id: 'novelai', label: 'NovelAI / 同协议第三方', baseURL: 'https://image.novelai.net', model: 'nai-diffusion-5-full', size: '832x1216', fields: ['baseURL', 'model', 'size'], hint: '默认使用官方 V5 Full。第三方必须支持相同的 /ai/generate-image 协议与 ZIP 图片响应，不是 OpenAI 兼容地址。' },
   { id: 'openai', label: 'OpenAI / Images 兼容中转', baseURL: 'https://api.openai.com/v1', model: 'gpt-image-2', size: '1024x1024', fields: ['baseURL', 'model', 'size'], hint: '官方可使用默认地址与模型；兼容中转请填写自己的地址和模型。' },
   { id: 'gemini', label: 'Google Gemini 原生', baseURL: 'https://generativelanguage.googleapis.com/v1beta', model: 'gemini-3.1-flash-image', size: '1K', aspectRatio: '1:1', fields: ['baseURL', 'model', 'size', 'aspectRatio'], hint: '使用 Interactions API，不是聊天兼容地址。' },
   { id: 'banana', label: 'Banana / Gemini 聊天兼容中转', baseURL: '', model: '', size: '1K', fields: ['baseURL', 'model', 'size'], hint: '填写支持 chat/completions 生图的中转地址与模型；不自动猜测接口。' },
@@ -33,6 +36,7 @@ export function channelSettings(value = {}, id = value.provider || 'openai') {
     const dimensions = result.size.match(/^(\d+)x(\d+)$/)
     if (!dimensions || dimensions.slice(1).some(value => Number(value) < 64 || Number(value) > 2048 || Number(value) % 8)) throw new Error('WebUI 尺寸须为宽x高，每边 64–2048 且为 8 的倍数')
   }
+  if (id === 'novelai') novelaiSettings(result)
   return result
 }
 export function imageCredentialRef(provider = 'openai', authType) {
@@ -48,6 +52,10 @@ export function imageExpressionProfile(config) {
   // Preserve old OpenAI plans while isolating other protocol/model expressions.
   return config.provider === 'openai' || !config.provider ? 'scene-tags-v1:' + config.model : 'scene-tags-v1:' + config.provider + ':' + (config.model || 'server-default')
 }
+export function imageExpressionGuidance(config) {
+  if (config.provider !== 'novelai') return undefined
+  return 'NovelAI：tags 优先用简洁英文绘图标签，必要关系用短英文句子。人物外貌、服装、动作、表情、位置只放各自的人物块，不在 scene 中重写。scene 只放人数、环境、镜头和关系；人数与性别须有依据，不猜测。V4/V4.5/V5 会分开提交角色描述，人数标签如 2girls 放 scene，单个人物只写 girl/boy/other，不写 1girl，不使用 | 人物分隔语法。保留稳定身份与事实，只转换表达。'
+}
 
 export function imageChannelRequest(input) {
   const config = channelSettings(input)
@@ -55,7 +63,10 @@ export function imageChannelRequest(input) {
   const headers = { 'content-type': 'application/json', authorization: 'Bearer ' + input.apiKey }
   const prompt = input.prompt
   let path = 'images/generations', body
-  if (config.provider === 'webui') {
+  if (config.provider === 'novelai') {
+    path = 'ai/generate-image'
+    body = novelaiRequest(input, config)
+  } else if (config.provider === 'webui') {
     path = 'sdapi/v1/txt2img'
     if (config.authType === 'none') delete headers.authorization
     else if (config.authType === 'basic') headers.authorization = 'Basic ' + Buffer.from(config.username + ':' + input.apiKey, 'utf8').toString('base64')

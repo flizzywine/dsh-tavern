@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { projectAgentContent } from './runtime-content-projection.js'
 import { generateSceneImage } from './scene-image-provider.js'
 import { createSceneImageSettings } from './scene-image-settings.js'
-import { channelSettings, channelReady, imageExpressionProfile } from './scene-image-channels.js'
+import { channelSettings, channelReady, imageExpressionProfile, imageExpressionGuidance } from './scene-image-channels.js'
 import { createScenePlans, SCENE_PLAN_INSTRUCTION, SCENE_PLAN_TOOL } from './scene-plan.js'
 import { imageAdjustmentInput, applyImageAdjustment, legacyImagePlan, SCENE_ADJUSTMENT_INSTRUCTION, SCENE_ADJUSTMENT_TOOL } from './scene-image-adjustment.js'
 import { createSceneImageStyles, applyImageStyle, composeSceneImagePrompt } from './scene-image-style.js'
@@ -154,6 +154,8 @@ export function createSceneIllustrations(deps) {
         prepared.input = { ...prepared.input, sources: material.sources, gapComplete: prepared.gapComplete, budget: { kind: 'characters-not-tokens', maxSourceCharacters: 12000, omitted: material.omitted } }
         if (prepared.saved) prepared.saved = await plans.snapshot(chat.id, prepared.saved)
       }
+      const expressionGuidance = imageExpressionGuidance(active)
+      if (prepared.input && expressionGuidance) prepared.input = { ...prepared.input, expressionGuidance }
       const selection = deps.selection(sessionId)
       if (!prepared.saved && !selection) throw new Error('请先为当前对话选择模型，供生图 Agent 理解场景')
       const controller = new AbortController()
@@ -226,7 +228,7 @@ export function createSceneIllustrations(deps) {
       await deps.store.writeJson(path, record)
       attempted = true
       let generated
-      try { generated = await (deps.generate || generateSceneImage)({ ...active, apiKey: input.apiKey, prompt, signal: controller.signal, maxBytes: deps.attachments()?.imageLimits?.maxImageBytes }) }
+      try { generated = await (deps.generate || generateSceneImage)({ ...active, apiKey: input.apiKey, prompt, plan, signal: controller.signal, maxBytes: deps.attachments()?.imageLimits?.maxImageBytes }) }
       catch (error) { providerError = redactImageError(error.message || '生图失败', input.apiKey); throw error }
       controller.signal.throwIfAborted()
       record.stage = 'saving'

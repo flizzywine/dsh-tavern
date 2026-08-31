@@ -6,6 +6,7 @@ import { request as httpsRequest } from 'node:https'
 import { Readable } from 'node:stream'
 import { imageStyleSettings } from './scene-image-style.js'
 import { channelSettings, imageChannelRequest, channelImageResult } from './scene-image-channels.js'
+import { sceneImageFromZip } from './scene-image-zip.js'
 
 export function imageSettings(value = {}) {
   return {
@@ -89,6 +90,10 @@ export async function generateSceneImage(input, deps = {}) {
   })
   // Provider errors can echo secrets; return status rather than raw bodies.
   if (!response.ok) { await response.body?.cancel(); throw new Error('生图服务请求失败（HTTP ' + response.status + '）') }
+  if (input.provider === 'novelai') {
+    const archive = await boundedBytes(response, maxBytes + 65536)
+    return { ...imageBytes(sceneImageFromZip(archive, maxBytes), maxBytes), metadata: { seed: spec.body.parameters.seed, model: spec.body.model, request: spec.body } }
+  }
   let payload
   try { payload = JSON.parse((await boundedBytes(response, Math.ceil(maxBytes * 1.4) + 4096)).toString('utf8')) }
   catch (error) { if (error.message === '生图响应过大') throw error; throw new Error('生图服务返回的不是有效 JSON') }
