@@ -4,6 +4,42 @@ import { createSceneImageNativeRuntime } from './fixtures/scene-image-native-run
 import { SCENE_IMAGE_CHANNELS } from '../tavern-plugin/lib/domain/scene-image-channels.js'
 import { comfyGraph } from './fixtures/scene-image-comfy-workflow.mjs'
 
+test('多人图只绑定明确选择的人物，保留来源位置提示且重画仍跳过文字模型', { skip: !process.env.DSH_BOOT_MODULE }, async t => {
+  const runtime = await createSceneImageNativeRuntime(process.env.DSH_BOOT_MODULE)
+  t.after(() => runtime.dispose())
+  await runtime.service.configure({ provider: 'gemini', baseURL: runtime.endpoint, apiKey: 'fixture-multi-reference' })
+  await runtime.service.configure({ enabled: true })
+  runtime.chat.messages[0].sourceText = '林岚站在左侧，林雨站在右侧。'
+  runtime.chat.messages[0].swipes = [runtime.chat.messages[0].sourceText]
+  runtime.useMultiplePeople()
+  const target = await runtime.service.status('scene-parent', 1)
+  async function finish(options) {
+    await runtime.service.start('scene-parent', 1, target.key, options)
+    for (let i = 0; i < 300; i++) {
+      const state = await runtime.service.status('scene-parent', 1)
+      if (state.status !== 'running') { assert.equal(state.status, 'succeeded', state.error); return state }
+      await new Promise(resolve => setTimeout(resolve, 20))
+    }
+    assert.fail('multi-person reference timed out')
+  }
+  const first = await finish()
+  const version = first.versions[0]
+  assert.equal(version.referencePeople.length, 2)
+  await assert.rejects(runtime.service.setReference('scene-parent', 1, first.key, version.id, first.reference.gateway), /请选择/)
+  const selected = version.referencePeople.find(person => person.name === '林雨')
+  const state = await runtime.service.setReference('scene-parent', 1, first.key, version.id, first.reference.gateway, true, selected.id)
+  assert.deepEqual(state.reference.bindings.map(binding => binding.personId), [selected.id])
+  assert.equal(runtime.imageRequests.length, 1)
+  const textRequests = runtime.requests.length
+  const second = await finish({ kind: 'repaint', versionId: version.id })
+  assert.equal(runtime.requests.length, textRequests)
+  assert.equal(runtime.imageRequests[1].input.filter(item => item.type === 'image').length, 1)
+  assert.match(runtime.imageRequests[1].input[1].text, /林雨.*右侧/)
+  assert.deepEqual(second.versions[1].referenceImages.map(reference => reference.person.id), [selected.id])
+  await runtime.restart()
+  assert.deepEqual((await runtime.service.status('scene-parent', 1)).reference.bindings.map(binding => binding.personId), [selected.id])
+})
+
 test('显式单人参考跨轮与重启传给 Gemini，取消后不再发送，也不进入文字轨迹或日志字节', { skip: !process.env.DSH_BOOT_MODULE }, async t => {
   const runtime = await createSceneImageNativeRuntime(process.env.DSH_BOOT_MODULE)
   t.after(() => runtime.dispose())

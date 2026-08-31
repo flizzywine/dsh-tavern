@@ -9,12 +9,17 @@ import { createSceneImageNativeRuntime } from './scene-image-native-runtime.mjs'
 import { comfyGraph } from './scene-image-comfy-workflow.mjs'
 
 const runtime = await createSceneImageNativeRuntime(process.env.DSH_BOOT_MODULE)
-if (process.env.SCENE_BROWSER_REFERENCE === '1') {
+if (['1', 'multi'].includes(process.env.SCENE_BROWSER_REFERENCE)) {
   await runtime.service.configure({ provider: 'gemini', model: 'gemini-3.1-flash-image', baseURL: runtime.endpoint, apiKey: 'fixture-reference-key' })
   runtime.chat.settleStatus = 'done'
   Object.assign(runtime.chat.messages[0], { sourceText: '林岚站在窗边。', swipes: ['林岚站在窗边。'], swipeId: 0, mvu: { pending: false },
     variables: [{ stat_data: { 人物: { 林岚: { 衣着: '青色外套' } } } }] })
   runtime.useVisualState()
+  if (process.env.SCENE_BROWSER_REFERENCE === 'multi') {
+    runtime.chat.messages[0].sourceText = '林岚站在左侧，林雨站在右侧。'
+    runtime.chat.messages[0].swipes = [runtime.chat.messages[0].sourceText]
+    runtime.useMultiplePeople()
+  }
 }
 if (process.env.SCENE_BROWSER_COMFY_WORKFLOW === '1') await runtime.service.configure({ provider: 'comfyui', baseURL: runtime.endpoint, workflow: comfyGraph() })
 await runtime.service.configure({ enabled: false })
@@ -81,7 +86,7 @@ const server = createServer(async (req, res) => {
     else if (method === 'retrySceneImageSave') result = { illustration: await runtime.service.retrySave('scene-parent', 1, args.key, args.requestId) }
     else if (method === 'cancelSceneImage') result = { illustration: await runtime.service.cancel('scene-parent', 1, args.key, args.requestId) }
     else if (method === 'removeSceneImage') result = { illustration: await runtime.service.removeImage('scene-parent', 1, args.key, args.versionId) }
-    else if (method === 'setSceneImageReference') result = { illustration: await runtime.service.setReference('scene-parent', 1, args.key, args.versionId, args.consent, args.enabled !== false) }
+    else if (method === 'setSceneImageReference') result = { illustration: await runtime.service.setReference('scene-parent', 1, args.key, args.versionId, args.consent, args.enabled !== false, args.personId) }
     else if (method === 'fixtureRestart') await runtime.restart()
     else if (method === 'fixtureSwipe') runtime.chat.messages[0].swipeId = 1 - runtime.chat.messages[0].swipeId
     else if (method === 'fixtureFail') runtime.failNext()
@@ -94,7 +99,7 @@ const server = createServer(async (req, res) => {
       await runtime.service.start('scene-parent', 2, target.key)
       for (let n = 0; n < 300 && !runtime.imageRequests.length; n++) await new Promise(resolve => setTimeout(resolve, 20))
     }
-    else if (method === 'fixtureEvidence') result = { modelRequests: runtime.requests.length, imageRequests: runtime.imageRequests.length, parentMessages: runtime.parent.agent.session.events.filter(e => /message/.test(e.type)).length, prompt: runtime.imageRequests.at(-1)?.prompt, status: await runtime.service.status('scene-parent', 1) }
+    else if (method === 'fixtureEvidence') result = { modelRequests: runtime.requests.length, imageRequests: runtime.imageRequests.length, referenceImages: runtime.imageRequests.at(-1)?.input?.filter(item => item.type === 'image').length || 0, parentMessages: runtime.parent.agent.session.events.filter(e => /message/.test(e.type)).length, prompt: runtime.imageRequests.at(-1)?.prompt, status: await runtime.service.status('scene-parent', 1) }
     res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ ok: true, ...result }))
   } catch (error) { res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ ok: false, error: error.message })) }
 })

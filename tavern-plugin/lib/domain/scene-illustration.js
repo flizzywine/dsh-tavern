@@ -11,7 +11,7 @@ import { createSceneImageQueue } from './scene-image-queue.js'
 import { createSceneReferences } from './scene-references.js'
 import { sceneStateSources } from './scene-state.js'
 import { createSceneImageDiagnostics, sceneAttemptDiagnostic } from './scene-image-diagnostics.js'
-import { createSceneImageReferences } from './scene-image-reference.js'
+import { createSceneImageReferences, imageReferencePeople } from './scene-image-reference.js'
 
 export const IMAGE_CREDENTIAL = 'DSH_TAVERN_IMAGE_API_KEY'
 const hash = value => createHash('sha256').update(value).digest('hex')
@@ -139,6 +139,8 @@ export function createSceneIllustrations(deps) {
     const { attachment, savedAttachment, diagnostics, diagnosticContext, providerRequests, referenceImages, plan, requests, versions, deletedVersions, ownerId, ownerPid, ...publicRecord } = record || {}
     const configuration = value => value?.workflow ? { ...value, workflow: { name: value.workflow.name, digest: value.workflow.digest } } : value
     return { key: target.key, turn: target.turn, status: 'idle', ...publicRecord, ...(publicRecord.configuration ? { configuration: configuration(publicRecord.configuration) } : {}), versions: versionsOf(record).map(({ attachment, plan, ...item }) => ({ ...item, configuration: configuration(item.configuration), description: plan?.description || '', profile: plan?.profile || '',
+      referencePeople: imageReferencePeople({ plan }),
+      referenceSingle: plan?.subjects?.length === 1 && imageReferencePeople({ plan }).length === 1,
       referencePerson: plan?.people?.length === 1 && plan.subjects?.length === 1 && plan.people[0].id === plan.subjects[0] && plan.people[0].identity?.quote ? plan.people[0].name : '' })) }
   }
   async function status(sessionId, turn) {
@@ -147,9 +149,11 @@ export function createSceneIllustrations(deps) {
     const last = [...chat.messages].reverse().find(item => item.role === 'assistant')
     const reference = await imageReferences.select({ chatId: chat.id, lineage: sceneLineage(chat, sceneTarget(chat, Number(last.turn || 1))), config: current })
     return { ...present(target, await readRecord(path)), enabled: current.enabled, profile: imageExpressionProfile(current),
-      reference: { ...reference.capability, warning: reference.warning, versions: reference.active.filter(record => record.source.key === target.key).map(record => record.source.versionId) } }
+      reference: { ...reference.capability, warning: reference.warning,
+        bindings: reference.active.filter(record => record.source.key === target.key).map(record => ({ versionId: record.source.versionId, personId: record.person.id, name: record.person.name })),
+        versions: reference.active.filter(record => record.source.key === target.key).map(record => record.source.versionId) } }
   }
-  async function setReference(sessionId, turn, key, versionId, consent, enabled = true) {
+  async function setReference(sessionId, turn, key, versionId, consent, enabled = true, personId) {
     const { chat, target, path } = await resolve(sessionId, turn)
     if (key !== target.key) throw new Error('正文版本已变化，请刷新后选择参考图')
     const active = await config()
@@ -159,7 +163,7 @@ export function createSceneIllustrations(deps) {
     const latest = [...chat.messages].reverse().find(item => item.role === 'assistant')
     const activation = sceneTarget(chat, Number(latest.turn || 1))
     const image = enabled ? await deps.attachments()?.readImage(version.attachment) : undefined
-    await imageReferences.bind({ chatId: chat.id, source: target, activation, version, config: active, consent, image, enabled })
+    await imageReferences.bind({ chatId: chat.id, source: target, activation, version, config: active, consent, image, enabled, personId })
     return status(sessionId, turn)
   }
   function needsPurchaseConfirmation(record) {

@@ -27,6 +27,7 @@ export async function createSceneImageNativeRuntime(bootPath) {
   const requests = [], imageRequests = []
   let referenceQuery = ''
   let useVisualState = false
+  let useMultiplePeople = false
   const comfyTasks = new Map()
   const sharp = createRequire(new URL('../../dsh-attachment-local/lib/index.js', bootUrl))('sharp')
   const png = await sharp({ create: { width: 320, height: 180, channels: 3, background: '#789aab' } }).png().toBuffer()
@@ -51,6 +52,18 @@ export async function createSceneImageNativeRuntime(bootPath) {
             clothing: { text: '青色外套', tags: 'blue coat', evidence: [{ source: source.id, quote: '青色外套' }] }
           } }]
         }
+      }
+      if (useMultiplePeople && tool?.name === 'submit_scene_plan') {
+        const material = currentMessages.flatMap(message => message.content || []).filter(block => block.type === 'text').flatMap(block => block.text.split('\n')).map(line => {
+          try { return JSON.parse(line) } catch { return null }
+        }).find(value => Array.isArray(value?.sources))
+        plan.characters = ['林岚', '林雨'].map((name, index) => {
+          const known = material?.characters?.find(person => person.name === name)
+          const person = known ? { id: known.id } : { id: 'multi-person-' + index, name, identity: { source: 'target', quote: name } }
+          const position = index ? '右侧' : '左侧'
+          return { ...person, fields: { position: { text: position, tags: index ? 'on the right' : 'on the left', evidence: [{ source: 'target', quote: name + '站在' + position }] } } }
+        })
+        plan.subjects = plan.characters.map(person => person.id)
       }
       if (referenceResult) {
         const source = JSON.parse(referenceResult.content.filter(block => block.type === 'text').map(block => block.text).join('')).sources[0]
@@ -129,6 +142,7 @@ export async function createSceneImageNativeRuntime(bootPath) {
     holdNextImage() { holdNext = true },
     lookupReferences(query) { referenceQuery = query },
     useVisualState() { useVisualState = true },
+    useMultiplePeople() { useMultiplePeople = true },
     async exportLogs() {
       return createMvuDiagnosticExport({ sessionId: 'scene-parent', store: createMvuDiagnosticStore(store),
         sceneDiagnostics: await createSceneImageDiagnostics(store).read(chat.id),

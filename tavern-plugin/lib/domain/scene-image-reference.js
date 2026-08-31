@@ -6,6 +6,17 @@ const modes = new Set(['gemini-3.1-flash-image', 'gemini-3-pro-image', 'gemini-2
 const formats = new Set(['image/png', 'image/jpeg', 'image/webp'])
 const limit = 8 * 1024 * 1024
 
+export function imageReferencePeople(version) {
+  const subjects = new Set(version?.plan?.subjects || [])
+  return (version?.plan?.people || []).filter(person => subjects.has(person.id) && person.identity?.quote).map(person => ({
+    id: person.id, name: person.name,
+    description: ['position', 'appearance', 'clothing'].map(field => {
+      const block = version.plan.blocks?.find(item => item.owner === person.id && item.field === field)
+      return block ? block.text : person.fields?.[field]?.text
+    }).filter(Boolean).join('；').slice(0, 800)
+  }))
+}
+
 export function imageReferenceCapability(config) {
   const supported = config.provider === 'gemini' && modes.has(config.model)
   const service = [config.provider, config.baseURL, config.model].join(' · ')
@@ -34,13 +45,15 @@ export function createSceneImageReferences({ store }) {
     return { chatId, capability, active, records: eligible, warning: active.length && eligible.length < active.length
       ? capability.supported ? '部分造型参考未授权给当前渠道/模型，仅沿用文字；需要时请重新选择参考图。' : capability.reason : '' }
   }
-  async function bind({ chatId, source, activation, version, config, consent, image, enabled = true }) {
+  async function bind({ chatId, source, activation, version, config, consent, image, enabled = true, personId }) {
     const capability = imageReferenceCapability(config)
-    const people = version?.plan?.people || []
-    if (people.length !== 1 || version.plan.subjects?.length !== 1 || version.plan.subjects[0] !== people[0].id || !people[0].identity?.quote) throw new Error('仅能直接绑定身份明确的单人人物方案；多人图暂不支持直接绑定')
+    const people = imageReferencePeople(version)
+    const selectedId = personId === undefined && version?.plan?.subjects?.length === 1 ? people[0]?.id : personId
+    const person = people.find(item => item.id === selectedId)
+    if (!person) throw new Error('请选择图片中身份明确的人物；只有单人图可以直接绑定，不能按姓名猜测')
     if (enabled && (!capability.supported || consent !== capability.gateway)) throw new Error('请确认参考图发送的当前生图服务；渠道或模型可能已变化')
     const bytes = enabled ? imageDigest(image) : null
-    const record = { person: { id: people[0].id, name: people[0].name }, source: { key: source.key, turn: source.turn, versionId: version.id, attachment: version.attachment },
+    const record = { person, source: { key: source.key, turn: source.turn, versionId: version.id, attachment: version.attachment },
       activation: { key: activation.key, turn: activation.turn }, gateway: capability.gateway, enabled, image: bytes, at: Date.now() }
     record.id = hash(JSON.stringify(record))
     await store.updateJson(pathFor(chatId), previous => {
@@ -66,7 +79,7 @@ export function createSceneImageReferences({ store }) {
       try {
         const image = await readImage(record.source.attachment)
         if (imageDigest(image).digest !== record.image.digest) throw new Error('参考图内容已变化')
-        images.push({ personId: record.person.id, name: record.person.name, data: Buffer.from(image.data), mediaType: record.image.mediaType,
+        images.push({ personId: record.person.id, name: record.person.name, description: record.person.description || '', data: Buffer.from(image.data), mediaType: record.image.mediaType,
           reference: { id: record.id, person: record.person, source: record.source, activation: record.activation, gateway: record.gateway, image: record.image } })
       } catch { warnings.push('参考图读取或完整性校验失败，仅沿用文字外貌。') }
     }

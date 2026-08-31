@@ -119,3 +119,60 @@ test('ComfyUI file chooser stores the parsed graph only on explicit save and has
   assert.match(slots[4], /500 KB/)
   assert.equal(calls.length, 1)
 })
+
+test('reference chooser never preselects a group member, freezes consent and permits per-person revocation while disabled', async () => {
+  const slots = [], calls = []
+  let cursor = 0
+  const record = { key: 'body', status: 'succeeded', enabled: true,
+    reference: { supported: true, service: 'Gemini local test', gateway: 'gateway-a', bindings: [] },
+    versions: [{ id: 'picture', referencePeople: [{ id: 'left-id', name: '同名', description: '左侧黑发' }, { id: 'right-id', name: '同名', description: '右侧红发' }] }] }
+  const context = vm.createContext({
+    React: { Fragment: 'fragment', createElement: (type, props, ...children) => ({ type, props, children }), useEffect() {},
+      useState(initial) { const n = cursor++; if (!(n in slots)) slots[n] = initial; return [slots[n], value => { slots[n] = value }] },
+      useRef(initial) { const n = cursor++; return slots[n] ||= { current: initial } }
+    },
+    URLSearchParams, useSceneImageRecord: () => record, sceneImageStageLabel: () => '', window: { dispatchEvent() {}, confirm() { assert.fail('reference consent must be visible with the person chooser') } }, CustomEvent: class {},
+    rpc: async (method, args) => { calls.push({ method, args }); record.reference.bindings = args.enabled ? [{ versionId: 'picture', personId: args.personId, name: '同名' }] : [] }
+  })
+  const Component = vm.runInContext(extract('SceneIllustration', 'TavernAssistantNodeView') + ';SceneIllustration', context)
+  const nodes = tree => tree && typeof tree === 'object' ? [tree, ...(tree.children || []).flat(Infinity).flatMap(nodes)] : []
+  const render = () => { cursor = 0; return nodes(Component({ sessionId: 'session', turn: 1 })) }
+  const button = name => render().find(node => node.type === 'button' && node.children.includes(name))
+  await button('用作造型参考').props.onClick()
+  assert.equal(calls.length, 0)
+  assert.equal(render().find(node => node.type === 'select').props.value, '')
+  assert.equal(button('确认使用').props.disabled, true)
+  assert.ok(render().some(node => node.type === 'p' && node.children[0].includes('整张图会发送给：Gemini local test')))
+  assert.ok(render().some(node => node.type === 'option' && node.children[0].includes('右侧红发 · right-id')))
+  render().find(node => node.type === 'select').props.onChange({ target: { value: 'right-id' } })
+  assert.equal(button('确认使用').props.disabled, false)
+  await button('确认使用').props.onClick()
+  assert.equal(calls[0].method, 'setSceneImageReference')
+  assert.equal(calls[0].args.personId, 'right-id')
+  assert.equal(calls[0].args.consent, 'gateway-a')
+  record.enabled = false; record.reference.supported = false
+  await button('管理造型参考').props.onClick()
+  assert.equal(button('确认使用'), undefined)
+  await button('取消「同名」的参考').props.onClick()
+  assert.equal(calls[1].args.personId, 'right-id')
+  assert.equal(calls[1].args.enabled, false)
+  assert.equal(button('用作造型参考'), undefined)
+  record.enabled = true; record.reference.supported = true
+  await button('用作造型参考').props.onClick()
+  render().find(node => node.type === 'select').props.onChange({ target: { value: 'left-id' } })
+  record.reference.gateway = 'gateway-b'; record.reference.service = 'another service'
+  assert.equal(button('确认使用').props.disabled, true)
+  assert.ok(render().some(node => node.type === 'p' && node.children[0].includes('渠道配置已变化')))
+  await button('关闭参考设置').props.onClick()
+  assert.equal(calls.length, 2)
+  record.versions[0].referencePeople = [{ id: 'single-id', name: '单人' }]
+  await button('用作造型参考').props.onClick()
+  assert.equal(render().find(node => node.type === 'select').props.value, '', 'one identified candidate does not make a group image single-person')
+  await button('关闭参考设置').props.onClick()
+  record.versions[0].referenceSingle = true
+  await button('用作造型参考').props.onClick()
+  assert.equal(render().find(node => node.type === 'select').props.value, 'single-id')
+  assert.equal(calls.length, 2, 'even a single person needs explicit confirmation')
+  record.key = 'changed-body'
+  assert.equal(button('确认使用'), undefined, 'a changed body cannot inherit an open consent draft')
+})

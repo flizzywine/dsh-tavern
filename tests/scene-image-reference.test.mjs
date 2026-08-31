@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { createSceneImageReferences, imageReferenceCapability } from '../tavern-plugin/lib/domain/scene-image-reference.js'
+import { createSceneImageReferences, imageReferenceCapability, imageReferencePeople } from '../tavern-plugin/lib/domain/scene-image-reference.js'
 import { imageChannelRequest, channelSettings } from '../tavern-plugin/lib/domain/scene-image-channels.js'
 import { redactSceneDiagnostic } from '../tavern-plugin/lib/domain/scene-image-diagnostics.js'
 
@@ -59,4 +59,33 @@ test('Gemini reference uses documented image input, not chat images or text-mode
   assert.doesNotMatch(JSON.stringify(redactSceneDiagnostic(request.body)), new RegExp(referenceImages[0].data.toString('base64')))
   assert.throws(() => imageChannelRequest({ provider: 'openai', apiKey: 'key', prompt: 'test', referenceImages }), /不支持/)
   assert.equal(imageReferenceCapability({ ...config, model: 'unknown-model' }).supported, false)
+})
+
+test('multi-person image requires explicit stable identity and revokes each person separately', async () => {
+  const f = fixture()
+  const version = { ...f.version, plan: { subjects: ['alice', 'bob'], people: [
+    { id: 'alice', name: '同名', identity: { quote: '左边同名' }, fields: { position: { text: '图中左侧' }, appearance: { text: '黑发' } } },
+    { id: 'bob', name: '同名', identity: { quote: '右边同名' }, fields: { position: { text: '图中右侧' }, appearance: { text: '红发' } } },
+    { id: 'offscreen', name: '不在图中', identity: { quote: '背景设定' } }
+  ] } }
+  assert.deepEqual(imageReferencePeople(version).map(person => person.id), ['alice', 'bob'])
+  const adjusted = { ...version, plan: { ...version.plan, blocks: [
+    { owner: 'bob', field: 'position', text: '改到中央' }, { owner: 'bob', field: 'appearance', text: '' }
+  ] } }
+  assert.equal(imageReferencePeople(adjusted)[1].description, '改到中央', 'source cues use the actual image overlay, including cleared fields')
+  await assert.rejects(f.bind({ version }), /请选择/)
+  await assert.rejects(f.bind({ version, personId: '同名' }), /请选择/)
+  await assert.rejects(f.bind({ version, personId: 'offscreen' }), /请选择/)
+  await assert.rejects(f.bind({ version, personId: ['alice', 'bob'] }), /请选择/)
+  await f.bind({ version, personId: 'bob' })
+  const selected = await f.select()
+  assert.deepEqual(selected.records.map(record => record.person.id), ['bob'])
+  assert.equal(selected.records[0].person.description, '图中右侧；红发')
+  const loaded = await f.api.load({ selected, plan: { subjects: ['bob'] }, readVersion: async () => version, readImage: async () => f.image })
+  const body = imageChannelRequest({ ...f.config, apiKey: 'test', referenceImages: loaded.images, prompt: 'current scene' }).body
+  assert.match(body.input[1].text, /identity bob.*图中右侧；红发/)
+  assert.match(body.input[1].text, /not other people/)
+  await f.bind({ version, personId: 'alice' })
+  await f.bind({ version, personId: 'bob', enabled: false })
+  assert.deepEqual((await f.select()).records.map(record => record.person.id), ['alice'])
 })

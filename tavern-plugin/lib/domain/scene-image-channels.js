@@ -88,7 +88,7 @@ export function imageChannelRequest(input) {
     body = { model: config.model, input: [{ type: 'text', text: prompt }], response_format: { type: 'image', mime_type: 'image/png', aspect_ratio: config.aspectRatio, image_size: config.size } }
     for (const image of references) {
       if (!Buffer.isBuffer(image.data) || !image.data.length || image.data.length > 8 * 1024 * 1024 || !['image/png', 'image/jpeg', 'image/webp'].includes(image.mediaType)) throw new Error('参考图数据不合法')
-      body.input.push({ type: 'text', text: 'Identity reference for ' + image.name + '. Use only identity/appearance cues. Follow the written scene for clothing, pose, expression, placement and background; do not copy the old composition or outfit.' },
+      body.input.push({ type: 'text', text: 'Identity reference for ' + image.name + ' (identity ' + image.personId + '). ' + (image.description ? 'Identify this person in the reference using these source-image cues: ' + image.description + '. ' : '') + 'Use only this selected person, not other people in the reference. Use only identity/appearance cues. Follow the written scene for clothing, pose, expression, placement and background; do not copy the old composition or outfit.' },
         { type: 'image', mime_type: image.mediaType, data: image.data.toString('base64') })
     }
   } else if (config.provider === 'banana') {
