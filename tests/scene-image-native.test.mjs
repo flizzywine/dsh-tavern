@@ -9,6 +9,7 @@ test('九渠道正在等待 HTTP 时均可取消；关开关后仍可取消，�
   t.after(() => runtime.dispose())
   const before = runtime.parent.agent.session.events.length
   let count = 0
+  let childId
   for (const { id: provider } of SCENE_IMAGE_CHANNELS) {
     await runtime.service.configure({ provider, baseURL: runtime.endpoint, ...(provider === 'comfyui' ? { workflow: comfyGraph() } : {}), ...(provider === 'banana' ? { model: 'fixture-relay-image' } : {}), ...(['webui', 'comfyui'].includes(provider) ? {} : { apiKey: 'fixture-' + provider }) })
     await runtime.service.configure({ enabled: true })
@@ -28,6 +29,9 @@ test('九渠道正在等待 HTTP 时均可取消；关开关后仍可取消，�
       await new Promise(resolve => setTimeout(resolve, 20))
     }
     assert.equal(result.status, 'cancelled', provider + ': ' + result.error)
+    childId ||= result.traceSessionId
+    assert.ok(childId)
+    assert.equal(result.traceSessionId, childId, 'next turn resumes the same durable native child')
     assert.equal(result.outcome, 'unconfirmed')
     assert.equal(result.versions.length, 0)
     await runtime.restart()
@@ -140,7 +144,9 @@ test('真实 DSH 子 Agent 调用生图工具，HTTP 返回图经宿主校验落
   assert.equal(runtime.requests.length, 4)
   assert.equal(runtime.imageRequests.length, 3)
   assert.deepEqual(runtime.requests[2].tools.map(tool => tool.name), ['submit_image_adjustment'])
-  assert.doesNotMatch(JSON.stringify(runtime.requests[2].messages), /左手轻轻搭着窗框/)
+  assert.equal(adjusted.traceSessionId, status.traceSessionId, 'adjustment resumes the original child after runner disposal')
+  assert.match(JSON.stringify(runtime.requests[2].messages), /左手轻轻搭着窗框/, 'original planning history remains in the child')
+  assert.doesNotMatch(JSON.stringify(runtime.requests[2].messages.at(-1)), /左手轻轻搭着窗框/, 'new adjustment input does not resend the source text')
   assert.match(runtime.imageRequests[2].prompt, /close-up/)
   assert.equal(adjusted.versions.length, 3)
   assert.equal(runtime.parent.agent.session.events.length, before)

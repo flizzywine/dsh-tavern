@@ -434,6 +434,57 @@ test('后台 Agent 不执行前台预设正则，保持任务协议和结构化�
   assert.equal(appended.length, 0, '后台不生成正则投影事件')
 })
 
+test('生图常驻会话隔离后台任务与游戏，先保存编号且恢复后延续历史', async () => {
+  const sessions = new Map(), bindings = new Map(), flushed = new Set()
+  let creates = 0, resumes = 0, disposed = 0
+  async function open(options, resume = false) {
+    const id = options.resumeSessionId || options.sessionId
+    const session = resume ? sessions.get(id) : { id, header: options.meta, events: [], append(type, data) { this.events.push({ type, data }) } }
+    assert.ok(session)
+    sessions.set(id, session)
+    await options.setup({ systemPrompt: { section() {}, variable() {}, suppressRuntimeContext() {} }, tools: { restrict() {}, register() {} }, on() {} })
+    return { agent: { session, followup(message) {
+      session.append('user/message', { message })
+      session.append('assistant/message', { message: { content: [{ type: 'text', text: '完成' }] } })
+    }, async whenIdle() {} }, async dispose() { disposed++ } }
+  }
+  const agents = { get: id => ({ id, session: { header: {} } }),
+    async create(options) { creates++; return open(options) },
+    async resume(options) { resumes++; return open(options, true) } }
+  const options = { agents, id: () => 'child-' + creates, flushSession: async session => { flushed.add(session.id) } }
+  let runner = createBackgroundAgentRunner(options)
+  const common = { sessionId: 'game-a', persistent: true, selection: { provider: 'test', model: 'fake' }, messages: [], tools: [] }
+  const image = { ...common, task: 'image',
+    resolvePersistentSessionId: async () => bindings.get('game-a') || '',
+    async onPersistentSessionReady(id) {
+      assert.ok(flushed.has(id), 'native session must be durable before storing the binding')
+      bindings.set('game-a', id)
+    } }
+  const [first, second] = await Promise.all([runner.run(image), runner.run(image)])
+  assert.equal(first.traceSessionId, second.traceSessionId)
+  assert.equal(creates, 1)
+  assert.equal(disposed, 0)
+  const background = await runner.run({ ...common, task: 'settlement' })
+  assert.notEqual(background.traceSessionId, first.traceSessionId)
+  assert.equal((await runner.run({ ...common, task: 'candidate' })).traceSessionId, background.traceSessionId)
+  const other = await runner.run({ ...common, task: 'image', sessionId: 'game-b' })
+  assert.notEqual(other.traceSessionId, first.traceSessionId)
+  await assert.rejects(runner.run({ ...common, task: 'settlement', persistentSessionId: first.traceSessionId }), /任务类型/)
+  await runner.dispose()
+  runner = createBackgroundAgentRunner(options)
+  try {
+    await assert.rejects(runner.run({ ...common, task: 'settlement', persistentSessionId: first.traceSessionId }), /任务类型不匹配/)
+    await assert.rejects(runner.run({ ...common, task: 'image', sessionId: 'game-b', persistentSessionId: first.traceSessionId }), /父会话/)
+    assert.equal((await runner.run(image)).traceSessionId, first.traceSessionId)
+    assert.equal(resumes, 3)
+    assert.equal(creates, 3)
+    const events = sessions.get(first.traceSessionId).events
+    assert.equal(events.filter(e => e.type === 'user/message').length, 3)
+    assert.equal(events.filter(e => e.type === 'subagent/descriptor').length, 1)
+    assert.equal(events[0].data.mode, 'continuable')
+  } finally { await runner.dispose() }
+})
+
 test('后台 Runner 不再提供预设正则历史重投影入口', () => {
   const runner = createBackgroundAgentRunner({ agents: { get() {} } })
   assert.equal(runner.reproject, undefined)

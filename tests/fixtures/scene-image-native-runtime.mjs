@@ -17,8 +17,8 @@ export async function createSceneImageNativeRuntime(bootPath) {
   const { LlmAdapter } = await import(new URL('../../dsh-llm/lib/index.js', bootUrl))
   const root = await mkdtemp(join(tmpdir(), 'tavern-scene-native-'))
   const config = join(root, 'host.yml')
-  const packages = ['dsh-system-prompt', 'dsh-tools', 'dsh-agent', 'dsh-llm', 'dsh-session', 'dsh-session-projection', 'dsh-token-meter', 'dsh-agent-loop', 'dsh-attachment-local']
-  await writeFile(config, packages.map(name => '- id: ' + name + '\n  name: ' + new URL('../../' + name + '/lib/index.js', bootUrl).href + (name === 'dsh-attachment-local' ? '\n  config:\n    dshHome: ' + root : '') + '\n').join(''))
+  const packages = ['dsh-system-prompt', 'dsh-tools', 'dsh-agent', 'dsh-llm', 'dsh-session', 'dsh-session-projection', 'dsh-session-persistence-jsonl', 'dsh-token-meter', 'dsh-agent-loop', 'dsh-attachment-local']
+  await writeFile(config, packages.map(name => '- id: ' + name + '\n  name: ' + new URL('../../' + name + '/lib/index.js', bootUrl).href + (name === 'dsh-attachment-local' ? '\n  config:\n    dshHome: ' + root : name === 'dsh-session-persistence-jsonl' ? '\n  config:\n    root: ' + join(root, 'sessions') + '\n    compression: none' : '') + '\n').join(''))
   const ctx = await boot('scene-image-native-test', config)
   ctx.baseUrl = bootUrl.href
   const requests = [], imageRequests = []
@@ -42,7 +42,8 @@ export async function createSceneImageNativeRuntime(bootPath) {
   }
   ctx.llm.registerAdapter(['scene-fixture'], new FixtureModel())
   const parent = await ctx.agents.create({ sessionId: 'scene-parent', agentOptions: { provider: 'scene-fixture', model: 'fixture-text' } })
-  const runner = createBackgroundAgentRunner({ agents: ctx.agents })
+  const runnerOptions = { agents: ctx.agents, flushSession: session => ctx.sessions.flush(session) }
+  let runner = createBackgroundAgentRunner(runnerOptions)
   const chat = { id: 'scene-chat', sessionId: 'scene-parent', mode: 'story', posture: '站在窗边，左手扶窗', messages: [{ role: 'assistant', turn: 1, greeting: true, sourceText: '她站在窗边看雨，左手轻轻搭着窗框。', swipes: ['她站在窗边看雨，左手轻轻搭着窗框。', '她坐在椅子上。'], swipeId: 0 }] }
   const before = JSON.stringify(chat)
   const keys = new Map([[IMAGE_CREDENTIAL, 'fixture-key']])
@@ -82,7 +83,7 @@ export async function createSceneImageNativeRuntime(bootPath) {
       imageLimits: ctx.attachments.imageLimits,
       async saveImage(image) { if (failSave) { failSave = false; throw new Error('fixture attachment storage unavailable') } return ctx.attachments.saveImage(image) },
       readImage: ref => ctx.attachments.readImage(ref)
-    }), runAgent: runner.run
+    }), runAgent: input => runner.run(input)
   }
   let service = createSceneIllustrations(deps)
   const endpoint = 'http://127.0.0.1:' + imageServer.address().port + '/v1'
@@ -92,7 +93,7 @@ export async function createSceneImageNativeRuntime(bootPath) {
     failNext() { failNext = true },
     failNextSave() { failSave = true },
     holdNextImage() { holdNext = true },
-    async restart() { await service.dispose(); service = createSceneIllustrations(deps) },
+    async restart() { await service.dispose(); await runner.dispose(); runner = createBackgroundAgentRunner(runnerOptions); service = createSceneIllustrations(deps) },
     async dispose() { await service.dispose(); await runner.dispose(); await parent.dispose(); await ctx.fiber.dispose(); await new Promise(resolve => imageServer.close(resolve)); await rm(root, { recursive: true, force: true }) }
   }
 }

@@ -106,6 +106,10 @@ export function createBackgroundAgentRunner(options) {
   const residentSessionByParent = new Map()
   const queues = new Map()
 
+  function residentKey(input) {
+    return JSON.stringify([str(input.sessionId), input.task === 'image' ? 'image' : 'background'])
+  }
+
   function completedBoundary(events) {
     for (let index = (events || []).length - 1; index >= 0; index--) {
       const event = events[index]
@@ -146,7 +150,11 @@ export function createBackgroundAgentRunner(options) {
   }
 
   function descriptorFor(input, persistent) {
-    if (input.task === 'image') return snapshotSubagentDescriptor({ mode: 'one-shot', provider: 'dsh-tavern-image', label: '场景生图' })
+    if (input.task === 'image') return snapshotSubagentDescriptor({
+      mode: persistent ? 'continuable' : 'one-shot', provider: 'dsh-tavern-image', label: '场景生图',
+      ...(persistent ? { agentProvider: input.selection.provider, agentModel: input.selection.model,
+        persona: '维护本游戏的场景绘图方案，不续写故事、不修改变量。当前目标材料与保存的方案优先于旧任务。' } : {})
+    })
     if (!persistent) return snapshotSubagentDescriptor({ mode: 'one-shot', provider: 'dsh-tavern-background', label: '候选研究' })
     return snapshotSubagentDescriptor({
       mode: 'continuable',
@@ -189,7 +197,7 @@ export function createBackgroundAgentRunner(options) {
         name: 'deployment:persona',
         order: 0,
         complete: true,
-        text: state.input.task === 'image' ? '你是独立的场景生图 Agent，不续写故事、不修改变量。\n\n{{tavern_background_task}}' : backgroundPersona
+        text: state.input.task === 'image' ? '你是独立的场景生图 Agent，不续写故事、不修改变量。你会持续处理同一游戏的绘图任务；旧任务只供参考，当前目标材料与已保存方案是本次依据。不要沿用已废弃分支、旧站位或之前仅限单图的调整。\n\n{{tavern_background_task}}' : backgroundPersona
       })
       childCtx.systemPrompt.suppressRuntimeContext()
       childCtx.tools.restrict({ allow: [] })
@@ -242,8 +250,10 @@ export function createBackgroundAgentRunner(options) {
     if (parent === undefined || parent.session === undefined) throw new Error('无法创建后台 Agent：前台会话不可用')
     const runtimeInput = Object.assign({}, input)
     const persistent = input.persistent === true
-    const requestedSessionId = str(input.persistentSessionId)
-    const residentSessionId = str(residentSessionByParent.get(str(input.sessionId)))
+    const requestedSessionId = str(persistent && typeof input.resolvePersistentSessionId === 'function'
+      ? await input.resolvePersistentSessionId() : input.persistentSessionId)
+    const key = residentKey(input)
+    const residentSessionId = str(residentSessionByParent.get(key))
     const traceSessionId = requestedSessionId || (persistent ? residentSessionId : '') || makeId()
     const descriptor = descriptorFor(input, persistent)
     const parentDepth = Number(parent.session.header && parent.session.header.delegationDepth)
@@ -258,8 +268,8 @@ export function createBackgroundAgentRunner(options) {
       ...(input.selection.reasoningEffort === undefined ? {} : { reasoningEffort: input.selection.reasoningEffort })
     }
     let resident = persistent ? residentHandles.get(traceSessionId) : undefined
-    if (resident !== undefined && resident.parentSessionId !== str(input.sessionId)) {
-      throw new Error('同一个常驻后台 Agent 不能绑定到不同前台会话')
+    if (resident !== undefined && resident.key !== key) {
+      throw new Error('同一个常驻后台 Agent 不能绑定到不同前台会话或任务类型')
     }
     let handle = resident && resident.handle
     let state = resident && resident.state
@@ -273,6 +283,14 @@ export function createBackgroundAgentRunner(options) {
             agentOptions,
             setup: setupFor(state, descriptor, false)
           })
+          const session = handle.agent.session
+          const savedDescriptor = session.events?.find(event => event.type === 'subagent/descriptor')?.data
+          const savedParent = session.header?.parentSession
+          if (savedParent && savedParent !== parent.id || savedDescriptor &&
+            (savedDescriptor.provider === 'dsh-tavern-image') !== (input.task === 'image')) {
+            await handle.dispose()
+            throw new Error('持久后台 Agent 的父会话或任务类型不匹配，未创建替代会话')
+          }
         } else {
           const meta = {
             parentSession: parent.id,
@@ -286,16 +304,17 @@ export function createBackgroundAgentRunner(options) {
             sessionId: traceSessionId,
             meta,
             agentOptions,
-            setup: setupFor(state, descriptor, true)
+            setup: setupFor(state, descriptor, !(persistent && input.task === 'image'))
           })
+          if (persistent && input.task === 'image') handle.agent.session.append('subagent/descriptor', descriptor)
         }
       } catch (error) {
         throw traceError(error, traceSessionId, input.task)
       }
       if (persistent) {
-        resident = { handle, state, parentSessionId: str(input.sessionId) }
+        resident = { handle, state, parentSessionId: str(input.sessionId), key }
         residentHandles.set(traceSessionId, resident)
-        residentSessionByParent.set(str(input.sessionId), traceSessionId)
+        residentSessionByParent.set(key, traceSessionId)
       }
     }
     state.input = runtimeInput
@@ -314,6 +333,11 @@ export function createBackgroundAgentRunner(options) {
 
     try {
       input.signal?.throwIfAborted()
+      if (persistent && typeof input.onPersistentSessionReady === 'function') {
+        // Persist the native session before publishing its identity, even if the first task fails.
+        if (typeof options.flushSession === 'function') await options.flushSession(handle.agent.session)
+        await input.onPersistentSessionReady(traceSessionId)
+      }
       if (!readSessionStablePrefix(handle.agent.session)) {
         const background = typeof options.resolveStablePrefix === 'function'
           ? await options.resolveStablePrefix(input) : input.backgroundContext
@@ -336,6 +360,9 @@ export function createBackgroundAgentRunner(options) {
         throw new Error(input.task === 'settlement' ? '后台 Agent 没有返回结算文本' : '后台 Agent 没有返回候选文本')
       }
       const text = rawResult.text.trim()
+      if (persistent && input.task === 'image' && typeof options.flushSession === 'function') {
+        await options.flushSession(handle.agent.session)
+      }
       return { text, traceSessionId, persistent, traceBoundary: completedBoundary(handle.agent.session.events) }
     } catch (error) {
       throw traceError(error, traceSessionId, input.task)

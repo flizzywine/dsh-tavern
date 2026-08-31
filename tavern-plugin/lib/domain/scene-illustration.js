@@ -249,7 +249,22 @@ export function createSceneIllustrations(deps) {
       if (!plan) {
         let submissions = 0, submitting = false
         try { result = await deps.runAgent({
-          sessionId: input.sessionId, turn: target.turn, task: 'image', persistent: false,
+          sessionId: input.sessionId, turn: target.turn, task: 'image', persistent: true,
+          async resolvePersistentSessionId() {
+            const saved = await deps.store.readJson('scene-images/' + hash(String(input.chatId)) + '/agent.json')
+            if (!saved) return ''
+            if (saved.parentSessionId !== input.sessionId || typeof saved.sessionId !== 'string' || !saved.sessionId) {
+              throw new Error('生图子代理会话绑定无效，未创建替代会话')
+            }
+            return saved.sessionId
+          },
+          async onPersistentSessionReady(sessionId) {
+            await deps.store.writeJson('scene-images/' + hash(String(input.chatId)) + '/agent.json', {
+              parentSessionId: input.sessionId, sessionId
+            })
+            record.traceSessionId = sessionId
+            await writeJob(path, record)
+          },
           selection: input.selection, system: input.adjustment ? SCENE_ADJUSTMENT_INSTRUCTION : SCENE_PLAN_INSTRUCTION, maxTokens: 4096, signal: controller.signal,
           messages: [{ role: 'user', content: [{ type: 'text', text: JSON.stringify(input.prepared.input) }] }],
           turnContext: '', tools: [input.adjustment ? SCENE_ADJUSTMENT_TOOL : SCENE_PLAN_TOOL],
