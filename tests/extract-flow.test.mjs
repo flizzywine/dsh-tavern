@@ -384,7 +384,7 @@ test('人物卡详情支持查看、绑定和解绑唯一世界书', () => {
   assert.match(dispatch, /case 'unbindWorldBook'/)
   assert.match(panel, /call\("getWorldBookBinding", \{ cardPath: cardPath \}\)/)
 	assert.match(panel, /rpcWithTimeout\("listWorldBooks", \{\}\)/)
-  assert.match(panel, /"人物卡自带世界书"/)
+  assert.match(panel, /ownWorldBookName \+ "（当前人物卡）"/)
   assert.match(panel, /call\("bindWorldBook", \{ cardPath: cardPath, source: source \}\)/)
   assert.match(panel, /call\("unbindWorldBook", \{ cardPath: cardPath \}\)/)
   assert.match(panel, /const hasWorldBookBinding = Boolean/)
