@@ -14,7 +14,6 @@ const names = [
   'candidate-script',
   'posture-settlement',
   'story-compaction',
-  'play-mode',
   'card-mode',
   'card-mode-greeting',
   'card-task-edit',
@@ -35,7 +34,7 @@ test('固定提示词从独立 Markdown 文件完整加载', () => {
   assert.match(prompt('script-story'), /Guide ＞ 剧本 ＞ 世界一致性 ＞ 本轮演出指引/)
   assert.match(prompt('candidate-script'), /tavern_read_script/)
   assert.match(prompt('candidate-script'), /tavern_point_script/)
-  assert.match(prompt('play-mode'), /本轮演出指引/)
+  assert.throws(() => prompt('play-mode'), /未知提示词/)
   assert.match(prompt('story-compaction'), /剧情记录压缩器/)
   assert.match(prompt('story-compaction'), /不续写剧情/)
   assert.match(prompt('story-compaction'), /角色所知、玩家所知与客观事实/)

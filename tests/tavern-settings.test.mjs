@@ -2,6 +2,17 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { applyTavernSettingsPatch, presentTavernSettings, resolveSystemPrompt } from '../tavern-plugin/lib/domain/tavern-settings.js'
+import { SYSTEM_PROMPT_NAMES, prompt } from '../tavern-plugin/lib/prompt-catalog.js'
+
+test('旧 play-mode 覆盖保留在数据中，但不再出现在可用提示词列表', () => {
+  const saved = { promptOverrides: { 'play-mode': '旧游玩指令', story: '自定义正文规则' } }
+  const before = JSON.stringify(saved)
+  const defaults = Object.fromEntries(SYSTEM_PROMPT_NAMES.map(name => [name, prompt(name)]))
+  const presented = presentTavernSettings(saved, defaults)
+  assert.ok(!presented.systemPrompts.some(item => item.name === 'play-mode'))
+  assert.equal(presented.storyPrompt, '自定义正文规则')
+  assert.equal(JSON.stringify(saved), before)
+})
 
 test('系统正文提示词默认使用内置内容，并可保存自定义覆盖', function () {
   const defaults = { story: '内置正文提示词' }

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { createForegroundOrchestrationStrategies } from '../tavern-plugin/lib/domain/foreground-orchestration-strategies.js'
+import { createForegroundOrchestrationStrategies, createNativePlayOrchestrationStrategy } from '../tavern-plugin/lib/domain/foreground-orchestration-strategies.js'
 import { ensureSessionStablePrefix, readSessionStablePrefix } from '../tavern-plugin/lib/domain/session-stable-prefix.js'
 
 function userMessage(text) {
@@ -110,14 +110,44 @@ test('两种策略分别投影模型请求且不改写 DSH 原请求', async () 
   assert.equal(compatProjected.messages[0].content[0].text, 'compat')
 })
 
-test('兼容策略清空系统提示，普通策略保留原生人格和卡片投影', async () => {
+test('兼容与普通游玩均清空独立系统提示，工具过滤不受影响', async () => {
   const run = strategies()
   const compatAssembly = await run.value.assembleSystemPrompt({ sections: [{}], contexts: [{}], tools: [{ name: 'bash' }] }, { sessionId: 'compat', chat: run.chats.get('compat') })
   assert.deepEqual(compatAssembly, { sections: [], contexts: [], tools: [] })
 
   const nativeAssembly = await run.value.assembleSystemPrompt({ sections: [], contexts: [], tools: [{ name: 'bash' }, { name: 'read' }] }, { sessionId: 'native', chat: run.chats.get('native') })
-  assert.deepEqual(nativeAssembly.sections.map(function (section) { return section.name }), ['tavern:mode-persona'])
+  assert.deepEqual(nativeAssembly.sections, [])
   assert.deepEqual(nativeAssembly.tools.map(function (tool) { return tool.name }), ['read'])
+})
+
+for (const mode of ['story', 'script']) {
+  test(`${mode} 不加载 play-mode，也不会回退到 DSH 默认人格`, async () => {
+    const strategy = createNativePlayOrchestrationStrategy({
+      modeFor: async () => mode,
+      visibleTools: async () => [],
+      modePrompt() { throw new Error('游玩不应再读取独立人格提示词') },
+      controlledToolNames: new Set()
+    })
+    const assembly = await strategy.assembleSystemPrompt({
+      sections: [{ name: 'persona', text: 'You are a helpful software engineer assistant.' }],
+      tools: []
+    }, { sessionId: 'existing-session' })
+    assert.deepEqual(assembly.sections, [])
+  })
+}
+
+test('游玩请求移除空 system 字段，不修改非空指令或原始请求', async () => {
+  const strategy = createNativePlayOrchestrationStrategy({
+    stagedRequests: new Map([['native', { turn: 1, step: 1, scope: 'foreground', snapshot: null }]])
+  })
+  const request = Object.freeze({ sessionId: 'native', system: '', messages: [] })
+  const projected = strategy.projectRequest(request)
+  assert.ok(projected)
+  assert.equal(Object.hasOwn(projected, 'system'), false)
+  assert.equal(request.system, '')
+  assert.equal(strategy.projectRequest(projected), null, 'redispatch cannot loop')
+  assert.equal(strategy.projectRequest({ sessionId: 'native', system: 'explicit instructions', messages: [] }), null)
+  assert.equal(strategy.projectRequest({ sessionId: 'native', purpose: 'compaction', system: '', messages: [] }), null)
 })
 
 test('卡片策略保留官方 Cordis 工具说明', async () => {
