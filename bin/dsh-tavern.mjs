@@ -24,6 +24,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseDocument } from 'yaml'
+import { dshCompatibilityNotice } from './dsh-compatibility.mjs'
 import { migrateLegacyTavernData, resolveTavernDataRoot } from '../tavern-plugin/lib/domain/tavern-data.js'
 import { ensureUserExtensions } from '../tavern-plugin/lib/domain/user-extensions.js'
 import { migrateSessionPrefixEvents } from './session-prefix-migration.mjs'
@@ -546,6 +547,7 @@ async function installProfile(host = 'cli') {
   requireCommand('pnpm', '请运行 npm install -g pnpm')
   verifySource()
   const dshVersion = extractDshVersion(runDsh(dsh, ['--version'], { capture: true, host }))
+  console.log(dshCompatibilityNotice(dshVersion))
 
   mkdirSync(PROFILE_DIR, { recursive: true })
   mkdirSync(LOG_DIR, { recursive: true })

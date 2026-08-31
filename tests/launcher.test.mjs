@@ -381,10 +381,10 @@ test('Tavern applies sidebar migrations before every service start', () => {
 test('installers accept the installed DSH host without pinning its release', () => {
   assert.match(windowsInstaller, /if \(\$InstallHost -eq 'cli' -and -not \(Test-Command 'pnpm'\)\)/)
   assert.doesNotMatch(windowsInstaller, /RequiredDshVersion|Test-DshVersion/)
-  assert.match(windowsInstaller, /@deepseek-ai\/dsh'/)
+  assert.match(windowsInstaller, /"@deepseek-ai\/dsh@\$AdaptedDshVersion"/)
   assert.match(unixInstaller, /if ! command -v pnpm/)
   assert.doesNotMatch(unixInstaller, /REQUIRED_DSH_VERSION|dsh_version_is_compatible/)
-  assert.match(unixInstaller, /"@deepseek-ai\/dsh"/)
+  assert.match(unixInstaller, /"@deepseek-ai\/dsh@\$\{ADAPTED_DSH_VERSION\}"/)
   assert.doesNotMatch(launcherSource, /MINIMUM_DSH_VERSION|supportsDshVersion|requireDshVersion/)
 })
 

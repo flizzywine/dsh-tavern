@@ -58,22 +58,6 @@ PATH=${RUNTIME_BIN}:${PATH}
 export PATH
 
 if [ "${INSTALL_HOST}" = "cli" ]; then
-  set --
-  if ! command -v pnpm >/dev/null 2>&1; then set -- "$@" pnpm; fi
-  if ! command -v dsh >/dev/null 2>&1; then
-    set -- "$@" "@deepseek-ai/dsh"
-  fi
-  if [ "$#" -gt 0 ]; then
-    echo "正在安装或升级：$*……"
-    mkdir -p "${RUNTIME_ROOT}"
-    npm install --global --prefix "${RUNTIME_ROOT}" "$@"
-  fi
-fi
-
-command -v pnpm >/dev/null 2>&1 || fail "未找到 pnpm。Desktop 版请从 DSH Desktop 托盘打开 DSH Terminal 后运行本命令。"
-command -v dsh >/dev/null 2>&1 || fail "未找到 DSH。Desktop 版请从 DSH Desktop 托盘打开 DSH Terminal 后运行本命令。"
-
-if [ "${INSTALL_HOST}" = "cli" ]; then
   DSH_TAVERN_BIN_DIR=${COMMAND_BIN}
   export DSH_TAVERN_BIN_DIR
 fi
@@ -156,6 +140,24 @@ else
 fi
 [ -n "${SOURCE_DIR}" ] || fail "下载内容不完整。"
 [ -f "${SOURCE_DIR}/package.json" ] || fail "下载内容不完整。"
+
+# Read the downloaded release's version, not the bootstrap script's or npm's latest.
+ADAPTED_DSH_VERSION=$(node "${SOURCE_DIR}/bin/dsh-compatibility.mjs" --version)
+node "${SOURCE_DIR}/bin/dsh-compatibility.mjs" --notice
+if [ "${INSTALL_HOST}" = "cli" ]; then
+  set --
+  if ! command -v pnpm >/dev/null 2>&1; then set -- "$@" pnpm; fi
+  if ! command -v dsh >/dev/null 2>&1; then
+    set -- "$@" "@deepseek-ai/dsh@${ADAPTED_DSH_VERSION}"
+  fi
+  if [ "$#" -gt 0 ]; then
+    echo "正在安装缺失依赖：$*……"
+    mkdir -p "${RUNTIME_ROOT}"
+    npm install --global --prefix "${RUNTIME_ROOT}" "$@"
+  fi
+fi
+command -v pnpm >/dev/null 2>&1 || fail "未找到 pnpm。Desktop 版请从 DSH Desktop 托盘打开 DSH Terminal 后运行本命令。"
+command -v dsh >/dev/null 2>&1 || fail "未找到 DSH。Desktop 版请从 DSH Desktop 托盘打开 DSH Terminal 后运行本命令。"
 
 if [ "${INSTALL_HOST}" = "cli" ] && [ -f "${APP_DIR}/bin/dsh-tavern.mjs" ]; then
   DSH_HOME=${DSH_ROOT} node "${APP_DIR}/bin/dsh-tavern.mjs" stop >/dev/null 2>&1 || true

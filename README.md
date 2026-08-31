@@ -1,5 +1,5 @@
 > [!IMPORTANT]
-> 当前适配 DSH `0.1.1-rc.2`；暂不支持最新的 DSH `0.1.2-alpha.1`。
+> 本版适配 DSH `0.1.2-alpha.2`。允许使用其他版本，但 DSH 更新较激进，可能导致本插件异常，请自行斟酌。
 
 # dsh-tavern
 
@@ -158,7 +158,7 @@ curl -fsSL https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@main/install.sh | D
 
 ### 命令行版
 
-适合希望通过浏览器访问、自己管理服务的用户。需要 Node.js 22.19 或更高版本。建议安装 Git：安装器会建立持久化稀疏缓存，首次只获取运行文件，后续只拉取变化内容，不下载 `docs/`、文档图片、`demo/`、`references/` 和测试文件；没有 Git 时自动回退到完整 ZIP。
+适合希望通过浏览器访问、自己管理服务的用户。需要 Node.js 22.19 或更高版本。未安装 DSH 时，安装器默认安装本版适配版本；已有 DSH 则保留原版本，仅提示兼容风险。建议安装 Git：安装器会建立持久化稀疏缓存，首次只获取运行文件，后续只拉取变化内容，不下载 `docs/`、文档图片、`demo/`、`references/` 和测试文件；没有 Git 时自动回退到完整 ZIP。
 
 #### Windows
 
@@ -187,10 +187,10 @@ curl -fsSL https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@main/install.sh | s
 1. 在 GitHub 项目页点击 **Code → Download ZIP**，或直接下载 [`main.zip`](https://github.com/flizzywine/dsh-tavern/archive/refs/heads/main.zip)；
 2. 解压后进入 `dsh-tavern-main` 文件夹；
 3. 在这个文件夹中打开 PowerShell（Windows）或终端（macOS / Linux），确认当前目录可以看到 `package.json`；
-4. 如果尚未安装 `pnpm` 或 DSH，先运行：
+4. 如果尚未安装 `pnpm`，先运行 `npm install -g pnpm`。如果尚未安装 DSH，再运行（从本版配置读取适配版本）：
 
 ```bash
-npm install -g pnpm @deepseek-ai/dsh
+npm install -g "@deepseek-ai/dsh@$(node bin/dsh-compatibility.mjs --version)"
 ```
 
 5. 命令行版安装并启动：

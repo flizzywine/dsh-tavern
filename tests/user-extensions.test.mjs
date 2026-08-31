@@ -80,6 +80,9 @@ test('实际 Unix 安装脚本更新程序两次，用户工具、清单和 Skil
     await mkdir(path.dirname(path.join(source, file)), { recursive: true })
     await writeFile(path.join(source, file), '')
   }
+  for (const file of ['bin/dsh-compatibility.mjs', 'config/dsh-compatibility.json']) {
+    await writeFile(path.join(source, file), await readFile(new URL('../' + file, import.meta.url)))
+  }
   const git = (...args) => execFileSync('git', args, { cwd: source, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
   git('init', '-b', 'main')
   git('config', 'user.email', 'test@example.com')

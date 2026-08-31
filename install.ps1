@@ -64,22 +64,6 @@ try {
   # Prefer the DSH/pnpm shims already installed in Tavern's managed runtime before
   # deciding that either package is missing and downloading it again.
   $env:Path = "$RuntimeRoot;$env:Path"
-  $MissingPackages = @()
-  if ($InstallHost -eq 'cli' -and -not (Test-Command 'pnpm')) { $MissingPackages += 'pnpm' }
-  $DshCommand = Resolve-Command 'dsh'
-  if ($InstallHost -eq 'cli' -and $null -eq $DshCommand) {
-    $MissingPackages += '@deepseek-ai/dsh'
-  }
-  if ($MissingPackages.Count -gt 0) {
-    Write-Host ("正在安装或升级：" + ($MissingPackages -join '、') + '……')
-    New-Item -ItemType Directory -Force -Path $RuntimeRoot | Out-Null
-    & $NpmCommand install --global --prefix $RuntimeRoot @MissingPackages
-    Assert-LastCommand 'pnpm 或 DeepSeek Harness 安装失败。'
-  }
-  $PnpmCommand = Resolve-Command 'pnpm'
-  if ($null -eq $PnpmCommand) { throw '未找到 pnpm。Desktop 版请从 DSH Desktop 托盘打开 DSH Terminal 后运行本命令。' }
-  $DshCommand = Resolve-Command 'dsh'
-  if ($null -eq $DshCommand) { throw '未找到 DSH。Desktop 版请从 DSH Desktop 托盘打开 DSH Terminal 后运行本命令。' }
 
   if ($InstallHost -eq 'cli') {
     $env:DSH_TAVERN_BIN_DIR = $CommandBin
@@ -184,6 +168,30 @@ try {
   if (-not (Test-Path (Join-Path $SourceDir.FullName 'package.json'))) {
     throw '下载内容不完整。'
   }
+
+  # Read compatibility from the downloaded release before installing missing tools.
+  $CompatibilityScript = Join-Path $SourceDir.FullName 'bin\dsh-compatibility.mjs'
+  $AdaptedDshVersion = (& node $CompatibilityScript --version)
+  Assert-LastCommand '读取 DSH 适配版本失败。'
+  $AdaptedDshVersion = $AdaptedDshVersion.Trim()
+  & node $CompatibilityScript --notice
+  Assert-LastCommand '读取 DSH 兼容提示失败。'
+  $MissingPackages = @()
+  if ($InstallHost -eq 'cli' -and -not (Test-Command 'pnpm')) { $MissingPackages += 'pnpm' }
+  $DshCommand = Resolve-Command 'dsh'
+  if ($InstallHost -eq 'cli' -and $null -eq $DshCommand) {
+    $MissingPackages += "@deepseek-ai/dsh@$AdaptedDshVersion"
+  }
+  if ($MissingPackages.Count -gt 0) {
+    Write-Host ("正在安装缺失依赖：" + ($MissingPackages -join '、') + '……')
+    New-Item -ItemType Directory -Force -Path $RuntimeRoot | Out-Null
+    & $NpmCommand install --global --prefix $RuntimeRoot @MissingPackages
+    Assert-LastCommand 'pnpm 或 DeepSeek Harness 安装失败。'
+  }
+  $PnpmCommand = Resolve-Command 'pnpm'
+  if ($null -eq $PnpmCommand) { throw '未找到 pnpm。Desktop 版请从 DSH Desktop 托盘打开 DSH Terminal 后运行本命令。' }
+  $DshCommand = Resolve-Command 'dsh'
+  if ($null -eq $DshCommand) { throw '未找到 DSH。Desktop 版请从 DSH Desktop 托盘打开 DSH Terminal 后运行本命令。' }
 
   $OldLauncher = Join-Path $AppDir 'bin\dsh-tavern.mjs'
   if ($InstallHost -eq 'cli' -and (Test-Path $OldLauncher)) {
