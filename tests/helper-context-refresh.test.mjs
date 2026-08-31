@@ -69,14 +69,15 @@ function mountFrame() {
     effects.forEach(run => run())
     return [...attached.values()]
   }
-  return { client, posts, render, message(entry, type) {
-    for (const listener of listeners) listener({ source: entry.node.contentWindow, data: { type, token: entry.element.props.key } })
+  return { client, posts, render, message(entry, type, source = entry.node.contentWindow) {
+    for (const listener of listeners) listener({ source, data: { type, token: entry.element.props.key } })
   } }
 }
 
 test('persistent iframe keeps its incremental baseline through rerenders and consecutive updates', () => {
   const host = mountFrame()
   const [initial] = host.render(context(1, '未系'))
+  host.message(initial, 'dsh-tavern-frame-ready')
   const [second] = host.render(context(2, '已系'))
   host.render(context(2, '已系')) // unrelated parent rerender
   const [third] = host.render(context(3, '未系'))
@@ -93,6 +94,7 @@ test('persistent iframe keeps its incremental baseline through rerenders and con
 test('replacement iframe owns its baseline and detached iframe cannot request resync', () => {
   const host = mountFrame()
   const [old] = host.render(context(1, '未系'))
+  host.message(old, 'dsh-tavern-frame-ready')
   host.render(context(2, '已系'), '<p>new template</p>')
   const [, pending] = host.render(context(2, '已系'), '<p>new template</p>')
   host.message(pending, 'dsh-tavern-frame-ready')
@@ -103,6 +105,67 @@ test('replacement iframe owns its baseline and detached iframe cannot request re
   const count = host.posts.length
   host.message(old, 'dsh-tavern-helper-context-request')
   assert.equal(host.posts.length, count)
+})
+
+test('loading iframe defers updates without advancing its baseline and receives only the latest state on ready', async () => {
+  const host = mountFrame()
+  const before = context(79, '未系')
+  const [frame] = host.render(before)
+  host.render(context(80, '调整中'))
+  host.render(context(81, '已系'))
+  host.message(frame, 'dsh-tavern-frame-ready', {}) // wrong sender cannot mark the frame ready
+  assert.equal(host.posts.length, 0, 'nothing may be sent before the receiver is ready')
+
+  // Install the actual Helper listener late, just as with a slow-loading iframe.
+  const shim = frame.element.props.srcDoc.match(/<script data-dsh-tavern-helper>([\s\S]*?)<\/script>/)[1]
+  const handlers = {}
+  const requests = []
+  const parent = { postMessage(data) { requests.push(data) } }
+  const sandbox = { parent, console, structuredClone, addEventListener(type, run) { handlers[type] = run } }
+  sandbox.window = sandbox
+  vm.runInNewContext(shim.replace(/import\("[^"]+"\)/, 'Promise.resolve({})'), sandbox)
+  let displayed = '未系'
+  sandbox.eventOn(sandbox.Mvu.events.VARIABLE_UPDATE_ENDED, () => {
+    displayed = sandbox.Mvu.getMvuData({ type: 'message', message_id: 'latest' }).stat_data.安全带
+  })
+  host.message(frame, 'dsh-tavern-frame-ready')
+  assert.equal(host.posts.length, 1)
+  assert.equal(host.posts[0].update.baseRevision, 79)
+  assert.equal(host.posts[0].update.stateRevision, 81)
+  handlers.message({ source: parent, data: host.posts[0] })
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(displayed, '已系', 'the real MVU event listener must render the latest value')
+  assert.equal(requests.some(item => item.type === 'dsh-tavern-helper-context-request'), false)
+
+  host.message(frame, 'dsh-tavern-frame-ready')
+  host.render(context(81, '已系'))
+  assert.equal(host.posts.length, 1, 'duplicate ready/rerender must not replay updates')
+  host.render(context(82, '未系'))
+  assert.equal(host.posts[1].update.baseRevision, 81)
+})
+
+test('replacement iframe waits for its own ready and catches up updates received while loading', () => {
+  const host = mountFrame()
+  const [old] = host.render(context(1, '未系'))
+  host.message(old, 'dsh-tavern-frame-ready')
+  host.render(context(2, '调整中'), '<p>new template</p>')
+  const [, pending] = host.render(context(2, '调整中'), '<p>new template</p>')
+  host.render(context(3, '已系'), '<p>new template</p>')
+  assert.equal(host.posts.some(item => item.token === pending.element.props.key), false)
+  host.message(pending, 'dsh-tavern-frame-ready')
+  const delivered = host.posts.filter(item => item.token === pending.element.props.key)
+  assert.equal(delivered.length, 1)
+  assert.equal(delivered[0].update.baseRevision, 2)
+  assert.equal(delivered[0].update.stateRevision, 3)
+  const [current] = host.render(context(3, '已系'), '<p>new template</p>')
+  assert.equal(current.node, pending.node)
+  const count = host.posts.length
+  host.message(old, 'dsh-tavern-frame-ready')
+  host.message(old, 'dsh-tavern-helper-context-request')
+  host.message(current, 'dsh-tavern-frame-ready')
+  assert.equal(host.posts.length, count)
+  host.render(context(4, '未系'), '<p>new template</p>')
+  assert.equal(host.posts.at(-1).update.baseRevision, 3)
 })
 
 test('snapshot recovery refreshes event-driven MVU view after installing state, including rollback', async () => {

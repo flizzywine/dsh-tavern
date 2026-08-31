@@ -59,18 +59,17 @@
 
 本样本依赖 DSH 提供的官方 MVU 和后台工具调用；导出为 V3 不等于已验证在原生 SillyTavern 中独立运行。原生酒馆仍需 MVU/Helper 安装与额外模型配置，本轮不宣称跨宿主验证完成。
 
-### 自动刷新定向诊断（临时，alpha）
+### iframe 就绪前丢更新：定位与修复（alpha）
 
-用户再次复现“后台已更新，右侧需手动刷新”，因此此前的回退验证不构成连续结算验收。当前只增加诊断，不修改事件去重和同步决策；定位完成后删除这些临时采样点。
+用户再次复现“后台已更新，右侧需手动刷新”，因此此前的回退验证不构成连续结算验收。临时定向诊断位于历史提交 `6c408e3`；本次定位完成后已删除采样点、诊断接口及其专用测试，保留本地历史日志，不改变通知去重规则。
 
-- 本地日志：`~/.dsh/logs/tavern.log`，统一标记 `[DEBUG-mvu-refresh-v1]`。不进入聊天历史或模型上下文，不记录正文、变量值或错误全文。
-- 后台：`server-publish` / `server-dedup` 记录通知发出或被去重时读取的 Chat revision；`server-view` 记录实际返回前端的 Helper revision。订阅/退订也有记录。`diagnosticRevision` 仅供观察，不参与去重。
-- 前端：`client-sse` 表示收到通知；`client-view` 表示取到数据。`pageId` 区分页面，`sessionId` 区分对话；重新加载后出现新 pageId 可确认采样版前端已经加载。
-- 状态 iframe：`frame-effect` / `frame-send` / `frame-noop` 记录同步决策；`frame-ready` / `frame-resync` 记录就绪与补发请求。`frame-receive` / `frame-reject` / `frame-applied` 记录接收、版本拒绝与安装。
-- `frame-event-start` / `frame-event-end` 带监听器数量；`frame-event-error` 仅记录出错事实。`frame-dom` 只记录 DOM 变更条数。回调完成或 DOM 变化并不单独证明显示值正确，仍需对照复现画面。
-- 前端每秒最多上报一批，待发队列最多 100 条；请求最多等待 3 秒，失败仅回落到浏览器控制台，不重试、不阻塞游玩。高频变更可能丢弃较旧采样，不能把单条日志缺失直接判定为代码没执行。
-- 测试时先重启 alpha 并刷新页面加载诊断版；故障再次出现后不要刷新或切换对话，直接反馈时间。读取现有日志即可，不必再次触发模型调用。
-- 采样版验证：全量 851 项测试通过；重启后实际页面的 `client-sse`、`client-view`、`frame-send`、`frame-receive`、`frame-applied` 与 `frame-dom` 已进入本地日志。此次仅验证诊断通路，未自动发送新模型请求，也不据此宣称自动刷新故障已修复。
+- 2026-08-31 的实际故障日志：13:57:35.868 新 iframe 使用 revision 79；13:57:36.026 Host 发送 revision 81 并推进发送基线；13:57:36.343 iframe 才报告 ready。随后 Host 误判双方均为 81，不再补发，iframe 实际仍停留在 79。
+- 根因是 `contentWindow` 已存在不代表 Helper 消息监听器已安装；就绪前的消息可能丢失。后台保存与前端取数在这次日志中均成功。
+- 按 iframe token 记录就绪状态。就绪前只保留最新 Context，不发送、不推进增量基线；验证来源的 ready 到达后立即补发最新状态。真实卸载清理就绪记录，新文档独立等待，不用轮询或强制重建规避。
+- 新回归在修复前失败：就绪前错误发送 2 次；修复后只在 ready 时发送 1 次最新状态。使用真实 Helper shim 验证事件监听器读到最新变量，并覆盖重复 ready、伪造来源、连续更新、替换文档与旧 iframe 隔离。
+- 只读重放本次测试 Chat 的 revision 79 → 81，连续 3 次通过；iframe 恢复后的完整 Context 与 revision 81 一致。没有触发模型请求或修改对话数据。
+- 全量 849 项通过（原 851 项，移除 4 项临时诊断测试，新增 2 项回归），`git diff --check` 通过。仅修 alpha，main 未修改。
+- 以上是组件、真实 Helper 与存储快照重放验证；仍需用户在加载新版前端后确认实际新一轮结算的自动刷新效果，不将自动化结果冒充完整游玩验收。
 
 ## 后续 Skill 应保留的问题
 
