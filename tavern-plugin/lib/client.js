@@ -3050,8 +3050,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					const attributes = element.hasAttribute("data-composer-placeholder") ? [""] : ["data-placeholder", "placeholder", "aria-label"];
 					for (const attribute of attributes) {
 						const current = read(element, attribute);
-						// Change only the native home hint, never workspace/error prompts or editor content.
-						if (!current || current === text || !/^(描述你想要构建的内容|Describe what you want to build)/.test(current)) continue;
+						// Cover both home states; leave errors, workspace controls and editor content untouched.
+						if (!current || current === text || !/^(描述你想要构建的内容|Describe what you want to build|选择一个工作区开始$|Choose a workspace to start$)/.test(current)) continue;
 						if (!changed.has(element)) changed.set(element, new Map());
 						changed.get(element).set(attribute, current);
 						write(element, attribute, text);

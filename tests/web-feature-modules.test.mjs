@@ -145,8 +145,12 @@ test('酒馆 Shell Feature module 封装工作区入口并只暴露注册 interf
   assert.deepEqual(injectedSlots, ['sidebar.workspaces'])
 })
 
-test('首页默认语仅替换空输入提示，支持延迟挂载、原生重绘、切换对话与卸载恢复', () => {
-  const native = '描述你想要构建的内容… / 调用指令 @ 文件或对话'
+for (const native of [
+  '描述你想要构建的内容… / 调用指令 @ 文件或对话',
+  'Describe what you want to build…',
+  '选择一个工作区开始',
+  'Choose a workspace to start'
+]) test(`首页默认语替换「${native}」，支持延迟挂载、原生重绘、切换对话与卸载恢复`, () => {
   const expected = '选择人物卡后开始游戏，或者在卡片工作台中编辑人物卡'
   function element(attributes, textContent = '') {
     return { attributes: { ...attributes }, textContent,
