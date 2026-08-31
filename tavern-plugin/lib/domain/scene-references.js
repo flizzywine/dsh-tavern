@@ -9,12 +9,12 @@ const maxFragmentsPerRead = 3
 const markers = /^(【故事设定 · 人物卡】|名字:|设定:|主要人物性格:|开场情境:|【文风示例】|【常驻世界书】)/gm
 const allowed = new Set(['设定:', '开场情境:', '【常驻世界书】'])
 
-function contains(text, query) {
+function contains(text, query, caseSensitive = false) {
   const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   // Latin names are words, not fragments of other names. CJK names normally
   // appear without separators, so use literal matching there.
   return /[\u3400-\u9fff]/u.test(query) ? text.includes(query)
-    : new RegExp('(?<![\\p{L}\\p{N}_])' + escaped + '(?![\\p{L}\\p{N}_])', 'iu').test(text)
+    : new RegExp('(?<![\\p{L}\\p{N}_])' + escaped + '(?![\\p{L}\\p{N}_])', caseSensitive ? 'u' : 'iu').test(text)
 }
 
 function project(text) {
@@ -26,9 +26,23 @@ function project(text) {
     .replace(/<[^>]+>/g, '').trim()
 }
 
+function conditionMatches(entry, currentText) {
+  const condition = entry.conditions
+  if (entry.constant || !condition) return true
+  if (condition.unsupported) return false
+  const text = condition.caseSensitive ? currentText : currentText.toLocaleLowerCase()
+  const values = condition.keys.map(key => {
+    const needle = condition.caseSensitive ? key : key.toLocaleLowerCase()
+    return condition.wholeWords ? contains(text, needle, condition.caseSensitive) : text.includes(needle)
+  })
+  if (condition.logic === 1) return !values.every(Boolean)
+  if (condition.logic === 2) return !values.some(Boolean)
+  return condition.logic === 3 ? values.every(Boolean) : values.some(Boolean)
+}
+
 /** A read-only, bounded view of an already frozen play snapshot. Never opens
  * current card/worldbook files or exposes a catalogue of unrelated identities. */
-export function createSceneReferences({ snapshot, target, sources, people = [] }) {
+export function createSceneReferences({ snapshot, worldbook, target, sources, people = [] }) {
   const raw = typeof snapshot?.cardContextSnapshot === 'string' ? snapshot.cardContextSnapshot : ''
   const version = Number(snapshot?.cardContextSnapshotVersion)
   const sections = [], audit = [], returned = new Map()
@@ -43,11 +57,27 @@ export function createSceneReferences({ snapshot, target, sources, people = [] }
       const match = matches[index], label = match[1]
       const body = raw.slice(match.index + label.length, matches[index + 1]?.index ?? raw.length).trim()
       if (label === '名字:') name = body.split('\n')[0].trim().slice(0, 100)
-      if (allowed.has(label)) sections.push({ label, text: project(body) })
+      // Prefer per-entry frozen worldbook data; do not also send its merged
+      // constant-book copy from the older card prefix.
+      if (allowed.has(label) && !(worldbook?.entries && label === '【常驻世界书】')) sections.push({ label, text: project(body) })
     }
   }
+  if (worldbook?.unavailable) audit.push({ reason: worldbook.unavailable })
+  if (Array.isArray(worldbook?.entries)) {
+    const currentText = sources.filter(source => ['target', 'posture'].includes(source.id)).map(source => source.text).join('\n')
+    let excluded = 0
+    for (const entry of worldbook.entries) {
+      if (!conditionMatches(entry, currentText)) { excluded++; continue }
+      sections.push({ label: entry.title || entry.ref, text: project(entry.text),
+      keys: entry.keys, origin: { kind: 'worldbook-snapshot', snapshotVersion: worldbook.version,
+        snapshotDigest: worldbook.digest, entryRef: entry.ref, constant: entry.constant } })
+    }
+    if (excluded) audit.push({ reason: 'worldbook-condition-not-confirmed', count: excluded })
+    if (worldbook.omittedCount || worldbook.omitted?.length) audit.push({ reason: 'worldbook-capture-budget', count: worldbook.omittedCount || worldbook.omitted.length })
+  }
   const available = remaining >= 100 && sections.some(section => section.text)
-  const metadata = available ? { available: true, snapshotVersion: version, snapshotDigest: hash,
+  const metadata = available ? { available: true, ...(raw ? { snapshotVersion: version, snapshotDigest: hash } : {}),
+    ...(worldbook?.digest ? { worldbookDigest: worldbook.digest } : {}),
     ...(name ? { cardName: name } : {}), maxReads, maxFragmentsPerRead, maxCharacters: remaining } : { available: false }
   const anchors = [...sources.map(item => item.text), ...people.map(person => person.name), name]
   const tool = { name: 'read_scene_reference',
@@ -70,16 +100,19 @@ export function createSceneReferences({ snapshot, target, sources, people = [] }
         if (!paragraph || /(?:\b(?:stat_data|delta_data|display_data|JSONPatch|UpdateVariable|mvu_submit_update)\b|^\s*\[mvu_update\])/i.test(paragraph)) continue
         const matched = contains(paragraph, query)
         // A card's description may use pronouns rather than repeat its name.
-        if (!matched && !(query === name && section.label === '设定:' && paragraphIndex === 0)) continue
+        const entryMatch = section.origin && (contains(section.label, query) || (section.keys || []).some(key => key.toLocaleLowerCase() === query.toLocaleLowerCase()))
+        if (!matched && !(paragraphIndex === 0 && (entryMatch || query === name && section.label === '设定:'))) continue
         const position = Math.max(0, paragraph.toLocaleLowerCase().indexOf(query.toLocaleLowerCase()))
         const start = Math.max(0, position - 160)
-        const text = paragraph.slice(start, Math.min(paragraph.length, start + 1200))
-        const id = 'reference-' + digest([hash, sectionIndex, paragraphIndex, start, text].join('\n')).slice(0, 24)
+        const header = section.origin && section.label ? section.label + '\n' : ''
+        const excerpt = paragraph.slice(start, Math.min(paragraph.length, start + 1200 - header.length))
+        const text = header + excerpt
+        const id = 'reference-' + digest([section.origin?.snapshotDigest || hash, sectionIndex, paragraphIndex, start, text].join('\n')).slice(0, 24)
         if (returned.has(id)) continue
         if (text.length + 2 > budget) { audit.push({ reason: 'reference-budget', section: section.label, characters: text.length }); continue }
         const source = { id, turn: target.turn, text,
-          origin: { kind: 'play-card-snapshot', snapshotVersion: version, snapshotDigest: hash, section: section.label,
-            excerptDigest: digest(text), truncated: text.length !== paragraph.length } }
+          origin: { ...(section.origin || { kind: 'play-card-snapshot', snapshotVersion: version, snapshotDigest: hash }), section: section.label,
+            excerptDigest: digest(text), truncated: excerpt.length !== paragraph.length } }
         returned.set(id, source)
         output.push(source)
         budget -= text.length + 2

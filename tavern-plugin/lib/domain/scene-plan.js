@@ -93,7 +93,7 @@ export function createScenePlans({ store }) {
       const value = text(raw.text, field), tags = text(raw.tags, field + '.tags', 1200)
       assert(Boolean(value) === Boolean(tags), field + ' 的 text 和 tags 须同时为空或非空')
       const refs = evidence(raw.evidence, owner !== 'scene' || field !== 'composition')
-      assert(owner === 'scene' || field === 'appearance' || refs.some(ref => ref.origin?.kind !== 'play-card-snapshot'),
+      assert(owner === 'scene' || field === 'appearance' || refs.some(ref => !['play-card-snapshot', 'worldbook-snapshot'].includes(ref.origin?.kind)),
         '当轮衣着、动作、表情、站位不能只引用初始设定；请提供本轮或期间剧情依据')
       // Same source meaning preserves the existing expression version, rather
       // than accepting pointless full retranslation as a meaningful update.

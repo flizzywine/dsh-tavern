@@ -10,6 +10,7 @@ import { createBackgroundAgentRunner } from '../../tavern-plugin/lib/background-
 import { createSceneIllustrations, IMAGE_CREDENTIAL } from '../../tavern-plugin/lib/domain/scene-illustration.js'
 import { createProfileDataStore } from '../../tavern-plugin/lib/profile-data-store.js'
 import { imageZip } from './scene-image-zip.mjs'
+import { createSceneWorldbooks, bindSceneWorldbook, sceneWorldbookBinding } from '../../tavern-plugin/lib/domain/scene-worldbook.js'
 
 export async function createSceneImageNativeRuntime(bootPath) {
   const bootUrl = pathToFileURL(bootPath)
@@ -88,8 +89,11 @@ export async function createSceneImageNativeRuntime(bootPath) {
   })
   await new Promise(resolve => imageServer.listen(0, '127.0.0.1', resolve))
   let failSave = false
+  const store = createProfileDataStore({ dataRoot: root })
+  const worldbooks = createSceneWorldbooks({ store })
   const deps = {
-    store: createProfileDataStore({ dataRoot: root }), chatForSession: async () => structuredClone(chat),
+    store, chatForSession: async () => structuredClone(chat),
+    worldbookAtTarget: (chat, target) => worldbooks.read(sceneWorldbookBinding(chat, target)),
     selection: () => ({ provider: 'scene-fixture', model: 'fixture-text' }),
     credentials: () => ({ resolve: async ref => ({ value: keys.get(ref) }), set: async (ref, value) => { keys.set(ref, value) } }),
     attachments: () => ({
@@ -107,6 +111,11 @@ export async function createSceneImageNativeRuntime(bootPath) {
     failNextSave() { failSave = true },
     holdNextImage() { holdNext = true },
     lookupReferences(query) { referenceQuery = query },
+    async archiveWorldbook(worldBook, turn = 1) {
+      const ref = await worldbooks.capture({ worldBook, chat, card: { name: '林岚' } })
+      bindSceneWorldbook(chat.messages.find(message => message.role === 'assistant' && message.turn === turn), ref)
+      return ref
+    },
     async restart() { await service.dispose(); await runner.dispose(); runner = createBackgroundAgentRunner(runnerOptions); service = createSceneIllustrations(deps) },
     async dispose() { await service.dispose(); await runner.dispose(); await parent.dispose(); await ctx.fiber.dispose(); await new Promise(resolve => imageServer.close(resolve)); await rm(root, { recursive: true, force: true }) }
   }

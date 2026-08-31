@@ -3,6 +3,7 @@ import { cardOpeningChoices, resolveCardOpening } from './card-openings.js'
 import { projectAgentContent, projectOpeningCommit } from './runtime-content-projection.js'
 import { OFFICIAL_MVU_VERSION } from './official-mvu-assets.js'
 import { createScriptContinuity } from './script-continuity.js'
+import { bindSceneWorldbook } from './scene-worldbook.js'
 
 function str(value) { return value === undefined || value === null ? '' : String(value) }
 function groupOfMode(mode) { return !mode || mode === 'story' || mode === 'script' ? 'play' : 'card' }
@@ -136,7 +137,7 @@ export function createConversationInitialization(options) {
       chat.scriptState = scriptContinuity.startAligned(script, greeting, card.script_start)
     }
     if (typeof sessionId === 'string') chat.sessionId = sessionId
-    if (greeting !== '') chat.messages.push(Object.assign({
+    if (greeting !== '') chat.messages.push(bindSceneWorldbook(Object.assign({
       role: 'assistant',
       text: greeting,
       sourceText: openingSourceText,
@@ -157,7 +158,8 @@ export function createConversationInitialization(options) {
         diagnostics: [],
         events: []
       }
-    }))
+    }), chat.sceneOpeningWorldbook))
+    delete chat.sceneOpeningWorldbook
     const hasSession = typeof sessionId === 'string' && sessionId !== ''
     await chats.publish(chat)
     if (hasSession) await appendNativeOpening(sessionId, chat, card, openingTarget)

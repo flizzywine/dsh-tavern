@@ -215,7 +215,8 @@ export function createSceneIllustrations(deps) {
         prepared.input = { ...prepared.input, sources: material.sources, gapComplete: prepared.gapComplete, budget: { kind: 'characters-not-tokens', maxSourceCharacters: 12000, omitted: material.omitted } }
         const latest = [...(chat.messages || [])].reverse().find(item => item.role === 'assistant')
         const latestTurn = Number(latest?.turn || (latest?.greeting ? 1 : 0))
-        references = createSceneReferences({ snapshot: historical || (latestTurn === target.turn ? chat : null),
+        const worldbook = !prepared.saved ? await deps.worldbookAtTarget?.(chat, target) : null
+        references = createSceneReferences({ snapshot: historical || (latestTurn === target.turn ? chat : null), worldbook,
           target, sources: material.sources, people: prepared.input.characters })
         if (references.metadata.available) prepared.input.references = references.metadata
         if (prepared.saved) prepared.saved = await plans.snapshot(chat.id, prepared.saved)

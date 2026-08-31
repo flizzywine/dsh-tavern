@@ -58,6 +58,23 @@ test('mode selection preserves legacy aliases, script alignment and compatibilit
   assert.equal((await restricted.make().start({ ...restricted.input, requestMode: 'sillytavern' })).requestMode, 'dsh')
 })
 
+test('opening binds a pre-publication worldbook snapshot without leaving temporary chat metadata', async () => {
+  let captured = 0
+  const h = initializationFixture({ captureSceneWorldbook: async (chat, card, worldBook) => {
+    assert.equal(chat.messages.length, 0)
+    assert.equal(card.name, '测试角色')
+    assert.ok(worldBook.view.entries.some(entry => entry.constant === false))
+    captured++
+    return { version: 1, digest: 'c'.repeat(64) }
+  } })
+  const chat = await h.make().start(h.input)
+  assert.equal(captured, 1)
+  assert.equal(chat.messages[0].sceneWorldbook.digest, 'c'.repeat(64))
+  assert.equal(chat.messages[0].sceneWorldbook.bodyDigests.length, 1)
+  assert.equal(Object.hasOwn(chat, 'sceneOpeningWorldbook'), false)
+  assert.equal(h.writes[0].chat?.sceneOpeningWorldbook, undefined)
+})
+
 test('new MVU opening is pending for the official runtime, with independent empty variables per swipe', async () => {
   const h = initializationFixture()
   h.state.extensions = { mvuResources: [{ enabled: true }] }

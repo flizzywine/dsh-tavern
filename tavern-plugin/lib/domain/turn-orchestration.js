@@ -1,6 +1,7 @@
 import { rememberTavernResources } from './workspace-resources.js'
 import { projectBackgroundInput } from './runtime-content-projection.js'
 import { lastTavernHelperVariables } from './tavern-helper-context.js'
+import { bindSceneWorldbook } from './scene-worldbook.js'
 
 export const cordisToolNames = Object.freeze([
   'cordis_inspect_list',
@@ -334,6 +335,7 @@ export function createTurnOrchestrator(options) {
     // 世界书关键词匹配在上一轮正文提交后本地完成。正文准备只读取已经
     // 保存好的下一轮上下文，玩家输入和候选项选择都不能在此重新触发匹配。
     const worldBookContext = str(chat.preparedWorldBookContext).trim()
+    const sceneWorldbook = typeof options.captureSceneWorldbook === 'function' ? await options.captureSceneWorldbook(chat, card) : null
     const plan = await planner.plan({ purpose: 'body', card, chat, userText: runtimeUserText, sessionId: input.sessionId, nativeTurn: turn, scriptReference, worldBookContext })
     const frame = frameBuilder.build({
       chatId: chat.id,
@@ -342,7 +344,7 @@ export function createTurnOrchestrator(options) {
       operationId: foregroundOperation.operationId,
       turn,
       inputs: foregroundFrameInputs(plan, userText, runtimeUserText, chat.runtimePresetSnapshot, chat),
-      source: frameSource(chat, card, foregroundOperation)
+      source: { ...frameSource(chat, card, foregroundOperation), ...(sceneWorldbook ? { sceneWorldbook } : {}) }
     })
     rememberFrame(chat, frame)
     chatChanged = true
@@ -369,6 +371,10 @@ export function createTurnOrchestrator(options) {
     }
     const begun = timeline.apply({ chat, intent: { kind: 'body.begin', turn, userText } })
     chat = begun.chat
+    const operation = chat.timeline.operations[begun.value.operationId]
+    if (operation && !Object.hasOwn(operation, 'sceneWorldbook') && typeof options.captureSceneWorldbook === 'function') {
+      operation.sceneWorldbook = await options.captureSceneWorldbook(chat, await store.readCard(cardPathOf(chat)))
+    }
     chat.foregroundError = null
     rememberRuntimeInput(chat, turn, userText, userText)
     await store.writeChat(chat)
@@ -570,6 +576,7 @@ export function createTurnOrchestrator(options) {
           variables: [clone(previousMvuVariables || {})],
           mvu: { pending: true, modified: false, diagnostics: [], events: [] }
         })
+        bindSceneWorldbook(assistantMessage, rememberedFrame(chat, operation.id)?.source?.sceneWorldbook || operation.sceneWorldbook)
         draft.messages.push(assistantMessage)
         draft.foregroundError = null
         draft.presentationWarnings = Array.isArray(reply.warnings) ? clone(reply.warnings) : []

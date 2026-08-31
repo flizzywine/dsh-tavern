@@ -36,6 +36,35 @@ test('原生 DSH 生图 Agent 按需读历史设定、引用片段，前台不�
   assert.equal(runtime.parent.agent.session.events.length, before)
 })
 
+test('非恒定世界书归档跨重启按正文读取，真实 DSH 生图请求不借用后来编辑的内容', { skip: !process.env.DSH_BOOT_MODULE }, async t => {
+  const runtime = await createSceneImageNativeRuntime(process.env.DSH_BOOT_MODULE)
+  t.after(() => runtime.dispose())
+  runtime.chat.messages[0].swipes[0] = '林岚站在窗边看雨。'
+  const book = { view: { entries: [{ ref: 'entry:hero', title: '林岚', content: '林岚留着黑色短发。', constant: false }] } }
+  const ref = await runtime.archiveWorldbook(book)
+  book.view.entries[0].content = '林岚改为未来红发。'
+  runtime.lookupReferences('林岚')
+  const before = runtime.parent.agent.session.events.length
+  await runtime.restart()
+  const target = await runtime.service.status('scene-parent', 1)
+  await runtime.service.start('scene-parent', 1, target.key)
+  let result
+  for (let index = 0; index < 300; index++) {
+    result = await runtime.service.status('scene-parent', 1)
+    if (result.status !== 'running') break
+    await new Promise(resolve => setTimeout(resolve, 20))
+  }
+  assert.equal(result.status, 'succeeded', result.error)
+  assert.equal(runtime.requests.length, 3)
+  assert.equal(runtime.imageRequests.length, 1)
+  assert.doesNotMatch(JSON.stringify(runtime.requests[0]), /黑色短发|entry:hero/)
+  assert.match(JSON.stringify(runtime.requests[1]), /worldbook-snapshot/)
+  assert.match(JSON.stringify(runtime.requests[1]), new RegExp(ref.digest))
+  assert.doesNotMatch(JSON.stringify(runtime.requests), /未来红发/)
+  assert.match(runtime.imageRequests[0].prompt, /short black hair/)
+  assert.equal(runtime.parent.agent.session.events.length, before)
+})
+
 test('九渠道正在等待 HTTP 时均可取消；关开关后仍可取消，重启不重发', { skip: !process.env.DSH_BOOT_MODULE }, async t => {
   const runtime = await createSceneImageNativeRuntime(process.env.DSH_BOOT_MODULE)
   t.after(() => runtime.dispose())

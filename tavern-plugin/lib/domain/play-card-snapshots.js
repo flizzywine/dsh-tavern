@@ -6,15 +6,20 @@ function str(value) { return value === undefined || value === null ? '' : String
 function isPlay(chat) { return chat && (!chat.mode || chat.mode === 'story' || chat.mode === 'script') }
 
 /** Owns snapshot preparation, migration, persistence and concurrent build sharing. */
-export function createPlayCardSnapshots({ worldBooks, planner, readCard, writeChat, logger = console }) {
+export function createPlayCardSnapshots({ worldBooks, planner, readCard, writeChat, captureSceneWorldbook, logger = console }) {
   const pending = new Map()
 
   async function build(chat, card) {
-    let worldBookContext = ''
-    try { worldBookContext = constantWorldBookContext({ worldBook: await worldBooks.bound(chat.cardPath, card) }).context }
+    let worldBookContext = '', worldBook = null
+    try { worldBook = await worldBooks.bound(chat.cardPath, card); worldBookContext = constantWorldBookContext({ worldBook }).context }
     catch (error) { logger.warn('dsh-tavern: 常驻世界书读取失败，已跳过:', str(error && error.message || error)) }
     const text = sanitizeAgentProjectionText((await planner.plan({ purpose: 'play-card-snapshot', card, chat, worldBookContext, worldBookLabel: '常驻世界书' })).text)
-    return { cardContextSnapshot: text, cardContextSnapshotVersion: VERSION }
+    const patch = { cardContextSnapshot: text, cardContextSnapshotVersion: VERSION }
+    // Only new, unpublished openings: migration cannot manufacture their past.
+    if (!(chat.messages || []).length && typeof captureSceneWorldbook === 'function') {
+      patch.sceneOpeningWorldbook = await captureSceneWorldbook(chat, card, worldBook)
+    }
+    return patch
   }
 
   // A new chat is not published yet; preparation must not create a partial save.

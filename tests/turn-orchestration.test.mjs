@@ -86,6 +86,7 @@ function harness(mode, options = {}) {
       }
     },
     worldBookRecall: options.worldBookRecall,
+    captureSceneWorldbook: options.captureSceneWorldbook,
     scripts,
     timeline,
     frameBuilder: createForegroundFrameBuilder(),
@@ -138,6 +139,31 @@ function harness(mode, options = {}) {
     replaceChat(next) { chat = clone(next) }
   }
 }
+
+test('生图世界书版本冻结在生成前，不进入正文 Frame 文本，提交时不借用后来版本', async () => {
+  for (const compatibility of [false, true]) {
+    let calls = 0, current = { version: 1, digest: 'a'.repeat(64) }
+    const run = harness('story', { captureSceneWorldbook: async () => { calls++; return clone(current) } })
+    const input = { sessionId: 'session-1', turn: 1, userText: '看一眼林岚。' }
+    const first = compatibility ? await run.orchestrator.beginCompatibility(input) : await run.orchestrator.prepare(input)
+    if (!compatibility) assert.doesNotMatch(foregroundFrameText(first.frame), /aaaaa|sceneWorldbook/)
+    current = { version: 1, digest: 'b'.repeat(64) }
+    if (compatibility) await run.orchestrator.beginCompatibility(input)
+    else await run.orchestrator.prepare(input)
+    assert.equal(calls, 1)
+    await run.orchestrator.finalize({ ...input, assistantText: '林岚站在车站。' })
+    const message = run.chat().messages.at(-1)
+    assert.equal(message.sceneWorldbook.digest, 'a'.repeat(64))
+    assert.equal(message.sceneWorldbook.bodyDigests.length, 1)
+    const next = { ...input, turn: 2, userText: '继续' }
+    if (compatibility) await run.orchestrator.beginCompatibility(next)
+    else await run.orchestrator.prepare(next)
+    await run.orchestrator.finalize({ ...next, assistantText: '第二轮的正文。' })
+    assert.equal(run.chat().messages.at(-1).sceneWorldbook.digest, 'b'.repeat(64))
+    assert.equal(run.chat().messages.find(item => item.role === 'assistant').sceneWorldbook.digest, 'a'.repeat(64))
+    assert.equal(run.rollback().chat.messages.at(-1).sceneWorldbook.digest, 'a'.repeat(64))
+  }
+})
 
 test('连续正文回合的实际 Frame 消息不重复基本信息和常驻世界书', async () => {
   const planner = createContextPlanner({ prompt: () => '正文写作规则' })

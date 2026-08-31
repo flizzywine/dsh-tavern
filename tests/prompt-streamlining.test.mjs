@@ -272,7 +272,8 @@ test('人物卡基本信息固定为会话前缀，仅系统和历史后指令�
   const bodyPlanner = between(plannerSource, "if (input.purpose === 'body')", "if (input.purpose === 'candidate')")
 
   assert.match(startChat, /await snapshots\.prepare\(chat, card\)/)
-  assert.match(buildSnapshot, /constantWorldBookContext\(\{ worldBook: await worldBooks\.bound\(chat.cardPath, card\) \}\)/)
+  assert.match(buildSnapshot, /worldBook = await worldBooks\.bound\(chat.cardPath, card\)/)
+  assert.match(buildSnapshot, /constantWorldBookContext\(\{ worldBook \}\)/)
   assert.match(buildSnapshot, /worldBookLabel: '常驻世界书'/)
   assert.match(ensureSnapshot, /sanitizeAgentProjectionText\(existing\)/)
   assert.match(ensureSnapshot, /cardContextSnapshot: sanitized/)

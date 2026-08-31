@@ -130,6 +130,17 @@ test('sanitizing an existing snapshot is not visible until its save succeeds', a
   assert.equal(h.counts.builds, 0)
 })
 
+test('snapshot migration cannot manufacture a past worldbook archive from current files', async () => {
+  let captures = 0
+  const api = createPlayCardSnapshots({ worldBooks: { bound: async () => ({ view: { entries: [] } }) },
+    readCard: async () => ({}), planner: { plan: async () => ({ text: '迁移前缀' }) }, writeChat: async () => {},
+    captureSceneWorldbook: async () => { captures++; return { version: 1, digest: 'd'.repeat(64) } } })
+  const chat = oldChat()
+  await api.ensure(chat)
+  assert.equal(captures, 0)
+  assert.equal(chat.sceneOpeningWorldbook, undefined)
+})
+
 test('migration adopts merged persistence state; another reader retains its baseline for later writes', async () => {
   let stored = { ...oldChat(), posture: '原姿势', customUnknown: { keep: true } }
   const persistence = createChatPersistence({ store: {

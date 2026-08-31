@@ -5,6 +5,7 @@ import { createBackgroundAgentRunner, executeBackgroundCompaction } from './back
 import { createApplicationUpdater } from './application-updater.js'
 import { createCandidateGenerator } from './domain/candidate-generation.js'
 import { createSceneIllustrations, sceneTarget } from './domain/scene-illustration.js'
+import { createSceneWorldbooks, sceneWorldbookBinding } from './domain/scene-worldbook.js'
 import { createSessionStablePrefixStorage, ensureSessionStablePrefix, readSessionStablePrefix } from './domain/session-stable-prefix.js'
 import { waitForWritableSession } from './domain/agent-readiness.js'
 import { createCardDeletion } from './domain/card-deletion.js'
@@ -102,6 +103,16 @@ export async function apply(ctx) {
   const dataRoot = resolveTavernDataRoot()
   const stablePrefixStorage = createSessionStablePrefixStorage(dataRoot + '/session-prefixes')
   const profileData = createProfileDataStore({ dataRoot })
+  const sceneWorldbooks = createSceneWorldbooks({ store: profileData })
+  async function captureSceneWorldbook(chat, card, preparedBook) {
+    try {
+      const worldBook = preparedBook === undefined ? await worldBooks.bound(chat.cardPath, card) : preparedBook
+      return await sceneWorldbooks.capture({ worldBook, chat, card })
+    } catch (_error) {
+      console.warn('dsh-tavern: 场景世界书快照保存失败，正文继续；不会用后来的世界书补历史。')
+      return null
+    }
+  }
   const tavernExtensionSettings = createTavernExtensionSettings(profileData)
   const mvuDiagnostics = createMvuDiagnosticStore(profileData)
   const tavernRemoteAssets = createTavernRemoteAssetPinStore({
@@ -1070,7 +1081,7 @@ export async function apply(ctx) {
     return await conversationInitialization.ensureOpening(sessionId)
   }
   const contextPlanner = createContextPlanner({ prompt: runtimePrompt, callModel: callModel, now: Date.now, logger: console })
-  const playCardSnapshots = createPlayCardSnapshots({ worldBooks, planner: contextPlanner, readCard: readChatCard, writeChat })
+  const playCardSnapshots = createPlayCardSnapshots({ worldBooks, planner: contextPlanner, readCard: readChatCard, writeChat, captureSceneWorldbook })
   const ensurePlayCardSnapshot = playCardSnapshots.ensure
   const conversationInitialization = createConversationInitialization({
     cards: { read: readCard, readChat: readChatCard, script: readScript, extensions: readCardExtensions },
@@ -1134,6 +1145,10 @@ export async function apply(ctx) {
   ctx.effect(() => () => backgroundAgentRunner.dispose(), 'dsh-tavern: dispose resident background agents')
   const sceneIllustrations = createSceneIllustrations({
     store: profileData, chatForSession, selection: modelSelection,
+    worldbookAtTarget: async (chat, target) => {
+      try { return await sceneWorldbooks.read(sceneWorldbookBinding(chat, target)) }
+      catch (_error) { return { unavailable: '历史世界书快照读取失败，未读取当前世界书。' } }
+    },
     isRunning: sessionId => ctx.get('agents')?.get(sessionId)?.phase?.kind === 'running',
     stateAtTarget: async (chat, target) => {
       // The next turn's beforeRevision contains the settled state of this turn.
@@ -1644,6 +1659,7 @@ export async function apply(ctx) {
   const foregroundFrameBuilder = createForegroundFrameBuilder()
   const foregroundFrameSessionAdapter = createForegroundFrameSessionAdapter({ id: randomUUID })
   const turnOrchestrator = createTurnOrchestrator({
+    captureSceneWorldbook,
     store: {
       chatForSession,
       readCard,
