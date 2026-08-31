@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>云际航空 · 航班状态</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;padding:0;min-height:0;background:transparent;color:#243443;font:15px/1.6 system-ui,sans-serif;text-shadow:none}
+main{border:1px solid #cbd8df;border-radius:16px;overflow:hidden;background:#f5f8fa}
+header{padding:18px 20px;color:#fff;background:#23465d}h1{font-size:20px;margin:0}header p{margin:4px 0 0;color:#dce8ef}
+section{padding:14px 20px;border-top:1px solid #dce5eb}h2{font-size:15px;margin:0 0 9px;color:#23465d}
+dl{display:grid;grid-template-columns:85px minmax(0,1fr);gap:6px 10px;margin:0}dt{color:#647684}dd{margin:0;overflow-wrap:anywhere}
+article{background:white;border:1px solid #dce5eb;border-radius:10px;padding:12px;margin:8px 0}h3{margin:0 0 8px;font-size:16px}
+.muted{color:#647684}#notice{margin:0}footer{padding:10px 20px;background:#e8eff3;color:#526675;font-size:12px}
+</style>
+</head>
+<body>
+<main>
+  <header><h1>云际航空</h1><p id="phase">正在读取航班状态…</p></header>
+  <section><h2>航班与乘客</h2><dl id="flight"></dl></section>
+  <section><h2>当前人物</h2><div id="people"></div></section>
+  <section><h2>旅途任务</h2><div id="tasks"></div></section>
+  <section><h2>提醒</h2><p id="notice" role="status">等待 MVU 初始化</p></section>
+  <footer>后台结算后自动更新 · 未明确的信息不猜测</footer>
+</main>
+<script>
+(function () {
+  function text(value) { return value === undefined || value === null || value === '' ? '未明确' : String(value); }
+  function rows(target, values) {
+    target.replaceChildren();
+    for (const [label, value] of values) {
+      const dt = document.createElement('dt'), dd = document.createElement('dd');
+      dt.textContent = label; dd.textContent = text(value); target.append(dt, dd);
+    }
+  }
+  function render() {
+    const data = Mvu.getMvuData({type:'message', message_id:'latest'}).stat_data;
+    if (!data || !data.航班) return;
+    const flight = data.航班, passenger = data.乘客 || {};
+    document.getElementById('phase').textContent = text(flight.阶段) + ' · ' + text(flight.地点);
+    rows(document.getElementById('flight'), [['目的地',flight.目的地],['最新广播',flight.广播],['乘客位置',passenger.位置],['安全带',passenger.安全带]]);
+    const people = document.getElementById('people'); people.replaceChildren();
+    for (const [name, person] of Object.entries(data.人物 || {})) {
+      if (!person || typeof person !== 'object' || name.startsWith('$') || person.在场 !== true) continue;
+      const item = document.createElement('article'), title = document.createElement('h3'), details = document.createElement('dl');
+      title.textContent = name + (name === data.当前交互人物 ? ' · 交互中' : '');
+      rows(details, [['身份',person.身份],['年龄',person.年龄 > 0 ? person.年龄 : '未明确'],['性格',person.性格],['外貌',person.外貌],['衣着',person.衣着],['位置',person.位置],['当前行动',person.当前行动],['履历',person.履历],['对乘客看法',person.对乘客的看法]]);
+      item.append(title, details); people.append(item);
+    }
+    if (!people.childElementCount) people.textContent = '当前没有在场人物';
+    const tasks = document.getElementById('tasks'); tasks.replaceChildren();
+    for (const [name, task] of Object.entries(data.任务 || {})) {
+      if (!task || typeof task !== 'object' || name.startsWith('$')) continue;
+      const line = document.createElement('p'); line.textContent = name + ' · ' + text(task.状态) + '：' + text(task.说明); tasks.append(line);
+    }
+    if (!tasks.childElementCount) tasks.textContent = '暂无明确任务';
+    document.getElementById('notice').textContent = text(data.提示);
+  }
+  async function start() {
+    await waitGlobalInitialized('Mvu');
+    for (const event of new Set([Mvu.events.VARIABLE_INITIALIZED, Mvu.events.VARIABLE_UPDATE_ENDED, ...Object.values(tavern_events)])) eventOn(event, render);
+    render();
+  }
+  start().catch(function (error) { document.getElementById('notice').textContent = '状态读取失败：' + error.message; });
+})();
+</script>
+</body>
+</html>
