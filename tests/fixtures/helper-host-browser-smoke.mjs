@@ -34,11 +34,16 @@ function cardScript(readonly) {
     const rows = await api.getLorebookEntries('审计书');
     const added = rows.find(e=>e.comment==='浏览器新增');
     if(!added || added.depth!==0 || added.position!=='at_depth_as_user' || added.order!==321 || added.keys[0]!=='/浏览器/u') throw Error('worldbook roundtrip');
+    const popup = new (getContext().Popup)('弹窗内容', 'display', '接口验证');
+    const closed = popup.show();
+    if (!document.querySelector('[data-dsh-helper-popup]')) throw Error('popup missing');
+    popup.completeAffirmative();
+    if (await closed !== true || document.querySelector('[data-dsh-helper-popup]')) throw Error('popup cleanup');
     const events=[];
     eventOn('MESSAGE_SENT',()=>events.push('normal'));
     SillyTavern.getContext().eventSource.makeFirst('message_sent',()=>events.push('first'));
     eventOnce('MESSAGE_SENT',()=>events.push('once'));
-    eventOn('audit-check',()=>parent.postMessage({type:'host-smoke-result',events,rows,settings:ctx.extensionSettings,native,mvuPresent:window.Mvu!==undefined,readonly:${readonly}},'*'));
+    eventOn('audit-check',()=>parent.postMessage({type:'host-smoke-result',events,rows,popupVerified:true,settings:ctx.extensionSettings,native,mvuPresent:window.Mvu!==undefined,readonly:${readonly}},'*'));
   `
 }
 const server = createServer(async (request, response) => {

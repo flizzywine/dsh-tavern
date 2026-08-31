@@ -1537,123 +1537,143 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			return result;
 		}
 
-		function tavernHelperScriptBootstrap(metadata, initialContext) {
-			try { void window.localStorage; }
-			catch (_) {
-				let values = Object.create(null);
-				let keys = [];
-				const storage = {
-					getItem: function (key) { key = String(key); return Object.prototype.hasOwnProperty.call(values, key) ? values[key] : null; },
-					setItem: function (key, value) { key = String(key); if (!Object.prototype.hasOwnProperty.call(values, key)) keys.push(key); values[key] = String(value); },
-					removeItem: function (key) { key = String(key); if (!Object.prototype.hasOwnProperty.call(values, key)) return; delete values[key]; keys.splice(keys.indexOf(key), 1); },
-					clear: function () { values = Object.create(null); keys = []; },
-					key: function (index) { return index >= 0 && index < keys.length ? keys[index] : null; }
-				};
-				Object.defineProperty(storage, "length", { get: function () { return keys.length; } });
-				try { Object.defineProperty(window, "localStorage", { configurable: true, value: storage }); } catch (_) {}
-			}
-			let state = initialContext && typeof initialContext === "object" ? initialContext : {};
-			const token = String(metadata.token || "");
-			const officialMvuEnabled = metadata.officialMvu === true;
-			const extensionSettings = Object.assign(Object.create(null), copy(state.extensionSettings || {}));
-			let savedExtensionSettings = copy(extensionSettings);
-			let settingsTail = Promise.resolve();
-			let lorebookSettings = { selected_global_lorebooks: [] };
-			const nativeWorldInfoSnapshots = new WeakMap();
-			const nativeWorldInfoByName = new Map();
-			const scriptList = (Array.isArray(metadata.scripts) ? metadata.scripts : [metadata]).map(function (script) {
-				return {
-					id: String(script && script.id || ""),
-					name: String(script && script.name || script && script.id || ""),
-					info: String(script && script.info || ""),
-					buttons: Array.isArray(script && script.buttons) ? script.buttons : [],
-					ready: false,
-					failed: false
-				};
-			}).filter(function (script) { return script.id !== ""; });
-			const scriptsById = Object.create(null);
-			for (const script of scriptList) scriptsById[script.id] = script;
-			let currentScriptId = scriptList[0] ? scriptList[0].id : "";
-			let activeHostEventId = "";
+		function createTavernHelperTransport(options) {
+			const { parent, token, copy, identity, onContext, onEvent } = options;
 			let nextId = 1;
 			const pending = Object.create(null);
-			const listeners = Object.create(null);
-			function copy(value) {
-				try { return structuredClone(value); }
-				catch (_) { return value === undefined ? undefined : JSON.parse(JSON.stringify(value)); }
-			}
-			function currentScript() { return scriptsById[currentScriptId] || scriptList[0] || { id: "", name: "", info: "", buttons: [] }; }
-			async function withScript(scriptId, factory) {
-				const previous = currentScriptId;
-				currentScriptId = String(scriptId || previous || "");
-				try { return await factory(); }
-				finally { currentScriptId = previous; }
-			}
-			function stringHash(value, seed) {
-				if (typeof value !== "string") return 0;
-				let h1 = 0xdeadbeef ^ (Number(seed) || 0), h2 = 0x41c6ce57 ^ (Number(seed) || 0);
-				for (let index = 0; index < value.length; index += 1) {
-					const code = value.charCodeAt(index);
-					h1 = Math.imul(h1 ^ code, 2654435761);
-					h2 = Math.imul(h2 ^ code, 1597334677);
-				}
-				h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
-				h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
-				return 4294967296 * (2097151 & h2) + (h1 >>> 0);
-			}
-			function buttonEvent(name, scriptId) { return String(scriptId || currentScript().id) + "_" + stringHash(String(name || "")); }
-			function subscriptionsFor(scriptId) {
-				return Object.keys(listeners).filter(function (name) {
-					return listeners[name] && Array.from(listeners[name]).some(function (entry) { return entry.scriptId === scriptId; });
-				});
-			}
-			function reportSubscriptions() {
-				parent.postMessage({
-					type: "dsh-tavern-helper-subscriptions",
-					token: token,
-					names: Object.keys(listeners).filter(function (name) { return listeners[name] && listeners[name].size > 0; }),
-					ready: scriptList.every(function (script) { return script.ready || script.failed; }),
-					scripts: scriptList.map(function (script) { return { id: script.id, names: subscriptionsFor(script.id), ready: script.ready, failed: script.failed }; })
-				}, "*");
-			}
-			function lastId() { return Math.max(-1, (state.messages || []).length - 1); }
-			function normalizeId(value) {
-				let id = Number(value);
-				if (!Number.isFinite(id)) id = lastId();
-				if (id < 0) id = (state.messages || []).length + id;
-				return Math.max(0, Math.min(lastId(), id));
-			}
-			function currentId() { return lastId(); }
-			function optionOf(option) {
-				const value = option && typeof option === "object" ? copy(option) : { type: "message" };
-				if (!value.type) value.type = "message";
-				if (value.type === "message") {
-					if (value.message_id === undefined || value.message_id === null || value.message_id === "latest") value.message_id = currentId();
-				} else if (value.type === "script" && !value.script_id) value.script_id = currentScript().id;
-				return value;
-			}
-			function messagesFor(target, options) {
-				const all = state.messages || [];
-				let items = [];
-				if (target === undefined || target === null) items = [all[currentId()]];
-				else if (typeof target === "string" && target.includes("-")) {
-					const value = target.replace(/{{\s*lastMessageId\s*}}/gi, String(lastId()));
-					const parts = value.split("-");
-					const from = normalizeId(parts[0]);
-					const to = normalizeId(parts[1]);
-					for (let index = Math.min(from, to); index <= Math.max(from, to); index += 1) items.push(all[index]);
-				} else items = [all[normalizeId(target)]];
-				items = items.filter(Boolean);
-				if (options && options.role && options.role !== "all") items = items.filter(function (item) { return item.role === options.role; });
-				return copy(items);
-			}
-			function call(method, args) {
+			function post(message) { parent.postMessage(Object.assign({}, message, { token: token }), "*"); }
+			function request(method, args) {
 				return new Promise(function (resolve, reject) {
 					const requestId = String(nextId++);
 					pending[requestId] = { resolve: resolve, reject: reject };
-					parent.postMessage({ type: "dsh-tavern-helper-call", token: token, eventId: activeHostEventId, scriptId: currentScript().id, requestId: requestId, method: method, args: copy(args || {}) }, "*");
+					post(Object.assign({ type: "dsh-tavern-helper-call", requestId: requestId, method: method, args: copy(args || {}) }, identity()));
 				});
 			}
+			function receive(event) {
+				const data = event && event.data;
+				if (event.source !== parent || !data || data.token !== token) return;
+				if (data.type === "dsh-tavern-helper-context") { onContext({ context: data.context || {} }); return; }
+				if (data.type === "dsh-tavern-helper-event") { onEvent(data); return; }
+				if (data.type !== "dsh-tavern-helper-response") return;
+				const task = pending[data.requestId];
+				if (!task) return;
+				delete pending[data.requestId];
+				if (data.ok) { onContext(data.result || {}); task.resolve(data.result); }
+				else task.reject(new Error(String(data.error || "Helper 调用失败")));
+			}
+			options.listen(receive);
+			return Object.freeze({ request: request, post: post });
+		}
+
+		function createTavernHelperEventBus(options) {
+			const { currentScript, withScript, reportSubscriptions, post } = options;
+			const listeners = Object.create(null);
+			function eventName(name) {
+				const aliases = { message_sent: "MESSAGE_SENT", message_received: "MESSAGE_RECEIVED", message_updated: "MESSAGE_UPDATED", message_swiped: "MESSAGE_SWIPED", message_deleted: "MESSAGE_DELETED", message_edited: "MESSAGE_EDITED", chat_id_changed: "CHAT_CHANGED", chat_created: "CHAT_CREATED", character_page_loaded: "CHARACTER_PAGE_LOADED" };
+				return aliases[String(name)] || String(name);
+			}
+			function removeEventEntry(name, entry) {
+				if (listeners[name]) listeners[name].delete(entry);
+				reportSubscriptions();
+			}
+			function listen(name, handler, position, once) {
+				name = eventName(name);
+				if (typeof handler !== "function") throw new TypeError("事件监听器必须是函数");
+				let items = listeners[name] || (listeners[name] = new Set());
+				let entry = Array.from(items).find(function (item) { return item.scriptId === currentScript().id && item.handler === handler; });
+				if (!entry) entry = { scriptId: currentScript().id, handler: handler, once: once === true };
+				if (position) items.delete(entry);
+				if (position === "first") listeners[name] = new Set([entry].concat(Array.from(items)));
+				else items.add(entry);
+				reportSubscriptions();
+				return { stop: function () { removeEventEntry(name, entry); } };
+			}
+			async function invokeEventEntry(name, entry, args) {
+				if (!listeners[name] || !listeners[name].has(entry)) return;
+				// Remove before calling so recursive emits cannot invoke a once-listener twice.
+				if (entry.once) removeEventEntry(name, entry);
+				return await withScript(entry.scriptId, function () { return entry.handler.apply(null, args); });
+			}
+			async function eventEmit(name) {
+				name = eventName(name);
+				const args = Array.prototype.slice.call(arguments, 1);
+				const items = listeners[name] ? Array.from(listeners[name]) : [];
+				for (const entry of items) await invokeEventEntry(name, entry, args);
+			}
+			async function emitHostEvent(eventId, name, args) {
+				name = eventName(name);
+				const items = listeners[name] ? Array.from(listeners[name]) : [];
+				for (const entry of items) {
+					post({ type: "dsh-tavern-helper-event-progress", eventId: eventId, scriptId: entry.scriptId, phase: "started" });
+					try { await invokeEventEntry(name, entry, args); }
+					catch (error) {
+						if (error && typeof error === "object") error.dshTavernScriptId = entry.scriptId;
+						post({ type: "dsh-tavern-helper-event-progress", eventId: eventId, scriptId: entry.scriptId, phase: "failed" });
+						throw error;
+					}
+					post({ type: "dsh-tavern-helper-event-progress", eventId: eventId, scriptId: entry.scriptId, phase: "completed" });
+				}
+			}
+			function off(name, handler) {
+				name = eventName(name);
+				if (listeners[name]) for (const entry of Array.from(listeners[name])) if (entry.handler === handler && entry.scriptId === currentScript().id) listeners[name].delete(entry);
+				reportSubscriptions();
+			}
+			return Object.freeze({
+				listen: listen, off: off, emit: eventEmit, emitHost: emitHostEvent,
+				names: function () { return Object.keys(listeners).filter(function (name) { return listeners[name] && listeners[name].size > 0; }); },
+				subscriptionsFor: function (scriptId) { return Object.keys(listeners).filter(function (name) { return listeners[name] && Array.from(listeners[name]).some(function (entry) { return entry.scriptId === scriptId; }); }); }
+			});
+		}
+
+		function createTavernHelperPopup(options) {
+			const { document, parent, token } = options;
+			function HelperPopup(content, _type, title, options) {
+				const popup = this;
+				popup.content = content;
+				popup.options = options && typeof options === "object" ? options : {};
+				popup.root = null;
+				popup.resolve = null;
+				popup.completeAffirmative = async function () {
+					if (popup.root) popup.root.remove();
+					popup.root = null;
+					parent.postMessage({ type: "dsh-tavern-helper-ui-close", token: token }, "*");
+					if (popup.resolve) { const resolve = popup.resolve; popup.resolve = null; resolve(true); }
+					return true;
+				};
+				popup.show = function () {
+					if (popup.root) return Promise.resolve(false);
+					const overlay = document.createElement("div");
+					overlay.setAttribute("data-dsh-helper-popup", "");
+					overlay.style.cssText = "position:fixed;inset:0;z-index:10;display:grid;place-items:center;padding:24px;background:rgba(0,0,0,.64);box-sizing:border-box";
+					const panel = document.createElement("section");
+					panel.style.cssText = "width:min(920px,100%);max-height:90vh;overflow:auto;border:1px solid rgba(255,255,255,.2);border-radius:16px;padding:16px;background:#15191f;color:#eef4fb;box-shadow:0 24px 80px rgba(0,0,0,.5);box-sizing:border-box";
+					if (title) { const heading = document.createElement("h2"); heading.textContent = String(title); panel.appendChild(heading); }
+					const node = content && content.jquery ? content[0] : content;
+					if (node && typeof node.nodeType === "number") panel.appendChild(node);
+					else if (node !== undefined && node !== null) { const text = document.createElement("div"); text.textContent = String(node); panel.appendChild(text); }
+					const actions = document.createElement("div");
+					actions.style.cssText = "display:flex;justify-content:flex-end;margin-top:14px";
+					const close = document.createElement("button");
+					close.type = "button"; close.textContent = String(popup.options.okButton || "关闭");
+					close.style.cssText = "border:1px solid rgba(255,255,255,.24);border-radius:9px;padding:7px 14px;background:#273241;color:#fff;cursor:pointer";
+					close.addEventListener("click", popup.completeAffirmative);
+					actions.appendChild(close); panel.appendChild(actions); overlay.appendChild(panel); document.body.appendChild(overlay);
+					popup.root = overlay;
+					parent.postMessage({ type: "dsh-tavern-helper-ui-open", token: token }, "*");
+					return new Promise(function (resolve) { popup.resolve = resolve; });
+				};
+			}
+			return HelperPopup;
+		}
+
+		function installTavernHelperFacade(options) {
+			const nativeWorldInfoSnapshots = new WeakMap();
+			const nativeWorldInfoByName = new Map();
+			const { window, copy, context, request: call, Popup: HelperPopup } = options;
+			const extensionSettings = Object.assign(Object.create(null), copy(context().extensionSettings || {}));
+			let savedExtensionSettings = copy(extensionSettings);
+			let settingsTail = Promise.resolve();
 			// Keep plugin-held object references stable when acknowledging persisted settings.
 			function reconcileSettings(target, source) {
 				for (const key of Object.keys(target)) if (!Object.prototype.hasOwnProperty.call(source, key)) delete target[key];
@@ -1690,6 +1710,210 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				settingsTail = task;
 				task.catch(function (error) { console.error(error); });
 				return task;
+			}
+			// Both entry points reference the same functions; plugin wrappers stay visible to each other.
+			const helper = {};
+			const helperNames = ["getScriptId", "getScriptName", "getScriptInfo", "replaceScriptInfo", "getScriptButtons", "replaceScriptButtons", "updateScriptButtonsWith", "appendInexistentScriptButtons", "getButtonEvent", "getCharData", "getCurrentMessageId", "getLastMessageId", "getChatMessages", "setChatMessages", "getVariables", "getAllVariables", "replaceVariables", "insertOrAssignVariables", "insertVariables", "updateVariablesWith", "deleteVariable", "replaceWorldbook", "createWorldbookEntries", "deleteWorldbookEntries", "setLorebookEntries", "createLorebookEntries", "deleteLorebookEntries", "getLorebooks", "getWorldbookNames", "getCharWorldbookNames", "getWorldbook", "getLorebookEntries", "getCharLorebooks", "getCurrentCharPrimaryLorebook", "getLorebookSettings", "setLorebookSettings", "updateWorldbookWith", "getTavernHelperVersion", "substitudeMacros"];
+			for (const name of helperNames) Object.defineProperty(helper, name, { enumerable: true, configurable: true, get: function () { return window[name]; }, set: function (value) { window[name] = value; } });
+			window.TavernHelper = helper;
+			const eventSource = { on: window.eventOn, once: window.eventOnce, off: window.eventOff, removeListener: window.eventOff, makeFirst: window.eventMakeFirst, makeLast: window.eventMakeLast, emit: window.eventEmit };
+			const sillyTavern = {
+				TavernHelper: helper,
+				getContext: function () { return sillyTavern; },
+				eventSource: eventSource,
+				eventTypes: window.tavern_events,
+				Popup: HelperPopup,
+				POPUP_TYPE: Object.freeze({ DISPLAY: "display", TEXT: "text", CONFIRM: "confirm", INPUT: "input" }),
+				POPUP_RESULT: Object.freeze({ AFFIRMATIVE: 1, NEGATIVE: 0, CANCELLED: null, CUSTOM1: 2 }),
+				extensionSettings: extensionSettings,
+				characters: [],
+				characterId: 0,
+				chatCompletionSettings: {},
+				ToolManager: Object.freeze({ isToolCallingSupported: function () { return false; } }),
+				getCurrentChatId: function () { return String(context().chatId || ""); },
+				getCurrentLocale: function () { return "zh-CN"; },
+				getCharacterCardFields: function () { return copy(context().character && (context().character.data || context().character) || {}); },
+				getRequestHeaders: function () { return {}; },
+				getChatCompletionModel: function () { return ""; },
+				loadWorldInfo: async function (name) {
+					const result = await call("loadTavernWorldInfo", { name: name });
+					const document = copy(result.worldInfo);
+					nativeWorldInfoSnapshots.set(document, copy(document));
+					nativeWorldInfoByName.set(String(name || "current"), copy(document));
+					return document;
+				},
+				saveWorldInfo: async function (name, document) {
+					const expected = nativeWorldInfoSnapshots.get(document) || nativeWorldInfoByName.get(String(name || "current"));
+					if (!expected) throw new Error("保存前请先读取世界书");
+					const result = await call("saveTavernWorldInfo", { name: name, worldInfo: copy(document), expectedWorldInfo: copy(expected) });
+					if (!result || result.updated === false) throw new Error("世界书未保存");
+					nativeWorldInfoSnapshots.set(document, copy(result.worldInfo));
+					nativeWorldInfoByName.set(String(name || "current"), copy(result.worldInfo));
+					context().worldbook = copy(result.worldbook);
+				},
+				callGenericPopup: function (content, type, title, options) { return new HelperPopup(content, type, title, options).show(); },
+				saveChat: async function () { return true; },
+				saveSettingsDebounced: saveExtensionSettings,
+				registerMacro: function () {}, unregisterMacro: function () {},
+				registerFunctionTool: function () {}, unregisterFunctionTool: function () {}
+			};
+			Object.defineProperties(sillyTavern, {
+				chatId: { enumerable: true, get: function () { return String(context().chatId || ""); } },
+				name1: { enumerable: true, get: function () { return String(context().playerName || "你"); } },
+				chat: { enumerable: true, get: function () {
+					return (context().messages || []).map(function (message) {
+						return Object.assign({}, message, {
+							mes: String(message && message.message || ""),
+							is_user: Boolean(message && message.role === "user"),
+							variables: Array.isArray(message && message.swipes_data) ? message.swipes_data : []
+						});
+					});
+				} },
+				name2: { enumerable: true, get: function () { return String(context().characterName || "角色"); } }
+			});
+			window.SillyTavern = Object.freeze(sillyTavern);
+			window.getContext = sillyTavern.getContext;
+			window.errorCatched = function (factory) { return function () { try { return factory.apply(this, arguments); } catch (error) { console.error(error); return {}; } }; };
+			window.retrieveDisplayedMessage = function () { return window.jQuery ? window.jQuery() : []; };
+			window.toastr = { success: console.info, info: console.info, warning: console.warn, error: console.error };
+		}
+
+		function tavernHelperScriptBootstrap(metadata, initialContext, modules) {
+			try { void window.localStorage; }
+			catch (_) {
+				let values = Object.create(null);
+				let keys = [];
+				const storage = {
+					getItem: function (key) { key = String(key); return Object.prototype.hasOwnProperty.call(values, key) ? values[key] : null; },
+					setItem: function (key, value) { key = String(key); if (!Object.prototype.hasOwnProperty.call(values, key)) keys.push(key); values[key] = String(value); },
+					removeItem: function (key) { key = String(key); if (!Object.prototype.hasOwnProperty.call(values, key)) return; delete values[key]; keys.splice(keys.indexOf(key), 1); },
+					clear: function () { values = Object.create(null); keys = []; },
+					key: function (index) { return index >= 0 && index < keys.length ? keys[index] : null; }
+				};
+				Object.defineProperty(storage, "length", { get: function () { return keys.length; } });
+				try { Object.defineProperty(window, "localStorage", { configurable: true, value: storage }); } catch (_) {}
+			}
+			let state = initialContext && typeof initialContext === "object" ? initialContext : {};
+			const token = String(metadata.token || "");
+			const officialMvuEnabled = metadata.officialMvu === true;
+			let lorebookSettings = { selected_global_lorebooks: [] };
+			const scriptList = (Array.isArray(metadata.scripts) ? metadata.scripts : [metadata]).map(function (script) {
+				return {
+					id: String(script && script.id || ""),
+					name: String(script && script.name || script && script.id || ""),
+					info: String(script && script.info || ""),
+					buttons: Array.isArray(script && script.buttons) ? script.buttons : [],
+					ready: false,
+					failed: false
+				};
+			}).filter(function (script) { return script.id !== ""; });
+			const scriptsById = Object.create(null);
+			for (const script of scriptList) scriptsById[script.id] = script;
+			let currentScriptId = scriptList[0] ? scriptList[0].id : "";
+			let activeHostEventId = "";
+			const transport = modules.createTransport({ parent: parent, token: token, copy: copy,
+				identity: function () { return { eventId: activeHostEventId, scriptId: currentScript().id }; },
+				listen: function (receive) { addEventListener("message", receive); },
+				onContext: function (result) {
+					if (result.context) state = Object.assign({}, state, copy(result.context));
+					if (result.worldbook) state.worldbook = copy(result.worldbook);
+				},
+				onEvent: function (data) {
+					diagnosticCount = 0;
+					const suppliedArgs = copy(data.args || []);
+					const task = (async function () {
+						const previousEventId = activeHostEventId;
+						activeHostEventId = String(data.eventId || "");
+						try {
+							if (data.name === "mag_variable_update_ended" && suppliedArgs.length === 0) {
+								const option = { type: "message", message_id: currentId() };
+								const variables = getVariables(option);
+								const before = JSON.stringify(variables);
+								await events.emitHost(data.eventId, data.name, [variables]);
+								if (JSON.stringify(variables) !== before) {
+									localReplace(variables, option);
+									await call("updateTavernHelperVariables", { option: option, variables: variables });
+								}
+								return [variables];
+							}
+							await events.emitHost(data.eventId, data.name, suppliedArgs);
+							return suppliedArgs;
+						} finally { activeHostEventId = previousEventId; }
+					})();
+					task.then(function (args) {
+						if (data.eventId) parent.postMessage({ type: "dsh-tavern-helper-event-complete", token: token, eventId: data.eventId, args: copy(args || []) }, "*");
+					}).catch(function (error) {
+						console.error(error);
+						if (data.eventId) parent.postMessage({ type: "dsh-tavern-helper-event-complete", token: token, eventId: data.eventId, scriptId: String(error && error.dshTavernScriptId || ""), error: String(error && error.message || error), args: suppliedArgs }, "*");
+					});
+				}
+			});
+			const call = transport.request;
+			const events = modules.createEvents({ currentScript: currentScript, withScript: withScript,
+				reportSubscriptions: reportSubscriptions, post: transport.post });
+			function copy(value) {
+				try { return structuredClone(value); }
+				catch (_) { return value === undefined ? undefined : JSON.parse(JSON.stringify(value)); }
+			}
+			function currentScript() { return scriptsById[currentScriptId] || scriptList[0] || { id: "", name: "", info: "", buttons: [] }; }
+			async function withScript(scriptId, factory) {
+				const previous = currentScriptId;
+				currentScriptId = String(scriptId || previous || "");
+				try { return await factory(); }
+				finally { currentScriptId = previous; }
+			}
+			function stringHash(value, seed) {
+				if (typeof value !== "string") return 0;
+				let h1 = 0xdeadbeef ^ (Number(seed) || 0), h2 = 0x41c6ce57 ^ (Number(seed) || 0);
+				for (let index = 0; index < value.length; index += 1) {
+					const code = value.charCodeAt(index);
+					h1 = Math.imul(h1 ^ code, 2654435761);
+					h2 = Math.imul(h2 ^ code, 1597334677);
+				}
+				h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+				h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+				return 4294967296 * (2097151 & h2) + (h1 >>> 0);
+			}
+			function buttonEvent(name, scriptId) { return String(scriptId || currentScript().id) + "_" + stringHash(String(name || "")); }
+			function reportSubscriptions() {
+				parent.postMessage({
+					type: "dsh-tavern-helper-subscriptions",
+					token: token,
+					names: events.names(),
+					ready: scriptList.every(function (script) { return script.ready || script.failed; }),
+					scripts: scriptList.map(function (script) { return { id: script.id, names: events.subscriptionsFor(script.id), ready: script.ready, failed: script.failed }; })
+				}, "*");
+			}
+			function lastId() { return Math.max(-1, (state.messages || []).length - 1); }
+			function normalizeId(value) {
+				let id = Number(value);
+				if (!Number.isFinite(id)) id = lastId();
+				if (id < 0) id = (state.messages || []).length + id;
+				return Math.max(0, Math.min(lastId(), id));
+			}
+			function currentId() { return lastId(); }
+			function optionOf(option) {
+				const value = option && typeof option === "object" ? copy(option) : { type: "message" };
+				if (!value.type) value.type = "message";
+				if (value.type === "message") {
+					if (value.message_id === undefined || value.message_id === null || value.message_id === "latest") value.message_id = currentId();
+				} else if (value.type === "script" && !value.script_id) value.script_id = currentScript().id;
+				return value;
+			}
+			function messagesFor(target, options) {
+				const all = state.messages || [];
+				let items = [];
+				if (target === undefined || target === null) items = [all[currentId()]];
+				else if (typeof target === "string" && target.includes("-")) {
+					const value = target.replace(/{{\s*lastMessageId\s*}}/gi, String(lastId()));
+					const parts = value.split("-");
+					const from = normalizeId(parts[0]);
+					const to = normalizeId(parts[1]);
+					for (let index = Math.min(from, to); index <= Math.max(from, to); index += 1) items.push(all[index]);
+				} else items = [all[normalizeId(target)]];
+				items = items.filter(Boolean);
+				if (options && options.role && options.role !== "all") items = items.filter(function (item) { return item.role === options.role; });
+				return copy(items);
 			}
 			function getVariables(option) {
 				const resolved = optionOf(option);
@@ -1737,99 +1961,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					}
 				});
 			}
-			function eventName(name) {
-				const aliases = { message_sent: "MESSAGE_SENT", message_received: "MESSAGE_RECEIVED", message_updated: "MESSAGE_UPDATED", message_swiped: "MESSAGE_SWIPED", message_deleted: "MESSAGE_DELETED", message_edited: "MESSAGE_EDITED", chat_id_changed: "CHAT_CHANGED", chat_created: "CHAT_CREATED", character_page_loaded: "CHARACTER_PAGE_LOADED" };
-				return aliases[String(name)] || String(name);
-			}
-			function removeEventEntry(name, entry) {
-				if (listeners[name]) listeners[name].delete(entry);
-				reportSubscriptions();
-			}
-			function listen(name, handler, position, once) {
-				name = eventName(name);
-				if (typeof handler !== "function") throw new TypeError("事件监听器必须是函数");
-				let items = listeners[name] || (listeners[name] = new Set());
-				let entry = Array.from(items).find(function (item) { return item.scriptId === currentScript().id && item.handler === handler; });
-				if (!entry) entry = { scriptId: currentScript().id, handler: handler, once: once === true };
-				if (position) items.delete(entry);
-				if (position === "first") listeners[name] = new Set([entry].concat(Array.from(items)));
-				else items.add(entry);
-				reportSubscriptions();
-				return { stop: function () { removeEventEntry(name, entry); } };
-			}
-			async function invokeEventEntry(name, entry, args) {
-				if (!listeners[name] || !listeners[name].has(entry)) return;
-				// Remove before calling so recursive emits cannot invoke a once-listener twice.
-				if (entry.once) removeEventEntry(name, entry);
-				return await withScript(entry.scriptId, function () { return entry.handler.apply(null, args); });
-			}
-			async function eventEmit(name) {
-				name = eventName(name);
-				const args = Array.prototype.slice.call(arguments, 1);
-				const items = listeners[name] ? Array.from(listeners[name]) : [];
-				for (const entry of items) await invokeEventEntry(name, entry, args);
-			}
-			async function emitHostEvent(eventId, name, args) {
-				name = eventName(name);
-				const items = listeners[name] ? Array.from(listeners[name]) : [];
-				for (const entry of items) {
-					parent.postMessage({ type: "dsh-tavern-helper-event-progress", token: token, eventId: eventId, scriptId: entry.scriptId, phase: "started" }, "*");
-					try { await invokeEventEntry(name, entry, args); }
-					catch (error) {
-						if (error && typeof error === "object") error.dshTavernScriptId = entry.scriptId;
-						parent.postMessage({ type: "dsh-tavern-helper-event-progress", token: token, eventId: eventId, scriptId: entry.scriptId, phase: "failed" }, "*");
-						throw error;
-					}
-					parent.postMessage({ type: "dsh-tavern-helper-event-progress", token: token, eventId: eventId, scriptId: entry.scriptId, phase: "completed" }, "*");
-				}
-			}
-			addEventListener("message", function (event) {
-				const data = event && event.data;
-				if (event.source !== parent || !data || data.token !== token) return;
-				if (data.type === "dsh-tavern-helper-context") {
-					state = Object.assign({}, state, copy(data.context || {}));
-					return;
-				}
-				if (data.type === "dsh-tavern-helper-event") {
-					diagnosticCount = 0;
-					const suppliedArgs = copy(data.args || []);
-					const task = (async function () {
-						const previousEventId = activeHostEventId;
-						activeHostEventId = String(data.eventId || "");
-						try {
-							if (data.name === "mag_variable_update_ended" && suppliedArgs.length === 0) {
-								const option = { type: "message", message_id: currentId() };
-								const variables = getVariables(option);
-								const before = JSON.stringify(variables);
-								await emitHostEvent(data.eventId, data.name, [variables]);
-								if (JSON.stringify(variables) !== before) {
-									localReplace(variables, option);
-									await call("updateTavernHelperVariables", { option: option, variables: variables });
-								}
-								return [variables];
-							}
-							await emitHostEvent(data.eventId, data.name, suppliedArgs);
-							return suppliedArgs;
-						} finally { activeHostEventId = previousEventId; }
-					})();
-					task.then(function (args) {
-						if (data.eventId) parent.postMessage({ type: "dsh-tavern-helper-event-complete", token: token, eventId: data.eventId, args: copy(args || []) }, "*");
-					}).catch(function (error) {
-						console.error(error);
-						if (data.eventId) parent.postMessage({ type: "dsh-tavern-helper-event-complete", token: token, eventId: data.eventId, scriptId: String(error && error.dshTavernScriptId || ""), error: String(error && error.message || error), args: suppliedArgs }, "*");
-					});
-					return;
-				}
-				if (data.type !== "dsh-tavern-helper-response") return;
-				const task = pending[data.requestId];
-				if (!task) return;
-				delete pending[data.requestId];
-				if (data.ok) {
-					if (data.result && data.result.context) state = Object.assign({}, state, copy(data.result.context));
-					if (data.result && data.result.worldbook) state.worldbook = copy(data.result.worldbook);
-					task.resolve(data.result);
-				} else task.reject(new Error(String(data.error || "Helper 调用失败")));
-			});
+
 			window.getScriptId = function () { return currentScript().id; };
 			window.getScriptName = function () { return currentScript().name; };
 			window.getScriptInfo = function () { return currentScript().info; };
@@ -2016,17 +2148,13 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			window.getCurrentCharPrimaryLorebook = function () { return window.getCharWorldbookNames().primary; };
 			window.getLorebookSettings = function () { return copy(lorebookSettings); };
 			window.setLorebookSettings = function (settings) { lorebookSettings = Object.assign({}, lorebookSettings, copy(settings || {})); return copy(lorebookSettings); };
-			window.eventOn = function (name, handler) { return listen(name, handler); };
-			window.eventMakeFirst = function (name, handler) { return listen(name, handler, "first"); };
-			window.eventMakeLast = function (name, handler) { return listen(name, handler, "last"); };
-			window.eventOnce = function (name, handler) { return listen(name, handler, null, true); };
-			window.eventOff = function (name, handler) {
-				name = eventName(name);
-				if (listeners[name]) for (const entry of Array.from(listeners[name])) if (entry.handler === handler && entry.scriptId === currentScript().id) listeners[name].delete(entry);
-				reportSubscriptions();
-			};
+			window.eventOn = function (name, handler) { return events.listen(name, handler); };
+			window.eventMakeFirst = function (name, handler) { return events.listen(name, handler, "first"); };
+			window.eventMakeLast = function (name, handler) { return events.listen(name, handler, "last"); };
+			window.eventOnce = function (name, handler) { return events.listen(name, handler, null, true); };
+			window.eventOff = events.off;
 			window.eventRemoveListener = window.eventOff;
-			window.eventEmit = eventEmit;
+			window.eventEmit = events.emit;
 			let resolveCompanionScriptsReady;
 			window.__dshTavernCompanionScriptsReady = new Promise(function (resolve) { resolveCompanionScriptsReady = resolve; });
 			window.__dshTavernResolveCompanionScriptsReady = function () {
@@ -2069,107 +2197,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					.replace(/{{\s*user\s*}}/gi, String(state.playerName || "你"))
 					.replace(/{{\s*char\s*}}/gi, String(state.characterName || "角色"));
 			};
-			function HelperPopup(content, _type, title, options) {
-				const popup = this;
-				popup.content = content;
-				popup.options = options && typeof options === "object" ? options : {};
-				popup.root = null;
-				popup.resolve = null;
-				popup.completeAffirmative = async function () {
-					if (popup.root) popup.root.remove();
-					popup.root = null;
-					parent.postMessage({ type: "dsh-tavern-helper-ui-close", token: token }, "*");
-					if (popup.resolve) { const resolve = popup.resolve; popup.resolve = null; resolve(true); }
-					return true;
-				};
-				popup.show = function () {
-					if (popup.root) return Promise.resolve(false);
-					const overlay = document.createElement("div");
-					overlay.setAttribute("data-dsh-helper-popup", "");
-					overlay.style.cssText = "position:fixed;inset:0;z-index:10;display:grid;place-items:center;padding:24px;background:rgba(0,0,0,.64);box-sizing:border-box";
-					const panel = document.createElement("section");
-					panel.style.cssText = "width:min(920px,100%);max-height:90vh;overflow:auto;border:1px solid rgba(255,255,255,.2);border-radius:16px;padding:16px;background:#15191f;color:#eef4fb;box-shadow:0 24px 80px rgba(0,0,0,.5);box-sizing:border-box";
-					if (title) { const heading = document.createElement("h2"); heading.textContent = String(title); panel.appendChild(heading); }
-					const node = content && content.jquery ? content[0] : content;
-					if (node && typeof node.nodeType === "number") panel.appendChild(node);
-					else if (node !== undefined && node !== null) { const text = document.createElement("div"); text.textContent = String(node); panel.appendChild(text); }
-					const actions = document.createElement("div");
-					actions.style.cssText = "display:flex;justify-content:flex-end;margin-top:14px";
-					const close = document.createElement("button");
-					close.type = "button"; close.textContent = String(popup.options.okButton || "关闭");
-					close.style.cssText = "border:1px solid rgba(255,255,255,.24);border-radius:9px;padding:7px 14px;background:#273241;color:#fff;cursor:pointer";
-					close.addEventListener("click", popup.completeAffirmative);
-					actions.appendChild(close); panel.appendChild(actions); overlay.appendChild(panel); document.body.appendChild(overlay);
-					popup.root = overlay;
-					parent.postMessage({ type: "dsh-tavern-helper-ui-open", token: token }, "*");
-					return new Promise(function (resolve) { popup.resolve = resolve; });
-				};
-			}
-			// Both entry points reference the same functions; plugin wrappers stay visible to each other.
-			const helper = {};
-			const helperNames = ["getScriptId", "getScriptName", "getScriptInfo", "replaceScriptInfo", "getScriptButtons", "replaceScriptButtons", "updateScriptButtonsWith", "appendInexistentScriptButtons", "getButtonEvent", "getCharData", "getCurrentMessageId", "getLastMessageId", "getChatMessages", "setChatMessages", "getVariables", "getAllVariables", "replaceVariables", "insertOrAssignVariables", "insertVariables", "updateVariablesWith", "deleteVariable", "replaceWorldbook", "createWorldbookEntries", "deleteWorldbookEntries", "setLorebookEntries", "createLorebookEntries", "deleteLorebookEntries", "getLorebooks", "getWorldbookNames", "getCharWorldbookNames", "getWorldbook", "getLorebookEntries", "getCharLorebooks", "getCurrentCharPrimaryLorebook", "getLorebookSettings", "setLorebookSettings", "updateWorldbookWith", "getTavernHelperVersion", "substitudeMacros"];
-			for (const name of helperNames) Object.defineProperty(helper, name, { enumerable: true, configurable: true, get: function () { return window[name]; }, set: function (value) { window[name] = value; } });
-			window.TavernHelper = helper;
-			const eventSource = { on: window.eventOn, once: window.eventOnce, off: window.eventOff, removeListener: window.eventOff, makeFirst: window.eventMakeFirst, makeLast: window.eventMakeLast, emit: window.eventEmit };
-			const sillyTavern = {
-				TavernHelper: helper,
-				getContext: function () { return sillyTavern; },
-				eventSource: eventSource,
-				eventTypes: window.tavern_events,
-				Popup: HelperPopup,
-				POPUP_TYPE: Object.freeze({ DISPLAY: "display", TEXT: "text", CONFIRM: "confirm", INPUT: "input" }),
-				POPUP_RESULT: Object.freeze({ AFFIRMATIVE: 1, NEGATIVE: 0, CANCELLED: null, CUSTOM1: 2 }),
-				extensionSettings: extensionSettings,
-				characters: [],
-				characterId: 0,
-				chatCompletionSettings: {},
-				ToolManager: Object.freeze({ isToolCallingSupported: function () { return false; } }),
-				getCurrentChatId: function () { return String(state.chatId || ""); },
-				getCurrentLocale: function () { return "zh-CN"; },
-				getCharacterCardFields: function () { return copy(state.character && (state.character.data || state.character) || {}); },
-				getRequestHeaders: function () { return {}; },
-				getChatCompletionModel: function () { return ""; },
-				loadWorldInfo: async function (name) {
-					const result = await call("loadTavernWorldInfo", { name: name });
-					const document = copy(result.worldInfo);
-					nativeWorldInfoSnapshots.set(document, copy(document));
-					nativeWorldInfoByName.set(String(name || "current"), copy(document));
-					return document;
-				},
-				saveWorldInfo: async function (name, document) {
-					const expected = nativeWorldInfoSnapshots.get(document) || nativeWorldInfoByName.get(String(name || "current"));
-					if (!expected) throw new Error("保存前请先读取世界书");
-					const result = await call("saveTavernWorldInfo", { name: name, worldInfo: copy(document), expectedWorldInfo: copy(expected) });
-					if (!result || result.updated === false) throw new Error("世界书未保存");
-					nativeWorldInfoSnapshots.set(document, copy(result.worldInfo));
-					nativeWorldInfoByName.set(String(name || "current"), copy(result.worldInfo));
-					state.worldbook = copy(result.worldbook);
-				},
-				callGenericPopup: function (content, type, title, options) { return new HelperPopup(content, type, title, options).show(); },
-				saveChat: async function () { return true; },
-				saveSettingsDebounced: saveExtensionSettings,
-				registerMacro: function () {}, unregisterMacro: function () {},
-				registerFunctionTool: function () {}, unregisterFunctionTool: function () {}
-			};
-			Object.defineProperties(sillyTavern, {
-				chatId: { enumerable: true, get: function () { return String(state.chatId || ""); } },
-				name1: { enumerable: true, get: function () { return String(state.playerName || "你"); } },
-				chat: { enumerable: true, get: function () {
-					return (state.messages || []).map(function (message) {
-						return Object.assign({}, message, {
-							mes: String(message && message.message || ""),
-							is_user: Boolean(message && message.role === "user"),
-							variables: Array.isArray(message && message.swipes_data) ? message.swipes_data : []
-						});
-					});
-				} },
-				name2: { enumerable: true, get: function () { return String(state.characterName || "角色"); } }
-			});
-			window.SillyTavern = Object.freeze(sillyTavern);
-			window.getContext = sillyTavern.getContext;
-			window.errorCatched = function (factory) { return function () { try { return factory.apply(this, arguments); } catch (error) { console.error(error); return {}; } }; };
-			window.retrieveDisplayedMessage = function () { return window.jQuery ? window.jQuery() : []; };
-			window.toastr = { success: console.info, info: console.info, warning: console.warn, error: console.error };
+			modules.installFacade({ window: window, copy: copy, request: call, context: function () { return state; },
+				Popup: modules.createPopup({ document: window.document, parent: parent, token: token }) });
 			// MVU reports some rejected operations through warn/toastr without throwing.
 			let diagnosticCount = 0;
 			for (const level of ["warn", "error"]) {
@@ -2247,7 +2276,11 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const context = input && input.context && typeof input.context === "object" ? input.context : {};
 			const safeMetadata = JSON.stringify(metadata).replace(/</g, "\\u003c");
 			const safeContext = JSON.stringify(context).replace(/</g, "\\u003c").replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
-			const bootstrap = '(' + tavernHelperScriptBootstrap.toString() + ')(' + safeMetadata + ',' + safeContext + ');';
+			const bootstrap = '(' + tavernHelperScriptBootstrap.toString() + ')(' + safeMetadata + ',' + safeContext + ',{'
+				+ 'createTransport:' + createTavernHelperTransport.toString() + ','
+				+ 'createEvents:' + createTavernHelperEventBus.toString() + ','
+				+ 'createPopup:' + createTavernHelperPopup.toString() + ','
+				+ 'installFacade:' + installTavernHelperFacade.toString() + '});';
 			const modules = scripts.map(function (script) {
 				return { id: String(script && script.id || ""), system: String(script && script.system || ""), content: String(script && script.content || "") };
 			});
@@ -6487,6 +6520,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		exports.inject = inject;
 		exports.buildOpeningPreviewDocument = buildOpeningPreviewDocument;
 		exports.buildTavernFrameDocument = buildTavernFrameDocument;
+		exports.createTavernHelperTransport = createTavernHelperTransport;
+		exports.createTavernHelperEventBus = createTavernHelperEventBus;
 		exports.buildTavernHelperScriptDocument = buildTavernHelperScriptDocument;
 		exports.createTavernHelperScriptRuntime = createTavernHelperScriptRuntime;
 		exports.tavernScriptRuntimeReady = tavernScriptRuntimeReady;

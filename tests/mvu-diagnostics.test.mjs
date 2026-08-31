@@ -124,17 +124,20 @@ test('诊断磁盘故障不会使已经成功的结算重试', async () => {
 
 test('真实 iframe bootstrap 捕获 console.warn 和 toastr，带事件编号并限制洪泛', async () => {
   const source = await readFile(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
-  const start = source.indexOf('function tavernHelperScriptBootstrap(')
-  const end = source.indexOf('function buildTavernHelperScriptDocument(', start)
-  // Only stub external zod loading; execute the actual production bootstrap/listeners.
-  const bootstrap = source.slice(start, end).replace(/import\(window\.__dshTavernStaticAssetUrl\([^\n]+?\)\)/, 'Promise.resolve({})')
+  let descriptor
+  vm.runInNewContext(source, { window: { __ModuleLoader__: { load(value) { descriptor = value } } }, console })
+  const client = descriptor.factory(() => ({}))
+  const document = client.buildTavernHelperScriptDocument({ token: 'test', scripts: [{ id: 'guard' }], context: { messages: [] } })
+  // Execute the production document, replacing only the unrelated CDN dependency.
+  const bootstrap = document.match(/<script data-dsh-tavern-helper-script>([\s\S]*?)<\/script>/)[1]
+    .replace(/import\(window\.__dshTavernStaticAssetUrl\([^\n]+?\)\)/, 'Promise.resolve({})')
   const messages = [], listeners = new Map()
   const parent = { postMessage: value => messages.push(value) }
   const sandbox = { parent, console: { info() {}, warn() {}, error() {} }, structuredClone, setTimeout, clearTimeout,
     addEventListener(name, listener) { const list = listeners.get(name) || []; list.push(listener); listeners.set(name, list) }
   }
   sandbox.window = sandbox
-  vm.runInNewContext(bootstrap + '\ntavernHelperScriptBootstrap({ token: "test", scripts: [{id:"guard"}] }, {messages:[]});', sandbox)
+  vm.runInNewContext(bootstrap, sandbox)
   sandbox.console.warn('initialization warning')
   assert.equal(messages.at(-1).type, 'dsh-tavern-helper-diagnostic')
   assert.equal(messages.at(-1).eventId, '')
