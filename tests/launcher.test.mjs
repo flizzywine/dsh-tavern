@@ -273,10 +273,11 @@ test('Tavern profile installs Better Sidebar as its right-panel foundation', () 
 
 test('Tavern profile also installs the pinned mobile adaptation plugin', () => {
   assert.equal(
-    rootManifest.dependencies['@dsh-external/dsh-mobile-nav'],
-    'github:mexiaosqwq/dsh-web-mobile#00dd3b9deee09f0177cf90d4f11fa5581ef95dcd',
+    rootManifest.dependencies['dsh-web-mobile'],
+    '2.3.0',
   )
-  assert.ok(rootManifest.dsh.profile.bundles.includes('@dsh-external/dsh-mobile-nav'))
+  assert.ok(rootManifest.dsh.profile.bundles.includes('dsh-web-mobile'))
+  assert.equal(rootManifest.dependencies['@dsh-external/dsh-mobile-nav'], undefined)
   assert.ok(rootManifest.dsh.profile.bundles.includes('dsh-better-sidebar'))
 })
 

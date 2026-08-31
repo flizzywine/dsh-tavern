@@ -14,7 +14,7 @@
     "test": "node --test tests/*.test.mjs"
   },
   "dependencies": {
-    "@dsh-external/dsh-mobile-nav": "github:mexiaosqwq/dsh-web-mobile#00dd3b9deee09f0177cf90d4f11fa5581ef95dcd",
+    "dsh-web-mobile": "2.3.0",
     "@jitl/quickjs-singlefile-mjs-release-sync": "0.32.0",
     "chevrotain": "^11.2.0",
     "dsh-better-sidebar": "0.17.1",
@@ -29,7 +29,7 @@
       "bundles": [
         "@deepseek-ai/dsh-base",
         "@deepseek-ai/dsh-web-app",
-        "@dsh-external/dsh-mobile-nav",
+        "dsh-web-mobile",
         "dsh-better-sidebar",
         "dsh-tavern-plugin"
       ]

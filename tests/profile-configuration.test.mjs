@@ -21,13 +21,13 @@ const legacyPatch = await readFile(new URL('../config/legacy-profile-patch-v0.6.
 function sourceManifest() {
   return {
     dependencies: {
-      '@dsh-external/dsh-mobile-nav': 'github:mexiaosqwq/dsh-web-mobile#mobile-test-revision',
+      'dsh-web-mobile': '2.3.0',
       'dsh-better-sidebar': '0.16.0',
       'dsh-tavern-plugin': 'link:./tavern-plugin',
     },
     dsh: {
       profile: {
-        bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', '@dsh-external/dsh-mobile-nav', 'dsh-better-sidebar', 'dsh-tavern-plugin'],
+        bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', 'dsh-web-mobile', 'dsh-better-sidebar', 'dsh-tavern-plugin'],
       },
     },
   }
@@ -57,18 +57,38 @@ test('Profile 更新替换项目管理项并保留用户额外插件', () => {
 
   assert.equal(next.description, '用户备注')
   assert.equal(next.dependencies['user-extra-plugin'], '2.0.0')
-  assert.equal(next.dependencies['@dsh-external/dsh-mobile-nav'], 'github:mexiaosqwq/dsh-web-mobile#mobile-test-revision')
+  assert.equal(next.dependencies['dsh-web-mobile'], '2.3.0')
   assert.equal(next.dependencies['dsh-better-sidebar'], '0.16.0')
   assert.equal(next.dependencies['dsh-tavern-plugin'], 'link:/app/tavern-plugin')
   assert.equal(next.dependencies['dsh-codex-connect'], undefined)
   assert.equal(next.dsh.customFlag, true)
   assert.deepEqual(next.dsh.profile.bundles, [
-    '@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', '@dsh-external/dsh-mobile-nav', 'dsh-better-sidebar', 'dsh-tavern-plugin', 'user-extra-plugin',
+    '@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', 'dsh-web-mobile', 'dsh-better-sidebar', 'dsh-tavern-plugin', 'user-extra-plugin',
   ])
   assert.deepEqual(next.dshTavern.managedBundles, sourceManifest().dsh.profile.bundles)
-  assert.deepEqual(next.dshTavern.managedDependencies, ['@dsh-external/dsh-mobile-nav', 'dsh-better-sidebar', 'dsh-tavern-plugin'])
+  assert.deepEqual(next.dshTavern.managedDependencies, ['dsh-web-mobile', 'dsh-better-sidebar', 'dsh-tavern-plugin'])
   assert.equal(next.dshTavern.profileConfigurationVersion, PROFILE_CONFIGURATION_VERSION)
 })
+
+for (const recorded of [false, true]) {
+  test(`移动端插件改名迁移不重复加载，并保留用户插件（管理记录：${recorded}）`, () => {
+    const oldName = '@dsh-external/dsh-mobile-nav'
+    const current = {
+      dependencies: { [oldName]: 'github:mexiaosqwq/dsh-web-mobile#old', 'user-plugin': 'link:/user/plugin' },
+      dsh: { profile: { bundles: [oldName, 'user-plugin'] } },
+      ...(recorded ? { dshTavern: { managedBundles: [oldName], managedDependencies: [oldName] } } : {}),
+    }
+    const options = { source: sourceManifest(), current, pluginPath: '/app/tavern-plugin', dataRoot: '/data', host: 'cli' }
+    const next = mergeProfileManifest(options)
+    assert.equal(next.dependencies[oldName], undefined)
+    assert.equal(next.dsh.profile.bundles.includes(oldName), false)
+    assert.equal(next.dependencies['dsh-web-mobile'], '2.3.0')
+    assert.equal(next.dsh.profile.bundles.filter(name => name === 'dsh-web-mobile').length, 1)
+    assert.equal(next.dependencies['user-plugin'], 'link:/user/plugin')
+    assert.ok(next.dsh.profile.bundles.includes('user-plugin'))
+    assert.deepEqual(mergeProfileManifest({ ...options, current: next }), next)
+  })
+}
 
 test('Profile 安装同步 pnpm 声明的受管依赖补丁', async () => {
   const sourceRoot = await mkdtemp(path.join(tmpdir(), 'dsh-tavern-patch-source-'))

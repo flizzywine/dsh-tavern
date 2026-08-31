@@ -13,12 +13,14 @@ export const PROFILE_CONFIGURATION_VERSION = 1
 const LEGACY_MANAGED_BUNDLES = [
   '@deepseek-ai/dsh-base',
   '@deepseek-ai/dsh-web-app',
+  '@dsh-external/dsh-mobile-nav',
   'dsh-better-sidebar',
   'dsh-tavern-plugin',
   'dsh-codex-connect',
 ]
 
 const LEGACY_MANAGED_DEPENDENCIES = [
+  '@dsh-external/dsh-mobile-nav',
   'dsh-better-sidebar',
   'dsh-tavern-plugin',
   '@deepseek-ai/dsh-tools',
