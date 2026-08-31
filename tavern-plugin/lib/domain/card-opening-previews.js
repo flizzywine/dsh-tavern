@@ -5,6 +5,19 @@ function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
 }
 
+function previewRegexScript(script) {
+  const source = str(script && script.replaceString)
+  const scripts = Array.from(source.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script\s*>/gi))
+  const needsMvu = scripts.some(function (match) {
+    return /\bwaitGlobalInitialized\s*\(\s*(['"])Mvu\1|\bMvu\s*(?:\.|\[)/.test(match[1])
+  })
+  if (!needsMvu) return script
+  // Only the chooser's display rule changes; the stored card and committed opening keep the real UI.
+  return Object.assign({}, script, {
+    replaceString: '<aside data-dsh-tavern-mvu-preview>状态栏将在开始游戏后加载</aside>'
+  })
+}
+
 /** Compile greetings for selection; official MVU initializes only after commit. */
 export async function projectCardOpeningPreviews(input = {}) {
   const card = input.card && typeof input.card === 'object' ? input.card : {}
@@ -13,7 +26,7 @@ export async function projectCardOpeningPreviews(input = {}) {
   const userName = str(input.userName).trim() || '你'
   const cardRegexScripts = Array.isArray(extensions.regexScripts) ? extensions.regexScripts : []
   const presetRegexScripts = Array.isArray(input.presetRegexScripts) ? input.presetRegexScripts : []
-  const regexScripts = cardRegexScripts.concat(presetRegexScripts)
+  const regexScripts = cardRegexScripts.concat(presetRegexScripts).map(previewRegexScript)
   return {
     openings: openings.map(function (opening, index) {
       const projection = projectOpeningPreview(opening.text, {

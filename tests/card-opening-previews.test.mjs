@@ -4,9 +4,11 @@ import { readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
+import vm from 'node:vm'
 
 import { projectCardOpeningPreviews } from '../tavern-plugin/lib/domain/card-opening-previews.js'
 import { createCardPreparation } from '../tavern-plugin/lib/domain/card-preparation.js'
+import { projectOpeningCommit } from '../tavern-plugin/lib/domain/runtime-content-projection.js'
 
 const lighthouseCardPath = process.env.DSH_TAVERN_LIGHTHOUSE_CARD
   || path.join(homedir(), '.dsh/profile-data/tavern/data/resources/cards/灯火阑珊.json')
@@ -77,6 +79,38 @@ test('MVU 展示入口不会把原有开场 HTML 降为 Markdown，且状态栏�
   assert.deepEqual(result.openings[2].projection.parts.map((part) => part.kind), ['markdown', 'html'])
   assert.equal(result.openings[2].projection.parts[0].text.trim(), '***开场说明***')
   assert.deepEqual(card, before)
+})
+
+test('预览延后依赖 MVU 的状态脚本，保留开场、普通脚本与正式开局资源', async () => {
+  const status = '<div id="notice"></div><script>waitGlobalInitialized("Mvu").then(function () { Mvu.getMvuData(); });</script>'
+  const ordinary = '<div>普通展示</div><script>window.ordinaryRan = true;</script>'
+  const card = { name: '测试卡', first_mes: '<h1>开场正文</h1>\n<status/>\n<ordinary/>' }
+  const extensions = { regexScripts: [
+    { id: 'status', enabled: true, placement: [2], markdownOnly: true, findRegex: '/<status\\/>/g', replaceString: '```html\n' + status + '\n```' },
+    { id: 'ordinary', enabled: true, placement: [2], markdownOnly: true, findRegex: '/<ordinary\\/>/g', replaceString: '```html\n' + ordinary + '\n```' }
+  ] }
+  const before = structuredClone({ card, extensions })
+  const result = await projectCardOpeningPreviews({ card, extensions,
+    runtime: { initializeChat() { throw new Error('预览不得初始化游戏') } }
+  })
+  const opening = result.openings[0]
+  const context = vm.createContext({ window: {} })
+  for (const part of opening.projection.parts) {
+    for (const match of (part.content || '').matchAll(/<script[^>]*>([\s\S]*?)<\/script>/gi)) {
+      vm.runInContext(match[1], context)
+    }
+  }
+  assert.equal(context.window.ordinaryRan, true)
+  assert.equal(opening.helperContext, null)
+  assert.equal(opening.text, card.first_mes)
+  const preview = opening.projection.parts.map(part => part.content || part.text).join('\n')
+  assert.match(preview, /<h1>开场正文<\/h1>/)
+  assert.match(preview, /状态栏将在开始游戏后加载/)
+  assert.doesNotMatch(preview, /waitGlobalInitialized|Mvu\.getMvuData/)
+  const committed = projectOpeningCommit(card.first_mes, { regexScripts: extensions.regexScripts, regexPlacement: 2 })
+  assert.match(committed.displayText, /waitGlobalInitialized\("Mvu"\)/)
+  assert.doesNotMatch(committed.displayText, /状态栏将在开始游戏后加载/)
+  assert.deepEqual({ card, extensions }, before)
 })
 
 test('普通人物卡无需伪造 MVU Helper 上下文', async () => {
