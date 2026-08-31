@@ -1,3 +1,5 @@
+import { normalizeTavernStyleEnvironment } from './tavern-style-environment.js'
+
 function object(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value : {}
 }
@@ -11,6 +13,8 @@ export function applyTavernSettingsPatch(current, patch) {
   const next = Object.assign({}, object(current))
   const input = object(patch)
   if (Object.prototype.hasOwnProperty.call(input, 'compatibilityMode')) next.compatibilityMode = input.compatibilityMode === true
+  if (Object.prototype.hasOwnProperty.call(input, 'trustedCardMode')) next.trustedCardMode = input.trustedCardMode !== false
+  if (Object.prototype.hasOwnProperty.call(input, 'styleEnvironment')) next.styleEnvironment = normalizeTavernStyleEnvironment(input.styleEnvironment)
   const legacyStory = Object.prototype.hasOwnProperty.call(input, 'storyPrompt') ? { name: 'story', text: input.storyPrompt } : null
   const promptChange = Object.prototype.hasOwnProperty.call(input, 'systemPrompt') ? object(input.systemPrompt) : legacyStory
   if (promptChange !== null) {
@@ -54,7 +58,9 @@ export function presentTavernSettings(document, defaults) {
   })
   const story = prompts.find(function (item) { return item.name === 'story' }) || { text: '', customized: false }
   return {
-    compatibilityMode: document && document.compatibilityMode === true,
+    compatibilityMode: object(document).compatibilityMode === true,
+    trustedCardMode: object(document).trustedCardMode !== false,
+    styleEnvironment: normalizeTavernStyleEnvironment(object(document).styleEnvironment),
     systemPrompts: prompts,
     storyPrompt: story.text,
     storyPromptCustomized: story.customized

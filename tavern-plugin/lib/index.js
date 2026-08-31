@@ -45,7 +45,6 @@ import { createTavernRemoteAssetPinStore } from './domain/tavern-remote-assets.j
 import { OFFICIAL_MVU_VERSION, readOfficialMvuBundle } from './domain/official-mvu-assets.js'
 import { createTavernStaticResourceCache, projectCachedResourceBody } from './domain/tavern-static-resource-cache.js'
 import { SILLYTAVERN_CSS_COMPAT_URLS } from './domain/sillytavern-css-compatibility.js'
-import { normalizeTavernStyleEnvironment } from './domain/tavern-style-environment.js'
 import { assertRegenerationSourceCurrent, mergeRegeneratedSwipe } from './domain/tavern-swipe-regeneration.js'
 import { TavernPromptTemplateRuntime } from './domain/tavern-prompt-template-runtime.js'
 import {
@@ -151,7 +150,12 @@ export async function apply(ctx) {
       return applyTavernSettingsPatch(current, patch)
     })
     const settings = presentTavernSettings(tavernSettingsDocument, promptDefaults())
-    void tavernStaticResources.warm(settings.styleEnvironment.extensionStyles)
+    // Cache warming is best-effort: a saved setting must still reach the UI.
+    void Promise.resolve().then(function () {
+      return tavernStaticResources.warm(settings.styleEnvironment.extensionStyles)
+    }).catch(function (error) {
+      console.warn('dsh-tavern: 设置已保存，扩展样式预缓存失败，将在使用时重试:', error)
+    })
     return settings
   }
   function runtimePrompt(name) {
