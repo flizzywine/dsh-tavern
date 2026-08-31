@@ -164,7 +164,8 @@ test('变量结算 Frame 明确隔离用户输入、旧轮正文和隐藏思考'
   const suppliedContext = JSON.stringify({ messages: request.messages, turnContext: request.turnContext })
 
   assert.equal(frame.trigger.messageId, 4)
-  assert.equal(frame.outputContract.exactlyOnce, true)
+  assert.equal(frame.outputContract.singleCommit, true)
+  assert.equal(frame.outputContract.maxToolCalls, 3)
   assert.equal(request.messages.length, 1)
   assert.equal(request.messages[0].role, 'assistant')
   assert.match(suppliedContext, /突破失败/)

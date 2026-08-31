@@ -1,6 +1,8 @@
 # MVU 后台 Agent 工具调用方案
 
 > 状态：已确认的目标方案，尚未实施。
+
+> 实现更新（2026-08-31）：主链路已实现。当前工具契约由[变量工具纠错](mvu-tool-retry.md)修订：不再限制每轮仅调用一次，而是在同一 Agent 回合最多提交三次，工具返回实际执行结果，失败草稿不提交，成功后停止调用。下文保留原迁移设计作为背景。
 >
 > 本文在[《官方 MVU 本地运行时迁移方案》](official-mvu-runtime-migration.md)之上增加变量生成链路，并落实[《前台 Frame 迁移方案》](foreground-frame-migration-plan.md)中尚未实现的 `BackgroundTaskFrame`。它不改变“官方 MVU 负责变量语义、dsh-tavern 负责持久化”的既有分工。
 

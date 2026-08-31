@@ -39,7 +39,7 @@ const operationSchemas = [
 
 export const MVU_SUBMIT_UPDATE_TOOL = Object.freeze({
   name: MVU_SUBMIT_UPDATE_TOOL_NAME,
-  description: '提交本轮正文已经确认发生的全部变量变化。必须且只能调用一次；没有变化时提交空 operations 数组。',
+  description: '提交本轮正文确认的变量变化并等待实际执行校验。失败且 retryable 为 true 时根据错误修正完整 operations 后重试，最多提交三次；成功后停止调用。没有变化时提交空数组。',
   parameters: Object.freeze({
     type: 'object',
     additionalProperties: false,
@@ -275,7 +275,7 @@ export function createMvuBackgroundTaskFrame(input = {}) {
       updateRules: Array.isArray(input.updateRules) ? input.updateRules.map(str).filter(Boolean) : [],
       updateOnlyFromStory: true
     },
-    outputContract: { tool: MVU_SUBMIT_UPDATE_TOOL_NAME, required: true, exactlyOnce: true }
+    outputContract: { tool: MVU_SUBMIT_UPDATE_TOOL_NAME, required: true, singleCommit: true, maxToolCalls: 3 }
   })
 }
 
@@ -304,8 +304,11 @@ export function projectMvuBackgroundRequest(frame) {
     system: [
       '只根据【正文】中已经确认发生的事实结算变量，不得读取或推断玩家意图。',
       '不得根据旧轮剧情、隐藏思考、候选项或未发生事件更新变量。',
-      '必须且只能调用一次 mvu_submit_update。',
+      '必须调用 mvu_submit_update，以工具返回的实际执行校验结果为准。最多提交三次。',
       '有变化时提交完整 operations；没有变化时也必须提交 operations: []。',
+      '若 ok=false 且 retryable=true，读取 error、failures 和 runtimeDiagnostics，根据 currentVariables 与变量结构修正完整 operations 后再次调用；不要原样反复提交。',
+      'rolledBack=true 表示整批变量修改未保存，可以基于原快照重新提交完整更新；不得用空 operations 掩盖尚未修复的失败。',
+      'ok=true 或 retryable=false 后停止调用，不能重复执行已成功的更新，也不能绕过人物卡校验。',
       '工具调用成功后只输出一行姿势 JSON：{"posture":"本轮结束时可见的人物姿势"}。'
     ].join('\n'),
     tools: [MVU_SUBMIT_UPDATE_TOOL]
@@ -316,121 +319,128 @@ export function projectMvuBackgroundRequest(frame) {
 export function createMvuSettlementModule(options = {}) {
   if (!options.model || typeof options.model.run !== 'function') throw new Error('MVU Settlement 缺少后台模型 adapter')
   if (!options.runtime || typeof options.runtime.settleMvuUpdate !== 'function') throw new Error('MVU Settlement 缺少官方 Runtime adapter')
-  const maxAttempts = Math.max(1, Math.min(2, Number(options.maxAttempts) || 2))
+  const maxAttempts = Math.max(1, Math.min(3, Math.floor(Number(options.maxAttempts) || 3)))
 
   async function settleVariables(input = {}) {
     const frame = createMvuBackgroundTaskFrame(input)
     const request = projectMvuBackgroundRequest(frame)
-    let lastError = null
+    let attempt = 0
+    let result = null
+    let feedback = null
     let traceSessionId = str(input.persistentSessionId)
     let traceBoundary = null
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      const submissions = []
-      let attemptedCalls = 0
-      const diagnosticId = frame.frameId + ':attempt-' + attempt
-      async function record(stage, details = {}) {
-        try { await options.diagnostics?.record(input.sessionId, { diagnosticId, operationId: input.operationId, chatId: input.chatId, branchId: input.branchId, basedOnRevision: input.basedOnRevision, messageId: input.messageId, swipeId: input.swipeId, attempt, traceSessionId, stage, ...details }) } catch { /* Diagnostics must not change settlement behaviour. */ }
-      }
+    let diagnosticId = frame.frameId + ':attempt-1'
+    let toolTail = Promise.resolve()
+    let retryNotBefore = 0
+    async function record(stage, details = {}) {
+      try { await options.diagnostics?.record(input.sessionId, { diagnosticId, operationId: input.operationId, chatId: input.chatId, branchId: input.branchId, basedOnRevision: input.basedOnRevision, messageId: input.messageId, swipeId: input.swipeId, attempt, traceSessionId, stage, ...details }) } catch { /* Diagnostics must not change settlement behaviour. */ }
+    }
+    async function executeTool(call) {
+      // Serialize parallel calls too. Success or an unsafe-to-retry failure is terminal.
+      if (feedback && (feedback.ok || !feedback.retryable)) return JSON.stringify(feedback)
+      if (attempt >= maxAttempts) return JSON.stringify({ ...feedback, ok: false, retryable: false })
+      attempt++
+      diagnosticId = frame.frameId + ':attempt-' + attempt
       await record('start', { variables: variableDiagnosticSummary(input.currentVariables) })
+      let submission
       try {
-        const run = await options.model.run({
-          task: 'settlement',
-          persistent: true,
-          persistentSessionId: traceSessionId,
-          rewindTo: -1,
-          selection: input.selection,
-          messages: request.messages,
-          turnContext: request.turnContext,
-          system: [str(input.system).trim(), request.system].filter(Boolean).join('\n\n'),
-          tools: request.tools,
-          maxToolCalls: 2,
-          temperature: 0.1,
-          sessionId: input.sessionId,
-          turn: Math.max(0, Number(input.turn) || 0),
-          async onToolCall(call) {
-            attemptedCalls++
-            if (!call || call.name !== MVU_SUBMIT_UPDATE_TOOL_NAME) throw new Error('后台 Agent 调用了未授权的变量工具')
-            if (submissions.length > 0) throw new Error('mvu_submit_update 每轮只能调用一次')
-            let submission
-            try { submission = normalizeMvuToolSubmission(call.arguments) }
-            catch (error) {
-              await record('submission-rejected', { error: error.message, argumentKeys: Object.keys(object(call.arguments)), operations: object(call.arguments).operations })
-              throw error
-            }
-            submissions.push(submission)
-            await record('submitted', { operations: submission.operations })
-            return JSON.stringify({
-              received: true,
-              operationCount: submission.operations.length,
-              note: '仅表示已接收；是否生效将在官方 MVU Runtime 执行后逐项核验'
-            })
-          }
-        })
-        traceSessionId = str(run.traceSessionId)
-        traceBoundary = Number.isSafeInteger(run.traceBoundary) ? run.traceBoundary : null
-        if (attemptedCalls !== 1 || submissions.length !== 1) {
-          throw new Error(attemptedCalls === 0 ? '后台 Agent 未调用 mvu_submit_update' : 'mvu_submit_update 每轮只能调用一次')
-        }
-        const submission = submissions[0]
-        const applied = await options.runtime.settleMvuUpdate({
-          sessionId: input.sessionId,
-          messageId: input.messageId,
-          swipeId: input.swipeId,
-          expectedLifecycleRevision: input.expectedLifecycleRevision,
-          diagnosticId,
-          storyText: frame.foregroundOutput.storyText,
-          command: formatMvuUpdateCommand(submission)
-        })
-        if (applied.stale === true) {
-          await record('stale')
-          return {
-            frame,
-            text: str(run.text),
-            traceSessionId,
-            traceBoundary,
-            receipt: {
-              version: 1, status: 'stale', summary: '变量结算目标已经变化，迟到结果未写入。',
-              changes: [], sideEffects: [], failures: []
-            }
-          }
-        }
-        const projected = applied.context && Array.isArray(applied.context.messages)
-          ? applied.context.messages[input.messageId]
-          : null
-        const after = clone(projected && projected.variables || {})
-        const audit = auditMvuSettlement(input.currentVariables, after, submission.operations)
-        const status = audit.failures.length > 0
-          ? (audit.changes.length > 0 ? 'partial' : 'error')
-          : (audit.changes.length > 0 ? 'updated' : 'unchanged')
-        await record('result', { status, variables: variableDiagnosticSummary(after), changes: audit.changes, sideEffects: audit.sideEffects, failures: audit.failures, runtimeDiagnostics: applied.diagnostics || [] })
-        return {
-          frame,
-          text: str(run.text),
-          traceSessionId,
-          traceBoundary,
-          variables: after,
-          submission,
-          receipt: {
-            version: 1,
-            status,
-            summary: submission.analysis,
-            diagnosticId,
-            runtimeDiagnostics: applied.diagnostics || [],
-            changes: audit.changes,
-            sideEffects: audit.sideEffects,
-            failures: audit.failures
-          }
-        }
+        if (!call || call.name !== MVU_SUBMIT_UPDATE_TOOL_NAME) throw new Error('后台 Agent 调用了未授权的变量工具')
+        submission = normalizeMvuToolSubmission(call.arguments)
+        if (feedback && submission.operations.length === 0) throw new Error('上一批更新未通过校验，请修正完整 operations，不能用空数组跳过失败')
       } catch (error) {
-        if (traceSessionId === '') traceSessionId = str(error && error.traceSessionId)
-        lastError = error
-        await record('failed', { error: str(error && error.message || error) })
+        await record('submission-rejected', { error: error.message, argumentKeys: Object.keys(object(call?.arguments)), operations: object(call?.arguments).operations })
+        feedback = { ok: false, retryable: attempt < maxAttempts, rolledBack: true, error: error.message, currentVariables: clone(input.currentVariables), attemptsRemaining: maxAttempts - attempt }
+        result = { variables: clone(input.currentVariables), receipt: { version: 1, status: 'error',
+          summary: feedback.error, diagnosticId, changes: [], sideEffects: [], failures: [{ message: feedback.error }] } }
+        return JSON.stringify(feedback)
+      }
+      await record('submitted', { operations: submission.operations })
+      let applied
+      try {
+        const waitMs = retryNotBefore - Date.now()
+        if (waitMs > 0) await new Promise(resolve => setTimeout(resolve, waitMs))
+        applied = await options.runtime.settleMvuUpdate({
+          sessionId: input.sessionId, messageId: input.messageId, swipeId: input.swipeId,
+          expectedLifecycleRevision: input.expectedLifecycleRevision, diagnosticId,
+          storyText: frame.foregroundOutput.storyText,
+          command: formatMvuUpdateCommand(submission),
+          validate: ({ before, after }) => auditMvuSettlement(before, after, submission.operations)
+        })
+      } catch (error) {
+        // A timeout or disk error may have an uncertain outcome; do not replay a delta.
+        await record('failed', { error: str(error.message || error) })
+        feedback = { ok: false, retryable: false, error: str(error.message || error), note: '执行或保存结果无法确认，停止自动重试以避免重复更新。' }
+        result = { submission, receipt: { version: 1, status: 'error', summary: feedback.error, diagnosticId, changes: [], sideEffects: [], failures: [{ message: feedback.error }] } }
+        return JSON.stringify(feedback)
+      }
+      if (applied.stale === true) {
+        await record('stale')
+        feedback = { ok: false, retryable: false, error: '变量结算目标已经变化，迟到结果未写入。' }
+        result = { receipt: { version: 1, status: 'stale', summary: feedback.error, changes: [], sideEffects: [], failures: [] } }
+        return JSON.stringify(feedback)
+      }
+      const projected = applied.context?.messages?.[input.messageId]
+      const after = clone(projected?.variables || {})
+      const audit = applied.validation || auditMvuSettlement(input.currentVariables, after, submission.operations)
+      const rolledBack = applied.rejected === true
+      retryNotBefore = rolledBack ? Date.now() + Math.max(0, Math.min(3100, Number(applied.retryAfterMs) || 0)) : 0
+      const changes = rolledBack ? [] : audit.changes
+      const sideEffects = rolledBack ? [] : audit.sideEffects
+      const status = audit.failures.length > 0
+        ? (changes.length > 0 ? 'partial' : 'error')
+        : (changes.length > 0 ? 'updated' : 'unchanged')
+      result = {
+        variables: after, submission,
+        receipt: { version: 1, status, summary: submission.analysis, diagnosticId,
+          runtimeDiagnostics: applied.diagnostics || [], changes, sideEffects, failures: audit.failures }
+      }
+      feedback = {
+        ok: audit.failures.length === 0,
+        retryable: rolledBack && applied.retryable === true && attempt < maxAttempts,
+        rolledBack, status, changes, failures: audit.failures,
+        runtimeDiagnostics: applied.diagnostics || [],
+        ...(audit.failures.length === 0 ? {} : { error: '变量更新未通过校验；请根据具体错误修正。', currentVariables: after }),
+        attemptsRemaining: maxAttempts - attempt
+      }
+      await record('result', { status, rolledBack, retryable: feedback.retryable, variables: variableDiagnosticSummary(after), changes, sideEffects, failures: audit.failures, runtimeDiagnostics: applied.diagnostics || [] })
+      return JSON.stringify(feedback)
+    }
+    let run = {}
+    try {
+      run = await options.model.run({
+        task: 'settlement', persistent: true, persistentSessionId: traceSessionId, rewindTo: -1,
+        selection: input.selection, messages: request.messages, turnContext: request.turnContext,
+        system: [str(input.system).trim(), request.system].filter(Boolean).join('\n\n'),
+        tools: request.tools, maxToolCalls: maxAttempts,
+        toolLimitMessage: '变量更新已达到三次提交上限，停止调用并结束本轮；不得跳过校验。',
+        stopToolsWhen: () => feedback !== null && (feedback.ok || !feedback.retryable),
+        temperature: 0.1, sessionId: input.sessionId, turn: Math.max(0, Number(input.turn) || 0),
+        onToolCall(call) {
+          const pending = toolTail.then(() => executeTool(call))
+          toolTail = pending.catch(() => {})
+          return pending
+        }
+      })
+      traceSessionId = str(run.traceSessionId) || traceSessionId
+      traceBoundary = Number.isSafeInteger(run.traceBoundary) ? run.traceBoundary : null
+    } catch (error) {
+      traceSessionId = str(error.traceSessionId) || traceSessionId
+      await record('model-failed', { error: str(error.message || error) })
+      // Never re-run the entire model task after a possible commit.
+      if (!result) {
+        error.traceSessionId = traceSessionId
+        throw error
       }
     }
-    const failure = new Error(str(lastError && lastError.message || lastError) || 'MVU 后台变量结算失败', { cause: lastError })
-    failure.traceSessionId = traceSessionId
-    failure.traceBoundary = traceBoundary
-    throw failure
+    await toolTail
+    if (!result) {
+      const error = new Error(feedback?.error || '后台 Agent 未调用 mvu_submit_update')
+      error.traceSessionId = traceSessionId
+      error.traceBoundary = traceBoundary
+      throw error
+    }
+    await record('finished', { status: result.receipt.status })
+    return { frame, text: str(run.text) || '{}', traceSessionId, traceBoundary, ...result }
   }
 
   return Object.freeze({ settleVariables })

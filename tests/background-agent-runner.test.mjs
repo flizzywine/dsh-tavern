@@ -6,6 +6,38 @@ import { createContextPlanner } from '../tavern-plugin/lib/domain/context-planne
 import { readSessionStablePrefix } from '../tavern-plugin/lib/domain/session-stable-prefix.js'
 import { createNativePlayOrchestrationStrategy } from '../tavern-plugin/lib/domain/foreground-orchestration-strategies.js'
 
+test('变量工具返回失败后仍可修正，成功或耗尽次数后撤下工具且只清理一次', async () => {
+  for (const success of [true, false]) {
+    let registered, disposed = 0, calls = 0, terminal = false
+    const events = [], replies = []
+    const runner = createBackgroundAgentRunner({ id: () => 'background-retry', agents: {
+      get: () => ({ id: 'parent', session: { header: {} } }),
+      async create(options) {
+        await options.setup({
+          systemPrompt: { variable() {}, section() {}, suppressRuntimeContext() {} }, on() {},
+          tools: { restrict() {}, register(tool) { registered = tool; return () => { disposed++ } } }
+        })
+        return { agent: { session: { id: 'background-retry', events, append() {} }, followup() {}, async whenIdle() {
+          replies.push(await registered.execute({}))
+          assert.equal(disposed, 0)
+          replies.push(await registered.execute({}))
+          if (!success) { assert.equal(disposed, 0); replies.push(await registered.execute({})) }
+          assert.equal(disposed, 1)
+          events.push({ type: 'assistant/message', data: { message: { content: [{ type: 'text', text: '{}' }] } } })
+        } }, async dispose() {} }
+      }
+    } })
+    await runner.run({ sessionId: 'parent', selection: { provider: 'test', model: 'test' }, task: 'settlement',
+      messages: [], tools: [{ name: 'mvu_submit_update', parameters: { type: 'object' } }], maxToolCalls: 3,
+      stopToolsWhen: () => terminal,
+      async onToolCall() { calls++; terminal = success && calls === 2; return JSON.stringify({ ok: terminal, retryable: !terminal && calls < 3 }) }
+    })
+    assert.equal(calls, success ? 2 : 3)
+    assert.equal(JSON.parse(replies[0]).retryable, true)
+    assert.equal(disposed, 1)
+  }
+})
+
 test('后台固定背景只保存一次，连续候选、结算和恢复均从 Session 开头复用而非 system', async () => {
   const packets = []
   const events = []

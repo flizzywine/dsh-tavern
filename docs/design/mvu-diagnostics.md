@@ -2,7 +2,7 @@
 
 ## 边界
 
-日志独立保存在 Profile 数据目录的 `diagnostics/mvu-<session hash>.json`，不写入模型上下文、剧情或 Session 事件。它不改变工具接收、MVU 执行和变量持久化的先后顺序；自动纠错不属于本次变更。
+日志独立保存在 Profile 数据目录的 `diagnostics/mvu-<session hash>.json`，不写入剧情或 Session 事件。诊断存储本身不改变执行行为；[变量工具纠错](mvu-tool-retry.md)会把本次调用的实际错误与运行警告作为工具结果返回 Agent，不会把整份日志塞进上下文。
 
 每次结算尝试使用 `diagnosticId`，关联 operation、剧情分支/revision、消息/swipe、后台 Session。记录阶段：
 
@@ -11,7 +11,9 @@
 - `runtime-dispatch`：浏览器是否在线、就绪或忙碌。
 - `runtime-completed`：事件返回、超时、退出、错误及浏览器警告。
 - `persisted` / `runtime-or-persistence-failed`：草稿是否保存及写入次数。
+- `validation-rejected`：保存前核验失败，丢弃变量草稿；记录是否存在不可回滚的外部副作用。
 - `result` / `failed` / `stale`：实际差异、未生效项及最终结果。
+- `finished` / `model-failed`：关联后台 Session 的最终状态或模型异常，不触发整轮重放。
 
 Helper iframe 将 `console.warn/error`（含 `toastr.warning/error`）关联到当前事件；每事件最多捕获 50 条。父页面校验 iframe 来源和 token，事件门校验运行时所有权。没有事件编号的初始化错误以 `script-runtime` 单独记录。明确的运行时警告可在失败回执中展示；没有具体原因时只报告“未观察到对应变量变化”，不猜测是 schema 拒绝。
 

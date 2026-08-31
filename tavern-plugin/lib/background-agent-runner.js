@@ -205,6 +205,12 @@ export function createBackgroundAgentRunner(options) {
     const tools = Array.isArray(input.tools) ? input.tools : []
     const maxToolCalls = Number.isInteger(input.maxToolCalls) && input.maxToolCalls > 0 ? input.maxToolCalls : 8
     let toolCallCount = 0
+    let removed = false
+    async function removeTools() {
+      if (removed) return
+      removed = true
+      for (let index = disposers.length - 1; index >= 0; index--) await disposers[index]()
+    }
     const disposers = tools.map(function (tool) {
       return state.ctx.tools.register({
           name: tool.name,
@@ -218,16 +224,16 @@ export function createBackgroundAgentRunner(options) {
             if (tool.countsTowardLimit !== false) {
               toolCallCount++
               if (toolCallCount > maxToolCalls) {
-                return JSON.stringify({ message: '已达到剧本查询上限，请停止查询，基于已有材料开始推理并输出最终候选。' })
+                return JSON.stringify({ message: input.toolLimitMessage || '已达到剧本查询上限，请停止查询，基于已有材料开始推理并输出最终候选。' })
               }
             }
-            return str(await input.onToolCall({ name: tool.name, arguments: args }))
+            const result = str(await input.onToolCall({ name: tool.name, arguments: args }))
+            if (typeof input.stopToolsWhen === 'function' && (input.stopToolsWhen() || toolCallCount >= maxToolCalls)) await removeTools()
+            return result
           }
         })
     }).filter(function (dispose) { return typeof dispose === 'function' })
-    return async function () {
-      for (let index = disposers.length - 1; index >= 0; index--) await disposers[index]()
-    }
+    return removeTools
   }
 
   async function execute(input) {

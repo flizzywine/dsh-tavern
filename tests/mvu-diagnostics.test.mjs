@@ -103,7 +103,7 @@ test('浏览器非抛出警告经事件门、执行器和结算回执持久保�
   assert.equal(result.receipt.status, 'error')
   assert.equal(result.receipt.runtimeDiagnostics[0].message, '目标容器尚未初始化')
   const records = (await store.read('s')).records
-  assert.deepEqual(records.map(r => r.stage), ['start', 'submitted', 'runtime-dispatch', 'runtime-completed', 'persisted', 'result'])
+  assert.deepEqual(records.map(r => r.stage), ['start', 'submitted', 'runtime-dispatch', 'runtime-completed', 'validation-rejected', 'result', 'finished'])
   assert.equal(new Set(records.map(r => r.diagnosticId)).size, 1)
   assert.equal(records.at(-1).traceSessionId, 'bg')
   assert.doesNotMatch(JSON.stringify(records), /不要重复记录这段分析|正文|可能被人物卡/)

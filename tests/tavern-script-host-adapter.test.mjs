@@ -136,6 +136,54 @@ test('后台 MVU 脚本链失败时丢弃整份事务草稿', async function () 
   assert.deepEqual(value.messages[0].variables[0], { hp: 10 })
 })
 
+test('明确脚本错误可修正重试，但已写世界书时不得自动重放', async () => {
+  for (const external of [false, true]) {
+    const value = chat()
+    let adapter, writes = 0, worldbookWrites = 0
+    adapter = createTavernScriptHostAdapter({
+      resolveChat: async () => value, writeChat: async () => { writes++ }, readCard: async () => ({}),
+      worldBooks: {
+        bound: async () => ({ source: { kind: 'card', path: 'card' }, view: { displayName: 'book', entries: [{ ref: '1', sourceUid: 1, content: 'old', enabled: true }] } }),
+        update: async (_source, _input) => { worldbookWrites++; return { view: { displayName: 'book', entries: [] } } }
+      },
+      eventGate: { async dispatch() {
+        await adapter.updateMessages('session-1', [{ message_id: 0, data: { hp: 1 } }], 2)
+        if (external) {
+          const { worldbook } = await adapter.getWorldbook('session-1', 'book')
+          worldbook.entries[0].content = 'new'
+          await adapter.replaceWorldbook('session-1', 'book', worldbook.entries)
+        }
+        return { handled: false, error: 'hp: expected number', diagnostics: [{ level: 'error', message: 'schema rejected' }] }
+      } }
+    })
+    const result = await adapter.settleMvuUpdate({ sessionId: 'session-1', messageId: 0, swipeId: 0, expectedLifecycleRevision: 2, command: '<UpdateVariable/>' })
+    assert.equal(result.rejected, true)
+    assert.equal(result.retryable, !external)
+    assert.equal(result.retryAfterMs, 3100)
+    assert.equal(result.validation.failures[0].message, 'hp: expected number')
+    assert.equal(writes, 0)
+    assert.equal(worldbookWrites, external ? 1 : 0)
+    assert.deepEqual(value.messages[0].variables[0], { hp: 10 })
+  }
+})
+
+test('脚本执行期间目标生命周期变化时，草稿不得覆盖新目标', async () => {
+  const value = chat()
+  let adapter, writes = 0
+  adapter = createTavernScriptHostAdapter({
+    resolveChat: async () => value, writeChat: async () => { writes++ }, readCard: async () => ({}), worldBooks: { bound: async () => null },
+    eventGate: { async dispatch() {
+      await adapter.updateMessages('session-1', [{ message_id: 0, data: { hp: 1 } }], 2)
+      value.tavernHelperLifecycleRevision++
+      return { handled: true }
+    } }
+  })
+  const result = await adapter.settleMvuUpdate({ sessionId: 'session-1', messageId: 0, swipeId: 0, expectedLifecycleRevision: 2, command: '<UpdateVariable/>' })
+  assert.equal(result.stale, true)
+  assert.equal(writes, 0)
+  assert.deepEqual(value.messages[0].variables[0], { hp: 10 })
+})
+
 test('Host Adapter 把脚本变量和消息调用写回 dsh-tavern 权威 Chat', async function () {
   const run = harness()
   const variables = await run.adapter.updateVariables('session-1', { type: 'message', message_id: 0 }, { hp: 7 }, 2)

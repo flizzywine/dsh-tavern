@@ -18,6 +18,10 @@ function isOfficialMvuData(value) {
     && value.stat_data !== undefined && value.schema !== undefined
 }
 
+// Pinned upstream src/function/update/index.ts throttles MESSAGE_RECEIVED at
+// 3000ms. Re-entering sooner returns the old Promise and schedules a late write.
+const MVU_RETRY_AFTER_MS = 3100
+
 /**
  * Translate the Tavern-shaped host API exposed to card scripts into mutations
  * of dsh-tavern's authoritative chat and worldbook state.
@@ -153,6 +157,9 @@ export function createTavernScriptHostAdapter(options = {}) {
     return await serializeWorldbook(chat.cardPath, async function () {
       const resolved = await worldbookRecord(sessionId, name)
       const operations = replaceTavernHelperWorldbookOperations(resolved.record.view, entries)
+      // Worldbook writes are outside the chat draft; never automatically replay them.
+      const transaction = settlementTransactions.get(str(sessionId))
+      if (transaction && operations.length > 0) transaction.externalEffects = true
       const updated = operations.length === 0
         ? resolved.record
         : await options.worldBooks.update(resolved.record.source, { operations })
@@ -223,6 +230,13 @@ export function createTavernScriptHostAdapter(options = {}) {
       const dispatched = await options.eventGate.dispatch(sessionId, 'MESSAGE_RECEIVED', [messageId], eventContext)
       await record('runtime-completed', { handled: dispatched.handled === true, timedOut: dispatched.timedOut === true, disposed: dispatched.disposed === true, error: dispatched.error, diagnostics: dispatched.diagnostics || [] })
       if (dispatched.handled !== true) {
+        if (str(dispatched.error).trim() !== '' && !dispatched.timedOut && !dispatched.disposed
+          && !/超时|timed?\s*out|timeout/i.test(str(dispatched.error))) {
+          const validation = { changes: [], sideEffects: [], failures: [{ message: str(dispatched.error) }] }
+          await record('validation-rejected', { failures: validation.failures, externalEffects: transaction.externalEffects === true })
+          return { updated: false, rejected: true, retryable: transaction.externalEffects !== true, retryAfterMs: MVU_RETRY_AFTER_MS,
+            validation, diagnostics: dispatched.diagnostics || [], context: projectTavernHelperContext(current) }
+        }
         throw new Error(str(dispatched.error).trim() || '官方 MVU 浏览器运行时尚未就绪，本轮未执行变量结算')
       }
       const settled = transaction.draft.messages[messageId]
@@ -236,11 +250,28 @@ export function createTavernScriptHostAdapter(options = {}) {
       settled.text = originalText
       settled.sessionText = originalText
       settled.displayText = originalText
+      const beforeVariables = projectTavernHelperContext(current).messages[messageId].variables
+      const proposedContext = projectTavernHelperContext(transaction.draft)
+      const validation = typeof input.validate === 'function'
+        ? await input.validate({ before: beforeVariables, after: proposedContext.messages[messageId].variables })
+        : null
+      if (validation && validation.failures.length > 0) {
+        await record('validation-rejected', { failures: validation.failures, externalEffects: transaction.externalEffects === true })
+        return {
+          updated: false, rejected: true, retryable: transaction.externalEffects !== true, retryAfterMs: MVU_RETRY_AFTER_MS,
+          validation, diagnostics: dispatched.diagnostics || [], context: projectTavernHelperContext(current)
+        }
+      }
+      // The browser event can take time; recheck the target before committing its draft.
+      const latest = await resolveChat(sessionId)
+      if (!mutationIsCurrent(latest, expectedLifecycleRevision)
+        || Number(latest.messages[messageId]?.swipeId || 0) !== swipeId) return staleMutation(latest)
       transaction.draft.updatedAt = Date.now()
       await options.writeChat(transaction.draft, { source: 'tavern-helper.mvu-settlement' })
       await record('persisted', { mutations: transaction.mutations })
       return {
         updated: true,
+        validation,
         diagnostics: dispatched.diagnostics || [],
         mutations: transaction.mutations,
         messageId,
