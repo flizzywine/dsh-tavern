@@ -9,98 +9,95 @@ import { applyTavernSettingsPatch, presentTavernSettings, resolveSystemPrompt } 
 import { SYSTEM_PROMPT_NAMES, prompt } from '../tavern-plugin/lib/prompt-catalog.js'
 import { createProfileDataStore } from '../tavern-plugin/lib/profile-data-store.js'
 
-const emptyStyle = { themeVariables: {}, customCss: '', extensionStyles: [] }
 const serverSource = await readFile(new URL('../tavern-plugin/lib/index.js', import.meta.url), 'utf8')
 const clientSource = await readFile(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
 
-// Exercise the real save/read call sites, including post-save cache warming.
-async function settingsHarness(t, warm = async () => []) {
+// Exercise the real save/read call sites with durable storage, not a copied implementation.
+async function settingsHarness(t) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'tavern-settings-test-'))
   t.after(() => rm(root, { recursive: true, force: true }))
   const profileData = createProfileDataStore({ dataRoot: root })
-  const warnings = []
   const context = {
     profileData, settingsPath: 'tavern-settings.json', tavernSettingsDocument: undefined,
     applyTavernSettingsPatch, presentTavernSettings,
-    promptDefaults: () => ({ story: '默认正文' }), tavernStaticResources: { warm },
-    console: { warn: (...args) => warnings.push(args) }
+    promptDefaults: () => ({ story: '默认正文' })
   }
   const start = serverSource.indexOf('async function readTavernSettings()')
   assert.ok(start >= 0)
   vm.runInNewContext(serverSource.slice(start, serverSource.indexOf('\n  function runtimePrompt', start)) +
     '; this.read = readTavernSettings; this.update = updateTavernSettings;', context)
-  return { ...context, warnings, saved: () => profileData.readJson(context.settingsPath) }
+  return { ...context, saved: () => profileData.readJson(context.settingsPath) }
 }
 
-test('缺失或旧版设置返回完整安全默认值，不修改原始文档', () => {
-  for (const document of [undefined, null, {}, { styleEnvironment: null }]) {
+test('新旧设置均固定信任人物卡，不再应用手动样式，也不改写原始文档', () => {
+  for (const document of [undefined, null, {}, { trustedCardMode: false, styleEnvironment: {
+    customCss: 'body {display:none}', extensionStyles: ['https://example.com/old.css']
+  } }]) {
     const before = JSON.stringify(document)
     const result = presentTavernSettings(document, {})
     assert.equal(result.compatibilityMode, false)
     assert.equal(result.trustedCardMode, true)
-    assert.deepEqual(result.styleEnvironment, emptyStyle)
+    assert.equal(Object.hasOwn(result, 'styleEnvironment'), false)
     assert.equal(JSON.stringify(document), before)
   }
 })
 
-test('受信任模式及样式设置可保存读取，局部修改保留其他设置', () => {
+test('旧客户端的信任和样式修改不再生效，其他未知设置仍保留', () => {
   const initial = { unknown: { keep: true }, compatibilityMode: true, promptOverrides: { story: '自定义' } }
-  const before = JSON.stringify(initial)
-  const saved = applyTavernSettingsPatch(initial, { trustedCardMode: false, styleEnvironment: {
-    themeVariables: { '--color': 'red', invalid: 'drop' }, customCss: '.test {}',
-    extensionStyles: ['https://example.com/test.css', 'http://example.com/no.css', 'https://example.com/test.css']
-  } })
-  assert.equal(JSON.stringify(initial), before)
-  assert.equal(saved.trustedCardMode, false)
-  assert.deepEqual(saved.styleEnvironment, {
-    themeVariables: { '--color': 'red' }, customCss: '.test {}', extensionStyles: ['https://example.com/test.css']
-  })
-  const toggled = applyTavernSettingsPatch(saved, { compatibilityMode: false })
-  assert.deepEqual(toggled, { ...saved, compatibilityMode: false })
-  assert.equal(presentTavernSettings(toggled, {}).trustedCardMode, false)
-  assert.deepEqual(presentTavernSettings(toggled, {}).styleEnvironment, saved.styleEnvironment)
-  assert.equal(applyTavernSettingsPatch(saved, { trustedCardMode: true }).trustedCardMode, true)
-  assert.deepEqual(applyTavernSettingsPatch(saved, { styleEnvironment: null }).styleEnvironment, emptyStyle)
+  const saved = applyTavernSettingsPatch(initial, { trustedCardMode: false, styleEnvironment: { customCss: 'body {}' } })
+  assert.deepEqual(saved, initial)
+  assert.deepEqual(applyTavernSettingsPatch(saved, { compatibilityMode: false }), { ...initial, compatibilityMode: false })
+  assert.equal(presentTavernSettings(saved, {}).trustedCardMode, true)
 })
 
-test('真实设置保存链路关闭兼容模式成功返回，重读仍关闭', async t => {
-  const warmed = []
-  const harness = await settingsHarness(t, async urls => { warmed.push(urls); return [] })
-  await harness.profileData.writeJson(harness.settingsPath, { compatibilityMode: true, unknown: '保留' })
+test('真实设置保存链路关闭兼容模式成功返回，旧关闭信任值不影响运行', async t => {
+  const harness = await settingsHarness(t)
+  await harness.profileData.writeJson(harness.settingsPath, {
+    compatibilityMode: true, trustedCardMode: false, styleEnvironment: { customCss: 'body {}' }, unknown: '保留'
+  })
   const result = await harness.update({ compatibilityMode: false })
   assert.equal(result.compatibilityMode, false)
-  assert.deepEqual(result.styleEnvironment, emptyStyle)
+  assert.equal(result.trustedCardMode, true)
+  assert.equal(Object.hasOwn(result, 'styleEnvironment'), false)
   assert.equal((await harness.read()).compatibilityMode, false)
+  // Retain legacy data on disk without letting it control the current runtime.
   assert.equal((await harness.saved()).unknown, '保留')
-  assert.deepEqual(warmed, [[]])
-  await harness.update({ trustedCardMode: false, styleEnvironment: { customCss: 'body {}' } })
-  assert.equal((await harness.read()).trustedCardMode, false)
-  assert.equal((await harness.read()).styleEnvironment.customCss, 'body {}')
+  assert.equal((await harness.saved()).trustedCardMode, false)
   for (const patch of [{ systemPrompt: { name: 'story', text: '修改正文' } },
     { systemPrompts: { story: '导入正文' } }, { resetSystemPrompts: true }]) {
     await harness.update(patch)
-    assert.equal((await harness.read()).styleEnvironment.customCss, 'body {}')
-    assert.equal((await harness.read()).trustedCardMode, false)
+    assert.equal((await harness.read()).trustedCardMode, true)
+    assert.equal(Object.hasOwn(await harness.read(), 'styleEnvironment'), false)
   }
 })
 
-for (const mode of ['throw', 'reject', 'pending']) {
-  test(`资源预热 ${mode} 不影响设置保存和返回`, async t => {
-    const harness = await settingsHarness(t, () => {
-      if (mode === 'throw') throw new Error('cache unavailable')
-      if (mode === 'reject') return Promise.reject(new Error('cache unavailable'))
-      return new Promise(() => {})
-    })
-    assert.equal((await harness.update({ compatibilityMode: false })).compatibilityMode, false)
-    assert.equal((await harness.saved()).compatibilityMode, false)
-    await new Promise(resolve => setImmediate(resolve))
-    assert.equal(harness.warnings.length, mode === 'pending' ? 0 : 1)
-  })
-}
+test('设置界面只保留兼容模式开关，不渲染样式配置和信任选项', () => {
+  const context = { React: {
+    useState: initial => [initial, () => {}],
+    useEffect() {},
+    createElement: (type, props, ...children) => ({ type, props, children })
+  } }
+  const start = clientSource.indexOf('function TavernSettingsSection()')
+  vm.runInNewContext(clientSource.slice(start, clientSource.indexOf('function SystemPromptSidebarTab()', start)) +
+    '; this.render = TavernSettingsSection;', context)
+  const root = context.render()
+  const nodes = []
+  function visit(node) {
+    if (!node || typeof node !== 'object') return
+    nodes.push(node)
+    for (const child of node.children || []) visit(child)
+  }
+  visit(root)
+  const inputs = nodes.filter(node => node.type === 'input')
+  assert.equal(inputs.length, 1)
+  assert.equal(inputs[0].props['aria-label'], '启用兼容模式（实验性）')
+  assert.equal(nodes.some(node => node.type === 'textarea' || node.type === 'details'), false)
+  assert.doesNotMatch(JSON.stringify(root), /受信任人物卡模式|SillyTavern 样式环境|Custom CSS/)
+})
 
-test('前端开关保存后更新状态并通知侧栏；真正写入失败才显示失败', async t => {
+test('前端兼容开关保存后通知侧栏；真正写入失败才显示失败', async t => {
   const harness = await settingsHarness(t)
-  let state = { compatibilityMode: true, trustedCardMode: true }
+  let state = { compatibilityMode: true }
   const events = []
   const context = {
     setState: updater => { state = updater(state) },
@@ -110,21 +107,18 @@ test('前端开关保存后更新状态并通知侧栏；真正写入失败才�
   }
   const start = clientSource.indexOf('async function setCompatibilityMode(enabled)')
   assert.ok(start >= 0)
-  vm.runInNewContext(clientSource.slice(start, clientSource.indexOf('async function saveStyleEnvironment()', start)) +
-    '; this.toggle = setCompatibilityMode; this.trust = setTrustedCardMode;', context)
+  vm.runInNewContext(clientSource.slice(start, clientSource.indexOf('\n\t\t\treturn React.createElement', start)) +
+    '; this.toggle = setCompatibilityMode;', context)
   await context.toggle(false)
   assert.equal(state.error, '')
   assert.equal(state.compatibilityMode, false)
   assert.deepEqual(events, ['dsh-tavern-settings-changed', 'dsh-tavern-data-changed'])
-  await context.trust(false)
-  assert.equal(state.trustedCardMode, false)
-  // The frozen real store is kept intact; inject a failing RPC to exercise UI recovery.
   context.rpc = async () => { throw new Error('磁盘写入失败') }
   await context.toggle(true)
   assert.equal(state.compatibilityMode, false)
   assert.equal(state.busy, false)
   assert.equal(state.error, '磁盘写入失败')
-  assert.equal(events.length, 4)
+  assert.equal(events.length, 2)
 })
 
 test('旧 play-mode 覆盖保留在数据中，但不再出现在可用提示词列表', () => {
@@ -142,7 +136,6 @@ test('系统正文提示词默认使用内置内容，并可保存自定义覆�
   assert.deepEqual(presentTavernSettings({}, defaults), {
     compatibilityMode: false,
     trustedCardMode: true,
-    styleEnvironment: emptyStyle,
     systemPrompts: [{ name: 'story', text: '内置正文提示词', customized: false }],
     storyPrompt: '内置正文提示词',
     storyPromptCustomized: false
@@ -154,7 +147,6 @@ test('系统正文提示词默认使用内置内容，并可保存自定义覆�
   assert.deepEqual(presentTavernSettings(saved, defaults), {
     compatibilityMode: true,
     trustedCardMode: true,
-    styleEnvironment: emptyStyle,
     systemPrompts: [{ name: 'story', text: '用户正文提示词', customized: true }],
     storyPrompt: '用户正文提示词',
     storyPromptCustomized: true

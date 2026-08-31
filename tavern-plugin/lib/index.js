@@ -149,14 +149,7 @@ export async function apply(ctx) {
     tavernSettingsDocument = await profileData.updateJson(settingsPath, function (current) {
       return applyTavernSettingsPatch(current, patch)
     })
-    const settings = presentTavernSettings(tavernSettingsDocument, promptDefaults())
-    // Cache warming is best-effort: a saved setting must still reach the UI.
-    void Promise.resolve().then(function () {
-      return tavernStaticResources.warm(settings.styleEnvironment.extensionStyles)
-    }).catch(function (error) {
-      console.warn('dsh-tavern: 设置已保存，扩展样式预缓存失败，将在使用时重试:', error)
-    })
-    return settings
+    return presentTavernSettings(tavernSettingsDocument, promptDefaults())
   }
   function runtimePrompt(name) {
     return resolveSystemPrompt(tavernSettingsDocument, name, prompt)
@@ -808,8 +801,7 @@ export async function apply(ctx) {
     return {
       openings: previews.openings,
       diagnostics: previews.diagnostics,
-      trustedCardMode: settings.trustedCardMode,
-      styleEnvironment: settings.styleEnvironment
+      trustedCardMode: settings.trustedCardMode
     }
   }
   async function listTavernResources() {
@@ -1170,7 +1162,6 @@ export async function apply(ctx) {
       tavernRemoteAssetPins: Array.isArray(cardExtensions.remoteAssetPins) ? cardExtensions.remoteAssetPins : [],
       tavernHelperWorldbook: helperWorldbook,
       tavernRuntimePolicy: { trustedCardMode: runtimeSettings.trustedCardMode },
-      tavernStyleEnvironment: runtimeSettings.styleEnvironment,
       presentationWarnings: Array.isArray(chat.presentationWarnings) ? chat.presentationWarnings : [],
       worldBookError: chat.worldBookError || null,
       foregroundError: chat.foregroundError || null,

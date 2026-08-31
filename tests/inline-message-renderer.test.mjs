@@ -307,7 +307,7 @@ test('普通正则 HTML iframe 加载锁定版本的 SillyTavern CSS 兼容包',
   assert.ok(document.indexOf('public%2Fstyle.css') < document.indexOf('data-dsh-sillytavern-iframe-adapter'))
 })
 
-test('普通正则 HTML iframe 按动态顺序投影主题变量、Custom CSS 和扩展样式', () => {
+test('普通正则 HTML iframe 忽略已移除的手动样式配置，保留内置兼容样式', () => {
   const document = client.buildTavernFrameDocument({
     content: '<div class="mes_text">正文</div>',
     token: 'dynamic-style-token',
@@ -317,17 +317,10 @@ test('普通正则 HTML iframe 按动态顺序投影主题变量、Custom CSS �
       extensionStyles: ['https://extension.example/panel.css']
     }
   })
-  assert.match(document, /data-dsh-sillytavern-theme/)
-  assert.match(document, /--SmartThemeBodyColor/)
-  assert.match(document, /data-dsh-sillytavern-custom-css/)
-  assert.match(document, /static-assets\?url=https%3A%2F%2Ftheme\.example%2Fcustom\.css/)
-  assert.match(document, /data-dsh-sillytavern-extension-style="0"/)
-  assert.match(document, /static-assets\?url=https%3A%2F%2Fextension\.example%2Fpanel\.css/)
-  assert.doesNotMatch(document, /<\/style><script>bad\(\)/)
-  assert.match(document, /<\\\/style><script>bad\(\)/)
-  assert.ok(document.indexOf('data-dsh-sillytavern-iframe-adapter') < document.indexOf('data-dsh-sillytavern-theme'))
-  assert.ok(document.indexOf('data-dsh-sillytavern-theme') < document.indexOf('data-dsh-sillytavern-custom-css'))
-  assert.ok(document.indexOf('data-dsh-sillytavern-custom-css') < document.indexOf('data-dsh-sillytavern-extension-style'))
+  assert.match(document, /data-dsh-sillytavern-css-compat/)
+  assert.match(document, /data-dsh-sillytavern-iframe-adapter/)
+  assert.doesNotMatch(document, /data-dsh-sillytavern-theme|data-dsh-sillytavern-custom-css|data-dsh-sillytavern-extension-style/)
+  assert.doesNotMatch(document, /theme\.example|extension\.example|bad\(\)|rgb\(1, 2, 3\)/)
 })
 
 test('透明 iframe 默认跟随宿主明暗主题且不加文字阴影，卡片主题仍可覆盖', () => {
@@ -342,8 +335,7 @@ test('透明 iframe 默认跟随宿主明暗主题且不加文字阴影，卡片
   assert.match(adapter, /body\{[^}]*color-scheme:inherit/)
   assert.doesNotMatch(adapter, /(?:color|text-shadow|--SmartThemeBodyColor|--shadowWidth):[^;}]*!important/)
   assert.ok(document.indexOf('public%2Fstyle.css') < document.indexOf('data-dsh-sillytavern-iframe-adapter'))
-  assert.ok(document.indexOf('data-dsh-sillytavern-iframe-adapter') < document.indexOf('data-dsh-sillytavern-theme'))
-  assert.ok(document.indexOf('data-dsh-sillytavern-theme') < document.indexOf(cardStyle))
+  assert.ok(document.indexOf('data-dsh-sillytavern-iframe-adapter') < document.indexOf(cardStyle))
   assert.ok(document.includes(cardStyle))
 })
 
