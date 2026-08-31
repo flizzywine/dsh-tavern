@@ -55,7 +55,7 @@ const server = createServer(async (req, res) => {
     }
     const method = url.pathname.split('/').pop()
     if (method === 'scene-image') {
-      const image = await runtime.service.readImage('scene-parent', 1, url.searchParams.get('key'))
+      const image = await runtime.service.readImage('scene-parent', 1, url.searchParams.get('key'), url.searchParams.get('versionId'))
       res.writeHead(200, { 'Content-Type': image.ref.mediaType }).end(image.data); return
     }
     let body = ''; for await (const chunk of req) body += chunk
@@ -65,7 +65,8 @@ const server = createServer(async (req, res) => {
     else if (method === 'getSceneImageSettings') result = { settings: await runtime.service.settings() }
     else if (method === 'saveSceneImageSettings') result = { settings: await runtime.service.configure(args) }
     else if (method === 'sceneImageStatus') result = { illustration: await runtime.service.status('scene-parent', 1) }
-    else if (method === 'generateSceneImage') result = { illustration: await runtime.service.start('scene-parent', 1, args.key) }
+    else if (method === 'generateSceneImage') result = { illustration: await runtime.service.start('scene-parent', 1, args.key, args) }
+    else if (method === 'removeSceneImage') result = { illustration: await runtime.service.removeImage('scene-parent', 1, args.key, args.versionId) }
     else if (method === 'fixtureRestart') await runtime.restart()
     else if (method === 'fixtureSwipe') runtime.chat.messages[0].swipeId = 1 - runtime.chat.messages[0].swipeId
     else if (method === 'fixtureFail') runtime.failNext()

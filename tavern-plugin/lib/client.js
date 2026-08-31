@@ -32,6 +32,9 @@ window.__ModuleLoader__.load({
 .dsh-tavern-assistant { display: flex; flex-direction: column; gap: 16px; color: var(--dsw-alias-label-primary); font-size: 16px; line-height: 28px; }
 .dsh-tavern-illustration { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
 .dsh-tavern-illustration img { display: block; max-width: 100%; max-height: 720px; object-fit: contain; border-radius: 12px; }
+.dsh-tavern-image-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.dsh-tavern-image-adjust { box-sizing: border-box; width: min(100%, 560px); padding: 14px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 12px; }
+.dsh-tavern-image-adjust textarea { box-sizing: border-box; display: block; width: 100%; min-height: 80px; margin: 8px 0; }
 .dsh-tavern-image-settings { display: flex; flex-direction: column; gap: 12px; padding: 20px; }
 .dsh-tavern-image-settings label { display: flex; flex-direction: column; gap: 5px; }
 .dsh-tavern-image-settings input { width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 6px; color: inherit; background: var(--dsw-specific-sidebar-fill); }
@@ -3051,11 +3054,67 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			function SceneIllustration(props) {
 				const state = useSceneImageRecord(props.sessionId, props.turn);
 				const [error, setError] = React.useState("");
-				const url = state && state.status === "succeeded" ? "/api/dsh-tavern/scene-image?" + new URLSearchParams({ sessionId: props.sessionId, turn: String(props.turn), key: state.key }).toString() : "";
+				const [selected, setSelected] = React.useState("");
+				const [busy, setBusy] = React.useState(false);
+				const [adjusting, setAdjusting] = React.useState(false);
+				const [instruction, setInstruction] = React.useState("");
+				const requestRef = React.useRef(null);
+				const versions = state && state.versions || [];
+				const version = versions.find(function (item) { return item.id === selected; }) || versions[versions.length - 1];
+				const index = version ? versions.findIndex(function (item) { return item.id === version.id; }) : -1;
+				const lastId = versions.length ? versions[versions.length - 1].id : "";
+				React.useEffect(function () { setSelected(lastId); setError(""); }, [lastId]);
+				React.useEffect(function () {
+					if (state && state.status === "failed" && state.kind === "adjust" && state.instruction) {
+						setSelected(state.baseVersionId); setInstruction(state.instruction); setAdjusting(true);
+					}
+				}, [state && state.requestId, state && state.status]);
+				function notify() { window.dispatchEvent(new CustomEvent("dsh-tavern-image-changed", { detail: { sessionId: props.sessionId } })); }
+				async function generate(kind) {
+					if (!version || busy || state.status === "running") return;
+					setBusy(true); setError("");
+					const signature = kind + ":" + version.id + ":" + instruction;
+					if (!requestRef.current || requestRef.current.signature !== signature) requestRef.current = { signature: signature, id: sceneImageRequestId() };
+					try {
+						await rpc("generateSceneImage", { turn: props.turn, key: state.key, kind: kind, versionId: version.id, instruction: kind === "adjust" ? instruction : "", requestId: requestRef.current.id }, props.sessionId);
+						requestRef.current = null; setAdjusting(false); setInstruction("");
+					} catch (e) { setError(String(e.message || e)); }
+					finally { setBusy(false); notify(); }
+				}
+				async function remove() {
+					if (!version || !window.confirm("删除这张插图？不会修改正文或其他版本。")) return;
+					setBusy(true); setError("");
+					try { await rpc("removeSceneImage", { turn: props.turn, key: state.key, versionId: version.id }, props.sessionId); }
+					catch (e) { setError(String(e.message || e)); }
+					finally { setBusy(false); notify(); }
+				}
+				const url = version ? "/api/dsh-tavern/scene-image?" + new URLSearchParams({ sessionId: props.sessionId, turn: String(props.turn), key: state.key, versionId: version.id }).toString() : "";
 				if (!state || state.status === "idle") return null;
+				const locked = busy || state.status === "running";
 				return React.createElement("div", { className: "dsh-tavern-illustration" },
 					url ? React.createElement("a", { href: url, target: "_blank", rel: "noopener noreferrer" }, React.createElement("img", { src: url, alt: "本段场景插画", loading: "lazy", onError: function () { setError("图片加载失败，请刷新后重试"); } })) : null,
-					url ? React.createElement("a", { href: url, download: "scene-illustration.png" }, "下载") : null,
+					version ? React.createElement("div", { className: "dsh-tavern-image-actions" },
+						versions.length > 1 ? React.createElement(React.Fragment, null,
+							React.createElement("button", { type: "button", className: "dsh-tavern-btn", "aria-label": "上一张插图", disabled: index <= 0, onClick: function () { setSelected(versions[index - 1].id); } }, "‹"),
+							React.createElement("span", null, String(index + 1) + " / " + String(versions.length)),
+							React.createElement("button", { type: "button", className: "dsh-tavern-btn", "aria-label": "下一张插图", disabled: index >= versions.length - 1, onClick: function () { setSelected(versions[index + 1].id); } }, "›")
+						) : null,
+						state.enabled ? React.createElement(React.Fragment, null,
+							React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: locked, onClick: function () { return generate("repaint"); } }, "重画"),
+							React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: locked, onClick: function () { setAdjusting(true); } }, "调整")
+						) : null,
+						React.createElement("details", null, React.createElement("summary", { "aria-label": "更多插图操作" }, "⋯"),
+							React.createElement("a", { href: url, download: "scene-illustration" }, "下载"),
+							React.createElement("details", null, React.createElement("summary", null, "查看说明"), React.createElement("p", null, version.description || "旧图片没有保存画面说明")),
+							React.createElement("button", { type: "button", disabled: locked, onClick: remove }, "删除")
+						)
+					) : null,
+					version && state.enabled && version.profile && version.profile !== state.profile ? React.createElement("span", { role: "status" }, "将按新渠道重新整理画面，可能产生文字模型费用。") : null,
+					adjusting && state.enabled ? React.createElement("div", { className: "dsh-tavern-image-adjust", role: "region", "aria-label": "调整插图" },
+						React.createElement("label", null, "想怎样调整？", React.createElement("textarea", { value: instruction, maxLength: 2000, placeholder: "例如：改成雨夜，镜头拉近", onChange: function (event) { setInstruction(event.target.value); }, disabled: locked })),
+						React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: locked || !instruction.trim(), onClick: function () { return generate("adjust"); } }, "生成"),
+						React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: busy, onClick: function () { setAdjusting(false); } }, "取消")
+					) : null,
 					state.status === "running" ? React.createElement("span", { role: "status" }, sceneImageStageLabel(state)) : null,
 					error || state && state.error ? React.createElement("span", { role: "alert", className: "dsh-tavern-settings-error" }, error || state.error) : null
 				);
@@ -3856,6 +3915,11 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		}
 		const tavernShellFeature = createTavernShellFeatureModule();
 
+		function sceneImageRequestId() {
+			// LAN HTTP deployments may not expose crypto.randomUUID. This identifies a
+			// request, not an authentication secret; no secure-context API is required.
+			return "scene-" + Date.now() + "-" + Math.random().toString(36).slice(2) + "-" + Math.random().toString(36).slice(2);
+		}
 		function sceneImageStageLabel(record) {
 			return record && record.stage === "saving" ? "保存图片…" : record && record.stage === "generating" ? "生成图片…" : "整理画面…";
 		}
@@ -3880,8 +3944,9 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				}
 				void refresh();
 				window.addEventListener("dsh-tavern-image-changed", refresh);
+				window.addEventListener("dsh-tavern-image-settings-changed", refresh);
 				window.addEventListener("focus", refresh);
-				return function () { active = false; window.clearTimeout(timer); window.removeEventListener("dsh-tavern-image-changed", refresh); window.removeEventListener("focus", refresh); };
+				return function () { active = false; window.clearTimeout(timer); window.removeEventListener("dsh-tavern-image-changed", refresh); window.removeEventListener("dsh-tavern-image-settings-changed", refresh); window.removeEventListener("focus", refresh); };
 			}, [sessionId, turn]);
 			return state;
 		}
@@ -3889,6 +3954,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const [settings, setSettings] = React.useState(null);
 			const [busy, setBusy] = React.useState(false);
 			const [error, setError] = React.useState("");
+			const requestRef = React.useRef(null);
 			const state = useSceneImageRecord(props.sessionId, props.turn);
 			React.useEffect(function () {
 				let active = true, revision = 0;
@@ -3904,16 +3970,17 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				return function () { active = false; window.clearInterval(timer); window.removeEventListener("dsh-tavern-image-settings-changed", refresh); window.removeEventListener("focus", refresh); };
 			}, []);
 			async function generate() {
-				if (!state || busy || props.running || state.status === "running") return;
+				if (!state || busy || props.running || state.status === "running" || state.versions && state.versions.length) return;
 				setBusy(true); setError("");
-				try { await rpc("generateSceneImage", { turn: props.turn, key: state.key }, props.sessionId); }
+				if (!requestRef.current || requestRef.current.key !== state.key) requestRef.current = { key: state.key, id: sceneImageRequestId() };
+				try { await rpc("generateSceneImage", { turn: props.turn, key: state.key, requestId: requestRef.current.id }, props.sessionId); requestRef.current = null; }
 				catch (e) { setError(String(e.message || e)); }
 				finally { setBusy(false); window.dispatchEvent(new CustomEvent("dsh-tavern-image-changed", { detail: { sessionId: props.sessionId } })); }
 			}
 			if (!settings || !settings.enabled) return null;
 			const working = state && state.status === "running";
 			return React.createElement(React.Fragment, null,
-				React.createElement("button", { type: "button", className: "dsh-tavern-choice-trigger", disabled: !settings.ready || !state || props.running || busy || working || state.status === "succeeded", onClick: generate }, busy ? "整理画面…" : working ? sceneImageStageLabel(state) : state && state.status === "failed" ? "重试生图" : "生图"),
+				React.createElement("button", { type: "button", className: "dsh-tavern-choice-trigger", disabled: !settings.ready || !state || props.running || busy || working || state.versions && state.versions.length > 0, onClick: generate }, busy ? "整理画面…" : working ? sceneImageStageLabel(state) : state && state.status === "failed" && !state.versions.length ? "重试生图" : "生图"),
 				error ? React.createElement("span", { role: "alert", className: "dsh-tavern-settings-error" }, error) : null
 			);
 		}

@@ -176,5 +176,15 @@ export function createScenePlans({ store }) {
     })
     return frame
   }
-  return { prepare, commit }
+  async function snapshot(chatId, frame) {
+    const data = await store.readJson(pathFor(chatId)) || empty()
+    const people = frame.characterRefs.map(id => data.characters[id])
+    const blocks = frame.blockIds.map(id => {
+      const block = data.blocks[id]
+      const text = block.owner === 'scene' ? frame.scene[block.field]?.text : people.find(person => person.id === block.owner)?.fields[block.field]?.text
+      return { ...block, text: text || '' }
+    })
+    return { ...frame, blocks, people }
+  }
+  return { prepare, commit, snapshot }
 }

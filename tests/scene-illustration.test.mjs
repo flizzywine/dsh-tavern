@@ -7,8 +7,10 @@ import { createSceneIllustrations, sceneTarget, sceneInput, IMAGE_CREDENTIAL } f
 import { generateSceneImage, imageSettings, validateImageDownload } from '../tavern-plugin/lib/domain/scene-image-provider.js'
 import { createProfileDataStore } from '../tavern-plugin/lib/profile-data-store.js'
 import { createBackgroundAgentRunner } from '../tavern-plugin/lib/background-agent-runner.js'
+import { createHash } from 'node:crypto'
 
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aKfoAAAAASUVORK5CYII=', 'base64')
+const imagePath = 'scene-images/' + createHash('sha256').update('test-chat').digest('hex') + '/'
 const chatFixture = () => ({ id: 'test-chat', mode: 'story', sessionId: 'parent', settleStatus: 'done', posture: '站在窗边，左手扶窗', messages: [{ role: 'user', text: '走到窗边' }, { role: 'assistant', turn: 2, sourceText: '她站在窗边看雨。', swipes: ['她站在窗边看雨。', '她坐在椅子上。'], swipeId: 0 }] })
 const planFixture = (tags = 'A woman standing at a rainy window') => ({ description: '窗边一景', subjects: [], characters: [], continuity: 'uncertain', scene: { composition: { text: '窗边一景', tags, evidence: [] } } })
 async function until(check) { for (let n = 0; n < 400; n++) { const value = await check(); if (value) return value; await new Promise(resolve => setTimeout(resolve, 10)) } throw new Error('condition timeout') }
@@ -62,7 +64,7 @@ async function fixture(t, overrides = {}) {
   const deps = {
     store, chatForSession: async () => structuredClone(chat), selection: () => ({ provider: 'test', model: 'text' }),
     credentials: () => ({ resolve: async ref => { assert.equal(ref, IMAGE_CREDENTIAL); return { value: key } }, set: async (_ref, value) => { key = value } }),
-    attachments: () => ({ saveImage: async image => { const ref = { attachmentId: 'test-image', mediaType: image.mediaType }; saved.set(ref.attachmentId, image); return ref }, readImage: async ref => ({ ref, ...saved.get(ref.attachmentId) }) }),
+    attachments: () => ({ saveImage: async image => { const ref = { attachmentId: 'test-image-' + saved.size, mediaType: image.mediaType }; saved.set(ref.attachmentId, image); return ref }, readImage: async ref => ({ ref, ...saved.get(ref.attachmentId) }) }),
     generate: async () => { imageCalls++; return { data: png, mediaType: 'image/png' } },
     runAgent: async input => { await input.onToolCall({ arguments: { plan: planFixture() } }); return { traceSessionId: 'image-child' } },
     ...overrides
@@ -247,7 +249,7 @@ test('missing credentials/attachments reject before charging; timeout never retr
   await assert.rejects(missing.service.start('parent', 2, sceneTarget(missing.chat(), 2).key), /附件服务/)
   assert.equal(missing.imageCalls(), 0)
   let attempts = 0
-  const timed = await fixture(t, { timeoutMs: 25, generate: async input => {
+  const timed = await fixture(t, { timeoutMs: 300, generate: async input => {
     attempts++
     await new Promise((resolve, reject) => { if (input.signal.aborted) reject(input.signal.reason); else input.signal.addEventListener('abort', () => reject(input.signal.reason), { once: true }) })
   } })
@@ -255,4 +257,90 @@ test('missing credentials/attachments reject before charging; timeout never retr
   const status = await until(async () => { const value = await timed.service.status('parent', 2); return value.status === 'failed' && value })
   assert.match(status.error, /超时或取消.*可能已计费/)
   assert.equal(attempts, 1)
+})
+
+test('repaint bypasses text Agent, retains each version and deduplicates replayed request IDs after restart', async t => {
+  let agentCalls = 0
+  const fx = await fixture(t, { runAgent: async input => { agentCalls++; await input.onToolCall({ arguments: { plan: planFixture() } }); return {} } })
+  const key = sceneTarget(fx.chat(), 2).key
+  await fx.service.start('parent', 2, key)
+  const first = await until(async () => { const state = await fx.service.status('parent', 2); return state.status === 'succeeded' && state })
+  const versionId = first.versions[0].id
+  assert.deepEqual(first.versions[0].configuration, { model: 'test-image', baseURL: 'https://provider.example/v1', size: '1024x1024' })
+  const options = { kind: 'repaint', versionId, requestId: 'same-request-id' }
+  const values = await Promise.all([fx.service.start('parent', 2, key, options), fx.service.start('parent', 2, key, options)])
+  assert.equal(values[0].requestId, values[1].requestId)
+  await until(async () => (await fx.service.status('parent', 2)).status === 'succeeded')
+  const restarted = createSceneIllustrations(fx.deps)
+  t.after(() => restarted.dispose())
+  await restarted.start('parent', 2, key, options)
+  const final = await restarted.status('parent', 2)
+  assert.equal(final.versions.length, 2)
+  assert.equal(agentCalls, 1)
+  assert.equal(fx.imageCalls(), 2)
+  assert.equal(final.versions.some(version => version.attachment || version.plan), false)
+  assert.notEqual((await restarted.readImage('parent', 2, key, versionId)).ref.attachmentId, (await restarted.readImage('parent', 2, key, final.versions[1].id)).ref.attachmentId)
+  await restarted.removeImage('parent', 2, key, final.versions[1].id)
+  assert.equal((await restarted.status('parent', 2)).versions.length, 1)
+  await assert.rejects(restarted.readImage('parent', 2, key, final.versions[1].id), /已删除/)
+  await restarted.start('parent', 2, key, options)
+  assert.equal(fx.imageCalls(), 2, 'deleting a version cannot replay its paid request')
+})
+
+test('image-only adjustment uses just old plan plus instruction, persists through provider failure, and does not change canonical plans', async t => {
+  let calls = 0, generated = 0
+  const fx = await fixture(t, {
+    generate: async input => { generated++; if (generated === 2) throw new Error('temporary image error'); return { data: png, mediaType: 'image/png' } },
+    runAgent: async input => {
+      calls++
+      if (input.tools[0].name === 'submit_scene_plan') await input.onToolCall({ arguments: { plan: planFixture() } })
+      else {
+        assert.equal(input.tools[0].name, 'submit_image_adjustment')
+        const context = JSON.parse(input.messages[0].content[0].text)
+        assert.equal(context.instruction, '改成雨夜')
+        assert.equal(context.sources, undefined)
+        assert.equal(context.characters, undefined)
+        await input.onToolCall({ arguments: { update: { description: '雨夜', patches: [{ owner: 'scene', field: 'composition', text: '雨夜', tags: 'rainy night' }] } } })
+      }
+      return {}
+    }
+  })
+  const key = sceneTarget(fx.chat(), 2).key
+  await fx.service.start('parent', 2, key)
+  const first = await until(async () => { const state = await fx.service.status('parent', 2); return state.status === 'succeeded' && state })
+  const options = { kind: 'adjust', versionId: first.versions[0].id, instruction: '改成雨夜' }
+  const originalPlans = await fx.store.readJson(imagePath + 'plans.json')
+  await fx.service.start('parent', 2, key, options)
+  const failed = await until(async () => { const state = await fx.service.status('parent', 2); return state.status === 'failed' && state })
+  assert.equal(failed.versions.length, 1)
+  assert.ok(await fx.service.readImage('parent', 2, key, first.versions[0].id))
+  await fx.service.start('parent', 2, key, options)
+  const adjusted = await until(async () => { const state = await fx.service.status('parent', 2); return state.status === 'succeeded' && state })
+  assert.equal(calls, 2, 'failed image retry reuses saved adjustment, not another text task')
+  assert.equal(adjusted.versions[1].prompt, 'rainy night')
+  assert.equal(adjusted.versions[0].prompt, first.versions[0].prompt)
+  await fx.service.start('parent', 2, key, { kind: 'repaint', versionId: first.versions[0].id })
+  const repainted = await until(async () => { const state = await fx.service.status('parent', 2); return state.status === 'succeeded' && state })
+  assert.equal(repainted.versions[2].prompt, first.versions[0].prompt)
+  assert.equal(calls, 2)
+  assert.deepEqual(await fx.store.readJson(imagePath + 'plans.json'), originalPlans)
+})
+
+test('another service instance cannot steal a live paid job, and switching away then back keeps its image', async t => {
+  let release
+  const fx = await fixture(t, { generate: () => new Promise(resolve => { release = () => resolve({ data: png, mediaType: 'image/png' }) }) })
+  const key = sceneTarget(fx.chat(), 2).key
+  await fx.service.start('parent', 2, key)
+  await until(() => release)
+  const other = createSceneIllustrations(fx.deps)
+  t.after(() => other.dispose())
+  assert.equal((await other.status('parent', 2)).status, 'running')
+  assert.equal((await other.start('parent', 2, key)).status, 'running')
+  fx.chat().messages[1].swipeId = 1
+  release()
+  await until(async () => (await fx.store.readJson(imagePath + key + '.json')).status === 'succeeded')
+  assert.equal((await other.status('parent', 2)).versions.length, 0)
+  fx.chat().messages[1].swipeId = 0
+  assert.equal((await other.status('parent', 2)).versions.length, 1)
+  assert.ok(await other.readImage('parent', 2, key))
 })

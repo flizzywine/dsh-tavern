@@ -27,4 +27,30 @@ test('真实 DSH 子 Agent 调用生图工具，HTTP 返回图经宿主校验落
   const image = await runtime.service.readImage('scene-parent', 1, initial.key)
   assert.equal(image.ref.mediaType, 'image/png')
   assert.ok(image.data.length > 0)
+  const originalVersion = status.versions[0].id
+  async function finish(options) {
+    await runtime.service.start('scene-parent', 1, initial.key, options)
+    for (let n = 0; n < 300; n++) {
+      const next = await runtime.service.status('scene-parent', 1)
+      if (next.status !== 'running') { assert.equal(next.status, 'succeeded', next.error); return next }
+      await new Promise(resolve => setTimeout(resolve, 20))
+    }
+    assert.fail('native image flow did not complete')
+  }
+  const repaint = await finish({ kind: 'repaint', versionId: originalVersion })
+  assert.equal(runtime.requests.length, 2, 'repaint must not call the text model')
+  assert.equal(runtime.imageRequests.length, 2)
+  assert.equal(repaint.versions.length, 2)
+  const adjusted = await finish({ kind: 'adjust', versionId: originalVersion, instruction: '改成雨夜近景' })
+  assert.equal(runtime.requests.length, 4)
+  assert.equal(runtime.imageRequests.length, 3)
+  assert.deepEqual(runtime.requests[2].tools.map(tool => tool.name), ['submit_image_adjustment'])
+  assert.doesNotMatch(JSON.stringify(runtime.requests[2].messages), /左手轻轻搭着窗框/)
+  assert.match(runtime.imageRequests[2].prompt, /close-up/)
+  assert.equal(adjusted.versions.length, 3)
+  assert.equal(runtime.parent.agent.session.events.length, before)
+  assert.equal(JSON.stringify(runtime.chat), runtime.before)
+  await runtime.restart()
+  assert.equal((await runtime.service.status('scene-parent', 1)).versions.length, 3)
+  assert.ok((await runtime.service.readImage('scene-parent', 1, initial.key, originalVersion)).data.length)
 })
