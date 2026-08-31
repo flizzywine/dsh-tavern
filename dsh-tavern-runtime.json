@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "revision": "6a99f4167782a408c468fa7e834182b064fad248",
+  "revision": "02061215d3703628805a83994ed00f293bcaffb8",
   "files": [
     {
       "path": "bin/dsh-compatibility.mjs",
@@ -49,13 +49,13 @@
     },
     {
       "path": "install.ps1",
-      "sha256": "eae3daf49842674bc78d9e04207d2b655d3e6769f81e7f44ac49bbef18ee13dd",
-      "size": 11775
+      "sha256": "13aa032b7933048cc81d381fff99bcf2185b868e66d8cf93d198eb109a370fd0",
+      "size": 11784
     },
     {
       "path": "install.sh",
-      "sha256": "e3542a496238e7ab9b136e247ab1e4b3179038bc6b29c378bd8f02921f1bdae7",
-      "size": 9158
+      "sha256": "a1e4df29116a66206ad3ef1ca0e0952d3cf4ea38c71c1f6b62240b5d95bedb95",
+      "size": 9168
     },
     {
       "path": "package.json",
