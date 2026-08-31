@@ -39,7 +39,7 @@ function hostFixture(result = { ok: true, value: 'tavern' }) {
 }
 
 test('alpha.2 shared startup adapter creates a fresh Session and selects through Remote', async () => {
-  for (const [kind, targetMode, preset] of [['play', 'story', 'tavern'], ['play', 'free', 'tavern'], ['card', 'card', 'cordis']]) {
+  for (const [kind, targetMode, preset] of [['play', 'story', 'tavern'], ['play', 'free', 'tavern'], ['card', 'card', 'tavern']]) {
     const { ctx, calls } = hostFixture()
     const host = client.createConversationHostAdapter(ctx)
     const lifecycle = client.createConversationLifecycleModule({

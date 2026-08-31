@@ -31,11 +31,16 @@
   config:
     includeDefaultRoots: false
     customSkillDirs:
-      - !!js "process.getBuiltinModule('node:url').fileURLToPath(new URL('../../data/skills/', baseUrl))"
+      - !!js "process.getBuiltinModule('node:path').resolve(process.env.DSH_HOME || process.getBuiltinModule('node:path').join(process.getBuiltinModule('node:os').homedir(), '.dsh'), 'profile-data', 'tavern', 'data', 'skills')"
     bundledSkillDir: !!js "process.getBuiltinModule('node:url').fileURLToPath(new URL('skills/', baseUrl))"
 
 - id: tool-skill
   name: '@deepseek-ai/dsh-tool-skill'
+
+# 卡片工作台保留 Tavern 的私有 Skill 来源，同时复用 DSH 创造模式工具。
+# 选择整套官方 cordis preset 会丢失本 preset 的 Skill 目录。
+- id: tool-cordis
+  name: '@deepseek-ai/dsh-tool-cordis'
 
 # 复用 DSH 原生上下文压缩能力，并恢复 /compact 命令。
 # 压缩器与工具结果裁剪器共享同一隔离域，保持与 DSH 标准模式一致。

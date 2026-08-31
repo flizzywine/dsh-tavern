@@ -1108,7 +1108,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				connectWorkspace: function (workspaceId) { return ctx.sessions.create({ workspaceId: workspaceId }); },
 				ensurePreset: async function (sessionId, request) {
 					// Select before writing the opening; the Session stream publishes preset state.
-					const agentPreset = request.kind === "card" ? "cordis" : "tavern";
+					// Keep Tavern's private Skill roots; its preset also mounts Cordis tools for card workbenches.
+					const agentPreset = "tavern";
 					const result = await ctx.remote.agentPresets.select(sessionId, agentPreset);
 					if (!result.ok) throw new Error(result.error && result.error.message || "无法切换到酒馆模式");
 				}

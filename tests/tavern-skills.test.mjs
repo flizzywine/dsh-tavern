@@ -3,8 +3,10 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
+import vm from 'node:vm'
 
 import { createTavernSkillModule, normalizeTavernSkillName } from '../tavern-plugin/lib/domain/tavern-skills.js'
+import { resolveTavernDataRoot } from '../tavern-plugin/lib/domain/tavern-data.js'
 
 async function harness(t) {
   const root = await mkdtemp(path.join(tmpdir(), 'tavern-skills-'))
@@ -18,6 +20,19 @@ test('Skill 名称拒绝路径与非 kebab-case 内容', () => {
   assert.equal(normalizeTavernSkillName('story-style'), 'story-style')
   assert.throws(() => normalizeTavernSkillName('../escape'), /名称只允许/)
   assert.throws(() => normalizeTavernSkillName('Story_Style'), /名称只允许/)
+})
+
+test('Skill 发现与保存使用相同用户目录，不随源码 checkout 改变', async () => {
+  const preset = await readFile(new URL('../presets/tavern/agent.cordis.yml', import.meta.url), 'utf8')
+  const expression = preset.match(/customSkillDirs:\s*\n\s*- !!js "([^\n]+)"/)[1]
+  for (const dshHome of ['/tmp/custom-dsh-home', 'relative-dsh-home']) {
+    for (const baseUrl of ['file:///app/presets/tavern/', 'file:///other-checkout/presets/tavern/']) {
+      const actual = vm.runInNewContext(expression, {
+        process: { env: { DSH_HOME: dshHome }, getBuiltinModule: process.getBuiltinModule }, baseUrl, URL
+      })
+      assert.equal(actual, path.join(resolveTavernDataRoot({ dshHome }), 'skills'))
+    }
+  }
 })
 
 test('保存结构化 Skill 并按调用策略生成 frontmatter', async (t) => {
