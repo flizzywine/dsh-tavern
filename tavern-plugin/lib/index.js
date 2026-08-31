@@ -32,7 +32,7 @@ import { createRuntimePresetModule, resolveRuntimePresetMacros } from './domain/
 import { compileSillyTavernRequest } from './domain/sillytavern-compatibility.js'
 import { applySillyTavernStrictTools } from './domain/sillytavern-strict-tools.js'
 import { createForegroundOrchestrationStrategies } from './domain/foreground-orchestration-strategies.js'
-import { clearFailedTurnSurface, hasRollbackMessages, locateRegenerationSurface, locateRollbackSurface, planRegenerationSurface } from './domain/rollback-surface.js'
+import { clearFailedTurnSurface, hasRollbackMessages, locateRegenerationSurface, locateRollbackSurface, planRegenerationSurface, supersededRegenerationErrorTurns } from './domain/rollback-surface.js'
 import { assistantResultForTurn } from './domain/session-turn-result.js'
 import { createTavernRetryLimiter } from './domain/tavern-retry-limiter.js'
 import { lastTavernHelperVariables, projectTavernHelperContext } from './domain/tavern-helper-context.js'
@@ -1156,6 +1156,10 @@ export async function apply(ctx) {
       }).filter(function (item) { return item && item.turn > 0 }),
       suppressedDshTurns: Array.from(new Set((Array.isArray(chat.suppressedDshTurns) ? chat.suppressedDshTurns : [])
         .map(Number).filter(function (turn) { return Number.isSafeInteger(turn) && turn > 0 }))).sort(function (left, right) { return left - right }),
+      suppressedDshErrorTurns: supersededRegenerationErrorTurns({
+        events: sessionDebugEvidence(chat.sessionId).events,
+        suppressedDshTurns: chat.suppressedDshTurns
+      }),
       tavernHelperScripts: helperRuntime.scripts,
       tavernHelperScriptDiagnostics: helperRuntime.diagnostics,
       tavernRemoteAssetPins: Array.isArray(cardExtensions.remoteAssetPins) ? cardExtensions.remoteAssetPins : [],

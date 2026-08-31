@@ -4906,6 +4906,31 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			}));
 		}
 
+
+		function createSupersededErrorProjection(root) {
+			const owned = new Set();
+			function dispose() {
+				for (const row of owned) row.hidden = false;
+				owned.clear();
+			}
+			function apply(turns) {
+				const hidden = new Set(turns.map(String));
+				const rows = root.querySelectorAll('[data-chat-flow-kind="turn-error"]');
+				const keep = new Set();
+				for (const row of rows) {
+					// Pre-alpha DSH has no data-chat-turn; its context key is length:kind+id.
+					const key = row.getAttribute("data-chat-flow-key") || "";
+					const turn = row.getAttribute("data-chat-turn") || (key.startsWith("10:turn-error") ? key.slice(13) : "");
+					if (!hidden.has(turn)) continue;
+					keep.add(row);
+					if (!row.hidden) { row.hidden = true; owned.add(row); }
+				}
+				for (const row of owned) {
+					if (!keep.has(row)) { row.hidden = false; owned.delete(row); }
+				}
+			}
+			return { apply: apply, dispose: dispose };
+		}
 		function createPlayControlsFeatureModule() {
 			function TavernConversationExportAction(props) {
 				const [available, setAvailable] = React.useState(false);
@@ -5484,6 +5509,31 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			);
 		}
 
+		function SupersededTurnErrors(props) {
+			const marker = React.useRef(null);
+			const running = props.useSession(function (snapshot) { return snapshot.running; });
+			const latestMessageId = props.useSession(function (snapshot) {
+				const nodes = snapshot.nodes || [];
+				for (let index = nodes.length - 1; index >= 0; index -= 1) {
+					if (nodes[index].kind === "assistant" && nodes[index].messageId) return nodes[index].messageId;
+				}
+				return null;
+			});
+			const state = useLiveTavernView(props.sessionId, "suppression:" + String(latestMessageId || "") + ":" + String(running));
+			const turns = state.view && state.view.suppressedDshErrorTurns || [];
+			const revision = turns.join(",");
+			React.useEffect(function () {
+				const root = marker.current && marker.current.closest("[data-conversation-scroll]");
+				if (!root) return;
+				const projection = createSupersededErrorProjection(root);
+				const apply = function () { projection.apply(turns); };
+				apply();
+				const observer = new window.MutationObserver(apply);
+				observer.observe(root, { childList: true, subtree: true });
+				return function () { observer.disconnect(); projection.dispose(); };
+			}, [props.sessionId, revision]);
+			return React.createElement("span", { ref: marker, hidden: true, "data-tavern-error-projection": props.sessionId });
+		}
 		function CandidateQuestion(props) {
 			const panel = useCandidatePanel();
 			const sessionMode = useTavernSessionMode(props.sessionId);
@@ -5703,7 +5753,10 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			)), "dsh-tavern: candidate dock actions");
 			ctx.effect(() => slots.inject("conversation.input.dock", () => slots.register(
 				{ name: "conversation.input.dock", id: "dsh-tavern-question", order: -120, label: "下一步行动" },
-				function (props) { return React.createElement(CandidateQuestion, Object.assign({}, props, { sessions: ctx.sessions })); }
+				function (props) { return React.createElement(React.Fragment, null,
+					React.createElement(SupersededTurnErrors, Object.assign({}, props, { key: props.sessionId })),
+					React.createElement(CandidateQuestion, Object.assign({}, props, { sessions: ctx.sessions }))
+				); }
 			)), "dsh-tavern: candidate question panel");
 			ctx.effect(() => slots.inject("conversation.input.dock", () => slots.register(
 				{ name: "conversation.input.dock", id: "dsh-tavern-candidate-guide", order: -115, label: "重新生成候选项" },
@@ -5815,6 +5868,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		}
 
 		exports.apply = apply;
+		exports.createSupersededErrorProjection = createSupersededErrorProjection;
 		exports.inject = inject;
 		exports.buildOpeningPreviewDocument = buildOpeningPreviewDocument;
 		exports.buildTavernFrameDocument = buildTavernFrameDocument;
