@@ -7,12 +7,6 @@ description: "把正文内输出状态栏的 SillyTavern 人物卡转换为 DSH 
 
 目标：正文模型写剧情；后台 Agent 根据本轮实际正文与当前变量快照提交更新；宿主官方 MVU 结算；固定状态视图读变量并自动刷新。MVU 是运行约定，不是新的卡文件格式，成品仍是人物卡 JSON/PNG。
 
-## 选择工作入口
-
-- **Codex**：用当前项目的文件工具读取和修改真实资源；先查资源根目录、卡片存储格式和导入导出实现。需要验证宿主行为时读现有测试和运行日志。
-- **Tavern 卡片 Agent**：用 `tavern_read_card` 读标准字段，`tavern_read_card_raw` 读 JSON Pointer 分支，`tavern_read_worldbook` 读世界书。长内容按工具返回范围续读。结构化工具与文件工具均可使用；挂载帮助定位，不是访问边界。只读游玩证据用 `tavern_read_play_chat`。
-- 工具不支持新目标、完整扩展或导出时，按动态提供的资源根目录使用文件工具。只用当前环境实际存在的工具，不假定另一个环境的工具可用。
-
 ## 1. 找出原来的状态协议
 
 检查 description、开场白及 alternate_greetings、mes_example、system_prompt、post_history_instructions、世界书、正则与 Helper 脚本。搜索状态代码块、HTML、占位符、数值规则和要求每轮重复档案的指令。默认保留无关字段、扩展、署名及 `{{char}}` / `{{user}}`。
