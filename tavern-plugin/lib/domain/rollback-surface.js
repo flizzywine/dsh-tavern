@@ -22,6 +22,41 @@ function isFailedTurnCleanup(event) {
   return source && source.kind === 'plugin' && source.plugin === 'dsh-tavern-failed-turn-cleanup'
 }
 
+// Successful regeneration leaves a durable empty replacement at the saved story
+// turn. Surface replacement hides messages, not DSH's turn/end error nodes.
+// Derive their display suppression without changing the immutable event history.
+export function supersededRegenerationErrorTurns(input) {
+  const events = Array.isArray(input && input.events) ? input.events : []
+  const syntheticTurns = new Set((Array.isArray(input && input.suppressedDshTurns) ? input.suppressedDshTurns : []).map(Number))
+  if (syntheticTurns.size === 0) return []
+  const bySeq = new Map()
+  const endings = new Map()
+  const failures = []
+  const hidden = new Set()
+  for (const event of events) {
+    if (!event || !Number.isSafeInteger(event.seq)) continue
+    bySeq.set(event.seq, event)
+    if (event.type === 'turn/end') {
+      endings.set(Number(event.data.turn), event)
+      if (event.data.reason && event.data.reason.kind === 'error') failures.push(event)
+    }
+    const op = event.surfaceOp
+    if (event.type !== 'assistant/message' || modelSourceOf(event) === null || !op || op.op !== 'replace') continue
+    const content = event.data.message.content
+    if (!Array.isArray(content) || content.length !== 0) continue
+    const body = bySeq.get(op.end)
+    const turn = Number(body && body.data && body.data.turn)
+    const end = endings.get(turn)
+    if (!body || body.type !== 'assistant/message' || modelSourceOf(body) === null || !syntheticTurns.has(turn) || turn === Number(event.data.turn)) continue
+    if (!end || end.seq <= body.seq || end.seq >= event.seq || end.data.reason.kind !== 'completed') continue
+    if (!Array.isArray(body.data.message.content) || !body.data.message.content.some(block => block.type === 'text' && typeof block.text === 'string' && block.text.trim() !== '')) continue
+    for (const failure of failures) {
+      if (failure.seq >= op.start && failure.seq <= op.end) hidden.add(Number(failure.data.turn))
+    }
+  }
+  return [...hidden].sort((a, b) => a - b)
+}
+
 export function locateRegenerationSurface(input) {
   const events = Array.isArray(input && input.events) ? input.events : []
   const nodes = Array.isArray(input && input.nodes) ? input.nodes : []
