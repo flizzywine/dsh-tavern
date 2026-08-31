@@ -92,7 +92,7 @@ test('卡片 Agent 以极简模式工具为底座，游玩 Agent 不暴露文件
   assert.match(tavernPresetSource, /@deepseek-ai\/dsh-skill-filesystem/)
   assert.match(tavernPresetSource, /includeDefaultRoots: false/)
   assert.match(tavernPresetSource, /@deepseek-ai\/dsh-tool-skill/)
-  assert.doesNotMatch(tavernPresetSource, /@deepseek-ai\/dsh-tool-cordis/)
+  assert.match(tavernPresetSource, /@deepseek-ai\/dsh-tool-cordis/)
   assert.match(tavernPresetSource, /text: ''/)
   assert.doesNotMatch(tavernPresetSource, /complete: true/)
   assert.match(serverSource, /modePrompt: function \(\) \{ return runtimePrompt\('card-mode'\) \}/)

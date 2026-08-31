@@ -3253,11 +3253,10 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			}
 			async function ensureTavernPreset(sessionId, request) {
 				// DSH may reuse a persisted blank Session whose Agent has not been resumed yet.
-				// Card workbenches use DSH's official creation preset; play sessions use Tavern's composition.
-				const agentPreset = request.kind === "card" ? "cordis" : "tavern";
-				const presetResponse = await props.connection.api.agentPresets.select({ sessionId: sessionId, agentPreset: agentPreset });
+				// Tavern owns the private Skill roots; its composition also mounts Cordis tools for card workbenches.
+				const presetResponse = await props.connection.api.agentPresets.select({ sessionId: sessionId, agentPreset: "tavern" });
 				if (!presetResponse.result.ok) throw new Error(presetResponse.result.error && presetResponse.result.error.message ? presetResponse.result.error.message : "无法切换到酒馆模式");
-				props.sessions.noteAgentPreset(sessionId, agentPreset);
+				props.sessions.noteAgentPreset(sessionId, "tavern");
 			}
 			async function archiveCurrentBlankSession(protectedSessionId) {
 				const currentSummary = current ? summaries[current] : null;

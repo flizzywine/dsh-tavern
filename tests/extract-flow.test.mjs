@@ -65,7 +65,8 @@ test('新建对话按会话类型选择 preset 以恢复被复用的冷 Session 
 	const cardFlow = between(sidebar, 'async function newCardConversation', 'function formatTime')
 
 	assert.match(guard, /agentPresets\.select/)
-	assert.match(guard, /request\.kind === "card" \? "cordis" : "tavern"/)
+	assert.doesNotMatch(guard, /"cordis"/)
+	assert.match(guard, /agentPreset: "tavern"/)
 	assert.doesNotMatch(guard, /agentPreset === "tavern"\) return/)
 	assert.match(lifecycle, /ensurePreset: ensureTavernPreset/)
 	assert.match(playFlow, /conversationLifecycle\.start/)
