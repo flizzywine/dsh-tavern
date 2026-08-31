@@ -132,9 +132,11 @@ dsh-tavern 使用尽可能少而精的提示词，把流程和状态交给程序
 
 ![阿芙拉人物卡正则美化效果](docs/images/readme/regex-html-rendering.png)
 
-## 安装与启动
+## 首次安装与重新安装
 
 提供桌面版和命令行版两种安装方式。两者使用同一套 Tavern Profile 和数据，请勿同时运行。
+
+**首次安装、更新或重新安装，都运行下面对应的同一条命令。** 已安装时会覆盖更新程序文件，保留人物卡、对话、配置、自定义工具和 Skill，无需先卸载。重新安装前建议备份数据；如果使用了自定义数据或安装目录，请保持原配置。
 
 ### DSH Desktop 桌面版（推荐）
 
@@ -145,34 +147,18 @@ dsh-tavern 使用尽可能少而精的提示词，把流程和状态交给程序
 Windows：
 
 ```powershell
-$env:DSH_TAVERN_HOST='desktop'; irm https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@main/install.ps1 | iex
+$env:DSH_TAVERN_HOST='desktop'; $tavernInstaller=[Text.Encoding]::UTF8.GetString((New-Object Net.WebClient).DownloadData('https://raw.githubusercontent.com/flizzywine/dsh-tavern/main/install.ps1')); Invoke-Expression $tavernInstaller
 ```
 
 macOS：
 
 ```bash
-curl -fsSL https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@main/install.sh | DSH_TAVERN_HOST=desktop sh
+curl -fsSL https://raw.githubusercontent.com/flizzywine/dsh-tavern/main/install.sh | DSH_TAVERN_HOST=desktop sh
 ```
 
 安装完成后，重启 DSH Desktop，并从托盘的 **Profile** 菜单选择 **tavern**。Desktop 会自动管理启停和端口；更新 dsh-tavern 时，在 DSH Terminal 中重新运行上述安装命令即可。
 
-#### 旧版更新失败时
-
-如果出现缺少 `patches/dsh-better-sidebar@0.17.1.patch`、`ENOENT` 或“程序依赖安装失败”，不要卸载或删除数据目录。旧版内置更新器可能仍用旧下载清单；请先备份数据，再在原来的 **DSH Terminal** 中运行最新安装命令，覆盖更新程序文件，保留人物卡、对话、配置及自定义工具和 Skill。若此前设置过自定义数据或安装目录，请保持原配置。
-
-Windows 用户可直接从 GitHub 获取最新安装器，绕过本地旧脚本和安装脚本的 CDN 缓存；明确按 UTF-8 解码，避免 Windows PowerShell 中文乱码：
-
-```powershell
-$env:DSH_TAVERN_HOST='desktop'; $tavernInstaller=[Text.Encoding]::UTF8.GetString((New-Object Net.WebClient).DownloadData('https://raw.githubusercontent.com/flizzywine/dsh-tavern/main/install.ps1')); Invoke-Expression $tavernInstaller
-```
-
-macOS 用户：
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/flizzywine/dsh-tavern/main/install.sh | DSH_TAVERN_HOST=desktop sh
-```
-
-完成后重启 DSH Desktop。若仍失败，请提供日志最前面的具体错误和文件路径，而不只是末尾调用栈。
+旧版内置更新失败时，也直接运行上面的命令：它会获取最新安装器，绕过本地旧更新脚本。Windows 命令按 UTF-8 解码，避免中文乱码。若仍失败，请提供日志最前面的具体错误和文件路径。
 
 ### 命令行版
 
@@ -183,7 +169,7 @@ curl -fsSL https://raw.githubusercontent.com/flizzywine/dsh-tavern/main/install.
 打开 PowerShell，运行：
 
 ```powershell
-irm https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@main/install.ps1 | iex
+$env:DSH_TAVERN_HOST='cli'; $tavernInstaller=[Text.Encoding]::UTF8.GetString((New-Object Net.WebClient).DownloadData('https://raw.githubusercontent.com/flizzywine/dsh-tavern/main/install.ps1')); Invoke-Expression $tavernInstaller
 ```
 
 #### macOS / Linux / WSL2
@@ -191,7 +177,7 @@ irm https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@main/install.ps1 | iex
 打开终端，运行：
 
 ```bash
-curl -fsSL https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/flizzywine/dsh-tavern/main/install.sh | DSH_TAVERN_HOST=cli sh
 ```
 
 安装程序会自动安装依赖、启动 dsh-tavern，并在首次安装时打开网页。关闭页面后，运行 `dsh-tavern open` 可重新打开；也可运行 `dsh-tavern status`，复制显示的完整访问地址（含鉴权 token，请勿分享）。不要只输入不带 token 的地址，以免出现鉴权提示。更新时优先使用 Git 增量同步；Git 不可用或同步失败时才下载完整 ZIP。
