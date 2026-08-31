@@ -118,6 +118,19 @@ test('server rejects generation during foreground streaming before running an Ag
   assert.equal(fx.imageCalls(), 0)
 })
 
+test('WebUI can run without a key and its failure message remains readable', async t => {
+  const keys = new Map()
+  const fx = await fixture(t, {
+    credentials: () => ({ resolve: async ref => ({ value: keys.get(ref) }), set: async (ref, value) => { keys.set(ref, value) } }),
+    generate: async input => { assert.equal(input.apiKey, ''); throw new Error('WebUI connection unavailable') }
+  })
+  await fx.service.configure({ provider: 'webui', baseURL: 'http://localhost:7860' })
+  await fx.service.configure({ enabled: true })
+  await fx.service.start('parent', 2, sceneTarget(fx.chat(), 2).key)
+  await until(async () => (await fx.service.status('parent', 2)).status === 'failed')
+  assert.equal((await fx.service.status('parent', 2)).error, 'WebUI connection unavailable')
+})
+
 test('a channel change during planning cannot change the frozen paid request or its key', async t => {
   const keys = new Map(), generated = []
   let release, started

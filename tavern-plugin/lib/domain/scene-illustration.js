@@ -2,13 +2,14 @@ import { createHash, randomUUID } from 'node:crypto'
 import { projectAgentContent } from './runtime-content-projection.js'
 import { generateSceneImage } from './scene-image-provider.js'
 import { createSceneImageSettings } from './scene-image-settings.js'
-import { channelSettings, imageExpressionProfile } from './scene-image-channels.js'
+import { channelSettings, channelReady, imageExpressionProfile } from './scene-image-channels.js'
 import { createScenePlans, SCENE_PLAN_INSTRUCTION, SCENE_PLAN_TOOL } from './scene-plan.js'
 import { imageAdjustmentInput, applyImageAdjustment, legacyImagePlan, SCENE_ADJUSTMENT_INSTRUCTION, SCENE_ADJUSTMENT_TOOL } from './scene-image-adjustment.js'
 import { createSceneImageStyles, applyImageStyle, composeSceneImagePrompt } from './scene-image-style.js'
 
 export const IMAGE_CREDENTIAL = 'DSH_TAVERN_IMAGE_API_KEY'
 const hash = value => createHash('sha256').update(value).digest('hex')
+const redactImageError = (value, key) => key ? String(value).replaceAll(key, '[已隐藏]') : String(value)
 const imageHosts = new Map()
 function ownerIsLive(record, path) {
   if (!record?.ownerPid) return false
@@ -130,8 +131,7 @@ export function createSceneIllustrations(deps) {
       // A failure may reach disk just before the job's finally removes its handle.
       // An explicit retry waits for that cleanup, rather than returning the old failure.
       if (jobs.has(path)) await jobs.get(path).promise
-      if (!active.model || !active.baseURL) throw new Error('请先在设置 → DSH Tavern → 场景生图中填写地址与模型')
-      if (!apiKey) throw new Error('请先在设置中配置生图 API Key')
+      if (!channelReady(active, apiKey)) throw new Error('请先在设置中完成生图渠道配置（地址、模型或 API Key）')
       if (typeof deps.attachments()?.saveImage !== 'function' || typeof deps.attachments()?.readImage !== 'function') throw new Error('当前 DSH 未提供图片附件服务，无法保存插画')
       const profile = imageExpressionProfile(active)
       const style = await styles.resolve(active.style, profile)
@@ -203,7 +203,7 @@ export function createSceneIllustrations(deps) {
               await deps.store.writeJson(path, record)
               return '方案已校验保存。程序将请求一张图片；不要再调用工具。'
             } catch (error) {
-              validationError = String(error.message || '方案校验失败').replaceAll(input.apiKey, '[已隐藏]').slice(0, 500)
+              validationError = redactImageError(error.message || '方案校验失败', input.apiKey).slice(0, 500)
               return '方案校验失败：' + validationError + (submissions < 2 ? '。尚未收费，可修正一次。' : '。修正次数已用完，停止。')
             } finally { submitting = false }
           }
@@ -227,18 +227,18 @@ export function createSceneIllustrations(deps) {
       attempted = true
       let generated
       try { generated = await (deps.generate || generateSceneImage)({ ...active, apiKey: input.apiKey, prompt, signal: controller.signal, maxBytes: deps.attachments()?.imageLimits?.maxImageBytes }) }
-      catch (error) { providerError = String(error.message || '生图失败').replaceAll(input.apiKey, '[已隐藏]'); throw error }
+      catch (error) { providerError = redactImageError(error.message || '生图失败', input.apiKey); throw error }
       controller.signal.throwIfAborted()
       record.stage = 'saving'
       await deps.store.writeJson(path, record)
-      attachment = await deps.attachments().saveImage({ ...generated, name: 'scene-illustration' })
+      attachment = await deps.attachments().saveImage({ data: generated.data, mediaType: generated.mediaType, name: 'scene-illustration' })
       // The record remains under the frozen target key, even if another swipe is
       // selected while the request runs. Reading still requires the exact target.
-      const version = { id: record.requestId, requestId: record.requestId, attachment, plan, configuration: record.configuration, prompt, model: active.model, createdAt: Date.now() }
-      await deps.store.writeJson(path, { ...record, status: 'succeeded', stage: 'completed', attachment, prompt, model: active.model, versions: [...record.versions, version], requests: { ...record.requests, [record.requestId]: { status: 'succeeded', versionId: version.id } }, completedAt: Date.now() })
+      const version = { id: record.requestId, requestId: record.requestId, attachment, plan, configuration: record.configuration, prompt, model: generated.metadata?.model || active.model, ...(generated.metadata ? { generation: generated.metadata } : {}), createdAt: Date.now() }
+      await deps.store.writeJson(path, { ...record, status: 'succeeded', stage: 'completed', attachment, prompt, model: version.model, versions: [...record.versions, version], requests: { ...record.requests, [record.requestId]: { status: 'succeeded', versionId: version.id } }, completedAt: Date.now() })
     } catch (error) {
       const detail = providerError || validationError || String(error.message || '生图 Agent 未完成任务，请检查当前对话模型或导出日志')
-      await deps.store.writeJson(path, { ...record, status: 'failed', requests: { ...record.requests, [record.requestId]: { status: 'failed' } }, planId: plan?.id || '', traceSessionId: record.traceSessionId || error.traceSessionId || '', error: controller.signal.aborted ? (attempted ? '生图已超时或取消，供应商可能已计费，请确认后重试。' : '整理画面已超时或取消，尚未请求图片。') : detail.replaceAll(input.apiKey, '[已隐藏]').slice(0, 500) })
+      await deps.store.writeJson(path, { ...record, status: 'failed', requests: { ...record.requests, [record.requestId]: { status: 'failed' } }, planId: plan?.id || '', traceSessionId: record.traceSessionId || error.traceSessionId || '', error: controller.signal.aborted ? (attempted ? '生图已超时或取消，供应商可能已计费，请确认后重试。' : '整理画面已超时或取消，尚未请求图片。') : redactImageError(detail, input.apiKey).slice(0, 500) })
     } finally { clearTimeout(timer) }
   }
   async function readImage(sessionId, turn, key, versionId) {

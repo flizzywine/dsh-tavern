@@ -94,11 +94,24 @@ export async function generateSceneImage(input, deps = {}) {
   catch (error) { if (error.message === '生图响应过大') throw error; throw new Error('生图服务返回的不是有效 JSON') }
   const item = channelImageResult(input.provider, payload)
   if (!item || typeof item !== 'object') throw new Error('生图服务没有返回图片')
+  // Keep only useful reported facts, never echo a server's full info blob.
+  let metadata
+  if (input.provider === 'webui') {
+    try {
+      const info = typeof payload.info === 'string' ? JSON.parse(payload.info) : payload.info
+      const values = {}
+      if (Number.isSafeInteger(info?.seed) && info.seed >= 0) values.seed = info.seed
+      if (typeof info?.sd_model_name === 'string' && info.sd_model_name.length <= 200) values.model = info.sd_model_name
+      if (typeof info?.sd_model_hash === 'string' && /^[a-f0-9]{8,64}$/i.test(info.sd_model_hash)) values.modelHash = info.sd_model_hash
+      if (Object.keys(values).length) metadata = values
+    } catch { /* Missing/malformed optional metadata cannot discard a valid image. */ }
+  }
+  const finish = data => ({ ...imageBytes(data, maxBytes), ...(metadata ? { metadata } : {}) })
   const inline = typeof item.b64_json === 'string' ? item.b64_json : /^data:image\/[\w.+-]+;base64,/i.test(item.url || '') ? item.url.split(',')[1] : null
   if (inline !== null) {
     const clean = inline.replace(/\s+/g, '')
     if (!/^[A-Za-z0-9+/]+={0,2}$/.test(clean)) throw new Error('图片 base64 数据不合法')
-    return imageBytes(Buffer.from(clean, 'base64'), maxBytes)
+    return finish(Buffer.from(clean, 'base64'))
   }
   if (typeof item.url !== 'string') throw new Error('生图服务没有返回图片数据')
   const baseURL = channelSettings(input).baseURL
@@ -107,5 +120,5 @@ export async function generateSceneImage(input, deps = {}) {
     ? await downloadPublicImage(url, input.signal)
     : await request(url, { redirect: 'error', signal: input.signal })
   if (!downloaded.ok) { await downloaded.body?.cancel(); throw new Error('图片下载失败（HTTP ' + downloaded.status + '）') }
-  return imageBytes(await boundedBytes(downloaded, maxBytes), maxBytes)
+  return finish(await boundedBytes(downloaded, maxBytes))
 }

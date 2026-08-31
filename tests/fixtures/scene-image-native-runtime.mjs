@@ -50,7 +50,8 @@ export async function createSceneImageNativeRuntime(bootPath) {
     let body = ''; for await (const chunk of req) body += chunk
     imageRequests.push(JSON.parse(body))
     if (failNext) { failNext = false; res.writeHead(503).end('test failure'); return }
-    const payload = req.url.endsWith('/interactions') ? { steps: [{ type: 'model_output', content: [{ type: 'image', data: png.toString('base64') }] }] }
+    const payload = req.url.endsWith('/txt2img') ? { images: [png.toString('base64')], info: JSON.stringify({ seed: 42, sd_model_name: 'fixture-server-model' }) }
+      : req.url.endsWith('/interactions') ? { steps: [{ type: 'model_output', content: [{ type: 'image', data: png.toString('base64') }] }] }
       : req.url.endsWith('/chat/completions') ? { choices: [{ message: { content: [{ type: 'image_url', image_url: { url: 'data:image/png;base64,' + png.toString('base64') } }] } }] }
         : req.url.includes('/multimodal-generation/') ? { output: { choices: [{ message: { content: [{ image: 'http://127.0.0.1:' + imageServer.address().port + '/picture' }] } }] } }
           : { data: [{ b64_json: png.toString('base64') }] }

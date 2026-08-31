@@ -30,7 +30,7 @@ test('six cloud protocols dispatch to local HTTP with exact auth/body shapes and
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
   t.after(() => new Promise(resolve => server.close(resolve)))
   baseURL = 'http://127.0.0.1:' + server.address().port
-  for (const channel of SCENE_IMAGE_CHANNELS) {
+  for (const channel of SCENE_IMAGE_CHANNELS.filter(item => item.id !== 'webui')) {
     provider = channel.id
     const config = channelSettings({}, provider)
     const image = await generateSceneImage({ ...config, model: config.model || 'relay-model', baseURL: baseURL + '/v1', prompt: 'one quiet scene', apiKey: 'fixture-secret' })
@@ -123,4 +123,60 @@ test('legacy migration preserves exact explicit config and global style; concurr
   assert.equal(doc.providers.gemini.aspectRatio, '3:2')
   assert.equal(doc.providers.grok.size, '2k')
   assert.equal(doc.style.custom, '原样保留')
+})
+
+test('WebUI sends one image request, keeps the server model and handles raw base64 results', async () => {
+  for (const authType of ['none', 'basic', 'bearer']) {
+    let calls = 0
+    const result = await generateSceneImage({ provider: 'webui', baseURL: 'http://localhost:7860/prefix', size: '768x512', prompt: 'window scene', authType, username: 'reader', apiKey: ' secret ' }, { fetch: async (url, init) => {
+      calls++
+      assert.equal(url, 'http://localhost:7860/prefix/sdapi/v1/txt2img')
+      const body = JSON.parse(init.body)
+      assert.deepEqual(body, { prompt: 'window scene', width: 768, height: 512, batch_size: 1, n_iter: 1, seed: -1, send_images: true, save_images: false })
+      assert.equal(init.headers.authorization, authType === 'none' ? undefined : authType === 'basic' ? 'Basic ' + Buffer.from('reader: secret ').toString('base64') : 'Bearer  secret ')
+      return Response.json({ images: [png.toString('base64')], info: '{}' })
+    } })
+    assert.deepEqual(result.data, png)
+    assert.equal(calls, 1)
+  }
+  const input = { provider: 'webui', baseURL: 'http://localhost:7860' }
+  const encoded = await generateSceneImage(input, { fetch: async () => Response.json({ images: ['data:image/png;base64,' + png.toString('base64')] }) })
+  assert.deepEqual(encoded.data, png)
+  assert.throws(() => channelSettings({ ...input, authType: 'unknown' }), /鉴权/)
+  assert.throws(() => channelSettings({ ...input, username: 'name:extra' }), /用户名/)
+  for (const size of ['4096x4096', '0x512', '500x500', 'large']) assert.throws(() => channelSettings({ ...input, size }), /尺寸/)
+  await assert.rejects(generateSceneImage({ ...input, authType: 'basic', username: 'reader' }), /配置/)
+})
+
+test('WebUI requires only an address without auth; passwords and bearer tokens are stored separately', async t => {
+  const { service, store, keys } = await fixture(t)
+  await service.configure({ provider: 'webui', baseURL: 'http://localhost:7860' })
+  assert.equal((await service.settings()).ready, true)
+  assert.equal((await service.settings()).hasKey, false)
+  await service.configure({ enabled: true })
+  assert.equal((await service.capture()).apiKey, '')
+  await service.configure({ authType: 'basic', username: 'reader', apiKey: ' spaces are valid ' })
+  assert.equal((await service.settings()).enabled, false)
+  assert.equal(keys.get(imageCredentialRef('webui', 'basic')), ' spaces are valid ')
+  await service.configure({ enabled: true })
+  assert.equal((await service.capture()).apiKey, ' spaces are valid ')
+  await service.configure({ authType: 'bearer' })
+  assert.equal((await service.settings()).ready, false)
+  await assert.rejects(service.configure({ enabled: true }), /先保存/)
+  await service.configure({ apiKey: 'proxy-token' })
+  assert.equal(keys.get(imageCredentialRef('webui', 'bearer')), 'proxy-token')
+  await service.configure({ authType: 'basic' })
+  assert.equal((await service.capture()).apiKey, ' spaces are valid ')
+  const doc = JSON.stringify(await store.readJson('scene-images/settings.json'))
+  assert.equal(doc.includes('spaces are valid'), false)
+  assert.equal(doc.includes('proxy-token'), false)
+})
+
+test('WebUI keeps only reported model/seed metadata and tolerates missing or malformed info', async () => {
+  const call = info => generateSceneImage({ provider: 'webui', baseURL: 'http://localhost:7860' }, { fetch: async () => Response.json({ images: [png.toString('base64')], info }) })
+  const image = await call(JSON.stringify({ seed: 123, sd_model_name: 'my-checkpoint', sd_model_hash: 'abcdef12', api_key: 'must-not-copy', prompt: 'full secret input' }))
+  assert.deepEqual(image.metadata, { seed: 123, model: 'my-checkpoint', modelHash: 'abcdef12' })
+  assert.equal(JSON.stringify(image.metadata).includes('secret'), false)
+  assert.equal((await call('invalid json')).metadata, undefined)
+  assert.equal((await call(JSON.stringify({ seed: -1 }))).metadata, undefined)
 })

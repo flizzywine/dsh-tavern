@@ -1,4 +1,4 @@
-import { channelSettings, channelReady, imageCredentialRef, SCENE_IMAGE_CHANNELS } from './scene-image-channels.js'
+import { channelSettings, channelReady, channelNeedsKey, imageCredentialRef, SCENE_IMAGE_CHANNELS } from './scene-image-channels.js'
 import { imageStyleSettings, SCENE_STYLE_PRESETS } from './scene-image-style.js'
 
 const path = 'scene-images/settings.json'
@@ -21,8 +21,8 @@ export function createSceneImageSettings({ store, credentials }) {
     // saved by a concurrent channel edit. No settings write is performed here.
     await store.updateJson(path, async value => {
       const active = selection(document(value || {}))
-      const key = await credentials()?.resolve(imageCredentialRef(active.provider))
-      snapshot = { active, apiKey: key?.value }
+      const key = channelNeedsKey(active) ? await credentials()?.resolve(imageCredentialRef(active.provider, active.authType)) : undefined
+      snapshot = { active, apiKey: key?.value || '' }
       return undefined
     })
     return snapshot
@@ -30,7 +30,7 @@ export function createSceneImageSettings({ store, credentials }) {
   async function settings(provider) {
     const doc = document(await store.readJson(path) || {})
     const current = selection(doc, provider)
-    const key = await credentials()?.resolve(imageCredentialRef(current.provider))
+    const key = await credentials()?.resolve(imageCredentialRef(current.provider, current.authType))
     return { ...current, activeProvider: doc.provider, channels: SCENE_IMAGE_CHANNELS, stylePresets: SCENE_STYLE_PRESETS, hasKey: Boolean(key?.value), ready: channelReady(current, key?.value) }
   }
   function configure(input = {}) {
@@ -48,19 +48,20 @@ export function createSceneImageSettings({ store, credentials }) {
       const provider = input.provider ?? doc.provider
       const current = selection(doc, provider)
       const next = channelSettings({ ...current, ...input }, provider)
-      const ref = imageCredentialRef(provider)
+      const ref = imageCredentialRef(provider, next.authType)
+      const suppliedKey = next.authType === 'basic' ? input.apiKey : input.apiKey?.trim()
       const credentialStore = credentials()
       const key = await credentialStore?.resolve(ref)
-      const switched = provider !== doc.provider
+      const switched = provider !== doc.provider || next.authType !== current.authType
       // An enable call cannot simultaneously introduce a new channel/config.
-      const changed = JSON.stringify(channelSettings(current)) !== JSON.stringify(next) || Boolean(input.apiKey?.trim())
+      const changed = JSON.stringify(channelSettings(current)) !== JSON.stringify(next) || Boolean(suppliedKey)
       if (input.enabled === true && (switched || changed || !channelReady(current, key?.value))) throw new Error('请先保存完整生图配置，再手动启用')
       const style = imageStyleSettings({ ...doc.style, ...input.style })
-      if (input.apiKey?.trim()) {
+      if (suppliedKey) {
         if (typeof credentialStore?.set !== 'function') throw new Error('当前 DSH 不支持保存凭据，请配置 ' + ref)
-        await credentialStore.set(ref, input.apiKey.trim())
+        await credentialStore.set(ref, suppliedKey)
       }
-      const ready = channelReady(next, input.apiKey?.trim() || key?.value)
+      const ready = channelReady(next, suppliedKey || key?.value)
       return { ...doc, provider, style, enabled: ready && !switched && (input.enabled ?? doc.enabled), providers: { ...doc.providers, [provider]: next } }
     })
     return settings()
