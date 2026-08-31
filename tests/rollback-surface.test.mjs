@@ -127,16 +127,12 @@ test('失败的正文回合从模型消息面移除本轮全部残留节点', ()
   }
   assert.equal(clearFailedTurnSurface({ session, turn: 3, id: function () { return 'cleanup-id' } }), 2)
   assert.deepEqual(calls, [{
-    type: 'assistant/message',
+    type: 'user/message',
     data: {
-      turn: 3,
-      step: 1,
-      message: {
-        id: 'cleanup-id',
-        role: 'assistant',
-        content: [],
-        source: { kind: 'plugin', plugin: 'dsh-tavern-failed-turn-cleanup' }
-      }
+      id: 'cleanup-id',
+      role: 'user',
+      content: [],
+      source: { kind: 'plugin', plugin: 'dsh-tavern-failed-turn-cleanup' }
     },
     options: {
       surfaceOp: { op: 'replace', start: 55, end: 56 },

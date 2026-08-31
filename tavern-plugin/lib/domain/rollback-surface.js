@@ -17,6 +17,11 @@ function modelSourceOf(event) {
   return source && source.kind === 'model' ? source : null
 }
 
+function isFailedTurnCleanup(event) {
+  const source = event && event.type === 'user/message' && event.data && event.data.source
+  return source && source.kind === 'plugin' && source.plugin === 'dsh-tavern-failed-turn-cleanup'
+}
+
 export function locateRegenerationSurface(input) {
   const events = Array.isArray(input && input.events) ? input.events : []
   const nodes = Array.isArray(input && input.nodes) ? input.nodes : []
@@ -40,7 +45,7 @@ export function locateRollbackSurface(input) {
   let userIndex = -1
   for (let index = nodes.length - 1; index >= 0; index -= 1) {
     const event = eventAt(events, nodes[index])
-    if (event && event.type === 'user/message') {
+    if (event && event.type === 'user/message' && !isFailedTurnCleanup(event)) {
       userIndex = index
       break
     }
@@ -147,16 +152,13 @@ export function clearFailedTurnSurface(input) {
   })
   if (cleanup === null) return 0
   const makeId = typeof input.id === 'function' ? input.id : function () { return randomUUID() }
-  const turn = Math.max(0, Number(input.turn) || 0)
-  session.append('assistant/message', {
-    turn,
-    step: 1,
-    message: {
-      id: makeId(),
-      role: 'assistant',
-      content: [],
-      source: { kind: 'plugin', plugin: 'dsh-tavern-failed-turn-cleanup' }
-    }
+  // DSH permits plugin-injected user messages, but assistant messages must be
+  // model-sourced on restore. Keep this empty tombstone explicitly plugin-owned.
+  session.append('user/message', {
+    id: makeId(),
+    role: 'user',
+    content: [],
+    source: { kind: 'plugin', plugin: 'dsh-tavern-failed-turn-cleanup' }
   }, {
     surfaceOp: { op: 'replace', start: cleanup.start, end: cleanup.end },
     sourceEventSeqs: cleanup.shadowedSeqs
