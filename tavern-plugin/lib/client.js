@@ -5331,15 +5331,18 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			}
 		}
 		function hideTurnTailWithUser(el) {
-			hideTurnTail(el);
+			if (!el) return;
+			el.style.display = "none";
+			const turn = el.getAttribute("data-chat-turn");
 			let sib = el.previousElementSibling;
 			while (sib) {
 				const kind = sib.getAttribute("data-chat-flow-kind");
-				if (kind === "user") {
-					sib.style.display = "none";
-					break;
-				}
 				if (kind === "turn-tail") break;
+				const siblingTurn = sib.getAttribute("data-chat-turn");
+				if (turn && siblingTurn && siblingTurn !== turn) break;
+				// System prompts precede the user row. Hide through the turn boundary,
+				// not just through its input; alpha also supplies explicit ownership.
+				sib.style.display = "none";
 				sib = sib.previousElementSibling;
 			}
 		}
