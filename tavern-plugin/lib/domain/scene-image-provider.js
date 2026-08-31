@@ -81,6 +81,20 @@ function downloadPublicImage(url, signal) {
 }
 
 export async function generateSceneImage(input, deps = {}) {
+  let outcome = 'not_requested'
+  const request = deps.fetch || fetch
+  try {
+    return await requestSceneImage(input, { ...deps, fetch: async (url, init) => {
+      if (init?.method === 'POST') outcome = 'unconfirmed'
+      return request(url, init)
+    }, usePublicDownload: !deps.fetch })
+  } catch (error) {
+    error.imageOutcome ||= outcome
+    throw error
+  }
+}
+
+async function requestSceneImage(input, deps) {
   if (input.provider === 'comfyui') return generateComfyImage(input, { ...deps, readBytes: boundedBytes, decodeImage: imageBytes })
   const request = deps.fetch || fetch
   const maxBytes = input.maxBytes || 20 * 1024 * 1024
@@ -91,7 +105,14 @@ export async function generateSceneImage(input, deps = {}) {
     body: JSON.stringify(spec.body)
   })
   // Provider errors can echo secrets; return status rather than raw bodies.
-  if (!response.ok) { await response.body?.cancel(); throw new Error('生图服务请求失败（HTTP ' + response.status + '）') }
+  if (!response.ok) {
+    await response.body?.cancel()
+    const error = new Error('生图服务请求失败（HTTP ' + response.status + '）')
+    // A proxy timeout/5xx or 429 does not establish whether the upstream took
+    // the job. Only explicit validation/auth rejection is safe for ordinary retry.
+    if ([400, 401, 402, 403, 404, 422].includes(response.status)) error.imageOutcome = 'rejected'
+    throw error
+  }
   if (input.provider === 'novelai') {
     const archive = await boundedBytes(response, maxBytes + 65536)
     return { ...imageBytes(sceneImageFromZip(archive, maxBytes), maxBytes), metadata: { seed: spec.body.parameters.seed, model: spec.body.model, request: spec.body } }
@@ -123,7 +144,7 @@ export async function generateSceneImage(input, deps = {}) {
   if (typeof item.url !== 'string') throw new Error('生图服务没有返回图片数据')
   const baseURL = channelSettings(input).baseURL
   const url = await (deps.validateDownload || validateImageDownload)(item.url, baseURL)
-  const downloaded = !deps.fetch && new URL(url).origin !== new URL(baseURL).origin
+  const downloaded = deps.usePublicDownload && new URL(url).origin !== new URL(baseURL).origin
     ? await downloadPublicImage(url, input.signal)
     : await request(url, { redirect: 'error', signal: input.signal })
   if (!downloaded.ok) { await downloaded.body?.cancel(); throw new Error('图片下载失败（HTTP ' + downloaded.status + '）') }

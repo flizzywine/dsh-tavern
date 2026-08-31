@@ -25,7 +25,7 @@ test('main image action preserves request ID on ambiguous transport errors and c
       useRef: initial => { const n = cursor++; return slots[n] ||= { current: initial } },
       useEffect: () => {}
     },
-    useSceneImageRecord: () => record, sceneImageStageLabel: () => 'working',
+    useSceneImageRecord: () => record, sceneImageStageLabel: () => 'working', sceneImagePurchaseConfirmation: () => undefined,
     window: { dispatchEvent() {} }, CustomEvent: class {},
     rpc: async (method, args) => { calls.push({ method, args }); if (fail) throw new Error('connection lost') }
   })
@@ -59,7 +59,7 @@ test('received image can be saved from the renderer while generation is disabled
       useState(initial) { const n = cursor++; if (!(n in slots)) slots[n] = initial; return [slots[n], value => { slots[n] = value }] },
       useRef(initial) { const n = cursor++; return slots[n] ||= { current: initial } }
     },
-    useSceneImageRecord: () => record, window: { dispatchEvent() {} }, CustomEvent: class {},
+    useSceneImageRecord: () => record, sceneImageStageLabel: () => 'working', window: { dispatchEvent() {} }, CustomEvent: class {},
     rpc: async (method, args) => { calls.push({ method, args }) }
   })
   const Component = vm.runInContext(extract('SceneIllustration', 'TavernAssistantNodeView') + ';SceneIllustration', context)
@@ -71,6 +71,26 @@ test('received image can be saved from the renderer while generation is disabled
   assert.equal(calls[0].method, 'retrySceneImageSave')
   assert.equal(calls[0].args.requestId, record.requestId)
   assert.equal(calls[0].args.key, record.key)
+  record.status = 'running'; record.recovery = undefined
+  const cancel = render().find(node => node.type === 'button' && node.children.includes('取消生图'))
+  assert.ok(cancel, 'cancellation remains available with generation disabled')
+  await cancel.props.onClick()
+  assert.equal(calls[1].method, 'cancelSceneImage')
+  assert.equal(calls[1].args.requestId, record.requestId)
+})
+
+test('uncertain purchase requires user confirmation, while original provider task queries do not', () => {
+  let accepts = false, prompts = 0
+  const context = vm.createContext({ window: { confirm: text => { assert.match(text, /可能已经计费.*再次产生费用/); prompts++; return accepts } } })
+  const confirm = vm.runInContext(extract('sceneImagePurchaseConfirmation', 'useSceneImageRecord') + ';sceneImagePurchaseConfirmation', context)
+  assert.equal(confirm({ outcome: 'not_requested' }), undefined)
+  assert.equal(confirm({ outcome: 'rejected' }), undefined)
+  assert.equal(confirm({ outcome: 'unconfirmed', providerTask: { promptId: 'existing' } }), undefined)
+  assert.equal(prompts, 0)
+  assert.equal(confirm({ outcome: 'unconfirmed', requestId: 'uncertain-original' }), false)
+  accepts = true
+  assert.equal(confirm({ outcome: 'unconfirmed', requestId: 'uncertain-original' }), 'uncertain-original')
+  assert.equal(prompts, 2)
 })
 
 test('ComfyUI file chooser stores the parsed graph only on explicit save and has no JSON editor', async () => {

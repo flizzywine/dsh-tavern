@@ -3135,7 +3135,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				const lastId = versions.length ? versions[versions.length - 1].id : "";
 				React.useEffect(function () { setSelected(lastId); setError(""); }, [lastId]);
 				React.useEffect(function () {
-					if (state && state.status === "failed" && state.kind === "adjust" && state.instruction) {
+					if (state && ["failed", "cancelled"].includes(state.status) && state.kind === "adjust" && state.instruction) {
 						setSelected(state.baseVersionId); setInstruction(state.instruction); setAdjusting(true);
 					}
 				}, [state && state.requestId, state && state.status]);
@@ -3147,13 +3147,23 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					catch (e) { setError(String(e.message || e)); }
 					finally { setBusy(false); notify(); }
 				}
+				async function cancelImage() {
+					if (busy || !state || state.status !== "running" || state.cancelRequestedAt) return;
+					setBusy(true); setError("");
+					try { await rpc("cancelSceneImage", { turn: props.turn, key: state.key, requestId: state.requestId }, props.sessionId); }
+					catch (e) { setError(String(e.message || e)); }
+					finally { setBusy(false); notify(); }
+				}
 				async function generate(kind) {
 					if (!version || busy || state.status === "running") return;
+					const confirmNewRequestId = sceneImagePurchaseConfirmation(state);
+					if (confirmNewRequestId === false) return;
+					if (requestRef.current && requestRef.current.id === state.requestId && ["failed", "cancelled"].includes(state.status)) requestRef.current = null;
 					setBusy(true); setError("");
 					const signature = kind + ":" + version.id + ":" + instruction;
 					if (!requestRef.current || requestRef.current.signature !== signature) requestRef.current = { signature: signature, id: sceneImageRequestId() };
 					try {
-						await rpc("generateSceneImage", { turn: props.turn, key: state.key, kind: kind, versionId: version.id, instruction: kind === "adjust" ? instruction : "", requestId: requestRef.current.id }, props.sessionId);
+						await rpc("generateSceneImage", { turn: props.turn, key: state.key, kind: kind, versionId: version.id, instruction: kind === "adjust" ? instruction : "", requestId: requestRef.current.id, confirmNewRequestId: confirmNewRequestId }, props.sessionId);
 						requestRef.current = null; setAdjusting(false); setInstruction("");
 					} catch (e) { setError(String(e.message || e)); }
 					finally { setBusy(false); notify(); }
@@ -3193,6 +3203,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 						React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: busy, onClick: function () { setAdjusting(false); } }, "取消")
 					) : null,
 					state.status === "running" ? React.createElement("span", { role: "status" }, sceneImageStageLabel(state)) : null,
+					state.status === "running" ? React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: busy || Boolean(state.cancelRequestedAt), onClick: cancelImage }, state.cancelRequestedAt ? "正在取消…" : "取消生图") : null,
 					state.recovery === "save" && state.status !== "running" ? React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: busy, onClick: retrySave }, "重试保存") : null,
 					error || state && state.error ? React.createElement("span", { role: "alert", className: "dsh-tavern-settings-error" }, error || state.error) : null
 				);
@@ -4001,7 +4012,11 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			return "scene-" + Date.now() + "-" + Math.random().toString(36).slice(2) + "-" + Math.random().toString(36).slice(2);
 		}
 		function sceneImageStageLabel(record) {
-			return record && record.stage === "saving" ? "保存图片…" : record && record.stage === "generating" ? "生成图片…" : "整理画面…";
+			return record && record.cancelRequestedAt ? "正在取消…" : record && record.stage === "saving" ? "保存图片…" : record && record.stage === "generating" ? "生成图片…" : "整理画面…";
+		}
+		function sceneImagePurchaseConfirmation(record) {
+			if (!record || record.outcome !== "unconfirmed" || record.providerTask) return undefined;
+			return window.confirm("上一次生图结果未确认，服务可能已经计费。仍要重新请求一张图片吗？这可能再次产生费用。") ? record.requestId : false;
 		}
 		function useSceneImageRecord(sessionId, turn) {
 			const [state, setState] = React.useState(null);
@@ -4051,16 +4066,19 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			}, []);
 			async function generate() {
 				if (!state || busy || props.running || state.status === "running" || state.recovery === "save" || state.versions && state.versions.length) return;
+				const confirmNewRequestId = sceneImagePurchaseConfirmation(state);
+				if (confirmNewRequestId === false) return;
+				if (requestRef.current && requestRef.current.id === state.requestId && ["failed", "cancelled"].includes(state.status)) requestRef.current = null;
 				setBusy(true); setError("");
 				if (!requestRef.current || requestRef.current.key !== state.key) requestRef.current = { key: state.key, id: sceneImageRequestId() };
-				try { await rpc("generateSceneImage", { turn: props.turn, key: state.key, requestId: requestRef.current.id }, props.sessionId); requestRef.current = null; }
+				try { await rpc("generateSceneImage", { turn: props.turn, key: state.key, requestId: requestRef.current.id, confirmNewRequestId: confirmNewRequestId }, props.sessionId); requestRef.current = null; }
 				catch (e) { setError(String(e.message || e)); }
 				finally { setBusy(false); window.dispatchEvent(new CustomEvent("dsh-tavern-image-changed", { detail: { sessionId: props.sessionId } })); }
 			}
 			if (!settings || !settings.enabled) return null;
 			const working = state && state.status === "running";
 			return React.createElement(React.Fragment, null,
-				React.createElement("button", { type: "button", className: "dsh-tavern-choice-trigger", disabled: !settings.ready || !state || props.running || busy || working || state.recovery === "save" || state.versions && state.versions.length > 0, onClick: generate }, busy ? "整理画面…" : working ? sceneImageStageLabel(state) : state && state.recovery === "save" ? "图片待保存" : state && state.status === "failed" && !state.versions.length ? "重试生图" : "生图"),
+				React.createElement("button", { type: "button", className: "dsh-tavern-choice-trigger", disabled: !settings.ready || !state || props.running || busy || working || state.recovery === "save" || state.versions && state.versions.length > 0, onClick: generate }, busy ? "整理画面…" : working ? sceneImageStageLabel(state) : state && state.recovery === "save" ? "图片待保存" : state && state.outcome === "unconfirmed" ? state.providerTask ? "查询原任务" : "重新生图" : state && state.status === "failed" && !state.versions.length ? "重试生图" : "生图"),
 				error ? React.createElement("span", { role: "alert", className: "dsh-tavern-settings-error" }, error) : null
 			);
 		}

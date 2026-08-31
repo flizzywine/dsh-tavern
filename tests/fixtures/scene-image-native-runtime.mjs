@@ -46,7 +46,7 @@ export async function createSceneImageNativeRuntime(bootPath) {
   const chat = { id: 'scene-chat', sessionId: 'scene-parent', mode: 'story', posture: '站在窗边，左手扶窗', messages: [{ role: 'assistant', turn: 1, greeting: true, sourceText: '她站在窗边看雨，左手轻轻搭着窗框。', swipes: ['她站在窗边看雨，左手轻轻搭着窗框。', '她坐在椅子上。'], swipeId: 0 }] }
   const before = JSON.stringify(chat)
   const keys = new Map([[IMAGE_CREDENTIAL, 'fixture-key']])
-  let failNext = false
+  let failNext = false, holdNext = false
   const imageServer = createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost')
     if (req.method === 'GET' && url.pathname.endsWith('/view')) { res.setHeader('Content-Type', 'image/png'); res.end(png); return }
@@ -57,6 +57,7 @@ export async function createSceneImageNativeRuntime(bootPath) {
     if (req.method === 'GET' && req.url === '/picture') { res.setHeader('Content-Type', 'image/png'); res.end(png); return }
     let body = ''; for await (const chunk of req) body += chunk
     imageRequests.push(JSON.parse(body))
+    if (holdNext) { holdNext = false; return }
     if (failNext) { failNext = false; res.writeHead(503).end('test failure'); return }
     if (url.pathname.endsWith('/prompt')) {
       const data = JSON.parse(body), outputNode = Object.keys(data.prompt).find(id => data.prompt[id].class_type === 'SaveImage')
@@ -90,6 +91,7 @@ export async function createSceneImageNativeRuntime(bootPath) {
   return { get service() { return service }, chat, before, requests, imageRequests, parent, endpoint,
     failNext() { failNext = true },
     failNextSave() { failSave = true },
+    holdNextImage() { holdNext = true },
     async restart() { await service.dispose(); service = createSceneIllustrations(deps) },
     async dispose() { await service.dispose(); await runner.dispose(); await parent.dispose(); await ctx.fiber.dispose(); await new Promise(resolve => imageServer.close(resolve)); await rm(root, { recursive: true, force: true }) }
   }

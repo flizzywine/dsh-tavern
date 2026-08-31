@@ -46,6 +46,7 @@ document.querySelector('#restart').onclick=async()=>{await rpc('fixtureRestart')
 document.querySelector('#swipe').onclick=async()=>{await rpc('fixtureSwipe');location.reload();};
 document.querySelector('#fail').onclick=async()=>{await rpc('fixtureFail');location.reload();};
 document.querySelector('#failSave').onclick=async()=>{await rpc('fixtureFailSave');location.reload();};
+const holdButton=document.createElement('button'); holdButton.textContent='下一张模拟等待';document.querySelector('#evidence').before(holdButton);holdButton.onclick=async()=>{await rpc('fixtureHold');location.reload();};
 document.querySelector('#evidence').onclick=async()=>{document.querySelector('#result').textContent=JSON.stringify(await rpc('fixtureEvidence'),null,2);};
 `
 const server = createServer(async (req, res) => {
@@ -70,11 +71,13 @@ const server = createServer(async (req, res) => {
     else if (method === 'sceneImageStatus') result = { illustration: await runtime.service.status('scene-parent', 1) }
     else if (method === 'generateSceneImage') result = { illustration: await runtime.service.start('scene-parent', 1, args.key, args) }
     else if (method === 'retrySceneImageSave') result = { illustration: await runtime.service.retrySave('scene-parent', 1, args.key, args.requestId) }
+    else if (method === 'cancelSceneImage') result = { illustration: await runtime.service.cancel('scene-parent', 1, args.key, args.requestId) }
     else if (method === 'removeSceneImage') result = { illustration: await runtime.service.removeImage('scene-parent', 1, args.key, args.versionId) }
     else if (method === 'fixtureRestart') await runtime.restart()
     else if (method === 'fixtureSwipe') runtime.chat.messages[0].swipeId = 1 - runtime.chat.messages[0].swipeId
     else if (method === 'fixtureFail') runtime.failNext()
     else if (method === 'fixtureFailSave') runtime.failNextSave()
+    else if (method === 'fixtureHold') runtime.holdNextImage()
     else if (method === 'fixtureEvidence') result = { modelRequests: runtime.requests.length, imageRequests: runtime.imageRequests.length, parentMessages: runtime.parent.agent.session.events.filter(e => /message/.test(e.type)).length, prompt: runtime.imageRequests.at(-1)?.prompt, status: await runtime.service.status('scene-parent', 1) }
     res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ ok: true, ...result }))
   } catch (error) { res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ ok: false, error: error.message })) }

@@ -4,6 +4,39 @@ import { createSceneImageNativeRuntime } from './fixtures/scene-image-native-run
 import { SCENE_IMAGE_CHANNELS } from '../tavern-plugin/lib/domain/scene-image-channels.js'
 import { comfyGraph } from './fixtures/scene-image-comfy-workflow.mjs'
 
+test('九渠道正在等待 HTTP 时均可取消；关开关后仍可取消，重启不重发', { skip: !process.env.DSH_BOOT_MODULE }, async t => {
+  const runtime = await createSceneImageNativeRuntime(process.env.DSH_BOOT_MODULE)
+  t.after(() => runtime.dispose())
+  const before = runtime.parent.agent.session.events.length
+  let count = 0
+  for (const { id: provider } of SCENE_IMAGE_CHANNELS) {
+    await runtime.service.configure({ provider, baseURL: runtime.endpoint, ...(provider === 'comfyui' ? { workflow: comfyGraph() } : {}), ...(provider === 'banana' ? { model: 'fixture-relay-image' } : {}), ...(['webui', 'comfyui'].includes(provider) ? {} : { apiKey: 'fixture-' + provider }) })
+    await runtime.service.configure({ enabled: true })
+    const turn = ++count + 1
+    runtime.chat.messages.push({ role: 'assistant', turn, sourceText: '她站在窗边看雨。' })
+    runtime.holdNextImage()
+    const target = await runtime.service.status('scene-parent', turn)
+    const started = await runtime.service.start('scene-parent', turn, target.key)
+    for (let n = 0; n < 300 && runtime.imageRequests.length < count; n++) await new Promise(resolve => setTimeout(resolve, 20))
+    assert.equal(runtime.imageRequests.length, count, provider)
+    await runtime.service.configure({ enabled: false })
+    await runtime.service.cancel('scene-parent', turn, target.key, started.requestId)
+    let result
+    for (let n = 0; n < 300; n++) {
+      result = await runtime.service.status('scene-parent', turn)
+      if (result.status !== 'running') break
+      await new Promise(resolve => setTimeout(resolve, 20))
+    }
+    assert.equal(result.status, 'cancelled', provider + ': ' + result.error)
+    assert.equal(result.outcome, 'unconfirmed')
+    assert.equal(result.versions.length, 0)
+    await runtime.restart()
+    assert.equal((await runtime.service.status('scene-parent', turn)).status, 'cancelled')
+    assert.equal(runtime.imageRequests.length, count)
+    assert.equal(runtime.parent.agent.session.events.length, before)
+  }
+})
+
 test('九种协议通过真实 DSH 子任务；附件失败后重启仅保存，不再请求文字或图片', { skip: !process.env.DSH_BOOT_MODULE }, async t => {
   const runtime = await createSceneImageNativeRuntime(process.env.DSH_BOOT_MODULE)
   t.after(() => runtime.dispose())

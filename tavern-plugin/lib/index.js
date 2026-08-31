@@ -1948,6 +1948,7 @@ export async function apply(ctx) {
       case 'sceneImageStatus': return { illustration: await sceneIllustrations.status(args.sessionId, args.turn) }
       case 'generateSceneImage': return { illustration: await sceneIllustrations.start(args.sessionId, args.turn, args.key, args) }
       case 'retrySceneImageSave': return { illustration: await sceneIllustrations.retrySave(args.sessionId, args.turn, args.key, args.requestId) }
+      case 'cancelSceneImage': return { illustration: await sceneIllustrations.cancel(args.sessionId, args.turn, args.key, args.requestId) }
       case 'removeSceneImage': return { illustration: await sceneIllustrations.removeImage(args.sessionId, args.turn, args.key, args.versionId) }
       case 'updateTavernSettings': return { settings: await updateTavernSettings(args && args.patch) }
       case 'getSystemPrompts': return { systemPrompts: presentSystemPrompts(await readTavernSettings()) }
@@ -2087,7 +2088,7 @@ export async function apply(ctx) {
         const readsStaticAsset = req.method === 'GET' && pathname === '/api/dsh-tavern/static-assets'
         const readsOfficialMvu = req.method === 'GET' && pathname === OFFICIAL_MVU_VERSION.assetUrl
         const origin = req.headers.origin
-        const sceneImageRoute = /^\/api\/dsh-tavern\/(?:scene-image|getSceneImageSettings|saveSceneImageSettings|sceneImageStatus|generateSceneImage|retrySceneImageSave|removeSceneImage)$/.test(pathname)
+        const sceneImageRoute = /^\/api\/dsh-tavern\/(?:scene-image|getSceneImageSettings|saveSceneImageSettings|sceneImageStatus|generateSceneImage|retrySceneImageSave|cancelSceneImage|removeSceneImage)$/.test(pathname)
         const sceneSameOrigin = sceneImageRoute && (origin === 'http://' + req.headers.host || origin === 'https://' + req.headers.host)
         if (sceneImageRoute && origin && !sceneSameOrigin) {
           res.writeHead(403)

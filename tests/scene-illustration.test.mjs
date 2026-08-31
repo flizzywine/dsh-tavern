@@ -80,6 +80,152 @@ async function fixture(t, overrides = {}) {
   return { service, createService, deps, store, chat: () => chat, setChat: value => { chat = value }, imageCalls: () => imageCalls }
 }
 
+test('provider reports explicit rejection separately from ambiguous transport and response failures', async () => {
+  const input = { provider: 'openai', baseURL: 'https://provider.example/v1', apiKey: 'secret', prompt: 'scene' }
+  for (const status of [400, 401, 402, 403, 404, 422, 429, 500, 504]) {
+    await assert.rejects(generateSceneImage(input, { fetch: async () => new Response('secret', { status }) }), error => {
+      assert.equal(error.imageOutcome, [429, 500, 504].includes(status) ? 'unconfirmed' : 'rejected')
+      assert.ok(!error.message.includes('secret')); return true
+    })
+  }
+  await assert.rejects(generateSceneImage(input, { fetch: async () => { throw new Error('connection lost') } }), error => error.imageOutcome === 'unconfirmed')
+  await assert.rejects(generateSceneImage(input, { fetch: async () => Response.json({ data: [] }) }), error => error.imageOutcome === 'unconfirmed')
+  await assert.rejects(generateSceneImage({ ...input, baseURL: 'file:///tmp' }, { fetch: () => assert.fail('must not dispatch') }), error => error.imageOutcome === 'not_requested')
+})
+
+test('cancel during planning works with feature disabled and never requests an image', async t => {
+  let entered = false
+  const fx = await fixture(t, { runAgent: async input => {
+    entered = true
+    await new Promise((resolve, reject) => input.signal.addEventListener('abort', () => reject(input.signal.reason), { once: true }))
+  } })
+  const key = sceneTarget(fx.chat(), 2).key
+  const started = await fx.service.start('parent', 2, key)
+  await until(() => entered)
+  await fx.service.configure({ enabled: false })
+  await fx.createService().cancel('parent', 2, key, started.requestId)
+  const cancelled = await until(async () => { const value = await fx.service.status('parent', 2); return value.status === 'cancelled' && value })
+  assert.equal(cancelled.outcome, 'not_requested')
+  assert.match(cancelled.error, /尚未请求图片/)
+  assert.equal(fx.imageCalls(), 0)
+  await fx.service.cancel('parent', 2, key, started.requestId)
+  assert.equal((await fx.service.status('parent', 2)).status, 'cancelled')
+})
+
+test('cancelled image response arriving late is not published; explicit save can recover received bytes', async t => {
+  let entered = false, release
+  const fx = await fixture(t, { generate: async () => { entered = true; await new Promise(resolve => { release = resolve }); return { data: png, mediaType: 'image/png' } } })
+  const key = sceneTarget(fx.chat(), 2).key
+  const started = await fx.service.start('parent', 2, key)
+  await until(() => entered)
+  const pending = await fx.service.cancel('parent', 2, key, started.requestId)
+  assert.equal(pending.stage, 'cancelling')
+  await assert.rejects(fx.service.cancel('parent', 2, key, 'stale-request'), /任务已变化/)
+  release()
+  const cancelled = await until(async () => { const value = await fx.service.status('parent', 2); return value.status === 'cancelled' && value })
+  assert.equal(cancelled.versions.length, 0)
+  assert.equal(cancelled.recovery, 'save')
+  await fx.service.retrySave('parent', 2, key, started.requestId)
+  const ready = await until(async () => { const value = await fx.service.status('parent', 2); return value.status === 'succeeded' && value })
+  assert.equal(ready.versions.length, 1)
+})
+
+test('cancel at attachment publication cannot mount the new image or lose the existing version', async t => {
+  const fx = await fixture(t), key = sceneTarget(fx.chat(), 2).key
+  await fx.service.start('parent', 2, key)
+  const first = await until(async () => { const value = await fx.service.status('parent', 2); return value.status === 'succeeded' && value })
+  let entered = false, release
+  const attachments = fx.deps.attachments()
+  fx.deps.attachments = () => ({ ...attachments, async saveImage(image) { entered = true; await new Promise(resolve => { release = resolve }); return attachments.saveImage(image) } })
+  const next = await fx.service.start('parent', 2, key, { kind: 'repaint', versionId: first.versions[0].id })
+  await until(() => entered)
+  await fx.service.cancel('parent', 2, key, next.requestId)
+  release()
+  const cancelled = await until(async () => { const value = await fx.service.status('parent', 2); return value.status === 'cancelled' && value })
+  assert.equal(cancelled.versions.length, 1)
+  assert.deepEqual((await fx.service.readImage('parent', 2, key, first.versions[0].id)).data, png)
+  assert.equal(cancelled.recovery, 'save')
+})
+
+test('unknown cancellation after dispatch requires confirmation bound to that exact attempt', async t => {
+  let calls = 0, entered = false
+  const fx = await fixture(t, { generate: async input => {
+    calls++
+    if (calls > 1) return { data: png, mediaType: 'image/png' }
+    entered = true
+    await new Promise((resolve, reject) => input.signal.addEventListener('abort', () => reject(input.signal.reason), { once: true }))
+  } })
+  const key = sceneTarget(fx.chat(), 2).key
+  const started = await fx.service.start('parent', 2, key)
+  await until(() => entered)
+  await fx.service.cancel('parent', 2, key, started.requestId)
+  await until(async () => (await fx.service.status('parent', 2)).status === 'cancelled')
+  await fx.service.dispose()
+  const restarted = fx.createService()
+  await assert.rejects(restarted.start('parent', 2, key), /确认重新生图/)
+  await assert.rejects(restarted.start('parent', 2, key, { confirmNewRequestId: 'another-attempt' }), /确认重新生图/)
+  assert.equal(calls, 1)
+  const next = await restarted.start('parent', 2, key, { confirmNewRequestId: started.requestId })
+  await until(async () => (await restarted.status('parent', 2)).status === 'succeeded')
+  assert.equal(calls, 2)
+  const stored = await fx.store.readJson(imagePath + key + '.json')
+  assert.equal(stored.requests[started.requestId].outcome, 'unconfirmed')
+  assert.equal(stored.requests[next.requestId].confirmedReplacementOf, started.requestId)
+})
+
+test('explicit rejected request permits ordinary retry while an unknown restart never does', async t => {
+  let calls = 0
+  const fx = await fixture(t, { generate: async () => { if (++calls === 1) throw Object.assign(new Error('API key rejected'), { imageOutcome: 'rejected' }); return { data: png, mediaType: 'image/png' } } })
+  const key = sceneTarget(fx.chat(), 2).key
+  await fx.service.start('parent', 2, key)
+  await until(async () => (await fx.service.status('parent', 2)).status === 'failed')
+  await fx.service.start('parent', 2, key)
+  await until(async () => (await fx.service.status('parent', 2)).status === 'succeeded')
+  assert.equal(calls, 2)
+  await fx.service.dispose()
+  await fx.store.updateJson(imagePath + key + '.json', record => ({ ...record, status: 'running', outcome: 'unconfirmed', stage: 'generating', versions: [] }))
+  const restarted = fx.createService()
+  assert.equal((await restarted.status('parent', 2)).outcome, 'unconfirmed')
+  await assert.rejects(restarted.start('parent', 2, key), /确认重新生图/)
+  assert.equal(calls, 2)
+})
+
+test('durable cancellation flag aborts the owner without an in-memory notification', async t => {
+  let entered = false
+  const fx = await fixture(t, { generate: async input => {
+    entered = true
+    await new Promise((resolve, reject) => input.signal.addEventListener('abort', () => reject(input.signal.reason), { once: true }))
+  } })
+  const key = sceneTarget(fx.chat(), 2).key
+  await fx.service.start('parent', 2, key)
+  await until(() => entered)
+  // Same durable write used by another process; deliberately do not call the
+  // current process's cancellation/AbortController interface.
+  await fx.store.updateJson(imagePath + key + '.json', current => ({ ...current, cancelRequestedAt: Date.now(), stage: 'cancelling' }))
+  const stopped = await until(async () => { const value = await fx.service.status('parent', 2); return value.status === 'cancelled' && value })
+  assert.equal(stopped.outcome, 'unconfirmed')
+  assert.equal(stopped.versions.length, 0)
+})
+
+test('cancelling one conversation does not interrupt another pending image', async t => {
+  const requests = []
+  const fx = await fixture(t, { generate: async input => new Promise((resolve, reject) => {
+    requests.push({ signal: input.signal, resolve })
+    input.signal.addEventListener('abort', () => reject(input.signal.reason), { once: true })
+  }) })
+  fx.deps.chatForSession = async sessionId => ({ ...structuredClone(fx.chat()), id: sessionId })
+  const a = await fx.service.status('chat-a', 2), b = await fx.service.status('chat-b', 2)
+  const started = await fx.service.start('chat-a', 2, a.key)
+  await until(() => requests.length === 1)
+  await fx.service.start('chat-b', 2, b.key)
+  await until(() => requests.length === 2)
+  await fx.service.cancel('chat-a', 2, a.key, started.requestId)
+  await until(async () => (await fx.service.status('chat-a', 2)).status === 'cancelled')
+  assert.equal(requests[1].signal.aborted, false)
+  requests[1].resolve({ data: png, mediaType: 'image/png' })
+  await until(async () => (await fx.service.status('chat-b', 2)).status === 'succeeded')
+})
+
 test('NovelAI service sends frozen structured people and saves the exact key-free request across restart/repaint', async t => {
   let agentCalls = 0
   const requests = []
@@ -160,6 +306,35 @@ test('ComfyUI retry after restart or attachment failure queries the saved job wi
   assert.equal(third.configuration.workflow.prompt, undefined, 'polling must not return a complete workflow graph')
 })
 
+test('ComfyUI cancellation retains its task identity and explicit resume queries instead of buying again', async t => {
+  let posts = 0, jobId, entered = false
+  const fx = await fixture(t, {
+    credentials: () => ({ resolve: async () => ({ value: 'fixture-key' }), set: async () => {} }),
+    generate: input => generateSceneImage(input, { fetch: async (url, init) => {
+      if (url.endsWith('/prompt')) {
+        posts++; jobId = JSON.parse(init.body).prompt_id; entered = true
+        await new Promise((resolve, reject) => init.signal.addEventListener('abort', () => reject(init.signal.reason), { once: true }))
+      }
+      if (url.includes('/history/')) return Response.json({ [jobId]: { status: { status_str: 'success', completed: true }, outputs: { '7': { images: [{ filename: 'saved.png', subfolder: '', type: 'output' }] } } } })
+      return new Response(png)
+    } })
+  })
+  await fx.service.configure({ provider: 'comfyui', baseURL: 'http://localhost:8188', workflow: comfyGraph() })
+  await fx.service.configure({ enabled: true })
+  const key = sceneTarget(fx.chat(), 2).key
+  const started = await fx.service.start('parent', 2, key)
+  await until(() => entered)
+  await fx.service.cancel('parent', 2, key, started.requestId)
+  const cancelled = await until(async () => { const value = await fx.service.status('parent', 2); return value.status === 'cancelled' && value })
+  assert.equal(cancelled.providerTask.promptId, jobId)
+  await fx.service.dispose()
+  const next = fx.createService()
+  await next.start('parent', 2, key)
+  const ready = await until(async () => { const value = await next.status('parent', 2); return value.status === 'succeeded' && value })
+  assert.equal(posts, 1)
+  assert.equal(ready.versions[0].generation.promptId, jobId)
+})
+
 test('attachment failure recovers received bytes after restart with settings disabled and no credentials or model', async t => {
   let saves = 0, texts = 0, images = 0
   const fx = await fixture(t, {
@@ -201,10 +376,11 @@ test('failed final publication retains the attachment reference and original ima
   let breakPublish = true, saves = 0
   const attachments = fx.deps.attachments()
   fx.deps.attachments = () => ({ ...attachments, saveImage: async image => { saves++; return attachments.saveImage(image) } })
-  fx.deps.store = { ...underlying, writeJson: async (path, value) => {
+  fx.deps.store = { ...underlying, updateJson: (path, updater) => underlying.updateJson(path, async current => {
+    const value = await updater(current)
     if (value?.status === 'succeeded' && breakPublish) { breakPublish = false; throw new Error('publication disk failure') }
-    return underlying.writeJson(path, value)
-  } }
+    return value
+  }) }
   const service = fx.createService(), key = sceneTarget(fx.chat(), 2).key
   await service.start('parent', 2, key)
   const failed = await until(async () => { const value = await service.status('parent', 2); return value.status === 'failed' && value })
@@ -338,7 +514,9 @@ test('WebUI can run without a key and its failure message remains readable', asy
   await fx.service.configure({ enabled: true })
   await fx.service.start('parent', 2, sceneTarget(fx.chat(), 2).key)
   await until(async () => (await fx.service.status('parent', 2)).status === 'failed')
-  assert.equal((await fx.service.status('parent', 2)).error, 'WebUI connection unavailable')
+  assert.match((await fx.service.status('parent', 2)).error, /结果未确认/)
+  const stored = await fx.store.readJson(imagePath + sceneTarget(fx.chat(), 2).key + '.json')
+  assert.equal(stored.diagnostics.failure, 'WebUI connection unavailable')
 })
 
 test('a channel change during planning cannot change the frozen paid request or its key', async t => {
@@ -422,9 +600,10 @@ test('provider failure is visible, not auto-retried, explicit retry works', asyn
   const key = sceneTarget(fx.chat(), 2).key
   await fx.service.start('parent', 2, key)
   const failed = await until(async () => { const s = await fx.service.status('parent', 2); return s.status === 'failed' && s })
-  assert.match(failed.error, /service failed/)
+  assert.match(failed.error, /结果未确认/)
   assert.equal(calls, 1)
-  await fx.service.start('parent', 2, key)
+  await assert.rejects(fx.service.start('parent', 2, key), /确认重新生图/)
+  await fx.service.start('parent', 2, key, { confirmNewRequestId: failed.requestId })
   await until(async () => (await fx.service.status('parent', 2)).status === 'succeeded')
   assert.equal(calls, 2)
   assert.equal(agentCalls, 1, 'valid persistent plan survives provider failure and is reused')
@@ -506,7 +685,8 @@ test('missing credentials/attachments reject before charging; timeout never retr
   } })
   await timed.service.start('parent', 2, sceneTarget(timed.chat(), 2).key)
   const status = await until(async () => { const value = await timed.service.status('parent', 2); return value.status === 'failed' && value })
-  assert.match(status.error, /超时或取消.*可能已计费/)
+  assert.match(status.error, /结果未确认.*可能已计费/)
+  assert.equal(status.outcome, 'unconfirmed')
   assert.equal(attempts, 1)
 })
 
@@ -564,7 +744,7 @@ test('image-only adjustment uses just old plan plus instruction, persists throug
   const failed = await until(async () => { const state = await fx.service.status('parent', 2); return state.status === 'failed' && state })
   assert.equal(failed.versions.length, 1)
   assert.ok(await fx.service.readImage('parent', 2, key, first.versions[0].id))
-  await fx.service.start('parent', 2, key, options)
+  await fx.service.start('parent', 2, key, { ...options, confirmNewRequestId: failed.requestId })
   const adjusted = await until(async () => { const state = await fx.service.status('parent', 2); return state.status === 'succeeded' && state })
   assert.equal(calls, 2, 'failed image retry reuses saved adjustment, not another text task')
   assert.equal(adjusted.versions[1].prompt, 'rainy night')
