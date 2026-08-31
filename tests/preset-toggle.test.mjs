@@ -26,7 +26,7 @@ for (const kind of ['entry', 'regex']) {
       assert.equal(button.props.role, 'switch')
       assert.equal(button.props['aria-checked'], enabled)
       assert.equal(button.props['aria-label'], '测试条目启用状态')
-      assert.equal(button.children[0], enabled ? '启用' : '停用')
+      assert.equal(button.children.length, 0)
       assert.match(button.props.className, enabled ? / on$/ : / off$/)
       const events = []
       button.props.onClick({ preventDefault() { events.push('prevent') }, stopPropagation() { events.push('stop') } })
