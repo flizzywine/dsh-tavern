@@ -59,6 +59,19 @@
 
 本样本依赖 DSH 提供的官方 MVU 和后台工具调用；导出为 V3 不等于已验证在原生 SillyTavern 中独立运行。原生酒馆仍需 MVU/Helper 安装与额外模型配置，本轮不宣称跨宿主验证完成。
 
+### 自动刷新定向诊断（临时，alpha）
+
+用户再次复现“后台已更新，右侧需手动刷新”，因此此前的回退验证不构成连续结算验收。当前只增加诊断，不修改事件去重和同步决策；定位完成后删除这些临时采样点。
+
+- 本地日志：`~/.dsh/logs/tavern.log`，统一标记 `[DEBUG-mvu-refresh-v1]`。不进入聊天历史或模型上下文，不记录正文、变量值或错误全文。
+- 后台：`server-publish` / `server-dedup` 记录通知发出或被去重时读取的 Chat revision；`server-view` 记录实际返回前端的 Helper revision。订阅/退订也有记录。`diagnosticRevision` 仅供观察，不参与去重。
+- 前端：`client-sse` 表示收到通知；`client-view` 表示取到数据。`pageId` 区分页面，`sessionId` 区分对话；重新加载后出现新 pageId 可确认采样版前端已经加载。
+- 状态 iframe：`frame-effect` / `frame-send` / `frame-noop` 记录同步决策；`frame-ready` / `frame-resync` 记录就绪与补发请求。`frame-receive` / `frame-reject` / `frame-applied` 记录接收、版本拒绝与安装。
+- `frame-event-start` / `frame-event-end` 带监听器数量；`frame-event-error` 仅记录出错事实。`frame-dom` 只记录 DOM 变更条数。回调完成或 DOM 变化并不单独证明显示值正确，仍需对照复现画面。
+- 前端每秒最多上报一批，待发队列最多 100 条；请求最多等待 3 秒，失败仅回落到浏览器控制台，不重试、不阻塞游玩。高频变更可能丢弃较旧采样，不能把单条日志缺失直接判定为代码没执行。
+- 测试时先重启 alpha 并刷新页面加载诊断版；故障再次出现后不要刷新或切换对话，直接反馈时间。读取现有日志即可，不必再次触发模型调用。
+- 采样版验证：全量 851 项测试通过；重启后实际页面的 `client-sse`、`client-view`、`frame-send`、`frame-receive`、`frame-applied` 与 `frame-dom` 已进入本地日志。此次仅验证诊断通路，未自动发送新模型请求，也不据此宣称自动刷新故障已修复。
+
 ## 后续 Skill 应保留的问题
 
 - 先读取状态要求的实际位置，不只看 description；开场白、示例、历史后指令可能都含旧格式要求。

@@ -36,6 +36,7 @@ import { clearFailedTurnSurface, hasRollbackMessages, locateRegenerationSurface,
 import { assistantResultForTurn } from './domain/session-turn-result.js'
 import { createTavernRetryLimiter } from './domain/tavern-retry-limiter.js'
 import { lastTavernHelperVariables, projectTavernHelperContext } from './domain/tavern-helper-context.js'
+import { logMvuRefreshDiagnostic } from './domain/mvu-refresh-diagnostics.js'
 import { projectTavernHelperWorldbook } from './domain/tavern-helper-worldbook.js'
 import { applyTavernHelperVariableMacros } from './domain/tavern-helper-variable-macros.js'
 import { projectTavernHelperScripts } from './domain/tavern-helper-scripts.js'
@@ -1440,6 +1441,7 @@ export async function apply(ctx) {
     const isCard = (chat.mode || 'story') === 'card'
     const card = isCard && str(chat.cardPath) === '' ? null : await readChatCard(chat)
     const result = await view(chat, card)
+    if (result.tavernHelper) logMvuRefreshDiagnostic({ stage: 'server-view', sessionId, revision: result.tavernHelper.stateRevision, messageCount: result.tavernHelper.messages.length })
     if (isCard) result.workspace = workspaceViewOf(chat)
     if ((chat.mode || 'story') === 'script') result.scriptPreview = await scriptPreviewOf(chat)
     return result
@@ -1703,6 +1705,7 @@ export async function apply(ctx) {
       cardPath: str(chat.cardPath),
       cardName: str(chat.cardName),
       projectionRevision: await cardProjectionRevision(chat.cardPath),
+      diagnosticRevision: Math.max(0, Number(chat._storageRevision) || 0),
       activity,
       mailboxVersion: synced.mailboxVersion,
       task,
@@ -2670,6 +2673,12 @@ export async function apply(ctx) {
           throw error
         }
       }
+      case 'recordMvuRefreshDiagnostics': {
+        for (const entry of (Array.isArray(args && args.entries) ? args.entries : []).slice(0, 100)) {
+          logMvuRefreshDiagnostic(entry)
+        }
+        return { recorded: true }
+      }
       case 'getSession': return { view: await sessionView(args && args.sessionId) }
       case 'prepareCompaction': return { plan: await tavernCompaction.prepare(args && args.sessionId) }
       case 'compactBackground': return { result: await compactBackground(args && args.sessionId, args && args.operationId) }
@@ -2731,6 +2740,7 @@ export async function apply(ctx) {
   }
 
   coordinationEvents = createCoordinationEventPublisher({
+    onTrace: logMvuRefreshDiagnostic,
     readVersion: async function (sessionId) { return await coordinationVersion(sessionId) },
     load: async function (sessionId) { return await sessionSync(sessionId, { kind: 'candidate' }) },
     fallbackIntervalMs: 5000,

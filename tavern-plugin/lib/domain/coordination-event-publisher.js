@@ -27,6 +27,9 @@ export function createCoordinationEventPublisher(options = {}) {
   const stopInterval = typeof options.stopInterval === 'function' ? options.stopInterval : clearInterval
   const fallbackIntervalMs = Number(options.fallbackIntervalMs) > 0 ? Number(options.fallbackIntervalMs) : 5000
   const records = new Map()
+  function trace(stage, record, snapshot) {
+    try { options.onTrace?.({ stage, sessionId: record.id, revision: Number(snapshot?.diagnosticRevision) || 0, listenerCount: record.listeners.size }) } catch {}
+  }
 
   function recordFor(sessionId) {
     const id = str(sessionId)
@@ -52,8 +55,9 @@ export function createCoordinationEventPublisher(options = {}) {
         record.hasVersion = true
       }
       const eventId = coordinationEventId(snapshot)
-      if (eventId === record.lastId) return
+      if (eventId === record.lastId) { trace('server-dedup', record, snapshot); return }
       record.lastId = eventId
+      trace('server-publish', record, snapshot)
       record.listeners.forEach(function (listener) { listener(snapshot, eventId) })
     } catch (error) {
       if (typeof options.onError === 'function') options.onError(error)
@@ -71,6 +75,7 @@ export function createCoordinationEventPublisher(options = {}) {
   function subscribe(sessionId, listener) {
     const record = recordFor(sessionId)
     record.listeners.add(listener)
+    trace('server-subscribe', record)
     if (record.listeners.size === 1) {
       void refresh(record, true)
       record.timer = startInterval(function () { void refresh(record, true) }, fallbackIntervalMs)
@@ -81,6 +86,7 @@ export function createCoordinationEventPublisher(options = {}) {
       if (stopped) return
       stopped = true
       record.listeners.delete(listener)
+      trace('server-unsubscribe', record)
       if (record.listeners.size === 0 && record.timer !== null) {
         stopInterval(record.timer)
         record.timer = null
