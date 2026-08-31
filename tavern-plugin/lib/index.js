@@ -10,8 +10,9 @@ import { waitForWritableSession } from './domain/agent-readiness.js'
 import { createCardDeletion } from './domain/card-deletion.js'
 import { createCardPreparation } from './domain/card-preparation.js'
 import { projectCardOpeningPreviews } from './domain/card-opening-previews.js'
-import { cardOpeningChoices, resolveCardOpening } from './domain/card-openings.js'
 import { READABLE_CARD_FIELDS, readCardField } from './domain/card-reading.js'
+import { createConversationInitialization } from './domain/conversation-initialization.js'
+import { createPlayCardSnapshots } from './domain/play-card-snapshots.js'
 import { createContextPlanner } from './domain/context-planner.js'
 import { createConversationTextExport } from './domain/conversation-text-export.js'
 import { createCoordinationEventPublisher } from './domain/coordination-event-publisher.js'
@@ -49,7 +50,6 @@ import { TavernPromptTemplateRuntime } from './domain/tavern-prompt-template-run
 import {
   preserveRuntimeSource,
   projectAgentContent,
-  projectOpeningCommit,
   projectRuntimeReply,
   projectRuntimeReplyHistory,
   resolveRuntimeMacroText,
@@ -67,7 +67,7 @@ import { createTavernCompactionCoordinator } from './domain/tavern-compaction.js
 import { cordisToolNames, createTurnOrchestrator } from './domain/turn-orchestration.js'
 import { resourceWorkspaceContext } from './domain/workspace-resources.js'
 import { createWorldBookLibrary } from './domain/worldbook-library.js'
-import { constantWorldBookContext, mvuUpdateRulesFromWorldBook, prepareWorldBookRecall } from './domain/worldbook-recall.js'
+import { mvuUpdateRulesFromWorldBook, prepareWorldBookRecall } from './domain/worldbook-recall.js'
 import {
   createBackgroundTaskCoordinator,
   isOpeningAwaitingSettlement
@@ -818,39 +818,6 @@ export async function apply(ctx) {
   }
 
   // ---------- 聊天 ----------
-  function newChat(card, mode, requestMode) {
-    const chatMode = mode === 'card' ? 'card' : (mode === 'script' ? 'script' : 'story')
-    const hasCard = card !== null && card !== undefined && str(card.path) !== ''
-    return {
-      id: uid('chat'),
-      cardPath: hasCard ? card.path : '',
-      cardName: hasCard ? card.name : '卡片工作台',
-      mode: chatMode,
-      requestMode: requestMode === 'sillytavern' && chatMode !== 'card' ? 'sillytavern' : 'dsh',
-      scriptState: chatMode === 'script' ? { cursor: 0, recalledChunkIds: [], prepared: null, lastReference: null, totalChunks: 0, title: '', scriptVersion: 0 } : null,
-      workspace: chatMode === 'card' ? emptyCardWorkspace() : null,
-      messages: [],
-      posture: '',
-      sessionId: '',
-      guides: [],
-      bypassPlanId: '',
-      runtimePresetSnapshot: null,
-      cardContextSnapshot: '',
-      cardContextSnapshotVersion: 0,
-      macroState: { userName: '你', local: {}, global: {} },
-      settleStatus: 'idle',
-      settleError: null,
-      lastSettle: null,
-      foregroundError: null,
-      preparedWorldBookContext: '',
-      preparedWorldBook: null,
-      nativeCommits: {},
-      suppressedDshTurns: [],
-      pendingCardChanges: {},
-      createdAt: Date.now(),
-      updatedAt: Date.now()
-    }
-  }
   function cardViewOf(card, chat) {
     if (card === null || card === undefined) {
       const draft = chat.workspace && chat.workspace.draft ? chat.workspace.draft : {}
@@ -1052,163 +1019,7 @@ export async function apply(ctx) {
     return result.sort(function (left, right) { return Number(left.turn) - Number(right.turn) })
   }
   async function startChat(cardPath, sessionId, mode, openingId, userName, requestMode) {
-    const settings = await readTavernSettings()
-    const effectiveRequestMode = settings.compatibilityMode && requestMode === 'sillytavern' ? 'sillytavern' : 'dsh'
-    const requestedMode = mode === 'card' || mode === 'revision' || mode === 'extract' ? 'card' : (mode === 'script' ? 'script' : (mode === 'story' ? 'story' : null))
-    const card = str(cardPath) === '' && requestedMode === 'card' ? null : await readCard(cardPath)
-    if (card === undefined) throw new Error('人物卡不存在: ' + cardPath)
-    // 游玩模式内部仍是 story/script 两类：人物卡已绑定剧本时必须走剧本（script）。
-    const script = card === null ? undefined : await readScript(cardPath)
-    const hasScript = script !== undefined && Array.isArray(script.chunks) && script.chunks.length > 0
-    let chatMode = requestedMode
-    if (chatMode === null || mode === 'play') chatMode = hasScript ? 'script' : 'story'
-    if (chatMode === 'script' && !hasScript) throw new Error('该人物卡尚未绑定剧本文件，请先在卡片模式绑定剧本')
-    if (chatMode === 'story' && hasScript) chatMode = 'script'
-    if (typeof sessionId === 'string' && sessionId !== '') {
-      const current = await chatForSession(sessionId)
-      // 同一大模式（游玩/卡片）内复用当前会话；旧的自由故事会话不会被强行切换成剧本。
-      if (current !== undefined && current.cardPath === str(cardPath) && groupOfMode(current.mode) === groupOfMode(chatMode)) {
-        if (groupOfMode(current.mode) === 'play') await ensurePlayCardSnapshot(current, card)
-        await appendNativeOpening(sessionId, current, card)
-        const currentView = await view(current, card)
-        if (chatMode === 'card') currentView.workspace = workspaceViewOf(current)
-        return currentView
-      }
-    }
-    const macroState = { userName: str(userName).trim().slice(0, 80) || '你', local: {}, global: {} }
-    const runtimePresetSnapshot = groupOfMode(chatMode) === 'play' ? await runtimePresets.fullSnapshot() : null
-    const openingSourceText = chatMode === 'card' ? runtimePrompt('card-mode-greeting') : resolveCardOpening(card, openingId)
-    const openingExtensions = chatMode === 'card' ? null : await readCardExtensions(cardPath)
-    const openingChoices = chatMode === 'card' ? [] : cardOpeningChoices(card)
-    const selectedOpeningIndex = str(openingId) === '' ? 0 : Math.max(0, openingChoices.findIndex(function (choice) { return choice.id === str(openingId) }))
-    const usesMvu = chatMode !== 'card' && (
-      (Array.isArray(openingExtensions && openingExtensions.mvuResources) && openingExtensions.mvuResources.some(function (item) { return item.enabled !== false }))
-      || openingChoices.some(function (choice) { return /<(?:initvar|json_?patch)>|_\.(?:set|insert|assign|remove|unset|delete|add)\(/i.test(choice.text) })
-    )
-    const openingRegexScripts = (Array.isArray(openingExtensions && openingExtensions.regexScripts) ? openingExtensions.regexScripts : []).concat(
-      Array.isArray(runtimePresetSnapshot && runtimePresetSnapshot.regexScripts) ? runtimePresetSnapshot.regexScripts : []
-    )
-    const openingProjection = chatMode === 'card'
-      ? { agentText: openingSourceText, renderedText: openingSourceText, sessionText: openingSourceText, displayText: openingSourceText, displayMode: 'markdown', displayParts: [{ kind: 'markdown', text: openingSourceText }], warnings: [], macroState }
-      : projectOpeningCommit(openingSourceText, {
-          charName: str(card.name),
-          macroState,
-          regexScripts: openingRegexScripts,
-          regexPlacement: 2,
-          isEdit: false,
-          depth: 0
-        })
-    macroState.userName = openingProjection.macroState.userName
-    macroState.local = openingProjection.macroState.local
-    macroState.global = openingProjection.macroState.global
-    const greeting = openingProjection.sessionText
-    // connectWorkspace 返回时，Agent 注册偶尔仍在异步完成。先等到原生会话可写，
-    // 再落盘 Tavern 对话，避免失败时留下只有映射、没有原生开场白的半初始化记录。
-    const openingTarget = typeof sessionId === 'string' && sessionId !== '' && greeting !== '' ? await waitForWritableSession({ registry: agentRegistry, sessions: sessionStore, sessionId: sessionId, sleep: sleep }) : undefined
-    const chat = newChat(card, chatMode || 'story', effectiveRequestMode)
-    chat.bypassPlanId = runtimePresetSnapshot && runtimePresetSnapshot.planId || ''
-    chat.runtimePresetSnapshot = runtimePresetSnapshot
-    chat.runtimePresetPath = ''
-    chat.macroState = macroState
-    chat.mvu = usesMvu ? {
-      enabled: true,
-      owner: 'official',
-      runtime: 'magvarupdate',
-      upstreamCommit: OFFICIAL_MVU_VERSION.commit,
-      diagnostics: [],
-      openingInitialization: {
-        version: 2,
-        status: 'pending'
-      }
-    } : { enabled: false }
-    if (groupOfMode(chat.mode) === 'play') {
-      chat.cardContextSnapshot = await buildPlayCardSnapshot(chat, card)
-      chat.cardContextSnapshotVersion = 5
-    }
-    chat.openingText = greeting
-    chat.presentationWarnings = openingProjection.warnings
-    if (chat.mode === 'script') {
-      chat.scriptState = scriptContinuity.startAligned(script, greeting, card.script_start)
-    }
-    if (typeof sessionId === 'string') chat.sessionId = sessionId
-    if (greeting !== '') chat.messages.push(Object.assign({
-      role: 'assistant',
-      text: greeting,
-      sourceText: openingSourceText,
-      projectionText: openingProjection.renderedText,
-      displayText: openingProjection.displayText,
-      displayMode: openingProjection.displayMode,
-      projectionVersion: 2,
-      projectionWarnings: openingProjection.warnings,
-      ts: Date.now(),
-      greeting: true,
-      turn: 1
-    }, usesMvu !== true ? {} : {
-      swipeId: selectedOpeningIndex,
-      swipes: openingChoices.map(function (choice) { return choice.text }),
-      variables: openingChoices.map(function () { return {} }),
-      mvu: {
-        modified: false,
-        diagnostics: [],
-        events: []
-      }
-    }))
-    const hasSession = typeof sessionId === 'string' && sessionId !== ''
-    await conversationRegistry.publish(chat)
-    if (hasSession) await appendNativeOpening(sessionId, chat, card, openingTarget)
-    const result = await view(chat, card)
-    if (chatMode === 'card') result.workspace = workspaceViewOf(chat)
-    return result
-  }
-
-  async function appendNativeOpening(sessionId, chat, card, readyTarget) {
-    if (chat.nativeOpeningAppended === true) return
-    const mode = chat.mode || 'story'
-    let text
-    if (mode === 'card') {
-      text = runtimePrompt('card-mode-greeting')
-    } else if (typeof chat.openingText === 'string') {
-      text = chat.openingText
-    } else {
-      const storedGreeting = Array.isArray(chat.messages) ? chat.messages.find(function (message) {
-        return message !== null && typeof message === 'object' && message.greeting === true && typeof message.text === 'string'
-      }) : undefined
-      text = storedGreeting === undefined ? renderCardText(card.first_mes, card, chat.macroState) : storedGreeting.text
-    }
-    const target = readyTarget || await waitForWritableSession({ registry: agentRegistry, sessions: sessionStore, sessionId: sessionId, sleep: sleep })
-    if (groupOfMode(mode) === 'play' && chat.requestMode !== 'sillytavern') {
-      await ensureSessionStablePrefix(target.session, await ensurePlayCardSnapshot(chat, card), stablePrefixStorage)
-      await sessionStore.flush(target.session)
-    }
-    if (text === '') return
-    if (target.agent === undefined) console.warn('dsh-tavern: Agent 尚未注册，直接使用已绑定 Session 写入开场白', { sessionId })
-    const selected = modelSelection(sessionId) || { provider: 'dsh-tavern', model: 'character-card' }
-    const turn = 1
-    const step = 1
-    target.session.append('turn/start', { turn: turn })
-    target.session.append('step/start', { turn: turn, step: step })
-    const message = {
-      id: randomUUID(),
-      role: 'assistant',
-      content: [{ type: 'text', text: text }],
-      source: { kind: 'model', provider: selected.provider, model: selected.model }
-    }
-    target.session.append('assistant/message', { turn: turn, step: step, message: message }, {
-      surfaceOp: 'append',
-      sourceEventSeqs: []
-    })
-    target.session.append('step/end', { turn: turn, step: step })
-    target.session.append('turn/end', { turn: turn, reason: { kind: 'completed' } })
-    // AgentLoop caches the last turn when it is constructed. Because this
-    // greeting is appended externally, advance that idle cursor as well;
-    // otherwise the first real prompt incorrectly opens another turn 1 and
-    // the conversation fold overlays the reply on the greeting/user message.
-    if (target.agent !== undefined && target.agent.phase !== undefined && target.agent.phase !== null && target.agent.phase.kind === 'idle') {
-      target.agent.phase.lastTurn = Math.max(Number(target.agent.phase.lastTurn) || 0, turn)
-    }
-    await sessionStore.flush(target.session)
-    chat.nativeOpeningAppended = true
-    await writeChat(chat, { source: 'opening.native-append' })
+    return await conversationInitialization.start({ cardPath, sessionId, mode, openingId, userName, requestMode })
   }
 
   async function scriptPreviewOf(chat) {
@@ -1251,61 +1062,32 @@ export async function apply(ctx) {
     return result
   }
   async function ensureNativeOpening(sessionId) {
-    const chat = await chatForSession(sessionId)
-    if (chat === undefined) return null
-    const isCard = (chat.mode || 'story') === 'card'
-    const card = isCard && str(chat.cardPath) === '' ? null : await readChatCard(chat)
-    await appendNativeOpening(sessionId, chat, card)
-    const result = await view(chat, card)
-    if (isCard) result.workspace = workspaceViewOf(chat)
-    return result
+    return await conversationInitialization.ensureOpening(sessionId)
   }
   const contextPlanner = createContextPlanner({ prompt: runtimePrompt, callModel: callModel, now: Date.now, logger: console })
-  const cardSnapshotBuilds = new Map()
-  async function stableWorldBookContext(chat, card) {
-    try {
-      const worldBook = await worldBooks.bound(chat.cardPath, card)
-      return constantWorldBookContext({ worldBook }).context
-    } catch (error) {
-      console.warn('dsh-tavern: 常驻世界书读取失败，已跳过:', str(error && error.message || error))
-      return ''
+  const playCardSnapshots = createPlayCardSnapshots({ worldBooks, planner: contextPlanner, readCard: readChatCard, writeChat })
+  const ensurePlayCardSnapshot = playCardSnapshots.ensure
+  const conversationInitialization = createConversationInitialization({
+    cards: { read: readCard, readChat: readChatCard, script: readScript, extensions: readCardExtensions },
+    chats: { resolve: chatForSession, publish: conversationRegistry.publish, write: writeChat },
+    snapshots: playCardSnapshots,
+    presets: runtimePresets,
+    settings: readTavernSettings,
+    cardGreeting: function () { return runtimePrompt('card-mode-greeting') },
+    emptyCardWorkspace,
+    id: uid,
+    native: {
+      wait: function (sessionId) { return waitForWritableSession({ registry: agentRegistry, sessions: sessionStore, sessionId, sleep }) },
+      ensurePrefix: function (session, text) { return ensureSessionStablePrefix(session, text, stablePrefixStorage) },
+      flush: function (session) { return sessionStore.flush(session) },
+      selection: modelSelection
+    },
+    present: async function (chat, card) {
+      const result = await view(chat, card)
+      if (chat.mode === 'card') result.workspace = workspaceViewOf(chat)
+      return result
     }
-  }
-  async function buildPlayCardSnapshot(chat, card) {
-    const constantContext = await stableWorldBookContext(chat, card)
-    return sanitizeAgentProjectionText((await contextPlanner.plan({
-      purpose: 'play-card-snapshot', card, chat,
-      worldBookContext: constantContext,
-      worldBookLabel: '常驻世界书'
-    })).text)
-  }
-  async function ensurePlayCardSnapshot(chat, card) {
-    if (chat === undefined || groupOfMode(chat.mode) !== 'play') return ''
-    const existing = str(chat.cardContextSnapshot)
-    if (existing !== '' && Number(chat.cardContextSnapshotVersion) >= 5) {
-      const sanitized = sanitizeAgentProjectionText(existing)
-      if (sanitized !== existing) {
-        chat.cardContextSnapshot = sanitized
-        await writeChat(chat, { source: 'card-context.sanitize' })
-      }
-      return sanitized
-    }
-    if (cardSnapshotBuilds.has(chat.id)) return await cardSnapshotBuilds.get(chat.id)
-    const build = (async function () {
-      const resolvedCard = card === undefined ? await readChatCard(chat) : card
-      const snapshot = await buildPlayCardSnapshot(chat, resolvedCard)
-      chat.cardContextSnapshot = snapshot
-      chat.cardContextSnapshotVersion = 5
-      await writeChat(chat, { source: 'card-context.snapshot' })
-      return snapshot
-    })()
-    cardSnapshotBuilds.set(chat.id, build)
-    try {
-      return await build
-    } finally {
-      cardSnapshotBuilds.delete(chat.id)
-    }
-  }
+  })
   const runtimePresetSnapshots = new Map()
   const backgroundAgentRunner = createBackgroundAgentRunner({
     stablePrefixStorage,

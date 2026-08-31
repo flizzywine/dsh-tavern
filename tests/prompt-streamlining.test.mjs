@@ -6,6 +6,8 @@ import { prompt } from '../tavern-plugin/lib/prompt-catalog.js'
 
 const clientSource = await readFile(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
 const serverSource = await readFile(new URL('../tavern-plugin/lib/index.js', import.meta.url), 'utf8')
+const initializationSource = await readFile(new URL('../tavern-plugin/lib/domain/conversation-initialization.js', import.meta.url), 'utf8')
+const snapshotsSource = await readFile(new URL('../tavern-plugin/lib/domain/play-card-snapshots.js', import.meta.url), 'utf8')
 const backgroundRunnerSource = await readFile(new URL('../tavern-plugin/lib/background-agent-runner.js', import.meta.url), 'utf8')
 const runtimePresetLifecycleSource = await readFile(new URL('../tavern-plugin/lib/domain/runtime-preset-lifecycle.js', import.meta.url), 'utf8')
 const orchestratorSource = await readFile(new URL('../tavern-plugin/lib/domain/turn-orchestration.js', import.meta.url), 'utf8')
@@ -179,8 +181,8 @@ test('后台 Agent 不进入前台正文上下文注入和工具过滤', () => {
 })
 
 test('外部预设作用于前台游玩，后台与卡片 Agent 保持 DSH 原生上下文', () => {
-  const startChat = between(serverSource, 'async function startChat', 'async function appendNativeOpening')
-  assert.match(startChat, /const runtimePresetSnapshot = groupOfMode\(chatMode\) === 'play' \? await runtimePresets\.fullSnapshot\(\) : null/)
+  const startChat = between(initializationSource, 'async function initialize', 'function openingText')
+  assert.match(startChat, /const runtimePresetSnapshot = groupOfMode\(chatMode\) === 'play' \? await presets\.fullSnapshot\(\) : null/)
   assert.match(startChat, /chat\.runtimePresetSnapshot = runtimePresetSnapshot/)
   const resolver = between(serverSource, 'async function resolveChatRuntimePreset', 'function compatibilityWorldBookMatch')
   assert.match(resolver, /const raw = groupOfMode\(chat\.mode\) === 'play' \? await runtimePresets\.fullSnapshot\(\) : null/)
@@ -235,8 +237,8 @@ test('读取 Session View 不启动后台工作，开场回合由玩家输入边
 })
 
 test('游玩固定选择一个开场白，并用它对齐剧本', () => {
-  const startChat = between(serverSource, 'async function startChat', 'async function appendNativeOpening')
-  const appendOpening = between(serverSource, 'async function appendNativeOpening', 'async function scriptPreviewOf')
+  const startChat = between(initializationSource, 'async function initialize', 'function openingText')
+  const appendOpening = between(initializationSource, 'function openingText', 'async function recover')
 
   assert.match(serverSource, /projectCardOpeningPreviews\(/)
   assert.match(startChat, /resolveCardOpening\(card, openingId\)/)
@@ -254,7 +256,7 @@ test('游玩固定选择一个开场白，并用它对齐剧本', () => {
 })
 
 test('新 MVU 对话直接交给固定官方运行时初始化，不再调用旧结算器', () => {
-  const startChat = between(serverSource, 'async function startChat', 'async function appendNativeOpening')
+  const startChat = between(initializationSource, 'async function initialize', 'function openingText')
   assert.match(startChat, /owner: 'official'/)
   assert.match(startChat, /runtime: 'magvarupdate'/)
   assert.match(startChat, /variables: openingChoices\.map\(function \(\) \{ return \{\} \}\)/)
@@ -262,18 +264,18 @@ test('新 MVU 对话直接交给固定官方运行时初始化，不再调用旧
 })
 
 test('人物卡基本信息固定为会话前缀，仅系统和历史后指令逐轮注入', () => {
-  const startChat = between(serverSource, 'async function startChat', 'async function appendNativeOpening')
-  const buildSnapshot = between(serverSource, 'async function buildPlayCardSnapshot', 'async function ensurePlayCardSnapshot')
-  const ensureSnapshot = between(serverSource, 'async function ensurePlayCardSnapshot', 'const backgroundAgentRunner')
+  const startChat = between(initializationSource, 'async function initialize', 'function openingText')
+  const buildSnapshot = between(snapshotsSource, 'async function build', '// A new chat')
+  const ensureSnapshot = between(snapshotsSource, 'async function ensure', 'return Object.freeze')
   const systemAssembly = between(serverSource, "ctx.on('system-prompt/assemble'", '// ---------- 模型可选工具 ----------')
   const bodyPlanner = between(plannerSource, "if (input.purpose === 'body')", "if (input.purpose === 'candidate')")
 
-  assert.match(startChat, /chat\.cardContextSnapshot = await buildPlayCardSnapshot\(chat, card\)/)
-  assert.match(buildSnapshot, /stableWorldBookContext\(chat, card\)/)
+  assert.match(startChat, /await snapshots\.prepare\(chat, card\)/)
+  assert.match(buildSnapshot, /constantWorldBookContext\(\{ worldBook: await worldBooks\.bound\(chat.cardPath, card\) \}\)/)
   assert.match(buildSnapshot, /worldBookLabel: '常驻世界书'/)
   assert.match(ensureSnapshot, /sanitizeAgentProjectionText\(existing\)/)
-  assert.match(ensureSnapshot, /chat\.cardContextSnapshot = sanitized/)
-  assert.match(ensureSnapshot, /await writeChat\(chat, \{ source: 'card-context\.(?:sanitize|snapshot)' \}\)/)
+  assert.match(ensureSnapshot, /cardContextSnapshot: sanitized/)
+  assert.match(ensureSnapshot, /await writeChat\(draft, \{ source \}\)/)
   assert.doesNotMatch(orchestrationStrategiesSource, /name: 'tavern:card-snapshot'/)
   assert.match(orchestrationStrategiesSource, /projectSessionStablePrefix/)
   assert.match(startChat + serverSource, /ensureSessionStablePrefix/)
@@ -298,14 +300,14 @@ test('游玩回复把 prompt 投影写回 DSH Session，同时保留完整展示
 })
 
 test('新会话取得可写 Session 后通过 Conversation Registry 原子发布', () => {
-  const startChat = between(serverSource, 'async function startChat', 'async function appendNativeOpening')
-  const appendOpening = between(serverSource, 'async function appendNativeOpening', 'async function scriptPreviewOf')
+  const startChat = between(initializationSource, 'async function initialize', 'function openingText')
+  const appendOpening = between(initializationSource, 'function openingText', 'async function recover')
 
-  assert.match(startChat, /const openingTarget = .*waitForWritableSession/)
-  assert.ok(startChat.indexOf('waitForWritableSession') < startChat.indexOf('await conversationRegistry.publish(chat)'))
-  assert.match(startChat, /await conversationRegistry\.publish\(chat\)/)
+  assert.match(startChat, /const openingTarget = .*native\.wait/)
+  assert.ok(startChat.indexOf('native.wait') < startChat.indexOf('await chats.publish(chat)'))
+  assert.match(startChat, /await chats\.publish\(chat\)/)
   assert.doesNotMatch(startChat, /linkSession|unlinkSession|writeIndex\(idx\)/)
   assert.match(startChat, /appendNativeOpening\(sessionId, chat, card, openingTarget\)/)
-  assert.match(appendOpening, /readyTarget \|\| await waitForWritableSession/)
-  assert.match(appendOpening, /await sessionStore\.flush\(target\.session\)/)
+  assert.match(appendOpening, /readyTarget \|\| await native\.wait/)
+  assert.match(appendOpening, /await native\.flush\(target\.session\)/)
 })
