@@ -218,12 +218,32 @@ test('cancelling one conversation does not interrupt another pending image', asy
   const started = await fx.service.start('chat-a', 2, a.key)
   await until(() => requests.length === 1)
   await fx.service.start('chat-b', 2, b.key)
-  await until(() => requests.length === 2)
+  await until(async () => (await fx.service.status('chat-b', 2)).stage === 'queued')
+  assert.equal(requests.length, 1, 'second conversation must not dispatch concurrently')
   await fx.service.cancel('chat-a', 2, a.key, started.requestId)
   await until(async () => (await fx.service.status('chat-a', 2)).status === 'cancelled')
+  await until(() => requests.length === 2)
   assert.equal(requests[1].signal.aborted, false)
   requests[1].resolve({ data: png, mediaType: 'image/png' })
   await until(async () => (await fx.service.status('chat-b', 2)).status === 'succeeded')
+})
+
+test('cancelling while queued never sends its image request or interrupts the active one', async t => {
+  let calls = 0, release
+  const fx = await fixture(t, { generate: async () => { calls++; await new Promise(resolve => { release = resolve }); return { data: png, mediaType: 'image/png' } } })
+  fx.deps.chatForSession = async sessionId => ({ ...structuredClone(fx.chat()), id: sessionId })
+  const a = await fx.service.status('chat-a', 2), b = await fx.service.status('chat-b', 2)
+  await fx.service.start('chat-a', 2, a.key)
+  await until(() => calls === 1)
+  const second = await fx.service.start('chat-b', 2, b.key)
+  await until(async () => (await fx.service.status('chat-b', 2)).stage === 'queued')
+  await fx.service.cancel('chat-b', 2, b.key, second.requestId)
+  const cancelled = await until(async () => { const value = await fx.service.status('chat-b', 2); return value.status === 'cancelled' && value })
+  assert.equal(cancelled.outcome, 'not_requested')
+  assert.equal(calls, 1)
+  assert.equal((await fx.service.status('chat-a', 2)).status, 'running')
+  release()
+  await until(async () => (await fx.service.status('chat-a', 2)).status === 'succeeded')
 })
 
 test('NovelAI service sends frozen structured people and saves the exact key-free request across restart/repaint', async t => {

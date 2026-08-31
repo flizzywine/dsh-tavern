@@ -47,6 +47,7 @@ document.querySelector('#swipe').onclick=async()=>{await rpc('fixtureSwipe');loc
 document.querySelector('#fail').onclick=async()=>{await rpc('fixtureFail');location.reload();};
 document.querySelector('#failSave').onclick=async()=>{await rpc('fixtureFailSave');location.reload();};
 const holdButton=document.createElement('button'); holdButton.textContent='下一张模拟等待';document.querySelector('#evidence').before(holdButton);holdButton.onclick=async()=>{await rpc('fixtureHold');location.reload();};
+const queueButton=document.createElement('button');queueButton.textContent='先占用生图队列';document.querySelector('#evidence').before(queueButton);queueButton.onclick=async()=>{await rpc('fixtureOccupyQueue');location.reload();};
 document.querySelector('#evidence').onclick=async()=>{document.querySelector('#result').textContent=JSON.stringify(await rpc('fixtureEvidence'),null,2);};
 `
 const server = createServer(async (req, res) => {
@@ -78,6 +79,13 @@ const server = createServer(async (req, res) => {
     else if (method === 'fixtureFail') runtime.failNext()
     else if (method === 'fixtureFailSave') runtime.failNextSave()
     else if (method === 'fixtureHold') runtime.holdNextImage()
+    else if (method === 'fixtureOccupyQueue') {
+      if (!runtime.chat.messages.some(message => message.turn === 2)) runtime.chat.messages.push({ role: 'assistant', turn: 2, sourceText: '另一幅测试场景：她站在窗边看雨。' })
+      runtime.holdNextImage()
+      const target = await runtime.service.status('scene-parent', 2)
+      await runtime.service.start('scene-parent', 2, target.key)
+      for (let n = 0; n < 300 && !runtime.imageRequests.length; n++) await new Promise(resolve => setTimeout(resolve, 20))
+    }
     else if (method === 'fixtureEvidence') result = { modelRequests: runtime.requests.length, imageRequests: runtime.imageRequests.length, parentMessages: runtime.parent.agent.session.events.filter(e => /message/.test(e.type)).length, prompt: runtime.imageRequests.at(-1)?.prompt, status: await runtime.service.status('scene-parent', 1) }
     res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ ok: true, ...result }))
   } catch (error) { res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ ok: false, error: error.message })) }

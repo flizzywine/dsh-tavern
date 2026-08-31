@@ -7,6 +7,7 @@ import { createScenePlans, SCENE_PLAN_INSTRUCTION, SCENE_PLAN_TOOL } from './sce
 import { imageAdjustmentInput, applyImageAdjustment, legacyImagePlan, SCENE_ADJUSTMENT_INSTRUCTION, SCENE_ADJUSTMENT_TOOL } from './scene-image-adjustment.js'
 import { createSceneImageStyles, applyImageStyle, composeSceneImagePrompt } from './scene-image-style.js'
 import { createPendingSceneImages } from './scene-image-pending.js'
+import { createSceneImageQueue } from './scene-image-queue.js'
 
 export const IMAGE_CREDENTIAL = 'DSH_TAVERN_IMAGE_API_KEY'
 const hash = value => createHash('sha256').update(value).digest('hex')
@@ -93,6 +94,7 @@ export function createSceneIllustrations(deps) {
   const plans = createScenePlans({ store: deps.store })
   const styles = createSceneImageStyles({ store: deps.store })
   const pendingImages = createPendingSceneImages(deps.store)
+  const imageQueue = createSceneImageQueue(deps)
   const pathFor = (chatId, key) => 'scene-images/' + hash(String(chatId)) + '/' + key + '.json'
   async function resolve(sessionId, turn) {
     const chat = await deps.chatForSession(sessionId)
@@ -104,7 +106,7 @@ export function createSceneIllustrations(deps) {
     if (record?.status === 'running' && !ownerIsLive(record, path)) {
       const recoverable = await pendingImages.has(path, record.requestId)
       return deps.store.updateJson(path, current => current?.requestId === record.requestId && current.status === 'running' && !ownerIsLive(current, path)
-        ? { ...current, status: current.cancelRequestedAt ? 'cancelled' : 'failed', outcome: recoverable ? 'received' : current.outcome || (current.stage === 'planning' ? 'not_requested' : 'unconfirmed'), ...(recoverable ? { recovery: 'save' } : {}), error: recoverable ? '图片已生成，保存被中断；请重试保存，不会重新生图。' : current.stage === 'planning' ? '画面整理中断，尚未请求图片。' : '结果未确认，服务可能已计费；不会自动重新生图。' } : current)
+        ? { ...current, status: current.cancelRequestedAt ? 'cancelled' : 'failed', outcome: recoverable ? 'received' : current.outcome || (['planning', 'queued'].includes(current.stage) ? 'not_requested' : 'unconfirmed'), ...(recoverable ? { recovery: 'save' } : {}), error: recoverable ? '图片已生成，保存被中断；请重试保存，不会重新生图。' : current.outcome === 'not_requested' || !current.outcome && ['planning', 'queued'].includes(current.stage) ? '生图任务中断，尚未请求图片。' : '结果未确认，服务可能已计费；不会自动重新生图。' } : current)
     }
     return record
   }
@@ -224,7 +226,7 @@ export function createSceneIllustrations(deps) {
         if (Object.hasOwn(current?.requests || {}, requestId) || kind === 'generate' && current?.status === 'succeeded' || current?.status === 'running' && ownerIsLive(current, path)) return current
         checkPurchaseConfirmation(current, options)
         claimed = true
-        return { key: target.key, turn: target.turn, status: 'running', outcome: 'not_requested', stage: prepared.saved ? 'generating' : 'planning', kind, instruction, baseVersionId: options.versionId || '', createdAt: Date.now(), requestId, ownerId, ownerPid: process.pid, error: '', ...(providerTask ? { providerTask } : {}), versions: versionsOf(current), deletedVersions: current?.deletedVersions || [], requests: { ...current?.requests, [requestId]: { status: 'running', ...(options.confirmNewRequestId ? { confirmedReplacementOf: options.confirmNewRequestId } : {}) } } }
+        return { key: target.key, turn: target.turn, status: 'running', outcome: providerTask ? 'unconfirmed' : 'not_requested', stage: prepared.saved ? 'generating' : 'planning', kind, instruction, baseVersionId: options.versionId || '', createdAt: Date.now(), requestId, ownerId, ownerPid: process.pid, error: '', ...(providerTask ? { providerTask } : {}), versions: versionsOf(current), deletedVersions: current?.deletedVersions || [], requests: { ...current?.requests, [requestId]: { status: 'running', ...(options.confirmNewRequestId ? { confirmedReplacementOf: options.confirmNewRequestId } : {}) } } }
       })
       if (!claimed) return present(target, record)
       const job = { controller, requestId: record.requestId, promise: null }
@@ -240,7 +242,7 @@ export function createSceneIllustrations(deps) {
   }
   async function execute(input) {
     const { controller, path, target, record, active } = input
-    const timer = setTimeout(() => controller.abort(), deps.timeoutMs || 300000)
+    let timer = setTimeout(() => controller.abort(), deps.timeoutMs || 300000)
     const stopWatching = watchCancellation(path, record, controller)
     let attempted = false, plan = input.prepared.saved, providerError = '', validationError = '', result
     try {
@@ -285,15 +287,20 @@ export function createSceneIllustrations(deps) {
       record.plan = plan
       record.configuration = { ...channelSettings(active), style: active.style }
       record.traceSessionId = result?.traceSessionId || record.traceSessionId || ''
-      record.stage = 'generating'
+      record.stage = 'queued'
       record.diagnostics = { input: input.prepared.input, omitted: input.material.omitted, planId: plan.id }
-      record.outcome = 'unconfirmed'
       await writeJob(path, record)
-      controller.signal.throwIfAborted()
-      attempted = true
-      let generated
-      try { generated = await (deps.generate || generateSceneImage)({ ...active, apiKey: input.apiKey, prompt, plan, providerTask: record.providerTask, async onProviderTask(task) { record.providerTask = task; await writeJob(path, record) }, signal: controller.signal, maxBytes: deps.attachments()?.imageLimits?.maxImageBytes }) }
-      catch (error) { record.outcome = record.providerTask ? (['rejected', 'failed'].includes(record.providerTask.state) ? 'rejected' : 'unconfirmed') : error.imageOutcome || 'unconfirmed'; providerError = redactImageError(error.message || '生图失败', input.apiKey); throw error }
+      clearTimeout(timer)
+      const generated = await imageQueue.run({ requestId: record.requestId, signal: controller.signal }, async () => {
+        timer = setTimeout(() => controller.abort(), deps.timeoutMs || 300000)
+        record.stage = 'generating'
+        record.outcome = 'unconfirmed'
+        await writeJob(path, record)
+        controller.signal.throwIfAborted()
+        attempted = true
+        try { return await (deps.generate || generateSceneImage)({ ...active, apiKey: input.apiKey, prompt, plan, providerTask: record.providerTask, async onProviderTask(task) { record.providerTask = task; await writeJob(path, record) }, signal: controller.signal, maxBytes: deps.attachments()?.imageLimits?.maxImageBytes }) }
+        catch (error) { record.outcome = record.providerTask ? (['rejected', 'failed'].includes(record.providerTask.state) ? 'rejected' : 'unconfirmed') : error.imageOutcome || 'unconfirmed'; providerError = redactImageError(error.message || '生图失败', input.apiKey); throw error }
+      })
       record.stage = 'saving'
       record.recovery = 'save'
       record.outcome = 'received'

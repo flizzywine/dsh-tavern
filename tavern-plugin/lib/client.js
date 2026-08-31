@@ -4060,7 +4060,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			return "scene-" + Date.now() + "-" + Math.random().toString(36).slice(2) + "-" + Math.random().toString(36).slice(2);
 		}
 		function sceneImageStageLabel(record) {
-			return record && record.cancelRequestedAt ? "正在取消…" : record && record.stage === "saving" ? "保存图片…" : record && record.stage === "generating" ? "生成图片…" : "整理画面…";
+			return record && record.cancelRequestedAt ? "正在取消…" : record && record.stage === "queued" ? "排队等待生图…" : record && record.stage === "saving" ? "保存图片…" : record && record.stage === "generating" ? "生成图片…" : "整理画面…";
 		}
 		function sceneImagePurchaseConfirmation(record) {
 			if (!record || record.outcome !== "unconfirmed" || record.providerTask) return undefined;
