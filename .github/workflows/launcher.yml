@@ -23,7 +23,7 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       - name: Check launcher
-        run: node --test tests/launcher.test.mjs
+        run: node --test tests/launcher.test.mjs tests/runtime-package.test.mjs
       - name: Check help command
         run: node bin/dsh-tavern.mjs --help
 

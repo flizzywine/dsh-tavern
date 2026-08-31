@@ -26,7 +26,8 @@ $RuntimePaths = @(
   'bin',
   'config',
   'presets',
-  'tavern-plugin'
+  'tavern-plugin',
+  'patches'
 )
 
 function Test-Command([string]$Name) {

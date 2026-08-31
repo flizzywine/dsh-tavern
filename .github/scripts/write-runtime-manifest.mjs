@@ -7,7 +7,7 @@ const root = process.cwd()
 const revision = String(process.argv[2] || '')
 if (!/^[0-9a-f]{40}$/i.test(revision)) throw new Error('A full Git commit SHA is required')
 
-const entries = ['package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'cordis.patch.yml', 'install.ps1', 'install.sh', 'bin', 'config', 'presets', 'tavern-plugin']
+const entries = ['package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'cordis.patch.yml', 'install.ps1', 'install.sh', 'bin', 'config', 'presets', 'tavern-plugin', 'patches']
 const files = []
 
 async function collect(relative) {

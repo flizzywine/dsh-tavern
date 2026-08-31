@@ -76,7 +76,7 @@ test('实际 Unix 安装脚本更新程序两次，用户工具、清单和 Skil
   // download/extract/copy path against a local Git repository (no network).
   await writeFile(path.join(source, 'package.json'), '{"name":"user-extension-update-fixture"}')
   await writeFile(path.join(source, 'bin/dsh-tavern.mjs'), '')
-  for (const file of ['pnpm-lock.yaml', 'pnpm-workspace.yaml', 'cordis.patch.yml', 'install.ps1', 'install.sh', 'config/fixture', 'presets/fixture', 'tavern-plugin/fixture']) {
+  for (const file of ['pnpm-lock.yaml', 'pnpm-workspace.yaml', 'cordis.patch.yml', 'install.ps1', 'install.sh', 'config/fixture', 'presets/fixture', 'tavern-plugin/fixture', 'patches/fixture.patch']) {
     await mkdir(path.dirname(path.join(source, file)), { recursive: true })
     await writeFile(path.join(source, file), '')
   }
