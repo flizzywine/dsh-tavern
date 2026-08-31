@@ -4,7 +4,8 @@ const STORAGE_REVISION = '_storageRevision'
 const MISSING = Symbol('missing')
 
 function clone(value) {
-  return value === undefined ? undefined : structuredClone(value)
+  // Preserve the merge sentinel so the parent omits deleted fields.
+  return value === undefined || value === MISSING ? value : structuredClone(value)
 }
 
 function object(value) {

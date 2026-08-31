@@ -92,3 +92,62 @@ test('诊断性写入可以保留业务 updatedAt', async function () {
   assert.equal(app.stored().updatedAt, 600)
   assert.deepEqual(app.stored().displayRuntime, { dom: '<p>ready</p>' })
 })
+
+test('删除字段与修改其他字段可按任意保存顺序合并，删除不会复活', async function () {
+  for (const nested of [false, true]) {
+    for (const deletionFirst of [false, true]) {
+      const app = harness({ id: 'chat-1', state: { obsolete: true, posture: '门边' }, obsolete: true, unknown: { keep: null }, _storageRevision: 1 })
+      const deletion = await app.persistence.read('chat-1')
+      const edit = await app.persistence.read('chat-1')
+      delete (nested ? deletion.state : deletion).obsolete
+      edit.state.posture = '窗边'
+      const writes = deletionFirst ? [deletion, edit] : [edit, deletion]
+      for (const chat of writes) await app.persistence.write(chat)
+      const saved = await app.persistence.read('chat-1')
+      assert.equal(Object.hasOwn(nested ? saved.state : saved, 'obsolete'), false)
+      assert.equal(saved.state.posture, '窗边')
+      assert.deepEqual(saved.unknown, { keep: null })
+      assert.equal(saved._storageRevision, 3)
+    }
+  }
+})
+
+test('双方删除同一个字段视为一致结果，同时保留各自的其他修改', async function () {
+  const app = harness({ id: 'chat-1', state: { obsolete: { nested: true }, left: 0, right: 0 }, _storageRevision: 1 })
+  const first = await app.persistence.read('chat-1')
+  const second = await app.persistence.read('chat-1')
+  delete first.state.obsolete
+  delete second.state.obsolete
+  first.state.left = 1
+  second.state.right = 2
+  await app.persistence.write(first)
+  await app.persistence.write(second)
+  assert.deepEqual(app.stored().state, { left: 1, right: 2 })
+})
+
+test('删除与修改同一个字段仍按任意保存顺序拒绝冲突，失败不改存档', async function () {
+  for (const deletionFirst of [false, true]) {
+    const app = harness({ id: 'chat-1', state: { obsolete: { value: 1 } }, _storageRevision: 1 })
+    const deletion = await app.persistence.read('chat-1')
+    const edit = await app.persistence.read('chat-1')
+    delete deletion.state.obsolete
+    edit.state.obsolete.value = 2
+    const [first, second] = deletionFirst ? [deletion, edit] : [edit, deletion]
+    await app.persistence.write(first)
+    const before = app.stored()
+    await assert.rejects(app.persistence.write(second), error => error.code === 'DSH_TAVERN_CHAT_CONFLICT' && error.path === 'state.obsolete')
+    assert.deepEqual(app.stored(), before)
+  }
+})
+
+test('两个写入者删除不同字段时都生效，不产生 undefined 字段', async function () {
+  const app = harness({ id: 'chat-1', state: { one: true, two: true, keep: null }, _storageRevision: 1 })
+  const first = await app.persistence.read('chat-1')
+  const second = await app.persistence.read('chat-1')
+  delete first.state.one
+  delete second.state.two
+  await app.persistence.write(first)
+  await app.persistence.write(second)
+  assert.deepEqual(app.stored().state, { keep: null })
+  assert.deepEqual(Object.keys(app.stored().state), ['keep'])
+})
