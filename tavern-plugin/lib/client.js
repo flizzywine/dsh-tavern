@@ -4908,9 +4908,13 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 
 
 		function createSupersededErrorProjection(root) {
-			const owned = new Set();
+			const owned = new Map();
+			function restore(row, previous) {
+				row.hidden = previous.hidden;
+				if (row.style) row.style.display = previous.display;
+			}
 			function dispose() {
-				for (const row of owned) row.hidden = false;
+				for (const [row, previous] of owned) restore(row, previous);
 				owned.clear();
 			}
 			function apply(turns) {
@@ -4924,7 +4928,11 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 						const owner = row.getAttribute("data-chat-turn") || turn;
 						if (!hidden.has(owner)) continue;
 						keep.add(row);
-						if (!row.hidden) { row.hidden = true; owned.add(row); }
+						if (!owned.has(row)) owned.set(row, { hidden: row.hidden, display: row.style && row.style.display });
+						row.hidden = true;
+						// Native process rows update `hidden` themselves when folding.
+						// Keep suppression independent of that presentation state.
+						if (row.style) row.style.display = "none";
 					}
 					pending = [];
 				}
@@ -4945,8 +4953,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				}
 				// alpha has explicit ownership even before its tail is mounted.
 				flush("");
-				for (const row of owned) {
-					if (!keep.has(row)) { row.hidden = false; owned.delete(row); }
+				for (const [row, previous] of owned) {
+					if (!keep.has(row)) { restore(row, previous); owned.delete(row); }
 				}
 			}
 			return { apply: apply, dispose: dispose };
