@@ -4,7 +4,7 @@ import { createServer } from 'node:http'
 import { readFile } from 'node:fs/promises'
 import { createHelperWorldbookHost } from './helper-worldbook-host.mjs'
 
-const host = await createHelperWorldbookHost()
+const host = await createHelperWorldbookHost(process.argv.includes('--embedded'))
 async function browserClientSource() {
 let source = await readFile(new URL('../../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
 source = source.replace('import(window.__dshTavernStaticAssetUrl("https://testingcf.jsdelivr.net/npm/zod@4.4.3/+esm"))', 'Promise.resolve({})')
@@ -14,9 +14,23 @@ return source
 function cardScript(readonly) {
   return `
     const api = window.TavernHelper;
+    const ctx = SillyTavern.getContext();
+    if(window.Mvu !== undefined) throw Error('ordinary script received fake MVU');
     if(api !== SillyTavern.getContext().TavernHelper || getContext().chatId !== 'audit') throw Error('API discovery');
     ${readonly ? '' : `await api.createWorldbookEntries('审计书', [{ name:'浏览器新增', content:'已落盘的内容', strategy:{keys:[/浏览器/u]}, position:{type:'at_depth',role:'user',depth:0,order:321} }]);
-    await api.setLorebookEntries('审计书',[{uid:7,content:'浏览器改写'}]);`}
+    await api.setLorebookEntries('审计书',[{uid:7,content:'浏览器改写'}]);
+    ctx.extensionSettings.phone = { scale:80, nested:{keep:true} };
+    const held = ctx.extensionSettings.phone;
+    await ctx.saveSettingsDebounced();
+    if(held !== ctx.extensionSettings.phone) throw Error('settings reference changed');
+    const toSave = await ctx.loadWorldInfo('审计书');
+    toSave.entries[7].content = '原生浏览器改写';
+    toSave.entries[7].customNative = {preserved:true};
+    toSave.entries[7].position = 4; toSave.entries[7].depth = 0;
+    await ctx.saveWorldInfo('审计书',toSave,true);`}
+    if(ctx.extensionSettings.phone?.scale !== 80 || !ctx.extensionSettings.phone?.nested?.keep) throw Error('settings recovery');
+    const native = await ctx.loadWorldInfo('审计书');
+    if(Array.isArray(native.entries) || native.entries[7].content !== '原生浏览器改写' || !native.entries[7].customNative?.preserved || native.entries[7].position!==4 || native.entries[7].depth!==0) throw Error('native recovery');
     const rows = await api.getLorebookEntries('审计书');
     const added = rows.find(e=>e.comment==='浏览器新增');
     if(!added || added.depth!==0 || added.position!=='at_depth_as_user' || added.order!==321 || added.keys[0]!=='/浏览器/u') throw Error('worldbook roundtrip');
@@ -24,7 +38,7 @@ function cardScript(readonly) {
     eventOn('MESSAGE_SENT',()=>events.push('normal'));
     SillyTavern.getContext().eventSource.makeFirst('message_sent',()=>events.push('first'));
     eventOnce('MESSAGE_SENT',()=>events.push('once'));
-    eventOn('audit-check',()=>parent.postMessage({type:'host-smoke-result',events,rows,readonly:${readonly}},'*'));
+    eventOn('audit-check',()=>parent.postMessage({type:'host-smoke-result',events,rows,settings:ctx.extensionSettings,native,mvuPresent:window.Mvu!==undefined,readonly:${readonly}},'*'));
   `
 }
 const server = createServer(async (request, response) => {
@@ -41,7 +55,7 @@ const server = createServer(async (request, response) => {
     if (url.pathname !== '/') { response.writeHead(404); response.end(); return }
     const readonly = url.searchParams.has('read')
     const initial = await host.adapter.getWorldbook('audit', 'current')
-    const view = { chatId: 'audit', card: { name: '测试卡' }, playerName: '测试者', tavernHelper: { messages: [] }, tavernHelperWorldbook: initial.worldbook,
+    const view = { chatId: 'audit', card: { name: '测试卡' }, playerName: '测试者', tavernHelper: { messages: [], mvuEnabled: false, extensionSettings: await host.extensionSettings.read() }, tavernHelperWorldbook: initial.worldbook,
       tavernHelperScripts: [{ id: 'smoke', name: 'API 验证', content: cardScript(readonly) }], tavernRuntimePolicy: { trustedCardMode: url.searchParams.has('trusted') } }
     response.setHeader('Content-Type', 'text/html; charset=utf-8')
     response.end(`<!doctype html><title>宿主接口回归验证</title><h1>宿主接口回归验证</h1><a href="/?read">销毁脚本环境并从文件回读</a><pre id="result">RUNNING</pre>
