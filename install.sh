@@ -88,7 +88,7 @@ if [ "${USED_GIT}" -eq 0 ]; then
 const { createHash } = require('node:crypto')
 const { mkdir, writeFile } = require('node:fs/promises')
 const path = require('node:path')
-const allowed = /^(package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|cordis\.patch\.yml|install\.ps1|install\.sh|bin\/|config\/|presets\/|tavern-plugin\/)/
+const allowed = /^(package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|cordis\.patch\.yml|install\.ps1|install\.sh|bin\/|config\/|presets\/|tavern-plugin\/|patches\/)/
 async function get(url, timeout = 30000) {
   const response = await fetch(url, { signal: AbortSignal.timeout(timeout) })
   if (!response.ok) throw new Error(`${url}: HTTP ${response.status}`)
