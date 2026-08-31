@@ -32,7 +32,7 @@ import { createRuntimePresetModule, resolveRuntimePresetMacros } from './domain/
 import { compileSillyTavernRequest } from './domain/sillytavern-compatibility.js'
 import { applySillyTavernStrictTools } from './domain/sillytavern-strict-tools.js'
 import { createForegroundOrchestrationStrategies } from './domain/foreground-orchestration-strategies.js'
-import { clearFailedTurnSurface, hasRollbackMessages, locateRollbackSurface, planRegenerationSurface } from './domain/rollback-surface.js'
+import { clearFailedTurnSurface, hasRollbackMessages, locateRegenerationSurface, locateRollbackSurface, planRegenerationSurface } from './domain/rollback-surface.js'
 import { assistantResultForTurn } from './domain/session-turn-result.js'
 import { createTavernRetryLimiter } from './domain/tavern-retry-limiter.js'
 import { lastTavernHelperVariables, projectTavernHelperContext } from './domain/tavern-helper-context.js'
@@ -2219,20 +2219,6 @@ export async function apply(ctx) {
     const session = agent.session
     const nodes = (session.surface !== undefined && Array.isArray(session.surface.nodes)) ? session.surface.nodes : []
     const eventStart = Array.isArray(session.events) ? session.events.length : 0
-    let oldSeq = -1
-    let oldTurn = 0
-    let oldSource = null
-    for (let i = nodes.length - 1; i >= 0; i--) {
-      const candidate = session.events[nodes[i]]
-      if (candidate !== undefined && candidate.type === 'assistant/message') {
-        oldSeq = nodes[i]
-        oldTurn = Number(candidate.data.turn) || 0
-        oldSource = candidate.data && candidate.data.message ? candidate.data.message.source : null
-        break
-      }
-    }
-    if (oldSeq < 0) throw new Error('原生消息流中找不到可替换的正文消息')
-    if (oldSource === null || typeof oldSource !== 'object' || oldSource.kind !== 'model') throw new Error('找不到旧正文的模型来源')
     const msgs0 = chat.messages || []
     let oldAssistantIndex = -1
     for (let i = msgs0.length - 1; i >= 0; i--) {
@@ -2243,6 +2229,11 @@ export async function apply(ctx) {
       }
     }
     if (oldAssistantIndex < 1 || msgs0[oldAssistantIndex - 1] === null || typeof msgs0[oldAssistantIndex - 1] !== 'object' || msgs0[oldAssistantIndex - 1].role !== 'user') throw new Error('没有可重新生成的玩家输入与正文组合')
+    const target = locateRegenerationSurface({ events: session.events, nodes, turn: msgs0[oldAssistantIndex].turn })
+    if (target === null) throw new Error('原生消息流中找不到与当前剧情轮次对应的正文消息')
+    const oldSeq = target.assistantSeq
+    const oldTurn = target.turn
+    const oldSource = target.source
     const originalUserText = str(msgs0[oldAssistantIndex - 1].text).trim()
     const originalChat = structuredClone(chat)
     async function restoreFailedRegen() {
