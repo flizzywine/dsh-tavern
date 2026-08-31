@@ -281,6 +281,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 .dsh-tavern-prompt-row.role-script { border-left-color: #8b69d4; }
 .dsh-tavern-prompt-row.role-extension { border-left-color: #718096; }
 .dsh-tavern-prompt-head { display: grid; grid-template-columns: 65px minmax(0,1fr) auto; align-items: center; gap: 8px; padding: 9px 10px; cursor: pointer; list-style: none; }
+.dsh-tavern-preset-entry-head { grid-template-columns: minmax(0,1fr) auto; }
 .dsh-tavern-prompt-head::-webkit-details-marker { display: none; }
 .dsh-tavern-prompt-role { color: var(--dsw-alias-label-secondary); font-size: 10px; font-weight: 800; }
 .dsh-tavern-prompt-title { min-width: 0; }
@@ -289,9 +290,17 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 .dsh-tavern-prompt-state { display: flex; align-items: center; gap: 5px; color: var(--dsw-alias-label-secondary); font-size: 9px; white-space: nowrap; }
 .dsh-tavern-prompt-state::before { width: 8px; height: 8px; border: 2px solid #23bd63; border-radius: 999px; content: ""; }
 .dsh-tavern-prompt-state.off::before { border-color: #91a0b5; }
-.dsh-tavern-prompt-state.is-toggle { border: 0; border-radius: 6px; padding: 4px 5px; background: transparent; font: inherit; cursor: pointer; }
-.dsh-tavern-prompt-state.is-toggle:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
-.dsh-tavern-prompt-state.is-toggle:disabled { opacity: .45; cursor: default; }
+.dsh-tavern-prompt-state.is-toggle { position: relative; flex-shrink: 0; min-height: 32px; gap: 7px; border: 0; border-radius: 6px; padding: 4px 5px; background: transparent; font: inherit; font-weight: 600; cursor: pointer; }
+.dsh-tavern-prompt-state.is-toggle.on { color: #16766b; }
+.dsh-tavern-prompt-state.is-toggle.off { color: var(--dsw-alias-label-secondary); }
+.dsh-tavern-prompt-state.is-toggle::before { flex-shrink: 0; width: 36px; height: 20px; border: 0; background: #64748b; transition: background .15s ease; }
+.dsh-tavern-prompt-state.is-toggle.on::before { background: #16766b; }
+.dsh-tavern-prompt-state.is-toggle::after { position: absolute; top: 50%; left: 7px; width: 16px; height: 16px; border-radius: 50%; background: #fff; content: ""; transform: translateY(-50%); transition: transform .15s ease; }
+.dsh-tavern-prompt-state.is-toggle.on::after { transform: translate(16px, -50%); }
+.dsh-tavern-prompt-state.is-toggle:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover); }
+.dsh-tavern-prompt-state.is-toggle:focus-visible { outline: 2px solid #16766b; outline-offset: 2px; }
+.dsh-tavern-prompt-state.is-toggle:disabled { opacity: .6; cursor: wait; }
+@media (prefers-reduced-motion: reduce) { .dsh-tavern-prompt-state.is-toggle::before, .dsh-tavern-prompt-state.is-toggle::after { transition: none; } }
 .dsh-tavern-extract-state { gap: 8px; color: var(--dsw-alias-label-primary); font-size: 13px; font-weight: 650; }
 .dsh-tavern-extract-state::before { width: 11px; height: 11px; }
 .dsh-tavern-extract-state input[type="checkbox"] { width: 18px; height: 18px; margin: 0; accent-color: #23bd63; }
@@ -4210,11 +4219,10 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				}
 				const inCardMode = catalog.sessionMode === "card";
 				function entryRow(entry) {
-					const role = String(entry.role || "system").toUpperCase();
 					const draft = entryDraft(entry); const editable = entry.marker !== true && entry.edit && entry.edit.promptPath; const toggleable = entry.marker !== true && entry.edit && Array.isArray(entry.edit.enabledPaths) && entry.edit.enabledPaths.length > 0; const dirty = JSON.stringify(draft) !== JSON.stringify(entryValue(entry));
-					const state = toggleable ? h("button", { type: "button", className: "dsh-tavern-prompt-state is-toggle " + (entry.enabled ? "on" : "off"), disabled: busy, title: entry.enabled ? "点击停用此条目" : "点击启用此条目", "aria-pressed": entry.enabled === true, onClick: function (event) { event.preventDefault(); event.stopPropagation(); togglePresetEntry(entry); } }, entry.enabled ? "启用" : "停用") : h("span", { className: "dsh-tavern-prompt-state " + (entry.enabled ? "on" : "off"), title: "系统占位状态只读" }, entry.enabled ? "启用" : "停用");
+					const state = toggleable ? h("button", { type: "button", role: "switch", className: "dsh-tavern-prompt-state is-toggle " + (entry.enabled ? "on" : "off"), disabled: busy, title: entry.enabled ? "点击停用此条目" : "点击启用此条目", "aria-label": entry.name + "启用状态", "aria-checked": entry.enabled === true, onClick: function (event) { event.preventDefault(); event.stopPropagation(); togglePresetEntry(entry); } }, entry.enabled ? "启用" : "停用") : h("span", { className: "dsh-tavern-prompt-state " + (entry.enabled ? "on" : "off"), title: "系统占位状态只读" }, entry.enabled ? "启用" : "停用");
 					return h("details", { key: entry.entryKey, className: "dsh-tavern-prompt-row role-" + String(entry.role || "system") },
-						h("summary", { className: "dsh-tavern-prompt-head" }, h("span", { className: "dsh-tavern-prompt-role" }, role), h("span", { className: "dsh-tavern-prompt-title" }, h("b", null, entry.name), h("span", null, String(entry.content || "").replace(/\s+/g, " ").trim() || (entry.marker ? "系统占位" : "空条目"))), state),
+						h("summary", { className: "dsh-tavern-prompt-head dsh-tavern-preset-entry-head" }, h("span", { className: "dsh-tavern-prompt-title" }, h("b", null, entry.name), h("span", null, String(entry.content || "").replace(/\s+/g, " ").trim() || (entry.marker ? "系统占位" : "空条目"))), state),
 						editable ? h("div", { className: "dsh-tavern-prompt-editor" },
 							h("label", { className: "dsh-tavern-prompt-editor-field" }, "名称", h("input", { type: "text", value: draft.name, disabled: busy, onChange: function (event) { updateEntryDraft(entry, { name: event.target.value }); } })),
 							h("label", { className: "dsh-tavern-prompt-editor-field" }, "角色", h("select", { value: draft.role, disabled: busy, onChange: function (event) { updateEntryDraft(entry, { role: event.target.value }); } }, h("option", { value: "system" }, "system"), h("option", { value: "user" }, "user"), h("option", { value: "assistant" }, "assistant"))),
@@ -4225,7 +4233,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				}
 				function regexRow(script) {
 					const draft = regexDraft(script); const dirty = JSON.stringify(draft) !== JSON.stringify(regexValue(script));
-					const state = h("button", { type: "button", className: "dsh-tavern-prompt-state is-toggle " + (script.enabled ? "on" : "off"), disabled: busy, title: script.enabled ? "点击停用此正则" : "点击启用此正则", "aria-pressed": script.enabled === true, onClick: function (event) { event.preventDefault(); event.stopPropagation(); togglePresetRegex(script); } }, script.enabled ? "启用" : "停用");
+					const state = h("button", { type: "button", role: "switch", className: "dsh-tavern-prompt-state is-toggle " + (script.enabled ? "on" : "off"), disabled: busy, title: script.enabled ? "点击停用此正则" : "点击启用此正则", "aria-label": script.name + "启用状态", "aria-checked": script.enabled === true, onClick: function (event) { event.preventDefault(); event.stopPropagation(); togglePresetRegex(script); } }, script.enabled ? "启用" : "停用");
 					return h("details", { key: script.regexKey, className: "dsh-tavern-prompt-row role-regex" },
 						h("summary", { className: "dsh-tavern-prompt-head" }, h("span", { className: "dsh-tavern-prompt-role" }, "REGEX"), h("span", { className: "dsh-tavern-prompt-title" }, h("b", null, script.name), h("span", null, script.findRegex || "空查找规则")), state),
 						h("div", { className: "dsh-tavern-prompt-editor" },
