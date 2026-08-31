@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>状态</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;padding:0;background:transparent;color:#253343;font:15px/1.6 system-ui,sans-serif;text-shadow:none}
+main{padding:16px;background:#f5f8fa;border:1px solid #ccd6df;border-radius:12px}h1{font-size:18px;margin:0 0 12px}
+dl{display:grid;grid-template-columns:minmax(80px,1fr) minmax(0,2fr);gap:8px 12px;margin:0}dt{color:#526579}dd{margin:0;white-space:pre-wrap;overflow-wrap:anywhere}
+#notice{margin:0;color:#526579}
+</style>
+</head>
+<body>
+<main><h1>当前状态</h1><p id="notice" role="status">等待 MVU 初始化…</p><dl id="values"></dl></main>
+<script>
+(function () {
+  function collect(value, path, rows) {
+    if (value && typeof value === 'object') {
+      for (const [key, child] of Object.entries(value)) {
+        if (key.startsWith('$') || key.startsWith('__')) continue;
+        collect(child, path.concat(key), rows);
+      }
+    } else {
+      rows.push([path.join(' · '), value === null || value === undefined || value === '' ? '未明确' : String(value)]);
+    }
+  }
+  function render() {
+    const data = Mvu.getMvuData({type:'message', message_id:'latest'}).stat_data;
+    const notice = document.getElementById('notice'), target = document.getElementById('values');
+    const rows = [];
+    if (data && typeof data === 'object') collect(data, [], rows);
+    target.replaceChildren();
+    for (const [label, value] of rows) {
+      const dt = document.createElement('dt'), dd = document.createElement('dd');
+      dt.textContent = label; dd.textContent = value;
+      target.append(dt, dd);
+    }
+    notice.textContent = rows.length ? '' : '暂无状态，请检查 MVU 初始化';
+  }
+  async function start() {
+    await waitGlobalInitialized('Mvu');
+    const events = new Set([Mvu.events.VARIABLE_INITIALIZED, Mvu.events.VARIABLE_UPDATE_ENDED, ...Object.values(tavern_events)]);
+    for (const event of events) eventOn(event, render);
+    render();
+  }
+  start().catch(function (error) { document.getElementById('notice').textContent = '状态读取失败：' + error.message; });
+})();
+</script>
+</body>
+</html>
