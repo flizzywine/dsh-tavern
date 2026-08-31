@@ -176,6 +176,12 @@ export function createTavernScriptHostAdapter(options = {}) {
     })
   }
 
+  async function saveExtensionSettings(sessionId, settings, expectedSettings) {
+    await assertScriptEnabled(await resolveChat(sessionId))
+    if (!options.extensionSettings) throw new Error('插件设置存储未连接')
+    return { updated: true, extensionSettings: await options.extensionSettings.save(settings, expectedSettings) }
+  }
+
   async function context(sessionId, chatValue, transientUserText = '') {
     const chat = chatValue || await resolveChat(sessionId)
     const draft = structuredClone(chat)
@@ -315,6 +321,7 @@ export function createTavernScriptHostAdapter(options = {}) {
     switchSwipe,
     getWorldbook,
     replaceWorldbook,
+    saveExtensionSettings,
     pollEvent: function (sessionId, runtimeId, ready) { return options.eventGate.poll(sessionId, runtimeId, ready) },
     completeEvent: function (sessionId, eventId, args, runtimeId, error, diagnostics) { return options.eventGate.complete(sessionId, eventId, args, runtimeId, error, diagnostics) },
     releaseRuntime: function (sessionId, runtimeId) { return options.eventGate.dispose(sessionId, runtimeId) }

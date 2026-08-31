@@ -1555,7 +1555,9 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			let state = initialContext && typeof initialContext === "object" ? initialContext : {};
 			const token = String(metadata.token || "");
 			const officialMvuEnabled = metadata.officialMvu === true;
-			const extensionSettings = Object.create(null);
+			const extensionSettings = Object.assign(Object.create(null), copy(state.extensionSettings || {}));
+			let savedExtensionSettings = copy(extensionSettings);
+			let settingsTail = Promise.resolve();
 			let lorebookSettings = { selected_global_lorebooks: [] };
 			const scriptList = (Array.isArray(metadata.scripts) ? metadata.scripts : [metadata]).map(function (script) {
 				return {
@@ -1649,6 +1651,43 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					pending[requestId] = { resolve: resolve, reject: reject };
 					parent.postMessage({ type: "dsh-tavern-helper-call", token: token, eventId: activeHostEventId, scriptId: currentScript().id, requestId: requestId, method: method, args: copy(args || {}) }, "*");
 				});
+			}
+			// Keep plugin-held object references stable when acknowledging persisted settings.
+			function reconcileSettings(target, source) {
+				for (const key of Object.keys(target)) if (!Object.prototype.hasOwnProperty.call(source, key)) delete target[key];
+				for (const key of Object.keys(source)) {
+					const value = source[key], previous = Object.prototype.hasOwnProperty.call(target, key) ? target[key] : undefined;
+					if (value && previous && typeof value === "object" && typeof previous === "object" && Array.isArray(value) === Array.isArray(previous)) {
+						reconcileSettings(previous, value);
+						if (Array.isArray(previous)) previous.length = value.length;
+					} else Object.defineProperty(target, key, { value: copy(value), enumerable: true, configurable: true, writable: true });
+				}
+			}
+			function saveExtensionSettings() {
+				// Serialize calls without an unload-sensitive debounce timer. Capture at execution
+				// time so a burst of legacy fire-and-forget calls saves the newest edits.
+				const task = settingsTail.catch(function () {}).then(async function () {
+					const submitted = JSON.parse(JSON.stringify(extensionSettings));
+					const result = await call("saveTavernExtensionSettings", { settings: submitted, expectedSettings: savedExtensionSettings });
+					if (!result || !result.extensionSettings || result.updated === false) throw new Error("插件设置未保存");
+					const remote = result.extensionSettings;
+					for (const key of new Set(Object.keys(submitted).concat(Object.keys(remote)))) {
+						// Edits made while the write was in flight stay dirty for the next call.
+						if (JSON.stringify(extensionSettings[key]) !== JSON.stringify(submitted[key])) continue;
+						if (Object.prototype.hasOwnProperty.call(remote, key)) {
+							const patch = Object.create(null); patch[key] = remote[key];
+							const current = Object.create(null);
+							if (Object.prototype.hasOwnProperty.call(extensionSettings, key)) current[key] = extensionSettings[key];
+							reconcileSettings(current, patch);
+							Object.defineProperty(extensionSettings, key, { value: current[key], enumerable: true, configurable: true, writable: true });
+						} else delete extensionSettings[key];
+					}
+					savedExtensionSettings = copy(remote);
+					return copy(remote);
+				});
+				settingsTail = task;
+				task.catch(function (error) { console.error(error); });
+				return task;
 			}
 			function getVariables(option) {
 				const resolved = optionOf(option);
@@ -2096,7 +2135,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				},
 				callGenericPopup: function (content, type, title, options) { return new HelperPopup(content, type, title, options).show(); },
 				saveChat: async function () { return true; },
-				saveSettingsDebounced: function () {},
+				saveSettingsDebounced: saveExtensionSettings,
 				registerMacro: function () {}, unregisterMacro: function () {},
 				registerFunctionTool: function () {}, unregisterFunctionTool: function () {}
 			};
@@ -2230,7 +2269,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const closedEventIds = new Set();
 			const closedEventOrder = [];
 			const reportedEventTimeouts = new Set();
-			const allowedMethods = new Set(["updateTavernHelperVariables", "updateTavernHelperMessages", "getTavernHelperWorldbook", "replaceTavernHelperWorldbook"]);
+			const allowedMethods = new Set(["updateTavernHelperVariables", "updateTavernHelperMessages", "getTavernHelperWorldbook", "replaceTavernHelperWorldbook", "saveTavernExtensionSettings"]);
 			let activeSessionId = "";
 			let root = null;
 			let previous = null;
@@ -2567,7 +2606,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				}
 				invoke(data.method, mutationArgs, record.sessionId).then(function (result) {
 					post(record, { type: "dsh-tavern-helper-response", requestId: data.requestId, ok: true, result: result });
-					if ((data.method === "updateTavernHelperVariables" || data.method === "updateTavernHelperMessages" || data.method === "replaceTavernHelperWorldbook") && result && result.updated !== false && result.stale !== true && records.get(record.id) === record) reportMutation(record.sessionId, data.method, result);
+					if ((data.method === "updateTavernHelperVariables" || data.method === "updateTavernHelperMessages" || data.method === "replaceTavernHelperWorldbook" || data.method === "saveTavernExtensionSettings") && result && result.updated !== false && result.stale !== true && records.get(record.id) === record) reportMutation(record.sessionId, data.method, result);
 				}, function (error) {
 					post(record, { type: "dsh-tavern-helper-response", requestId: data.requestId, ok: false, error: String(error && error.message || error) });
 				});

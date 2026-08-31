@@ -1,6 +1,8 @@
 import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { createProfileDataStore } from '../../tavern-plugin/lib/profile-data-store.js'
+import { createTavernExtensionSettings } from '../../tavern-plugin/lib/domain/tavern-extension-settings.js'
 import { createWorldBookLibrary } from '../../tavern-plugin/lib/domain/worldbook-library.js'
 import { createTavernScriptHostAdapter } from '../../tavern-plugin/lib/domain/tavern-script-host-adapter.js'
 
@@ -15,7 +17,7 @@ export async function createHelperWorldbookHost(embedded = false) {
   const save = async (name, value) => writeFile(join(directory, name), JSON.stringify(value))
   await save('book.json', book)
   await save('card.json', card)
-  const chat = { id: 'audit', cardPath: 'card.json', mvu: { enabled: true }, messages: [] }
+  const chat = { id: 'audit', cardPath: 'card.json', mvu: { enabled: false }, messages: [] }
   const library = createWorldBookLibrary({
     normalizePath(path) { if (!['book.json', 'card.json'].includes(path)) throw Error('fixture path'); return path },
     resources: { readText: path => readFile(join(directory, path), 'utf8'), write: (path, text) => writeFile(join(directory, path), text),
@@ -23,12 +25,14 @@ export async function createHelperWorldbookHost(embedded = false) {
     cards: { read: () => json('card.json'), update: async (_path, patch) => save('card.json', { ...await json('card.json'), ...patch }) },
     removeStandalone: async () => {}
   })
-  const adapter = createTavernScriptHostAdapter({ resolveChat: async () => chat, writeChat: async () => {}, readCard: () => json('card.json'), worldBooks: library, eventGate: {} })
-  return { adapter, library,
+  const extensionSettings = createTavernExtensionSettings(createProfileDataStore({ dataRoot: directory }))
+  const adapter = createTavernScriptHostAdapter({ hasScripts: async () => true, extensionSettings, resolveChat: async () => chat, writeChat: async () => {}, readCard: () => json('card.json'), worldBooks: library, eventGate: {} })
+  return { adapter, library, extensionSettings,
     read: async () => embedded ? (await json('card.json')).character_book : await json('book.json'),
     record: async () => library.bound('card.json', await json('card.json')),
     cleanup: () => rm(directory, { recursive: true, force: true }),
     async invoke(method, args) {
+      if (method === 'saveTavernExtensionSettings') return adapter.saveExtensionSettings('audit', args.settings, args.expectedSettings)
       if (method === 'getTavernHelperWorldbook') return adapter.getWorldbook('audit', args.name)
       if (method === 'replaceTavernHelperWorldbook') return adapter.replaceWorldbook('audit', args.name, args.entries, args.expectedEntries)
       throw Error('Unexpected method: ' + method)
