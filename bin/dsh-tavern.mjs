@@ -12,7 +12,6 @@ import {
   readlinkSync,
   realpathSync,
   readdirSync,
-  rmSync,
   renameSync,
   statSync,
   symlinkSync,
@@ -25,6 +24,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseDocument } from 'yaml'
 import { dshCompatibilityNotice } from './dsh-compatibility.mjs'
+import { installPluginDependencies } from './plugin-dependencies.mjs'
 import { migrateLegacyTavernData, resolveTavernDataRoot } from '../tavern-plugin/lib/domain/tavern-data.js'
 import { ensureUserExtensions } from '../tavern-plugin/lib/domain/user-extensions.js'
 import { migrateSessionPrefixEvents } from './session-prefix-migration.mjs'
@@ -361,26 +361,6 @@ function prepareProfileConfiguration(host, dshVersion) {
   return { manifest, patchText }
 }
 
-function installPluginDependencies(dshVersion) {
-  const pluginDirectory = path.join(SOURCE_ROOT, 'tavern-plugin')
-  const workspacePath = path.join(pluginDirectory, 'pnpm-workspace.yaml')
-  const original = readFileSync(workspacePath, 'utf8')
-  const workspace = parseDocument(original)
-  if (workspace.errors.length > 0) throw new Error(`无法读取插件 workspace：${workspace.errors[0].message}`)
-  workspace.setIn(['overrides', '@deepseek-ai/dsh-subagent'], dshVersion)
-  workspace.setIn(['overrides', '@deepseek-ai/dsh-tools'], dshVersion)
-  const temporary = `${workspacePath}.tmp-${process.pid}`
-  try {
-    writeFileSync(temporary, workspace.toString(), 'utf8')
-    renameSync(temporary, workspacePath)
-    rmSync(path.join(pluginDirectory, 'node_modules'), { recursive: true, force: true })
-    run('pnpm', ['--dir', pluginDirectory, 'install', '--lockfile=false'])
-  } finally {
-    if (existsSync(temporary)) unlinkSync(temporary)
-    writeFileSync(workspacePath, original, 'utf8')
-  }
-}
-
 export function renderWindowsLauncher(scriptPath) {
   return `@echo off\r\nnode "${scriptPath.replaceAll('"', '""')}" %*\r\n`
 }
@@ -586,7 +566,8 @@ async function installProfile(host = 'cli') {
   await ensureUserExtensions(dataRoot)
   if (migration.migratedSources > 0) console.log(`已迁移 ${migration.migratedSources} 处旧数据；冲突保留 ${migration.conflicts} 个。`)
 
-  installPluginDependencies(dshVersion)
+  const hostDependencies = installPluginDependencies({ pluginDirectory: path.join(SOURCE_ROOT, 'tavern-plugin'), dsh, host, run })
+  for (const dependency of hostDependencies) console.log(`复用当前 DSH 依赖：${dependency.name} ${dependency.version}`)
   const configuration = prepareProfileConfiguration(host, dshVersion)
   const transaction = await beginProfileConfigurationUpdate({
     profileDir: PROFILE_DIR,
@@ -616,7 +597,7 @@ async function installProfile(host = 'cli') {
   }
 
   console.log('DSH Tavern 已安装。')
-  console.log(`已与当前 DSH ${dshVersion} 对齐依赖。`)
+  console.log(`已复用当前 DSH ${dshVersion} 的本地依赖；未升级或降级 DSH。`)
   if (host === 'desktop') {
     console.log('请重启 DSH Desktop，然后从托盘的 Profile 菜单切换到 tavern。')
   } else if (host === 'android') {

@@ -471,11 +471,10 @@ test('共享 Profile 不固定端口，CLI Adapter 启动时显式使用 3081', 
   assert.match(launcherSource, /spawn\(invocation\.command, invocation\.args/)
 })
 
-test('Tavern 依赖安装时与当前宿主 DSH 版本对齐', () => {
+test('Tavern 安装依赖时传入当前宿主而不是将版本号当作 npm 依赖', () => {
   assert.match(launcherSource, /extractDshVersion\(runDsh\(dsh, \['--version'\]/)
-  assert.match(launcherSource, /workspace\.setIn\(\['overrides', '@deepseek-ai\/dsh-subagent'\], dshVersion\)/)
-  assert.match(launcherSource, /workspace\.setIn\(\['overrides', '@deepseek-ai\/dsh-tools'\], dshVersion\)/)
-  assert.match(launcherSource, /install', '--lockfile=false'/)
+  assert.match(launcherSource, /installPluginDependencies\(\{ pluginDirectory: .* dsh, host, run \}\)/)
+  assert.doesNotMatch(launcherSource, /installPluginDependencies\([^\n]*dshVersion/)
 })
 
 test('升级后用户数据固定在 Profile 目录，并在安装时迁移旧源码数据', () => {

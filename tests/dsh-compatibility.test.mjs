@@ -4,6 +4,7 @@ import test from 'node:test'
 
 const pluginManifest = JSON.parse(await readFile(new URL('../tavern-plugin/package.json', import.meta.url), 'utf8'))
 const launcherSource = await readFile(new URL('../bin/dsh-tavern.mjs', import.meta.url), 'utf8')
+const installerSource = await readFile(new URL('../bin/plugin-dependencies.mjs', import.meta.url), 'utf8')
 const pluginSource = await readFile(new URL('../tavern-plugin/lib/index.js', import.meta.url), 'utf8')
 const backgroundSource = await readFile(new URL('../tavern-plugin/lib/background-agent-runner.js', import.meta.url), 'utf8')
 
@@ -12,9 +13,9 @@ test('Tavern uses open DSH ecosystem package ranges instead of an exact host rel
   assert.equal(pluginManifest.dependencies['@deepseek-ai/dsh-subagent'], '>=0.1.0-rc.7')
   assert.match(pluginSource, /from '@deepseek-ai\/dsh-tools'/)
   assert.match(backgroundSource, /from '@deepseek-ai\/dsh-subagent'/)
-  assert.match(launcherSource, /function installPluginDependencies\(dshVersion\)/)
-  assert.match(launcherSource, /rmSync\(path\.join\(pluginDirectory, 'node_modules'\), \{ recursive: true, force: true \}\)/)
-  assert.match(launcherSource, /run\('pnpm', \['--dir', pluginDirectory, 'install', '--lockfile=false'\]\)/)
+  assert.match(launcherSource, /import \{ installPluginDependencies \} from '.\/plugin-dependencies.mjs'/)
+  assert.match(installerSource, /resolveHostDependencies\(hostOptions\)/)
+  assert.match(installerSource, /run\('pnpm', \['install', '--lockfile=false'\], \{ cwd: pluginDirectory \}\)/)
   assert.doesNotMatch(launcherSource, /'install'[\s\S]{0,40}'--ignore-workspace'/)
 })
 
