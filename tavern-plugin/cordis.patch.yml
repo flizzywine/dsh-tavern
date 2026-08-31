@@ -18,6 +18,8 @@
     default: tavern
     includeUserRoot: false
 - insert:
+    - id: tavern-cordis-inspect
+      name: dsh-tavern-plugin/cordis-inspect
     - id: dsh-tavern
       name: dsh-tavern-plugin
       inject:

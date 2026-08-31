@@ -14,6 +14,7 @@
   "exports": {
     ".": "./lib/index.js",
     "./client": "./lib/client.js",
+    "./cordis-inspect": "./lib/cordis-inspect.js",
     "./package.json": "./package.json"
   },
   "dsh": {
