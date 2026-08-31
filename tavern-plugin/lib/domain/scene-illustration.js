@@ -9,6 +9,7 @@ import { createSceneImageStyles, applyImageStyle, composeSceneImagePrompt } from
 import { createPendingSceneImages } from './scene-image-pending.js'
 import { createSceneImageQueue } from './scene-image-queue.js'
 import { createSceneReferences } from './scene-references.js'
+import { sceneStateSources } from './scene-state.js'
 
 export const IMAGE_CREDENTIAL = 'DSH_TAVERN_IMAGE_API_KEY'
 const hash = value => createHash('sha256').update(value).digest('hex')
@@ -58,7 +59,9 @@ export function sceneInput(chat, target, stateAtTarget) {
   // No historical snapshot means no historical posture; never borrow the latest
   // game's pose to illustrate an earlier turn.
   const snapshot = stateAtTarget || (latestTurn === target.turn && chat.settleStatus === 'done' ? chat : null)
-  return { text, posture: typeof snapshot?.posture === 'string' ? snapshot.posture : '' }
+  const posture = typeof snapshot?.posture === 'string' ? snapshot.posture : ''
+  const state = sceneStateSources(snapshot, target, text + '\n' + posture)
+  return { text, posture, ...(state.sources.length || state.omitted.length ? { state } : {}) }
 }
 
 function sceneSources(chat, target, snapshot, sinceTurn = target.turn) {
@@ -80,8 +83,13 @@ function sceneSources(chat, target, snapshot, sinceTurn = target.turn) {
   add('target', target.turn, snapshot.text)
   if (!sources.length) throw new Error('目标正文单段超过绘图材料预算，请先分段后再生图')
   add('posture', target.turn, snapshot.posture)
+  for (const source of snapshot.state?.sources || []) {
+    if (source.text.length + 2 > remaining) { omitted.push({ id: source.id, characters: source.text.length }); continue }
+    remaining -= source.text.length + 2
+    sources.push(source)
+  }
   for (const item of [...lineage].reverse()) if (item.key !== target.key && item.turn > sinceTurn) add('history-' + item.key.slice(0, 16), item.turn, projectedSceneText(item.source, chat.macroState))
-  return { lineage, sources, omitted }
+  return { lineage, sources, omitted, stateAudit: snapshot.state?.omitted || [] }
 }
 
 /** Sidecar records only: never writes story messages, MVU state or foreground Session. */
@@ -212,7 +220,11 @@ export function createSceneIllustrations(deps) {
         material = sceneSources(chat, target, snapshot, prepared.previousTurn ?? target.turn)
         prepared.sources = material.sources
         prepared.gapComplete = material.omitted.length === 0
-        prepared.input = { ...prepared.input, sources: material.sources, gapComplete: prepared.gapComplete, budget: { kind: 'characters-not-tokens', maxSourceCharacters: 12000, omitted: material.omitted } }
+        // Version/path hashes are host evidence, not useful model tokens. Keep
+        // the full source in prepared.sources for validation and persisted facts.
+        const agentSources = material.sources.map(source => source.origin?.kind === 'mvu-state'
+          ? { ...source, origin: { kind: 'mvu-state' } } : source)
+        prepared.input = { ...prepared.input, sources: agentSources, gapComplete: prepared.gapComplete, budget: { kind: 'characters-not-tokens', maxSourceCharacters: 12000, omitted: material.omitted } }
         const latest = [...(chat.messages || [])].reverse().find(item => item.role === 'assistant')
         const latestTurn = Number(latest?.turn || (latest?.greeting ? 1 : 0))
         const worldbook = !prepared.saved ? await deps.worldbookAtTarget?.(chat, target) : null
@@ -319,7 +331,9 @@ export function createSceneIllustrations(deps) {
       record.configuration = { ...channelSettings(active), style: active.style }
       record.traceSessionId = result?.traceSessionId || record.traceSessionId || ''
       record.stage = 'queued'
-      record.diagnostics = { input: input.prepared.input, omitted: input.material.omitted, references: input.references?.audit || [], planId: plan.id }
+      record.diagnostics = { input: input.prepared.input, omitted: input.material.omitted,
+        state: { omitted: input.material.stateAudit || [], sources: (input.prepared.sources || []).filter(source => source.origin?.kind === 'mvu-state') },
+        references: input.references?.audit || [], planId: plan.id }
       await writeJob(path, record)
       clearTimeout(timer)
       const generated = await imageQueue.run({ requestId: record.requestId, signal: controller.signal }, async () => {

@@ -725,6 +725,39 @@ test('two invalid submissions stop before charging and preserve the concrete val
   assert.equal(fx.imageCalls(), 0)
 })
 
+test('historical visual variables reach planning with durable evidence, never future values or full mirrors', async t => {
+  let history, material
+  const fx = await fixture(t, { stateAtTarget: async () => structuredClone(history), runAgent: async input => {
+    material = JSON.parse(input.messages[0].content[0].text)
+    const source = material.sources.find(item => item.origin?.kind === 'mvu-state')
+    assert.ok(source)
+    const plan = planFixture()
+    plan.subjects = ['local-person']
+    plan.characters = [{ id: 'local-person', name: '林岚', identity: { source: 'target', quote: '林岚' }, fields: {
+      clothing: { text: '青色外套', tags: 'blue coat', evidence: [{ source: source.id, quote: '青色外套' }] }
+    } }]
+    const reply = await input.onToolCall({ arguments: { plan } })
+    assert.match(reply, /已校验保存/)
+    return { traceSessionId: 'state-child' }
+  } })
+  fx.chat().messages[1].sourceText = fx.chat().messages[1].swipes[0] = '林岚站在窗边。'
+  fx.chat().messages[1].variables = [{ stat_data: { 人物: { 林岚: { 衣着: '青色外套' } } } }]
+  fx.chat().messages[1].mvu = { pending: false }
+  history = structuredClone(fx.chat())
+  fx.chat().messages.push({ role: 'assistant', turn: 3, text: '后续正文', variables: [{ stat_data: { 林岚: { 衣着: '未来红衣' } } }] })
+  const target = sceneTarget(fx.chat(), 2), unchanged = structuredClone(fx.chat())
+  await fx.service.start('parent', 2, target.key)
+  await until(async () => (await fx.service.status('parent', 2)).status === 'succeeded')
+  assert.doesNotMatch(JSON.stringify(material), /未来红衣/)
+  assert.deepEqual(material.sources.find(source => source.origin?.kind === 'mvu-state').origin, { kind: 'mvu-state' }, 'state provenance hashes stay host-side')
+  assert.ok(material.sources.reduce((sum, source) => sum + source.text.length, 0) <= 12000)
+  const plans = await fx.store.readJson(imagePath + 'plans.json')
+  const person = Object.values(plans.characters)[0]
+  assert.equal(person.fields.clothing.evidence[0].origin.path, '/stat_data/人物/林岚/衣着')
+  assert.equal(person.fields.clothing.evidence[0].origin.bodyDigest, target.sourceDigest)
+  assert.deepEqual(fx.chat(), unchanged)
+})
+
 test('historical source never borrows a later posture, and skipped rounds enter the next planning input', async t => {
   const chat = chatFixture(), target = sceneTarget(chat, 2)
   chat.messages.push({ role: 'assistant', turn: 3, text: '她走进室内，换了红衣。' })

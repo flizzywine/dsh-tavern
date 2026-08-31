@@ -64,7 +64,7 @@ export function createSceneReferences({ snapshot, worldbook, target, sources, pe
   }
   if (worldbook?.unavailable) audit.push({ reason: worldbook.unavailable })
   if (Array.isArray(worldbook?.entries)) {
-    const currentText = sources.filter(source => ['target', 'posture'].includes(source.id)).map(source => source.text).join('\n')
+    const currentText = sources.filter(source => ['target', 'posture'].includes(source.id) || source.origin?.kind === 'mvu-state').map(source => source.text).join('\n')
     let excluded = 0
     for (const entry of worldbook.entries) {
       if (!conditionMatches(entry, currentText)) { excluded++; continue }

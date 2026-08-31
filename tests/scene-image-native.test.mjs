@@ -4,6 +4,47 @@ import { createSceneImageNativeRuntime } from './fixtures/scene-image-native-run
 import { SCENE_IMAGE_CHANNELS } from '../tavern-plugin/lib/domain/scene-image-channels.js'
 import { comfyGraph } from './fixtures/scene-image-comfy-workflow.mjs'
 
+test('原生 DSH 仅接收已就绪可视变量，引用衣着片段并跨重启复用，不写前台', { skip: !process.env.DSH_BOOT_MODULE }, async t => {
+  const runtime = await createSceneImageNativeRuntime(process.env.DSH_BOOT_MODULE)
+  t.after(() => runtime.dispose())
+  runtime.chat.settleStatus = 'done'
+  const message = runtime.chat.messages[0]
+  message.swipes[0] = message.sourceText = '林岚站在窗边。'
+  message.mvu = { pending: false }
+  message.variables = [{ stat_data: { 人物: { 林岚: { 衣着: '青色外套', 好感度: '秘密数值' }, 路人: { 衣着: '无关人物衣着' } },
+    场景: { 天气: '小雨' } }, schema: { secret: '不能发送结构' }, display_data: { secret: '不能发送镜像' } }]
+  runtime.useVisualState()
+  const before = runtime.parent.agent.session.events.length
+  const target = await runtime.service.status('scene-parent', 1)
+  await runtime.service.start('scene-parent', 1, target.key)
+  // A late state update must not alter the already captured task material.
+  message.variables[0].stat_data.人物.林岚.衣着 = '未来红色衣服'
+  const after = JSON.stringify(runtime.chat)
+  async function finished() {
+    for (let index = 0; index < 300; index++) {
+      const status = await runtime.service.status('scene-parent', 1)
+      if (status.status !== 'running') { assert.equal(status.status, 'succeeded', status.error); return status }
+      await new Promise(resolve => setTimeout(resolve, 20))
+    }
+    assert.fail('state image flow did not finish')
+  }
+  const first = await finished()
+  assert.equal(runtime.requests.length, 2)
+  const request = JSON.stringify(runtime.requests[0])
+  assert.match(request, /青色外套/)
+  assert.match(request, /mvu-state/)
+  assert.doesNotMatch(request, /秘密数值|无关人物衣着|不能发送结构|不能发送镜像|未来红色衣服/)
+  assert.match(runtime.imageRequests[0].prompt, /blue coat/)
+  await runtime.restart()
+  await runtime.service.start('scene-parent', 1, target.key, { kind: 'repaint', versionId: first.versions[0].id })
+  await finished()
+  assert.equal(runtime.requests.length, 2, 'repaint does not rerun the text model or pick up future clothes')
+  assert.equal(runtime.imageRequests.length, 2)
+  assert.match(runtime.imageRequests[1].prompt, /blue coat/)
+  assert.equal(JSON.stringify(runtime.chat), after)
+  assert.equal(runtime.parent.agent.session.events.length, before)
+})
+
 test('原生 DSH 生图 Agent 按需读历史设定、引用片段，前台不注入且重画不重读', { skip: !process.env.DSH_BOOT_MODULE }, async t => {
   const runtime = await createSceneImageNativeRuntime(process.env.DSH_BOOT_MODULE)
   t.after(() => runtime.dispose())

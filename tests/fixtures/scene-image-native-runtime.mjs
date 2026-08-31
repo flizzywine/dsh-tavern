@@ -24,6 +24,7 @@ export async function createSceneImageNativeRuntime(bootPath) {
   ctx.baseUrl = bootUrl.href
   const requests = [], imageRequests = []
   let referenceQuery = ''
+  let useVisualState = false
   const comfyTasks = new Map()
   const sharp = createRequire(new URL('../../dsh-attachment-local/lib/index.js', bootUrl))('sharp')
   const png = await sharp({ create: { width: 320, height: 180, channels: 3, background: '#789aab' } }).png().toBuffer()
@@ -35,6 +36,18 @@ export async function createSceneImageNativeRuntime(bootPath) {
       const referenceTool = referenceQuery && !referenceResult && input.tools?.find(item => item.name === 'read_scene_reference')
       const tool = referenceTool || input.tools?.find(item => ['submit_scene_plan', 'submit_image_adjustment'].includes(item.name))
       const plan = { description: '窗边单幅画面', subjects: [], characters: [], continuity: 'uncertain', scene: { composition: { text: '窗边单幅画面', tags: 'A woman standing beside a rain-streaked window, left hand on the frame, quiet evening light.', evidence: [] } } }
+      if (useVisualState && tool?.name === 'submit_scene_plan') {
+        const material = currentMessages.flatMap(message => message.content || []).filter(block => block.type === 'text').flatMap(block => block.text.split('\n')).map(line => {
+          try { return JSON.parse(line) } catch { return null }
+        }).find(value => Array.isArray(value?.sources))
+        const source = material?.sources.find(item => item.origin?.kind === 'mvu-state' && item.text.includes('衣着：青色外套'))
+        if (source) {
+          plan.subjects = ['state-person']
+          plan.characters = [{ id: 'state-person', name: '林岚', identity: { source: 'target', quote: '林岚' }, fields: {
+            clothing: { text: '青色外套', tags: 'blue coat', evidence: [{ source: source.id, quote: '青色外套' }] }
+          } }]
+        }
+      }
       if (referenceResult) {
         const source = JSON.parse(referenceResult.content.filter(block => block.type === 'text').map(block => block.text).join('')).sources[0]
         if (source) {
@@ -111,6 +124,7 @@ export async function createSceneImageNativeRuntime(bootPath) {
     failNextSave() { failSave = true },
     holdNextImage() { holdNext = true },
     lookupReferences(query) { referenceQuery = query },
+    useVisualState() { useVisualState = true },
     async archiveWorldbook(worldBook, turn = 1) {
       const ref = await worldbooks.capture({ worldBook, chat, card: { name: '林岚' } })
       bindSceneWorldbook(chat.messages.find(message => message.role === 'assistant' && message.turn === turn), ref)
