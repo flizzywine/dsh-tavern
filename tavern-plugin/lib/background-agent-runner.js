@@ -25,7 +25,7 @@ function backgroundPrompt(messages, turnContext, task, taskProtocol, input = {})
     const role = message && message.role === 'assistant' ? '正文' : '用户'
     return '[' + role + ']\n' + messageText(message)
   }).filter(function (text) { return text.trim() !== '' }).join('\n\n')
-  const taskName = task === 'settlement' ? '状态结算' : '候选生成'
+  const taskName = task === 'image' ? '场景生图' : task === 'settlement' ? '状态结算' : '候选生成'
   sections.push('【最近剧情与本次任务】\n任务类型：' + taskName + '\n' + recent)
   const protocol = str(taskProtocol).trim()
   if (protocol !== '') sections.push('【DSH 后台任务协议（最终指令）】\n按系统提示中的本轮任务规则执行。')
@@ -146,6 +146,7 @@ export function createBackgroundAgentRunner(options) {
   }
 
   function descriptorFor(input, persistent) {
+    if (input.task === 'image') return snapshotSubagentDescriptor({ mode: 'one-shot', provider: 'dsh-tavern-image', label: '场景生图' })
     if (!persistent) return snapshotSubagentDescriptor({ mode: 'one-shot', provider: 'dsh-tavern-background', label: '候选研究' })
     return snapshotSubagentDescriptor({
       mode: 'continuable',
@@ -188,7 +189,7 @@ export function createBackgroundAgentRunner(options) {
         name: 'deployment:persona',
         order: 0,
         complete: true,
-        text: backgroundPersona
+        text: state.input.task === 'image' ? '你是独立的场景生图 Agent，不续写故事、不修改变量。\n\n{{tavern_background_task}}' : backgroundPersona
       })
       childCtx.systemPrompt.suppressRuntimeContext()
       childCtx.tools.restrict({ allow: [] })
@@ -308,8 +309,11 @@ export function createBackgroundAgentRunner(options) {
       turn: Math.max(0, Number(input.turn) || 0)
     })
     const removeTaskTools = installTaskTools(state, runtimeInput)
+    const cancel = function () { handle.agent.cancel?.({ kind: 'user' }) }
+    input.signal?.addEventListener('abort', cancel, { once: true })
 
     try {
+      input.signal?.throwIfAborted()
       if (!readSessionStablePrefix(handle.agent.session)) {
         const background = typeof options.resolveStablePrefix === 'function'
           ? await options.resolveStablePrefix(input) : input.backgroundContext
@@ -324,6 +328,7 @@ export function createBackgroundAgentRunner(options) {
         source: { kind: 'plugin', plugin: 'dsh-tavern' }
       })
       await handle.agent.whenIdle()
+      input.signal?.throwIfAborted()
       const rawResult = finalMessage(handle.agent.session.events, eventStart)
       if (rawResult === null) {
         const underlying = terminalError(handle.agent.session.events, eventStart)
@@ -335,6 +340,7 @@ export function createBackgroundAgentRunner(options) {
     } catch (error) {
       throw traceError(error, traceSessionId, input.task)
     } finally {
+      input.signal?.removeEventListener('abort', cancel)
       await removeTaskTools()
       activeSessions.delete(traceSessionId)
       if (!persistent) {

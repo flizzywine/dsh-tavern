@@ -72,7 +72,7 @@ test('真实设置保存链路关闭兼容模式成功返回，旧关闭信任�
 })
 
 test('设置界面只保留兼容模式开关，不渲染样式配置和信任选项', () => {
-  const context = { React: {
+  const context = { SceneImageSettings: function SceneImageSettings() {}, React: {
     useState: initial => [initial, () => {}],
     useEffect() {},
     createElement: (type, props, ...children) => ({ type, props, children })

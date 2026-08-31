@@ -30,6 +30,11 @@ window.__ModuleLoader__.load({
 .dsh-tavern-error-meta time { margin-left: auto; color: var(--dsw-alias-label-secondary); font-weight: 400; }
 .dsh-tavern-error-message { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; line-height: 1.55; }
 .dsh-tavern-assistant { display: flex; flex-direction: column; gap: 16px; color: var(--dsw-alias-label-primary); font-size: 16px; line-height: 28px; }
+.dsh-tavern-illustration { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
+.dsh-tavern-illustration img { display: block; max-width: 100%; max-height: 720px; object-fit: contain; border-radius: 12px; }
+.dsh-tavern-image-settings { display: flex; flex-direction: column; gap: 12px; padding: 20px; }
+.dsh-tavern-image-settings label { display: flex; flex-direction: column; gap: 5px; }
+.dsh-tavern-image-settings input { width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 6px; color: inherit; background: var(--dsw-specific-sidebar-fill); }
 .dsh-tavern-assistant-reasoning { color: var(--dsw-alias-label-secondary); font-size: 14px; line-height: 22px; }
 .dsh-tavern-assistant-reasoning summary { cursor: pointer; user-select: none; }
 .dsh-tavern-assistant-reasoning pre { margin: 8px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
@@ -3043,6 +3048,37 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					React.createElement("div", { className: "dsh-tavern-user-actions" }, time ? React.createElement("span", null, time) : null, React.createElement(DshUi.Tooltip, { label: copied ? "已复制" : "复制", side: "bottom" }, React.createElement("button", { type: "button", className: "dsh-tavern-user-copy", "aria-label": copied ? "已复制" : "复制", onClick: copy }, React.createElement(copied ? DshUi.IconCheckOutline16 : DshUi.IconCopyOutline16, null))))
 				);
 			}
+			function SceneIllustration(props) {
+				const [state, setState] = React.useState(null);
+				const [busy, setBusy] = React.useState(false);
+				const [error, setError] = React.useState("");
+				React.useEffect(function () {
+					let active = true, timer;
+					async function refresh() {
+						try {
+							const result = await rpc("sceneImageStatus", { turn: props.turn }, props.sessionId);
+							if (!active) return;
+							setState(result.illustration);
+							if (result.illustration.status === "running") timer = window.setTimeout(refresh, 2000);
+						} catch (e) { if (active) setError(String(e.message || e)); }
+					}
+					void refresh();
+					return function () { active = false; window.clearTimeout(timer); };
+				}, [props.sessionId, props.turn, busy]);
+				async function generate() {
+					if (!state || busy || state.status === "running") return;
+					setBusy(true); setError("");
+					try { const result = await rpc("generateSceneImage", { turn: props.turn, key: state.key }, props.sessionId); setState(result.illustration); }
+					catch (e) { setError(String(e.message || e)); }
+					finally { setBusy(false); }
+				}
+				const url = state && state.status === "succeeded" ? "/api/dsh-tavern/scene-image?" + new URLSearchParams({ sessionId: props.sessionId, turn: String(props.turn), key: state.key }).toString() : "";
+				return React.createElement("div", { className: "dsh-tavern-illustration" },
+					url ? React.createElement("a", { href: url, target: "_blank", rel: "noopener noreferrer" }, React.createElement("img", { src: url, alt: "本段场景插画", loading: "lazy", onError: function () { setError("图片加载失败，请刷新后重试"); } })) :
+					React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: !state || busy || state.status === "running", onClick: generate }, busy || state && state.status === "running" ? "正在生图…" : state && state.status === "failed" ? "重试生图" : "生图"),
+					error || state && state.error ? React.createElement("span", { role: "alert", className: "dsh-tavern-settings-error" }, error || state.error) : null
+				);
+			}
 			function TavernAssistantNodeView(props) {
 				const data = props.node.data;
 				const turnRef = props.node.location.kind === "turn" || props.node.location.kind === "step" ? props.node.location.turn : null;
@@ -3095,7 +3131,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					React.createElement("button", { type: "button", disabled: swipeBusy || swipe.swipeId >= swipe.count - 1, "aria-label": "下一个 Swipe", onClick: function () { switchSwipe(swipe.swipeId + 1); } }, "›")
 				) : null;
 				const mvuReceiptNode = mvuReceipt ? React.createElement(TavernMvuReceipt, { receipt: mvuReceipt, sessionId: props.sessionId, turn: turn }) : null;
-				return React.createElement("div", { className: "dsh-tavern-assistant", "data-streaming": data.status === "running" || undefined }, rendered, mvuReceiptNode, swipeControls);
+				const illustration = settled && projection && !sessionTransitioning ? React.createElement(SceneIllustration, { key: props.sessionId + ":" + turn + ":" + String(swipe && swipe.swipeId) + ":" + JSON.stringify(projection), sessionId: props.sessionId, turn: turn }) : null;
+				return React.createElement("div", { className: "dsh-tavern-assistant", "data-streaming": data.status === "running" || undefined }, rendered, illustration, mvuReceiptNode, swipeControls);
 			}
 			function register(input) {
 				input.ctx.effect(function () {
@@ -3838,6 +3875,35 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		}
 		const tavernShellFeature = createTavernShellFeatureModule();
 
+		function SceneImageSettings() {
+			const [form, setForm] = React.useState(null);
+			const [key, setKey] = React.useState("");
+			const [busy, setBusy] = React.useState(false);
+			const [notice, setNotice] = React.useState("");
+			React.useEffect(function () {
+				let active = true;
+				rpc("getSceneImageSettings").then(function (result) { if (active) setForm(result.settings); }, function (e) { if (active) setNotice(String(e.message || e)); });
+				return function () { active = false; };
+			}, []);
+			async function save() {
+				setBusy(true); setNotice("");
+				try { const result = await rpc("saveSceneImageSettings", Object.assign({}, form, { apiKey: key })); setForm(result.settings); setKey(""); setNotice("已保存"); }
+				catch (e) { setNotice(String(e.message || e)); }
+				finally { setBusy(false); }
+			}
+			return React.createElement("details", { className: "dsh-tavern-settings-group" },
+				React.createElement("summary", { className: "dsh-tavern-settings-row" }, "场景生图"),
+				React.createElement("div", { className: "dsh-tavern-image-settings" },
+					React.createElement("p", { className: "dsh-tavern-settings-intro" }, "点击正文末尾的「生图」，独立 Agent 使用当前对话模型理解正文和姿势，再生成一张插画。会产生一次额外的文字模型任务及生图费用。首版支持 OpenAI 兼容 Images API。"),
+					form ? [
+						["baseURL", "API 根地址（通常以 /v1 结尾）"], ["model", "生图模型名称"], ["size", "图片尺寸"]
+					].map(function (field) { return React.createElement("label", { key: field[0] }, field[1], React.createElement("input", { value: form[field[0]], disabled: busy, onChange: function (e) { const value = e.target.value; setForm(function (current) { return Object.assign({}, current, { [field[0]]: value }); }); } })); }) : null,
+					React.createElement("label", null, "API Key" + (form && form.hasKey ? "（已配置，留空保留）" : ""), React.createElement("input", { type: "password", autoComplete: "new-password", value: key, disabled: busy, onChange: function (e) { setKey(e.target.value); } })),
+					React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: !form || busy, onClick: save }, busy ? "保存中…" : "保存生图设置"),
+					notice ? React.createElement("span", { role: "status" }, notice) : null
+				)
+			);
+		}
 		function TavernSettingsSection() {
 			const [state, setState] = React.useState({ loading: true, busy: false, compatibilityMode: false, error: "" });
 			React.useEffect(function () {
@@ -3874,6 +3940,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 						)
 					)
 				),
+				React.createElement(SceneImageSettings, null),
 				state.error ? React.createElement("div", { className: "dsh-tavern-settings-error", role: "alert" }, "保存失败：" + state.error) : null
 			);
 		}
