@@ -1,11 +1,55 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { projectOpeningCommit, projectRuntimeReplyHistory } from '../tavern-plugin/lib/domain/runtime-content-projection.js'
 
 import {
   projectTavernHelperContext,
   replaceTavernHelperMessages,
   replaceTavernHelperVariables
 } from '../tavern-plugin/lib/domain/tavern-helper-context.js'
+
+function macroOpeningChat() {
+  const source = '{{incvar::visits}}{{User}}看向{{Char}}。'
+  const projection = projectOpeningCommit(source, { charName: '角色', macroState: { userName: '玩家', local: { visits: 0 } } })
+  return {
+    cardName: '角色', macroState: projection.macroState,
+    messages: [{ role: 'assistant', greeting: true, turn: 1, swipeId: 0,
+      swipes: [source, '{{USER}}离开{{char}}。'], variables: [{}, {}],
+      sourceText: source, projectionText: projection.renderedText,
+      text: projection.sessionText, sessionText: projection.sessionText,
+      displayText: projection.displayText, displayMode: projection.displayMode }]
+  }
+}
+
+test('MVU 数据写回不覆盖已解析正文，也不重新执行有副作用的宏', () => {
+  for (const patch of [
+    { data: { stat_data: { hp: 9 } } },
+    { swipes_data: [{ stat_data: { hp: 9 } }, {}] },
+    { swipe_id: 0, data: { stat_data: { hp: 9 } } }
+  ]) {
+    const chat = macroOpeningChat()
+    const before = structuredClone(chat)
+    replaceTavernHelperMessages(chat, [{ message_id: 0, ...patch }])
+    assert.deepEqual(projectRuntimeReplyHistory(chat.messages), projectRuntimeReplyHistory(before.messages))
+    assert.deepEqual(chat.macroState, before.macroState)
+    assert.deepEqual({ ...chat.messages[0], variables: [] }, { ...before.messages[0], variables: [] })
+    assert.equal(chat.messages[0].variables[0].stat_data.hp, 9)
+  }
+})
+
+test('真正切换开场或编辑正文时才重新解析宏，保留原始 swipe', () => {
+  const chat = macroOpeningChat()
+  replaceTavernHelperMessages(chat, [{ message_id: 0, swipe_id: 1 }])
+  assert.equal(chat.messages[0].text, '玩家离开角色。')
+  assert.equal(chat.messages[0].sourceText, '{{USER}}离开{{char}}。')
+  assert.equal(chat.messages[0].swipes[1], '{{USER}}离开{{char}}。')
+  replaceTavernHelperMessages(chat, [{ message_id: 0, message: '{{incvar::visits}}{{User}}回来。' }])
+  assert.equal(chat.messages[0].text, '2玩家回来。')
+  assert.equal(chat.macroState.local.visits, 2)
+  assert.equal(projectRuntimeReplyHistory(chat.messages).projections[0].text, '2玩家回来。')
+  replaceTavernHelperMessages(chat, [{ message_id: 0, message: '' }])
+  assert.equal(chat.messages[0].text, '')
+})
 
 test('Helper 上下文按当前 swipe 投影消息、变量和回合楼层', () => {
   const chat = {

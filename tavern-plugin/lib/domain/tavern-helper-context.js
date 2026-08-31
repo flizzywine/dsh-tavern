@@ -1,3 +1,5 @@
+import { projectAgentContent } from './runtime-content-projection.js'
+
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
 }
@@ -117,19 +119,16 @@ export function replaceTavernHelperMessages(chat, patches) {
       Array.isArray(message.variables) ? message.variables.length : 0,
       1
     )
+    const previousSwipeId = selectedSwipe(message)
     const swipeId = Object.prototype.hasOwnProperty.call(patch, 'swipe_id')
       ? Math.max(0, Math.min(count - 1, Number(patch.swipe_id) || 0))
-      : selectedSwipe(message)
-    if (Object.prototype.hasOwnProperty.call(patch, 'message')) {
+      : previousSwipeId
+    const writesText = Object.prototype.hasOwnProperty.call(patch, 'message')
+    if (writesText) {
       const text = str(patch.message)
       if (!Array.isArray(message.swipes)) message.swipes = [str(message.sourceText || message.text)]
       while (message.swipes.length < count) message.swipes.push('')
       message.swipes[swipeId] = text
-      message.sourceText = text
-      message.projectionText = text
-      message.text = text
-      message.sessionText = text
-      message.displayText = text
     }
     if (Object.prototype.hasOwnProperty.call(patch, 'data')) {
       if (!Array.isArray(message.variables)) message.variables = []
@@ -142,12 +141,21 @@ export function replaceTavernHelperMessages(chat, patches) {
       })
     }
     message.swipeId = swipeId
-    if (Array.isArray(message.swipes) && message.swipes[swipeId] !== undefined) {
-      message.sourceText = message.swipes[swipeId]
-      message.projectionText = message.swipes[swipeId]
-      message.text = message.swipes[swipeId]
-      message.sessionText = message.swipes[swipeId]
-      message.displayText = message.swipes[swipeId]
+    // MVU initialization writes swipes_data only. Never replace an already
+    // rendered message with raw swipe text or replay stateful macros for it.
+    if ((writesText || swipeId !== previousSwipeId) && Array.isArray(message.swipes) && message.swipes[swipeId] !== undefined) {
+      const sourceText = message.swipes[swipeId]
+      const projection = projectAgentContent(sourceText, { charName: chat.cardName, macroState: chat.macroState })
+      message.sourceText = sourceText
+      message.projectionText = projection.renderedText
+      message.text = projection.sessionText
+      message.sessionText = projection.sessionText
+      message.displayText = projection.displayText
+      message.displayMode = projection.displayMode
+      message.projectionVersion = 2
+      message.projectionWarnings = projection.warnings
+      delete message.displayRuntime
+      chat.macroState = projection.macroState
     }
     updated.push({ messageId, swipeId })
   }

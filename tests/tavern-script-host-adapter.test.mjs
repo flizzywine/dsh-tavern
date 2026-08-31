@@ -212,6 +212,10 @@ test('Host Adapter 保留 MVU 门控并拒绝过期 iframe 覆盖新状态', asy
 
 test('官方 MVU 写回全部开场 Swipe 后由 Host 标记初始化完成', async function () {
   const value = chat()
+  Object.assign(value.messages[0], {
+    sourceText: '{{User}}靠在树边。', swipes: ['{{User}}靠在树边。', '另一个开场'],
+    text: '你靠在树边。', projectionText: '你靠在树边。', displayText: '你靠在树边。'
+  })
   value.mvu = { enabled: true, owner: 'official', openingInitialization: { version: 2, status: 'pending' } }
   const run = harness(value)
   const first = { stat_data: { hp: 10 }, schema: { type: 'object' } }
@@ -220,6 +224,12 @@ test('官方 MVU 写回全部开场 Swipe 后由 Host 标记初始化完成', as
   assert.equal(run.chat.mvu.openingInitialization.status, 'complete')
   assert.equal(run.chat.mvu.openingInitialization.version, 2)
   assert.equal(typeof run.chat.mvu.openingInitialization.completedAt, 'number')
+  const saved = run.writes.at(-1).value.messages[0]
+  assert.equal(saved.text, '你靠在树边。')
+  assert.equal(saved.projectionText, '你靠在树边。')
+  assert.equal(saved.displayText, '你靠在树边。')
+  assert.equal(saved.swipes[0], '{{User}}靠在树边。')
+  assert.deepEqual(saved.variables, [first, second])
 })
 
 test('Host Adapter 统一翻译世界书、Swipe 与生命周期事件', async function () {
