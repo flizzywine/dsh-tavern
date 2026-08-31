@@ -8,7 +8,6 @@ import { createSceneIllustrations, sceneTarget } from './domain/scene-illustrati
 import { createSessionStablePrefixStorage, ensureSessionStablePrefix, readSessionStablePrefix } from './domain/session-stable-prefix.js'
 import { waitForWritableSession } from './domain/agent-readiness.js'
 import { createCardDeletion } from './domain/card-deletion.js'
-import { createBypassPlanModule } from './domain/bypass-plans.js'
 import { createCardPreparation } from './domain/card-preparation.js'
 import { projectCardOpeningPreviews } from './domain/card-opening-previews.js'
 import { cardOpeningChoices, resolveCardOpening } from './domain/card-openings.js'
@@ -26,11 +25,9 @@ import { createModelRequestLog } from './domain/model-request-log.js'
 import { createMvuSettlementModule } from './domain/mvu-background-settlement.js'
 import { createMvuDiagnosticStore, createMvuDiagnosticExport, sanitizeRuntimeDiagnostics } from './domain/mvu-diagnostics.js'
 import { projectPersistentStatusView } from './domain/persistent-status-view.js'
-import { previewPresetConversion } from './domain/preset-conversion-preview.js'
-import { inspectPreset, nativeRegexScriptsOf } from './domain/preset-reading.js'
 import { createPlayChatDebugReference, readPlayChatDebugTurn } from './domain/play-chat-debug.js'
-import { createPresetEditor } from './domain/preset-editor.js'
-import { createRuntimePresetModule, resolveRuntimePresetMacros } from './domain/runtime-presets.js'
+import { createPresetLibrary } from './domain/preset-library.js'
+import { resolveRuntimePresetMacros } from './domain/runtime-presets.js'
 import { compileSillyTavernRequest } from './domain/sillytavern-compatibility.js'
 import { applySillyTavernStrictTools } from './domain/sillytavern-strict-tools.js'
 import { createForegroundOrchestrationStrategies } from './domain/foreground-orchestration-strategies.js'
@@ -471,200 +468,9 @@ export async function apply(ctx) {
     const record = await readSource(sourcePath)
     return { path: sourcePath, title: record.title, sourceChars: record.sourceChars, chunkCount: record.chunks.length, importedAt: Date.now() }
   }
-  async function readPreset(presetPath) {
-    const normalized = normalizeResourcePath(presetPath, 'preset')
-    const text = await fileResources.readText(normalized)
-    if (text === undefined) return undefined
-    const inspected = inspectPreset(text, normalized)
-    const conversion = previewPresetConversion(text, normalized)
-    return Object.assign({
-      path: normalized,
-      previewPath: fileResources.absolute(normalized),
-      dshPreset: conversion && conversion.dshPreset || null,
-      conversionStatus: conversion && conversion.status || 'unrecognized',
-      conversionDiagnostics: conversion && conversion.diagnostics || []
-    }, inspected)
-  }
-  async function readPresetDocument(presetPath) {
-    const normalized = normalizeResourcePath(presetPath, 'preset')
-    const text = await fileResources.readText(normalized)
-    if (text === undefined) return undefined
-    try { return JSON.parse(text) } catch { return undefined }
-  }
-  function runtimeRegexScriptsOf(preset, document) {
-    const nativeScripts = nativeRegexScriptsOf(document)
-    const nativeSource = document && document.extensions && Array.isArray(document.extensions.regex_scripts) ? document.extensions.regex_scripts : []
-    const bindingSource = document && document.extensions && document.extensions.SPreset && document.extensions.SPreset.RegexBinding && Array.isArray(document.extensions.SPreset.RegexBinding.regexes) ? document.extensions.SPreset.RegexBinding.regexes : []
-    const usingNative = nativeScripts.length > 0
-    const source = usingNative ? nativeScripts : (Array.isArray(preset && preset.regexScripts) ? preset.regexScripts : [])
-    const sourceIndexes = (usingNative ? nativeSource : bindingSource).map(function (script, index) {
-      return script !== null && typeof script === 'object' && !Array.isArray(script) ? index : null
-    }).filter(function (index) { return index !== null })
-    const sourceBase = usingNative ? '/extensions/regex_scripts/' : '/extensions/SPreset/RegexBinding/regexes/'
-    const occurrences = new Map()
-    return source.map(function (script, index) {
-      const identifier = str(script.id) || 'regex-' + (index + 1)
-      const occurrence = (occurrences.get(identifier) || 0) + 1
-      occurrences.set(identifier, occurrence)
-      const editBase = sourceBase + sourceIndexes[index]
-      return Object.assign({}, script, { regexKey: identifier + '#' + occurrence, edit: {
-        scriptNamePath: editBase + '/scriptName',
-        findRegexPath: editBase + '/findRegex',
-        replaceStringPath: editBase + '/replaceString',
-        disabledPath: editBase + '/disabled'
-      } })
-    })
-  }
-  async function previewPreset(presetPath, orderGroupIndex) {
-    const normalized = normalizeResourcePath(presetPath, 'preset')
-    const text = await fileResources.readText(normalized)
-    if (text === undefined) return undefined
-    return Object.assign({ path: normalized }, previewPresetConversion(text, normalized, { orderGroupIndex }))
-  }
-  const presetEditor = createPresetEditor({
-    normalizePath: normalizeResourcePath,
-    readText: async function (path) { return await fileResources.readText(path) },
-    writeText: async function (path, text) { return await fileResources.writeWorking(path, text) },
-    inspectRegexScripts: runtimeRegexScriptsOf
-  })
-  const runtimePresets = createRuntimePresetModule({
-    listPaths: async function () { return await fileResources.list('preset') },
-    readPreset,
-    readPresetDocument,
-    runtimeRegexScripts: runtimeRegexScriptsOf,
-    readState: async function () { return await readJson('runtime-presets.json') },
-    updateState: async function (updater) { return await profileData.updateJson('runtime-presets.json', updater) },
-    now: Date.now
-  })
-  const bypassPlans = createBypassPlanModule({
-    readPreset,
-    readPresetDocument,
-    runtimeRegexScripts: runtimeRegexScriptsOf,
-    readState: async function () { return await readJson('bypass-plans.json') },
-    updateState: async function (updater) { return await profileData.updateJson('bypass-plans.json', updater) },
-    now: Date.now
-  })
-  async function migrateLegacyPresetPlans() {
-    const target = await bypassPlans.state()
-    if (target.plans.length > 0) return
-    const legacy = await runtimePresets.state()
-    const candidates = (legacy.plans || []).map(function (plan) {
-      return { name: plan.name, path: plan.presetPath, entryKeys: plan.entryKeys || [], regexKeys: plan.regexKeys || [] }
-    })
-    if (legacy.activePreset && !candidates.some(function (item) { return item.path === legacy.activePreset })) {
-      candidates.push({
-        name: (legacy.activePreset.split('/').pop() || '外部预设').replace(/\.json$/i, '') + ' · 迁移方案',
-        path: legacy.activePreset,
-        entryKeys: Object.keys(legacy.entries[legacy.activePreset] || {}),
-        regexKeys: Object.keys(legacy.regexes[legacy.activePreset] || {})
-      })
-    }
-    for (const candidate of candidates) {
-      try {
-        const preset = await readPreset(candidate.path)
-        const document = await readPresetDocument(candidate.path)
-        if (!preset || !document) continue
-        const availableRegexes = new Set(runtimeRegexScriptsOf(preset, document).map(function (script) { return script.regexKey }))
-        const regexKeys = candidate.regexKeys.filter(function (key) { return availableRegexes.has(key) })
-        await bypassPlans.extract({
-          name: candidate.name,
-          sourcePresetPath: candidate.path,
-          entryKeys: candidate.entryKeys,
-          regexKeys
-        })
-      } catch (error) {
-        console.warn('dsh-tavern: 旧预设方案迁移失败', candidate.path, error)
-      }
-    }
-  }
-  async function migrateActivePresetSelection() {
-    const legacy = await bypassPlans.state()
-    const activePlan = legacy.plans.find(function (plan) { return plan.id === legacy.activePlanId })
-    if (!activePlan) return
-    const path = str(activePlan.source && activePlan.source.presetPath)
-    if (path !== '' && await readPreset(path)) await runtimePresets.select(path)
-    await bypassPlans.activate('')
-  }
-
-  async function migrateLegacyChatPreset(chat) {
-    if (!chat || str(chat.bypassPlanId) !== '') return false
-    const path = str(chat.runtimePresetPath) || str(chat.runtimePresetSnapshot && chat.runtimePresetSnapshot.presetPath)
-    if (path === '') return false
-    const snapshot = chat.runtimePresetSnapshot && typeof chat.runtimePresetSnapshot === 'object' ? chat.runtimePresetSnapshot : {}
-    const selectedKeys = Array.from(new Set((snapshot.sources || []).map(function (source) { return str(source && source.entryKey) }).filter(Boolean)))
-    let plan = null
-    const existingPlans = await bypassPlans.list()
-    plan = existingPlans.find(function (item) {
-      if (str(item.source && item.source.presetPath) !== path) return false
-      const keys = item.entries.filter(function (entry) { return entry.enabled && !entry.systemManaged }).map(function (entry) { return entry.entryKey })
-      return JSON.stringify(keys.slice().sort()) === JSON.stringify(selectedKeys.slice().sort())
-    }) || null
-    if (plan === null) {
-      const name = '旧对话 · ' + (str(chat.cardName) || '未命名') + ' · ' + str(chat.id).slice(-6)
-      const preset = await readPreset(path)
-      const document = await readPresetDocument(path)
-      if (preset && document) {
-        const selectedRegexKeys = Array.from(new Set((snapshot.regexSources || []).map(function (source) { return str(source && source.regexKey) }).filter(Boolean)))
-        plan = await bypassPlans.extract({ name, sourcePresetPath: path, entryKeys: selectedKeys, regexKeys: selectedRegexKeys })
-      } else {
-        const entries = []
-        for (const phase of ['front', 'middle', 'back']) {
-          for (const entry of (snapshot[phase] && snapshot[phase].entries || [])) {
-            entries.push(Object.assign({}, entry, {
-              entryKey: str(entry.id || entry.entryKey), identifier: str(entry.source && entry.source.identifier),
-              enabled: true, injectable: str(entry.content).trim() !== '', phase
-            }))
-          }
-        }
-        plan = await bypassPlans.importPlan({
-          name,
-          source: { presetName: (path.split('/').pop() || path).replace(/\.json$/i, ''), presetPath: path, presetDigest: '' },
-          entries,
-          regexScripts: snapshot.regexScripts || [],
-          compatibilitySettings: {}
-        })
-      }
-    }
-    chat.bypassPlanId = plan.id
-    chat.runtimePresetPath = ''
-    chat.runtimePresetSnapshot = await bypassPlans.snapshot(plan.id)
-    return true
-  }
-  async function listPresets() {
-    const result = []
-    const inspectedPresets = []
-    for (const presetPath of await fileResources.list('preset')) {
-      const inspected = await readPreset(presetPath)
-      inspectedPresets.push({ path: presetPath, inspected })
-    }
-    for (const record of inspectedPresets) {
-      const presetPath = record.path
-      const inspected = record.inspected
-      const preset = inspected
-      const extractableRegexScripts = runtimeRegexScriptsOf(preset, await readPresetDocument(preset.path))
-      result.push({
-        path: preset.path,
-        previewPath: preset.previewPath,
-        title: preset.title,
-        valid: preset.valid,
-        recognized: preset.recognized,
-        promptCount: preset.promptCount,
-        enabledCount: preset.enabledCount || 0,
-        regexCount: extractableRegexScripts.length,
-        enabledRegexCount: extractableRegexScripts.filter(function (script) { return script.enabled !== false }).length,
-        warning: preset.warning,
-        error: preset.error
-      })
-    }
-    return result
-  }
-  async function importPreset(payload) {
-    const prepared = prepareTextImport(payload, '预设文件为空')
-    const inspected = inspectPreset(prepared.text, prepared.name)
-    if (!inspected.valid) throw new Error(inspected.error)
-    const presetPath = await fileResources.importText('preset', prepared)
-    return await readPreset(presetPath)
-  }
+  const presetLibrary = createPresetLibrary({ resources: fileResources, state: profileData, prepareImport: prepareTextImport })
+  const { read: readPreset, readDocument: readPresetDocument, preview: previewPreset,
+    import: importPreset, editor: presetEditor, runtime: runtimePresets, plans: bypassPlans } = presetLibrary
   let resourceGraph
   async function renameResource(resourcePath, name) { return await resourceGraph.rename(resourcePath, name) }
   async function deleteLibraryResource(resourcePath, expectedKind) {
@@ -2214,8 +2020,7 @@ export async function apply(ctx) {
   const runtimeReadiness = new Promise(function (resolve) { settleRuntimeReadiness = resolve })
   async function initializeRuntimeState() {
     await fileResources.migrateLegacy(await readIndex(), readJson, writeIndex, readChat, writeChat)
-    await migrateLegacyPresetPlans()
-    await migrateActivePresetSelection()
+    await presetLibrary.migrate()
     await resourceGraph.recover()
     return await readIndex()
   }
@@ -2223,7 +2028,7 @@ export async function apply(ctx) {
     for (const row of recoveredIndex.chats || []) {
       const chat = await readChat(row.id)
       if (chat === undefined) continue
-      try { if (await migrateLegacyChatPreset(chat)) await writeChat(chat) } catch (error) { console.warn('dsh-tavern: 旧对话预设条目配置迁移失败', chat.id, error) }
+      try { if (await presetLibrary.migrateChat(chat)) await writeChat(chat) } catch (error) { console.warn('dsh-tavern: 旧对话预设条目配置迁移失败', chat.id, error) }
       await syncChatSummary(chat)
     }
     await foregroundHandoff.recover((recoveredIndex.chats || []).map(function (row) { return row.id }))
@@ -2284,48 +2089,12 @@ export async function apply(ctx) {
       case 'updateWorldBook': return await worldBooks.update(args && args.source, args && args.update)
       case 'exportWorldBook': return { worldBook: await worldBooks.export(args && args.source) }
       case 'deleteWorldBook': return await worldBooks.remove(args && args.path)
-      case 'listPresets': {
-        const presets = await listPresets()
-        const runtimePresetState = await runtimePresets.state()
-        const activePreset = presets.find(function (preset) { return preset.path === runtimePresetState.activePreset }) || null
-        return {
-          presets,
-          activePresetPath: runtimePresetState.activePreset || '',
-          activePresetTitle: activePreset && activePreset.title || ''
-        }
-      }
-      case 'selectPreset': {
-        const path = str(args && args.path)
-        if (path !== '') {
-          const preset = await readPreset(path)
-          if (!preset || preset.valid !== true || preset.recognized !== true) throw new Error('该文件不是可运行的 SillyTavern 预设：' + path)
-        }
-        await runtimePresets.select(path)
-        await bypassPlans.activate('')
-        return { activePresetPath: path }
-      }
-      case 'getPreset': {
-        const inspected = await readPreset(args && args.path)
-        if (inspected === undefined) throw new Error('预设不存在: ' + (args && args.path))
-        const document = await readPresetDocument(inspected.path)
-        return { preset: Object.assign({}, inspected, { extractableRegexScripts: runtimeRegexScriptsOf(inspected, document) }) }
-      }
-      case 'exportPreset': {
-        const presetPath = normalizeResourcePath(args && args.path, 'preset')
-        const text = await fileResources.readText(presetPath)
-        if (text === undefined) throw new Error('预设不存在: ' + presetPath)
-        return { name: presetPath.split('/').pop() || 'preset.json', text }
-      }
-      case 'updatePresetEntry': {
-        await presetEditor.updateEntry(args && args.path, args && args.entryKey, args && args.patch)
-        return { preset: await readPreset(args && args.path) }
-      }
-      case 'updatePresetRegex': {
-        const path = normalizeResourcePath(args && args.path, 'preset')
-        await presetEditor.updateRegex(path, args && args.regexKey, args && args.patch !== undefined ? args.patch : args && args.enabled)
-        const next = await readPreset(path)
-        return { preset: Object.assign({}, next, { extractableRegexScripts: runtimeRegexScriptsOf(next, await readPresetDocument(path)) }) }
-      }
+      case 'listPresets': return await presetLibrary.catalog()
+      case 'selectPreset': return await presetLibrary.select(args && args.path)
+      case 'getPreset': return { preset: await presetLibrary.detail(args && args.path) }
+      case 'exportPreset': return await presetLibrary.export(args && args.path)
+      case 'updatePresetEntry': return { preset: await presetLibrary.updateEntry(args && args.path, args && args.entryKey, args && args.patch) }
+      case 'updatePresetRegex': return { preset: await presetLibrary.updateRegex(args && args.path, args && args.regexKey, args && args.patch !== undefined ? args.patch : args && args.enabled) }
       case 'previewPresetConversion': {
         const preview = await previewPreset(args && args.path, args && args.orderGroupIndex)
         if (preview === undefined) throw new Error('预设不存在: ' + (args && args.path))

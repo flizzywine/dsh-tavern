@@ -674,11 +674,9 @@ test('预设库选择整份预设，并可交给卡片 Agent 编辑或在当前�
   assert.doesNotMatch(panel, /破限方案|导入破限|适配模型/)
   assert.doesNotMatch(panel, /importBypassPlan|exportBypassPlan|toggleBypassPlanEntry|toggleBypassPlanRegex/)
   assert.match(serverSource, /case 'selectPreset'/)
-  assert.match(serverSource, /runtimePresets\.select\(path\)/)
+  assert.match(serverSource, /presetLibrary\.select\(args && args.path\)/)
   assert.match(serverSource, /runtimePresets\.fullSnapshot\(\)/)
   assert.match(serverSource, /case 'updatePresetRegex'/)
-  assert.match(serverSource, /inspectRegexScripts: runtimeRegexScriptsOf/)
-  assert.match(serverSource, /const extractableRegexScripts = runtimeRegexScriptsOf\(preset, await readPresetDocument\(preset\.path\)\)/)
 })
 
 test('卡片模式预加载人物卡、预设、世界书和剧本四个库', () => {
