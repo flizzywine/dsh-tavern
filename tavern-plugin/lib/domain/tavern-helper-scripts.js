@@ -41,3 +41,9 @@ export function projectTavernHelperScripts(helperScripts, savedVariables) {
   }
   return { scripts, diagnostics }
 }
+
+/** Ordinary card scripts do not require the MVU variable framework. */
+export function hasTavernScriptRuntime(chat, helperScripts) {
+  if (!chat || !chat.cardPath || !['story', 'script'].includes(chat.mode || 'story')) return false
+  return chat.mvu?.enabled === true || projectTavernHelperScripts(helperScripts).scripts.length > 0
+}

@@ -113,3 +113,9 @@ test('快速脚本先完成订阅时仍等待 iframe load，再宣布就绪和�
   await emitted
   runtime.dispose()
 })
+
+test('普通脚本获得 Helper 接口但不误检测到 MVU 框架', () => {
+  const w = helperHostHarness({ mvuEnabled: false }).window
+  assert.equal(typeof w.TavernHelper.getVariables, 'function')
+  assert.equal(w.Mvu, undefined)
+})

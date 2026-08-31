@@ -69,3 +69,13 @@ test('已持久化的脚本变量覆盖人物卡初始配置但不修改来源',
   result.scripts[0].data.auto_apply = true
   assert.equal(source[0].data.auto_apply, true)
 })
+
+test('普通启用脚本可独立于 MVU 运行，禁用脚本及卡片编辑模式不执行', async () => {
+  const { hasTavernScriptRuntime } = await import('../tavern-plugin/lib/domain/tavern-helper-scripts.js')
+  const chat = { cardPath: 'card.json', mode: 'story', mvu: { enabled: false } }
+  const script = { id: 'plain', type: 'script', enabled: true, content: 'void 0' }
+  assert.equal(hasTavernScriptRuntime(chat, [script]), true)
+  assert.equal(hasTavernScriptRuntime(chat, [{ ...script, enabled: false }]), false)
+  assert.equal(hasTavernScriptRuntime({ ...chat, mode: 'card' }, [script]), false)
+  assert.equal(hasTavernScriptRuntime({ ...chat, mvu: { enabled: true } }, []), true)
+})

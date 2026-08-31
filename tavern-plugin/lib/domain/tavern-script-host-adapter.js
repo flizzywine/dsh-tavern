@@ -41,6 +41,12 @@ export function createTavernScriptHostAdapter(options = {}) {
     if (!chat || !chat.mvu || chat.mvu.enabled !== true) throw new Error('当前人物卡未启用 MVU 兼容运行时')
   }
 
+  async function assertScriptEnabled(chat) {
+    if (typeof options.isPlayChat === 'function' && !options.isPlayChat(chat)) throw new Error('当前会话没有绑定游玩对话')
+    if (chat?.mvu?.enabled === true) return
+    if (typeof options.hasScripts !== 'function' || !await options.hasScripts(chat)) throw new Error('当前人物卡没有启用脚本运行时')
+  }
+
   function mutationIsCurrent(chat, expectedLifecycleRevision) {
     if (expectedLifecycleRevision === undefined || expectedLifecycleRevision === null) return true
     return Math.max(0, Number(chat && chat.tavernHelperLifecycleRevision) || 0) === Math.max(0, Number(expectedLifecycleRevision) || 0)
@@ -75,7 +81,7 @@ export function createTavernScriptHostAdapter(options = {}) {
 
   async function updateVariables(sessionId, option, variables, expectedLifecycleRevision) {
     const chat = await mutationChat(sessionId)
-    assertMvuEnabled(chat)
+    await assertScriptEnabled(chat)
     if (!mutationIsCurrent(chat, expectedLifecycleRevision)) return staleMutation(chat)
     const updated = replaceTavernHelperVariables(chat, { option, variables })
     const transactional = transactionResult(sessionId, updated)
@@ -94,7 +100,7 @@ export function createTavernScriptHostAdapter(options = {}) {
   async function updateMessages(sessionId, messages, expectedLifecycleRevision) {
     const transaction = settlementTransactions.get(str(sessionId))
     const chat = transaction === undefined ? await resolveChat(sessionId) : transaction.draft
-    assertMvuEnabled(chat)
+    await assertScriptEnabled(chat)
     if (!mutationIsCurrent(chat, expectedLifecycleRevision)) return staleMutation(chat)
     const patches = transaction === undefined ? messages : (Array.isArray(messages) ? messages : []).map(function (raw) {
       const patch = raw && typeof raw === 'object' ? structuredClone(raw) : raw
@@ -127,7 +133,7 @@ export function createTavernScriptHostAdapter(options = {}) {
 
   async function worldbookRecord(sessionId, requestedName) {
     const chat = await resolveChat(sessionId)
-    assertMvuEnabled(chat)
+    await assertScriptEnabled(chat)
     const card = await options.readCard(chat)
     const record = await options.worldBooks.bound(chat.cardPath, card)
     if (record === null) throw new Error('当前人物卡没有绑定世界书')

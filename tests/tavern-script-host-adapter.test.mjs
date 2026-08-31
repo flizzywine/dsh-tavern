@@ -197,11 +197,11 @@ test('Host Adapter 把脚本变量和消息调用写回 dsh-tavern 权威 Chat',
   assert.deepEqual(run.writes.map(function (item) { return item.metadata.source }), ['tavern-helper.variables', 'tavern-helper.messages'])
 })
 
-test('Host Adapter 保留 MVU 门控并拒绝过期 iframe 覆盖新状态', async function () {
+test('Host Adapter 保留脚本门控并拒绝过期 iframe 覆盖新状态', async function () {
   const disabled = harness(Object.assign(chat(), { mvu: { enabled: false } }))
   await assert.rejects(function () {
     return disabled.adapter.updateVariables('session-1', { type: 'chat' }, { value: 1 }, 2)
-  }, /未启用 MVU/)
+  }, /没有启用脚本运行时/)
 
   const stale = harness()
   const result = await stale.adapter.updateMessages('session-1', [{ message_id: 0, swipe_id: 1 }], 1)
@@ -257,4 +257,18 @@ test('Host Adapter 为脚本事件投影临时玩家输入但不改写 Chat', as
   assert.equal(run.events[0].context.messages.length, 2)
   assert.equal(run.events[0].context.messages[1].message, '玩家行动')
   assert.deepEqual(run.events[0].context.messages[1].variables, { hp: 10 })
+})
+
+test('非 MVU 普通脚本可使用变量和世界书，但不能执行官方 MVU 结算', async () => {
+  const current = chat(); current.mvu = { enabled: false }
+  let enabled = true, saves = 0
+  const adapter = createTavernScriptHostAdapter({ resolveChat: async () => current, writeChat: async () => { saves++ },
+    readCard: async () => ({}), hasScripts: async () => enabled, isPlayChat: value => value.mode === 'story',
+    worldBooks: { bound: async () => ({ view: { displayName: 'book', entries: [] } }) }, eventGate: {} })
+  await adapter.updateVariables('session-1', { type: 'chat' }, { setting: 1 })
+  assert.equal(saves, 1)
+  assert.equal((await adapter.getWorldbook('session-1', 'book')).worldbook.name, 'book')
+  await assert.rejects(adapter.settleMvuUpdate({ sessionId: 'session-1' }), /未启用 MVU/)
+  enabled = false
+  await assert.rejects(adapter.updateVariables('session-1', { type: 'chat' }, {}), /没有启用脚本/)
 })

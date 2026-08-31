@@ -38,7 +38,7 @@ import { createTavernRetryLimiter } from './domain/tavern-retry-limiter.js'
 import { lastTavernHelperVariables, projectTavernHelperContext } from './domain/tavern-helper-context.js'
 import { projectTavernHelperWorldbook } from './domain/tavern-helper-worldbook.js'
 import { applyTavernHelperVariableMacros } from './domain/tavern-helper-variable-macros.js'
-import { projectTavernHelperScripts } from './domain/tavern-helper-scripts.js'
+import { projectTavernHelperScripts, hasTavernScriptRuntime } from './domain/tavern-helper-scripts.js'
 import { createTavernHelperEventGate } from './domain/tavern-helper-event-gate.js'
 import { createTavernScriptHostAdapter } from './domain/tavern-script-host-adapter.js'
 import { createTavernRemoteAssetPinStore } from './domain/tavern-remote-assets.js'
@@ -797,6 +797,7 @@ export async function apply(ctx) {
     worldBooks,
     eventGate: tavernHelperEventGate,
     diagnostics: mvuDiagnostics,
+    hasScripts: async function (chat) { return hasTavernScriptRuntime(chat, (await readCardExtensions(chat.cardPath))?.helperScripts) },
     isPlayChat: function (chat) { return groupOfMode(chat.mode) === 'play' }
   })
 
@@ -888,12 +889,13 @@ export async function apply(ctx) {
       const input = runtimeInputs[turn]
       inputSources[turn] = str(input && input.source)
     }
-    const helperRuntime = chat.mvu && chat.mvu.enabled === true
+    const helperEnabled = hasTavernScriptRuntime(chat, cardExtensions.helperScripts)
+    const helperRuntime = helperEnabled
       ? projectTavernHelperScripts(cardExtensions.helperScripts, chat.tavernHelperScriptVariables)
       : { scripts: [], diagnostics: [] }
     helperRuntime.diagnostics.push(...(Array.isArray(cardExtensions.remoteAssetDiagnostics) ? cardExtensions.remoteAssetDiagnostics : []))
     let helperWorldbook = null
-    if (chat.mvu && chat.mvu.enabled === true && str(chat.cardPath) !== '') {
+    if (helperEnabled && str(chat.cardPath) !== '') {
       try {
         const record = await worldBooks.bound(chat.cardPath, card)
         if (record !== null) helperWorldbook = projectTavernHelperWorldbook(record.view)
@@ -918,7 +920,7 @@ export async function apply(ctx) {
       replyProjections: replyDisplay.projections,
       tavernStatusView: replyDisplay.statusView || null,
       mvuReceipts: mvuReceiptsOf(chat),
-      tavernHelper: chat.mvu && chat.mvu.enabled === true ? projectTavernHelperContext(chat) : null,
+      tavernHelper: helperEnabled ? projectTavernHelperContext(chat) : null,
       tavernMvuRuntime: chat.mvu && chat.mvu.enabled === true ? {
         owner: chat.mvu.owner === 'official' ? 'official' : 'legacy',
         commit: OFFICIAL_MVU_VERSION.commit,
@@ -2402,7 +2404,7 @@ export async function apply(ctx) {
   const foregroundStrategies = createForegroundOrchestrationStrategies({
     compatibility: {
       beforeTurn: async function (input) {
-        if (!input.chat.mvu || input.chat.mvu.enabled !== true) return
+        if (!hasTavernScriptRuntime(input.chat, (await readCardExtensions(input.chat.cardPath))?.helperScripts)) return
         const context = await tavernScriptHostAdapter.context(input.sessionId, input.chat, input.userText)
         const messageId = Math.max(0, context.messages.length - 1)
         await tavernScriptHostAdapter.dispatchEvent({ sessionId: input.sessionId, context, name: 'MESSAGE_SENT', args: [messageId] })

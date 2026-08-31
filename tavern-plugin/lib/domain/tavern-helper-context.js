@@ -68,6 +68,7 @@ export function projectTavernHelperContext(chat) {
   }
   return {
     version: 1,
+    mvuEnabled: chat?.mvu?.enabled === true,
     stateRevision: Math.max(0, Number(chat && chat._storageRevision) || 0),
     lifecycleRevision: Math.max(0, Number(chat && chat.tavernHelperLifecycleRevision) || 0),
     messages,
