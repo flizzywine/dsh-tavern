@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { createBackgroundAgentRunner, executeBackgroundCompaction } from './background-agent-runner.js'
 import { createApplicationUpdater } from './application-updater.js'
 import { createCandidateGenerator } from './domain/candidate-generation.js'
-import { ensureSessionStablePrefix, readSessionStablePrefix } from './domain/session-stable-prefix.js'
+import { createSessionStablePrefixStorage, ensureSessionStablePrefix, readSessionStablePrefix } from './domain/session-stable-prefix.js'
 import { waitForWritableSession } from './domain/agent-readiness.js'
 import { createCardDeletion } from './domain/card-deletion.js'
 import { createBypassPlanModule } from './domain/bypass-plans.js'
@@ -101,6 +101,7 @@ export async function apply(ctx) {
   }
   const sourceRoot = fileURLToPath(new URL('../../', import.meta.url))
   const dataRoot = resolveTavernDataRoot()
+  const stablePrefixStorage = createSessionStablePrefixStorage(dataRoot + '/session-prefixes')
   const profileData = createProfileDataStore({ dataRoot })
   const tavernRemoteAssets = createTavernRemoteAssetPinStore({
     readJson: async function (path) { return await profileData.readJson(path) },
@@ -1370,7 +1371,7 @@ export async function apply(ctx) {
     }
     const target = readyTarget || await waitForWritableSession({ registry: agentRegistry, sessions: sessionStore, sessionId: sessionId, sleep: sleep })
     if (groupOfMode(mode) === 'play' && chat.requestMode !== 'sillytavern') {
-      ensureSessionStablePrefix(target.session, await ensurePlayCardSnapshot(chat, card))
+      await ensureSessionStablePrefix(target.session, await ensurePlayCardSnapshot(chat, card), stablePrefixStorage)
       await sessionStore.flush(target.session)
     }
     if (text === '') return
@@ -1501,6 +1502,7 @@ export async function apply(ctx) {
   }
   const runtimePresetSnapshots = new Map()
   const backgroundAgentRunner = createBackgroundAgentRunner({
+    stablePrefixStorage,
     agents: agentRegistry,
     agentPreset: 'tavern-background',
     resolveStablePrefix: async function (input) {
@@ -3236,7 +3238,7 @@ export async function apply(ctx) {
       ensureSessionPrefix: async function (input) {
         const session = input.payload.agent.session
         if (readSessionStablePrefix(session)) return
-        ensureSessionStablePrefix(session, await ensurePlayCardSnapshot(input.chat))
+        await ensureSessionStablePrefix(session, await ensurePlayCardSnapshot(input.chat), stablePrefixStorage)
         await sessionStore.flush(session)
       },
       sessionPrefix: function (sessionId) {

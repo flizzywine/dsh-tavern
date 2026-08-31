@@ -307,7 +307,7 @@ export function createBackgroundAgentRunner(options) {
       if (!readSessionStablePrefix(handle.agent.session)) {
         const background = typeof options.resolveStablePrefix === 'function'
           ? await options.resolveStablePrefix(input) : input.backgroundContext
-        const prefix = ensureSessionStablePrefix(handle.agent.session, background)
+        const prefix = await ensureSessionStablePrefix(handle.agent.session, background, options.stablePrefixStorage)
         if (prefix && typeof options.flushSession === 'function') await options.flushSession(handle.agent.session)
       }
       const eventStart = Array.isArray(handle.agent.session.events) ? handle.agent.session.events.length : 0

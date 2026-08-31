@@ -1,5 +1,30 @@
+import { readFile } from 'node:fs/promises'
+import path from 'node:path'
+import { createDurableFilePromotion } from '../durable-file-promotion.js'
+
 const EVENT = 'dsh-tavern/stable-prefix'
 const cached = new WeakMap()
+const pending = new WeakMap()
+
+export function createSessionStablePrefixStorage(directory) {
+  const files = createDurableFilePromotion()
+  function file(id) {
+    if (typeof id !== 'string' || !/^[a-zA-Z0-9_-]+$/.test(id)) throw new Error('无效的固定背景 Session ID')
+    return path.join(directory, id + '.json')
+  }
+  return {
+    async read(id) {
+      let value
+      try { value = JSON.parse(await readFile(file(id), 'utf8')) } catch (error) {
+        if (error.code === 'ENOENT') return null
+        throw error
+      }
+      if (value?.version !== 1 || value.id !== 'tavern-session-prefix:' + id || typeof value.text !== 'string' || !value.text.trim()) throw new Error('固定背景文件格式无效：' + id)
+      return value
+    },
+    async write(id, value) { await files.write(file(id), JSON.stringify(value) + '\n') }
+  }
+}
 
 /** Session metadata, not a turn message: never compacted or appended again on resume. */
 export function readSessionStablePrefix(session) {
@@ -11,15 +36,24 @@ export function readSessionStablePrefix(session) {
   return event.data
 }
 
-export function ensureSessionStablePrefix(session, text) {
+export async function ensureSessionStablePrefix(session, text, storage) {
   const existing = readSessionStablePrefix(session)
   if (existing) return existing
-  if (typeof text !== 'string' || !text.trim()) return null
-  if (typeof session?.append !== 'function') throw new Error('无法保存 Session 固定背景')
-  const data = { version: 1, id: 'tavern-session-prefix:' + session.id, text: text.trim() }
-  session.append(EVENT, data)
-  cached.set(session, data)
-  return data
+  if (!session) throw new Error('无法保存 Session 固定背景')
+  if (pending.has(session)) return pending.get(session)
+  const operation = (async function () {
+    const saved = storage ? await storage.read(session.id) : null
+    if (saved) { cached.set(session, saved); return saved }
+    if (typeof text !== 'string' || !text.trim()) return null
+    if (!storage) throw new Error('缺少 Session 固定背景存储')
+    const data = { version: 1, id: 'tavern-session-prefix:' + session.id, text: text.trim() }
+    // Not a model message or a custom DSH event. Commit before exposing it to requests.
+    await storage.write(session.id, data)
+    cached.set(session, data)
+    return data
+  })()
+  pending.set(session, operation)
+  try { return await operation } finally { pending.delete(session) }
 }
 
 function textOf(message) {

@@ -43,12 +43,14 @@ function strategies(overrides = {}) {
 
 test('前台固定背景位于全部历史之前，不进入当轮 system、Frame 或预设注入', async () => {
   const session = { id: 'native', events: [], append(type, data) { this.events.push({ type, data }) } }
+  const savedPrefixes = new Map()
+  const storage = { async read(id) { return savedPrefixes.get(id) }, async write(id, value) { savedPrefixes.set(id, value) } }
   let cardText = '人物卡固定基本信息\n常驻世界书'
   const run = strategies({ nativePlay: {
     async modeFor() { return 'story' },
     filterMessages(messages) { return messages },
     async resolvePreset() { return { front: { text: '预设前置指令' } } },
-    async ensureSessionPrefix() { ensureSessionStablePrefix(session, cardText) },
+    async ensureSessionPrefix() { await ensureSessionStablePrefix(session, cardText, storage) },
     sessionPrefix() { return readSessionStablePrefix(session) },
     async prepareTurn() { return { frame: { userInput: { projectedText: '本轮玩家输入' } } } },
     appendFrame(input) { return { messages: input.messages.concat(userMessage('本轮动态指令')), receipt: {} } },
@@ -68,7 +70,8 @@ test('前台固定背景位于全部历史之前，不进入当轮 system、Fram
     assert.equal(run.value.projectRequest(request), null)
     cardText = '后续轮次不重新覆盖最初背景'
   }
-  assert.equal(session.events.length, 1)
+  assert.equal(session.events.length, 0)
+  assert.equal(savedPrefixes.size, 1)
 })
 
 test('普通游玩与兼容模式只在策略选择点分叉', async () => {
