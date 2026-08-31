@@ -9,6 +9,8 @@ description: "把正文内输出状态栏的 SillyTavern 人物卡转换为 DSH 
 
 ## 1. 找出原来的状态协议
 
+空白工作台先定位源卡文件；调用 `tavern_read_card` 或 `tavern_read_card_raw` 时显式传入源卡的 `path`，不依赖尚不存在的当前正式人物卡。使用文件工具时直接读取已确认的源卡路径。
+
 检查 description、开场白及 alternate_greetings、mes_example、system_prompt、post_history_instructions、世界书、正则与 Helper 脚本。搜索状态代码块、HTML、占位符、数值规则和要求每轮重复档案的指令。默认保留无关字段、扩展、署名及 `{{char}}` / `{{user}}`。
 
 交付一份简短字段映射：**旧显示项 → 变量路径 → 类型/初值 → 变化依据 → 展示位置**。区分：

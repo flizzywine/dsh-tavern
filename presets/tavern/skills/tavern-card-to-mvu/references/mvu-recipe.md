@@ -97,4 +97,4 @@ const data = Mvu.getMvuData({ type: 'message', message_id: 'latest' }).stat_data
 
 这条路线的首张航空测试副本已验证：导入、官方初始化、后台真实结算、右侧显示；宿主修复 `3e5a4fd` 后用户确认自动刷新，回退自动刷新此前亦已验证。它不是任意题材、复杂脚本、多开场或原生 SillyTavern 的全覆盖证明。
 
-同一 DSH 项目中可查看 `examples/airline-mvu/NOTES.md` 和 `tests/airline-mvu-example.test.mjs` 获取证据，但它们不属于本 Skill 的运行依赖。交付另一张卡时仍完成其自己的字段映射与验收；遇到宿主缺陷说明已知原因，不在卡片中加入一套重复运行时。
+交付另一张卡时仍完成其自己的字段映射与验收；遇到宿主缺陷说明已知原因，不在卡片中加入一套重复运行时。
