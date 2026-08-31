@@ -2496,7 +2496,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			if (!target) return null;
 			const turn = Math.max(0, Number(nextTurn) || 0);
 			if (!previous || Number(previous.version) !== Number(target.version) || Number(target.stateRevision) < Number(previous.stateRevision)) {
-				return { version: 1, kind: "snapshot", stateRevision: Math.max(0, Number(target.stateRevision) || 0), turn: turn, context: clone(target), events: [] };
+				// Recovery replaces the view's state too; notify read-only renderers after installation.
+				return { version: 1, kind: "snapshot", stateRevision: Math.max(0, Number(target.stateRevision) || 0), turn: turn, context: clone(target), events: ["MESSAGE_UPDATED", "mag_variable_update_ended"] };
 			}
 			const operations = [];
 			const beforeMessages = Array.isArray(previous.messages) ? previous.messages : [];
@@ -2559,7 +2560,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const documentTurn = props.persistent === true ? 0 : props.turn;
 			const desiredDocument = React.useMemo(function () {
 				const token = nextTavernFrameToken();
-				return {
+				const document = {
 					key: JSON.stringify([props.content, styleEnvironmentKey, documentTurn]),
 					token: token,
 					html: buildTavernFrameDocument({ content: props.content, token: token, helperContext: effectiveHelperContext, styleEnvironment: props.styleEnvironment, turn: props.turn, observeMvuView: props.observeMvuView, runtimeReporting: props.runtimeReporting }),
@@ -2568,6 +2569,18 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					heightKey: tavernFrameHeightKey(props),
 					content: props.content
 				};
+				// Keep the ref stable for this document. React otherwise calls the old ref
+				// with null on every render, discarding the last-sent incremental baseline.
+				document.ref = function (node) {
+					if (node) {
+						frameRefs.current.set(token, node);
+						if (!contextStates.current.has(token)) contextStates.current.set(token, { context: document.helperContext, turn: document.turn });
+					} else {
+						frameRefs.current.delete(token);
+						contextStates.current.delete(token);
+					}
+				};
+				return document;
 			}, [props.content, styleEnvironmentKey, documentTurn, props.observeMvuView, props.runtimeReporting]);
 			const [visibleDocument, setVisibleDocument] = React.useState(desiredDocument);
 			const [pendingDocument, setPendingDocument] = React.useState(null);
@@ -2682,15 +2695,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				const pendingHeight = pendingHeights.current.get(document.token) || height;
 				return React.createElement("iframe", {
 					key: document.token,
-					ref: function (node) {
-						if (node) {
-							frameRefs.current.set(document.token, node);
-							if (!contextStates.current.has(document.token)) contextStates.current.set(document.token, { context: document.helperContext, turn: document.turn });
-						} else {
-							frameRefs.current.delete(document.token);
-							contextStates.current.delete(document.token);
-						}
-					},
+					ref: document.ref,
 					className: "dsh-tavern-message-frame",
 					title: hidden ? "正在准备人物卡消息界面" : "人物卡消息界面",
 					"aria-hidden": hidden || undefined,
