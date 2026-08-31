@@ -36,7 +36,7 @@ test('世界书投影为 Tavern Helper 的稳定条目结构', function () {
     probability: 100,
     recursion: { prevent_incoming: false, prevent_outgoing: true, delay_until: null },
     effect: { sticky: null, cooldown: null, delay: null },
-    extra: { dsh_tavern_ref: 'entry:3' }
+    extra: { displayIndex: 0, caseSensitive: null, matchWholeWords: null, group: '', dsh_tavern_ref: 'entry:3' }
   })
 })
 
@@ -69,7 +69,7 @@ test('非 constant 条目默认投影为 selective，关闭概率时固定为百
   assert.equal(entry.probability, 100)
 })
 
-test('人物卡脚本只能用同一 uid 更新已有世界书条目', function () {
+test('人物卡脚本按 uid 更新条目并生成明确的增删操作', function () {
   const projected = projectTavernHelperWorldbook(view())
   const requested = structuredClone(projected.entries)
   requested[0].enabled = false
@@ -78,6 +78,10 @@ test('人物卡脚本只能用同一 uid 更新已有世界书条目', function 
   assert.deepEqual(replaceTavernHelperWorldbookOperations(view(), requested), [{
     op: 'update', ref: 'entry:3', patch: { content: '新资料', enabled: false, constant: true, selective: false, vectorized: false }
   }])
-  assert.throws(() => replaceTavernHelperWorldbookOperations(view(), []), /不能新增或删除/)
-  assert.throws(() => replaceTavernHelperWorldbookOperations(view(), [{ ...requested[0], uid: 10 }]), /编号不匹配/)
+  assert.deepEqual(replaceTavernHelperWorldbookOperations(view(), []), [{ op: 'delete', ref: 'entry:3' }])
+  const replaced = replaceTavernHelperWorldbookOperations(view(), [{ ...requested[0], uid: 10 }])
+  assert.equal(replaced[0].op, 'add')
+  assert.equal(replaced[0].uid, 10)
+  assert.deepEqual(replaced[1], { op: 'delete', ref: 'entry:3' })
+  assert.throws(() => replaceTavernHelperWorldbookOperations(view(), [requested[0], requested[0]]), /编号无效或重复/)
 })

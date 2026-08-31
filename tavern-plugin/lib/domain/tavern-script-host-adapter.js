@@ -152,10 +152,13 @@ export function createTavernScriptHostAdapter(options = {}) {
     return { worldbook: projectTavernHelperWorldbook(resolved.record.view) }
   }
 
-  async function replaceWorldbook(sessionId, name, entries) {
+  async function replaceWorldbook(sessionId, name, entries, expectedEntries) {
     const chat = await resolveChat(sessionId)
     return await serializeWorldbook(chat.cardPath, async function () {
       const resolved = await worldbookRecord(sessionId, name)
+      if (expectedEntries !== undefined && JSON.stringify(projectTavernHelperWorldbook(resolved.record.view).entries) !== JSON.stringify(expectedEntries)) {
+        throw new Error('世界书已被其他操作修改，请重新读取后重试')
+      }
       const operations = replaceTavernHelperWorldbookOperations(resolved.record.view, entries)
       // Worldbook writes are outside the chat draft; never automatically replay them.
       const transaction = settlementTransactions.get(str(sessionId))

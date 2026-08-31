@@ -273,7 +273,7 @@ function assignKnownPatch(entry, patch, format) {
   if (has('constant')) entry.constant = patch.constant === true
   if (has('selective')) entry.selective = patch.selective === true
   if (has('order')) entry[embedded ? 'insertion_order' : 'order'] = numberOr(patch.order, 100)
-  if (has('caseSensitive')) { if (embedded) entry.case_sensitive = patch.caseSensitive === true; else entry.caseSensitive = patch.caseSensitive === true }
+  if (has('caseSensitive')) { if (embedded) entry.case_sensitive = booleanOrNull(patch.caseSensitive); else entry.caseSensitive = booleanOrNull(patch.caseSensitive) }
   if (has('displayIndex')) { if (embedded) extensions.display_index = numberOr(patch.displayIndex, 0); else entry.displayIndex = numberOr(patch.displayIndex, 0) }
   if (has('selectiveLogic')) { if (embedded) extensions.selective_logic = numberOr(patch.selectiveLogic, 0); else entry.selectiveLogic = numberOr(patch.selectiveLogic, 0) }
   if (has('vectorized')) { if (embedded) extensions.vectorized = patch.vectorized === true; else entry.vectorized = patch.vectorized === true }
@@ -283,11 +283,16 @@ function assignKnownPatch(entry, patch, format) {
   if (has('probabilityEnabled')) { if (embedded) extensions.use_probability = patch.probabilityEnabled === true; else entry.useProbability = patch.probabilityEnabled === true }
   if (has('probability')) { if (embedded) extensions.probability = numberOr(patch.probability, 100); else entry.probability = numberOr(patch.probability, 100) }
   if (has('scanDepth')) { if (embedded) extensions.scan_depth = patch.scanDepth; else entry.scanDepth = patch.scanDepth }
-  if (has('matchWholeWords')) { if (embedded) extensions.match_whole_words = patch.matchWholeWords === true; else entry.matchWholeWords = patch.matchWholeWords === true }
+  if (has('matchWholeWords')) { if (embedded) extensions.match_whole_words = booleanOrNull(patch.matchWholeWords); else entry.matchWholeWords = booleanOrNull(patch.matchWholeWords) }
   if (has('excludeRecursion')) { if (embedded) extensions.exclude_recursion = patch.excludeRecursion === true; else entry.excludeRecursion = patch.excludeRecursion === true }
   if (has('preventRecursion')) { if (embedded) extensions.prevent_recursion = patch.preventRecursion === true; else entry.preventRecursion = patch.preventRecursion === true }
   if (has('group')) { if (embedded) extensions.group = str(patch.group); else entry.group = str(patch.group) }
-  if (embedded) entry.extensions = extensions
+  for (const [field, embeddedField] of [['delayUntilRecursion', 'delay_until_recursion'], ['sticky', 'sticky'], ['cooldown', 'cooldown'], ['delay', 'delay']]) {
+    if (has(field)) { if (embedded) extensions[embeddedField] = patch[field]; else entry[field] = patch[field] }
+  }
+  if (has('helperExtra')) extensions.dsh_tavern_helper_extra = clone(object(patch.helperExtra) || {})
+
+  if (embedded || has('helperExtra')) entry.extensions = extensions
   return entry
 }
 
@@ -313,7 +318,8 @@ export function updateWorldBookDocument(document, request = {}) {
     if (identified.format === 'sillytavern-worldbook') {
       if (op === 'add') {
         const values = Object.values(book.entries).filter(object)
-        const uid = nextId(values, 'uid')
+        const uid = operation.uid === undefined ? nextId(values, 'uid') : operation.uid
+        if (!Number.isSafeInteger(uid) || uid < 0 || Object.hasOwn(book.entries, String(uid)) || values.some(entry => Number(entry.uid) === uid)) throw new Error('世界书条目编号无效或重复')
         const entry = assignKnownPatch({ uid, key: [], keysecondary: [], comment: '', content: '', disable: false, constant: false, selective: true, order: 100, position: 0, extensions: {} }, object(operation.entry) || {}, identified.format)
         book.entries[String(uid)] = entry
         continue
@@ -324,7 +330,8 @@ export function updateWorldBookDocument(document, request = {}) {
       if (op === 'update') { book.entries[key] = assignKnownPatch(object(book.entries[key]) || {}, object(operation.patch) || {}, identified.format); continue }
     } else {
       if (op === 'add') {
-        const id = nextId(book.entries, 'id')
+        const id = operation.uid === undefined ? nextId(book.entries, 'id') : operation.uid
+        if (!Number.isSafeInteger(id) || id < 0 || book.entries.some(entry => Number(entry.id) === id)) throw new Error('世界书条目编号无效或重复')
         const entry = assignKnownPatch({ id, keys: [], secondary_keys: [], comment: '', content: '', enabled: true, constant: false, selective: false, insertion_order: 100, position: 'after_char', extensions: {} }, object(operation.entry) || {}, identified.format)
         book.entries.push(entry)
         continue

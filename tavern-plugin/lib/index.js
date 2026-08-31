@@ -1992,7 +1992,7 @@ export async function apply(ctx) {
       case 'updateTavernHelperMessages': return await tavernScriptHostAdapter.updateMessages(args && args.sessionId, args && args.messages, args && args.expectedLifecycleRevision)
       case 'switchTavernSwipe': return await tavernScriptHostAdapter.switchSwipe(args && args.sessionId, args && args.messageId, args && args.swipeId)
       case 'getTavernHelperWorldbook': return await tavernScriptHostAdapter.getWorldbook(args && args.sessionId, args && args.name)
-      case 'replaceTavernHelperWorldbook': return await tavernScriptHostAdapter.replaceWorldbook(args && args.sessionId, args && args.name, args && args.entries)
+      case 'replaceTavernHelperWorldbook': return await tavernScriptHostAdapter.replaceWorldbook(args && args.sessionId, args && args.name, args && args.entries, args && args.expectedEntries)
 	  case 'pollTavernHelperEvent': return tavernScriptHostAdapter.pollEvent(args && args.sessionId, args && args.runtimeId, args && args.ready)
 	  case 'completeTavernHelperEvent': return { completed: tavernScriptHostAdapter.completeEvent(args && args.sessionId, args && args.eventId, args && args.args, args && args.runtimeId, args && args.error, sanitizeRuntimeDiagnostics(args && args.diagnostics)) }
 	  case 'releaseTavernHelperRuntime': return { released: tavernScriptHostAdapter.releaseRuntime(args && args.sessionId, args && args.runtimeId) }

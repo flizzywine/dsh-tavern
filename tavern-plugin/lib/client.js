@@ -1871,27 +1871,110 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				state.worldbook = copy(result.worldbook);
 				return copy(state.worldbook.entries || []);
 			};
-			window.getLorebookEntries = async function (name) {
-				const entries = await window.getWorldbook(name);
-				return entries.map(function (entry) {
-					return Object.assign({}, entry, {
-						comment: String(entry && (entry.comment || entry.name) || ""),
-						disable: Boolean(entry && entry.enabled === false)
-					});
+			function legacyWorldbookEntry(entry, index) {
+				const extra = entry.extra || {};
+				return {
+					uid: entry.uid, display_index: extra.displayIndex === undefined ? index : extra.displayIndex,
+					comment: entry.name, enabled: entry.enabled, type: entry.strategy.type,
+					position: entry.position.type === "at_depth" ? "at_depth_as_" + entry.position.role : entry.position.type,
+					depth: entry.position.type === "at_depth" ? entry.position.depth : null, order: entry.position.order,
+					probability: entry.probability, content: entry.content, keys: copy(entry.strategy.keys),
+					logic: entry.strategy.keys_secondary.logic, filters: copy(entry.strategy.keys_secondary.keys), scan_depth: entry.strategy.scan_depth,
+					case_sensitive: extra.caseSensitive == null ? "same_as_global" : extra.caseSensitive,
+					match_whole_words: extra.matchWholeWords == null ? "same_as_global" : extra.matchWholeWords,
+					group: extra.group || "", exclude_recursion: entry.recursion.prevent_incoming, prevent_recursion: entry.recursion.prevent_outgoing,
+					delay_until_recursion: entry.recursion.delay_until === null ? false : entry.recursion.delay_until,
+					sticky: entry.effect.sticky, cooldown: entry.effect.cooldown, delay: entry.effect.delay,
+					use_group_scoring: "same_as_global", automation_id: null, group_prioritized: false, group_weight: 100
+				};
+			}
+			function legacyWorldbookPatch(patch, original) {
+				const next = copy(original || {});
+				function set(path, value) {
+					const parts = path.split("."); let target = next;
+					for (const key of parts.slice(0, -1)) target = target[key] || (target[key] = {});
+					target[parts[parts.length - 1]] = copy(value);
+				}
+				const mappings = { uid: "uid", comment: "name", enabled: "enabled", content: "content", probability: "probability", type: "strategy.type", keys: "strategy.keys", filters: "strategy.keys_secondary.keys", logic: "strategy.keys_secondary.logic", scan_depth: "strategy.scan_depth", order: "position.order", exclude_recursion: "recursion.prevent_incoming", prevent_recursion: "recursion.prevent_outgoing", sticky: "effect.sticky", cooldown: "effect.cooldown", delay: "effect.delay", group: "extra.group", display_index: "extra.displayIndex" };
+				for (const key of Object.keys(mappings)) if (Object.prototype.hasOwnProperty.call(patch, key)) set(mappings[key], patch[key]);
+				for (const pair of [["case_sensitive", "caseSensitive"], ["match_whole_words", "matchWholeWords"]]) if (Object.prototype.hasOwnProperty.call(patch, pair[0])) set("extra." + pair[1], patch[pair[0]] === "same_as_global" ? null : patch[pair[0]]);
+				if (patch.depth !== undefined && patch.depth !== null) set("position.depth", patch.depth);
+				if (patch.position !== undefined) {
+					const match = /^at_depth_as_(system|user|assistant)$/.exec(patch.position);
+					set("position.type", match ? "at_depth" : patch.position);
+					if (match) set("position.role", match[1]);
+				}
+				if (patch.delay_until_recursion !== undefined) set("recursion.delay_until", patch.delay_until_recursion === false ? null : patch.delay_until_recursion === true ? 1 : patch.delay_until_recursion);
+				const unsupported = { use_group_scoring: "same_as_global", automation_id: null, group_prioritized: false, group_weight: 100 };
+				for (const key of Object.keys(unsupported)) if (patch[key] !== undefined && patch[key] !== unsupported[key]) throw new Error("当前兼容层尚未支持世界书字段: " + key);
+				return next;
+			}
+			function worldbookPayload(entries) {
+				if (!Array.isArray(entries)) throw new TypeError("世界书条目必须是数组");
+				// Convert RegExp before crossing the JSON host boundary.
+				return entries.map(function (value) {
+					const entry = copy(value);
+					if (value.strategy && Array.isArray(value.strategy.keys)) entry.strategy.keys = value.strategy.keys.map(String);
+					if (value.strategy && value.strategy.keys_secondary && Array.isArray(value.strategy.keys_secondary.keys)) entry.strategy.keys_secondary.keys = value.strategy.keys_secondary.keys.map(String);
+					return entry;
 				});
+			}
+			async function writeWorldbook(name, entries, expectedEntries) {
+				const result = await call("replaceTavernHelperWorldbook", { name: name, entries: worldbookPayload(entries), expectedEntries: expectedEntries });
+				state.worldbook = copy(result.worldbook);
+				return copy(state.worldbook.entries || []);
+			}
+			async function freshWorldbook(name) {
+				const result = await call("getTavernHelperWorldbook", { name: name });
+				state.worldbook = copy(result.worldbook);
+				return copy(state.worldbook.entries || []);
+			}
+			window.replaceWorldbook = async function (name, entries) {
+				const current = await freshWorldbook(name);
+				await writeWorldbook(name, entries, current);
 			};
+			window.updateWorldbookWith = async function (name, updater) {
+				if (typeof updater !== "function") throw new TypeError("世界书更新器必须是函数");
+				const current = await freshWorldbook(name), draft = copy(current);
+				const next = await updater(draft);
+				return await writeWorldbook(name, next === undefined ? draft : next, current);
+			};
+			window.createWorldbookEntries = async function (name, entries) {
+				const additions = worldbookPayload(entries).map(function (entry) { delete entry.uid; return entry; });
+				let previous;
+				const worldbook = await window.updateWorldbookWith(name, function (current) { previous = new Set(current.map(function (entry) { return entry.uid; })); return current.concat(additions); });
+				return { worldbook: worldbook, new_entries: worldbook.filter(function (entry) { return !previous.has(entry.uid); }) };
+			};
+			window.deleteWorldbookEntries = async function (name, predicate) {
+				if (typeof predicate !== "function") throw new TypeError("世界书删除条件必须是函数");
+				const deleted = [];
+				const worldbook = await window.updateWorldbookWith(name, function (current) {
+					return current.filter(function (entry) { if (!predicate(copy(entry))) return true; deleted.push(copy(entry)); return false; });
+				});
+				return { worldbook: worldbook, deleted_entries: deleted };
+			};
+			window.getLorebookEntries = async function (name) { return (await window.getWorldbook(name)).map(legacyWorldbookEntry); };
+			window.setLorebookEntries = async function (name, patches) {
+				const worldbook = await window.updateWorldbookWith(name, function (entries) {
+					const known = new Set(entries.map(function (entry) { return entry.uid; }));
+					for (const patch of patches) if (!known.has(patch.uid)) throw new Error("世界书条目不存在: " + patch.uid);
+					return entries.map(function (entry) { for (const patch of patches) if (patch.uid === entry.uid) entry = legacyWorldbookPatch(patch, entry); return entry; });
+				});
+				return worldbook.map(legacyWorldbookEntry);
+			};
+			window.createLorebookEntries = async function (name, entries) {
+				const result = await window.createWorldbookEntries(name, entries.map(function (entry) { return legacyWorldbookPatch(entry); }));
+				return { entries: result.worldbook.map(legacyWorldbookEntry), new_uids: result.new_entries.map(function (entry) { return entry.uid; }) };
+			};
+			window.deleteLorebookEntries = async function (name, uids) {
+				const result = await window.deleteWorldbookEntries(name, function (entry) { return uids.includes(entry.uid); });
+				return { entries: result.worldbook.map(legacyWorldbookEntry), delete_occurred: result.deleted_entries.length > 0 };
+			};
+			window.getLorebooks = window.getWorldbookNames;
 			window.getCharLorebooks = async function () { return window.getCharWorldbookNames(); };
 			window.getCurrentCharPrimaryLorebook = function () { return window.getCharWorldbookNames().primary; };
 			window.getLorebookSettings = function () { return copy(lorebookSettings); };
 			window.setLorebookSettings = function (settings) { lorebookSettings = Object.assign({}, lorebookSettings, copy(settings || {})); return copy(lorebookSettings); };
-			window.updateWorldbookWith = async function (name, updater) {
-				const current = await window.getWorldbook(name);
-				let next = typeof updater === "function" ? await updater(copy(current)) : current;
-				if (next === undefined) next = current;
-				const result = await call("replaceTavernHelperWorldbook", { name: name, entries: copy(next) });
-				state.worldbook = copy(result.worldbook);
-				return copy(state.worldbook.entries || []);
-			};
 			window.eventOn = function (name, handler) { return listen(name, handler); };
 			window.eventMakeFirst = function (name, handler) { return listen(name, handler, "first"); };
 			window.eventMakeLast = function (name, handler) { return listen(name, handler, "last"); };
@@ -1983,7 +2066,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			}
 			// Both entry points reference the same functions; plugin wrappers stay visible to each other.
 			const helper = {};
-			const helperNames = ["getScriptId", "getScriptName", "getScriptInfo", "replaceScriptInfo", "getScriptButtons", "replaceScriptButtons", "updateScriptButtonsWith", "appendInexistentScriptButtons", "getButtonEvent", "getCharData", "getCurrentMessageId", "getLastMessageId", "getChatMessages", "setChatMessages", "getVariables", "getAllVariables", "replaceVariables", "insertOrAssignVariables", "insertVariables", "updateVariablesWith", "deleteVariable", "getWorldbookNames", "getCharWorldbookNames", "getWorldbook", "getLorebookEntries", "getCharLorebooks", "getCurrentCharPrimaryLorebook", "getLorebookSettings", "setLorebookSettings", "updateWorldbookWith", "getTavernHelperVersion", "substitudeMacros"];
+			const helperNames = ["getScriptId", "getScriptName", "getScriptInfo", "replaceScriptInfo", "getScriptButtons", "replaceScriptButtons", "updateScriptButtonsWith", "appendInexistentScriptButtons", "getButtonEvent", "getCharData", "getCurrentMessageId", "getLastMessageId", "getChatMessages", "setChatMessages", "getVariables", "getAllVariables", "replaceVariables", "insertOrAssignVariables", "insertVariables", "updateVariablesWith", "deleteVariable", "replaceWorldbook", "createWorldbookEntries", "deleteWorldbookEntries", "setLorebookEntries", "createLorebookEntries", "deleteLorebookEntries", "getLorebooks", "getWorldbookNames", "getCharWorldbookNames", "getWorldbook", "getLorebookEntries", "getCharLorebooks", "getCurrentCharPrimaryLorebook", "getLorebookSettings", "setLorebookSettings", "updateWorldbookWith", "getTavernHelperVersion", "substitudeMacros"];
 			for (const name of helperNames) Object.defineProperty(helper, name, { enumerable: true, configurable: true, get: function () { return window[name]; }, set: function (value) { window[name] = value; } });
 			window.TavernHelper = helper;
 			const eventSource = { on: window.eventOn, once: window.eventOnce, off: window.eventOff, removeListener: window.eventOff, makeFirst: window.eventMakeFirst, makeLast: window.eventMakeLast, emit: window.eventEmit };

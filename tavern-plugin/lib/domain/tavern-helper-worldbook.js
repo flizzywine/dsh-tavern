@@ -30,7 +30,7 @@ function positionType(value) {
 function projectEntry(entry) {
   return {
     uid: Number.isFinite(Number(entry.sourceUid)) ? Number(entry.sourceUid) : str(entry.sourceUid),
-    name: str(entry.comment || entry.title),
+    name: str(entry.comment ?? entry.title),
     enabled: entry.enabled !== false,
     strategy: {
       type: strategyType(entry),
@@ -41,7 +41,7 @@ function projectEntry(entry) {
     position: {
       type: positionType(entry.position),
       role: ROLE[Number(entry.role) || 0] || 'system',
-      depth: Number(entry.depth) || 4,
+      depth: Number.isFinite(Number(entry.depth)) ? Number(entry.depth) : 4,
       order: Number(entry.order) || 0
     },
     content: str(entry.content),
@@ -56,7 +56,7 @@ function projectEntry(entry) {
       cooldown: entry.cooldown ?? null,
       delay: entry.delay ?? null
     },
-    extra: { dsh_tavern_ref: str(entry.ref) }
+    extra: Object.assign({}, clone(entry.rawEntry && entry.rawEntry.extensions && entry.rawEntry.extensions.dsh_tavern_helper_extra || {}), { displayIndex: entry.displayIndex ?? 0, caseSensitive: entry.caseSensitive ?? null, matchWholeWords: entry.matchWholeWords ?? null, group: str(entry.group), dsh_tavern_ref: str(entry.ref) })
   }
 }
 
@@ -67,29 +67,92 @@ export function projectTavernHelperWorldbook(view) {
   }
 }
 
+const POSITIONS = ['before_character_definition', 'after_character_definition', 'before_author_note', 'after_author_note', 'at_depth', 'before_example_messages', 'after_example_messages', 'outlet']
+
+function enumValue(value, values, label) {
+  const index = values.indexOf(value)
+  if (index < 0) throw new Error('未知世界书' + label + ': ' + str(value))
+  return index
+}
+
+function finite(value, label, nullable = false, minimum = 0) {
+  if (nullable && value === null) return null
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < minimum) throw new Error('无效世界书' + label)
+  return value
+}
+
+function keys(value) {
+  if (!Array.isArray(value) || value.some(key => typeof key !== 'string')) throw new Error('世界书关键词必须是字符串数组')
+  return clone(value)
+}
+
+function mergedEntry(base, value) {
+  const result = Object.assign({}, base, value)
+  for (const name of ['strategy', 'position', 'recursion', 'effect', 'extra']) {
+    result[name] = Object.assign({}, base[name], value[name])
+  }
+  result.strategy.keys_secondary = Object.assign({}, base.strategy.keys_secondary, value.strategy && value.strategy.keys_secondary)
+  return result
+}
+
+function entryPatch(entry) {
+  const strategy = entry.strategy, position = entry.position
+  enumValue(strategy.type, ['constant', 'selective', 'vectorized'], '激活策略')
+  const probability = finite(entry.probability, '概率')
+  if (probability > 100) throw new Error('世界书概率不能超过 100')
+  const extra = clone(entry.extra || {})
+  delete extra.dsh_tavern_ref
+  const legacy = { displayIndex: extra.displayIndex ?? 0, caseSensitive: extra.caseSensitive ?? null, matchWholeWords: extra.matchWholeWords ?? null, group: str(extra.group) }
+  for (const key of Object.keys(legacy)) delete extra[key]
+  return {
+    ...legacy,
+    comment: str(entry.name), content: str(entry.content), enabled: entry.enabled === true,
+    constant: strategy.type === 'constant', selective: strategy.type === 'selective', vectorized: strategy.type === 'vectorized',
+    primaryKeys: keys(strategy.keys), secondaryKeys: keys(strategy.keys_secondary.keys),
+    selectiveLogic: enumValue(strategy.keys_secondary.logic, LOGIC, '关键词逻辑'),
+    scanDepth: strategy.scan_depth === 'same_as_global' ? null : finite(strategy.scan_depth, '扫描深度'),
+    position: enumValue(position.type, POSITIONS, '插入位置'), role: enumValue(position.role, ROLE, '消息角色'),
+    depth: finite(position.depth, '插入深度'), order: finite(position.order, '插入顺序', false, -Infinity),
+    probability, probabilityEnabled: true,
+    excludeRecursion: entry.recursion.prevent_incoming === true,
+    preventRecursion: entry.recursion.prevent_outgoing === true,
+    delayUntilRecursion: finite(entry.recursion.delay_until, '递归延迟', true),
+    sticky: finite(entry.effect.sticky, '黏性', true), cooldown: finite(entry.effect.cooldown, '冷却', true), delay: finite(entry.effect.delay, '延迟', true),
+    helperExtra: extra
+  }
+}
+
+/** Replace by stable uid, preserving untouched raw fields and resolving embedded refs before deletion. */
 export function replaceTavernHelperWorldbookOperations(view, requested) {
+  if (!Array.isArray(requested)) throw new Error('世界书条目必须是数组')
   const source = projectTavernHelperWorldbook(view).entries
-  if (!Array.isArray(requested) || requested.length !== source.length) {
-    throw new Error('当前兼容层不能新增或删除世界书条目')
-  }
+  const byUid = new Map(source.map(entry => [String(entry.uid), entry]))
+  if (byUid.size !== source.length) throw new Error('世界书条目编号重复')
+  const seen = new Set()
+  const used = new Set(source.map(entry => Number(entry.uid)))
+  for (const entry of requested) if (entry && entry.uid !== undefined) used.add(Number(entry.uid))
+  let nextUid = Math.max(-1, ...Array.from(used).filter(Number.isSafeInteger)) + 1
   const operations = []
-  for (let index = 0; index < source.length; index += 1) {
-    const before = source[index]
-    const after = requested[index]
-    if (!after || String(after.uid) !== String(before.uid)) throw new Error('世界书条目编号不匹配')
-    const patch = {}
-    if (str(after.name) !== before.name) patch.comment = str(after.name)
-    if (str(after.content) !== before.content) patch.content = str(after.content)
-    if (Boolean(after.enabled) !== before.enabled) patch.enabled = Boolean(after.enabled)
-    const beforeStrategy = before.strategy && before.strategy.type
-    const afterStrategy = after.strategy && after.strategy.type
-    if (afterStrategy !== beforeStrategy) {
-      if (!['constant', 'selective', 'vectorized'].includes(afterStrategy)) throw new Error('未知世界书激活策略: ' + str(afterStrategy))
-      patch.constant = afterStrategy === 'constant'
-      patch.selective = afterStrategy === 'selective'
-      patch.vectorized = afterStrategy === 'vectorized'
+  for (const value of requested) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('世界书条目必须是对象')
+    const uid = value.uid === undefined ? nextUid++ : value.uid
+    if (!Number.isSafeInteger(uid) || uid < 0 || seen.has(String(uid))) throw new Error('世界书条目编号无效或重复')
+    seen.add(String(uid))
+    const before = byUid.get(String(uid))
+    const defaults = projectEntry({ comment: '', order: 100, position: 0, depth: 4 })
+    const after = mergedEntry(before || defaults, value)
+    const full = entryPatch(after)
+    if (!before) {
+      operations.push({ op: 'add', uid, entry: full })
+      continue
     }
-    if (Object.keys(patch).length > 0) operations.push({ op: 'update', ref: before.extra.dsh_tavern_ref, patch })
+    const previous = entryPatch(before), patch = {}
+    for (const key of Object.keys(full)) if (JSON.stringify(full[key]) !== JSON.stringify(previous[key])) patch[key] = full[key]
+    // A changed numeric probability must also enable probability checks in the source document.
+    if (before.strategy.type !== after.strategy.type) Object.assign(patch, { constant: full.constant, selective: full.selective, vectorized: full.vectorized })
+    if (Object.hasOwn(patch, 'probability')) patch.probabilityEnabled = true
+    if (Object.keys(patch).length) operations.push({ op: 'update', ref: before.extra.dsh_tavern_ref, patch })
   }
+  for (const entry of source) if (!seen.has(String(entry.uid))) operations.push({ op: 'delete', ref: entry.extra.dsh_tavern_ref })
   return operations
 }
