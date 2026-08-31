@@ -1,24 +1,30 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { mkdtemp, rm } from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
 import { Session } from '../tavern-plugin/node_modules/@deepseek-ai/dsh-session/lib/index.js'
-import { ensureSessionStablePrefix, readSessionStablePrefix, projectSessionStablePrefix } from '../tavern-plugin/lib/domain/session-stable-prefix.js'
+import { createSessionStablePrefixStorage, ensureSessionStablePrefix, readSessionStablePrefix, projectSessionStablePrefix } from '../tavern-plugin/lib/domain/session-stable-prefix.js'
 
 const text = '【故事设定 · 人物卡】\n名字: 测试人物\n\n设定: 固定背景\n\n【常驻世界书】\n固定世界'
 let messageId = 0
 const user = value => ({ id: 'message-' + (++messageId), role: 'user', content: [{ type: 'text', text: value }], source: { kind: 'user' } })
 const plugin = value => ({ ...user(value), source: { kind: 'plugin', plugin: 'dsh-tavern' } })
 
-test('真实 DSH Session 只保存一个背景事件，恢复与 Surface 压缩均不丢失', () => {
+test('背景独立持久化，真实 Session 恢复与 Surface 压缩均不丢失，不写未知事件', async t => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'tavern-prefix-'))
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  let storage = createSessionStablePrefixStorage(directory)
   let session = Session.create('prefix-test')
-  const prefix = ensureSessionStablePrefix(session, text)
+  const prefix = await ensureSessionStablePrefix(session, text, storage)
   const first = session.append('user/message', user('第一轮'), { surfaceOp: 'append' })
   const second = session.append('user/message', user('第二轮'), { surfaceOp: 'append' })
-  assert.equal(ensureSessionStablePrefix(session, '后来改卡不重新注入'), prefix)
+  assert.equal(await ensureSessionStablePrefix(session, '后来改卡不重新注入', storage), prefix)
   session.append('user/message', plugin('剧情摘要'), { surfaceOp: { op: 'replace', start: first.seq, end: second.seq }, sourceEventSeqs: [first.seq, second.seq] })
   session = Session.create(session.id, session.events, session.header)
-  assert.equal(ensureSessionStablePrefix(session, '重启不重新注入').text, text)
-  assert.equal(session.events.filter(event => event.type === 'dsh-tavern/stable-prefix').length, 1)
-  assert.equal(session.events[0].type, 'dsh-tavern/stable-prefix')
+  storage = createSessionStablePrefixStorage(directory)
+  assert.equal((await ensureSessionStablePrefix(session, '重启不重新注入', storage)).text, text)
+  assert.equal(session.events.filter(event => event.type === 'dsh-tavern/stable-prefix').length, 0)
   const request = { system: '当轮任务', messages: [plugin('剧情摘要'), user('第三轮')] }
   const projected = projectSessionStablePrefix(request, readSessionStablePrefix(session))
   assert.equal(projected.system, '当轮任务')
@@ -44,6 +50,21 @@ test('旧候选历史仅移除人物卡基本信息，保留逐轮指令、状�
   assert.equal(result.messages[2], quoted)
   assert.equal(result.messages[3], call)
   assert.equal(result.messages[4], tool)
+})
+
+test('旧背景事件继续读取；存储失败不缓存；同 Session 并发只采用首次背景', async () => {
+  const legacy = { id: 'legacy', events: [{ type: 'dsh-tavern/stable-prefix', data: { version: 1, id: 'tavern-session-prefix:legacy', text } }] }
+  assert.equal((await ensureSessionStablePrefix(legacy, '不能覆盖')).text, text)
+  const session = { id: 'concurrent', events: [] }
+  const broken = { async read() { return null }, async write() { throw new Error('disk failed') } }
+  await assert.rejects(ensureSessionStablePrefix(session, text, broken), /disk failed/)
+  assert.equal(readSessionStablePrefix(session), null)
+  let writes = 0
+  const storage = { async read() { return null }, async write() { writes++ } }
+  const values = await Promise.all([ensureSessionStablePrefix(session, text, storage), ensureSessionStablePrefix(session, '不能覆盖', storage)])
+  assert.equal(writes, 1)
+  assert.equal(values[0], values[1])
+  assert.equal(values[0].text, text)
 })
 
 test('旧前台 Frame 依据结构化来源去重，不改玩家输入和其他字段', () => {

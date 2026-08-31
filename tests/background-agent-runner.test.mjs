@@ -14,6 +14,8 @@ test('后台固定背景只保存一次，连续候选、结算和恢复均从 S
   const card = { name: '测试人物', description: '固定背景A', personality: '固定性格', scenario: '固定场景', mes_example: '固定示例', system_prompt: '每轮系统要求', post_history_instructions: '每轮末尾要求' }
   let creates = 0
   let resumes = 0
+  const savedPrefixes = new Map()
+  const stablePrefixStorage = { async read(id) { return savedPrefixes.get(id) }, async write(id, value) { savedPrefixes.set(id, value) } }
   async function open(options) {
     const session = { id: 'background', events, append(type, data) { events.push({ type, data: structuredClone(data) }) } }
     const stagedRequests = new Map()
@@ -44,7 +46,7 @@ test('后台固定背景只保存一次，连续候选、结算和恢复均从 S
     async create(options) { creates++; return open(options) },
     async resume(options) { resumes++; return open(options) }
   }
-  let runner = createBackgroundAgentRunner({ agents, id: () => 'background' })
+  let runner = createBackgroundAgentRunner({ agents, id: () => 'background', stablePrefixStorage })
   async function candidate(persistentSessionId = '') {
     const context = await planner.plan({ purpose: 'candidate', card, chat: { guides: [{ text: '最新Guide' }], posture: '最新姿势' }, task: '候选JSON规则', constantWorldBookContext: '固定世界设定' })
     return runner.run({ sessionId: 'parent', persistent: true, persistentSessionId, task: 'candidate', selection: { provider: 'test', model: 'fake' },
@@ -59,7 +61,7 @@ test('后台固定背景只保存一次，连续候选、结算和恢复均从 S
   card.post_history_instructions = '修改后的末尾要求'
   await candidate('background')
   await runner.dispose()
-  runner = createBackgroundAgentRunner({ agents })
+  runner = createBackgroundAgentRunner({ agents, stablePrefixStorage })
   await candidate('background')
   assert.equal(creates, 1)
   assert.equal(resumes, 1)
@@ -82,7 +84,8 @@ test('后台固定背景只保存一次，连续候选、结算和恢复均从 S
   await runner.run({ sessionId: 'parent', persistent: true, persistentSessionId: 'background', task: 'settlement', selection: { provider: 'test', model: 'fake' }, system: '结算规则', messages: [], backgroundContext: '不应带入的候选背景', systemPromptText: '不应带入的系统要求', postHistoryText: '不应带入的末尾要求' })
   assert.doesNotMatch(packets.at(-1).system, /不应带入|固定背景|每轮系统要求/)
   assert.match(packets.at(-1).messages[0].content[0].text, /固定背景A/)
-  assert.equal(events.filter(event => event.type === 'dsh-tavern/stable-prefix').length, 1)
+  assert.equal(events.filter(event => event.type === 'dsh-tavern/stable-prefix').length, 0)
+  assert.equal(savedPrefixes.size, 1)
   await runner.dispose()
 })
 

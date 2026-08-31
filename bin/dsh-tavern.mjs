@@ -25,6 +25,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseDocument } from 'yaml'
 import { migrateLegacyTavernData, resolveTavernDataRoot } from '../tavern-plugin/lib/domain/tavern-data.js'
+import { migrateSessionPrefixEvents } from './session-prefix-migration.mjs'
 import {
   beginProfileConfigurationUpdate,
   loadProfileManifest,
@@ -762,6 +763,12 @@ async function startService() {
   if (state.portOpen) {
     throw new Error(`端口 ${state.port} 已被其他进程占用，拒绝启动。`)
   }
+
+  const prefixRepairs = await migrateSessionPrefixEvents({
+    sessionsRoot: path.join(DSH_ROOT, 'profile-data', PROFILE, 'sessions'),
+    backupRoot: path.join(DSH_ROOT, 'backups', 'tavern-stable-prefix-v1'),
+  })
+  if (prefixRepairs.length) console.log(`已兼容修复 ${prefixRepairs.length} 份旧会话的固定背景事件，原文件已备份。`)
 
   const dsh = findDshCommand()
   const runtimeHost = process.env.DSH_TAVERN_RUNTIME_HOST || 'cli'
