@@ -13,7 +13,7 @@ const unix = await readFile(new URL('../install.sh', import.meta.url), 'utf8')
 const windows = await readFile(new URL('../install.ps1', import.meta.url), 'utf8')
 const workspace = parse(await readFile(new URL('../pnpm-workspace.yaml', import.meta.url), 'utf8'))
 const patches = Object.values(workspace.patchedDependencies || {}).map(value => typeof value === 'string' ? value : value.path)
-const required = ['package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'bin/dsh-compatibility.mjs', 'config/dsh-compatibility.json', ...patches]
+const required = ['package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'bin/dsh-compatibility.mjs', 'bin/dsh-tavern.mjs', 'bin/launcher-environment.mjs', 'bin/launcher-settings.mjs', 'bin/profile-installation.mjs', 'bin/service-lifecycle.mjs', 'bin/application-update.mjs', 'config/dsh-compatibility.json', ...patches]
 
 for (const [name, paths] of [
   ['Unix', unix.match(/^RUNTIME_PATHS='([^']+)'/m)[1].split(/\s+/)],
@@ -21,7 +21,7 @@ for (const [name, paths] of [
 ]) {
   test(`${name} 实际 Git 运行包包含所有依赖补丁，不打包文档`, () => {
     // The two installers use identical Git path selection, independent of tar/zip format.
-    const archive = execFileSync('git', ['archive', '--format=tar', 'HEAD', '--', ...paths], { cwd: root, maxBuffer: 50 * 1024 * 1024 })
+    const archive = execFileSync('git', ['archive', '--format=tar', process.env.DSH_TEST_ARCHIVE_TREE || 'HEAD', '--', ...paths], { cwd: root, maxBuffer: 50 * 1024 * 1024 })
     const files = execFileSync('tar', ['-tf', '-'], { input: archive, encoding: 'utf8' }).split(/\r?\n/)
     for (const file of required) assert.ok(files.includes(file), `运行包遗漏：${file}`)
     assert.ok(!files.some(file => /^(docs|tests|references)\//.test(file)))

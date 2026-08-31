@@ -31,6 +31,9 @@ import {
 const windowsInstaller = await readFile(new URL('../install.ps1', import.meta.url), 'utf8')
 const unixInstaller = await readFile(new URL('../install.sh', import.meta.url), 'utf8')
 const launcherSource = await readFile(new URL('../bin/dsh-tavern.mjs', import.meta.url), 'utf8')
+const serviceSource = await readFile(new URL('../bin/service-lifecycle.mjs', import.meta.url), 'utf8')
+const installationSource = await readFile(new URL('../bin/profile-installation.mjs', import.meta.url), 'utf8')
+const updateSource = await readFile(new URL('../bin/application-update.mjs', import.meta.url), 'utf8')
 const updateHelperSource = await readFile(new URL('../bin/dsh-tavern-update-helper.mjs', import.meta.url), 'utf8')
 const profilePatch = await readFile(new URL('../cordis.patch.yml', import.meta.url), 'utf8')
 const managedProfilePatch = await readFile(new URL('../tavern-plugin/cordis.patch.yml', import.meta.url), 'utf8')
@@ -93,13 +96,13 @@ test('升级时只用本次启动标识引导一次新页面，之后交给页�
   )
   assert.equal(webUrlFromLogChunk('old\ndsh web: http://127.0.0.1:3081/?token=fresh\n'), 'http://127.0.0.1:3081/?token=fresh')
   assert.equal(webUrlFromLogChunk('dsh web: http://127.0.0.1:3081/?token=old\ndsh web: http://127.0.0.1:3081/?token=new\n'), 'http://127.0.0.1:3081/?token=new')
-  assert.match(launcherSource, /for \(let logAttempt = 0; logAttempt < 50 && webUrl === ''; logAttempt \+= 1\)/)
+  assert.match(serviceSource, /for \(let logAttempt = 0; logAttempt < 50 && webUrl === ''; logAttempt \+= 1\)/)
   assert.equal(needsFrontendBootstrap(null), true)
   assert.equal(needsFrontendBootstrap({ version: 0 }), true)
   assert.equal(needsFrontendBootstrap({ version: 1 }), true)
   assert.equal(needsFrontendBootstrap({ version: 2 }), false)
-  assert.match(launcherSource, /const target = restartBrowserTarget\(state\.port, state\.runtimeGeneration, state\.webUrl\)/)
-  assert.match(launcherSource, /openBrowserTarget\(target\)/)
+  assert.match(serviceSource, /const target = restartBrowserTarget\(state\.port, state\.runtimeGeneration, state\.webUrl\)/)
+  assert.match(serviceSource, /openBrowserTarget\(target\)/)
   assert.match(launcherSource, /if \(!bootstrapFrontendOnce\(state\)\)/)
   assert.doesNotMatch(launcherSource, /Shift \+ R 强制刷新/)
   assert.deepEqual(browserOpenCommand('http://127.0.0.1:3081/?tavern-boot=x', 'darwin'), {
@@ -241,16 +244,16 @@ test('代码已覆盖但自动重启失败时不再误报整体更新失败', as
 })
 
 test('Windows UI 更新隐藏 PowerShell 窗口并保持 UTF-8 输出', () => {
-  assert.match(launcherSource, /System\.Text\.UTF8Encoding/)
-  assert.match(launcherSource, /spawnSync\(command, args, \{[\s\S]*?windowsHide: true,/)
+  assert.match(updateSource, /System\.Text\.UTF8Encoding/)
+  assert.match(updateSource, /spawnSync\(command, args, \{[\s\S]*?windowsHide: true,/)
   assert.match(updateHelperSource, /detached: true/)
   assert.match(updateHelperSource, /windowsHide: true/)
 })
 
 test('后台更新禁止重复打开浏览器，并用临时日志避免后台进程占住输出管道', () => {
-  assert.match(launcherSource, /DSH_TAVERN_NO_OPEN: '1'/)
-  assert.match(launcherSource, /stdio: capture \? \['ignore', outputDescriptor, outputDescriptor\] : 'inherit'/)
-  assert.doesNotMatch(launcherSource, /stdio: capture \? 'pipe' : 'inherit'/)
+  assert.match(updateSource, /DSH_TAVERN_NO_OPEN: '1'/)
+  assert.match(updateSource, /stdio: capture \? \['ignore', outputDescriptor, outputDescriptor\] : 'inherit'/)
+  assert.doesNotMatch(updateSource, /stdio: capture \? 'pipe' : 'inherit'/)
 })
 
 test('Windows installer compares Node versions without native argument quoting', () => {
@@ -291,7 +294,7 @@ test('Tavern profile isolates conversations from other DSH profiles on fresh ins
   assert.deepEqual(parseDocument(profilePatch).toJS(), [])
   assert.ok(rootManifest.dsh.profile.bundles.includes('dsh-tavern-plugin'))
   assert.equal(tavernPluginManifest.dsh.bundle.patch, './cordis.patch.yml')
-  assert.match(launcherSource, /prepareProfilePatch/)
+  assert.match(installationSource, /prepareProfilePatch/)
   assert.match(unixInstaller, /node "\$\{APP_DIR\}\/bin\/dsh-tavern\.mjs" install --host "\$\{INSTALL_HOST\}"/)
   assert.match(windowsInstaller, /Join-Path \$AppDir 'bin\\dsh-tavern\.mjs'\) install --host \$InstallHost/)
 })
@@ -376,7 +379,7 @@ test('Tavern sidebar migration marker与三个库设置写入 YAML', async (t) =
 })
 
 test('Tavern applies sidebar migrations before every service start', () => {
-  assert.match(launcherSource, /async function startService\(\) \{\s*verifyProfile\(\)\s*ensureSidebarDefaults\(\)/)
+  assert.match(serviceSource, /async function startService\(\) \{\s*verifyProfile\(\)\s*ensureSidebarDefaults\(\)/)
 })
 
 test('installers accept the installed DSH host without pinning its release', () => {
@@ -438,8 +441,8 @@ test('Desktop 安装复用内置运行时，不启动独立 3081 服务', () => 
   assert.match(unixInstaller, /if \[ "\$\{INSTALL_HOST\}" = "desktop" \]/)
   assert.match(windowsInstaller, /\$InstallHost = if \(\$env:DSH_TAVERN_HOST\)/)
   assert.match(windowsInstaller, /install --host \$InstallHost/)
-  assert.match(launcherSource, /if \(host === 'cli'\) installCommand\(\)/)
-  assert.match(launcherSource, /请重启 DSH Desktop/)
+  assert.match(installationSource, /if \(host === 'cli'\) installCommand\(\)/)
+  assert.match(installationSource, /请重启 DSH Desktop/)
 })
 
 test('一键安装先安装下载包依赖，再运行 Tavern 安装器', () => {
@@ -463,26 +466,26 @@ test('一键安装直接启动 Tavern，不通过包管理器托管后台进程'
 })
 
 test('启动器保留显式 Android 运行宿主，普通命令行仍默认 CLI', () => {
-  assert.match(launcherSource, /DSH_TAVERN_RUNTIME_HOST: process\.env\.DSH_TAVERN_RUNTIME_HOST \|\| 'cli'/)
+  assert.match(serviceSource, /DSH_TAVERN_RUNTIME_HOST: process\.env\.DSH_TAVERN_RUNTIME_HOST \|\| 'cli'/)
 })
 
 test('共享 Profile 不固定端口，CLI Adapter 启动时显式使用 3081', () => {
   assert.doesNotMatch(profilePatch, /^\s*(?:host|port):/m)
-  assert.match(launcherSource, /\['--profile', PROFILE, '--host', CLI_HOST, '--port', String\(CLI_PORT\), '--no-open'\]/)
-  assert.match(launcherSource, /spawn\(invocation\.command, invocation\.args/)
+  assert.match(serviceSource, /\['--profile', PROFILE, '--host', CLI_HOST, '--port', String\(CLI_PORT\), '--no-open'\]/)
+  assert.match(serviceSource, /spawn\(invocation\.command, invocation\.args/)
 })
 
 test('Tavern 安装依赖时传入当前宿主而不是将版本号当作 npm 依赖', () => {
-  assert.match(launcherSource, /extractDshVersion\(runDsh\(dsh, \['--version'\]/)
-  assert.match(launcherSource, /installPluginDependencies\(\{ pluginDirectory: .* dsh, host, run \}\)/)
-  assert.doesNotMatch(launcherSource, /installPluginDependencies\([^\n]*dshVersion/)
+  assert.match(installationSource, /extractDshVersion\(runDsh\(dsh, \['--version'\]/)
+  assert.match(installationSource, /installPluginDependencies\(\{ pluginDirectory: .* dsh, host, run \}\)/)
+  assert.doesNotMatch(installationSource, /installPluginDependencies\([^\n]*dshVersion/)
 })
 
 test('升级后用户数据固定在 Profile 目录，并在安装时迁移旧源码数据', () => {
-  assert.match(launcherSource, /resolveTavernDataRoot\(\{ dshHome: DSH_ROOT \}\)/)
-  assert.match(launcherSource, /migrateLegacyTavernData\(\{/)
-  assert.match(launcherSource, /backupRoot: path\.join\(DSH_ROOT, 'backups', 'dsh-tavern-data-upgrade'\)/)
-  assert.doesNotMatch(launcherSource, /mkdirSync\(path\.join\(SOURCE_ROOT, 'data'/)
+  assert.match(installationSource, /resolveTavernDataRoot\(\{ dshHome: DSH_ROOT \}\)/)
+  assert.match(installationSource, /migrateLegacyTavernData\(\{/)
+  assert.match(installationSource, /backupRoot: path\.join\(DSH_ROOT, 'backups', 'dsh-tavern-data-upgrade'\)/)
+  assert.doesNotMatch(installationSource, /mkdirSync\(path\.join\(SOURCE_ROOT, 'data'/)
 })
 
 test('port probe distinguishes an open listener from a closed port', async () => {
