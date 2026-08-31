@@ -57,7 +57,7 @@ function row(turn, alpha = true) {
 test('main 与 alpha 错误节点均隐藏；卸载、切换会话恢复，只处理作用域内错误', () => {
   for (const alpha of [false, true]) {
     const old = row(7, alpha), latest = row(9, alpha), other = row(7, alpha)
-    const root = { querySelectorAll(selector) { assert.equal(selector, '[data-chat-flow-kind="turn-error"]'); return [old, latest] } }
+    const root = { querySelectorAll(selector) { assert.equal(selector, '[data-chat-flow-kind]'); return [old, latest] } }
     const projection = client.createSupersededErrorProjection(root)
     projection.apply([7])
     assert.equal(old.hidden, true)
@@ -74,6 +74,42 @@ test('main 与 alpha 错误节点均隐藏；卸载、切换会话恢复，只�
     projection.dispose()
     assert.equal(old.hidden, false)
   }
+})
+
+function flowRow(kind, turn, alpha) {
+  const attrs = { 'data-chat-flow-kind': kind }
+  if (alpha) attrs['data-chat-turn'] = String(turn)
+  // Legacy user/message keys identify a message, not its turn. A failed tail
+  // may be empty: the preceding turn-error is the reliable turn anchor.
+  attrs['data-chat-flow-key'] = kind === 'turn-error'
+    ? '10:turn-error' + turn : kind.length + ':' + kind + 'opaque-message-id'
+  return { hidden: false, getAttribute(name) { return attrs[name] ?? null }, querySelector() { return null } }
+}
+
+test('回退重生成后，已被替代的失败输入、思考、上下文和空尾部一起隐藏', () => {
+  for (const alpha of [false, true]) {
+    const original = ['user', 'assistant-step', 'turn-tail'].map(kind => flowRow(kind, 6, alpha))
+    const failed = ['system-prompt', 'user', 'turn-process', 'context', 'assistant-step', 'turn-error', 'turn-tail'].map(kind => flowRow(kind, 7, alpha))
+    const next = ['user', 'assistant-step', 'turn-error', 'turn-tail'].map(kind => flowRow(kind, 9, alpha))
+    const rows = [...original, ...failed, ...next]
+    const projection = client.createSupersededErrorProjection({ querySelectorAll() { return rows } })
+    projection.apply([7])
+    assert.ok(failed.every(row => row.hidden), 'failed attempt must disappear as one complete turn')
+    assert.ok([...original, ...next].every(row => !row.hidden), 'preserve normal history and the latest failure')
+    projection.apply([7])
+    assert.ok(failed.every(row => row.hidden), 'reapplying after rollback/refresh is idempotent')
+    projection.dispose()
+    assert.ok(rows.every(row => !row.hidden), 'leaving the session restores projection-owned visibility')
+  }
+})
+
+test('alpha 只隐藏明确属于目标轮的节点，包括尾部尚未挂载的流式节点', () => {
+  const other = flowRow('user', 6, true)
+  const failed = flowRow('assistant-step', 7, true)
+  const projection = client.createSupersededErrorProjection({ querySelectorAll() { return [other, failed] } })
+  projection.apply([7])
+  assert.equal(other.hidden, false)
+  assert.equal(failed.hidden, true)
 })
 
 test('延迟加载的错误节点仍应用投影，脱离作用域的节点恢复', () => {

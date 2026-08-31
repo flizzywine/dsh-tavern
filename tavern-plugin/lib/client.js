@@ -4915,16 +4915,36 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			}
 			function apply(turns) {
 				const hidden = new Set(turns.map(String));
-				const rows = root.querySelectorAll('[data-chat-flow-kind="turn-error"]');
+				const rows = root.querySelectorAll('[data-chat-flow-kind]');
 				const keep = new Set();
-				for (const row of rows) {
-					// Pre-alpha DSH has no data-chat-turn; its context key is length:kind+id.
-					const key = row.getAttribute("data-chat-flow-key") || "";
-					const turn = row.getAttribute("data-chat-turn") || (key.startsWith("10:turn-error") ? key.slice(13) : "");
-					if (!hidden.has(turn)) continue;
-					keep.add(row);
-					if (!row.hidden) { row.hidden = true; owned.add(row); }
+				let pending = [];
+				let failedTurn = "";
+				function flush(turn) {
+					for (const row of pending) {
+						const owner = row.getAttribute("data-chat-turn") || turn;
+						if (!hidden.has(owner)) continue;
+						keep.add(row);
+						if (!row.hidden) { row.hidden = true; owned.add(row); }
+					}
+					pending = [];
 				}
+				for (const row of rows) {
+					pending.push(row);
+					const kind = row.getAttribute("data-chat-flow-kind");
+					if (kind !== "turn-error" && kind !== "turn-tail") { failedTurn = ""; continue; }
+					// Legacy rows have message IDs, not turn IDs. The terminal error or
+					// tail anchors the whole turn, including its input and reasoning.
+					// A failed tail can be empty, so inherit its preceding error's turn.
+					const key = row.getAttribute("data-chat-flow-key") || "";
+					const prefix = kind.length + ":" + kind;
+					const keyTurn = key.startsWith(prefix) ? key.slice(prefix.length) : "";
+					const tail = kind === "turn-tail" && row.querySelector ? row.querySelector("[data-turn-tail]") : null;
+					const turn = row.getAttribute("data-chat-turn") || row.getAttribute("data-turn-tail") || (tail && tail.getAttribute("data-turn-tail")) || (/^\d+$/.test(keyTurn) ? keyTurn : "") || (kind === "turn-tail" ? failedTurn : "");
+					flush(turn);
+					failedTurn = kind === "turn-error" ? turn : "";
+				}
+				// alpha has explicit ownership even before its tail is mounted.
+				flush("");
 				for (const row of owned) {
 					if (!keep.has(row)) { row.hidden = false; owned.delete(row); }
 				}
