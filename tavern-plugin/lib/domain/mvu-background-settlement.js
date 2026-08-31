@@ -74,6 +74,29 @@ function sameValue(left, right) {
   return JSON.stringify(left) === JSON.stringify(right)
 }
 
+// Prompt-only projection. Never strip the authoritative Frame or the runtime's
+// validation/persistence data. MVU's display/delta roots are derived mirrors;
+// its schema is sent once in the dedicated structure section instead.
+function promptVariables(value) {
+  const variables = clone(object(value))
+  if (variables.stat_data !== null && typeof variables.stat_data === 'object' && !Array.isArray(variables.stat_data)) {
+    delete variables.schema
+    delete variables.display_data
+    delete variables.delta_data
+  }
+  return variables
+}
+
+function retryPromptState(variables, initialSchema) {
+  const schema = object(variables && variables.schema)
+  return {
+    currentVariables: promptVariables(variables),
+    // Initial schema is already in context. If validation produced a new one,
+    // retain it for correction rather than silently applying the old contract.
+    ...(Object.keys(schema).length > 0 && !sameValue(schema, initialSchema) ? { variableSchema: clone(schema) } : {})
+  }
+}
+
 function pointerSegment(value) {
   return str(value).replaceAll('~', '~0').replaceAll('/', '~1')
 }
@@ -296,9 +319,9 @@ export function projectMvuBackgroundRequest(frame) {
     }],
     turnContext: [
       '【当前变量快照】',
-      JSON.stringify(state.currentVariables || {}, null, 2),
+      JSON.stringify(promptVariables(state.currentVariables)),
       '【变量结构】',
-      JSON.stringify(state.variableSchema || {}, null, 2),
+      JSON.stringify(state.variableSchema || {}),
       ...(updateRules.length === 0 ? [] : ['【人物卡变量更新规则】', updateRules.join('\n\n')])
     ].join('\n'),
     system: [
@@ -349,7 +372,7 @@ export function createMvuSettlementModule(options = {}) {
         if (feedback && submission.operations.length === 0) throw new Error('上一批更新未通过校验，请修正完整 operations，不能用空数组跳过失败')
       } catch (error) {
         await record('submission-rejected', { error: error.message, argumentKeys: Object.keys(object(call?.arguments)), operations: object(call?.arguments).operations })
-        feedback = { ok: false, retryable: attempt < maxAttempts, rolledBack: true, error: error.message, currentVariables: clone(input.currentVariables), attemptsRemaining: maxAttempts - attempt }
+        feedback = { ok: false, retryable: attempt < maxAttempts, rolledBack: true, error: error.message, currentVariables: promptVariables(input.currentVariables), attemptsRemaining: maxAttempts - attempt }
         result = { variables: clone(input.currentVariables), receipt: { version: 1, status: 'error',
           summary: feedback.error, diagnosticId, changes: [], sideEffects: [], failures: [{ message: feedback.error }] } }
         return JSON.stringify(feedback)
@@ -399,7 +422,7 @@ export function createMvuSettlementModule(options = {}) {
         retryable: rolledBack && applied.retryable === true && attempt < maxAttempts,
         rolledBack, status, changes, failures: audit.failures,
         runtimeDiagnostics: applied.diagnostics || [],
-        ...(audit.failures.length === 0 ? {} : { error: '变量更新未通过校验；请根据具体错误修正。', currentVariables: after }),
+        ...(audit.failures.length === 0 ? {} : { error: '变量更新未通过校验；请根据具体错误修正。', ...retryPromptState(after, frame.authoritativeState.variableSchema) }),
         attemptsRemaining: maxAttempts - attempt
       }
       await record('result', { status, rolledBack, retryable: feedback.retryable, variables: variableDiagnosticSummary(after), changes, sideEffects, failures: audit.failures, runtimeDiagnostics: applied.diagnostics || [] })

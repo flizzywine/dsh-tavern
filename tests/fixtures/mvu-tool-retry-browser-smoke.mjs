@@ -29,6 +29,10 @@ const adapter = createTavernScriptHostAdapter({
   readCard: async () => ({ name: '测试卡' }), worldBooks: { bound: async () => null }, eventGate: gate
 })
 const module = createMvuSettlementModule({ runtime: adapter, model: { async run(request) {
+  assert(!request.turnContext.includes('"display_data"'))
+  assert(!request.turnContext.includes('"delta_data"'))
+  assert(!request.turnContext.includes('"schema"'))
+  assert(request.turnContext.includes(JSON.stringify(variables.schema)), 'schema remains available once')
   for (const location of ['invalid', 'hall']) {
     feedback.push(JSON.parse(await request.onToolCall({ name: 'mvu_submit_update', arguments: { analysis: '测试', operations: [
       { op: 'delta', path: '/hp', value: -1 }, { op: 'replace', path: '/location', value: location }
@@ -112,6 +116,8 @@ const server = createServer(async (request, response) => {
         assert.equal(feedback.length, 2)
         assert.equal(feedback[0].ok, false)
         assert.equal(feedback[0].retryable, true)
+        assert.equal(feedback[0].currentVariables.display_data, undefined)
+        assert.equal(feedback[0].currentVariables.schema, undefined)
         assert.match(JSON.stringify(feedback[0].runtimeDiagnostics), /只允许 hall/)
         assert.equal(feedback[1].ok, true)
         assert.equal(settled.variables.stat_data.hp, 9)
