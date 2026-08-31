@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createSceneImageNativeRuntime } from './fixtures/scene-image-native-runtime.mjs'
 import { SCENE_IMAGE_CHANNELS } from '../tavern-plugin/lib/domain/scene-image-channels.js'
+import { comfyGraph } from './fixtures/scene-image-comfy-workflow.mjs'
 
 test('所有已接入协议均通过真实 DSH 子任务和附件持久化，渠道配置不会自动收费', { skip: !process.env.DSH_BOOT_MODULE }, async t => {
   const runtime = await createSceneImageNativeRuntime(process.env.DSH_BOOT_MODULE)
@@ -9,7 +10,7 @@ test('所有已接入协议均通过真实 DSH 子任务和附件持久化，渠
   const before = runtime.parent.agent.session.events.length
   let count = 0
   for (const { id: provider } of SCENE_IMAGE_CHANNELS) {
-    await runtime.service.configure({ provider, baseURL: runtime.endpoint, ...(provider === 'banana' ? { model: 'fixture-relay-image' } : {}), ...(provider === 'webui' ? {} : { apiKey: 'fixture-' + provider }) })
+    await runtime.service.configure({ provider, baseURL: runtime.endpoint, ...(provider === 'comfyui' ? { workflow: comfyGraph() } : {}), ...(provider === 'banana' ? { model: 'fixture-relay-image' } : {}), ...(['webui', 'comfyui'].includes(provider) ? {} : { apiKey: 'fixture-' + provider }) })
     await runtime.service.configure({ enabled: true })
     assert.equal(runtime.imageRequests.length, count)
     runtime.chat.messages.push({ role: 'assistant', turn: count + 2, sourceText: '她站在窗边看雨。' })
@@ -36,6 +37,12 @@ test('所有已接入协议均通过真实 DSH 子任务和附件持久化，渠
       assert.match(generation.request.input, /window/)
       assert.equal(generation.request.parameters.v4_prompt.caption.char_captions.length, 0)
       assert.equal(JSON.stringify(generation).includes('fixture-novelai'), false)
+    }
+    if (provider === 'comfyui') {
+      assert.equal((await runtime.service.settings()).hasKey, false)
+      assert.equal(runtime.imageRequests.at(-1).prompt['2'].inputs.batch_size, 1)
+      assert.equal(result.versions.at(-1).generation.promptId, runtime.imageRequests.at(-1).prompt_id)
+      assert.equal(result.providerTask.state, 'succeeded')
     }
     await runtime.restart()
     assert.equal((await runtime.service.readImage('scene-parent', count + 2, target.key)).ref.mediaType, 'image/png')

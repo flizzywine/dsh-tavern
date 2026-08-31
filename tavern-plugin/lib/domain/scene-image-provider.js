@@ -7,6 +7,7 @@ import { Readable } from 'node:stream'
 import { imageStyleSettings } from './scene-image-style.js'
 import { channelSettings, imageChannelRequest, channelImageResult } from './scene-image-channels.js'
 import { sceneImageFromZip } from './scene-image-zip.js'
+import { generateComfyImage } from './scene-image-comfy.js'
 
 export function imageSettings(value = {}) {
   return {
@@ -80,6 +81,7 @@ function downloadPublicImage(url, signal) {
 }
 
 export async function generateSceneImage(input, deps = {}) {
+  if (input.provider === 'comfyui') return generateComfyImage(input, { ...deps, readBytes: boundedBytes, decodeImage: imageBytes })
   const request = deps.fetch || fetch
   const maxBytes = input.maxBytes || 20 * 1024 * 1024
   const spec = imageChannelRequest(input)

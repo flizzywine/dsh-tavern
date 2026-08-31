@@ -43,3 +43,30 @@ test('main image action preserves request ID on ambiguous transport errors and c
   await button.props.onClick()
   assert.equal(calls.length, 2)
 })
+
+test('ComfyUI file chooser stores the parsed graph only on explicit save and has no JSON editor', async () => {
+  const slots = [], calls = []
+  let cursor = 0
+  const context = vm.createContext({
+    React: { createElement: (type, props, ...children) => ({ type, props, children }), useEffect() {}, useState(initial) { const n = cursor++; if (!(n in slots)) slots[n] = initial; return [slots[n], value => { slots[n] = typeof value === 'function' ? value(slots[n]) : value }] } },
+    window: { dispatchEvent() {} }, CustomEvent: class {},
+    rpc: async (method, args) => { calls.push({ method, args }); return { settings: slots[0] } }
+  })
+  const Component = vm.runInContext(extract('SceneImageSettings', 'TavernSettingsSection') + ';SceneImageSettings', context)
+  const nodes = tree => tree && typeof tree === 'object' ? [tree, ...(tree.children || []).flat(Infinity).flatMap(nodes)] : []
+  const render = () => { cursor = 0; return nodes(Component()) }
+  render()
+  slots[0] = { provider: 'comfyui', baseURL: 'http://localhost:8188', authType: 'none', username: '', workflow: null, style: { preset: 'default', custom: '' }, ready: false, channels: [{ id: 'comfyui', label: 'ComfyUI', fields: ['baseURL', 'authType', 'username'] }] }
+  const file = render().find(node => node.type === 'input' && node.props.type === 'file')
+  assert.ok(file)
+  await file.props.onChange({ target: { files: [{ size: 80, text: async () => '{"1":{"class_type":"SaveImage","inputs":{}}}' }], value: 'file.json' } })
+  assert.equal(calls.length, 0)
+  assert.equal(slots[0].workflow['1'].class_type, 'SaveImage')
+  assert.equal(render().filter(node => node.type === 'textarea').length, 1, 'only the optional style textarea')
+  await render().find(node => node.type === 'button' && node.children.includes('保存生图设置')).props.onClick()
+  assert.equal(calls[0].method, 'saveSceneImageSettings')
+  assert.equal(calls[0].args.workflow['1'].class_type, 'SaveImage')
+  await file.props.onChange({ target: { files: [{ size: 512001 }], value: '' } })
+  assert.match(slots[4], /500 KB/)
+  assert.equal(calls.length, 1)
+})

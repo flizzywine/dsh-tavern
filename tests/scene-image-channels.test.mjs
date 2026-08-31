@@ -30,7 +30,7 @@ test('six cloud protocols dispatch to local HTTP with exact auth/body shapes and
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
   t.after(() => new Promise(resolve => server.close(resolve)))
   baseURL = 'http://127.0.0.1:' + server.address().port
-  for (const channel of SCENE_IMAGE_CHANNELS.filter(item => !['webui', 'novelai'].includes(item.id))) {
+  for (const channel of SCENE_IMAGE_CHANNELS.filter(item => !['webui', 'novelai', 'comfyui'].includes(item.id))) {
     provider = channel.id
     const config = channelSettings({}, provider)
     const image = await generateSceneImage({ ...config, model: config.model || 'relay-model', baseURL: baseURL + '/v1', prompt: 'one quiet scene', apiKey: 'fixture-secret' })

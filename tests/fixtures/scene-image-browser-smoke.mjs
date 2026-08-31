@@ -6,8 +6,10 @@ import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { createSceneImageNativeRuntime } from './scene-image-native-runtime.mjs'
+import { comfyGraph } from './scene-image-comfy-workflow.mjs'
 
 const runtime = await createSceneImageNativeRuntime(process.env.DSH_BOOT_MODULE)
+if (process.env.SCENE_BROWSER_COMFY_WORKFLOW === '1') await runtime.service.configure({ provider: 'comfyui', baseURL: runtime.endpoint, workflow: comfyGraph() })
 await runtime.service.configure({ enabled: false })
 const bootUrl = pathToFileURL(process.env.DSH_BOOT_MODULE)
 const require = createRequire(new URL('../../dsh-client-ui-trajectory/package.json', bootUrl))

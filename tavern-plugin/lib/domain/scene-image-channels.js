@@ -1,7 +1,9 @@
 import { novelaiSettings, novelaiRequest } from './scene-image-novelai.js'
+import { comfyWorkflow } from './scene-image-comfy-workflow.js'
 
 // Protocol presets are versioned here, not inferred by issuing paid probes.
 const channels = [
+  { id: 'comfyui', label: 'ComfyUI', baseURL: '', authType: 'none', username: '', fields: ['baseURL', 'authType', 'username'], hint: '使用维护者已部署的服务与工作流。导入 API 工作流或维护者准备的映射文件；不会安装模型、节点或清空共享队列。本机地址指 Tavern 服务器。' },
   { id: 'novelai', label: 'NovelAI / 同协议第三方', baseURL: 'https://image.novelai.net', model: 'nai-diffusion-5-full', size: '832x1216', fields: ['baseURL', 'model', 'size'], hint: '默认使用官方 V5 Full。第三方必须支持相同的 /ai/generate-image 协议与 ZIP 图片响应，不是 OpenAI 兼容地址。' },
   { id: 'openai', label: 'OpenAI / Images 兼容中转', baseURL: 'https://api.openai.com/v1', model: 'gpt-image-2', size: '1024x1024', fields: ['baseURL', 'model', 'size'], hint: '官方可使用默认地址与模型；兼容中转请填写自己的地址和模型。' },
   { id: 'gemini', label: 'Google Gemini 原生', baseURL: 'https://generativelanguage.googleapis.com/v1beta', model: 'gemini-3.1-flash-image', size: '1K', aspectRatio: '1:1', fields: ['baseURL', 'model', 'size', 'aspectRatio'], hint: '使用 Interactions API，不是聊天兼容地址。' },
@@ -29,26 +31,30 @@ export function channelSettings(value = {}, id = value.provider || 'openai') {
     const url = new URL(result.baseURL)
     if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw new Error('生图地址须为不含密钥、查询参数的 HTTP(S) API 根地址')
   }
-  if (id === 'webui') {
+  if (['webui', 'comfyui'].includes(id)) {
     result.model = '' // The running server owns model selection.
-    if (!['none', 'basic', 'bearer'].includes(result.authType)) throw new Error('请选择有效的 WebUI 鉴权方式')
+    if (!['none', 'basic', 'bearer'].includes(result.authType)) throw new Error('请选择有效的自建服务鉴权方式')
     if (/[:\r\n]/.test(result.username)) throw new Error('鉴权用户名不能包含冒号或换行')
+  }
+  if (id === 'webui') {
     const dimensions = result.size.match(/^(\d+)x(\d+)$/)
     if (!dimensions || dimensions.slice(1).some(value => Number(value) < 64 || Number(value) > 2048 || Number(value) % 8)) throw new Error('WebUI 尺寸须为宽x高，每边 64–2048 且为 8 的倍数')
   }
   if (id === 'novelai') novelaiSettings(result)
+  if (id === 'comfyui') result.workflow = comfyWorkflow(value.workflow)
   return result
 }
 export function imageCredentialRef(provider = 'openai', authType) {
   sceneImageChannel(provider)
-  if (provider === 'webui' && authType === 'basic') return 'DSH_TAVERN_IMAGE_WEBUI_PASSWORD'
+  if (['webui', 'comfyui'].includes(provider) && authType === 'basic') return 'DSH_TAVERN_IMAGE_' + provider.toUpperCase() + '_PASSWORD'
   return provider === 'openai' ? 'DSH_TAVERN_IMAGE_API_KEY' : 'DSH_TAVERN_IMAGE_' + provider.toUpperCase() + '_API_KEY'
 }
-export function channelNeedsKey(config) { return config.provider !== 'webui' || config.authType !== 'none' }
+export function channelNeedsKey(config) { return !['webui', 'comfyui'].includes(config.provider) || config.authType !== 'none' }
 export function channelReady(config, hasKey) {
-  return Boolean(config.baseURL && (config.provider === 'webui' || config.model) && (!channelNeedsKey(config) || hasKey) && (config.authType !== 'basic' || config.username))
+  return Boolean(config.baseURL && (config.provider === 'comfyui' ? config.workflow : config.provider === 'webui' || config.model) && (!channelNeedsKey(config) || hasKey) && (config.authType !== 'basic' || config.username))
 }
 export function imageExpressionProfile(config) {
+  if (config.provider === 'comfyui') return 'scene-tags-v1:comfyui:' + (config.workflow?.digest || 'unconfigured')
   // Preserve old OpenAI plans while isolating other protocol/model expressions.
   return config.provider === 'openai' || !config.provider ? 'scene-tags-v1:' + config.model : 'scene-tags-v1:' + config.provider + ':' + (config.model || 'server-default')
 }
@@ -59,6 +65,7 @@ export function imageExpressionGuidance(config) {
 
 export function imageChannelRequest(input) {
   const config = channelSettings(input)
+  if (config.provider === 'comfyui') throw new Error('ComfyUI 须通过任务提交与查询流程调用')
   if (!channelReady(config, input.apiKey)) throw new Error('请先配置生图渠道地址、模型与密钥')
   const headers = { 'content-type': 'application/json', authorization: 'Bearer ' + input.apiKey }
   const prompt = input.prompt

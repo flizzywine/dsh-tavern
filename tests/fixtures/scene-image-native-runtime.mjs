@@ -22,6 +22,7 @@ export async function createSceneImageNativeRuntime(bootPath) {
   const ctx = await boot('scene-image-native-test', config)
   ctx.baseUrl = bootUrl.href
   const requests = [], imageRequests = []
+  const comfyTasks = new Map()
   const sharp = createRequire(new URL('../../dsh-attachment-local/lib/index.js', bootUrl))('sharp')
   const png = await sharp({ create: { width: 320, height: 180, channels: 3, background: '#789aab' } }).png().toBuffer()
   class FixtureModel extends LlmAdapter {
@@ -47,10 +48,21 @@ export async function createSceneImageNativeRuntime(bootPath) {
   const keys = new Map([[IMAGE_CREDENTIAL, 'fixture-key']])
   let failNext = false
   const imageServer = createServer(async (req, res) => {
+    const url = new URL(req.url, 'http://localhost')
+    if (req.method === 'GET' && url.pathname.endsWith('/view')) { res.setHeader('Content-Type', 'image/png'); res.end(png); return }
+    if (req.method === 'GET' && url.pathname.includes('/history/')) {
+      const id = url.pathname.split('/').pop()
+      res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(comfyTasks.has(id) ? { [id]: comfyTasks.get(id) } : {})); return
+    }
     if (req.method === 'GET' && req.url === '/picture') { res.setHeader('Content-Type', 'image/png'); res.end(png); return }
     let body = ''; for await (const chunk of req) body += chunk
     imageRequests.push(JSON.parse(body))
     if (failNext) { failNext = false; res.writeHead(503).end('test failure'); return }
+    if (url.pathname.endsWith('/prompt')) {
+      const data = JSON.parse(body), outputNode = Object.keys(data.prompt).find(id => data.prompt[id].class_type === 'SaveImage')
+      comfyTasks.set(data.prompt_id, { status: { status_str: 'success', completed: true }, outputs: { [outputNode]: { images: [{ filename: 'fixture.png', subfolder: '', type: 'output' }] } } })
+      res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ prompt_id: data.prompt_id, number: 0, node_errors: {} })); return
+    }
     if (req.url.endsWith('/ai/generate-image')) { res.writeHead(200, { 'Content-Type': 'application/zip' }).end(imageZip(png, { compressed: true })); return }
     const payload = req.url.endsWith('/txt2img') ? { images: [png.toString('base64')], info: JSON.stringify({ seed: 42, sd_model_name: 'fixture-server-model' }) }
       : req.url.endsWith('/interactions') ? { steps: [{ type: 'model_output', content: [{ type: 'image', data: png.toString('base64') }] }] }

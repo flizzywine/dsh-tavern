@@ -9,6 +9,7 @@ import { createProfileDataStore } from '../tavern-plugin/lib/profile-data-store.
 import { createBackgroundAgentRunner } from '../tavern-plugin/lib/background-agent-runner.js'
 import { createHash } from 'node:crypto'
 import { imageZip } from './fixtures/scene-image-zip.mjs'
+import { comfyGraph } from './fixtures/scene-image-comfy-workflow.mjs'
 
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aKfoAAAAASUVORK5CYII=', 'base64')
 const imagePath = 'scene-images/' + createHash('sha256').update('test-chat').digest('hex') + '/'
@@ -119,6 +120,42 @@ test('NovelAI service sends frozen structured people and saves the exact key-fre
   assert.deepEqual(second.versions[1].generation.request, requests[1])
   assert.equal(requests.length, 2)
   assert.equal(JSON.stringify(second).includes('nai-secret'), false)
+})
+
+test('ComfyUI retry after restart or attachment failure queries the saved job without another generation', async t => {
+  let posts = 0, texts = 0, offline = true, jobId, failSave = true
+  const fx = await fixture(t, {
+    credentials: () => ({ resolve: async () => ({ value: 'fixture-key' }), set: async () => {} }),
+    runAgent: async input => { texts++; await input.onToolCall({ arguments: { plan: planFixture() } }) },
+    generate: input => generateSceneImage(input, { fetch: async (url, init) => {
+      if (url.endsWith('/prompt')) { posts++; jobId = JSON.parse(init.body).prompt_id; return Response.json({ prompt_id: jobId }) }
+      if (offline) throw new Error('offline')
+      if (url.includes('/history/')) { assert.ok(url.endsWith(jobId)); return Response.json({ [jobId]: { status: { status_str: 'success', completed: true }, outputs: { '7': { images: [{ filename: 'saved.png', subfolder: '', type: 'output' }] } } } }) }
+      return new Response(png)
+    } }),
+    attachments: () => ({ saveImage: async () => { if (failSave) { failSave = false; throw new Error('disk unavailable') } return { attachmentId: 'comfy-image', mediaType: 'image/png' } }, readImage: async ref => ({ ref, data: png }) })
+  })
+  await fx.service.configure({ provider: 'comfyui', baseURL: 'http://localhost:8188', workflow: comfyGraph() })
+  await fx.service.configure({ enabled: true })
+  const target = sceneTarget(fx.chat(), 2)
+  const finish = async service => { await service.start('parent', 2, target.key); return until(async () => { const value = await service.status('parent', 2); return value.status !== 'running' && value }) }
+  const first = await finish(fx.service)
+  assert.equal(first.status, 'failed'); assert.equal(first.providerTask.promptId, jobId)
+  assert.equal(first.providerTask.state, 'pending')
+  const restarted = fx.createService()
+  await restarted.configure({ baseURL: 'http://localhost:8199' })
+  await assert.rejects(restarted.start('parent', 2, target.key), /恢复原渠道/)
+  assert.equal(posts, 1)
+  await restarted.configure({ baseURL: 'http://localhost:8188' })
+  offline = false
+  const second = await finish(restarted)
+  assert.equal(second.status, 'failed'); assert.match(second.error, /disk/)
+  assert.equal(second.providerTask.state, 'succeeded')
+  const third = await finish(fx.createService())
+  assert.equal(third.status, 'succeeded', third.error)
+  assert.equal(posts, 1); assert.equal(texts, 1)
+  assert.equal(third.versions[0].generation.promptId, jobId)
+  assert.equal(third.configuration.workflow.prompt, undefined, 'polling must not return a complete workflow graph')
 })
 
 test('explicit opt-in, partial saves and legacy migration never cause paid requests', async t => {

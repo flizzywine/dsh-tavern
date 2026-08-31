@@ -105,7 +105,8 @@ export function createSceneIllustrations(deps) {
   }
   function present(target, record) {
     const { attachment, diagnostics, plan, requests, versions, deletedVersions, ownerId, ownerPid, ...publicRecord } = record || {}
-    return { key: target.key, turn: target.turn, status: 'idle', ...publicRecord, versions: versionsOf(record).map(({ attachment, plan, ...item }) => ({ ...item, description: plan?.description || '', profile: plan?.profile || '' })) }
+    const configuration = value => value?.workflow ? { ...value, workflow: { name: value.workflow.name, digest: value.workflow.digest } } : value
+    return { key: target.key, turn: target.turn, status: 'idle', ...publicRecord, ...(publicRecord.configuration ? { configuration: configuration(publicRecord.configuration) } : {}), versions: versionsOf(record).map(({ attachment, plan, ...item }) => ({ ...item, configuration: configuration(item.configuration), description: plan?.description || '', profile: plan?.profile || '' })) }
   }
   async function status(sessionId, turn) {
     const { target, path } = await resolve(sessionId, turn)
@@ -135,6 +136,8 @@ export function createSceneIllustrations(deps) {
       if (typeof deps.attachments()?.saveImage !== 'function' || typeof deps.attachments()?.readImage !== 'function') throw new Error('当前 DSH 未提供图片附件服务，无法保存插画')
       const profile = imageExpressionProfile(active)
       const style = await styles.resolve(active.style, profile)
+      const providerTask = existing?.status === 'failed' && existing.providerTask && !['rejected', 'failed'].includes(existing.providerTask.state) ? existing.providerTask : undefined
+      if (providerTask && (kind !== existing.kind || instruction !== existing.instruction || (options.versionId || '') !== existing.baseVersionId || JSON.stringify({ ...channelSettings(active), style: active.style }) !== JSON.stringify(existing.configuration))) throw new Error('上次 ComfyUI 任务结果待确认，请恢复原渠道与风格配置，并重试原操作以查询；不会重新提交')
       let prepared, material = { omitted: [] }, basePlan, adjustment = false
       if (kind !== 'generate') {
         const version = versionsOf(existing).find(item => item.id === options.versionId)
@@ -155,6 +158,7 @@ export function createSceneIllustrations(deps) {
         if (prepared.saved) prepared.saved = await plans.snapshot(chat.id, prepared.saved)
       }
       const expressionGuidance = imageExpressionGuidance(active)
+      if (providerTask) prepared.saved = existing.plan
       if (prepared.input && expressionGuidance) prepared.input = { ...prepared.input, expressionGuidance }
       const selection = deps.selection(sessionId)
       if (!prepared.saved && !selection) throw new Error('请先为当前对话选择模型，供生图 Agent 理解场景')
@@ -163,7 +167,7 @@ export function createSceneIllustrations(deps) {
       const record = await deps.store.updateJson(path, current => {
         if (Object.hasOwn(current?.requests || {}, requestId) || kind === 'generate' && current?.status === 'succeeded' || current?.status === 'running' && ownerIsLive(current, path)) return current
         claimed = true
-        return { key: target.key, turn: target.turn, status: 'running', stage: prepared.saved ? 'generating' : 'planning', kind, instruction, baseVersionId: options.versionId || '', createdAt: Date.now(), requestId, ownerId, ownerPid: process.pid, error: '', versions: versionsOf(current), deletedVersions: current?.deletedVersions || [], requests: { ...current?.requests, [requestId]: { status: 'running' } } }
+        return { key: target.key, turn: target.turn, status: 'running', stage: prepared.saved ? 'generating' : 'planning', kind, instruction, baseVersionId: options.versionId || '', createdAt: Date.now(), requestId, ownerId, ownerPid: process.pid, error: '', ...(providerTask ? { providerTask } : {}), versions: versionsOf(current), deletedVersions: current?.deletedVersions || [], requests: { ...current?.requests, [requestId]: { status: 'running' } } }
       })
       if (!claimed) return present(target, record)
       const job = { controller, promise: null }
@@ -228,7 +232,7 @@ export function createSceneIllustrations(deps) {
       await deps.store.writeJson(path, record)
       attempted = true
       let generated
-      try { generated = await (deps.generate || generateSceneImage)({ ...active, apiKey: input.apiKey, prompt, plan, signal: controller.signal, maxBytes: deps.attachments()?.imageLimits?.maxImageBytes }) }
+      try { generated = await (deps.generate || generateSceneImage)({ ...active, apiKey: input.apiKey, prompt, plan, providerTask: record.providerTask, async onProviderTask(task) { record.providerTask = task; await deps.store.writeJson(path, record) }, signal: controller.signal, maxBytes: deps.attachments()?.imageLimits?.maxImageBytes }) }
       catch (error) { providerError = redactImageError(error.message || '生图失败', input.apiKey); throw error }
       controller.signal.throwIfAborted()
       record.stage = 'saving'
