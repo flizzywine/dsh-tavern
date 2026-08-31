@@ -583,10 +583,26 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 
 		const tavernRuntimeGenerationMonitor = createTavernRuntimeGenerationMonitor({
 			load: function () {
-				return fetch("/api/dsh-tavern/runtime-generation", { cache: "no-store" }).then(function (response) { return response.json(); });
+				return fetch("/api/dsh-tavern/runtime-generation", { cache: "no-store" }).then(readTavernJsonResponse);
 			},
 			refresh: reloadTavernClient
 		});
+
+		async function readTavernJsonResponse(response) {
+			function failure(message, retryable) {
+				const error = new Error(message);
+				error.status = response.status;
+				error.retryable = retryable;
+				return error;
+			}
+			if (response.status === 401) throw failure("连接认证已失效，请通过服务启动时提供的地址重新打开页面", false);
+			if (response.status === 403) throw failure("请求被拒绝，请检查访问地址和权限", false);
+			if (!response.ok) throw failure("服务请求失败（HTTP " + response.status + "），请稍后重试", [404, 408, 429, 502, 503, 504].includes(response.status));
+			const body = await response.text();
+			if (!body.trim()) throw failure("服务返回空响应，可能仍在启动或重启，请稍后重试", true);
+			try { return JSON.parse(body); }
+			catch (_error) { throw failure("服务返回非 JSON 或不完整的响应，请稍后重试", true); }
+		}
 
 		function rpc(method, args, sessionId, requestOptions) {
 			const payload = Object.assign({}, args || {});
@@ -597,7 +613,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				body: JSON.stringify(payload)
 			};
 			if (requestOptions && requestOptions.signal) request.signal = requestOptions.signal;
-			return fetch("/api/dsh-tavern/" + method, request).then(function (response) { return response.json(); }).then(function (result) {
+			return fetch("/api/dsh-tavern/" + method, request).then(readTavernJsonResponse).then(function (result) {
 				tavernRuntimeGenerationMonitor.observe(result && result.runtimeGeneration);
 				if (!result || !result.ok) throw new Error(result && result.error ? result.error : "操作失败");
 				return result;
@@ -3079,21 +3095,33 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			React.useEffect(function () {
 				let stopped = false;
 				let received = false;
+				let pending = false;
+				let failures = 0;
 				async function refreshUpdateStatus() {
+					if (stopped || pending) return;
+					pending = true;
 					try {
 						const result = await call("getUpdateStatus");
 						if (!stopped && result && result.status) {
 							received = true;
+							failures = 0;
+							tavernErrorHub.resolve("更新状态");
 							const status = result.status;
 							const completedInThisPage = status.phase === "completed" && updateStartedAtRef.current > 0 && Number(status.completedAt || 0) >= updateStartedAtRef.current;
 							setUpdateStatus(status.phase === "completed" && !completedInThisPage ? { ...status, phase: "idle", host: status.host || "cli" } : status);
 						}
 					} catch (err) {
-							if (!stopped && !received) {
-								if (isMissingUpdateApiError(err)) setUpdateStatus({ phase: "restart-required", host: "desktop" });
-								else { setUpdateStatus({ phase: "failed", host: "cli", error: String(err && err.message || err) }); tavernErrorHub.report("插件更新", err); }
-						}
-					}
+							if (stopped) return;
+							failures += 1;
+							// Only this read-only poll gets a startup grace period. Never replay startUpdate.
+							if ((err && err.retryable || err instanceof TypeError) && failures < 3) return;
+							if (isMissingUpdateApiError(err)) {
+								if (!received) setUpdateStatus({ phase: "restart-required", host: "desktop" });
+							} else {
+								if (!received) setUpdateStatus({ phase: "failed", host: "cli", error: String(err && err.message || err) });
+								tavernErrorHub.report("更新状态", err);
+							}
+						} finally { pending = false; }
 				}
 				refreshUpdateStatus();
 				const timer = window.setInterval(refreshUpdateStatus, 2500);
