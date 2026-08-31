@@ -17,6 +17,23 @@ function modelSourceOf(event) {
   return source && source.kind === 'model' ? source : null
 }
 
+export function locateRegenerationSurface(input) {
+  const events = Array.isArray(input && input.events) ? input.events : []
+  const nodes = Array.isArray(input && input.nodes) ? input.nodes : []
+  const turn = Number(input && input.turn)
+  if (!Number.isSafeInteger(turn) || turn < 1) return null
+  for (let index = nodes.length - 1; index >= 0; index -= 1) {
+    const event = eventAt(events, nodes[index])
+    if (!event || event.type !== 'assistant/message' || Number(event.data && event.data.turn) !== turn) continue
+    const source = modelSourceOf(event)
+    if (source === null) continue
+    // Successful swipes leave an empty model-sourced replacement at the original turn.
+    // Plugin cleanup markers and messages from other turns are not the saved story body.
+    return Object.freeze({ assistantSeq: Number(nodes[index]), turn, source })
+  }
+  return null
+}
+
 export function locateRollbackSurface(input) {
   const events = Array.isArray(input && input.events) ? input.events : []
   const nodes = Array.isArray(input && input.nodes) ? input.nodes : []
