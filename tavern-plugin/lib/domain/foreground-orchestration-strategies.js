@@ -147,6 +147,12 @@ export function createNativePlayOrchestrationStrategy(options) {
       step: staged.step
     })
     if (typeof options.sessionPrefix === 'function') request = projectSessionStablePrefix(request, options.sessionPrefix(sessionId))
+    // DSH's renderer returns '' for no sections; adapters otherwise serialize
+    // it as an empty system message. Preserve any explicit non-empty prompt.
+    if (request.system === '') {
+      request = Object.assign({}, request)
+      delete request.system
+    }
     if (request === optionsValue) return null
     redispatches.add(request)
     return request
@@ -165,8 +171,11 @@ export function createNativePlayOrchestrationStrategy(options) {
   async function assembleSystemPrompt(assembly, input) {
     const mode = await options.modeFor(input.sessionId)
     const visible = new Set(await options.visibleTools(input.sessionId))
-    const sections = [{ name: 'tavern:mode-persona', text: options.modePrompt(mode) }]
+    // Play rules arrive in the foreground frame. Still replace the inherited
+    // sections explicitly so removing play-mode cannot restore DSH's persona.
+    const sections = []
     if (mode === 'card') {
+      sections.push({ name: 'tavern:mode-persona', text: options.modePrompt(mode) })
       const cordisInstructions = assembly.sections.find(function (section) { return section.name === 'tool:cordis' })
       if (cordisInstructions !== undefined) sections.push(cordisInstructions)
       const workspace = options.workspaceContext(input.cwd)

@@ -3233,7 +3233,7 @@ export async function apply(ctx) {
         }))
       },
       visibleTools: async function (sessionId) { return await turnOrchestrator.visibleTools(sessionId) },
-      modePrompt: function (mode) { return runtimePrompt(mode === 'card' ? 'card-mode' : 'play-mode') },
+      modePrompt: function () { return runtimePrompt('card-mode') },
       workspaceContext: resourceWorkspaceContext,
       ensureSessionPrefix: async function (input) {
         const session = input.payload.agent.session
