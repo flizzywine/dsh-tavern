@@ -60,7 +60,7 @@ window.__ModuleLoader__.load({
 .dsh-tavern-mvu-retry { justify-self: start; border: 1px solid var(--dsw-alias-border-l2); border-radius: 7px; padding: 4px 9px; background: transparent; color: var(--dsw-alias-label-primary); cursor: pointer; }
 .dsh-tavern-mvu-retry:disabled { cursor: wait; opacity: .58; }
 .dsh-tavern-message-frame-slot { display: block; width: 100%; min-height: 48px; overflow: hidden; }
-.dsh-tavern-message-frame { display: block; width: 100%; min-height: 48px; border: 0; background: transparent; overflow: hidden; }
+.dsh-tavern-message-frame { display: block; width: 100%; min-height: 48px; border: 0; background: transparent; overflow: hidden; pointer-events: none; }
 .dsh-tavern-status-runtime { width: 100%; min-width: 0; margin: 0 0 10px; overflow: hidden; border: 1px solid var(--dsw-alias-border-l2); border-radius: 12px; background: var(--dsw-alias-bg-base); }
 .dsh-tavern-user-row { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
 .dsh-tavern-user-stack { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; min-width: 0; max-width: min(525px, 82%); }
