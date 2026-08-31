@@ -91,6 +91,30 @@ test('persistent iframe keeps its incremental baseline through rerenders and con
   assert.equal(state.messages[0].variables.stat_data.安全带, '未系')
 })
 
+test('stale legacy status replaces only the live iframe, retains old UI until ready, and uses latest variables', () => {
+  const host = mountFrame()
+  const [old] = host.render(context(1, '未系'))
+  host.message(old, 'dsh-tavern-frame-ready')
+  host.render(context(2, '已系'))
+  host.message(old, 'dsh-tavern-status-stale', {}) // reject wrong sender
+  assert.equal(host.render(context(2, '已系')).length, 1)
+  host.message(old, 'dsh-tavern-status-stale')
+  host.render(context(2, '已系'))
+  const [stillVisible, pending] = host.render(context(2, '已系'))
+  assert.ok(pending, 'a non-reactive status must be replaced without manual refresh')
+  assert.equal(stillVisible.node, old.node)
+  assert.equal(pending.element.props['aria-hidden'], true)
+  assert.match(pending.element.props.srcDoc, /已系/)
+  host.message(old, 'dsh-tavern-status-stale') // coalesce duplicates while loading
+  const [, samePending] = host.render(context(2, '已系'))
+  assert.equal(samePending.node, pending.node)
+  host.message(pending, 'dsh-tavern-frame-ready')
+  const [current] = host.render(context(2, '已系'))
+  assert.equal(current.node, pending.node)
+  host.message(old, 'dsh-tavern-status-stale') // detached sender
+  assert.equal(host.render(context(2, '已系')).length, 1)
+})
+
 test('replacement iframe owns its baseline and detached iframe cannot request resync', () => {
   const host = mountFrame()
   const [old] = host.render(context(1, '未系'))
