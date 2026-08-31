@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util'
 import {
   lastTavernHelperVariables,
   projectTavernHelperContext,
@@ -159,9 +160,10 @@ export function createTavernScriptHostAdapter(options = {}) {
   }
 
   async function replaceWorldbook(sessionId, name, entries, expectedEntries) {
-    const chat = await resolveChat(sessionId)
-    return await serializeWorldbook(chat.cardPath, async function () {
+    const initial = await worldbookRecord(sessionId, name)
+    return await serializeWorldbook(worldbookKey(initial.record), async function () {
       const resolved = await worldbookRecord(sessionId, name)
+      if (worldbookKey(resolved.record) !== worldbookKey(initial.record)) throw new Error('世界书绑定已变化，请重新读取后重试')
       if (expectedEntries !== undefined && JSON.stringify(projectTavernHelperWorldbook(resolved.record.view).entries) !== JSON.stringify(expectedEntries)) {
         throw new Error('世界书已被其他操作修改，请重新读取后重试')
       }
@@ -173,6 +175,30 @@ export function createTavernScriptHostAdapter(options = {}) {
         ? resolved.record
         : await options.worldBooks.update(resolved.record.source, { operations })
       return { updated: operations.length > 0, worldbook: projectTavernHelperWorldbook(updated.view) }
+    })
+  }
+
+  function worldbookKey(record) {
+    return record.source.kind === 'card' ? 'card:' + record.source.cardPath : 'standalone:' + record.source.path
+  }
+
+  async function loadWorldInfo(sessionId, name) {
+    const resolved = await worldbookRecord(sessionId, name)
+    return { worldInfo: (await options.worldBooks.export(resolved.record.source)).document }
+  }
+
+  async function saveWorldInfo(sessionId, name, worldInfo, expectedWorldInfo) {
+    if (!expectedWorldInfo) throw new Error('保存前请先读取世界书')
+    const initial = await worldbookRecord(sessionId, name)
+    return await serializeWorldbook(worldbookKey(initial.record), async function () {
+      const resolved = await worldbookRecord(sessionId, name)
+      if (worldbookKey(resolved.record) !== worldbookKey(initial.record)) throw new Error('世界书绑定已变化，请重新读取后重试')
+      const current = (await options.worldBooks.export(resolved.record.source)).document
+      if (!isDeepStrictEqual(current, expectedWorldInfo)) throw new Error('世界书已被其他操作修改，请重新读取后重试')
+      const transaction = settlementTransactions.get(str(sessionId))
+      if (transaction) transaction.externalEffects = true
+      const updated = await options.worldBooks.replaceNative(resolved.record.source, worldInfo)
+      return { updated: true, worldbook: projectTavernHelperWorldbook(updated.view), worldInfo: (await options.worldBooks.export(resolved.record.source)).document }
     })
   }
 
@@ -322,6 +348,8 @@ export function createTavernScriptHostAdapter(options = {}) {
     getWorldbook,
     replaceWorldbook,
     saveExtensionSettings,
+    loadWorldInfo,
+    saveWorldInfo,
     pollEvent: function (sessionId, runtimeId, ready) { return options.eventGate.poll(sessionId, runtimeId, ready) },
     completeEvent: function (sessionId, eventId, args, runtimeId, error, diagnostics) { return options.eventGate.complete(sessionId, eventId, args, runtimeId, error, diagnostics) },
     releaseRuntime: function (sessionId, runtimeId) { return options.eventGate.dispose(sessionId, runtimeId) }

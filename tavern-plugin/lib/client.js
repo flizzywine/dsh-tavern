@@ -1559,6 +1559,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			let savedExtensionSettings = copy(extensionSettings);
 			let settingsTail = Promise.resolve();
 			let lorebookSettings = { selected_global_lorebooks: [] };
+			const nativeWorldInfoSnapshots = new WeakMap();
+			const nativeWorldInfoByName = new Map();
 			const scriptList = (Array.isArray(metadata.scripts) ? metadata.scripts : [metadata]).map(function (script) {
 				return {
 					id: String(script && script.id || ""),
@@ -2128,10 +2130,20 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				getRequestHeaders: function () { return {}; },
 				getChatCompletionModel: function () { return ""; },
 				loadWorldInfo: async function (name) {
-					const entries = await window.getWorldbook(name);
-					const raw = {};
-					for (const entry of entries) raw[String(entry.uid)] = Object.assign({ uid: entry.uid, comment: entry.name, content: entry.content, disable: entry.enabled === false, displayIndex: entry.uid }, copy(entry));
-					return { entries: raw };
+					const result = await call("loadTavernWorldInfo", { name: name });
+					const document = copy(result.worldInfo);
+					nativeWorldInfoSnapshots.set(document, copy(document));
+					nativeWorldInfoByName.set(String(name || "current"), copy(document));
+					return document;
+				},
+				saveWorldInfo: async function (name, document) {
+					const expected = nativeWorldInfoSnapshots.get(document) || nativeWorldInfoByName.get(String(name || "current"));
+					if (!expected) throw new Error("保存前请先读取世界书");
+					const result = await call("saveTavernWorldInfo", { name: name, worldInfo: copy(document), expectedWorldInfo: copy(expected) });
+					if (!result || result.updated === false) throw new Error("世界书未保存");
+					nativeWorldInfoSnapshots.set(document, copy(result.worldInfo));
+					nativeWorldInfoByName.set(String(name || "current"), copy(result.worldInfo));
+					state.worldbook = copy(result.worldbook);
 				},
 				callGenericPopup: function (content, type, title, options) { return new HelperPopup(content, type, title, options).show(); },
 				saveChat: async function () { return true; },
@@ -2269,7 +2281,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const closedEventIds = new Set();
 			const closedEventOrder = [];
 			const reportedEventTimeouts = new Set();
-			const allowedMethods = new Set(["updateTavernHelperVariables", "updateTavernHelperMessages", "getTavernHelperWorldbook", "replaceTavernHelperWorldbook", "saveTavernExtensionSettings"]);
+			const allowedMethods = new Set(["updateTavernHelperVariables", "updateTavernHelperMessages", "getTavernHelperWorldbook", "replaceTavernHelperWorldbook", "saveTavernExtensionSettings", "loadTavernWorldInfo", "saveTavernWorldInfo"]);
 			let activeSessionId = "";
 			let root = null;
 			let previous = null;
@@ -2606,7 +2618,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				}
 				invoke(data.method, mutationArgs, record.sessionId).then(function (result) {
 					post(record, { type: "dsh-tavern-helper-response", requestId: data.requestId, ok: true, result: result });
-					if ((data.method === "updateTavernHelperVariables" || data.method === "updateTavernHelperMessages" || data.method === "replaceTavernHelperWorldbook" || data.method === "saveTavernExtensionSettings") && result && result.updated !== false && result.stale !== true && records.get(record.id) === record) reportMutation(record.sessionId, data.method, result);
+					if ((data.method === "updateTavernHelperVariables" || data.method === "updateTavernHelperMessages" || data.method === "replaceTavernHelperWorldbook" || data.method === "saveTavernExtensionSettings" || data.method === "saveTavernWorldInfo") && result && result.updated !== false && result.stale !== true && records.get(record.id) === record) reportMutation(record.sessionId, data.method, result);
 				}, function (error) {
 					post(record, { type: "dsh-tavern-helper-response", requestId: data.requestId, ok: false, error: String(error && error.message || error) });
 				});

@@ -182,7 +182,7 @@ test('人物卡内置世界书解绑原主人后可一对一绑定给其他人�
   const binding = await run.library.bind('cards/空白.json', source)
   assert.equal(binding.kind, 'embedded')
   assert.equal(binding.source.cardPath, 'cards/命运.json')
-  assert.equal((await run.library.bound('cards/空白.json')).view.displayName, '命运世界书')
+  assert.equal((await run.library.bound('cards/空白.json', run.cards.get('cards/空白.json'))).view.displayName, '命运世界书')
   await assert.rejects(run.library.bind('cards/命运.json', source), /该世界书已绑定人物卡：空白/)
 })
 

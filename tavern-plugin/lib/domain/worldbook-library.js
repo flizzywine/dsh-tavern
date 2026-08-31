@@ -164,7 +164,7 @@ export function createWorldBookLibrary(options = {}) {
     const current = await binding(cardPath)
     if (current.kind === 'none') return null
     if (current.available !== true) throw new Error('绑定的世界书不存在，请重新绑定或解绑')
-    if (current.kind === 'embedded' && card) {
+    if (current.kind === 'embedded' && card && current.source.cardPath === normalizePath(cardPath, 'card')) {
       const document = embeddedDocument(card)
       return { source: current.source, view: inspectWorldBookDocument(document, { filename: card.name }) }
     }
@@ -212,6 +212,30 @@ export function createWorldBookLibrary(options = {}) {
     return await get(record.source)
   }
 
+  /** Replace through the native ST API, preserving unknown plugin fields. */
+  async function replaceNative(locator, document) {
+    if (!document || typeof document !== 'object' || Array.isArray(document)
+      || !document.entries || typeof document.entries !== 'object' || Array.isArray(document.entries)) {
+      throw new Error('原生世界书需要 entries 对象')
+    }
+    const ids = new Set()
+    for (const [key, entry] of Object.entries(document.entries)) {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry) || !Number.isSafeInteger(entry.uid)
+        || entry.uid < 0 || String(entry.uid) !== key || ids.has(entry.uid)) throw new Error('世界书条目编号无效或重复')
+      ids.add(entry.uid)
+    }
+    const record = await readRecord(locator)
+    const native = clone(document)
+    // originalData is conversion provenance, never a second writable authority.
+    delete native.originalData
+    if (record.source.kind === 'card') {
+      await cards.update(record.source.cardPath, { character_book: exportCharacterBook(native, { replace: true }) })
+    } else {
+      await resources.write(record.source.path, JSON.stringify(native, null, 2))
+    }
+    return await get(record.source)
+  }
+
   async function exportBook(locator) {
     const record = await readRecord(locator)
     return { name: record.view.displayName, document: exportSillyTavernWorldBook(record.document) }
@@ -229,5 +253,5 @@ export function createWorldBookLibrary(options = {}) {
     return await removeStandalone(normalizePath(path, 'worldbook'))
   }
 
-  return Object.freeze({ catalog, get, binding, associations, bound, bind, unbind, import: importBook, update, export: exportBook, characterBookForCard, remove })
+  return Object.freeze({ catalog, get, binding, associations, bound, bind, unbind, import: importBook, update, replaceNative, export: exportBook, characterBookForCard, remove })
 }

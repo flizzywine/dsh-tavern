@@ -1038,8 +1038,8 @@ test('酒馆状态页不展示人物卡脚本按钮和内部兼容诊断', () =>
 	assert.match(runtime, /dsh-tavern-helper-ui-open/)
 })
 
-test('人物卡 Helper 的世界书写入按人物卡串行，避免生命周期事件并发覆盖', () => {
-	assert.match(scriptHostAdapterSource, /serializeWorldbook\(chat\.cardPath/)
+test('人物卡 Helper 的世界书写入按资源串行，避免生命周期事件并发覆盖', () => {
+	assert.match(scriptHostAdapterSource, /serializeWorldbook\(worldbookKey\(initial\.record\)/)
 	assert.match(scriptHostAdapterSource, /previous\.catch\(function \(\) \{\}\)\.then\(work\)/)
 	assert.match(scriptHostAdapterSource, /await options\.worldBooks\.update/)
 })

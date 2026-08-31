@@ -172,7 +172,7 @@ function standaloneEntryFromEmbedded(value, index) {
     const name = names.find(function (candidate) { return hasOwn(extensions, candidate) })
     if (name !== undefined) exported[target] = clone(extensions[name])
   }
-  if (hasOwn(entry, 'case_sensitive')) exported.caseSensitive = entry.case_sensitive === true
+  if (hasOwn(entry, 'case_sensitive')) exported.caseSensitive = booleanOrNull(entry.case_sensitive)
   else if (hasOwn(extensions, 'case_sensitive')) exported.caseSensitive = extensions.case_sensitive === true
   return exported
 }
@@ -192,13 +192,13 @@ export function exportSillyTavernWorldBook(document) {
   return exported
 }
 
-function embeddedEntryFromStandalone(value, index, original) {
+function embeddedEntryFromStandalone(value, index, original, replace = false) {
   const entry = object(value) || {}
   const previous = object(original) || {}
-  const extensions = Object.assign({}, object(previous.extensions) || {}, object(entry.extensions) || {})
+  const extensions = Object.assign({}, replace ? {} : object(previous.extensions) || {}, object(entry.extensions) || {})
   const uid = numberOr(entry.uid, index)
   const position = numberOr(entry.position, 0)
-  const exported = Object.assign({}, clone(previous), {
+  const exported = Object.assign({}, clone(replace ? entry : previous), {
     id: uid,
     keys: array(entry.key).map(str),
     secondary_keys: array(entry.keysecondary).map(str),
@@ -232,18 +232,26 @@ function embeddedEntryFromStandalone(value, index, original) {
   ]
   extensions.position = position
   for (const [source, target] of optional) {
+    if (replace) { delete exported[source]; delete extensions[source]; delete extensions[target] }
     if (hasOwn(entry, source)) extensions[target] = clone(entry[source])
+  }
+  if (replace) {
+    for (const key of ['uid', 'key', 'keysecondary', 'order', 'disable', 'caseSensitive']) delete exported[key]
+    delete extensions.case_sensitive
+    if (hasOwn(entry, 'caseSensitive')) exported.case_sensitive = booleanOrNull(entry.caseSensitive)
+    else delete exported.case_sensitive
   }
   return exported
 }
 
 /** Convert any supported source into a Character Card character_book. */
-export function exportCharacterBook(document) {
+export function exportCharacterBook(document, options = {}) {
   const identified = identifyDocument(document)
   if (identified.format !== 'sillytavern-worldbook') return clone(identified.book)
   const book = identified.book
-  const original = object(book.originalData) || {}
-  const exported = clone(original)
+  const original = options.replace ? {} : object(book.originalData) || {}
+  const exported = clone(options.replace ? book : original)
+  if (options.replace) delete exported.originalData
   if (hasOwn(book, 'name')) exported.name = str(book.name)
   if (hasOwn(book, 'description')) exported.description = str(book.description)
   exported.extensions = Object.assign({}, object(original.extensions) || {}, object(book.extensions) || {})
@@ -252,7 +260,7 @@ export function exportCharacterBook(document) {
   }))
   exported.entries = Object.values(book.entries).map(function (entry, index) {
     const uid = numberOr(entry && entry.uid, index)
-    return embeddedEntryFromStandalone(entry, index, originals.get(uid))
+    return embeddedEntryFromStandalone(entry, index, originals.get(uid), options.replace === true)
   })
   return exported
 }
