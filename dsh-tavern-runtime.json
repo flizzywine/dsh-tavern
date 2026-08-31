@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "revision": "7305d5d646521c5506ddfcbb348a091f4315e203",
+  "revision": "480de561a024ad006d21746c5115f2b01e46239b",
   "files": [
     {
       "path": "bin/dsh-compatibility.mjs",
@@ -19,8 +19,8 @@
     },
     {
       "path": "bin/dsh-tavern.mjs",
-      "sha256": "3362a7c327eeda156ffdfe2df489e00505bca9000ba04ab449921aa5ddaaed33",
-      "size": 38909
+      "sha256": "94c0b31b5f8a749aff1139454b30115ff2ca9c3d3f51111d16e001270b3e2634",
+      "size": 41207
     },
     {
       "path": "bin/profile-configuration.mjs",
@@ -49,13 +49,13 @@
     },
     {
       "path": "install.ps1",
-      "sha256": "6d7324a36dc67e533ba3bbcabb7e03713d058fcca0ee36220af85f1d66275873",
-      "size": 11699
+      "sha256": "35b677855ace558ea1de76c9c5e92a4660c2ecd8b7c4aee9425d10f3dfd182e6",
+      "size": 11762
     },
     {
       "path": "install.sh",
-      "sha256": "4b1bfce56dd229ba01fd48dc68e972cd9bf9b09fdd49c2491a32d4fa93171977",
-      "size": 9089
+      "sha256": "e85d7a9acd27dbffccc2f6b6f657983d7aaa2fa57e02aee30825d54002e6c538",
+      "size": 9150
     },
     {
       "path": "package.json",
@@ -71,11 +71,6 @@
       "path": "pnpm-workspace.yaml",
       "sha256": "0ef569c482a53e54368eaa9711b9e89654f2906ea9f0913dec52a18ad13088b5",
       "size": 238
-    },
-    {
-      "path": "presets/.DS_Store",
-      "sha256": "064258fecb2bcffb077e7bcf68c391f2e5e8dcb991346836f93f9aacbaf5b593",
-      "size": 6148
     },
     {
       "path": "presets/tavern-background/agent.cordis.yml",
