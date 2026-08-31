@@ -8,6 +8,7 @@ import { imageAdjustmentInput, applyImageAdjustment, legacyImagePlan, SCENE_ADJU
 import { createSceneImageStyles, applyImageStyle, composeSceneImagePrompt } from './scene-image-style.js'
 import { createPendingSceneImages } from './scene-image-pending.js'
 import { createSceneImageQueue } from './scene-image-queue.js'
+import { createSceneReferences } from './scene-references.js'
 
 export const IMAGE_CREDENTIAL = 'DSH_TAVERN_IMAGE_API_KEY'
 const hash = value => createHash('sha256').update(value).digest('hex')
@@ -195,7 +196,7 @@ export function createSceneIllustrations(deps) {
       const style = await styles.resolve(active.style, profile)
       const providerTask = ['failed', 'cancelled'].includes(existing?.status) && existing.providerTask && !['rejected', 'failed'].includes(existing.providerTask.state) ? existing.providerTask : undefined
       if (providerTask && (kind !== existing.kind || instruction !== existing.instruction || (options.versionId || '') !== existing.baseVersionId || JSON.stringify({ ...channelSettings(active), style: active.style }) !== JSON.stringify(existing.configuration))) throw new Error('上次 ComfyUI 任务结果待确认，请恢复原渠道与风格配置，并重试原操作以查询；不会重新提交')
-      let prepared, material = { omitted: [] }, basePlan, adjustment = false
+      let prepared, material = { omitted: [] }, basePlan, adjustment = false, references
       if (kind !== 'generate') {
         const version = versionsOf(existing).find(item => item.id === options.versionId)
         if (!version) throw new Error('找不到要重画或调整的图片版本')
@@ -212,6 +213,11 @@ export function createSceneIllustrations(deps) {
         prepared.sources = material.sources
         prepared.gapComplete = material.omitted.length === 0
         prepared.input = { ...prepared.input, sources: material.sources, gapComplete: prepared.gapComplete, budget: { kind: 'characters-not-tokens', maxSourceCharacters: 12000, omitted: material.omitted } }
+        const latest = [...(chat.messages || [])].reverse().find(item => item.role === 'assistant')
+        const latestTurn = Number(latest?.turn || (latest?.greeting ? 1 : 0))
+        references = createSceneReferences({ snapshot: historical || (latestTurn === target.turn ? chat : null),
+          target, sources: material.sources, people: prepared.input.characters })
+        if (references.metadata.available) prepared.input.references = references.metadata
         if (prepared.saved) prepared.saved = await plans.snapshot(chat.id, prepared.saved)
       }
       const expressionGuidance = imageExpressionGuidance(active)
@@ -231,7 +237,7 @@ export function createSceneIllustrations(deps) {
       if (!claimed) return present(target, record)
       const job = { controller, requestId: record.requestId, promise: null }
       jobs.set(path, job)
-      job.promise = execute({ sessionId, chatId: chat.id, target, path, record, prepared, material, adjustment, basePlan, profile, style, active, apiKey, selection, controller })
+      job.promise = execute({ sessionId, chatId: chat.id, target, path, record, prepared, material, references, adjustment, basePlan, profile, style, active, apiKey, selection, controller })
         .finally(() => jobs.delete(path))
       // Failure to persist a failure is reported locally, never as an unhandled rejection.
       job.promise.catch(() => deps.onStorageError?.())
@@ -267,10 +273,19 @@ export function createSceneIllustrations(deps) {
           },
           selection: input.selection, system: input.adjustment ? SCENE_ADJUSTMENT_INSTRUCTION : SCENE_PLAN_INSTRUCTION, maxTokens: 4096, signal: controller.signal,
           messages: [{ role: 'user', content: [{ type: 'text', text: JSON.stringify(input.prepared.input) }] }],
-          turnContext: '', tools: [input.adjustment ? SCENE_ADJUSTMENT_TOOL : SCENE_PLAN_TOOL],
-          maxToolCalls: 2, stopToolsWhen: () => Boolean(plan) || submissions >= 2,
+          turnContext: '', tools: [input.adjustment ? SCENE_ADJUSTMENT_TOOL : SCENE_PLAN_TOOL,
+            ...(input.references?.metadata.available ? [input.references.tool] : [])],
+          maxToolCalls: input.references?.metadata.available ? 5 : 2,
+          toolLimitMessage: '绘图工具次数已用完，请停止调用；没有有效方案时不会请求图片。',
+          stopToolsWhen: () => Boolean(plan) || submissions >= 2,
           async onToolCall(call) {
             if (plan || submitting || submissions >= 2) return '方案已提交或校验中，不得重复调用。'
+            if (call.name === 'read_scene_reference' && input.references?.metadata.available) {
+              controller.signal.throwIfAborted()
+              const result = input.references.read(call.arguments)
+              input.prepared.sources.push(...result.sources)
+              return JSON.stringify(result)
+            }
             submissions++
             submitting = true
             try {
@@ -303,7 +318,7 @@ export function createSceneIllustrations(deps) {
       record.configuration = { ...channelSettings(active), style: active.style }
       record.traceSessionId = result?.traceSessionId || record.traceSessionId || ''
       record.stage = 'queued'
-      record.diagnostics = { input: input.prepared.input, omitted: input.material.omitted, planId: plan.id }
+      record.diagnostics = { input: input.prepared.input, omitted: input.material.omitted, references: input.references?.audit || [], planId: plan.id }
       await writeJob(path, record)
       clearTimeout(timer)
       const generated = await imageQueue.run({ requestId: record.requestId, signal: controller.signal }, async () => {

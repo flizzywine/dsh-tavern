@@ -632,6 +632,67 @@ test('provider failure is visible, not auto-retried, explicit retry works', asyn
   assert.equal(agentCalls, 1, 'valid persistent plan survives provider failure and is reused')
 })
 
+test('scene references stay out of initial input, bind evidence and cannot alone establish current clothing', async t => {
+  const fx = await fixture(t, { runAgent: async input => {
+    assert.deepEqual(input.tools.map(tool => tool.name), ['submit_scene_plan', 'read_scene_reference'])
+    assert.equal(input.maxToolCalls, 5)
+    assert.doesNotMatch(input.messages[0].content[0].text, /黑色短发|白色裙子/)
+    const read = JSON.parse(await input.onToolCall({ name: 'read_scene_reference', arguments: { query: '林岚' } }))
+    const source = read.sources[0]
+    assert.match(source.text, /黑色短发/)
+    const plan = planFixture()
+    const appearance = { text: '黑色短发', tags: 'short black hair', evidence: [{ source: source.id, quote: '黑色短发' }] }
+    plan.subjects = ['local-person']
+    plan.characters = [{ id: 'local-person', name: '林岚', identity: { source: source.id, quote: '林岚' }, fields: {
+      appearance, clothing: { text: '白色裙子', tags: 'white dress', evidence: [{ source: source.id, quote: '白色裙子' }] }
+    } }]
+    const rejected = await input.onToolCall({ name: 'submit_scene_plan', arguments: { plan } })
+    assert.match(rejected, /不能只引用初始设定/)
+    assert.equal(fx.imageCalls(), 0)
+    delete plan.characters[0].fields.clothing
+    assert.match(await input.onToolCall({ name: 'submit_scene_plan', arguments: { plan } }), /已校验保存/)
+    return {}
+  } })
+  fx.chat().cardContextSnapshotVersion = 5
+  fx.chat().cardContextSnapshot = '【故事设定 · 人物卡】\n名字: 林岚\n\n设定: 林岚留着黑色短发，开场穿白色裙子。'
+  const before = structuredClone(fx.chat()), target = sceneTarget(fx.chat(), 2)
+  await fx.service.start('parent', 2, target.key)
+  const result = await until(async () => { const value = await fx.service.status('parent', 2); return value.status !== 'running' && value })
+  assert.equal(result.status, 'succeeded', result.error)
+  assert.match(result.versions[0].prompt, /short black hair/)
+  assert.doesNotMatch(result.versions[0].prompt, /white dress/)
+  const record = await fx.store.readJson(imagePath + target.key + '.json')
+  assert.equal(record.plan.people[0].identity.origin.kind, 'play-card-snapshot')
+  assert.equal(record.plan.people[0].fields.appearance.evidence[0].origin.snapshotVersion, 5)
+  assert.equal(record.diagnostics.references[0].query, '林岚')
+  assert.equal(fx.imageCalls(), 1)
+  assert.deepEqual(fx.chat(), before)
+})
+
+test('historical reference lookup uses that target snapshot or omits references, never the latest edited card', async t => {
+  for (const hasHistorical of [false, true]) {
+    const fx = await fixture(t, {
+      stateAtTarget: async () => hasHistorical ? { cardContextSnapshotVersion: 5, cardContextSnapshot: '【故事设定 · 人物卡】\n名字: 林岚\n\n设定: 林岚留着历史黑发。' } : undefined,
+      runAgent: async input => {
+        assert.equal(input.tools.some(tool => tool.name === 'read_scene_reference'), hasHistorical)
+        if (hasHistorical) {
+          const read = await input.onToolCall({ name: 'read_scene_reference', arguments: { query: '林岚' } })
+          assert.match(read, /历史黑发/)
+          assert.doesNotMatch(read, /未来红发/)
+        }
+        await input.onToolCall({ arguments: { plan: planFixture() } })
+        return {}
+      }
+    })
+    fx.chat().cardContextSnapshotVersion = 5
+    fx.chat().cardContextSnapshot = '【故事设定 · 人物卡】\n名字: 林岚\n\n设定: 林岚改成未来红发。'
+    fx.chat().messages.push({ role: 'assistant', turn: 3, text: '下一天。' })
+    await fx.service.start('parent', 2, sceneTarget(fx.chat(), 2).key)
+    const result = await until(async () => { const value = await fx.service.status('parent', 2); return value.status !== 'running' && value })
+    assert.equal(result.status, 'succeeded', result.error)
+  }
+})
+
 test('format repair happens before image request; a saved plan survives failed final acknowledgement', async t => {
   const fx = await fixture(t, { runAgent: async input => {
     assert.deepEqual(input.tools.map(tool => tool.name), ['submit_scene_plan'])

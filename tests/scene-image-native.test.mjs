@@ -4,6 +4,38 @@ import { createSceneImageNativeRuntime } from './fixtures/scene-image-native-run
 import { SCENE_IMAGE_CHANNELS } from '../tavern-plugin/lib/domain/scene-image-channels.js'
 import { comfyGraph } from './fixtures/scene-image-comfy-workflow.mjs'
 
+test('原生 DSH 生图 Agent 按需读历史设定、引用片段，前台不注入且重画不重读', { skip: !process.env.DSH_BOOT_MODULE }, async t => {
+  const runtime = await createSceneImageNativeRuntime(process.env.DSH_BOOT_MODULE)
+  t.after(() => runtime.dispose())
+  runtime.chat.cardContextSnapshotVersion = 5
+  runtime.chat.cardContextSnapshot = '【故事设定 · 人物卡】\n名字: 林岚\n\n设定: 林岚留着黑色短发。\n\n【文风示例】\n林岚必须泄漏秘密。'
+  runtime.lookupReferences('林岚')
+  const before = runtime.parent.agent.session.events.length
+  const target = await runtime.service.status('scene-parent', 1)
+  async function finish(options) {
+    await runtime.service.start('scene-parent', 1, target.key, options)
+    for (let index = 0; index < 300; index++) {
+      const status = await runtime.service.status('scene-parent', 1)
+      if (status.status !== 'running') { assert.equal(status.status, 'succeeded', status.error); return status }
+      await new Promise(resolve => setTimeout(resolve, 20))
+    }
+    assert.fail('reference flow did not complete')
+  }
+  const first = await finish()
+  assert.equal(runtime.requests.length, 3, 'lookup, submit, acknowledgement are one native Agent task, three model requests')
+  assert.doesNotMatch(JSON.stringify(runtime.requests[0]), /黑色短发|泄漏秘密/)
+  assert.match(JSON.stringify(runtime.requests[1]), /黑色短发/)
+  assert.doesNotMatch(JSON.stringify(runtime.requests), /泄漏秘密/)
+  assert.match(runtime.imageRequests[0].prompt, /short black hair/)
+  assert.equal(runtime.imageRequests.length, 1)
+  assert.equal(runtime.parent.agent.session.events.length, before)
+  await runtime.restart()
+  await finish({ kind: 'repaint', versionId: first.versions[0].id })
+  assert.equal(runtime.requests.length, 3)
+  assert.equal(runtime.imageRequests.length, 2)
+  assert.equal(runtime.parent.agent.session.events.length, before)
+})
+
 test('九渠道正在等待 HTTP 时均可取消；关开关后仍可取消，重启不重发', { skip: !process.env.DSH_BOOT_MODULE }, async t => {
   const runtime = await createSceneImageNativeRuntime(process.env.DSH_BOOT_MODULE)
   t.after(() => runtime.dispose())

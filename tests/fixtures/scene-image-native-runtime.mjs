@@ -22,19 +22,32 @@ export async function createSceneImageNativeRuntime(bootPath) {
   const ctx = await boot('scene-image-native-test', config)
   ctx.baseUrl = bootUrl.href
   const requests = [], imageRequests = []
+  let referenceQuery = ''
   const comfyTasks = new Map()
   const sharp = createRequire(new URL('../../dsh-attachment-local/lib/index.js', bootUrl))('sharp')
   const png = await sharp({ create: { width: 320, height: 180, channels: 3, background: '#789aab' } }).png().toBuffer()
   class FixtureModel extends LlmAdapter {
     async *stream(input) {
       requests.push(structuredClone({ system: input.system, messages: input.messages, tools: input.tools }))
-      const tool = input.tools?.find(item => ['submit_scene_plan', 'submit_image_adjustment'].includes(item.name))
+      const currentMessages = input.messages.slice(Math.max(0, input.messages.findLastIndex(message => message.source?.kind === 'plugin')))
+      const referenceResult = currentMessages.flatMap(message => message.content || []).find(block => block.type === 'tool-result' && block.toolCallId === 'reference-call')
+      const referenceTool = referenceQuery && !referenceResult && input.tools?.find(item => item.name === 'read_scene_reference')
+      const tool = referenceTool || input.tools?.find(item => ['submit_scene_plan', 'submit_image_adjustment'].includes(item.name))
       const plan = { description: '窗边单幅画面', subjects: [], characters: [], continuity: 'uncertain', scene: { composition: { text: '窗边单幅画面', tags: 'A woman standing beside a rain-streaked window, left hand on the frame, quiet evening light.', evidence: [] } } }
+      if (referenceResult) {
+        const source = JSON.parse(referenceResult.content.filter(block => block.type === 'text').map(block => block.text).join('')).sources[0]
+        if (source) {
+          plan.subjects = ['local-reference-person']
+          plan.characters = [{ id: 'local-reference-person', name: '林岚', identity: { source: source.id, quote: '林岚' }, fields: {
+            appearance: { text: '黑色短发', tags: 'short black hair', evidence: [{ source: source.id, quote: '黑色短发' }] }
+          } }]
+        }
+      }
       const update = JSON.stringify(input.messages).includes('仅这张改成胶片风格')
         ? { description: '仅这张胶片风格', patches: [], style: { text: '胶片', tags: 'film grain' } }
         : { description: '改为雨夜近景', patches: [{ owner: 'scene', field: 'composition', text: '雨夜近景', tags: 'rainy night, close-up at the window' }] }
-      const args = tool?.name === 'submit_image_adjustment' ? { update } : { plan }
-      const block = tool ? { type: 'tool-call', id: 'image-call', name: tool.name, arguments: JSON.stringify(args) } : { type: 'text', text: '方案已提交。' }
+      const args = referenceTool ? { query: referenceQuery } : tool?.name === 'submit_image_adjustment' ? { update } : { plan }
+      const block = tool ? { type: 'tool-call', id: referenceTool ? 'reference-call' : 'image-call', name: tool.name, arguments: JSON.stringify(args) } : { type: 'text', text: '方案已提交。' }
       yield { type: 'block-start', index: 0, blockType: block.type }
       yield { type: 'block-end', index: 0, block }
       yield { type: 'finish', reason: { kind: tool ? 'tool-calls' : 'stop' } }
@@ -93,6 +106,7 @@ export async function createSceneImageNativeRuntime(bootPath) {
     failNext() { failNext = true },
     failNextSave() { failSave = true },
     holdNextImage() { holdNext = true },
+    lookupReferences(query) { referenceQuery = query },
     async restart() { await service.dispose(); await runner.dispose(); runner = createBackgroundAgentRunner(runnerOptions); service = createSceneIllustrations(deps) },
     async dispose() { await service.dispose(); await runner.dispose(); await parent.dispose(); await ctx.fiber.dispose(); await new Promise(resolve => imageServer.close(resolve)); await rm(root, { recursive: true, force: true }) }
   }
