@@ -1696,16 +1696,44 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					}
 				});
 			}
+			function eventName(name) {
+				const aliases = { message_sent: "MESSAGE_SENT", message_received: "MESSAGE_RECEIVED", message_updated: "MESSAGE_UPDATED", message_swiped: "MESSAGE_SWIPED", message_deleted: "MESSAGE_DELETED", message_edited: "MESSAGE_EDITED", chat_id_changed: "CHAT_CHANGED", chat_created: "CHAT_CREATED", character_page_loaded: "CHARACTER_PAGE_LOADED" };
+				return aliases[String(name)] || String(name);
+			}
+			function removeEventEntry(name, entry) {
+				if (listeners[name]) listeners[name].delete(entry);
+				reportSubscriptions();
+			}
+			function listen(name, handler, position, once) {
+				name = eventName(name);
+				if (typeof handler !== "function") throw new TypeError("事件监听器必须是函数");
+				let items = listeners[name] || (listeners[name] = new Set());
+				let entry = Array.from(items).find(function (item) { return item.scriptId === currentScript().id && item.handler === handler; });
+				if (!entry) entry = { scriptId: currentScript().id, handler: handler, once: once === true };
+				if (position) items.delete(entry);
+				if (position === "first") listeners[name] = new Set([entry].concat(Array.from(items)));
+				else items.add(entry);
+				reportSubscriptions();
+				return { stop: function () { removeEventEntry(name, entry); } };
+			}
+			async function invokeEventEntry(name, entry, args) {
+				if (!listeners[name] || !listeners[name].has(entry)) return;
+				// Remove before calling so recursive emits cannot invoke a once-listener twice.
+				if (entry.once) removeEventEntry(name, entry);
+				return await withScript(entry.scriptId, function () { return entry.handler.apply(null, args); });
+			}
 			async function eventEmit(name) {
+				name = eventName(name);
 				const args = Array.prototype.slice.call(arguments, 1);
 				const items = listeners[name] ? Array.from(listeners[name]) : [];
-				for (const entry of items) await withScript(entry.scriptId, function () { return entry.handler.apply(null, args); });
+				for (const entry of items) await invokeEventEntry(name, entry, args);
 			}
 			async function emitHostEvent(eventId, name, args) {
+				name = eventName(name);
 				const items = listeners[name] ? Array.from(listeners[name]) : [];
 				for (const entry of items) {
 					parent.postMessage({ type: "dsh-tavern-helper-event-progress", token: token, eventId: eventId, scriptId: entry.scriptId, phase: "started" }, "*");
-					try { await withScript(entry.scriptId, function () { return entry.handler.apply(null, args); }); }
+					try { await invokeEventEntry(name, entry, args); }
 					catch (error) {
 						if (error && typeof error === "object") error.dshTavernScriptId = entry.scriptId;
 						parent.postMessage({ type: "dsh-tavern-helper-event-progress", token: token, eventId: eventId, scriptId: entry.scriptId, phase: "failed" }, "*");
@@ -1795,9 +1823,11 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				const next = window._.mergeWith(current, copy(variables || {}), function (_left, right) {
 					return Array.isArray(right) ? right : undefined;
 				});
-				localReplace(next, resolved);
-				call("updateTavernHelperVariables", { option: resolved, variables: copy(next) }).catch(console.error);
-				return copy(next);
+				return call("updateTavernHelperVariables", { option: resolved, variables: copy(next) }).then(function (result) {
+					if (result && result.stale) throw new Error("聊天已变化，变量未保存");
+					localReplace(next, resolved);
+					return copy(next);
+				});
 			};
 			window.insertVariables = function (variables, option) {
 				const resolved = optionOf(option);
@@ -1805,9 +1835,11 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				const next = window._.mergeWith({}, copy(variables || {}), current, function (_left, right) {
 					return Array.isArray(right) ? right : undefined;
 				});
-				localReplace(next, resolved);
-				call("updateTavernHelperVariables", { option: resolved, variables: copy(next) }).catch(console.error);
-				return copy(next);
+				return call("updateTavernHelperVariables", { option: resolved, variables: copy(next) }).then(function (result) {
+					if (result && result.stale) throw new Error("聊天已变化，变量未保存");
+					localReplace(next, resolved);
+					return copy(next);
+				});
 			};
 			window.updateVariablesWith = async function (updater, option) {
 				const resolved = optionOf(option);
@@ -1860,9 +1892,12 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				state.worldbook = copy(result.worldbook);
 				return copy(state.worldbook.entries || []);
 			};
-			window.eventOn = function (name, handler) { (listeners[name] || (listeners[name] = new Set())).add({ scriptId: currentScript().id, handler: handler }); reportSubscriptions(); return handler; };
-			window.eventMakeFirst = window.eventOn;
+			window.eventOn = function (name, handler) { return listen(name, handler); };
+			window.eventMakeFirst = function (name, handler) { return listen(name, handler, "first"); };
+			window.eventMakeLast = function (name, handler) { return listen(name, handler, "last"); };
+			window.eventOnce = function (name, handler) { return listen(name, handler, null, true); };
 			window.eventOff = function (name, handler) {
+				name = eventName(name);
 				if (listeners[name]) for (const entry of Array.from(listeners[name])) if (entry.handler === handler && entry.scriptId === currentScript().id) listeners[name].delete(entry);
 				reportSubscriptions();
 			};
@@ -1946,7 +1981,17 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					return new Promise(function (resolve) { popup.resolve = resolve; });
 				};
 			}
+			// Both entry points reference the same functions; plugin wrappers stay visible to each other.
+			const helper = {};
+			const helperNames = ["getScriptId", "getScriptName", "getScriptInfo", "replaceScriptInfo", "getScriptButtons", "replaceScriptButtons", "updateScriptButtonsWith", "appendInexistentScriptButtons", "getButtonEvent", "getCharData", "getCurrentMessageId", "getLastMessageId", "getChatMessages", "setChatMessages", "getVariables", "getAllVariables", "replaceVariables", "insertOrAssignVariables", "insertVariables", "updateVariablesWith", "deleteVariable", "getWorldbookNames", "getCharWorldbookNames", "getWorldbook", "getLorebookEntries", "getCharLorebooks", "getCurrentCharPrimaryLorebook", "getLorebookSettings", "setLorebookSettings", "updateWorldbookWith", "getTavernHelperVersion", "substitudeMacros"];
+			for (const name of helperNames) Object.defineProperty(helper, name, { enumerable: true, configurable: true, get: function () { return window[name]; }, set: function (value) { window[name] = value; } });
+			window.TavernHelper = helper;
+			const eventSource = { on: window.eventOn, once: window.eventOnce, off: window.eventOff, removeListener: window.eventOff, makeFirst: window.eventMakeFirst, makeLast: window.eventMakeLast, emit: window.eventEmit };
 			const sillyTavern = {
+				TavernHelper: helper,
+				getContext: function () { return sillyTavern; },
+				eventSource: eventSource,
+				eventTypes: window.tavern_events,
 				Popup: HelperPopup,
 				POPUP_TYPE: Object.freeze({ DISPLAY: "display", TEXT: "text", CONFIRM: "confirm", INPUT: "input" }),
 				POPUP_RESULT: Object.freeze({ AFFIRMATIVE: 1, NEGATIVE: 0, CANCELLED: null, CUSTOM1: 2 }),
@@ -1973,6 +2018,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				registerFunctionTool: function () {}, unregisterFunctionTool: function () {}
 			};
 			Object.defineProperties(sillyTavern, {
+				chatId: { enumerable: true, get: function () { return String(state.chatId || ""); } },
+				name1: { enumerable: true, get: function () { return String(state.playerName || "你"); } },
 				chat: { enumerable: true, get: function () {
 					return (state.messages || []).map(function (message) {
 						return Object.assign({}, message, {
@@ -1985,6 +2032,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				name2: { enumerable: true, get: function () { return String(state.characterName || "角色"); } }
 			});
 			window.SillyTavern = Object.freeze(sillyTavern);
+			window.getContext = sillyTavern.getContext;
 			window.errorCatched = function (factory) { return function () { try { return factory.apply(this, arguments); } catch (error) { console.error(error); return {}; } }; };
 			window.retrieveDisplayedMessage = function () { return window.jQuery ? window.jQuery() : []; };
 			window.toastr = { success: console.info, info: console.info, warning: console.warn, error: console.error };
