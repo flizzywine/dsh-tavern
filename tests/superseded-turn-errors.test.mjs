@@ -83,7 +83,7 @@ function flowRow(kind, turn, alpha) {
   // may be empty: the preceding turn-error is the reliable turn anchor.
   attrs['data-chat-flow-key'] = kind === 'turn-error'
     ? '10:turn-error' + turn : kind.length + ':' + kind + 'opaque-message-id'
-  return { hidden: false, getAttribute(name) { return attrs[name] ?? null }, querySelector() { return null } }
+  return { hidden: false, style: { display: '' }, getAttribute(name) { return attrs[name] ?? null }, querySelector() { return null } }
 }
 
 test('回退重生成后，已被替代的失败输入、思考、上下文和空尾部一起隐藏', () => {
@@ -110,6 +110,19 @@ test('alpha 只隐藏明确属于目标轮的节点，包括尾部尚未挂载�
   projection.apply([7])
   assert.equal(other.hidden, false)
   assert.equal(failed.hidden, true)
+})
+
+test('原生过程节点重置 hidden 后仍隐藏，解除投影时恢复原来的显示样式', () => {
+  const process = flowRow('turn-process', 7, true)
+  process.style.display = 'flex'
+  const projection = client.createSupersededErrorProjection({ querySelectorAll() { return [process] } })
+  projection.apply([7])
+  process.hidden = false // DSH updates its own folding state after a render.
+  assert.equal(process.style.display, 'none')
+  projection.apply([7])
+  projection.apply([])
+  assert.equal(process.hidden, false)
+  assert.equal(process.style.display, 'flex')
 })
 
 test('延迟加载的错误节点仍应用投影，脱离作用域的节点恢复', () => {
