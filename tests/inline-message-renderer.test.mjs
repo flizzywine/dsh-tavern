@@ -391,7 +391,7 @@ test('官方 MVU owner 作为共享沙箱首个系统模块本地加载', () => 
   const loaderUrl = frames[0].srcdoc.match(/<script type="module" src="data:text\/javascript;base64,([^"]+)"/)[1]
   const loader = Buffer.from(loaderUrl, 'base64').toString('utf8')
   const modules = JSON.parse(loader.match(/const scripts=(\[[\s\S]*?\]);\ntry/)[1])
-  const officialModule = Buffer.from(modules[0].url.split(',')[1], 'base64').toString('utf8')
+  const officialModule = modules[0].content
   assert.match(officialModule, /vendor\/magvarupdate\/bundle\.js/)
   assert.match(loader, /await window\.waitGlobalInitialized\("Mvu"\)/)
   assert.match(loader, /finally\{window\.__dshTavernResolveCompanionScriptsReady\(\);\}/)
@@ -566,8 +566,9 @@ test('人物卡 Helper 脚本使用独立不透明 iframe，并获得脚本、�
   assert.ok(encoded)
   const loader = Buffer.from(encoded[1], 'base64').toString('utf8')
   const modules = JSON.parse(loader.match(/const scripts=(\[.*\]);/)[1])
-  const source = Buffer.from(modules[0].url.split(',')[1], 'base64').toString('utf8')
-  assert.equal(source, "await import('https://example.test/动态世界书.js');")
+  const source = modules[0].content
+  assert.equal(source, "import 'https://example.test/动态世界书.js'")
+  assert.match(loader, /await loadModule\(script\.content\)/)
   assert.match(loader, /__dshTavernHelperSetCurrentScript\(script\.id\)/)
   assert.match(loader, /__dshTavernHelperSubscriptionsReady\(script\.id\)/)
   assert.match(document, /getScriptId/)
@@ -612,8 +613,11 @@ test('Helper 脚本把本机缓存入口解析为 srcdoc 所属宿主地址', ()
   const encoded = document.match(/data:text\/javascript;base64,([^"']+)/)
   const loader = Buffer.from(encoded[1], 'base64').toString('utf8')
   const modules = JSON.parse(loader.match(/const scripts=(\[.*\]);/)[1])
-  const source = Buffer.from(modules[0].url.split(',')[1], 'base64').toString('utf8')
-  assert.match(source, /new URL\('\/api\/dsh-tavern\/remote-assets\/a{64}\/bundle\.js', document\.baseURI\)\.href/)
+  const source = modules[0].content
+  assert.equal(source, "import '/api/dsh-tavern/remote-assets/" + 'a'.repeat(64) + "/bundle.js'")
+  assert.match(loader, /element\.type = "module"/)
+  assert.match(loader, /document\.body\.appendChild\(element\)/)
+  assert.doesNotMatch(loader, /element\.src\s*=/)
 })
 
 test('Helper Host 在受信任人物卡模式中完全移除 sandbox', () => {

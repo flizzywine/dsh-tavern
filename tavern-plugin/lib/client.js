@@ -1948,6 +1948,34 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			parent.postMessage({ type: "dsh-tavern-helper-script-ready", token: token }, "*");
 		}
 
+		function loadTavernHelperModule(source) {
+			return new Promise(function (resolve, reject) {
+				const element = document.createElement("script");
+				const completionKey = "__dshTavernModuleComplete_" + Math.random().toString(36).slice(2);
+				let settled = false;
+				function finish(error) {
+					if (settled) return;
+					settled = true;
+					window.removeEventListener("error", onError);
+					delete window[completionKey];
+					element.remove();
+					if (error) reject(error); else resolve();
+				}
+				function onError(event) {
+					finish(event.error || new Error(event.message || "人物卡模块或依赖加载失败"));
+				}
+				window[completionKey] = function () { finish(); };
+				window.addEventListener("error", onError);
+				element.onerror = onError;
+				element.type = "module";
+				// Inline modules inherit srcdoc's document base. Native imports retain
+				// bindings/re-exports and dynamic imports can resolve local cache URLs.
+				// A completion footer waits for top-level await (a load event does not).
+				element.textContent = String(source) + "\n;window[" + JSON.stringify(completionKey) + "]();\n";
+				try { document.body.appendChild(element); } catch (error) { finish(error); }
+			});
+		}
+
 		function buildTavernHelperScriptDocument(input) {
 			const scripts = Array.isArray(input && input.scripts)
 				? input.scripts
@@ -1970,16 +1998,12 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const safeContext = JSON.stringify(context).replace(/</g, "\\u003c").replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
 			const bootstrap = '(' + tavernHelperScriptBootstrap.toString() + ')(' + safeMetadata + ',' + safeContext + ');';
 			const modules = scripts.map(function (script) {
-				const cardSource = String(script && script.content || "");
-				const deferredSource = cardSource.replace(/(^|[\r\n])([ \t]*)import\s+(["'])((?:https:\/\/|\/api\/dsh-tavern\/remote-assets\/)[^"']+)\3\s*;?/g, function (_match, line, indent, quote, url) {
-					const target = url.startsWith("/") ? "new URL(" + quote + url + quote + ", document.baseURI).href" : quote + url + quote;
-					return line + indent + "await import(" + target + ");";
-				});
-				return { id: String(script && script.id || ""), system: String(script && script.system || ""), url: "data:text/javascript;base64," + encodeTavernScriptSource(deferredSource) };
+				return { id: String(script && script.id || ""), system: String(script && script.system || ""), content: String(script && script.content || "") };
 			});
 			const loaderSource = 'await window.__dshTavernHelperReady;\n'
+				+ 'const loadModule=' + loadTavernHelperModule.toString() + ';\n'
 				+ 'const scripts=' + JSON.stringify(modules).replace(/</g, "\\u003c") + ';\n'
-				+ 'try{for(const script of scripts){window.__dshTavernHelperSetCurrentScript(script.id);try{await import(script.url);if(script.system==="official-mvu")await window.waitGlobalInitialized("Mvu");window.__dshTavernHelperSubscriptionsReady(script.id);}catch(error){window.__dshTavernHelperSubscriptionsFailed(script.id,error);}}}finally{window.__dshTavernResolveCompanionScriptsReady();}';
+				+ 'try{for(const script of scripts){window.__dshTavernHelperSetCurrentScript(script.id);try{await loadModule(script.content);if(script.system==="official-mvu")await window.waitGlobalInitialized("Mvu");window.__dshTavernHelperSubscriptionsReady(script.id);}catch(error){window.__dshTavernHelperSubscriptionsFailed(script.id,error);}}}finally{window.__dshTavernResolveCompanionScriptsReady();}';
 			const moduleUrl = "data:text/javascript;base64," + encodeTavernScriptSource(loaderSource);
 			return '<!doctype html><html><head><meta charset="utf-8">'
 				+ '<meta name="referrer" content="no-referrer">'
