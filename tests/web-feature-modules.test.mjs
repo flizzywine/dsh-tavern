@@ -127,7 +127,7 @@ test('酒馆 Shell Feature module 封装工作区入口并只暴露注册 interf
   const feature = browser.createTavernShellFeatureModule()
   const injectedSlots = []
   const ctx = {
-    effect(activate, label) { if (label === 'dsh-tavern: shell marker' || label === 'dsh-tavern: home placeholder') return; return activate() },
+    effect(activate, label) { if (label === 'dsh-tavern: shell marker') return; return activate() },
     sessions: {},
     workspaces: {},
     layout: {},
@@ -145,59 +145,15 @@ test('酒馆 Shell Feature module 封装工作区入口并只暴露注册 interf
   assert.deepEqual(injectedSlots, ['sidebar.workspaces'])
 })
 
-for (const native of [
-  '描述你想要构建的内容… / 调用指令 @ 文件或对话',
-  'Describe what you want to build…',
-  '选择一个工作区开始',
-  'Choose a workspace to start'
-]) test(`首页默认语替换「${native}」，支持延迟挂载、原生重绘、切换对话与卸载恢复`, () => {
-  const expected = '选择人物卡后开始游戏，或者在卡片工作台中编辑人物卡'
-  function element(attributes, textContent = '') {
-    return { attributes: { ...attributes }, textContent,
-      getAttribute(key) { return this.attributes[key] ?? null },
-      hasAttribute(key) { return Object.hasOwn(this.attributes, key) },
-      setAttribute(key, value) { this.attributes[key] = value },
-    }
-  }
-  const editor = element({ 'data-placeholder': native, 'aria-label': native }, '用户已有草稿')
-  const hint = element({ 'data-composer-placeholder': 'true' }, native)
-  const workspace = element({ 'data-placeholder': '先选择工作区', 'aria-label': '选择工作区' })
-  let mounted = []
-  let notify
-  let disconnected = false
-  const doc = { body: {}, querySelectorAll(selector) {
-    assert.ok(selector.split(',').every(part => part.trim().startsWith('[data-phase="hero"] [data-composer-card]')))
-    return mounted
-  } }
-  class Observer {
-    constructor(callback) { notify = callback }
-    observe() {}
-    disconnect() { disconnected = true }
-  }
-  const dispose = browser.mountTavernHomePlaceholder(doc, Observer)
-  mounted = [editor, hint, workspace]
-  notify()
-  assert.equal(editor.getAttribute('data-placeholder'), expected)
-  assert.equal(editor.getAttribute('aria-label'), expected)
-  assert.equal(editor.textContent, '用户已有草稿')
-  assert.equal(hint.textContent, expected)
-  assert.equal(workspace.getAttribute('data-placeholder'), '先选择工作区')
-  hint.textContent = native
-  notify()
-  assert.equal(hint.textContent, expected)
-  // Native rendering owns active-session text; do not restore a stale hero label over it.
-  editor.setAttribute('data-placeholder', '发消息或做任务…')
-  mounted = []
-  notify()
-  assert.equal(editor.getAttribute('data-placeholder'), '发消息或做任务…')
-  assert.equal(editor.getAttribute('aria-label'), native)
-  assert.equal(hint.textContent, native)
-  mounted = [hint]
-  notify()
-  dispose()
-  assert.equal(hint.textContent, native)
-  assert.equal(disconnected, true)
+test('品牌首页只匹配没有会话的 hero，空白任务和已有对话保留输入框', async () => {
+  const source = await readFile(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
+  const selector = 'body.dsh-tavern-shell-active [data-phase="hero"]:has([data-composer-seat]):not(:has(> [data-slot="conversation.session.header"]))'
+  assert.ok(source.includes(selector + ' > * { display: none !important; }'))
+  assert.ok(source.includes(selector + '::before { content: "🍺 DSH Tavern";'))
+  assert.doesNotMatch(source, /mountTavernHomePlaceholder|dsh-tavern: home placeholder/)
+  assert.ok(!source.includes('选择人物卡后开始游戏，或者在卡片工作台中编辑人物卡'))
 })
+
 
 test('首页选择器行只在 Tavern hero 隐藏，不更改宿主预设和工作区逻辑', async () => {
   const source = await readFile(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
