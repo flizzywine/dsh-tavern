@@ -8,8 +8,7 @@ const source = await readFile(new URL('../tavern-plugin/lib/client.js', import.m
 function loadClient(React = {}, window = {}) {
   let descriptor
   window.__ModuleLoader__ = { load(value) { descriptor = value } }
-  // Expose the real component only in this VM; production exports stay unchanged.
-  vm.runInNewContext(source.replace('exports.apply = apply;', 'exports.FrameForTest = TavernMessageFrame; exports.apply = apply;'), { window, console })
+  vm.runInNewContext(source, { window, console })
   return descriptor.factory(name => name === 'react' ? React : {})
 }
 
@@ -42,7 +41,7 @@ function mountFrame() {
     },
     useEffect(run, deps) {
       const index = cursor++
-      if (!slots[index] || deps.some((value, i) => !Object.is(value, slots[index].deps[i]))) {
+      if (!deps || !slots[index] || deps.some((value, i) => !Object.is(value, slots[index].deps[i]))) {
         effects.push(() => { slots[index]?.cleanup?.(); slots[index] = { deps, cleanup: run() } })
       }
     },
@@ -55,7 +54,7 @@ function mountFrame() {
   function render(helperContext, content = '<p>status</p>') {
     cursor = 0
     effects = []
-    const tree = client.FrameForTest({ content, helperContext, turn: 1, eager: true, persistent: true, observeMvuView: false, runtimeReporting: false })
+    const tree = client.TavernMessageFrame({ content, helperContext, turn: 1, eager: true, persistent: true, observeMvuView: false, runtimeReporting: false })
     const next = new Map()
     for (const element of tree.children.filter(Boolean)) {
       const old = attached.get(element.props.key)

@@ -22,8 +22,11 @@ const currentSource = process.env.STATUS_SMOKE_BASELINE
   : await readFile(new URL('../../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
 // Only dependency downloads are stubbed. The card, frame lifecycle, refresh
 // fallback, context mirror, event dispatch and render functions are unchanged.
-const source = currentSource.replace('? tavernHelperMessageDependencies() :', '? "" :')
-  .replace('exports.apply = apply;', 'exports.FrameForTest = TavernMessageFrame; exports.apply = apply;')
+let source = currentSource.replace('? tavernHelperMessageDependencies() :', '? "" :')
+// Older commits predate the production component export; retain baseline comparison.
+if (process.env.STATUS_SMOKE_BASELINE && !source.includes('exports.TavernMessageFrame =')) {
+  source = source.replace('exports.apply = apply;', 'exports.TavernMessageFrame = TavernMessageFrame; exports.apply = apply;')
+}
 let template = '<div id="xx-place-value"></div><script>document.querySelector("#xx-place-value").textContent=getAllVariables().stat_data?.世界系统?.地点||"变量未就绪";</script>'
 if (process.env.STATUS_SMOKE_CARD) {
   const resource = JSON.parse(await readFile(process.env.STATUS_SMOKE_CARD, 'utf8'))
@@ -44,7 +47,7 @@ function mount(place){
  const variables=place?{stat_data:{世界系统:{地点:place}}}:{};
  const messages=turn===1?[{variables}]:[{variables:{stat_data:{世界系统:{地点:'山门'}}}},{variables}];
  const helperContext={version:1,stateRevision:revision,lifecycleRevision:1,messages,chatVariables:{},turnMessageIds:{1:0,2:1}};
- root.render(React.createElement(client.FrameForTest,{content:template,helperContext,turn,eager:true,persistent:true,observeMvuView:false,runtimeReporting:false,trustedCardMode:true}));
+ root.render(React.createElement(client.TavernMessageFrame,{content:template,helperContext,turn,eager:true,persistent:true,observeMvuView:false,runtimeReporting:false,trustedCardMode:true}));
 }
 addEventListener('message',e=>{if(e.data?.type==='dsh-tavern-frame-ready')ready=true;});
 mount();

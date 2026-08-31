@@ -2184,7 +2184,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				return decorateHelperContext(context);
 			}
 			function post(record, message) {
-				if (!record.loaded || !record.frame.contentWindow) return;
+				if (records.get(record.id) !== record || !record.loaded || !record.frame.contentWindow) return;
 				record.frame.contentWindow.postMessage(Object.assign({ token: record.token }, message), "*");
 			}
 			function snapshot(context) {
@@ -2216,9 +2216,17 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			function removeRecord(id) {
 				const record = records.get(id);
 				if (!record) return;
+				for (const [eventId, pending] of pendingEvents) {
+					if (pending.record !== record) continue;
+					hostWindow.clearTimeout(pending.timer);
+					closeEventId(eventId);
+					pendingEvents.delete(eventId);
+					pending.reject(new Error("人物卡脚本运行时已重置，事件未完成"));
+				}
 				if (record.initializationTimer) hostWindow.clearTimeout(record.initializationTimer);
 				record.frame.remove();
 				records.delete(id);
+				announcedReadinessKey = "";
 			}
 			function closeRecordUi() {
 				if (!root) return;
@@ -2257,7 +2265,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 						}
 						reject(error);
 					}, eventTimeoutMs);
-					pendingEvents.set(eventId, { resolve: resolve, reject: reject, timer: timer, name: String(name), activeScriptId: "", diagnostics: diagnostics });
+					pendingEvents.set(eventId, { record: record, resolve: resolve, reject: reject, timer: timer, name: String(name), activeScriptId: "", diagnostics: diagnostics });
 					post(record, { type: "dsh-tavern-helper-event", eventId: eventId, name: name, args: clone(args) });
 				});
 			}
@@ -2267,12 +2275,6 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				return current;
 			}
 			function clear() {
-				for (const [eventId, pending] of pendingEvents) {
-					hostWindow.clearTimeout(pending.timer);
-					closeEventId(eventId);
-					pending.reject(new Error("人物卡脚本运行时已重置，事件未完成"));
-				}
-				pendingEvents.clear();
 				Array.from(records.keys()).forEach(removeRecord);
 				if (root) root.remove();
 				root = null;
@@ -2287,6 +2289,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				const fingerprint = scripts.map(function (script) { return script.id + "\n" + script.content; }).join("\n---\n") + "\ntrusted=" + String(trustedCardMode);
 				const record = {
 					id: "shared",
+					sessionId: sessionId,
 					name: "共享脚本沙箱",
 					startedAt: Date.now(),
 					fingerprint: fingerprint,
@@ -2306,6 +2309,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				frame.referrerPolicy = "no-referrer";
 				frame.srcdoc = buildTavernHelperScriptDocument({ token: record.token, scripts: scripts, context: context });
 				frame.addEventListener("load", function () {
+					if (records.get(record.id) !== record) return;
 					record.loaded = true;
 					for (const script of record.scripts.values()) script.loaded = true;
 					post(record, { type: "dsh-tavern-helper-context", context: record.context });
@@ -2429,9 +2433,9 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				if (data.method === "updateTavernHelperVariables" || data.method === "updateTavernHelperMessages") {
 					mutationArgs = Object.assign({}, mutationArgs, { expectedLifecycleRevision: Math.max(0, Number(record.context && record.context.lifecycleRevision) || 0) });
 				}
-				invoke(data.method, mutationArgs, activeSessionId).then(function (result) {
+				invoke(data.method, mutationArgs, record.sessionId).then(function (result) {
 					post(record, { type: "dsh-tavern-helper-response", requestId: data.requestId, ok: true, result: result });
-					if ((data.method === "updateTavernHelperVariables" || data.method === "updateTavernHelperMessages" || data.method === "replaceTavernHelperWorldbook") && result && result.updated !== false && result.stale !== true) reportMutation(activeSessionId, data.method, result);
+					if ((data.method === "updateTavernHelperVariables" || data.method === "updateTavernHelperMessages" || data.method === "replaceTavernHelperWorldbook") && result && result.updated !== false && result.stale !== true && records.get(record.id) === record) reportMutation(record.sessionId, data.method, result);
 				}, function (error) {
 					post(record, { type: "dsh-tavern-helper-response", requestId: data.requestId, ok: false, error: String(error && error.message || error) });
 				});
@@ -2454,96 +2458,111 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			});
 		}
 
+		// The execution owner holds the lease, poll loop and sandbox as one lifetime.
+		// A new session (including A -> B -> A) gets a distinct lease identity.
 		function createTavernScriptExecutionModule(options) {
+			const hostWindow = options && options.window || window;
 			const invoke = options && options.rpc || rpc;
-			const invalidate = options && options.invalidate || function () {};
-			const runtimeId = window.crypto && typeof window.crypto.randomUUID === "function" ? window.crypto.randomUUID() : String(Date.now()) + ":" + String(Math.random());
+			const invalidate = options && options.invalidate || function (sessionId) { liveTavernView.invalidate(sessionId); };
+			const createRuntime = options && options.createRuntime || createTavernHelperScriptRuntime;
 			let runtime = null;
+			let lease = null;
 			let pollTimer = null;
-			let pollBusy = false;
+			let pollBusy = null;
 			let active = false;
 			let input = null;
 
 			function inactiveView(view) {
 				return Object.assign({}, view || {}, { tavernHelperScripts: [], tavernMvuRuntime: null });
 			}
-
 			function hasScriptRuntime(view) {
 				return Boolean(
 					(Array.isArray(view && view.tavernHelperScripts) && view.tavernHelperScripts.length > 0)
 					|| (view && view.tavernMvuRuntime && view.tavernMvuRuntime.owner === "official")
 				);
 			}
-
-			function ensureRuntime() {
+			function dispose() {
+				const previousLease = lease;
+				lease = null;
+				input = null;
+				active = false;
+				if (pollTimer !== null) hostWindow.clearTimeout(pollTimer);
+				pollTimer = null;
+				if (runtime) runtime.dispose();
+				runtime = null;
+				if (previousLease && previousLease.sessionId) invoke("releaseTavernHelperRuntime", { runtimeId: previousLease.id }, previousLease.sessionId).catch(function () {});
+			}
+			function ensureRuntime(sessionId) {
 				if (runtime) return runtime;
-				runtime = createTavernHelperScriptRuntime({
-					rpc: invoke,
+				lease = { sessionId: sessionId, id: hostWindow.crypto && typeof hostWindow.crypto.randomUUID === "function" ? hostWindow.crypto.randomUUID() : String(Date.now()) + ":" + String(Math.random()) };
+				const currentLease = lease;
+				runtime = createRuntime({
+					window: hostWindow, rpc: invoke, onMutation: invalidate,
 					onReady: function (readySessionId) {
-						if (!readySessionId || !input || input.sessionId !== readySessionId) return;
+						if (lease !== currentLease || !readySessionId || !input || input.sessionId !== readySessionId) return;
 						return runtime.emit("CHAT_CHANGED", [], input.view && input.view.tavernHelper);
 					}
 				});
 				return runtime;
 			}
-
 			function schedulePoll(delayMs) {
-				if (pollTimer !== null) return;
-				pollTimer = window.setTimeout(async function poll() {
+				if (pollTimer !== null || !lease || !input || !input.sessionId || !hasScriptRuntime(input.view)) return;
+				const currentLease = lease;
+				const currentRuntime = runtime;
+				pollTimer = hostWindow.setTimeout(async function poll() {
 					pollTimer = null;
-					const currentRuntime = runtime;
-					const currentInput = input;
-					if (!currentRuntime || !currentInput || !currentInput.sessionId || !hasScriptRuntime(currentInput.view)) return;
+					if (lease !== currentLease) return;
 					let completedEvent = false;
-					if (!pollBusy) {
-						pollBusy = true;
+					if (pollBusy !== currentLease) {
+						pollBusy = currentLease;
 						let currentEvent = null;
 						const diagnostics = [];
 						try {
-							const inspection = currentRuntime.inspect();
-							const runtimeReady = tavernScriptRuntimeReady(inspection);
-							const result = await invoke("pollTavernHelperEvent", { runtimeId: runtimeId, ready: runtimeReady }, currentInput.sessionId);
-							if (!input || input.sessionId !== currentInput.sessionId) return;
+							const runtimeReady = tavernScriptRuntimeReady(currentRuntime.inspect());
+							const result = await invoke("pollTavernHelperEvent", { runtimeId: currentLease.id, ready: runtimeReady }, currentLease.sessionId);
+							if (lease !== currentLease) {
+								// The server may have processed this poll after our first release.
+								// Release only its old identity, never the replacement owner's lease.
+								if (result && result.active) invoke("releaseTavernHelperRuntime", { runtimeId: currentLease.id }, currentLease.sessionId).catch(function () {});
+								return;
+							}
 							if (Boolean(result && result.active) !== active) {
 								active = Boolean(result && result.active);
-								currentRuntime.sync(currentInput.sessionId, active ? currentInput.view : inactiveView(currentInput.view));
+								currentRuntime.sync(input.sessionId, active ? input.view : inactiveView(input.view));
 							}
 							currentEvent = result && result.event;
 							if (active && currentEvent) {
 								const args = await currentRuntime.emit(currentEvent.name, currentEvent.args, currentEvent.context, diagnostics);
-								await invoke("completeTavernHelperEvent", { eventId: currentEvent.id, args: args, runtimeId: runtimeId, diagnostics: diagnostics }, currentInput.sessionId);
+								if (lease !== currentLease) return;
+								await invoke("completeTavernHelperEvent", { eventId: currentEvent.id, args: args, runtimeId: currentLease.id, diagnostics: diagnostics }, currentLease.sessionId);
 								completedEvent = true;
 							}
 						} catch (error) {
+							if (lease !== currentLease) return;
 							console.warn("Tavern Helper 生命周期同步失败", error);
 							if (currentEvent) {
 								try {
-									await invoke("completeTavernHelperEvent", { eventId: currentEvent.id, args: currentEvent.args, error: String(error && error.message || error), runtimeId: runtimeId, diagnostics: diagnostics }, currentInput.sessionId);
+									await invoke("completeTavernHelperEvent", { eventId: currentEvent.id, args: currentEvent.args, error: String(error && error.message || error), runtimeId: currentLease.id, diagnostics: diagnostics }, currentLease.sessionId);
 									completedEvent = true;
 								} catch (completeError) { console.warn("Tavern Helper 失败回执同步失败", completeError); }
 							}
 						}
-						finally { pollBusy = false; }
+						finally { if (pollBusy === currentLease) pollBusy = null; }
 					}
-					schedulePoll(completedEvent ? 0 : undefined);
+					if (lease === currentLease) schedulePoll(completedEvent ? 0 : undefined);
 				}, delayMs === undefined ? (active ? 100 : 500) : Math.max(0, Number(delayMs) || 0));
 			}
-
 			function sync(sessionId, view) {
-				const currentRuntime = ensureRuntime();
 				const nextSessionId = String(sessionId || "");
-				const previousSessionId = input && input.sessionId || "";
-				if (previousSessionId && previousSessionId !== nextSessionId) {
-					invoke("releaseTavernHelperRuntime", { runtimeId: runtimeId }, previousSessionId).catch(function () {});
-					active = false;
-				}
+				if (!nextSessionId || !hasScriptRuntime(view)) { dispose(); return; }
+				if (input && input.sessionId !== nextSessionId) dispose();
+				const currentRuntime = ensureRuntime(nextSessionId);
 				input = { sessionId: nextSessionId, view: view };
 				currentRuntime.sync(nextSessionId, active ? view : inactiveView(view));
 				schedulePoll();
 			}
-
 			return Object.freeze({
-				sync: sync,
+				sync: sync, dispose: dispose,
 				triggerButton: function (scriptId, name) {
 					if (!runtime || !active) return Promise.reject(new Error("人物卡脚本正在其他窗口运行，或尚未加载完成"));
 					return runtime.triggerButton(scriptId, name);
@@ -2559,12 +2578,17 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			});
 		}
 
-		const tavernScriptExecutionModule = createTavernScriptExecutionModule({
-			rpc: rpc,
-			invalidate: function (sessionId) { liveTavernView.invalidate(sessionId); }
-		});
-		function syncTavernHelperScripts(sessionId, view) {
-			tavernScriptExecutionModule.sync(sessionId, view);
+		function TavernScriptRuntime(props) {
+			const liveState = useLiveTavernView(props.sessionId);
+			const transitioning = React.useSyncExternalStore(tavernSessionTransition.subscribe, tavernSessionTransition.getSnapshot, tavernSessionTransition.getSnapshot);
+			const executionRef = React.useRef(null);
+			if (!executionRef.current) executionRef.current = createTavernScriptExecutionModule({ rpc: rpc, invalidate: function (sessionId) { liveTavernView.invalidate(sessionId); } });
+			const execution = executionRef.current;
+			React.useEffect(function () { return function () { execution.dispose(); }; }, [execution]);
+			React.useEffect(function () {
+				if (!transitioning && liveState.view) execution.sync(props.sessionId, liveState.view);
+			}, [execution, props.sessionId, liveState.view, transitioning]);
+			return null;
 		}
 
 		const TAVERN_FRAME_MAX_HEIGHT = 12000;
@@ -2644,95 +2668,199 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			return { context: context, turn: Math.max(0, Number(update.turn) || 0), events: Array.isArray(update.events) ? update.events.slice() : [] };
 		}
 
-		function TavernMessageFrame(props) {
-			const slotRef = React.useRef(null);
-			const frameRefs = React.useRef(new Map());
-			const readyFrames = React.useRef(new Set());
-			const pendingHeights = React.useRef(new Map());
-			const contextStates = React.useRef(new Map());
-			const frozenHelperContext = React.useRef(props.helperContext);
-			if (props.eager === true) frozenHelperContext.current = props.helperContext;
-			const effectiveHelperContext = props.eager === true ? props.helperContext : frozenHelperContext.current;
-			const helperContextKey = effectiveHelperContext
-				? [effectiveHelperContext.version, effectiveHelperContext.stateRevision, effectiveHelperContext.lifecycleRevision].map(function (value) { return String(Number(value) || 0); }).join(":")
-				: "";
-			const latestHelperContextRef = React.useRef(effectiveHelperContext);
-			latestHelperContextRef.current = effectiveHelperContext;
-			const documentTurn = props.persistent === true ? 0 : props.turn;
-			const [refreshRevision, setRefreshRevision] = React.useState(0);
-			const refreshRequested = React.useRef(new Set());
-			const desiredDocument = React.useMemo(function () {
-				const token = nextTavernFrameToken();
+		// One transport per document: a loading iframe retains its bootstrap baseline.
+		// State changes are coalesced until ready; recovery uses the same wire protocol.
+		function createTavernFrameContextChannel(document) {
+			let node = null;
+			let ready = false;
+			let current = { context: document.helperContext, turn: document.turn };
+			return Object.freeze({
+				attach: function (value) {
+					node = value;
+					if (!value) { ready = false; current = { context: document.helperContext, turn: document.turn }; }
+				},
+				accepts: function (event) { return Boolean(node && node.contentWindow && event.source === node.contentWindow && event.data && event.data.token === document.token); },
+				sync: function (context, turn, mode) {
+					if (mode === "ready") ready = true;
+					if (!ready || !node || !node.contentWindow || !context) return;
+					const update = createTavernHelperContextUpdate(mode === "snapshot" ? null : current.context, context, current.turn, turn);
+					if (!update) return;
+					node.contentWindow.postMessage({ type: "dsh-tavern-helper-context-update", token: document.token, update: update }, "*");
+					current = { context: context, turn: turn };
+				}
+			});
+		}
+
+		// Owns document replacement, authenticated frame messages and their cleanup.
+		// React only renders the visible/pending documents and controls lazy activation.
+		function createTavernMessageFrameLifecycle(initial, options) {
+			const hostWindow = options && options.window || window;
+			const invoke = options && options.rpc || rpc;
+			const invalidate = options && options.invalidate || function (sessionId) { liveTavernView.invalidate(sessionId); };
+			const channels = new Map();
+			let props = initial;
+			let frozenHelperContext = initial.helperContext;
+			let helperContext = frozenHelperContext;
+			let refreshRevision = 0;
+			let runtimeTimer = null;
+			let pendingRuntime = null;
+			let listener = null;
+			let lifetime = 0;
+			let synchronizationKey = "";
+			let documentInputs = null;
+			let cachedDocumentKey = "";
+			let desired = createDocument();
+			let visible = desired;
+			let pending = null;
+			let height = restoredTavernFrameHeight(visible.heightKey, visible.content);
+			function documentKey() {
+				const values = [props.sessionId, props.content, props.persistent === true ? 0 : props.turn, props.observeMvuView, props.runtimeReporting, props.persistent, props.trustedCardMode, refreshRevision];
+				if (!documentInputs || values.some(function (value, index) { return value !== documentInputs[index]; })) {
+					documentInputs = values;
+					cachedDocumentKey = JSON.stringify(values);
+				}
+				return cachedDocumentKey;
+			}
+			function createDocument() {
 				const document = {
-					key: JSON.stringify([props.content, documentTurn, refreshRevision]),
-					token: token,
-					html: buildTavernFrameDocument({ content: props.content, token: token, helperContext: effectiveHelperContext, turn: props.turn, observeMvuView: props.observeMvuView, runtimeReporting: props.runtimeReporting, persistent: props.persistent }),
-					helperContext: effectiveHelperContext,
-					turn: props.turn,
-					heightKey: tavernFrameHeightKey(props),
-					content: props.content
+					key: documentKey(), token: nextTavernFrameToken(),
+					helperContext: helperContext, turn: props.turn,
+					heightKey: tavernFrameHeightKey(props), content: props.content,
+					trustedCardMode: props.trustedCardMode, refreshRequested: false
 				};
-				// Keep the ref stable for this document. React otherwise calls the old ref
-				// with null on every render, discarding the last-sent incremental baseline.
+				document.html = buildTavernFrameDocument({ content: props.content, token: document.token, helperContext: helperContext, turn: props.turn, observeMvuView: props.observeMvuView, runtimeReporting: props.runtimeReporting, persistent: props.persistent });
+				const channel = createTavernFrameContextChannel(document);
+				// Stable callback identity preserves the per-document delta baseline.
 				document.ref = function (node) {
-					if (node) {
-						frameRefs.current.set(token, node);
-						if (!contextStates.current.has(token)) contextStates.current.set(token, { context: document.helperContext, turn: document.turn });
-					} else {
-						frameRefs.current.delete(token);
-						readyFrames.current.delete(token);
-						contextStates.current.delete(token);
-						refreshRequested.current.delete(token);
-					}
+					channel.attach(node);
+					if (node) channels.set(document.token, channel);
+					else channels.delete(document.token);
 				};
 				return document;
-			}, [props.content, documentTurn, props.observeMvuView, props.runtimeReporting, props.persistent, refreshRevision]);
-			const [visibleDocument, setVisibleDocument] = React.useState(desiredDocument);
-			const [pendingDocument, setPendingDocument] = React.useState(null);
-			const desiredDocumentRef = React.useRef(desiredDocument);
-			const visibleDocumentRef = React.useRef(visibleDocument);
-			const pendingDocumentRef = React.useRef(pendingDocument);
-			desiredDocumentRef.current = desiredDocument;
-			visibleDocumentRef.current = visibleDocument;
-			pendingDocumentRef.current = pendingDocument;
-			const [height, setHeight] = React.useState(function () { return restoredTavernFrameHeight(desiredDocument.heightKey, desiredDocument.content); });
-			const [activated, setActivated] = React.useState(props.eager === true);
-			const runtimeTimer = React.useRef(0);
-			const pendingRuntime = React.useRef(null);
-			const latestTurnRef = React.useRef(props.turn);
-			latestTurnRef.current = props.turn;
-			function sendLatestContext(frame, document, forceSnapshot) {
-				if (!frame || !frame.contentWindow || !latestHelperContextRef.current) return;
-				// contentWindow exists before the Helper listener does. Keep the bootstrap
-				// baseline until ready; updates during loading collapse into the latest ref.
-				if (!readyFrames.current.has(document.token)) return;
-				const current = contextStates.current.get(document.token) || { context: document.helperContext, turn: document.turn };
-				const update = forceSnapshot === true
-					? createTavernHelperContextUpdate(null, latestHelperContextRef.current, current.turn, latestTurnRef.current)
-					: createTavernHelperContextUpdate(current.context, latestHelperContextRef.current, current.turn, latestTurnRef.current);
-				if (!update) return;
-				frame.contentWindow.postMessage({ type: "dsh-tavern-helper-context-update", token: document.token, update: update }, "*");
-				contextStates.current.set(document.token, { context: latestHelperContextRef.current, turn: latestTurnRef.current });
 			}
-			React.useEffect(function () {
-				if (desiredDocument.key === visibleDocumentRef.current.key) {
-					if (pendingDocumentRef.current && pendingDocumentRef.current.key !== desiredDocument.key) {
-						pendingHeights.current.delete(pendingDocumentRef.current.token);
-						setPendingDocument(null);
-					}
+			function snapshot() { return { visibleDocument: visible, pendingDocument: pending, height: height }; }
+			function publish() { if (listener) listener(snapshot()); }
+			function cancelRuntimeReport() {
+				if (runtimeTimer !== null) hostWindow.clearTimeout(runtimeTimer);
+				runtimeTimer = null;
+				pendingRuntime = null;
+			}
+			function sendContext(document, mode) {
+				const channel = document && channels.get(document.token);
+				if (channel) channel.sync(helperContext, props.turn, mode);
+			}
+			function reconcile() {
+				if (desired.key === visible.key) {
+					if (pending) { pending = null; publish(); }
+				} else if (!pending || pending.key !== desired.key) {
+					pending = desired;
+					publish();
+				}
+			}
+			function update(next) {
+				const sessionChanged = props.sessionId !== next.sessionId;
+				if (sessionChanged || props.turn !== next.turn || props.partIndex !== next.partIndex) {
+					lifetime++;
+					cancelRuntimeReport();
+				}
+				props = next;
+				if (sessionChanged || props.eager === true) frozenHelperContext = props.helperContext;
+				helperContext = props.eager === true ? props.helperContext : frozenHelperContext;
+				if (desired.key !== documentKey()) desired = createDocument();
+				if (sessionChanged) {
+					// Never keep an old conversation's page eligible for writes in a new one.
+					channels.clear();
+					visible = desired; pending = null;
+					height = restoredTavernFrameHeight(visible.heightKey, visible.content);
+					publish();
+				} else reconcile();
+				const contextKey = helperContext ? [helperContext.version, helperContext.stateRevision, helperContext.lifecycleRevision].map(function (value) { return String(Number(value) || 0); }).join(":") : "";
+				const nextSynchronizationKey = visible.token + ":" + String(props.turn) + ":" + contextKey;
+				// Height changes and parent rerenders must not rescan the message history.
+				if (nextSynchronizationKey !== synchronizationKey) {
+					synchronizationKey = nextSynchronizationKey;
+					sendContext(visible);
+				}
+			}
+			function rememberHeight(document, value) {
+				height = value;
+				try { hostWindow.sessionStorage.setItem(document.heightKey, value); } catch (_) {}
+			}
+			function receive(event) {
+				const data = event && event.data;
+				const channel = data && channels.get(data.token);
+				if (!channel || !channel.accepts(event)) return;
+				const sourceDocument = visible.token === data.token ? visible : (pending && pending.token === data.token ? pending : null);
+				if (!sourceDocument) return;
+				const requestProps = props;
+				const requestLifetime = lifetime;
+				function current() { return lifetime === requestLifetime && channels.get(data.token) === channel && (visible === sourceDocument || pending === sourceDocument); }
+				if (data.type === "dsh-tavern-status-stale" && props.persistent === true && sourceDocument.key === desired.key && !sourceDocument.refreshRequested) {
+					sourceDocument.refreshRequested = true;
+					refreshRevision++;
+					desired = createDocument();
+					reconcile();
 					return;
 				}
-				if (!pendingDocumentRef.current || pendingDocumentRef.current.key !== desiredDocument.key) {
-					if (pendingDocumentRef.current) pendingHeights.current.delete(pendingDocumentRef.current.token);
-					setPendingDocument(desiredDocument);
+				if (data.type === "dsh-tavern-frame-ready") {
+					sendContext(sourceDocument, "ready");
+					if (sourceDocument === pending && pending.key === desired.key) {
+						rememberHeight(pending, pending.height || restoredTavernFrameHeight(pending.heightKey, pending.content));
+						visible = pending; pending = null;
+						publish();
+					}
+				} else if (data.type === "dsh-tavern-frame-height") {
+					sourceDocument.height = clampTavernFrameHeight(data.height);
+					if (sourceDocument === visible) { rememberHeight(visible, sourceDocument.height); publish(); }
+				} else if (data.type === "dsh-tavern-helper-context-request") {
+					sendContext(sourceDocument, "snapshot");
+				} else if (data.type === "dsh-tavern-mvu-view-used" && props.observeMvuView !== false && props.sessionId && props.turn > 0) {
+					invoke("captureDisplayRuntime", { turn: props.turn, partIndex: props.partIndex, runtime: { capturedAt: Date.now(), mvuViewUsed: true } }, props.sessionId).then(function (result) {
+						if (current() && result && result.captured === true) invalidate(requestProps.sessionId);
+					}, function () {});
+				} else if (data.type === "dsh-tavern-frame-runtime" && props.runtimeReporting !== false && props.sessionId && props.turn > 0) {
+					pendingRuntime = data.runtime;
+					if (runtimeTimer === null) runtimeTimer = hostWindow.setTimeout(function () {
+						runtimeTimer = null;
+						const runtime = pendingRuntime; pendingRuntime = null;
+						if (current()) invoke("captureDisplayRuntime", { turn: requestProps.turn, partIndex: requestProps.partIndex, runtime: runtime }, requestProps.sessionId).catch(function () {});
+					}, 1000);
+				} else if (data.type === "dsh-tavern-helper-call" && props.sessionId) {
+					if (data.method !== "updateTavernHelperVariables" && data.method !== "updateTavernHelperMessages") return;
+					const args = Object.assign({}, data.args || {}, { sessionId: props.sessionId, expectedLifecycleRevision: Math.max(0, Number(helperContext && helperContext.lifecycleRevision) || 0) });
+					invoke(data.method, args, props.sessionId).then(function (result) {
+						if (current()) event.source.postMessage({ type: "dsh-tavern-helper-response", token: data.token, requestId: data.requestId, ok: true, result: result }, "*");
+					}, function (error) {
+						if (current()) event.source.postMessage({ type: "dsh-tavern-helper-response", token: data.token, requestId: data.requestId, ok: false, error: String(error && error.message || error) }, "*");
+					});
 				}
-			}, [desiredDocument]);
-			React.useEffect(function () {
-				const visible = visibleDocumentRef.current;
-				const frame = visible && frameRefs.current.get(visible.token);
-				if (!frame || !frame.contentWindow || !effectiveHelperContext) return;
-				sendLatestContext(frame, visible, false);
-			}, [helperContextKey, props.turn, visibleDocument.token]);
+			}
+			return Object.freeze({
+				update: update, snapshot: snapshot,
+				start: function (onChange) {
+					listener = onChange;
+					hostWindow.addEventListener("message", receive);
+					return function () {
+						listener = null; lifetime++;
+						hostWindow.removeEventListener("message", receive);
+						cancelRuntimeReport();
+					};
+				}
+			});
+		}
+
+		function TavernMessageFrame(props) {
+			const slotRef = React.useRef(null);
+			const lifecycleRef = React.useRef(null);
+			if (!lifecycleRef.current) lifecycleRef.current = createTavernMessageFrameLifecycle(props);
+			const lifecycle = lifecycleRef.current;
+			const [state, setState] = React.useState(lifecycle.snapshot);
+			const visibleDocument = state.visibleDocument;
+			const pendingDocument = state.pendingDocument;
+			const height = state.height;
+			const [activated, setActivated] = React.useState(props.eager === true);
+			React.useEffect(function () { return lifecycle.start(setState); }, [lifecycle]);
+			React.useEffect(function () { lifecycle.update(props); });
 			React.useEffect(function () {
 				if (props.eager === true) { setActivated(true); return; }
 				if (activated || typeof window.IntersectionObserver !== "function") { setActivated(true); return; }
@@ -2748,74 +2876,16 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				}, 120);
 				return function () { window.clearTimeout(timer); if (observer) observer.disconnect(); };
 			}, [activated, props.eager]);
-			React.useEffect(function () {
-				function receive(event) {
-					const data = event && event.data;
-					const frame = data && frameRefs.current.get(data.token);
-					if (!frame || event.source !== frame.contentWindow || !data) return;
-					const visible = visibleDocumentRef.current;
-					const pending = pendingDocumentRef.current;
-					const sourceDocument = visible && visible.token === data.token ? visible : (pending && pending.token === data.token ? pending : null);
-					if (data.type === "dsh-tavern-status-stale" && props.persistent === true && sourceDocument && sourceDocument.key === desiredDocumentRef.current.key && !refreshRequested.current.has(data.token)) {
-						refreshRequested.current.add(data.token);
-						setRefreshRevision(function (revision) { return revision + 1; });
-						return;
-					}
-					if (data.type === "dsh-tavern-frame-ready" && sourceDocument) {
-						readyFrames.current.add(data.token);
-						sendLatestContext(frame, sourceDocument, false);
-					}
-					if (data.type === "dsh-tavern-frame-height") {
-						const next = clampTavernFrameHeight(data.height);
-						if (visible && data.token === visible.token) {
-							setHeight(next);
-							try { window.sessionStorage.setItem(visible.heightKey, String(next)); } catch (_) {}
-						} else pendingHeights.current.set(data.token, next);
-					} else if (data.type === "dsh-tavern-frame-ready" && pending && data.token === pending.token && pending.key === desiredDocumentRef.current.key) {
-						const next = pendingHeights.current.get(pending.token) || restoredTavernFrameHeight(pending.heightKey, pending.content);
-						pendingHeights.current.delete(pending.token);
-						setHeight(next);
-						try { window.sessionStorage.setItem(pending.heightKey, String(next)); } catch (_) {}
-						setVisibleDocument(pending);
-						setPendingDocument(null);
-					} else if (data.type === "dsh-tavern-mvu-view-used" && props.observeMvuView !== false && props.sessionId && props.turn > 0) {
-						rpc("captureDisplayRuntime", { turn: props.turn, partIndex: props.partIndex, runtime: { capturedAt: Date.now(), mvuViewUsed: true } }, props.sessionId).then(function (result) {
-							if (result && result.captured === true) liveTavernView.invalidate(props.sessionId);
-						}, function () {});
-					} else if (data.type === "dsh-tavern-frame-runtime" && props.runtimeReporting !== false && props.sessionId && props.turn > 0) {
-						pendingRuntime.current = data.runtime;
-						if (!runtimeTimer.current) runtimeTimer.current = window.setTimeout(function () {
-							runtimeTimer.current = 0;
-							const runtime = pendingRuntime.current; pendingRuntime.current = null;
-							rpc("captureDisplayRuntime", { turn: props.turn, partIndex: props.partIndex, runtime: runtime }, props.sessionId).catch(function () {});
-						}, 1000);
-						} else if (data.type === "dsh-tavern-helper-context-request" && sourceDocument) {
-							sendLatestContext(frame, sourceDocument, true);
-						} else if (data.type === "dsh-tavern-helper-call" && props.sessionId) {
-							if (data.method !== "updateTavernHelperVariables" && data.method !== "updateTavernHelperMessages") return;
-							const args = Object.assign({}, data.args || {}, { sessionId: props.sessionId, expectedLifecycleRevision: Math.max(0, Number(latestHelperContextRef.current && latestHelperContextRef.current.lifecycleRevision) || 0) });
-						rpc(data.method, args, props.sessionId).then(function (result) {
-							if (!event.source) return;
-							event.source.postMessage({ type: "dsh-tavern-helper-response", token: data.token, requestId: data.requestId, ok: true, result: result }, "*");
-						}, function (error) {
-							if (!event.source) return;
-							event.source.postMessage({ type: "dsh-tavern-helper-response", token: data.token, requestId: data.requestId, ok: false, error: String(error && error.message || error) }, "*");
-						});
-					}
-				}
-				window.addEventListener("message", receive);
-				return function () { window.removeEventListener("message", receive); if (runtimeTimer.current) window.clearTimeout(runtimeTimer.current); };
-			}, [props.sessionId, props.turn, props.partIndex, props.persistent]);
 			function renderFrame(document, hidden) {
 				if (!document) return null;
-				const pendingHeight = pendingHeights.current.get(document.token) || height;
+				const pendingHeight = document.height || height;
 				return React.createElement("iframe", {
 					key: document.token,
 					ref: document.ref,
 					className: "dsh-tavern-message-frame",
 					title: hidden ? "正在准备人物卡消息界面" : "人物卡消息界面",
 					"aria-hidden": hidden || undefined,
-					sandbox: props.trustedCardMode ? undefined : "allow-scripts",
+					sandbox: document.trustedCardMode ? undefined : "allow-scripts",
 					referrerPolicy: "no-referrer",
 					loading: "lazy",
 					srcDoc: document.html,
@@ -3128,9 +3198,6 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				const liveState = useLiveTavernView(props.sessionId, revision);
 				const sessionTransitioning = React.useSyncExternalStore(tavernSessionTransition.subscribe, tavernSessionTransition.getSnapshot, tavernSessionTransition.getSnapshot);
 				const [swipeBusy, setSwipeBusy] = React.useState(false);
-				React.useEffect(function () {
-					if (!sessionTransitioning && liveState.view) syncTavernHelperScripts(props.sessionId, liveState.view);
-				}, [props.sessionId, liveState.view, sessionTransitioning]);
 					const projection = settled ? tavernProjectionForTurn(liveState.view, turn) : null;
 					const mvuReceipt = settled ? tavernMvuReceiptForTurn(liveState.view, turn) : null;
 					const latestProjectionTurn = liveState.view && Array.isArray(liveState.view.replyProjections) ? liveState.view.replyProjections.reduce(function (latest, item) { return Math.max(latest, Number(item && item.turn) || 0); }, 0) : 0;
@@ -3175,6 +3242,11 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				return React.createElement("div", { className: "dsh-tavern-assistant", "data-streaming": data.status === "running" || undefined }, rendered, illustration, mvuReceiptNode, swipeControls);
 			}
 			function register(input) {
+				input.ctx.effect(function () {
+					return input.slots.inject("conversation.input.dock", function () { return input.slots.register({
+						name: "conversation.input.dock", id: "dsh-tavern-script-runtime", order: -140, label: "人物卡脚本运行时"
+					}, function (props) { return React.createElement(TavernScriptRuntime, { key: props.sessionId, sessionId: props.sessionId }); }); });
+				}, "dsh-tavern: conversation script lifecycle");
 				input.ctx.effect(function () {
 					return input.slots.inject("conversation.chat.node", function () { return input.slots.register({
 						name: "conversation.chat.node",
@@ -6181,6 +6253,9 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			tavernShellFeature.register({ ctx: ctx, slots: slots, appendMention: appendMention, injectTaskPrompt: injectTaskPrompt });
 		}
 
+		exports.TavernMessageFrame = TavernMessageFrame;
+		exports.createTavernMessageFrameLifecycle = createTavernMessageFrameLifecycle;
+		exports.createTavernScriptExecutionModule = createTavernScriptExecutionModule;
 		exports.apply = apply;
 		exports.createTurnHistoryProjection = createTurnHistoryProjection;
 		exports.createSupersededErrorProjection = createSupersededErrorProjection;
