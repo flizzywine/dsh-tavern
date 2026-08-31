@@ -23,6 +23,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseDocument } from 'yaml'
 import { migrateLegacyTavernData, resolveTavernDataRoot } from '../tavern-plugin/lib/domain/tavern-data.js'
+import { ensureUserExtensions } from '../tavern-plugin/lib/domain/user-extensions.js'
 import { migrateSessionPrefixEvents } from './session-prefix-migration.mjs'
 import {
   beginProfileConfigurationUpdate,
@@ -545,6 +546,7 @@ async function installProfile(host = 'cli') {
   for (const directory of ['cards', 'chats', 'scripts', 'sources', 'skills', 'diffs']) {
     mkdirSync(path.join(dataRoot, directory), { recursive: true })
   }
+  await ensureUserExtensions(dataRoot)
   if (migration.migratedSources > 0) console.log(`已迁移 ${migration.migratedSources} 处旧数据；冲突保留 ${migration.conflicts} 个。`)
 
   installPluginDependencies(dshVersion)
