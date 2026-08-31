@@ -105,7 +105,7 @@ test('预览延后依赖 MVU 的状态脚本，保留开场、普通脚本与正
   assert.equal(opening.text, card.first_mes)
   const preview = opening.projection.parts.map(part => part.content || part.text).join('\n')
   assert.match(preview, /<h1>开场正文<\/h1>/)
-  assert.match(preview, /状态栏将在开始游戏后加载/)
+  assert.doesNotMatch(preview, /状态栏将在开始游戏后加载|data-dsh-tavern-mvu-preview|<status\/>/)
   assert.doesNotMatch(preview, /waitGlobalInitialized|Mvu\.getMvuData/)
   const committed = projectOpeningCommit(card.first_mes, { regexScripts: extensions.regexScripts, regexPlacement: 2 })
   assert.match(committed.displayText, /waitGlobalInitialized\("Mvu"\)/)

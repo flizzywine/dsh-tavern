@@ -14,7 +14,7 @@ function previewRegexScript(script) {
   if (!needsMvu) return script
   // Only the chooser's display rule changes; the stored card and committed opening keep the real UI.
   return Object.assign({}, script, {
-    replaceString: '<aside data-dsh-tavern-mvu-preview>状态栏将在开始游戏后加载</aside>'
+    replaceString: ''
   })
 }
 
