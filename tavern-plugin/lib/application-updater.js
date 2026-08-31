@@ -1,7 +1,8 @@
-import { spawn } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
+import { promisify } from 'node:util'
 
 import { createProfileDataStore } from './profile-data-store.js'
 
@@ -10,9 +11,30 @@ const RELEASE_FILE = '.dsh-tavern-release.json'
 const RUNNING_TIMEOUT_MS = 15 * 60 * 1000
 const VERSION_URL = 'https://raw.githubusercontent.com/flizzywine/dsh-tavern/main/package.json'
 const COMMIT_URL = 'https://api.github.com/repos/flizzywine/dsh-tavern/commits/main'
+const COMPARE_URL = 'https://api.github.com/repos/flizzywine/dsh-tavern/compare'
+const execFileAsync = promisify(execFile)
+const UPDATE_CHECK_POLICY = 2
 const CDN_METADATA_URL = 'https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@main/dsh-tavern-runtime.json'
 const RUNTIME_FILES = new Set(['package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'cordis.patch.yml', 'install.ps1', 'install.sh'])
-const RUNTIME_DIRECTORIES = ['bin/', 'config/', 'presets/', 'tavern-plugin/']
+const RUNTIME_DIRECTORIES = ['bin/', 'config/', 'presets/', 'tavern-plugin/', 'patches/']
+
+async function localCommitRelation(root, current, latest) {
+  const ancestor = async (base, head) => {
+    try {
+      await execFileAsync('git', ['-C', root, 'merge-base', '--is-ancestor', base, head], { timeout: 3000, windowsHide: true })
+      return true
+    } catch (error) {
+      if (error.code === 1) return false
+      throw error
+    }
+  }
+  try {
+    if (await ancestor(current, latest)) return 'ahead'
+    if (await ancestor(latest, current)) return 'behind'
+    // Shallow repositories cannot prove divergence. Let GitHub resolve it.
+  } catch { /* Git or either commit may be absent in an archive installation. */ }
+  return null
+}
 
 function runtimePath(value) {
   const normalized = String(value || '').replace(/^\/+/, '').replaceAll('\\', '/')
@@ -169,6 +191,29 @@ export function createApplicationUpdater(options) {
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
     return response.json()
   }
+  const compareCommits = options.compareCommits || async function (current, latest) {
+    for (const root of [sourceRoot, path.join(dshHome, 'source-cache', 'dsh-tavern.git')]) {
+      const relation = await localCommitRelation(root, current, latest)
+      if (relation) return relation
+    }
+    const response = await fetch(`${options.compareUrl || COMPARE_URL}/${current}...${latest}`, {
+      cache: 'no-store', headers: { Accept: 'application/vnd.github+json' }, signal: AbortSignal.timeout(5000),
+    })
+    if (!response.ok) throw new Error(`无法确认提交先后（GitHub HTTP ${response.status}），请稍后重试`)
+    const comparison = await response.json()
+    if (String(comparison?.base_commit?.sha).toLowerCase() !== current) throw new Error('GitHub 提交比较返回的基准不符')
+    return comparison.status
+  }
+  async function isNewerCommit(current, latest) {
+    current = String(current || '').toLowerCase()
+    latest = String(latest || '').toLowerCase()
+    if (!/^[0-9a-f]{40}$/.test(current) || !/^[0-9a-f]{40}$/.test(latest)) throw new Error('无法确认当前构建或提交先后，请稍后重试或手动重新安装')
+    if (current === latest) return false
+    const relation = await compareCommits(current, latest)
+    if (relation === 'ahead') return true
+    if (relation === 'behind' || relation === 'identical') return false
+    throw new Error('无法确认远端是当前构建的后续更新（历史分叉或比较信息不完整），请稍后重试或手动重新安装')
+  }
   const store = createProfileDataStore({ dataRoot })
 
   const loadLocalIdentity = typeof options.readLocalIdentity === 'function' ? options.readLocalIdentity : async function () {
@@ -200,20 +245,19 @@ export function createApplicationUpdater(options) {
 
   async function versions(identity) {
     const { currentVersion, currentCommit } = identity
-    if (currentVersion === 'unknown') return { currentVersion, latestVersion: 'unknown', currentCommit, latestCommit: '', updateAvailable: true }
+    if (currentVersion === 'unknown') throw new Error('无法确认当前构建，请手动重新安装')
     try {
       const [remote, latestCommitResult] = await Promise.all([fetchManifest(), fetchLatestCommit()])
       const { publishedCommit, runtimeCommit: latestCommit } = runtimeCommitIdentityOf(latestCommitResult)
       const latestVersion = String(remote?.version || '')
       if (currentVersion === '' || latestVersion === '') throw new Error('版本信息不完整')
       if (!/^[0-9a-f]{40}$/i.test(latestCommit)) throw new Error('GitHub 返回的提交号无效')
-      const versionAhead = compareVersions(latestVersion, currentVersion) > 0
       const normalizedCurrentCommit = currentCommit.toLowerCase() === publishedCommit.toLowerCase()
         ? latestCommit
         : currentCommit
       return {
         currentVersion, latestVersion, currentCommit: normalizedCurrentCommit, latestCommit, checkSource: 'github',
-        updateAvailable: versionAhead || normalizedCurrentCommit.toLowerCase() !== latestCommit.toLowerCase(),
+        updateAvailable: compareVersions(latestVersion, currentVersion) >= 0 && await isNewerCommit(normalizedCurrentCommit, latestCommit),
       }
     } catch (githubError) {
       try {
@@ -221,7 +265,7 @@ export function createApplicationUpdater(options) {
         return {
           currentVersion, latestVersion: 'unknown', currentCommit, latestCommit: compared.revision, checkSource: 'jsdelivr',
           currentFingerprint: compared.currentFingerprint, latestFingerprint: compared.latestFingerprint,
-          checkedFileCount: compared.fileCount, updateAvailable: !compared.matches,
+          checkedFileCount: compared.fileCount, updateAvailable: !compared.matches && await isNewerCommit(currentCommit, compared.revision),
           checkWarning: `GitHub 不可达，已使用 jsDelivr 备用源（可能有缓存延迟）：${sanitizeUpdateError(githubError?.message || githubError)}`,
         }
       } catch (cdnError) {
@@ -243,6 +287,11 @@ export function createApplicationUpdater(options) {
   async function statusWithIdentity(identity) {
     const current = await store.readJson(STATUS_FILE)
     if (current !== undefined) {
+      if (current.phase === 'update-available' && (current.checkPolicy !== UPDATE_CHECK_POLICY || current.checkedForCommit !== identity.currentCommit)) {
+        const invalidated = { phase: 'idle', host: await host(), ...identity }
+        await store.writeJson(STATUS_FILE, invalidated)
+        return invalidated
+      }
       const checkedAt = now()
       const updatePid = Number(current.pid)
       const stopped = Number.isInteger(updatePid) && updatePid > 0 && !isProcessAlive(updatePid)
@@ -301,6 +350,8 @@ export function createApplicationUpdater(options) {
       return failed
     }
     const checked = {
+      checkPolicy: UPDATE_CHECK_POLICY,
+      checkedForCommit: identity.currentCommit,
       phase: version.updateAvailable ? 'update-available' : 'up-to-date',
       host: installHost, checkedAt: now(),
       currentVersion: version.currentVersion, latestVersion: version.latestVersion,

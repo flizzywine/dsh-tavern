@@ -47,6 +47,17 @@ test('Android 入口在 Tavern 离线时仍可启动更新或修复', async (t) 
   const launcher = path.join(appDir, 'bin', 'dsh-tavern.mjs')
   await mkdir(path.dirname(launcher), { recursive: true })
   await writeFile(launcher, '#!/usr/bin/env node\n', 'utf8')
+  const currentCommit = 'a'.repeat(40)
+  const latestCommit = 'b'.repeat(40)
+  await writeFile(path.join(appDir, 'package.json'), JSON.stringify({ version: '1.1.0' }))
+  await writeFile(path.join(appDir, '.dsh-tavern-release.json'), JSON.stringify({ commit: currentCommit }))
+  t.mock.method(globalThis, 'fetch', async (url) => {
+    const value = String(url).endsWith('/package.json') ? { version: '1.1.0' }
+      : String(url).endsWith('/commits/main') ? { sha: latestCommit }
+      : String(url).endsWith(`/compare/${currentCommit}...${latestCommit}`) ? { status: 'ahead', base_commit: { sha: currentCommit } }
+      : assert.fail(`unexpected request: ${url}`)
+    return new Response(JSON.stringify(value), { headers: { 'Content-Type': 'application/json' } })
+  })
   const calls = []
   const child = { once(event, listener) { if (event === 'spawn') queueMicrotask(listener); return this }, unref() {} }
   const manager = createEntryManager({
@@ -60,12 +71,12 @@ test('Android 入口在 Tavern 离线时仍可启动更新或修复', async (t) 
   assert.deepEqual(await manager.status(), {
     installed: true,
     online: false,
-    update: { phase: 'idle', host: 'android', currentVersion: 'unknown', currentCommit: '' },
+    update: { phase: 'idle', host: 'android', currentVersion: '1.1.0', currentCommit },
   })
   assert.deepEqual(await manager.update(), {
     installed: true,
     online: false,
-    update: { phase: 'running', host: 'android', startedAt: 456 },
+    update: { phase: 'running', host: 'android', startedAt: 456, currentVersion: '1.1.0', currentCommit, latestVersion: '1.1.0', latestCommit, checkSource: 'github', checkWarning: undefined },
   })
   assert.deepEqual(calls[0].args.slice(0, 4), [launcher, 'update', '--host', 'android'])
 })

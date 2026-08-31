@@ -3692,8 +3692,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				? "正在检查 GitHub 最新提交；GitHub 不可达时会自动尝试备用源…"
 				: updateStatus.phase === "up-to-date"
 					? (updateStatus.checkSource === "jsdelivr"
-						? "GitHub 不可达；jsDelivr 备用源显示运行代码一致（可能有缓存延迟），无需下载。"
-						: "✓ 已是最新构建")
+						? "jsDelivr 备用源未发现可用的新构建（可能有缓存延迟），无需下载。"
+						: "✓ 未发现更新构建")
 				: updateStatus.phase === "update-available"
 					? "发现新构建 " + ((updateStatus.latestCommit || "").slice(0, 7) || updateStatus.latestVersion || "")
 				: updateStatus.phase === "running"
