@@ -54,6 +54,8 @@ for (const embedded of [false, true]) {
     const fresh = (await (await connect(host)).getWorldbook('审计书'))[0]
     assert.equal(fresh.name, '')
     assert.equal(fresh.extra.pluginState.table, 'x')
+    await reloaded.updateWorldbookWith('审计书', entries => { delete entries[0].extra.pluginState; return entries })
+    assert.equal((await (await connect(host)).getWorldbook('审计书'))[0].extra.pluginState, undefined)
     await reloaded.replaceWorldbook('审计书', [])
     assert.equal((await host.adapter.getWorldbook('audit', 'current')).worldbook.entries.length, 0)
   })

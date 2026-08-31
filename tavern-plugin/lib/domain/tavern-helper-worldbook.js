@@ -88,7 +88,7 @@ function keys(value) {
 
 function mergedEntry(base, value) {
   const result = Object.assign({}, base, value)
-  for (const name of ['strategy', 'position', 'recursion', 'effect', 'extra']) {
+  for (const name of ['strategy', 'position', 'recursion', 'effect']) {
     result[name] = Object.assign({}, base[name], value[name])
   }
   result.strategy.keys_secondary = Object.assign({}, base.strategy.keys_secondary, value.strategy && value.strategy.keys_secondary)
