@@ -2893,6 +2893,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const invoke = options && options.rpc || rpc;
 			const invalidate = options && options.invalidate || function (sessionId) { liveTavernView.invalidate(sessionId); };
 			const createRuntime = options && options.createRuntime || createTavernHelperScriptRuntime;
+			const pollRequestTimeoutMs = Math.max(100, Number(options && options.pollRequestTimeoutMs) || 3000);
 			let runtime = null;
 			let lease = null;
 			let pollTimer = null;
@@ -2933,6 +2934,23 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				});
 				return runtime;
 			}
+			function pollServer(currentLease, runtimeReady) {
+				const Controller = hostWindow.AbortController;
+				const controller = typeof Controller === "function" ? new Controller() : null;
+				let deadlineTimer = null;
+				const request = Promise.resolve().then(function () {
+					return invoke("pollTavernHelperEvent", { runtimeId: currentLease.id, ready: runtimeReady }, currentLease.sessionId, controller ? { signal: controller.signal } : undefined);
+				});
+				const deadline = new Promise(function (_resolve, reject) {
+					deadlineTimer = hostWindow.setTimeout(function () {
+						if (controller) controller.abort();
+						reject(new Error("Tavern Helper 轮询超时"));
+					}, pollRequestTimeoutMs);
+				});
+				return Promise.race([request, deadline]).finally(function () {
+					if (deadlineTimer !== null) hostWindow.clearTimeout(deadlineTimer);
+				});
+			}
 			function schedulePoll(delayMs) {
 				if (pollTimer !== null || !lease || !input || !input.sessionId || !hasScriptRuntime(input.view)) return;
 				const currentLease = lease;
@@ -2947,7 +2965,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 						const diagnostics = [];
 						try {
 							const runtimeReady = tavernScriptRuntimeReady(currentRuntime.inspect());
-							const result = await invoke("pollTavernHelperEvent", { runtimeId: currentLease.id, ready: runtimeReady }, currentLease.sessionId);
+							const result = await pollServer(currentLease, runtimeReady);
 							if (lease !== currentLease) {
 								// The server may have processed this poll after our first release.
 								// Release only its old identity, never the replacement owner's lease.

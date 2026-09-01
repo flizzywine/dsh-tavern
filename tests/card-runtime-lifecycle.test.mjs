@@ -28,7 +28,7 @@ function host() {
 }
 const context = (revision = 1) => ({ version: 1, stateRevision: revision, lifecycleRevision: 1, messages: [{ role: 'assistant', variables: { hp: revision } }], turnMessageIds: { 1: 0 }, chatVariables: {}, scriptVariables: {} })
 const view = (revision = 1) => ({ tavernHelper: context(revision), tavernHelperScripts: [{ id: 'script', name: 'script', content: 'void 0' }] })
-function execution() {
+function execution(options = {}) {
   const h = host(), calls = [], runtimes = []
   let handle = () => Promise.resolve({ active: true })
   const module = h.client.createTavernScriptExecutionModule({ window: h.window,
@@ -42,7 +42,8 @@ function execution() {
         dispose() { this.disposed++ }
       }
       runtimes.push(runtime); return runtime
-    }
+    },
+    ...options
   })
   return Object.assign(h, { module, calls, runtimes, respond(fn) { handle = fn } })
 }
@@ -114,6 +115,31 @@ test('event completion stays in its lease; disposal during execution does not ac
   assert.equal(h.timers.size, 1)
   h.module.dispose()
   assert.equal(h.timers.size, 0)
+})
+
+test('服务重启遗留的悬挂轮询超时后继续向新服务登记', async () => {
+  const h = execution({ pollRequestTimeoutMs: 100 })
+  const stale = deferred()
+  let restarted = false
+  h.respond(method => {
+    if (method !== 'pollTavernHelperEvent') return Promise.resolve({})
+    return restarted ? Promise.resolve({ active: true }) : stale.promise
+  })
+  h.module.sync('A', view())
+  const stuck = h.runTimer()
+  await tick()
+
+  restarted = true
+  assert.equal(h.timers.size, 1, '悬挂轮询必须有独立超时保护')
+  await h.runTimer()
+  await stuck
+  assert.equal(h.timers.size, 1, '超时后必须安排下一次轮询')
+  await h.runTimer()
+
+  assert.equal(h.calls.filter(call => call.method === 'pollTavernHelperEvent').length, 2)
+  assert.equal(h.module.inspect().active, true)
+  stale.resolve({ active: true })
+  h.module.dispose()
 })
 
 test('script failure is acknowledged with diagnostics; the poll loop can execute the next event', async () => {

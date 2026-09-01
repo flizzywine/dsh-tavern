@@ -7,6 +7,7 @@ function clone(value) {
 }
 
 export const TAVERN_HELPER_EVENT_TIMEOUT_MS = 60000
+export const TAVERN_HELPER_READY_TIMEOUT_MS = 15000
 
 /**
  * Coordinate lifecycle events that must run inside the browser-owned Tavern
@@ -15,10 +16,23 @@ export const TAVERN_HELPER_EVENT_TIMEOUT_MS = 60000
 export function createTavernHelperEventGate(options = {}) {
   const now = typeof options.now === 'function' ? options.now : Date.now
   const timeoutMs = Math.max(100, Number(options.timeoutMs) || TAVERN_HELPER_EVENT_TIMEOUT_MS)
+  const readyTimeoutMs = Math.max(100, Number(options.readyTimeoutMs) || TAVERN_HELPER_READY_TIMEOUT_MS)
   const presenceTtlMs = Math.max(timeoutMs, Number(options.presenceTtlMs) || 5000)
   const records = new Map()
   const presence = new Map()
+  const readyWaiters = new Map()
   let sequence = 0
+
+  function publishReady(sessionId) {
+    const id = str(sessionId)
+    const waiters = readyWaiters.get(id)
+    if (!waiters) return
+    readyWaiters.delete(id)
+    for (const waiter of waiters) {
+      clearTimeout(waiter.timer)
+      waiter.resolve(true)
+    }
+  }
 
   function touch(sessionId, runtimeId = 'legacy', ready = false) {
     const id = str(sessionId)
@@ -27,6 +41,7 @@ export function createTavernHelperEventGate(options = {}) {
     const current = presence.get(id)
     if (current && current.owner !== owner && now() - current.seenAt <= presenceTtlMs) return false
     presence.set(id, { owner, seenAt: now(), ready: ready === true })
+    if (ready === true) publishReady(id)
     return true
   }
 
@@ -42,6 +57,23 @@ export function createTavernHelperEventGate(options = {}) {
     if (!touch(id, runtimeId, ready)) return { active: false, ready: false, event: null }
     const record = records.get(id)
     return { active: true, ready: ready === true, event: ready === true && record ? clone(record.event) : null }
+  }
+
+  function waitUntilReady(sessionId, waitMs = readyTimeoutMs) {
+    const id = str(sessionId)
+    if (id === '') return Promise.resolve(false)
+    if (available(id, '', true)) return Promise.resolve(true)
+    return new Promise(function (resolve) {
+      const waiter = { resolve, timer: null }
+      const waiters = readyWaiters.get(id) || new Set()
+      waiters.add(waiter)
+      readyWaiters.set(id, waiters)
+      waiter.timer = setTimeout(function () {
+        waiters.delete(waiter)
+        if (waiters.size === 0) readyWaiters.delete(id)
+        resolve(false)
+      }, Math.max(100, Number(waitMs) || readyTimeoutMs))
+    })
   }
 
   function complete(sessionId, eventId, args, runtimeId = 'legacy', error = '', diagnostics) {
@@ -79,6 +111,13 @@ export function createTavernHelperEventGate(options = {}) {
     })
   }
 
+  async function dispatchWhenReady(sessionId, name, args = [], context = null) {
+    if (!await waitUntilReady(sessionId)) {
+      return { handled: false, unavailable: true, args: clone(args) }
+    }
+    return await dispatch(sessionId, name, args, context)
+  }
+
   function dispose(sessionId, runtimeId = '') {
     const id = str(sessionId)
     if (runtimeId !== '' && !available(id, runtimeId)) return false
@@ -97,5 +136,5 @@ export function createTavernHelperEventGate(options = {}) {
     return { present, ready: present && current.ready === true, busy: records.has(str(sessionId)) }
   }
 
-  return Object.freeze({ touch, available, poll, complete, dispatch, dispose, status })
+  return Object.freeze({ touch, available, poll, complete, dispatch, dispatchWhenReady, waitUntilReady, dispose, status })
 }
