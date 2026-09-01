@@ -384,7 +384,7 @@ test('后台 Runner 执行候选任务，查询超限后提示开始推理而不
   assert.equal(stagedSnapshots[0].scope, 'background')
   assert.equal(stagedSnapshots[0].snapshot.front.entries[0].content, '通用破限身份')
   assert.equal(stagedSnapshots[0].snapshot.back.entries[0].content, '通用破限预填充')
-  assert.deepEqual(restrictions, [{ allow: [] }])
+  assert.deepEqual(restrictions, [{ allow: ['skill'] }])
   assert.equal(registered[0].name, 'tavern_read_script')
   assert.equal(registered[1].name, 'tavern_point_script')
   const requestListener = listeners.find(function (entry) { return entry.name === 'agent/request' })

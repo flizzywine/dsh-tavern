@@ -208,8 +208,6 @@ export async function apply(ctx) {
     directory: dataRoot + '/skills',
     builtInDirectory: sourceRoot + '/presets/tavern/skills'
   })
-  const characterDesignSkill = await tavernSkills.read('tavern-character-design')
-  if (characterDesignSkill === null) throw new Error('dsh-tavern: 缺少内置人物设计 Skill')
 
   // ---------- profile 私有 preset ----------
   // rc.6 启动器会固定系统 roots，因此在独立 Tavern 进程内追加 profile 自带目录。
@@ -1161,8 +1159,7 @@ export async function apply(ctx) {
   const mvuSettlement = createMvuSettlementModule({
     model: backgroundAgentRunner,
     runtime: tavernScriptHostAdapter,
-    diagnostics: mvuDiagnostics,
-    characterDesignSkill: characterDesignSkill.content
+    diagnostics: mvuDiagnostics
   })
   ctx.effect(() => () => backgroundAgentRunner.dispose(), 'dsh-tavern: dispose resident background agents')
   const sceneIllustrations = TAVERN_RELEASE_CAPABILITIES.sceneImages ? createSceneIllustrations({
