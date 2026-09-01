@@ -3006,7 +3006,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			return null;
 		}
 
-		const TAVERN_FRAME_MAX_HEIGHT = 12000;
+		const TAVERN_FRAME_MAX_HEIGHT = 1200;
 		function clampTavernFrameHeight(value) {
 			return Math.max(48, Math.min(TAVERN_FRAME_MAX_HEIGHT, Math.ceil(Number(value) || 48)));
 		}

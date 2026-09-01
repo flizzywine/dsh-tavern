@@ -81,11 +81,12 @@ test('脚本执行模块按 Helper Runtime 的真实检查结构报告 MVU 已�
   assert.equal(client.tavernScriptRuntimeReady(inspection), true)
 })
 
-test('普通长消息自动展开，只有极端高度才限制为单轮滚动', () => {
+test('长消息限制在 1200px 内并由 iframe 原生滚动', () => {
   assert.equal(client.clampTavernFrameHeight(48), 48)
-  assert.equal(client.clampTavernFrameHeight(5000), 5000)
-  assert.equal(client.clampTavernFrameHeight(12000), 12000)
-  assert.equal(client.clampTavernFrameHeight(18000), 12000)
+  assert.equal(client.clampTavernFrameHeight(1200), 1200)
+  assert.equal(client.clampTavernFrameHeight(5000), 1200)
+  const documentHtml = client.buildTavernFrameDocument({ content: '正文', token: 'native-scroll-token' })
+  assert.doesNotMatch(documentHtml, /dsh-tavern-touch-bridge|dsh-tavern-frame-pan/)
 })
 
 test('旧版分段展示投影仍按原始顺序回放', () => {
@@ -558,7 +559,7 @@ test('消息 iframe 测高忽略被裁剪内容与固定悬浮元素', () => {
   assert.equal(reportedHeight, 1800)
 })
 
-test('消息 iframe 测高包含末尾折叠外边距，避免宿主与 iframe 双层滚动', () => {
+test('消息 iframe 测高包含末尾折叠外边距，避免正文末尾被裁掉', () => {
   const documentHtml = client.buildTavernFrameDocument({ content: '正文', token: 'collapsed-margin-height-token' })
   const reporters = Array.from(documentHtml.matchAll(/<script data-dsh-tavern-frame>([\s\S]*?)<\/script>/g))
   const reporter = reporters.at(-1)
