@@ -81,11 +81,12 @@ test('脚本执行模块按 Helper Runtime 的真实检查结构报告 MVU 已�
   assert.equal(client.tavernScriptRuntimeReady(inspection), true)
 })
 
-test('普通长消息自动展开，只有极端高度才限制为单轮滚动', () => {
+test('长消息限制在 1200px 内并由 iframe 原生滚动', () => {
   assert.equal(client.clampTavernFrameHeight(48), 48)
-  assert.equal(client.clampTavernFrameHeight(5000), 5000)
-  assert.equal(client.clampTavernFrameHeight(12000), 12000)
-  assert.equal(client.clampTavernFrameHeight(18000), 12000)
+  assert.equal(client.clampTavernFrameHeight(1200), 1200)
+  assert.equal(client.clampTavernFrameHeight(5000), 1200)
+  const documentHtml = client.buildTavernFrameDocument({ content: '正文', token: 'native-scroll-token' })
+  assert.doesNotMatch(documentHtml, /dsh-tavern-touch-bridge|dsh-tavern-frame-pan/)
 })
 
 test('旧版分段展示投影仍按原始顺序回放', () => {
@@ -457,116 +458,6 @@ test('消息 iframe 保留人物卡 maintext 中的开场白换行', () => {
   assert.match(document, /maintext\{[^}]*white-space:pre-wrap/)
 })
 
-test('消息 iframe 只把无法由内层消费的纵向触摸位移交给宿主', () => {
-  const documentHtml = client.buildTavernFrameDocument({ content: '<button>操作</button>', token: 'touch-token' })
-  const bridge = documentHtml.match(/<script data-dsh-tavern-touch-bridge>([\s\S]*?)<\/script>/)
-  assert.ok(bridge)
-
-  const listeners = new Map(), messages = []
-  const root = { parentElement: null, scrollTop: 0, clientHeight: 300, scrollHeight: 300, style: { overflowY: 'visible' } }
-  const body = { parentElement: root, scrollTop: 0, clientHeight: 300, scrollHeight: 300, style: { overflowY: 'visible' } }
-  const target = { parentElement: body, style: { overflowY: 'visible' } }
-  vm.runInNewContext(bridge[1], {
-    document: {
-      body,
-      documentElement: root,
-      scrollingElement: root,
-      addEventListener(type, run) { listeners.set(type, run) }
-    },
-    parent: { postMessage(message) { messages.push(message) } },
-    getComputedStyle(node) { return node.style || { overflowY: 'visible' } },
-    Math,
-    Number,
-    String
-  })
-
-  function touch(type, x, y, node = target) {
-    let prevented = false
-    listeners.get(type)({ target: node, touches: type === 'touchend' ? [] : [{ clientX: x, clientY: y }], preventDefault() { prevented = true } })
-    return prevented
-  }
-
-  touch('touchstart', 100, 100)
-  assert.equal(touch('touchmove', 100, 96), false, '小幅移动不应破坏点击')
-  assert.equal(messages.length, 0)
-  assert.equal(touch('touchmove', 100, 70), true)
-  assert.deepEqual(messages.map(message => ({ type: message.type, token: message.token, deltaY: message.deltaY })), [
-    { type: 'dsh-tavern-frame-pan', token: 'touch-token', deltaY: 30 }
-  ])
-  touch('touchend', 100, 70)
-
-  messages.length = 0
-  touch('touchstart', 100, 100)
-  assert.equal(touch('touchmove', 130, 98), false, '横向操作留给卡片自己')
-  assert.equal(messages.length, 0)
-  touch('touchend', 130, 98)
-
-  const scroller = { parentElement: body, scrollTop: 20, clientHeight: 100, scrollHeight: 300, style: { overflowY: 'auto' } }
-  const innerTarget = { parentElement: scroller, style: { overflowY: 'visible' } }
-  touch('touchstart', 100, 100, innerTarget)
-  assert.equal(touch('touchmove', 100, 70, innerTarget), false, '内层确实可滚时不接管')
-  assert.equal(messages.length, 0)
-  touch('touchend', 100, 70, innerTarget)
-
-  scroller.scrollTop = 200
-  touch('touchstart', 100, 100, innerTarget)
-  assert.equal(touch('touchmove', 100, 70, innerTarget), true, '内层到边界后再交给外层')
-  assert.equal(messages[0].deltaY, 30)
-})
-
-test('外层滚动带动 iframe 位移时仍按屏幕手势方向逐帧转交', () => {
-  const documentHtml = client.buildTavernFrameDocument({ content: '正文', token: 'stable-touch-token' })
-  const bridge = documentHtml.match(/<script data-dsh-tavern-touch-bridge>([\s\S]*?)<\/script>/)
-  assert.ok(bridge)
-
-  const listeners = new Map(), messages = [], frames = []
-  const root = { parentElement: null, scrollTop: 0, clientHeight: 300, scrollHeight: 300, style: { overflowY: 'visible' } }
-  const body = { parentElement: root, scrollTop: 0, clientHeight: 300, scrollHeight: 300, style: { overflowY: 'visible' } }
-  const target = { parentElement: body, style: { overflowY: 'visible' } }
-  vm.runInNewContext(bridge[1], {
-    document: { body, documentElement: root, scrollingElement: root, addEventListener(type, run) { listeners.set(type, run) } },
-    parent: { postMessage(message) { messages.push(message) } },
-    getComputedStyle(node) { return node.style || { overflowY: 'visible' } },
-    requestAnimationFrame(run) { frames.push(run) },
-    Math, Number, String
-  })
-  function move(type, clientY, screenY) {
-    let prevented = false
-    listeners.get(type)({
-      target,
-      touches: type === 'touchend' ? [] : [{ clientX: 100, clientY, screenX: 500, screenY }],
-      preventDefault() { prevented = true }
-    })
-    return prevented
-  }
-
-  move('touchstart', 100, 500)
-  assert.equal(move('touchmove', 70, 470), true)
-  assert.equal(messages.length, 0, '同一动画帧内不应立即反复修改外层 scrollTop')
-  frames.shift()()
-  assert.equal(messages[0].deltaY, 30)
-
-  // 外层刚向下滚动 30px，iframe 相对手指上移，clientY 从 70 反弹到 90；
-  // 手指在物理屏幕上仍继续向上移动，因此下一次位移必须仍为正数。
-  assert.equal(move('touchmove', 90, 460), true)
-  frames.shift()()
-  assert.equal(messages[1].deltaY, 10)
-  move('touchend', 90, 460)
-})
-
-test('消息 iframe 转交的位移只滚动最近的外层滚动容器并限制单次距离', () => {
-  const outer = { parentElement: null, scrollTop: 40, clientHeight: 300, scrollHeight: 900, style: { overflowY: 'auto' } }
-  const wrapper = { parentElement: outer, scrollTop: 0, clientHeight: 300, scrollHeight: 300, style: { overflowY: 'visible' } }
-  const frame = { parentElement: wrapper }
-  const hostWindow = { getComputedStyle: node => node.style || { overflowY: 'visible' } }
-
-  assert.equal(client.scrollTavernFrameHost(frame, 36, hostWindow), true)
-  assert.equal(outer.scrollTop, 76)
-  assert.equal(client.scrollTavernFrameHost(frame, 9999, hostWindow), true)
-  assert.equal(outer.scrollTop, 236)
-  assert.equal(client.scrollTavernFrameHost({ parentElement: null }, 36, hostWindow), false)
-})
-
 test('消息 iframe 测高忽略被裁剪内容与固定悬浮元素', () => {
   const documentHtml = client.buildTavernFrameDocument({ content: '正文', token: 'height-token' })
   const reporters = Array.from(documentHtml.matchAll(/<script data-dsh-tavern-frame>([\s\S]*?)<\/script>/g))
@@ -611,7 +502,7 @@ test('消息 iframe 测高忽略被裁剪内容与固定悬浮元素', () => {
   assert.equal(reportedHeight, 1800)
 })
 
-test('消息 iframe 测高包含末尾折叠外边距，避免宿主与 iframe 双层滚动', () => {
+test('消息 iframe 测高包含末尾折叠外边距，避免正文末尾被裁掉', () => {
   const documentHtml = client.buildTavernFrameDocument({ content: '正文', token: 'collapsed-margin-height-token' })
   const reporters = Array.from(documentHtml.matchAll(/<script data-dsh-tavern-frame>([\s\S]*?)<\/script>/g))
   const reporter = reporters.at(-1)
