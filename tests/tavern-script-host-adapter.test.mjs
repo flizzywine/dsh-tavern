@@ -276,7 +276,7 @@ test('官方 MVU 写回全部开场 Swipe 后由 Host 标记初始化完成', as
   assert.deepEqual(saved.variables, [first, second])
 })
 
-test('Host Adapter 统一翻译世界书、Swipe 与生命周期事件', async function () {
+test('Host Adapter 统一翻译世界书与生命周期事件', async function () {
   const run = harness()
   const projected = await run.adapter.getWorldbook('session-1', 'current')
   const entries = structuredClone(projected.worldbook.entries)
@@ -284,45 +284,6 @@ test('Host Adapter 统一翻译世界书、Swipe 与生命周期事件', async f
   const changed = await run.adapter.replaceWorldbook('session-1', '测试世界书', entries)
   assert.equal(changed.updated, true)
   assert.equal(run.worldbook.view.entries[0].content, '新内容')
-
-  await run.adapter.switchSwipe('session-1', 0, 1)
-  assert.equal(run.chat.messages[0].swipeId, 1)
-  assert.equal(run.events.at(-1).name, 'MESSAGE_SWIPED')
-  assert.equal(run.events.at(-1).context.messages[0].message, '新正文')
-})
-
-test('Swipe 只能切换最后一条正文，并让当前 Swipe 重新进入后台结算', async function () {
-  const value = chat()
-  value.mvu.owner = 'official'
-  value.messages.push(
-    { role: 'user', text: '继续' },
-    { role: 'assistant', turn: 2, text: '正文甲', sourceText: '正文甲', swipes: ['正文甲', '正文乙'], swipeId: 0,
-      variables: [{ hp: 7 }, { hp: 6 }], mvu: { pending: false, receipt: { status: 'updated' } } }
-  )
-  let queued = 0
-  const run = harness(value, { onSwipeChanged() { queued++ } })
-
-  await assert.rejects(run.adapter.switchSwipe('session-1', 0, 1), /最后一条正文/)
-  await run.adapter.switchSwipe('session-1', 2, 1)
-
-  assert.equal(value.messages[2].swipeId, 1)
-  assert.equal(value.messages[2].mvu.pending, true)
-  assert.equal(value.settleStatus, 'pending')
-  assert.equal(queued, 1)
-})
-
-test('新一轮正文或重新生成已经开始后锁定 Swipe', async function () {
-  for (const busy of [
-    { regenInProgress: true },
-    { timeline: { operations: { body: { kind: 'body', status: 'running' } } } }
-  ]) {
-    const value = Object.assign(chat(), busy)
-    const run = harness(value)
-
-    await assert.rejects(run.adapter.switchSwipe('session-1', 0, 1), /已经开始/)
-    assert.equal(value.messages[0].swipeId, 0)
-    assert.equal(run.writes.length, 0)
-  }
 })
 
 test('服务重启后结算立即挂起，由上层在浏览器重新登记后接续', async function () {

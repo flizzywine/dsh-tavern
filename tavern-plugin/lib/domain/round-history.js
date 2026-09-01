@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
-import { locateRegenerationSurface, locateRollbackSurface, planRegenerationSurface } from './rollback-surface.js'
-import { assertRegenerationSourceCurrent, mergeRegeneratedSwipe } from './tavern-swipe-regeneration.js'
+import { clearRegenerationAttemptSurface, locateRegenerationSurface, locateRollbackSurface, planRegenerationSurface } from './rollback-surface.js'
+import { assertRegenerationSourceCurrent, replaceLastRound } from './last-round-replacement.js'
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
@@ -50,6 +50,11 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
   async function regenBody(chatId, guidance, sessionId) {
     let chat = str(chatId) === '' ? await chatForSession(sessionId) : await readChat(chatId)
     if (chat === undefined) throw new Error('聊天不存在: ' + chatId)
+    const activeRound = Object.values(storyTimeline.inspect({ chat }).operations || {}).find(function (operation) {
+      return operation && operation.kind === 'body' && operation.status === 'foreground-completed'
+    })
+    if (activeRound !== undefined) throw new Error('当前轮次尚未完成状态结算，不能重新生成正文')
+    if (chat.regenInProgress === true) throw new Error('正文正在重新生成，请等待完成')
     const card = await readChatCard(chat)
     if (typeof sessionId === 'string' && sessionId !== '') chat.sessionId = sessionId
     if (typeof chat.sessionId !== 'string' || chat.sessionId === '') throw new Error('会话未绑定 DSH 会话')
@@ -59,11 +64,15 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     const { eventStart, msgs0, oldAssistantIndex, oldSeq, oldTurn, oldSource } = selectRegenerationTarget(chat, session)
     const originalUserText = str(msgs0[oldAssistantIndex - 1].text).trim()
     const originalChat = structuredClone(chat)
+    let restored = false
     async function restoreFailedRegen() {
+      if (restored) return
+      restored = true
       await updateChat(chat.id, function (current) {
         if (!current || typeof current !== 'object') return current
         return storyTimeline.apply({ chat: current, intent: { kind: 'replacement.abort', restoreChat: originalChat } }).chat
       }, { source: 'foreground.regen-abort' })
+      clearRegenerationAttemptSurface({ session, eventStart })
     }
     let legacyBefore = null
     if (storyTimeline.inspect({ chat }).checkpointCount === 0) {
@@ -93,14 +102,6 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     }
     const rollbackIntent = await prepareRollbackIntent(chat, { kind: 'turn.rollback', turn: oldTurn, legacyBefore })
     const lifecycleRevision = Math.max(0, Number(originalChat.tavernHelperLifecycleRevision) || 0) + 1
-    const pendingChat = structuredClone(originalChat)
-    pendingChat.tavernHelperLifecycleRevision = lifecycleRevision
-    const pendingAssistant = pendingChat.messages[oldAssistantIndex]
-    if (!Array.isArray(pendingAssistant.swipes)) pendingAssistant.swipes = [str(pendingAssistant.sourceText || pendingAssistant.text)]
-    pendingAssistant.swipeId = pendingAssistant.swipes.length
-    pendingAssistant.swipes.push('')
-    if (Array.isArray(pendingAssistant.variables)) pendingAssistant.variables.push(structuredClone(pendingAssistant.variables[Math.max(0, pendingAssistant.swipeId - 1)] || {}))
-    await tavernScriptHostAdapter.dispatchEvent({ sessionId: chat.sessionId, chat: pendingChat, name: 'MESSAGE_SWIPED', args: [oldAssistantIndex] })
     chat = await updateChat(chat.id, function (current) {
       assertRegenerationSourceCurrent({ originalChat, currentChat: current, assistantIndex: oldAssistantIndex })
       const next = storyTimeline.apply({ chat: current, intent: rollbackIntent }).chat
@@ -147,7 +148,6 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
       await restoreFailedRegen()
       throw new Error('重新生成失败：模型返回空文本')
     }
-    let mergedSwipeId = 0
     const committedChat = await updateChat(latest.id, function (current) {
       const currentMessages = Array.isArray(current && current.messages) ? current.messages : []
       const currentUser = currentMessages[currentMessages.length - 2]
@@ -155,8 +155,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
       if (currentMessages.length < rolledMessageCount + 2 || currentUser === null || typeof currentUser !== 'object' || currentUser.role !== 'user' ||
           currentAssistant === null || typeof currentAssistant !== 'object' || currentAssistant.role !== 'assistant' || Number(currentAssistant.turn) !== syntheticTurn ||
           str(currentAssistant.text).trim() !== body) throw new Error('重新生成流程的正文已被另一项操作修改')
-      const merged = mergeRegeneratedSwipe({ originalChat, regeneratedChat: current, assistantIndex: oldAssistantIndex })
-      mergedSwipeId = merged.swipeId
+      const merged = replaceLastRound({ originalChat, regeneratedChat: current, assistantIndex: oldAssistantIndex })
       const next = merged.chat
       if (next.nativeCommits !== null && typeof next.nativeCommits === 'object') delete next.nativeCommits[String(syntheticTurn)]
       next.nativeCommits = next.nativeCommits && typeof next.nativeCommits === 'object' ? structuredClone(next.nativeCommits) : {}
@@ -168,7 +167,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
       next.suppressedDshTurns = Array.from(new Set((Array.isArray(next.suppressedDshTurns) ? next.suppressedDshTurns : []).concat([syntheticTurn])))
       return next
     }, { source: 'foreground.regen-commit' })
-    // 把旧正文、失败残留、合成输入和新模型节点折叠为当前选中的非空 Swipe 正文。
+    // 把旧正文、失败残留、合成输入和新模型节点折叠为唯一的新正文。
     const currentNodes = session.surface !== undefined && Array.isArray(session.surface.nodes) ? session.surface.nodes : []
     const replacement = planRegenerationSurface({
       events: session.events,
@@ -176,6 +175,20 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
       oldAssistantSeq: oldSeq,
       eventStart
     })
+    // 重生成正文与后台结算共同组成替代 Round；结算成功前不替换旧正文。
+    let settledChat
+    try {
+      await queueSettlement(committedChat.id)
+      settledChat = await readChat(committedChat.id)
+      if (settledChat === undefined) throw new Error('重新生成结算后找不到聊天')
+      const incompleteRound = Object.values(storyTimeline.inspect({ chat: settledChat }).operations || {}).find(function (operation) {
+        return operation && operation.kind === 'body' && operation.status === 'foreground-completed'
+      })
+      if (incompleteRound !== undefined) throw new Error('重新生成正文的后台结算尚未完成，请先重试结算')
+    } catch (error) {
+      await restoreFailedRegen()
+      throw error
+    }
     session.append('assistant/message', {
       turn: oldTurn,
       step: 1,
@@ -184,17 +197,8 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
       surfaceOp: { op: 'replace', start: replacement.start, end: replacement.end },
       sourceEventSeqs: replacement.shadowedSeqs
     })
-    // 重生成正文也只交给后台变量 Agent 结算。先把最终 Swipe 固化到
-    // 前台消息面，再启动结算，避免后台状态先于正文投影发布。
-    await queueSettlement(committedChat.id)
-    const settledChat = await readChat(committedChat.id)
-    if (settledChat === undefined) throw new Error('重新生成结算后找不到聊天')
-    const incompleteRound = Object.values(storyTimeline.inspect({ chat: settledChat }).operations || {}).find(function (operation) {
-      return operation && operation.kind === 'body' && operation.status === 'foreground-completed'
-    })
-    if (incompleteRound !== undefined) throw new Error('重新生成正文的后台结算尚未完成，请先重试结算')
     const result = await view(settledChat, card)
-    result.adopted = { text: body, guidance: guide, hiddenTurn: oldTurn, syntheticTurn: syntheticTurn, swipeId: mergedSwipeId }
+    result.adopted = { text: body, guidance: guide, hiddenTurn: oldTurn, syntheticTurn: syntheticTurn }
     return result
   }
 
@@ -202,6 +206,10 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
   async function rollbackTurn(sessionId, chatId) {
     let chat = str(chatId) === '' ? await chatForSession(sessionId) : await readChat(chatId)
     if (chat === undefined) throw new Error('聊天不存在: ' + chatId)
+    const incompleteRound = Object.values(storyTimeline.inspect({ chat }).operations || {}).find(function (operation) {
+      return operation && operation.kind === 'body' && operation.status === 'foreground-completed'
+    })
+    if (incompleteRound !== undefined || chat.regenInProgress === true) throw new Error('当前轮次尚未完成，不能回退')
     const mode = chat.mode || 'story'
     if (mode !== 'story' && mode !== 'script') throw new Error('仅游玩模式支持回退本轮')
     const card = await readChatCard(chat)

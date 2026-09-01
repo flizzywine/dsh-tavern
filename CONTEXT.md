@@ -12,6 +12,10 @@ Tavern Chat 中唯一权威的剧情记录。它用单调递增的 revision、br
 
 一次不可拆分的正式剧情事务，由 Foreground Turn 与紧随其后的状态结算组成。只有两者都成功，Round 才一次性提交正文、派生状态、checkpoint 和新的 Story Timeline revision。未完成、等待运行时或结算失败的 Round 会阻止下一轮正文、回退与正文替代；候选生成不属于 Round。
 
+## Last Round Replacement
+
+对最后一个已完成 Round 的整体替代。系统保留原玩家输入，重新生成正文并重新执行后台状态结算；只有新 Round 全部成功后，才用它替换旧正文、派生状态和模型可见投影。失败时旧 Round 继续有效。它不保存或切换多个 Swipe，也不允许修改已有后续剧情的历史轮次。
+
 ## Background Agent
 
 每个 Tavern Chat 共享的单一持久 Agent。它串行执行状态结算与候选生成，不直接拥有剧情权威。世界书由 Tavern 本地确定性投影，不进入后台 Agent。

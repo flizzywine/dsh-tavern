@@ -78,7 +78,7 @@ workspace 写入有 realpath 检查和同目录 staging+rename，可借鉴原子
 - [client.js:2927](/Users/cf/Workspace/dsh-tavern/tavern-plugin/lib/client.js:2927) 的 `renderTavernProjection` 是正文展示位置；[client.js:2941](/Users/cf/Workspace/dsh-tavern/tavern-plugin/lib/client.js:2941) 的 assistant blocks 已处理 image 并交给附件渲染。它是可参考的显示能力，不意味着图片可以不建数据关系就直接插入。
 - [client.js:3046](/Users/cf/Workspace/dsh-tavern/tavern-plugin/lib/client.js:3046) 的 `TavernAssistantNodeView` 及 keyed `conversation.chat.node/assistant-step` 控制当前正文节点。
 - [story-timeline.js:95](/Users/cf/Workspace/dsh-tavern/tavern-plugin/lib/domain/story-timeline.js:95) 保存 messages 快照，[story-timeline.js:114](/Users/cf/Workspace/dsh-tavern/tavern-plugin/lib/domain/story-timeline.js:114) 恢复；插画需要定义是否随当前快照显示。
-- [tavern-swipe-regeneration.js:40](/Users/cf/Workspace/dsh-tavern/tavern-plugin/lib/domain/tavern-swipe-regeneration.js:40) 的 `mergeRegeneratedSwipe` 保留旧 swipes 并选择新版本，因此不能假定重生成后旧正文永远消失。
+- 当时的 `tavern-swipe-regeneration.js` 会保留旧 swipes 并选择新版本，因此该研究不能假定重生成后旧正文永远消失；这条历史前提已被 ADR 0005 的“最后一轮整体替换”取代。
 
 建议第一版：
 

@@ -33,7 +33,7 @@ function harness({ checkpoint = false, mode = 'story' } = {}) {
     } else if (options.surfaceOp === 'append') nodes.push(seq)
     return seq
   } }
-  let generation = 'success', beforeGenerate = () => {}
+  let generation = 'success', settlementOutcome = 'success', beforeGenerate = () => {}
   const agent = { session, phase: { lastTurn: 2 }, followup(message) { calls.push('followup'); agent.input = message }, async whenIdle() {
     await beforeGenerate()
     if (generation === 'throw') throw new Error('fixture generation failed')
@@ -65,31 +65,31 @@ function harness({ checkpoint = false, mode = 'story' } = {}) {
       chat: settlement.chat,
       operationId: settlement.value.operationId,
       basedOn: settlement.value.basedOn,
-      outcome: { status: 'success' },
+      outcome: { status: settlementOutcome === 'failure' ? 'failure' : 'success' },
       apply(draft) { draft.settleStatus = 'done' }
     }).chat
   }, present: async value => structuredClone(value) }
   return { create: () => createRoundHistory(options), calls, session, agent, timeline, get chat() { return chat },
-    setGeneration(value) { generation = value }, beforeGenerate(fn) { beforeGenerate = fn }, revisions }
+    setGeneration(value) { generation = value }, setSettlement(value) { settlementOutcome = value }, beforeGenerate(fn) { beforeGenerate = fn }, revisions }
 }
 
-test('完整重生成保留玩家输入、旧 Swipe 与变量，提交后才排结算和替换原生消息', async () => {
+test('完整重生成保留玩家输入，只在结算成功后原子替换唯一正文', async () => {
   const h = harness({ checkpoint: true })
   const originalEvents = structuredClone(h.session.events)
   const result = await h.create().regenerate('', '写得短一些', 'session')
   assert.equal(result.messages[1].text, '推门')
   assert.equal(result.messages[2].turn, 2)
-  assert.deepEqual(result.messages[2].swipes, ['旧正文', '新正文3'])
-  assert.deepEqual(result.messages[2].variables, [{ hp: 8 }, { hp: 7 }])
+  assert.deepEqual(result.messages[2].swipes, ['新正文3'])
+  assert.deepEqual(result.messages[2].variables, [{ hp: 7 }])
   assert.deepEqual(result.suppressedDshTurns, [3])
   assert.equal(result.regenInProgress, undefined)
   assert.equal(result.settleStatus, 'done')
   assert.match(h.agent.input.content[0].text, /原玩家输入：\n推门/)
   assert.match(h.agent.input.content[0].text, /写得短一些/)
   assert.ok(h.calls.indexOf('readRevision') < h.calls.indexOf('rollback.regen'))
-  assert.ok(h.calls.indexOf('MESSAGE_SWIPED') < h.calls.indexOf('followup'))
+  assert.ok(!h.calls.includes('MESSAGE_SWIPED'))
   assert.ok(h.calls.indexOf('foreground.regen-commit') < h.calls.indexOf('settlement'))
-  assert.ok(h.calls.lastIndexOf('surface:assistant/message') < h.calls.indexOf('settlement'))
+  assert.ok(h.calls.lastIndexOf('surface:assistant/message') > h.calls.indexOf('settlement'))
   assert.ok(!h.calls.includes('MESSAGE_RECEIVED'), 'MVU stays owned by background settlement')
   assert.deepEqual(h.session.events.slice(0, 2), originalEvents, 'append-only event history')
   const replacement = h.session.events.at(-1)
@@ -97,6 +97,21 @@ test('完整重生成保留玩家输入、旧 Swipe 与变量，提交后才排�
   assert.equal(replacement.surfaceOp.op, 'replace')
   assert.equal(replacement.data.message.source.kind, 'model')
   assert.deepEqual(replacement.data.message.content, [{ type: 'text', text: '新正文3' }])
+})
+
+test('重生成的后台结算失败时恢复旧整轮，并清理临时模型消息', async () => {
+  const h = harness({ checkpoint: true })
+  const original = structuredClone(h.chat.messages)
+  h.setSettlement('failure')
+  await assert.rejects(h.create().regenerate('chat', '', 'session'), /后台结算尚未完成/)
+  assert.deepEqual(h.chat.messages, original)
+  assert.equal(h.chat.regenInProgress, undefined)
+  assert.ok(h.calls.includes('foreground.regen-abort'))
+  assert.deepEqual(h.session.surface.nodes, [0, 1, h.session.events.length - 1])
+  const cleanup = h.session.events.at(-1)
+  assert.equal(cleanup.data.source.plugin, 'dsh-tavern-regeneration-abort')
+  assert.deepEqual(cleanup.data.content, [])
+  assert.deepEqual(cleanup.sourceEventSeqs, [2, 3])
 })
 
 for (const mode of ['throw', 'missing', 'empty']) test('重生成 '+mode+' 恢复原剧情且不排后台结算', async () => {
@@ -114,7 +129,7 @@ test('重新创建流程模块后连续重生成仍替换原轮次；回退恢�
   const h = harness({ checkpoint: true })
   await h.create().regenerate('chat', '', 'session')
   const result = await h.create().regenerate('chat', '', 'session')
-  assert.deepEqual(result.messages[2].swipes, ['旧正文', '新正文3', '新正文4'])
+  assert.deepEqual(result.messages[2].swipes, ['新正文4'])
   assert.equal(result.adopted.hiddenTurn, 2)
   const rolled = await h.create().rollback('session', 'chat')
   assert.deepEqual(rolled.messages.map(m => m.text), ['开场'])

@@ -78,7 +78,7 @@ const server = createServer(async (req, res) => {
     let body = ''; for await (const chunk of req) body += chunk
     const args = body ? JSON.parse(body) : {}
     let result = {}
-    if (method === 'getSession') result = { view: { mode: 'story', card: { name: '测试卡' }, replyProjections: [{ version: 2, turn: 1, parts: [{ kind: 'markdown', text: runtime.chat.messages[0].swipes[runtime.chat.messages[0].swipeId] }] }], tavernSwipes: [{ turn: 1, messageId: 0, count: 1, swipeId: runtime.chat.messages[0].swipeId }] } }
+    if (method === 'getSession') result = { view: { mode: 'story', card: { name: '测试卡' }, replyProjections: [{ version: 2, turn: 1, parts: [{ kind: 'markdown', text: runtime.chat.messages[0].swipes[runtime.chat.messages[0].swipeId] }] }] } }
     else if (method === 'getSceneImageSettings') result = { settings: await runtime.service.settings(args?.provider) }
     else if (method === 'saveSceneImageSettings') result = { settings: await runtime.service.configure(args) }
     else if (method === 'sceneImageStatus') result = { illustration: await runtime.service.status('scene-parent', 1) }

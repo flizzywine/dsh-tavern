@@ -4,9 +4,9 @@
 
 ## 回合历史操作
 
-- `domain/round-history.js` 负责重生成和回退的完整执行顺序：读取目标、准备历史 revision、调用时间线、脚本事件、DSH 生成、失败恢复、Swipe 提交、后台结算和原生消息替换。
+- `domain/round-history.js` 负责重生成和回退的完整执行顺序：读取目标、准备历史 revision、调用时间线、DSH 生成、失败恢复、后台结算和原生消息替换。
 - `index.js` 仅提供 Chat、Session、脚本和展示的宿主接口，保留 `regenBody` / `rollbackTurn` RPC。
-- `story-timeline.js` 继续独占分支、revision 和 checkpoint 规则；`tavern-swipe-regeneration.js` 保留 Swipe 合并和冲突判断；`rollback-surface.js` 保留 DSH 消息定位。没有新增第二套历史。
+- `story-timeline.js` 继续独占分支、revision 和 checkpoint 规则；`last-round-replacement.js` 负责唯一正文替换和并发冲突判断；`rollback-surface.js` 保留 DSH 消息定位与失败尝试清理。没有新增第二套历史。
 - 客户端 `createTurnHistoryProjection()` 集中处理权威隐藏轮次与旧 localStorage 记录。`TurnHistoryProjection` 独立挂载，候选面板不再维护历史隐藏。继续使用 DSH loader，不引入浏览器打包协议。
 - 重生成目标和浏览器隐藏测试改为调用生产接口，不再截取源码；新增完整流程测试，覆盖成功、抛错、缺少正文、空正文、连续重生成、重新创建模块、回退 checkpoint 与旧剧本。
 

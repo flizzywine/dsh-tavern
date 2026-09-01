@@ -3695,20 +3695,9 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				const revision = String(data.status || "") + ":" + String(data.finalNode && data.finalNode.seq || "");
 				const liveState = useLiveTavernView(props.sessionId, revision);
 				const sessionTransitioning = React.useSyncExternalStore(tavernSessionTransition.subscribe, tavernSessionTransition.getSnapshot, tavernSessionTransition.getSnapshot);
-				const [swipeBusy, setSwipeBusy] = React.useState(false);
 					const projection = settled ? tavernProjectionForTurn(liveState.view, turn) : null;
 					const mvuReceipt = settled ? tavernMvuReceiptForTurn(liveState.view, turn) : null;
 					const latestProjectionTurn = liveState.view && Array.isArray(liveState.view.replyProjections) ? liveState.view.replyProjections.reduce(function (latest, item) { return Math.max(latest, Number(item && item.turn) || 0); }, 0) : 0;
-				const swipe = liveState.view && Array.isArray(liveState.view.tavernSwipes) ? liveState.view.tavernSwipes.find(function (item) { return Number(item.turn) === turn; }) : null;
-				async function switchSwipe(nextSwipeId) {
-					if (!swipe || swipeBusy || nextSwipeId < 0 || nextSwipeId >= swipe.count || nextSwipeId === swipe.swipeId) return;
-					setSwipeBusy(true);
-					try {
-						await rpc("switchTavernSwipe", { messageId: swipe.messageId, swipeId: nextSwipeId }, props.sessionId);
-						liveTavernView.invalidate(props.sessionId);
-					} catch (error) { tavernErrorHub.report("切换 Swipe", error); }
-					finally { setSwipeBusy(false); }
-				}
 				const tail = props.useTurnData("turn-tail");
 				const owner = React.useMemo(function () {
 					if (!turnRef || turnRef.status !== "closed" || !data.finalNode || !tail || !tail.closing || tail.closing.finalNode.seq !== data.finalNode.seq) return undefined;
@@ -3730,15 +3719,10 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					t: props.t
 				});
 				if (!(data.status === "running" || data.status === "interrupted" || rendered.length > 0)) return null;
-				const swipeControls = swipe && swipe.count > 1 && settled ? React.createElement("div", { className: "dsh-tavern-swipe-controls" },
-					React.createElement("button", { type: "button", disabled: swipeBusy || swipe.swipeId <= 0, "aria-label": "上一个 Swipe", onClick: function () { switchSwipe(swipe.swipeId - 1); } }, "‹"),
-					React.createElement("span", null, String(swipe.swipeId + 1) + " / " + String(swipe.count)),
-					React.createElement("button", { type: "button", disabled: swipeBusy || swipe.swipeId >= swipe.count - 1, "aria-label": "下一个 Swipe", onClick: function () { switchSwipe(swipe.swipeId + 1); } }, "›")
-				) : null;
 				const mvuReceiptNode = mvuReceipt ? React.createElement(TavernMvuReceipt, { receipt: mvuReceipt, sessionId: props.sessionId, turn: turn }) : null;
 				const sceneImagesEnabled = Boolean(liveState.view && liveState.view.releaseCapabilities && liveState.view.releaseCapabilities.sceneImages);
-				const illustration = sceneImagesEnabled && settled && projection && !sessionTransitioning ? React.createElement(SceneIllustration, { key: props.sessionId + ":" + turn + ":" + String(swipe && swipe.swipeId) + ":" + JSON.stringify(projection), sessionId: props.sessionId, turn: turn }) : null;
-				return React.createElement("div", { className: "dsh-tavern-assistant", "data-streaming": data.status === "running" || undefined }, rendered, illustration, mvuReceiptNode, swipeControls);
+				const illustration = sceneImagesEnabled && settled && projection && !sessionTransitioning ? React.createElement(SceneIllustration, { key: props.sessionId + ":" + turn + ":" + JSON.stringify(projection), sessionId: props.sessionId, turn: turn }) : null;
+				return React.createElement("div", { className: "dsh-tavern-assistant", "data-streaming": data.status === "running" || undefined }, rendered, illustration, mvuReceiptNode);
 			}
 			function register(input) {
 				input.ctx.effect(function () {

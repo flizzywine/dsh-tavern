@@ -13,10 +13,10 @@ async function loadApplyResult() {
 
 const applyBodyRegenerationResult = await loadApplyResult()
 
-test('正文重生成在恢复原楼层前发布返回的新 Swipe 视图', function () {
-  let currentView = { tavernSwipes: [{ turn: 17, swipeId: 0, count: 1 }] }
+test('正文重生成先发布整轮成功后的新视图，再恢复原楼层', function () {
+  let currentView = { marker: 'old' }
   let viewWhenShown = null
-  const regeneratedView = { tavernSwipes: [{ turn: 17, swipeId: 1, count: 2 }] }
+  const regeneratedView = { marker: 'replacement' }
 
   applyBodyRegenerationResult({
     sessionId: 'session-1',
@@ -30,6 +30,5 @@ test('正文重生成在恢复原楼层前发布返回的新 Swipe 视图', func
     }
   })
 
-  assert.equal(viewWhenShown.tavernSwipes[0].swipeId, 1)
-  assert.equal(viewWhenShown.tavernSwipes[0].count, 2)
+  assert.equal(viewWhenShown.marker, 'replacement')
 })

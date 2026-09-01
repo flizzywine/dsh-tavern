@@ -49,7 +49,6 @@ import { createTavernExtensionSettings } from './domain/tavern-extension-setting
 import { createTavernScriptHostAdapter } from './domain/tavern-script-host-adapter.js'
 import { createTavernRemoteAssetPinStore } from './domain/tavern-remote-assets.js'
 import { OFFICIAL_MVU_VERSION, readOfficialMvuBundle } from './domain/official-mvu-assets.js'
-import { projectTailSwipeView, synchronizeTailSwipeSurface } from './domain/tail-swipe-regeneration.js'
 import { createTavernStaticResourceCache, projectCachedResourceBody } from './domain/tavern-static-resource-cache.js'
 import { SILLYTAVERN_CSS_COMPAT_URLS } from './domain/sillytavern-css-compatibility.js'
 import { createRoundHistory } from './domain/round-history.js'
@@ -837,12 +836,7 @@ export async function apply(ctx) {
     },
     diagnostics: mvuDiagnostics,
     hasScripts: async function (chat) { return hasTavernScriptRuntime(chat, (await readCardExtensions(chat.cardPath))?.helperScripts) },
-    isPlayChat: function (chat) { return groupOfMode(chat.mode) === 'play' },
-    onSwipeChanged: function (chat) {
-      void queueSettlement(chat.id).catch(function (error) {
-        console.error('dsh-tavern: 启动 Swipe 变量结算失败', str(error && error.message || error))
-      })
-    }
+    isPlayChat: function (chat) { return groupOfMode(chat.mode) === 'play' }
   })
 
   function sessionDebugEvidence(sessionId) {
@@ -970,7 +964,6 @@ export async function apply(ctx) {
         commit: OFFICIAL_MVU_VERSION.commit,
         assetUrl: OFFICIAL_MVU_VERSION.assetUrl
       } : null,
-      tavernSwipes: projectTailSwipeView(chat),
       suppressedDshTurns: Array.from(new Set((Array.isArray(chat.suppressedDshTurns) ? chat.suppressedDshTurns : [])
         .map(Number).filter(function (turn) { return Number.isSafeInteger(turn) && turn > 0 }))).sort(function (left, right) { return left - right }),
       suppressedDshErrorTurns: supersededRegenerationErrorTurns({
@@ -1942,7 +1935,6 @@ export async function apply(ctx) {
       case 'captureDisplayRuntime': return await captureDisplayRuntime(args && args.sessionId, args && args.turn, args && args.partIndex, args && args.runtime)
       case 'updateTavernHelperVariables': return await tavernScriptHostAdapter.updateVariables(args && args.sessionId, args && args.option, args && args.variables, args && args.expectedLifecycleRevision)
       case 'updateTavernHelperMessages': return await tavernScriptHostAdapter.updateMessages(args && args.sessionId, args && args.messages, args && args.expectedLifecycleRevision)
-      case 'switchTavernSwipe': return await tavernScriptHostAdapter.switchSwipe(args && args.sessionId, args && args.messageId, args && args.swipeId)
       case 'saveTavernChatData': return await tavernScriptHostAdapter.saveChatData(args && args.sessionId, args && args.request)
       case 'saveTavernExtensionSettings': return await tavernScriptHostAdapter.saveExtensionSettings(args && args.sessionId, args && args.settings, args && args.expectedSettings)
       case 'loadTavernWorldInfo': return await tavernScriptHostAdapter.loadWorldInfo(args && args.sessionId, args && args.name)
@@ -2516,13 +2508,6 @@ export async function apply(ctx) {
       modeFor: async function (sessionId) { return await turnOrchestrator.modeFor(sessionId) },
       filterMessages: filterSkillMessages,
       resolvePreset: resolveChatRuntimePreset,
-      synchronizeTail: async function (input) {
-        const chat = await chatForSession(input.sessionId)
-        if (chat === undefined) return
-        const session = input.payload && input.payload.agent && input.payload.agent.session
-        const synchronized = synchronizeTailSwipeSurface({ chat, session })
-        if (synchronized.updated && typeof sessionStore.flush === 'function') await sessionStore.flush(session)
-      },
       prepareTurn: async function (input) { return await foregroundHandoff.prepare(input) },
       appendFrame: function (input) { return foregroundFrameSessionAdapter.append(input) },
       recordFrame: function (sessionId, frame, receipt) {

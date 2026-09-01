@@ -2,9 +2,9 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { createChatPersistence } from '../tavern-plugin/lib/domain/chat-persistence.js'
-import { assertRegenerationSourceCurrent, mergeRegeneratedSwipe } from '../tavern-plugin/lib/domain/tavern-swipe-regeneration.js'
+import { assertRegenerationSourceCurrent, replaceLastRound } from '../tavern-plugin/lib/domain/last-round-replacement.js'
 
-test('重新生成正文保留旧 Swipe 和变量快照，并选中新候选', function () {
+test('重新生成正文只保留唯一新正文和对应变量快照', function () {
   const originalChat = {
     id: 'chat-1', posture: '旧状态', messages: [
       { role: 'assistant', greeting: true, text: '开场' },
@@ -20,25 +20,25 @@ test('重新生成正文保留旧 Swipe 和变量快照，并选中新候选', f
     ]
   }
 
-  const result = mergeRegeneratedSwipe({ originalChat, regeneratedChat, assistantIndex: 2 })
+  const result = replaceLastRound({ originalChat, regeneratedChat, assistantIndex: 2 })
   assert.equal(result.chat.posture, '新状态')
   assert.equal(result.chat.timeline.revision, 3)
   assert.equal(result.chat.messages[1].text, '继续')
   assert.equal(result.assistant.turn, 2)
-  assert.equal(result.assistant.swipeId, 1)
-  assert.deepEqual(result.assistant.swipes, ['旧正文', '新正文\n<StatusPlaceHolderImpl/>'])
-  assert.equal(result.assistant.variables[0].stat_data.hp, 9)
-  assert.equal(result.assistant.variables[1].stat_data.hp, 7)
+  assert.equal(result.assistant.swipeId, 0)
+  assert.deepEqual(result.assistant.swipes, ['新正文\n<StatusPlaceHolderImpl/>'])
+  assert.equal(result.assistant.variables.length, 1)
+  assert.equal(result.assistant.variables[0].stat_data.hp, 7)
   assert.equal(result.assistant.displayText, '<p>新正文</p>')
   assert.equal(originalChat.messages[2].swipes.length, 1)
 })
 
-test('没有 MVU 的重新生成仍保留纯文本 Swipe', function () {
+test('没有 MVU 的重新生成也只保留唯一正文', function () {
   const originalChat = { messages: [{ role: 'user', text: '继续' }, { role: 'assistant', turn: 1, text: '旧正文' }] }
   const regeneratedChat = { messages: [{ role: 'user', text: '合成输入' }, { role: 'assistant', turn: 2, text: '新正文' }] }
-  const result = mergeRegeneratedSwipe({ originalChat, regeneratedChat, assistantIndex: 1 })
-  assert.deepEqual(result.assistant.swipes, ['旧正文', '新正文'])
-  assert.equal(result.assistant.swipeId, 1)
+  const result = replaceLastRound({ originalChat, regeneratedChat, assistantIndex: 1 })
+  assert.deepEqual(result.assistant.swipes, ['新正文'])
+  assert.equal(result.assistant.swipeId, 0)
   assert.equal(result.assistant.variables, undefined)
 })
 

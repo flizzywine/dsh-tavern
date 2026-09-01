@@ -530,13 +530,14 @@ test('Tavern 只接管会话区域，保留 DSH 原生设置与模型配置入�
   assert.doesNotMatch(clientSource, /slots\.inject\("sidebar",/)
 })
 
-test('游玩不保留旧侧栏开场切换器，由消息楼层提供通用 Swipe 切换', () => {
+test('游玩不提供 Swipe 分支切换，只保留整轮正文重新生成', () => {
   const sidebar = between(clientSource, 'function TavernSidebar', 'function TavernResourcesTab')
   assert.doesNotMatch(sidebar, /switchOpening\(|call\("switchOpening"/)
 	const assistant = between(clientSource, 'function TavernAssistantNodeView', 'function register')
-	assert.match(assistant, /switchTavernSwipe/)
-	assert.match(assistant, /上一个 Swipe/)
-	assert.match(assistant, /下一个 Swipe/)
+	assert.doesNotMatch(assistant, /switchTavernSwipe/)
+	assert.doesNotMatch(assistant, /上一个 Swipe/)
+	assert.doesNotMatch(assistant, /下一个 Swipe/)
+	assert.doesNotMatch(serverSource, /case 'switchTavernSwipe'/)
 })
 
 test('酒馆状态页注册到 Better Sidebar，不再接管 DSH details', () => {

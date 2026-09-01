@@ -201,6 +201,32 @@ export function clearFailedTurnSurface(input) {
   return cleanup.shadowedSeqs.length
 }
 
+/** Remove only the temporary DSH surface nodes appended by a regeneration attempt. */
+export function clearRegenerationAttemptSurface(input) {
+  const session = input && input.session
+  if (!session || typeof session.append !== 'function') return 0
+  const nodes = session.surface && Array.isArray(session.surface.nodes) ? session.surface.nodes : []
+  const eventStart = Math.max(0, Number(input && input.eventStart) || 0)
+  const temporary = nodes.filter(function (seq) { return Number(seq) >= eventStart }).map(Number)
+  if (temporary.length === 0) return 0
+  const firstIndex = nodes.indexOf(temporary[0])
+  const lastIndex = nodes.indexOf(temporary[temporary.length - 1])
+  if (firstIndex < 0 || lastIndex < firstIndex || lastIndex - firstIndex + 1 !== temporary.length) {
+    throw new Error('重新生成临时消息不是连续区间，无法安全清理')
+  }
+  const makeId = typeof input.id === 'function' ? input.id : function () { return randomUUID() }
+  session.append('user/message', {
+    id: makeId(),
+    role: 'user',
+    content: [],
+    source: { kind: 'plugin', plugin: 'dsh-tavern-regeneration-abort' }
+  }, {
+    surfaceOp: { op: 'replace', start: temporary[0], end: temporary[temporary.length - 1] },
+    sourceEventSeqs: temporary
+  })
+  return temporary.length
+}
+
 export function hasRollbackMessages(messages) {
   const list = Array.isArray(messages) ? messages : []
   for (let index = list.length - 1; index >= 0; index -= 1) {
