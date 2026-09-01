@@ -122,6 +122,7 @@ try {
         $ActualHash = (Get-FileHash -LiteralPath $Target -Algorithm SHA256).Hash.ToLowerInvariant()
         if ($ActualHash -ne ([string]$File.sha256).ToLowerInvariant()) { throw "jsDelivr 文件校验失败：$($File.path)" }
       }
+      [IO.File]::WriteAllText((Join-Path $CdnSource 'dsh-tavern-runtime.json'), (($Metadata | ConvertTo-Json -Depth 10) + [Environment]::NewLine), (New-Object Text.UTF8Encoding($false)))
       $TargetCommit = [string]$Metadata.revision
       $UsedCdn = $true
     }

@@ -46,7 +46,7 @@ test('旧版 Desktop 经最新安装脚本走 CDN 覆盖升级：补丁落盘、
     files.set(file, await readFile(new URL('../' + file, import.meta.url)))
   }
   const revision = 'b'.repeat(40)
-  const manifest = { revision, files: [...files].map(([file, bytes]) => ({ path: file, size: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') })) }
+  const manifest = { schemaVersion: 2, revision, releaseSequence: 42, version: '1.1.1', files: [...files].map(([file, bytes]) => ({ path: file, size: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') })) }
   manifest.files.push({ path: 'docs/do-not-download.txt', size: 0, sha256: 'a'.repeat(64) })
   manifest.files.push({ path: 'patches/../escape.txt', size: 0, sha256: 'a'.repeat(64) })
   const requests = []
@@ -102,6 +102,7 @@ test('旧版 Desktop 经最新安装脚本走 CDN 覆盖升级：补丁落盘、
     ? ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', bootstrap] : [bootstrap], { env, timeout: 45000, maxBuffer: 1024 * 1024 })
   try { await run() } catch (error) { throw new Error(error.stdout + '\n' + error.stderr) }
   assert.equal(await readFile(path.join(app, 'installed.txt'), 'utf8'), 'install --host desktop')
+  assert.deepEqual(JSON.parse(await readFile(path.join(app, 'dsh-tavern-runtime.json'), 'utf8')), manifest)
   assert.equal(await readFile(path.join(app, installerName), 'utf8'), downloaded)
   for (const file of patches) assert.deepEqual(await readFile(path.join(app, file)), files.get(file))
   for (const [file, content] of protectedFiles) assert.equal(await readFile(file, 'utf8'), content)
