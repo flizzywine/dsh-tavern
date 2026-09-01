@@ -103,11 +103,11 @@ dsh-tavern 使用尽可能少而精的提示词，把流程和状态交给程序
 
 ![剧本模式的正文、剧情进度与召回片段](docs/images/readme/script-mode.png)
 
-#### 卡片工作台：六种起始任务
+#### 卡片工作台：按任务直接开始
 
-直接选择要处理的资源和任务，也可以空白开始，自由使用完整卡片 Agent。
+直接选择要处理的资源和任务，也可以空白开始，自由使用完整卡片 Agent。选择“把人物卡转成 MVU 版”会直接启用内置转换 Skill，将容易掉格式的正文状态栏迁移为后台变量结算和固定显示。
 
-![卡片工作台的六种起始任务](docs/images/readme/card-workbench.png)
+![卡片工作台的起始任务](docs/images/readme/card-workbench.png)
 
 #### 侧边栏资源库
 

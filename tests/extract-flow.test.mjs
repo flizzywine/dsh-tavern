@@ -415,6 +415,7 @@ test('卡片模式通过人物卡、剧本、世界书、预设和空白入口�
   const recovery = between(clientSource, 'async function finishPendingOpen', 'async function retryPendingOpen')
 
   assert.match(clientSource, /"修改人物卡"/)
+  assert.match(clientSource, /"把人物卡转成 MVU 版"/)
   assert.match(clientSource, /"从剧本新建人物卡"/)
   assert.match(clientSource, /"修改剧本"/)
   assert.match(clientSource, /"修改世界书"/)
@@ -434,6 +435,16 @@ test('卡片模式通过人物卡、剧本、世界书、预设和空白入口�
   assert.doesNotMatch(clientSource, /\bstartExtract\b|newExtractSession|"revision"|mode: "extract"/)
   assert.doesNotMatch(clientSource, /attachSourcesToCurrent|attachCardToCurrent/)
   assert.match(clientSource, /return values\[sessionId\] \|\| "";/)
+})
+
+test('人物卡转 MVU 起始任务选择目标卡后直接写入 Slash Skill 命令', () => {
+  const sidebar = between(clientSource, 'function TavernSidebar', 'function TavernResourcesTab')
+  const injectTaskPrompt = between(clientSource, 'async function injectTaskPrompt', 'playControlsFeature.register')
+
+  assert.match(sidebar, /cardEntry === "mvu"/)
+  assert.match(sidebar, /newCardConversation\(card, "mvu", "把人物卡转成 MVU 版"\)/)
+  assert.match(sidebar, /把正文正则状态栏迁移为后台 MVU 结算和固定状态栏/)
+  assert.match(injectTaskPrompt, /if \(task === "mvu"\) \{\s*input\.setDraft\("\/tavern-card-to-mvu"\);\s*return;/)
 })
 
 test('世界书与预设起始任务先选择一个目标并自动追加类型引用', () => {
