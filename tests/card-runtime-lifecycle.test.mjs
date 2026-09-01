@@ -173,7 +173,7 @@ test('document transport coalesces loading updates, recovers snapshots, and reje
   h.stop()
 })
 
-test('当前可见消息 iframe 可转交纵向拖动，伪造来源和隐藏替换页不能滚动宿主', () => {
+test('消息 iframe 生命周期忽略旧触摸转发消息，不再改动宿主滚动位置', () => {
   const h = frames(), visible = h.attach()
   const outer = { parentElement: null, scrollTop: 40, clientHeight: 300, scrollHeight: 900, style: { overflowY: 'auto' } }
   const wrapper = { parentElement: outer, scrollTop: 0, clientHeight: 300, scrollHeight: 300, style: { overflowY: 'visible' } }
@@ -183,16 +183,16 @@ test('当前可见消息 iframe 可转交纵向拖动，伪造来源和隐藏替
   visible.message('dsh-tavern-frame-pan', { deltaY: 36 }, {})
   assert.equal(outer.scrollTop, 40)
   visible.message('dsh-tavern-frame-pan', { deltaY: 36 })
-  assert.equal(outer.scrollTop, 76)
+  assert.equal(outer.scrollTop, 40)
 
   h.update({ content: '<p>replacement</p>' })
   const pending = h.attach(h.lifecycle.snapshot().pendingDocument)
   pending.node.parentElement = wrapper
   pending.message('dsh-tavern-frame-pan', { deltaY: 36 })
-  assert.equal(outer.scrollTop, 76)
+  assert.equal(outer.scrollTop, 40)
 
   visible.message('dsh-tavern-frame-pan', { deltaY: 9999 })
-  assert.equal(outer.scrollTop, 236, '单次位移应被限幅')
+  assert.equal(outer.scrollTop, 40)
   h.stop()
 })
 
@@ -261,7 +261,7 @@ test('same template in another session gets a new page and rejects old writes; p
 test('runtime reports coalesce and cancel on stop; restart attaches once and read-only capture never mutates variables', async () => {
   const h = frames(), frame = h.attach()
   frame.message('dsh-tavern-frame-height', { height: 90000 })
-  assert.equal(h.lifecycle.snapshot().height, 12000)
+  assert.equal(h.lifecycle.snapshot().height, 1200)
   frame.message('dsh-tavern-frame-runtime', { runtime: { stage: 1 } })
   frame.message('dsh-tavern-frame-runtime', { runtime: { stage: 2 } })
   assert.equal(h.timers.size, 1)
