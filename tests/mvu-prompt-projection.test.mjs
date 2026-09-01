@@ -23,12 +23,13 @@ test('后台只发送一份结构和真实状态，运行时 Frame、未知字�
   assert.deepEqual(parsed.schema, schema)
   assert.equal(request.turnContext.split('unique-schema-marker').length - 1, 1)
   assert(request.turnContext.includes(JSON.stringify(schema)), 'structure uses compact lossless JSON')
-  assert(request.turnContext.endsWith(input.updateRules[0]))
+  assert(request.turnContext.includes(input.updateRules[0]))
+  assert(request.turnContext.endsWith('否则跳过人物设计。'))
   assert.deepEqual(frame.authoritativeState.currentVariables, variables)
   assert.deepEqual(input, before)
 })
 
-test('人物库只追加按需加载 Skill 的简短提示，不注入 Skill 全文', () => {
+test('人物设计提示不依赖固定人物库字段，也不注入 Skill 全文', () => {
   const request = projectMvuBackgroundRequest(createMvuBackgroundTaskFrame({
     ...input,
     currentVariables: { stat_data: { 人物库: { $meta: { extensible: true } } } },
@@ -38,15 +39,16 @@ test('人物库只追加按需加载 Skill 的简短提示，不注入 Skill 全
   assert.match(request.turnContext, /调用 skill 加载 tavern-character-design/)
   assert.match(request.turnContext, /新人物即将登场/)
   assert.match(request.turnContext, /提前设计可能登场的人物/)
+  assert.match(request.turnContext, /参考当前人物卡的变量模板自行设计和提交/)
   assert.doesNotMatch(request.turnContext, /# 后台人物设计/)
 })
 
-test('没有当前对话人物库时不提示人物设计', () => {
+test('没有人物库字段时仍然提示 Agent 按需设计人物', () => {
   const request = projectMvuBackgroundRequest(createMvuBackgroundTaskFrame({
     ...input
   }))
-  assert.doesNotMatch(request.turnContext, /人物设计（按需）/)
-  assert.doesNotMatch(request.turnContext, /tavern-character-design/)
+  assert.match(request.turnContext, /人物设计（按需）/)
+  assert.match(request.turnContext, /tavern-character-design/)
 })
 
 test('不按字段名误删扁平变量，不删除 stat_data 内同名游戏字段，显式结构优先', () => {

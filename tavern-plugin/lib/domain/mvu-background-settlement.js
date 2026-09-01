@@ -274,8 +274,6 @@ export function createMvuBackgroundTaskFrame(input = {}) {
   const swipeId = Number(input.swipeId)
   if (!Number.isInteger(messageId) || messageId < 0) throw new Error('变量结算 messageId 无效')
   if (!Number.isInteger(swipeId) || swipeId < 0) throw new Error('变量结算 swipeId 无效')
-  const statData = object(currentVariables.stat_data)
-  const characterDesignAvailable = Object.prototype.hasOwnProperty.call(statData, '人物库')
   return createBackgroundTaskFrame({
     frameId: str(input.operationId),
     chatId: input.chatId,
@@ -292,8 +290,7 @@ export function createMvuBackgroundTaskFrame(input = {}) {
     authoritativeState: { currentVariables, variableSchema },
     taskRules: {
       updateRules: Array.isArray(input.updateRules) ? input.updateRules.map(str).filter(Boolean) : [],
-      updateOnlyFromStory: true,
-      characterDesignAvailable
+      updateOnlyFromStory: true
     },
     outputContract: { tool: MVU_SUBMIT_UPDATE_TOOL_NAME, required: true, singleCommit: true, maxToolCalls: 3 }
   })
@@ -306,7 +303,6 @@ export function projectMvuBackgroundRequest(frame) {
   const output = object(frame.foregroundOutput)
   const rules = object(frame.taskRules)
   const updateRules = Array.isArray(rules.updateRules) ? rules.updateRules : []
-  const characterDesignAvailable = rules.characterDesignAvailable === true
   return {
     messages: [{
       id: frame.frameId + ':story',
@@ -321,10 +317,8 @@ export function projectMvuBackgroundRequest(frame) {
       '【变量结构】',
       JSON.stringify(state.variableSchema || {}),
       ...(updateRules.length === 0 ? [] : ['【人物卡变量更新规则】', updateRules.join('\n\n')]),
-      ...(characterDesignAvailable ? [
-        '【人物设计（按需）】',
-        '若本轮有新人物即将登场，或需要提前设计可能登场的人物，请按需调用 skill 加载 tavern-character-design，并按照 Skill 使用 mvu_submit_update 写入人物库；否则跳过人物设计。'
-      ] : [])
+      '【人物设计（按需）】',
+      '若本轮有新人物即将登场，或需要提前设计可能登场的人物，请按需调用 skill 加载 tavern-character-design，参考当前人物卡的变量模板自行设计和提交；否则跳过人物设计。'
     ].join('\n'),
     system: [
       '只根据【正文】中已经确认发生的事实结算变量，不得读取或推断玩家意图。',
