@@ -3,7 +3,9 @@ import { randomUUID } from 'node:crypto'
 import { maximumBackgroundTokens, traceError } from './background-agent-task.js'
 
 const LEGACY_BACKGROUND_PROVIDER = 'dsh-tavern-background'
-const BACKGROUND_PROVIDER = 'dsh-tavern-background-tools-v1'
+const PREVIOUS_BACKGROUND_PROVIDER = 'dsh-tavern-background-tools-v1'
+const BACKGROUND_PROVIDER = 'dsh-tavern-background-tools-v2'
+const STALE_BACKGROUND_PROVIDERS = new Set([LEGACY_BACKGROUND_PROVIDER, PREVIOUS_BACKGROUND_PROVIDER])
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
@@ -124,7 +126,7 @@ export function createBackgroundAgentSessions(options, task) {
               await handle.dispose()
               throw new Error('持久后台 Agent 的父会话或任务类型不匹配，未创建替代会话')
             }
-            if (input.task !== 'image' && savedDescriptor && savedDescriptor.provider === LEGACY_BACKGROUND_PROVIDER) {
+            if (input.task !== 'image' && savedDescriptor && STALE_BACKGROUND_PROVIDERS.has(savedDescriptor.provider)) {
               await handle.dispose()
               handle = undefined
               traceSessionId = makeId()

@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { readFile } from 'node:fs/promises'
+import { readdir, readFile } from 'node:fs/promises'
 import vm from 'node:vm'
 import { parse } from 'yaml'
 import { createTavernSkillModule } from '../tavern-plugin/lib/domain/tavern-skills.js'
@@ -12,6 +12,7 @@ import { projectReplyLayers } from '../tavern-plugin/lib/domain/reply-presentati
 import { projectPersistentStatusView } from '../tavern-plugin/lib/domain/persistent-status-view.js'
 
 const root = new URL('../presets/tavern/skills/', import.meta.url)
+const backgroundRoot = new URL('../presets/tavern-background/skills/', import.meta.url)
 const skillRoot = new URL('tavern-card-to-mvu/', root)
 const recipe = await readFile(new URL('references/mvu-recipe.md', skillRoot), 'utf8')
 const statusHtml = await readFile(new URL('assets/status.html', skillRoot), 'utf8')
@@ -57,7 +58,11 @@ test('转换 Skill 将随机人物迁移为当前对话专属人物库', async (
 })
 
 test('人物设计是后台专用的独立内置 Skill', async () => {
-  const skills = createTavernSkillModule({ directory: new URL('../data/skills/', import.meta.url).pathname, builtInDirectory: root.pathname })
+  const cardSkillNames = (await readdir(root, { withFileTypes: true })).filter(entry => entry.isDirectory()).map(entry => entry.name).sort()
+  const backgroundSkillNames = (await readdir(backgroundRoot, { withFileTypes: true })).filter(entry => entry.isDirectory()).map(entry => entry.name).sort()
+  assert.equal(cardSkillNames.includes('tavern-character-design'), false)
+  assert.deepEqual(backgroundSkillNames, ['tavern-character-design'])
+  const skills = createTavernSkillModule({ directory: new URL('../data/skills/', import.meta.url).pathname, builtInDirectory: backgroundRoot.pathname })
   const skill = await skills.read('tavern-character-design')
   assert.equal(skill.source, 'builtin')
   const metadata = parse(skill.content.match(/^---\n([\s\S]*?)\n---/)[1])

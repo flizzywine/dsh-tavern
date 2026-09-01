@@ -545,7 +545,7 @@ test('生图常驻会话隔离后台任务与游戏，先保存编号且恢复�
   } finally { await runner.dispose() }
 })
 
-test('旧工具协议的后台 Session 自动迁移到干净 Session，不继续模仿历史 DSML 正文', async () => {
+test('旧 Skill 目录协议的后台 Session 自动迁移到干净 Session，不保留历史工具与目录', async () => {
   const parent = { id: 'foreground', session: { header: { delegationDepth: 0 } } }
   let resumed = 0
   let created = 0
@@ -561,7 +561,7 @@ test('旧工具协议的后台 Session 自动迁移到干净 Session，不继续
           session: {
             id: options.resumeSessionId,
             header: { parentSession: parent.id },
-            events: [{ type: 'subagent/descriptor', data: { version: 3, mode: 'continuable', provider: 'dsh-tavern-background', label: '酒馆后台 Agent' } }],
+            events: [{ type: 'subagent/descriptor', data: { version: 3, mode: 'continuable', provider: 'dsh-tavern-background-tools-v1', label: '酒馆后台 Agent' } }],
             append() {}
           },
           followup() { throw new Error('旧后台 Session 不应再执行任务') },
@@ -756,7 +756,7 @@ test('状态结算与候选生成复用同一个常驻后台 Agent，并且每�
   assert.deepEqual(appended[0].data, {
     version: 3,
     mode: 'continuable',
-    provider: 'dsh-tavern-background-tools-v1',
+    provider: 'dsh-tavern-background-tools-v2',
     label: '酒馆后台 Agent',
     agentProvider: 'test',
     agentModel: 'scripted',

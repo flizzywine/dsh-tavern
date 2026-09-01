@@ -4,9 +4,7 @@
   name: '@deepseek-ai/dsh-skill-filesystem'
   config:
     includeDefaultRoots: false
-    customSkillDirs:
-      - !!js "process.getBuiltinModule('node:path').resolve(process.env.DSH_HOME || process.getBuiltinModule('node:path').join(process.getBuiltinModule('node:os').homedir(), '.dsh'), 'profile-data', 'tavern', 'data', 'skills')"
-    bundledSkillDir: !!js "process.getBuiltinModule('node:url').fileURLToPath(new URL('../tavern/skills/', baseUrl))"
+    bundledSkillDir: !!js "process.getBuiltinModule('node:url').fileURLToPath(new URL('skills/', baseUrl))"
 
 - id: tool-skill
   name: '@deepseek-ai/dsh-tool-skill'
