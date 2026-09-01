@@ -274,6 +274,10 @@ export function createMvuBackgroundTaskFrame(input = {}) {
   const swipeId = Number(input.swipeId)
   if (!Number.isInteger(messageId) || messageId < 0) throw new Error('变量结算 messageId 无效')
   if (!Number.isInteger(swipeId) || swipeId < 0) throw new Error('变量结算 swipeId 无效')
+  const statData = object(currentVariables.stat_data)
+  const characterDesignSkill = Object.prototype.hasOwnProperty.call(statData, '人物库')
+    ? str(input.characterDesignSkill).trim()
+    : ''
   return createBackgroundTaskFrame({
     frameId: str(input.operationId),
     chatId: input.chatId,
@@ -290,7 +294,8 @@ export function createMvuBackgroundTaskFrame(input = {}) {
     authoritativeState: { currentVariables, variableSchema },
     taskRules: {
       updateRules: Array.isArray(input.updateRules) ? input.updateRules.map(str).filter(Boolean) : [],
-      updateOnlyFromStory: true
+      updateOnlyFromStory: true,
+      ...(characterDesignSkill === '' ? {} : { characterDesignSkill })
     },
     outputContract: { tool: MVU_SUBMIT_UPDATE_TOOL_NAME, required: true, singleCommit: true, maxToolCalls: 3 }
   })
@@ -303,6 +308,7 @@ export function projectMvuBackgroundRequest(frame) {
   const output = object(frame.foregroundOutput)
   const rules = object(frame.taskRules)
   const updateRules = Array.isArray(rules.updateRules) ? rules.updateRules : []
+  const characterDesignSkill = str(rules.characterDesignSkill).trim()
   return {
     messages: [{
       id: frame.frameId + ':story',
@@ -316,13 +322,14 @@ export function projectMvuBackgroundRequest(frame) {
       JSON.stringify(promptVariables(state.currentVariables)),
       '【变量结构】',
       JSON.stringify(state.variableSchema || {}),
-      ...(updateRules.length === 0 ? [] : ['【人物卡变量更新规则】', updateRules.join('\n\n')])
+      ...(updateRules.length === 0 ? [] : ['【人物卡变量更新规则】', updateRules.join('\n\n')]),
+      ...(characterDesignSkill === '' ? [] : ['【后台人物设计 Skill】', characterDesignSkill])
     ].join('\n'),
     system: [
       '只根据【正文】中已经确认发生的事实结算变量，不得读取或推断玩家意图。',
       '不得根据旧轮剧情、隐藏思考、候选项或未发生事件更新变量。',
-      '人物卡规则若明确把可扩展集合定义为人物库，并明确列出可创作的设计字段，则可按规则为已登场或预备人物创作这些设计字段；人物设计只留在后台变量中，不是剧情事实。',
-      '人物设计授权不得用于虚构已经发生的事件、在场、位置、关系进展等状态；这些状态仍只能依据【正文】已经确认的事实更新。',
+      '存在【后台人物设计 Skill】时才可依照人物卡规则设计人物；人物设计只留在后台变量中，不是剧情事实。',
+      '人物设计不得用于虚构已经发生的事件、在场、位置、关系进展等状态；这些状态仍只能依据【正文】已经确认的事实更新。',
       '先调用 posture_submit 提交本轮结束时可见的人物姿势，再调用 mvu_submit_update；不得输出 JSON。',
       '必须调用 mvu_submit_update，以工具返回的实际执行校验结果为准。最多提交三次。',
       '变量通过工具提交，不在回复中输出 XML 变量协议；人物卡中的变量含义、更新条件和校验规则仍须遵守。',
@@ -340,6 +347,11 @@ export function createMvuSettlementModule(options = {}) {
   if (!options.model || typeof options.model.run !== 'function') throw new Error('MVU Settlement 缺少后台模型 adapter')
   if (!options.runtime || typeof options.runtime.settleMvuUpdate !== 'function') throw new Error('MVU Settlement 缺少官方 Runtime adapter')
   const maxAttempts = Math.max(1, Math.min(3, Math.floor(Number(options.maxAttempts) || 3)))
+  const characterDesignSkill = str(options.characterDesignSkill).trim()
+
+  function taskFrame(input) {
+    return createMvuBackgroundTaskFrame({ ...input, characterDesignSkill })
+  }
 
   async function applySubmission(input, frame, submission, diagnosticId) {
     const applied = await options.runtime.settleMvuUpdate({
@@ -363,7 +375,7 @@ export function createMvuSettlementModule(options = {}) {
   }
 
   async function resumeVariables(input = {}) {
-    const frame = createMvuBackgroundTaskFrame(input)
+    const frame = taskFrame(input)
     const submission = normalizeMvuToolSubmission(input.submission)
     const diagnosticId = frame.frameId + ':resume'
     const outcome = await applySubmission(input, frame, submission, diagnosticId)
@@ -383,7 +395,7 @@ export function createMvuSettlementModule(options = {}) {
   }
 
   async function settleVariables(input = {}) {
-    const frame = createMvuBackgroundTaskFrame(input)
+    const frame = taskFrame(input)
     const request = projectMvuBackgroundRequest(frame)
     let attempt = 0
     let result = null

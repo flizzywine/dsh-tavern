@@ -52,9 +52,23 @@ test('转换 Skill 将随机人物迁移为当前对话专属人物库', async (
   const skill = await skills.read('tavern-card-to-mvu')
   assert.match(skill.content, /当前对话[^\n]*人物库/)
   assert.match(skill.content, /同一张卡[^\n]*新对话/)
-  assert.match(skill.content, /允许[^\n]*预先设计[^\n]*尚未登场/)
-  assert.match(skill.content, /设计字段[^\n]*状态字段/)
+  assert.match(skill.content, /tavern-character-design/)
   assert.match(skill.content, /在场[^\n]*false[^\n]*不展示/)
+})
+
+test('人物设计是后台专用的独立内置 Skill', async () => {
+  const skills = createTavernSkillModule({ directory: new URL('../data/skills/', import.meta.url).pathname, builtInDirectory: root.pathname })
+  const skill = await skills.read('tavern-character-design')
+  assert.equal(skill.source, 'builtin')
+  const metadata = parse(skill.content.match(/^---\n([\s\S]*?)\n---/)[1])
+  assert.equal(metadata.name, 'tavern-character-design')
+  assert.equal(metadata['user-invocable'], false)
+  assert.match(skill.content, /预先储备人物/)
+  assert.match(skill.content, /尚未登场的人物/)
+  assert.match(skill.content, /设计字段/)
+  assert.match(skill.content, /状态字段/)
+  assert.match(skill.content, /mvu_submit_update/)
+  assert.match(skill.content, /不[^\n]*前台正文 Agent/)
 })
 
 test('Skill 配方可构造可导入卡，规则分流、状态显示及模型历史隔离均有效', () => {

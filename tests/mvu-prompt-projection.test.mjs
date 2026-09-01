@@ -31,13 +31,42 @@ test('后台只发送一份结构和真实状态，运行时 Frame、未知字�
 test('人物卡可明确授权人物设计，但剧情状态仍只能依据正文', () => {
   const request = projectMvuBackgroundRequest(createMvuBackgroundTaskFrame({
     ...input,
+    currentVariables: { stat_data: { 人物库: { $meta: { extensible: true } } } },
+    characterDesignSkill: '# 后台人物设计\n设计字段可以创作；状态字段必须依据正文。',
     updateRules: ['人物库允许预先设计人物；设计字段为性格和外貌，状态字段为位置和在场。']
   }))
-  assert.match(request.system, /人物库/)
-  assert.match(request.system, /设计字段/)
-  assert.match(request.system, /预备人物/)
+  assert.match(request.turnContext, /【后台人物设计 Skill】/)
+  assert.match(request.turnContext, /# 后台人物设计/)
   assert.match(request.system, /在场、位置、关系进展/)
   assert.match(request.system, /正文[^。]*确认/)
+})
+
+test('没有当前对话人物库时不加载人物设计 Skill', () => {
+  const request = projectMvuBackgroundRequest(createMvuBackgroundTaskFrame({
+    ...input,
+    characterDesignSkill: '# 不应出现的人物设计 Skill'
+  }))
+  assert.doesNotMatch(request.turnContext, /后台人物设计 Skill/)
+  assert.doesNotMatch(request.turnContext, /不应出现/)
+})
+
+test('结算模块从内置配置自动向人物库任务加载 Skill', async () => {
+  let turnContext = ''
+  const currentVariables = { stat_data: { 人物库: { $meta: { extensible: true } } } }
+  const module = createMvuSettlementModule({
+    characterDesignSkill: '# 独立人物设计 Skill',
+    model: { async run(request) {
+      turnContext = request.turnContext
+      await request.onToolCall({ name: 'posture_submit', arguments: { posture: '原地站立' } })
+      await request.onToolCall({ name: 'mvu_submit_update', arguments: { operations: [] } })
+      return { text: '' }
+    } },
+    runtime: { async settleMvuUpdate(request) {
+      return { context: { messages: [{ variables: currentVariables }] }, validation: request.validate({ before: currentVariables, after: currentVariables }), diagnostics: [] }
+    } }
+  })
+  await module.settleVariables({ ...input, currentVariables })
+  assert.match(turnContext, /【后台人物设计 Skill】\n# 独立人物设计 Skill/)
 })
 
 test('不按字段名误删扁平变量，不删除 stat_data 内同名游戏字段，显式结构优先', () => {
