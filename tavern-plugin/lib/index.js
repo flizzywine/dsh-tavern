@@ -1221,7 +1221,7 @@ export async function apply(ctx) {
       runCandidate: backgroundAgentRunner.run
     },
     planner: contextPlanner,
-    stableWorldBookContext,
+    stableWorldBookContext: playCardSnapshots.constantContext,
     prompt: runtimePrompt,
     scripts: scriptContinuity,
     timeline: storyTimeline,

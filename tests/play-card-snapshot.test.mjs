@@ -118,6 +118,27 @@ test('missing worldbook is isolated and a newer saved snapshot is preserved', as
   assert.equal(writes.length, 1)
 })
 
+test('snapshot owner exposes the same stable worldbook context to candidate generation', async () => {
+  const warnings = []
+  const api = createPlayCardSnapshots({
+    worldBooks: { async bound(path, card) {
+      assert.equal(path, 'cards/test.json')
+      assert.equal(card.name, 'Test')
+      return { view: { entries: [
+        { constant: true, content: 'stable lore' },
+        { constant: false, content: 'dynamic lore' }
+      ] } }
+    } },
+    planner: { async plan() { return { text: '' } } },
+    readCard: async () => ({ name: 'Test' }),
+    writeChat: async () => {},
+    logger: { warn: (...args) => warnings.push(args) }
+  })
+  const chat = { cardPath: 'cards/test.json' }
+  assert.equal(await api.constantContext(chat, { name: 'Test' }), 'stable lore')
+  assert.equal(warnings.length, 0)
+})
+
 
 test('sanitizing an existing snapshot is not visible until its save succeeds', async () => {
   const h = fixture(), chat = { ...oldChat(), cardContextSnapshotVersion: 5, cardContextSnapshot: '{{literal}}' }

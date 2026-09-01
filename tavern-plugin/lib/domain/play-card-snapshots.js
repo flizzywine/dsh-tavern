@@ -9,10 +9,17 @@ function isPlay(chat) { return chat && (!chat.mode || chat.mode === 'story' || c
 export function createPlayCardSnapshots({ worldBooks, planner, readCard, writeChat, captureSceneWorldbook, logger = console }) {
   const pending = new Map()
 
-  async function build(chat, card) {
-    let worldBookContext = '', worldBook = null
-    try { worldBook = await worldBooks.bound(chat.cardPath, card); worldBookContext = constantWorldBookContext({ worldBook }).context }
+  async function constantContext(chat, card) {
+    try { return constantWorldBookContext({ worldBook: await worldBooks.bound(chat.cardPath, card) }).context }
     catch (error) { logger.warn('dsh-tavern: 常驻世界书读取失败，已跳过:', str(error && error.message || error)) }
+    return ''
+  }
+
+  async function build(chat, card) {
+    let worldBook = null
+    try { worldBook = await worldBooks.bound(chat.cardPath, card) }
+    catch (error) { logger.warn('dsh-tavern: 常驻世界书读取失败，已跳过:', str(error && error.message || error)) }
+    const worldBookContext = constantWorldBookContext({ worldBook }).context
     const text = sanitizeAgentProjectionText((await planner.plan({ purpose: 'play-card-snapshot', card, chat, worldBookContext, worldBookLabel: '常驻世界书' })).text)
     const patch = { cardContextSnapshot: text, cardContextSnapshotVersion: VERSION }
     // Only new, unpublished openings: migration cannot manufacture their past.
@@ -65,5 +72,5 @@ export function createPlayCardSnapshots({ worldBooks, planner, readCard, writeCh
     finally { if (pending.get(key) === operation) pending.delete(key) }
   }
 
-  return Object.freeze({ prepare, ensure })
+  return Object.freeze({ prepare, ensure, constantContext })
 }
