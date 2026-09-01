@@ -545,6 +545,69 @@ test('生图常驻会话隔离后台任务与游戏，先保存编号且恢复�
   } finally { await runner.dispose() }
 })
 
+test('旧工具协议的后台 Session 自动迁移到干净 Session，不继续模仿历史 DSML 正文', async () => {
+  const parent = { id: 'foreground', session: { header: { delegationDepth: 0 } } }
+  let resumed = 0
+  let created = 0
+  let disposed = 0
+  let work = Promise.resolve()
+  const agents = {
+    get(id) { return id === parent.id ? parent : undefined },
+    async resume(options) {
+      resumed++
+      await options.setup({ systemPrompt: { section() {}, suppressRuntimeContext() {} }, tools: { restrict() {}, register() {} }, on() {} })
+      return {
+        agent: {
+          session: {
+            id: options.resumeSessionId,
+            header: { parentSession: parent.id },
+            events: [{ type: 'subagent/descriptor', data: { version: 3, mode: 'continuable', provider: 'dsh-tavern-background', label: '酒馆后台 Agent' } }],
+            append() {}
+          },
+          followup() { throw new Error('旧后台 Session 不应再执行任务') },
+          async whenIdle() {}
+        },
+        async dispose() { disposed++ }
+      }
+    },
+    async create(options) {
+      created++
+      await options.setup({ systemPrompt: { section() {}, suppressRuntimeContext() {} }, tools: { restrict() {}, register() {} }, on() {} })
+      const events = []
+      return {
+        agent: {
+          session: { id: options.sessionId, header: options.meta, events, append(type, data) { events.push({ type, data }) } },
+          followup() {
+            work = Promise.resolve().then(function () {
+              events.push({ type: 'assistant/message', data: { message: { content: [{ type: 'text', text: '新后台会话结果' }] } } })
+              events.push({ seq: events.length, type: 'turn/end', data: {} })
+            })
+          },
+          async whenIdle() { await work }
+        },
+        async dispose() { disposed++ }
+      }
+    }
+  }
+  const runner = createBackgroundAgentRunner({ agents, id: () => 'background-protocol-v2' })
+  const result = await runner.run({
+    sessionId: parent.id,
+    persistent: true,
+    persistentSessionId: 'background-legacy',
+    task: 'candidate',
+    selection: { provider: 'test', model: 'fake' },
+    messages: [],
+    tools: []
+  })
+
+  assert.equal(result.traceSessionId, 'background-protocol-v2')
+  assert.equal(result.text, '新后台会话结果')
+  assert.equal(resumed, 1)
+  assert.equal(created, 1)
+  assert.equal(disposed, 1, '旧 Session 只释放一次')
+  await runner.dispose()
+})
+
 test('后台 Runner 不再提供预设正则历史重投影入口', () => {
   const runner = createBackgroundAgentRunner({ agents: { get() {} } })
   assert.equal(runner.reproject, undefined)
@@ -627,7 +690,7 @@ test('状态结算与候选生成复用同一个常驻后台 Agent，并且每�
   assert.deepEqual(appended[0].data, {
     version: 3,
     mode: 'continuable',
-    provider: 'dsh-tavern-background',
+    provider: 'dsh-tavern-background-tools-v1',
     label: '酒馆后台 Agent',
     agentProvider: 'test',
     agentModel: 'scripted',

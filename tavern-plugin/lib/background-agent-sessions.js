@@ -2,6 +2,9 @@ import { snapshotSubagentDescriptor } from '@deepseek-ai/dsh-subagent'
 import { randomUUID } from 'node:crypto'
 import { maximumBackgroundTokens, traceError } from './background-agent-task.js'
 
+const LEGACY_BACKGROUND_PROVIDER = 'dsh-tavern-background'
+const BACKGROUND_PROVIDER = 'dsh-tavern-background-tools-v1'
+
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
 }
@@ -45,10 +48,10 @@ export function createBackgroundAgentSessions(options, task) {
       ...(persistent ? { agentProvider: input.selection.provider, agentModel: input.selection.model,
         persona: '维护本游戏的场景绘图方案，不续写故事、不修改变量。当前目标材料与保存的方案优先于旧任务。' } : {})
     })
-    if (!persistent) return snapshotSubagentDescriptor({ mode: 'one-shot', provider: 'dsh-tavern-background', label: '候选研究' })
+    if (!persistent) return snapshotSubagentDescriptor({ mode: 'one-shot', provider: LEGACY_BACKGROUND_PROVIDER, label: '候选研究' })
     return snapshotSubagentDescriptor({
       mode: 'continuable',
-      provider: 'dsh-tavern-background',
+      provider: BACKGROUND_PROVIDER,
       label: '酒馆后台 Agent',
       agentProvider: input.selection.provider,
       agentModel: input.selection.model,
@@ -65,7 +68,7 @@ export function createBackgroundAgentSessions(options, task) {
       ? await input.resolvePersistentSessionId() : input.persistentSessionId)
     const key = residentKey(input)
     const residentSessionId = str(residentSessionByParent.get(key))
-    const traceSessionId = requestedSessionId || (persistent ? residentSessionId : '') || makeId()
+    let traceSessionId = requestedSessionId || (persistent ? residentSessionId : '') || makeId()
     const descriptor = descriptorFor(input, persistent)
     const parentDepth = Number(parent.session.header && parent.session.header.delegationDepth)
     const requestedMaxTokens = Number(input.maxTokens)
@@ -102,7 +105,13 @@ export function createBackgroundAgentSessions(options, task) {
             await handle.dispose()
             throw new Error('持久后台 Agent 的父会话或任务类型不匹配，未创建替代会话')
           }
-        } else {
+          if (input.task !== 'image' && savedDescriptor && savedDescriptor.provider === LEGACY_BACKGROUND_PROVIDER) {
+            await handle.dispose()
+            handle = undefined
+            traceSessionId = makeId()
+          }
+        }
+        if (handle === undefined) {
           const meta = {
             parentSession: parent.id,
             origin: 'subagent',
