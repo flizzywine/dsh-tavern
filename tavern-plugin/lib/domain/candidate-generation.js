@@ -103,6 +103,14 @@ function choiceType(value) {
   return null
 }
 
+function projectCandidateIdentityMacros(value, card, chat) {
+  const userName = str(chat && chat.macroState && chat.macroState.userName) || '你'
+  const charName = str(card && card.name)
+  return str(value).replace(/\{\{\s*(user|char)\s*\}\}/gi, function (_match, name) {
+    return String(name).toLowerCase() === 'user' ? userName : charName
+  })
+}
+
 function validatedChoices(source, scriptMode, logger) {
   const choices = []
   for (const item of Array.isArray(source) ? source : []) {
@@ -348,8 +356,10 @@ export function createCandidateGenerator(options) {
       if (call && call.name === CANDIDATE_SUBMIT_TOOL_NAME) {
         try {
           const args = call.arguments !== null && typeof call.arguments === 'object' ? call.arguments : parseJsonLenient(call.arguments)
-          const actions = Array.isArray(args.actions) ? args.actions.map(function (text) { return str(text).trim() }).filter(Boolean) : []
-          const scene = str(args.scene).trim()
+          const actions = Array.isArray(args.actions) ? args.actions.map(function (text) {
+            return projectCandidateIdentityMacros(text, card, chat).trim()
+          }).filter(Boolean) : []
+          const scene = projectCandidateIdentityMacros(args.scene, card, chat).trim()
           const source = actions.map(function (text) { return { type: 'action', text } })
           if (scene !== '') source.push({ type: 'scene', text: scene })
           submittedChoices = validatedChoices(source, scriptMode, logger)

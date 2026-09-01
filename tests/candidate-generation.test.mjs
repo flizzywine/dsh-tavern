@@ -278,6 +278,38 @@ test('自由故事只保存完整的 4 action + 1 scene', async () => {
   assert.equal(await run.candidates.find({ sessionId: 'session-1', messageId: 'old-message' }), null)
 })
 
+test('候选工具输出在保存前解析玩家与角色身份宏', async () => {
+  const run = harness({
+    macroState: { userName: '陈锋', local: { stage: 2 }, global: {} },
+    outputs: [async function (options) {
+      await options.onToolCall({
+        name: 'candidate_submit_choices',
+        arguments: {
+          actions: [
+            '{{user}}走到窗边',
+            '{{ user }}询问{{char}}',
+            '{{USER}}检查桌面',
+            '{{user}}推开后门'
+          ],
+          scene: '{{char}}带着{{user}}进入钟楼'
+        }
+      })
+      return ''
+    }]
+  })
+
+  const result = await run.candidates.generate({ sessionId: 'session-1', messageId: 'message-macros' })
+
+  assert.deepEqual(result.choices, [
+    { type: 'action', text: '陈锋走到窗边' },
+    { type: 'action', text: '陈锋询问阿芙拉' },
+    { type: 'action', text: '陈锋检查桌面' },
+    { type: 'action', text: '陈锋推开后门' },
+    { type: 'scene', text: '阿芙拉带着陈锋进入钟楼' }
+  ])
+  assert.deepEqual(run.chat().macroState, { userName: '陈锋', local: { stage: 2 }, global: {} })
+})
+
 test('自由故事过滤无效项后按类型顺序裁剪超额候选', async () => {
   const output = [
     { type: 'scene', text: '第一个场景' },
