@@ -16,6 +16,9 @@ test('共享后台 Session 从建立起固定注册完整工具目录，切换�
   const responses = []
   let creates = 0
   let turn = 0
+  let accepted = 0
+  let concluded = 0
+  const execution = { concludeTurn() { concluded++ } }
   const runner = createBackgroundAgentRunner({
     id: () => 'background-stable-tools',
     backgroundTools: catalog,
@@ -32,11 +35,11 @@ test('共享后台 Session 从建立起固定注册完整工具目录，切换�
           followup() { turn++ },
           async whenIdle() {
             if (turn === 1) {
-              responses.push(JSON.parse(await registered.get('candidate_submit_choices').execute({})))
-              responses.push(JSON.parse(await registered.get('posture_submit').execute({ posture: '门边站立' })))
+              responses.push(JSON.parse(await registered.get('candidate_submit_choices').execute({}, execution)))
+              responses.push(JSON.parse(await registered.get('posture_submit').execute({ posture: '门边站立' }, execution)))
             } else {
-              responses.push(JSON.parse(await registered.get('posture_submit').execute({})))
-              responses.push(JSON.parse(await registered.get('candidate_submit_choices').execute({ actions: ['一'], scene: '' })))
+              responses.push(JSON.parse(await registered.get('posture_submit').execute({}, execution)))
+              responses.push(JSON.parse(await registered.get('candidate_submit_choices').execute({ actions: ['一'], scene: '' }, execution)))
             }
           }
         }, async dispose() {} }
@@ -44,17 +47,19 @@ test('共享后台 Session 从建立起固定注册完整工具目录，切换�
     }
   })
   await runner.run({ sessionId: 'parent', persistent: true, task: 'settlement', selection: { provider: 'test', model: 'test' }, messages: [],
-    tools: [catalog[0]], acceptWithoutText: () => true,
-    async onToolCall(call) { callbacks.push(call.name); return JSON.stringify({ ok: true }) } })
+    tools: [catalog[0]], acceptWithoutText: () => true, stopToolsWhen: () => accepted > 0,
+    async onToolCall(call) { callbacks.push(call.name); accepted++; return JSON.stringify({ ok: true }) } })
+  accepted = 0
   await runner.run({ sessionId: 'parent', persistent: true, task: 'candidate', selection: { provider: 'test', model: 'test' }, messages: [],
-    tools: [catalog[1]], acceptWithoutText: () => true,
-    async onToolCall(call) { callbacks.push(call.name); return JSON.stringify({ ok: true }) } })
+    tools: [catalog[1]], acceptWithoutText: () => true, stopToolsWhen: () => accepted > 0,
+    async onToolCall(call) { callbacks.push(call.name); accepted++; return JSON.stringify({ ok: true }) } })
 
   assert.equal(creates, 1)
   assert.deepEqual(Array.from(registered.keys()), ['posture_submit', 'candidate_submit_choices'])
   assert.deepEqual(callbacks, ['posture_submit', 'candidate_submit_choices'])
   assert.equal(responses[0].retryable, true)
   assert.equal(responses[2].retryable, true)
+  assert.equal(concluded, 2, '每个成功终态工具只结束一次回合，错误工具不能结束回合')
   await runner.dispose()
 })
 

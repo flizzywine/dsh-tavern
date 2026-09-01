@@ -163,12 +163,12 @@ export function createBackgroundAgentTask(options) {
               schema: { type: 'string' },
               render: function (_args, value) { return [{ type: 'text', text: value }] }
             },
-            async execute(args) {
+            async execute(args, execution) {
               const active = state.activeToolTask
               if (active === null || active === undefined) {
                 return JSON.stringify({ ok: false, retryable: true, error: '当前没有正在执行的后台任务，请等待下一条任务指令。' })
               }
-              return active.execute(tool, args)
+              return active.execute(tool, args, execution)
             }
           })
         }).filter(function (dispose) { return typeof dispose === 'function' })
@@ -190,7 +190,7 @@ export function createBackgroundAgentTask(options) {
     const allowed = new Map(tools.map(function (tool) { return [tool.name, tool] }))
     if (stableBackgroundTools.length > 0 && input.task !== 'image') {
       state.activeToolTask = {
-        async execute(tool, args) {
+        async execute(tool, args, execution) {
           const current = allowed.get(tool.name)
           if (current === undefined) {
             return JSON.stringify({
@@ -208,7 +208,9 @@ export function createBackgroundAgentTask(options) {
               return JSON.stringify({ ok: false, retryable: false, message: input.toolLimitMessage || '当前任务的工具调用次数已达上限，请结束本轮。' })
             }
           }
-          return str(await input.onToolCall({ name: tool.name, arguments: args }))
+          const result = str(await input.onToolCall({ name: tool.name, arguments: args }))
+          if (typeof input.stopToolsWhen === 'function' && input.stopToolsWhen()) execution?.concludeTurn?.()
+          return result
         }
       }
       return async function () {
