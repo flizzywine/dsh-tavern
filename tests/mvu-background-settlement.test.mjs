@@ -34,7 +34,7 @@ test('深模块强制一次工具调用并以官方 Runtime 的实际差异生�
         modelCalls.push(structuredClone({ messages: input.messages, turnContext: input.turnContext, rewindTo: input.rewindTo }))
         await input.onToolCall({
           name: 'mvu_submit_update',
-          arguments: { analysis: '正文确认体力下降', operations: [{ op: 'delta', path: '/stat_data/体力', value: -1 }] }
+          arguments: { operations: [{ op: 'delta', path: '/stat_data/体力', value: -1 }] }
         })
         return { text: '{"posture":"扶墙站立"}', traceSessionId: 'background-1', traceBoundary: 12 }
       }
@@ -62,6 +62,7 @@ test('深模块强制一次工具调用并以官方 Runtime 的实际差异生�
   assert.equal(runtimeCalls.length, 1)
   assert.match(runtimeCalls[0].command, /"op": "delta"/)
   assert.equal(result.receipt.status, 'updated')
+  assert.equal(result.receipt.summary, '')
   assert.deepEqual(result.receipt.changes, [{ operation: 'set', path: '/stat_data/体力', before: '10', after: '9' }])
 })
 
@@ -73,7 +74,6 @@ test('深模块逐项核验提交结果并把人物卡脚本联动与失败操�
         await input.onToolCall({
           name: 'mvu_submit_update',
           arguments: {
-            analysis: '正文确认进入长廊并发现石门',
             operations: [
               { op: 'replace', path: '/本尊/行踪/当前区域', value: '古殿·幽暗长廊' },
               { op: 'replace', path: '/当前处境', value: '正走向石门' }
@@ -131,7 +131,7 @@ test('深模块把有效空 Patch 记录为 unchanged，把漏调用工具记录
     maxAttempts: 1,
     model: {
       async run(input) {
-        await input.onToolCall({ name: 'mvu_submit_update', arguments: { analysis: '无变化', operations: [] } })
+        await input.onToolCall({ name: 'mvu_submit_update', arguments: { operations: [] } })
         return { text: '{"posture":"原地站立"}' }
       }
     },
@@ -171,22 +171,26 @@ test('变量结算 Frame 明确隔离用户输入、旧轮正文和隐藏思考'
   assert.match(suppliedContext, /突破失败/)
   assert.doesNotMatch(suppliedContext, /尝试突破|隐藏思考|旧轮正文/)
   assert.deepEqual(request.tools.map(function (tool) { return tool.name }), ['mvu_submit_update'])
+  assert.deepEqual(request.tools[0].parameters.required, ['operations'])
+  assert.equal(Object.hasOwn(request.tools[0].parameters.properties, 'analysis'), false)
 })
 
-test('空 operations 是有效的明确结算结果', function () {
-  const value = normalizeMvuToolSubmission({ analysis: '本轮没有可记录变化', operations: [] })
+test('空 operations 是有效的明确结算结果，旧 analysis 输入被兼容忽略', function () {
+  const value = normalizeMvuToolSubmission({ analysis: '旧格式说明', operations: [] })
   assert.deepEqual(value.operations, [])
+  assert.equal(Object.hasOwn(value, 'analysis'), false)
   assert.match(formatMvuUpdateCommand(value), /<JSONPatch>\n\[\]\n<\/JSONPatch>/)
+  assert.doesNotMatch(formatMvuUpdateCommand(value), /<Analyze>/)
 })
 
 test('工具拒绝任意 JavaScript、非法路径和无效 delta', function () {
   assert.throws(function () {
-    normalizeMvuToolSubmission({ analysis: '', operations: [{ op: 'eval', path: '/hp', value: 'process.exit()' }] })
+    normalizeMvuToolSubmission({ operations: [{ op: 'eval', path: '/hp', value: 'process.exit()' }] })
   }, /不受支持/)
   assert.throws(function () {
-    normalizeMvuToolSubmission({ analysis: '', operations: [{ op: 'replace', path: 'hp', value: 9 }] })
+    normalizeMvuToolSubmission({ operations: [{ op: 'replace', path: 'hp', value: 9 }] })
   }, /JSON Pointer/)
   assert.throws(function () {
-    normalizeMvuToolSubmission({ analysis: '', operations: [{ op: 'delta', path: '/hp', value: '1' }] })
+    normalizeMvuToolSubmission({ operations: [{ op: 'delta', path: '/hp', value: '1' }] })
   }, /有限数字/)
 })

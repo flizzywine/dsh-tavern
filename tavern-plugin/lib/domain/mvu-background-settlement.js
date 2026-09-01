@@ -44,17 +44,13 @@ export const MVU_SUBMIT_UPDATE_TOOL = Object.freeze({
     type: 'object',
     additionalProperties: false,
     properties: {
-      analysis: {
-        type: 'string',
-        description: '简短说明为什么需要或不需要更新；不得虚构正文未发生的事实。'
-      },
       operations: {
         type: 'array',
         description: '官方 MVU JSON Patch 方言；没有变量变化时必须为空数组。',
         items: { oneOf: operationSchemas }
       }
     },
-    required: ['analysis', 'operations']
+    required: ['operations']
   })
 })
 
@@ -251,8 +247,8 @@ function normalizeOperation(raw, index) {
 export function normalizeMvuToolSubmission(value) {
   const input = object(value)
   if (!Array.isArray(input.operations)) throw new Error('mvu_submit_update 缺少 operations 数组')
+  // Older callers may still include `analysis`; it is intentionally ignored.
   return {
-    analysis: str(input.analysis).trim(),
     operations: input.operations.map(normalizeOperation)
   }
 }
@@ -262,9 +258,6 @@ export function formatMvuUpdateCommand(value) {
   const submission = normalizeMvuToolSubmission(value)
   return [
     '<UpdateVariable>',
-    '<Analyze>',
-    submission.analysis,
-    '</Analyze>',
     '<JSONPatch>',
     JSON.stringify(submission.operations, null, 2),
     '</JSONPatch>',
@@ -415,7 +408,7 @@ export function createMvuSettlementModule(options = {}) {
         : (changes.length > 0 ? 'updated' : 'unchanged')
       result = {
         variables: after, submission,
-        receipt: { version: 1, status, summary: submission.analysis, diagnosticId,
+        receipt: { version: 1, status, summary: '', diagnosticId,
           runtimeDiagnostics: applied.diagnostics || [], changes, sideEffects, failures: audit.failures }
       }
       feedback = {

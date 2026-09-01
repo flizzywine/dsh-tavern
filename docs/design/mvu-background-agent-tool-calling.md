@@ -222,9 +222,6 @@ BackgroundTaskFrame {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "analysis": {
-          "type": "string"
-        },
         "operations": {
           "type": "array",
           "items": {
@@ -272,11 +269,13 @@ BackgroundTaskFrame {
           }
         }
       },
-      "required": ["analysis", "operations"]
+      "required": ["operations"]
     }
   }
 }
 ```
+
+`analysis` 不属于结算接口。旧调用即使仍携带该字段也会被忽略；后台只提交 `operations`，界面说明来自 Runtime 实际执行前后的变量差异。
 
 第一版只接受官方 MVU 已验证支持的 JSON Patch 方言。旧卡中的 lodash 风格更新规则可以作为模型规则输入，但后台输出统一收敛为 JSON Patch；确实无法等价转换的卡应明确标记不支持，不能执行任意模型生成的 JavaScript。
 

@@ -44,7 +44,6 @@
 
 ```json
 {
-  "analysis": "正文确认玩家已走进大厅。",
   "operations": [
     { "op": "replace", "path": "/玩家/位置", "value": "大厅" }
   ]

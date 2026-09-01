@@ -6,7 +6,7 @@ import { createTavernScriptHostAdapter } from '../tavern-plugin/lib/domain/taver
 const input = { operationId: 'op', chatId: 'c', branchId: 'b', basedOnRevision: 1,
   sessionId: 's', messageId: 0, swipeId: 0, storyText: '测试正文',
   currentVariables: { stat_data: { hp: 10, location: 'door' } } }
-const call = operations => ({ name: 'mvu_submit_update', arguments: { analysis: '正文确认变化', operations } })
+const call = operations => ({ name: 'mvu_submit_update', arguments: { operations } })
 const patch = [ { op: 'delta', path: '/hp', value: -1 }, { op: 'replace', path: '/location', value: 'hall' } ]
 
 function harness(model, { rejectAlways = false } = {}) {
@@ -80,7 +80,7 @@ test('缺少 operations 的参数错误在同一 Agent 回合修正，不重开�
   let runs = 0, executions = 0
   const module = createMvuSettlementModule({ model: { async run(request) {
     runs++
-    feedback.push(JSON.parse(await request.onToolCall({ name: 'mvu_submit_update', arguments: { analysis: 'test' } })))
+    feedback.push(JSON.parse(await request.onToolCall({ name: 'mvu_submit_update', arguments: {} })))
     feedback.push(JSON.parse(await request.onToolCall(call([{ op: 'delta', path: '/hp', value: -1 }]))))
     return { text: '{}' }
   } }, runtime: { async settleMvuUpdate() {

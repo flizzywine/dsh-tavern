@@ -34,7 +34,7 @@ const module = createMvuSettlementModule({ runtime: adapter, model: { async run(
   assert(!request.turnContext.includes('"schema"'))
   assert(request.turnContext.includes(JSON.stringify(variables.schema)), 'schema remains available once')
   for (const location of ['invalid', 'hall']) {
-    feedback.push(JSON.parse(await request.onToolCall({ name: 'mvu_submit_update', arguments: { analysis: '测试', operations: [
+    feedback.push(JSON.parse(await request.onToolCall({ name: 'mvu_submit_update', arguments: { operations: [
       { op: 'delta', path: '/hp', value: -1 }, { op: 'replace', path: '/location', value: location }
     ] } })))
   }

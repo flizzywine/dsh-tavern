@@ -45,13 +45,13 @@ test('失败重试反馈同样移除展示副本，不改变运行时输入、�
   const after = { ...structuredClone(variables), schema: changedSchema }
   const module = createMvuSettlementModule({
     model: { async run(request) {
-      const malformed = JSON.parse(await request.onToolCall({ name: 'mvu_submit_update', arguments: { analysis: '缺操作' } }))
+      const malformed = JSON.parse(await request.onToolCall({ name: 'mvu_submit_update', arguments: {} }))
       assert.equal(malformed.retryable, true)
       assert.equal(malformed.currentVariables.schema, undefined)
       assert.equal(malformed.currentVariables.display_data, undefined)
       assert.deepEqual(malformed.currentVariables.stat_data, variables.stat_data)
       const failed = JSON.parse(await request.onToolCall({ name: 'mvu_submit_update', arguments: {
-        analysis: '减少', operations: [{ op: 'delta', path: '/hp', value: -1 }] } }))
+        operations: [{ op: 'delta', path: '/hp', value: -1 }] } }))
       assert.equal(failed.currentVariables.schema, undefined)
       assert.equal(failed.currentVariables.delta_data, undefined)
       assert.deepEqual(failed.variableSchema, changedSchema, 'changed validation structure still reaches the model')
