@@ -295,8 +295,6 @@ export function createTurnOrchestrator(options) {
       chatChanged = true
     }
     let scriptReference = null
-    let scriptInfo = null
-    let worldBookOverview = null
 
     if (mode === 'script') {
       const script = await store.readScript(cardPath)
@@ -322,12 +320,7 @@ export function createTurnOrchestrator(options) {
       state.mountedResources = rememberTavernResources(state.mountedResources, userText)
       chat.workspace = state
       const prepared = (Array.isArray(state.sourcePaths) ? state.sourcePaths : state.sourceIds || []).length > 0 ? await workspace.prepare(chat, turn) : null
-      if (card !== null) {
-        const script = await store.readScript(cardPathOf(chat))
-        scriptInfo = scripts.inspect({ script, state: chat.scriptState, request: { kind: 'info' } })
-        worldBookOverview = cards.present({ card, as: 'world-book-overview' })
-      }
-      const plan = await planner.plan({ purpose: 'card', card, workspace: state, sourcePrepared: prepared, scriptInfo, worldBookOverview })
+      const plan = await planner.plan({ purpose: 'card', sourcePrepared: prepared })
       await store.writeChat(chat, { source: 'card.prepare' })
       return { ready: true, mode, cardName: card === null ? (str(state.draft && state.draft.name) || '卡片工作台') : card.name, text: plan.text }
     }

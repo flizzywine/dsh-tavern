@@ -1,4 +1,3 @@
-import { cardFieldCatalog } from './card-reading.js'
 import { projectAgentContent } from './runtime-content-projection.js'
 
 function str(value) {
@@ -20,28 +19,6 @@ function playProjector(input, warnings) {
     warnings.push.apply(warnings, result.warnings)
     return result.agentText
   }
-}
-
-function cardFieldCatalogText(card) {
-  const lines = ['name: ' + (str(card && card.name) || '未命名')]
-  for (const item of cardFieldCatalog(card)) {
-    if (item.field === 'name') continue
-    lines.push(item.field + ': ' + item.chars + ' 字' + (item.empty ? '（空）' : ''))
-  }
-  return lines.join('\n')
-}
-
-function worldBookOverviewText(overview) {
-  if (overview === null || typeof overview !== 'object') return '【世界书目录】\n无'
-  const entries = Array.isArray(overview.entries) ? overview.entries : []
-  const lines = ['【世界书目录 · 《' + (str(overview.name) || '未命名') + '》· ' + (Number(overview.entryCount) || entries.length) + ' 条】']
-  if (entries.length === 0) lines.push('无条目')
-  for (const entry of entries) {
-    const labels = [entry.constant === true ? '常驻' : '非常驻']
-    const identity = Array.isArray(entry.keys) && entry.keys.length > 0 ? entry.keys.join('、') : (str(entry.comment) || '无关键词')
-    lines.push('[' + str(entry.ref) + '] ' + labels.join('、') + '｜' + identity + '｜' + (Number(entry.chars) || 0) + ' 字')
-  }
-  return lines.join('\n')
 }
 
 export function createContextPlanner(options = {}) {
@@ -211,36 +188,10 @@ export function createContextPlanner(options = {}) {
     }
 
     if (input.purpose === 'card') {
-      const card = input.card || null
-      const workspace = input.workspace || {}
-      const draft = workspace.draft || {}
-      const current = card || draft
-      const scriptInfo = input.scriptInfo
-      const scriptHint = scriptInfo === null || scriptInfo === undefined
-        ? ''
-        : '\n\n本卡已绑定剧本《' + scriptInfo.title + '》，共 ' + scriptInfo.chunkCount + ' 块；需要核对内容时可调用 tavern_read_script。'
       const prepared = input.sourcePrepared
-      const player = str(workspace.player)
       const sections = []
-      sections.push({
-        kind: card === null ? 'card-draft' : 'card-current', required: true,
-        text: (card === null ? '【待创建人物卡 · 字段目录】\n' : '【当前人物卡 · 字段目录】\n') + cardFieldCatalogText(current) + '\n字段正文尚未自动读取；根据当前任务调用 tavern_read_card 按字段、分段读取。' + scriptHint
-      })
-      const mountedResources = Array.isArray(workspace.mountedResources) ? workspace.mountedResources.filter(function (item) { return item !== null && typeof item === 'object' }) : []
-      if (mountedResources.length > 0) {
-        const kindLabel = { card: '人物卡', preset: '预设', source: '资料', script: '剧本资料', worldbook: '世界书', 'play-chat': '游玩记录' }
-        sections.push({ kind: 'workspace-resources', required: true, text: '【挂载的 Tavern 资源 · 仅目录，正文尚未自动读取】\n' + mountedResources.map(function (item) { return '- [' + (kindLabel[item.kind] || item.kind) + '] ' + str(item.label) + ' · path=' + str(item.path) }).join('\n') + '\n人物卡、世界书、预设、资料和游玩记录使用对应 Tavern 只读工具按需读取；没有实际读取的内容，不得声称已经读过。' })
-      }
-      if (player !== '' || (Array.isArray(workspace.sourcePaths) && workspace.sourcePaths.length > 0)) {
-        sections.push({ kind: 'card-player', required: true, text: '【玩家身份（{{user}}）】\n' + (player !== '' ? player + '\nmes_example、scenario、first_mes 中的 {{user}} 一律指这个身份。需要修改时在 fields 中提交 player。' : '尚未确认。需要制作新卡或处理玩家视角时，先请用户说明谁是玩家（{{user}}）。') })
-      }
-      if (card !== null) {
-        sections.push({ kind: 'world-book-overview', required: false, text: worldBookOverviewText(input.worldBookOverview) + '\n需要查看世界书正文时调用 tavern_read_worldbook。确认修改时调用 tavern_update_worldbook 提交逐条操作；不要重传整本世界书。支持 update、add、delete。' })
-      }
       if (prepared !== null && typeof prepared === 'object' && Array.isArray(prepared.window) && prepared.window.length > 0) {
         sections.push({ kind: 'card-source', required: true, text: '【本轮挂载资料 · 第 ' + (Number(prepared.cursorBefore) + 1) + '~' + (Number(prepared.cursorBefore) + prepared.window.length) + ' 块 / 共 ' + prepared.total + ' 块】\n' + prepared.window.map(function (chunk) { return '[' + chunk.title + '] ' + chunk.text }).join('\n\n') })
-      } else if (prepared !== null && typeof prepared === 'object' && Number(prepared.total) > 0) {
-        sections.push({ kind: 'card-source', required: true, text: '【挂载资料】已读取完毕（共 ' + prepared.total + ' 块）。' })
       }
       return resultOf(sections, warnings)
     }

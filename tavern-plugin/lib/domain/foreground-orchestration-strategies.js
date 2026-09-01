@@ -130,7 +130,7 @@ export function createNativePlayOrchestrationStrategy(options) {
         const adapted = options.appendFrame({ messages: agentMessages, frame: prepared.frame, step: payload.step })
         agentMessages = adapted.messages
         options.recordFrame(sessionId, prepared.frame, adapted.receipt)
-      } else {
+      } else if (str(prepared.text).trim() !== '') {
         agentMessages = decision.messages.concat([snapshotMessage(prepared.text)])
       }
     }

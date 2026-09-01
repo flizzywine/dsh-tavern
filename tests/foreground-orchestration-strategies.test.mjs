@@ -177,3 +177,31 @@ test('卡片策略不把按需 Cordis 说明放入固定前缀', async () => {
     'tavern:resource-workspace'
   ])
 })
+
+test('卡片回合没有实际资料片段时不追加空快照消息', async () => {
+  const original = userMessage('检查当前人物卡')
+  const run = strategies({
+    nativePlay: {
+      async modeFor() { return 'card' },
+      filterMessages(messages) { return messages },
+      async resolvePreset() { return null },
+      async prepareTurn() { return { text: '' } },
+      appendFrame(input) { return { messages: input.messages, receipt: {} } },
+      recordFrame() {},
+      async visibleTools() { return [] },
+      modePrompt() { return 'card' },
+      workspaceContext() { return '/resources' },
+      async ensureSessionPrefix() {},
+      controlledToolNames: new Set()
+    }
+  })
+
+  const prepared = await run.value.prepareStep({
+    sessionId: 'native',
+    payload: { turn: 1, step: 1, messages: [original] },
+    decision: { kind: 'enter', messages: [original] },
+    chat: run.chats.get('native')
+  })
+
+  assert.deepEqual(prepared.messages, [original])
+})
