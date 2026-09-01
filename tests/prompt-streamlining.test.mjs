@@ -139,8 +139,10 @@ test('后台最小预设提供原生 Skill 目录与按需加载工具', () => {
   assert.doesNotMatch(backgroundPresetSource, /customSkillDirs/)
   assert.match(backgroundPresetSource, /new URL\('skills\/', baseUrl\)/)
   assert.match(backgroundPresetSource, /@deepseek-ai\/dsh-tool-skill/)
-  assert.match(backgroundSessionsSource, /dsh-tavern-background-tools-v2/)
+  assert.match(backgroundSessionsSource, /dsh-tavern-background-tools-v3/)
   assert.match(backgroundSessionsSource, /STALE_BACKGROUND_PROVIDERS\.has\(savedDescriptor\.provider\)/)
+  assert.match(serverSource, /characterDesignDocument: snapshot\.characterDesignDocument/)
+  assert.match(serverSource, /draft\.characterDesignDocument = structuredClone\(mvuResult\.characterDesignDocument\)/)
 })
 
 test('候选项通过持久任务信箱提交，同步快照原子携带结果', () => {

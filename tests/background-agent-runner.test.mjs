@@ -561,7 +561,7 @@ test('旧 Skill 目录协议的后台 Session 自动迁移到干净 Session，�
           session: {
             id: options.resumeSessionId,
             header: { parentSession: parent.id },
-            events: [{ type: 'subagent/descriptor', data: { version: 3, mode: 'continuable', provider: 'dsh-tavern-background-tools-v1', label: '酒馆后台 Agent' } }],
+            events: [{ type: 'subagent/descriptor', data: { version: 3, mode: 'continuable', provider: 'dsh-tavern-background-tools-v2', label: '酒馆后台 Agent' } }],
             append() {}
           },
           followup() { throw new Error('旧后台 Session 不应再执行任务') },
@@ -756,7 +756,7 @@ test('状态结算与候选生成复用同一个常驻后台 Agent，并且每�
   assert.deepEqual(appended[0].data, {
     version: 3,
     mode: 'continuable',
-    provider: 'dsh-tavern-background-tools-v2',
+    provider: 'dsh-tavern-background-tools-v3',
     label: '酒馆后台 Agent',
     agentProvider: 'test',
     agentModel: 'scripted',

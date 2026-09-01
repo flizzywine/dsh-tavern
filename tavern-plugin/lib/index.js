@@ -27,6 +27,7 @@ import { createForegroundFrameBuilder } from './domain/agent-input-frame.js'
 import { createForegroundFrameSessionAdapter } from './domain/foreground-frame-session-adapter.js'
 import { createModelRequestLog } from './domain/model-request-log.js'
 import { MVU_SUBMIT_UPDATE_TOOL, createMvuSettlementModule } from './domain/mvu-background-settlement.js'
+import { CHARACTER_DESIGN_READ_TOOL, CHARACTER_DESIGN_SAVE_TOOL } from './domain/character-design-document.js'
 import { POSTURE_SUBMIT_TOOL, POSTURE_SUBMIT_TOOL_NAME, normalizePostureSubmission } from './domain/posture-submission.js'
 import { TAVERN_COMPATIBILITY_CAPABILITIES, createTavernCompatibilityDiagnosticStore } from './domain/tavern-compatibility-diagnostics.js'
 import { createMvuDiagnosticStore, createMvuDiagnosticExport, sanitizeRuntimeDiagnostics } from './domain/mvu-diagnostics.js'
@@ -1124,7 +1125,7 @@ export async function apply(ctx) {
   })
   const runtimePresetSnapshots = new Map()
   const backgroundAgentRunner = createBackgroundAgentRunner({
-    backgroundTools: [POSTURE_SUBMIT_TOOL, MVU_SUBMIT_UPDATE_TOOL, CANDIDATE_SUBMIT_TOOL, SCRIPT_READ_TOOL, SCRIPT_POINT_TOOL],
+    backgroundTools: [POSTURE_SUBMIT_TOOL, CHARACTER_DESIGN_READ_TOOL, CHARACTER_DESIGN_SAVE_TOOL, MVU_SUBMIT_UPDATE_TOOL, CANDIDATE_SUBMIT_TOOL, SCRIPT_READ_TOOL, SCRIPT_POINT_TOOL],
     stablePrefixStorage,
     agents: agentRegistry,
     agentPreset: 'tavern-background',
@@ -1441,7 +1442,8 @@ export async function apply(ctx) {
             storyText: str(mvuTarget.message.sourceText || mvuTarget.message.projectionText || mvuTarget.message.text),
             currentVariables: mvuTarget.variables,
             variableSchema: mvuTarget.variables.schema,
-            updateRules: await mvuUpdateRules(snapshot, card)
+            updateRules: await mvuUpdateRules(snapshot, card),
+            characterDesignDocument: snapshot.characterDesignDocument
           }
           const pendingSubmission = mvuTarget.message.mvu && mvuTarget.message.mvu.pendingSubmission
           if (pendingSubmission && typeof pendingSubmission === 'object') {
@@ -1506,11 +1508,15 @@ export async function apply(ctx) {
         let stat = { postureUpdated: false }
         const waitingRuntime = Boolean(mvuResult && mvuResult.receipt && mvuResult.receipt.status === 'pending')
         const completion = {
-          stateChanged: Boolean(mvuResult && mvuResult.receipt && mvuResult.receipt.status === 'updated') || str(result && result.posture).trim() !== '',
+          stateChanged: Boolean(mvuResult && mvuResult.receipt && mvuResult.receipt.status === 'updated') ||
+            Boolean(mvuResult && mvuResult.characterDesignChanged) || str(result && result.posture).trim() !== '',
           participant: taskRun.participant({ sessionId: backgroundSessionId, boundary: backgroundBoundary }),
           apply(draft) {
             stat = applySettlement(draft, result)
             if (mvuResult !== null) {
+              if (mvuResult.characterDesignChanged) {
+                draft.characterDesignDocument = structuredClone(mvuResult.characterDesignDocument)
+              }
               const target = draft.messages[mvuTarget.messageId]
               if (target && target.role === 'assistant' && Math.max(0, Number(target.swipeId) || 0) === mvuTarget.swipeId) {
                 const receipt = structuredClone(mvuResult.receipt)

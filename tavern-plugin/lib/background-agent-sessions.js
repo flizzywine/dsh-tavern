@@ -3,9 +3,12 @@ import { randomUUID } from 'node:crypto'
 import { maximumBackgroundTokens, traceError } from './background-agent-task.js'
 
 const LEGACY_BACKGROUND_PROVIDER = 'dsh-tavern-background'
-const PREVIOUS_BACKGROUND_PROVIDER = 'dsh-tavern-background-tools-v1'
-const BACKGROUND_PROVIDER = 'dsh-tavern-background-tools-v2'
-const STALE_BACKGROUND_PROVIDERS = new Set([LEGACY_BACKGROUND_PROVIDER, PREVIOUS_BACKGROUND_PROVIDER])
+const BACKGROUND_PROVIDER = 'dsh-tavern-background-tools-v3'
+const STALE_BACKGROUND_PROVIDERS = new Set([
+  LEGACY_BACKGROUND_PROVIDER,
+  'dsh-tavern-background-tools-v1',
+  'dsh-tavern-background-tools-v2'
+])
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
