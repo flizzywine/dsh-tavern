@@ -85,6 +85,13 @@ export function createTavernScriptHostAdapter(options = {}) {
     const chat = await mutationChat(sessionId)
     await assertScriptEnabled(chat)
     if (!mutationIsCurrent(chat, expectedLifecycleRevision)) return staleMutation(chat)
+    if (option && option.type === 'global') {
+      if (!options.globalVariables || typeof options.globalVariables.save !== 'function') throw new Error('全局变量存储未连接')
+      const transaction = settlementTransactions.get(str(sessionId))
+      if (transaction) transaction.externalEffects = true
+      const saved = await options.globalVariables.save(variables && typeof variables === 'object' && !Array.isArray(variables) ? variables : {})
+      return { updated: true, target: { type: 'global' }, globalVariables: structuredClone(saved) }
+    }
     const updated = replaceTavernHelperVariables(chat, { option, variables })
     const transactional = transactionResult(sessionId, updated)
     if (transactional !== null) return transactional
@@ -237,6 +244,9 @@ export function createTavernScriptHostAdapter(options = {}) {
       draft.messages.push(message)
     }
     const projected = projectTavernHelperContext(draft)
+    if (options.globalVariables && typeof options.globalVariables.read === 'function') {
+      projected.globalVariables = await options.globalVariables.read()
+    }
     try {
       const resolved = await worldbookRecord(sessionId, 'current')
       projected.worldbook = projectTavernHelperWorldbook(resolved.record.view)
@@ -278,7 +288,7 @@ export function createTavernScriptHostAdapter(options = {}) {
     }
     settlementTransactions.set(sessionId, transaction)
     try {
-      const eventContext = projectTavernHelperContext(transaction.draft)
+      const eventContext = await context(sessionId, transaction.draft)
       const projected = eventContext.messages[messageId]
       if (!projected) throw new Error('MVU 变量结算投影楼层不存在')
       const internalText = str(input.storyText).trim() + '\n\n' + command

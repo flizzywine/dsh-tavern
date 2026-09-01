@@ -22,7 +22,10 @@ export function helperHostHarness(context = {}, options = {}) {
   const window = { parent, structuredClone, setTimeout, clearTimeout, localStorage: {},
     console: { info() {}, warn() {}, error() {} },
     addEventListener(name, listener) { listeners.set(name, listener) },
-    _: { mergeWith(...args) { return Object.assign({}, ...args.slice(0, -1)) } }
+    _: {
+      mergeWith(...args) { return Object.assign({}, ...args.slice(0, -1)) },
+      unset(target, path) { return delete target[String(path)] }
+    }
   }
   window.window = window
   vm.runInNewContext(source, window)

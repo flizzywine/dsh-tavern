@@ -197,6 +197,30 @@ test('Host Adapter 把脚本变量和消息调用写回 dsh-tavern 权威 Chat',
   assert.deepEqual(run.writes.map(function (item) { return item.metadata.source }), ['tavern-helper.variables', 'tavern-helper.messages'])
 })
 
+test('Host Adapter 把全局变量保存到 Profile 作用域而不改写 Chat', async () => {
+  const value = chat()
+  const writes = []
+  let globals = { extra_analysis: true }
+  const adapter = createTavernScriptHostAdapter({
+    resolveChat: async () => value,
+    writeChat: async (...args) => { writes.push(args) },
+    readCard: async () => ({}),
+    worldBooks: { bound: async () => null },
+    eventGate: { dispatch: async () => ({ handled: true }) },
+    globalVariables: {
+      read: async () => structuredClone(globals),
+      save: async variables => { globals = structuredClone(variables); return structuredClone(globals) }
+    },
+    isPlayChat: () => true
+  })
+  const result = await adapter.updateVariables('session-1', { type: 'global' }, {}, 2)
+  assert.equal(result.updated, true)
+  assert.deepEqual(result.target, { type: 'global' })
+  assert.deepEqual(result.globalVariables, {})
+  assert.deepEqual(globals, {})
+  assert.equal(writes.length, 0)
+})
+
 test('Host Adapter 保留脚本门控并拒绝过期 iframe 覆盖新状态', async function () {
   const disabled = harness(Object.assign(chat(), { mvu: { enabled: false } }))
   await assert.rejects(function () {

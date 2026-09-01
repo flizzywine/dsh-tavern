@@ -381,7 +381,7 @@ BackgroundTaskFrame {
 
 - `BackgroundTaskFrameBuilder` 的生产实现；
 - 后台变量 Agent 的 DSH Session Adapter；
-- Helper Host 中真实的 `registerFunctionTool`、`generate` 和 `generateRaw` 桥接；
+- 将已登记 Function Tool 投影到真实模型请求并执行其 `action` 的桥接，以及 `generate` 和 `generateRaw`；当前 Host 只在工具调用明确关闭时保留注册生命周期，尚不把注册项发送给模型；
 - `mvu_submit_update` 的事务式 Tool Adapter；
 - 从最终回复可靠提取 `storyText` 的统一接口；
 - 前台协议退出和后台单所有者切换；

@@ -1827,6 +1827,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		function installTavernHelperFacade(options) {
 			const nativeWorldInfoSnapshots = new WeakMap();
 			const nativeWorldInfoByName = new Map();
+			const functionTools = new Map();
 			const { window, copy, context, request: call, Popup: HelperPopup } = options;
 			const chatData = options.createChatData({ copy: copy, context: context, request: call });
 			const extensionSettings = Object.assign(Object.create(null), copy(context().extensionSettings || {}));
@@ -1888,6 +1889,17 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				characterId: 0,
 				chatCompletionSettings: {},
 				ToolManager: Object.freeze({ isToolCallingSupported: function () { return false; } }),
+				isToolCallingSupported: function () { return false; },
+				canPerformToolCalls: function () { return false; },
+				registerFunctionTool: function (tool) {
+					if (!tool || typeof tool !== "object" || Array.isArray(tool)) throw new TypeError("Function Tool 定义无效");
+					const name = String(tool.name || "").trim();
+					if (!name) throw new TypeError("Function Tool 名称不能为空");
+					if (typeof tool.action !== "function") throw new TypeError("Function Tool action 必须是函数");
+					if (!tool.parameters || typeof tool.parameters !== "object" || Array.isArray(tool.parameters)) throw new TypeError("Function Tool parameters 必须是 JSON Schema 对象");
+					functionTools.set(name, tool);
+				},
+				unregisterFunctionTool: function (name) { functionTools.delete(String(name || "")); },
 				getCurrentChatId: function () { return String(context().chatId || ""); },
 				getCurrentLocale: function () { return "zh-CN"; },
 				getCharacterCardFields: function () { return copy(context().character && (context().character.data || context().character) || {}); },
@@ -2076,6 +2088,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			}
 			function getVariables(option) {
 				const resolved = optionOf(option);
+				if (resolved.type === "global") return copy(state.globalVariables || {});
 				if (resolved.type === "chat") return copy(state.chatVariables || {});
 				if (resolved.type === "script") return copy(state.scriptVariables && state.scriptVariables[resolved.script_id] || {});
 				const message = (state.messages || [])[normalizeId(resolved.message_id)];
@@ -2083,7 +2096,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			}
 			function localReplace(variables, option) {
 				const resolved = optionOf(option);
-				if (resolved.type === "chat") state.chatVariables = copy(variables);
+				if (resolved.type === "global") state.globalVariables = copy(variables);
+				else if (resolved.type === "chat") state.chatVariables = copy(variables);
 				else if (resolved.type === "script") {
 					if (!state.scriptVariables || typeof state.scriptVariables !== "object") state.scriptVariables = {};
 					state.scriptVariables[resolved.script_id] = copy(variables);
@@ -2141,7 +2155,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			window.getChatMessages = messagesFor;
 			window.getVariables = getVariables;
 			window.getAllVariables = function () {
-				const merged = Object.assign({}, copy(state.chatVariables || {}), getVariables({ type: "script" }));
+				const merged = Object.assign({}, copy(state.globalVariables || {}), copy(state.chatVariables || {}), getVariables({ type: "script" }));
 				for (const message of state.messages || []) Object.assign(merged, copy(message.variables || {}));
 				return merged;
 			};

@@ -18,8 +18,8 @@ test('辅助空实现继续运行、核心占位明确失败；原有缺失函�
   assert.equal(touched, false)
   assert.equal(observations(run).at(-1).count, 100)
   assert.deepEqual(Array.from(observations(run).at(-1).argumentTypes), ['string', 'object', 'null'])
-  for (const name of ['showLoader', 'hideLoader', 'unregisterMacro', 'unregisterFunctionTool']) assert.equal(ctx[name](), undefined)
-  for (const name of ['registerMacro', 'registerFunctionTool', 'getRequestHeaders', 'getChatCompletionModel']) {
+  for (const name of ['showLoader', 'hideLoader', 'unregisterMacro']) assert.equal(ctx[name](), undefined)
+  for (const name of ['registerMacro', 'getRequestHeaders', 'getChatCompletionModel']) {
     assert.throws(() => ctx[name]('PRIVATE_CHAT'), error => error.code === 'TAVERN_CAPABILITY_UNSUPPORTED')
   }
   let fallback = false
@@ -37,6 +37,26 @@ test('辅助空实现继续运行、核心占位明确失败；原有缺失函�
   assert.equal(observations(run).length, before, '不伪造任意未知函数')
   w.TavernHelper.generateRaw = () => 'plugin fallback'
   assert.equal(w.generateRaw(), 'plugin fallback', '插件仍能自行安装原有缺失函数的回退实现')
+})
+
+test('官方 MVU 恢复时可使用全局变量并登记关闭状态下的 Function Tool', async () => {
+  const run = helperHostHarness({ mvuEnabled: true, globalVariables: { extra_analysis: true } })
+  const ctx = run.window.SillyTavern.getContext()
+  assert.deepEqual(run.window.getVariables({ type: 'global' }), { extra_analysis: true })
+  assert.equal(ctx.ToolManager.isToolCallingSupported(), false)
+  assert.doesNotThrow(() => ctx.registerFunctionTool({
+    name: 'mvu_update', description: 'MVU update', parameters: { type: 'object' },
+    action: async () => '', shouldRegister: () => false, stealth: true
+  }))
+  assert.equal(ctx.unregisterFunctionTool('mvu_update'), undefined)
+
+  const deleting = run.window.deleteVariable('extra_analysis', { type: 'global' })
+  const call = run.calls().at(-1)
+  assert.equal(call.method, 'updateTavernHelperVariables')
+  assert.equal(call.args.option.type, 'global')
+  assert.deepEqual(call.args.variables, {})
+  run.reply(call, { updated: true, target: { type: 'global' }, globalVariables: {} })
+  assert.deepEqual(await deleting, {})
 })
 
 test('事件回调按已有脚本身份记账，互不混合', async () => {

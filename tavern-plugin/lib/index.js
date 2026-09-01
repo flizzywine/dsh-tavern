@@ -822,6 +822,13 @@ export async function apply(ctx) {
     worldBooks,
     eventGate: tavernHelperEventGate,
     extensionSettings: tavernExtensionSettings,
+    globalVariables: {
+      read: readPromptTemplateGlobalVariables,
+      save: async function (variables) {
+        await writePromptTemplateGlobalVariables(variables)
+        return await readPromptTemplateGlobalVariables()
+      }
+    },
     diagnostics: mvuDiagnostics,
     hasScripts: async function (chat) { return hasTavernScriptRuntime(chat, (await readCardExtensions(chat.cardPath))?.helperScripts) },
     isPlayChat: function (chat) { return groupOfMode(chat.mode) === 'play' }
@@ -946,7 +953,7 @@ export async function apply(ctx) {
       replyProjections: replyDisplay.projections,
       tavernStatusView: replyDisplay.statusView || null,
       mvuReceipts: mvuReceiptsOf(chat),
-      tavernHelper: helperEnabled ? { ...projectTavernHelperContext(chat), compatibilityCapabilities: TAVERN_COMPATIBILITY_CAPABILITIES, extensionSettings: await tavernExtensionSettings.read() } : null,
+      tavernHelper: helperEnabled ? { ...projectTavernHelperContext(chat), globalVariables: await readPromptTemplateGlobalVariables(), compatibilityCapabilities: TAVERN_COMPATIBILITY_CAPABILITIES, extensionSettings: await tavernExtensionSettings.read() } : null,
       tavernMvuRuntime: chat.mvu && chat.mvu.enabled === true ? {
         owner: chat.mvu.owner === 'official' ? 'official' : 'legacy',
         commit: OFFICIAL_MVU_VERSION.commit,

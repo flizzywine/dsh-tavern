@@ -246,11 +246,13 @@ DSH 中已有的能力由 adapter 翻译；没有的通用能力在宿主层补�
 
 | 处理方式 | 接口 | 行为 |
 | --- | --- | --- |
-| 安全空操作 | ST `scrollChatToBottom`、`showLoader`、`hideLoader`、`unregisterMacro`、`unregisterFunctionTool` | 记录调用，返回 `undefined`；不执行 UI 操作或模型/存储操作 |
-| 明确拒绝 | ST `registerMacro`、`registerFunctionTool`、`getRequestHeaders`、`getChatCompletionModel` | 替换原来会假装成功的占位，先记录再抛 `TAVERN_CAPABILITY_UNSUPPORTED`；没有注册结果、请求头或模型名可用 |
+| 安全空操作 | ST `scrollChatToBottom`、`showLoader`、`hideLoader`、`unregisterMacro` | 记录调用，返回 `undefined`；不执行 UI 操作或模型/存储操作 |
+| 明确拒绝 | ST `registerMacro`、`getRequestHeaders`、`getChatCompletionModel` | 替换原来会假装成功的占位，先记录再抛 `TAVERN_CAPABILITY_UNSUPPORTED`；没有注册结果、请求头或模型名可用 |
 | 保留缺失并记录探测 | Helper `generate`、`generateRaw`、`triggerSlash`；ST `generate`、`generateRaw`、`stopGeneration`、`deleteLastMessage`、`deleteMessage`、`clearChat`、`reloadCurrentChat`、`openCharacterChat`、`openGroupChat`、`executeSlashCommandsWithOptions` | getter 返回 `undefined`，`typeof fn === 'function'` 仍为 false，允许插件走回退；记录的是 lookup，不是已发生的函数调用 |
 
 Helper 缺失入口同时覆盖 `TavernHelper.name` 和 `window.name`，插件仍可自行赋值安装回退。ST 入口同时通过 `SillyTavern` 与其 `getContext()` 暴露。已有真实保存接口保持原行为，失败不能被空实现吞掉。`ToolManager.isToolCallingSupported()` 继续如实返回 false。
+
+后续 MVU 恢复回归修复补上了 `registerFunctionTool` / `unregisterFunctionTool` 的本地注册生命周期，使官方 MVU 可以在工具调用关闭时完成初始化；`ToolManager.isToolCallingSupported()` 与 `canPerformToolCalls()` 仍返回 false，注册项不会进入模型请求，也不宣称已经实现 Function Tool 执行链路。Tavern Helper `global` 变量复用 Profile 级提示词全局变量存储，不写入 Chat 历史。
 
 ### 记录与获取方式
 
