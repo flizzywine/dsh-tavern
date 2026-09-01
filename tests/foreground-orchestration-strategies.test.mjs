@@ -150,7 +150,7 @@ test('游玩请求移除空 system 字段，不修改非空指令或原始请求
   assert.equal(strategy.projectRequest({ sessionId: 'native', purpose: 'compaction', system: '', messages: [] }), null)
 })
 
-test('卡片策略保留官方 Cordis 工具说明', async () => {
+test('卡片策略不把按需 Cordis 说明放入固定前缀', async () => {
   const run = strategies({
     nativePlay: {
       async modeFor() { return 'card' },
@@ -174,7 +174,6 @@ test('卡片策略保留官方 Cordis 工具说明', async () => {
 
   assert.deepEqual(assembly.sections.map(function (section) { return section.name }), [
     'tavern:mode-persona',
-    'tool:cordis',
     'tavern:resource-workspace'
   ])
 })
