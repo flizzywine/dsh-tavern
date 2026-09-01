@@ -342,7 +342,7 @@ test('正文重新生成提供两个含义明确的入口，并复用同一替�
 	assert.match(action, /submitBodyRegeneration\(props\.sessionId, panel, ""\)/)
 	assert.match(panel, /submitBodyRegeneration\(props\.sessionId, panel, guide\)/)
 	assert.match(shared, /rpc\("regenBody", \{ guidance:/)
-	assert.match(shared, /historyProjection\.regenerated\(sessionId, res.view, panel.tail\)/)
+	assert.match(shared, /applyBodyRegenerationResult\(\{ liveTavernView:/)
 
 })
 

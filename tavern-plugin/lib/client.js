@@ -5947,6 +5947,11 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			}
 			return Object.freeze({ apply: apply, regenerated: regenerated, rolledBack: rolledBack });
 		}
+		function applyBodyRegenerationResult(options) {
+			options.liveTavernView.setView(options.sessionId, options.view);
+			options.historyProjection.regenerated(options.sessionId, options.view, options.tail);
+		}
+
 		function createPlayControlsFeatureModule() {
 			const historyProjection = createTurnHistoryProjection();
 			function TavernConversationExportAction(props) {
@@ -6280,7 +6285,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 
 		async function submitBodyRegeneration(sessionId, panel, guidance) {
 			const res = await rpc("regenBody", { guidance: String(guidance || "").trim() }, sessionId);
-			historyProjection.regenerated(sessionId, res.view, panel.tail);
+			applyBodyRegenerationResult({ liveTavernView: liveTavernView, historyProjection: historyProjection, sessionId: sessionId, view: res.view, tail: panel.tail });
 			setCandidatePanel(null);
 		}
 
@@ -6780,6 +6785,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		exports.createCardLibraryRefreshModule = createCardLibraryRefreshModule;
 		exports.tavernDataChangeAffects = tavernDataChangeAffects;
 		exports.createLiveTavernViewModule = createLiveTavernViewModule;
+		exports.applyBodyRegenerationResult = applyBodyRegenerationResult;
 		exports.createTavernCoordinationEventModule = createTavernCoordinationEventModule;
 		exports.describeTavernActivity = describeTavernActivity;
 		exports.createPlayWorkspaceResolver = createPlayWorkspaceResolver;
