@@ -398,6 +398,8 @@ export function createMvuSettlementModule(options = {}) {
     const request = projectMvuBackgroundRequest(frame)
     const characterDesigns = createCharacterDesignDocumentSession({
       document: input.characterDesignDocument,
+      currentVariables: input.currentVariables,
+      variableSchema: frame.authoritativeState.variableSchema,
       now: options.now,
       id: options.characterId
     })
@@ -438,6 +440,7 @@ export function createMvuSettlementModule(options = {}) {
       try {
         if (!call || call.name !== MVU_SUBMIT_UPDATE_TOOL_NAME) throw new Error('后台 Agent 调用了未授权的变量工具')
         submission = normalizeMvuToolSubmission(call.arguments)
+        characterDesigns.validateSubmission(submission.operations)
         if (feedback && submission.operations.length === 0) throw new Error('上一批更新未通过校验，请修正完整 operations，不能用空数组跳过失败')
       } catch (error) {
         await record('submission-rejected', { error: error.message, argumentKeys: Object.keys(object(call?.arguments)), operations: object(call?.arguments).operations })

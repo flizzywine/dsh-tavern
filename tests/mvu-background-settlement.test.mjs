@@ -21,6 +21,21 @@ const fullCharacterDesign = {
   plotPotential: '会在制度责任与同伴信任冲突时推动选择'
 }
 
+const characterVariableSchema = {
+  type: 'object',
+  properties: {
+    在场女生: {
+      type: 'object', extensible: true,
+      template: { 姓名: '', 性格: '未明确', 袜子: '未明确', 鞋子: '未明确', 内衣裤: '未明确', 在场: false }
+    }
+  }
+}
+
+const fullCharacterMvuFields = {
+  姓名: '鹿野栞', 性格: '温和细致，原则问题上异常执拗',
+  袜子: '黑色及膝袜', 鞋子: '棕色乐福鞋', 内衣裤: '白色棉质内衣裤', 在场: false
+}
+
 test('变量结算正文只保留本轮剧情，不包含控制协议和状态栏 HTML', function () {
   const source = [
     '她推开门，确认屋内无人。',
@@ -87,7 +102,10 @@ test('人物完整档案先在结算内暂存，成功后与 MVU 投影一起返
     model: { async run(input) {
       const index = JSON.parse(await input.onToolCall({ name: CHARACTER_DESIGN_READ_TOOL_NAME, arguments: {} }))
       assert.deepEqual(index.characters, [])
-      const saved = JSON.parse(await input.onToolCall({ name: CHARACTER_DESIGN_SAVE_TOOL_NAME, arguments: fullCharacterDesign }))
+      const saved = JSON.parse(await input.onToolCall({
+        name: CHARACTER_DESIGN_SAVE_TOOL_NAME,
+        arguments: { ...fullCharacterDesign, mvuPath: '/在场女生/鹿野栞', mvuFields: fullCharacterMvuFields }
+      }))
       assert.equal(saved.ok, true)
       await input.onToolCall({ name: 'posture_submit', arguments: { posture: '站在走廊尽头' } })
       await input.onToolCall({ name: 'mvu_submit_update', arguments: { operations: [] } })
@@ -98,11 +116,114 @@ test('人物完整档案先在结算内暂存，成功后与 MVU 投影一起返
   const result = await module.settleVariables({
     operationId: 'operation-design', chatId: 'chat-1', branchId: 'branch-1', basedOnRevision: 5,
     sessionId: 'session-1', messageId: 0, swipeId: 0, storyText: '走廊另一端传来脚步声。',
-    currentVariables: { stat_data: {} }, characterDesignDocument: sourceDocument
+    currentVariables: { stat_data: {}, schema: characterVariableSchema },
+    variableSchema: characterVariableSchema,
+    characterDesignDocument: sourceDocument
   })
   assert.equal(result.characterDesignChanged, true)
   assert.equal(result.characterDesignDocument.characters[0].design.personality, fullCharacterDesign.personality)
+  assert.deepEqual(result.characterDesignDocument.characters[0].mvuProjection, {
+    path: '/在场女生/鹿野栞', fields: fullCharacterMvuFields
+  })
   assert.deepEqual(sourceDocument.characters, [], 'task-local design must not mutate the persisted Chat before atomic commit')
+})
+
+test('人物设计必须覆盖当前 MVU 人物模板，残缺投影不能写入变量', async function () {
+  const toolResults = []
+  let runtimeCalls = 0
+  const legacyDocument = {
+    spec: 'dsh-tavern.character-design-document', version: 1,
+    characters: [{ id: 'character-1', name: fullCharacterDesign.name, aliases: [], design: {
+      identity: fullCharacterDesign.identity, narrativeRole: fullCharacterDesign.narrativeRole,
+      coreMotivation: fullCharacterDesign.coreMotivation, innerConflict: fullCharacterDesign.innerConflict,
+      personality: fullCharacterDesign.personality, appearance: fullCharacterDesign.appearance,
+      behaviorStyle: fullCharacterDesign.behaviorStyle, speechStyle: fullCharacterDesign.speechStyle,
+      relationships: fullCharacterDesign.relationships, defaultPresentation: fullCharacterDesign.defaultPresentation,
+      plotPotential: fullCharacterDesign.plotPotential
+    } }]
+  }
+  const incompleteFields = { ...fullCharacterMvuFields, 袜子: '未明确', 鞋子: '未明确', 内衣裤: '未明确' }
+  const module = createMvuSettlementModule({
+    maxAttempts: 3,
+    now: () => 100,
+    characterId: () => 'character-1',
+    model: { async run(input) {
+      const index = JSON.parse(await input.onToolCall({ name: CHARACTER_DESIGN_READ_TOOL_NAME, arguments: {} }))
+      assert.equal(index.characters[0].mvuCoverage.status, 'incomplete')
+      assert.match(index.characters[0].mvuCoverage.error, /袜子.*未明确/)
+      await input.onToolCall({ name: 'posture_submit', arguments: { posture: '站在走廊尽头' } })
+      const legacyRejected = JSON.parse(await input.onToolCall({
+        name: 'mvu_submit_update', arguments: { operations: [] }
+      }))
+      toolResults.push(legacyRejected)
+      assert.equal(legacyRejected.ok, false)
+      assert.match(legacyRejected.error, /character_design_save/)
+
+      const rejectedDesign = JSON.parse(await input.onToolCall({
+        name: CHARACTER_DESIGN_SAVE_TOOL_NAME,
+        arguments: {
+          ...fullCharacterDesign, characterId: 'character-1',
+          mvuPath: '/在场女生/鹿野栞',
+          mvuFields: { ...fullCharacterMvuFields, 袜子: '未明确' }
+        }
+      }))
+      toolResults.push(rejectedDesign)
+      assert.equal(rejectedDesign.ok, false)
+      assert.match(rejectedDesign.error, /袜子.*未明确/)
+
+      const saved = JSON.parse(await input.onToolCall({
+        name: CHARACTER_DESIGN_SAVE_TOOL_NAME,
+        arguments: {
+          ...fullCharacterDesign, characterId: 'character-1',
+          mvuPath: '/在场女生/鹿野栞', mvuFields: fullCharacterMvuFields
+        }
+      }))
+      assert.equal(saved.ok, true)
+
+      const rejectedUpdate = JSON.parse(await input.onToolCall({
+        name: 'mvu_submit_update',
+        arguments: {
+          operations: [{
+            op: 'insert', path: '/在场女生/鹿野栞',
+            value: { ...fullCharacterMvuFields, 内衣裤: '未明确' }
+          }]
+        }
+      }))
+      toolResults.push(rejectedUpdate)
+      assert.equal(rejectedUpdate.ok, false)
+      assert.equal(rejectedUpdate.retryable, true)
+      assert.match(rejectedUpdate.error, /内衣裤.*未明确/)
+
+      const accepted = JSON.parse(await input.onToolCall({
+        name: 'mvu_submit_update',
+        arguments: { operations: [{ op: 'insert', path: '/在场女生/鹿野栞', value: fullCharacterMvuFields }] }
+      }))
+      assert.equal(accepted.ok, true)
+      return { text: '' }
+    } },
+    runtime: { async settleMvuUpdate() {
+      runtimeCalls++
+      return {
+        context: { messages: [{ variables: {
+          stat_data: { 在场女生: { 鹿野栞: fullCharacterMvuFields } }, schema: characterVariableSchema
+        } }] }
+      }
+    } }
+  })
+
+  const result = await module.settleVariables({
+    operationId: 'operation-design-complete', chatId: 'chat-1', branchId: 'branch-1', basedOnRevision: 5,
+    sessionId: 'session-1', messageId: 0, swipeId: 0, storyText: '鹿野栞在走廊尽头停下脚步。',
+    currentVariables: {
+      stat_data: { 在场女生: { 鹿野栞: incompleteFields } }, schema: characterVariableSchema
+    },
+    variableSchema: characterVariableSchema,
+    characterDesignDocument: legacyDocument
+  })
+
+  assert.equal(runtimeCalls, 1, '残缺投影必须在调用 MVU Runtime 前被拒绝')
+  assert.equal(toolResults.length, 3)
+  assert.equal(result.receipt.status, 'updated')
 })
 
 test('深模块逐项核验提交结果并把人物卡脚本联动与失败操作分开记录', async function () {
