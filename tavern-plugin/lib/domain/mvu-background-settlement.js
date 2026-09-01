@@ -1,5 +1,6 @@
 import { createBackgroundTaskFrame } from './agent-input-frame.js'
 import { variableDiagnosticSummary } from './mvu-diagnostics.js'
+import { POSTURE_SUBMIT_TOOL, POSTURE_SUBMIT_TOOL_NAME, normalizePostureSubmission } from './posture-submission.js'
 
 export const MVU_SUBMIT_UPDATE_TOOL_NAME = 'mvu_submit_update'
 
@@ -320,15 +321,15 @@ export function projectMvuBackgroundRequest(frame) {
     system: [
       '只根据【正文】中已经确认发生的事实结算变量，不得读取或推断玩家意图。',
       '不得根据旧轮剧情、隐藏思考、候选项或未发生事件更新变量。',
+      '先调用 posture_submit 提交本轮结束时可见的人物姿势，再调用 mvu_submit_update；不得输出 JSON。',
       '必须调用 mvu_submit_update，以工具返回的实际执行校验结果为准。最多提交三次。',
       '变量通过工具提交，不在回复中输出 XML 变量协议；人物卡中的变量含义、更新条件和校验规则仍须遵守。',
       '有变化时提交完整 operations；没有变化时也必须提交 operations: []。',
       '若 ok=false 且 retryable=true，读取 error、failures 和 runtimeDiagnostics，根据 currentVariables 与变量结构修正完整 operations 后再次调用；不要原样反复提交。',
       'rolledBack=true 表示整批变量修改未保存，可以基于原快照重新提交完整更新；不得用空 operations 掩盖尚未修复的失败。',
-      'ok=true 或 retryable=false 后停止调用，不能重复执行已成功的更新，也不能绕过人物卡校验。',
-      '工具调用成功后只输出一行姿势 JSON：{"posture":"本轮结束时可见的人物姿势"}。'
+      'ok=true 或 retryable=false 后停止调用，不能重复执行已成功的更新，也不能绕过人物卡校验。'
     ].join('\n'),
-    tools: [MVU_SUBMIT_UPDATE_TOOL]
+    tools: [POSTURE_SUBMIT_TOOL, MVU_SUBMIT_UPDATE_TOOL]
   }
 }
 
@@ -344,6 +345,7 @@ export function createMvuSettlementModule(options = {}) {
     let attempt = 0
     let result = null
     let feedback = null
+    let posture = null
     let traceSessionId = str(input.persistentSessionId)
     let traceBoundary = null
     let diagnosticId = frame.frameId + ':attempt-1'
@@ -353,6 +355,17 @@ export function createMvuSettlementModule(options = {}) {
       try { await options.diagnostics?.record(input.sessionId, { diagnosticId, operationId: input.operationId, chatId: input.chatId, branchId: input.branchId, basedOnRevision: input.basedOnRevision, messageId: input.messageId, swipeId: input.swipeId, attempt, traceSessionId, stage, ...details }) } catch { /* Diagnostics must not change settlement behaviour. */ }
     }
     async function executeTool(call) {
+      if (call && call.name === POSTURE_SUBMIT_TOOL_NAME) {
+        try {
+          posture = normalizePostureSubmission(call.arguments)
+          return JSON.stringify({ ok: true })
+        } catch (error) {
+          return JSON.stringify({ ok: false, retryable: true, error: str(error && error.message || error) })
+        }
+      }
+      if (posture === null) {
+        return JSON.stringify({ ok: false, retryable: true, error: '请先调用 posture_submit 提交姿势，再调用 mvu_submit_update。' })
+      }
       // Serialize parallel calls too. Success or an unsafe-to-retry failure is terminal.
       if (feedback && (feedback.ok || !feedback.retryable)) return JSON.stringify(feedback)
       if (attempt >= maxAttempts) return JSON.stringify({ ...feedback, ok: false, retryable: false })
@@ -428,9 +441,10 @@ export function createMvuSettlementModule(options = {}) {
         task: 'settlement', persistent: true, persistentSessionId: traceSessionId, rewindTo: -1,
         selection: input.selection, messages: request.messages, turnContext: request.turnContext,
         system: [str(input.system).trim(), request.system].filter(Boolean).join('\n\n'),
-        tools: request.tools, maxToolCalls: maxAttempts,
+        tools: request.tools, maxToolCalls: maxAttempts + 2,
         toolLimitMessage: '变量更新已达到三次提交上限，停止调用并结束本轮；不得跳过校验。',
         stopToolsWhen: () => feedback !== null && (feedback.ok || !feedback.retryable),
+        acceptWithoutText: () => result !== null,
         temperature: 0.1, sessionId: input.sessionId, turn: Math.max(0, Number(input.turn) || 0),
         onToolCall(call) {
           const pending = toolTail.then(() => executeTool(call))
@@ -457,7 +471,7 @@ export function createMvuSettlementModule(options = {}) {
       throw error
     }
     await record('finished', { status: result.receipt.status })
-    return { frame, text: str(run.text) || '{}', traceSessionId, traceBoundary, ...result }
+    return { frame, text: str(run.text), posture: posture.posture, traceSessionId, traceBoundary, ...result }
   }
 
   return Object.freeze({ settleVariables })

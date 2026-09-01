@@ -61,6 +61,18 @@ function harness({ mode = 'story', outputs, initialCandidates, initialCandidateA
     const call = ++modelCalls
     const output = outputs[Math.min(call - 1, outputs.length - 1)]
     const text = typeof output === 'function' ? await output(options) : output
+    try {
+      const parsed = JSON.parse(text)
+      if (Array.isArray(parsed.choices)) {
+        await options.onToolCall({
+          name: 'candidate_submit_choices',
+          arguments: {
+            actions: parsed.choices.filter(item => item && item.type === 'action').map(item => item.text),
+            scene: parsed.choices.find(item => item && item.type === 'scene')?.text || ''
+          }
+        })
+      }
+    } catch (_error) {}
     return { text, traceSessionId: options.persistentSessionId || 'candidate-trace-' + call }
   }
   const store = {
@@ -238,8 +250,13 @@ test('相同请求标识重复 prepare 复用 Operation，服务端只调度首�
 })
 
 test('自由故事只保存完整的 4 action + 1 scene', async () => {
-  const truncatedButRecoverable = '{"choices":[' + storyChoices.map((item) => JSON.stringify(item)).join(',')
-  const run = harness({ outputs: [truncatedButRecoverable] })
+  const run = harness({ outputs: [async function (options) {
+    await options.onToolCall({
+      name: 'candidate_submit_choices',
+      arguments: { actions: storyChoices.slice(0, 4).map(item => item.text), scene: storyChoices[4].text }
+    })
+    return '<|DSML|tool_calls>不应被当作候选结果的普通文字'
+  }] })
   let started = null
 
   const result = await run.candidates.generate({ sessionId: 'session-1', messageId: 'message-1', guidance: '多写动作', onStarted(operation) { started = operation } })
@@ -392,7 +409,7 @@ test('剧本候选可按数字自由读取远处剧本并直接定位游标', as
   const progress = run.continuity.inspect({ script: script(), state: savedChat.scriptState, request: { kind: 'progress' } })
   assert.equal(progress.cursor, 2)
   assert.equal(run.plannerCalls[0].scriptWindow.chunks[0].id, 'chunk-00001')
-  assert.deepEqual(run.modelRequests[0].tools.map((tool) => tool.name), ['tavern_read_script', 'tavern_point_script'])
+  assert.deepEqual(run.modelRequests[0].tools.map((tool) => tool.name), ['tavern_read_script', 'tavern_point_script', 'candidate_submit_choices'])
   assert.equal(run.modelRequests[0].tools[0].parameters.properties.position.minimum, 1)
   assert.equal(run.modelRequests[0].tools[0].parameters.properties.point, undefined)
   assert.equal(run.modelRequests[0].tools[1].parameters.properties.position.minimum, 1)

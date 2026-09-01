@@ -6,6 +6,58 @@ import { createContextPlanner } from '../tavern-plugin/lib/domain/context-planne
 import { readSessionStablePrefix } from '../tavern-plugin/lib/domain/session-stable-prefix.js'
 import { createNativePlayOrchestrationStrategy } from '../tavern-plugin/lib/domain/foreground-orchestration-strategies.js'
 
+test('共享后台 Session 从建立起固定注册完整工具目录，切换任务只改变本轮授权', async () => {
+  const catalog = [
+    { name: 'posture_submit', parameters: { type: 'object' } },
+    { name: 'candidate_submit_choices', parameters: { type: 'object' } }
+  ]
+  const registered = new Map()
+  const callbacks = []
+  const responses = []
+  let creates = 0
+  let turn = 0
+  const runner = createBackgroundAgentRunner({
+    id: () => 'background-stable-tools',
+    backgroundTools: catalog,
+    agents: {
+      get: () => ({ id: 'parent', session: { header: {} } }),
+      async create(options) {
+        creates++
+        await options.setup({
+          systemPrompt: { section() {}, suppressRuntimeContext() {} }, on() {},
+          tools: { restrict() {}, register(tool) { registered.set(tool.name, tool) } }
+        })
+        return { agent: {
+          session: { id: 'background-stable-tools', events: [], append() {} },
+          followup() { turn++ },
+          async whenIdle() {
+            if (turn === 1) {
+              responses.push(JSON.parse(await registered.get('candidate_submit_choices').execute({})))
+              responses.push(JSON.parse(await registered.get('posture_submit').execute({ posture: '门边站立' })))
+            } else {
+              responses.push(JSON.parse(await registered.get('posture_submit').execute({})))
+              responses.push(JSON.parse(await registered.get('candidate_submit_choices').execute({ actions: ['一'], scene: '' })))
+            }
+          }
+        }, async dispose() {} }
+      }
+    }
+  })
+  await runner.run({ sessionId: 'parent', persistent: true, task: 'settlement', selection: { provider: 'test', model: 'test' }, messages: [],
+    tools: [catalog[0]], acceptWithoutText: () => true,
+    async onToolCall(call) { callbacks.push(call.name); return JSON.stringify({ ok: true }) } })
+  await runner.run({ sessionId: 'parent', persistent: true, task: 'candidate', selection: { provider: 'test', model: 'test' }, messages: [],
+    tools: [catalog[1]], acceptWithoutText: () => true,
+    async onToolCall(call) { callbacks.push(call.name); return JSON.stringify({ ok: true }) } })
+
+  assert.equal(creates, 1)
+  assert.deepEqual(Array.from(registered.keys()), ['posture_submit', 'candidate_submit_choices'])
+  assert.deepEqual(callbacks, ['posture_submit', 'candidate_submit_choices'])
+  assert.equal(responses[0].retryable, true)
+  assert.equal(responses[2].retryable, true)
+  await runner.dispose()
+})
+
 test('变量工具返回失败后仍可修正，成功或耗尽次数后撤下工具且只清理一次', async () => {
   for (const success of [true, false]) {
     let registered, disposed = 0, calls = 0, terminal = false

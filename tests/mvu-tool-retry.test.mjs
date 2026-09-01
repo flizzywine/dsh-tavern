@@ -7,6 +7,7 @@ const input = { operationId: 'op', chatId: 'c', branchId: 'b', basedOnRevision: 
   sessionId: 's', messageId: 0, swipeId: 0, storyText: '测试正文',
   currentVariables: { stat_data: { hp: 10, location: 'door' } } }
 const call = operations => ({ name: 'mvu_submit_update', arguments: { operations } })
+const submitPosture = request => request.onToolCall({ name: 'posture_submit', arguments: { posture: '原地站立' } })
 const patch = [ { op: 'delta', path: '/hp', value: -1 }, { op: 'replace', path: '/location', value: 'hall' } ]
 
 function harness(model, { rejectAlways = false } = {}) {
@@ -35,6 +36,7 @@ function harness(model, { rejectAlways = false } = {}) {
 test('工具等待真实校验，失败回传错误后修正重试；整批回滚防止 delta 重复扣减', async () => {
   let completed = false
   const h = harness(async request => {
+    await submitPosture(request)
     const first = JSON.parse(await request.onToolCall(call(patch)))
     assert.equal(first.ok, false)
     assert.equal(first.retryable, true)
@@ -59,6 +61,7 @@ test('工具等待真实校验，失败回传错误后修正重试；整批回�
 test('连续失败最多三次，保留原变量和最后错误', async () => {
   let completed = false
   const h = harness(async request => {
+    await submitPosture(request)
     for (let i = 0; i < 5; i++) {
       const result = JSON.parse(await request.onToolCall(call(patch)))
       assert.equal(result.ok, false)
@@ -80,6 +83,7 @@ test('缺少 operations 的参数错误在同一 Agent 回合修正，不重开�
   let runs = 0, executions = 0
   const module = createMvuSettlementModule({ model: { async run(request) {
     runs++
+    await submitPosture(request)
     feedback.push(JSON.parse(await request.onToolCall({ name: 'mvu_submit_update', arguments: {} })))
     feedback.push(JSON.parse(await request.onToolCall(call([{ op: 'delta', path: '/hp', value: -1 }]))))
     return { text: '{}' }
@@ -101,6 +105,7 @@ test('并行重复调用与成功后的模型断流不会再次执行变量更�
   const responses = []
   const module = createMvuSettlementModule({ model: { async run(request) {
     runs++
+    await submitPosture(request)
     responses.push(...await Promise.all([request.onToolCall(call(patch)), request.onToolCall(call(patch))]))
     throw new Error('provider stream disconnected after commit')
   } }, runtime: { async settleMvuUpdate() {
@@ -113,7 +118,7 @@ test('并行重复调用与成功后的模型断流不会再次执行变量更�
   assert.equal(executions, 1)
   assert.equal(runs, 1)
   assert.equal(result.receipt.status, 'updated')
-  assert.equal(result.text, '{}')
+  assert.equal(result.text, '')
 })
 
 test('执行结果不确定或目标已过期时停止自动重试', async () => {
@@ -121,6 +126,7 @@ test('执行结果不确定或目标已过期时停止自动重试', async () =>
     let executions = 0
     const feedback = []
     const module = createMvuSettlementModule({ model: { async run(request) {
+      await submitPosture(request)
       feedback.push(JSON.parse(await request.onToolCall(call(patch))))
       feedback.push(JSON.parse(await request.onToolCall(call(patch))))
       return { text: '{}' }

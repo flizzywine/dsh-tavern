@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { createBackgroundAgentRunner, executeBackgroundCompaction } from './background-agent-runner.js'
 import { createApplicationUpdater } from './application-updater.js'
-import { createCandidateGenerator } from './domain/candidate-generation.js'
+import { CANDIDATE_SUBMIT_TOOL, SCRIPT_POINT_TOOL, SCRIPT_READ_TOOL, createCandidateGenerator } from './domain/candidate-generation.js'
 import { createSceneIllustrations, sceneTarget } from './domain/scene-illustration.js'
 import { createSceneWorldbooks, sceneWorldbookBinding } from './domain/scene-worldbook.js'
 import { createSceneImageDiagnostics } from './domain/scene-image-diagnostics.js'
@@ -25,7 +25,8 @@ import { createForegroundHandoff } from './domain/foreground-handoff.js'
 import { createForegroundFrameBuilder } from './domain/agent-input-frame.js'
 import { createForegroundFrameSessionAdapter } from './domain/foreground-frame-session-adapter.js'
 import { createModelRequestLog } from './domain/model-request-log.js'
-import { createMvuSettlementModule } from './domain/mvu-background-settlement.js'
+import { MVU_SUBMIT_UPDATE_TOOL, createMvuSettlementModule } from './domain/mvu-background-settlement.js'
+import { POSTURE_SUBMIT_TOOL, POSTURE_SUBMIT_TOOL_NAME, normalizePostureSubmission } from './domain/posture-submission.js'
 import { TAVERN_COMPATIBILITY_CAPABILITIES, createTavernCompatibilityDiagnosticStore } from './domain/tavern-compatibility-diagnostics.js'
 import { createMvuDiagnosticStore, createMvuDiagnosticExport, sanitizeRuntimeDiagnostics } from './domain/mvu-diagnostics.js'
 import { projectPersistentStatusView } from './domain/persistent-status-view.js'
@@ -1128,6 +1129,7 @@ export async function apply(ctx) {
   })
   const runtimePresetSnapshots = new Map()
   const backgroundAgentRunner = createBackgroundAgentRunner({
+    backgroundTools: [POSTURE_SUBMIT_TOOL, MVU_SUBMIT_UPDATE_TOOL, CANDIDATE_SUBMIT_TOOL, SCRIPT_READ_TOOL, SCRIPT_POINT_TOOL],
     stablePrefixStorage,
     agents: agentRegistry,
     agentPreset: 'tavern-background',
@@ -1327,29 +1329,6 @@ export async function apply(ctx) {
     }
     return lines.join('\n')
   }
-  function parseJsonLenient(text) {
-    if (text === undefined || text === null || text === '') return {}
-    let t = text.trim()
-    if (t.startsWith('```')) {
-      const nl = t.indexOf('\n')
-      if (nl >= 0) t = t.slice(nl + 1)
-      if (t.endsWith('```')) t = t.slice(0, -3)
-      t = t.trim()
-    }
-    try {
-      const v = JSON.parse(t)
-      if (v !== null && typeof v === 'object') return v
-    } catch (err) {}
-    const s = t.indexOf('{')
-    const e = t.lastIndexOf('}')
-    if (s >= 0 && e > s) {
-      try {
-        const v = JSON.parse(t.slice(s, e + 1))
-        if (v !== null && typeof v === 'object') return v
-      } catch (err) {}
-    }
-    return {}
-  }
   function applySettlement(chat, result) {
     let postureUpdated = false
     const posture = str(result.posture).trim()
@@ -1448,7 +1427,6 @@ export async function apply(ctx) {
           : null
         let text = ''
         let result = null
-        let lastError = null
         let mvuResult = null
         const selection = modelSelection(snapshot.sessionId)
         if (selection === null) throw new Error('没有可用的模型配置，请先在当前会话的模型选择器中选择模型')
@@ -1471,46 +1449,50 @@ export async function apply(ctx) {
             selection,
             persistentSessionId: backgroundSessionId
           })
-          text = mvuResult.text
+          text = str(mvuResult.text) || JSON.stringify({ posture: mvuResult.posture })
           backgroundSessionId = str(mvuResult.traceSessionId)
           backgroundBoundary = Number.isSafeInteger(mvuResult.traceBoundary) ? mvuResult.traceBoundary : null
-          result = parseJsonLenient(text)
+          result = { posture: mvuResult.posture }
         } else {
-          for (let attempt = 1; attempt <= 2; attempt++) {
-            try {
-              const run = await backgroundAgentRunner.run({
-                task: 'settlement',
-                persistent: true,
-                persistentSessionId: backgroundSessionId,
-                rewindTo: taskRun.participantRequest.rewindTo,
-                selection,
-                messages: [{
-                  id: 'settle-' + Date.now().toString(36),
-                  role: 'user',
-                  regexPlacement: 2,
-                  content: [{ type: 'text', text: settleUserText(snapshot) }],
-                  source: { kind: 'plugin', plugin: 'dsh-tavern' }
-                }],
-                system: runtimePrompt('posture-settlement'),
-                turnContext: '',
-                tools: [],
-                temperature: 0.2,
-                sessionId: snapshot.sessionId
-              })
-              text = run.text
-              backgroundSessionId = str(run.traceSessionId)
-              backgroundBoundary = Number.isSafeInteger(run.traceBoundary) ? run.traceBoundary : null
-              result = parseJsonLenient(text)
-              if (str(result.posture).trim() === '') throw new Error('模型返回的姿势 JSON 无效')
-              lastError = null
-              break
-            } catch (err) {
-              if (backgroundSessionId === '') backgroundSessionId = str(err && err.traceSessionId)
-              lastError = err
-              if (attempt < 2) console.warn('dsh-tavern: 结算输出无效，自动重试', str(err && err.message || err))
+          let submittedPosture = null
+          const run = await backgroundAgentRunner.run({
+            task: 'settlement',
+            persistent: true,
+            persistentSessionId: backgroundSessionId,
+            rewindTo: taskRun.participantRequest.rewindTo,
+            selection,
+            messages: [{
+              id: 'settle-' + Date.now().toString(36),
+              role: 'user',
+              regexPlacement: 2,
+              content: [{ type: 'text', text: settleUserText(snapshot) }],
+              source: { kind: 'plugin', plugin: 'dsh-tavern' }
+            }],
+            system: runtimePrompt('posture-settlement'),
+            turnContext: '',
+            tools: [POSTURE_SUBMIT_TOOL],
+            maxToolCalls: 3,
+            temperature: 0.2,
+            sessionId: snapshot.sessionId,
+            stopToolsWhen: function () { return submittedPosture !== null },
+            acceptWithoutText: function () { return submittedPosture !== null },
+            async onToolCall(call) {
+              if (!call || call.name !== POSTURE_SUBMIT_TOOL_NAME) {
+                return JSON.stringify({ ok: false, retryable: true, error: '当前任务只允许调用 posture_submit' })
+              }
+              try {
+                submittedPosture = normalizePostureSubmission(call.arguments)
+                return JSON.stringify({ ok: true })
+              } catch (error) {
+                return JSON.stringify({ ok: false, retryable: true, error: str(error && error.message || error) })
+              }
             }
-          }
-          if (lastError !== null) throw lastError
+          })
+          if (submittedPosture === null) throw new Error('后台 Agent 未调用 posture_submit 提交有效姿势')
+          result = submittedPosture
+          text = str(run.text) || JSON.stringify(result)
+          backgroundSessionId = str(run.traceSessionId)
+          backgroundBoundary = Number.isSafeInteger(run.traceBoundary) ? run.traceBoundary : null
         }
         let stat = { postureUpdated: false }
         const completed = await taskRun.commit({

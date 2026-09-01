@@ -5,7 +5,7 @@ export const SYSTEM_PROMPT_DEFINITIONS = Object.freeze([
   ['script-story', '剧本模式正文补充', '控制绑定剧本时追加给正文 Agent 的规则。'],
   ['candidate-story', '普通剧情候选项', '控制普通剧情候选项的数量、类型和输出格式。'],
   ['candidate-script', '剧本候选项', '控制剧本模式候选项及剧本推进规则。'],
-  ['posture-settlement', '姿势状态结算', '控制后台姿势结算的 JSON 输出。'],
+  ['posture-settlement', '姿势状态结算', '控制后台姿势结算的工具提交。'],
   ['story-compaction', '剧情记录压缩', '控制长对话压缩成剧情检查点的方式。'],
   ['card-mode', '卡片工作台 Agent', '控制卡片工作台 Agent 的权限、工具与工作规则。'],
   ['card-mode-greeting', '卡片工作台欢迎语', '控制新建卡片工作台对话的开场内容。'],

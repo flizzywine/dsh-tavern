@@ -32,11 +32,12 @@ test('深模块强制一次工具调用并以官方 Runtime 的实际差异生�
     model: {
       async run(input) {
         modelCalls.push(structuredClone({ messages: input.messages, turnContext: input.turnContext, rewindTo: input.rewindTo }))
+        await input.onToolCall({ name: 'posture_submit', arguments: { posture: '扶墙站立' } })
         await input.onToolCall({
           name: 'mvu_submit_update',
           arguments: { operations: [{ op: 'delta', path: '/stat_data/体力', value: -1 }] }
         })
-        return { text: '{"posture":"扶墙站立"}', traceSessionId: 'background-1', traceBoundary: 12 }
+        return { text: '', traceSessionId: 'background-1', traceBoundary: 12 }
       }
     },
     runtime: {
@@ -62,6 +63,7 @@ test('深模块强制一次工具调用并以官方 Runtime 的实际差异生�
   assert.equal(runtimeCalls.length, 1)
   assert.match(runtimeCalls[0].command, /"op": "delta"/)
   assert.equal(result.receipt.status, 'updated')
+  assert.equal(result.posture, '扶墙站立')
   assert.equal(result.receipt.summary, '')
   assert.deepEqual(result.receipt.changes, [{ operation: 'set', path: '/stat_data/体力', before: '10', after: '9' }])
 })
@@ -71,6 +73,7 @@ test('深模块逐项核验提交结果并把人物卡脚本联动与失败操�
     maxAttempts: 1,
     model: {
       async run(input) {
+        await input.onToolCall({ name: 'posture_submit', arguments: { posture: '走向石门' } })
         await input.onToolCall({
           name: 'mvu_submit_update',
           arguments: {
@@ -80,7 +83,7 @@ test('深模块逐项核验提交结果并把人物卡脚本联动与失败操�
             ]
           }
         })
-        return { text: '{"posture":"走向石门"}' }
+        return { text: '' }
       }
     },
     runtime: {
@@ -131,8 +134,9 @@ test('深模块把有效空 Patch 记录为 unchanged，把漏调用工具记录
     maxAttempts: 1,
     model: {
       async run(input) {
+        await input.onToolCall({ name: 'posture_submit', arguments: { posture: '原地站立' } })
         await input.onToolCall({ name: 'mvu_submit_update', arguments: { operations: [] } })
-        return { text: '{"posture":"原地站立"}' }
+        return { text: '' }
       }
     },
     runtime: {
@@ -170,9 +174,9 @@ test('变量结算 Frame 明确隔离用户输入、旧轮正文和隐藏思考'
   assert.equal(request.messages[0].role, 'assistant')
   assert.match(suppliedContext, /突破失败/)
   assert.doesNotMatch(suppliedContext, /尝试突破|隐藏思考|旧轮正文/)
-  assert.deepEqual(request.tools.map(function (tool) { return tool.name }), ['mvu_submit_update'])
-  assert.deepEqual(request.tools[0].parameters.required, ['operations'])
-  assert.equal(Object.hasOwn(request.tools[0].parameters.properties, 'analysis'), false)
+  assert.deepEqual(request.tools.map(function (tool) { return tool.name }), ['posture_submit', 'mvu_submit_update'])
+  assert.deepEqual(request.tools[1].parameters.required, ['operations'])
+  assert.equal(Object.hasOwn(request.tools[1].parameters.properties, 'analysis'), false)
 })
 
 test('空 operations 是有效的明确结算结果，旧 analysis 输入被兼容忽略', function () {

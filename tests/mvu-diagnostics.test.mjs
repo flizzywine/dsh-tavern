@@ -97,6 +97,7 @@ test('浏览器非抛出警告经事件门、执行器和结算回执持久保�
     } }
   })
   const module = createMvuSettlementModule({ diagnostics: store, runtime: adapter, model: { async run(input) {
+    await input.onToolCall({ name: 'posture_submit', arguments: { posture: '原地站立' } })
     await input.onToolCall({ name: 'mvu_submit_update', arguments: { analysis: '不要重复记录这段分析', operations: [{ op: 'add', path: '/角色', value: {} }] } })
     return { text: '{}', traceSessionId: 'bg' }
   } } })
@@ -115,7 +116,7 @@ test('诊断磁盘故障不会使已经成功的结算重试', async () => {
   let runs = 0
   const module = createMvuSettlementModule({
     diagnostics: { async record() { throw new Error('disk full') } },
-    model: { async run(input) { runs++; await input.onToolCall({ name: 'mvu_submit_update', arguments: { operations: [] } }); return {} } },
+    model: { async run(input) { runs++; await input.onToolCall({ name: 'posture_submit', arguments: { posture: '原地站立' } }); await input.onToolCall({ name: 'mvu_submit_update', arguments: { operations: [] } }); return {} } },
     runtime: { async settleMvuUpdate() { return { context: { messages: [{ variables: {} }] } } } }
   })
   const result = await module.settleVariables({ operationId: 'op', chatId: 'c', branchId: 'b', basedOnRevision: 1, sessionId: 's', messageId: 0, swipeId: 0, storyText: '正文', currentVariables: {} })

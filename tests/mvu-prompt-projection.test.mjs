@@ -45,6 +45,7 @@ test('失败重试反馈同样移除展示副本，不改变运行时输入、�
   const after = { ...structuredClone(variables), schema: changedSchema }
   const module = createMvuSettlementModule({
     model: { async run(request) {
+      await request.onToolCall({ name: 'posture_submit', arguments: { posture: '原地站立' } })
       const malformed = JSON.parse(await request.onToolCall({ name: 'mvu_submit_update', arguments: {} }))
       assert.equal(malformed.retryable, true)
       assert.equal(malformed.currentVariables.schema, undefined)

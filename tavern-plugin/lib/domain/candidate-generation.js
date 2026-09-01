@@ -147,7 +147,23 @@ function buildMessages(chat, selection, now, limit = 6) {
   return messages
 }
 
-const SCRIPT_READ_TOOL = Object.freeze({
+export const CANDIDATE_SUBMIT_TOOL_NAME = 'candidate_submit_choices'
+
+export const CANDIDATE_SUBMIT_TOOL = Object.freeze({
+  name: CANDIDATE_SUBMIT_TOOL_NAME,
+  description: '提交本轮候选项。自由故事必须提交 4 个行动候选和 1 个场景候选；剧本模式提交 1 个行动候选且 scene 留空。',
+  parameters: Object.freeze({
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      actions: { type: 'array', minItems: 1, maxItems: 4, items: { type: 'string', minLength: 1 } },
+      scene: { type: 'string' }
+    },
+    required: ['actions', 'scene']
+  })
+})
+
+export const SCRIPT_READ_TOOL = Object.freeze({
   name: 'tavern_read_script',
   description: '只读剧本：用 position 读取任意剧本块，或用 query 检索整本剧本，两者都不移动游标。position、query 必须且只能提供一个。最多查询 6 次，用完后必须根据已有材料输出最终候选。',
   parameters: {
@@ -160,7 +176,7 @@ const SCRIPT_READ_TOOL = Object.freeze({
   }
 })
 
-const SCRIPT_POINT_TOOL = Object.freeze({
+export const SCRIPT_POINT_TOOL = Object.freeze({
   name: 'tavern_point_script',
   description: '请求把下一轮剧本游标定位到指定块。只能保持当前位置或向前跳，不能后退；总块数加 1 表示剧本结束。调用只暂存请求，候选成功后才会一起提交。',
   countsTowardLimit: false,
@@ -326,6 +342,28 @@ export function createCandidateGenerator(options) {
       source: { kind: 'plugin', plugin: 'dsh-tavern' }
     }])
     const research = scriptMode ? scriptResearchAttempt(script, scriptWindow, card, chat) : null
+    let submittedChoices = null
+    let submissionError = null
+    async function onToolCall(call) {
+      if (call && call.name === CANDIDATE_SUBMIT_TOOL_NAME) {
+        try {
+          const args = call.arguments !== null && typeof call.arguments === 'object' ? call.arguments : parseJsonLenient(call.arguments)
+          const actions = Array.isArray(args.actions) ? args.actions.map(function (text) { return str(text).trim() }).filter(Boolean) : []
+          const scene = str(args.scene).trim()
+          const source = actions.map(function (text) { return { type: 'action', text } })
+          if (scene !== '') source.push({ type: 'scene', text: scene })
+          submittedChoices = validatedChoices(source, scriptMode, logger)
+          submissionError = null
+          return JSON.stringify({ ok: true, accepted: submittedChoices.length })
+        } catch (error) {
+          submittedChoices = null
+          submissionError = error
+          return JSON.stringify({ ok: false, retryable: true, error: str(error && error.message || error) })
+        }
+      }
+      if (research !== null) return research.onToolCall(call)
+      return JSON.stringify({ ok: false, retryable: true, error: '当前候选任务只允许调用 candidate_submit_choices' })
+    }
     const callOptions = {
       sessionId: input.sessionId,
       task: 'candidate',
@@ -345,11 +383,13 @@ export function createCandidateGenerator(options) {
       let run
       try {
         await reportStage('generating')
-        run = await model.runCandidate(Object.assign({}, callOptions, scriptMode ? {
-          tools: [SCRIPT_READ_TOOL, SCRIPT_POINT_TOOL],
-          onToolCall: research.onToolCall,
-          maxToolCalls: 6
-        } : { tools: [] }))
+        run = await model.runCandidate(Object.assign({}, callOptions, {
+          tools: scriptMode ? [SCRIPT_READ_TOOL, SCRIPT_POINT_TOOL, CANDIDATE_SUBMIT_TOOL] : [CANDIDATE_SUBMIT_TOOL],
+          onToolCall,
+          maxToolCalls: scriptMode ? 7 : 2,
+          stopToolsWhen: function () { return submittedChoices !== null },
+          acceptWithoutText: function () { return submittedChoices !== null }
+        }))
       } catch (error) {
         await taskRun.fail(error).catch(function (persistError) {
           if (logger && typeof logger.warn === 'function') logger.warn(`dsh-tavern: 候选模型失败后无法持久化终态：${str(persistError && persistError.message || persistError)}`)
@@ -363,7 +403,8 @@ export function createCandidateGenerator(options) {
       let choices
       try {
         await reportStage('validating')
-        choices = validatedChoices(parsedDecision(text).choices, scriptMode, logger)
+        if (submittedChoices === null) throw submissionError || new Error('模型未调用 candidate_submit_choices 提交有效候选项')
+        choices = submittedChoices
       } catch (error) {
         if (logger && typeof logger.error === 'function') {
           logger.error('dsh-tavern: 候选项输出无效:', str(error && error.message || error))

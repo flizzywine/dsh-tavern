@@ -147,19 +147,20 @@ test('候选项通过持久任务信箱提交，同步快照原子携带结果',
   assert.match(clientSource, /openSubagent\(\{ parentSessionId: panel\.sessionId, childSessionId: panel\.traceSessionId, mode: panel\.traceMode \}\)/)
 })
 
-test('姿势结算限制为短 JSON 输出', () => {
-  const input = between(serverSource, 'function settleUserText', 'function parseJsonLenient')
+test('姿势结算通过短工具参数提交', () => {
+  const input = between(serverSource, 'function settleUserText', 'function applySettlement')
   const flow = between(serverSource, 'async function runSettlement', 'function queueSettlement')
   const systemPrompt = prompt('posture-settlement')
 
   assert.match(input, /slice\(-2\)/)
   assert.match(input, /【上一轮结算姿势】/)
   assert.doesNotMatch(input, /slice\(-4\)/)
-  assert.match(systemPrompt, /只输出 JSON/)
+  assert.match(systemPrompt, /posture_submit/)
   assert.match(systemPrompt, /位置、姿势、动作/)
   assert.doesNotMatch(flow, /maxTokens:/)
-  assert.match(flow, /attempt < 2/)
-  assert.match(flow, /姿势 JSON 无效/)
+  assert.match(flow, /tools: \[POSTURE_SUBMIT_TOOL\]/)
+  assert.match(flow, /normalizePostureSubmission/)
+  assert.match(flow, /未调用 posture_submit/)
   assert.match(flow, /text\.slice\(0, 200\)/)
   assert.match(flow, /backgroundAgentRunner\.run/)
   assert.match(flow, /task: 'settlement'/)

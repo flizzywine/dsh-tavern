@@ -79,6 +79,7 @@ export function traceError(error, traceSessionId, task) {
 // A task operates on a leased DSH Agent; it does not create or retain sessions.
 export function createBackgroundAgentTask(options) {
   const setupAgent = typeof options.setupAgent === 'function' ? options.setupAgent : null
+  const stableBackgroundTools = Array.isArray(options.backgroundTools) ? options.backgroundTools : []
   function completedBoundary(events) {
     for (let index = (events || []).length - 1; index >= 0; index--) {
       const event = events[index]
@@ -152,6 +153,26 @@ export function createBackgroundAgentTask(options) {
       })
       childCtx.systemPrompt.suppressRuntimeContext()
       childCtx.tools.restrict({ allow: [] })
+      if (state.input.task !== 'image') {
+        state.stableToolDisposers = stableBackgroundTools.map(function (tool) {
+          return childCtx.tools.register({
+            name: tool.name,
+            description: tool.description,
+            parameters: tool.parameters,
+            output: {
+              schema: { type: 'string' },
+              render: function (_args, value) { return [{ type: 'text', text: value }] }
+            },
+            async execute(args) {
+              const active = state.activeToolTask
+              if (active === null || active === undefined) {
+                return JSON.stringify({ ok: false, retryable: true, error: '当前没有正在执行的后台任务，请等待下一条任务指令。' })
+              }
+              return active.execute(tool, args)
+            }
+          })
+        }).filter(function (dispose) { return typeof dispose === 'function' })
+      }
       childCtx.on('agent/request', async function (_payload, next) {
         const input = state.input || {}
         const request = await next()
@@ -166,6 +187,34 @@ export function createBackgroundAgentTask(options) {
     const maxToolCalls = Number.isInteger(input.maxToolCalls) && input.maxToolCalls > 0 ? input.maxToolCalls : 8
     let toolCallCount = 0
     let removed = false
+    const allowed = new Map(tools.map(function (tool) { return [tool.name, tool] }))
+    if (stableBackgroundTools.length > 0 && input.task !== 'image') {
+      state.activeToolTask = {
+        async execute(tool, args) {
+          const current = allowed.get(tool.name)
+          if (current === undefined) {
+            return JSON.stringify({
+              ok: false,
+              retryable: true,
+              error: '当前任务不允许调用 ' + tool.name + '；请改用：' + (Array.from(allowed.keys()).join('、') || '无工具')
+            })
+          }
+          if (typeof input.stopToolsWhen === 'function' && input.stopToolsWhen()) {
+            return JSON.stringify({ ok: false, retryable: false, message: '当前任务已经提交完成，请结束本轮。' })
+          }
+          if (current.countsTowardLimit !== false) {
+            toolCallCount++
+            if (toolCallCount > maxToolCalls) {
+              return JSON.stringify({ ok: false, retryable: false, message: input.toolLimitMessage || '当前任务的工具调用次数已达上限，请结束本轮。' })
+            }
+          }
+          return str(await input.onToolCall({ name: tool.name, arguments: args }))
+        }
+      }
+      return async function () {
+        if (state.activeToolTask !== null && state.activeToolTask !== undefined) state.activeToolTask = null
+      }
+    }
     async function removeTools() {
       if (removed) return
       removed = true
@@ -229,9 +278,11 @@ export function createBackgroundAgentTask(options) {
       if (rawResult === null) {
         const underlying = terminalError(agent.session.events, eventStart)
         if (underlying !== null) throw underlying
-        throw new Error(input.task === 'settlement' ? '后台 Agent 没有返回结算文本' : '后台 Agent 没有返回候选文本')
+        if (typeof runtimeInput.acceptWithoutText !== 'function' || runtimeInput.acceptWithoutText() !== true) {
+          throw new Error(input.task === 'settlement' ? '后台 Agent 没有返回结算文本' : '后台 Agent 没有返回候选文本')
+        }
       }
-      const text = rawResult.text.trim()
+      const text = rawResult === null ? '' : rawResult.text.trim()
       if (persistent && input.task === 'image' && typeof options.flushSession === 'function') {
         await options.flushSession(agent.session)
       }
