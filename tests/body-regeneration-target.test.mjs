@@ -23,9 +23,35 @@ test('失败清理节点不能被当作旧正文，重试定位权威剧情轮�
   assert.deepEqual(events, before)
 })
 
-test('连续重新生成允许同一剧情轮次的空模型替换节点，跳过后来的失败清理', () => {
+test('旧版空替换节点仍可作为连续重新生成目标，并跳过后来的失败清理', () => {
   const events = [assistant(0, 6), assistant(1, 8), assistant(2, 6, model, []), cleanup(3, 9)]
   assert.equal(select(events, [2, 3]).oldSeq, 2)
+})
+
+test('正文重生成先发布非空当前 Swipe，再启动后台结算', async () => {
+  const adoptionStart = code.indexOf('    const currentNodes =', start)
+  const adoptionEnd = code.indexOf('    const result =', adoptionStart)
+  const adoption = code.slice(adoptionStart, adoptionEnd)
+  const execute = new Function(
+    'session', 'planRegenerationSurface', 'oldSeq', 'eventStart', 'oldTurn', 'randomUUID',
+    'body', 'oldSource', 'queueSettlement', 'committedChat', 'console', 'str',
+    'return (async function () {\n' + adoption + '\n})()'
+  )
+  const calls = []
+  const session = {
+    events: [assistant(0, 6)], surface: { nodes: [0] },
+    append(type, data, options) { calls.push({ type, data, options }) }
+  }
+
+  await execute(
+    session,
+    () => ({ start: 0, end: 0, shadowedSeqs: [0] }),
+    0, 1, 6, () => 'selected-swipe', '最终正文', model,
+    async () => { calls.push({ type: 'settlement' }) }, { id: 'chat-1' }, console, String
+  )
+
+  assert.deepEqual(calls[0].data.message.content, [{ type: 'text', text: '最终正文' }])
+  assert.equal(calls[1].type, 'settlement')
 })
 
 test('不能把其他轮次的模型消息误选为当前正文', () => {

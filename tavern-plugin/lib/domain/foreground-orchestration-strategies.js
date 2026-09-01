@@ -114,6 +114,9 @@ export function createNativePlayOrchestrationStrategy(options) {
     let agentMessages = decision.messages
     const snapshot = mode === 'story' || mode === 'script' ? await options.resolvePreset(input.chat) : null
     if (mode === 'story' || mode === 'script') {
+      if (Number(payload.step) === 1 && typeof options.synchronizeTail === 'function') {
+        await options.synchronizeTail({ sessionId, chat: input.chat, payload })
+      }
       if (typeof options.ensureSessionPrefix === 'function') await options.ensureSessionPrefix(input)
       stagedRequests.set(sessionId, {
         turn: Math.max(0, Number(payload.turn) || 0),

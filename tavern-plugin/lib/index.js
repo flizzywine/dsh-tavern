@@ -44,6 +44,7 @@ import { createTavernHelperEventGate } from './domain/tavern-helper-event-gate.j
 import { createTavernScriptHostAdapter } from './domain/tavern-script-host-adapter.js'
 import { createTavernRemoteAssetPinStore } from './domain/tavern-remote-assets.js'
 import { OFFICIAL_MVU_VERSION, readOfficialMvuBundle } from './domain/official-mvu-assets.js'
+import { projectTailSwipeView, synchronizeTailSwipeSurface } from './domain/tail-swipe-regeneration.js'
 import { createTavernStaticResourceCache, projectCachedResourceBody } from './domain/tavern-static-resource-cache.js'
 import { SILLYTAVERN_CSS_COMPAT_URLS } from './domain/sillytavern-css-compatibility.js'
 import { assertRegenerationSourceCurrent, mergeRegeneratedSwipe } from './domain/tavern-swipe-regeneration.js'
@@ -255,6 +256,7 @@ export async function apply(ctx) {
   }
 
   const settlementJobs = new Map()
+  const settlementReruns = new Set()
   const scriptContinuity = createScriptContinuity()
   const storyTimeline = createStoryTimeline({ id: uid, now: Date.now })
   const cardPreparation = createCardPreparation({ id: function () { return uid('card') }, now: Date.now })
@@ -997,7 +999,12 @@ export async function apply(ctx) {
     worldBooks,
     eventGate: tavernHelperEventGate,
     diagnostics: mvuDiagnostics,
-    isPlayChat: function (chat) { return groupOfMode(chat.mode) === 'play' }
+    isPlayChat: function (chat) { return groupOfMode(chat.mode) === 'play' },
+    onSwipeChanged: function (chat) {
+      void queueSettlement(chat.id).catch(function (error) {
+        console.error('dsh-tavern: 启动 Swipe 变量结算失败', str(error && error.message || error))
+      })
+    }
   })
 
   function sessionDebugEvidence(sessionId) {
@@ -1157,11 +1164,7 @@ export async function apply(ctx) {
         commit: OFFICIAL_MVU_VERSION.commit,
         assetUrl: OFFICIAL_MVU_VERSION.assetUrl
       } : null,
-      tavernSwipes: (Array.isArray(chat.messages) ? chat.messages : []).map(function (message, messageId) {
-        if (!message || message.role !== 'assistant') return null
-        const count = Math.max(Array.isArray(message.swipes) ? message.swipes.length : 0, 1)
-        return { messageId, turn: Math.max(0, Number(message.turn) || (message.greeting === true ? 1 : 0)), swipeId: Math.max(0, Math.min(count - 1, Number(message.swipeId) || 0)), count }
-      }).filter(function (item) { return item && item.turn > 0 }),
+      tavernSwipes: projectTailSwipeView(chat),
       suppressedDshTurns: Array.from(new Set((Array.isArray(chat.suppressedDshTurns) ? chat.suppressedDshTurns : [])
         .map(Number).filter(function (turn) { return Number.isSafeInteger(turn) && turn > 0 }))).sort(function (left, right) { return left - right }),
       suppressedDshErrorTurns: supersededRegenerationErrorTurns({
@@ -2045,8 +2048,18 @@ export async function apply(ctx) {
   }
   function queueSettlement(chatId) {
     const existing = settlementJobs.get(chatId)
-    if (existing !== undefined) return existing
-    const job = runSettlement(chatId).finally(function () { settlementJobs.delete(chatId) })
+    if (existing !== undefined) {
+      settlementReruns.add(chatId)
+      return existing
+    }
+    const job = runSettlement(chatId).finally(function () {
+      settlementJobs.delete(chatId)
+      if (settlementReruns.delete(chatId)) {
+        void queueSettlement(chatId).catch(function (error) {
+          console.error('dsh-tavern: 重新排队变量结算失败', chatId, str(error && error.message || error))
+        })
+      }
+    })
     settlementJobs.set(chatId, job)
     return job
   }
@@ -2358,12 +2371,7 @@ export async function apply(ctx) {
       next.suppressedDshTurns = Array.from(new Set((Array.isArray(next.suppressedDshTurns) ? next.suppressedDshTurns : []).concat([syntheticTurn])))
       return next
     }, { source: 'foreground.regen-commit' })
-    // 重生成正文也只交给后台变量 Agent 结算。这里不能再把正文直接作为
-    // MESSAGE_RECEIVED 交给官方 MVU，否则会与后台所有权重复执行。
-    void queueSettlement(committedChat.id).catch(function (error) {
-      console.error('dsh-tavern: 启动重生成变量结算失败', str(error && error.message || error))
-    })
-    // 一次遮蔽旧正文、此前失败回合残留、合成输入与新模型节点；原楼层由 Tavern Swipe 投影统一显示
+    // 把旧正文、失败残留、合成输入和新模型节点折叠为当前选中的非空 Swipe 正文。
     const currentNodes = session.surface !== undefined && Array.isArray(session.surface.nodes) ? session.surface.nodes : []
     const replacement = planRegenerationSurface({
       events: session.events,
@@ -2374,10 +2382,15 @@ export async function apply(ctx) {
     session.append('assistant/message', {
       turn: oldTurn,
       step: 1,
-      message: { id: randomUUID(), role: 'assistant', content: [], source: oldSource }
+      message: { id: randomUUID(), role: 'assistant', content: [{ type: 'text', text: body }], source: oldSource }
     }, {
       surfaceOp: { op: 'replace', start: replacement.start, end: replacement.end },
       sourceEventSeqs: replacement.shadowedSeqs
+    })
+    // 重生成正文也只交给后台变量 Agent 结算。先把最终 Swipe 固化到
+    // 前台消息面，再启动结算，避免后台状态先于正文投影发布。
+    void queueSettlement(committedChat.id).catch(function (error) {
+      console.error('dsh-tavern: 启动重生成变量结算失败', str(error && error.message || error))
     })
     const result = await view(committedChat, card)
     result.adopted = { text: body, guidance: guide, hiddenTurn: oldTurn, syntheticTurn: syntheticTurn, swipeId: mergedSwipeId }
@@ -3234,6 +3247,13 @@ export async function apply(ctx) {
       modeFor: async function (sessionId) { return await turnOrchestrator.modeFor(sessionId) },
       filterMessages: filterSkillMessages,
       resolvePreset: resolveChatRuntimePreset,
+      synchronizeTail: async function (input) {
+        const chat = await chatForSession(input.sessionId)
+        if (chat === undefined) return
+        const session = input.payload && input.payload.agent && input.payload.agent.session
+        const synchronized = synchronizeTailSwipeSurface({ chat, session })
+        if (synchronized.updated && typeof sessionStore.flush === 'function') await sessionStore.flush(session)
+      },
       prepareTurn: async function (input) { return await foregroundHandoff.prepare(input) },
       appendFrame: function (input) { return foregroundFrameSessionAdapter.append(input) },
       recordFrame: function (sessionId, frame, receipt) {

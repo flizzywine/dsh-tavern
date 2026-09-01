@@ -22,9 +22,9 @@ function isFailedTurnCleanup(event) {
   return source && source.kind === 'plugin' && source.plugin === 'dsh-tavern-failed-turn-cleanup'
 }
 
-// Successful regeneration leaves a durable empty replacement at the saved story
-// turn. Surface replacement hides messages, not DSH's turn/end error nodes.
-// Derive their display suppression without changing the immutable event history.
+// Legacy regeneration left a durable empty replacement at the saved story turn.
+// Surface replacement hides messages, not DSH's turn/end error nodes. Derive
+// their display suppression without changing the immutable event history.
 export function supersededRegenerationErrorTurns(input) {
   const events = Array.isArray(input && input.events) ? input.events : []
   const syntheticTurns = new Set((Array.isArray(input && input.suppressedDshTurns) ? input.suppressedDshTurns : []).map(Number))
@@ -67,7 +67,7 @@ export function locateRegenerationSurface(input) {
     if (!event || event.type !== 'assistant/message' || Number(event.data && event.data.turn) !== turn) continue
     const source = modelSourceOf(event)
     if (source === null) continue
-    // Successful swipes leave an empty model-sourced replacement at the original turn.
+    // Current swipes leave a non-empty replacement; legacy swipes can be empty.
     // Plugin cleanup markers and messages from other turns are not the saved story body.
     return Object.freeze({ assistantSeq: Number(nodes[index]), turn, source })
   }
