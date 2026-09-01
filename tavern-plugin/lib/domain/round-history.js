@@ -168,12 +168,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
       next.suppressedDshTurns = Array.from(new Set((Array.isArray(next.suppressedDshTurns) ? next.suppressedDshTurns : []).concat([syntheticTurn])))
       return next
     }, { source: 'foreground.regen-commit' })
-    // 重生成正文也只交给后台变量 Agent 结算。这里不能再把正文直接作为
-    // MESSAGE_RECEIVED 交给官方 MVU，否则会与后台所有权重复执行。
-    void queueSettlement(committedChat.id).catch(function (error) {
-      console.error('dsh-tavern: 启动重生成变量结算失败', str(error && error.message || error))
-    })
-    // 一次遮蔽旧正文、此前失败回合残留、合成输入与新模型节点；原楼层由 Tavern Swipe 投影统一显示
+    // 把旧正文、失败残留、合成输入和新模型节点折叠为当前选中的非空 Swipe 正文。
     const currentNodes = session.surface !== undefined && Array.isArray(session.surface.nodes) ? session.surface.nodes : []
     const replacement = planRegenerationSurface({
       events: session.events,
@@ -184,10 +179,15 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     session.append('assistant/message', {
       turn: oldTurn,
       step: 1,
-      message: { id: randomUUID(), role: 'assistant', content: [], source: oldSource }
+      message: { id: randomUUID(), role: 'assistant', content: [{ type: 'text', text: body }], source: oldSource }
     }, {
       surfaceOp: { op: 'replace', start: replacement.start, end: replacement.end },
       sourceEventSeqs: replacement.shadowedSeqs
+    })
+    // 重生成正文也只交给后台变量 Agent 结算。先把最终 Swipe 固化到
+    // 前台消息面，再启动结算，避免后台状态先于正文投影发布。
+    void queueSettlement(committedChat.id).catch(function (error) {
+      console.error('dsh-tavern: 启动重生成变量结算失败', str(error && error.message || error))
     })
     const result = await view(committedChat, card)
     result.adopted = { text: body, guidance: guide, hiddenTurn: oldTurn, syntheticTurn: syntheticTurn, swipeId: mergedSwipeId }

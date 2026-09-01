@@ -19,7 +19,7 @@ function chat() {
   }
 }
 
-function harness(chatValue = chat()) {
+function harness(chatValue = chat(), overrides = {}) {
   const writes = []
   const events = []
   const worldbook = {
@@ -48,7 +48,8 @@ function harness(chatValue = chat()) {
       complete: function () { return true },
       dispose: function () { return true }
     },
-    isPlayChat: function (value) { return value.mode === 'story' }
+    isPlayChat: function (value) { return value.mode === 'story' },
+    ...overrides
   })
   return { adapter, chat: chatValue, writes, events, worldbook }
 }
@@ -269,6 +270,40 @@ test('Host Adapter 统一翻译世界书、Swipe 与生命周期事件', async f
   assert.equal(run.chat.messages[0].swipeId, 1)
   assert.equal(run.events.at(-1).name, 'MESSAGE_SWIPED')
   assert.equal(run.events.at(-1).context.messages[0].message, '新正文')
+})
+
+test('Swipe 只能切换最后一条正文，并让当前 Swipe 重新进入后台结算', async function () {
+  const value = chat()
+  value.mvu.owner = 'official'
+  value.messages.push(
+    { role: 'user', text: '继续' },
+    { role: 'assistant', turn: 2, text: '正文甲', sourceText: '正文甲', swipes: ['正文甲', '正文乙'], swipeId: 0,
+      variables: [{ hp: 7 }, { hp: 6 }], mvu: { pending: false, receipt: { status: 'updated' } } }
+  )
+  let queued = 0
+  const run = harness(value, { onSwipeChanged() { queued++ } })
+
+  await assert.rejects(run.adapter.switchSwipe('session-1', 0, 1), /最后一条正文/)
+  await run.adapter.switchSwipe('session-1', 2, 1)
+
+  assert.equal(value.messages[2].swipeId, 1)
+  assert.equal(value.messages[2].mvu.pending, true)
+  assert.equal(value.settleStatus, 'pending')
+  assert.equal(queued, 1)
+})
+
+test('新一轮正文或重新生成已经开始后锁定 Swipe', async function () {
+  for (const busy of [
+    { regenInProgress: true },
+    { timeline: { operations: { body: { kind: 'body', status: 'running' } } } }
+  ]) {
+    const value = Object.assign(chat(), busy)
+    const run = harness(value)
+
+    await assert.rejects(run.adapter.switchSwipe('session-1', 0, 1), /已经开始/)
+    assert.equal(value.messages[0].swipeId, 0)
+    assert.equal(run.writes.length, 0)
+  }
 })
 
 test('Host Adapter 为脚本事件投影临时玩家输入但不改写 Chat', async function () {

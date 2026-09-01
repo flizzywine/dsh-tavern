@@ -10,6 +10,7 @@ import {
   projectTavernHelperWorldbook,
   replaceTavernHelperWorldbookOperations
 } from './tavern-helper-worldbook.js'
+import { selectedTailSwipe } from './tail-swipe-regeneration.js'
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
@@ -18,6 +19,14 @@ function str(value) {
 function isOfficialMvuData(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
     && value.stat_data !== undefined && value.schema !== undefined
+}
+
+function swipeIsLocked(chat) {
+  if (chat && chat.regenInProgress === true) return true
+  const operations = chat && chat.timeline && chat.timeline.operations
+  return Object.values(operations && typeof operations === 'object' ? operations : {}).some(function (operation) {
+    return operation && operation.kind === 'body' && operation.status === 'running'
+  })
 }
 
 // Pinned upstream src/function/update/index.ts throttles MESSAGE_RECEIVED at
@@ -358,11 +367,23 @@ export function createTavernScriptHostAdapter(options = {}) {
   async function switchSwipe(sessionId, messageId, swipeId) {
     const chat = await resolveChat(sessionId)
     if (typeof options.isPlayChat === 'function' && !options.isPlayChat(chat)) throw new Error('当前会话没有绑定游玩对话')
+    if (swipeIsLocked(chat)) throw new Error('新一轮正文或重新生成已经开始，当前 Swipe 已锁定')
+    const selected = selectedTailSwipe(chat, { messageId, swipeId })
+    if (Math.max(0, Number(selected.message.swipeId) || 0) === selected.swipeId) {
+      return { updated: false, target: { messageId: selected.messageId, swipeId: selected.swipeId } }
+    }
     const updated = replaceTavernHelperMessages(chat, [{ message_id: messageId, swipe_id: swipeId }])
+    const target = chat.messages[selected.messageId]
+    if (chat.mvu && chat.mvu.enabled === true && chat.mvu.owner === 'official') {
+      target.mvu = Object.assign({}, target.mvu, { pending: true, modified: false, diagnostics: [], events: [] })
+      chat.settleStatus = 'pending'
+      chat.settleError = null
+    }
     chat.tavernHelperLifecycleRevision = Math.max(0, Number(chat.tavernHelperLifecycleRevision) || 0) + 1
     chat.updatedAt = Date.now()
     await options.writeChat(chat, { source: 'tavern.swipe' })
     await dispatchEvent({ sessionId: chat.sessionId, chat, name: 'MESSAGE_SWIPED', args: [Number(messageId)] })
+    if (typeof options.onSwipeChanged === 'function') await options.onSwipeChanged(chat, { messageId: selected.messageId, swipeId: selected.swipeId })
     return { updated: true, target: updated[0] || null }
   }
 

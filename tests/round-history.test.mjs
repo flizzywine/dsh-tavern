@@ -77,12 +77,14 @@ test('完整重生成保留玩家输入、旧 Swipe 与变量，提交后才排�
   assert.ok(h.calls.indexOf('readRevision') < h.calls.indexOf('rollback.regen'))
   assert.ok(h.calls.indexOf('MESSAGE_SWIPED') < h.calls.indexOf('followup'))
   assert.ok(h.calls.indexOf('foreground.regen-commit') < h.calls.indexOf('settlement'))
+  assert.ok(h.calls.lastIndexOf('surface:assistant/message') < h.calls.indexOf('settlement'))
   assert.ok(!h.calls.includes('MESSAGE_RECEIVED'), 'MVU stays owned by background settlement')
   assert.deepEqual(h.session.events.slice(0, 2), originalEvents, 'append-only event history')
   const replacement = h.session.events.at(-1)
   assert.equal(replacement.data.turn, 2)
   assert.equal(replacement.surfaceOp.op, 'replace')
   assert.equal(replacement.data.message.source.kind, 'model')
+  assert.deepEqual(replacement.data.message.content, [{ type: 'text', text: '新正文3' }])
 })
 
 for (const mode of ['throw', 'missing', 'empty']) test('重生成 '+mode+' 恢复原剧情且不排后台结算', async () => {

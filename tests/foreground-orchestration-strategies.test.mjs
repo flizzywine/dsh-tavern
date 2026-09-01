@@ -24,6 +24,7 @@ function strategies(overrides = {}) {
       async modeFor() { return 'story' },
       filterMessages(messages) { return messages },
       async resolvePreset() { return { front: { text: 'preset' } } },
+      async synchronizeTail(input) { calls.push(['native.sync', input.sessionId]) },
       async prepareTurn(input) {
         calls.push(['native.prepare', input.userText, input.requestId])
         return { frame: { frameId: 'frame-1', branchId: 'b', basedOnRevision: 1, source: {}, userInput: { projectedText: 'projected' } } }
@@ -84,6 +85,7 @@ test('普通游玩与兼容模式只在策略选择点分叉', async () => {
   const compat = await run.value.prepareStep({ sessionId: 'compat', payload: compatPayload, decision: { kind: 'enter', messages: compatPayload.messages }, chat: run.chats.get('compat'), requestId: 'rpc-compat' })
   assert.equal(compat.messages, compatPayload.messages)
   assert.deepEqual(run.calls, [
+    ['native.sync', 'native'],
     ['native.prepare', '继续', 'rpc-native'],
     ['native.frame', 'frame-1'],
     ['compat.before', '向前走'],
