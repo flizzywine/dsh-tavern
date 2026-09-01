@@ -28,6 +28,18 @@ test('后台只发送一份结构和真实状态，运行时 Frame、未知字�
   assert.deepEqual(input, before)
 })
 
+test('人物卡可明确授权人物设计，但剧情状态仍只能依据正文', () => {
+  const request = projectMvuBackgroundRequest(createMvuBackgroundTaskFrame({
+    ...input,
+    updateRules: ['人物库允许预先设计人物；设计字段为性格和外貌，状态字段为位置和在场。']
+  }))
+  assert.match(request.system, /人物库/)
+  assert.match(request.system, /设计字段/)
+  assert.match(request.system, /预备人物/)
+  assert.match(request.system, /在场、位置、关系进展/)
+  assert.match(request.system, /正文[^。]*确认/)
+})
+
 test('不按字段名误删扁平变量，不删除 stat_data 内同名游戏字段，显式结构优先', () => {
   const flat = { hp: 10, display_data: '游戏字段', delta_data: 4, schema: '剧情用词' }
   const override = { type: 'object', properties: { other: { type: 'boolean' } } }

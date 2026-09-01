@@ -19,6 +19,7 @@ dl{display:grid;grid-template-columns:minmax(80px,1fr) minmax(0,2fr);gap:8px 12p
     if (value && typeof value === 'object') {
       for (const [key, child] of Object.entries(value)) {
         if (key.startsWith('$') || key.startsWith('__')) continue;
+        if (path.length === 1 && path[0] === '人物库' && child && typeof child === 'object' && child.状态 && child.状态.在场 === false) continue;
         collect(child, path.concat(key), rows);
       }
     } else {

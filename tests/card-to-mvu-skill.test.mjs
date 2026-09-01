@@ -47,6 +47,16 @@ test('转换 Skill 直接移除旧协议，不向前台追加迁移说明或新�
   assert.match(skill.content, /新人物登场[^\n]*原卡已有[^\n]*原样保留[^\n]*转换过程不新增/)
 })
 
+test('转换 Skill 将随机人物迁移为当前对话专属人物库', async () => {
+  const skills = createTavernSkillModule({ directory: new URL('../data/skills/', import.meta.url).pathname, builtInDirectory: root.pathname })
+  const skill = await skills.read('tavern-card-to-mvu')
+  assert.match(skill.content, /当前对话[^\n]*人物库/)
+  assert.match(skill.content, /同一张卡[^\n]*新对话/)
+  assert.match(skill.content, /允许[^\n]*预先设计[^\n]*尚未登场/)
+  assert.match(skill.content, /设计字段[^\n]*状态字段/)
+  assert.match(skill.content, /在场[^\n]*false[^\n]*不展示/)
+})
+
 test('Skill 配方可构造可导入卡，规则分流、状态显示及模型历史隔离均有效', () => {
   const entries = JSON.parse(recipe.match(/```json\n([\s\S]*?)\n```/)[1])
   const regexCode = recipe.match(/```js\n([\s\S]*?)\n```/)[1]
@@ -67,7 +77,9 @@ test('Skill 配方可构造可导入卡，规则分流、状态显示及模型�
   assert.equal(constantWorldBookContext({ worldBook }).context, '')
   assert.deepEqual(mvuUpdateRulesFromWorldBook(worldBook), [entries[1].content])
   const initial = JSON.parse(entries[0].content)
-  assert.equal(initial.人物.$meta.extensible, true)
+  assert.equal(initial.人物库.$meta.extensible, true)
+  assert.equal(initial.人物库.$meta.template.状态.在场, false)
+  assert.equal(initial.人物库.$meta.template.设计.性格, '')
   assert.equal(initial.玩家.位置, '门口')
   const layers = projectReplyLayers(card.data.first_mes, { regexScripts: extensions.regexScripts, placement: 2, depth: 0 })
   assert.equal(layers.sessionText.trim(), '你站在门口。')
@@ -99,9 +111,15 @@ test('通用状态模板重新读取变量并刷新 DOM，支持新增与恢复�
   vm.runInNewContext(statusHtml.match(/<script>\n([\s\S]*?)<\/script>/)[1], sandbox)
   await new Promise(resolve => setImmediate(resolve))
   assert.deepEqual(nodes.values.children.map(item => item.textContent), ['玩家 · 位置', '门口'])
-  data = { 玩家: { 位置: '大厅' }, 人物: { 新人物: { 姓名: '<img src=x onerror=alert(1)>' } } }
+  data = { 玩家: { 位置: '大厅' }, 人物: { 新人物: { 姓名: '<img src=x onerror=alert(1)>' } }, 人物库: {
+    预备人物: { 姓名: '暂不展示', 状态: { 在场: false } },
+    登场人物: { 姓名: '林晴', 状态: { 在场: true } }
+  } }
   handlers.get('update')()
-  assert.deepEqual(nodes.values.children.map(item => item.textContent), ['玩家 · 位置', '大厅', '人物 · 新人物 · 姓名', '<img src=x onerror=alert(1)>'])
+  assert.deepEqual(nodes.values.children.map(item => item.textContent), [
+    '玩家 · 位置', '大厅', '人物 · 新人物 · 姓名', '<img src=x onerror=alert(1)>',
+    '人物库 · 登场人物 · 姓名', '林晴', '人物库 · 登场人物 · 状态 · 在场', 'true'
+  ])
   data = { 玩家: { 位置: '门口' } }
   handlers.get('message')()
   assert.deepEqual(nodes.values.children.map(item => item.textContent), ['玩家 · 位置', '门口'])
