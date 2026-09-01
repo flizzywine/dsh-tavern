@@ -437,14 +437,18 @@ test('卡片模式通过人物卡、剧本、世界书、预设和空白入口�
   assert.match(clientSource, /return values\[sessionId\] \|\| "";/)
 })
 
-test('人物卡转 MVU 起始任务选择目标卡后直接写入 Slash Skill 命令', () => {
+test('人物卡转 MVU 起始任务写入 Skill、目标卡与简短转换要求', () => {
   const sidebar = between(clientSource, 'function TavernSidebar', 'function TavernResourcesTab')
   const injectTaskPrompt = between(clientSource, 'async function injectTaskPrompt', 'playControlsFeature.register')
 
   assert.match(sidebar, /cardEntry === "mvu"/)
   assert.match(sidebar, /newCardConversation\(card, "mvu", "把人物卡转成 MVU 版"\)/)
-  assert.match(sidebar, /把正文正则状态栏迁移为后台 MVU 结算和固定状态栏/)
-  assert.match(injectTaskPrompt, /if \(task === "mvu"\) \{\s*input\.setDraft\("\/tavern-card-to-mvu"\);\s*return;/)
+  assert.match(sidebar, /转换为 MVU 后，状态栏绝对不会掉格式/)
+  assert.match(injectTaskPrompt, /if \(task === "mvu"\)/)
+  assert.match(injectTaskPrompt, /\/tavern-card-to-mvu\\n\\n【目标人物卡】\\n@/)
+  assert.match(injectTaskPrompt, /把这张人物卡转换为独立的 MVU 版本/)
+  assert.match(injectTaskPrompt, /移除原卡自带的候选项生成提示、按钮、正则和专用脚本/)
+  assert.match(injectTaskPrompt, /统一使用 DSH Tavern 内置候选项/)
 })
 
 test('世界书与预设起始任务先选择一个目标并自动追加类型引用', () => {

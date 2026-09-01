@@ -30,6 +30,15 @@ test('转换 Skill 可由 Tavern 内置目录读取，引用资源齐全且默�
   }
 })
 
+test('转换 Skill 清理副本内重复的候选项生成机制并保留无关内容', async () => {
+  const skills = createTavernSkillModule({ directory: new URL('../data/skills/', import.meta.url).pathname, builtInDirectory: root.pathname })
+  const skill = await skills.read('tavern-card-to-mvu')
+  assert.match(skill.content, /候选项生成提示、按钮、正则、HTML 与 Helper 脚本/)
+  assert.match(skill.content, /只清理[^\n]*候选项生成[^\n]*保留[^\n]*无关/)
+  assert.match(skill.content, /DSH Tavern 内置候选项/)
+  assert.match(skill.content, /不存在第二套候选项生成机制/)
+})
+
 test('Skill 配方可构造可导入卡，规则分流、状态显示及模型历史隔离均有效', () => {
   const entries = JSON.parse(recipe.match(/```json\n([\s\S]*?)\n```/)[1])
   const regexCode = recipe.match(/```js\n([\s\S]*?)\n```/)[1]
