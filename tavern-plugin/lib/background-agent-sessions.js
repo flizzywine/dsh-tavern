@@ -9,6 +9,18 @@ function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
 }
 
+function missingSession(error) {
+  let current = error
+  for (let depth = 0; current && depth < 5; depth++) {
+    const code = str(current.code).trim().toUpperCase()
+    if (code === 'ENOENT' || code === 'SESSION_NOT_FOUND') return true
+    const message = str(current.message || current)
+    if (/session\s+["'][^"']+["']\s+not found/i.test(message) || /会话[^\n]*不存在/.test(message)) return true
+    current = current.cause
+  }
+  return false
+}
+
 export async function executeBackgroundCompaction(agent, signal) {
   const agentCtx = agent && agent.ctx
   const commands = agentCtx !== undefined && typeof agentCtx.get === 'function' ? agentCtx.get('commands') : undefined
@@ -92,23 +104,31 @@ export function createBackgroundAgentSessions(options, task) {
       try {
         if (requestedSessionId !== '') {
           if (typeof agents.resume !== 'function') throw new Error('当前 DSH 不支持恢复持久后台 Agent')
-          handle = await agents.resume({
-            resumeSessionId: traceSessionId,
-            agentOptions,
-            setup: task.setup(state, descriptor, false)
-          })
-          const session = handle.agent.session
-          const savedDescriptor = session.events?.find(event => event.type === 'subagent/descriptor')?.data
-          const savedParent = session.header?.parentSession
-          if (savedParent && savedParent !== parent.id || savedDescriptor &&
-            (savedDescriptor.provider === 'dsh-tavern-image') !== (input.task === 'image')) {
-            await handle.dispose()
-            throw new Error('持久后台 Agent 的父会话或任务类型不匹配，未创建替代会话')
-          }
-          if (input.task !== 'image' && savedDescriptor && savedDescriptor.provider === LEGACY_BACKGROUND_PROVIDER) {
-            await handle.dispose()
+          try {
+            handle = await agents.resume({
+              resumeSessionId: traceSessionId,
+              agentOptions,
+              setup: task.setup(state, descriptor, false)
+            })
+          } catch (error) {
+            if (input.task === 'image' || !missingSession(error)) throw error
             handle = undefined
             traceSessionId = makeId()
+          }
+          if (handle !== undefined) {
+            const session = handle.agent.session
+            const savedDescriptor = session.events?.find(event => event.type === 'subagent/descriptor')?.data
+            const savedParent = session.header?.parentSession
+            if (savedParent && savedParent !== parent.id || savedDescriptor &&
+              (savedDescriptor.provider === 'dsh-tavern-image') !== (input.task === 'image')) {
+              await handle.dispose()
+              throw new Error('持久后台 Agent 的父会话或任务类型不匹配，未创建替代会话')
+            }
+            if (input.task !== 'image' && savedDescriptor && savedDescriptor.provider === LEGACY_BACKGROUND_PROVIDER) {
+              await handle.dispose()
+              handle = undefined
+              traceSessionId = makeId()
+            }
           }
         }
         if (handle === undefined) {
@@ -129,7 +149,12 @@ export function createBackgroundAgentSessions(options, task) {
           if (persistent && input.task === 'image') handle.agent.session.append('subagent/descriptor', descriptor)
         }
       } catch (error) {
-        throw traceError(error, traceSessionId, input.task)
+        const wrapped = traceError(error, traceSessionId, input.task)
+        if (handle === undefined) {
+          wrapped.attemptedTraceSessionId = traceSessionId
+          wrapped.traceSessionId = ''
+        }
+        throw wrapped
       }
       if (persistent) {
         resident = { handle, state, parentSessionId: str(input.sessionId), key }

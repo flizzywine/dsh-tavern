@@ -133,6 +133,12 @@ test('后台压缩在 Agent 作用域挂载 DSH compaction，不阻塞 Tavern Ho
   assert.doesNotMatch(serverSource, /ctx\.get\('compaction'\)/)
 })
 
+test('后台最小预设提供原生 Skill 目录与按需加载工具', () => {
+  assert.match(backgroundPresetSource, /@deepseek-ai\/dsh-skill-filesystem/)
+  assert.match(backgroundPresetSource, /includeDefaultRoots: false/)
+  assert.match(backgroundPresetSource, /@deepseek-ai\/dsh-tool-skill/)
+})
+
 test('候选项通过持久任务信箱提交，同步快照原子携带结果', () => {
   const dispatch = between(serverSource, "case 'syncSession'", "case 'getSessionActivity'")
 

@@ -608,6 +608,72 @@ test('旧工具协议的后台 Session 自动迁移到干净 Session，不继续
   await runner.dispose()
 })
 
+test('已保存的后台 Session 不存在时自动建立干净 Session', async () => {
+  const parent = { id: 'foreground', session: { header: { delegationDepth: 0 } } }
+  let resumed = 0
+  let created = 0
+  const events = []
+  const agents = {
+    get(id) { return id === parent.id ? parent : undefined },
+    async resume() {
+      resumed++
+      throw new Error('session "background-missing" not found')
+    },
+    async create(options) {
+      created++
+      await options.setup({ systemPrompt: { section() {}, suppressRuntimeContext() {} }, tools: { restrict() {}, register() {} }, on() {} })
+      return {
+        agent: {
+          session: { id: options.sessionId, header: options.meta, events, append(type, data) { events.push({ type, data }) } },
+          followup() { events.push({ type: 'assistant/message', data: { message: { content: [{ type: 'text', text: '新后台会话结果' }] } } }) },
+          async whenIdle() {}
+        },
+        async dispose() {}
+      }
+    }
+  }
+  const runner = createBackgroundAgentRunner({ agents, id: () => 'background-recreated' })
+  const result = await runner.run({
+    sessionId: parent.id,
+    persistent: true,
+    persistentSessionId: 'background-missing',
+    task: 'candidate',
+    selection: { provider: 'test', model: 'fake' },
+    messages: [],
+    tools: []
+  })
+
+  assert.equal(resumed, 1)
+  assert.equal(created, 1)
+  assert.equal(result.traceSessionId, 'background-recreated')
+  assert.equal(result.text, '新后台会话结果')
+  await runner.dispose()
+})
+
+test('后台 Session 建立失败时不对外发布虚假的 traceSessionId', async () => {
+  const runner = createBackgroundAgentRunner({
+    id: () => 'background-never-created',
+    agents: {
+      get: () => ({ id: 'parent', session: { header: {} } }),
+      async create(options) {
+        await options.setup({
+          systemPrompt: { section() {}, suppressRuntimeContext() {} },
+          tools: { restrict() { throw new Error('setup failed') }, register() {} },
+          on() {}
+        })
+      }
+    }
+  })
+
+  await assert.rejects(runner.run({
+    sessionId: 'parent', persistent: true, task: 'candidate',
+    selection: { provider: 'test', model: 'fake' }, messages: [], tools: []
+  }), function (error) {
+    assert.equal(error.traceSessionId, '')
+    return true
+  })
+})
+
 test('后台 Runner 不再提供预设正则历史重投影入口', () => {
   const runner = createBackgroundAgentRunner({ agents: { get() {} } })
   assert.equal(runner.reproject, undefined)
