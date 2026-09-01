@@ -236,7 +236,10 @@ export function createTavernScriptHostAdapter(options = {}) {
       if (!Array.isArray(projected.swipes)) projected.swipes = [originalText]
       projected.swipes[swipeId] = internalText
       await record('runtime-dispatch', { availability: options.eventGate.status?.(sessionId) })
-      const dispatched = await options.eventGate.dispatch(sessionId, 'MESSAGE_RECEIVED', [messageId], eventContext)
+      const dispatch = typeof options.eventGate.dispatchWhenReady === 'function'
+        ? options.eventGate.dispatchWhenReady.bind(options.eventGate)
+        : options.eventGate.dispatch.bind(options.eventGate)
+      const dispatched = await dispatch(sessionId, 'MESSAGE_RECEIVED', [messageId], eventContext)
       await record('runtime-completed', { handled: dispatched.handled === true, timedOut: dispatched.timedOut === true, disposed: dispatched.disposed === true, error: dispatched.error, diagnostics: dispatched.diagnostics || [] })
       if (dispatched.handled !== true) {
         if (str(dispatched.error).trim() !== '' && !dispatched.timedOut && !dispatched.disposed

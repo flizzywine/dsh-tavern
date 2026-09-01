@@ -2447,9 +2447,12 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		}
 
 		function createTavernScriptExecutionModule(options) {
+			const hostWindow = options && options.window || window;
 			const invoke = options && options.rpc || rpc;
 			const invalidate = options && options.invalidate || function () {};
-			const runtimeId = window.crypto && typeof window.crypto.randomUUID === "function" ? window.crypto.randomUUID() : String(Date.now()) + ":" + String(Math.random());
+			const createRuntime = options && options.createRuntime || createTavernHelperScriptRuntime;
+			const pollRequestTimeoutMs = Math.max(100, Number(options && options.pollRequestTimeoutMs) || 3000);
+			const runtimeId = hostWindow.crypto && typeof hostWindow.crypto.randomUUID === "function" ? hostWindow.crypto.randomUUID() : String(Date.now()) + ":" + String(Math.random());
 			let runtime = null;
 			let pollTimer = null;
 			let pollBusy = false;
@@ -2469,7 +2472,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 
 			function ensureRuntime() {
 				if (runtime) return runtime;
-				runtime = createTavernHelperScriptRuntime({
+				runtime = createRuntime({
 					rpc: invoke,
 					onReady: function (readySessionId) {
 						if (!readySessionId || !input || input.sessionId !== readySessionId) return;
@@ -2479,9 +2482,27 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				return runtime;
 			}
 
+			function pollServer(currentInput, runtimeReady) {
+				const Controller = hostWindow.AbortController;
+				const controller = typeof Controller === "function" ? new Controller() : null;
+				let deadlineTimer = null;
+				const request = Promise.resolve().then(function () {
+					return invoke("pollTavernHelperEvent", { runtimeId: runtimeId, ready: runtimeReady }, currentInput.sessionId, controller ? { signal: controller.signal } : undefined);
+				});
+				const deadline = new Promise(function (_resolve, reject) {
+					deadlineTimer = hostWindow.setTimeout(function () {
+						if (controller) controller.abort();
+						reject(new Error("Tavern Helper 轮询超时"));
+					}, pollRequestTimeoutMs);
+				});
+				return Promise.race([request, deadline]).finally(function () {
+					if (deadlineTimer !== null) hostWindow.clearTimeout(deadlineTimer);
+				});
+			}
+
 			function schedulePoll(delayMs) {
 				if (pollTimer !== null) return;
-				pollTimer = window.setTimeout(async function poll() {
+				pollTimer = hostWindow.setTimeout(async function poll() {
 					pollTimer = null;
 					const currentRuntime = runtime;
 					const currentInput = input;
@@ -2494,7 +2515,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 						try {
 							const inspection = currentRuntime.inspect();
 							const runtimeReady = tavernScriptRuntimeReady(inspection);
-							const result = await invoke("pollTavernHelperEvent", { runtimeId: runtimeId, ready: runtimeReady }, currentInput.sessionId);
+							const result = await pollServer(currentInput, runtimeReady);
 							if (!input || input.sessionId !== currentInput.sessionId) return;
 							if (Boolean(result && result.active) !== active) {
 								active = Boolean(result && result.active);
@@ -5964,6 +5985,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		exports.buildTavernFrameDocument = buildTavernFrameDocument;
 		exports.buildTavernHelperScriptDocument = buildTavernHelperScriptDocument;
 		exports.createTavernHelperScriptRuntime = createTavernHelperScriptRuntime;
+		exports.createTavernScriptExecutionModule = createTavernScriptExecutionModule;
 		exports.tavernScriptRuntimeReady = tavernScriptRuntimeReady;
 		exports.clampTavernFrameHeight = clampTavernFrameHeight;
 		exports.createTavernHelperContextUpdate = createTavernHelperContextUpdate;

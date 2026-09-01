@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { createTavernScriptHostAdapter } from '../tavern-plugin/lib/domain/tavern-script-host-adapter.js'
+import { createTavernHelperEventGate } from '../tavern-plugin/lib/domain/tavern-helper-event-gate.js'
 
 function chat() {
   return {
@@ -280,6 +281,36 @@ test('新一轮正文或重新生成已经开始后锁定 Swipe', async function
     assert.equal(value.messages[0].swipeId, 0)
     assert.equal(run.writes.length, 0)
   }
+})
+
+test('服务重启后结算等待浏览器运行时重新登记，不丢弃本轮变量更新', async function () {
+  const value = chat()
+  const gate = createTavernHelperEventGate({ timeoutMs: 500, readyTimeoutMs: 200 })
+  const run = harness(value, { eventGate: gate })
+  const delivered = new Promise(function (resolve, reject) {
+    setTimeout(function () {
+      try {
+        assert.equal(gate.poll('session-1', 'browser-after-restart', true).event, null)
+        setTimeout(function () {
+          try {
+            const polled = gate.poll('session-1', 'browser-after-restart', true)
+            assert.equal(polled.event.name, 'MESSAGE_RECEIVED')
+            gate.complete('session-1', polled.event.id, polled.event.args, 'browser-after-restart')
+            resolve()
+          } catch (error) { reject(error) }
+        }, 10)
+      } catch (error) { reject(error) }
+    }, 50)
+  })
+
+  const result = await run.adapter.settleMvuUpdate({
+    sessionId: 'session-1', messageId: 0, swipeId: 0, expectedLifecycleRevision: 2,
+    storyText: '旧正文', command: '<UpdateVariable></UpdateVariable>'
+  })
+  await delivered
+
+  assert.equal(result.updated, true)
+  assert.equal(run.writes.length, 1)
 })
 
 test('Host Adapter 为脚本事件投影临时玩家输入但不改写 Chat', async function () {

@@ -81,6 +81,55 @@ test('脚本执行模块按 Helper Runtime 的真实检查结构报告 MVU 已�
   assert.equal(client.tavernScriptRuntimeReady(inspection), true)
 })
 
+test('服务重启遗留的悬挂轮询超时后继续向新服务登记', async () => {
+  const timers = new Map()
+  let timerId = 0
+  const hostWindow = {
+    crypto: { randomUUID: () => 'runtime-after-restart' },
+    setTimeout(run, delay) { timers.set(++timerId, { run, delay }); return timerId },
+    clearTimeout(id) { timers.delete(id) }
+  }
+  const stale = new Promise(resolve => { hostWindow.resolveStale = resolve })
+  const calls = []
+  let restarted = false
+  const runtime = {
+    sync() {},
+    inspect() { return { scripts: [{ subscriptionsReady: true }] } },
+    emit(_name, args) { return Promise.resolve(args) },
+    triggerButton() { return Promise.resolve() }
+  }
+  const execution = client.createTavernScriptExecutionModule({
+    window: hostWindow,
+    pollRequestTimeoutMs: 100,
+    createRuntime: () => runtime,
+    rpc(method) {
+      calls.push(method)
+      if (method !== 'pollTavernHelperEvent') return Promise.resolve({})
+      return restarted ? Promise.resolve({ active: true }) : stale
+    }
+  })
+  function runTimer() {
+    const entry = timers.entries().next().value
+    assert.ok(entry)
+    timers.delete(entry[0])
+    return entry[1].run()
+  }
+
+  execution.sync('session-1', { tavernMvuRuntime: { owner: 'official' } })
+  const stuck = runTimer()
+  await new Promise(resolve => setImmediate(resolve))
+  restarted = true
+  assert.equal(timers.size, 1)
+  runTimer()
+  await stuck
+  assert.equal(timers.size, 1)
+  await runTimer()
+
+  assert.equal(calls.filter(method => method === 'pollTavernHelperEvent').length, 2)
+  assert.equal(execution.inspect().active, true)
+  hostWindow.resolveStale({ active: true })
+})
+
 test('长消息限制在 1200px 内并由 iframe 原生滚动', () => {
   assert.equal(client.clampTavernFrameHeight(48), 48)
   assert.equal(client.clampTavernFrameHeight(1200), 1200)
