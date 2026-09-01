@@ -1200,7 +1200,7 @@ test('Tavern 消息 renderer 以更低 priority 接管 assistant 和 user 正式
   const feature = client.createTavernAssistantRendererFeatureModule()
   const slots = {
     inject(name, activate) {
-      assert.ok(['conversation.chat.node', 'conversation.input.dock'].includes(name))
+      assert.ok(['conversation.chat.node', 'conversation.session.header.actions'].includes(name))
       return activate()
     },
     register(spec, component) {
@@ -1220,7 +1220,7 @@ test('Tavern 消息 renderer 以更低 priority 接管 assistant 和 user 正式
   assert.deepEqual(Object.keys(feature), ['register'])
   assert.equal(registrations.length, 3)
   const runtime = registrations.shift()
-  assert.equal(runtime.spec.name, 'conversation.input.dock')
+  assert.equal(runtime.spec.name, 'conversation.session.header.actions')
   assert.equal(runtime.spec.id, 'dsh-tavern-script-runtime')
   assert.equal(typeof runtime.component, 'function')
   assert.equal(registrations[0].spec.name, 'conversation.chat.node')

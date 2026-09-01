@@ -9,7 +9,7 @@ test('默认等待预算覆盖多个隔离 Helper 脚本的串行事件上限', 
 
 test('Helper event gate skips immediately while no browser runtime is present', async function () {
   const gate = createTavernHelperEventGate()
-  assert.deepEqual(await gate.dispatch('session-a', 'MESSAGE_SENT', [2]), { handled: false, args: [2] })
+  assert.deepEqual(await gate.dispatch('session-a', 'MESSAGE_SENT', [2]), { handled: false, unavailable: true, args: [2] })
 })
 
 test('Helper event gate publishes one event and returns browser mutations', async function () {
@@ -76,6 +76,20 @@ test('非所有者不能完成事件或释放其他浏览器的执行权', async
 test('浏览器取得租约但脚本尚未完成初始化时不会接收结算事件', async function () {
   const gate = createTavernHelperEventGate({ timeoutMs: 500 })
   assert.deepEqual(gate.poll('session-a', 'browser-a', false), { active: true, ready: false, event: null })
-  assert.deepEqual(await gate.dispatch('session-a', 'MESSAGE_RECEIVED', [1]), { handled: false, args: [1] })
+  assert.deepEqual(await gate.dispatch('session-a', 'MESSAGE_RECEIVED', [1]), { handled: false, unavailable: true, args: [1] })
   assert.deepEqual(gate.poll('session-a', 'browser-a', true), { active: true, ready: true, event: null })
+})
+
+test('执行器只在从未就绪变为就绪时通知接续任务', function () {
+  const gate = createTavernHelperEventGate()
+  const ready = []
+  const unsubscribe = gate.subscribeReady(function (sessionId) { ready.push(sessionId) })
+  gate.poll('session-a', 'browser-a', false)
+  gate.poll('session-a', 'browser-a', true)
+  gate.poll('session-a', 'browser-a', true)
+  assert.deepEqual(ready, ['session-a'])
+  gate.dispose('session-a', 'browser-a')
+  gate.poll('session-a', 'browser-b', true)
+  assert.deepEqual(ready, ['session-a', 'session-a'])
+  unsubscribe()
 })

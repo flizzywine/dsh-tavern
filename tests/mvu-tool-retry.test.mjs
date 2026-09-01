@@ -142,3 +142,31 @@ test('执行结果不确定或目标已过期时停止自动重试', async () =>
     assert.equal(result.receipt.status, stale ? 'stale' : 'error')
   }
 })
+
+test('浏览器执行器暂时缺席时立即挂起，并在恢复后复用已生成的 operations', async () => {
+  let modelRuns = 0, executions = 0, runtimeReady = false
+  const module = createMvuSettlementModule({ model: { async run(request) {
+    modelRuns++
+    await submitPosture(request)
+    const feedback = JSON.parse(await request.onToolCall(call(patch)))
+    assert.equal(feedback.ok, false)
+    assert.equal(feedback.deferred, true)
+    return { text: '' }
+  } }, runtime: { async settleMvuUpdate() {
+    executions++
+    if (!runtimeReady) return { deferred: true }
+    return { context: { messages: [{ variables: { stat_data: { hp: 9, location: 'hall' } } }] } }
+  } } })
+
+  const pending = await module.settleVariables(input)
+  assert.equal(pending.receipt.status, 'pending')
+  assert.deepEqual(pending.submission.operations, patch)
+  assert.equal(modelRuns, 1)
+  assert.equal(executions, 1)
+
+  runtimeReady = true
+  const resumed = await module.resumeVariables({ ...input, submission: pending.submission })
+  assert.equal(resumed.receipt.status, 'updated')
+  assert.equal(modelRuns, 1, '恢复运行时不得重新调用模型生成同一批 operations')
+  assert.equal(executions, 2)
+})

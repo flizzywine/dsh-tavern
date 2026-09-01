@@ -304,13 +304,23 @@ export function createTavernScriptHostAdapter(options = {}) {
       projected.message = internalText
       if (!Array.isArray(projected.swipes)) projected.swipes = [originalText]
       projected.swipes[swipeId] = internalText
-      await record('runtime-dispatch', { availability: options.eventGate.status?.(sessionId) })
-      const dispatch = typeof options.eventGate.dispatchWhenReady === 'function'
-        ? options.eventGate.dispatchWhenReady.bind(options.eventGate)
-        : options.eventGate.dispatch.bind(options.eventGate)
-      const dispatched = await dispatch(sessionId, 'MESSAGE_RECEIVED', [messageId], eventContext)
+      const availability = options.eventGate.status?.(sessionId)
+      await record('runtime-dispatch', { availability })
+      // MVU is a local capability of the chat. A temporarily absent browser
+      // executor is scheduling state, not a failed settlement. Return the
+      // prepared transaction immediately so the caller can persist and resume
+      // it when the executor registers again.
+      if (availability && availability.ready !== true) {
+        await record('runtime-deferred', { availability })
+        return { updated: false, deferred: true, context: projectTavernHelperContext(current) }
+      }
+      const dispatched = await options.eventGate.dispatch(sessionId, 'MESSAGE_RECEIVED', [messageId], eventContext)
       await record('runtime-completed', { handled: dispatched.handled === true, timedOut: dispatched.timedOut === true, disposed: dispatched.disposed === true, error: dispatched.error, diagnostics: dispatched.diagnostics || [] })
       if (dispatched.handled !== true) {
+        if (dispatched.unavailable === true) {
+          await record('runtime-deferred', { availability: options.eventGate.status?.(sessionId) })
+          return { updated: false, deferred: true, context: projectTavernHelperContext(current) }
+        }
         if (str(dispatched.error).trim() !== '' && !dispatched.timedOut && !dispatched.disposed
           && !/超时|timed?\s*out|timeout/i.test(str(dispatched.error))) {
           const validation = { changes: [], sideEffects: [], failures: [{ message: str(dispatched.error) }] }

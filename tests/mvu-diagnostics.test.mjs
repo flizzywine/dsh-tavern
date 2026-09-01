@@ -86,8 +86,8 @@ test('浏览器非抛出警告经事件门、执行器和结算回执持久保�
   const chat = { id: 'c', sessionId: 's', mode: 'story', mvu: { enabled: true, owner: 'official' }, messages: [{ role: 'assistant', text: '正文', swipes: ['正文'], swipeId: 0, variables: [{}] }] }
   const adapter = createTavernScriptHostAdapter({
     resolveChat: async () => chat, writeChat: async () => {}, readCard: async () => ({}), worldBooks: { bound: async () => null }, diagnostics: store,
-    eventGate: { ...gate, async dispatchWhenReady(...args) {
-      const pending = gate.dispatchWhenReady(...args)
+    eventGate: { ...gate, async dispatch(...args) {
+      const pending = gate.dispatch(...args)
       await new Promise(resolve => setImmediate(resolve))
       const event = gate.poll('s', 'browser', true).event
       assert.ok(event)

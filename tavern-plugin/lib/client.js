@@ -3741,8 +3741,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			}
 			function register(input) {
 				input.ctx.effect(function () {
-					return input.slots.inject("conversation.input.dock", function () { return input.slots.register({
-						name: "conversation.input.dock", id: "dsh-tavern-script-runtime", order: -140, label: "人物卡脚本运行时"
+					return input.slots.inject("conversation.session.header.actions", function () { return input.slots.register({
+						name: "conversation.session.header.actions", id: "dsh-tavern-script-runtime", order: -140, label: "人物卡脚本运行时"
 					}, function (props) { return React.createElement(TavernScriptRuntime, { key: props.sessionId, sessionId: props.sessionId }); }); });
 				}, "dsh-tavern: conversation script lifecycle");
 				input.ctx.effect(function () {

@@ -339,6 +339,47 @@ export function createMvuSettlementModule(options = {}) {
   if (!options.runtime || typeof options.runtime.settleMvuUpdate !== 'function') throw new Error('MVU Settlement 缺少官方 Runtime adapter')
   const maxAttempts = Math.max(1, Math.min(3, Math.floor(Number(options.maxAttempts) || 3)))
 
+  async function applySubmission(input, frame, submission, diagnosticId) {
+    const applied = await options.runtime.settleMvuUpdate({
+      sessionId: input.sessionId, messageId: input.messageId, swipeId: input.swipeId,
+      expectedLifecycleRevision: input.expectedLifecycleRevision, diagnosticId,
+      storyText: frame.foregroundOutput.storyText,
+      command: formatMvuUpdateCommand(submission),
+      validate: ({ before, after }) => auditMvuSettlement(before, after, submission.operations)
+    })
+    if (applied.deferred === true || applied.stale === true) return { applied }
+    const projected = applied.context?.messages?.[input.messageId]
+    const after = clone(projected?.variables || {})
+    const audit = applied.validation || auditMvuSettlement(input.currentVariables, after, submission.operations)
+    const rolledBack = applied.rejected === true
+    const changes = rolledBack ? [] : audit.changes
+    const sideEffects = rolledBack ? [] : audit.sideEffects
+    const status = audit.failures.length > 0
+      ? (changes.length > 0 ? 'partial' : 'error')
+      : (changes.length > 0 ? 'updated' : 'unchanged')
+    return { applied, after, audit, rolledBack, changes, sideEffects, status }
+  }
+
+  async function resumeVariables(input = {}) {
+    const frame = createMvuBackgroundTaskFrame(input)
+    const submission = normalizeMvuToolSubmission(input.submission)
+    const diagnosticId = frame.frameId + ':resume'
+    const outcome = await applySubmission(input, frame, submission, diagnosticId)
+    if (outcome.applied.deferred === true) {
+      return { frame, submission, variables: clone(input.currentVariables),
+        receipt: { version: 1, status: 'pending', summary: '等待本地 MVU 执行器恢复', diagnosticId, changes: [], sideEffects: [], failures: [] } }
+    }
+    if (outcome.applied.stale === true) {
+      return { frame, submission, receipt: { version: 1, status: 'stale', summary: '变量结算目标已经变化，迟到结果未写入。', diagnosticId, changes: [], sideEffects: [], failures: [] } }
+    }
+    return {
+      frame, submission, variables: outcome.after,
+      receipt: { version: 1, status: outcome.status, summary: '', diagnosticId,
+        runtimeDiagnostics: outcome.applied.diagnostics || [], changes: outcome.changes,
+        sideEffects: outcome.sideEffects, failures: outcome.audit.failures }
+    }
+  }
+
   async function settleVariables(input = {}) {
     const frame = createMvuBackgroundTaskFrame(input)
     const request = projectMvuBackgroundRequest(frame)
@@ -389,13 +430,7 @@ export function createMvuSettlementModule(options = {}) {
       try {
         const waitMs = retryNotBefore - Date.now()
         if (waitMs > 0) await new Promise(resolve => setTimeout(resolve, waitMs))
-        applied = await options.runtime.settleMvuUpdate({
-          sessionId: input.sessionId, messageId: input.messageId, swipeId: input.swipeId,
-          expectedLifecycleRevision: input.expectedLifecycleRevision, diagnosticId,
-          storyText: frame.foregroundOutput.storyText,
-          command: formatMvuUpdateCommand(submission),
-          validate: ({ before, after }) => auditMvuSettlement(before, after, submission.operations)
-        })
+        applied = await applySubmission(input, frame, submission, diagnosticId)
       } catch (error) {
         // A timeout or disk error may have an uncertain outcome; do not replay a delta.
         await record('failed', { error: str(error.message || error) })
@@ -403,36 +438,40 @@ export function createMvuSettlementModule(options = {}) {
         result = { submission, receipt: { version: 1, status: 'error', summary: feedback.error, diagnosticId, changes: [], sideEffects: [], failures: [{ message: feedback.error }] } }
         return JSON.stringify(feedback)
       }
-      if (applied.stale === true) {
+      if (applied.applied.deferred === true) {
+        await record('deferred')
+        feedback = { ok: false, retryable: false, deferred: true, error: '本地 MVU 执行器暂时不可用，已保存本次结算，恢复后自动继续。' }
+        result = { variables: clone(input.currentVariables), submission,
+          receipt: { version: 1, status: 'pending', summary: '等待本地 MVU 执行器恢复', diagnosticId, changes: [], sideEffects: [], failures: [] } }
+        return JSON.stringify(feedback)
+      }
+      if (applied.applied.stale === true) {
         await record('stale')
         feedback = { ok: false, retryable: false, error: '变量结算目标已经变化，迟到结果未写入。' }
         result = { receipt: { version: 1, status: 'stale', summary: feedback.error, changes: [], sideEffects: [], failures: [] } }
         return JSON.stringify(feedback)
       }
-      const projected = applied.context?.messages?.[input.messageId]
-      const after = clone(projected?.variables || {})
-      const audit = applied.validation || auditMvuSettlement(input.currentVariables, after, submission.operations)
-      const rolledBack = applied.rejected === true
-      retryNotBefore = rolledBack ? Date.now() + Math.max(0, Math.min(3100, Number(applied.retryAfterMs) || 0)) : 0
-      const changes = rolledBack ? [] : audit.changes
-      const sideEffects = rolledBack ? [] : audit.sideEffects
-      const status = audit.failures.length > 0
-        ? (changes.length > 0 ? 'partial' : 'error')
-        : (changes.length > 0 ? 'updated' : 'unchanged')
+      const after = applied.after
+      const audit = applied.audit
+      const rolledBack = applied.rolledBack
+      retryNotBefore = rolledBack ? Date.now() + Math.max(0, Math.min(3100, Number(applied.applied.retryAfterMs) || 0)) : 0
+      const changes = applied.changes
+      const sideEffects = applied.sideEffects
+      const status = applied.status
       result = {
         variables: after, submission,
         receipt: { version: 1, status, summary: '', diagnosticId,
-          runtimeDiagnostics: applied.diagnostics || [], changes, sideEffects, failures: audit.failures }
+          runtimeDiagnostics: applied.applied.diagnostics || [], changes, sideEffects, failures: audit.failures }
       }
       feedback = {
         ok: audit.failures.length === 0,
-        retryable: rolledBack && applied.retryable === true && attempt < maxAttempts,
+        retryable: rolledBack && applied.applied.retryable === true && attempt < maxAttempts,
         rolledBack, status, changes, failures: audit.failures,
-        runtimeDiagnostics: applied.diagnostics || [],
+        runtimeDiagnostics: applied.applied.diagnostics || [],
         ...(audit.failures.length === 0 ? {} : { error: '变量更新未通过校验；请根据具体错误修正。', ...retryPromptState(after, frame.authoritativeState.variableSchema) }),
         attemptsRemaining: maxAttempts - attempt
       }
-      await record('result', { status, rolledBack, retryable: feedback.retryable, variables: variableDiagnosticSummary(after), changes, sideEffects, failures: audit.failures, runtimeDiagnostics: applied.diagnostics || [] })
+      await record('result', { status, rolledBack, retryable: feedback.retryable, variables: variableDiagnosticSummary(after), changes, sideEffects, failures: audit.failures, runtimeDiagnostics: applied.applied.diagnostics || [] })
       return JSON.stringify(feedback)
     }
     let run = {}
@@ -474,5 +513,5 @@ export function createMvuSettlementModule(options = {}) {
     return { frame, text: str(run.text), posture: posture.posture, traceSessionId, traceBoundary, ...result }
   }
 
-  return Object.freeze({ settleVariables })
+  return Object.freeze({ settleVariables, resumeVariables })
 }

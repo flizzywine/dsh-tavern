@@ -110,6 +110,24 @@ test('后台 MVU 结算遇到过期生命周期时不触发脚本和写入', asy
   assert.equal(run.writes.length, 0)
 })
 
+test('浏览器执行器暂时缺席时立即挂起，不等待也不写入', async function () {
+  const run = harness(chat(), {
+    eventGate: {
+      status: function () { return { present: false, ready: false, busy: false } },
+      dispatch: async function () { throw new Error('不应投递') },
+      poll: function () {}, complete: function () {}, dispose: function () {}
+    }
+  })
+  const startedAt = Date.now()
+  const result = await run.adapter.settleMvuUpdate({
+    sessionId: 'session-1', messageId: 0, swipeId: 0, expectedLifecycleRevision: 2,
+    storyText: '旧正文', command: '<UpdateVariable></UpdateVariable>'
+  })
+  assert.equal(result.deferred, true)
+  assert.ok(Date.now() - startedAt < 100, '运行时缺席不能盲等 15 秒')
+  assert.equal(run.writes.length, 0)
+})
+
 test('后台 MVU 脚本链失败时丢弃整份事务草稿', async function () {
   const value = chat()
   let adapter
@@ -307,34 +325,16 @@ test('新一轮正文或重新生成已经开始后锁定 Swipe', async function
   }
 })
 
-test('服务重启后结算等待浏览器运行时重新登记，不丢弃本轮变量更新', async function () {
+test('服务重启后结算立即挂起，由上层在浏览器重新登记后接续', async function () {
   const value = chat()
   const gate = createTavernHelperEventGate({ timeoutMs: 500, readyTimeoutMs: 200 })
   const run = harness(value, { eventGate: gate })
-  const delivered = new Promise(function (resolve, reject) {
-    setTimeout(function () {
-      try {
-        assert.equal(gate.poll('session-1', 'browser-after-restart', true).event, null)
-        setTimeout(function () {
-          try {
-            const polled = gate.poll('session-1', 'browser-after-restart', true)
-            assert.equal(polled.event.name, 'MESSAGE_RECEIVED')
-            gate.complete('session-1', polled.event.id, polled.event.args, 'browser-after-restart')
-            resolve()
-          } catch (error) { reject(error) }
-        }, 10)
-      } catch (error) { reject(error) }
-    }, 50)
-  })
-
   const result = await run.adapter.settleMvuUpdate({
     sessionId: 'session-1', messageId: 0, swipeId: 0, expectedLifecycleRevision: 2,
     storyText: '旧正文', command: '<UpdateVariable></UpdateVariable>'
   })
-  await delivered
-
-  assert.equal(result.updated, true)
-  assert.equal(run.writes.length, 1)
+  assert.equal(result.deferred, true)
+  assert.equal(run.writes.length, 0)
 })
 
 test('Host Adapter 为脚本事件投影临时玩家输入但不改写 Chat', async function () {

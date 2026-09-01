@@ -1428,10 +1428,8 @@ export async function apply(ctx) {
         let text = ''
         let result = null
         let mvuResult = null
-        const selection = modelSelection(snapshot.sessionId)
-        if (selection === null) throw new Error('没有可用的模型配置，请先在当前会话的模型选择器中选择模型')
         if (mvuTarget !== null) {
-          mvuResult = await mvuSettlement.settleVariables({
+          const settlementInput = {
             operationId: taskRun.operationId,
             chatId: snapshot.id,
             branchId: taskRun.basedOn.branchId,
@@ -1444,16 +1442,28 @@ export async function apply(ctx) {
             storyText: str(mvuTarget.message.sourceText || mvuTarget.message.projectionText || mvuTarget.message.text),
             currentVariables: mvuTarget.variables,
             variableSchema: mvuTarget.variables.schema,
-            updateRules: await mvuUpdateRules(snapshot, card),
-            system: runtimePrompt('posture-settlement'),
-            selection,
-            persistentSessionId: backgroundSessionId
-          })
+            updateRules: await mvuUpdateRules(snapshot, card)
+          }
+          const pendingSubmission = mvuTarget.message.mvu && mvuTarget.message.mvu.pendingSubmission
+          if (pendingSubmission && typeof pendingSubmission === 'object') {
+            mvuResult = await mvuSettlement.resumeVariables({ ...settlementInput, submission: pendingSubmission })
+          } else {
+            const selection = modelSelection(snapshot.sessionId)
+            if (selection === null) throw new Error('没有可用的模型配置，请先在当前会话的模型选择器中选择模型')
+            mvuResult = await mvuSettlement.settleVariables({
+              ...settlementInput,
+              system: runtimePrompt('posture-settlement'),
+              selection,
+              persistentSessionId: backgroundSessionId
+            })
+          }
           text = str(mvuResult.text) || JSON.stringify({ posture: mvuResult.posture })
-          backgroundSessionId = str(mvuResult.traceSessionId)
+          backgroundSessionId = str(mvuResult.traceSessionId) || backgroundSessionId
           backgroundBoundary = Number.isSafeInteger(mvuResult.traceBoundary) ? mvuResult.traceBoundary : null
           result = { posture: mvuResult.posture }
         } else {
+          const selection = modelSelection(snapshot.sessionId)
+          if (selection === null) throw new Error('没有可用的模型配置，请先在当前会话的模型选择器中选择模型')
           let submittedPosture = null
           const run = await backgroundAgentRunner.run({
             task: 'settlement',
@@ -1504,16 +1514,18 @@ export async function apply(ctx) {
               const target = draft.messages[mvuTarget.messageId]
               if (target && target.role === 'assistant' && Math.max(0, Number(target.swipeId) || 0) === mvuTarget.swipeId) {
                 const receipt = structuredClone(mvuResult.receipt)
+                const waitingRuntime = receipt.status === 'pending'
                 target.mvu = {
-                  pending: false,
+                  pending: waitingRuntime,
                   modified: receipt.status === 'updated',
                   diagnostics: receipt.status === 'stale' ? [{ message: receipt.summary }] : [],
                   events: receipt.status === 'stale' ? [] : ['MESSAGE_RECEIVED'],
-                  receipt
+                  receipt,
+                  ...(waitingRuntime ? { pendingSubmission: structuredClone(mvuResult.submission) } : {})
                 }
               }
             }
-            draft.settleStatus = 'done'
+            draft.settleStatus = mvuResult && mvuResult.receipt && mvuResult.receipt.status === 'pending' ? 'waiting-runtime' : 'done'
             draft.settleError = null
             draft.lastSettle = { ts: Date.now(), posture: stat.postureUpdated, raw: text.slice(0, 200) }
           }
@@ -1573,6 +1585,16 @@ export async function apply(ctx) {
     settlementJobs.set(chatId, job)
     return job
   }
+  const unsubscribeMvuRuntimeReady = tavernHelperEventGate.subscribeReady(function (sessionId) {
+    void chatForSession(sessionId).then(function (chat) {
+      const target = pendingMvuTarget(chat)
+      if (!target || !target.message.mvu || !target.message.mvu.pendingSubmission) return
+      return queueSettlement(chat.id)
+    }).catch(function (error) {
+      console.error('dsh-tavern: 接续等待中的 MVU 变量结算失败', str(error && error.message || error))
+    })
+  })
+  ctx.effect(() => unsubscribeMvuRuntimeReady, 'dsh-tavern: resume deferred MVU settlement')
   async function retryMvuSettlement(sessionId, turn) {
     const chat = await chatForSession(sessionId)
     if (chat === undefined) throw new Error('当前会话没有绑定人物卡')
