@@ -514,6 +514,46 @@ test('消息 iframe 只把无法由内层消费的纵向触摸位移交给宿主
   assert.equal(messages[0].deltaY, 30)
 })
 
+test('外层滚动带动 iframe 位移时仍按屏幕手势方向逐帧转交', () => {
+  const documentHtml = client.buildTavernFrameDocument({ content: '正文', token: 'stable-touch-token' })
+  const bridge = documentHtml.match(/<script data-dsh-tavern-touch-bridge>([\s\S]*?)<\/script>/)
+  assert.ok(bridge)
+
+  const listeners = new Map(), messages = [], frames = []
+  const root = { parentElement: null, scrollTop: 0, clientHeight: 300, scrollHeight: 300, style: { overflowY: 'visible' } }
+  const body = { parentElement: root, scrollTop: 0, clientHeight: 300, scrollHeight: 300, style: { overflowY: 'visible' } }
+  const target = { parentElement: body, style: { overflowY: 'visible' } }
+  vm.runInNewContext(bridge[1], {
+    document: { body, documentElement: root, scrollingElement: root, addEventListener(type, run) { listeners.set(type, run) } },
+    parent: { postMessage(message) { messages.push(message) } },
+    getComputedStyle(node) { return node.style || { overflowY: 'visible' } },
+    requestAnimationFrame(run) { frames.push(run) },
+    Math, Number, String
+  })
+  function move(type, clientY, screenY) {
+    let prevented = false
+    listeners.get(type)({
+      target,
+      touches: type === 'touchend' ? [] : [{ clientX: 100, clientY, screenX: 500, screenY }],
+      preventDefault() { prevented = true }
+    })
+    return prevented
+  }
+
+  move('touchstart', 100, 500)
+  assert.equal(move('touchmove', 70, 470), true)
+  assert.equal(messages.length, 0, '同一动画帧内不应立即反复修改外层 scrollTop')
+  frames.shift()()
+  assert.equal(messages[0].deltaY, 30)
+
+  // 外层刚向下滚动 30px，iframe 相对手指上移，clientY 从 70 反弹到 90；
+  // 手指在物理屏幕上仍继续向上移动，因此下一次位移必须仍为正数。
+  assert.equal(move('touchmove', 90, 460), true)
+  frames.shift()()
+  assert.equal(messages[1].deltaY, 10)
+  move('touchend', 90, 460)
+})
+
 test('消息 iframe 转交的位移只滚动最近的外层滚动容器并限制单次距离', () => {
   const outer = { parentElement: null, scrollTop: 40, clientHeight: 300, scrollHeight: 900, style: { overflowY: 'auto' } }
   const wrapper = { parentElement: outer, scrollTop: 0, clientHeight: 300, scrollHeight: 300, style: { overflowY: 'visible' } }
