@@ -80,6 +80,16 @@ export function projectAgentContent(value, options = {}) {
   return contentProjection(value, options, false, true)
 }
 
+/** Return the single macro-projected text that a chat message may expose to an Agent. */
+export function projectAgentMessageText(message, options = {}) {
+  const value = message !== null && typeof message === 'object' && Object.prototype.hasOwnProperty.call(message, 'text')
+    ? message.text
+    : (message !== null && typeof message === 'object' && Object.prototype.hasOwnProperty.call(message, 'projectionText')
+        ? message.projectionText
+        : message && message.sourceText)
+  return projectAgentContent(value, options).agentText
+}
+
 function openingPreviewParts(text) {
   if (/<!--[\s\S]*?-->|<\/?[a-z][\w:-]*(?:\s[^<>]*?)?>/i.test(text)) {
     return projectDisplayParts(text).parts

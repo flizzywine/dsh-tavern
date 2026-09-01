@@ -3,11 +3,12 @@ import { randomUUID } from 'node:crypto'
 import { maximumBackgroundTokens, traceError } from './background-agent-task.js'
 
 const LEGACY_BACKGROUND_PROVIDER = 'dsh-tavern-background'
-const BACKGROUND_PROVIDER = 'dsh-tavern-background-tools-v3'
+const BACKGROUND_PROVIDER = 'dsh-tavern-background-tools-v4'
 const STALE_BACKGROUND_PROVIDERS = new Set([
   LEGACY_BACKGROUND_PROVIDER,
   'dsh-tavern-background-tools-v1',
-  'dsh-tavern-background-tools-v2'
+  'dsh-tavern-background-tools-v2',
+  'dsh-tavern-background-tools-v3'
 ])
 
 function str(value) {

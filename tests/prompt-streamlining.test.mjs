@@ -139,7 +139,7 @@ test('后台最小预设提供原生 Skill 目录与按需加载工具', () => {
   assert.doesNotMatch(backgroundPresetSource, /customSkillDirs/)
   assert.match(backgroundPresetSource, /new URL\('skills\/', baseUrl\)/)
   assert.match(backgroundPresetSource, /@deepseek-ai\/dsh-tool-skill/)
-  assert.match(backgroundSessionsSource, /dsh-tavern-background-tools-v3/)
+  assert.match(backgroundSessionsSource, /dsh-tavern-background-tools-v4/)
   assert.match(backgroundSessionsSource, /STALE_BACKGROUND_PROVIDERS\.has\(savedDescriptor\.provider\)/)
   assert.match(serverSource, /characterDesignDocument: snapshot\.characterDesignDocument/)
   assert.match(serverSource, /draft\.characterDesignDocument = structuredClone\(mvuResult\.characterDesignDocument\)/)
@@ -161,11 +161,15 @@ test('候选项通过持久任务信箱提交，同步快照原子携带结果',
 
 test('姿势结算通过短工具参数提交', () => {
   const input = between(serverSource, 'function settleUserText', 'function applySettlement')
+  const mvuRules = between(serverSource, 'async function mvuUpdateRules', 'async function prepareNextWorldBookContext')
   const flow = between(serverSource, 'async function runSettlement', 'function queueSettlement')
   const systemPrompt = prompt('posture-settlement')
 
   assert.match(input, /slice\(-2\)/)
   assert.match(input, /【上一轮结算姿势】/)
+  assert.match(input, /projectAgentMessageText/)
+  assert.match(mvuRules, /projectAgentContent\(rule/)
+  assert.doesNotMatch(input, /m\.sourceText/)
   assert.doesNotMatch(input, /slice\(-4\)/)
   assert.match(systemPrompt, /posture_submit/)
   assert.match(systemPrompt, /位置、姿势、动作/)
@@ -178,6 +182,7 @@ test('姿势结算通过短工具参数提交', () => {
   assert.match(flow, /task: 'settlement'/)
   assert.match(flow, /persistent: true/)
   assert.match(flow, /backgroundTasks\.begin\(snapshot, 'settlement'\)/)
+  assert.match(flow, /storyText: projectAgentMessageText\(mvuTarget\.message/)
   assert.match(flow, /taskRun\.participant\(\{ sessionId: backgroundSessionId, boundary: backgroundBoundary \}\)/)
 })
 

@@ -57,6 +57,7 @@ import { TavernPromptTemplateRuntime } from './domain/tavern-prompt-template-run
 import {
   preserveRuntimeSource,
   projectAgentContent,
+  projectAgentMessageText,
   projectRuntimeReply,
   projectRuntimeReplyHistory,
   resolveRuntimeMacroText,
@@ -1319,13 +1320,15 @@ export async function apply(ctx) {
     const msgs = (chat.messages || []).slice(-2)
     const lines = [
       '【上一轮结算姿势】',
-      str(chat.posture) !== '' ? chat.posture : '（无）',
+      str(chat.posture) !== '' ? projectAgentContent(chat.posture, { charName: chat.cardName, macroState: chat.macroState }).agentText : '（无）',
       '【最新一轮对话】'
     ]
     for (let i = 0; i < msgs.length; i++) {
       const m = msgs[i]
-      if (m === null || typeof m !== 'object' || str(m.text) === '') continue
-      lines.push((m.role === 'assistant' ? '正文' : '玩家') + ': ' + (str(m.sourceText) || str(m.text)))
+      if (m === null || typeof m !== 'object') continue
+      const text = projectAgentMessageText(m, { charName: chat.cardName, macroState: chat.macroState })
+      if (text.trim() === '') continue
+      lines.push((m.role === 'assistant' ? '正文' : '玩家') + ': ' + text)
     }
     return lines.join('\n')
   }
@@ -1367,7 +1370,9 @@ export async function apply(ctx) {
   async function mvuUpdateRules(chat, card) {
     try {
       const worldBook = await worldBooks.bound(chat.cardPath, card)
-      return mvuUpdateRulesFromWorldBook(worldBook)
+      return mvuUpdateRulesFromWorldBook(worldBook).map(function (rule) {
+        return projectAgentContent(rule, { charName: card && card.name, macroState: chat.macroState }).agentText
+      })
     } catch (_error) {
       return []
     }
@@ -1439,7 +1444,7 @@ export async function apply(ctx) {
             messageId: mvuTarget.messageId,
             swipeId: mvuTarget.swipeId,
             expectedLifecycleRevision: Math.max(0, Number(snapshot.tavernHelperLifecycleRevision) || 0),
-            storyText: str(mvuTarget.message.sourceText || mvuTarget.message.projectionText || mvuTarget.message.text),
+            storyText: projectAgentMessageText(mvuTarget.message, { charName: card && card.name, macroState: snapshot.macroState }),
             currentVariables: mvuTarget.variables,
             variableSchema: mvuTarget.variables.schema,
             updateRules: await mvuUpdateRules(snapshot, card),

@@ -1,4 +1,4 @@
-import { projectAgentContent } from './runtime-content-projection.js'
+import { projectAgentContent, projectAgentMessageText } from './runtime-content-projection.js'
 import { createBackgroundTaskCoordinator } from './background-task-coordinator.js'
 
 function str(value) {
@@ -13,8 +13,11 @@ function candidateFailure(stage, message, cause) {
   return error
 }
 
-function messageText(message) {
-  return str(message && message.sourceText) || str(message && message.text)
+function messageText(message, card, chat) {
+  return projectAgentMessageText(message, {
+    charName: str(card && card.name),
+    macroState: chat && chat.macroState
+  })
 }
 
 function parseJsonLenient(text) {
@@ -138,17 +141,19 @@ function validatedChoices(source, scriptMode, logger) {
   return actions.slice(0, 4).concat(scenes.slice(0, 1))
 }
 
-function buildMessages(chat, selection, now, limit = 6) {
+function buildMessages(chat, card, selection, now, limit = 6) {
   const source = (chat.messages || []).filter(function (message) {
-    return message !== null && typeof message === 'object' && message.role === 'assistant' && messageText(message) !== ''
-  }).slice(-Math.max(1, Number(limit) || 6))
+    return message !== null && typeof message === 'object' && message.role === 'assistant'
+  }).map(function (message) {
+    return { message, text: messageText(message, card, chat) }
+  }).filter(function (item) { return item.text !== '' }).slice(-Math.max(1, Number(limit) || 6))
   const messages = []
   for (let index = 0; index < source.length; index++) {
-    const message = source[index]
+    const item = source[index]
     messages.push({
       id: 'm' + index + '-' + now().toString(36),
       role: 'assistant',
-      content: [{ type: 'text', text: messageText(message) }],
+      content: [{ type: 'text', text: item.text }],
       source: { kind: 'model', provider: selection.provider, model: selection.model }
     })
   }
@@ -342,7 +347,7 @@ export function createCandidateGenerator(options) {
     let request = '请按上述规则生成候选项。'
     if (guidance !== '') request += '\n\n【用户额外要求】\n' + guidance + '\n\n额外要求不改变 ' + (scriptMode ? '剧本走向、' : '') + (scriptMode ? 1 : 5) + ' 个候选及类型约束。'
     const backgroundAlreadySynced = persistentSessionId !== '' && Number(participantRequest.syncedRevision) === Number(taskRun.basedOn.revision)
-    const recentMessages = backgroundAlreadySynced ? [] : buildMessages(chat, selection, now, persistentSessionId !== '' ? 1 : 6)
+    const recentMessages = backgroundAlreadySynced ? [] : buildMessages(chat, card, selection, now, persistentSessionId !== '' ? 1 : 6)
     const messages = recentMessages.concat([{
       id: 'choices-' + now().toString(36),
       role: 'user',
