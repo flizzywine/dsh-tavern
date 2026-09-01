@@ -173,6 +173,29 @@ test('document transport coalesces loading updates, recovers snapshots, and reje
   h.stop()
 })
 
+test('当前可见消息 iframe 可转交纵向拖动，伪造来源和隐藏替换页不能滚动宿主', () => {
+  const h = frames(), visible = h.attach()
+  const outer = { parentElement: null, scrollTop: 40, clientHeight: 300, scrollHeight: 900, style: { overflowY: 'auto' } }
+  const wrapper = { parentElement: outer, scrollTop: 0, clientHeight: 300, scrollHeight: 300, style: { overflowY: 'visible' } }
+  visible.node.parentElement = wrapper
+  h.window.getComputedStyle = node => node.style || { overflowY: 'visible' }
+
+  visible.message('dsh-tavern-frame-pan', { deltaY: 36 }, {})
+  assert.equal(outer.scrollTop, 40)
+  visible.message('dsh-tavern-frame-pan', { deltaY: 36 })
+  assert.equal(outer.scrollTop, 76)
+
+  h.update({ content: '<p>replacement</p>' })
+  const pending = h.attach(h.lifecycle.snapshot().pendingDocument)
+  pending.node.parentElement = wrapper
+  pending.message('dsh-tavern-frame-pan', { deltaY: 36 })
+  assert.equal(outer.scrollTop, 76)
+
+  visible.message('dsh-tavern-frame-pan', { deltaY: 9999 })
+  assert.equal(outer.scrollTop, 236, '单次位移应被限幅')
+  h.stop()
+})
+
 test('replacement retains visible page, ignores superseded pending readiness, and carries measured height into the swap', () => {
   const h = frames(), old = h.attach()
   old.message('dsh-tavern-frame-ready')
