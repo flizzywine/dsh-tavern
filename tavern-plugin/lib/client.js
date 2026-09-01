@@ -3736,7 +3736,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					React.createElement("button", { type: "button", disabled: swipeBusy || swipe.swipeId >= swipe.count - 1, "aria-label": "下一个 Swipe", onClick: function () { switchSwipe(swipe.swipeId + 1); } }, "›")
 				) : null;
 				const mvuReceiptNode = mvuReceipt ? React.createElement(TavernMvuReceipt, { receipt: mvuReceipt, sessionId: props.sessionId, turn: turn }) : null;
-				const illustration = settled && projection && !sessionTransitioning ? React.createElement(SceneIllustration, { key: props.sessionId + ":" + turn + ":" + String(swipe && swipe.swipeId) + ":" + JSON.stringify(projection), sessionId: props.sessionId, turn: turn }) : null;
+				const sceneImagesEnabled = Boolean(liveState.view && liveState.view.releaseCapabilities && liveState.view.releaseCapabilities.sceneImages);
+				const illustration = sceneImagesEnabled && settled && projection && !sessionTransitioning ? React.createElement(SceneIllustration, { key: props.sessionId + ":" + turn + ":" + String(swipe && swipe.swipeId) + ":" + JSON.stringify(projection), sessionId: props.sessionId, turn: turn }) : null;
 				return React.createElement("div", { className: "dsh-tavern-assistant", "data-streaming": data.status === "running" || undefined }, rendered, illustration, mvuReceiptNode, swipeControls);
 			}
 			function register(input) {
@@ -4639,11 +4640,11 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			);
 		}
 		function TavernSettingsSection() {
-			const [state, setState] = React.useState({ loading: true, busy: false, compatibilityMode: false, error: "" });
+			const [state, setState] = React.useState({ loading: true, busy: false, compatibilityMode: false, sceneImages: false, error: "" });
 			React.useEffect(function () {
 				let active = true;
 				rpc("getTavernSettings").then(function (result) {
-					if (active) setState({ loading: false, busy: false, compatibilityMode: Boolean(result.settings && result.settings.compatibilityMode), error: "" });
+					if (active) setState({ loading: false, busy: false, compatibilityMode: Boolean(result.settings && result.settings.compatibilityMode), sceneImages: Boolean(result.releaseCapabilities && result.releaseCapabilities.sceneImages), error: "" });
 				}, function (error) {
 					if (active) setState(function (current) { return Object.assign({}, current, { loading: false, busy: false, error: String(error && error.message || error) }); });
 				});
@@ -4674,7 +4675,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 						)
 					)
 				),
-				React.createElement(SceneImageSettings, null),
+				state.sceneImages ? React.createElement(SceneImageSettings, null) : null,
 				state.error ? React.createElement("div", { className: "dsh-tavern-settings-error", role: "alert" }, "保存失败：" + state.error) : null
 			);
 		}
@@ -6433,7 +6434,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			if (!sessionMode) return null;
 			return h("div", { className: "dsh-tavern-dock-actions" },
 				isPlayMode(sessionMode) && latestMessageId ? React.createElement(CandidateAction, Object.assign({}, props, { messageId: latestMessageId })) : null,
-				isPlayMode(sessionMode) ? React.createElement(SceneImageAction, { key: props.sessionId + ":" + imageTurn, sessionId: props.sessionId, turn: imageTurn, running: running }) : null,
+				isPlayMode(sessionMode) && live.view && live.view.releaseCapabilities && live.view.releaseCapabilities.sceneImages ? React.createElement(SceneImageAction, { key: props.sessionId + ":" + imageTurn, sessionId: props.sessionId, turn: imageTurn, running: running }) : null,
 				React.createElement(TavernCompactionAction, props)
 			);
 		}

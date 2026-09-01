@@ -7,6 +7,7 @@ import { CANDIDATE_SUBMIT_TOOL, SCRIPT_POINT_TOOL, SCRIPT_READ_TOOL, createCandi
 import { createSceneIllustrations, sceneTarget } from './domain/scene-illustration.js'
 import { createSceneWorldbooks, sceneWorldbookBinding } from './domain/scene-worldbook.js'
 import { createSceneImageDiagnostics } from './domain/scene-image-diagnostics.js'
+import { TAVERN_RELEASE_CAPABILITIES } from './domain/release-capabilities.js'
 import { createSessionStablePrefixStorage, ensureSessionStablePrefix, readSessionStablePrefix } from './domain/session-stable-prefix.js'
 import { waitForWritableSession } from './domain/agent-readiness.js'
 import { createCardDeletion } from './domain/card-deletion.js'
@@ -107,9 +108,10 @@ export async function apply(ctx) {
   const dataRoot = resolveTavernDataRoot()
   const stablePrefixStorage = createSessionStablePrefixStorage(dataRoot + '/session-prefixes')
   const profileData = createProfileDataStore({ dataRoot })
-  const sceneWorldbooks = createSceneWorldbooks({ store: profileData })
-  const sceneDiagnostics = createSceneImageDiagnostics(profileData)
+  const sceneWorldbooks = TAVERN_RELEASE_CAPABILITIES.sceneImages ? createSceneWorldbooks({ store: profileData }) : null
+  const sceneDiagnostics = TAVERN_RELEASE_CAPABILITIES.sceneImages ? createSceneImageDiagnostics(profileData) : null
   async function captureSceneWorldbook(chat, card, preparedBook) {
+    if (sceneWorldbooks === null) return null
     try {
       const worldBook = preparedBook === undefined ? await worldBooks.bound(chat.cardPath, card) : preparedBook
       return await sceneWorldbooks.capture({ worldBook, chat, card })
@@ -708,7 +710,7 @@ export async function apply(ctx) {
     const diagnostic = await mvuDiagnostics.read(sessionId)
     const backgroundSessionIds = [...new Set(diagnostic.records.map(record => record.traceSessionId).filter(Boolean))]
     let imageDiagnostic
-    try { imageDiagnostic = await sceneDiagnostics.read(chat.id) }
+    try { imageDiagnostic = sceneDiagnostics === null ? { version: 1, records: [] } : await sceneDiagnostics.read(chat.id) }
     catch { imageDiagnostic = { version: 1, records: [], error: '生图诊断读取失败，仍导出 Session 与 MVU 日志。' } }
     let compatibilityDiagnostic
     try { compatibilityDiagnostic = await compatibilityDiagnostics.read(sessionId) }
@@ -981,6 +983,7 @@ export async function apply(ctx) {
       tavernRemoteAssetPins: Array.isArray(cardExtensions.remoteAssetPins) ? cardExtensions.remoteAssetPins : [],
       tavernHelperWorldbook: helperWorldbook,
       tavernRuntimePolicy: { trustedCardMode: runtimeSettings.trustedCardMode },
+      releaseCapabilities: TAVERN_RELEASE_CAPABILITIES,
       presentationWarnings: Array.isArray(chat.presentationWarnings) ? chat.presentationWarnings : [],
       worldBookError: chat.worldBookError || null,
       foregroundError: chat.foregroundError || null,
@@ -1170,7 +1173,7 @@ export async function apply(ctx) {
     characterDesignSkill: characterDesignSkill.content
   })
   ctx.effect(() => () => backgroundAgentRunner.dispose(), 'dsh-tavern: dispose resident background agents')
-  const sceneIllustrations = createSceneIllustrations({
+  const sceneIllustrations = TAVERN_RELEASE_CAPABILITIES.sceneImages ? createSceneIllustrations({
     store: profileData, diagnostics: sceneDiagnostics, chatForSession, selection: modelSelection,
     worldbookAtTarget: async (chat, target) => {
       try { return await sceneWorldbooks.read(sceneWorldbookBinding(chat, target)) }
@@ -1192,8 +1195,12 @@ export async function apply(ctx) {
     credentials: () => ctx.get('credentials'), attachments: () => ctx.get('attachments'),
     runAgent: input => backgroundAgentRunner.run(input),
     onStorageError: () => console.error('dsh-tavern: 生图状态保存失败，请检查数据目录权限')
-  })
-  ctx.effect(() => () => sceneIllustrations.dispose(), 'dsh-tavern: dispose scene image agents')
+  }) : null
+  if (sceneIllustrations !== null) ctx.effect(() => () => sceneIllustrations.dispose(), 'dsh-tavern: dispose scene image agents')
+  function enabledSceneIllustrations() {
+    if (sceneIllustrations === null) throw new Error('当前版本未开放场景生图')
+    return sceneIllustrations
+  }
   let tavernCompaction = null
   const backgroundTasks = createBackgroundTaskCoordinator({
     store: { readChat, writeChat },
@@ -1883,15 +1890,15 @@ export async function apply(ctx) {
         const change = await updateCard(args && args.path, args && args.patch)
         return { card: change.card, changed: change.changed }
       }
-      case 'getTavernSettings': return { settings: await readTavernSettings() }
-      case 'getSceneImageSettings': return { settings: await sceneIllustrations.settings(args?.provider) }
-      case 'saveSceneImageSettings': return { settings: await sceneIllustrations.configure(args) }
-      case 'sceneImageStatus': return { illustration: await sceneIllustrations.status(args.sessionId, args.turn) }
-      case 'generateSceneImage': return { illustration: await sceneIllustrations.start(args.sessionId, args.turn, args.key, args) }
-      case 'retrySceneImageSave': return { illustration: await sceneIllustrations.retrySave(args.sessionId, args.turn, args.key, args.requestId) }
-      case 'cancelSceneImage': return { illustration: await sceneIllustrations.cancel(args.sessionId, args.turn, args.key, args.requestId) }
-      case 'removeSceneImage': return { illustration: await sceneIllustrations.removeImage(args.sessionId, args.turn, args.key, args.versionId) }
-      case 'setSceneImageReference': return { illustration: await sceneIllustrations.setReference(args.sessionId, args.turn, args.key, args.versionId, args.consent, args.enabled !== false, args.personId) }
+      case 'getTavernSettings': return { settings: await readTavernSettings(), releaseCapabilities: TAVERN_RELEASE_CAPABILITIES }
+      case 'getSceneImageSettings': return { settings: await enabledSceneIllustrations().settings(args?.provider) }
+      case 'saveSceneImageSettings': return { settings: await enabledSceneIllustrations().configure(args) }
+      case 'sceneImageStatus': return { illustration: await enabledSceneIllustrations().status(args.sessionId, args.turn) }
+      case 'generateSceneImage': return { illustration: await enabledSceneIllustrations().start(args.sessionId, args.turn, args.key, args) }
+      case 'retrySceneImageSave': return { illustration: await enabledSceneIllustrations().retrySave(args.sessionId, args.turn, args.key, args.requestId) }
+      case 'cancelSceneImage': return { illustration: await enabledSceneIllustrations().cancel(args.sessionId, args.turn, args.key, args.requestId) }
+      case 'removeSceneImage': return { illustration: await enabledSceneIllustrations().removeImage(args.sessionId, args.turn, args.key, args.versionId) }
+      case 'setSceneImageReference': return { illustration: await enabledSceneIllustrations().setReference(args.sessionId, args.turn, args.key, args.versionId, args.consent, args.enabled !== false, args.personId) }
       case 'updateTavernSettings': return { settings: await updateTavernSettings(args && args.patch) }
       case 'getSystemPrompts': return { systemPrompts: presentSystemPrompts(await readTavernSettings()) }
       case 'updateSystemPrompt': {
@@ -2024,7 +2031,7 @@ export async function apply(ctx) {
         const readsStaticAsset = req.method === 'GET' && pathname === '/api/dsh-tavern/static-assets'
         const readsOfficialMvu = req.method === 'GET' && pathname === OFFICIAL_MVU_VERSION.assetUrl
         const origin = req.headers.origin
-        const sceneImageRoute = /^\/api\/dsh-tavern\/(?:scene-image|getSceneImageSettings|saveSceneImageSettings|sceneImageStatus|generateSceneImage|retrySceneImageSave|cancelSceneImage|removeSceneImage|setSceneImageReference)$/.test(pathname)
+        const sceneImageRoute = TAVERN_RELEASE_CAPABILITIES.sceneImages && /^\/api\/dsh-tavern\/(?:scene-image|getSceneImageSettings|saveSceneImageSettings|sceneImageStatus|generateSceneImage|retrySceneImageSave|cancelSceneImage|removeSceneImage|setSceneImageReference)$/.test(pathname)
         const sceneSameOrigin = sceneImageRoute && (origin === 'http://' + req.headers.host || origin === 'https://' + req.headers.host)
         if (sceneImageRoute && origin && !sceneSameOrigin) {
           res.writeHead(403)
@@ -2054,7 +2061,7 @@ export async function apply(ctx) {
         try {
           const readiness = await runtimeReadiness
           if (!readiness.ok) throw readiness.error
-          if (req.method === 'GET' && pathname === '/api/dsh-tavern/scene-image') {
+          if (TAVERN_RELEASE_CAPABILITIES.sceneImages && req.method === 'GET' && pathname === '/api/dsh-tavern/scene-image') {
             const query = new URL(req.url, 'http://x').searchParams
             const image = await sceneIllustrations.readImage(query.get('sessionId'), Number(query.get('turn')), query.get('key'), query.get('versionId'))
             res.writeHead(200, { 'Content-Type': image.ref.mediaType, 'Content-Length': image.data.byteLength, 'Cache-Control': 'private, max-age=3600', 'X-Content-Type-Options': 'nosniff' })
