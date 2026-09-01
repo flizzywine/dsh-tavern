@@ -45,7 +45,7 @@
 # 用户代码与清单都在持久数据目录；更新只保留这个加载入口。
 # 相对模块路径由原生 include 按用户清单所在目录解析。
 - id: user-tools
-  name: ../../tavern-plugin/lib/user-tools.js
+  name: ./user-tools-bridge/index.js
 
 # 复用 DSH 原生上下文压缩能力，并恢复 /compact 命令。
 # 压缩器与工具结果裁剪器共享同一隔离域，保持与 DSH 标准模式一致。

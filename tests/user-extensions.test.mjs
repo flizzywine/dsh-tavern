@@ -44,10 +44,14 @@ test('清单损坏时保留原文件，不自动重置用户配置', async (t) =
 test('原生加载入口固定在用户目录，不随程序版本路径变化', async () => {
   const preset = await readFile(new URL('../presets/tavern/agent.cordis.yml', import.meta.url), 'utf8')
   const entry = preset.match(/- id: user-tools\n[\s\S]*?(?=\n- id:|$)/)?.[0]
-  assert.match(entry || '', /name: ..\/..\/tavern-plugin\/lib\/user-tools.js/)
-  const bridge = await readFile(new URL('../tavern-plugin/lib/user-tools.js', import.meta.url), 'utf8')
+  assert.match(entry || '', /name: \.\/user-tools-bridge\/index.js/)
+  const bridge = await readFile(new URL('../presets/tavern/user-tools-bridge/index.js', import.meta.url), 'utf8')
   assert.match(bridge, /ensureUserExtensions\(resolveTavernDataRoot\(\)\)/)
   assert.match(bridge, /ctx\.plugin\(ctx\.loader\.builtins\.include/)
+  const bridgePackage = JSON.parse(await readFile(new URL('../presets/tavern/user-tools-bridge/package.json', import.meta.url), 'utf8'))
+  const tavernPackage = JSON.parse(await readFile(new URL('../tavern-plugin/package.json', import.meta.url), 'utf8'))
+  assert.equal(bridgePackage.name, 'dsh-tavern-user-tools-bridge')
+  assert.notEqual(bridgePackage.name, tavernPackage.name)
   for (const dshHome of ['/tmp/home with spaces', 'relative-home']) {
     assert.equal(userExtensionPaths(resolveTavernDataRoot({ dshHome })).config,
       path.resolve(dshHome, 'profile-data/tavern/data/tools.cordis.yml'))

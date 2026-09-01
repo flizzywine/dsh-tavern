@@ -22,8 +22,8 @@ test('真实 preset 共存及重新挂载：检查服务唯一，工具和 Taver
   await mkdir(presetDir)
   await cp(new URL('../presets/tavern/skills/', import.meta.url), path.join(presetDir, 'skills'), { recursive: true })
   const presetPath = path.join(presetDir, 'agent.cordis.yml')
-  await writeFile(presetPath, source.replace('../../tavern-plugin/lib/user-tools.js',
-    new URL('../tavern-plugin/lib/user-tools.js', import.meta.url).href))
+  await writeFile(presetPath, source.replace('./user-tools-bridge/index.js',
+    new URL('../presets/tavern/user-tools-bridge/index.js', import.meta.url).href))
   const officialPath = path.join(root, 'official.cordis.yml')
   await writeFile(officialPath, entry('tool-cordis'))
   const patch = await readFile(new URL('../tavern-plugin/cordis.patch.yml', import.meta.url), 'utf8')

@@ -43,12 +43,14 @@ export function apply(ctx, config) {
   const toolsUrl = new URL('../../dsh-tools/lib/index.js', bootUrl).href
   for (const version of ['v1', 'v2']) {
     const app = path.join(root, 'apps', version)
-    await mkdir(path.join(app, 'presets/tavern'), { recursive: true })
+    await mkdir(path.join(app, 'presets/tavern/user-tools-bridge'), { recursive: true })
     await mkdir(path.join(app, 'tavern-plugin/lib/domain'), { recursive: true })
     await writeFile(path.join(app, 'tavern-plugin/package.json'), '{"type":"module"}')
-    for (const file of ['user-tools.js', 'domain/user-extensions.js', 'domain/tavern-data.js', 'durable-file-promotion.js']) {
+    for (const file of ['domain/user-extensions.js', 'domain/tavern-data.js', 'durable-file-promotion.js']) {
       await copyFile(new URL('../tavern-plugin/lib/' + file, import.meta.url), path.join(app, 'tavern-plugin/lib', file))
     }
+    await copyFile(new URL('../presets/tavern/user-tools-bridge/index.js', import.meta.url), path.join(app, 'presets/tavern/user-tools-bridge/index.js'))
+    await copyFile(new URL('../presets/tavern/user-tools-bridge/package.json', import.meta.url), path.join(app, 'presets/tavern/user-tools-bridge/package.json'))
     const config = path.join(app, 'presets/tavern/agent.cordis.yml')
     await writeFile(config, `- id: system-prompt\n  name: ${systemPromptUrl}\n- id: tools\n  name: ${toolsUrl}\n${include}\n`)
     await ensureUserExtensions(dataRoot)
