@@ -108,6 +108,7 @@ async function get(url, timeout = 30000) {
     await mkdir(path.dirname(target), { recursive: true })
     await writeFile(target, bytes)
   }
+  await writeFile(path.join(process.env.CDN_SOURCE, 'dsh-tavern-runtime.json'), `${JSON.stringify(metadata, null, 2)}\n`)
   await writeFile(path.join(process.env.CDN_SOURCE, '.revision'), metadata.revision)
 })().catch((error) => { console.error(error.message); process.exit(1) })
 NODE

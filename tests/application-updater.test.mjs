@@ -119,7 +119,7 @@ test('旧算法的更新提示失效，新算法已核验的提示跨重启保�
   } finally { await rm(root, { recursive: true, force: true }) }
 })
 
-for (const source of ['github', 'jsdelivr']) {
+for (const source of ['github']) {
   for (const relation of ['behind', 'diverged', 'unavailable', 'ahead']) {
     test(`${source} 根据提交先后判断更新：${relation}，检查和安装使用同一保护`, async () => {
       const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-update-order-'))
@@ -208,7 +208,7 @@ test('检查更新只返回最新提交状态，不启动安装进程', async ()
       phase: 'idle', host: 'cli', currentVersion: '0.9.0', currentCommit: 'a'.repeat(40),
     })
     assert.deepEqual(await updater.check(), {
-      checkPolicy: 2, checkedForCommit: 'a'.repeat(40),
+      checkPolicy: 3, checkedForCommit: 'a'.repeat(40),
       phase: 'update-available', host: 'cli', checkedAt: 234,
       currentVersion: '0.9.0', latestVersion: '0.9.0',
       currentCommit: 'a'.repeat(40), latestCommit: 'b'.repeat(40),
@@ -266,7 +266,7 @@ test('GitHub 最新提交仅发布运行清单时，以父提交作为最新运�
     })
 
     assert.deepEqual(await updater.check(), {
-      checkPolicy: 2, checkedForCommit: runtimeCommit,
+      checkPolicy: 3, checkedForCommit: runtimeCommit,
       phase: 'up-to-date', host: 'cli', checkedAt: 250,
       currentVersion: '0.9.0', latestVersion: '0.9.0',
       currentCommit: runtimeCommit, latestCommit: runtimeCommit,
@@ -418,31 +418,70 @@ test('状态缓存中的旧提交号不会覆盖当前本地构建', async () =>
   }
 })
 
-test('GitHub 不可达时，jsDelivr 文件差异还需提交先后证明才更新', async () => {
+test('jsDelivr 发布序号阻止缓存倒退，并允许无 GitHub 更新', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-updater-cdn-'))
   try {
     const packageText = JSON.stringify({ version: '0.7.2' })
     await writeFile(path.join(root, 'package.json'), packageText)
-    await writeFile(path.join(root, '.dsh-tavern-release.json'), JSON.stringify({ commit: 'a'.repeat(40) }))
-    const metadata = { revision: '9'.repeat(40), files: [{ path: 'package.json', sha256: createHash('sha256').update(packageText).digest('hex') }] }
+    await writeFile(path.join(root, 'dsh-tavern-runtime.json'), JSON.stringify({
+      schemaVersion: 2, revision: 'a'.repeat(40), releaseSequence: 42, version: '0.7.2',
+      files: [{ path: 'package.json', sha256: createHash('sha256').update(packageText).digest('hex') }],
+    }))
+    const metadata = {
+      schemaVersion: 2, revision: '9'.repeat(40), releaseSequence: 43, version: '0.7.2',
+      files: [{ path: 'package.json', sha256: createHash('sha256').update(packageText).digest('hex') }],
+    }
     const common = {
       dataRoot: path.join(root, 'data'), sourceRoot: root, runtimeHost: 'cli',
       fetchManifest: async () => { throw new Error('fetch failed') },
       fetchLatestCommit: async () => { throw new Error('fetch failed') },
       fetchCdnMetadata: async () => metadata,
-      compareCommits: async () => 'ahead',
+      compareCommits: async () => { throw new Error('GitHub 不应参与 CDN 发布序号判断') },
       now: () => 321,
     }
     const current = await createApplicationUpdater(common).start()
     assert.equal(current.phase, 'up-to-date')
     assert.equal(current.checkSource, 'jsdelivr')
-    assert.match(current.checkWarning, /jsDelivr 备用源/)
 
     metadata.files[0].sha256 = createHash('sha256').update('new package').digest('hex')
+    metadata.releaseSequence = 41
+    assert.equal((await createApplicationUpdater(common).start()).phase, 'up-to-date')
+
+    metadata.releaseSequence = 43
     const child = { pid: 4321, once(event, listener) { if (event === 'spawn') queueMicrotask(listener); return this }, unref() {} }
     const changed = await createApplicationUpdater({ ...common, platform: 'linux', spawnProcess() { return child } }).start()
     assert.equal(changed.phase, 'running')
     assert.equal(changed.checkSource, 'jsdelivr')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('国内网络只访问 jsDelivr 也能确认更高版本，无需 GitHub 提交比较', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-updater-cdn-only-'))
+  try {
+    const packageText = JSON.stringify({ version: '1.1.0' })
+    await writeFile(path.join(root, 'package.json'), packageText)
+    await writeFile(path.join(root, '.dsh-tavern-release.json'), JSON.stringify({ commit: 'a'.repeat(40) }))
+    const updater = createApplicationUpdater({
+      dataRoot: path.join(root, 'data'), sourceRoot: root, runtimeHost: 'desktop',
+      fetchManifest: async () => { throw new Error('raw GitHub must not be required') },
+      fetchLatestCommit: async () => { throw new Error('GitHub API must not be required') },
+      fetchCdnMetadata: async () => ({
+        schemaVersion: 2,
+        revision: 'b'.repeat(40),
+        releaseSequence: 42,
+        version: '1.1.1',
+        files: [{ path: 'package.json', sha256: createHash('sha256').update('{"version":"1.1.1"}').digest('hex') }],
+      }),
+      compareCommits: async () => { throw new Error('GitHub commit comparison must not be required') },
+      now: () => 400,
+    })
+
+    const result = await updater.check()
+    assert.equal(result.phase, 'update-available')
+    assert.equal(result.checkSource, 'jsdelivr')
+    assert.equal(result.latestVersion, '1.1.1')
   } finally {
     await rm(root, { recursive: true, force: true })
   }

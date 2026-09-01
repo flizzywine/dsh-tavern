@@ -30,6 +30,7 @@ import {
 
 const windowsInstaller = await readFile(new URL('../install.ps1', import.meta.url), 'utf8')
 const unixInstaller = await readFile(new URL('../install.sh', import.meta.url), 'utf8')
+const readme = await readFile(new URL('../README.md', import.meta.url), 'utf8')
 const launcherSource = await readFile(new URL('../bin/dsh-tavern.mjs', import.meta.url), 'utf8')
 const serviceSource = await readFile(new URL('../bin/service-lifecycle.mjs', import.meta.url), 'utf8')
 const installationSource = await readFile(new URL('../bin/profile-installation.mjs', import.meta.url), 'utf8')
@@ -60,6 +61,12 @@ test('Windows launcher quotes paths containing spaces and forwards arguments', (
     launcher,
     '@echo off\r\nnode "D:\\My Games\\dsh-tavern\\bin\\dsh-tavern.mjs" %*\r\n',
   )
+})
+
+test('公开安装命令使用 jsDelivr，不把 raw GitHub 作为国内用户入口', () => {
+  assert.match(readme, /cdn\.jsdelivr\.net\/gh\/flizzywine\/dsh-tavern@main\/install\.ps1/)
+  assert.match(readme, /cdn\.jsdelivr\.net\/gh\/flizzywine\/dsh-tavern@main\/install\.sh/)
+  assert.doesNotMatch(readme, /raw\.githubusercontent\.com\/flizzywine\/dsh-tavern\/main\/install\.(?:ps1|sh)/)
 })
 
 test('安装宿主默认使用 CLI，并明确接受 Desktop 与 Android', () => {

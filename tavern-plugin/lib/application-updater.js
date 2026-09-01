@@ -13,7 +13,7 @@ const VERSION_URL = 'https://raw.githubusercontent.com/flizzywine/dsh-tavern/mai
 const COMMIT_URL = 'https://api.github.com/repos/flizzywine/dsh-tavern/commits/main'
 const COMPARE_URL = 'https://api.github.com/repos/flizzywine/dsh-tavern/compare'
 const execFileAsync = promisify(execFile)
-const UPDATE_CHECK_POLICY = 2
+const UPDATE_CHECK_POLICY = 3
 const CDN_METADATA_URL = 'https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@main/dsh-tavern-runtime.json'
 const RUNTIME_FILES = new Set(['package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'cordis.patch.yml', 'install.ps1', 'install.sh'])
 const RUNTIME_DIRECTORIES = ['bin/', 'config/', 'presets/', 'tavern-plugin/', 'patches/']
@@ -59,16 +59,26 @@ async function compareCdnRuntime(sourceRoot, metadata) {
     localDigest.update(`${file.path}\0${localHash}\n`)
     if (localHash !== file.hash) matches = false
   }
-  return { matches, revision: metadata.revision, currentFingerprint: localDigest.digest('hex'), latestFingerprint: remoteDigest.digest('hex'), fileCount: files.length }
+  const version = String(metadata?.version || '')
+  const releaseSequence = Number(metadata?.releaseSequence)
+  return {
+    matches,
+    revision: metadata.revision,
+    version,
+    releaseSequence: Number.isSafeInteger(releaseSequence) && releaseSequence > 0 ? releaseSequence : null,
+    currentFingerprint: localDigest.digest('hex'),
+    latestFingerprint: remoteDigest.digest('hex'),
+    fileCount: files.length,
+  }
 }
 
-async function readVerifiedRuntimeCommit(sourceRoot) {
+async function readVerifiedRuntimeMetadata(sourceRoot) {
   try {
     const metadata = JSON.parse(await readFile(path.join(sourceRoot, 'dsh-tavern-runtime.json'), 'utf8'))
     const compared = await compareCdnRuntime(sourceRoot, metadata)
-    return compared.matches ? compared.revision : ''
+    return compared.matches ? compared : null
   } catch {
-    return ''
+    return null
   }
 }
 
@@ -117,8 +127,8 @@ function processIsAlive(pid) {
 }
 
 async function readRecordedCommit(sourceRoot, dshHome) {
-  const runtimeCommit = await readVerifiedRuntimeCommit(sourceRoot)
-  if (runtimeCommit) return runtimeCommit
+  const runtimeMetadata = await readVerifiedRuntimeMetadata(sourceRoot)
+  if (runtimeMetadata) return runtimeMetadata.revision
   try {
     const content = await readFile(path.join(sourceRoot, RELEASE_FILE), 'utf8')
     const commit = String(JSON.parse(content.replace(/^\uFEFF/, ''))?.commit || '')
@@ -224,9 +234,11 @@ export function createApplicationUpdater(options) {
       if (error?.code === 'ENOENT') return { currentVersion: 'unknown', currentCommit: '' }
       throw error
     }
+    const runtimeMetadata = await readVerifiedRuntimeMetadata(sourceRoot)
     return {
       currentVersion: String(local?.version || '') || 'unknown',
-      currentCommit: await readRecordedCommit(sourceRoot, dshHome),
+      currentCommit: runtimeMetadata?.revision || await readRecordedCommit(sourceRoot, dshHome),
+      ...(runtimeMetadata?.releaseSequence ? { currentReleaseSequence: runtimeMetadata.releaseSequence } : {}),
     }
   }
   let identitySnapshot = null
@@ -244,32 +256,45 @@ export function createApplicationUpdater(options) {
   }
 
   async function versions(identity) {
-    const { currentVersion, currentCommit } = identity
+    const { currentVersion, currentCommit, currentReleaseSequence } = identity
     if (currentVersion === 'unknown') throw new Error('无法确认当前构建，请手动重新安装')
     try {
-      const [remote, latestCommitResult] = await Promise.all([fetchManifest(), fetchLatestCommit()])
-      const { publishedCommit, runtimeCommit: latestCommit } = runtimeCommitIdentityOf(latestCommitResult)
-      const latestVersion = String(remote?.version || '')
-      if (currentVersion === '' || latestVersion === '') throw new Error('版本信息不完整')
-      if (!/^[0-9a-f]{40}$/i.test(latestCommit)) throw new Error('GitHub 返回的提交号无效')
-      const normalizedCurrentCommit = currentCommit.toLowerCase() === publishedCommit.toLowerCase()
-        ? latestCommit
-        : currentCommit
-      return {
-        currentVersion, latestVersion, currentCommit: normalizedCurrentCommit, latestCommit, checkSource: 'github',
-        updateAvailable: compareVersions(latestVersion, currentVersion) >= 0 && await isNewerCommit(normalizedCurrentCommit, latestCommit),
-      }
-    } catch (githubError) {
-      try {
-        const compared = await compareCdnRuntime(sourceRoot, await fetchCdnMetadata())
-        return {
-          currentVersion, latestVersion: 'unknown', currentCommit, latestCommit: compared.revision, checkSource: 'jsdelivr',
-          currentFingerprint: compared.currentFingerprint, latestFingerprint: compared.latestFingerprint,
-          checkedFileCount: compared.fileCount, updateAvailable: !compared.matches && await isNewerCommit(currentCommit, compared.revision),
-          checkWarning: `GitHub 不可达，已使用 jsDelivr 备用源（可能有缓存延迟）：${sanitizeUpdateError(githubError?.message || githubError)}`,
+      const compared = await compareCdnRuntime(sourceRoot, await fetchCdnMetadata())
+      let updateAvailable = false
+      if (!compared.matches && currentCommit.toLowerCase() !== String(compared.revision).toLowerCase()) {
+        if (currentReleaseSequence && compared.releaseSequence) {
+          updateAvailable = compared.releaseSequence > currentReleaseSequence
+        } else if (compared.version && compareVersions(compared.version, currentVersion) !== 0) {
+          updateAvailable = compareVersions(compared.version, currentVersion) > 0
+        } else {
+          throw new Error('jsDelivr 清单缺少可比较的发布序号，需使用 GitHub 确认提交先后')
         }
-      } catch (cdnError) {
-        throw new Error(`GitHub 不可达（${sanitizeUpdateError(githubError?.message || githubError)}）；jsDelivr 备用源也不可用（${sanitizeUpdateError(cdnError?.message || cdnError)}）`)
+      }
+      return {
+        currentVersion,
+        latestVersion: compared.version || currentVersion,
+        currentCommit,
+        latestCommit: compared.revision,
+        checkSource: 'jsdelivr',
+        updateAvailable,
+      }
+    } catch (cdnError) {
+      try {
+        const [remote, latestCommitResult] = await Promise.all([fetchManifest(), fetchLatestCommit()])
+        const { publishedCommit, runtimeCommit: latestCommit } = runtimeCommitIdentityOf(latestCommitResult)
+        const latestVersion = String(remote?.version || '')
+        if (currentVersion === '' || latestVersion === '') throw new Error('版本信息不完整')
+        if (!/^[0-9a-f]{40}$/i.test(latestCommit)) throw new Error('GitHub 返回的提交号无效')
+        const normalizedCurrentCommit = currentCommit.toLowerCase() === publishedCommit.toLowerCase()
+          ? latestCommit
+          : currentCommit
+        return {
+          currentVersion, latestVersion, currentCommit: normalizedCurrentCommit, latestCommit, checkSource: 'github',
+          updateAvailable: compareVersions(latestVersion, currentVersion) >= 0 && await isNewerCommit(normalizedCurrentCommit, latestCommit),
+          checkWarning: undefined,
+        }
+      } catch (githubError) {
+        throw new Error(`jsDelivr 不可用（${sanitizeUpdateError(cdnError?.message || cdnError)}）；GitHub 备用源也不可用（${sanitizeUpdateError(githubError?.message || githubError)}）`)
       }
     }
   }

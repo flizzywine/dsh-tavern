@@ -4392,15 +4392,13 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				)
 			);
 			const updateMessage = updateStatus.phase === "checking"
-				? "正在检查 GitHub 最新提交；GitHub 不可达时会自动尝试备用源…"
+				? "正在通过 jsDelivr 检查最新构建…"
 				: updateStatus.phase === "up-to-date"
-					? (updateStatus.checkSource === "jsdelivr"
-						? "jsDelivr 备用源未发现可用的新构建（可能有缓存延迟），无需下载。"
-						: "✓ 未发现更新构建")
+					? "✓ 未发现更新构建"
 				: updateStatus.phase === "update-available"
 					? "发现新构建 " + ((updateStatus.latestCommit || "").slice(0, 7) || updateStatus.latestVersion || "")
 				: updateStatus.phase === "running"
-				? (updateStatus.checkSource === "jsdelivr" ? "GitHub 不可达，正在尝试通过 jsDelivr 备用源更新运行代码…" : "正在下载并安装，期间页面可能暂时断开… 如果较长时间仍未更新完成，建议重新安装一次；检测到 Git 时只会下载运行所需代码。")
+				? "正在下载并安装，期间页面可能暂时断开… 如果较长时间仍未更新完成，建议重新安装一次；检测到 Git 时只会下载运行所需代码。"
 				: updateStatus.phase === "installed-restart-required"
 					? (updateStatus.error || "程序文件已更新，但自动重启失败。请手动重启 DSH Tavern。")
 				: updateStatus.phase === "restart-required"

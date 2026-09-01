@@ -36,8 +36,11 @@ test('CDN 清单生成器包含全部依赖补丁及其校验值', async t => {
     await mkdir(path.dirname(path.join(fixture, file)), { recursive: true })
     await writeFile(path.join(fixture, file), await readFile(path.join(root, file)))
   }
-  execFileSync(process.execPath, [path.join(root, '.github/scripts/write-runtime-manifest.mjs'), 'a'.repeat(40)], { cwd: fixture })
+  execFileSync(process.execPath, [path.join(root, '.github/scripts/write-runtime-manifest.mjs'), 'a'.repeat(40), '42'], { cwd: fixture })
   const manifest = JSON.parse(await readFile(path.join(fixture, 'dsh-tavern-runtime.json'), 'utf8'))
+  assert.equal(manifest.schemaVersion, 2)
+  assert.equal(manifest.releaseSequence, 42)
+  assert.equal(manifest.version, '1.1.1')
   for (const file of required) {
     const entry = manifest.files.find(entry => entry.path === file)
     assert.ok(entry, `CDN 清单遗漏：${file}`)
