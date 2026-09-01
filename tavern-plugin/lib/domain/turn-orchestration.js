@@ -113,7 +113,6 @@ function rememberFrame(chat, frame) {
 
 const FRAME_INSTRUCTION_KIND = Object.freeze({
   base: 'foreground.writing-rules',
-  'previous-source': 'foreground.current-state',
   'world-book': 'foreground.active-worldbook',
   posture: 'foreground.current-state',
   guide: 'foreground.guide',

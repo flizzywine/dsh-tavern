@@ -160,7 +160,7 @@ test('每轮正文仅保留人物卡系统提示和历史后指令，不再追�
   assert.doesNotMatch(result.text, /旅店遇见|文风示例|跟紧我/)
 })
 
-test('展示正则移走可见正文后，下一轮仍注入内部源文本保持连续', async () => {
+test('正文规划只相信 Session 历史，不把上一轮 sourceText 重新注入', async () => {
   const planner = createContextPlanner({ prompt, callModel: async () => '{"ids":[]}' })
   const result = await planner.plan({
     purpose: 'body',
@@ -174,8 +174,9 @@ test('展示正则移走可见正文后，下一轮仍注入内部源文本保�
     nativeTurn: 3
   })
 
-  assert.match(result.text, /上一轮正文源文本/)
-  assert.match(result.text, /叶天邪走进校门/)
+  assert.doesNotMatch(result.text, /上一轮正文源文本/)
+  assert.doesNotMatch(result.text, /叶天邪走进校门/)
+  assert.equal(result.sections.some((section) => section.kind === 'previous-source'), false)
 })
 
 test('自由故事候选按稳定到动态的顺序注入完整人物卡约束，但不自行注入世界书', async () => {

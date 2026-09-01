@@ -9,25 +9,6 @@ function frameIdOf(message) {
   return str(source && source.trace && source.trace.frameId)
 }
 
-function comparableSource(text) {
-  return text.replace(/<StatusPlaceHolder(?:Impl)?\s*\/?>/gi, '').trim()
-}
-
-function newContributions(frame, messages) {
-  const previous = messages.slice().reverse().find(message => message && message.role === 'assistant')
-  const content = previous && previous.content
-  // Compare against the actual request history, not the visible UI or a stored
-  // chat snapshot: compaction may have removed the original message entirely.
-  if (!Array.isArray(content) || content.some(block => block.type !== 'text')) return frame.contributions
-  const historyText = comparableSource(content.map(block => str(block.text)).join(''))
-  if (!historyText) return frame.contributions
-  return frame.contributions.filter(item => {
-    if (item.source.stage !== 'context-plan' || item.source.sectionKind !== 'previous-source') return true
-    const heading = '【上一轮正文源文本 · 展示正则已从可见正文移除，续写时保持剧情连续】\n'
-    return !item.text.startsWith(heading) || comparableSource(item.text.slice(heading.length)) !== historyText
-  })
-}
-
 /** Adapt one ForegroundFrame to the current DSH agent/pre-step message seam. */
 export function createForegroundFrameSessionAdapter(options = {}) {
   const makeId = typeof options.id === 'function' ? options.id : function () { return crypto.randomUUID() }
@@ -40,7 +21,7 @@ export function createForegroundFrameSessionAdapter(options = {}) {
     if (messages.some(function (message) { return frameIdOf(message) === frame.frameId })) {
       return { messages, receipt: { appended: false, reason: 'duplicate', frameId: frame.frameId } }
     }
-    const contributions = newContributions(frame, messages)
+    const contributions = frame.contributions
     const text = foregroundFrameText({ contributions })
     if (text === '') return { messages, receipt: { appended: false, reason: 'empty', frameId: frame.frameId } }
     const sections = contributions.map(function (item, index) {
