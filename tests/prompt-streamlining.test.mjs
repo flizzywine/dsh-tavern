@@ -15,6 +15,7 @@ const tavernPresetSource = await readFile(new URL('../presets/tavern/agent.cordi
 const backgroundPresetSource = await readFile(new URL('../presets/tavern-background/agent.cordis.yml', import.meta.url), 'utf8').catch(() => '')
 const profileSource = await readFile(new URL('../package.json', import.meta.url), 'utf8')
 const profilePatchSource = await readFile(new URL('../tavern-plugin/cordis.patch.yml', import.meta.url), 'utf8')
+const advancedSkillSource = await readFile(new URL('../presets/tavern/skills/tavern-advanced-capabilities/SKILL.md', import.meta.url), 'utf8')
 
 function between(source, start, end) {
   const from = source.indexOf(start)
@@ -98,8 +99,10 @@ test('卡片 Agent 以极简模式工具为底座，游玩 Agent 不暴露文件
   assert.match(serverSource, /modePrompt: function \(\) \{ return runtimePrompt\('card-mode'\) \}/)
   assert.doesNotMatch(serverSource, /runtimePrompt\('play-mode'\)/)
   assert.match(serverSource, /workspaceContext: resourceWorkspaceContext/)
-  assert.match(orchestrationStrategiesSource, /section\.name === 'tool:cordis'/)
+  assert.doesNotMatch(orchestrationStrategiesSource, /section\.name === 'tool:cordis'/)
   assert.match(orchestrationStrategiesSource, /name: 'tavern:resource-workspace'/)
+  assert.match(advancedSkillSource, /Cordis 动态插件/)
+  assert.match(advancedSkillSource, /tools\.cordis\.yml/)
   assert.match(orchestratorSource, /if \(mode === 'card'\) return \[shellToolName, 'str_replace_editor', 'skill', 'tavern_save_skill', \.\.\.cordisToolNames, 'tavern_read_card'/)
   assert.doesNotMatch(orchestratorSource, /mode === 'revision'|mode === 'extract'/)
   assert.doesNotMatch(orchestratorSource, /if \(mode === 'script'\) return \[[^\]]*'bash'/)

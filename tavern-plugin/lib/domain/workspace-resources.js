@@ -1,6 +1,3 @@
-import path from 'node:path'
-import { userExtensionPaths } from './user-extensions.js'
-
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
 }
@@ -8,19 +5,13 @@ function str(value) {
 export function resourceWorkspaceContext(value) {
   const root = str(value).trim()
   if (root === '') return ''
-  const extensions = userExtensionPaths(path.dirname(root))
   return [
     '【当前 Tavern 资源工作区】',
     '- 资源根目录：' + JSON.stringify(root),
     '- 资源在 Tavern 界面、结构化引用和 Tavern 工具参数中仍使用 `materials/...`、`presets/...`、`cards/...` 等相对路径。',
     '- 调用 `str_replace_editor` 时，其 `path` 参数必须使用绝对路径：将上面的资源根目录与资源相对路径连接。',
     '- 不得把相对路径简单加 `/`，不得猜测 `/materials`、`/presets`、`/cards`。',
-    '- shell 工具默认位于当前资源工作区，可继续使用相对路径。',
-    '【用户持久扩展目录】',
-    '- 自创工具/插件代码：' + JSON.stringify(extensions.tools),
-    '- 原生 Cordis 加载清单：' + JSON.stringify(extensions.config),
-    '- 自创 Skill：' + JSON.stringify(extensions.skills),
-    '- 原生文件工具也可操作上述扩展目录；它们不在程序安装目录内，不随 Tavern 更新覆盖。'
+    '- shell 工具默认位于当前资源工作区，可继续使用相对路径。'
   ].join('\n')
 }
 

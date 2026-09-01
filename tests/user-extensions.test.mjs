@@ -54,11 +54,15 @@ test('原生加载入口固定在用户目录，不随程序版本路径变化',
   }
 })
 
-test('工作台明确告知持久目录，允许原生文件工具操作这些目录', () => {
+test('持久扩展目录只在高级能力 Skill 中按需说明', async () => {
   const context = resourceWorkspaceContext('/workspace/data/resources')
-  assert.match(context, /\/workspace\/data\/tools/)
-  assert.match(context, /\/workspace\/data\/skills/)
-  assert.match(context, /\/workspace\/data\/tools\.cordis\.yml/)
+  const advancedSkill = await readFile(new URL('../presets/tavern/skills/tavern-advanced-capabilities/SKILL.md', import.meta.url), 'utf8')
+  assert.doesNotMatch(context, /\/workspace\/data\/tools/)
+  assert.doesNotMatch(context, /\/workspace\/data\/skills/)
+  assert.doesNotMatch(context, /\/workspace\/data\/tools\.cordis\.yml/)
+  assert.match(advancedSkill, /同级 `tools\/`/)
+  assert.match(advancedSkill, /同级 `skills\/`/)
+  assert.match(advancedSkill, /同级 `tools\.cordis\.yml`/)
   assert.doesNotMatch(context, /不得访问资源根目录之外/)
 })
 
