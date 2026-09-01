@@ -39,6 +39,14 @@ test('转换 Skill 清理副本内重复的候选项生成机制并保留无关�
   assert.match(skill.content, /不存在第二套候选项生成机制/)
 })
 
+test('转换 Skill 直接移除旧协议，不向前台追加迁移说明或新行文规则', async () => {
+  const skills = createTavernSkillModule({ directory: new URL('../data/skills/', import.meta.url).pathname, builtInDirectory: root.pathname })
+  const skill = await skills.read('tavern-card-to-mvu')
+  assert.match(skill.content, /直接删除旧状态与候选项协议/)
+  assert.match(skill.content, /不写一段“只写剧情正文”或“不再输出[^”]+”作为替代说明/)
+  assert.match(skill.content, /新人物登场[^\n]*原卡已有[^\n]*原样保留[^\n]*转换过程不新增/)
+})
+
 test('Skill 配方可构造可导入卡，规则分流、状态显示及模型历史隔离均有效', () => {
   const entries = JSON.parse(recipe.match(/```json\n([\s\S]*?)\n```/)[1])
   const regexCode = recipe.match(/```js\n([\s\S]*?)\n```/)[1]
