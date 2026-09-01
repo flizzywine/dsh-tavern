@@ -28,7 +28,7 @@ function backgroundPrompt(messages, turnContext, task, taskProtocol, input = {})
   const taskName = task === 'settlement' ? '状态结算' : '候选生成'
   sections.push('【最近剧情与本次任务】\n任务类型：' + taskName + '\n' + recent)
   const protocol = str(taskProtocol).trim()
-  if (protocol !== '') sections.push('【DSH 后台任务协议（最终指令）】\n按系统提示中的本轮任务规则执行。')
+  if (protocol !== '') sections.push('【DSH 后台任务协议（最终指令）】\n' + protocol)
   if (task === 'candidate' && str(input.postHistoryText).trim()) {
     sections.push('【人物卡历史后指令】\n' + str(input.postHistoryText).trim())
   }
@@ -158,7 +158,7 @@ export function createBackgroundAgentRunner(options) {
   }
 
   function setupFor(state, descriptor, appendDescriptor) {
-    const backgroundPersona = '你是与前台正文生成隔离的酒馆后台 Agent。你会在同一个剧情分支中依次承担状态结算与候选生成；严格按本轮任务输出，不得把某类任务的输出格式混入另一类任务。最新权威状态优先于 Session 中的旧动态状态。\n\n【本轮任务规则】\n{{tavern_background_task}}'
+    const backgroundPersona = '你是与前台正文生成隔离的酒馆后台 Agent。你会在同一个剧情分支中依次承担状态结算与候选生成；严格按每轮末尾追加的任务协议输出，不得把某类任务的输出格式混入另一类任务。最新权威状态优先于 Session 中的旧动态状态。'
     let descriptorAppended = !appendDescriptor
     return async function (childCtx) {
       if (setupAgent !== null) await setupAgent(childCtx)
@@ -183,7 +183,6 @@ export function createBackgroundAgentRunner(options) {
           messages: middleMessages.concat(decision.messages)
         })
       })
-      childCtx.systemPrompt.variable('tavern_background_task', function () { return str(state.input && state.input.system) })
       childCtx.systemPrompt.section({
         name: 'deployment:persona',
         order: 0,

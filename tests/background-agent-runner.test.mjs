@@ -97,9 +97,11 @@ test('后台固定背景只保存一次，连续候选、结算和恢复均从 S
   await candidate('background')
   assert.equal(creates, 1)
   assert.equal(resumes, 1)
+  const stableSystem = packets[0].system
   for (const [index, packet] of packets.entries()) {
-    assert.equal(packet.system.split('候选JSON规则').length - 1, 1)
-    assert.doesNotMatch(packet.text, /候选JSON规则/, '完整任务协议仅在系统提示中，尾部只保留提醒')
+    assert.equal(packet.system, stableSystem, '后台 system 必须跨轮次逐字稳定')
+    assert.doesNotMatch(packet.system, /候选JSON规则/)
+    assert.equal(packet.text.split('候选JSON规则').length - 1, 1, '完整任务协议只在本轮末尾追加一次')
     assert.doesNotMatch(packet.system, /固定背景|固定世界设定|固定性格|固定场景|固定示例/)
     const texts = packet.messages.map(message => message.content.map(block => block.text).join('')).join('\n')
     assert.equal(texts.split('固定背景A').length - 1, 1)
@@ -116,6 +118,8 @@ test('后台固定背景只保存一次，连续候选、结算和恢复均从 S
     assert.ok(packet.text.endsWith(index < 2 ? '每轮末尾要求' : '修改后的末尾要求'))
   }
   await runner.run({ sessionId: 'parent', persistent: true, persistentSessionId: 'background', task: 'settlement', selection: { provider: 'test', model: 'fake' }, system: '结算规则', messages: [], backgroundContext: '不应带入的候选背景', systemPromptText: '不应带入的系统要求', postHistoryText: '不应带入的末尾要求' })
+  assert.equal(packets.at(-1).system, stableSystem, '结算与候选切换不得改写 system 前缀')
+  assert.equal(packets.at(-1).text.split('结算规则').length - 1, 1)
   assert.doesNotMatch(packets.at(-1).system, /不应带入|固定背景|每轮系统要求/)
   assert.match(packets.at(-1).messages[0].content[0].text, /固定背景A/)
   assert.equal(events.filter(event => event.type === 'dsh-tavern/stable-prefix').length, 0)
@@ -307,8 +311,8 @@ test('后台 Runner 执行候选任务，查询超限后提示开始推理而不
   assert.doesNotMatch(sections[0].text, /tavern_runtime_preset_front/)
   assert.doesNotMatch(sections[0].text, /future::macro/)
   assert.doesNotMatch(sections[0].text, /候选系统提示/)
-  assert.match(sections[0].text, /\{\{tavern_background_task\}\}/)
-  assert.equal(variables.find(function (entry) { return entry.name === 'tavern_background_task' }).provider(), '候选系统提示')
+  assert.doesNotMatch(sections[0].text, /tavern_background_task/)
+  assert.equal(variables.some(function (entry) { return entry.name === 'tavern_background_task' }), false)
   assert.equal(variables.some(function (entry) { return entry.name === 'tavern_runtime_preset_front' }), false)
   assert.deepEqual(requestMessages.map(function (entry) { return [entry.role, entry.content[0].text] }), [
     ['user', '通用破限握手'],
@@ -317,8 +321,7 @@ test('后台 Runner 执行候选任务，查询超限后提示开始推理而不
   assert.match(requestMessages[1].content[0].text, /最近剧情/)
   assert.match(requestMessages[1].content[0].text, /候选生成/)
   assert.match(requestMessages[1].content[0].text, /DSH 后台任务协议（最终指令）/)
-  assert.doesNotMatch(requestMessages[1].content[0].text, /候选系统提示/)
-  assert.match(requestMessages[1].content[0].text, /按系统提示中的本轮任务规则执行/)
+  assert.equal(requestMessages[1].content[0].text.split('候选系统提示').length - 1, 1)
   assert.equal(stagedSnapshots.length, 1)
   assert.equal(stagedSnapshots[0].sessionId, 'candidate-session-1')
   assert.equal(stagedSnapshots[0].scope, 'background')
