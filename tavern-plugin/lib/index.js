@@ -276,7 +276,6 @@ export async function apply(ctx) {
   }
 
   const settlementJobs = new Map()
-  const settlementReruns = new Set()
   const scriptContinuity = createScriptContinuity()
   const storyTimeline = createStoryTimeline({ id: uid, now: Date.now })
   const cardPreparation = createCardPreparation({ id: function () { return uid('card') }, now: Date.now })
@@ -1515,7 +1514,8 @@ export async function apply(ctx) {
           backgroundBoundary = Number.isSafeInteger(run.traceBoundary) ? run.traceBoundary : null
         }
         let stat = { postureUpdated: false }
-        const completed = await taskRun.commit({
+        const waitingRuntime = Boolean(mvuResult && mvuResult.receipt && mvuResult.receipt.status === 'pending')
+        const completion = {
           stateChanged: Boolean(mvuResult && mvuResult.receipt && mvuResult.receipt.status === 'updated') || str(result && result.posture).trim() !== '',
           participant: taskRun.participant({ sessionId: backgroundSessionId, boundary: backgroundBoundary }),
           apply(draft) {
@@ -1535,14 +1535,19 @@ export async function apply(ctx) {
                 }
               }
             }
-            draft.settleStatus = mvuResult && mvuResult.receipt && mvuResult.receipt.status === 'pending' ? 'waiting-runtime' : 'done'
+            draft.settleStatus = waitingRuntime ? 'waiting-runtime' : 'done'
             draft.settleError = null
             draft.lastSettle = { ts: Date.now(), posture: stat.postureUpdated, raw: text.slice(0, 200) }
           }
-        })
+        }
+        const completed = waitingRuntime ? await taskRun.defer(completion) : await taskRun.commit(completion)
         if (completed.status === 'missing') return
         if (completed.status === 'stale') {
           if (backgroundTasks.activity(completed.chat).busy) continue
+          return
+        }
+        if (completed.status === 'deferred') {
+          console.log('dsh-tavern: 变量结算等待 MVU 运行时接续', chatId)
           return
         }
         console.log('dsh-tavern: 结算完成', chatId, '姿势', stat.postureUpdated ? '已更新' : '未更新')
@@ -1580,17 +1585,9 @@ export async function apply(ctx) {
   }
   function queueSettlement(chatId) {
     const existing = settlementJobs.get(chatId)
-    if (existing !== undefined) {
-      settlementReruns.add(chatId)
-      return existing
-    }
+    if (existing !== undefined) return existing
     const job = runSettlement(chatId).finally(function () {
       settlementJobs.delete(chatId)
-      if (settlementReruns.delete(chatId)) {
-        void queueSettlement(chatId).catch(function (error) {
-          console.error('dsh-tavern: 重新排队变量结算失败', chatId, str(error && error.message || error))
-        })
-      }
     })
     settlementJobs.set(chatId, job)
     return job

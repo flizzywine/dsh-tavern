@@ -6,7 +6,11 @@ Tavern Chat 中唯一权威的剧情记录。它用单调递增的 revision、br
 
 ## Foreground Turn
 
-玩家可见的一轮输入与正文回复。只有成功提交到 Story Timeline 的 Foreground Turn 才能推进剧情，并产生后续 Background Cycle。
+玩家可见的一轮输入与正文回复。Foreground Turn 完成后只是当前 Round 的暂存结果；在配套状态结算成功前，它不会单独推进 Story Timeline revision，也不会产生 checkpoint。
+
+## Round
+
+一次不可拆分的正式剧情事务，由 Foreground Turn 与紧随其后的状态结算组成。只有两者都成功，Round 才一次性提交正文、派生状态、checkpoint 和新的 Story Timeline revision。未完成、等待运行时或结算失败的 Round 会阻止下一轮正文、回退与正文替代；候选生成不属于 Round。
 
 ## Background Agent
 
@@ -18,7 +22,7 @@ Background Agent 基于特定 Story Timeline branch/revision 执行的一项工�
 
 ## Background Cycle
 
-Foreground Turn 成功后产生的状态结算 Background Operation。世界书关键词匹配在本地完成，不创建 Background Operation，也不阻止下一次 Foreground Turn。
+Foreground Turn 完成后产生、并与它属于同一 Round 的状态结算 Background Operation。世界书关键词匹配在本地完成，不创建 Background Operation。Background Cycle 成功前，当前 Round 不提交，也不能开始下一次 Foreground Turn。
 
 ## Background Activity
 

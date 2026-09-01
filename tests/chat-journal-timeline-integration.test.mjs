@@ -36,6 +36,15 @@ test('正文 checkpoint 使用 revision cursor，并从 journal 历史完成回�
     }
   })
   chat = await persistence.write(completed.chat, { source: 'foreground.commit' })
+  const settlement = timeline.apply({ chat, intent: { kind: 'agent.begin', role: 'settlement' } })
+  chat = await persistence.write(settlement.chat, { source: 'background.settlement.begin' })
+  const settled = timeline.complete({
+    chat,
+    operationId: settlement.value.operationId,
+    basedOn: settlement.value.basedOn,
+    outcome: { status: 'success' }
+  })
+  chat = await persistence.write(settled.chat, { source: 'background.settlement.commit' })
 
   const checkpoint = chat.timeline.checkpoints[0]
   const bodyOperation = chat.timeline.operations[begun.value.operationId]

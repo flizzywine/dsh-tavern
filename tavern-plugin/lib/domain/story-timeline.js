@@ -147,12 +147,40 @@ export function createStoryTimeline(options = {}) {
 
   function backgroundBody(chat) {
     return Object.values(chat.timeline.operations).filter(function (operation) {
-      if (operation.kind !== 'body' || operation.status !== 'completed') return false
+      if (operation.kind !== 'body' || (operation.status !== 'foreground-completed' && operation.status !== 'completed')) return false
       if (str(object(operation.background).phase) === '') return false
       return str(operation.committedBranchId || operation.basedOn && operation.basedOn.branchId) === chat.timeline.branchId
     }).sort(function (left, right) {
       return (Number(right.completedAt) || 0) - (Number(left.completedAt) || 0)
     })[0]
+  }
+
+  function pendingRoundBody(chat) {
+    return Object.values(chat.timeline.operations).filter(function (operation) {
+      return operation.kind === 'body' && operation.status === 'foreground-completed' &&
+        str(operation.basedOn && operation.basedOn.branchId) === chat.timeline.branchId
+    }).sort(function (left, right) {
+      return (Number(right.foregroundCompletedAt) || Number(right.createdAt) || 0) - (Number(left.foregroundCompletedAt) || Number(left.createdAt) || 0)
+    })[0]
+  }
+
+  function finalizeRound(chat, operation) {
+    chat.timeline.checkpoints.push({
+      id: makeId('checkpoint'),
+      turn: operation.turn,
+      userText: operation.userText,
+      beforeRevision: Math.max(0, Number(operation.beforeRevision) || 0),
+      participants: clone(operation.beforeParticipants),
+      committedAt: now()
+    })
+    chat.timeline.checkpoints = chat.timeline.checkpoints.slice(-40)
+    chat.candidates = null
+    chat.timeline.revision++
+    operation.status = 'completed'
+    operation.completedAt = now()
+    operation.committedBranchId = chat.timeline.branchId
+    operation.committedRevision = chat.timeline.revision
+    operation.background = { phase: 'completed', role: 'settlement', updatedAt: now() }
   }
 
   function updateBackground(chat, phase, role) {
@@ -165,6 +193,14 @@ export function createStoryTimeline(options = {}) {
   function beginBody(chat, intent) {
     const turn = Math.max(0, Number(intent.turn) || 0)
     const userText = str(intent.userText).trim()
+    const incomplete = pendingRoundBody(chat)
+    if (incomplete !== undefined) {
+      const error = new Error('上一轮正文尚未完成后台结算，请先等待或重试结算')
+      error.code = 'ROUND_INCOMPLETE'
+      error.operationId = incomplete.id
+      error.phase = str(incomplete.background && incomplete.background.phase) || 'pending'
+      throw error
+    }
     const existing = Object.values(chat.timeline.operations).find(function (operation) {
       return operation.kind === 'body' && operation.status === 'running' && Number(operation.turn) === turn
     })
@@ -198,6 +234,38 @@ export function createStoryTimeline(options = {}) {
       rewindTo,
       lifetime: participantKey === 'background' ? participantLifetime(current.lifetime) : (current.lifetime || 'one-shot'),
       syncedRevision: current.syncedRevision === undefined ? null : current.syncedRevision
+    }
+  }
+
+  function commitParticipant(chat, operation, value) {
+    const participant = object(value)
+    if (operation.kind !== 'agent' || str(participant.sessionId) === '') return
+    const lifetime = participantLifetime(participant.lifetime)
+    const participantKey = participantRole(operation.role)
+    const previousParticipant = object(chat.timeline.participants[participantKey])
+    const nextParticipant = {
+      role: participantKey,
+      lifetime,
+      sessionId: str(participant.sessionId),
+      branchId: chat.timeline.branchId,
+      syncedRevision: chat.timeline.revision,
+      boundary: Number.isSafeInteger(participant.boundary) ? participant.boundary : null,
+      status: 'current',
+      rewindTo: null,
+      updatedAt: now()
+    }
+    if (str(previousParticipant.sessionId) === str(participant.sessionId) && previousParticipant.requiresNewSessionOnRewind === true) {
+      nextParticipant.requiresNewSessionOnRewind = true
+      nextParticipant.compactedAt = Number(previousParticipant.compactedAt) || now()
+    }
+    chat.timeline.participants[participantKey] = nextParticipant
+    if (operation.role === 'candidate') {
+      chat.candidateAgent = {
+        sessionId: str(participant.sessionId), mode: lifetime === 'chat' ? 'continuable' : 'one-shot',
+        branchId: chat.timeline.branchId, syncedRevision: chat.timeline.revision,
+        boundary: Number.isSafeInteger(participant.boundary) ? participant.boundary : null,
+        updatedAt: now()
+      }
     }
   }
 
@@ -252,6 +320,8 @@ export function createStoryTimeline(options = {}) {
       id: makeId('operation'), kind: 'agent', role, status: 'running',
       requestId, basedOn: basedOn(chat), createdAt: now()
     }
+    const round = role === 'settlement' ? pendingRoundBody(chat) : undefined
+    if (round !== undefined) operation.roundOperationId = round.id
     chat.timeline.operations[operation.id] = operation
     if (role === 'settlement') updateBackground(chat, 'running', role)
     trimOperations(chat.timeline)
@@ -392,7 +462,18 @@ export function createStoryTimeline(options = {}) {
       return { chat, value: { status: 'stale', branchId: chat.timeline.branchId, revision: chat.timeline.revision } }
     }
     const outcome = object(input && input.outcome)
+    if (outcome.status === 'deferred') {
+      if (typeof input.apply === 'function') input.apply(chat)
+      commitParticipant(chat, operation, outcome.participant)
+      operation.status = 'deferred'
+      operation.completedAt = now()
+      operation.committedRevision = chat.timeline.revision
+      if (operation.kind === 'agent' && operation.role === 'settlement') updateBackground(chat, 'pending', operation.role)
+      chat.timeline.updatedAt = now()
+      return { chat, value: { status: 'deferred', branchId: chat.timeline.branchId, revision: chat.timeline.revision } }
+    }
     if (outcome.status !== 'success') {
+      commitParticipant(chat, operation, outcome.participant)
       operation.status = 'failed'
       operation.completedAt = now()
       if (operation.kind === 'agent' && operation.role === 'settlement') {
@@ -402,53 +483,21 @@ export function createStoryTimeline(options = {}) {
     }
     if (typeof input.apply === 'function') input.apply(chat)
     if (operation.kind === 'body') {
-      chat.timeline.checkpoints.push({
-        id: makeId('checkpoint'),
-        turn: operation.turn,
-        userText: operation.userText,
-        beforeRevision: Math.max(0, Number(operation.beforeRevision) || 0),
-        participants: clone(operation.beforeParticipants),
-        committedAt: now()
-      })
-      chat.timeline.checkpoints = chat.timeline.checkpoints.slice(-40)
-      chat.candidates = null
-      chat.timeline.revision++
-      operation.committedBranchId = chat.timeline.branchId
+      operation.status = 'foreground-completed'
+      operation.foregroundCompletedAt = now()
       operation.background = { phase: 'pending', role: 'settlement', updatedAt: now() }
+    } else if (operation.kind === 'agent' && operation.role === 'settlement' && str(operation.roundOperationId) !== '') {
+      const round = chat.timeline.operations[operation.roundOperationId]
+      if (!round || round.kind !== 'body' || round.status !== 'foreground-completed' || !sameBasedOn(round.basedOn, operation.basedOn)) {
+        operation.status = 'stale'
+        return { chat, value: { status: 'stale', branchId: chat.timeline.branchId, revision: chat.timeline.revision } }
+      }
+      finalizeRound(chat, round)
     } else if (outcome.stateChanged === true) {
       chat.timeline.revision++
     }
-    const participant = object(outcome.participant)
-    if (operation.kind === 'agent' && str(participant.sessionId) !== '') {
-      const lifetime = participantLifetime(participant.lifetime)
-      const participantKey = participantRole(operation.role)
-      const previousParticipant = object(chat.timeline.participants[participantKey])
-      const nextParticipant = {
-        role: participantKey,
-        lifetime,
-        sessionId: str(participant.sessionId),
-        branchId: chat.timeline.branchId,
-        syncedRevision: chat.timeline.revision,
-        boundary: Number.isSafeInteger(participant.boundary) ? participant.boundary : null,
-        status: 'current',
-        rewindTo: null,
-        updatedAt: now()
-      }
-      if (str(previousParticipant.sessionId) === str(participant.sessionId) && previousParticipant.requiresNewSessionOnRewind === true) {
-        nextParticipant.requiresNewSessionOnRewind = true
-        nextParticipant.compactedAt = Number(previousParticipant.compactedAt) || now()
-      }
-      chat.timeline.participants[participantKey] = nextParticipant
-      if (operation.role === 'candidate') {
-        chat.candidateAgent = {
-          sessionId: str(participant.sessionId), mode: lifetime === 'chat' ? 'continuable' : 'one-shot',
-          branchId: chat.timeline.branchId, syncedRevision: chat.timeline.revision,
-          boundary: Number.isSafeInteger(participant.boundary) ? participant.boundary : null,
-          updatedAt: now()
-        }
-      }
-    }
-    operation.status = 'completed'
+    commitParticipant(chat, operation, outcome.participant)
+    if (operation.kind !== 'body') operation.status = 'completed'
     operation.completedAt = now()
     operation.committedRevision = chat.timeline.revision
     if (operation.kind === 'agent' && operation.role === 'settlement') updateBackground(chat, 'completed', 'settlement')

@@ -186,10 +186,14 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     })
     // 重生成正文也只交给后台变量 Agent 结算。先把最终 Swipe 固化到
     // 前台消息面，再启动结算，避免后台状态先于正文投影发布。
-    void queueSettlement(committedChat.id).catch(function (error) {
-      console.error('dsh-tavern: 启动重生成变量结算失败', str(error && error.message || error))
+    await queueSettlement(committedChat.id)
+    const settledChat = await readChat(committedChat.id)
+    if (settledChat === undefined) throw new Error('重新生成结算后找不到聊天')
+    const incompleteRound = Object.values(storyTimeline.inspect({ chat: settledChat }).operations || {}).find(function (operation) {
+      return operation && operation.kind === 'body' && operation.status === 'foreground-completed'
     })
-    const result = await view(committedChat, card)
+    if (incompleteRound !== undefined) throw new Error('重新生成正文的后台结算尚未完成，请先重试结算')
+    const result = await view(settledChat, card)
     result.adopted = { text: body, guidance: guide, hiddenTurn: oldTurn, syntheticTurn: syntheticTurn, swipeId: mergedSwipeId }
     return result
   }

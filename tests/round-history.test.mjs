@@ -13,6 +13,8 @@ function harness({ checkpoint = false, mode = 'story' } = {}) {
     revisions.set(1, structuredClone(chat))
     const begun = timeline.apply({ chat, intent: { kind: 'body.begin', turn: 2, userText: '推门' } })
     chat = timeline.complete({ chat: begun.chat, operationId: begun.value.operationId, basedOn: begun.value.basedOn, outcome: { status: 'success' }, apply(draft) { draft.messages.push(...pair); draft.posture = '门内' } }).chat
+    const settlement = timeline.apply({ chat, intent: { kind: 'agent.begin', role: 'settlement' } })
+    chat = timeline.complete({ chat: settlement.chat, operationId: settlement.value.operationId, basedOn: settlement.value.basedOn, outcome: { status: 'success' } }).chat
   } else chat.messages.push(...pair)
   const model = { kind: 'model', provider: 'fixture', model: 'fixture' }
   const events = [
@@ -56,7 +58,17 @@ function harness({ checkpoint = false, mode = 'story' } = {}) {
   const options = { chats, sessions: { get: () => agent }, timeline, scripts: {
     read: async () => ({ chunks: ['一', '二'] }), continuity: { transition: () => { calls.push('script.restore'); return { state: { cursor: 0 } } } },
     dispatchEvent: async event => { calls.push(event.name) }
-  }, queueSettlement: async () => { calls.push('settlement') }, present: async value => structuredClone(value) }
+  }, queueSettlement: async () => {
+    calls.push('settlement')
+    const settlement = timeline.apply({ chat, intent: { kind: 'agent.begin', role: 'settlement' } })
+    chat = timeline.complete({
+      chat: settlement.chat,
+      operationId: settlement.value.operationId,
+      basedOn: settlement.value.basedOn,
+      outcome: { status: 'success' },
+      apply(draft) { draft.settleStatus = 'done' }
+    }).chat
+  }, present: async value => structuredClone(value) }
   return { create: () => createRoundHistory(options), calls, session, agent, timeline, get chat() { return chat },
     setGeneration(value) { generation = value }, beforeGenerate(fn) { beforeGenerate = fn }, revisions }
 }
@@ -71,7 +83,7 @@ test('完整重生成保留玩家输入、旧 Swipe 与变量，提交后才排�
   assert.deepEqual(result.messages[2].variables, [{ hp: 8 }, { hp: 7 }])
   assert.deepEqual(result.suppressedDshTurns, [3])
   assert.equal(result.regenInProgress, undefined)
-  assert.equal(result.settleStatus, 'pending')
+  assert.equal(result.settleStatus, 'done')
   assert.match(h.agent.input.content[0].text, /原玩家输入：\n推门/)
   assert.match(h.agent.input.content[0].text, /写得短一些/)
   assert.ok(h.calls.indexOf('readRevision') < h.calls.indexOf('rollback.regen'))

@@ -34,8 +34,15 @@ function beginAndCommitBody(timeline, chat, turn, userText, body) {
       draft.scriptState = { cursor: draft.scriptState.cursor + 1, prepared: null }
     }
   })
-  completed.chat._storageRevision = beforeRevision + 2
-  return completed.chat
+  const begunSettlement = timeline.apply({ chat: completed.chat, intent: { kind: 'agent.begin', role: 'settlement' } })
+  const settled = timeline.complete({
+    chat: begunSettlement.chat,
+    operationId: begunSettlement.value.operationId,
+    basedOn: begunSettlement.value.basedOn,
+    outcome: { status: 'success' }
+  })
+  settled.chat._storageRevision = beforeRevision + 2
+  return settled.chat
 }
 
 function rollback(timeline, chat) {
@@ -63,6 +70,83 @@ test('正文提交建立 checkpoint，revision 单调增加并清除旧候选', 
   assert.equal(next.candidates, null)
   assert.equal(next.messages.length, 2)
   assert.equal(next.scriptState.cursor, 1)
+})
+
+test('前台正文与后台结算构成同一个原子 Round，结算前拒绝下一轮', () => {
+  const { timeline, chat } = harness()
+  const begun = timeline.apply({ chat, intent: { kind: 'body.begin', turn: 1, userText: '推门' } })
+  const foreground = timeline.complete({
+    chat: begun.chat,
+    operationId: begun.value.operationId,
+    basedOn: begun.value.basedOn,
+    outcome: { status: 'success' },
+    apply(draft) { draft.messages.push({ role: 'user', text: '推门' }, { role: 'assistant', text: '门开了。' }) }
+  })
+
+  assert.equal(timeline.inspect({ chat: foreground.chat }).revision, 0)
+  assert.equal(timeline.inspect({ chat: foreground.chat }).checkpointCount, 0)
+  assert.equal(foreground.chat.timeline.operations[begun.value.operationId].status, 'foreground-completed')
+  assert.throws(
+    () => timeline.apply({ chat: foreground.chat, intent: { kind: 'body.begin', turn: 2, userText: '进去' } }),
+    function (error) { return error && error.code === 'ROUND_INCOMPLETE' && error.operationId === begun.value.operationId }
+  )
+
+  const settlement = timeline.apply({ chat: foreground.chat, intent: { kind: 'agent.begin', role: 'settlement' } })
+  const completed = timeline.complete({
+    chat: settlement.chat,
+    operationId: settlement.value.operationId,
+    basedOn: settlement.value.basedOn,
+    outcome: { status: 'success' },
+    apply(draft) { draft.posture = '站在门内' }
+  })
+  assert.equal(timeline.inspect({ chat: completed.chat }).revision, 1)
+  assert.equal(timeline.inspect({ chat: completed.chat }).checkpointCount, 1)
+  assert.equal(completed.chat.timeline.operations[begun.value.operationId].status, 'completed')
+  assert.equal(completed.chat.posture, '站在门内')
+  assert.doesNotThrow(() => timeline.apply({ chat: completed.chat, intent: { kind: 'body.begin', turn: 2, userText: '进去' } }))
+})
+
+test('结算延后或失败都不提交 Round，重试成功后只提交一次', () => {
+  const { timeline, chat } = harness()
+  const begun = timeline.apply({ chat, intent: { kind: 'body.begin', turn: 1, userText: '推门' } })
+  let current = timeline.complete({
+    chat: begun.chat,
+    operationId: begun.value.operationId,
+    basedOn: begun.value.basedOn,
+    outcome: { status: 'success' },
+    apply(draft) { draft.messages.push({ role: 'user', text: '推门' }, { role: 'assistant', text: '门开了。' }) }
+  }).chat
+
+  let settlement = timeline.apply({ chat: current, intent: { kind: 'agent.begin', role: 'settlement' } })
+  current = timeline.complete({
+    chat: settlement.chat,
+    operationId: settlement.value.operationId,
+    basedOn: settlement.value.basedOn,
+    outcome: { status: 'deferred' },
+    apply(draft) { draft.settleStatus = 'waiting-runtime' }
+  }).chat
+  assert.equal(timeline.inspect({ chat: current }).revision, 0)
+  assert.equal(current.timeline.operations[begun.value.operationId].background.phase, 'pending')
+
+  settlement = timeline.apply({ chat: current, intent: { kind: 'agent.begin', role: 'settlement' } })
+  current = timeline.complete({
+    chat: settlement.chat,
+    operationId: settlement.value.operationId,
+    basedOn: settlement.value.basedOn,
+    outcome: { status: 'failed' }
+  }).chat
+  assert.equal(timeline.inspect({ chat: current }).revision, 0)
+  assert.equal(current.timeline.operations[begun.value.operationId].background.phase, 'failed')
+
+  settlement = timeline.apply({ chat: current, intent: { kind: 'agent.begin', role: 'settlement' } })
+  current = timeline.complete({
+    chat: settlement.chat,
+    operationId: settlement.value.operationId,
+    basedOn: settlement.value.basedOn,
+    outcome: { status: 'success' }
+  }).chat
+  assert.equal(timeline.inspect({ chat: current }).revision, 1)
+  assert.equal(timeline.inspect({ chat: current }).checkpointCount, 1)
 })
 
 test('回退恢复完整 checkpoint，但创建新 branch 且 revision 不倒退', () => {

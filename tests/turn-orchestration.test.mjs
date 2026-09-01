@@ -51,9 +51,19 @@ function harness(mode, options = {}) {
     async readCardExtensions() { return clone(options.extensions || { regexScripts: [] }) },
     async readScript() { return mode === 'script' || (mode === 'card' && !options.draft) ? clone(script()) : undefined },
     async readBoundWorldBook() { return clone(options.boundWorldBook || null) },
-    async writeChat(value) {
+    async writeChat(value, metadata) {
       const revision = Math.max(0, Number(chat._storageRevision) || 0) + 1
-      chat = clone(value)
+      let next = clone(value)
+      if (metadata && metadata.source === 'foreground.commit' && options.autoSettle !== false) {
+        const settlement = timeline.apply({ chat: next, intent: { kind: 'agent.begin', role: 'settlement' } })
+        next = timeline.complete({
+          chat: settlement.chat,
+          operationId: settlement.value.operationId,
+          basedOn: settlement.value.basedOn,
+          outcome: { status: 'success' }
+        }).chat
+      }
+      chat = next
       chat._storageRevision = revision
       value._storageRevision = revision
       history.set(revision, clone(chat))

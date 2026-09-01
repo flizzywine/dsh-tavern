@@ -62,13 +62,13 @@ test('后台 activity 只由 Story Timeline operation 推导，不相信重复�
 
   assert.deepEqual(harness.coordinator.activity(task.chat), {
     phase: 'running', busy: true, role: 'settlement', operationId: task.operationId,
-    basedOn: task.basedOn, updatedAt: 1003
+    basedOn: task.basedOn, updatedAt: task.chat.timeline.operations[task.operationId].createdAt
   })
 
   const completed = await task.commit({ stateChanged: false })
   assert.deepEqual(harness.coordinator.activity(completed.chat), {
     phase: 'idle', busy: false, role: 'settlement', operationId: task.operationId,
-    basedOn: task.basedOn, updatedAt: 1003
+    basedOn: task.basedOn, updatedAt: completed.chat.timeline.operations[task.operationId].completedAt
   })
 })
 
@@ -102,7 +102,7 @@ test('同一候选请求标识重试时返回原 Operation，不会启动第二�
 test('按 Operation ID 查询终态，不会被同一 Chat 的后续任务覆盖', async () => {
   const harness = coordinatorHarness()
   const first = await harness.coordinator.begin(harness.current(), 'candidate')
-  await first.commit({ stateChanged: false })
+  const firstCompleted = await first.commit({ stateChanged: false })
   const second = await harness.coordinator.begin(harness.current(), 'candidate')
 
   assert.equal(harness.coordinator.activity(second.chat).operationId, second.operationId)
@@ -115,7 +115,7 @@ test('按 Operation ID 查询终态，不会被同一 Chat 的后续任务覆盖
     terminal: true,
     successful: true,
     basedOn: first.basedOn,
-    updatedAt: 1003
+    updatedAt: firstCompleted.chat.timeline.operations[first.operationId].completedAt
   })
 })
 
@@ -136,13 +136,33 @@ test('Foreground Turn 提交后直接开放状态结算，不创建世界书 Age
   assert.equal(Object.values(harness.timeline.inspect({ chat: harness.current() }).operations).some(function (operation) { return operation.role === 'worldbook' }), false)
 
   await assert.rejects(harness.coordinator.begin(harness.current(), 'candidate'), function (error) {
-    return error && error.code === 'BACKGROUND_BUSY'
+    return error && error.code === 'ROUND_INCOMPLETE'
   })
 
   const settlement = await harness.coordinator.begin(harness.current(), 'settlement')
   const afterSettlement = await settlement.commit({ stateChanged: true })
   assert.equal(harness.coordinator.activity(afterSettlement.chat).phase, 'idle')
   assert.equal(harness.coordinator.activity(afterSettlement.chat).busy, false)
+})
+
+test('Round 结算失败后只能重试结算，不能穿插候选任务', async () => {
+  const harness = coordinatorHarness()
+  const body = harness.timeline.apply({ chat: harness.current(), intent: { kind: 'body.begin', turn: 1, userText: '向前走' } })
+  const foreground = harness.timeline.complete({
+    chat: body.chat,
+    operationId: body.value.operationId,
+    basedOn: body.value.basedOn,
+    outcome: { status: 'success' }
+  })
+  Object.assign(harness.current(), foreground.chat)
+  const settlement = await harness.coordinator.begin(harness.current(), 'settlement')
+  await settlement.fail()
+
+  await assert.rejects(
+    harness.coordinator.begin(harness.current(), 'candidate'),
+    function (error) { return error && error.code === 'ROUND_INCOMPLETE' && error.operationId === body.value.operationId }
+  )
+  await assert.doesNotReject(harness.coordinator.begin(harness.current(), 'settlement'))
 })
 
 test('进程重启把遗留 running operation 恢复为同一 Cycle 的 pending 任务', async () => {
