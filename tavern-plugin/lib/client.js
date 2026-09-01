@@ -5018,6 +5018,11 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			}
 			return { apply: apply, dispose: dispose };
 		}
+		function applyBodyRegenerationResult(options) {
+			options.liveTavernView.setView(options.sessionId, options.view);
+			options.historyProjection.regenerated(options.sessionId, options.view, options.tail);
+		}
+
 		function createPlayControlsFeatureModule() {
 			function TavernConversationExportAction(props) {
 				const [available, setAvailable] = React.useState(false);
@@ -5469,15 +5474,20 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				hideTurnTailWithUser(tail);
 			}
 		}
+		const historyProjection = Object.freeze({
+			regenerated: function (sessionId, view, tail) {
+				const adopted = view && view.adopted ? view.adopted : null;
+				if (adopted && Number(adopted.hiddenTurn) > 0) forgetHiddenTurn(HIDDEN_TURNS_KEY, sessionId, Number(adopted.hiddenTurn));
+				if (adopted && Number(adopted.syntheticTurn) > 0) forgetHiddenTurn(HIDDEN_REGEN_USER_TURNS_KEY, sessionId, Number(adopted.syntheticTurn));
+				showTurnTail(tail);
+				applySuppressedDshTurns(view && view.suppressedDshTurns);
+				applyHiddenTurns(sessionId);
+				applyHiddenRegenUserTurns(sessionId);
+			}
+		});
 		async function submitBodyRegeneration(sessionId, panel, guidance) {
 			const res = await rpc("regenBody", { guidance: String(guidance || "").trim() }, sessionId);
-			const adopted = res.view && res.view.adopted ? res.view.adopted : null;
-			if (adopted && Number(adopted.hiddenTurn) > 0) forgetHiddenTurn(HIDDEN_TURNS_KEY, sessionId, Number(adopted.hiddenTurn));
-			if (adopted && Number(adopted.syntheticTurn) > 0) forgetHiddenTurn(HIDDEN_REGEN_USER_TURNS_KEY, sessionId, Number(adopted.syntheticTurn));
-			showTurnTail(panel.tail);
-			applySuppressedDshTurns(res.view && res.view.suppressedDshTurns);
-			applyHiddenTurns(sessionId);
-			applyHiddenRegenUserTurns(sessionId);
+			applyBodyRegenerationResult({ liveTavernView: liveTavernView, historyProjection: historyProjection, sessionId: sessionId, view: res.view, tail: panel.tail });
 			setCandidatePanel(null);
 		}
 
@@ -5965,6 +5975,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		exports.createCardLibraryRefreshModule = createCardLibraryRefreshModule;
 		exports.tavernDataChangeAffects = tavernDataChangeAffects;
 		exports.createLiveTavernViewModule = createLiveTavernViewModule;
+		exports.applyBodyRegenerationResult = applyBodyRegenerationResult;
 		exports.createTavernCoordinationEventModule = createTavernCoordinationEventModule;
 		exports.describeTavernActivity = describeTavernActivity;
 		exports.createPlayWorkspaceResolver = createPlayWorkspaceResolver;
