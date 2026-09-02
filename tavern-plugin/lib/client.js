@@ -3367,9 +3367,10 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const [retrying, setRetrying] = React.useState(false);
 			const receipt = props.receipt || {};
 			const changes = Array.isArray(receipt.changes) ? receipt.changes : [];
-			// MVU display/delta mirrors are retained in receipts, but are not extra gameplay changes.
+			// MVU display/delta mirrors and schema maintenance stay in receipts for diagnostics,
+			// but are not extra gameplay changes worth showing to players.
 			const sideEffects = (Array.isArray(receipt.sideEffects) ? receipt.sideEffects : []).filter(function (change) {
-				return !/^\/(?:delta_data|display_data)(?:\/|$)/.test(String(change && change.path || ""));
+				return !/^\/(?:delta_data|display_data|schema)(?:\/|$)/.test(String(change && change.path || ""));
 			});
 			const failures = Array.isArray(receipt.failures) ? receipt.failures : [];
 			const status = ["pending", "updated", "partial", "error", "stale", "unchanged"].includes(receipt.status) ? receipt.status : "unchanged";

@@ -20,14 +20,18 @@ function textOf(node) {
 }
 
 const change = path => ({ operation: 'set', path, before: '旧值', after: '新值' })
-const internal = [change('/delta_data/航班'), change('/display_data/航班/安全带'), change('/delta_data'), change('/display_data')]
+const internal = [
+  change('/delta_data/航班'), change('/display_data/航班/安全带'),
+  change('/schema/properties/人物/properties/祈婉琳'),
+  change('/delta_data'), change('/display_data'), change('/schema')
+]
 
 test('更新记录只展示真实变量及脚本联动，过滤内部记录并保留原始 receipt', () => {
   const receipt = { status: 'updated', changes: [change('/stat_data/航班/安全带')],
     sideEffects: [...internal, change('/stat_data/航班/阶段')], failures: [] }
   const before = structuredClone(receipt)
   const text = textOf(sandbox.TavernMvuReceipt({ receipt }))
-  assert.doesNotMatch(text, /\/delta_data|\/display_data/)
+  assert.doesNotMatch(text, /\/delta_data|\/display_data|\/schema/)
   assert.match(text, /变量已更新 · 1 项 · 人物卡联动 1 项/)
   assert.match(text, /\/stat_data\/航班\/安全带/)
   assert.match(text, /人物卡脚本联动/)
@@ -40,7 +44,7 @@ test('只有内部变化时不展示联动标题或计数', () => {
   const text = textOf(node)
   assert.equal(node.type, 'div')
   assert.match(text, /本轮变量未更新/)
-  assert.doesNotMatch(text, /联动|delta_data|display_data/)
+  assert.doesNotMatch(text, /联动|delta_data|display_data|schema/)
 })
 
 test('只过滤顶层保留字段，不误删同名业务变量或失败详情', () => {
