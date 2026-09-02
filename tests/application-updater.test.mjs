@@ -5,9 +5,37 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { createServer } from 'node:http'
-import test from 'node:test'
+import test, { beforeEach, afterEach, mock } from 'node:test'
 
-import { createApplicationUpdater, sanitizeUpdateError } from '../tavern-plugin/lib/application-updater.js'
+import { createApplicationUpdater as createUpdater, sanitizeUpdateError } from '../tavern-plugin/lib/application-updater.js'
+
+// Never let fixtures accidentally consume a real release. Local HTTP fixtures
+// still exercise the production fetch path; every other request fails the test,
+// even if the updater catches the error and falls back to another source.
+const nativeFetch = globalThis.fetch
+let unexpectedRequests = []
+beforeEach(() => {
+  unexpectedRequests = []
+  mock.method(globalThis, 'fetch', async (input, init) => {
+    const url = new URL(typeof input === 'string' || input instanceof URL ? input : input.url)
+    if (['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname)) return nativeFetch(input, init)
+    unexpectedRequests.push(url.origin + url.pathname)
+    throw new Error('External network is disabled in updater tests')
+  })
+})
+afterEach(() => {
+  mock.restoreAll()
+  assert.deepEqual(unexpectedRequests, [], '更新器测试必须显式模拟远端请求')
+})
+
+function createApplicationUpdater(options) {
+  return createUpdater({
+    // GitHub-specific tests opt out of the CDN-first route. CDN tests below
+    // override this with their own metadata rather than fetching live data.
+    fetchCdnMetadata: async () => { throw new Error('CDN unavailable in GitHub fixture') },
+    ...options,
+  })
+}
 
 const knownIdentity = { currentVersion: '1.1.0', currentCommit: 'a'.repeat(40) }
 const verifiedUpdate = {
@@ -88,7 +116,7 @@ test('无 Git 的安装使用提交比较接口，校验比较方向并处理限
   }
 })
 
-test('较高版本号不能绕过提交先后判断，未知本地构建不能盲目安装', async () => {
+test('GitHub 路径的较高版本号不能绕过提交先后判断，未知本地构建不能盲目安装', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-order-version-'))
   try {
     const common = {

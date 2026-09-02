@@ -7,12 +7,12 @@ const source = await readFile(new URL('../tavern-plugin/lib/client.js', import.m
 function functionSource(name, next) {
   return source.slice(source.indexOf('function ' + name + '('), source.indexOf('function ' + next + '('))
 }
-function dockWith(nodes, mode = 'story') {
+function dockWith(nodes, mode = 'story', releaseCapabilities = { sceneImages: true }) {
   const selections = []
   const context = {
     React: { createElement: (type, props, ...children) => ({ type, props, children }) },
     useTavernSessionMode: () => mode,
-    useLiveTavernView: () => ({ view: { replyProjections: nodes.some(node => node.kind === 'assistant') ? [{ turn: 1 }, { turn: 2 }] : [] } }),
+    useLiveTavernView: () => ({ view: { releaseCapabilities, replyProjections: nodes.some(node => node.kind === 'assistant') ? [{ turn: 1 }, { turn: 2 }] : [] } }),
     isPlayMode: value => ['story', 'free', 'script'].includes(value),
     CandidateAction: 'actions', TavernCompactionAction: 'compact', SceneImageAction: 'scene-image',
     props: {
@@ -51,6 +51,22 @@ test('empty Chat keeps compaction but does not invent a response or show play co
   assert.equal(dockWith([]).rendered.children[2].type, 'compact')
   assert.equal(dockWith([{ kind: 'assistant', messageId: 'a' }], 'card').rendered.children[0], null)
   assert.equal(dockWith([{ kind: 'assistant', messageId: 'a' }], 'card').rendered.children[1], null)
+})
+
+test('disabled or missing image capability hides only the image action', () => {
+  for (const capabilities of [{ sceneImages: false }, {}, null]) {
+    for (const mode of ['story', 'free', 'script']) {
+      const { rendered } = dockWith([{ kind: 'assistant', messageId: 'reply2' }], mode, capabilities)
+      assert.equal(rendered.children[0].type, 'actions')
+      assert.equal(rendered.children[0].props.messageId, 'reply2')
+      assert.equal(rendered.children[1], null)
+      assert.equal(rendered.children[2].type, 'compact')
+      const empty = dockWith([], mode, capabilities).rendered
+      assert.equal(empty.children[0], null)
+      assert.equal(empty.children[1], null)
+      assert.equal(empty.children[2].type, 'compact')
+    }
+  }
 })
 
 test('all dependent panels read messages from Chat, never from Session lifecycle', () => {
