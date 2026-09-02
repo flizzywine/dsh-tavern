@@ -16,15 +16,14 @@ function fixture(overrides = {}) {
   return { service, calls, reads }
 }
 
-test('every channel connection check only sends HEAD without body, redirects or generation', async () => {
+test('every channel check only sends read-only requests without body, redirects or generation', async () => {
   for (const channel of SCENE_IMAGE_CHANNELS) {
     const fx = fixture()
     const result = await fx.service.test({ provider: channel.id, baseURL: 'https://example.test/api', apiKey: 'draft-secret' })
-    assert.equal(result.status, 'connected')
-    assert.match(result.message, /未验证模型/)
+    assert.equal(result.apiKeyStatus === 'verified', false)
     assert.equal(fx.calls.length, 1)
-    assert.equal(fx.calls[0].url, 'https://example.test/api/')
-    assert.equal(fx.calls[0].init.method, 'HEAD')
+    assert.equal(fx.calls[0].url, 'https://example.test/api/' + (channel.canListModels ? 'models' : ''))
+    assert.equal(fx.calls[0].init.method, channel.canListModels ? 'GET' : 'HEAD')
     assert.equal(fx.calls[0].init.body, undefined)
     assert.equal(fx.calls[0].init.redirect, 'manual')
     assert.equal(fx.reads.length, 0, 'supplied key does not read stored credentials')
@@ -56,6 +55,16 @@ test('auth, reachable errors, and redirects never claim generation works', async
     assert.equal(result.httpStatus, status)
     assert.equal(result.status, [401, 403].includes(status) ? 'auth_failed' : 'reachable')
   }
+})
+
+test('Grok verification endpoint 404 must not claim the Key is valid', async () => {
+  const fx = fixture({ fetchImpl: async () => new Response(null, { status: 404 }) })
+  const result = await fx.service.test({ provider: 'grok' })
+  assert.match(result.message, /无法完成 Key 验证/)
+  assert.equal(result.apiKeyStatus, 'unverified')
+  assert.equal(result.probePath, '/api-key')
+  assert.equal(result.httpStatus, 404)
+  assert.equal(result.status, 'reachable')
 })
 
 test('network failures and timeout are bounded and never echo secret transport errors', async () => {
@@ -114,7 +123,7 @@ test('Gemini model discovery strips models/ and malformed or oversized lists fal
   }
 })
 
-test('real HTTP check sends exactly one HEAD and does not follow redirect to another server', async t => {
+test('real HTTP check sends exactly one GET and does not follow redirect to another server', async t => {
   const requests = []
   const server = createServer((req, res) => {
     requests.push({ method: req.method, url: req.url })
@@ -126,5 +135,83 @@ test('real HTTP check sends exactly one HEAD and does not follow redirect to ano
   const fx = fixture({ fetchImpl: fetch })
   const result = await fx.service.test({ provider: 'openai', baseURL: `http://127.0.0.1:${server.address().port}/v1`, apiKey: 'test-key' })
   assert.equal(result.status, 'reachable')
-  assert.deepEqual(requests, [{ method: 'HEAD', url: '/v1/' }])
+  assert.deepEqual(requests, [{ method: 'GET', url: '/v1/models' }])
+})
+
+test('Grok official Key validation uses the read-only Key endpoint and returns no account metadata', async () => {
+  const calls = []
+  const fx = fixture({ fetchImpl: async (url, init) => {
+    calls.push({ url, init })
+    return Response.json({ api_key_disabled: false, api_key_blocked: false, team_blocked: false, name: 'private-name', team_id: 'private-team', redacted_api_key: 'secret-fragment' })
+  } })
+  const result = await fx.service.test({ provider: 'grok' })
+  assert.equal(result.apiKeyStatus, 'verified')
+  assert.match(result.message, /API Key 验证通过/)
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0].url, 'https://api.x.ai/v1/api-key')
+  assert.equal(calls[0].init.method, 'GET')
+  assert.equal(calls[0].init.headers.authorization, 'Bearer stored-secret')
+  assert.equal(calls[0].init.body, undefined)
+  assert.doesNotMatch(JSON.stringify(result), /private|secret-fragment/)
+})
+
+test('Grok disabled/blocked flags and authentication refusals never pass validation', async () => {
+  for (const flag of ['api_key_disabled', 'api_key_blocked', 'team_blocked']) {
+    const fx = fixture({ fetchImpl: async () => Response.json({ api_key_disabled: false, api_key_blocked: false, team_blocked: false, [flag]: true }) })
+    assert.equal((await fx.service.test({ provider: 'grok' })).apiKeyStatus, 'rejected')
+  }
+  for (const status of [400, 401, 403]) {
+    const fx = fixture({ fetchImpl: async () => new Response('stored-secret', { status }) })
+    const result = await fx.service.test({ provider: 'grok' })
+    assert.equal(result.apiKeyStatus, 'rejected')
+    assert.doesNotMatch(JSON.stringify(result), /stored-secret/)
+  }
+  for (const payload of [{}, { api_key_disabled: false }, { api_key_disabled: 'false', api_key_blocked: false, team_blocked: false }]) {
+    const fx = fixture({ fetchImpl: async () => Response.json(payload) })
+    assert.equal((await fx.service.test({ provider: 'grok' })).apiKeyStatus, 'unverified')
+  }
+})
+
+test('official OpenAI and Gemini validate through their authenticated model catalogs', async () => {
+  for (const provider of ['openai', 'gemini']) {
+    const calls = []
+    const fx = fixture({ fetchImpl: async (url, init) => { calls.push({ url, init }); return Response.json(provider === 'gemini' ? { models: [] } : { data: [] }) } })
+    const result = await fx.service.test({ provider })
+    assert.equal(result.apiKeyStatus, 'verified')
+    assert.equal(calls.length, 1)
+    assert.ok(calls[0].url.endsWith('/models'))
+  }
+})
+
+test('custom gateways only validate when anonymous access is explicitly refused', async () => {
+  for (const anonymousStatus of [200, 401, 403, 404, 429, 500]) {
+    const calls = []
+    const fx = fixture({ fetchImpl: async (url, init) => {
+      calls.push({ url, init })
+      return init.headers.authorization ? Response.json({ data: [{ id: 'image-model' }] }) : new Response(null, { status: anonymousStatus })
+    } })
+    const result = await fx.service.test({ provider: 'grok', baseURL: 'https://gateway.example/v1', apiKey: 'draft-key' })
+    assert.equal(result.apiKeyStatus, [401, 403].includes(anonymousStatus) ? 'verified' : 'unverified')
+    assert.deepEqual(calls.map(call => call.url), ['https://gateway.example/v1/models', 'https://gateway.example/v1/models'])
+    assert.deepEqual(calls.map(call => call.init.method), ['GET', 'GET'])
+    assert.equal(calls[1].init.headers.authorization, undefined)
+  }
+})
+
+test('missing keys, unsupported providers and public local servers never report Key verification', async () => {
+  const fx = fixture({ credentials: () => ({ resolve: async () => undefined }), settings: async provider => ({ ...sceneImageChannel(provider), hasKey: false }) })
+  assert.equal((await fx.service.test({ provider: 'grok' })).apiKeyStatus, 'missing')
+  assert.equal(fx.calls[0].init.method, 'HEAD')
+  assert.equal((await fx.service.test({ provider: 'novelai', apiKey: 'draft-key' })).apiKeyStatus, 'unsupported')
+  assert.equal((await fx.service.test({ provider: 'novelai', apiKey: 'draft-key' })).status, 'reachable', 'unsupported auth must not appear as a successful validation')
+  assert.equal((await fx.service.test({ provider: 'comfyui', baseURL: 'http://localhost:8188' })).apiKeyStatus, 'not_required')
+})
+
+test('invalid JSON, HTML and API error envelopes cannot masquerade as successful auth', async () => {
+  for (const response of [new Response('<html>OK</html>'), Response.json({ error: { message: 'stored-secret' } }), Response.json({ data: [null] })]) {
+    const fx = fixture({ fetchImpl: async () => response })
+    const result = await fx.service.test({ provider: 'openai' })
+    assert.equal(result.apiKeyStatus, 'unverified')
+    assert.doesNotMatch(JSON.stringify(result), /stored-secret/)
+  }
 })

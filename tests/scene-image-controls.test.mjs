@@ -127,7 +127,7 @@ test('setup order, read-only draft checks, model selection and stale status clea
   const context = vm.createContext({
     React: { createElement: (type, props, ...children) => ({ type, props, children }), useEffect() {}, useState(initial) { const n = cursor++; if (!(n in slots)) slots[n] = initial; return [slots[n], value => { slots[n] = typeof value === 'function' ? value(slots[n]) : value }] } },
     window: { dispatchEvent() {} }, CustomEvent: class {},
-    rpc: async (method, args) => { calls.push({ method, args }); return method === 'testSceneImageConnection' ? { status: 'reachable', message: '已连通' } : { models: ['new-image'], message: '已获取' } }
+    rpc: async (method, args) => { calls.push({ method, args }); return method === 'testSceneImageConnection' ? { status: 'reachable', apiKeyStatus: 'unverified', httpStatus: 404, probePath: '/models', message: '连接成功，但服务暂时无法完成 Key 验证。可展开连接诊断查看状态。' } : { models: ['new-image'], message: '已获取' } }
   })
   const Component = vm.runInContext(extract('SceneImageSettings', 'TavernSettingsSection') + ';SceneImageSettings', context)
   const nodes = tree => tree && typeof tree === 'object' ? [tree, ...(tree.children || []).flat(Infinity).flatMap(nodes)] : []
@@ -139,16 +139,21 @@ test('setup order, read-only draft checks, model selection and stale status clea
   const labelIndex = name => tree.findIndex(node => node.type === 'label' && node.children[0] === name)
   const buttonIndex = name => tree.findIndex(node => node.type === 'button' && node.children.includes(name))
   assert.ok(labelIndex('提供商') < labelIndex('API Key'))
-  assert.ok(labelIndex('API Key') < buttonIndex('测试连接'))
-  assert.ok(buttonIndex('测试连接') < labelIndex('生图模型'))
+  assert.ok(labelIndex('API Key') < buttonIndex('测试连接与鉴权'))
+  assert.ok(buttonIndex('测试连接与鉴权') < labelIndex('生图模型'))
   assert.ok(labelIndex('生图模型') < labelIndex('图片尺寸／分辨率'))
   tree.find(node => node.type === 'input' && node.props.type === 'password').props.onChange({ target: { value: 'draft-key' } })
   const button = name => render().find(node => node.type === 'button' && node.children.includes(name))
-  await button('测试连接').props.onClick()
+  await button('测试连接与鉴权').props.onClick()
   assert.equal(calls[0].method, 'testSceneImageConnection')
   assert.equal(calls[0].args.apiKey, 'draft-key')
   assert.equal(slots[2], 'draft-key', 'probe does not discard unsaved credential')
   assert.ok(render().some(node => node.props?.['data-connection-status'] === 'reachable'))
+  const diagnostic = render().find(node => node.type === 'details' && node.children.some(child => child?.type === 'summary' && child.children.includes('连接诊断')))
+  assert.ok(diagnostic)
+  assert.ok(!diagnostic.props?.open, 'HTTP diagnostic is collapsed by default')
+  assert.ok(diagnostic.children.some(child => child?.type === 'p' && child.children[0].includes('HTTP 404')))
+  assert.ok(!render().find(node => node.props?.role === 'status').children[0].includes('404'))
   await button('获取模型列表').props.onClick()
   tree = render()
   assert.ok(tree.some(node => node.type === 'option' && node.props.value === 'new-image'))

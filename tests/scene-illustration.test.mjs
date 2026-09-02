@@ -127,7 +127,7 @@ test('setup checks through illustration service do not save drafts or start agen
     runAgent: async () => assert.fail('connection checks must not run an Agent'),
     fetchImpl: async (url, init) => {
       calls.push({ url, method: init.method })
-      return init.method === 'HEAD' ? new Response(null) : Response.json({ data: [{ id: 'sample-image' }] })
+      return init.headers.authorization ? Response.json({ data: [{ id: 'sample-image' }] }) : new Response(null, { status: 401 })
     }
   })
   const before = await fx.service.settings()
@@ -136,7 +136,7 @@ test('setup checks through illustration service do not save drafts or start agen
   assert.deepEqual((await fx.service.listModels(draft)).models, ['sample-image'])
   assert.deepEqual(await fx.service.settings(), before)
   assert.equal(fx.imageCalls(), 0)
-  assert.deepEqual(calls.map(call => call.method), ['HEAD', 'GET'])
+  assert.deepEqual(calls.map(call => call.method), ['GET', 'GET', 'GET'])
 })
 
 test('image journal retains failed attempts, validation feedback, actual inputs and later success without exposing internals in status', async t => {

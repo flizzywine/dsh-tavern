@@ -1,4 +1,5 @@
 import { sceneImageChannel, imageCredentialRef, SCENE_IMAGE_CHANNELS } from './scene-image-channels.js'
+import { sceneImageAuthProbe, verifySceneImageKey } from './scene-image-auth.js'
 
 const MAX_BYTES = 256 * 1024
 
@@ -58,15 +59,19 @@ export function createSceneImageConnection({ settings, credentials, fetchImpl = 
     const timer = setTimeout(() => controller.abort(), timeoutMs)
     let response
     try {
+      const probe = sceneImageAuthProbe(channel.id, baseURL, SCENE_IMAGE_CHANNELS.find(item => item.id === channel.id).canListModels)
+      if (!listModels && apiKey && authType !== 'none' && probe) return await verifySceneImageKey({ probe, baseURL, headers, fetchImpl, signal: controller.signal, readJson: limitedJson })
       response = await fetchImpl(listModels ? baseURL + '/models' : baseURL + '/', {
         method: listModels ? 'GET' : 'HEAD', headers, redirect: 'manual', signal: controller.signal
       })
       const httpStatus = response.status
-      if ([401, 403].includes(httpStatus)) return { status: 'auth_failed', httpStatus, models: [], message: '服务已响应，但鉴权被拒绝，请检查 API Key 或访问权限。' }
+      if ([401, 403].includes(httpStatus)) return { status: 'auth_failed', apiKeyStatus: 'rejected', httpStatus, probePath: listModels ? '/models' : '/', models: [], message: '服务已响应，但鉴权被拒绝，请检查 API Key 或访问权限。' }
       if (!listModels) return {
-        status: response.ok ? 'connected' : 'reachable', httpStatus,
-        message: response.ok ? '连接成功。仅确认服务可达，未验证模型或生图能力。'
-          : `网络已连通（HTTP ${httpStatus}）。服务返回非成功状态；未验证密钥或生图能力。`
+        status: response.ok && authType === 'none' ? 'connected' : 'reachable', httpStatus,
+        apiKeyStatus: authType === 'none' ? 'not_required' : apiKey ? 'unsupported' : 'missing', probePath: '/',
+        message: authType === 'none' ? (response.ok ? '连接成功。当前配置无需鉴权，未进行生图。' : '网络可达，但服务未返回成功状态。当前配置无需鉴权，未进行生图。')
+          : apiKey ? '无法验证 API Key：此渠道暂不支持只读鉴权检查。网络可达，未进行生图。'
+            : '尚未验证 API Key：请填写 Key 后重试。网络可达，未进行生图。'
       }
       if (!response.ok) return { models: [], httpStatus, message: `模型列表获取失败（HTTP ${httpStatus}），可手动填写模型。` }
       const payload = await limitedJson(response)
