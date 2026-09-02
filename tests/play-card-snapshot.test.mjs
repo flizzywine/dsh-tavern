@@ -4,7 +4,7 @@ import { createChatPersistence } from '../tavern-plugin/lib/domain/chat-persiste
 import { createContextPlanner } from '../tavern-plugin/lib/domain/context-planner.js'
 import { createPlayCardSnapshots } from '../tavern-plugin/lib/domain/play-card-snapshots.js'
 
-test('v4 老对话重建完整固定前缀，v5 后续请求和恢复复用快照', async () => {
+test('v5 老对话重建完整固定前缀，v6 后续请求和恢复复用快照', async () => {
   const card = { name: '测试人物', description: '固定描述', personality: '固定性格', scenario: '固定场景', mes_example: '固定示例', system_prompt: '逐轮系统指令', post_history_instructions: '逐轮历史后指令' }
   let reads = 0
   const writes = []
@@ -23,11 +23,11 @@ test('v4 老对话重建完整固定前缀，v5 后续请求和恢复复用快�
       writeChat: async (chat, metadata) => { writes.push({ chat: structuredClone(chat), metadata }) }
     }).ensure
   }
-  const chat = { id: 'old-chat', mode: 'story', cardPath: 'cards/测试人物.json', cardContextSnapshotVersion: 4, cardContextSnapshot: '旧前缀缺少描述性格', messages: [{ role: 'assistant', text: '原有剧情' }] }
+  const chat = { id: 'old-chat', mode: 'story', cardPath: 'cards/测试人物.json', cardContextSnapshotVersion: 5, cardContextSnapshot: '旧前缀缺少描述性格', messages: [{ role: 'assistant', text: '原有剧情' }] }
   const beforeMessages = structuredClone(chat.messages)
   const ensure = open()
   const first = await ensure(chat)
-  assert.equal(chat.cardContextSnapshotVersion, 5)
+  assert.equal(chat.cardContextSnapshotVersion, 6)
   for (const fixed of ['固定描述', '固定性格', '固定场景', '固定示例', '固定世界设定']) assert.equal(first.split(fixed).length - 1, 1)
   assert.doesNotMatch(first, /旧前缀|逐轮|动态条目|MVU规则/)
   assert.equal(await ensure(chat), first)
@@ -50,7 +50,7 @@ function fixture() {
   })
   return { api, get counts() { return { reads, writes, builds } }, plan(fn) { plan = fn }, write(fn) { write = fn } }
 }
-const oldChat = () => ({ id: 'chat', mode: 'story', messages: [{ text: '既有剧情' }], cardContextSnapshot: '旧前缀', cardContextSnapshotVersion: 4, _storageRevision: 7 })
+const oldChat = () => ({ id: 'chat', mode: 'story', messages: [{ text: '既有剧情' }], cardContextSnapshot: '旧前缀', cardContextSnapshotVersion: 5, _storageRevision: 7 })
 
 test('preparing a new chat does not publish it; card workspace and current snapshots do not rebuild', async () => {
   const h = fixture(), chat = oldChat()
@@ -72,8 +72,8 @@ test('concurrent readers share one migration and all receive its fields without 
   await new Promise(resolve => setImmediate(resolve))
   finish({ text: '统一前缀' })
   assert.deepEqual(await Promise.all([one, two]), ['统一前缀', '统一前缀'])
-  assert.equal(first.cardContextSnapshotVersion, 5)
-  assert.equal(second.cardContextSnapshotVersion, 5)
+  assert.equal(first.cardContextSnapshotVersion, 6)
+  assert.equal(second.cardContextSnapshotVersion, 6)
   assert.equal(first._storageRevision, 8)
   assert.equal(second._storageRevision, 7)
   assert.deepEqual(h.counts, { reads: 1, writes: 1, builds: 1 })
@@ -86,7 +86,7 @@ test('failed save leaves caller state intact, releases concurrent build and perm
   assert.deepEqual(chat, before)
   h.write(async () => {})
   assert.equal(await h.api.ensure(chat), '固定背景')
-  assert.equal(chat.cardContextSnapshotVersion, 5)
+  assert.equal(chat.cardContextSnapshotVersion, 6)
   assert.equal(h.counts.writes, 2)
 })
 
@@ -141,7 +141,7 @@ test('snapshot owner exposes the same stable worldbook context to candidate gene
 
 
 test('sanitizing an existing snapshot is not visible until its save succeeds', async () => {
-  const h = fixture(), chat = { ...oldChat(), cardContextSnapshotVersion: 5, cardContextSnapshot: '{{literal}}' }
+  const h = fixture(), chat = { ...oldChat(), cardContextSnapshotVersion: 6, cardContextSnapshot: '{{literal}}' }
   const before = structuredClone(chat)
   h.write(async () => { throw Error('disk full') })
   await assert.rejects(h.api.ensure(chat), /disk full/)
@@ -149,6 +149,29 @@ test('sanitizing an existing snapshot is not visible until its save succeeds', a
   h.write(async () => {})
   assert.equal(await h.api.ensure(chat), 'literal')
   assert.equal(h.counts.builds, 0)
+})
+
+test('confirmed preference enters only an explicitly enabled new chat stable prefix', async () => {
+  let profileReads = 0
+  const api = createPlayCardSnapshots({
+    worldBooks: { bound: async () => null },
+    planner: { plan: async () => ({ text: '人物卡固定内容' }) },
+    readCard: async () => ({ name: '测试人物' }),
+    writeChat: async () => {},
+    userPreferenceProfile: { async stableContext() {
+      profileReads++
+      return { revision: 7, text: '【用户已确认的长期偏好】\n偏好慢热但持续推进。' }
+    } }
+  })
+  const disabled = { id: 'disabled', mode: 'story', messages: [], userProfileEnabled: false }
+  const enabled = { id: 'enabled', mode: 'story', messages: [], userProfileEnabled: true }
+  assert.equal(await api.prepare(disabled), '人物卡固定内容')
+  assert.equal(profileReads, 0)
+  const text = await api.prepare(enabled)
+  assert.match(text, /^【用户已确认的长期偏好】/)
+  assert.match(text, /人物卡固定内容/)
+  assert.equal(enabled.userProfileRevision, 7)
+  assert.equal(profileReads, 1)
 })
 
 test('snapshot migration cannot manufacture a past worldbook archive from current files', async () => {

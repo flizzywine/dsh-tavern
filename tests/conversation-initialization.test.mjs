@@ -13,7 +13,7 @@ test('creation preserves opening source/projection, stable context, request mode
   assert.equal(chat.messages[0].sourceText, '{{user}}，你好。')
   assert.equal(chat.messages[0].displayText, '玩家，你好。')
   assert.equal(chat.runtimePresetSnapshot.unknown, 'preserved')
-  assert.equal(chat.cardContextSnapshotVersion, 5)
+  assert.equal(chat.cardContextSnapshotVersion, 6)
   for (const text of ['固定描述', '固定性格', '固定场景', '固定示例', '固定世界书']) assert.ok(chat.cardContextSnapshot.includes(text))
   assert.doesNotMatch(chat.cardContextSnapshot, /逐轮系统|逐轮后置|动态世界书/)
   assert.equal(h.session().prefix, chat.cardContextSnapshot)
@@ -22,6 +22,34 @@ test('creation preserves opening source/projection, stable context, request mode
   assert.deepEqual(h.card, before)
   assert.equal(h.writes[0].metadata.source, 'chat.create', 'no unpublished snapshot save')
   assert.ok(h.trace.indexOf('wait') < h.trace.indexOf('chat.create'))
+})
+
+test('新游戏固化创建时的联网搜索设置，之后不随设置变化', async () => {
+  const h = initializationFixture()
+  h.state.settings.webSearchEnabled = true
+  const created = await h.make().start(h.input)
+  assert.equal(created.webSearchEnabled, true)
+
+  h.state.settings.webSearchEnabled = false
+  assert.equal((await h.make().start(h.input)).webSearchEnabled, true)
+
+  const fresh = initializationFixture()
+  assert.equal((await fresh.make().start(fresh.input)).webSearchEnabled, false)
+  fresh.state.settings.webSearchEnabled = true
+  assert.equal((await fresh.make().start({ ...fresh.input, cardPath: '', mode: 'card' })).webSearchEnabled, false)
+})
+
+test('新游戏固化后台模型；默认跟随开局前台，设置和重入都不会改写已有游戏', async () => {
+  const following = initializationFixture()
+  const first = await following.make().start(following.input)
+  assert.deepEqual(first.backgroundModelSelection, { provider: 'fixture', model: 'text' })
+  following.state.settings.backgroundModel = { provider: 'vertex', model: 'gemini-2.5-flash' }
+  assert.deepEqual((await following.make().start(following.input)).backgroundModelSelection, { provider: 'fixture', model: 'text' })
+
+  const fixed = initializationFixture()
+  fixed.state.settings.backgroundModel = { provider: 'siliconflow', model: 'deepseek-v4' }
+  assert.deepEqual((await fixed.make().start(fixed.input)).backgroundModelSelection, { provider: 'siliconflow', model: 'deepseek-v4' })
+  assert.equal((await fixed.make().start({ ...fixed.input, cardPath: '', mode: 'card' })).backgroundModelSelection, null)
 })
 
 test('double clicks and ensureOpening share session ordering and do not create duplicate chats or native events', async () => {

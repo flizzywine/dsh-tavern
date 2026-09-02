@@ -142,6 +142,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 .dsh-tavern-settings-switch input:checked + .dsh-tavern-settings-track { background: #9a622f; }
 .dsh-tavern-settings-switch input:checked + .dsh-tavern-settings-track::after { transform: translateX(18px); background: #fff; }
 .dsh-tavern-settings-switch input:focus-visible + .dsh-tavern-settings-track { outline: 2px solid #a66b35; outline-offset: 2px; }
+.dsh-tavern-settings-model-row { flex-wrap: wrap; }
+.dsh-tavern-settings-select { flex: 1 1 220px; max-width: 320px; padding: 8px 10px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; color: inherit; background: var(--dsw-specific-input-major); }
 .dsh-tavern-settings-error { color: #c45f5f; font-size: 13px; }
 .dsh-tavern-system-prompt-editor { display: flex; flex-direction: column; gap: 14px; padding: 18px 20px; }
 .dsh-tavern-system-prompt-warning { margin-bottom: 14px; border: 1px solid rgba(196,95,95,.55); border-radius: 9px; padding: 11px 13px; background: rgba(196,95,95,.1); color: #d98080; font-size: 13px; line-height: 1.55; }
@@ -393,6 +395,20 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 .dsh-tavern-status-item { padding: 7px 0; border-bottom: 1px solid var(--dsw-alias-border-l3); font-size: 12px; line-height: 1.5; }
 .dsh-tavern-status-item:last-child { border-bottom: 0; }
 .dsh-tavern-status-empty { color: var(--dsw-alias-label-tertiary); font-size: 12px; line-height: 1.6; }
+.dsh-tavern-user-profile { height: 100%; box-sizing: border-box; display: flex; flex-direction: column; color: var(--dsw-alias-label-primary); background: var(--dsw-specific-sidebar-fill); }
+.dsh-tavern-user-profile-body { flex: 1; min-height: 0; overflow-y: auto; padding: 12px 14px 24px; }
+.dsh-tavern-user-profile-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.dsh-tavern-user-profile-switch { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 9px; background: var(--dsw-specific-input-major); }
+.dsh-tavern-user-profile-switch b { display: block; font-size: 12px; }
+.dsh-tavern-user-profile-switch small { display: block; margin-top: 3px; color: var(--dsw-alias-label-tertiary); font-size: 9px; line-height: 1.45; }
+.dsh-tavern-user-profile-text { margin: 0; padding: 10px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 9px; background: var(--dsw-specific-input-major); color: var(--dsw-alias-label-secondary); font-size: 11px; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
+.dsh-tavern-user-profile-dimension { margin-top: 7px; padding: 9px 10px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 9px; background: var(--dsw-alias-interactive-bg-hover); }
+.dsh-tavern-user-profile-dimension b { font-size: 11px; }
+.dsh-tavern-user-profile-dimension p { margin: 5px 0 0; color: var(--dsw-alias-label-secondary); font-size: 11px; line-height: 1.55; }
+.dsh-tavern-user-profile-meta { margin-top: 5px; color: var(--dsw-alias-label-tertiary); font-size: 9px; line-height: 1.5; }
+.dsh-tavern-user-profile details { margin-top: 10px; }
+.dsh-tavern-user-profile details summary { cursor: pointer; color: var(--dsw-alias-label-secondary); font-size: 11px; font-weight: 700; }
+.dsh-tavern-user-profile-editor textarea { box-sizing: border-box; width: 100%; min-height: 130px; margin-top: 5px; padding: 8px 9px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; resize: vertical; background: var(--dsw-specific-input-major); color: inherit; font: inherit; font-size: 11px; line-height: 1.6; }
 .dsh-tavern-debug-panel { display: flex; flex-direction: column; gap: 7px; }
 .dsh-tavern-debug-panel select { width: 100%; box-sizing: border-box; padding: 7px 8px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-specific-input-major); color: inherit; font: inherit; font-size: 12px; }
 .dsh-tavern-debug-preview { padding: 7px 8px; border-radius: 8px; background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-secondary); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
@@ -3942,7 +3958,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 							const openings = response.openings || [];
 							const selected = current.openings && current.openings[current.index];
 							const selectedIndex = selected ? openings.findIndex(function (item) { return item.id === selected.id; }) : -1;
-							return Object.assign({}, current, { openings: openings, index: selectedIndex >= 0 ? selectedIndex : 0, trustedCardMode: response.trustedCardMode });
+							return Object.assign({}, current, { openings: openings, index: selectedIndex >= 0 ? selectedIndex : 0, trustedCardMode: response.trustedCardMode, userProfileAvailable: !!(response.userProfile && response.userProfile.hasConfirmed), userProfileEnabled: response.userProfile && response.userProfile.hasConfirmed ? current.userProfileEnabled === true : false });
 						});
 					} catch (err) { if (!stopped) setError(String(err && err.message || err)); }
 				}, 250);
@@ -4079,7 +4095,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 						mode: request.targetMode,
 						openingId: request.openingId || "",
 						userName: request.userName || "你",
-						requestMode: compatibilityAvailable && request.requestMode === "sillytavern" ? "sillytavern" : "dsh"
+						requestMode: compatibilityAvailable && request.requestMode === "sillytavern" ? "sillytavern" : "dsh",
+						userProfileEnabled: request.userProfileEnabled === true
 					});
 				},
 				rememberPending: setPendingOpen,
@@ -4092,7 +4109,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				catch (err) { setError("重新连接 Session 失败：" + String(err && err.message || err)); }
 				finally { setBusy(false); }
 			}
-			async function newConversation(card, requestedMode, openingId, userName) {
+			async function newConversation(card, requestedMode, openingId, userName, userProfileEnabled) {
 				const targetMode = requestedMode || (uiMode === "play" ? playModeOfCard(card) : "card");
 				const startedAt = Date.now();
 				const previousOpeningPicker = openingPicker;
@@ -4104,7 +4121,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					let preparedSessionId = "";
 					try { preparedSessionId = await playPrewarmRef.current.claim(card && card.path); }
 					catch (prewarmError) { console.warn("dsh-tavern: 预热 Session 不可用，改为正常创建", prewarmError); }
-					await conversationLifecycle.start({ kind: "play", targetMode: targetMode, card: card, openingId: openingId || "", userName: resolvedUserName, requestMode: compatibilityAvailable && requestMode === "sillytavern" ? "sillytavern" : "dsh", preparedSessionId: preparedSessionId });
+					await conversationLifecycle.start({ kind: "play", targetMode: targetMode, card: card, openingId: openingId || "", userName: resolvedUserName, requestMode: compatibilityAvailable && requestMode === "sillytavern" ? "sillytavern" : "dsh", userProfileEnabled: userProfileEnabled === true, preparedSessionId: preparedSessionId });
 					if (targetMode !== "card") window.localStorage.setItem("dsh-tavern-player-name", resolvedUserName);
 					console.info("dsh-tavern: 开始游戏完成", (Date.now() - startedAt) + "ms", preparedSessionId ? "预热命中" : "即时创建");
 				} catch (err) { setOpeningPicker(previousOpeningPicker); setError(String(err && err.phase || "创建对话") + "失败：" + String(err && err.message || err)); }
@@ -4117,7 +4134,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					const userName = window.localStorage.getItem("dsh-tavern-player-name") || "你";
 					const response = await call("getCardOpenings", { path: card.path, userName: userName, requestMode: compatibilityAvailable && requestMode === "sillytavern" ? "sillytavern" : "dsh" });
 					const openings = response.openings || [];
-					setOpeningPicker({ card: card, openings: openings, index: 0, userName: userName, trustedCardMode: response.trustedCardMode });
+					setOpeningPicker({ card: card, openings: openings, index: 0, userName: userName, trustedCardMode: response.trustedCardMode, userProfileAvailable: !!(response.userProfile && response.userProfile.hasConfirmed), userProfileEnabled: !!(response.userProfile && response.userProfile.hasConfirmed && response.userProfile.defaultEnabled) });
 				} catch (err) { playPrewarmRef.current.cancel(); setError(String(err && err.message || err)); }
 				finally { setBusy(false); }
 			}
@@ -4137,6 +4154,13 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				} catch (err) { setError(String(err && err.phase || "创建对话") + "失败：" + String(err && err.message || err)); }
 				finally { setBusy(false); }
 			}
+			React.useEffect(function () {
+				function onOpenUserProfileTask() {
+					newCardConversation(null, "user-profile", "建立用户画像");
+				}
+				window.addEventListener("dsh-tavern-open-user-profile-task", onOpenUserProfileTask);
+				return function () { window.removeEventListener("dsh-tavern-open-user-profile-task", onOpenUserProfileTask); };
+			});
 			React.useEffect(function () {
 				function onDebugPlayChat(event) {
 					const detail = event && event.detail ? event.detail : {};
@@ -4327,7 +4351,12 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					helperContext: selectedOpening.helperContext,
 					trustedCardMode: openingPicker.trustedCardMode
 				})) : null,
-				h("div", { className: "dsh-tavern-picker-foot" }, h("button", { className: "dsh-tavern-question-primary", disabled: busy || (openingPicker.openings.length > 0 && !selectedOpening), onClick: function () { newConversation(openingPicker.card, null, selectedOpening ? selectedOpening.id : "", openingPicker.userName || "你"); } }, selectedOpening && openingPicker.openings.length > 1 ? "以此开场" : "开始游戏"))
+				openingPicker.userProfileAvailable ? h("label", { className: "dsh-tavern-player-name" },
+					h("span", null, "用户画像"),
+					h("span", null, h("input", { type: "checkbox", checked: openingPicker.userProfileEnabled === true, disabled: busy, onChange: function (event) { setOpeningPicker(Object.assign({}, openingPicker, { userProfileEnabled: event.target.checked })); } }), " 手动启用已确认的长期偏好"),
+					h("small", null, "只对这次新游戏生效；默认关闭，不会注入后台变量结算。")
+				) : h("div", { className: "dsh-tavern-player-name-help" }, "尚无已确认的用户画像；可在卡片模式中建立。"),
+				h("div", { className: "dsh-tavern-picker-foot" }, h("button", { className: "dsh-tavern-question-primary", disabled: busy || (openingPicker.openings.length > 0 && !selectedOpening), onClick: function () { newConversation(openingPicker.card, null, selectedOpening ? selectedOpening.id : "", openingPicker.userName || "你", openingPicker.userProfileEnabled === true); } }, selectedOpening && openingPicker.openings.length > 1 ? "以此开场" : "开始游戏"))
 			) : null;
 			const playPicker = h("div", { className: "dsh-tavern-card-picker", role: "dialog", "aria-modal": "true", "aria-label": openingPicker ? "游戏准备" : "选择人物卡开始游玩" }, pickerError, openingPicker ? openingChoice : h(React.Fragment, null,
 				h("div", { className: "dsh-tavern-card-picker-head" }, h("span", null, "选择人物卡 · 开始游玩"), h("span", { className: "dsh-tavern-spacer" }), h("button", { className: "dsh-tavern-btn", onClick: function () { fileRef.current && fileRef.current.click(); } }, "导入人物卡"), h("button", { className: "dsh-tavern-btn", onClick: closePicker }, "关闭")),
@@ -4374,6 +4403,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					cardEntry === "edit" ? cardEditRows : cardEntry === "mvu" ? cardMvuRows : cardEntry === "extract" || cardEntry === "script" || cardEntry === "worldbook" || cardEntry === "preset" ? initialResourcePicker : h(React.Fragment, null,
 						h("button", { className: "dsh-tavern-card-pick", disabled: busy, onClick: function () { setCardEntry("edit"); } }, h("b", null, "修改人物卡"), h("span", null, "先选择人物卡，再追加修改任务提示词")),
 						h("button", { className: "dsh-tavern-card-pick", disabled: busy, onClick: function () { setCardEntry("mvu"); } }, h("b", null, "把人物卡转成 MVU 版"), h("span", null, "转换为 MVU 后，状态栏绝对不会掉格式")),
+						h("button", { className: "dsh-tavern-card-pick", disabled: busy, onClick: function () { newCardConversation(null, "user-profile", "建立用户画像"); } }, h("b", null, "建立用户画像"), h("span", null, "通过分批访谈建立可确认、可跨人物卡复用的长期偏好")),
 						h("button", { className: "dsh-tavern-card-pick", disabled: busy, onClick: function () { openResourcePicker("extract"); } }, h("b", null, "从剧本新建人物卡"), h("span", null, "先选择至少一份剧本，再进入工作台")),
 						h("button", { className: "dsh-tavern-card-pick", disabled: busy, onClick: function () { openResourcePicker("script"); } }, h("b", null, "修改剧本"), h("span", null, "先选择一份剧本，再进入工作台修改工作版")),
 					h("button", { className: "dsh-tavern-card-pick", disabled: busy, onClick: function () { openResourcePicker("worldbook"); } }, h("b", null, "修改世界书"), h("span", null, "先选择一本世界书，再进入工作台按条目修改")),
@@ -4625,11 +4655,11 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			);
 		}
 		function TavernSettingsSection() {
-			const [state, setState] = React.useState({ loading: true, busy: false, compatibilityMode: false, sceneImages: false, error: "" });
+			const [state, setState] = React.useState({ loading: true, busy: false, compatibilityMode: false, webSearchEnabled: false, backgroundModel: null, modelCatalog: [], sceneImages: false, error: "" });
 			React.useEffect(function () {
 				let active = true;
 				rpc("getTavernSettings").then(function (result) {
-					if (active) setState({ loading: false, busy: false, compatibilityMode: Boolean(result.settings && result.settings.compatibilityMode), sceneImages: Boolean(result.releaseCapabilities && result.releaseCapabilities.sceneImages), error: "" });
+					if (active) setState({ loading: false, busy: false, compatibilityMode: Boolean(result.settings && result.settings.compatibilityMode), webSearchEnabled: Boolean(result.settings && result.settings.webSearchEnabled), backgroundModel: result.settings && result.settings.backgroundModel || null, modelCatalog: Array.isArray(result.modelCatalog) ? result.modelCatalog : [], sceneImages: Boolean(result.releaseCapabilities && result.releaseCapabilities.sceneImages), error: "" });
 				}, function (error) {
 					if (active) setState(function (current) { return Object.assign({}, current, { loading: false, busy: false, error: String(error && error.message || error) }); });
 				});
@@ -4640,6 +4670,29 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				try {
 					const result = await rpc("updateTavernSettings", { patch: { compatibilityMode: enabled } });
 					setState(function (current) { return Object.assign({}, current, { loading: false, busy: false, compatibilityMode: Boolean(result.settings && result.settings.compatibilityMode), error: "" }); });
+					window.dispatchEvent(new CustomEvent("dsh-tavern-settings-changed"));
+					window.dispatchEvent(new CustomEvent("dsh-tavern-data-changed"));
+				} catch (error) {
+					setState(function (current) { return Object.assign({}, current, { busy: false, error: String(error && error.message || error) }); });
+				}
+			}
+			async function setWebSearchEnabled(enabled) {
+				setState(function (current) { return Object.assign({}, current, { busy: true, error: "" }); });
+				try {
+					const result = await rpc("updateTavernSettings", { patch: { webSearchEnabled: enabled } });
+					setState(function (current) { return Object.assign({}, current, { loading: false, busy: false, webSearchEnabled: Boolean(result.settings && result.settings.webSearchEnabled), error: "" }); });
+					window.dispatchEvent(new CustomEvent("dsh-tavern-settings-changed"));
+					window.dispatchEvent(new CustomEvent("dsh-tavern-data-changed"));
+				} catch (error) {
+					setState(function (current) { return Object.assign({}, current, { busy: false, error: String(error && error.message || error) }); });
+				}
+			}
+			async function setBackgroundModel(value) {
+				setState(function (current) { return Object.assign({}, current, { busy: true, error: "" }); });
+				try {
+					const backgroundModel = value === "" ? null : JSON.parse(value);
+					const result = await rpc("updateTavernSettings", { patch: { backgroundModel: backgroundModel } });
+					setState(function (current) { return Object.assign({}, current, { loading: false, busy: false, backgroundModel: result.settings && result.settings.backgroundModel || null, error: "" }); });
 					window.dispatchEvent(new CustomEvent("dsh-tavern-settings-changed"));
 					window.dispatchEvent(new CustomEvent("dsh-tavern-data-changed"));
 				} catch (error) {
@@ -4658,12 +4711,170 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 							React.createElement("input", { type: "checkbox", checked: state.compatibilityMode, disabled: state.loading || state.busy, onChange: function (event) { void setCompatibilityMode(event.target.checked); }, "aria-label": "启用兼容模式（实验性）" }),
 							React.createElement("span", { className: "dsh-tavern-settings-track", "aria-hidden": "true" })
 						)
+					),
+					React.createElement("label", { className: "dsh-tavern-settings-row" },
+						React.createElement("span", { className: "dsh-tavern-settings-copy" },
+							React.createElement("span", { className: "dsh-tavern-settings-title" }, "开启联网搜索"),
+							React.createElement("span", { className: "dsh-tavern-settings-desc" }, "开启后，新建游戏的前台与后台 Agent 都可以按需联网搜索。能力在开局时固化，修改此设置不会影响已有游戏。")
+						),
+						React.createElement("span", { className: "dsh-tavern-settings-switch" },
+							React.createElement("input", { type: "checkbox", checked: state.webSearchEnabled, disabled: state.loading || state.busy, onChange: function (event) { void setWebSearchEnabled(event.target.checked); }, "aria-label": "开启联网搜索" }),
+							React.createElement("span", { className: "dsh-tavern-settings-track", "aria-hidden": "true" })
+						)
+					),
+					React.createElement("label", { className: "dsh-tavern-settings-row dsh-tavern-settings-model-row" },
+						React.createElement("span", { className: "dsh-tavern-settings-copy" },
+							React.createElement("span", { className: "dsh-tavern-settings-title" }, "后台模型"),
+							React.createElement("span", { className: "dsh-tavern-settings-desc" }, "供候选项、MVU 与姿势结算共用。新游戏开局时固化，已有游戏不受影响。")
+						),
+						React.createElement("select", { className: "dsh-tavern-settings-select", value: state.backgroundModel ? JSON.stringify(state.backgroundModel) : "", disabled: state.loading || state.busy, onChange: function (event) { void setBackgroundModel(event.target.value); }, "aria-label": "后台模型" },
+							React.createElement("option", { value: "" }, "跟随前台（开局时）"),
+							state.modelCatalog.flatMap(function (group) { return (group.models || []).map(function (model) {
+								const value = JSON.stringify({ provider: group.provider, model: model.id });
+								return React.createElement("option", { key: group.provider + ":" + model.id, value: value }, (group.providerName || group.provider) + " · " + (model.name || model.id));
+							}); })
+						)
 					)
 				),
 				state.sceneImages ? React.createElement(SceneImageSettings, null) : null,
 				state.error ? React.createElement("div", { className: "dsh-tavern-settings-error", role: "alert" }, "保存失败：" + state.error) : null
 			);
 		}
+
+		function UserPreferenceProfileTab(props) {
+			const h = React.createElement;
+			const sessionId = props.scope && props.scope.sessionId || "";
+			const [record, setRecord] = React.useState(null);
+			const [currentConversation, setCurrentConversation] = React.useState(null);
+			const [editing, setEditing] = React.useState(false);
+			const [injectionText, setInjectionText] = React.useState("");
+			const [busy, setBusy] = React.useState(false);
+			const [error, setError] = usePersistentError("用户画像");
+			function applyResult(result) {
+				const next = result && result.userProfile || null;
+				setRecord(next);
+				if (result && Object.prototype.hasOwnProperty.call(result, "currentConversation")) setCurrentConversation(result.currentConversation || null);
+				if (!editing && next && next.confirmed) {
+					setInjectionText(String(next.confirmed.injectionText || ""));
+				}
+			}
+			async function refresh() {
+				try {
+					applyResult(await rpc("getUserPreferenceProfile", { sessionId: sessionId }, sessionId));
+					setError("");
+				} catch (err) { setError(String(err && err.message || err)); }
+			}
+			React.useEffect(function () {
+				refresh();
+				function onData(event) { if (tavernDataChangeAffects(event, ["user-profile", "sessions"], "user-profile")) refresh(); }
+				window.addEventListener("dsh-tavern-data-changed", onData);
+				return function () { window.removeEventListener("dsh-tavern-data-changed", onData); };
+			}, [sessionId]);
+			function openAgentTask() {
+				window.dispatchEvent(new CustomEvent("dsh-tavern-open-user-profile-task"));
+			}
+			async function toggleDefault() {
+				if (!record || !record.hasConfirmed || busy) return;
+				setBusy(true); setError("");
+				try {
+					const result = await rpc("setUserPreferenceProfileDefaultEnabled", { enabled: record.defaultEnabled !== true }, sessionId);
+					applyResult(result);
+					notifyTavernDataChanged(["user-profile"], "user-profile");
+				} catch (err) { setError(String(err && err.message || err)); }
+				finally { setBusy(false); }
+			}
+			function beginEdit() {
+				if (!record || !record.confirmed) return;
+				setInjectionText(String(record.confirmed.injectionText || ""));
+				setEditing(true);
+			}
+			async function saveEdit() {
+				if (!injectionText.trim() || busy) return;
+				if (!window.confirm("保存后将成为新的已确认用户画像，仅影响以后新开的游戏。继续吗？")) return;
+				setBusy(true); setError("");
+				try {
+					const result = await rpc("updateUserPreferenceProfile", { expectedRevision: record.confirmedRevision, summary: record.confirmed.summary, injectionText: injectionText }, sessionId);
+					applyResult(result);
+					setEditing(false);
+					notifyTavernDataChanged(["user-profile"], "user-profile");
+				} catch (err) { setError(String(err && err.message || err)); }
+				finally { setBusy(false); }
+			}
+			const header = h("div", { className: "dsh-tavern-status-head" },
+				h("div", { className: "dsh-tavern-status-title" }, "用户画像"),
+				h("div", { className: "dsh-tavern-user-profile-meta" }, record && record.hasConfirmed ? "已确认版本 v" + record.confirmedRevision : "尚未建立")
+			);
+			if (record === null) return h("div", { className: "dsh-tavern-user-profile" }, header, h("div", { className: "dsh-tavern-user-profile-body" }, error ? h("div", { className: "dsh-card-error" }, error) : h("div", { className: "dsh-tavern-status-empty" }, "正在读取用户画像…")));
+			if (!record.hasConfirmed) return h("div", { className: "dsh-tavern-user-profile" }, header,
+				h("div", { className: "dsh-tavern-user-profile-body" },
+					error ? h("div", { className: "dsh-card-error" }, error) : null,
+					h("div", { className: "dsh-tavern-status-empty" }, record.hasDraft ? "已有未确认草案，可交给卡片 Agent 继续核对。" : "通过分批访谈建立长期游玩与写作偏好。"),
+					h("div", { className: "dsh-tavern-user-profile-actions" }, h("button", { className: "dsh-tavern-script-primary", onClick: openAgentTask }, record.hasDraft ? "继续核对用户画像" : "开始建立用户画像"))
+			));
+			const confirmed = record.confirmed || {};
+			const dimensions = Array.isArray(confirmed.dimensions) ? confirmed.dimensions : [];
+			const rawAnswers = Array.isArray(confirmed.rawAnswers) ? confirmed.rawAnswers : [];
+			return h("div", { className: "dsh-tavern-user-profile" }, header,
+				h("div", { className: "dsh-tavern-user-profile-body" },
+					error ? h("div", { className: "dsh-card-error" }, error) : null,
+					record.hasDraft ? h("div", { className: "dsh-tavern-extension-note" }, "存在尚未确认的新草案；当前仍使用已确认版本。") : null,
+					currentConversation ? h("div", { className: "dsh-tavern-extension-note" }, "当前游戏：" + (currentConversation.enabled ? "已启用画像 v" + currentConversation.revision : "未启用画像") + "。本局创建后保持冻结。") : null,
+					h("div", { className: "dsh-tavern-user-profile-switch" },
+					h("span", null, h("b", null, "新游戏默认启用"), h("small", null, "只改变以后的新游戏；准备页仍可单局覆盖。")),
+					h("button", { className: "dsh-tavern-prompt-state is-toggle " + (record.defaultEnabled ? "on" : "off"), disabled: busy, onClick: toggleDefault, "aria-pressed": record.defaultEnabled === true }, record.defaultEnabled ? "已开启" : "已关闭")
+				),
+					editing ? h("div", { className: "dsh-tavern-user-profile-editor" },
+						h("div", { className: "dsh-tavern-status-label", style: { marginTop: "14px" } }, "实际生效的偏好"),
+						h("textarea", { value: injectionText, onChange: function (event) { setInjectionText(event.target.value); } }),
+						h("div", { className: "dsh-tavern-user-profile-meta" }, "这次修改只影响以后新开的游戏，不改写已有 Session。"),
+						h("div", { className: "dsh-tavern-user-profile-actions" },
+							h("button", { className: "dsh-tavern-script-primary", disabled: busy || !injectionText.trim(), onClick: saveEdit }, "保存并确认修改"),
+							h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { setEditing(false); } }, "取消")
+						)
+					) : h(React.Fragment, null,
+						h("div", { className: "dsh-tavern-status-label", style: { marginTop: "14px" } }, "实际生效的偏好"),
+						h("div", { className: "dsh-tavern-user-profile-text" }, String(confirmed.injectionText || "")),
+						dimensions.length ? h("details", null,
+							h("summary", null, "偏好维度 · " + dimensions.length),
+							dimensions.map(function (item, index) {
+								return h("div", { key: item.id || index, className: "dsh-tavern-user-profile-dimension" },
+									h("b", null, String(item.label || item.id || "偏好")),
+									h("p", null, String(item.conclusion || "")),
+									h("div", { className: "dsh-tavern-user-profile-meta" }, "置信度：" + String(item.confidence || "uncertain") + (item.evidence ? " · 依据：" + String(item.evidence) : ""))
+								);
+							})
+						) : null,
+						rawAnswers.length ? h("details", null,
+							h("summary", null, "原始回答 · " + rawAnswers.length),
+							rawAnswers.map(function (item, index) {
+								return h("div", { key: index, className: "dsh-tavern-user-profile-dimension" },
+									h("b", null, String(item.question || "问题")),
+									h("p", null, String(item.answer || ""))
+								);
+							})
+						) : null,
+						h("div", { className: "dsh-tavern-user-profile-actions" },
+							h("button", { className: "dsh-tavern-script-primary", onClick: beginEdit }, "直接修改"),
+							h("button", { className: "dsh-tavern-btn", onClick: openAgentTask }, "交给卡片 Agent 调查/修改")
+						)
+					)
+			));
+		}
+
+		function createUserPreferenceProfileFeatureModule() {
+			function register(input) {
+				const ctx = input.ctx;
+				return ctx.effect(() => ctx.betterSidebar.registerTab({
+					id: "dsh-tavern:user-profile",
+					title: "用户画像",
+					order: 3,
+					single: true,
+					component: UserPreferenceProfileTab
+				}), "dsh-tavern: Better Sidebar user profile tab");
+			}
+			return Object.freeze({ register: register });
+		}
+		const userPreferenceProfileFeature = createUserPreferenceProfileFeatureModule();
 
 		function SystemPromptSidebarTab() {
 			const h = React.createElement;
@@ -6699,6 +6910,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				if (!state) return;
 				const retiredTabs = [];
 				const expectedTitles = {
+					"dsh-tavern:user-profile": "用户画像",
 					"dsh-tavern:cards": "人物卡库",
 					"dsh-tavern:presets": "预设库（实验性）",
 					"dsh-tavern:worldbooks": "世界书库",
@@ -6750,6 +6962,12 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					);
 					return;
 				}
+				if (task === "user-profile") {
+					input.setDraft(
+						"/tavern-user-profile\n\n通过分批提问了解我的长期游玩与写作偏好。可以提供差异明确的参考选项，也允许我自由回答或跳过；信息足够后形成画像草案让我核对，只有我明确确认后才保存。"
+					);
+					return;
+				}
 				const result = await rpc("getCardTaskPrompt", { task: task }, sessionId);
 				const draft = String(input.state.getSnapshot().draft || "");
 				const supplement = draft;
@@ -6772,6 +6990,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				const dispose = ctx.betterSidebar.registerTab({ id: "dsh-tavern:system-prompts", title: "系统提示词", order: 5, single: true, component: SystemPromptSidebarTab });
 				return function () { if (typeof dispose === "function") dispose(); };
 			}, "dsh-tavern: system prompt sidebar tab");
+			userPreferenceProfileFeature.register({ ctx: ctx });
 			presetLibraryFeature.register({ ctx: ctx, appendMention: appendMention });
 			resourcesLibraryFeature.register({ ctx: ctx, appendMention: appendMention });
 			worldBookLibraryFeature.register({ ctx: ctx, appendMention: appendMention });

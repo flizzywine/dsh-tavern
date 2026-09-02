@@ -6,6 +6,43 @@ import { createContextPlanner } from '../tavern-plugin/lib/domain/context-planne
 import { readSessionStablePrefix } from '../tavern-plugin/lib/domain/session-stable-prefix.js'
 import { createNativePlayOrchestrationStrategy } from '../tavern-plugin/lib/domain/foreground-orchestration-strategies.js'
 
+test('后台联网搜索按游戏快照统一开放，并在后台各任务间保持不变', async () => {
+  async function visible(enabled) {
+    let assemble = null
+    let allowed = []
+    let names = []
+    const runner = createBackgroundAgentRunner({
+      id: () => 'background-web-' + enabled,
+      agents: {
+        get: () => ({ id: 'parent', session: { header: {} } }),
+        async create(options) {
+          await options.setup({
+            systemPrompt: { section() {}, suppressRuntimeContext() {} },
+            on(event, callback) { if (event === 'system-prompt/assemble') assemble = callback },
+            tools: { restrict(input) { allowed = input.allow }, register() {} }
+          })
+          return { agent: {
+            session: { id: 'background-web-' + enabled, events: [], append() {} },
+            followup() {},
+            async whenIdle() {
+              const assembly = { sections: [{ name: 'tool:web_search' }], tools: [{ name: 'skill' }, { name: 'web_search' }] }
+              const result = await assemble(assembly, {}, async () => assembly)
+              names = result.tools.map(tool => tool.name)
+            }
+          }, async dispose() {} }
+        }
+      }
+    })
+    await runner.run({ sessionId: 'parent', persistent: true, task: 'candidate', webSearchEnabled: enabled,
+      selection: { provider: 'test', model: 'test' }, messages: [], tools: [], acceptWithoutText: () => true })
+    await runner.dispose()
+    return { allowed, names }
+  }
+
+  assert.deepEqual(await visible(false), { allowed: ['skill', 'web_search'], names: ['skill'] })
+  assert.deepEqual(await visible(true), { allowed: ['skill', 'web_search'], names: ['skill', 'web_search'] })
+})
+
 test('共享后台 Session 从建立起固定注册完整工具目录，切换任务只改变本轮授权', async () => {
   const catalog = [
     { name: 'posture_submit', parameters: { type: 'object' } },
@@ -60,6 +97,54 @@ test('共享后台 Session 从建立起固定注册完整工具目录，切换�
   assert.equal(responses[0].retryable, true)
   assert.equal(responses[2].retryable, true)
   assert.equal(concluded, 2, '每个成功终态工具只结束一次回合，错误工具不能结束回合')
+  await runner.dispose()
+})
+
+test('后台共享只读工具跨候选和结算保持注册并始终可用', async () => {
+  const submitted = { name: 'candidate_submit_choices', parameters: { type: 'object' } }
+  const recalled = { name: 'tavern_recall_history', parameters: { type: 'object' } }
+  const registered = new Map()
+  const calls = []
+  let currentTask = ''
+  const runner = createBackgroundAgentRunner({
+    id: () => 'background-shared-read-tool',
+    backgroundTools: [submitted],
+    sharedTools: [{
+      tool: recalled,
+      async execute({ input, args }) {
+        calls.push({ task: input.task, sessionId: input.sessionId, args })
+        return JSON.stringify({ found: true })
+      }
+    }],
+    agents: {
+      get: () => ({ id: 'parent', session: { header: {} } }),
+      async create(options) {
+        await options.setup({
+          systemPrompt: { section() {}, suppressRuntimeContext() {} }, on() {},
+          tools: { restrict() {}, register(tool) { registered.set(tool.name, tool) } }
+        })
+        return { agent: {
+          session: { id: 'background-shared-read-tool', events: [], append() {} },
+          followup() {},
+          async whenIdle() {
+            const result = JSON.parse(await registered.get('tavern_recall_history').execute({ query: currentTask }))
+            assert.equal(result.found, true)
+          }
+        }, async dispose() {} }
+      }
+    }
+  })
+
+  currentTask = 'candidate'
+  const first = await runner.run({ sessionId: 'parent', persistent: true, task: currentTask, selection: { provider: 'test', model: 'test' }, messages: [], tools: [], acceptWithoutText: () => true })
+  currentTask = 'settlement'
+  await runner.run({ sessionId: 'parent', persistent: true, persistentSessionId: first.traceSessionId, task: currentTask, selection: { provider: 'test', model: 'test' }, messages: [], tools: [], acceptWithoutText: () => true })
+
+  assert.deepEqual(Array.from(registered.keys()), ['candidate_submit_choices', 'tavern_recall_history'])
+  assert.deepEqual(calls, [
+    { task: 'candidate', sessionId: 'parent', args: { query: 'candidate' } },
+    { task: 'settlement', sessionId: 'parent', args: { query: 'settlement' } }
+  ])
   await runner.dispose()
 })
 
@@ -384,7 +469,7 @@ test('后台 Runner 执行候选任务，查询超限后提示开始推理而不
   assert.equal(stagedSnapshots[0].scope, 'background')
   assert.equal(stagedSnapshots[0].snapshot.front.entries[0].content, '通用破限身份')
   assert.equal(stagedSnapshots[0].snapshot.back.entries[0].content, '通用破限预填充')
-  assert.deepEqual(restrictions, [{ allow: ['skill'] }])
+  assert.deepEqual(restrictions, [{ allow: ['skill', 'web_search'] }])
   assert.equal(registered[0].name, 'tavern_read_script')
   assert.equal(registered[1].name, 'tavern_point_script')
   const requestListener = listeners.find(function (entry) { return entry.name === 'agent/request' })

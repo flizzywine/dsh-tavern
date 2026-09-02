@@ -34,6 +34,7 @@ function harness(mode, options = {}) {
     id: 'chat-1', cardPath: options.draft ? '' : 'cards/阿芙拉.json', cardName: options.draft ? '卡片工作台' : card.name, mode,
     messages: [], posture: '站在窗边', guides: [], nativeCommits: {},
     preparedWorldBookContext: options.preparedWorldBookContext || '',
+    webSearchEnabled: options.webSearchEnabled === true,
     runtimePresetSnapshot: clone(options.runtimePresetSnapshot || null),
     macroState: { userName: 'User', local: {}, global: {} },
     scriptState: mode === 'script' ? scripts.start(script(), 0) : null,
@@ -557,6 +558,9 @@ test('卡片修改先校验暂存，只在最终回复完成后写入', async ()
     'cordis_run',
     'cordis_stop',
     'cordis_undefine',
+    'tavern_user_profile_read',
+    'tavern_user_profile_save_draft',
+    'tavern_user_profile_confirm',
     'tavern_read_card',
     'tavern_read_card_raw',
     'tavern_read_play_chat',
@@ -595,6 +599,9 @@ test('Windows 卡片模式暴露 PowerShell 而不是 Bash', async () => {
     'cordis_run',
     'cordis_stop',
     'cordis_undefine',
+    'tavern_user_profile_read',
+    'tavern_user_profile_save_draft',
+    'tavern_user_profile_confirm',
     'tavern_read_card',
     'tavern_read_card_raw',
     'tavern_read_play_chat',
@@ -624,7 +631,22 @@ test('空白卡片工作台确认完整设定后直接创建并绑定正式人�
   const duplicate = await run.orchestrator.finalize({ sessionId: 'session-1', turn: 6, userText: '确认角色和玩家', assistantText: '重复回调' })
   assert.equal(duplicate.duplicate, true)
   assert.equal(run.createdCards.length, 1)
-  assert.deepEqual(await run.orchestrator.visibleTools('session-1'), ['bash', 'str_replace_editor', 'skill', 'tavern_save_skill', 'cordis_inspect_list', 'cordis_inspect_query', 'cordis_inspect_self', 'cordis_define', 'cordis_run', 'cordis_stop', 'cordis_undefine', 'tavern_read_card', 'tavern_read_card_raw', 'tavern_read_play_chat', 'tavern_read_worldbook', 'tavern_update_worldbook', 'tavern_read_preset', 'tavern_update_preset', 'tavern_update_card', 'tavern_restore_card'])
+  assert.deepEqual(await run.orchestrator.visibleTools('session-1'), ['bash', 'str_replace_editor', 'skill', 'tavern_save_skill', 'cordis_inspect_list', 'cordis_inspect_query', 'cordis_inspect_self', 'cordis_define', 'cordis_run', 'cordis_stop', 'cordis_undefine', 'tavern_user_profile_read', 'tavern_user_profile_save_draft', 'tavern_user_profile_confirm', 'tavern_read_card', 'tavern_read_card_raw', 'tavern_read_play_chat', 'tavern_read_worldbook', 'tavern_update_worldbook', 'tavern_read_preset', 'tavern_update_preset', 'tavern_update_card', 'tavern_restore_card'])
+})
+
+test('前台自由故事和剧本模式稳定暴露历史正文检索工具', async () => {
+  const story = harness('story')
+  const script = harness('script')
+
+  assert.deepEqual(await story.orchestrator.visibleTools('session-1'), ['tavern_recall_history'])
+  assert.deepEqual(await script.orchestrator.visibleTools('session-1'), ['tavern_read_script', 'tavern_recall_history'])
+})
+
+test('前台只在新游戏快照启用时暴露联网搜索，卡片工作台不继承', async () => {
+  assert.deepEqual(await harness('story').orchestrator.visibleTools('session-1'), ['tavern_recall_history'])
+  assert.deepEqual(await harness('story', { webSearchEnabled: true }).orchestrator.visibleTools('session-1'), ['tavern_recall_history', 'web_search'])
+  assert.deepEqual(await harness('script', { webSearchEnabled: true }).orchestrator.visibleTools('session-1'), ['tavern_read_script', 'tavern_recall_history', 'web_search'])
+  assert.equal((await harness('card', { webSearchEnabled: true }).orchestrator.visibleTools('session-1')).includes('web_search'), false)
 })
 
 test('空白工作台缺少新卡必填信息时不接受确认提交', async () => {

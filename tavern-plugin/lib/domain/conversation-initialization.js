@@ -4,6 +4,7 @@ import { projectAgentContent, projectOpeningCommit } from './runtime-content-pro
 import { OFFICIAL_MVU_VERSION } from './official-mvu-assets.js'
 import { createScriptContinuity } from './script-continuity.js'
 import { bindSceneWorldbook } from './scene-worldbook.js'
+import { snapshotBackgroundModel } from './background-model-selection.js'
 
 function str(value) { return value === undefined || value === null ? '' : String(value) }
 function groupOfMode(mode) { return !mode || mode === 'story' || mode === 'script' ? 'play' : 'card' }
@@ -45,6 +46,11 @@ export function createConversationInitialization(options) {
       runtimePresetSnapshot: null,
       cardContextSnapshot: '',
       cardContextSnapshotVersion: 0,
+      userProfileEnabled: false,
+      userProfileRevision: 0,
+      userProfileContextSnapshot: '',
+      webSearchEnabled: false,
+      backgroundModelSelection: null,
       macroState: { userName: '你', local: {}, global: {} },
       settleStatus: 'idle',
       settleError: null,
@@ -60,7 +66,7 @@ export function createConversationInitialization(options) {
     }
   }
 
-  async function initialize({ cardPath, sessionId, mode, openingId, userName, requestMode }) {
+  async function initialize({ cardPath, sessionId, mode, openingId, userName, requestMode, userProfileEnabled }) {
     const currentSettings = await settings()
     const effectiveRequestMode = currentSettings.compatibilityMode && requestMode === 'sillytavern' ? 'sillytavern' : 'dsh'
     const requestedMode = mode === 'card' || mode === 'revision' || mode === 'extract' ? 'card' : (mode === 'script' ? 'script' : (mode === 'story' ? 'story' : null))
@@ -117,6 +123,11 @@ export function createConversationInitialization(options) {
     chat.runtimePresetSnapshot = runtimePresetSnapshot
     chat.runtimePresetPath = ''
     chat.macroState = macroState
+    chat.userProfileEnabled = groupOfMode(chat.mode) === 'play' && userProfileEnabled === true
+    chat.webSearchEnabled = groupOfMode(chat.mode) === 'play' && currentSettings.webSearchEnabled === true
+    chat.backgroundModelSelection = groupOfMode(chat.mode) === 'play'
+      ? snapshotBackgroundModel(currentSettings.backgroundModel, native.selection(sessionId))
+      : null
     chat.mvu = usesMvu ? {
       enabled: true,
       owner: 'official',

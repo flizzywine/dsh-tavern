@@ -323,7 +323,7 @@ export function createCandidateGenerator(options) {
     const cardPath = str(chat.cardPath || chat.cardId)
     const card = await store.readCard(cardPath)
     if (card === undefined) throw new Error('人物卡不存在: ' + cardPath)
-    const selection = model.selection(input.sessionId)
+    const selection = model.selection(chat)
     if (selection === null || selection === undefined) throw new Error('没有可用的模型配置')
     const scriptMode = mode === 'script'
     let script = null
@@ -392,7 +392,8 @@ export function createCandidateGenerator(options) {
       messages,
       persistent: true,
       persistentSessionId,
-      rewindTo: participantRequest.rewindTo
+      rewindTo: participantRequest.rewindTo,
+      webSearchEnabled: chat.webSearchEnabled === true
     }
     async function execute() {
       let run

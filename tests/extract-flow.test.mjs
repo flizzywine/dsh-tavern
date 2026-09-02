@@ -166,7 +166,7 @@ test('新开游玩在创建 Session 前完成游戏准备，创建后不提供�
   assert.match(sidebar, /dsh-tavern-player-name/)
   assert.match(sidebar, /preparePlayConversation\(card\)/)
   assert.doesNotMatch(prepareFlow, /connectWorkspace|startChat/)
-  assert.match(sidebar, /newConversation\(openingPicker\.card, null, selectedOpening \? selectedOpening\.id : "", openingPicker\.userName \|\| "你"\)/)
+  assert.match(sidebar, /newConversation\(openingPicker\.card, null, selectedOpening \? selectedOpening\.id : "", openingPicker\.userName \|\| "你", openingPicker\.userProfileEnabled === true\)/)
   assert.match(sidebar, /openingId: openingId \|\| ""/)
   assert.match(sidebar, /userName: resolvedUserName/)
   assert.match(sidebar, /dsh-tavern-picker-overlay/)
@@ -456,6 +456,40 @@ test('人物卡转 MVU 起始任务写入 Skill、目标卡与简短转换要求
   assert.match(injectTaskPrompt, /把这张人物卡转换为独立的 MVU 版本/)
   assert.match(injectTaskPrompt, /移除原卡自带的候选项生成提示、按钮、正则和专用脚本/)
   assert.match(injectTaskPrompt, /统一使用 DSH Tavern 内置候选项/)
+})
+
+test('用户画像作为卡片 Agent 起始任务，并在新游戏准备页手动启用', () => {
+  const sidebar = between(clientSource, 'function TavernSidebar', 'function TavernResourcesTab')
+  const injectTaskPrompt = between(clientSource, 'async function injectTaskPrompt', 'playControlsFeature.register')
+
+  assert.match(sidebar, /newCardConversation\(null, "user-profile", "建立用户画像"\)/)
+  assert.match(sidebar, /可确认、可跨人物卡复用的长期偏好/)
+  assert.match(injectTaskPrompt, /if \(task === "user-profile"\)/)
+  assert.match(injectTaskPrompt, /\/tavern-user-profile/)
+  assert.match(sidebar, /手动启用已确认的长期偏好/)
+  assert.match(sidebar, /userProfileEnabled: userProfileEnabled === true/)
+  assert.match(sidebar, /response\.userProfile\.defaultEnabled/)
+})
+
+test('用户画像右侧栏聚焦实际生效偏好，详细依据折叠并可跳转卡片 Agent', () => {
+  const profileTab = between(clientSource, 'function UserPreferenceProfileTab', 'function SystemPromptSidebarTab')
+  const sidebar = between(clientSource, 'function TavernSidebar', 'function TavernResourcesTab')
+
+  assert.match(profileTab, /getUserPreferenceProfile/)
+  assert.match(profileTab, /updateUserPreferenceProfile/)
+  assert.match(profileTab, /setUserPreferenceProfileDefaultEnabled/)
+  assert.doesNotMatch(profileTab, /完整画像/)
+  assert.match(profileTab, /实际生效的偏好/)
+  assert.match(profileTab, /偏好维度/)
+  assert.match(profileTab, /原始回答/)
+  assert.match(profileTab, /新游戏默认启用/)
+  assert.match(profileTab, /本局创建后保持冻结/)
+  assert.match(profileTab, /dsh-tavern-open-user-profile-task/)
+  assert.match(sidebar, /addEventListener\("dsh-tavern-open-user-profile-task"/)
+  assert.match(serverSource, /case 'getUserPreferenceProfile'/)
+  assert.match(serverSource, /case 'updateUserPreferenceProfile'/)
+  assert.match(serverSource, /case 'setUserPreferenceProfileDefaultEnabled'/)
+  assert.match(clientSource, /id: "dsh-tavern:user-profile"/)
 })
 
 test('世界书与预设起始任务先选择一个目标并自动追加类型引用', () => {

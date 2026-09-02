@@ -79,7 +79,17 @@ export function traceError(error, traceSessionId, task) {
 // A task operates on a leased DSH Agent; it does not create or retain sessions.
 export function createBackgroundAgentTask(options) {
   const setupAgent = typeof options.setupAgent === 'function' ? options.setupAgent : null
-  const stableBackgroundTools = Array.isArray(options.backgroundTools) ? options.backgroundTools : []
+  const sharedBackgroundTools = Array.isArray(options.sharedTools) ? options.sharedTools.filter(function (item) {
+    return item && item.tool && typeof item.tool.name === 'string' && typeof item.execute === 'function'
+  }) : []
+  const sharedByName = new Map(sharedBackgroundTools.map(function (item) { return [item.tool.name, item] }))
+  const stableBackgroundTools = []
+  const stableNames = new Set()
+  for (const tool of (Array.isArray(options.backgroundTools) ? options.backgroundTools : []).concat(sharedBackgroundTools.map(function (item) { return item.tool }))) {
+    if (!tool || typeof tool.name !== 'string' || stableNames.has(tool.name)) continue
+    stableNames.add(tool.name)
+    stableBackgroundTools.push(tool)
+  }
   function completedBoundary(events) {
     for (let index = (events || []).length - 1; index >= 0; index--) {
       const event = events[index]
@@ -152,7 +162,14 @@ export function createBackgroundAgentTask(options) {
         text: state.input.task === 'image' ? '你是独立的场景生图 Agent，不续写故事、不修改变量。你会持续处理同一游戏的绘图任务；旧任务只供参考，当前目标材料与已保存方案是本次依据。不要沿用已废弃分支、旧站位或之前仅限单图的调整；严格按每轮末尾追加的任务协议执行。' : backgroundPersona
       })
       childCtx.systemPrompt.suppressRuntimeContext()
-      childCtx.tools.restrict({ allow: state.input.task === 'image' ? [] : ['skill'] })
+      childCtx.tools.restrict({ allow: state.input.task === 'image' ? [] : ['skill', 'web_search'] })
+      childCtx.on('system-prompt/assemble', async function (_assembly, _context, next) {
+        const assembly = await next()
+        if (state.input.task !== 'image' && state.input.webSearchEnabled === true) return assembly
+        assembly.sections = (assembly.sections || []).filter(function (section) { return section && section.name !== 'tool:web_search' })
+        assembly.tools = (assembly.tools || []).filter(function (tool) { return tool && tool.name !== 'web_search' })
+        return assembly
+      })
       if (state.input.task !== 'image') {
         state.stableToolDisposers = stableBackgroundTools.map(function (tool) {
           return childCtx.tools.register({
@@ -191,7 +208,8 @@ export function createBackgroundAgentTask(options) {
     if (stableBackgroundTools.length > 0 && input.task !== 'image') {
       state.activeToolTask = {
         async execute(tool, args, execution) {
-          const current = allowed.get(tool.name)
+          const shared = sharedByName.get(tool.name)
+          const current = allowed.get(tool.name) || (shared && shared.tool)
           if (current === undefined) {
             return JSON.stringify({
               ok: false,
@@ -208,7 +226,9 @@ export function createBackgroundAgentTask(options) {
               return JSON.stringify({ ok: false, retryable: false, message: input.toolLimitMessage || '当前任务的工具调用次数已达上限，请结束本轮。' })
             }
           }
-          const result = str(await input.onToolCall({ name: tool.name, arguments: args }))
+          const result = shared
+            ? str(await shared.execute({ input, args, execution }))
+            : str(await input.onToolCall({ name: tool.name, arguments: args }))
           if (typeof input.stopToolsWhen === 'function' && input.stopToolsWhen()) execution?.concludeTurn?.()
           return result
         }

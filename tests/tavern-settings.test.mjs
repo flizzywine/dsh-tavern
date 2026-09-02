@@ -50,6 +50,25 @@ test('旧客户端的信任和样式修改不再生效，其他未知设置仍�
   assert.equal(presentTavernSettings(saved, {}).trustedCardMode, true)
 })
 
+test('联网搜索作为新游戏默认值持久化，默认关闭', () => {
+  assert.equal(presentTavernSettings({}, {}).webSearchEnabled, false)
+  const enabled = applyTavernSettingsPatch({ unknown: '保留' }, { webSearchEnabled: true })
+  assert.equal(enabled.webSearchEnabled, true)
+  assert.equal(enabled.unknown, '保留')
+  assert.equal(presentTavernSettings(enabled, {}).webSearchEnabled, true)
+  assert.equal(applyTavernSettingsPatch(enabled, { webSearchEnabled: false }).webSearchEnabled, false)
+})
+
+test('后台模型可以固定为独立 provider/model，也可以恢复为开局跟随前台', () => {
+  assert.equal(presentTavernSettings({}, {}).backgroundModel, null)
+  const fixed = applyTavernSettingsPatch({ unknown: true }, { backgroundModel: { provider: 'vertex', model: 'gemini-2.5-pro' } })
+  assert.deepEqual(fixed.backgroundModel, { provider: 'vertex', model: 'gemini-2.5-pro' })
+  assert.equal(fixed.unknown, true)
+  assert.deepEqual(presentTavernSettings(fixed, {}).backgroundModel, { provider: 'vertex', model: 'gemini-2.5-pro' })
+  assert.equal(applyTavernSettingsPatch(fixed, { backgroundModel: null }).backgroundModel, undefined)
+  assert.throws(() => applyTavernSettingsPatch({}, { backgroundModel: { provider: '', model: 'x' } }), /配置无效/)
+})
+
 test('真实设置保存链路关闭兼容模式成功返回，旧关闭信任值不影响运行', async t => {
   const harness = await settingsHarness(t)
   await harness.profileData.writeJson(harness.settingsPath, {
@@ -71,7 +90,7 @@ test('真实设置保存链路关闭兼容模式成功返回，旧关闭信任�
   }
 })
 
-test('设置界面只保留兼容模式开关，不渲染样式配置和信任选项', () => {
+test('设置界面提供兼容模式、联网搜索与后台模型选择，不渲染旧样式选项', () => {
   const context = { SceneImageSettings: function SceneImageSettings() {}, React: {
     useState: initial => [initial, () => {}],
     useEffect() {},
@@ -89,10 +108,55 @@ test('设置界面只保留兼容模式开关，不渲染样式配置和信任�
   }
   visit(root)
   const inputs = nodes.filter(node => node.type === 'input')
-  assert.equal(inputs.length, 1)
-  assert.equal(inputs[0].props['aria-label'], '启用兼容模式（实验性）')
+  assert.deepEqual(inputs.map(input => input.props['aria-label']), ['启用兼容模式（实验性）', '开启联网搜索'])
+  const select = nodes.find(node => node.type === 'select' && node.props['aria-label'] === '后台模型')
+  assert.ok(select)
+  assert.match(JSON.stringify(select), /跟随前台（开局时）/)
   assert.equal(nodes.some(node => node.type === 'textarea' || node.type === 'details'), false)
   assert.doesNotMatch(JSON.stringify(root), /受信任人物卡模式|SillyTavern 样式环境|Custom CSS/)
+})
+
+test('联网搜索开关保存为以后新游戏的默认值', async t => {
+  const harness = await settingsHarness(t)
+  let state = { webSearchEnabled: false }
+  const events = []
+  const context = {
+    setState: updater => { state = updater(state) },
+    rpc: async (_method, args) => ({ settings: await harness.update(args.patch) }),
+    window: { dispatchEvent: event => events.push(event.type) },
+    CustomEvent: class { constructor(type) { this.type = type } }
+  }
+  const start = clientSource.indexOf('async function setWebSearchEnabled(enabled)')
+  assert.ok(start >= 0)
+  vm.runInNewContext(clientSource.slice(start, clientSource.indexOf('\n\t\t\treturn React.createElement', start)) +
+    '; this.toggle = setWebSearchEnabled;', context)
+  await context.toggle(true)
+  assert.equal(state.webSearchEnabled, true)
+  assert.equal((await harness.read()).webSearchEnabled, true)
+  assert.deepEqual(events, ['dsh-tavern-settings-changed', 'dsh-tavern-data-changed'])
+})
+
+test('后台模型选择保存为以后新游戏的默认值', async t => {
+  const harness = await settingsHarness(t)
+  let state = { backgroundModel: null }
+  const events = []
+  const context = {
+    setState: updater => { state = updater(state) },
+    rpc: async (_method, args) => ({ settings: await harness.update(args.patch) }),
+    window: { dispatchEvent: event => events.push(event.type) },
+    CustomEvent: class { constructor(type) { this.type = type } }
+  }
+  const start = clientSource.indexOf('async function setBackgroundModel(value)')
+  assert.ok(start >= 0)
+  vm.runInNewContext(clientSource.slice(start, clientSource.indexOf('\n\t\t\treturn React.createElement', start)) +
+    '; this.choose = setBackgroundModel;', context)
+  await context.choose(JSON.stringify({ provider: 'worker', model: 'stable' }))
+  assert.deepEqual(state.backgroundModel, { provider: 'worker', model: 'stable' })
+  assert.deepEqual((await harness.read()).backgroundModel, { provider: 'worker', model: 'stable' })
+  await context.choose('')
+  assert.equal(state.backgroundModel, null)
+  assert.equal((await harness.read()).backgroundModel, null)
+  assert.deepEqual(events, ['dsh-tavern-settings-changed', 'dsh-tavern-data-changed', 'dsh-tavern-settings-changed', 'dsh-tavern-data-changed'])
 })
 
 test('前端兼容开关保存后通知侧栏；真正写入失败才显示失败', async t => {
@@ -135,6 +199,8 @@ test('系统正文提示词默认使用内置内容，并可保存自定义覆�
   const defaults = { story: '内置正文提示词' }
   assert.deepEqual(presentTavernSettings({}, defaults), {
     compatibilityMode: false,
+    webSearchEnabled: false,
+    backgroundModel: null,
     trustedCardMode: true,
     systemPrompts: [{ name: 'story', text: '内置正文提示词', customized: false }],
     storyPrompt: '内置正文提示词',
@@ -146,6 +212,8 @@ test('系统正文提示词默认使用内置内容，并可保存自定义覆�
   assert.equal(resolveSystemPrompt(saved, 'story', function () { return '默认' }), '用户正文提示词')
   assert.deepEqual(presentTavernSettings(saved, defaults), {
     compatibilityMode: true,
+    webSearchEnabled: false,
+    backgroundModel: null,
     trustedCardMode: true,
     systemPrompts: [{ name: 'story', text: '用户正文提示词', customized: true }],
     storyPrompt: '用户正文提示词',

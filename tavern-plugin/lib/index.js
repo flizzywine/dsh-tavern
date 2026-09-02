@@ -15,7 +15,9 @@ import { createCardPreparation } from './domain/card-preparation.js'
 import { projectCardOpeningPreviews } from './domain/card-opening-previews.js'
 import { READABLE_CARD_FIELDS, readCardField } from './domain/card-reading.js'
 import { createConversationInitialization } from './domain/conversation-initialization.js'
+import { resolveChatBackgroundModel } from './domain/background-model-selection.js'
 import { createPlayCardSnapshots } from './domain/play-card-snapshots.js'
+import { createUserPreferenceProfile } from './domain/user-preference-profile.js'
 import { createContextPlanner } from './domain/context-planner.js'
 import { createConversationTextExport } from './domain/conversation-text-export.js'
 import { createCoordinationEventPublisher } from './domain/coordination-event-publisher.js'
@@ -25,6 +27,8 @@ import { createFileResourceStore, normalizeResourcePath, resourceKind } from './
 import { createForegroundHandoff } from './domain/foreground-handoff.js'
 import { createForegroundFrameBuilder } from './domain/agent-input-frame.js'
 import { createForegroundFrameSessionAdapter } from './domain/foreground-frame-session-adapter.js'
+import { HISTORY_RECALL_OUTPUT_SCHEMA, HISTORY_RECALL_TOOL, createHistoryRecall, renderHistoryRecall } from './domain/history-recall.js'
+import { dshParameterFields } from './domain/dsh-tool-schema.js'
 import { createModelRequestLog } from './domain/model-request-log.js'
 import { MVU_SUBMIT_UPDATE_TOOL, createMvuSettlementModule } from './domain/mvu-background-settlement.js'
 import { CHARACTER_DESIGN_READ_TOOL, CHARACTER_DESIGN_SAVE_TOOL } from './domain/character-design-document.js'
@@ -109,6 +113,7 @@ export async function apply(ctx) {
   const dataRoot = resolveTavernDataRoot()
   const stablePrefixStorage = createSessionStablePrefixStorage(dataRoot + '/session-prefixes')
   const profileData = createProfileDataStore({ dataRoot })
+  const userPreferenceProfile = createUserPreferenceProfile({ store: profileData })
   const sceneWorldbooks = TAVERN_RELEASE_CAPABILITIES.sceneImages ? createSceneWorldbooks({ store: profileData }) : null
   const sceneDiagnostics = TAVERN_RELEASE_CAPABILITIES.sceneImages ? createSceneImageDiagnostics(profileData) : null
   async function captureSceneWorldbook(chat, card, preparedBook) {
@@ -307,6 +312,28 @@ export async function apply(ctx) {
       }
     }
     return null
+  }
+  function backgroundModelSelection(chat) {
+    return resolveChatBackgroundModel(chat, modelSelection(chat && chat.sessionId))
+  }
+  async function tavernModelCatalog() {
+    const providers = llm.listProviders()
+    const groups = await Promise.all(providers.map(async function (provider) {
+      try {
+        const models = await llm.listModels(provider.id)
+        return {
+          provider: provider.id,
+          providerName: provider.name || provider.id,
+          models: models.filter(function (model) {
+            return !Array.isArray(model.inputModalities) || model.inputModalities.includes('text')
+          }).map(function (model) { return { id: model.id, name: model.name || model.id } })
+        }
+      } catch (error) {
+        console.warn('dsh-tavern: 读取后台模型目录失败:', provider.id, error)
+        return { provider: provider.id, providerName: provider.name || provider.id, models: [] }
+      }
+    }))
+    return groups.filter(function (group) { return group.models.length > 0 })
   }
   async function callModel(opts) {
     const sel = modelSelection(opts.sessionId)
@@ -578,6 +605,14 @@ export async function apply(ctx) {
   })
   async function readSessionMap() { return await conversationRegistry.links() }
   async function chatForSession(sessionId) { return await conversationRegistry.resolve(sessionId) }
+  const historyRecall = createHistoryRecall()
+  async function recallHistoryForSession(sessionId, args) {
+    const chat = await chatForSession(sessionId)
+    if (chat === undefined) throw new Error('当前 Session 没有对应的 Tavern Chat')
+    const mode = chat.mode || 'story'
+    if (mode !== 'story' && mode !== 'script') throw new Error('历史正文只能在游玩模式中检索')
+    return historyRecall.recall(Object.assign({ chat }, args || {}))
+  }
   resourceGraph = createResourceGraph({
     resources: fileResources,
     presets: runtimePresets,
@@ -622,10 +657,34 @@ export async function apply(ctx) {
       userName,
       presetRegexScripts: Array.isArray(preset && preset.regexScripts) ? preset.regexScripts : []
     })
+    const profile = await userPreferenceProfile.read()
     return {
       openings: previews.openings,
       diagnostics: previews.diagnostics,
-      trustedCardMode: settings.trustedCardMode
+      trustedCardMode: settings.trustedCardMode,
+      userProfile: {
+        hasConfirmed: profile.hasConfirmed,
+        revision: profile.hasConfirmed ? Number(profile.confirmed.profileRevision) || 0 : 0,
+        defaultEnabled: profile.hasConfirmed && profile.defaultEnabled === true
+      }
+    }
+  }
+  function presentUserPreferenceProfile(value) {
+    const confirmed = value && value.hasConfirmed && value.confirmed ? value.confirmed : null
+    return {
+      hasDraft: Boolean(value && value.hasDraft),
+      draftRevision: value && value.hasDraft ? Number(value.draft && value.draft.revision) || 0 : 0,
+      hasConfirmed: confirmed !== null,
+      confirmedRevision: confirmed === null ? 0 : Number(confirmed.profileRevision) || 0,
+      defaultEnabled: confirmed !== null && value.defaultEnabled === true,
+      confirmed: confirmed === null ? null : {
+        summary: str(confirmed.summary),
+        injectionText: str(confirmed.injectionText),
+        dimensions: Array.isArray(confirmed.dimensions) ? confirmed.dimensions : [],
+        rawAnswers: Array.isArray(confirmed.rawAnswers) ? confirmed.rawAnswers : [],
+        uncertainties: Array.isArray(confirmed.uncertainties) ? confirmed.uncertainties : [],
+        confirmedAt: Number(confirmed.confirmedAt) || 0
+      }
     }
   }
   async function listTavernResources() {
@@ -946,6 +1005,10 @@ export async function apply(ctx) {
       mode: chat.mode || 'story',
       requestMode: chat.requestMode === 'sillytavern' ? 'sillytavern' : 'dsh',
       playerName: str(chat.macroState && chat.macroState.userName).trim() || '你',
+      userProfile: {
+        enabled: chat.userProfileEnabled === true,
+        revision: Math.max(0, Number(chat.userProfileRevision) || 0)
+      },
       bypassPlan: null,
       runtimePreset: activePresetSnapshot === null ? null : { id: activePresetSnapshot.presetPath, name: activePresetSnapshot.presetName },
       card: cardViewOf(card, chat),
@@ -1056,8 +1119,8 @@ export async function apply(ctx) {
     })
     return result.sort(function (left, right) { return Number(left.turn) - Number(right.turn) })
   }
-  async function startChat(cardPath, sessionId, mode, openingId, userName, requestMode) {
-    return await conversationInitialization.start({ cardPath, sessionId, mode, openingId, userName, requestMode })
+  async function startChat(cardPath, sessionId, mode, openingId, userName, requestMode, userProfileEnabled) {
+    return await conversationInitialization.start({ cardPath, sessionId, mode, openingId, userName, requestMode, userProfileEnabled })
   }
 
   async function scriptPreviewOf(chat) {
@@ -1103,7 +1166,7 @@ export async function apply(ctx) {
     return await conversationInitialization.ensureOpening(sessionId)
   }
   const contextPlanner = createContextPlanner({ prompt: runtimePrompt, callModel: callModel, now: Date.now, logger: console })
-  const playCardSnapshots = createPlayCardSnapshots({ worldBooks, planner: contextPlanner, readCard: readChatCard, writeChat, captureSceneWorldbook })
+  const playCardSnapshots = createPlayCardSnapshots({ worldBooks, planner: contextPlanner, readCard: readChatCard, writeChat, captureSceneWorldbook, userPreferenceProfile })
   const ensurePlayCardSnapshot = playCardSnapshots.ensure
   const conversationInitialization = createConversationInitialization({
     cards: { read: readCard, readChat: readChatCard, script: readScript, extensions: readCardExtensions },
@@ -1129,6 +1192,12 @@ export async function apply(ctx) {
   const runtimePresetSnapshots = new Map()
   const backgroundAgentRunner = createBackgroundAgentRunner({
     backgroundTools: [POSTURE_SUBMIT_TOOL, CHARACTER_DESIGN_READ_TOOL, CHARACTER_DESIGN_SAVE_TOOL, MVU_SUBMIT_UPDATE_TOOL, CANDIDATE_SUBMIT_TOOL, SCRIPT_READ_TOOL, SCRIPT_POINT_TOOL],
+    sharedTools: [{
+      tool: HISTORY_RECALL_TOOL,
+      async execute({ input, args }) {
+        return renderHistoryRecall(await recallHistoryForSession(input.sessionId, args))
+      }
+    }],
     stablePrefixStorage,
     agents: agentRegistry,
     agentPreset: 'tavern-background',
@@ -1232,7 +1301,7 @@ export async function apply(ctx) {
       writeChat: writeChat
     },
     model: {
-      selection: modelSelection,
+      selection: backgroundModelSelection,
       runCandidate: backgroundAgentRunner.run
     },
     planner: contextPlanner,
@@ -1450,13 +1519,14 @@ export async function apply(ctx) {
             currentVariables: mvuTarget.variables,
             variableSchema: mvuTarget.variables.schema,
             updateRules: await mvuUpdateRules(snapshot, card),
-            characterDesignDocument: snapshot.characterDesignDocument
+            characterDesignDocument: snapshot.characterDesignDocument,
+            webSearchEnabled: snapshot.webSearchEnabled === true
           }
           const pendingSubmission = mvuTarget.message.mvu && mvuTarget.message.mvu.pendingSubmission
           if (pendingSubmission && typeof pendingSubmission === 'object') {
             mvuResult = await mvuSettlement.resumeVariables({ ...settlementInput, submission: pendingSubmission })
           } else {
-            const selection = modelSelection(snapshot.sessionId)
+            const selection = backgroundModelSelection(snapshot)
             if (selection === null) throw new Error('没有可用的模型配置，请先在当前会话的模型选择器中选择模型')
             mvuResult = await mvuSettlement.settleVariables({
               ...settlementInput,
@@ -1470,7 +1540,7 @@ export async function apply(ctx) {
           backgroundBoundary = Number.isSafeInteger(mvuResult.traceBoundary) ? mvuResult.traceBoundary : null
           result = { posture: mvuResult.posture }
         } else {
-          const selection = modelSelection(snapshot.sessionId)
+          const selection = backgroundModelSelection(snapshot)
           if (selection === null) throw new Error('没有可用的模型配置，请先在当前会话的模型选择器中选择模型')
           let submittedPosture = null
           const run = await backgroundAgentRunner.run({
@@ -1492,6 +1562,7 @@ export async function apply(ctx) {
             maxToolCalls: 3,
             temperature: 0.2,
             sessionId: snapshot.sessionId,
+            webSearchEnabled: snapshot.webSearchEnabled === true,
             stopToolsWhen: function () { return submittedPosture !== null },
             acceptWithoutText: function () { return submittedPosture !== null },
             async onToolCall(call) {
@@ -1795,6 +1866,18 @@ export async function apply(ctx) {
       case 'checkUpdate': return { status: await applicationUpdater.check() }
       case 'startUpdate': return { status: await applicationUpdater.start() }
       case 'getCardOpenings': return await getCardOpenings(args && args.path, args && args.userName, args && args.requestMode)
+      case 'getUserPreferenceProfile': {
+        const chat = await chatForSession(args && args.sessionId)
+        return {
+          userProfile: presentUserPreferenceProfile(await userPreferenceProfile.read()),
+          currentConversation: chat && groupOfMode(chat.mode) === 'play' ? {
+            enabled: chat.userProfileEnabled === true,
+            revision: Math.max(0, Number(chat.userProfileRevision) || 0)
+          } : null
+        }
+      }
+      case 'updateUserPreferenceProfile': return { userProfile: presentUserPreferenceProfile(await userPreferenceProfile.updateConfirmed(args)) }
+      case 'setUserPreferenceProfileDefaultEnabled': return { userProfile: presentUserPreferenceProfile(await userPreferenceProfile.setDefaultEnabled(args && args.enabled === true)) }
       case 'getCard': {
         const cardPath = normalizeResourcePath(args && args.path, 'card')
         const workspace = await readCardWorkspace(cardPath)
@@ -1896,7 +1979,7 @@ export async function apply(ctx) {
         const change = await updateCard(args && args.path, args && args.patch)
         return { card: change.card, changed: change.changed }
       }
-      case 'getTavernSettings': return { settings: await readTavernSettings(), releaseCapabilities: TAVERN_RELEASE_CAPABILITIES }
+      case 'getTavernSettings': return { settings: await readTavernSettings(), modelCatalog: await tavernModelCatalog(), releaseCapabilities: TAVERN_RELEASE_CAPABILITIES }
       case 'getSceneImageSettings': return { settings: await enabledSceneIllustrations().settings(args?.provider) }
       case 'saveSceneImageSettings': return { settings: await enabledSceneIllustrations().configure(args) }
       case 'sceneImageStatus': return { illustration: await enabledSceneIllustrations().status(args.sessionId, args.turn) }
@@ -1962,7 +2045,7 @@ export async function apply(ctx) {
 	  case 'releaseTavernHelperRuntime': return { released: tavernScriptHostAdapter.releaseRuntime(args && args.sessionId, args && args.runtimeId) }
       case 'startChat': {
         try {
-          return { view: await startChat(args && args.path, args && args.sessionId, args && args.mode, args && args.openingId, args && args.userName, args && args.requestMode) }
+          return { view: await startChat(args && args.path, args && args.sessionId, args && args.mode, args && args.openingId, args && args.userName, args && args.requestMode, args && args.userProfileEnabled) }
         } catch (error) {
           console.error('dsh-tavern: 创建对话失败', {
             cardPath: str(args && args.path),
@@ -2441,6 +2524,17 @@ export async function apply(ctx) {
       charName: str(card.name),
       userName: str(chat.macroState && chat.macroState.userName)
     })
+    if (chat.userProfileEnabled === true) {
+      const preferenceText = str(chat.userProfileContextSnapshot)
+      if (preferenceText !== '') {
+        compiled.messages.unshift({
+          role: 'system',
+          content: preferenceText,
+          source: { kind: 'dsh-user-profile', revision: Number(chat.userProfileRevision) || 0 }
+        })
+        compiled.trace.userProfileRevision = Number(chat.userProfileRevision) || 0
+      }
+    }
     compiled.trace.postProcessing = 'strict_tools'
     compiled.trace.sourceMessageCount = sourceMessageCount
     compiled.trace.finalMessageCount = compiled.messages.length
@@ -2482,7 +2576,7 @@ export async function apply(ctx) {
     })
   }
 
-  const controlledToolNames = new Set(['bash', 'pwsh', 'str_replace_editor', 'skill', 'tavern_save_skill', ...cordisToolNames, 'tavern_read_card', 'tavern_read_card_raw', 'tavern_read_play_chat', 'tavern_read_script', 'tavern_read_worldbook', 'tavern_update_worldbook', 'tavern_read_preset', 'tavern_update_preset', 'tavern_update_card', 'tavern_restore_card'])
+  const controlledToolNames = new Set(['bash', 'pwsh', 'str_replace_editor', 'skill', 'web_search', 'tavern_save_skill', ...cordisToolNames, 'tavern_user_profile_read', 'tavern_user_profile_save_draft', 'tavern_user_profile_confirm', 'tavern_read_card', 'tavern_read_card_raw', 'tavern_read_play_chat', 'tavern_read_script', 'tavern_recall_history', 'tavern_read_worldbook', 'tavern_update_worldbook', 'tavern_read_preset', 'tavern_update_preset', 'tavern_update_card', 'tavern_restore_card'])
   const foregroundStrategies = createForegroundOrchestrationStrategies({
     compatibility: {
       beforeTurn: async function (input) {
@@ -2700,6 +2794,122 @@ export async function apply(ctx) {
   // ---------- 模型可选工具 ----------
   const tools = ctx.get('tools')
   if (tools !== undefined) {
+    tools.register(defineTool({
+      name: HISTORY_RECALL_TOOL.name,
+      description: HISTORY_RECALL_TOOL.description,
+      parameters: dshParameterFields(HISTORY_RECALL_TOOL.parameters),
+      output: {
+        schema: HISTORY_RECALL_OUTPUT_SCHEMA,
+        render: function (_args, value) { return [{ type: 'text', text: renderHistoryRecall(value) }] }
+      },
+      isConcurrencySafe: function () { return true },
+      async execute(args, exec) {
+        const sessionId = exec && exec.agent && exec.agent.session ? exec.agent.session.id : ''
+        return await recallHistoryForSession(sessionId, args)
+      }
+    }))
+    tools.register(defineTool({
+      name: 'tavern_user_profile_read',
+      description: '读取 Profile 中独立保存的用户画像草案和已确认版本。建立、复查或修改用户画像时先调用；草案不等于已确认偏好。',
+      parameters: {},
+      output: {
+        schema: { type: 'object', additionalProperties: false, properties: {
+          hasDraft: { type: 'boolean', required: true },
+          hasConfirmed: { type: 'boolean', required: true },
+          draftRevision: { type: 'integer', required: true },
+          confirmedRevision: { type: 'integer', required: true },
+          draftJson: { type: 'string', required: true },
+          confirmedJson: { type: 'string', required: true }
+        } },
+        render: function (_args, value) {
+          if (!value.hasDraft && !value.hasConfirmed) return [{ type: 'text', text: '尚未建立用户画像。' }]
+          return [{ type: 'text', text: JSON.stringify(value, null, 2) }]
+        }
+      },
+      isConcurrencySafe: function () { return true },
+      async execute(_args, exec) {
+        const sessionId = exec && exec.agent && exec.agent.session ? exec.agent.session.id : ''
+        const chat = await chatForSession(sessionId)
+        if (chat === undefined || (chat.mode || 'story') !== 'card') throw new Error('用户画像只能在卡片工作台中管理')
+        const value = await userPreferenceProfile.read()
+        return {
+          hasDraft: value.hasDraft,
+          hasConfirmed: value.hasConfirmed,
+          draftRevision: value.hasDraft ? Number(value.draft.revision) || 0 : 0,
+          confirmedRevision: value.hasConfirmed ? Number(value.confirmed.profileRevision) || 0 : 0,
+          draftJson: value.hasDraft ? JSON.stringify(value.draft, null, 2) : '',
+          confirmedJson: value.hasConfirmed ? JSON.stringify(value.confirmed, null, 2) : ''
+        }
+      }
+    }))
+
+    tools.register(defineTool({
+      name: 'tavern_user_profile_save_draft',
+      description: '保存用户画像草案。只记录问卷原始回答、Agent 分析和拟注入摘要；不会覆盖已确认画像，也不会自动注入游玩。保存后必须向用户展示草案并等待确认。',
+      parameters: {
+        rawAnswers: {
+          type: 'array', required: true,
+          items: { type: 'object', additionalProperties: false, properties: {
+            question: { type: 'string', required: true },
+            answer: { type: 'string', required: true }
+          } }
+        },
+        dimensions: {
+          type: 'array', required: true,
+          items: { type: 'object', additionalProperties: false, properties: {
+            id: { type: 'string', required: true },
+            label: { type: 'string', required: true },
+            conclusion: { type: 'string', required: true },
+            confidence: { type: 'string', required: true, enum: ['confirmed', 'likely', 'uncertain'] },
+            evidence: { type: 'string', required: true }
+          } }
+        },
+        summary: { type: 'string', required: true, description: '供用户核对的完整画像草案' },
+        injectionText: { type: 'string', required: true, description: '最多约 3000 字的最小充分游玩偏好摘要；不能包含本轮人物卡专属要求' },
+        uncertainties: { type: 'array', required: true, items: { type: 'string' } }
+      },
+      output: {
+        schema: { type: 'object', additionalProperties: false, properties: {
+          draftRevision: { type: 'integer', required: true },
+          hasConfirmed: { type: 'boolean', required: true }
+        } },
+        render: function (_args, value) {
+          return [{ type: 'text', text: '用户画像草案 v' + value.draftRevision + ' 已保存，尚未确认、不会注入游玩。请先向用户展示并等待明确确认。' }]
+        }
+      },
+      async execute(args, exec) {
+        const sessionId = exec && exec.agent && exec.agent.session ? exec.agent.session.id : ''
+        const chat = await chatForSession(sessionId)
+        if (chat === undefined || (chat.mode || 'story') !== 'card') throw new Error('用户画像只能在卡片工作台中管理')
+        const value = await userPreferenceProfile.saveDraft(args)
+        return { draftRevision: Number(value.draft.revision) || 0, hasConfirmed: value.hasConfirmed }
+      }
+    }))
+
+    tools.register(defineTool({
+      name: 'tavern_user_profile_confirm',
+      description: '把刚刚向用户完整展示且由用户明确同意的画像草案保存为确认版。不得把沉默、继续回答、模糊认可或 Agent 自己的判断当作确认。',
+      parameters: {
+        draftRevision: { type: 'integer', required: true, description: '用户刚刚确认的草案 revision' },
+        confirmation: { type: 'string', required: true, enum: ['确认保存用户画像'], description: '只有用户明确确认保存后才能填写此固定文本' }
+      },
+      output: {
+        schema: { type: 'object', additionalProperties: false, properties: {
+          confirmedRevision: { type: 'integer', required: true }
+        } },
+        render: function (_args, value) {
+          return [{ type: 'text', text: '用户画像已确认保存为 Profile 版本 v' + value.confirmedRevision + '。以后新开游戏时可手动启用。' }]
+        }
+      },
+      async execute(args, exec) {
+        const sessionId = exec && exec.agent && exec.agent.session ? exec.agent.session.id : ''
+        const chat = await chatForSession(sessionId)
+        if (chat === undefined || (chat.mode || 'story') !== 'card') throw new Error('用户画像只能在卡片工作台中管理')
+        const value = await userPreferenceProfile.confirm(args)
+        return { confirmedRevision: Number(value.confirmed.profileRevision) || 0 }
+      }
+    }))
+
     tools.register(defineTool({
       name: 'tavern_save_skill',
       description: '仅当用户明确要求创建或修改 Tavern Skill 时，把结构化内容安全保存到用户 Skill 目录。不能覆盖内置 Skill；修改同名用户 Skill 必须明确 overwrite=true。',

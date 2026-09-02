@@ -91,10 +91,12 @@ export function createCompatibilityOrchestrationStrategy(options) {
     stagedRequests.delete(str(sessionId))
   }
 
-  async function assembleSystemPrompt(assembly) {
+  async function assembleSystemPrompt(assembly, input) {
     assembly.sections = []
     assembly.contexts = []
-    assembly.tools = []
+    assembly.tools = input && input.chat && input.chat.webSearchEnabled === true
+      ? assembly.tools.filter(function (tool) { return tool && tool.name === 'web_search' })
+      : []
     return assembly
   }
 
