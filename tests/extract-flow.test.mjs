@@ -301,7 +301,7 @@ test('后台结算期间禁用候选项按钮，完成后自动恢复', () => {
   assert.match(action, /useTavernCoordination\(props\.sessionId/)
   assert.match(action, /disabled:.*activity\.busy/s)
 	assert.match(action, /disabled: regenBusy \|\| rolling, title: "不填写意见，立即重新生成正文/)
-  assert.match(action, /disabled: rolling, title: "删除最近一次用户输入/)
+  // Rollback busy/retry behavior is exercised by the real component in rollback-action.test.mjs.
   assert.match(clientSource, /"后台结算中…"/)
   assert.match(action, /props\.refreshSessions\(\)/)
   assert.match(action, /submitCandidateTask\(props\.sessionId, props\.messageId, guidance\)/)

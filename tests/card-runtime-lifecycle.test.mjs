@@ -28,6 +28,42 @@ function host() {
 }
 const context = (revision = 1) => ({ version: 1, stateRevision: revision, lifecycleRevision: 1, messages: [{ role: 'assistant', variables: { hp: revision } }], turnMessageIds: { 1: 0 }, chatVariables: {}, scriptVariables: {} })
 const view = (revision = 1) => ({ tavernHelper: context(revision), tavernHelperScripts: [{ id: 'script', name: 'script', content: 'void 0' }] })
+
+test('DSH 字号同步到已就绪 iframe，不替换文档；离开后停止监听', () => {
+  const h = host(), sent = []
+  let size = '14px', notify, disconnected = false
+  h.window.document = { body: {}, documentElement: {} }
+  h.window.getComputedStyle = () => ({ getPropertyValue: () => size })
+  h.window.MutationObserver = class {
+    constructor(callback) { notify = callback }
+    observe() {} disconnect() { disconnected = true }
+  }
+  const life = h.client.createTavernMessageFrameLifecycle({ content: '<p>正文</p>', eager: true }, { window: h.window })
+  const stop = life.start(() => {})
+  const doc = life.snapshot().visibleDocument
+  const node = { contentWindow: { postMessage: value => sent.push(copy(value)) } }
+  doc.ref(node)
+  h.deliver(node, { type: 'dsh-tavern-frame-ready', token: doc.token }, {})
+  assert.equal(sent.length, 0, '外部来源不能触发同步')
+  h.deliver(node, { type: 'dsh-tavern-frame-ready', token: doc.token })
+  assert.equal(sent.at(-1)?.type, 'dsh-tavern-font-size')
+  assert.equal(sent.at(-1)?.fontSize, 14)
+  size = '17px'; notify()
+  assert.equal(sent.at(-1).fontSize, 17)
+  assert.equal(life.snapshot().visibleDocument, doc)
+  assert.equal(life.snapshot().pendingDocument, null)
+  const count = sent.length; notify()
+  assert.equal(sent.length, count, '无关样式变动不重复通知')
+  stop()
+  assert.equal(disconnected, true)
+})
+
+test('正文文档带认证字号通道与原字号恢复逻辑', () => {
+  const html = host().client.buildTavernFrameDocument({ content: '<p style="font-size:20px">正文</p>', token: 'font-test' })
+  assert.match(html, /data-dsh-tavern-font-runtime/)
+  assert.match(html, /dsh-tavern-font-size/)
+  assert.match(html, /restoreTavernFrameFontStyles/)
+})
 function execution(options = {}) {
   const h = host(), calls = [], runtimes = []
   let handle = () => Promise.resolve({ active: true })

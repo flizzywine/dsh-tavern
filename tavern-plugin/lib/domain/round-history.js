@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { isDeepStrictEqual } from 'node:util'
 import { clearRegenerationAttemptSurface, locateRegenerationSurface, locateRollbackSurface, planRegenerationSurface } from './rollback-surface.js'
 import { assertRegenerationSourceCurrent, replaceLastRound } from './last-round-replacement.js'
 
@@ -39,6 +40,19 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
   const tavernScriptHostAdapter = scripts
   const storyTimeline = timeline
   const view = present
+  const pendingRollbacks = new Set()
+
+  function assertRollbackIdle(chat) {
+    const agent = sessions.get(chat.sessionId)
+    const unfinished = Object.values(storyTimeline.inspect({ chat }).operations || {}).some(function (operation) {
+      return operation && (operation.status === 'running' || (operation.kind === 'body' && operation.status === 'foreground-completed'))
+    })
+    if (agent?.phase?.kind === 'running' || unfinished || chat.regenInProgress === true) throw new Error('当前轮次尚未完成生成或后台处理，请等待完成后再回退')
+  }
+
+  function assertRollbackSnapshot(current, expected) {
+    if (!isDeepStrictEqual(current, expected)) throw new Error('回退期间聊天已被其他操作修改，请刷新后重试')
+  }
 
   async function prepareRollbackIntent(chat, intent) {
     const target = storyTimeline.rollbackTarget({ chat })
@@ -204,12 +218,17 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
 
   // ---------- 回退本轮（删除最近一次用户输入 + LLM 输出） ----------
   async function rollbackTurn(sessionId, chatId) {
-    let chat = str(chatId) === '' ? await chatForSession(sessionId) : await readChat(chatId)
+    const chat = str(chatId) === '' ? await chatForSession(sessionId) : await readChat(chatId)
     if (chat === undefined) throw new Error('聊天不存在: ' + chatId)
-    const incompleteRound = Object.values(storyTimeline.inspect({ chat }).operations || {}).find(function (operation) {
-      return operation && operation.kind === 'body' && operation.status === 'foreground-completed'
-    })
-    if (incompleteRound !== undefined || chat.regenInProgress === true) throw new Error('当前轮次尚未完成，不能回退')
+    if (pendingRollbacks.has(chat.id)) throw new Error('正在回退本轮，请等待完成')
+    pendingRollbacks.add(chat.id)
+    try { return await rollbackChat(chat) }
+    finally { pendingRollbacks.delete(chat.id) }
+  }
+
+  async function rollbackChat(chat) {
+    assertRollbackIdle(chat)
+    const originalChat = structuredClone(chat)
     const mode = chat.mode || 'story'
     if (mode !== 'story' && mode !== 'script') throw new Error('仅游玩模式支持回退本轮')
     const card = await readChatCard(chat)
@@ -272,30 +291,54 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
       legacyBefore.scriptState = scriptContinuity.transition({ script: script, state: chat.scriptState, event: { kind: 'restore', revision: revision, reference: reference } }).state
     }
     const rollbackIntent = await prepareRollbackIntent(chat, { kind: 'turn.rollback', turn: hiddenTurn, legacyBefore })
+    assertRollbackIdle(chat)
     const rolled = storyTimeline.apply({ chat, intent: rollbackIntent })
     chat = rolled.chat
     if (rollbackCommitKey !== '') delete chat.nativeCommits[rollbackCommitKey]
     chat.tavernHelperLifecycleRevision = Math.max(0, Number(chat.tavernHelperLifecycleRevision) || 0) + 1
     chat.suppressedDshTurns = Array.from(new Set((Array.isArray(chat.suppressedDshTurns) ? chat.suppressedDshTurns : []).concat([hiddenTurn])))
     chat.updatedAt = Date.now()
-    await writeChat(chat, { source: 'rollback' })
-    await tavernScriptHostAdapter.dispatchEvent({ sessionId: chat.sessionId, chat, name: 'MESSAGE_DELETED', args: [(chat.messages || []).length] })
+    chat = await updateChat(chat.id, current => {
+      assertRollbackSnapshot(current, originalChat)
+      assertRollbackIdle(current)
+      return chat
+    }, { source: 'rollback' })
 
     // 3) 原生消息面：用空消息替换最近一轮的所有 surface 节点（模型不再看到），UI 由客户端隐藏对应 turn tail
-    session.append('assistant/message', {
-      turn: rollbackSurface.turn,
-      step: rollbackSurface.step,
-      message: {
-        id: randomUUID(),
-        role: 'assistant',
-        content: [],
-        source: rollbackSurface.source
+    try {
+      assertRollbackIdle(chat)
+      session.append('assistant/message', {
+        turn: rollbackSurface.turn,
+        step: rollbackSurface.step,
+        message: {
+          id: randomUUID(),
+          role: 'assistant',
+          content: [],
+          source: rollbackSurface.source
+        }
+      }, {
+        surfaceOp: { op: 'replace', start: rollbackSurface.userSeq, end: rollbackSurface.endSeq },
+        sourceEventSeqs: shadowedSeqs
+      })
+    } catch (error) {
+      // Keep append-only history intact. A rejected surface replacement must not consume the story checkpoint.
+      try {
+        await updateChat(chat.id, current => {
+          assertRollbackSnapshot(current, chat)
+          return storyTimeline.apply({ chat: current, intent: { kind: 'replacement.abort', restoreChat: originalChat } }).chat
+        }, { source: 'rollback.abort' })
+      } catch (restoreError) {
+        throw new Error('回退失败且剧情恢复未完成：' + str(error?.message || error) + '；' + str(restoreError?.message || restoreError), { cause: error })
       }
-    }, {
-      surfaceOp: { op: 'replace', start: rollbackSurface.userSeq, end: rollbackSurface.endSeq },
-      sourceEventSeqs: shadowedSeqs
-    })
+      throw error
+    }
+    // Notify scripts only after both authoritative story and native surface have committed.
+    let rollbackWarning = ''
+    try {
+      await tavernScriptHostAdapter.dispatchEvent({ sessionId: chat.sessionId, chat, name: 'MESSAGE_DELETED', args: [(chat.messages || []).length] })
+    } catch (error) { rollbackWarning = '回退已完成，但脚本联动失败：' + str(error?.message || error) }
     const result = await view(chat, card)
+    if (rollbackWarning !== '') result.rollbackWarning = rollbackWarning
     result.rolledBack = { hiddenTurn: hiddenTurn, removedUserText: removedUserText, removedAssistantText: removedAssistantText }
     return result
   }
