@@ -4699,7 +4699,6 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const [record, setRecord] = React.useState(null);
 			const [currentConversation, setCurrentConversation] = React.useState(null);
 			const [editing, setEditing] = React.useState(false);
-			const [summary, setSummary] = React.useState("");
 			const [injectionText, setInjectionText] = React.useState("");
 			const [busy, setBusy] = React.useState(false);
 			const [error, setError] = usePersistentError("用户画像");
@@ -4708,7 +4707,6 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				setRecord(next);
 				if (result && Object.prototype.hasOwnProperty.call(result, "currentConversation")) setCurrentConversation(result.currentConversation || null);
 				if (!editing && next && next.confirmed) {
-					setSummary(String(next.confirmed.summary || ""));
 					setInjectionText(String(next.confirmed.injectionText || ""));
 				}
 			}
@@ -4739,16 +4737,15 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			}
 			function beginEdit() {
 				if (!record || !record.confirmed) return;
-				setSummary(String(record.confirmed.summary || ""));
 				setInjectionText(String(record.confirmed.injectionText || ""));
 				setEditing(true);
 			}
 			async function saveEdit() {
-				if (!summary.trim() || !injectionText.trim() || busy) return;
+				if (!injectionText.trim() || busy) return;
 				if (!window.confirm("保存后将成为新的已确认用户画像，仅影响以后新开的游戏。继续吗？")) return;
 				setBusy(true); setError("");
 				try {
-					const result = await rpc("updateUserPreferenceProfile", { expectedRevision: record.confirmedRevision, summary: summary, injectionText: injectionText }, sessionId);
+					const result = await rpc("updateUserPreferenceProfile", { expectedRevision: record.confirmedRevision, summary: record.confirmed.summary, injectionText: injectionText }, sessionId);
 					applyResult(result);
 					setEditing(false);
 					notifyTavernDataChanged(["user-profile"], "user-profile");
@@ -4779,19 +4776,15 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					h("button", { className: "dsh-tavern-prompt-state is-toggle " + (record.defaultEnabled ? "on" : "off"), disabled: busy, onClick: toggleDefault, "aria-pressed": record.defaultEnabled === true }, record.defaultEnabled ? "已开启" : "已关闭")
 				),
 					editing ? h("div", { className: "dsh-tavern-user-profile-editor" },
-						h("div", { className: "dsh-tavern-status-label", style: { marginTop: "14px" } }, "完整画像"),
-						h("textarea", { value: summary, onChange: function (event) { setSummary(event.target.value); } }),
-						h("div", { className: "dsh-tavern-status-label", style: { marginTop: "14px" } }, "实际注入的精简摘要"),
+						h("div", { className: "dsh-tavern-status-label", style: { marginTop: "14px" } }, "实际生效的偏好"),
 						h("textarea", { value: injectionText, onChange: function (event) { setInjectionText(event.target.value); } }),
 						h("div", { className: "dsh-tavern-user-profile-meta" }, "这次修改只影响以后新开的游戏，不改写已有 Session。"),
 						h("div", { className: "dsh-tavern-user-profile-actions" },
-							h("button", { className: "dsh-tavern-script-primary", disabled: busy || !summary.trim() || !injectionText.trim(), onClick: saveEdit }, "保存并确认修改"),
+							h("button", { className: "dsh-tavern-script-primary", disabled: busy || !injectionText.trim(), onClick: saveEdit }, "保存并确认修改"),
 							h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { setEditing(false); } }, "取消")
 						)
 					) : h(React.Fragment, null,
-						h("div", { className: "dsh-tavern-status-label", style: { marginTop: "14px" } }, "完整画像"),
-						h("div", { className: "dsh-tavern-user-profile-text" }, String(confirmed.summary || "")),
-						h("div", { className: "dsh-tavern-status-label", style: { marginTop: "14px" } }, "实际注入的精简摘要"),
+						h("div", { className: "dsh-tavern-status-label", style: { marginTop: "14px" } }, "实际生效的偏好"),
 						h("div", { className: "dsh-tavern-user-profile-text" }, String(confirmed.injectionText || "")),
 						dimensions.length ? h("details", null,
 							h("summary", null, "偏好维度 · " + dimensions.length),

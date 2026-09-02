@@ -6,6 +6,10 @@ function str(value, max = 8000) {
   return (value === undefined || value === null ? '' : String(value)).trim().slice(0, max)
 }
 
+function multiline(value, max) {
+  return str(value, max).replace(/\\r\\n|\\n|\\r/g, '\n')
+}
+
 function integer(value) {
   const number = Number(value)
   return Number.isSafeInteger(number) && number >= 0 ? number : 0
@@ -37,8 +41,8 @@ function normalizeDraft(value, revision, now) {
     revision,
     rawAnswers: answers(value && value.rawAnswers),
     dimensions: dimensions(value && value.dimensions),
-    summary: str(value && value.summary, 12000),
-    injectionText: str(value && value.injectionText, 3000),
+    summary: multiline(value && value.summary, 12000),
+    injectionText: multiline(value && value.injectionText, 3000),
     uncertainties: Array.isArray(value && value.uncertainties)
       ? value.uncertainties.slice(0, 40).map(function (item) { return str(item, 1000) }).filter(Boolean)
       : [],
@@ -61,15 +65,23 @@ function document(value) {
 
 function present(value) {
   const current = document(value)
+  const draft = current.draft === null ? null : Object.assign({}, current.draft, {
+    summary: multiline(current.draft.summary, 12000),
+    injectionText: multiline(current.draft.injectionText, 3000)
+  })
+  const confirmed = current.confirmed === null ? null : Object.assign({}, current.confirmed, {
+    summary: multiline(current.confirmed.summary, 12000),
+    injectionText: multiline(current.confirmed.injectionText, 3000)
+  })
   return {
     spec: current.spec,
     version: current.version,
     revision: current.revision,
     defaultEnabled: current.defaultEnabled,
-    hasDraft: current.draft !== null,
-    hasConfirmed: current.confirmed !== null,
-    draft: current.draft,
-    confirmed: current.confirmed,
+    hasDraft: draft !== null,
+    hasConfirmed: confirmed !== null,
+    draft,
+    confirmed,
     updatedAt: current.updatedAt
   }
 }
@@ -128,8 +140,8 @@ export function createUserPreferenceProfile({ store, now = Date.now }) {
       if (expected === 0 || integer(current.confirmed.profileRevision) !== expected) throw new Error('用户画像已被其他操作修改，请刷新后重试')
       const timestamp = now()
       const revision = current.revision + 1
-      const summary = str(input && input.summary, 12000)
-      const injectionText = str(input && input.injectionText, 3000)
+      const summary = multiline(input && input.summary, 12000)
+      const injectionText = multiline(input && input.injectionText, 3000)
       if (summary === '' || injectionText === '') throw new Error('完整画像和实际注入摘要不能为空')
       return {
         spec: SPEC,
@@ -172,7 +184,7 @@ export function createUserPreferenceProfile({ store, now = Date.now }) {
   async function stableContext() {
     const current = document(await store.readJson(PROFILE_PATH))
     if (current.confirmed === null) return null
-    const text = str(current.confirmed.injectionText || current.confirmed.summary, 3000)
+    const text = multiline(current.confirmed.injectionText || current.confirmed.summary, 3000)
     if (text === '') return null
     return {
       revision: integer(current.confirmed.profileRevision || current.confirmed.revision),

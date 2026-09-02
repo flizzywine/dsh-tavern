@@ -67,3 +67,15 @@ test('default enablement is profile-wide but remains off until explicitly change
   assert.equal((await profile.setDefaultEnabled(true)).defaultEnabled, true)
   assert.equal((await profile.setDefaultEnabled(false)).defaultEnabled, false)
 })
+
+test('legacy literal newline escapes render and inject as real line breaks', async function () {
+  const profile = createUserPreferenceProfile({ store: memoryStore({
+    spec: 'dsh-tavern.user-preference-profile',
+    version: 2,
+    revision: 4,
+    confirmed: { revision: 4, profileRevision: 4, summary: '第一行\\n第二行', injectionText: '偏好一\\n偏好二' }
+  }) })
+  const value = await profile.read()
+  assert.equal(value.confirmed.summary, '第一行\n第二行')
+  assert.match((await profile.stableContext()).text, /偏好一\n偏好二/)
+})

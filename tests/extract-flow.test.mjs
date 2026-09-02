@@ -464,15 +464,17 @@ test('用户画像作为卡片 Agent 起始任务，并在新游戏准备页手�
   assert.match(sidebar, /response\.userProfile\.defaultEnabled/)
 })
 
-test('用户画像右侧栏可查看修改、设置新游戏默认值并跳转卡片 Agent', () => {
+test('用户画像右侧栏聚焦实际生效偏好，详细依据折叠并可跳转卡片 Agent', () => {
   const profileTab = between(clientSource, 'function UserPreferenceProfileTab', 'function SystemPromptSidebarTab')
   const sidebar = between(clientSource, 'function TavernSidebar', 'function TavernResourcesTab')
 
   assert.match(profileTab, /getUserPreferenceProfile/)
   assert.match(profileTab, /updateUserPreferenceProfile/)
   assert.match(profileTab, /setUserPreferenceProfileDefaultEnabled/)
-  assert.match(profileTab, /完整画像/)
-  assert.match(profileTab, /实际注入的精简摘要/)
+  assert.doesNotMatch(profileTab, /完整画像/)
+  assert.match(profileTab, /实际生效的偏好/)
+  assert.match(profileTab, /偏好维度/)
+  assert.match(profileTab, /原始回答/)
   assert.match(profileTab, /新游戏默认启用/)
   assert.match(profileTab, /本局创建后保持冻结/)
   assert.match(profileTab, /dsh-tavern-open-user-profile-task/)
