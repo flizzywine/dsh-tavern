@@ -50,6 +50,21 @@ test('testing default is on without generation; an explicitly saved off state su
   assert.equal(f.requests.length, 0)
 })
 
+test('testing rollout enables existing disabled configurations, independent of readiness', async t => {
+  const f = await fixture(t)
+  for (const version of [2, 3]) {
+    await f.store.writeJson('scene-images/settings.json', { version, provider: 'grok', enabled: false, providers: {} })
+    const settings = await f.setup.settings()
+    assert.equal(settings.enabled, true)
+    assert.equal(settings.ready, false)
+    await f.setup.configure({ enabled: false })
+    assert.equal((await f.create().setup.settings()).enabled, false)
+    await f.setup.configure({ enabled: true })
+    assert.equal((await f.create().setup.settings()).enabled, true)
+  }
+  assert.equal(f.requests.length, 0)
+})
+
 test('no plugin registration: config, credentials, generate bytes; Tavern alone owns image saving', async t => {
   const f = await fixture(t)
   await f.setup.configure({ provider: 'grok', apiKey: 'fake-key' })
@@ -99,7 +114,10 @@ test('legacy Tavern-only config migrates on save without losing key or calling a
   const ui = await f.setup.settings()
   assert.equal(ui.hasKey, true)
   assert.equal(ui.migrationPending, true)
-  assert.equal(ui.enabled, false)
+  assert.equal(ui.enabled, true)
+  assert.equal(ui.ready, false)
+  assert.equal((await f.setup.config()).enabled, true)
+  await assert.rejects(f.setup.capture(), /迁移/)
   await f.setup.configure({ model: ui.model })
   const next = await f.create().setup.capture()
   assert.equal(next.apiKey, 'old-tavern-key')

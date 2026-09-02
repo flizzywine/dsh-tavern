@@ -3,9 +3,10 @@ import { imageStyleSettings, SCENE_STYLE_PRESETS } from './scene-image-style.js'
 
 const path = 'scene-images/settings.json'
 function document(value = {}) {
-  if (!Object.keys(value).length) return { version: 3, provider: 'openai', enabled: true, style: imageStyleSettings(), providers: {} }
-  if (value.version === 2 || value.version === 3) return { ...value, provider: value.provider || 'openai', enabled: value.enabled === true, style: imageStyleSettings(value.style), providers: { ...value.providers } }
-  return { version: 2, provider: 'openai', enabled: value.enabled === true, style: imageStyleSettings(value.style), providers: { openai: channelSettings(value, 'openai') } }
+  // Testing rollout: existing configurations opt in too. Later explicit choices persist in v4.
+  if (!Object.keys(value).length) return { version: 4, provider: 'openai', enabled: true, style: imageStyleSettings(), providers: {} }
+  if ([2, 3, 4].includes(value.version)) return { ...value, provider: value.provider || 'openai', enabled: value.version < 4 || value.enabled === true, style: imageStyleSettings(value.style), providers: { ...value.providers } }
+  return { version: 2, provider: 'openai', enabled: true, style: imageStyleSettings(value.style), providers: { openai: channelSettings(value, 'openai') } }
 }
 
 /** Tavern owns enable/style only. Provider settings belong to the image module. */
@@ -21,7 +22,7 @@ export function createModuleSceneImageSettings({ store, credentials, imageModule
     const migration = Boolean(legacy && current.provider !== 'dsh-image-gen')
     const value = migration ? { ...current, ...channelSettings(legacy, current.provider), migrationPending: true } : current
     const oldKey = resolveKey && migration && channelNeedsKey(value) ? await credentials()?.resolve(imageCredentialRef(value.provider, value.authType)) : undefined
-    return { ...value, enabled: doc.enabled && !migration && (doc.provider === current.provider || doc.provider === 'dsh-image-gen'),
+    return { ...value, enabled: doc.enabled,
       ready: !migration && current.ready, hasKey: migration ? Boolean(oldKey?.value) : current.hasKey,
       style: doc.style, stylePresets: SCENE_STYLE_PRESETS, activeProvider: doc.provider === 'dsh-image-gen' ? current.provider : doc.provider }
   }
@@ -34,7 +35,7 @@ export function createModuleSceneImageSettings({ store, credentials, imageModule
   }
   return {
     settings: provider => serial(() => read(provider)),
-    config: () => serial(async () => { const result = await read(undefined, false); if (result.migrationPending) result.enabled = false; return result }),
+    config: () => serial(() => read(undefined, false)),
     capture: () => serial(async () => {
       const current = await read()
       if (current.migrationPending) throw new Error('请先保存并迁移旧生图配置')
@@ -49,7 +50,7 @@ export function createModuleSceneImageSettings({ store, credentials, imageModule
       const id = current.provider
       const changesProvider = id !== (doc.provider === 'dsh-image-gen' ? current.activeProvider : doc.provider)
       const edits = Object.keys(input).some(key => !['provider', 'enabled'].includes(key))
-      if (input.enabled === true && (changesProvider || edits || !current.ready)) throw new Error('请先保存完整生图配置，再手动启用')
+      if (input.enabled === true && (changesProvider || edits)) throw new Error('请先保存完整生图配置，再手动启用')
       let next = current
       if (edits) {
         const style = imageStyleSettings({ ...doc.style, ...input.style })
@@ -61,8 +62,8 @@ export function createModuleSceneImageSettings({ store, credentials, imageModule
         const latest = document(value || {})
         const providers = { ...latest.providers }
         if (!next.migrationPending) { delete providers[id]; if (latest.provider === 'dsh-image-gen') delete providers['dsh-image-gen'] }
-        return { ...latest, version: 3, provider: id, providers, style: doc.style,
-          enabled: next.ready && !changesProvider && (input.enabled ?? doc.enabled) }
+        return { ...latest, version: 4, provider: id, providers, style: doc.style,
+          enabled: input.enabled ?? doc.enabled }
       })
       return read()
     }),
