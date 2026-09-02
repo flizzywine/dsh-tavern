@@ -106,13 +106,14 @@ test('ComfyUI file chooser stores the parsed graph only on explicit save and has
   const render = () => { cursor = 0; return nodes(Component()) }
   render()
   slots[0] = { provider: 'comfyui', baseURL: 'http://localhost:8188', authType: 'none', username: '', workflow: null, style: { preset: 'default', custom: '' }, ready: false, channels: [{ id: 'comfyui', label: 'ComfyUI', fields: ['baseURL', 'authType', 'username'] }] }
+  await render().find(node => node.props?.role === 'switch').props.onChange({ target: { checked: true } })
   const file = render().find(node => node.type === 'input' && node.props.type === 'file')
   assert.ok(file)
   await file.props.onChange({ target: { files: [{ size: 80, text: async () => '{"1":{"class_type":"SaveImage","inputs":{}}}' }], value: 'file.json' } })
   assert.equal(calls.length, 0)
   assert.equal(slots[0].workflow['1'].class_type, 'SaveImage')
   assert.equal(render().filter(node => node.type === 'textarea').length, 1, 'only the optional style textarea')
-  await render().find(node => node.type === 'button' && node.children.includes('保存生图设置')).props.onClick()
+  await render().find(node => node.type === 'button' && node.children.includes('保存并启用')).props.onClick()
   assert.equal(calls[0].method, 'saveSceneImageSettings')
   assert.equal(calls[0].args.workflow['1'].class_type, 'SaveImage')
   await file.props.onChange({ target: { files: [{ size: 512001 }], value: '' } })
@@ -133,6 +134,7 @@ test('setup order, read-only draft checks, model selection and stale status clea
   const render = () => { cursor = 0; return nodes(Component()) }
   render()
   slots[0] = { provider: 'openai', baseURL: 'https://example.test/v1', model: 'image-default', size: '1024x1024', style: { preset: 'default', custom: '' }, channels: [{ id: 'openai', fields: ['baseURL', 'model', 'size'], models: ['image-default'], canListModels: true }] }
+  await render().find(node => node.props?.role === 'switch').props.onChange({ target: { checked: true } })
   let tree = render()
   const labelIndex = name => tree.findIndex(node => node.type === 'label' && node.children[0] === name)
   const buttonIndex = name => tree.findIndex(node => node.type === 'button' && node.children.includes(name))
