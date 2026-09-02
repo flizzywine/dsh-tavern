@@ -6,6 +6,39 @@ import { readFile } from 'node:fs/promises'
 const source = await readFile(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
 const extract = (name, next) => source.slice(source.indexOf('function ' + name + '('), source.indexOf('function ' + next + '('))
 
+test('image action remains visible with an explanation until enabled and configured', async () => {
+  const slots = [], calls = []
+  let cursor = 0
+  const context = vm.createContext({
+    React: {
+      Fragment: 'fragment', createElement: (type, props, ...children) => ({ type, props, children }),
+      useState(initial) { const i = cursor++; if (!(i in slots)) slots[i] = initial; return [slots[i], value => { slots[i] = value }] },
+      useRef(initial) { const i = cursor++; return slots[i] ||= { current: initial } }, useEffect() {}
+    },
+    useSceneImageRecord: () => ({ key: 'turn', status: 'idle', versions: [] }),
+    rpc: async (...args) => calls.push(args)
+  })
+  const Component = vm.runInContext(extract('SceneImageAction', 'SceneImageSettings') + ';SceneImageAction', context)
+  const render = () => { cursor = 0; return Component({ sessionId: 'session', turn: 1 }) }
+  render()
+  for (const [settings, reason] of [
+    [null, /加载生图配置/],
+    [{ enabled: false, ready: false, migrationPending: true }, /迁移.*保存并启用/],
+    [{ enabled: false, ready: true }, /未开启/],
+    [{ enabled: true, ready: false }, /配置未完成/]
+  ]) {
+    slots[0] = settings
+    const view = render()
+    assert.ok(view, 'the image action must not disappear')
+    assert.equal(view.children[0].props.disabled, true)
+    assert.match(view.children[1].children.join(''), reason)
+    await view.children[0].props.onClick()
+  }
+  assert.equal(calls.length, 0)
+  slots[0] = { enabled: true, ready: true }
+  assert.equal(Boolean(render().children[0].props.disabled), false)
+})
+
 test('scene request identifiers also work on LAN HTTP without crypto.randomUUID', () => {
   const context = vm.createContext({ window: {} })
   const make = vm.runInContext(extract('sceneImageRequestId', 'sceneImageStageLabel') + ';sceneImageRequestId', context)

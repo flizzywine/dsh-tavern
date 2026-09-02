@@ -35,7 +35,7 @@
 - 维护者在本目录运行 `pnpm install --frozen-lockfile`，然后在 Tavern 根目录运行 `pnpm run build:image-gen`、`pnpm run test:image-gen`。修改源码必须一并提交构建产物；CI 检查二者同步。
 - 内置模块仅使用 Node 内置能力；DSH 凭据由 Tavern 注入，不导入 Cordis 或 DSH 插件入口。保留的独立插件开发依赖仅用于维护者构建测试。
 - 保留完整源码、测试、上游文档、MIT 许可证和作者信息。上游 README 的 npm 安装说明仅供独立插件参考，不是 Tavern 的安装方式。
-- 生图仍默认关闭；旧渠道配置在明确保存时迁移，不自动调用收费接口。
+- 测试分支没有已保存设置时默认开启；保留手动关闭状态。旧渠道配置在明确保存时迁移，不自动调用收费接口。
 - Tavern 不加载本目录的独立插件入口、客户端设置卡片、Studio 或工具注册。相关源码和构建产物保留供上游对照及独立插件测试；`tests/fixtures/upstream-image-plugin.mjs` 仅是测试用旧 Studio 桥接，不随 Tavern 运行。
 
 ## 统一 Tavern 设置

@@ -4564,7 +4564,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				return function () { active = false; window.clearInterval(timer); window.removeEventListener("dsh-tavern-image-settings-changed", refresh); window.removeEventListener("focus", refresh); };
 			}, []);
 			async function generate() {
-				if (!state || busy || props.running || state.status === "running" || state.recovery === "save" || state.versions && state.versions.length) return;
+				if (!settings || !settings.enabled || !settings.ready || settings.migrationPending || !state || busy || props.running || state.status === "running" || state.recovery === "save" || state.versions && state.versions.length) return;
 				const confirmNewRequestId = sceneImagePurchaseConfirmation(state);
 				if (confirmNewRequestId === false) return;
 				if (requestRef.current && requestRef.current.id === state.requestId && ["failed", "cancelled"].includes(state.status)) requestRef.current = null;
@@ -4574,10 +4574,11 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				catch (e) { setError(String(e.message || e)); }
 				finally { setBusy(false); window.dispatchEvent(new CustomEvent("dsh-tavern-image-changed", { detail: { sessionId: props.sessionId } })); }
 			}
-			if (!settings || !settings.enabled) return null;
+			const unavailable = !settings ? "正在加载生图配置…" : settings.migrationPending ? "旧生图配置待迁移，请在设置中点击「保存并启用」。" : !settings.ready ? "生图配置未完成，请在设置中补全并保存。" : !settings.enabled ? "场景生图未开启，请在设置中开启。" : "";
 			const working = state && state.status === "running";
 			return React.createElement(React.Fragment, null,
-				React.createElement("button", { type: "button", className: "dsh-tavern-choice-trigger", disabled: !settings.ready || !state || props.running || busy || working || state.recovery === "save" || state.versions && state.versions.length > 0, onClick: generate }, busy ? "整理画面…" : working ? sceneImageStageLabel(state) : state && state.recovery === "save" ? "图片待保存" : state && state.outcome === "unconfirmed" ? state.providerTask ? "查询原任务" : "重新生图" : state && state.status === "failed" && !state.versions.length ? "重试生图" : "生图"),
+				React.createElement("button", { type: "button", className: "dsh-tavern-choice-trigger", title: unavailable || undefined, disabled: Boolean(unavailable) || !state || props.running || busy || working || state.recovery === "save" || state.versions && state.versions.length > 0, onClick: generate }, busy ? "整理画面…" : working ? sceneImageStageLabel(state) : state && state.recovery === "save" ? "图片待保存" : state && state.outcome === "unconfirmed" ? state.providerTask ? "查询原任务" : "重新生图" : state && state.status === "failed" && !state.versions.length ? "重试生图" : "生图"),
+				unavailable ? React.createElement("span", { role: "status", className: "dsh-tavern-settings-desc" }, unavailable) : null,
 				error ? React.createElement("span", { role: "alert", className: "dsh-tavern-settings-error" }, error) : null
 			);
 		}
@@ -4591,7 +4592,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const [models, setModels] = React.useState([]);
 			const [modelNotice, setModelNotice] = React.useState("");
 			const [checking, setChecking] = React.useState("");
-			const [expanded, setExpanded] = React.useState(null);
+			// Testing default: show configuration even when legacy migration blocks generation.
+			const [expanded, setExpanded] = React.useState(true);
 			const opened = expanded === null ? Boolean(form && form.enabled) : expanded;
 			React.useEffect(function () {
 				let active = true;
@@ -4687,13 +4689,13 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 						React.createElement("span", { className: "dsh-tavern-settings-title" }, "开启场景生图"),
 						React.createElement("span", { className: "dsh-tavern-settings-desc" }, opened && form && !form.enabled ? "请完成下方配置并保存后启用，不会自动生成图片。" : "开启后可手动为剧情配图；关闭保留配置和已有图片。")),
 					React.createElement("span", { className: "dsh-tavern-settings-switch" },
-						React.createElement("input", { type: "checkbox", role: "switch", "aria-label": "开启场景生图", "aria-expanded": opened, checked: opened, disabled: !form || busy, onChange: function (event) { return toggle(event.target.checked); } }),
+						React.createElement("input", { type: "checkbox", role: "switch", "aria-label": "开启场景生图", "aria-expanded": opened, checked: Boolean(form && form.enabled), disabled: !form || busy, onChange: function (event) { return toggle(event.target.checked); } }),
 						React.createElement("span", { className: "dsh-tavern-settings-track", "aria-hidden": "true" }))),
 				opened ? React.createElement("div", { className: "dsh-tavern-image-settings" },
 					React.createElement("p", { className: "dsh-tavern-settings-intro" }, "配置并启用后，在输入框上方点「生图」。连接测试不生成图片；实际生图可能产生费用。"),
 					form ? React.createElement("label", null, "提供商", React.createElement("select", { value: form.provider, disabled: busy, onChange: function (e) { return chooseChannel(e.target.value); } }, (form.channels || []).map(function (item) { return React.createElement("option", { key: item.id, value: item.id }, item.label); }))) : null,
 					selectedChannel ? React.createElement("p", null, selectedChannel.hint) : null,
-					form && form.migrationPending ? React.createElement("p", { role: "status" }, "检测到旧配置。保存后将迁入并替换插件中此渠道的配置；旧密钥不会显示或发送到新地址。") : null,
+					form && form.migrationPending ? React.createElement("p", { role: "status" }, "检测到旧配置。保存后将迁入生图模块；旧密钥不会显示或发送到新地址。") : null,
 					selectedChannel ? selectedChannel.fields.filter(function (field) { return ["baseURL", "authType", "username"].includes(field); }).map(channelField) : null,
 					form && form.provider !== "dsh-image-gen" && !(["webui", "comfyui"].includes(form.provider) && form.authType === "none") ? React.createElement("label", null, (form.authType === "basic" ? "鉴权密码" : "API Key") + (form.hasKey ? "（已配置，留空保留；更换地址需重新填写）" : ""), React.createElement("input", { type: "password", autoComplete: "new-password", value: key, disabled: busy, onChange: function (e) { setKey(e.target.value); setDirty(true); resetConnection(); } })) : null,
 					form && form.provider === "dsh-image-gen" ? React.createElement("div", null,

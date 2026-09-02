@@ -3,7 +3,7 @@ import { imageStyleSettings, SCENE_STYLE_PRESETS } from './scene-image-style.js'
 
 const path = 'scene-images/settings.json'
 function document(value = {}) {
-  if (!Object.keys(value).length) return { version: 3, provider: 'openai', enabled: false, style: imageStyleSettings(), providers: {} }
+  if (!Object.keys(value).length) return { version: 3, provider: 'openai', enabled: true, style: imageStyleSettings(), providers: {} }
   if (value.version === 2 || value.version === 3) return { ...value, provider: value.provider || 'openai', enabled: value.enabled === true, style: imageStyleSettings(value.style), providers: { ...value.providers } }
   return { version: 2, provider: 'openai', enabled: value.enabled === true, style: imageStyleSettings(value.style), providers: { openai: channelSettings(value, 'openai') } }
 }

@@ -39,6 +39,17 @@ async function fixture(t, legacy = {}) {
   return { ...create(), create, store, keys, requests, oldFile }
 }
 
+test('testing default is on without generation; an explicitly saved off state survives restart', async t => {
+  const f = await fixture(t)
+  const initial = await f.setup.settings()
+  assert.equal(initial.enabled, true)
+  assert.equal(initial.ready, false)
+  assert.equal(f.requests.length, 0)
+  await f.setup.configure({ enabled: false })
+  assert.equal((await f.create().setup.settings()).enabled, false)
+  assert.equal(f.requests.length, 0)
+})
+
 test('no plugin registration: config, credentials, generate bytes; Tavern alone owns image saving', async t => {
   const f = await fixture(t)
   await f.setup.configure({ provider: 'grok', apiKey: 'fake-key' })
