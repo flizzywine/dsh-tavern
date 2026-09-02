@@ -87,6 +87,7 @@ export function diagnosticZip(entries) {
 
 export async function createMvuDiagnosticExport({ sessionId, backgroundSessionIds = [], store, sessions, persistence, query, attachments, sceneDiagnostics, compatibilityDiagnostics, environment = {} }) {
   const notes = ['包含对话文本、附件与变量信息，分享前请检查隐私。凭据已尽力脱敏。MVU 记录有容量限制，旧故障不会被追溯补录。']
+  notes.push('mvu/diagnostics.json 中 stage=regeneration-target 是正文重新生成的目标定位证据：记录失败分支、消息结构、轮次和会话绑定摘要，不记录正文或指导意见；只对更新后再次操作生效。')
   const ids = new Set([sessionId, ...backgroundSessionIds.filter(Boolean), ...(sceneDiagnostics?.records || []).map(record => record.traceSessionId).filter(Boolean)])
   const sceneContent = sceneDiagnostics ? JSON.stringify(redactDiagnostic(sceneDiagnostics)) : ''
   const sceneBytes = Buffer.byteLength(sceneContent)

@@ -7,6 +7,7 @@ import { createRoundHistory } from '../tavern-plugin/lib/domain/round-history.js
 import { createStoryTimeline } from '../tavern-plugin/lib/domain/story-timeline.js'
 import { createChatPersistence } from '../tavern-plugin/lib/domain/chat-persistence.js'
 import { createChatJournalStore } from '../tavern-plugin/lib/domain/chat-journal-store.js'
+import { createMvuDiagnosticStore, createMvuDiagnosticExport } from '../tavern-plugin/lib/domain/mvu-diagnostics.js'
 
 function harness({ checkpoint = false, mode = 'story' } = {}) {
   const calls = [], revisions = new Map()
@@ -77,6 +78,41 @@ function harness({ checkpoint = false, mode = 'story' } = {}) {
   return { create: () => createRoundHistory(options), options, calls, session, agent, timeline, get chat() { return chat },
     setGeneration(value) { generation = value }, setSettlement(value) { settlementOutcome = value }, beforeGenerate(fn) { beforeGenerate = fn }, revisions }
 }
+
+test('配对失败的证据写入现有诊断包，原错误与聊天、原生历史保持不变', async () => {
+  const h = harness()
+  h.chat.messages.splice(1, 1)
+  const records = new Map()
+  const store = createMvuDiagnosticStore({ updateJson: async (path, fn) => {records.set(path, fn(records.get(path)))}, readJson: async path => records.get(path) })
+  h.options.diagnostics = store
+  const before = structuredClone(h.chat), session = structuredClone(h.session.events)
+  await assert.rejects(h.create().regenerate('chat', 'PRIVATE guidance', 'session'), /没有可重新生成的玩家输入与正文组合/)
+  const logged = (await store.read('session')).records
+  assert.equal(logged.length, 1)
+  assert.equal(logged[0].stage, 'regeneration-target')
+  assert.equal(logged[0].reason, 'previous-message-not-user')
+  assert.equal(logged[0].binding.overridden, false)
+  assert.equal(logged[0].selection.assistantIndex, 1)
+  assert.doesNotMatch(JSON.stringify(logged), /PRIVATE guidance|旧正文|推门|开场/)
+  assert.deepEqual(h.chat, before)
+  assert.deepEqual(h.session.events, session)
+  assert.deepEqual(h.calls, [])
+  const exported = await createMvuDiagnosticExport({sessionId:'session', store})
+  assert.ok(exported.buffer.includes(Buffer.from('regeneration-target')))
+  assert.ok(exported.buffer.includes(Buffer.from('previous-message-not-user')))
+})
+
+test('诊断持久化失败不替换原配对错误，也不阻止正常重新生成', async () => {
+  const failed = harness()
+  failed.options.diagnostics = {record:async()=>{throw new Error('disk failure')}}
+  failed.chat.messages.splice(1,1)
+  await assert.rejects(failed.create().regenerate('chat','','session'), /没有可重新生成的玩家输入与正文组合/)
+  assert.deepEqual(failed.calls, [])
+  const ok = harness({checkpoint:true})
+  ok.options.diagnostics = failed.options.diagnostics
+  const result = await ok.create().regenerate('chat','','session')
+  assert.ok(result.messages.at(-1).text.startsWith('新正文'))
+})
 
 test('生成中误点回退不写入，完成后再次点击能正常回退', async () => {
   const h = harness({ checkpoint: true }), history = h.create()

@@ -2,12 +2,13 @@ import { randomUUID } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
 import { clearRegenerationAttemptSurface, locateRegenerationSurface, locateRollbackSurface, planRegenerationSurface } from './rollback-surface.js'
 import { assertRegenerationSourceCurrent, replaceLastRound } from './last-round-replacement.js'
+import { diagnosticIdentity, regenerationTargetDiagnostic } from './regeneration-diagnostics.js'
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
 }
 
-export function selectRegenerationTarget(chat, session) {
+export function selectRegenerationTarget(chat, session, observe) {
   const nodes = (session.surface !== undefined && Array.isArray(session.surface.nodes)) ? session.surface.nodes : []
   const eventStart = Array.isArray(session.events) ? session.events.length : 0
   const msgs0 = chat.messages || []
@@ -19,9 +20,18 @@ export function selectRegenerationTarget(chat, session) {
       break
     }
   }
-  if (oldAssistantIndex < 1 || msgs0[oldAssistantIndex - 1] === null || typeof msgs0[oldAssistantIndex - 1] !== 'object' || msgs0[oldAssistantIndex - 1].role !== 'user') throw new Error('没有可重新生成的玩家输入与正文组合')
+  function report(reason, target) {
+    if (typeof observe !== 'function') return
+    try { observe(regenerationTargetDiagnostic(chat, session, { reason, assistantIndex: oldAssistantIndex, target })) } catch { /* Diagnostics never change selection. */ }
+  }
+  if (oldAssistantIndex < 1 || msgs0[oldAssistantIndex - 1] === null || typeof msgs0[oldAssistantIndex - 1] !== 'object' || msgs0[oldAssistantIndex - 1].role !== 'user') {
+    report(oldAssistantIndex < 0 ? 'no-non-greeting-assistant' : oldAssistantIndex === 0 ? 'assistant-at-start'
+      : msgs0[oldAssistantIndex - 1] === null || typeof msgs0[oldAssistantIndex - 1] !== 'object' ? 'previous-message-invalid' : 'previous-message-not-user')
+    throw new Error('没有可重新生成的玩家输入与正文组合')
+  }
   const target = locateRegenerationSurface({ events: session.events, nodes, turn: msgs0[oldAssistantIndex].turn })
-  if (target === null) throw new Error('原生消息流中找不到与当前剧情轮次对应的正文消息')
+  if (target === null) { report('native-target-missing'); throw new Error('原生消息流中找不到与当前剧情轮次对应的正文消息') }
+  report('selected', target)
   const oldSeq = target.assistantSeq
   const oldTurn = target.turn
   const oldSource = target.source
@@ -33,7 +43,7 @@ export function selectRegenerationTarget(chat, session) {
  * Timeline owns revisions; this module owns the workflow, including aborts.
  * Callers supply host adapters, never intermediate rollback or swipe state.
  */
-export function createRoundHistory({ chats, sessions, scripts, timeline, queueSettlement, present }) {
+export function createRoundHistory({ chats, sessions, scripts, timeline, queueSettlement, present, diagnostics }) {
   const { read: readChat, forSession: chatForSession, readCard: readChatCard,
     readRevision: readChatRevision, write: writeChat, update: updateChat } = chats
   const { read: readScript, continuity: scriptContinuity } = scripts
@@ -70,12 +80,26 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     if (activeRound !== undefined) throw new Error('当前轮次尚未完成状态结算，不能重新生成正文')
     if (chat.regenInProgress === true) throw new Error('正文正在重新生成，请等待完成')
     const card = await readChatCard(chat)
+    const storedSessionId = chat.sessionId
     if (typeof sessionId === 'string' && sessionId !== '') chat.sessionId = sessionId
     if (typeof chat.sessionId !== 'string' || chat.sessionId === '') throw new Error('会话未绑定 DSH 会话')
     const agent = sessions.get(chat.sessionId)
     if (agent === undefined || agent.session === undefined) throw new Error('无法访问 DSH 会话: ' + chat.sessionId)
     const session = agent.session
-    const { eventStart, msgs0, oldAssistantIndex, oldSeq, oldTurn, oldSource } = selectRegenerationTarget(chat, session)
+    let selection, evidence
+    try { selection = selectRegenerationTarget(chat, session, diagnostics ? value => { evidence = value } : undefined) }
+    finally {
+      if (evidence) {
+        try { await diagnostics.record(chat.sessionId, { stage: 'regeneration-target', diagnosticId: randomUUID(),
+          outcome: evidence.reason === 'selected' ? 'selected' : 'rejected', ...evidence,
+          guidanceProvided: typeof guidance === 'string' && guidance.trim().length > 0,
+          binding: { requested: diagnosticIdentity(sessionId), stored: diagnosticIdentity(storedSessionId), effective: diagnosticIdentity(chat.sessionId),
+            overridden: Boolean(sessionId && sessionId !== storedSessionId) },
+          agent: { phase: ['running', 'idle'].includes(agent.phase?.kind) ? agent.phase.kind : 'other', lastTurn: Number.isFinite(agent.phase?.lastTurn) ? agent.phase.lastTurn : null } }) }
+        catch { /* Recording failure must not affect regeneration or replace its error. */ }
+      }
+    }
+    const { eventStart, msgs0, oldAssistantIndex, oldSeq, oldTurn, oldSource } = selection
     const originalUserText = str(msgs0[oldAssistantIndex - 1].text).trim()
     const originalChat = structuredClone(chat)
     let restored = false

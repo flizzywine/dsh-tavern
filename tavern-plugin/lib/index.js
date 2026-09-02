@@ -1862,6 +1862,7 @@ export async function apply(ctx) {
   }
   // ---------- 重新生成正文（生成即替换，无确认） ----------
   const { regenerate: regenBody, rollback: rollbackTurn } = createRoundHistory({
+    diagnostics: mvuDiagnostics,
     chats: { read: readChat, forSession: chatForSession, readCard: readChatCard,
       readRevision: readChatRevision, write: writeChat, update: updateChat },
     sessions: { get: function (sessionId) { return ctx.get('agents')?.get(sessionId) } },
