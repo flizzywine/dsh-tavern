@@ -29,20 +29,20 @@ function readChannel(value, id) {
 }
 
 /** A private in-process interface: secrets never cross the Studio HTTP route. */
-export function createImageConfiguration({ read, write, credentials, attachments, fetchImpl = fetch }) {
+export function createImageConfiguration({ read, write, credentials, attachments, fetchImpl = fetch, generateImpl = generateSceneImage }) {
   let pending = Promise.resolve()
   /** @template T @param {() => T | Promise<T>} fn @returns {Promise<T>} */
   function serial(fn) { const result = pending.then(fn); pending = result.catch(() => {}); return result }
-  async function inspect(id) {
-    const value = read()
+  async function inspect(id, resolveKey = true) {
+    const value = await read()
     if (!id || id === 'dsh-image-gen') id = Object.keys(mapped).find(id => mapped[id][0] === value.provider) || 'openai'
     const config = readChannel(value, id)
-    const key = channelNeedsKey(config) ? await credentials.resolve(ref(id, config.authType)) : undefined
+    const key = resolveKey && channelNeedsKey(config) ? await credentials.resolve(ref(id, config.authType)) : undefined
     return { ...config, backend: 'dsh-image-gen', hasKey: Boolean(key?.value), ready: channelReady(config, key?.value),
       configured: Object.hasOwn(extras(value), id) || Boolean(key?.value), channels: SCENE_IMAGE_CHANNELS.filter(x => ids.has(x.id)) }
   }
   async function save(input) {
-    const id = providerId(input.provider), before = read(), current = readChannel(before, id)
+    const id = providerId(input.provider), before = await read(), current = readChannel(before, id)
     const next = channelSettings({ ...current, ...input }, id)
     if (input.apiKey !== undefined && typeof input.apiKey !== 'string') throw new Error('API Key 必须是文本')
     const supplied = next.authType === 'basic' ? input.apiKey : input.apiKey?.trim()
@@ -75,6 +75,7 @@ export function createImageConfiguration({ read, write, credentials, attachments
   return {
     serial,
     inspect: id => serial(() => inspect(id)),
+    describe: id => serial(() => inspect(id, false)),
     configure: input => serial(() => save(input)),
     capture: id => serial(async () => { const active = await inspect(id); const key = channelNeedsKey(active) ? await credentials.resolve(ref(active.provider, active.authType)) : undefined; return { active, apiKey: key?.value || '' } }),
     test: input => serial(() => connection.test(input)),
@@ -90,7 +91,8 @@ export function createImageConfiguration({ read, write, credentials, attachments
         return { ...input, ...structuredClone(channelSettings(input)) }
       })
       request.signal?.throwIfAborted()
-      const generated = await generateSceneImage(request, fetchImpl === globalThis.fetch ? {} : { fetch: fetchImpl })
+      const generated = await generateImpl(request, fetchImpl === globalThis.fetch ? {} : { fetch: fetchImpl })
+      if (!attachments) return generated
       // Always hand received bytes back to Tavern's durable save/recovery flow.
       // A local attachment failure must never turn into another paid generation.
       try {

@@ -3,7 +3,6 @@ import os from 'node:os'
 import path from 'node:path'
 import { dshCompatibilityNotice } from './dsh-compatibility.mjs'
 import { installPluginDependencies } from './plugin-dependencies.mjs'
-import { installBundledImagePlugin } from './bundled-image-plugin.mjs'
 import { migrateLegacyTavernData, resolveTavernDataRoot } from '../tavern-plugin/lib/domain/tavern-data.js'
 import { ensureUserExtensions } from '../tavern-plugin/lib/domain/user-extensions.js'
 import { beginProfileConfigurationUpdate, loadProfileManifest, mergeProfileManifest, prepareProfilePatch, syncProfileDependencyPatches } from './profile-configuration.mjs'
@@ -230,7 +229,6 @@ export async function installProfile(host = 'cli') {
 
   const hostDependencies = installPluginDependencies({ pluginDirectory: path.join(SOURCE_ROOT, 'tavern-plugin'), dsh, host, run })
   for (const dependency of hostDependencies) console.log(`复用当前 DSH 依赖：${dependency.name} ${dependency.version}`)
-  installBundledImagePlugin({ sourceRoot: SOURCE_ROOT, dsh, host })
   const configuration = prepareProfileConfiguration(host, dshVersion)
   const transaction = await beginProfileConfigurationUpdate({
     profileDir: PROFILE_DIR,

@@ -5,8 +5,8 @@
 
 ## 分工
 
-- 本插件负责供应商协议、凭据、配置、实际出图和 DSH 附件。
-- DSH Tavern 通过同进程私有服务 `tavernImageConfiguration` 调用整个插件，负责画面设计、剧情轮次绑定及重试控制；Studio 接口保留供独立工作台使用。
+- Tavern 运行入口为 `src/module.js`，负责供应商协议、配置、鉴权、模型列表和实际出图。
+- Tavern 直接传入存储和凭据能力，独占画面设计、轮次绑定、图片保存、恢复及展示。不通过 `tavernImageConfiguration` 注册，也不通过 Studio 转发请求。
 - 保留 upstream remote，独立功能提交，合并上游时运行完整测试，不覆盖我们的供应商实现。
 
 ## Grok 首批接入
@@ -30,18 +30,18 @@
 
 本目录完整导入自 `flizzywine/dsh-image-gen` 的 `b577840`，上游基线保持不变。后续以 Tavern 内的本目录为维护主线，GitHub fork 保留来源用途，不双向维护，也不从 npm 下载同名原版。
 
-- Tavern 安装器将本目录作为同一 Profile 的独立 bundle 加载；包名与客户端模块 ID 保持 `dsh-image-gen`，不重复安装原版。
+- Tavern 安装器不再将本目录注册为独立 bundle，也不再为它安装宿主依赖链接。升级安装会移除上次由 Tavern 管理的该 bundle；用户自行安装的其他插件不受影响。
 - `lib/index.js`、`lib/client.js` 与客户端 source map 随源码提交及发行。普通用户不需要 TypeScript、构建工具或单独运行插件安装命令。
 - 维护者在本目录运行 `pnpm install --frozen-lockfile`，然后在 Tavern 根目录运行 `pnpm run build:image-gen`、`pnpm run test:image-gen`。修改源码必须一并提交构建产物；CI 检查二者同步。
-- 安装时服务端外部依赖全部链接到当前 DSH 宿主；不会另装一套 Cordis 或 DSH。开发依赖仅用于维护者构建测试。
+- 内置模块仅使用 Node 内置能力；DSH 凭据由 Tavern 注入，不导入 Cordis 或 DSH 插件入口。保留的独立插件开发依赖仅用于维护者构建测试。
 - 保留完整源码、测试、上游文档、MIT 许可证和作者信息。上游 README 的 npm 安装说明仅供独立插件参考，不是 Tavern 的安装方式。
 - 生图仍默认关闭；旧渠道配置在明确保存时迁移，不自动调用收费接口。
-- 内置 bundle 设置 `registerAgentTools: false`，不向 Agent 直接暴露 `generate_image` / `edit_image`，并隐藏重复的插件设置卡片。Studio 接口和工作台保留；插件工作台手动操作仍遵循其自身配置。
+- Tavern 不加载本目录的独立插件入口、客户端设置卡片、Studio 或工具注册。相关源码和构建产物保留供上游对照及独立插件测试；`tests/fixtures/upstream-image-plugin.mjs` 仅是测试用旧 Studio 桥接，不随 Tavern 运行。
 
 ## 统一 Tavern 设置
 
-`src/configuration.js` 是私有配置/鉴权/模型/生图服务。`src/tavern/` 接收原 Tavern 九种渠道实现，保留授权参考图、ComfyUI 任务恢复和安全下载，不重写供应商行为。Tavern 原路径仅兼容导出，新增供应商在本插件维护。
+`src/module.js` 为模块接口，内部复用 `src/configuration.js` 的配置和请求管理。`src/tavern/` 集中九种渠道实现，保留授权参考图、ComfyUI 任务恢复和安全下载。Tavern 原路径仅兼容导出，新增供应商在本目录维护。
 
-云端设置与凭据复用原插件字段；补充参数及其他渠道存为不含 Key 的 `tavernChannels` JSON。Key 只进 DSH 凭据库。配置保存、捕获与请求前校验共用短时串行边界；图片 HTTP 和附件保存必须在锁外执行，不能阻塞状态查询及设置。Studio 使用 `prepareStudioGeneration` 冻结配置和凭据后释放锁。已发请求不混用后来的配置，地址变更不复用旧 Key。返回已收到的字节供 Tavern 做持久保存恢复，附件失败不触发重复生成。统一接口不额外写入工作区副本。
+配置保存在 Tavern 数据目录的 `scene-images/providers.json`，缺失时通过宿主提供的只读接口读取旧 `image-generation` 设置，首次保存才迁移非敏感字段。原始 YAML 不改动，已有凭据名不变。Key 只进 DSH 凭据库。配置保存、捕获与请求前校验共用短时串行边界；图片 HTTP 在锁外执行。已发请求不混用后来的配置，地址变更不复用旧 Key。模块返回字节，由 Tavern 负责持久保存恢复，附件失败不触发重复生成。
 
-测试：Tavern 根目录 `node --test tests/scene-image*.test.mjs`；`tests/fixtures/scene-image-unified-ui.mjs` 可用实际构建的插件与 Tavern 设置组件做模拟浏览器验证，不请求真实供应商。界面测试不能替代真实出图验收。
+测试：Tavern 根目录 `node --test tests/scene-image*.test.mjs`；`tests/fixtures/scene-image-unified-ui.mjs` 使用真实模块与 Tavern 设置组件做模拟浏览器验证，不加载独立插件、不请求真实供应商。界面测试不能替代真实出图验收。

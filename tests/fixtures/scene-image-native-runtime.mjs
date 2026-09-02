@@ -12,7 +12,6 @@ import { createProfileDataStore } from '../../tavern-plugin/lib/profile-data-sto
 import { imageZip } from './scene-image-zip.mjs'
 import { createSceneWorldbooks, bindSceneWorldbook, sceneWorldbookBinding } from '../../tavern-plugin/lib/domain/scene-worldbook.js'
 import { createSceneImageDiagnostics } from '../../tavern-plugin/lib/domain/scene-image-diagnostics.js'
-import { createImageConfiguration } from '../../tavern-plugin/packages/dsh-image-gen/src/configuration.js'
 import { createMvuDiagnosticStore, createMvuDiagnosticExport } from '../../tavern-plugin/lib/domain/mvu-diagnostics.js'
 import { assertImageToolSchema } from './assert-image-tool-schema.mjs'
 
@@ -147,11 +146,6 @@ export async function createSceneImageNativeRuntime(bootPath, { unifiedPlugin = 
       async saveImage(image) { if (failSave) { failSave = false; throw new Error('fixture attachment storage unavailable') } return ctx.attachments.saveImage(image) },
       readImage: ref => ctx.attachments.readImage(ref)
     }), runAgent: input => runner.run(input)
-  }
-  if (unifiedPlugin) {
-    let value = {}
-    const plugin = createImageConfiguration({ read: () => value, write: async patch => { value = { ...value, ...patch } }, credentials: deps.credentials(), attachments: deps.attachments() })
-    deps.imagePluginService = () => plugin
   }
   let service = createSceneIllustrations(deps)
   const endpoint = 'http://127.0.0.1:' + imageServer.address().port + '/v1'

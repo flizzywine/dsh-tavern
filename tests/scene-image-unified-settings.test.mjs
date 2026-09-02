@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createImageConfiguration } from '../tavern-plugin/packages/dsh-image-gen/src/configuration.js'
-import { createPluginSceneImageSettings } from '../tavern-plugin/lib/domain/scene-image-plugin-settings.js'
+import { createModuleSceneImageSettings } from '../tavern-plugin/lib/domain/scene-image-module-settings.js'
 
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Z0l8AAAAASUVORK5CYII=', 'base64')
 function fixture(initial = {}, doc, options = {}) {
@@ -12,7 +12,7 @@ function fixture(initial = {}, doc, options = {}) {
   const service = createImageConfiguration({ read: () => plugin, write: async patch => { writes.push(patch); plugin = { ...plugin, ...patch } }, credentials,
     attachments: { saveImage: async () => { if (options.failAttachment) throw new Error('disk unavailable'); return { attachmentId: 'mock-image' } } },
     fetchImpl: async (url, request) => { calls.push({ url, options: request }); if (options.fetch) return options.fetch(url, request); return Response.json(url.endsWith('/images/generations') ? { data: [{ b64_json: png.toString('base64') }] } : { api_key_disabled: false, api_key_blocked: false, team_blocked: false }) } })
-  const settings = createPluginSceneImageSettings({ imagePluginService: () => service, credentials: () => credentials,
+  const settings = createModuleSceneImageSettings({ imageModule: service, credentials: () => credentials,
     store: { readJson: async () => stored, updateJson: async (_path, fn) => { const next = await fn(stored); if (next !== undefined) stored = next } } })
   return { service, settings, keys, calls, writes, readPlugin: () => plugin, readDoc: () => stored }
 }
@@ -169,12 +169,10 @@ test('NovelAI / WebUI / Banana 等渠道保留，额外配置同样归插件持�
   assert.equal(f.readDoc().providers.webui, undefined)
 })
 
-test('失去插件服务时不回退旧适配器；并发保存与 capture 不混配地址和密钥', async () => {
+test('模块并发保存与 capture 不混配地址和密钥', async () => {
   const f = fixture()
   await Promise.all([
     f.settings.configure({ provider: 'grok', baseURL: 'https://gateway.example/v1', apiKey: 'new-key' }),
     f.settings.capture().then(value => { assert.equal(value.active.baseURL, 'https://gateway.example/v1'); assert.equal(value.apiKey, 'new-key') }),
   ])
-  const unavailable = createPluginSceneImageSettings({ store: { readJson: async () => ({}) }, imagePluginService: () => null })
-  await assert.rejects(unavailable.settings(), /未就绪/)
 })

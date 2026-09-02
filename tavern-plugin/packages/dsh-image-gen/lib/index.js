@@ -2420,7 +2420,7 @@ const channels = [
 		hint: "使用已开启 API 的 WebUI / Forge 服务，沿用服务端模型与默认采样参数。本机地址指 Tavern 服务器，不是访问页面的手机；不会安装模型或修改服务端全局设置。"
 	}
 ];
-const SCENE_IMAGE_CHANNELS = channels.map(({ id, label, fields, hint, model }) => ({
+const SCENE_IMAGE_CHANNELS = channels.filter((channel) => channel.id !== "dsh-image-gen").map(({ id, label, fields, hint, model }) => ({
 	id,
 	label,
 	fields,
@@ -3435,7 +3435,7 @@ function readChannel(value, id) {
 	return channelSettings(data, id);
 }
 /** A private in-process interface: secrets never cross the Studio HTTP route. */
-function createImageConfiguration({ read, write, credentials, attachments, fetchImpl = fetch }) {
+function createImageConfiguration({ read, write, credentials, attachments, fetchImpl = fetch, generateImpl = generateSceneImage }) {
 	let pending = Promise.resolve();
 	/** @template T @param {() => T | Promise<T>} fn @returns {Promise<T>} */
 	function serial(fn) {
@@ -3443,11 +3443,11 @@ function createImageConfiguration({ read, write, credentials, attachments, fetch
 		pending = result.catch(() => {});
 		return result;
 	}
-	async function inspect(id) {
-		const value = read();
+	async function inspect(id, resolveKey = true) {
+		const value = await read();
 		if (!id || id === "dsh-image-gen") id = Object.keys(mapped).find((id) => mapped[id][0] === value.provider) || "openai";
 		const config = readChannel(value, id);
-		const key = channelNeedsKey(config) ? await credentials.resolve(ref(id, config.authType)) : void 0;
+		const key = resolveKey && channelNeedsKey(config) ? await credentials.resolve(ref(id, config.authType)) : void 0;
 		return {
 			...config,
 			backend: "dsh-image-gen",
@@ -3458,7 +3458,7 @@ function createImageConfiguration({ read, write, credentials, attachments, fetch
 		};
 	}
 	async function save(input) {
-		const id = providerId(input.provider), before = read(), current = readChannel(before, id);
+		const id = providerId(input.provider), before = await read(), current = readChannel(before, id);
 		const next = channelSettings({
 			...current,
 			...input
@@ -3503,6 +3503,7 @@ function createImageConfiguration({ read, write, credentials, attachments, fetch
 	return {
 		serial,
 		inspect: (id) => serial(() => inspect(id)),
+		describe: (id) => serial(() => inspect(id, false)),
 		configure: (input) => serial(() => save(input)),
 		capture: (id) => serial(async () => {
 			const active = await inspect(id);
@@ -3532,7 +3533,8 @@ function createImageConfiguration({ read, write, credentials, attachments, fetch
 				};
 			});
 			request.signal?.throwIfAborted();
-			const generated = await generateSceneImage(request, fetchImpl === globalThis.fetch ? {} : { fetch: fetchImpl });
+			const generated = await generateImpl(request, fetchImpl === globalThis.fetch ? {} : { fetch: fetchImpl });
+			if (!attachments) return generated;
 			try {
 				const attachment = await attachments.saveImage({
 					data: generated.data,

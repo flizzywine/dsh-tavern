@@ -21,7 +21,6 @@
     "chevrotain": "^11.2.0",
     "dsh-better-sidebar": "0.17.1",
     "dsh-tavern-plugin": "link:./tavern-plugin",
-    "dsh-image-gen": "link:./tavern-plugin/packages/dsh-image-gen",
     "ejs": "3.1.9",
     "mathjs": "12.4.3",
     "quickjs-emscripten-core": "0.32.0",
@@ -34,8 +33,7 @@
         "@deepseek-ai/dsh-web-app",
         "dsh-web-mobile",
         "dsh-better-sidebar",
-        "dsh-tavern-plugin",
-        "dsh-image-gen"
+        "dsh-tavern-plugin"
       ]
     }
   }

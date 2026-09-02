@@ -5,6 +5,7 @@ import { createBackgroundAgentRunner, executeBackgroundCompaction } from './back
 import { createApplicationUpdater } from './application-updater.js'
 import { CANDIDATE_SUBMIT_TOOL, SCRIPT_POINT_TOOL, SCRIPT_READ_TOOL, createCandidateGenerator } from './domain/candidate-generation.js'
 import { createSceneIllustrations, sceneTarget } from './domain/scene-illustration.js'
+import { legacyImageConfigurationReader } from './domain/image-generation-host.js'
 import { createSceneWorldbooks, sceneWorldbookBinding } from './domain/scene-worldbook.js'
 import { createSceneImageDiagnostics } from './domain/scene-image-diagnostics.js'
 import { TAVERN_RELEASE_CAPABILITIES } from './domain/release-capabilities.js'
@@ -1236,8 +1237,7 @@ export async function apply(ctx) {
   })
   ctx.effect(() => () => backgroundAgentRunner.dispose(), 'dsh-tavern: dispose resident background agents')
   const sceneIllustrations = TAVERN_RELEASE_CAPABILITIES.sceneImages ? createSceneIllustrations({
-    imagePluginService: () => ctx.get('tavernImageConfiguration'),
-    webServer: () => ctx.get('webServer'),
+    readLegacyConfiguration: legacyImageConfigurationReader(ctx.get('settings')?.documentPath),
     store: profileData, diagnostics: sceneDiagnostics, chatForSession, selection: modelSelection,
     worldbookAtTarget: async (chat, target) => {
       try { return await sceneWorldbooks.read(sceneWorldbookBinding(chat, target)) }

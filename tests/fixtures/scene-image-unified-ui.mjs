@@ -1,4 +1,4 @@
-// Real Tavern settings component + built plugin, fake DSH persistence/credentials.
+// Real Tavern settings component + internal module, fake DSH persistence/credentials.
 // All supplier traffic is intercepted. Never loads user data or makes paid calls.
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
@@ -6,11 +6,11 @@ import { readFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { apply, Config } from '../../tavern-plugin/packages/dsh-image-gen/lib/index.js'
-import { createPluginSceneImageSettings } from '../../tavern-plugin/lib/domain/scene-image-plugin-settings.js'
+import { createImageGenerationModule } from '../../tavern-plugin/packages/dsh-image-gen/src/module.js'
+import { createModuleSceneImageSettings } from '../../tavern-plugin/lib/domain/scene-image-module-settings.js'
 
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64')
-const requests = [], keys = new Map([['XAI_API_KEY', 'fixture-only']]), services = new Map()
+const requests = [], keys = new Map([['XAI_API_KEY', 'fixture-only']])
 globalThis.fetch = async (url, options) => {
   assert.equal(new URL(url).origin, 'https://api.x.ai')
   requests.push({ path: new URL(url).pathname, method: options.method })
@@ -19,18 +19,11 @@ globalThis.fetch = async (url, options) => {
     : new URL(url).pathname.endsWith('/models') ? { data: [{ id: 'grok-imagine-image-2.0' }, { id: 'fixture-image-model' }] }
       : { data: [{ b64_json: png.toString('base64') }] })
 }
-let plugin = Config({ provider: 'grok', registerAgentTools: false, saveToWorkspace: false })
-let doc = { version: 3, provider: 'grok', enabled: false, providers: {} }
+const documents = new Map([['scene-images/settings.json', { version: 3, provider: 'grok', enabled: false, providers: {} }]])
 const credentials = { resolve: async key => keys.has(key) ? { value: keys.get(key) } : undefined, set: async (key, value) => keys.set(key, value) }
-const settings = { installSection(_ctx, _ns, _schema, _entry, hooks) { hooks.setSource(() => plugin) },
-  async update(_ns, patch) { plugin = Config({ ...plugin, ...patch }) } }
-const ctx = { credentials, settings, get: name => name === 'settings' ? settings : services.get(name), provide: (name, service) => services.set(name, service),
-  inject(names, callback) { if (names.includes('settings')) callback(ctx) }, effect: setup => setup(),
-  tools: { register() { throw Error('Tavern must not expose image tools') } }, webServer: { register: () => () => {} }, logger: { warn() {} },
-  attachments: { imageLimits: { maxImageBytes: 1024 * 1024, mediaTypes: ['image/png'] }, saveImage: async () => ({ attachmentId: 'fixture', mediaType: 'image/png' }) } }
-apply(ctx, plugin)
-const setup = createPluginSceneImageSettings({ imagePluginService: () => services.get('tavernImageConfiguration'), credentials: () => credentials,
-  store: { readJson: async () => doc, updateJson: async (_key, fn) => { const next = await fn(doc); if (next !== undefined) doc = next } } })
+const store = { readJson: async key => documents.get(key), updateJson: async (key, fn) => { const next = await fn(documents.get(key)); if (next !== undefined) documents.set(key, next) } }
+const imageModule = createImageGenerationModule({ store, credentials: () => credentials, readLegacyConfiguration: async () => ({ provider: 'grok' }) })
+const setup = createModuleSceneImageSettings({ imageModule, credentials: () => credentials, store })
 const component = await readFile(new URL('../../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
 const source = component.slice(component.indexOf('function SceneImageSettings()'), component.indexOf('function TavernSettingsSection()'))
 const css = component.split('const TAVERN_CSS = `')[1].split('`;')[0]
@@ -43,7 +36,7 @@ script += `const React=modules.react;async function rpc(method,args){const r=awa
 const page = `<!doctype html><meta charset="utf-8"><title>Tavern 统一生图设置（模拟验证）</title><style>:root{--dsw-alias-border-l2:#ddd;--dsw-specific-sidebar-fill:#f9fafb;--dsw-alias-text-primary:#222;--dsw-alias-brand-primary:#985e2c}body{font:16px sans-serif;max-width:780px;margin:32px auto;padding:16px}${css}</style><div id="app"></div><script>${script.replaceAll('</script', '<\\/script')}</script>`
 const server = createServer(async (req, res) => {
   if (req.url === '/') return res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }).end(page)
-  if (req.url === '/evidence') return res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ requests, plugin, doc, keyPresent: keys.has('XAI_API_KEY') }))
+  if (req.url === '/evidence') return res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ requests, documents: Object.fromEntries(documents), keyPresent: keys.has('XAI_API_KEY') }))
   try {
     let raw = ''; for await (const chunk of req) raw += chunk
     const { method, args } = JSON.parse(raw)

@@ -11,7 +11,7 @@ const { apply } = await import(process.env.IMAGE_PLUGIN_ENTRY ? pathToFileURL(pr
 
 const root = process.env.TAVERN_ROOT
 if (!root) throw Error('Set TAVERN_ROOT to the Tavern checkout')
-const { createSceneImagePlugin } = await import(pathToFileURL(join(root, 'tavern-plugin/lib/domain/scene-image-plugin.js')))
+const { createSceneImagePlugin } = await import(pathToFileURL(join(root, 'tests/fixtures/upstream-image-plugin.mjs')))
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64')
 const attachment = { attachmentId: 'sha256:fixture', mediaType: 'image/png', bytes: png.length, width: 1, height: 1 }
 const routes = new Map(), calls = []

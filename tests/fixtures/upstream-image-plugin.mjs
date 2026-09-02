@@ -1,5 +1,5 @@
-// Bundled dsh-image-gen Studio bridge. Only the current Host's loopback
-// route is reachable; provider credentials remain owned by that plugin.
+// Test-only adapter for the retained standalone upstream Studio contract.
+// Tavern production calls the internal module directly; it never imports this.
 const route = '/plugins/dsh-image-gen/studio'
 const unavailable = '内置 dsh-image-gen 工作台未就绪；请确认已更新安装并重启 Tavern，再到设置 → 插件 → Image generation 配置云端生图。'
 

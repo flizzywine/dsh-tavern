@@ -1,10 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { projectAgentContent } from './runtime-content-projection.js'
-import { generateSceneImage } from './scene-image-provider.js'
-import { createSceneImagePlugin } from './scene-image-plugin.js'
-import { createSceneImageSettings } from './scene-image-settings.js'
-import { createPluginSceneImageSettings } from './scene-image-plugin-settings.js'
-import { createSceneImageConnection } from './scene-image-connection.js'
+import { createImageGenerationModule } from '../../packages/dsh-image-gen/src/module.js'
+import { createModuleSceneImageSettings } from './scene-image-module-settings.js'
 import { channelSettings, channelReady, imageExpressionProfile, imageExpressionGuidance } from './scene-image-channels.js'
 import { createScenePlans, SCENE_PLAN_INSTRUCTION, SCENE_PLAN_TOOL } from './scene-plan.js'
 import { imageAdjustmentInput, applyImageAdjustment, legacyImagePlan, SCENE_ADJUSTMENT_INSTRUCTION, SCENE_ADJUSTMENT_TOOL } from './scene-image-adjustment.js'
@@ -115,10 +112,10 @@ export function createSceneIllustrations(deps) {
   }
   imageHosts.set(ownerId, path => jobs.has(path) || starts.has(path))
   imageAborters.set(ownerId, (path, requestId) => { const job = jobs.get(path); if (job?.requestId === requestId) job.controller.abort() })
-  const imagePlugin = createSceneImagePlugin(deps)
-  const setup = deps.imagePluginService ? createPluginSceneImageSettings(deps) : createSceneImageSettings({ ...deps, imagePlugin })
+  const imageModule = deps.imageModule || createImageGenerationModule({ ...deps, generateImpl: deps.generate })
+  const setup = createModuleSceneImageSettings({ ...deps, imageModule })
   const { config, settings, configure, capture } = setup
-  const connection = deps.imagePluginService ? { test: setup.testConnection, models: setup.listModels } : createSceneImageConnection({ settings, credentials: deps.credentials, fetchImpl: deps.fetchImpl })
+  const connection = { test: setup.testConnection, models: setup.listModels }
   const plans = createScenePlans({ store: deps.store })
   const styles = createSceneImageStyles({ store: deps.store })
   const pendingImages = createPendingSceneImages(deps.store)
@@ -245,7 +242,7 @@ export function createSceneIllustrations(deps) {
       // A failure may reach disk just before the job's finally removes its handle.
       // An explicit retry waits for that cleanup, rather than returning the old failure.
       if (jobs.has(path)) await jobs.get(path).promise
-      if (!channelReady(active, apiKey)) throw new Error(active.pluginError || '请先在设置中完成生图渠道配置（地址、模型或 API Key）')
+      if (!channelReady(active, apiKey)) throw new Error('请先在设置中完成生图渠道配置（地址、模型或 API Key）')
       const selectedImageReferences = await imageReferences.select({ chatId: chat.id, lineage: sceneLineage(chat, target), config: active })
       if (typeof deps.attachments()?.saveImage !== 'function' || typeof deps.attachments()?.readImage !== 'function') throw new Error('当前 DSH 未提供图片附件服务，无法保存插画')
       const profile = imageExpressionProfile(active)
@@ -407,7 +404,7 @@ export function createSceneIllustrations(deps) {
         await writeJob(path, record)
         controller.signal.throwIfAborted()
         attempted = true
-        try { return await (active.backend === 'dsh-image-gen' ? deps.imagePluginService().generate : active.provider === 'dsh-image-gen' ? imagePlugin.generate : deps.generate || generateSceneImage)({ ...active, apiKey: input.apiKey, prompt, plan, referenceImages: reference.images, providerTask: record.providerTask,
+        try { return await imageModule.generate({ ...active, apiKey: input.apiKey, prompt, plan, referenceImages: reference.images, providerTask: record.providerTask,
           async onProviderRequest(event) {
             if ((record.providerRequests || []).length >= 100) record.diagnostics.droppedProviderEvents = (record.diagnostics.droppedProviderEvents || 0) + 1
             record.providerRequests = [...(record.providerRequests || []), event].slice(-100)

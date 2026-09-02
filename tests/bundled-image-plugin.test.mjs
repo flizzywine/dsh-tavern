@@ -42,15 +42,16 @@ test('缺少构建产物或宿主依赖时拒绝安装，不伪装可用', t => 
   assert.throws(() => installBundledImagePlugin(f.options), /缺少必需依赖/)
 })
 
-test('Profile 使用内置绝对路径，旧 npm 插件不重复加载，保留其他插件', () => {
+test('Profile 删除旧版 Tavern 管理的生图插件注册，保留其他插件', () => {
   const source = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
   const options = { source, pluginPath: path.resolve('/app/tavern-plugin'), current: {
     dependencies: { 'dsh-image-gen': '^0.3.0', other: '1' },
     dsh: { profile: { bundles: ['dsh-image-gen', 'other'] } },
+    dshTavern: { managedBundles: ['dsh-image-gen'], managedDependencies: ['dsh-image-gen'] },
   } }
   const next = mergeProfileManifest(options)
-  assert.equal(next.dependencies['dsh-image-gen'], `link:${path.join(options.pluginPath, 'packages/dsh-image-gen').replaceAll(path.sep, '/')}`)
+  assert.equal(next.dependencies['dsh-image-gen'], undefined)
   assert.equal(next.dependencies.other, '1')
-  assert.equal(next.dsh.profile.bundles.filter(x => x === 'dsh-image-gen').length, 1)
+  assert.equal(next.dsh.profile.bundles.filter(x => x === 'dsh-image-gen').length, 0)
   assert.deepEqual(mergeProfileManifest({ ...options, current: next }), next)
 })

@@ -20,9 +20,6 @@ importers:
       dsh-better-sidebar:
         specifier: 0.17.1
         version: 0.17.1(patch_hash=7a52a0f297b795762438b7490834078a77e43b6075146b4a6297fc3d80bd1d1f)
-      dsh-image-gen:
-        specifier: link:./tavern-plugin/packages/dsh-image-gen
-        version: link:tavern-plugin/packages/dsh-image-gen
       dsh-tavern-plugin:
         specifier: link:./tavern-plugin
         version: link:tavern-plugin

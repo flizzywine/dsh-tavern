@@ -53,8 +53,8 @@ export const REQUIRED_SOURCE_FILES = [
   'pnpm-workspace.yaml',
   path.join('tavern-plugin', 'package.json'),
   path.join('tavern-plugin', 'cordis.patch.yml'),
-  path.join('tavern-plugin', 'packages', 'dsh-image-gen', 'lib', 'index.js'),
-  path.join('tavern-plugin', 'packages', 'dsh-image-gen', 'lib', 'client.js'),
+  path.join('tavern-plugin', 'packages', 'dsh-image-gen', 'src', 'module.js'),
+  path.join('tavern-plugin', 'packages', 'dsh-image-gen', 'src', 'configuration.js'),
   path.join('presets', 'tavern', 'preset.yml'),
 ]
 

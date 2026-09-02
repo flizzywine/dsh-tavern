@@ -8,19 +8,19 @@ function document(value = {}) {
   return { version: 2, provider: 'openai', enabled: value.enabled === true, style: imageStyleSettings(value.style), providers: { openai: channelSettings(value, 'openai') } }
 }
 
-/** Tavern owns enable/style only. Provider settings and keys belong to the plugin. */
-export function createPluginSceneImageSettings({ store, credentials, imagePluginService }) {
+/** Tavern owns enable/style only. Provider settings belong to the image module. */
+export function createModuleSceneImageSettings({ store, credentials, imageModule }) {
   let pending = Promise.resolve()
-  function service() { const value = imagePluginService(); if (!value) throw new Error('内置生图插件未就绪，请更新安装并重启 Tavern'); return value }
+  function service() { return imageModule }
   const serial = fn => { const result = pending.then(fn); pending = result.catch(() => {}); return result }
-  async function read(provider) {
+  async function read(provider, resolveKey = true) {
     const doc = document(await store.readJson(path) || {})
-    const current = await service().inspect(provider || doc.provider)
+    const current = await service()[resolveKey ? 'inspect' : 'describe'](provider || doc.provider)
     const legacy = doc.providers[current.provider]
     // Read-only preview: do not copy credentials or write merely by opening Settings.
     const migration = Boolean(legacy && current.provider !== 'dsh-image-gen')
     const value = migration ? { ...current, ...channelSettings(legacy, current.provider), migrationPending: true } : current
-    const oldKey = migration && channelNeedsKey(value) ? await credentials()?.resolve(imageCredentialRef(value.provider, value.authType)) : undefined
+    const oldKey = resolveKey && migration && channelNeedsKey(value) ? await credentials()?.resolve(imageCredentialRef(value.provider, value.authType)) : undefined
     return { ...value, enabled: doc.enabled && !migration && (doc.provider === current.provider || doc.provider === 'dsh-image-gen'),
       ready: !migration && current.ready, hasKey: migration ? Boolean(oldKey?.value) : current.hasKey,
       style: doc.style, stylePresets: SCENE_STYLE_PRESETS, activeProvider: doc.provider === 'dsh-image-gen' ? current.provider : doc.provider }
@@ -34,7 +34,7 @@ export function createPluginSceneImageSettings({ store, credentials, imagePlugin
   }
   return {
     settings: provider => serial(() => read(provider)),
-    config: () => serial(async () => { const result = await read(); if (result.migrationPending) result.enabled = false; return result }),
+    config: () => serial(async () => { const result = await read(undefined, false); if (result.migrationPending) result.enabled = false; return result }),
     capture: () => serial(async () => {
       const current = await read()
       if (current.migrationPending) throw new Error('请先保存并迁移旧生图配置')

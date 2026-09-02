@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
-import { createSceneImagePlugin } from '../tavern-plugin/lib/domain/scene-image-plugin.js'
+import { createSceneImagePlugin } from './fixtures/upstream-image-plugin.mjs'
 
 const profile = { provider: 'openai', model: 'test-image', configured: true, defaultRatio: '1:1', defaultQuality: 'standard', ratioOptions: [{ value: '1:1' }], qualityOptions: [{ value: 'standard' }] }
 const config = { activeProvider: 'openai', providers: [profile] }
