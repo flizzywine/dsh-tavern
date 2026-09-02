@@ -29,7 +29,7 @@ function readChannel(value, id) {
 }
 
 /** A private in-process interface: secrets never cross the Studio HTTP route. */
-export function createImageConfiguration({ read, write, credentials, attachments, fetchImpl = fetch, generateImpl = generateSceneImage }) {
+export function createImageConfiguration({ read, write, restore = /** @type {((value: any) => Promise<unknown>) | undefined} */ (undefined), credentials, attachments, fetchImpl = fetch, generateImpl = generateSceneImage }) {
   let pending = Promise.resolve()
   /** @template T @param {() => T | Promise<T>} fn @returns {Promise<T>} */
   function serial(fn) { const result = pending.then(fn); pending = result.catch(() => {}); return result }
@@ -50,6 +50,16 @@ export function createImageConfiguration({ read, write, credentials, attachments
     const keyRef = ref(id, next.authType), previousKey = await credentials.resolve(keyRef)
     const identityChanged = endpoint(next.baseURL) !== endpoint(current.baseURL) || next.authType !== current.authType || next.username !== current.username
     if (channelNeedsKey(next) && previousKey?.value && identityChanged && !supplied) throw new Error('地址或鉴权身份已修改，请重新填写 API Key；旧密钥不会发送到新地址')
+    // Reusing an effective key is not a write. DSH rejects even identical writes
+    // to inherited environment credentials, including during legacy migration.
+    const writeKey = Boolean(supplied && channelNeedsKey(next) && supplied !== previousKey?.value)
+    if (writeKey) {
+      const info = await credentials.describe?.(keyRef)
+      if (previousKey?.source === 'env' || info?.source === 'env') {
+        throw new Error(`API Key 与只读环境变量 ${keyRef} 中的密钥不同；请在启动 DSH 的环境中修改或移除该变量后重启。未保存配置。`)
+      }
+      if (info?.writable === false) throw new Error('API Key 与当前只读凭据冲突；请在凭据来源处修改后再保存。未保存配置。')
+    }
     const additional = { ...next }; delete additional.provider
     const patch = { tavernChannels: '' }, map = mapped[id]
     if (map) {
@@ -60,10 +70,11 @@ export function createImageConfiguration({ read, write, credentials, attachments
     // No write of a key occurs until settings validation/persistence succeeds.
     // Snapshot capture and validation share this queue, not image HTTP or storage.
     await write(patch)
-    try { if (supplied && channelNeedsKey(next)) await credentials.set(keyRef, supplied) }
+    try { if (writeKey) await credentials.set(keyRef, supplied) }
     catch (error) {
-      await write(Object.fromEntries(Object.keys(patch).map(key => [key, before[key] ?? (key === 'tavernChannels' ? '{}' : '')])))
-      throw new Error('密钥保存失败，配置已回滚；请重试')
+      if (restore) await restore(before)
+      else await write(Object.fromEntries(Object.keys(patch).map(key => [key, before[key] ?? (key === 'tavernChannels' ? '{}' : '')])))
+      throw new Error('密钥保存失败，配置已回滚；请检查 DSH 凭据存储是否可写，再保存设置。')
     }
     return inspect(id)
   }

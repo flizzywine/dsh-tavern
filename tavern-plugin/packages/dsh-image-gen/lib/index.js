@@ -3435,7 +3435,7 @@ function readChannel(value, id) {
 	return channelSettings(data, id);
 }
 /** A private in-process interface: secrets never cross the Studio HTTP route. */
-function createImageConfiguration({ read, write, credentials, attachments, fetchImpl = fetch, generateImpl = generateSceneImage }) {
+function createImageConfiguration({ read, write, restore = void 0, credentials, attachments, fetchImpl = fetch, generateImpl = generateSceneImage }) {
 	let pending = Promise.resolve();
 	/** @template T @param {() => T | Promise<T>} fn @returns {Promise<T>} */
 	function serial(fn) {
@@ -3469,6 +3469,12 @@ function createImageConfiguration({ read, write, credentials, attachments, fetch
 		const keyRef = ref(id, next.authType), previousKey = await credentials.resolve(keyRef);
 		const identityChanged = endpoint(next.baseURL) !== endpoint(current.baseURL) || next.authType !== current.authType || next.username !== current.username;
 		if (channelNeedsKey(next) && previousKey?.value && identityChanged && !supplied) throw new Error("地址或鉴权身份已修改，请重新填写 API Key；旧密钥不会发送到新地址");
+		const writeKey = Boolean(supplied && channelNeedsKey(next) && supplied !== previousKey?.value);
+		if (writeKey) {
+			const info = await credentials.describe?.(keyRef);
+			if (previousKey?.source === "env" || info?.source === "env") throw new Error(`API Key 与只读环境变量 ${keyRef} 中的密钥不同；请在启动 DSH 的环境中修改或移除该变量后重启。未保存配置。`);
+			if (info?.writable === false) throw new Error("API Key 与当前只读凭据冲突；请在凭据来源处修改后再保存。未保存配置。");
+		}
 		const additional = { ...next };
 		delete additional.provider;
 		const patch = { tavernChannels: "" }, map = mapped[id];
@@ -3485,10 +3491,11 @@ function createImageConfiguration({ read, write, credentials, attachments, fetch
 		});
 		await write(patch);
 		try {
-			if (supplied && channelNeedsKey(next)) await credentials.set(keyRef, supplied);
+			if (writeKey) await credentials.set(keyRef, supplied);
 		} catch (error) {
-			await write(Object.fromEntries(Object.keys(patch).map((key) => [key, before[key] ?? (key === "tavernChannels" ? "{}" : "")])));
-			throw new Error("密钥保存失败，配置已回滚；请重试");
+			if (restore) await restore(before);
+			else await write(Object.fromEntries(Object.keys(patch).map((key) => [key, before[key] ?? (key === "tavernChannels" ? "{}" : "")])));
+			throw new Error("密钥保存失败，配置已回滚；请检查 DSH 凭据存储是否可写，再保存设置。");
 		}
 		return inspect(id);
 	}

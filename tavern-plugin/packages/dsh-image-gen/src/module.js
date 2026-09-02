@@ -24,8 +24,10 @@ export function createImageGenerationModule({ store, credentials, readLegacyConf
       const previous = await read()
       await store.updateJson(IMAGE_MODULE_CONFIGURATION, current => ({ ...configuration(current ?? previous), ...configuration(patch) }))
     },
+    restore: previous => store.updateJson(IMAGE_MODULE_CONFIGURATION, () => configuration(previous)),
     credentials: {
       resolve: ref => credentials()?.resolve(ref),
+      describe: ref => credentials()?.describe?.(ref),
       set: (ref, value) => {
         const target = credentials()
         if (typeof target?.set !== 'function') throw new Error('当前 DSH 不支持保存凭据')
