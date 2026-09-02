@@ -298,6 +298,20 @@ test('服务重启后结算立即挂起，由上层在浏览器重新登记后�
   assert.equal(run.writes.length, 0)
 })
 
+test('MVU 执行回执超时释放事务，不写入草稿并明确提示重试', async () => {
+  const gate = createTavernHelperEventGate({ timeoutMs: 100 })
+  gate.touch('session-1', 'browser', true)
+  const run = harness(chat(), { eventGate: gate })
+  const input = { sessionId: 'session-1', messageId: 0, swipeId: 0, expectedLifecycleRevision: 2,
+    storyText: '旧正文', command: '<UpdateVariable></UpdateVariable>' }
+  await assert.rejects(run.adapter.settleMvuUpdate(input), /回执超时.*重试/)
+  assert.equal(run.writes.length, 0)
+  assert.equal(gate.status('session-1').busy, false)
+  gate.dispose('session-1')
+  const retried = await run.adapter.settleMvuUpdate(input)
+  assert.equal(retried.deferred, true, '失败后释放事务锁，允许重试而不是已有结算正在执行')
+})
+
 test('Host Adapter 为脚本事件投影临时玩家输入但不改写 Chat', async function () {
   const run = harness()
   const result = await run.adapter.dispatchEvent({

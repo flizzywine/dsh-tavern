@@ -20,6 +20,12 @@ function textOf(node) {
 }
 
 const change = path => ({ operation: 'set', path, before: '旧值', after: '新值' })
+test('中断结算明确展示重试入口而不是仍在结算', () => {
+  const text = textOf(sandbox.TavernMvuReceipt({ receipt: { status: 'interrupted' } }))
+  assert.match(text, /变量结算已中断/)
+  assert.match(text, /重试变量结算/)
+  assert.doesNotMatch(text, /变量结算中/)
+})
 const internal = [
   change('/delta_data/航班'), change('/display_data/航班/安全带'),
   change('/schema/properties/人物/properties/祈婉琳'),

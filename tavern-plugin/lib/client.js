@@ -51,14 +51,14 @@ window.__ModuleLoader__.load({
 .dsh-tavern-mvu-receipt[data-status="pending"] { border-color: rgba(68,126,230,.42); }
 .dsh-tavern-mvu-receipt[data-status="updated"] { border-color: rgba(70,160,105,.42); }
 .dsh-tavern-mvu-receipt[data-status="stale"] { border-color: rgba(196,132,42,.46); }
-.dsh-tavern-mvu-receipt[data-status="partial"], .dsh-tavern-mvu-receipt[data-status="error"] { border-color: rgba(220,94,94,.48); }
+.dsh-tavern-mvu-receipt[data-status="partial"], .dsh-tavern-mvu-receipt[data-status="error"], .dsh-tavern-mvu-receipt[data-status="interrupted"] { border-color: rgba(220,94,94,.48); }
 .dsh-tavern-mvu-receipt-summary { display: flex; align-items: center; gap: 7px; padding: 7px 10px; cursor: pointer; user-select: none; font-weight: 750; }
 .dsh-tavern-mvu-receipt-summary::-webkit-details-marker { display: none; }
 .dsh-tavern-mvu-receipt-dot { width: 7px; height: 7px; border-radius: 999px; background: var(--dsw-alias-label-tertiary); }
 .dsh-tavern-mvu-receipt[data-status="pending"] .dsh-tavern-mvu-receipt-dot { background: #447ee6; }
 .dsh-tavern-mvu-receipt[data-status="updated"] .dsh-tavern-mvu-receipt-dot { background: #4da66d; }
 .dsh-tavern-mvu-receipt[data-status="stale"] .dsh-tavern-mvu-receipt-dot { background: #c4842a; }
-.dsh-tavern-mvu-receipt[data-status="partial"] .dsh-tavern-mvu-receipt-dot, .dsh-tavern-mvu-receipt[data-status="error"] .dsh-tavern-mvu-receipt-dot { background: #dc5e5e; }
+.dsh-tavern-mvu-receipt[data-status="partial"] .dsh-tavern-mvu-receipt-dot, .dsh-tavern-mvu-receipt[data-status="error"] .dsh-tavern-mvu-receipt-dot, .dsh-tavern-mvu-receipt[data-status="interrupted"] .dsh-tavern-mvu-receipt-dot { background: #dc5e5e; }
 .dsh-tavern-mvu-receipt-body { display: grid; gap: 8px; padding: 0 10px 9px; border-top: 1px solid var(--dsw-alias-border-l2); }
 .dsh-tavern-mvu-receipt-reason { margin-top: 8px; color: var(--dsw-alias-label-primary); }
 .dsh-tavern-mvu-change { display: grid; gap: 2px; padding: 6px 8px; border-radius: 7px; background: var(--dsw-alias-bg-base); }
@@ -3486,10 +3486,11 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				return !/^\/(?:delta_data|display_data|schema)(?:\/|$)/.test(String(change && change.path || ""));
 			});
 			const failures = Array.isArray(receipt.failures) ? receipt.failures : [];
-			const status = ["pending", "updated", "partial", "error", "stale", "unchanged"].includes(receipt.status) ? receipt.status : "unchanged";
+			const status = ["pending", "updated", "partial", "error", "stale", "interrupted", "unchanged"].includes(receipt.status) ? receipt.status : "unchanged";
 			const sideEffectSuffix = sideEffects.length > 0 ? " · 人物卡联动 " + sideEffects.length + " 项" : "";
 			const labels = {
 				pending: "变量结算中…",
+				interrupted: "变量结算已中断",
 				updated: (changes.length > 0 ? "变量已更新 · " + changes.length + " 项" : "变量已更新 · 旧记录无明细") + sideEffectSuffix,
 				partial: "变量部分更新 · " + changes.length + " 项成功 · " + failures.length + " 项失败" + sideEffectSuffix,
 				error: "变量更新失败 · " + failures.length + " 项" + sideEffectSuffix,
@@ -3507,7 +3508,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				} catch (error) { tavernErrorHub.report("重试变量结算", error); }
 				finally { setRetrying(false); }
 			}
-			const retryButton = (status === "error" || status === "stale")
+			const retryButton = (status === "error" || status === "stale" || status === "interrupted" || status === "partial")
 				? h("button", { type: "button", className: "dsh-tavern-mvu-retry", disabled: retrying, onClick: retry }, retrying ? "重试中…" : "重试变量结算")
 				: null;
 			const hasDetails = String(receipt.summary || "") !== "" || changes.length > 0 || sideEffects.length > 0 || failures.length > 0 || retryButton;

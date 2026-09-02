@@ -319,6 +319,8 @@ export function createTavernScriptHostAdapter(options = {}) {
           return { updated: false, rejected: true, retryable: transaction.externalEffects !== true, retryAfterMs: MVU_RETRY_AFTER_MS,
             validation, diagnostics: dispatched.diagnostics || [], context: projectTavernHelperContext(current) }
         }
+        if (dispatched.timedOut === true) throw new Error('MVU 脚本执行回执超时，本轮结算未确认完成，请重试结算')
+        if (dispatched.disposed === true) throw new Error('MVU 浏览器执行器已断开，本轮结算中断，请重试结算')
         throw new Error(str(dispatched.error).trim() || '官方 MVU 浏览器运行时尚未就绪，本轮未执行变量结算')
       }
       const settled = transaction.draft.messages[messageId]

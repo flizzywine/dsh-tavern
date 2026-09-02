@@ -1046,7 +1046,7 @@ export async function apply(ctx) {
       lastWorldBookRecall: chat.lastWorldBookRecall || null,
       activity,
       settleStatus: activity.busy ? 'running' : (activity.phase === 'failed' && activity.role === 'settlement' ? 'error' : 'done'),
-      settleError: chat.settleError || null,
+      settleError: activity.reason === 'interrupted' ? '后台结算已中断，请重试结算。' : (chat.settleError || null),
       settlementTurn: settlementTurn(chat),
       scriptProgress: scriptProgress,
       updatedAt: chat.updatedAt || 0
@@ -1076,6 +1076,8 @@ export async function apply(ctx) {
   function mvuReceiptsOf(chat) {
     const messages = Array.isArray(chat && chat.messages) ? chat.messages : []
     const receipts = []
+    const activity = backgroundTasks.activity(chat)
+    const latest = messages.findLast(function (message) { return message && message.role === 'assistant' })
     for (const message of messages) {
       if (!message || message.role !== 'assistant' || !message.mvu) continue
       const turn = Math.max(0, Number(message.turn) || (message.greeting === true ? 1 : 0))
@@ -1088,6 +1090,10 @@ export async function apply(ctx) {
         summary: '',
         changes: [],
         failures: diagnostics.map(function (item) { return { command: str(item.command), message: str(item.message) } })
+      }
+      if (message === latest && activity.reason === 'interrupted' && activity.role === 'settlement') {
+        receipt.status = 'interrupted'
+        receipt.summary = '后台结算因服务重启或异常退出而中断，请重试结算；正文和已保存变量保留。'
       }
       receipts.push({ turn, receipt })
     }
@@ -1540,6 +1546,11 @@ export async function apply(ctx) {
           text = str(mvuResult.text) || JSON.stringify({ posture: mvuResult.posture })
           backgroundSessionId = str(mvuResult.traceSessionId) || backgroundSessionId
           backgroundBoundary = Number.isSafeInteger(mvuResult.traceBoundary) ? mvuResult.traceBoundary : null
+          if (['error', 'partial'].includes(mvuResult.receipt?.status)) {
+            const error = new Error(mvuResult.receipt.summary || mvuResult.receipt.failures?.[0]?.message || '变量结算失败，请重试结算')
+            error.mvuReceipt = mvuResult.receipt
+            throw error
+          }
           result = { posture: mvuResult.posture }
         } else {
           const selection = backgroundModelSelection(snapshot)
@@ -1649,7 +1660,7 @@ export async function apply(ctx) {
             modified: false,
             diagnostics: [{ message }],
             events: [],
-            receipt: { version: 1, status: 'error', summary: '', changes: [], failures: [{ command: '', message }] }
+            receipt: err?.mvuReceipt ? structuredClone(err.mvuReceipt) : { version: 1, status: 'error', summary: '', changes: [], failures: [{ command: '', message }] }
           }
         }
         latest.settleStatus = 'failed'
@@ -1673,6 +1684,7 @@ export async function apply(ctx) {
     void chatForSession(sessionId).then(function (chat) {
       const target = pendingMvuTarget(chat)
       if (!target || !target.message.mvu || !target.message.mvu.pendingSubmission) return
+      if (backgroundTasks.activity(chat).phase !== 'pending') return
       return queueSettlement(chat.id)
     }).catch(function (error) {
       console.error('dsh-tavern: 接续等待中的 MVU 变量结算失败', str(error && error.message || error))

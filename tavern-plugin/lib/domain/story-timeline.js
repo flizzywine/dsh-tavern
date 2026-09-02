@@ -339,8 +339,20 @@ export function createStoryTimeline(options = {}) {
       if (operation.role === 'settlement') interruptedRole = operation.role
     }
     const background = backgroundBody(chat)
-    if (background !== undefined && interruptedRole !== '') {
-      background.background = { phase: 'pending', role: interruptedRole, updatedAt: now() }
+    if (background !== undefined) {
+      const latest = Object.values(chat.timeline.operations).filter(function (operation) {
+        return operation.kind === 'agent' && operation.role === 'settlement' &&
+          operation.roundOperationId === background.id
+      }).sort(function (left, right) { return Number(right.createdAt) - Number(left.createdAt) })[0]
+      // A deferred operation has not executed its saved submission and can resume
+      // when the browser returns. An interrupted/unqueued round cannot claim that.
+      // Also repair chats already converted to pending by older recovery code.
+      const orphaned = background.status === 'foreground-completed' &&
+        ['pending', 'running'].includes(background.background.phase) && latest?.status !== 'deferred'
+      if (interruptedRole !== '' || orphaned) {
+        background.background = { phase: 'failed', role: 'settlement', reason: 'interrupted', updatedAt: now() }
+        changed = true
+      }
     }
     return { status: changed ? 'recovered' : 'unchanged', role: interruptedRole }
   }

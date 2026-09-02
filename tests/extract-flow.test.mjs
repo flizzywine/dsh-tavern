@@ -333,7 +333,7 @@ test('失败的最新后台结算可以按原任务类型原地重试', () => {
 	assert.match(retry, /source: 'settlement\.retry'/)
 	assert.match(settlement, /latest\.settleStatus = 'failed'/)
 	assert.match(settlement, /source: target === null \? 'settlement\.posture-failed' : 'settlement\.mvu-failed'/)
-	assert.match(view, /settleError: chat\.settleError \|\| null/)
+	assert.match(view, /settleError: activity\.reason === 'interrupted'/)
 	assert.match(view, /settlementTurn: settlementTurn\(chat\)/)
 })
 

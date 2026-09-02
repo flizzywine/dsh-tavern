@@ -236,7 +236,7 @@ test('Round 结算失败后只能重试结算，不能穿插候选任务', async
   await assert.doesNotReject(harness.coordinator.begin(harness.current(), 'settlement'))
 })
 
-test('进程重启把遗留 running operation 恢复为同一 Cycle 的 pending 任务', async () => {
+test('进程重启把遗留 running 结算恢复为可重试失败，不假装仍在执行', async () => {
   const harness = coordinatorHarness()
   const begunBody = harness.timeline.apply({ chat: harness.current(), intent: { kind: 'body.begin', turn: 1, userText: '向前走' } })
   const completedBody = harness.timeline.complete({ chat: begunBody.chat, operationId: begunBody.value.operationId, basedOn: begunBody.value.basedOn, outcome: { status: 'success' } })
@@ -245,7 +245,9 @@ test('进程重启把遗留 running operation 恢复为同一 Cycle 的 pending 
 
   const recovered = await harness.coordinator.recover(settlement.chat)
 
-  assert.equal(recovered.activity.phase, 'pending')
+  assert.equal(recovered.activity.phase, 'failed')
+  assert.equal(recovered.activity.reason, 'interrupted')
+  assert.equal(recovered.activity.busy, false)
   assert.equal(recovered.activity.role, 'settlement')
   const interrupted = Object.values(harness.timeline.inspect({ chat: recovered.chat }).operations).find(function (operation) {
     return operation.kind === 'agent' && operation.role === 'settlement'
@@ -263,7 +265,7 @@ test('世界书确定性投影不需要 skip operation，后台周期始终只�
   assert.equal(harness.coordinator.activity(harness.current()).role, 'settlement')
   const settlement = await harness.coordinator.begin(harness.current(), 'settlement')
   const recovered = await harness.coordinator.recover(settlement.chat)
-  assert.equal(recovered.activity.phase, 'pending')
+  assert.equal(recovered.activity.phase, 'failed')
   assert.equal(recovered.activity.role, 'settlement')
   await harness.coordinator.begin(recovered.chat, 'settlement')
 })

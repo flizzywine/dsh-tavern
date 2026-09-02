@@ -52,6 +52,11 @@ export function createBackgroundTaskCoordinator(options = {}) {
       return (Number(right.completedAt) || 0) - (Number(left.completedAt) || 0)
     })[0]
     const background = body && body.background
+    if (running === undefined && background && background.phase === 'failed') {
+      return { phase: 'failed', busy: false, role: str(background.role), operationId: str(body.id), basedOn: null,
+        updatedAt: Number(background.updatedAt) || 0,
+        ...(background.reason ? { reason: str(background.reason) } : {}) }
+    }
     if (running === undefined && background && (background.phase === 'pending' || background.phase === 'running')) {
       return {
         phase: background.phase,
@@ -64,18 +69,16 @@ export function createBackgroundTaskCoordinator(options = {}) {
     }
     const current = running || operations[0]
     if (current === undefined) {
-      if (background && background.phase === 'failed') {
-        return { phase: 'failed', busy: false, role: str(background.role), operationId: str(body.id), basedOn: null, updatedAt: Number(background.updatedAt) || 0 }
-      }
       return { phase: 'idle', busy: false, role: '', operationId: '', basedOn: null, updatedAt: Number(inspected.updatedAt) || 0 }
     }
     return {
-      phase: running !== undefined ? 'running' : (current.status === 'failed' ? 'failed' : 'idle'),
+      phase: running !== undefined ? 'running' : (current.status === 'failed' || (current.status === 'interrupted' && current.role === 'settlement') ? 'failed' : 'idle'),
       busy: running !== undefined,
       role: str(current.role),
       operationId: str(current.id),
       basedOn: current.basedOn || null,
-      updatedAt: Number(current.completedAt) || Number(current.createdAt) || Number(inspected.updatedAt) || 0
+      updatedAt: Number(current.completedAt) || Number(current.createdAt) || Number(inspected.updatedAt) || 0,
+      ...(current.status === 'interrupted' && current.role === 'settlement' ? { reason: 'interrupted' } : {})
     }
   }
 
