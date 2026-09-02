@@ -142,6 +142,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 .dsh-tavern-settings-switch input:checked + .dsh-tavern-settings-track { background: #9a622f; }
 .dsh-tavern-settings-switch input:checked + .dsh-tavern-settings-track::after { transform: translateX(18px); background: #fff; }
 .dsh-tavern-settings-switch input:focus-visible + .dsh-tavern-settings-track { outline: 2px solid #a66b35; outline-offset: 2px; }
+.dsh-tavern-settings-model-row { flex-wrap: wrap; }
+.dsh-tavern-settings-select { flex: 1 1 220px; max-width: 320px; padding: 8px 10px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; color: inherit; background: var(--dsw-specific-input-major); }
 .dsh-tavern-settings-error { color: #c45f5f; font-size: 13px; }
 .dsh-tavern-system-prompt-editor { display: flex; flex-direction: column; gap: 14px; padding: 18px 20px; }
 .dsh-tavern-system-prompt-warning { margin-bottom: 14px; border: 1px solid rgba(196,95,95,.55); border-radius: 9px; padding: 11px 13px; background: rgba(196,95,95,.1); color: #d98080; font-size: 13px; line-height: 1.55; }
@@ -4653,11 +4655,11 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			);
 		}
 		function TavernSettingsSection() {
-			const [state, setState] = React.useState({ loading: true, busy: false, compatibilityMode: false, webSearchEnabled: false, sceneImages: false, error: "" });
+			const [state, setState] = React.useState({ loading: true, busy: false, compatibilityMode: false, webSearchEnabled: false, backgroundModel: null, modelCatalog: [], sceneImages: false, error: "" });
 			React.useEffect(function () {
 				let active = true;
 				rpc("getTavernSettings").then(function (result) {
-					if (active) setState({ loading: false, busy: false, compatibilityMode: Boolean(result.settings && result.settings.compatibilityMode), webSearchEnabled: Boolean(result.settings && result.settings.webSearchEnabled), sceneImages: Boolean(result.releaseCapabilities && result.releaseCapabilities.sceneImages), error: "" });
+					if (active) setState({ loading: false, busy: false, compatibilityMode: Boolean(result.settings && result.settings.compatibilityMode), webSearchEnabled: Boolean(result.settings && result.settings.webSearchEnabled), backgroundModel: result.settings && result.settings.backgroundModel || null, modelCatalog: Array.isArray(result.modelCatalog) ? result.modelCatalog : [], sceneImages: Boolean(result.releaseCapabilities && result.releaseCapabilities.sceneImages), error: "" });
 				}, function (error) {
 					if (active) setState(function (current) { return Object.assign({}, current, { loading: false, busy: false, error: String(error && error.message || error) }); });
 				});
@@ -4685,6 +4687,18 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					setState(function (current) { return Object.assign({}, current, { busy: false, error: String(error && error.message || error) }); });
 				}
 			}
+			async function setBackgroundModel(value) {
+				setState(function (current) { return Object.assign({}, current, { busy: true, error: "" }); });
+				try {
+					const backgroundModel = value === "" ? null : JSON.parse(value);
+					const result = await rpc("updateTavernSettings", { patch: { backgroundModel: backgroundModel } });
+					setState(function (current) { return Object.assign({}, current, { loading: false, busy: false, backgroundModel: result.settings && result.settings.backgroundModel || null, error: "" }); });
+					window.dispatchEvent(new CustomEvent("dsh-tavern-settings-changed"));
+					window.dispatchEvent(new CustomEvent("dsh-tavern-data-changed"));
+				} catch (error) {
+					setState(function (current) { return Object.assign({}, current, { busy: false, error: String(error && error.message || error) }); });
+				}
+			}
 			return React.createElement("div", { className: "dsh-tavern-settings-section" },
 				React.createElement("p", { className: "dsh-tavern-settings-intro" }, "管理 DSH Tavern 的可选实验功能。"),
 				React.createElement("div", { className: "dsh-tavern-settings-group" },
@@ -4706,6 +4720,19 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 						React.createElement("span", { className: "dsh-tavern-settings-switch" },
 							React.createElement("input", { type: "checkbox", checked: state.webSearchEnabled, disabled: state.loading || state.busy, onChange: function (event) { void setWebSearchEnabled(event.target.checked); }, "aria-label": "开启联网搜索" }),
 							React.createElement("span", { className: "dsh-tavern-settings-track", "aria-hidden": "true" })
+						)
+					),
+					React.createElement("label", { className: "dsh-tavern-settings-row dsh-tavern-settings-model-row" },
+						React.createElement("span", { className: "dsh-tavern-settings-copy" },
+							React.createElement("span", { className: "dsh-tavern-settings-title" }, "后台模型"),
+							React.createElement("span", { className: "dsh-tavern-settings-desc" }, "供候选项、MVU 与姿势结算共用。新游戏开局时固化，已有游戏不受影响。")
+						),
+						React.createElement("select", { className: "dsh-tavern-settings-select", value: state.backgroundModel ? JSON.stringify(state.backgroundModel) : "", disabled: state.loading || state.busy, onChange: function (event) { void setBackgroundModel(event.target.value); }, "aria-label": "后台模型" },
+							React.createElement("option", { value: "" }, "跟随前台（开局时）"),
+							state.modelCatalog.flatMap(function (group) { return (group.models || []).map(function (model) {
+								const value = JSON.stringify({ provider: group.provider, model: model.id });
+								return React.createElement("option", { key: group.provider + ":" + model.id, value: value }, (group.providerName || group.provider) + " · " + (model.name || model.id));
+							}); })
 						)
 					)
 				),

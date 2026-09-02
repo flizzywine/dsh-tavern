@@ -25,7 +25,7 @@ function script() {
   }
 }
 
-function harness({ mode = 'story', outputs, initialCandidates, initialCandidateAgent, initialSettleStatus, messages, initialScriptCursor = 0, initialScriptEnded = false, scriptData, cardData, macroState, waitUntilSettled, writeChatHook }) {
+function harness({ mode = 'story', outputs, initialCandidates, initialCandidateAgent, initialSettleStatus, messages, initialScriptCursor = 0, initialScriptEnded = false, scriptData, cardData, macroState, waitUntilSettled, writeChatHook, modelSelection }) {
   const continuity = createScriptContinuity()
   const activeScript = scriptData || script()
   let scriptState = mode === 'script' ? continuity.start(activeScript, initialScriptCursor) : null
@@ -95,7 +95,7 @@ function harness({ mode = 'story', outputs, initialCandidates, initialCandidateA
     }
   }
   const model = {
-    selection() { return { provider: 'test', model: 'scripted' } },
+    selection(selectedChat) { return modelSelection ? modelSelection(selectedChat) : { provider: 'test', model: 'scripted' } },
     async runCandidate(options) { return await nextOutput(options) }
   }
   const plannerCalls = []
@@ -148,6 +148,18 @@ test('候选后台继承当前游戏固化的联网搜索能力', async () => {
   run.mutateChat(chat => { chat.webSearchEnabled = true })
   await run.candidates.generate({ sessionId: 'session-1', messageId: 'm1' })
   assert.equal(run.modelRequests[0].webSearchEnabled, true)
+})
+
+test('候选模型选择接收完整游戏快照，以便复用开局固化的后台模型', async () => {
+  let selectedChat
+  const run = harness({ outputs: [JSON.stringify({ choices: storyChoices })], modelSelection(chat) {
+    selectedChat = chat
+    return chat.backgroundModelSelection
+  } })
+  run.mutateChat(chat => { chat.backgroundModelSelection = { provider: 'worker', model: 'stable' } })
+  await run.candidates.generate({ sessionId: 'session-1', messageId: 'm1' })
+  assert.equal(selectedChat.id, 'chat-1')
+  assert.deepEqual(selectedChat.backgroundModelSelection, { provider: 'worker', model: 'stable' })
 })
 
 test('开场白后的首次候选会先等待完整后台结算，再规划候选', async () => {

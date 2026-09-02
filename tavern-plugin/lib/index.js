@@ -15,6 +15,7 @@ import { createCardPreparation } from './domain/card-preparation.js'
 import { projectCardOpeningPreviews } from './domain/card-opening-previews.js'
 import { READABLE_CARD_FIELDS, readCardField } from './domain/card-reading.js'
 import { createConversationInitialization } from './domain/conversation-initialization.js'
+import { resolveChatBackgroundModel } from './domain/background-model-selection.js'
 import { createPlayCardSnapshots } from './domain/play-card-snapshots.js'
 import { createUserPreferenceProfile } from './domain/user-preference-profile.js'
 import { createContextPlanner } from './domain/context-planner.js'
@@ -311,6 +312,28 @@ export async function apply(ctx) {
       }
     }
     return null
+  }
+  function backgroundModelSelection(chat) {
+    return resolveChatBackgroundModel(chat, modelSelection(chat && chat.sessionId))
+  }
+  async function tavernModelCatalog() {
+    const providers = llm.listProviders()
+    const groups = await Promise.all(providers.map(async function (provider) {
+      try {
+        const models = await llm.listModels(provider.id)
+        return {
+          provider: provider.id,
+          providerName: provider.name || provider.id,
+          models: models.filter(function (model) {
+            return !Array.isArray(model.inputModalities) || model.inputModalities.includes('text')
+          }).map(function (model) { return { id: model.id, name: model.name || model.id } })
+        }
+      } catch (error) {
+        console.warn('dsh-tavern: 读取后台模型目录失败:', provider.id, error)
+        return { provider: provider.id, providerName: provider.name || provider.id, models: [] }
+      }
+    }))
+    return groups.filter(function (group) { return group.models.length > 0 })
   }
   async function callModel(opts) {
     const sel = modelSelection(opts.sessionId)
@@ -1278,7 +1301,7 @@ export async function apply(ctx) {
       writeChat: writeChat
     },
     model: {
-      selection: modelSelection,
+      selection: backgroundModelSelection,
       runCandidate: backgroundAgentRunner.run
     },
     planner: contextPlanner,
@@ -1503,7 +1526,7 @@ export async function apply(ctx) {
           if (pendingSubmission && typeof pendingSubmission === 'object') {
             mvuResult = await mvuSettlement.resumeVariables({ ...settlementInput, submission: pendingSubmission })
           } else {
-            const selection = modelSelection(snapshot.sessionId)
+            const selection = backgroundModelSelection(snapshot)
             if (selection === null) throw new Error('没有可用的模型配置，请先在当前会话的模型选择器中选择模型')
             mvuResult = await mvuSettlement.settleVariables({
               ...settlementInput,
@@ -1517,7 +1540,7 @@ export async function apply(ctx) {
           backgroundBoundary = Number.isSafeInteger(mvuResult.traceBoundary) ? mvuResult.traceBoundary : null
           result = { posture: mvuResult.posture }
         } else {
-          const selection = modelSelection(snapshot.sessionId)
+          const selection = backgroundModelSelection(snapshot)
           if (selection === null) throw new Error('没有可用的模型配置，请先在当前会话的模型选择器中选择模型')
           let submittedPosture = null
           const run = await backgroundAgentRunner.run({
@@ -1956,7 +1979,7 @@ export async function apply(ctx) {
         const change = await updateCard(args && args.path, args && args.patch)
         return { card: change.card, changed: change.changed }
       }
-      case 'getTavernSettings': return { settings: await readTavernSettings(), releaseCapabilities: TAVERN_RELEASE_CAPABILITIES }
+      case 'getTavernSettings': return { settings: await readTavernSettings(), modelCatalog: await tavernModelCatalog(), releaseCapabilities: TAVERN_RELEASE_CAPABILITIES }
       case 'getSceneImageSettings': return { settings: await enabledSceneIllustrations().settings(args?.provider) }
       case 'saveSceneImageSettings': return { settings: await enabledSceneIllustrations().configure(args) }
       case 'sceneImageStatus': return { illustration: await enabledSceneIllustrations().status(args.sessionId, args.turn) }

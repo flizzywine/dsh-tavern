@@ -39,6 +39,19 @@ test('新游戏固化创建时的联网搜索设置，之后不随设置变化',
   assert.equal((await fresh.make().start({ ...fresh.input, cardPath: '', mode: 'card' })).webSearchEnabled, false)
 })
 
+test('新游戏固化后台模型；默认跟随开局前台，设置和重入都不会改写已有游戏', async () => {
+  const following = initializationFixture()
+  const first = await following.make().start(following.input)
+  assert.deepEqual(first.backgroundModelSelection, { provider: 'fixture', model: 'text' })
+  following.state.settings.backgroundModel = { provider: 'vertex', model: 'gemini-2.5-flash' }
+  assert.deepEqual((await following.make().start(following.input)).backgroundModelSelection, { provider: 'fixture', model: 'text' })
+
+  const fixed = initializationFixture()
+  fixed.state.settings.backgroundModel = { provider: 'siliconflow', model: 'deepseek-v4' }
+  assert.deepEqual((await fixed.make().start(fixed.input)).backgroundModelSelection, { provider: 'siliconflow', model: 'deepseek-v4' })
+  assert.equal((await fixed.make().start({ ...fixed.input, cardPath: '', mode: 'card' })).backgroundModelSelection, null)
+})
+
 test('double clicks and ensureOpening share session ordering and do not create duplicate chats or native events', async () => {
   const h = initializationFixture(), api = h.make()
   const result = await Promise.all([api.start(h.input), api.start(h.input), api.ensureOpening('session')])
