@@ -26,6 +26,7 @@ import { createFileResourceStore, normalizeResourcePath, resourceKind } from './
 import { createForegroundHandoff } from './domain/foreground-handoff.js'
 import { createForegroundFrameBuilder } from './domain/agent-input-frame.js'
 import { createForegroundFrameSessionAdapter } from './domain/foreground-frame-session-adapter.js'
+import { HISTORY_RECALL_OUTPUT_SCHEMA, HISTORY_RECALL_TOOL, createHistoryRecall, renderHistoryRecall } from './domain/history-recall.js'
 import { createModelRequestLog } from './domain/model-request-log.js'
 import { MVU_SUBMIT_UPDATE_TOOL, createMvuSettlementModule } from './domain/mvu-background-settlement.js'
 import { CHARACTER_DESIGN_READ_TOOL, CHARACTER_DESIGN_SAVE_TOOL } from './domain/character-design-document.js'
@@ -580,6 +581,14 @@ export async function apply(ctx) {
   })
   async function readSessionMap() { return await conversationRegistry.links() }
   async function chatForSession(sessionId) { return await conversationRegistry.resolve(sessionId) }
+  const historyRecall = createHistoryRecall()
+  async function recallHistoryForSession(sessionId, args) {
+    const chat = await chatForSession(sessionId)
+    if (chat === undefined) throw new Error('当前 Session 没有对应的 Tavern Chat')
+    const mode = chat.mode || 'story'
+    if (mode !== 'story' && mode !== 'script') throw new Error('历史正文只能在游玩模式中检索')
+    return historyRecall.recall(Object.assign({ chat }, args || {}))
+  }
   resourceGraph = createResourceGraph({
     resources: fileResources,
     presets: runtimePresets,
@@ -1157,6 +1166,12 @@ export async function apply(ctx) {
   const runtimePresetSnapshots = new Map()
   const backgroundAgentRunner = createBackgroundAgentRunner({
     backgroundTools: [POSTURE_SUBMIT_TOOL, CHARACTER_DESIGN_READ_TOOL, CHARACTER_DESIGN_SAVE_TOOL, MVU_SUBMIT_UPDATE_TOOL, CANDIDATE_SUBMIT_TOOL, SCRIPT_READ_TOOL, SCRIPT_POINT_TOOL],
+    sharedTools: [{
+      tool: HISTORY_RECALL_TOOL,
+      async execute({ input, args }) {
+        return renderHistoryRecall(await recallHistoryForSession(input.sessionId, args))
+      }
+    }],
     stablePrefixStorage,
     agents: agentRegistry,
     agentPreset: 'tavern-background',
@@ -2526,7 +2541,7 @@ export async function apply(ctx) {
     })
   }
 
-  const controlledToolNames = new Set(['bash', 'pwsh', 'str_replace_editor', 'skill', 'tavern_save_skill', ...cordisToolNames, 'tavern_user_profile_read', 'tavern_user_profile_save_draft', 'tavern_user_profile_confirm', 'tavern_read_card', 'tavern_read_card_raw', 'tavern_read_play_chat', 'tavern_read_script', 'tavern_read_worldbook', 'tavern_update_worldbook', 'tavern_read_preset', 'tavern_update_preset', 'tavern_update_card', 'tavern_restore_card'])
+  const controlledToolNames = new Set(['bash', 'pwsh', 'str_replace_editor', 'skill', 'tavern_save_skill', ...cordisToolNames, 'tavern_user_profile_read', 'tavern_user_profile_save_draft', 'tavern_user_profile_confirm', 'tavern_read_card', 'tavern_read_card_raw', 'tavern_read_play_chat', 'tavern_read_script', 'tavern_recall_history', 'tavern_read_worldbook', 'tavern_update_worldbook', 'tavern_read_preset', 'tavern_update_preset', 'tavern_update_card', 'tavern_restore_card'])
   const foregroundStrategies = createForegroundOrchestrationStrategies({
     compatibility: {
       beforeTurn: async function (input) {
@@ -2744,6 +2759,20 @@ export async function apply(ctx) {
   // ---------- 模型可选工具 ----------
   const tools = ctx.get('tools')
   if (tools !== undefined) {
+    tools.register(defineTool({
+      name: HISTORY_RECALL_TOOL.name,
+      description: HISTORY_RECALL_TOOL.description,
+      parameters: HISTORY_RECALL_TOOL.parameters,
+      output: {
+        schema: HISTORY_RECALL_OUTPUT_SCHEMA,
+        render: function (_args, value) { return [{ type: 'text', text: renderHistoryRecall(value) }] }
+      },
+      isConcurrencySafe: function () { return true },
+      async execute(args, exec) {
+        const sessionId = exec && exec.agent && exec.agent.session ? exec.agent.session.id : ''
+        return await recallHistoryForSession(sessionId, args)
+      }
+    }))
     tools.register(defineTool({
       name: 'tavern_user_profile_read',
       description: '读取 Profile 中独立保存的用户画像草案和已确认版本。建立、复查或修改用户画像时先调用；草案不等于已确认偏好。',

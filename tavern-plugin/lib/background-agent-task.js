@@ -79,7 +79,17 @@ export function traceError(error, traceSessionId, task) {
 // A task operates on a leased DSH Agent; it does not create or retain sessions.
 export function createBackgroundAgentTask(options) {
   const setupAgent = typeof options.setupAgent === 'function' ? options.setupAgent : null
-  const stableBackgroundTools = Array.isArray(options.backgroundTools) ? options.backgroundTools : []
+  const sharedBackgroundTools = Array.isArray(options.sharedTools) ? options.sharedTools.filter(function (item) {
+    return item && item.tool && typeof item.tool.name === 'string' && typeof item.execute === 'function'
+  }) : []
+  const sharedByName = new Map(sharedBackgroundTools.map(function (item) { return [item.tool.name, item] }))
+  const stableBackgroundTools = []
+  const stableNames = new Set()
+  for (const tool of (Array.isArray(options.backgroundTools) ? options.backgroundTools : []).concat(sharedBackgroundTools.map(function (item) { return item.tool }))) {
+    if (!tool || typeof tool.name !== 'string' || stableNames.has(tool.name)) continue
+    stableNames.add(tool.name)
+    stableBackgroundTools.push(tool)
+  }
   function completedBoundary(events) {
     for (let index = (events || []).length - 1; index >= 0; index--) {
       const event = events[index]
@@ -191,7 +201,8 @@ export function createBackgroundAgentTask(options) {
     if (stableBackgroundTools.length > 0 && input.task !== 'image') {
       state.activeToolTask = {
         async execute(tool, args, execution) {
-          const current = allowed.get(tool.name)
+          const shared = sharedByName.get(tool.name)
+          const current = allowed.get(tool.name) || (shared && shared.tool)
           if (current === undefined) {
             return JSON.stringify({
               ok: false,
@@ -208,7 +219,9 @@ export function createBackgroundAgentTask(options) {
               return JSON.stringify({ ok: false, retryable: false, message: input.toolLimitMessage || '当前任务的工具调用次数已达上限，请结束本轮。' })
             }
           }
-          const result = str(await input.onToolCall({ name: tool.name, arguments: args }))
+          const result = shared
+            ? str(await shared.execute({ input, args, execution }))
+            : str(await input.onToolCall({ name: tool.name, arguments: args }))
           if (typeof input.stopToolsWhen === 'function' && input.stopToolsWhen()) execution?.concludeTurn?.()
           return result
         }

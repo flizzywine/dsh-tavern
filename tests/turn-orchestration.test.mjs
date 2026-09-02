@@ -633,6 +633,14 @@ test('空白卡片工作台确认完整设定后直接创建并绑定正式人�
   assert.deepEqual(await run.orchestrator.visibleTools('session-1'), ['bash', 'str_replace_editor', 'skill', 'tavern_save_skill', 'cordis_inspect_list', 'cordis_inspect_query', 'cordis_inspect_self', 'cordis_define', 'cordis_run', 'cordis_stop', 'cordis_undefine', 'tavern_user_profile_read', 'tavern_user_profile_save_draft', 'tavern_user_profile_confirm', 'tavern_read_card', 'tavern_read_card_raw', 'tavern_read_play_chat', 'tavern_read_worldbook', 'tavern_update_worldbook', 'tavern_read_preset', 'tavern_update_preset', 'tavern_update_card', 'tavern_restore_card'])
 })
 
+test('前台自由故事和剧本模式稳定暴露历史正文检索工具', async () => {
+  const story = harness('story')
+  const script = harness('script')
+
+  assert.deepEqual(await story.orchestrator.visibleTools('session-1'), ['tavern_recall_history'])
+  assert.deepEqual(await script.orchestrator.visibleTools('session-1'), ['tavern_read_script', 'tavern_recall_history'])
+})
+
 test('空白工作台缺少新卡必填信息时不接受确认提交', async () => {
   const run = harness('card', { draft: true })
   await assert.rejects(

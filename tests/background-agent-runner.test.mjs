@@ -63,6 +63,54 @@ test('共享后台 Session 从建立起固定注册完整工具目录，切换�
   await runner.dispose()
 })
 
+test('后台共享只读工具跨候选和结算保持注册并始终可用', async () => {
+  const submitted = { name: 'candidate_submit_choices', parameters: { type: 'object' } }
+  const recalled = { name: 'tavern_recall_history', parameters: { type: 'object' } }
+  const registered = new Map()
+  const calls = []
+  let currentTask = ''
+  const runner = createBackgroundAgentRunner({
+    id: () => 'background-shared-read-tool',
+    backgroundTools: [submitted],
+    sharedTools: [{
+      tool: recalled,
+      async execute({ input, args }) {
+        calls.push({ task: input.task, sessionId: input.sessionId, args })
+        return JSON.stringify({ found: true })
+      }
+    }],
+    agents: {
+      get: () => ({ id: 'parent', session: { header: {} } }),
+      async create(options) {
+        await options.setup({
+          systemPrompt: { section() {}, suppressRuntimeContext() {} }, on() {},
+          tools: { restrict() {}, register(tool) { registered.set(tool.name, tool) } }
+        })
+        return { agent: {
+          session: { id: 'background-shared-read-tool', events: [], append() {} },
+          followup() {},
+          async whenIdle() {
+            const result = JSON.parse(await registered.get('tavern_recall_history').execute({ query: currentTask }))
+            assert.equal(result.found, true)
+          }
+        }, async dispose() {} }
+      }
+    }
+  })
+
+  currentTask = 'candidate'
+  const first = await runner.run({ sessionId: 'parent', persistent: true, task: currentTask, selection: { provider: 'test', model: 'test' }, messages: [], tools: [], acceptWithoutText: () => true })
+  currentTask = 'settlement'
+  await runner.run({ sessionId: 'parent', persistent: true, persistentSessionId: first.traceSessionId, task: currentTask, selection: { provider: 'test', model: 'test' }, messages: [], tools: [], acceptWithoutText: () => true })
+
+  assert.deepEqual(Array.from(registered.keys()), ['candidate_submit_choices', 'tavern_recall_history'])
+  assert.deepEqual(calls, [
+    { task: 'candidate', sessionId: 'parent', args: { query: 'candidate' } },
+    { task: 'settlement', sessionId: 'parent', args: { query: 'settlement' } }
+  ])
+  await runner.dispose()
+})
+
 test('变量工具返回失败后仍可修正，成功或耗尽次数后撤下工具且只清理一次', async () => {
   for (const success of [true, false]) {
     let registered, disposed = 0, calls = 0, terminal = false
