@@ -18,6 +18,48 @@ const imagePath = 'scene-images/' + createHash('sha256').update('test-chat').dig
 const chatFixture = () => ({ id: 'test-chat', mode: 'story', sessionId: 'parent', settleStatus: 'done', posture: '站在窗边，左手扶窗', messages: [{ role: 'user', text: '走到窗边' }, { role: 'assistant', turn: 2, sourceText: '她站在窗边看雨。', swipes: ['她站在窗边看雨。', '她坐在椅子上。'], swipeId: 0 }] })
 const planFixture = (tags = 'A woman standing at a rainy window') => ({ description: '窗边一景', subjects: [], characters: [], continuity: 'uncertain', scene: { composition: { text: '窗边一景', tags, evidence: [] } } })
 
+test('image Agent can cite historical character designs but not their default outfit as current clothing', async t => {
+  const fx = await fixture(t, { runAgent: async input => {
+    assert.ok(input.tools.some(tool => tool.name === 'character_design_read'))
+    assert.ok(!input.tools.some(tool => tool.name === 'character_design_save'))
+    const read = JSON.parse(await input.onToolCall({ name: 'character_design_read', arguments: { name: '林岚' } }))
+    assert.equal(read.character.design.appearance, '黑色短发')
+    const source = read.sources[0]
+    const field = (text, tags) => ({ text, tags, evidence: [{ source: source.id, quote: text }] })
+    const plan = planFixture()
+    plan.subjects = ['lin']
+    plan.characters = [{ id: 'lin', name: '林岚', identity: { source: source.id, quote: '林岚' }, fields: {
+      appearance: field('黑色短发', 'short black hair'), clothing: field('白色外套', 'white coat')
+    } }]
+    assert.match(await input.onToolCall({ name: 'submit_scene_plan', arguments: { plan } }), /不能只引用初始设定/)
+    delete plan.characters[0].fields.clothing
+    assert.match(await input.onToolCall({ name: 'submit_scene_plan', arguments: { plan } }), /已校验保存/)
+  } })
+  fx.chat().characterDesignDocument = { revision: 1, characters: [{ name: '林岚', design: { appearance: '黑色短发', defaultPresentation: '白色外套' } }] }
+  const historical = structuredClone(fx.chat())
+  fx.deps.stateAtTarget = async () => historical
+  fx.chat().messages.push({ role: 'assistant', turn: 3, text: '之后她染了红发。' })
+  fx.chat().characterDesignDocument.characters[0].design.appearance = '红发'
+  const before = structuredClone(fx.chat())
+  await fx.service.start('parent', 2, sceneTarget(fx.chat(), 2).key)
+  await until(async () => (await fx.service.status('parent', 2)).status === 'succeeded')
+  assert.deepEqual(fx.chat(), before)
+})
+
+test('image reader stays available when historical design snapshot is missing, without reading current designs', async t => {
+  const fx = await fixture(t, { runAgent: async input => {
+    assert.ok(input.tools.some(tool => tool.name === 'character_design_read'))
+    const result = JSON.parse(await input.onToolCall({ name: 'character_design_read', arguments: { name: '林岚' } }))
+    assert.equal(result.found, false)
+    assert.equal(result.character, undefined)
+    await input.onToolCall({ name: 'submit_scene_plan', arguments: { plan: planFixture() } })
+  } })
+  fx.chat().characterDesignDocument = { characters: [{ name: '林岚', design: { appearance: '未来红发' } }] }
+  fx.chat().messages.push({ role: 'assistant', turn: 3, text: '未来。' })
+  await fx.service.start('parent', 2, sceneTarget(fx.chat(), 2).key)
+  await until(async () => (await fx.service.status('parent', 2)).status === 'succeeded')
+})
+
 test('built-in module needs no plugin registration or Studio HTTP and survives restart', async t => {
   let posts = 0
   const fx = await fixture(t, {
@@ -733,7 +775,7 @@ test('provider failure is visible, not auto-retried, explicit retry works', asyn
 
 test('scene references stay out of initial input, bind evidence and cannot alone establish current clothing', async t => {
   const fx = await fixture(t, { runAgent: async input => {
-    assert.deepEqual(input.tools.map(tool => tool.name), ['submit_scene_plan', 'read_scene_reference'])
+    assert.deepEqual(input.tools.map(tool => tool.name), ['submit_scene_plan', 'character_design_read', 'read_scene_reference'])
     assert.equal(input.maxToolCalls, 5)
     assert.doesNotMatch(input.messages[0].content[0].text, /黑色短发|白色裙子/)
     const read = JSON.parse(await input.onToolCall({ name: 'read_scene_reference', arguments: { query: '林岚' } }))
@@ -794,7 +836,7 @@ test('historical reference lookup uses that target snapshot or omits references,
 
 test('format repair happens before image request; a saved plan survives failed final acknowledgement', async t => {
   const fx = await fixture(t, { runAgent: async input => {
-    assert.deepEqual(input.tools.map(tool => tool.name), ['submit_scene_plan'])
+    assert.deepEqual(input.tools.map(tool => tool.name), ['submit_scene_plan', 'character_design_read'])
     assert.equal(input.maxToolCalls, 2)
     const error = await input.onToolCall({ arguments: { plan: { prompt: 'not the schema' } } })
     assert.match(error, /未知字段.*尚未收费.*修正一次/)

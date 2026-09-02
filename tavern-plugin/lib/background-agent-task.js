@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { readSceneImageSystemInstruction } from './scene-image-prompts.js'
+import { CHARACTER_DESIGN_READ_TOOL } from './domain/character-design-document.js'
 import { runtimePresetPhaseMessages } from './domain/runtime-preset-lifecycle.js'
 import { ensureSessionStablePrefix, readSessionStablePrefix } from './domain/session-stable-prefix.js'
 
@@ -163,6 +164,16 @@ export function createBackgroundAgentTask(options) {
         text: state.input.task === 'image' ? readSceneImageSystemInstruction() : backgroundPersona
       })
       childCtx.systemPrompt.suppressRuntimeContext()
+      if (state.input.task === 'image') {
+        childCtx.tools.register({
+          ...CHARACTER_DESIGN_READ_TOOL,
+          output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
+          async execute(args) {
+            if (!state.imageReadTask) return JSON.stringify({ ok: false, error: '当前没有正在执行的绘图任务。' })
+            return state.imageReadTask(args)
+          }
+        })
+      }
       childCtx.tools.restrict({ allow: state.input.task === 'image' ? [] : ['skill', 'web_search'] })
       childCtx.on('system-prompt/assemble', async function (_assembly, _context, next) {
         const assembly = await next()
@@ -201,7 +212,11 @@ export function createBackgroundAgentTask(options) {
   }
 
   function installTaskTools(state, input) {
-    const tools = Array.isArray(input.tools) ? input.tools : []
+    const tools = (Array.isArray(input.tools) ? input.tools : []).filter(tool => input.task !== 'image' || tool.name !== CHARACTER_DESIGN_READ_TOOL.name)
+    if (input.task === 'image') state.imageReadTask = async args => {
+      if (input.stopToolsWhen?.()) return JSON.stringify({ ok: false, error: '画面方案已提交，请结束本轮。' })
+      return str(await input.onToolCall({ name: CHARACTER_DESIGN_READ_TOOL.name, arguments: args }))
+    }
     const maxToolCalls = Number.isInteger(input.maxToolCalls) && input.maxToolCalls > 0 ? input.maxToolCalls : 8
     let toolCallCount = 0
     let removed = false
@@ -241,6 +256,7 @@ export function createBackgroundAgentTask(options) {
     async function removeTools() {
       if (removed) return
       removed = true
+      if (input.task === 'image') state.imageReadTask = null
       for (let index = disposers.length - 1; index >= 0; index--) await disposers[index]()
     }
     const disposers = tools.map(function (tool) {

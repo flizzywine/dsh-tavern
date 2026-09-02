@@ -10,6 +10,8 @@ import { createSceneImageStyles, applyImageStyle, composeSceneImagePrompt } from
 import { createPendingSceneImages } from './scene-image-pending.js'
 import { createSceneImageQueue } from './scene-image-queue.js'
 import { createSceneReferences } from './scene-references.js'
+import { CHARACTER_DESIGN_READ_TOOL } from './character-design-document.js'
+import { createSceneCharacterDesigns } from './scene-character-designs.js'
 import { sceneStateSources } from './scene-state.js'
 import { createSceneImageDiagnostics, sceneAttemptDiagnostic } from './scene-image-diagnostics.js'
 import { createSceneImageReferences, imageReferencePeople } from './scene-image-reference.js'
@@ -251,6 +253,9 @@ export function createSceneIllustrations(deps) {
       const providerTask = ['failed', 'cancelled'].includes(existing?.status) && existing.providerTask && !['rejected', 'failed'].includes(existing.providerTask.state) ? existing.providerTask : undefined
       if (providerTask && (kind !== existing.kind || instruction !== existing.instruction || (options.versionId || '') !== existing.baseVersionId || JSON.stringify({ ...channelSettings(active), style: active.style }) !== JSON.stringify(existing.configuration))) throw new Error('上次 ComfyUI 任务结果待确认，请恢复原渠道与风格配置，并重试原操作以查询；不会重新提交')
       let prepared, material = { omitted: [] }, basePlan, adjustment = false, references
+      const historical = await deps.stateAtTarget?.(chat, target)
+      const latestMessage = [...(chat.messages || [])].reverse().find(item => item.role === 'assistant')
+      const designSnapshot = historical || (Number(latestMessage?.turn || (latestMessage?.greeting ? 1 : 0)) === target.turn && chat.settleStatus === 'done' ? chat : null)
       if (kind !== 'generate') {
         const version = versionsOf(existing).find(item => item.id === options.versionId)
         if (!version) throw new Error('找不到要重画或调整的图片版本')
@@ -259,7 +264,6 @@ export function createSceneIllustrations(deps) {
         prepared = { saved: adjustment ? null : basePlan, input: adjustment ? imageAdjustmentInput(basePlan, instruction, profile, adjustment) : null }
         if (existing?.status === 'failed' && existing.plan && existing.kind === kind && existing.instruction === instruction && existing.baseVersionId === options.versionId && existing.plan.profile === profile && existing.plan.style?.id === style.id) prepared.saved = existing.plan
       } else {
-        const historical = await deps.stateAtTarget?.(chat, target)
         const snapshot = sceneInput(chat, target, historical)
         const basic = sceneSources(chat, target, snapshot)
         prepared = await plans.prepare({ chatId: chat.id, target, ...basic, profile })
@@ -284,6 +288,8 @@ export function createSceneIllustrations(deps) {
       if (prepared.input && expressionGuidance) prepared.input = { ...prepared.input, expressionGuidance }
       const selection = deps.selection(sessionId)
       if (!prepared.saved && !selection) throw new Error('请先为当前对话选择模型，供生图 Agent 理解场景')
+      const characterDesigns = !prepared.saved
+        ? createSceneCharacterDesigns({ snapshot: designSnapshot, target, sources: prepared.sources || [] }) : null
       const controller = new AbortController()
       let claimed = false
       const record = await deps.store.updateJson(path, current => {
@@ -301,7 +307,7 @@ export function createSceneIllustrations(deps) {
       diagnosticSecrets.set(record.requestId, [apiKey])
       const job = { controller, requestId: record.requestId, promise: null }
       jobs.set(path, job)
-      job.promise = execute({ sessionId, chatId: chat.id, target, path, record, prepared, material, references, selectedImageReferences, adjustment, basePlan, profile, style, active, apiKey, selection, controller })
+      job.promise = execute({ sessionId, chatId: chat.id, target, path, record, prepared, material, references, characterDesigns, selectedImageReferences, adjustment, basePlan, profile, style, active, apiKey, selection, controller })
         .finally(() => { jobs.delete(path); diagnosticSecrets.delete(record.requestId) })
       // Failure to persist a failure is reported locally, never as an unhandled rejection.
       job.promise.catch(() => deps.onStorageError?.())
@@ -338,13 +344,21 @@ export function createSceneIllustrations(deps) {
           },
           selection: input.selection, system: input.adjustment ? readSceneAdjustmentInstruction() : readScenePlanInstruction(), signal: controller.signal,
           messages: [{ role: 'user', content: [{ type: 'text', text: JSON.stringify(input.prepared.input) }] }],
-          turnContext: '', tools: [input.adjustment ? SCENE_ADJUSTMENT_TOOL : SCENE_PLAN_TOOL,
+          turnContext: '', tools: [input.adjustment ? SCENE_ADJUSTMENT_TOOL : SCENE_PLAN_TOOL, CHARACTER_DESIGN_READ_TOOL,
             ...(input.references?.metadata.available ? [input.references.tool] : [])],
           maxToolCalls: input.references?.metadata.available ? 5 : 2,
           toolLimitMessage: '绘图工具次数已用完，请停止调用；没有有效方案时不会请求图片。',
           stopToolsWhen: () => Boolean(plan) || submissions >= 2,
           async onToolCall(call) {
             if (plan || submitting || submissions >= 2) return '方案已提交或校验中，不得重复调用。'
+            if (call.name === CHARACTER_DESIGN_READ_TOOL.name) {
+              controller.signal.throwIfAborted()
+              const result = await input.characterDesigns.read(call.arguments)
+              for (const source of result.sources) {
+                if (input.prepared.sources && !input.prepared.sources.some(item => item.id === source.id)) input.prepared.sources.push(source)
+              }
+              return JSON.stringify(result)
+            }
             if (call.name === 'read_scene_reference' && input.references?.metadata.available) {
               controller.signal.throwIfAborted()
               const result = input.references.read(call.arguments)

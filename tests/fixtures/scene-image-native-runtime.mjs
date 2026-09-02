@@ -27,6 +27,7 @@ export async function createSceneImageNativeRuntime(bootPath, { unifiedPlugin = 
   ctx.baseUrl = bootUrl.href
   const requests = [], imageRequests = []
   let referenceQuery = ''
+  let characterQuery = ''
   let useVisualState = false
   let useMultiplePeople = false
   const comfyTasks = new Map()
@@ -38,7 +39,9 @@ export async function createSceneImageNativeRuntime(bootPath, { unifiedPlugin = 
       for (const tool of input.tools || []) assertImageToolSchema(tool)
       const currentMessages = input.messages.slice(Math.max(0, input.messages.findLastIndex(message => message.source?.kind === 'plugin')))
       const referenceResult = currentMessages.flatMap(message => message.content || []).find(block => block.type === 'tool-result' && block.toolCallId === 'reference-call')
-      const referenceTool = referenceQuery && !referenceResult && input.tools?.find(item => item.name === 'read_scene_reference')
+      const referenceTool = !referenceResult && (characterQuery
+        ? input.tools?.find(item => item.name === 'character_design_read')
+        : referenceQuery && input.tools?.find(item => item.name === 'read_scene_reference'))
       const tool = referenceTool || input.tools?.find(item => ['submit_scene_plan', 'submit_image_adjustment'].includes(item.name))
       const plan = { description: '窗边单幅画面', subjects: [], characters: [], continuity: 'uncertain', scene: { composition: { text: '窗边单幅画面', tags: 'A woman standing beside a rain-streaked window, left hand on the frame, quiet evening light.', evidence: [] } } }
       if (useVisualState && tool?.name === 'submit_scene_plan') {
@@ -79,7 +82,7 @@ export async function createSceneImageNativeRuntime(bootPath, { unifiedPlugin = 
       const update = JSON.stringify(input.messages).includes('仅这张改成胶片风格')
         ? { description: '仅这张胶片风格', patches: [], style: { text: '胶片', tags: 'film grain' } }
         : { description: '改为雨夜近景', patches: [{ owner: 'scene', field: 'composition', text: '雨夜近景', tags: 'rainy night, close-up at the window' }] }
-      const args = referenceTool ? { query: referenceQuery } : tool?.name === 'submit_image_adjustment' ? { update } : { plan }
+      const args = referenceTool ? (characterQuery ? { name: characterQuery } : { query: referenceQuery }) : tool?.name === 'submit_image_adjustment' ? { update } : { plan }
       const block = tool ? { type: 'tool-call', id: referenceTool ? 'reference-call' : 'image-call', name: tool.name, arguments: JSON.stringify(args) } : { type: 'text', text: '方案已提交。' }
       yield { type: 'block-start', index: 0, blockType: block.type }
       yield { type: 'block-end', index: 0, block }
@@ -156,6 +159,7 @@ export async function createSceneImageNativeRuntime(bootPath, { unifiedPlugin = 
     failNextSave() { failSave = true },
     holdNextImage() { holdNext = true },
     lookupReferences(query) { referenceQuery = query },
+    lookupCharacterDesigns(name) { characterQuery = name },
     useVisualState() { useVisualState = true },
     useMultiplePeople() { useMultiplePeople = true },
     async exportLogs() {

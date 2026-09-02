@@ -3,6 +3,48 @@ import test from 'node:test'
 
 import { createBackgroundAgentRunner, executeBackgroundCompaction, maximumBackgroundTokens } from '../tavern-plugin/lib/background-agent-runner.js'
 import { readSceneImageSystemInstruction, readScenePlanInstruction } from '../tavern-plugin/lib/scene-image-prompts.js'
+
+test('人物设计读取工具在生图会话中只注册一次，跨任务保持稳定且不泄漏上一任务', async () => {
+  const registered = new Map(), counts = new Map(), answers = []
+  let pending
+  const session = { id: 'image-reader', header: {}, events: [], append(type, data) { this.events.push({ type, data }) } }
+  const agents = {
+    get: () => ({ session: { header: {} } }),
+    async create(options) {
+      await options.setup({
+        systemPrompt: { section() {}, suppressRuntimeContext() {} }, on() {},
+        tools: {
+          restrict() {},
+          register(tool) {
+            registered.set(tool.name, tool)
+            counts.set(tool.name, (counts.get(tool.name) || 0) + 1)
+            return () => registered.delete(tool.name)
+          }
+        }
+      })
+      return { agent: { session, followup() { pending = (async () => {
+        answers.push(await registered.get('character_design_read').execute({ name: '林岚' }))
+        session.append('assistant/message', { message: { content: [{ type: 'text', text: '完成' }] } })
+      })() }, async whenIdle() { await pending } }, async dispose() {} }
+    }
+  }
+  const runner = createBackgroundAgentRunner({ agents, id: () => session.id })
+  try {
+    for (const version of ['第一轮资料', '第二轮资料']) {
+      await runner.run({
+        sessionId: 'parent', persistent: true, task: 'image', selection: { provider: 'test', model: 'fake' },
+        messages: [], tools: [{ name: 'submit_scene_plan', parameters: { type: 'object' } }],
+        onToolCall: async call => { assert.equal(call.name, 'character_design_read'); return version }
+      })
+      assert.ok(registered.has('character_design_read'))
+      assert.equal(registered.has('submit_scene_plan'), false)
+      assert.equal(JSON.parse(await registered.get('character_design_read').execute({})).ok, false, '空闲时不能继续读取旧快照')
+    }
+    assert.deepEqual(answers, ['第一轮资料', '第二轮资料'])
+    assert.equal(counts.get('character_design_read'), 1)
+    assert.equal(registered.has('character_design_save'), false)
+  } finally { await runner.dispose() }
+})
 import { createContextPlanner } from '../tavern-plugin/lib/domain/context-planner.js'
 import { readSessionStablePrefix } from '../tavern-plugin/lib/domain/session-stable-prefix.js'
 import { createNativePlayOrchestrationStrategy } from '../tavern-plugin/lib/domain/foreground-orchestration-strategies.js'

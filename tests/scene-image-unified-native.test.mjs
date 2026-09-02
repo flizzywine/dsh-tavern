@@ -95,3 +95,32 @@ test('生图读取参考、提交方案、调整图片的 Schema 在真实模型
   }
   assert.equal(runtime.imageRequests.length, 2)
 })
+
+test('真实 DSH 生图会话读取人物设计并引用外貌，规划与重画的读取工具定义保持相同', { skip: !process.env.DSH_BOOT_MODULE }, async t => {
+  const runtime = await createSceneImageNativeRuntime(process.env.DSH_BOOT_MODULE, { unifiedPlugin: true })
+  t.after(() => runtime.dispose())
+  runtime.chat.settleStatus = 'done'
+  runtime.chat.characterDesignDocument = { revision: 1, characters: [{ name: '林岚', design: { identity: '室友', appearance: '黑色短发' } }] }
+  runtime.lookupCharacterDesigns('林岚')
+  const target = await runtime.service.status('scene-parent', 1)
+  async function finish(options) {
+    await runtime.service.start('scene-parent', 1, target.key, options)
+    for (let n = 0; n < 300; n++) {
+      const state = await runtime.service.status('scene-parent', 1)
+      if (state.status !== 'running') { assert.equal(state.status, 'succeeded', state.error); return state }
+      await new Promise(resolve => setTimeout(resolve, 20))
+    }
+    assert.fail('image task timed out')
+  }
+  const first = await finish()
+  assert.match(runtime.imageRequests[0].prompt, /short black hair/)
+  await finish({ kind: 'adjust', versionId: first.versions[0].id, instruction: '改成雨夜近景' })
+  const definitions = runtime.requests.map(request => request.tools.find(tool => tool.name === 'character_design_read'))
+  assert.ok(definitions.length >= 4)
+  for (const definition of definitions) {
+    assert.equal(definition?.parameters.type, 'object')
+    assert.equal(definition.parameters.properties.name.type, 'string')
+    assert.deepEqual(definition, definitions[0])
+  }
+  assert.ok(runtime.requests.every(request => !request.tools.some(tool => tool.name === 'character_design_save')))
+})
