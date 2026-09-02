@@ -159,6 +159,22 @@ test('后台模型选择保存为以后新游戏的默认值', async t => {
   assert.deepEqual(events, ['dsh-tavern-settings-changed', 'dsh-tavern-data-changed', 'dsh-tavern-settings-changed', 'dsh-tavern-data-changed'])
 })
 
+test('后台对话框以只读标签显示实际模型，不替换前台模型选择器', () => {
+  const context = {}
+  const start = clientSource.indexOf('function backgroundModelLabel(selection, catalog)')
+  assert.ok(start >= 0)
+  vm.runInNewContext(clientSource.slice(start, clientSource.indexOf('\n\t\tfunction TavernBackgroundModelLabel', start)) +
+    '; this.label = backgroundModelLabel;', context)
+  assert.equal(context.label({ provider: 'vertex', model: 'gemini-flash' }, [{
+    provider: 'vertex', providerName: 'Google', models: [{ id: 'gemini-flash', name: 'Gemini Flash' }]
+  }]), 'Google: Gemini Flash')
+  assert.equal(context.label({ provider: 'custom', model: 'local-model' }, []), 'custom: local-model')
+  assert.match(clientSource, /slots\.inject\("conversation\.input\.right"[\s\S]*?id: "dsh-tavern-background-model"/)
+  assert.match(clientSource, /identity\.label === "酒馆后台 Agent"/)
+  assert.match(clientSource, /className: "dsh-tavern-background-model"/)
+  assert.doesNotMatch(clientSource.slice(clientSource.indexOf('function TavernBackgroundModelLabel'), clientSource.indexOf('function TavernSettingsSection')), /React\.createElement\("button"/)
+})
+
 test('前端兼容开关保存后通知侧栏；真正写入失败才显示失败', async t => {
   const harness = await settingsHarness(t)
   let state = { compatibilityMode: true }

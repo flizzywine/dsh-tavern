@@ -145,6 +145,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 .dsh-tavern-settings-model-row { flex-wrap: wrap; }
 .dsh-tavern-settings-select { flex: 1 1 220px; max-width: 320px; padding: 8px 10px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; color: inherit; background: var(--dsw-specific-input-major); }
 .dsh-tavern-settings-error { color: #c45f5f; font-size: 13px; }
+.dsh-tavern-background-model { min-width: 0; max-width: min(360px,45cqw); height: 28px; display: flex; align-items: center; padding: 0 8px; color: var(--dsw-alias-label-secondary); font-size: 13px; font-weight: 500; line-height: 20px; }
+.dsh-tavern-background-model span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dsh-tavern-system-prompt-editor { display: flex; flex-direction: column; gap: 14px; padding: 18px 20px; }
 .dsh-tavern-system-prompt-warning { margin-bottom: 14px; border: 1px solid rgba(196,95,95,.55); border-radius: 9px; padding: 11px 13px; background: rgba(196,95,95,.1); color: #d98080; font-size: 13px; line-height: 1.55; }
 .dsh-tavern-status-head.dsh-tavern-system-prompt-head { padding: 18px 20px 16px; }
@@ -4654,6 +4656,52 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				)
 			);
 		}
+		const EMPTY_PROJECTION_FACE = Object.freeze({ subscribe: function () { return function () {}; }, getSnapshot: function () { return null; } });
+
+		function backgroundModelLabel(selection, catalog) {
+			if (!selection || !selection.provider || !selection.model) return "";
+			const groups = Array.isArray(catalog) ? catalog : [];
+			const group = groups.find(function (item) { return item && item.provider === selection.provider; });
+			const model = group && Array.isArray(group.models) ? group.models.find(function (item) { return item && item.id === selection.model; }) : null;
+			return (group && (group.providerName || group.provider) || selection.provider) + ": " + (model && (model.name || model.id) || selection.model);
+		}
+
+		function TavernBackgroundModelLabel(props) {
+			const sessionId = String(props.sessionId || "");
+			const binding = sessionId && props.sessions ? props.sessions.binding(sessionId) : null;
+			const subagentFace = binding ? binding.session.projections.faceOf("subagent") : EMPTY_PROJECTION_FACE;
+			const modelFace = binding ? binding.session.projections.faceOf("modelSelection") : EMPTY_PROJECTION_FACE;
+			const identity = React.useSyncExternalStore(
+				function (listener) { return subagentFace.subscribe(listener); },
+				function () { return subagentFace.getSnapshot(); },
+				function () { return subagentFace.getSnapshot(); }
+			);
+			const modelState = React.useSyncExternalStore(
+				function (listener) { return modelFace.subscribe(listener); },
+				function () { return modelFace.getSnapshot(); },
+				function () { return modelFace.getSnapshot(); }
+			);
+			const [catalog, setCatalog] = React.useState([]);
+			const isTavernBackground = Boolean(props.sessions && props.sessions.subagentAddress(sessionId)) && identity && identity.label === "酒馆后台 Agent";
+			React.useEffect(function () {
+				let active = true;
+				if (!isTavernBackground) return function () { active = false; };
+				rpc("getTavernSettings").then(function (result) {
+					if (active) setCatalog(Array.isArray(result.modelCatalog) ? result.modelCatalog : []);
+				}, function () {});
+				return function () { active = false; };
+			}, [isTavernBackground]);
+			if (!isTavernBackground) return null;
+			const selection = modelState && (modelState.next || modelState.lastUsed);
+			const label = backgroundModelLabel(selection, catalog);
+			if (!label) return null;
+			return React.createElement("div", {
+				className: "dsh-tavern-background-model",
+				title: label + "（由 DSH Tavern 在本局开局时固定）",
+				"aria-label": "后台模型：" + label
+			}, React.createElement("span", null, label));
+		}
+
 		function TavernSettingsSection() {
 			const [state, setState] = React.useState({ loading: true, busy: false, compatibilityMode: false, webSearchEnabled: false, backgroundModel: null, modelCatalog: [], sceneImages: false, error: "" });
 			React.useEffect(function () {
@@ -6978,6 +7026,13 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			}
 			playControlsFeature.register({ ctx: ctx, slots: slots });
 			assistantRendererFeature.register({ ctx: ctx, slots: slots });
+			ctx.effect(function () {
+				return slots.inject("conversation.input.right", function () { return slots.register({
+					name: "conversation.input.right",
+					id: "dsh-tavern-background-model",
+					order: 100
+				}, function (props) { return React.createElement(TavernBackgroundModelLabel, Object.assign({}, props, { sessions: ctx.sessions })); }); });
+			}, "dsh-tavern: background model label");
 			ctx.effect(function () {
 				return slots.inject("settings.section", function () { return slots.register({
 					name: "settings.section",
