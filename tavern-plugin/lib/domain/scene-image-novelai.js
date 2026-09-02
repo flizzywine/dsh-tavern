@@ -10,6 +10,7 @@ const models = {
   'nai-diffusion-4-curated-preview': { guidance: 5.5, characters: 6 },
   'nai-diffusion-3': { guidance: 5, characters: 0 }
 }
+export const NOVELAI_MODELS = Object.freeze(Object.keys(models))
 export function novelaiSettings(config) {
   if (!Object.hasOwn(models, config.model)) throw new Error('NovelAI 请选择已接入的 V5、V4.5、V4 或 Anime V3 模型')
   const dimensions = config.size.match(/^(\d+)x(\d+)$/)

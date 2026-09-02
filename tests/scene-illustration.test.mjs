@@ -81,6 +81,24 @@ async function fixture(t, overrides = {}) {
   return { service, createService, deps, store, chat: () => chat, setChat: value => { chat = value }, imageCalls: () => imageCalls }
 }
 
+test('setup checks through illustration service do not save drafts or start agents/images', async t => {
+  const calls = []
+  const fx = await fixture(t, {
+    runAgent: async () => assert.fail('connection checks must not run an Agent'),
+    fetchImpl: async (url, init) => {
+      calls.push({ url, method: init.method })
+      return init.method === 'HEAD' ? new Response(null) : Response.json({ data: [{ id: 'sample-image' }] })
+    }
+  })
+  const before = await fx.service.settings()
+  const draft = { provider: 'openai', baseURL: 'https://new.example/v1', apiKey: 'unsaved-key' }
+  assert.equal((await fx.service.testConnection(draft)).status, 'connected')
+  assert.deepEqual((await fx.service.listModels(draft)).models, ['sample-image'])
+  assert.deepEqual(await fx.service.settings(), before)
+  assert.equal(fx.imageCalls(), 0)
+  assert.deepEqual(calls.map(call => call.method), ['HEAD', 'GET'])
+})
+
 test('image journal retains failed attempts, validation feedback, actual inputs and later success without exposing internals in status', async t => {
   let submissions = 0
   const fx = await fixture(t, { runAgent: async input => {

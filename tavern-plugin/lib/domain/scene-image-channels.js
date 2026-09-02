@@ -1,4 +1,4 @@
-import { novelaiSettings, novelaiRequest } from './scene-image-novelai.js'
+import { novelaiSettings, novelaiRequest, NOVELAI_MODELS } from './scene-image-novelai.js'
 import { comfyWorkflow } from './scene-image-comfy-workflow.js'
 import { imageReferenceCapability } from './scene-image-reference.js'
 
@@ -14,7 +14,7 @@ const channels = [
   { id: 'qwen', label: '百炼 Qwen-Image', baseURL: 'https://dashscope.aliyuncs.com/api/v1', model: 'qwen-image-3.0', size: '1024*1024', fields: ['baseURL', 'model', 'size'], hint: '默认北京地址。其他地域或工作空间请填写控制台提供的 API 根地址，密钥须属于相同地域。' },
   { id: 'webui', label: 'SD WebUI / Forge', baseURL: '', size: '512x512', authType: 'none', username: '', fields: ['baseURL', 'size', 'authType', 'username'], hint: '使用已开启 API 的 WebUI / Forge 服务，沿用服务端模型与默认采样参数。本机地址指 Tavern 服务器，不是访问页面的手机；不会安装模型或修改服务端全局设置。' }
 ]
-export const SCENE_IMAGE_CHANNELS = channels.map(({ id, label, fields, hint }) => ({ id, label, fields, hint }))
+export const SCENE_IMAGE_CHANNELS = channels.map(({ id, label, fields, hint, model }) => ({ id, label, fields, hint, models: id === 'novelai' ? NOVELAI_MODELS : model ? [model] : [], canListModels: ['openai', 'banana', 'gemini', 'grok', 'seedream'].includes(id) }))
 export function sceneImageChannel(id = 'openai') {
   const channel = channels.find(item => item.id === id)
   if (!channel) throw new Error('未知或尚未接入的生图渠道')

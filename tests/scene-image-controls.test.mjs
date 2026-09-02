@@ -120,6 +120,44 @@ test('ComfyUI file chooser stores the parsed graph only on explicit save and has
   assert.equal(calls.length, 1)
 })
 
+test('setup order, read-only draft checks, model selection and stale status clearing', async () => {
+  const slots = [], calls = []
+  let cursor = 0
+  const context = vm.createContext({
+    React: { createElement: (type, props, ...children) => ({ type, props, children }), useEffect() {}, useState(initial) { const n = cursor++; if (!(n in slots)) slots[n] = initial; return [slots[n], value => { slots[n] = typeof value === 'function' ? value(slots[n]) : value }] } },
+    window: { dispatchEvent() {} }, CustomEvent: class {},
+    rpc: async (method, args) => { calls.push({ method, args }); return method === 'testSceneImageConnection' ? { status: 'reachable', message: '已连通' } : { models: ['new-image'], message: '已获取' } }
+  })
+  const Component = vm.runInContext(extract('SceneImageSettings', 'TavernSettingsSection') + ';SceneImageSettings', context)
+  const nodes = tree => tree && typeof tree === 'object' ? [tree, ...(tree.children || []).flat(Infinity).flatMap(nodes)] : []
+  const render = () => { cursor = 0; return nodes(Component()) }
+  render()
+  slots[0] = { provider: 'openai', baseURL: 'https://example.test/v1', model: 'image-default', size: '1024x1024', style: { preset: 'default', custom: '' }, channels: [{ id: 'openai', fields: ['baseURL', 'model', 'size'], models: ['image-default'], canListModels: true }] }
+  let tree = render()
+  const labelIndex = name => tree.findIndex(node => node.type === 'label' && node.children[0] === name)
+  const buttonIndex = name => tree.findIndex(node => node.type === 'button' && node.children.includes(name))
+  assert.ok(labelIndex('提供商') < labelIndex('API Key'))
+  assert.ok(labelIndex('API Key') < buttonIndex('测试连接'))
+  assert.ok(buttonIndex('测试连接') < labelIndex('生图模型'))
+  assert.ok(labelIndex('生图模型') < labelIndex('图片尺寸／分辨率'))
+  tree.find(node => node.type === 'input' && node.props.type === 'password').props.onChange({ target: { value: 'draft-key' } })
+  const button = name => render().find(node => node.type === 'button' && node.children.includes(name))
+  await button('测试连接').props.onClick()
+  assert.equal(calls[0].method, 'testSceneImageConnection')
+  assert.equal(calls[0].args.apiKey, 'draft-key')
+  assert.equal(slots[2], 'draft-key', 'probe does not discard unsaved credential')
+  assert.ok(render().some(node => node.props?.['data-connection-status'] === 'reachable'))
+  await button('获取模型列表').props.onClick()
+  tree = render()
+  assert.ok(tree.some(node => node.type === 'option' && node.props.value === 'new-image'))
+  tree.find(node => node.type === 'select' && node.props.value === 'image-default').props.onChange({ target: { value: 'new-image' } })
+  assert.equal(slots[0].model, 'new-image')
+  render().find(node => node.type === 'input' && node.props.value === 'https://example.test/v1').props.onChange({ target: { value: 'https://another.test/v1' } })
+  assert.ok(!render().some(node => node.props?.['data-connection-status']))
+  assert.ok(!render().some(node => node.type === 'option' && node.props.value === 'new-image'))
+  assert.deepEqual(calls.map(call => call.method), ['testSceneImageConnection', 'listSceneImageModels'])
+})
+
 test('reference chooser never preselects a group member, freezes consent and permits per-person revocation while disabled', async () => {
   const slots = [], calls = []
   let cursor = 0

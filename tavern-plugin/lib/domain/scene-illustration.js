@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { projectAgentContent } from './runtime-content-projection.js'
 import { generateSceneImage } from './scene-image-provider.js'
 import { createSceneImageSettings } from './scene-image-settings.js'
+import { createSceneImageConnection } from './scene-image-connection.js'
 import { channelSettings, channelReady, imageExpressionProfile, imageExpressionGuidance } from './scene-image-channels.js'
 import { createScenePlans, SCENE_PLAN_INSTRUCTION, SCENE_PLAN_TOOL } from './scene-plan.js'
 import { imageAdjustmentInput, applyImageAdjustment, legacyImagePlan, SCENE_ADJUSTMENT_INSTRUCTION, SCENE_ADJUSTMENT_TOOL } from './scene-image-adjustment.js'
@@ -113,6 +114,7 @@ export function createSceneIllustrations(deps) {
   imageHosts.set(ownerId, path => jobs.has(path) || starts.has(path))
   imageAborters.set(ownerId, (path, requestId) => { const job = jobs.get(path); if (job?.requestId === requestId) job.controller.abort() })
   const { config, settings, configure, capture } = createSceneImageSettings(deps)
+  const connection = createSceneImageConnection({ settings, credentials: deps.credentials, fetchImpl: deps.fetchImpl })
   const plans = createScenePlans({ store: deps.store })
   const styles = createSceneImageStyles({ store: deps.store })
   const pendingImages = createPendingSceneImages(deps.store)
@@ -499,7 +501,7 @@ export function createSceneIllustrations(deps) {
     })
     return present(target, next)
   }
-  return { settings, configure, status, start, cancel, retrySave, readImage, removeImage, setReference,
+  return { settings, configure, testConnection: connection.test, listModels: connection.models, status, start, cancel, retrySave, readImage, removeImage, setReference,
     async dispose() { for (const job of jobs.values()) job.controller.abort(); await Promise.allSettled([...jobs.values()].map(job => job.promise)); imageHosts.delete(ownerId); imageAborters.delete(ownerId) }
   }
 }
