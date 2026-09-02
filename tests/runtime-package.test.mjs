@@ -43,7 +43,7 @@ test('CDN 清单生成器包含全部依赖补丁及其校验值', async t => {
   const manifest = JSON.parse(await readFile(path.join(fixture, 'dsh-tavern-runtime.json'), 'utf8'))
   assert.equal(manifest.schemaVersion, 2)
   assert.equal(manifest.releaseSequence, 42)
-  assert.equal(manifest.version, '1.2.0')
+  assert.equal(manifest.version, JSON.parse(await readFile(path.join(fixture, 'package.json'), 'utf8')).version)
   for (const file of required) {
     const entry = manifest.files.find(entry => entry.path === file)
     assert.ok(entry, `CDN 清单遗漏：${file}`)

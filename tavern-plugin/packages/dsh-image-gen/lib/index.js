@@ -3304,8 +3304,23 @@ async function requestSceneImage(input, deps) {
 		body: JSON.stringify(spec.body)
 	});
 	if (!response.ok) {
-		await response.body?.cancel();
-		const error = /* @__PURE__ */ new Error("生图服务请求失败（HTTP " + response.status + "）");
+		let detail = {};
+		try {
+			const payload = JSON.parse((await boundedBytes(response, 8192)).toString("utf8"));
+			const value = payload?.error && typeof payload.error === "object" ? payload.error : payload;
+			const message = typeof payload?.error === "string" ? payload.error : value?.message || (typeof payload?.detail === "string" ? payload.detail : "");
+			const safe = (value) => redactSceneDiagnostic(value, [input.apiKey]).replace(/[\u0000-\u001f\u007f]/g, " ").slice(0, 400);
+			detail = Object.fromEntries(Object.entries({
+				message,
+				code: value?.code,
+				param: value?.param
+			}).filter(([, item]) => typeof item === "string").map(([key, item]) => [key, safe(item)]));
+		} catch {}
+		const error = /* @__PURE__ */ new Error("生图服务请求失败（HTTP " + response.status + "）" + (detail.message ? "：" + detail.message : "") + (detail.param ? "（字段：" + detail.param + "）" : ""));
+		error.imageFailure = {
+			httpStatus: response.status,
+			...detail
+		};
 		if ([
 			400,
 			401,
