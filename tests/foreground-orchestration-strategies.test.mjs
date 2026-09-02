@@ -122,6 +122,18 @@ test('兼容与普通游玩均清空独立系统提示，工具过滤不受影�
   assert.deepEqual(nativeAssembly.tools.map(function (tool) { return tool.name }), ['read'])
 })
 
+test('兼容前台仅在游戏快照开启时保留联网搜索工具', async () => {
+  const run = strategies()
+  const chat = run.chats.get('compat')
+  const tools = [{ name: 'bash' }, { name: 'web_search' }]
+  const disabled = await run.value.assembleSystemPrompt({ sections: [{ name: 'old' }], contexts: [{}], tools: tools.slice() }, { sessionId: 'compat', chat })
+  assert.deepEqual(disabled.tools, [])
+
+  chat.webSearchEnabled = true
+  const enabled = await run.value.assembleSystemPrompt({ sections: [{ name: 'old' }], contexts: [{}], tools: tools.slice() }, { sessionId: 'compat', chat })
+  assert.deepEqual(enabled.tools.map(function (tool) { return tool.name }), ['web_search'])
+})
+
 for (const mode of ['story', 'script']) {
   test(`${mode} 不加载 play-mode，也不会回退到 DSH 默认人格`, async () => {
     const strategy = createNativePlayOrchestrationStrategy({

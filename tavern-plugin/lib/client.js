@@ -4653,11 +4653,11 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			);
 		}
 		function TavernSettingsSection() {
-			const [state, setState] = React.useState({ loading: true, busy: false, compatibilityMode: false, sceneImages: false, error: "" });
+			const [state, setState] = React.useState({ loading: true, busy: false, compatibilityMode: false, webSearchEnabled: false, sceneImages: false, error: "" });
 			React.useEffect(function () {
 				let active = true;
 				rpc("getTavernSettings").then(function (result) {
-					if (active) setState({ loading: false, busy: false, compatibilityMode: Boolean(result.settings && result.settings.compatibilityMode), sceneImages: Boolean(result.releaseCapabilities && result.releaseCapabilities.sceneImages), error: "" });
+					if (active) setState({ loading: false, busy: false, compatibilityMode: Boolean(result.settings && result.settings.compatibilityMode), webSearchEnabled: Boolean(result.settings && result.settings.webSearchEnabled), sceneImages: Boolean(result.releaseCapabilities && result.releaseCapabilities.sceneImages), error: "" });
 				}, function (error) {
 					if (active) setState(function (current) { return Object.assign({}, current, { loading: false, busy: false, error: String(error && error.message || error) }); });
 				});
@@ -4674,6 +4674,17 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					setState(function (current) { return Object.assign({}, current, { busy: false, error: String(error && error.message || error) }); });
 				}
 			}
+			async function setWebSearchEnabled(enabled) {
+				setState(function (current) { return Object.assign({}, current, { busy: true, error: "" }); });
+				try {
+					const result = await rpc("updateTavernSettings", { patch: { webSearchEnabled: enabled } });
+					setState(function (current) { return Object.assign({}, current, { loading: false, busy: false, webSearchEnabled: Boolean(result.settings && result.settings.webSearchEnabled), error: "" }); });
+					window.dispatchEvent(new CustomEvent("dsh-tavern-settings-changed"));
+					window.dispatchEvent(new CustomEvent("dsh-tavern-data-changed"));
+				} catch (error) {
+					setState(function (current) { return Object.assign({}, current, { busy: false, error: String(error && error.message || error) }); });
+				}
+			}
 			return React.createElement("div", { className: "dsh-tavern-settings-section" },
 				React.createElement("p", { className: "dsh-tavern-settings-intro" }, "管理 DSH Tavern 的可选实验功能。"),
 				React.createElement("div", { className: "dsh-tavern-settings-group" },
@@ -4684,6 +4695,16 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 						),
 						React.createElement("span", { className: "dsh-tavern-settings-switch" },
 							React.createElement("input", { type: "checkbox", checked: state.compatibilityMode, disabled: state.loading || state.busy, onChange: function (event) { void setCompatibilityMode(event.target.checked); }, "aria-label": "启用兼容模式（实验性）" }),
+							React.createElement("span", { className: "dsh-tavern-settings-track", "aria-hidden": "true" })
+						)
+					),
+					React.createElement("label", { className: "dsh-tavern-settings-row" },
+						React.createElement("span", { className: "dsh-tavern-settings-copy" },
+							React.createElement("span", { className: "dsh-tavern-settings-title" }, "开启联网搜索"),
+							React.createElement("span", { className: "dsh-tavern-settings-desc" }, "开启后，新建游戏的前台与后台 Agent 都可以按需联网搜索。能力在开局时固化，修改此设置不会影响已有游戏。")
+						),
+						React.createElement("span", { className: "dsh-tavern-settings-switch" },
+							React.createElement("input", { type: "checkbox", checked: state.webSearchEnabled, disabled: state.loading || state.busy, onChange: function (event) { void setWebSearchEnabled(event.target.checked); }, "aria-label": "开启联网搜索" }),
 							React.createElement("span", { className: "dsh-tavern-settings-track", "aria-hidden": "true" })
 						)
 					)

@@ -17,6 +17,11 @@
   config:
     default: tavern
     includeUserRoot: false
+- id: tool-web
+  disabled: false
+  config:
+    search: true
+    fetch: false
 - insert:
     - id: tavern-cordis-inspect
       name: dsh-tavern-plugin/cordis-inspect

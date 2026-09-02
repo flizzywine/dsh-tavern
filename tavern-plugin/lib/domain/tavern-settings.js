@@ -11,6 +11,7 @@ export function applyTavernSettingsPatch(current, patch) {
   const next = Object.assign({}, object(current))
   const input = object(patch)
   if (Object.prototype.hasOwnProperty.call(input, 'compatibilityMode')) next.compatibilityMode = input.compatibilityMode === true
+  if (Object.prototype.hasOwnProperty.call(input, 'webSearchEnabled')) next.webSearchEnabled = input.webSearchEnabled === true
   const legacyStory = Object.prototype.hasOwnProperty.call(input, 'storyPrompt') ? { name: 'story', text: input.storyPrompt } : null
   const promptChange = Object.prototype.hasOwnProperty.call(input, 'systemPrompt') ? object(input.systemPrompt) : legacyStory
   if (promptChange !== null) {
@@ -55,6 +56,7 @@ export function presentTavernSettings(document, defaults) {
   const story = prompts.find(function (item) { return item.name === 'story' }) || { text: '', customized: false }
   return {
     compatibilityMode: object(document).compatibilityMode === true,
+    webSearchEnabled: object(document).webSearchEnabled === true,
     // Card rendering uses a fixed trusted policy; legacy preferences are no longer applied.
     trustedCardMode: true,
     systemPrompts: prompts,

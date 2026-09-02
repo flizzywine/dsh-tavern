@@ -24,6 +24,21 @@ test('creation preserves opening source/projection, stable context, request mode
   assert.ok(h.trace.indexOf('wait') < h.trace.indexOf('chat.create'))
 })
 
+test('新游戏固化创建时的联网搜索设置，之后不随设置变化', async () => {
+  const h = initializationFixture()
+  h.state.settings.webSearchEnabled = true
+  const created = await h.make().start(h.input)
+  assert.equal(created.webSearchEnabled, true)
+
+  h.state.settings.webSearchEnabled = false
+  assert.equal((await h.make().start(h.input)).webSearchEnabled, true)
+
+  const fresh = initializationFixture()
+  assert.equal((await fresh.make().start(fresh.input)).webSearchEnabled, false)
+  fresh.state.settings.webSearchEnabled = true
+  assert.equal((await fresh.make().start({ ...fresh.input, cardPath: '', mode: 'card' })).webSearchEnabled, false)
+})
+
 test('double clicks and ensureOpening share session ordering and do not create duplicate chats or native events', async () => {
   const h = initializationFixture(), api = h.make()
   const result = await Promise.all([api.start(h.input), api.start(h.input), api.ensureOpening('session')])

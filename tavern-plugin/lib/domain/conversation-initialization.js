@@ -48,6 +48,7 @@ export function createConversationInitialization(options) {
       userProfileEnabled: false,
       userProfileRevision: 0,
       userProfileContextSnapshot: '',
+      webSearchEnabled: false,
       macroState: { userName: '你', local: {}, global: {} },
       settleStatus: 'idle',
       settleError: null,
@@ -121,6 +122,7 @@ export function createConversationInitialization(options) {
     chat.runtimePresetPath = ''
     chat.macroState = macroState
     chat.userProfileEnabled = groupOfMode(chat.mode) === 'play' && userProfileEnabled === true
+    chat.webSearchEnabled = groupOfMode(chat.mode) === 'play' && currentSettings.webSearchEnabled === true
     chat.mvu = usesMvu ? {
       enabled: true,
       owner: 'official',

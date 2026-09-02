@@ -53,7 +53,8 @@ function harness({ mode = 'story', outputs, initialCandidates, initialCandidateA
       maxTokens: options.maxTokens,
       persistent: options.persistent,
       persistentSessionId: options.persistentSessionId,
-      rewindTo: Number.isSafeInteger(options.rewindTo) ? options.rewindTo : null
+      rewindTo: Number.isSafeInteger(options.rewindTo) ? options.rewindTo : null,
+      webSearchEnabled: options.webSearchEnabled === true
     })
   }
   async function nextOutput(options) {
@@ -83,6 +84,14 @@ function harness({ mode = 'story', outputs, initialCandidates, initialCandidateA
     async writeChat(next) {
       if (typeof writeChatHook === 'function') await writeChatHook(next, chat)
       chat = structuredClone(next)
+    },
+    async updateChat(_id, update) {
+      const next = await update(structuredClone(chat))
+      if (next !== undefined) {
+        if (typeof writeChatHook === 'function') await writeChatHook(next, chat)
+        chat = structuredClone(next)
+      }
+      return structuredClone(chat)
     }
   }
   const model = {
@@ -132,6 +141,13 @@ test('普通和剧本候选都分离固定背景、逐轮指令与动态状态',
     assert.equal(request.postHistoryText, '本轮历史后指令')
     assert.doesNotMatch(JSON.stringify(request.messages), /稳定候选上下文/)
   }
+})
+
+test('候选后台继承当前游戏固化的联网搜索能力', async () => {
+  const run = harness({ outputs: [JSON.stringify({ choices: storyChoices })] })
+  run.mutateChat(chat => { chat.webSearchEnabled = true })
+  await run.candidates.generate({ sessionId: 'session-1', messageId: 'm1' })
+  assert.equal(run.modelRequests[0].webSearchEnabled, true)
 })
 
 test('开场白后的首次候选会先等待完整后台结算，再规划候选', async () => {

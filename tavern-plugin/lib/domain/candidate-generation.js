@@ -392,7 +392,8 @@ export function createCandidateGenerator(options) {
       messages,
       persistent: true,
       persistentSessionId,
-      rewindTo: participantRequest.rewindTo
+      rewindTo: participantRequest.rewindTo,
+      webSearchEnabled: chat.webSearchEnabled === true
     }
     async function execute() {
       let run

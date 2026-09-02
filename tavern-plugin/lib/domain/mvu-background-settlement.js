@@ -508,6 +508,7 @@ export function createMvuSettlementModule(options = {}) {
         stopToolsWhen: () => feedback !== null && (feedback.ok || !feedback.retryable),
         acceptWithoutText: () => result !== null,
         temperature: 0.1, sessionId: input.sessionId, turn: Math.max(0, Number(input.turn) || 0),
+        webSearchEnabled: input.webSearchEnabled === true,
         onToolCall(call) {
           const pending = toolTail.then(() => executeTool(call))
           toolTail = pending.catch(() => {})

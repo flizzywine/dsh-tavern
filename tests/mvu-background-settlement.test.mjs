@@ -57,7 +57,7 @@ test('深模块强制一次工具调用并以官方 Runtime 的实际差异生�
   const module = createMvuSettlementModule({
     model: {
       async run(input) {
-        modelCalls.push(structuredClone({ messages: input.messages, turnContext: input.turnContext, rewindTo: input.rewindTo }))
+        modelCalls.push(structuredClone({ messages: input.messages, turnContext: input.turnContext, rewindTo: input.rewindTo, webSearchEnabled: input.webSearchEnabled }))
         await input.onToolCall({ name: 'posture_submit', arguments: { posture: '扶墙站立' } })
         await input.onToolCall({
           name: 'mvu_submit_update',
@@ -80,11 +80,12 @@ test('深模块强制一次工具调用并以官方 Runtime 的实际差异生�
   const result = await module.settleVariables({
     operationId: 'operation-1', chatId: 'chat-1', branchId: 'branch-1', basedOnRevision: 5,
     sessionId: 'session-1', turn: 2, messageId: 1, swipeId: 0, expectedLifecycleRevision: 3,
-    storyText: '她受伤后扶墙站立。', selection: { provider: 'test', model: 'test' },
+    storyText: '她受伤后扶墙站立。', selection: { provider: 'test', model: 'test' }, webSearchEnabled: true,
     currentVariables: { stat_data: { 体力: 10 }, schema: { type: 'object' } }
   })
 
   assert.equal(modelCalls[0].rewindTo, -1)
+  assert.equal(modelCalls[0].webSearchEnabled, true)
   assert.equal(modelCalls[0].messages.length, 1)
   assert.equal(runtimeCalls.length, 1)
   assert.match(runtimeCalls[0].command, /"op": "delta"/)

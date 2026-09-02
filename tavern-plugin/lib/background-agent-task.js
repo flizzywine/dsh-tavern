@@ -162,7 +162,14 @@ export function createBackgroundAgentTask(options) {
         text: state.input.task === 'image' ? '你是独立的场景生图 Agent，不续写故事、不修改变量。你会持续处理同一游戏的绘图任务；旧任务只供参考，当前目标材料与已保存方案是本次依据。不要沿用已废弃分支、旧站位或之前仅限单图的调整；严格按每轮末尾追加的任务协议执行。' : backgroundPersona
       })
       childCtx.systemPrompt.suppressRuntimeContext()
-      childCtx.tools.restrict({ allow: state.input.task === 'image' ? [] : ['skill'] })
+      childCtx.tools.restrict({ allow: state.input.task === 'image' ? [] : ['skill', 'web_search'] })
+      childCtx.on('system-prompt/assemble', async function (_assembly, _context, next) {
+        const assembly = await next()
+        if (state.input.task !== 'image' && state.input.webSearchEnabled === true) return assembly
+        assembly.sections = (assembly.sections || []).filter(function (section) { return section && section.name !== 'tool:web_search' })
+        assembly.tools = (assembly.tools || []).filter(function (tool) { return tool && tool.name !== 'web_search' })
+        return assembly
+      })
       if (state.input.task !== 'image') {
         state.stableToolDisposers = stableBackgroundTools.map(function (tool) {
           return childCtx.tools.register({

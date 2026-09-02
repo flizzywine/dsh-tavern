@@ -1496,7 +1496,8 @@ export async function apply(ctx) {
             currentVariables: mvuTarget.variables,
             variableSchema: mvuTarget.variables.schema,
             updateRules: await mvuUpdateRules(snapshot, card),
-            characterDesignDocument: snapshot.characterDesignDocument
+            characterDesignDocument: snapshot.characterDesignDocument,
+            webSearchEnabled: snapshot.webSearchEnabled === true
           }
           const pendingSubmission = mvuTarget.message.mvu && mvuTarget.message.mvu.pendingSubmission
           if (pendingSubmission && typeof pendingSubmission === 'object') {
@@ -1538,6 +1539,7 @@ export async function apply(ctx) {
             maxToolCalls: 3,
             temperature: 0.2,
             sessionId: snapshot.sessionId,
+            webSearchEnabled: snapshot.webSearchEnabled === true,
             stopToolsWhen: function () { return submittedPosture !== null },
             acceptWithoutText: function () { return submittedPosture !== null },
             async onToolCall(call) {
@@ -2551,7 +2553,7 @@ export async function apply(ctx) {
     })
   }
 
-  const controlledToolNames = new Set(['bash', 'pwsh', 'str_replace_editor', 'skill', 'tavern_save_skill', ...cordisToolNames, 'tavern_user_profile_read', 'tavern_user_profile_save_draft', 'tavern_user_profile_confirm', 'tavern_read_card', 'tavern_read_card_raw', 'tavern_read_play_chat', 'tavern_read_script', 'tavern_recall_history', 'tavern_read_worldbook', 'tavern_update_worldbook', 'tavern_read_preset', 'tavern_update_preset', 'tavern_update_card', 'tavern_restore_card'])
+  const controlledToolNames = new Set(['bash', 'pwsh', 'str_replace_editor', 'skill', 'web_search', 'tavern_save_skill', ...cordisToolNames, 'tavern_user_profile_read', 'tavern_user_profile_save_draft', 'tavern_user_profile_confirm', 'tavern_read_card', 'tavern_read_card_raw', 'tavern_read_play_chat', 'tavern_read_script', 'tavern_recall_history', 'tavern_read_worldbook', 'tavern_update_worldbook', 'tavern_read_preset', 'tavern_update_preset', 'tavern_update_card', 'tavern_restore_card'])
   const foregroundStrategies = createForegroundOrchestrationStrategies({
     compatibility: {
       beforeTurn: async function (input) {

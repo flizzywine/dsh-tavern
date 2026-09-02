@@ -34,6 +34,7 @@ function harness(mode, options = {}) {
     id: 'chat-1', cardPath: options.draft ? '' : 'cards/阿芙拉.json', cardName: options.draft ? '卡片工作台' : card.name, mode,
     messages: [], posture: '站在窗边', guides: [], nativeCommits: {},
     preparedWorldBookContext: options.preparedWorldBookContext || '',
+    webSearchEnabled: options.webSearchEnabled === true,
     runtimePresetSnapshot: clone(options.runtimePresetSnapshot || null),
     macroState: { userName: 'User', local: {}, global: {} },
     scriptState: mode === 'script' ? scripts.start(script(), 0) : null,
@@ -639,6 +640,13 @@ test('前台自由故事和剧本模式稳定暴露历史正文检索工具', as
 
   assert.deepEqual(await story.orchestrator.visibleTools('session-1'), ['tavern_recall_history'])
   assert.deepEqual(await script.orchestrator.visibleTools('session-1'), ['tavern_read_script', 'tavern_recall_history'])
+})
+
+test('前台只在新游戏快照启用时暴露联网搜索，卡片工作台不继承', async () => {
+  assert.deepEqual(await harness('story').orchestrator.visibleTools('session-1'), ['tavern_recall_history'])
+  assert.deepEqual(await harness('story', { webSearchEnabled: true }).orchestrator.visibleTools('session-1'), ['tavern_recall_history', 'web_search'])
+  assert.deepEqual(await harness('script', { webSearchEnabled: true }).orchestrator.visibleTools('session-1'), ['tavern_read_script', 'tavern_recall_history', 'web_search'])
+  assert.equal((await harness('card', { webSearchEnabled: true }).orchestrator.visibleTools('session-1')).includes('web_search'), false)
 })
 
 test('空白工作台缺少新卡必填信息时不接受确认提交', async () => {
