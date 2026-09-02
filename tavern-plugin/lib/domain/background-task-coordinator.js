@@ -22,7 +22,7 @@ export function createBackgroundTaskCoordinator(options = {}) {
   const timeline = options.timeline
   const blocked = typeof options.blocked === 'function' ? options.blocked : function () { return false }
   const mutationTails = new Map()
-  if (!store || typeof store.readChat !== 'function' || typeof store.writeChat !== 'function' || !timeline) {
+  if (!store || typeof store.readChat !== 'function' || typeof store.writeChat !== 'function' || typeof store.updateChat !== 'function' || !timeline) {
     throw new Error('Background Task Coordinator 缺少存储或时间线 adapter')
   }
 
@@ -167,21 +167,23 @@ export function createBackgroundTaskCoordinator(options = {}) {
       },
       async commit(input = {}) {
         return await serialize(begun.chat.id, async function () {
-          const latest = await store.readChat(begun.chat.id)
-          if (latest === undefined) return { chat: null, status: 'missing' }
-          const completed = timeline.complete({
-            chat: latest,
-            operationId: begun.value.operationId,
-            basedOn: begun.value.basedOn,
-            outcome: {
-              status: input.status || 'success',
-              stateChanged: input.stateChanged === true,
-              participant: input.participant || null
-            },
-            apply: input.apply
-          })
-          await store.writeChat(completed.chat, { source: 'background.' + str(role) + '.commit', operationId: begun.value.operationId })
-          return { chat: completed.chat, status: completed.value.status }
+          let status = 'missing'
+          const saved = await store.updateChat(begun.chat.id, function (latest) {
+            const completed = timeline.complete({
+              chat: latest,
+              operationId: begun.value.operationId,
+              basedOn: begun.value.basedOn,
+              outcome: {
+                status: input.status || 'success',
+                stateChanged: input.stateChanged === true,
+                participant: input.participant || null
+              },
+              apply: input.apply
+            })
+            status = completed.value.status
+            return completed.chat
+          }, { source: 'background.' + str(role) + '.commit', operationId: begun.value.operationId })
+          return saved === undefined ? { chat: null, status: 'missing' } : { chat: saved, status }
         })
       },
       async fail(trace) {

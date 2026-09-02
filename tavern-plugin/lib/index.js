@@ -1194,7 +1194,7 @@ export async function apply(ctx) {
   }
   let tavernCompaction = null
   const backgroundTasks = createBackgroundTaskCoordinator({
-    store: { readChat, writeChat },
+    store: { readChat, writeChat, updateChat },
     timeline: storyTimeline,
     blocked: function (chat) { return tavernCompaction !== null && tavernCompaction.blocked(chat) }
   })

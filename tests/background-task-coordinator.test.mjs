@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { createChatPersistence } from '../tavern-plugin/lib/domain/chat-persistence.js'
 import { createStoryTimeline } from '../tavern-plugin/lib/domain/story-timeline.js'
 
 import {
@@ -23,7 +24,13 @@ function coordinatorHarness(options = {}) {
     blocked: options.blocked,
     store: {
       async readChat() { return current },
-      async writeChat(chat) { current = chat; writes.push(chat) }
+      async writeChat(chat) { current = chat; writes.push(chat) },
+      async updateChat(_chatId, mutation) {
+        const next = await mutation(current)
+        if (next !== undefined) current = next
+        writes.push(current)
+        return current
+      }
     }
   })
   return { coordinator, timeline, current: function () { return current }, writes }
@@ -45,6 +52,70 @@ test('后台任务通过一个 interface 原子开始、重载并提交时间线
   assert.equal(result.chat.posture, '门边站立。')
   assert.equal(harness.writes.length, 2)
   assert.equal(harness.current().timeline.participants.background.sessionId, 'background-1')
+})
+
+test('展示刷新插入结算提交时，后台基于最新 Chat 原子保留双方消息差量', async () => {
+  let value = {
+    id: 'chat-1', mode: 'story',
+    messages: [{ role: 'assistant', text: '正文', displayRuntime: null, mvu: { pending: true } }],
+    posture: '', candidates: null, settleStatus: 'idle', settleError: null,
+    _storageRevision: 1
+  }
+  let tail = Promise.resolve()
+  const persistence = createChatPersistence({
+    now: () => 1000,
+    data: {
+      async readJson() { return structuredClone(value) },
+      async updateJson(_path, updater) {
+        const current = tail.then(async function () {
+          const next = await updater(structuredClone(value))
+          if (next !== undefined) value = structuredClone(next)
+          return structuredClone(value)
+        })
+        tail = current.catch(function () {})
+        return await current
+      },
+      async remove() {}
+    }
+  })
+  let injectDisplayRefresh = false
+  async function refreshDisplay() {
+    await persistence.update('chat-1', function (chat) {
+      chat.messages[0].displayRuntime = { dom: '<p>正文</p>' }
+      return chat
+    }, { source: 'display.capture' })
+  }
+  const timeline = createStoryTimeline({ id: prefix => prefix + '-1', now: () => 1000 })
+  const coordinator = createBackgroundTaskCoordinator({
+    timeline,
+    store: {
+      readChat: chatId => persistence.read(chatId),
+      async writeChat(chat, metadata) {
+        if (injectDisplayRefresh) {
+          injectDisplayRefresh = false
+          await refreshDisplay()
+        }
+        return await persistence.write(chat, metadata)
+      },
+      async updateChat(chatId, mutation, metadata) {
+        if (injectDisplayRefresh) {
+          injectDisplayRefresh = false
+          await refreshDisplay()
+        }
+        return await persistence.update(chatId, mutation, metadata)
+      }
+    }
+  })
+
+  const task = await coordinator.begin(await persistence.read('chat-1'), 'settlement')
+  injectDisplayRefresh = true
+  const result = await task.commit({
+    stateChanged: true,
+    apply(chat) { chat.messages[0].mvu = { pending: false, modified: true } }
+  })
+
+  assert.deepEqual(result.chat.messages[0].displayRuntime, { dom: '<p>正文</p>' })
+  assert.deepEqual(result.chat.messages[0].mvu, { pending: false, modified: true })
 })
 
 test('Tavern 联合压缩期间不允许启动新的后台任务', async () => {
