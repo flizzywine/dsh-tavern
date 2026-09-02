@@ -147,7 +147,7 @@ export function createSceneIllustrations(deps) {
     return { key: target.key, turn: target.turn, status: 'idle', ...publicRecord, ...(publicRecord.configuration ? { configuration: configuration(publicRecord.configuration) } : {}), versions: versionsOf(record).map(({ attachment, plan, ...item }) => ({ ...item, configuration: configuration(item.configuration), description: plan?.description || '', profile: plan?.profile || '',
       referencePeople: imageReferencePeople({ plan }),
       referenceSingle: plan?.subjects?.length === 1 && imageReferencePeople({ plan }).length === 1,
-      referencePerson: plan?.people?.length === 1 && plan.subjects?.length === 1 && plan.people[0].id === plan.subjects[0] && plan.people[0].identity?.quote ? plan.people[0].name : '' })) }
+      referencePerson: plan?.people?.length === 1 && plan.subjects?.length === 1 && imageReferencePeople({ plan }).length === 1 ? plan.people[0].name : '' })) }
   }
   async function status(sessionId, turn) {
     const { chat, target, path } = await resolve(sessionId, turn)

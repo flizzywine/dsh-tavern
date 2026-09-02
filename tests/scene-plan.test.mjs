@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { createScenePlans } from '../tavern-plugin/lib/domain/scene-plan.js'
 import { readScenePlanInstruction } from '../tavern-plugin/lib/scene-image-prompts.js'
 import { createProfileDataStore } from '../tavern-plugin/lib/profile-data-store.js'
+import { createHash } from 'node:crypto'
 
 test('scene planner loads its task instruction from the standalone prompt file', async () => {
   const file = await readFile(new URL('../tavern-plugin/prompts/scene-plan.md', import.meta.url), 'utf8')
@@ -14,9 +15,9 @@ test('scene planner loads its task instruction from the standalone prompt file',
   assert.match(readScenePlanInstruction(), /不续写、不改游戏变量/)
 })
 
-const field = (text, tags, quote = text) => ({ text, tags, evidence: [{ source: 'target', quote }] })
-const composition = { text: '半身构图', tags: 'medium shot', evidence: [] }
-const first = () => ({ description: '林岚在门口', continuity: 'uncertain', subjects: ['lin'], characters: [{ id: 'lin', name: '林岚', identity: { source: 'target', quote: '林岚' }, fields: { appearance: field('黑发', 'black hair'), clothing: field('白衣', 'white coat'), action: field('站在门口', 'standing') } }], scene: { environment: field('门口', 'doorway'), composition } })
+const field = (text, tags) => ({ text, tags })
+const composition = { text: '半身构图', tags: 'medium shot' }
+const first = () => ({ description: '林岚在门口', continuity: 'uncertain', subjects: ['lin'], characters: [{ id: 'lin', name: '林岚', fields: { appearance: field('黑发', 'black hair'), clothing: field('白衣', 'white coat'), action: field('站在门口', 'standing') } }], scene: { environment: field('门口', 'doorway'), composition } })
 async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), 'scene-plan-test-'))
   t.after(() => rm(root, { recursive: true, force: true }))
@@ -56,12 +57,12 @@ test('field clearing removes old pose; scene change and incomplete continuity do
   assert.match(two.prompt, /indoors/)
   await assert.rejects(fx.module.commit(await fx.prepare(3, '她继续走。', { gapComplete: false }), { description: '继续', continuity: 'continued', subjects: [id], characters: [], scene: {} }), /期间剧情有裁剪/)
 })
-test('same names stay distinct; unavailable identities and quoted evidence are rejected', async t => {
+test('same names stay distinct without citations; unknown identities and invalid fields are rejected', async t => {
   const fx = await fixture(t), prepared = await fx.prepare(1, '左边林岚黑发，右边林岚红发。')
   const value = first()
   value.characters = [
-    { id: 'left', name: '林岚', identity: { source: 'target', quote: '左边林岚' }, fields: { appearance: field('黑发', 'black hair') } },
-    { id: 'right', name: '林岚', identity: { source: 'target', quote: '右边林岚' }, fields: { appearance: field('红发', 'red hair') } }
+    { id: 'left', name: '林岚', fields: { appearance: field('黑发', 'black hair') } },
+    { id: 'right', name: '林岚', fields: { appearance: field('红发', 'red hair') } }
   ]
   value.subjects = ['left', 'right']; value.scene = { composition }
   const frame = await fx.module.commit(prepared, value)
@@ -69,11 +70,55 @@ test('same names stay distinct; unavailable identities and quoted evidence are r
   assert.match(frame.prompt, /林岚: black hair\n林岚: red hair/)
   const next = await fx.prepare(2, '林岚挥手。')
   assert.equal(next.input.characters.length, 2)
-  const bad = { description: '', subjects: [frame.subjects[0]], continuity: 'continued', characters: [{ id: frame.subjects[0], fields: { appearance: field('金发', 'blond hair', '不存在的依据') } }], scene: {} }
-  await assert.rejects(fx.module.commit(next, bad), /原文不存在/)
+  const bad = { description: '', subjects: [frame.subjects[0]], continuity: 'continued', characters: [{ id: frame.subjects[0], fields: { appearance: field('金发', '') } }], scene: {} }
+  await assert.rejects(fx.module.commit(next, bad), /同时为空或非空/)
   bad.characters = [{ id: 'person-foreign', fields: {} }]
   await assert.rejects(fx.module.commit(next, bad), /不属于/)
   assert.equal((await fx.prepare(2)).saved, undefined, 'no partially valid revision published')
+})
+
+test('legacy output citations are ignored while both text and tags remain required', async t => {
+  const fx = await fixture(t), value = first()
+  value.characters[0].identity = { source: 'no-such-source', quote: 'old-session-output' }
+  value.characters[0].fields.appearance.evidence = [{ source: 'no-such-source', quote: 'old-session-output' }]
+  const frame = await fx.module.commit(await fx.prepare(), value)
+  const saved = await fx.module.snapshot('game', frame)
+  assert.equal(saved.people[0].identity.kind, 'scene-person')
+  assert.equal(saved.people[0].identity.quote, undefined)
+  assert.equal(saved.people[0].fields.appearance.evidence, undefined)
+  assert.equal(saved.people[0].fields.appearance.text, '黑发')
+  assert.equal(saved.blocks[0].tags, 'black hair')
+  const next = await fx.prepare(2)
+  await assert.rejects(fx.module.commit(next, { ...first(), subjects: frame.subjects, characters: [{ id: frame.subjects[0], fields: { appearance: { text: '黑发' } } }] }), /tags/)
+})
+
+test('persisted legacy identities and evidence remain readable and unchanged across channel conversion', async t => {
+  const fx = await fixture(t), original = await fx.module.commit(await fx.prepare(), first())
+  const hash = value => createHash('sha256').update(JSON.stringify(value)).digest('hex')
+  const path = 'scene-images/' + createHash('sha256').update('game').digest('hex') + '/plans.json'
+  let legacy
+  await fx.store.updateJson(path, data => {
+    const person = structuredClone(data.characters[original.characterRefs[0]])
+    person.identity = { source: 'target', quote: '林岚' }
+    person.fields.appearance.evidence = [{ source: 'target', quote: '黑发' }]
+    const ref = hash(person)
+    data.characters[ref] = person
+    const { id, ...body } = data.frames.one['tags-v1']
+    body.characterRefs = [ref]
+    body.scene.environment.evidence = [{ source: 'target', quote: '门口' }]
+    legacy = { ...body, id: hash(body) }
+    data.frames.one['tags-v1'] = legacy
+    return data
+  })
+  fx.restart()
+  const prepared = await fx.prepare()
+  assert.deepEqual(prepared.saved, legacy)
+  assert.equal((await fx.module.snapshot('game', prepared.saved)).people[0].identity.quote, '林岚')
+  assert.equal(prepared.input.previousScene.environment.evidence, undefined)
+  const conversion = await fx.prepare(1, '林岚', { profile: 'another-profile' })
+  const frame = await fx.module.commit(conversion, { description: '转换', continuity: 'continued', subjects: legacy.subjects, characters: [], scene: { composition }, expressions: conversion.input.missingBlocks.map(item => ({ ...item, tags: item.field + ' translated' })) })
+  assert.deepEqual(frame.characterRefs, legacy.characterRefs)
+  assert.deepEqual((await fx.prepare()).saved, legacy)
 })
 test('branches and games do not share future identities; stale parallel commits cannot overwrite a newer revision', async t => {
   const fx = await fixture(t), pending = await fx.prepare()

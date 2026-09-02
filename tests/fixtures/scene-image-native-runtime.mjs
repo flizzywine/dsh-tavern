@@ -43,7 +43,7 @@ export async function createSceneImageNativeRuntime(bootPath, { unifiedPlugin = 
         ? input.tools?.find(item => item.name === 'character_design_read')
         : referenceQuery && input.tools?.find(item => item.name === 'read_scene_reference'))
       const tool = referenceTool || input.tools?.find(item => ['submit_scene_plan', 'submit_image_adjustment'].includes(item.name))
-      const plan = { description: '窗边单幅画面', subjects: [], characters: [], continuity: 'uncertain', scene: { composition: { text: '窗边单幅画面', tags: 'A woman standing beside a rain-streaked window, left hand on the frame, quiet evening light.', evidence: [] } } }
+      const plan = { description: '窗边单幅画面', subjects: [], characters: [], continuity: 'uncertain', scene: { composition: { text: '窗边单幅画面', tags: 'A woman standing beside a rain-streaked window, left hand on the frame, quiet evening light.' } } }
       if (useVisualState && tool?.name === 'submit_scene_plan') {
         const material = currentMessages.flatMap(message => message.content || []).filter(block => block.type === 'text').flatMap(block => block.text.split('\n')).map(line => {
           try { return JSON.parse(line) } catch { return null }
@@ -51,10 +51,10 @@ export async function createSceneImageNativeRuntime(bootPath, { unifiedPlugin = 
         const source = material?.sources.find(item => item.origin?.kind === 'mvu-state' && item.text.includes('衣着：青色外套'))
         if (source) {
           const known = material.characters?.find(person => person.name === '林岚')
-          const person = known ? { id: known.id } : { id: 'state-person', name: '林岚', identity: { source: 'target', quote: '林岚' } }
+          const person = known ? { id: known.id } : { id: 'state-person', name: '林岚' }
           plan.subjects = [person.id]
           plan.characters = [{ ...person, fields: {
-            clothing: { text: '青色外套', tags: 'blue coat', evidence: [{ source: source.id, quote: '青色外套' }] }
+            clothing: { text: '青色外套', tags: 'blue coat' }
           } }]
         }
       }
@@ -64,9 +64,9 @@ export async function createSceneImageNativeRuntime(bootPath, { unifiedPlugin = 
         }).find(value => Array.isArray(value?.sources))
         plan.characters = ['林岚', '林雨'].map((name, index) => {
           const known = material?.characters?.find(person => person.name === name)
-          const person = known ? { id: known.id } : { id: 'multi-person-' + index, name, identity: { source: 'target', quote: name } }
+          const person = known ? { id: known.id } : { id: 'multi-person-' + index, name }
           const position = index ? '右侧' : '左侧'
-          return { ...person, fields: { position: { text: position, tags: index ? 'on the right' : 'on the left', evidence: [{ source: 'target', quote: name + '站在' + position }] } } }
+          return { ...person, fields: { position: { text: position, tags: index ? 'on the right' : 'on the left' } } }
         })
         plan.subjects = plan.characters.map(person => person.id)
       }
@@ -74,8 +74,8 @@ export async function createSceneImageNativeRuntime(bootPath, { unifiedPlugin = 
         const source = JSON.parse(referenceResult.content.filter(block => block.type === 'text').map(block => block.text).join('')).sources[0]
         if (source) {
           plan.subjects = ['local-reference-person']
-          plan.characters = [{ id: 'local-reference-person', name: '林岚', identity: { source: source.id, quote: '林岚' }, fields: {
-            appearance: { text: '黑色短发', tags: 'short black hair', evidence: [{ source: source.id, quote: '黑色短发' }] }
+          plan.characters = [{ id: 'local-reference-person', name: '林岚', fields: {
+            appearance: { text: '黑色短发', tags: 'short black hair' }
           } }]
         }
       }

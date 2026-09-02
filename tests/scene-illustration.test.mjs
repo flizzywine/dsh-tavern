@@ -16,23 +16,20 @@ import { readScenePlanInstruction, readSceneAdjustmentInstruction } from '../tav
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aKfoAAAAASUVORK5CYII=', 'base64')
 const imagePath = 'scene-images/' + createHash('sha256').update('test-chat').digest('hex') + '/'
 const chatFixture = () => ({ id: 'test-chat', mode: 'story', sessionId: 'parent', settleStatus: 'done', posture: '站在窗边，左手扶窗', messages: [{ role: 'user', text: '走到窗边' }, { role: 'assistant', turn: 2, sourceText: '她站在窗边看雨。', swipes: ['她站在窗边看雨。', '她坐在椅子上。'], swipeId: 0 }] })
-const planFixture = (tags = 'A woman standing at a rainy window') => ({ description: '窗边一景', subjects: [], characters: [], continuity: 'uncertain', scene: { composition: { text: '窗边一景', tags, evidence: [] } } })
+const planFixture = (tags = 'A woman standing at a rainy window') => ({ description: '窗边一景', subjects: [], characters: [], continuity: 'uncertain', scene: { composition: { text: '窗边一景', tags } } })
 
-test('image Agent can cite historical character designs but not their default outfit as current clothing', async t => {
+test('image Agent reads historical character designs and submits text and tags without citations', async t => {
   const fx = await fixture(t, { runAgent: async input => {
     assert.ok(input.tools.some(tool => tool.name === 'character_design_read'))
     assert.ok(!input.tools.some(tool => tool.name === 'character_design_save'))
     const read = JSON.parse(await input.onToolCall({ name: 'character_design_read', arguments: { name: '林岚' } }))
     assert.equal(read.character.design.appearance, '黑色短发')
-    const source = read.sources[0]
-    const field = (text, tags) => ({ text, tags, evidence: [{ source: source.id, quote: text }] })
+    const field = (text, tags) => ({ text, tags })
     const plan = planFixture()
     plan.subjects = ['lin']
-    plan.characters = [{ id: 'lin', name: '林岚', identity: { source: source.id, quote: '林岚' }, fields: {
-      appearance: field('黑色短发', 'short black hair'), clothing: field('白色外套', 'white coat')
+    plan.characters = [{ id: 'lin', name: '林岚', fields: {
+      appearance: field('黑色短发', 'short black hair')
     } }]
-    assert.match(await input.onToolCall({ name: 'submit_scene_plan', arguments: { plan } }), /不能只引用初始设定/)
-    delete plan.characters[0].fields.clothing
     assert.match(await input.onToolCall({ name: 'submit_scene_plan', arguments: { plan } }), /已校验保存/)
   } })
   fx.chat().characterDesignDocument = { revision: 1, characters: [{ name: '林岚', design: { appearance: '黑色短发', defaultPresentation: '白色外套' } }] }
@@ -773,7 +770,7 @@ test('provider failure is visible, not auto-retried, explicit retry works', asyn
   assert.equal(agentCalls, 1, 'valid persistent plan survives provider failure and is reused')
 })
 
-test('scene references stay out of initial input, bind evidence and cannot alone establish current clothing', async t => {
+test('scene references stay out of initial input; scene plans need not repeat their source or quote', async t => {
   const fx = await fixture(t, { runAgent: async input => {
     assert.deepEqual(input.tools.map(tool => tool.name), ['submit_scene_plan', 'character_design_read', 'read_scene_reference'])
     assert.equal(input.maxToolCalls, 5)
@@ -782,15 +779,10 @@ test('scene references stay out of initial input, bind evidence and cannot alone
     const source = read.sources[0]
     assert.match(source.text, /黑色短发/)
     const plan = planFixture()
-    const appearance = { text: '黑色短发', tags: 'short black hair', evidence: [{ source: source.id, quote: '黑色短发' }] }
+    const appearance = { text: '黑色短发', tags: 'short black hair' }
     plan.subjects = ['local-person']
-    plan.characters = [{ id: 'local-person', name: '林岚', identity: { source: source.id, quote: '林岚' }, fields: {
-      appearance, clothing: { text: '白色裙子', tags: 'white dress', evidence: [{ source: source.id, quote: '白色裙子' }] }
-    } }]
-    const rejected = await input.onToolCall({ name: 'submit_scene_plan', arguments: { plan } })
-    assert.match(rejected, /不能只引用初始设定/)
+    plan.characters = [{ id: 'local-person', name: '林岚', fields: { appearance } }]
     assert.equal(fx.imageCalls(), 0)
-    delete plan.characters[0].fields.clothing
     assert.match(await input.onToolCall({ name: 'submit_scene_plan', arguments: { plan } }), /已校验保存/)
     return {}
   } })
@@ -803,8 +795,8 @@ test('scene references stay out of initial input, bind evidence and cannot alone
   assert.match(result.versions[0].prompt, /short black hair/)
   assert.doesNotMatch(result.versions[0].prompt, /white dress/)
   const record = await fx.store.readJson(imagePath + target.key + '.json')
-  assert.equal(record.plan.people[0].identity.origin.kind, 'play-card-snapshot')
-  assert.equal(record.plan.people[0].fields.appearance.evidence[0].origin.snapshotVersion, 5)
+  assert.equal(record.plan.people[0].identity.kind, 'scene-person')
+  assert.equal(record.plan.people[0].fields.appearance.evidence, undefined)
   assert.equal(record.diagnostics.references[0].query, '林岚')
   assert.equal(fx.imageCalls(), 1)
   assert.deepEqual(fx.chat(), before)
@@ -866,7 +858,7 @@ test('two invalid submissions stop before charging and preserve the concrete val
   assert.equal(fx.imageCalls(), 0)
 })
 
-test('historical visual variables reach planning with durable evidence, never future values or full mirrors', async t => {
+test('historical visual variables reach planning without output citations; input provenance stays host-side', async t => {
   let history, material
   const fx = await fixture(t, { stateAtTarget: async () => structuredClone(history), runAgent: async input => {
     material = JSON.parse(input.messages[0].content[0].text)
@@ -874,8 +866,8 @@ test('historical visual variables reach planning with durable evidence, never fu
     assert.ok(source)
     const plan = planFixture()
     plan.subjects = ['local-person']
-    plan.characters = [{ id: 'local-person', name: '林岚', identity: { source: 'target', quote: '林岚' }, fields: {
-      clothing: { text: '青色外套', tags: 'blue coat', evidence: [{ source: source.id, quote: '青色外套' }] }
+    plan.characters = [{ id: 'local-person', name: '林岚', fields: {
+      clothing: { text: '青色外套', tags: 'blue coat' }
     } }]
     const reply = await input.onToolCall({ arguments: { plan } })
     assert.match(reply, /已校验保存/)
@@ -894,8 +886,11 @@ test('historical visual variables reach planning with durable evidence, never fu
   assert.ok(material.sources.reduce((sum, source) => sum + source.text.length, 0) <= 12000)
   const plans = await fx.store.readJson(imagePath + 'plans.json')
   const person = Object.values(plans.characters)[0]
-  assert.equal(person.fields.clothing.evidence[0].origin.path, '/stat_data/人物/林岚/衣着')
-  assert.equal(person.fields.clothing.evidence[0].origin.bodyDigest, target.sourceDigest)
+  assert.equal(person.fields.clothing.evidence, undefined)
+  assert.equal(person.fields.clothing.text, '青色外套')
+  const record = await fx.store.readJson(imagePath + target.key + '.json')
+  assert.equal(record.diagnostics.state.sources[0].origin.path, '/stat_data/人物/林岚/衣着')
+  assert.equal(record.diagnostics.state.sources[0].origin.bodyDigest, target.sourceDigest)
   assert.deepEqual(fx.chat(), unchanged)
 })
 

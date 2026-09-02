@@ -9,7 +9,9 @@ const limit = 8 * 1024 * 1024
 
 export function imageReferencePeople(version) {
   const subjects = new Set(version?.plan?.subjects || [])
-  return (version?.plan?.people || []).filter(person => subjects.has(person.id) && person.identity?.quote).map(person => ({
+  return (version?.plan?.people || []).filter(person => subjects.has(person.id) && (
+    person.identity?.quote || person.identity?.kind === 'scene-person' && typeof person.identity.targetKey === 'string' && person.identity.targetKey.length > 0
+  )).map(person => ({
     id: person.id, name: person.name,
     description: ['position', 'appearance', 'clothing'].map(field => {
       const block = version.plan.blocks?.find(item => item.owner === person.id && item.field === field)
