@@ -30,6 +30,7 @@ export async function createSceneImageNativeRuntime(bootPath, { unifiedPlugin = 
   let characterQuery = ''
   let useVisualState = false
   let useMultiplePeople = false
+  let malformedNext = false
   const comfyTasks = new Map()
   const sharp = createRequire(new URL('../../dsh-attachment-local/lib/index.js', bootUrl))('sharp')
   const png = await sharp({ create: { width: 320, height: 180, channels: 3, background: '#789aab' } }).png().toBuffer()
@@ -42,7 +43,7 @@ export async function createSceneImageNativeRuntime(bootPath, { unifiedPlugin = 
       const referenceTool = !referenceResult && (characterQuery
         ? input.tools?.find(item => item.name === 'character_design_read')
         : referenceQuery && input.tools?.find(item => item.name === 'read_scene_reference'))
-      const tool = referenceTool || input.tools?.find(item => ['submit_scene_plan', 'submit_image_adjustment'].includes(item.name))
+      let tool = referenceTool || input.tools?.find(item => ['submit_scene_plan', 'submit_image_adjustment'].includes(item.name))
       const plan = { description: '窗边单幅画面', subjects: [], characters: [], continuity: 'uncertain', scene: { composition: { text: '窗边单幅画面', tags: 'A woman standing beside a rain-streaked window, left hand on the frame, quiet evening light.' } } }
       if (useVisualState && tool?.name === 'submit_scene_plan') {
         const material = currentMessages.flatMap(message => message.content || []).filter(block => block.type === 'text').flatMap(block => block.text.split('\n')).map(line => {
@@ -82,8 +83,28 @@ export async function createSceneImageNativeRuntime(bootPath, { unifiedPlugin = 
       const update = JSON.stringify(input.messages).includes('仅这张改成胶片风格')
         ? { description: '仅这张胶片风格', patches: [], style: { text: '胶片', tags: 'film grain' } }
         : { description: '改为雨夜近景', patches: [{ owner: 'scene', field: 'composition', text: '雨夜近景', tags: 'rainy night, close-up at the window' }] }
-      const args = referenceTool ? (characterQuery ? { name: characterQuery } : { query: referenceQuery }) : tool?.name === 'submit_image_adjustment' ? { update } : { plan }
-      const block = tool ? { type: 'tool-call', id: referenceTool ? 'reference-call' : 'image-call', name: tool.name, arguments: JSON.stringify(args) } : { type: 'text', text: '方案已提交。' }
+      let args = referenceTool ? (characterQuery ? { name: characterQuery } : { query: referenceQuery }) : { update }
+      let callId = referenceTool ? 'reference-call' : 'image-call'
+      if (tool?.name === 'submit_scene_plan') {
+        const done = new Set(currentMessages.flatMap(message => message.content || []).filter(block => block.type === 'tool-result').map(block => block.toolCallId))
+        const index = plan.characters.findIndex((_person, index) => !done.has('image-character-' + index))
+        if (index >= 0) {
+          tool = input.tools.find(tool => tool.name === 'submit_scene_character')
+          args = plan.characters[index]
+          callId = 'image-character-' + index
+        } else if (!done.has('image-layout')) {
+          tool = input.tools.find(tool => tool.name === 'submit_scene_layout')
+          const { characters, ...layout } = plan
+          args = layout
+          callId = 'image-layout'
+        } else args = {}
+      }
+      const block = tool ? { type: 'tool-call', id: callId, name: tool.name, arguments: JSON.stringify(args) } : { type: 'text', text: '方案已提交。' }
+      if (tool && malformedNext) {
+        malformedNext = false
+        block.id = 'malformed-image-call'
+        block.arguments += '}'
+      }
       yield { type: 'block-start', index: 0, blockType: block.type }
       yield { type: 'block-end', index: 0, block }
       yield { type: 'finish', reason: { kind: tool ? 'tool-calls' : 'stop' } }
@@ -162,6 +183,7 @@ export async function createSceneImageNativeRuntime(bootPath, { unifiedPlugin = 
     lookupCharacterDesigns(name) { characterQuery = name },
     useVisualState() { useVisualState = true },
     useMultiplePeople() { useMultiplePeople = true },
+    malformedNextArguments() { malformedNext = true },
     async exportLogs() {
       return createMvuDiagnosticExport({ sessionId: 'scene-parent', store: createMvuDiagnosticStore(store),
         sceneDiagnostics: await createSceneImageDiagnostics(store).read(chat.id),

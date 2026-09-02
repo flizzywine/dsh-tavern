@@ -14,14 +14,7 @@ function keys(value, allowed, label) {
   assert(Object.keys(value).every(key => allowed.includes(key)), label + ' 包含未知字段')
 }
 
-export const SCENE_PLAN_TOOL = {
-  name: 'submit_scene_plan', description: '提交画面、人物事实变化与标签块。仅校验和保存，不直接收费生图；无变化部分不要重发。',
-  parameters: {
-    type: 'object', additionalProperties: false,
-    properties: { plan: { type: 'object', properties: {}, additionalProperties: true, description: '包含 description、subjects、characters、scene、continuity；可选 expressions。人物提交 id、name（新人物）、fields；变化字段仅含 text 和 tags，无需出处或证据。具体字段格式见任务指令。' } },
-    required: ['plan']
-  }
-}
+export { SCENE_PLAN_TOOL } from './scene-plan-draft.js'
 
 /** A per-game atomic document publishes character revisions, blocks and frames
  * together. Content-addressed revisions never overwrite another story position. */
@@ -70,11 +63,11 @@ export function createScenePlans({ store }) {
       pendingBlocks[id] = { id, ...content }
       return id
     }
-    function change(owner, field, raw, previous) {
+    function change(owner, field, raw, previous, path) {
       // Tolerate legacy session output, but do not validate or persist its citations.
-      keys(raw, ['text', 'tags', 'evidence'], owner + '.' + field)
-      const value = text(raw.text, field), tags = text(raw.tags, field + '.tags', 1200)
-      assert(Boolean(value) === Boolean(tags), field + ' 的 text 和 tags 须同时为空或非空')
+      keys(raw, ['text', 'tags', 'evidence'], path)
+      const value = text(raw.text, path + '.text'), tags = text(raw.tags, path + '.tags', 1200)
+      assert(Boolean(value) === Boolean(tags), path + ' 的 text 和 tags 须同时为空或非空')
       // Same source meaning preserves the existing expression version, rather
       // than accepting pointless full retranslation as a meaningful update.
       const existing = prepared.block(owner, field, value)
@@ -82,44 +75,47 @@ export function createScenePlans({ store }) {
       const result = { text: value, blockId }
       return previous?.text === value ? { ...previous, blockId } : result
     }
-    for (const update of submission.characters) {
-      keys(update, ['id', 'name', 'identity', 'fields'], 'character')
-      const localId = text(update.id, 'character.id', 100)
-      assert(localId && !touched.has(localId), '同一人物只能更新一次')
+    for (const [index, update] of submission.characters.entries()) {
+      const path = 'characters[' + index + ']'
+      keys(update, ['id', 'name', 'identity', 'fields'], path)
+      const localId = text(update.id, path + '.id', 100)
+      assert(localId && !touched.has(localId), path + '.id：同一人物只能更新一次')
       touched.add(localId)
       let person = people[localId]
       if (!person) {
-        assert(!localId.startsWith('person-'), '人物 id 不属于本任务已知人物')
+        assert(!localId.startsWith('person-'), path + '.id (' + localId + ')：人物 id 不属于本任务已知人物')
         const id = 'person-' + digest([prepared.chatId, prepared.target.key, localId]).slice(0, 24)
         assert(!people[id], '同一人物不能重复创建；请引用已提供的 id')
         const identity = { kind: 'scene-person', targetKey: prepared.target.key }
-        person = { id, name: text(update.name, 'character.name', 100), identity, fields: {} }
-        assert(person.name, '新人物必须有 name')
+        person = { id, name: text(update.name, path + '.name', 100), identity, fields: {} }
+        assert(person.name, path + '.name：新人物必须有 name')
         people[id] = person
         aliases[localId] = id
       } else {
         // Ignore legacy identity payloads; identity is assigned only by the host.
-        assert(update.name === undefined || update.name === person.name, '不能通过绘图修改已知人物姓名')
+        assert(update.name === undefined || update.name === person.name, path + '.name：不能通过绘图修改已知人物姓名')
       }
-      keys(update.fields, personFields, 'character.fields')
-      for (const [field, value] of Object.entries(update.fields)) person.fields[field] = change(person.id, field, value, person.fields[field])
+      keys(update.fields, personFields, path + '.fields')
+      for (const [field, value] of Object.entries(update.fields)) person.fields[field] = change(person.id, field, value, person.fields[field], path + '.fields.' + field)
     }
     const subjects = submission.subjects.map(id => aliases[id] || id)
-    assert(new Set(subjects).size === subjects.length && subjects.every(id => Object.hasOwn(people, id)), 'subjects 包含未知或重复人物')
-    for (const [field, value] of Object.entries(submission.scene)) scene[field] = change('scene', field, value, scene[field])
+    subjects.forEach((id, index) => assert(Object.hasOwn(people, id) && subjects.indexOf(id) === index,
+      'subjects[' + index + '] (' + submission.subjects[index] + ')：subjects 包含未知或重复人物，请先提交对应人物或修正 id'))
+    for (const [field, value] of Object.entries(submission.scene)) scene[field] = change('scene', field, value, scene[field], 'scene.' + field)
     const expressions = submission.expressions || []
     assert(Array.isArray(expressions) && expressions.length <= 50, 'expressions 必须是数组')
     const expressionKeys = new Set()
-    for (const item of expressions) {
-      keys(item, ['owner', 'field', 'tags'], 'expression')
+    for (const [index, item] of expressions.entries()) {
+      const path = 'expressions[' + index + ']'
+      keys(item, ['owner', 'field', 'tags'], path)
       const owner = aliases[item.owner] || item.owner
       const record = owner === 'scene' ? scene : people[owner]?.fields
-      assert(record && Object.hasOwn(record, item.field), 'expression 未对应有效事实字段')
+      assert(record && Object.hasOwn(record, item.field), path + ' (' + item.owner + '.' + item.field + ')：expression 未对应有效事实字段')
       const value = record[item.field]
-      assert(!expressionKeys.has(owner + '/' + item.field), 'expression 重复')
+      assert(!expressionKeys.has(owner + '/' + item.field), path + '：expression 重复')
       expressionKeys.add(owner + '/' + item.field)
-      const tags = text(item.tags, 'expression.tags', 1200)
-      assert(Boolean(tags) === Boolean(value.text), 'expression 不能省略非空事实或为已清除事实增加标签')
+      const tags = text(item.tags, path + '.tags', 1200)
+      assert(Boolean(tags) === Boolean(value.text), path + '.tags：expression 不能省略非空事实或为已清除事实增加标签')
       if (!prepared.block(owner, item.field, value.text)) value.blockId = makeBlock(owner, item.field, value.text, tags)
     }
     const blockIds = [], characterVersions = {}

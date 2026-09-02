@@ -4,6 +4,7 @@ import { createImageGenerationModule } from '../../packages/dsh-image-gen/src/mo
 import { createModuleSceneImageSettings } from './scene-image-module-settings.js'
 import { channelSettings, channelReady, imageExpressionProfile, imageExpressionGuidance } from './scene-image-channels.js'
 import { createScenePlans, SCENE_PLAN_TOOL } from './scene-plan.js'
+import { SCENE_DRAFT_TOOLS, SCENE_PLAN_MAX_FAILURES, updateSceneDraft, assembleSceneDraft, sceneDraftSummary, readImageToolArguments } from './scene-plan-draft.js'
 import { readScenePlanInstruction, readSceneAdjustmentInstruction } from '../scene-image-prompts.js'
 import { imageAdjustmentInput, applyImageAdjustment, legacyImagePlan, SCENE_ADJUSTMENT_TOOL } from './scene-image-adjustment.js'
 import { createSceneImageStyles, applyImageStyle, composeSceneImagePrompt } from './scene-image-style.js'
@@ -291,13 +292,16 @@ export function createSceneIllustrations(deps) {
       const characterDesigns = !prepared.saved
         ? createSceneCharacterDesigns({ snapshot: designSnapshot, target, sources: prepared.sources || [] }) : null
       const controller = new AbortController()
+      const draftBinding = hash(JSON.stringify([target.key, profile, prepared.generation, channelSettings(active), style.id, kind, instruction]))
       let claimed = false
       const record = await deps.store.updateJson(path, current => {
         if (current?.recovery === 'save') throw new Error('图片已生成，请先重试保存；不会再次请求图片渠道')
         if (Object.hasOwn(current?.requests || {}, requestId) || kind === 'generate' && current?.status === 'succeeded' || current?.status === 'running' && ownerIsLive(current, path)) return current
         checkPurchaseConfirmation(current, options)
         claimed = true
-        return { key: target.key, turn: target.turn, status: 'running', outcome: providerTask ? 'unconfirmed' : 'not_requested', stage: prepared.saved ? 'generating' : 'planning', kind, instruction, baseVersionId: options.versionId || '', createdAt: Date.now(), requestId, ownerId, ownerPid: process.pid, error: '', ...(providerTask ? { providerTask } : {}), versions: versionsOf(current), deletedVersions: current?.deletedVersions || [], requests: { ...current?.requests, [requestId]: { status: 'running', ...(options.confirmNewRequestId ? { confirmedReplacementOf: options.confirmNewRequestId } : {}) } } }
+        return { key: target.key, turn: target.turn, status: 'running', outcome: providerTask ? 'unconfirmed' : 'not_requested', stage: prepared.saved ? 'generating' : 'planning', kind, instruction, baseVersionId: options.versionId || '', createdAt: Date.now(), requestId, ownerId, ownerPid: process.pid, error: '', ...(providerTask ? { providerTask } : {}),
+          ...(!adjustment && !prepared.saved ? { draftBinding, planDraft: current?.draftBinding === draftBinding ? current.planDraft : undefined } : {}),
+          versions: versionsOf(current), deletedVersions: current?.deletedVersions || [], requests: { ...current?.requests, [requestId]: { status: 'running', ...(options.confirmNewRequestId ? { confirmedReplacementOf: options.confirmNewRequestId } : {}) } } }
       })
       if (!claimed) return present(target, record)
       record.diagnosticContext = { chatId: chat.id, sessionId }
@@ -324,7 +328,8 @@ export function createSceneIllustrations(deps) {
     try {
       await writeJob(path, record)
       if (!plan) {
-        let submissions = 0, submitting = false
+        let failures = 0, toolTail = Promise.resolve()
+        let draft = record.planDraft || { characters: {}, layout: null }
         try { result = await deps.runAgent({
           sessionId: input.sessionId, turn: target.turn, task: 'image', persistent: true,
           async resolvePersistentSessionId() {
@@ -343,54 +348,73 @@ export function createSceneIllustrations(deps) {
             await writeJob(path, record)
           },
           selection: input.selection, system: input.adjustment ? readSceneAdjustmentInstruction() : readScenePlanInstruction(), signal: controller.signal,
-          messages: [{ role: 'user', content: [{ type: 'text', text: JSON.stringify(input.prepared.input) }] }],
-          turnContext: '', tools: [input.adjustment ? SCENE_ADJUSTMENT_TOOL : SCENE_PLAN_TOOL, CHARACTER_DESIGN_READ_TOOL,
+          messages: [{ role: 'user', content: [{ type: 'text', text: JSON.stringify({ ...input.prepared.input,
+            ...(record.planDraft ? { draft: sceneDraftSummary(draft) } : {}) }) }] }],
+          turnContext: '', tools: [...(input.adjustment ? [SCENE_ADJUSTMENT_TOOL] : SCENE_DRAFT_TOOLS), CHARACTER_DESIGN_READ_TOOL,
             ...(input.references?.metadata.available ? [input.references.tool] : [])],
-          maxToolCalls: input.references?.metadata.available ? 5 : 2,
+          maxToolCalls: (input.adjustment ? SCENE_PLAN_MAX_FAILURES : 10 + SCENE_PLAN_MAX_FAILURES) + (input.references?.metadata.available ? 3 : 0),
           toolLimitMessage: '绘图工具次数已用完，请停止调用；没有有效方案时不会请求图片。',
-          stopToolsWhen: () => Boolean(plan) || submissions >= 2,
-          async onToolCall(call) {
-            if (plan || submitting || submissions >= 2) return '方案已提交或校验中，不得重复调用。'
-            if (call.name === CHARACTER_DESIGN_READ_TOOL.name) {
-              controller.signal.throwIfAborted()
-              const result = await input.characterDesigns.read(call.arguments)
-              for (const source of result.sources) {
-                if (input.prepared.sources && !input.prepared.sources.some(item => item.id === source.id)) input.prepared.sources.push(source)
+          stopToolsWhen: () => Boolean(plan) || failures >= SCENE_PLAN_MAX_FAILURES,
+          onToolCall(call) {
+            const next = toolTail.then(async () => {
+              if (plan || failures >= SCENE_PLAN_MAX_FAILURES) return '方案已提交或修正次数已用完，不得重复调用。'
+              if (call.name === CHARACTER_DESIGN_READ_TOOL.name) {
+                controller.signal.throwIfAborted()
+                const result = await input.characterDesigns.read(call.arguments)
+                for (const source of result.sources) {
+                  if (input.prepared.sources && !input.prepared.sources.some(item => item.id === source.id)) input.prepared.sources.push(source)
+                }
+                return JSON.stringify(result)
               }
-              return JSON.stringify(result)
-            }
-            if (call.name === 'read_scene_reference' && input.references?.metadata.available) {
-              controller.signal.throwIfAborted()
-              const result = input.references.read(call.arguments)
-              input.prepared.sources.push(...result.sources)
-              record.diagnostics.references = input.references.audit
-              await logAttempt(record, 'reference-read')
-              return JSON.stringify(result)
-            }
-            submissions++
-            submitting = true
-            try {
-              controller.signal.throwIfAborted()
-              const current = await deps.chatForSession(input.sessionId)
-              if (!current || sceneTarget(current, target.turn).key !== target.key) throw new Error('目标正文已变化，不能提交旧方案')
-              plan = input.adjustment
-                ? applyImageAdjustment(input.basePlan, call.arguments?.update, input.profile, input.adjustment)
-                : await plans.snapshot(input.chatId, await plans.commit(input.prepared, call.arguments?.plan))
-              record.plan = plan
-              await writeJob(path, record)
-              return '方案已校验保存。程序将请求一张图片；不要再调用工具。'
-            } catch (error) {
-              validationError = redactImageError(error.message || '方案校验失败', input.apiKey).slice(0, 500)
-              record.diagnostics.validations.push({ at: Date.now(), attempt: submissions, error: validationError })
-              await logAttempt(record, 'plan-rejected')
-              return '方案校验失败：' + validationError + (submissions < 2 ? '。尚未收费，可修正一次。' : '。修正次数已用完，停止。')
-            } finally { submitting = false }
+              if (call.name === 'read_scene_reference' && input.references?.metadata.available) {
+                controller.signal.throwIfAborted()
+                const result = input.references.read(call.arguments)
+                input.prepared.sources.push(...result.sources)
+                record.diagnostics.references = input.references.audit
+                await logAttempt(record, 'reference-read')
+                return JSON.stringify(result)
+              }
+              try {
+                controller.signal.throwIfAborted()
+                const current = await deps.chatForSession(input.sessionId)
+                if (!current || sceneTarget(current, target.turn).key !== target.key) throw new Error('目标正文已变化，不能提交旧方案')
+                const args = readImageToolArguments(call)
+                if (input.adjustment) {
+                  if (call.name !== SCENE_ADJUSTMENT_TOOL.name) throw new Error('参数内容错误：请调用 submit_image_adjustment')
+                  plan = applyImageAdjustment(input.basePlan, args.update, input.profile, input.adjustment)
+                } else {
+                  const updated = updateSceneDraft(draft, call.name, args)
+                  if (call.name !== SCENE_PLAN_TOOL.name) {
+                    const saved = { ...record, planDraft: updated }
+                    await writeJob(path, saved)
+                    record.planDraft = updated
+                    draft = updated
+                    return '草稿已保存，尚未请求图片。' + JSON.stringify(sceneDraftSummary(draft))
+                  }
+                  plan = await plans.snapshot(input.chatId, await plans.commit(input.prepared, assembleSceneDraft(updated)))
+                }
+                record.plan = plan
+                await writeJob(path, record)
+                return '方案已校验保存。程序将请求一张图片；不要再调用工具。'
+              } catch (error) {
+                failures++
+                validationError = redactImageError(error.message || '方案校验失败', input.apiKey).slice(0, 500)
+                record.diagnostics.validations.push({ at: Date.now(), attempt: failures, tool: call.name, error: validationError })
+                await logAttempt(record, 'plan-rejected')
+                return '方案校验失败：' + validationError + '。尚未请求图片；已保存草稿保留，只修正报错部分。' +
+                  (failures < SCENE_PLAN_MAX_FAILURES ? '剩余修正机会：' + (SCENE_PLAN_MAX_FAILURES - failures) + '。' : '修正次数已用完，停止。')
+              }
+            })
+            toolTail = next.catch(() => {})
+            return next
           }
         }) } catch (error) {
+          await toolTail
           // A valid committed plan survives failure of the final acknowledgement.
           record.traceSessionId = error.traceSessionId || ''
           if (!plan) throw error
         }
+        await toolTail
       }
       if (!plan) throw new Error(validationError || '生图 Agent 没有提交有效画面方案')
       controller.signal.throwIfAborted()

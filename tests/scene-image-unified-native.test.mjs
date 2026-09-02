@@ -87,12 +87,15 @@ test('生图读取参考、提交方案、调整图片的 Schema 在真实模型
   const first = await finish()
   await finish({ kind: 'adjust', versionId: first.versions[0].id, instruction: '改成雨夜近景' })
   const observed = new Map(runtime.requests.flatMap(request => (request.tools || []).map(tool => [tool.name, tool.parameters])))
-  for (const [name, property] of [['read_scene_reference', 'query'], ['submit_scene_plan', 'plan'], ['submit_image_adjustment', 'update']]) {
+  for (const [name, property] of [['read_scene_reference', 'query'], ['submit_image_adjustment', 'update']]) {
     const schema = observed.get(name)
     assert.equal(schema?.type, 'object', name)
     assert.ok(schema.properties[property], name)
     assert.deepEqual(schema.required, [property], name)
   }
+  assert.deepEqual(observed.get('submit_scene_plan').properties, {})
+  assert.ok(observed.get('submit_scene_character').properties.fields)
+  assert.ok(observed.get('submit_scene_layout').properties.scene)
   assert.equal(runtime.imageRequests.length, 2)
 })
 

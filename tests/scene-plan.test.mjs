@@ -28,6 +28,17 @@ async function fixture(t) {
     return module.prepare({ chatId: 'game', target: targets[turn - 1], lineage: targets.slice(0, turn), sources: [{ id: 'target', turn, text }], profile: 'tags-v1', ...extra })
   } }
 }
+test('semantic errors identify the exact character or subject before any canonical write', async t => {
+  const fx = await fixture(t), prepared = await fx.prepare()
+  const plan = first()
+  delete plan.characters[0].name
+  await assert.rejects(fx.module.commit(prepared, plan), /characters\[0\]\.name/)
+  plan.characters[0].name = '林岚'
+  plan.subjects = ['missing']
+  await assert.rejects(fx.module.commit(prepared, plan), /subjects\[0\].*missing.*未知或重复人物/)
+  assert.equal((await fx.prepare()).saved, undefined)
+})
+
 test('persistent character identity, independent block versions and a complete prompt after action-only delta', async t => {
   const fx = await fixture(t)
   const one = await fx.module.commit(await fx.prepare(), first())

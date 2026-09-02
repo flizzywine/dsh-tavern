@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { readSceneImageSystemInstruction } from './scene-image-prompts.js'
 import { CHARACTER_DESIGN_READ_TOOL } from './domain/character-design-document.js'
+import { imageToolCall } from './domain/scene-plan-draft.js'
 import { runtimePresetPhaseMessages } from './domain/runtime-preset-lifecycle.js'
 import { ensureSessionStablePrefix, readSessionStablePrefix } from './domain/session-stable-prefix.js'
 
@@ -211,7 +212,8 @@ export function createBackgroundAgentTask(options) {
     }
   }
 
-  function installTaskTools(state, input) {
+  function installTaskTools(state, input, session) {
+    const eventStart = session?.events?.length || 0
     const tools = (Array.isArray(input.tools) ? input.tools : []).filter(tool => input.task !== 'image' || tool.name !== CHARACTER_DESIGN_READ_TOOL.name)
     if (input.task === 'image') state.imageReadTask = async args => {
       if (input.stopToolsWhen?.()) return JSON.stringify({ ok: false, error: '画面方案已提交，请结束本轮。' })
@@ -268,14 +270,15 @@ export function createBackgroundAgentTask(options) {
             schema: { type: 'string' },
             render: function (_args, value) { return [{ type: 'text', text: value }] }
           },
-          async execute(args) {
+          async execute(args, execution) {
             if (tool.countsTowardLimit !== false) {
               toolCallCount++
               if (toolCallCount > maxToolCalls) {
                 return JSON.stringify({ message: input.toolLimitMessage || '已达到剧本查询上限，请停止查询，基于已有材料开始推理并输出最终候选。' })
               }
             }
-            const result = str(await input.onToolCall({ name: tool.name, arguments: args }))
+            const call = input.task === 'image' ? imageToolCall(tool.name, args, execution, session?.events, eventStart) : { name: tool.name, arguments: args }
+            const result = str(await input.onToolCall(call))
             if (typeof input.stopToolsWhen === 'function' && (input.stopToolsWhen() || toolCallCount >= maxToolCalls)) await removeTools()
             return result
           }
@@ -287,7 +290,7 @@ export function createBackgroundAgentTask(options) {
   async function execute({ agent, state, traceSessionId, persistent }, input) {
     const runtimeInput = state.input
     rewindSurface(agent.session, input.rewindTo)
-    const removeTaskTools = installTaskTools(state, runtimeInput)
+    const removeTaskTools = installTaskTools(state, runtimeInput, agent.session)
     const cancel = function () { agent.cancel?.({ kind: 'user' }) }
     input.signal?.addEventListener('abort', cancel, { once: true })
 

@@ -18,6 +18,22 @@ const imagePath = 'scene-images/' + createHash('sha256').update('test-chat').dig
 const chatFixture = () => ({ id: 'test-chat', mode: 'story', sessionId: 'parent', settleStatus: 'done', posture: '站在窗边，左手扶窗', messages: [{ role: 'user', text: '走到窗边' }, { role: 'assistant', turn: 2, sourceText: '她站在窗边看雨。', swipes: ['她站在窗边看雨。', '她坐在椅子上。'], swipeId: 0 }] })
 const planFixture = (tags = 'A woman standing at a rainy window') => ({ description: '窗边一景', subjects: [], characters: [], continuity: 'uncertain', scene: { composition: { text: '窗边一景', tags } } })
 
+// Scripted model adapter: existing scenario fixtures are emitted through the new tools.
+async function submitPlanCall(input, call) {
+  const { characters = [], expressions = [], ...layout } = call.arguments.plan
+  const cleanFields = fields => Object.fromEntries(Object.entries(fields || {}).map(([key, { evidence, ...value }]) => [key, value]))
+  for (const { identity, ...person } of characters) {
+    const result = await input.onToolCall({ name: 'submit_scene_character', arguments: { ...person, fields: cleanFields(person.fields),
+      expressions: Object.fromEntries(expressions.filter(e => e.owner === person.id).map(e => [e.field, e.tags])) } })
+    if (result.includes('失败') || result.includes('不得重复')) return result
+  }
+  const result = await input.onToolCall({ name: 'submit_scene_layout', arguments: { ...layout,
+    ...(layout.scene ? { scene: cleanFields(layout.scene) } : {}),
+    expressions: Object.fromEntries(expressions.filter(e => e.owner === 'scene').map(e => [e.field, e.tags])) } })
+  if (result.includes('失败') || result.includes('不得重复')) return result
+  return input.onToolCall({ name: 'submit_scene_plan', arguments: {} })
+}
+
 test('image Agent reads historical character designs and submits text and tags without citations', async t => {
   const fx = await fixture(t, { runAgent: async input => {
     assert.ok(input.tools.some(tool => tool.name === 'character_design_read'))
@@ -30,7 +46,7 @@ test('image Agent reads historical character designs and submits text and tags w
     plan.characters = [{ id: 'lin', name: '林岚', fields: {
       appearance: field('黑色短发', 'short black hair')
     } }]
-    assert.match(await input.onToolCall({ name: 'submit_scene_plan', arguments: { plan } }), /已校验保存/)
+    assert.match(await submitPlanCall(input, { name: 'submit_scene_plan', arguments: { plan } }), /已校验保存/)
   } })
   fx.chat().characterDesignDocument = { revision: 1, characters: [{ name: '林岚', design: { appearance: '黑色短发', defaultPresentation: '白色外套' } }] }
   const historical = structuredClone(fx.chat())
@@ -49,7 +65,7 @@ test('image reader stays available when historical design snapshot is missing, w
     const result = JSON.parse(await input.onToolCall({ name: 'character_design_read', arguments: { name: '林岚' } }))
     assert.equal(result.found, false)
     assert.equal(result.character, undefined)
-    await input.onToolCall({ name: 'submit_scene_plan', arguments: { plan: planFixture() } })
+    await submitPlanCall(input, { name: 'submit_scene_plan', arguments: { plan: planFixture() } })
   } })
   fx.chat().characterDesignDocument = { characters: [{ name: '林岚', design: { appearance: '未来红发' } }] }
   fx.chat().messages.push({ role: 'assistant', turn: 3, text: '未来。' })
@@ -139,7 +155,7 @@ async function fixture(t, overrides = {}) {
     credentials: () => ({ resolve: async () => ({ value: key }), set: async (_ref, value) => { key = value } }),
     attachments: () => ({ saveImage: async image => { const ref = { attachmentId: 'test-image-' + saved.size, mediaType: image.mediaType }; saved.set(ref.attachmentId, image); return ref }, readImage: async ref => ({ ref, ...saved.get(ref.attachmentId) }) }),
     generate: async () => { imageCalls++; return { data: png, mediaType: 'image/png' } },
-    runAgent: async input => { await input.onToolCall({ arguments: { plan: planFixture() } }); return { traceSessionId: 'image-child' } },
+    runAgent: async input => { await submitPlanCall(input, { arguments: { plan: planFixture() } }); return { traceSessionId: 'image-child' } },
     ...overrides
   }
   const services = []
@@ -150,6 +166,94 @@ async function fixture(t, overrides = {}) {
   await service.configure({ enabled: true })
   return { service, createService, deps, store, chat: () => chat, setChat: value => { chat = value }, imageCalls: () => imageCalls }
 }
+
+test('split tool calls serialize in one model response; only confirmation publishes the plan and requests one image', async t => {
+  const fx = await fixture(t, { runAgent: async input => {
+    const responses = await Promise.all(Array.from({ length: 8 }, (_, i) => input.onToolCall({ name: 'submit_scene_character',
+      arguments: { id: 'p' + i, name: '人物' + i, fields: { appearance: { text: '黑发', tags: 'black hair' } } } })))
+    assert.ok(responses.every(value => value.includes('草稿已保存')))
+    assert.equal(input.stopToolsWhen(), false)
+    assert.equal(await fx.store.readJson(imagePath + 'plans.json'), undefined)
+    assert.equal(fx.imageCalls(), 0)
+    const { characters, ...layout } = planFixture()
+    layout.subjects = Array.from({ length: 8 }, (_, i) => 'p' + i)
+    await input.onToolCall({ name: 'submit_scene_layout', arguments: layout })
+    assert.match(await input.onToolCall({ name: 'submit_scene_plan', arguments: {} }), /已校验保存/)
+    assert.match(await input.onToolCall({ name: 'submit_scene_plan', arguments: {} }), /不得重复/)
+    assert.equal(fx.imageCalls(), 0)
+  } })
+  await fx.service.start('parent', 2, sceneTarget(fx.chat(), 2).key)
+  await until(async () => (await fx.service.status('parent', 2)).status === 'succeeded')
+  assert.equal(fx.imageCalls(), 1)
+  assert.equal(Object.keys((await fx.store.readJson(imagePath + 'plans.json')).characters).length, 8)
+})
+
+test('interrupted draft survives service restart; matching target resumes without rewriting saved characters', async t => {
+  let attempt = 0
+  const fx = await fixture(t, { runAgent: async input => {
+    if (++attempt === 1) {
+      await input.onToolCall({ name: 'submit_scene_character', arguments: { id: 'a', name: '甲', fields: { appearance: { text: '黑发', tags: 'black hair' } } } })
+      throw new Error('simulated process interruption')
+    }
+    const material = JSON.parse(input.messages[0].content[0].text)
+    assert.deepEqual(material.draft.characters.map(person => person.id), ['a'])
+    assert.equal(await fx.store.readJson(imagePath + 'plans.json'), undefined)
+    const { characters, ...layout } = planFixture()
+    layout.subjects = ['a']
+    await input.onToolCall({ name: 'submit_scene_layout', arguments: layout })
+    await input.onToolCall({ name: 'submit_scene_plan', arguments: {} })
+  } })
+  const key = sceneTarget(fx.chat(), 2).key
+  await fx.service.start('parent', 2, key)
+  await until(async () => (await fx.service.status('parent', 2)).status === 'failed')
+  assert.equal(fx.imageCalls(), 0)
+  await fx.service.dispose()
+  const restarted = fx.createService()
+  await restarted.start('parent', 2, key)
+  await until(async () => (await restarted.status('parent', 2)).status === 'succeeded')
+  assert.equal(fx.imageCalls(), 1)
+})
+
+for (const change of ['body', 'configuration']) test('interrupted draft is not reused after changing ' + change, async t => {
+  let attempt = 0
+  const fx = await fixture(t, { runAgent: async input => {
+    if (++attempt === 1) {
+      await input.onToolCall({ name: 'submit_scene_character', arguments: { id: 'old', name: '旧人物', fields: {} } })
+      throw new Error('simulated interruption')
+    }
+    assert.equal(JSON.parse(input.messages[0].content[0].text).draft, undefined)
+    await submitPlanCall(input, { arguments: { plan: planFixture() } })
+  } })
+  await fx.service.start('parent', 2, sceneTarget(fx.chat(), 2).key)
+  await until(async () => (await fx.service.status('parent', 2)).status === 'failed')
+  if (change === 'body') fx.chat().messages[1].swipeId = 1
+  else await fx.service.configure({ model: 'another-image-model' })
+  await fx.service.start('parent', 2, sceneTarget(fx.chat(), 2).key)
+  await until(async () => (await fx.service.status('parent', 2)).status === 'succeeded')
+  assert.equal(fx.imageCalls(), 1)
+  assert.equal(Object.keys((await fx.store.readJson(imagePath + 'plans.json')).characters).length, 0)
+})
+
+test('syntax errors give position, content errors give path; successful draft calls do not consume three corrections', async t => {
+  const fx = await fixture(t, { runAgent: async input => {
+    const malformed = await input.onToolCall({ name: 'submit_scene_character', arguments: {}, rawArguments: '{"id":"a","fields":{}}}' })
+    assert.match(malformed, /JSON 语法错误.*行.*列.*附近.*剩余修正机会：3/s)
+    await input.onToolCall({ name: 'submit_scene_character', arguments: { id: 'a', name: '甲', fields: {} } })
+    const content = await input.onToolCall({ name: 'submit_scene_character', arguments: { id: 'a', fields: { clothing: { text: '外套', tags: [] } } } })
+    assert.match(content, /fields.clothing.tags.*string.*array.*剩余修正机会：2/s)
+    await input.onToolCall({ name: 'submit_scene_character', arguments: { id: 'a', fields: { clothing: { text: '外套', tags: 'coat' } } } })
+    const premature = await input.onToolCall({ name: 'submit_scene_plan', arguments: {} })
+    assert.match(premature, /缺少场景.*剩余修正机会：1/s)
+    assert.equal(input.stopToolsWhen(), false)
+    const { characters, ...layout } = planFixture()
+    layout.subjects = ['a']
+    await input.onToolCall({ name: 'submit_scene_layout', arguments: layout })
+    assert.match(await input.onToolCall({ name: 'submit_scene_plan', arguments: {} }), /已校验保存/)
+  } })
+  await fx.service.start('parent', 2, sceneTarget(fx.chat(), 2).key)
+  await until(async () => (await fx.service.status('parent', 2)).status === 'succeeded')
+  assert.equal(fx.imageCalls(), 1)
+})
 
 test('setup checks through illustration service do not save drafts or start agents/images', async t => {
   const calls = []
@@ -175,9 +279,9 @@ test('image journal retains failed attempts, validation feedback, actual inputs 
     assert.equal(input.system, readScenePlanInstruction())
     submissions++
     if (submissions === 1) {
-      await input.onToolCall({ arguments: { plan: { broken: true } } })
-      await input.onToolCall({ arguments: { plan: { broken: true } } })
-    } else await input.onToolCall({ arguments: { plan: planFixture() } })
+      await submitPlanCall(input, { arguments: { plan: { broken: true } } })
+      await submitPlanCall(input, { arguments: { plan: { broken: true } } })
+    } else await submitPlanCall(input, { arguments: { plan: planFixture() } })
     return { traceSessionId: 'image-child-log' }
   } })
   const key = sceneTarget(fx.chat(), 2).key
@@ -389,7 +493,7 @@ test('NovelAI service sends frozen structured people and saves the exact key-fre
       agentCalls++
       assert.match(JSON.stringify(input.messages), /NovelAI.*英文绘图标签/)
       const makeField = (text, tags, quote) => ({ text, tags, evidence: [{ source: 'target', quote }] })
-      await input.onToolCall({ arguments: { plan: {
+      await submitPlanCall(input, { arguments: { plan: {
         description: '两人在站台', subjects: ['a', 'b'], continuity: 'uncertain',
         characters: [
           { id: 'a', name: '林岚', identity: { source: 'target', quote: '林岚黑发蓝衣' }, fields: { appearance: makeField('黑发', 'black hair', '林岚黑发蓝衣'), clothing: makeField('蓝衣', 'blue coat', '林岚黑发蓝衣') } },
@@ -426,7 +530,7 @@ test('ComfyUI retry after restart or attachment failure queries the saved job wi
   let posts = 0, texts = 0, offline = true, jobId, failSave = true
   const fx = await fixture(t, {
     credentials: () => ({ resolve: async () => ({ value: 'fixture-key' }), set: async () => {} }),
-    runAgent: async input => { texts++; await input.onToolCall({ arguments: { plan: planFixture() } }) },
+    runAgent: async input => { texts++; await submitPlanCall(input, { arguments: { plan: planFixture() } }) },
     generate: input => generateSceneImage(input, { fetch: async (url, init) => {
       if (url.endsWith('/prompt')) { posts++; jobId = JSON.parse(init.body).prompt_id; return Response.json({ prompt_id: jobId }) }
       if (offline) throw new Error('offline')
@@ -492,7 +596,7 @@ test('ComfyUI cancellation retains its task identity and explicit resume queries
 test('attachment failure recovers received bytes after restart with settings disabled and no credentials or model', async t => {
   let saves = 0, texts = 0, images = 0
   const fx = await fixture(t, {
-    runAgent: async input => { texts++; await input.onToolCall({ arguments: { plan: planFixture() } }) },
+    runAgent: async input => { texts++; await submitPlanCall(input, { arguments: { plan: planFixture() } }) },
     generate: async () => { images++; return { data: png, mediaType: 'image/png', metadata: { seed: 71, model: 'original-model' } } },
     attachments: () => ({ saveImage: async () => { if (++saves === 1) throw new Error('storage offline'); return { attachmentId: 'recovered-image' } }, readImage: async ref => ({ ref, data: png }) })
   })
@@ -686,7 +790,7 @@ test('a channel change during planning cannot change the frozen paid request or 
   t.after(() => release())
   const fx = await fixture(t, {
     credentials: () => ({ resolve: async ref => ({ value: keys.get(ref) }), set: async (ref, value) => { keys.set(ref, value) } }),
-    runAgent: async input => { started(); await waiting; await input.onToolCall({ arguments: { plan: planFixture() } }); return {} },
+    runAgent: async input => { started(); await waiting; await submitPlanCall(input, { arguments: { plan: planFixture() } }); return {} },
     generate: async input => { generated.push(input); return { data: png, mediaType: 'image/png' } }
   })
   await fx.service.start('parent', 2, sceneTarget(fx.chat(), 2).key)
@@ -704,7 +808,8 @@ test('a channel change during planning cannot change the frozen paid request or 
 })
 
 test('complete one-click native child Agent flow, no foreground writes, durable image, duplicate suppression', async t => {
-  let followup, registered, childOptions, persona, descriptor, disposed = 0
+  let followup, childOptions, persona, descriptor, disposed = 0
+  const registered = new Map()
   const runner = createBackgroundAgentRunner({ agents: {
     get: () => ({ id: 'parent', session: { header: {} } }),
     async create(options) {
@@ -714,11 +819,13 @@ test('complete one-click native child Agent flow, no foreground writes, durable 
       const session = { id: options.sessionId, events, append(type, data) { if (type === 'subagent/descriptor') descriptor = data; events.push({ type, data }) } }
       await options.setup({
         systemPrompt: { section: value => { persona = value.text }, variable() {}, suppressRuntimeContext() {} },
-        tools: { restrict() {}, register(tool) { registered = tool; return () => {} } }, on(name, fn) { hooks[name] = fn }
+        tools: { restrict() {}, register(tool) { registered.set(tool.name, tool); return () => {} } }, on(name, fn) { hooks[name] = fn }
       })
       const agent = { session, followup: value => { followup = value }, async whenIdle() {
         await hooks['agent/pre-step']({ agent, turn: 1, step: 1 }, async () => ({ kind: 'enter', messages: [] }))
-        await registered.execute({ plan: planFixture('A woman at a rainy window') })
+        const { characters, ...layout } = planFixture('A woman at a rainy window')
+        await registered.get('submit_scene_layout').execute(layout)
+        await registered.get('submit_scene_plan').execute({})
         events.push({ type: 'assistant/message', data: { message: { content: [{ type: 'text', text: '完成' }] } } })
       } }
       return { agent, async dispose() { disposed++ } }
@@ -755,7 +862,7 @@ test('complete one-click native child Agent flow, no foreground writes, durable 
 test('provider failure is visible, not auto-retried, explicit retry works', async t => {
   let calls = 0, agentCalls = 0
   const fx = await fixture(t, {
-    runAgent: async input => { agentCalls++; await input.onToolCall({ arguments: { plan: planFixture() } }); return { traceSessionId: 'image-child' } },
+    runAgent: async input => { agentCalls++; await submitPlanCall(input, { arguments: { plan: planFixture() } }); return { traceSessionId: 'image-child' } },
     generate: async () => { if (++calls === 1) throw new Error('service failed'); return { data: png, mediaType: 'image/png' } }
   })
   const key = sceneTarget(fx.chat(), 2).key
@@ -772,8 +879,8 @@ test('provider failure is visible, not auto-retried, explicit retry works', asyn
 
 test('scene references stay out of initial input; scene plans need not repeat their source or quote', async t => {
   const fx = await fixture(t, { runAgent: async input => {
-    assert.deepEqual(input.tools.map(tool => tool.name), ['submit_scene_plan', 'character_design_read', 'read_scene_reference'])
-    assert.equal(input.maxToolCalls, 5)
+    assert.deepEqual(input.tools.map(tool => tool.name), ['submit_scene_character', 'submit_scene_layout', 'submit_scene_plan', 'character_design_read', 'read_scene_reference'])
+    assert.equal(input.maxToolCalls, 17)
     assert.doesNotMatch(input.messages[0].content[0].text, /黑色短发|白色裙子/)
     const read = JSON.parse(await input.onToolCall({ name: 'read_scene_reference', arguments: { query: '林岚' } }))
     const source = read.sources[0]
@@ -783,7 +890,7 @@ test('scene references stay out of initial input; scene plans need not repeat th
     plan.subjects = ['local-person']
     plan.characters = [{ id: 'local-person', name: '林岚', fields: { appearance } }]
     assert.equal(fx.imageCalls(), 0)
-    assert.match(await input.onToolCall({ name: 'submit_scene_plan', arguments: { plan } }), /已校验保存/)
+    assert.match(await submitPlanCall(input, { name: 'submit_scene_plan', arguments: { plan } }), /已校验保存/)
     return {}
   } })
   fx.chat().cardContextSnapshotVersion = 5
@@ -813,7 +920,7 @@ test('historical reference lookup uses that target snapshot or omits references,
           assert.match(read, /历史黑发/)
           assert.doesNotMatch(read, /未来红发/)
         }
-        await input.onToolCall({ arguments: { plan: planFixture() } })
+        await submitPlanCall(input, { arguments: { plan: planFixture() } })
         return {}
       }
     })
@@ -828,17 +935,17 @@ test('historical reference lookup uses that target snapshot or omits references,
 
 test('format repair happens before image request; a saved plan survives failed final acknowledgement', async t => {
   const fx = await fixture(t, { runAgent: async input => {
-    assert.deepEqual(input.tools.map(tool => tool.name), ['submit_scene_plan', 'character_design_read'])
-    assert.equal(input.maxToolCalls, 2)
-    const error = await input.onToolCall({ arguments: { plan: { prompt: 'not the schema' } } })
-    assert.match(error, /未知字段.*尚未收费.*修正一次/)
+    assert.deepEqual(input.tools.map(tool => tool.name), ['submit_scene_character', 'submit_scene_layout', 'submit_scene_plan', 'character_design_read'])
+    assert.equal(input.maxToolCalls, 14)
+    const error = await submitPlanCall(input, { arguments: { plan: { prompt: 'not the schema' } } })
+    assert.match(error, /未知字段.*尚未请求图片.*剩余修正机会：3/)
     assert.equal(fx.imageCalls(), 0)
     assert.equal(input.stopToolsWhen(), false)
-    const result = await input.onToolCall({ arguments: { plan: planFixture() } })
+    const result = await submitPlanCall(input, { arguments: { plan: planFixture() } })
     assert.match(result, /已校验保存/)
     assert.equal(input.stopToolsWhen(), true)
     assert.equal(fx.imageCalls(), 0, 'image request is host-controlled, not a tool side effect')
-    await input.onToolCall({ arguments: { plan: planFixture('duplicate') } })
+    await submitPlanCall(input, { arguments: { plan: planFixture('duplicate') } })
     throw new Error('acknowledgement failed')
   } })
   await fx.service.start('parent', 2, sceneTarget(fx.chat(), 2).key)
@@ -846,15 +953,17 @@ test('format repair happens before image request; a saved plan survives failed f
   assert.equal(fx.imageCalls(), 1)
 })
 
-test('two invalid submissions stop before charging and preserve the concrete validation error', async t => {
+test('initial failure plus three corrections stop before charging and preserve the concrete validation error', async t => {
   const fx = await fixture(t, { runAgent: async input => {
-    await input.onToolCall({ arguments: { plan: {} } })
-    assert.match(await input.onToolCall({ arguments: { plan: {} } }), /次数已用完/)
+    await submitPlanCall(input, { arguments: { plan: {} } })
+    await submitPlanCall(input, { arguments: { plan: {} } })
+    await submitPlanCall(input, { arguments: { plan: {} } })
+    assert.match(await submitPlanCall(input, { arguments: { plan: {} } }), /次数已用完/)
     assert.equal(input.stopToolsWhen(), true)
   } })
   await fx.service.start('parent', 2, sceneTarget(fx.chat(), 2).key)
   const status = await until(async () => { const value = await fx.service.status('parent', 2); return value.status === 'failed' && value })
-  assert.match(status.error, /continuity/)
+  assert.match(status.error, /submit_scene_layout.description.*缺失/)
   assert.equal(fx.imageCalls(), 0)
 })
 
@@ -869,7 +978,7 @@ test('historical visual variables reach planning without output citations; input
     plan.characters = [{ id: 'local-person', name: '林岚', fields: {
       clothing: { text: '青色外套', tags: 'blue coat' }
     } }]
-    const reply = await input.onToolCall({ arguments: { plan } })
+    const reply = await submitPlanCall(input, { arguments: { plan } })
     assert.match(reply, /已校验保存/)
     return { traceSessionId: 'state-child' }
   } })
@@ -901,7 +1010,7 @@ test('historical source never borrows a later posture, and skipped rounds enter 
   assert.equal(sceneInput(chat, target).posture, '')
   assert.equal(sceneInput(chat, target, { posture: '历史姿态' }).posture, '历史姿态')
   const inputs = []
-  const fx = await fixture(t, { runAgent: async input => { inputs.push(JSON.parse(input.messages[0].content[0].text)); await input.onToolCall({ arguments: { plan: planFixture() } }); return {} } })
+  const fx = await fixture(t, { runAgent: async input => { inputs.push(JSON.parse(input.messages[0].content[0].text)); await submitPlanCall(input, { arguments: { plan: planFixture() } }); return {} } })
   await fx.service.start('parent', 2, sceneTarget(fx.chat(), 2).key)
   await until(async () => (await fx.service.status('parent', 2)).status === 'succeeded')
   fx.chat().messages.push({ role: 'assistant', turn: 3, text: '她走进室内，换了红衣。' }, { role: 'assistant', turn: 4, text: '她坐下。' })
@@ -922,7 +1031,7 @@ test('late picture cannot attach to a replaced swipe; saved picture survives fai
   await fx.service.dispose()
   assert.equal((await fx.service.status('parent', 2)).status, 'idle')
   await assert.rejects(fx.service.readImage('parent', 2, key), /版本/)
-  const other = await fixture(t, { runAgent: async input => { await input.onToolCall({ arguments: { plan: planFixture('Scene') } }); throw new Error('final text failed') } })
+  const other = await fixture(t, { runAgent: async input => { await submitPlanCall(input, { arguments: { plan: planFixture('Scene') } }); throw new Error('final text failed') } })
   await other.service.start('parent', 2, sceneTarget(other.chat(), 2).key)
   await until(async () => (await other.service.status('parent', 2)).status === 'succeeded')
 })
@@ -932,11 +1041,19 @@ test('missing credentials/attachments reject before charging; timeout never retr
   await assert.rejects(missing.service.start('parent', 2, sceneTarget(missing.chat(), 2).key), /附件服务/)
   assert.equal(missing.imageCalls(), 0)
   let attempts = 0
+  let enteredProvider
+  const providerStarted = new Promise(resolve => { enteredProvider = resolve })
   const timed = await fixture(t, { timeoutMs: 300, generate: async input => {
     attempts++
+    enteredProvider()
     await new Promise((resolve, reject) => { if (input.signal.aborted) reject(input.signal.reason); else input.signal.addEventListener('abort', () => reject(input.signal.reason), { once: true }) })
   } })
+  // Exercise the paid stage's timeout, not the speed of preceding disk/Agent work.
+  t.mock.timers.enable({ apis: ['setTimeout'] })
   await timed.service.start('parent', 2, sceneTarget(timed.chat(), 2).key)
+  await providerStarted
+  t.mock.timers.tick(300)
+  t.mock.timers.reset()
   const status = await until(async () => { const value = await timed.service.status('parent', 2); return value.status === 'failed' && value })
   assert.match(status.error, /结果未确认.*可能已计费/)
   assert.equal(status.outcome, 'unconfirmed')
@@ -945,7 +1062,7 @@ test('missing credentials/attachments reject before charging; timeout never retr
 
 test('repaint bypasses text Agent, retains each version and deduplicates replayed request IDs after restart', async t => {
   let agentCalls = 0
-  const fx = await fixture(t, { runAgent: async input => { agentCalls++; await input.onToolCall({ arguments: { plan: planFixture() } }); return {} } })
+  const fx = await fixture(t, { runAgent: async input => { agentCalls++; await submitPlanCall(input, { arguments: { plan: planFixture() } }); return {} } })
   const key = sceneTarget(fx.chat(), 2).key
   await fx.service.start('parent', 2, key)
   const first = await until(async () => { const state = await fx.service.status('parent', 2); return state.status === 'succeeded' && state })
@@ -978,7 +1095,7 @@ test('image-only adjustment uses just old plan plus instruction, persists throug
     runAgent: async input => {
       calls++
       outputBudgets.push(input.maxTokens)
-      if (input.tools[0].name === 'submit_scene_plan') await input.onToolCall({ arguments: { plan: planFixture() } })
+      if (input.tools.some(tool => tool.name === 'submit_scene_plan')) await submitPlanCall(input, { arguments: { plan: planFixture() } })
       else {
         assert.equal(input.tools[0].name, 'submit_image_adjustment')
         assert.equal(input.system, readSceneAdjustmentInstruction())
@@ -986,7 +1103,7 @@ test('image-only adjustment uses just old plan plus instruction, persists throug
         assert.equal(context.instruction, '改成雨夜')
         assert.equal(context.sources, undefined)
         assert.equal(context.characters, undefined)
-        await input.onToolCall({ arguments: { update: { description: '雨夜', patches: [{ owner: 'scene', field: 'composition', text: '雨夜', tags: 'rainy night' }] } } })
+        await input.onToolCall({ name: 'submit_image_adjustment', arguments: { update: { description: '雨夜', patches: [{ owner: 'scene', field: 'composition', text: '雨夜', tags: 'rainy night' }] } } })
       }
       return {}
     }
@@ -1035,7 +1152,7 @@ test('style saves do not charge; repaint restyles without text work, frozen jobs
   const prompts = []
   let calls = 0, release
   const fx = await fixture(t, {
-    runAgent: async input => { calls++; await input.onToolCall({ arguments: { plan: planFixture() } }); return {} },
+    runAgent: async input => { calls++; await submitPlanCall(input, { arguments: { plan: planFixture() } }); return {} },
     generate: async input => {
       prompts.push(input.prompt)
       if (prompts.length === 1) await new Promise(resolve => { release = resolve })
@@ -1071,8 +1188,8 @@ test('image-only style adjustment is saved only on its picture and global style 
   let calls = 0
   const fx = await fixture(t, { runAgent: async input => {
     calls++
-    if (input.tools[0].name === 'submit_scene_plan') await input.onToolCall({ arguments: { plan: planFixture() } })
-    else await input.onToolCall({ arguments: { update: { description: '单图胶片', patches: [], style: { text: '胶片', tags: 'film grain' } } } })
+    if (input.tools.some(tool => tool.name === 'submit_scene_plan')) await submitPlanCall(input, { arguments: { plan: planFixture() } })
+    else await input.onToolCall({ name: 'submit_image_adjustment', arguments: { update: { description: '单图胶片', patches: [], style: { text: '胶片', tags: 'film grain' } } } })
     return {}
   } })
   await fx.service.configure({ style: { preset: 'watercolor' } })
