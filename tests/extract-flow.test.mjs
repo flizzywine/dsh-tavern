@@ -461,6 +461,26 @@ test('用户画像作为卡片 Agent 起始任务，并在新游戏准备页手�
   assert.match(injectTaskPrompt, /\/tavern-user-profile/)
   assert.match(sidebar, /手动启用已确认的长期偏好/)
   assert.match(sidebar, /userProfileEnabled: userProfileEnabled === true/)
+  assert.match(sidebar, /response\.userProfile\.defaultEnabled/)
+})
+
+test('用户画像右侧栏可查看修改、设置新游戏默认值并跳转卡片 Agent', () => {
+  const profileTab = between(clientSource, 'function UserPreferenceProfileTab', 'function SystemPromptSidebarTab')
+  const sidebar = between(clientSource, 'function TavernSidebar', 'function TavernResourcesTab')
+
+  assert.match(profileTab, /getUserPreferenceProfile/)
+  assert.match(profileTab, /updateUserPreferenceProfile/)
+  assert.match(profileTab, /setUserPreferenceProfileDefaultEnabled/)
+  assert.match(profileTab, /完整画像/)
+  assert.match(profileTab, /实际注入的精简摘要/)
+  assert.match(profileTab, /新游戏默认启用/)
+  assert.match(profileTab, /本局创建后保持冻结/)
+  assert.match(profileTab, /dsh-tavern-open-user-profile-task/)
+  assert.match(sidebar, /addEventListener\("dsh-tavern-open-user-profile-task"/)
+  assert.match(serverSource, /case 'getUserPreferenceProfile'/)
+  assert.match(serverSource, /case 'updateUserPreferenceProfile'/)
+  assert.match(serverSource, /case 'setUserPreferenceProfileDefaultEnabled'/)
+  assert.match(clientSource, /id: "dsh-tavern:user-profile"/)
 })
 
 test('世界书与预设起始任务先选择一个目标并自动追加类型引用', () => {

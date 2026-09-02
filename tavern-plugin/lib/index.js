@@ -631,7 +631,26 @@ export async function apply(ctx) {
       trustedCardMode: settings.trustedCardMode,
       userProfile: {
         hasConfirmed: profile.hasConfirmed,
-        revision: profile.hasConfirmed ? Number(profile.confirmed.profileRevision) || 0 : 0
+        revision: profile.hasConfirmed ? Number(profile.confirmed.profileRevision) || 0 : 0,
+        defaultEnabled: profile.hasConfirmed && profile.defaultEnabled === true
+      }
+    }
+  }
+  function presentUserPreferenceProfile(value) {
+    const confirmed = value && value.hasConfirmed && value.confirmed ? value.confirmed : null
+    return {
+      hasDraft: Boolean(value && value.hasDraft),
+      draftRevision: value && value.hasDraft ? Number(value.draft && value.draft.revision) || 0 : 0,
+      hasConfirmed: confirmed !== null,
+      confirmedRevision: confirmed === null ? 0 : Number(confirmed.profileRevision) || 0,
+      defaultEnabled: confirmed !== null && value.defaultEnabled === true,
+      confirmed: confirmed === null ? null : {
+        summary: str(confirmed.summary),
+        injectionText: str(confirmed.injectionText),
+        dimensions: Array.isArray(confirmed.dimensions) ? confirmed.dimensions : [],
+        rawAnswers: Array.isArray(confirmed.rawAnswers) ? confirmed.rawAnswers : [],
+        uncertainties: Array.isArray(confirmed.uncertainties) ? confirmed.uncertainties : [],
+        confirmedAt: Number(confirmed.confirmedAt) || 0
       }
     }
   }
@@ -1798,6 +1817,18 @@ export async function apply(ctx) {
       case 'checkUpdate': return { status: await applicationUpdater.check() }
       case 'startUpdate': return { status: await applicationUpdater.start() }
       case 'getCardOpenings': return await getCardOpenings(args && args.path, args && args.userName, args && args.requestMode)
+      case 'getUserPreferenceProfile': {
+        const chat = await chatForSession(args && args.sessionId)
+        return {
+          userProfile: presentUserPreferenceProfile(await userPreferenceProfile.read()),
+          currentConversation: chat && groupOfMode(chat.mode) === 'play' ? {
+            enabled: chat.userProfileEnabled === true,
+            revision: Math.max(0, Number(chat.userProfileRevision) || 0)
+          } : null
+        }
+      }
+      case 'updateUserPreferenceProfile': return { userProfile: presentUserPreferenceProfile(await userPreferenceProfile.updateConfirmed(args)) }
+      case 'setUserPreferenceProfileDefaultEnabled': return { userProfile: presentUserPreferenceProfile(await userPreferenceProfile.setDefaultEnabled(args && args.enabled === true)) }
       case 'getCard': {
         const cardPath = normalizeResourcePath(args && args.path, 'card')
         const workspace = await readCardWorkspace(cardPath)

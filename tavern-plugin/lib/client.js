@@ -393,6 +393,20 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 .dsh-tavern-status-item { padding: 7px 0; border-bottom: 1px solid var(--dsw-alias-border-l3); font-size: 12px; line-height: 1.5; }
 .dsh-tavern-status-item:last-child { border-bottom: 0; }
 .dsh-tavern-status-empty { color: var(--dsw-alias-label-tertiary); font-size: 12px; line-height: 1.6; }
+.dsh-tavern-user-profile { height: 100%; box-sizing: border-box; display: flex; flex-direction: column; color: var(--dsw-alias-label-primary); background: var(--dsw-specific-sidebar-fill); }
+.dsh-tavern-user-profile-body { flex: 1; min-height: 0; overflow-y: auto; padding: 12px 14px 24px; }
+.dsh-tavern-user-profile-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.dsh-tavern-user-profile-switch { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 9px; background: var(--dsw-specific-input-major); }
+.dsh-tavern-user-profile-switch b { display: block; font-size: 12px; }
+.dsh-tavern-user-profile-switch small { display: block; margin-top: 3px; color: var(--dsw-alias-label-tertiary); font-size: 9px; line-height: 1.45; }
+.dsh-tavern-user-profile-text { margin: 0; padding: 10px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 9px; background: var(--dsw-specific-input-major); color: var(--dsw-alias-label-secondary); font-size: 11px; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
+.dsh-tavern-user-profile-dimension { margin-top: 7px; padding: 9px 10px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 9px; background: var(--dsw-alias-interactive-bg-hover); }
+.dsh-tavern-user-profile-dimension b { font-size: 11px; }
+.dsh-tavern-user-profile-dimension p { margin: 5px 0 0; color: var(--dsw-alias-label-secondary); font-size: 11px; line-height: 1.55; }
+.dsh-tavern-user-profile-meta { margin-top: 5px; color: var(--dsw-alias-label-tertiary); font-size: 9px; line-height: 1.5; }
+.dsh-tavern-user-profile details { margin-top: 10px; }
+.dsh-tavern-user-profile details summary { cursor: pointer; color: var(--dsw-alias-label-secondary); font-size: 11px; font-weight: 700; }
+.dsh-tavern-user-profile-editor textarea { box-sizing: border-box; width: 100%; min-height: 130px; margin-top: 5px; padding: 8px 9px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; resize: vertical; background: var(--dsw-specific-input-major); color: inherit; font: inherit; font-size: 11px; line-height: 1.6; }
 .dsh-tavern-debug-panel { display: flex; flex-direction: column; gap: 7px; }
 .dsh-tavern-debug-panel select { width: 100%; box-sizing: border-box; padding: 7px 8px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-specific-input-major); color: inherit; font: inherit; font-size: 12px; }
 .dsh-tavern-debug-preview { padding: 7px 8px; border-radius: 8px; background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-secondary); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
@@ -4118,7 +4132,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					const userName = window.localStorage.getItem("dsh-tavern-player-name") || "你";
 					const response = await call("getCardOpenings", { path: card.path, userName: userName, requestMode: compatibilityAvailable && requestMode === "sillytavern" ? "sillytavern" : "dsh" });
 					const openings = response.openings || [];
-					setOpeningPicker({ card: card, openings: openings, index: 0, userName: userName, trustedCardMode: response.trustedCardMode, userProfileAvailable: !!(response.userProfile && response.userProfile.hasConfirmed), userProfileEnabled: false });
+					setOpeningPicker({ card: card, openings: openings, index: 0, userName: userName, trustedCardMode: response.trustedCardMode, userProfileAvailable: !!(response.userProfile && response.userProfile.hasConfirmed), userProfileEnabled: !!(response.userProfile && response.userProfile.hasConfirmed && response.userProfile.defaultEnabled) });
 				} catch (err) { playPrewarmRef.current.cancel(); setError(String(err && err.message || err)); }
 				finally { setBusy(false); }
 			}
@@ -4138,6 +4152,13 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				} catch (err) { setError(String(err && err.phase || "创建对话") + "失败：" + String(err && err.message || err)); }
 				finally { setBusy(false); }
 			}
+			React.useEffect(function () {
+				function onOpenUserProfileTask() {
+					newCardConversation(null, "user-profile", "建立用户画像");
+				}
+				window.addEventListener("dsh-tavern-open-user-profile-task", onOpenUserProfileTask);
+				return function () { window.removeEventListener("dsh-tavern-open-user-profile-task", onOpenUserProfileTask); };
+			});
 			React.useEffect(function () {
 				function onDebugPlayChat(event) {
 					const detail = event && event.detail ? event.detail : {};
@@ -4671,6 +4692,148 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				state.error ? React.createElement("div", { className: "dsh-tavern-settings-error", role: "alert" }, "保存失败：" + state.error) : null
 			);
 		}
+
+		function UserPreferenceProfileTab(props) {
+			const h = React.createElement;
+			const sessionId = props.scope && props.scope.sessionId || "";
+			const [record, setRecord] = React.useState(null);
+			const [currentConversation, setCurrentConversation] = React.useState(null);
+			const [editing, setEditing] = React.useState(false);
+			const [summary, setSummary] = React.useState("");
+			const [injectionText, setInjectionText] = React.useState("");
+			const [busy, setBusy] = React.useState(false);
+			const [error, setError] = usePersistentError("用户画像");
+			function applyResult(result) {
+				const next = result && result.userProfile || null;
+				setRecord(next);
+				if (result && Object.prototype.hasOwnProperty.call(result, "currentConversation")) setCurrentConversation(result.currentConversation || null);
+				if (!editing && next && next.confirmed) {
+					setSummary(String(next.confirmed.summary || ""));
+					setInjectionText(String(next.confirmed.injectionText || ""));
+				}
+			}
+			async function refresh() {
+				try {
+					applyResult(await rpc("getUserPreferenceProfile", { sessionId: sessionId }, sessionId));
+					setError("");
+				} catch (err) { setError(String(err && err.message || err)); }
+			}
+			React.useEffect(function () {
+				refresh();
+				function onData(event) { if (tavernDataChangeAffects(event, ["user-profile", "sessions"], "user-profile")) refresh(); }
+				window.addEventListener("dsh-tavern-data-changed", onData);
+				return function () { window.removeEventListener("dsh-tavern-data-changed", onData); };
+			}, [sessionId]);
+			function openAgentTask() {
+				window.dispatchEvent(new CustomEvent("dsh-tavern-open-user-profile-task"));
+			}
+			async function toggleDefault() {
+				if (!record || !record.hasConfirmed || busy) return;
+				setBusy(true); setError("");
+				try {
+					const result = await rpc("setUserPreferenceProfileDefaultEnabled", { enabled: record.defaultEnabled !== true }, sessionId);
+					applyResult(result);
+					notifyTavernDataChanged(["user-profile"], "user-profile");
+				} catch (err) { setError(String(err && err.message || err)); }
+				finally { setBusy(false); }
+			}
+			function beginEdit() {
+				if (!record || !record.confirmed) return;
+				setSummary(String(record.confirmed.summary || ""));
+				setInjectionText(String(record.confirmed.injectionText || ""));
+				setEditing(true);
+			}
+			async function saveEdit() {
+				if (!summary.trim() || !injectionText.trim() || busy) return;
+				if (!window.confirm("保存后将成为新的已确认用户画像，仅影响以后新开的游戏。继续吗？")) return;
+				setBusy(true); setError("");
+				try {
+					const result = await rpc("updateUserPreferenceProfile", { expectedRevision: record.confirmedRevision, summary: summary, injectionText: injectionText }, sessionId);
+					applyResult(result);
+					setEditing(false);
+					notifyTavernDataChanged(["user-profile"], "user-profile");
+				} catch (err) { setError(String(err && err.message || err)); }
+				finally { setBusy(false); }
+			}
+			const header = h("div", { className: "dsh-tavern-status-head" },
+				h("div", { className: "dsh-tavern-status-title" }, "用户画像"),
+				h("div", { className: "dsh-tavern-user-profile-meta" }, record && record.hasConfirmed ? "已确认版本 v" + record.confirmedRevision : "尚未建立")
+			);
+			if (record === null) return h("div", { className: "dsh-tavern-user-profile" }, header, h("div", { className: "dsh-tavern-user-profile-body" }, error ? h("div", { className: "dsh-card-error" }, error) : h("div", { className: "dsh-tavern-status-empty" }, "正在读取用户画像…")));
+			if (!record.hasConfirmed) return h("div", { className: "dsh-tavern-user-profile" }, header,
+				h("div", { className: "dsh-tavern-user-profile-body" },
+					error ? h("div", { className: "dsh-card-error" }, error) : null,
+					h("div", { className: "dsh-tavern-status-empty" }, record.hasDraft ? "已有未确认草案，可交给卡片 Agent 继续核对。" : "通过分批访谈建立长期游玩与写作偏好。"),
+					h("div", { className: "dsh-tavern-user-profile-actions" }, h("button", { className: "dsh-tavern-script-primary", onClick: openAgentTask }, record.hasDraft ? "继续核对用户画像" : "开始建立用户画像"))
+			));
+			const confirmed = record.confirmed || {};
+			const dimensions = Array.isArray(confirmed.dimensions) ? confirmed.dimensions : [];
+			const rawAnswers = Array.isArray(confirmed.rawAnswers) ? confirmed.rawAnswers : [];
+			return h("div", { className: "dsh-tavern-user-profile" }, header,
+				h("div", { className: "dsh-tavern-user-profile-body" },
+					error ? h("div", { className: "dsh-card-error" }, error) : null,
+					record.hasDraft ? h("div", { className: "dsh-tavern-extension-note" }, "存在尚未确认的新草案；当前仍使用已确认版本。") : null,
+					currentConversation ? h("div", { className: "dsh-tavern-extension-note" }, "当前游戏：" + (currentConversation.enabled ? "已启用画像 v" + currentConversation.revision : "未启用画像") + "。本局创建后保持冻结。") : null,
+					h("div", { className: "dsh-tavern-user-profile-switch" },
+					h("span", null, h("b", null, "新游戏默认启用"), h("small", null, "只改变以后的新游戏；准备页仍可单局覆盖。")),
+					h("button", { className: "dsh-tavern-prompt-state is-toggle " + (record.defaultEnabled ? "on" : "off"), disabled: busy, onClick: toggleDefault, "aria-pressed": record.defaultEnabled === true }, record.defaultEnabled ? "已开启" : "已关闭")
+				),
+					editing ? h("div", { className: "dsh-tavern-user-profile-editor" },
+						h("div", { className: "dsh-tavern-status-label", style: { marginTop: "14px" } }, "完整画像"),
+						h("textarea", { value: summary, onChange: function (event) { setSummary(event.target.value); } }),
+						h("div", { className: "dsh-tavern-status-label", style: { marginTop: "14px" } }, "实际注入的精简摘要"),
+						h("textarea", { value: injectionText, onChange: function (event) { setInjectionText(event.target.value); } }),
+						h("div", { className: "dsh-tavern-user-profile-meta" }, "这次修改只影响以后新开的游戏，不改写已有 Session。"),
+						h("div", { className: "dsh-tavern-user-profile-actions" },
+							h("button", { className: "dsh-tavern-script-primary", disabled: busy || !summary.trim() || !injectionText.trim(), onClick: saveEdit }, "保存并确认修改"),
+							h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { setEditing(false); } }, "取消")
+						)
+					) : h(React.Fragment, null,
+						h("div", { className: "dsh-tavern-status-label", style: { marginTop: "14px" } }, "完整画像"),
+						h("div", { className: "dsh-tavern-user-profile-text" }, String(confirmed.summary || "")),
+						h("div", { className: "dsh-tavern-status-label", style: { marginTop: "14px" } }, "实际注入的精简摘要"),
+						h("div", { className: "dsh-tavern-user-profile-text" }, String(confirmed.injectionText || "")),
+						dimensions.length ? h("details", null,
+							h("summary", null, "偏好维度 · " + dimensions.length),
+							dimensions.map(function (item, index) {
+								return h("div", { key: item.id || index, className: "dsh-tavern-user-profile-dimension" },
+									h("b", null, String(item.label || item.id || "偏好")),
+									h("p", null, String(item.conclusion || "")),
+									h("div", { className: "dsh-tavern-user-profile-meta" }, "置信度：" + String(item.confidence || "uncertain") + (item.evidence ? " · 依据：" + String(item.evidence) : ""))
+								);
+							})
+						) : null,
+						rawAnswers.length ? h("details", null,
+							h("summary", null, "原始回答 · " + rawAnswers.length),
+							rawAnswers.map(function (item, index) {
+								return h("div", { key: index, className: "dsh-tavern-user-profile-dimension" },
+									h("b", null, String(item.question || "问题")),
+									h("p", null, String(item.answer || ""))
+								);
+							})
+						) : null,
+						h("div", { className: "dsh-tavern-user-profile-actions" },
+							h("button", { className: "dsh-tavern-script-primary", onClick: beginEdit }, "直接修改"),
+							h("button", { className: "dsh-tavern-btn", onClick: openAgentTask }, "交给卡片 Agent 调查/修改")
+						)
+					)
+			));
+		}
+
+		function createUserPreferenceProfileFeatureModule() {
+			function register(input) {
+				const ctx = input.ctx;
+				return ctx.effect(() => ctx.betterSidebar.registerTab({
+					id: "dsh-tavern:user-profile",
+					title: "用户画像",
+					order: 3,
+					single: true,
+					component: UserPreferenceProfileTab
+				}), "dsh-tavern: Better Sidebar user profile tab");
+			}
+			return Object.freeze({ register: register });
+		}
+		const userPreferenceProfileFeature = createUserPreferenceProfileFeatureModule();
 
 		function SystemPromptSidebarTab() {
 			const h = React.createElement;
@@ -6692,6 +6855,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				if (!state) return;
 				const retiredTabs = [];
 				const expectedTitles = {
+					"dsh-tavern:user-profile": "用户画像",
 					"dsh-tavern:cards": "人物卡库",
 					"dsh-tavern:presets": "预设库（实验性）",
 					"dsh-tavern:worldbooks": "世界书库",
@@ -6771,6 +6935,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				const dispose = ctx.betterSidebar.registerTab({ id: "dsh-tavern:system-prompts", title: "系统提示词", order: 5, single: true, component: SystemPromptSidebarTab });
 				return function () { if (typeof dispose === "function") dispose(); };
 			}, "dsh-tavern: system prompt sidebar tab");
+			userPreferenceProfileFeature.register({ ctx: ctx });
 			presetLibraryFeature.register({ ctx: ctx, appendMention: appendMention });
 			resourcesLibraryFeature.register({ ctx: ctx, appendMention: appendMention });
 			worldBookLibraryFeature.register({ ctx: ctx, appendMention: appendMention });

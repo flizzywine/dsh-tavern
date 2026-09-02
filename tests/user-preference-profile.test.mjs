@@ -28,6 +28,7 @@ test('draft remains separate until the user confirms its exact revision', async 
 
   const confirmed = await profile.confirm({ draftRevision: draft.draft.revision, confirmation: '确认保存用户画像' })
   assert.equal(confirmed.hasConfirmed, true)
+  assert.equal(confirmed.hasDraft, false)
   assert.match((await profile.stableContext()).text, /每轮都应有可感知的推进/)
 })
 
@@ -41,4 +42,28 @@ test('a newer draft does not silently replace the confirmed profile', async func
   await assert.rejects(profile.confirm({ draftRevision: first.draft.revision, confirmation: '确认保存用户画像' }), /已变化/)
   await profile.confirm({ draftRevision: second.draft.revision, confirmation: '确认保存用户画像' })
   assert.match((await profile.stableContext()).text, /第二版/)
+})
+
+test('manual edits create a new confirmed version without changing an existing game snapshot', async function () {
+  let tick = 0
+  const profile = createUserPreferenceProfile({ store: memoryStore(), now: () => ++tick })
+  const draft = await profile.saveDraft({ summary: '旧画像', injectionText: '旧注入摘要' })
+  const first = await profile.confirm({ draftRevision: draft.draft.revision, confirmation: '确认保存用户画像' })
+  const frozen = await profile.stableContext()
+  await assert.rejects(profile.updateConfirmed({ expectedRevision: 999, summary: '新画像', injectionText: '新注入摘要' }), /已被其他操作修改/)
+  const changed = await profile.updateConfirmed({ expectedRevision: first.confirmed.profileRevision, summary: '新画像', injectionText: '新注入摘要' })
+  assert.equal(changed.confirmed.profileRevision > first.confirmed.profileRevision, true)
+  assert.equal(changed.hasDraft, false)
+  assert.match((await profile.stableContext()).text, /新注入摘要/)
+  assert.match(frozen.text, /旧注入摘要/)
+})
+
+test('default enablement is profile-wide but remains off until explicitly changed', async function () {
+  const profile = createUserPreferenceProfile({ store: memoryStore(), now: () => 100 })
+  assert.equal((await profile.read()).defaultEnabled, false)
+  await assert.rejects(profile.setDefaultEnabled(true), /尚无已确认/)
+  const draft = await profile.saveDraft({ summary: '画像', injectionText: '注入摘要' })
+  await profile.confirm({ draftRevision: draft.draft.revision, confirmation: '确认保存用户画像' })
+  assert.equal((await profile.setDefaultEnabled(true)).defaultEnabled, true)
+  assert.equal((await profile.setDefaultEnabled(false)).defaultEnabled, false)
 })

@@ -1,6 +1,6 @@
 const PROFILE_PATH = 'user-preference-profile.json'
 const SPEC = 'dsh-tavern.user-preference-profile'
-const VERSION = 1
+const VERSION = 2
 
 function str(value, max = 8000) {
   return (value === undefined || value === null ? '' : String(value)).trim().slice(0, max)
@@ -52,6 +52,7 @@ function document(value) {
     spec: SPEC,
     version: VERSION,
     revision: integer(current.revision),
+    defaultEnabled: current.defaultEnabled === true,
     draft: current.draft && typeof current.draft === 'object' ? current.draft : null,
     confirmed: current.confirmed && typeof current.confirmed === 'object' ? current.confirmed : null,
     updatedAt: integer(current.updatedAt)
@@ -64,6 +65,7 @@ function present(value) {
     spec: current.spec,
     version: current.version,
     revision: current.revision,
+    defaultEnabled: current.defaultEnabled,
     hasDraft: current.draft !== null,
     hasConfirmed: current.confirmed !== null,
     draft: current.draft,
@@ -87,6 +89,7 @@ export function createUserPreferenceProfile({ store, now = Date.now }) {
         spec: SPEC,
         version: VERSION,
         revision,
+        defaultEnabled: current.defaultEnabled,
         draft: normalizeDraft(input, revision, timestamp),
         confirmed: current.confirmed,
         updatedAt: timestamp
@@ -108,8 +111,58 @@ export function createUserPreferenceProfile({ store, now = Date.now }) {
         spec: SPEC,
         version: VERSION,
         revision,
-        draft: current.draft,
+        defaultEnabled: current.defaultEnabled,
+        draft: null,
         confirmed: Object.assign({}, current.draft, { profileRevision: revision, confirmedAt: timestamp }),
+        updatedAt: timestamp
+      }
+    })
+    return present(saved)
+  }
+
+  async function updateConfirmed(input) {
+    const saved = await store.updateJson(PROFILE_PATH, function (value) {
+      const current = document(value)
+      if (current.confirmed === null) throw new Error('尚无可修改的已确认用户画像')
+      const expected = integer(input && input.expectedRevision)
+      if (expected === 0 || integer(current.confirmed.profileRevision) !== expected) throw new Error('用户画像已被其他操作修改，请刷新后重试')
+      const timestamp = now()
+      const revision = current.revision + 1
+      const summary = str(input && input.summary, 12000)
+      const injectionText = str(input && input.injectionText, 3000)
+      if (summary === '' || injectionText === '') throw new Error('完整画像和实际注入摘要不能为空')
+      return {
+        spec: SPEC,
+        version: VERSION,
+        revision,
+        defaultEnabled: current.defaultEnabled,
+        draft: null,
+        confirmed: Object.assign({}, current.confirmed, {
+          revision,
+          profileRevision: revision,
+          summary,
+          injectionText,
+          confirmedAt: timestamp,
+          updatedAt: timestamp
+        }),
+        updatedAt: timestamp
+      }
+    })
+    return present(saved)
+  }
+
+  async function setDefaultEnabled(enabled) {
+    const saved = await store.updateJson(PROFILE_PATH, function (value) {
+      const current = document(value)
+      if (enabled === true && current.confirmed === null) throw new Error('尚无已确认用户画像，无法默认启用')
+      const timestamp = now()
+      return {
+        spec: SPEC,
+        version: VERSION,
+        revision: current.revision + 1,
+        defaultEnabled: enabled === true,
+        draft: current.draft,
+        confirmed: current.confirmed,
         updatedAt: timestamp
       }
     })
@@ -127,7 +180,7 @@ export function createUserPreferenceProfile({ store, now = Date.now }) {
     }
   }
 
-  return Object.freeze({ read, saveDraft, confirm, stableContext })
+  return Object.freeze({ read, saveDraft, confirm, updateConfirmed, setDefaultEnabled, stableContext })
 }
 
 export const USER_PREFERENCE_PROFILE_PATH = PROFILE_PATH
