@@ -322,12 +322,19 @@ test('酒馆状态读取 MVU 回执时使用当前模块可用的复制能力', 
 	assert.doesNotMatch(receipts, /\bclone\(stored\)/)
 })
 
-test('失败或过期的最新 MVU 结算可以原地重试', () => {
-	const retry = between(serverSource, 'async function retryMvuSettlement', 'async function pullBackgroundCycle')
-	assert.match(retry, /只能重试当前最新正文的变量结算/)
+test('失败的最新后台结算可以按原任务类型原地重试', () => {
+	const retry = between(serverSource, 'async function retrySettlement', 'async function pullBackgroundCycle')
+	const settlement = between(serverSource, 'async function runSettlement', 'function queueSettlement')
+	const view = between(serverSource, 'async function view(chat, card)', 'function replyProjectionsOf')
+	assert.match(retry, /只能重试当前最新正文的后台结算/)
 	assert.match(retry, /target\.message\.mvu = \{ pending: true/)
 	assert.match(retry, /void queueSettlement\(chat\.id\)/)
-	assert.match(serverSource, /case 'retryMvuSettlement': return \{ view: await retryMvuSettlement/)
+	assert.match(serverSource, /case 'retrySettlement': return \{ view: await retrySettlement/)
+	assert.match(retry, /source: 'settlement\.retry'/)
+	assert.match(settlement, /latest\.settleStatus = 'failed'/)
+	assert.match(settlement, /source: target === null \? 'settlement\.posture-failed' : 'settlement\.mvu-failed'/)
+	assert.match(view, /settleError: chat\.settleError \|\| null/)
+	assert.match(view, /settlementTurn: settlementTurn\(chat\)/)
 })
 
 test('正文重新生成提供两个含义明确的入口，并复用同一替换流程', () => {

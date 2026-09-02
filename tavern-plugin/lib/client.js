@@ -3389,7 +3389,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				if (retrying) return;
 				setRetrying(true);
 				try {
-					await rpc("retryMvuSettlement", { turn: props.turn }, props.sessionId);
+					await rpc("retrySettlement", { turn: props.turn }, props.sessionId);
 					liveTavernView.invalidate(props.sessionId);
 				} catch (error) { tavernErrorHub.report("重试变量结算", error); }
 				finally { setRetrying(false); }
@@ -6083,6 +6083,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const [guideBusy, setGuideBusy] = React.useState(false);
 			const [guideError, setGuideError] = usePersistentError("Guide");
 			const [debugBusy, setDebugBusy] = React.useState(false);
+			const [settlementRetryBusy, setSettlementRetryBusy] = React.useState(false);
 			const running = props.useSession(function (snapshot) { return snapshot.running; });
 			const latestMessageId = props.useChat(latestTavernAssistantMessageId);
 			const stateKey = String(running) + ":" + String(latestMessageId || "");
@@ -6121,6 +6122,15 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				} catch (err) { setGuideError(String(err && err.message || err)); }
 				finally { setGuideBusy(false); }
 			}
+			async function retrySettlement() {
+				if (!view || settlementRetryBusy) return;
+				setSettlementRetryBusy(true);
+				try {
+					await rpc("retrySettlement", { turn: view.settlementTurn }, props.sessionId);
+					liveTavernView.invalidate(props.sessionId);
+				} catch (retryError) { tavernErrorHub.report("重试后台结算", retryError); }
+				finally { setSettlementRetryBusy(false); }
+			}
 			const h = React.createElement;
 			if (!view) return h("aside", { className: "dsh-tavern-status" },
 				h("div", { className: "dsh-tavern-status-head" }, h("div", { className: "dsh-tavern-status-title" }, "状态栏")),
@@ -6139,6 +6149,10 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					h("div", { className: "dsh-tavern-status-settle" }, h("span", { className: "dsh-tavern-status-dot " + (view.settleStatus || "idle") }), statusText)
 				),
 					h("div", { className: "dsh-tavern-status-body" },
+					view.settleStatus === "error" ? h("div", { className: "dsh-card-error" },
+						h("div", null, view.settleError || "后台结算失败，请重试。"),
+						h("button", { className: "dsh-tavern-btn", disabled: settlementRetryBusy, onClick: retrySettlement }, settlementRetryBusy ? "重试中…" : "重试后台结算")
+					) : null,
 					view.worldBookError ? h("div", { className: "dsh-card-error" }, "世界书召回失败：" + view.worldBookError) : null,
 					view.foregroundError ? h("div", { className: "dsh-card-error" }, view.foregroundError.message || "前台正文生成失败，请重新生成本轮正文。") : null,
 					view.tavernStatusView && view.tavernStatusView.content && view.tavernHelper ? h("section", { className: "dsh-tavern-status-section" },
