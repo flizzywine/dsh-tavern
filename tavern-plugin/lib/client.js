@@ -6643,12 +6643,12 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				return { sessionId: props.sessionId, phase: phase, guidance: "", text: "", error: "", tail: tail };
 			}
 			function openGuidedRegeneration(event) {
-				if (regenBusy || rolling) return;
+				if (!canRollback || regenBusy || rolling) return;
 				setCandidatePanel(null);
 				setRegenPanel(regenerationPanelFor(event, "input"));
 			}
 			async function regenerateImmediately(event) {
-				if (regenBusy || rolling) return;
+				if (!canRollback || regenBusy || rolling) return;
 				const panel = regenerationPanelFor(event, "loading");
 				setCandidatePanel(null);
 				setRegenPanel(panel);
@@ -6676,8 +6676,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 						generate(false);
 					}
 				} }, activity.busy ? activity.label : ((busy || taskBusy) ? "生成中…" : (hasReadyPanel ? "重新生成候选项" : "生成候选项"))),
-				h("button", { className: "dsh-tavern-choice-trigger", disabled: regenBusy || rolling, title: "不填写意见，立即重新生成正文", onClick: regenerateImmediately }, regenBusy ? "重生成中…" : "一键重新生成正文"),
-				h("button", { className: "dsh-tavern-choice-trigger", disabled: regenBusy || rolling, title: "填写指导意见后重新生成正文", onClick: openGuidedRegeneration }, "带意见重新生成正文"),
+				canRollback ? h("button", { className: "dsh-tavern-choice-trigger", disabled: regenBusy || rolling, title: "不填写意见，立即重新生成正文", onClick: regenerateImmediately }, regenBusy ? "重生成中…" : "一键重新生成正文") : null,
+				canRollback ? h("button", { className: "dsh-tavern-choice-trigger", disabled: regenBusy || rolling, title: "填写指导意见后重新生成正文", onClick: openGuidedRegeneration }, "带意见重新生成正文") : null,
 				canRollback ? h("button", { className: "dsh-tavern-choice-trigger", disabled: rollbackBlocked, title: rollbackBlocked ? "请等待当前生成或后台处理完成后再回退" : "删除最近一次用户输入和这段 LLM 输出", onClick: rollback }, rolling ? "回退中…" : "回退本轮") : null
 			);
 		}

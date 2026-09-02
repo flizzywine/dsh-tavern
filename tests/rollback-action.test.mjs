@@ -7,7 +7,7 @@ const source = await readFile(new URL('../tavern-plugin/lib/client.js', import.m
 const component = source.slice(source.indexOf('function CandidateAction('), source.indexOf('function CandidateDockActions('))
 
 function harness() {
-  let running = true, background = false, regen = null, fail = false, warning = ''
+  let running = true, background = false, regen = null, fail = false, warning = '', canRollback = true
   const states = [], calls = []
   let cursor = 0
   const context = {
@@ -22,7 +22,7 @@ function harness() {
     },
     useCandidatePanel: () => null, useRegenPanel: () => regen,
     useTavernSessionMode: () => 'story', latestTavernAssistantMessageId: () => 'reply',
-    useLiveTavernView: () => ({ view: { canRollback: true } }),
+    useLiveTavernView: () => ({ view: { canRollback } }),
     useTavernCoordination: () => ({ view: { activity: { busy: background } } }),
     describeTavernActivity: value => value, isPlayMode: () => true,
     window: { confirm: () => { calls.push('confirm'); return true } },
@@ -37,17 +37,29 @@ function harness() {
   const action = vm.runInNewContext(component + '; CandidateAction', context)
   return {
     calls,
+    playerRound(value) { canRollback = value },
     running(value) { running = value }, background(value) { background = value },
     regen(value) { regen = value ? { sessionId: 'session', phase: 'loading' } : null },
     fail(value) { fail = value }, warning(value) { warning = value },
-    button() {
+    buttons() {
       cursor = 0
       return action({ sessionId: 'session', messageId: 'reply',
         useSession: select => select({ running }), useChat: select => select({})
-      }).children.at(-1)
-    }
+      }).children.filter(Boolean)
+    },
+    button() { return this.buttons().at(-1) }
   }
 }
+
+test('开场白不显示两种正文重生成入口，正式玩家轮次完成后才显示', () => {
+  const h = harness()
+  h.running(false); h.playerRound(false)
+  assert.deepEqual(h.buttons().map(button => button.children[0]), ['生成候选项'])
+  h.playerRound(true)
+  assert.deepEqual(h.buttons().map(button => button.children[0]), ['生成候选项', '一键重新生成正文', '带意见重新生成正文', '回退本轮'])
+  h.playerRound(false)
+  assert.deepEqual(h.buttons().map(button => button.children[0]), ['生成候选项'])
+})
 
 test('实际回退组件在前台、后台和重生成期间禁用，完成后允许点击', async () => {
   const h = harness()
