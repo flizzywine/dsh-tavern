@@ -6,8 +6,8 @@ import { TAVERN_RELEASE_CAPABILITIES } from '../tavern-plugin/lib/domain/release
 const server = await readFile(new URL('../tavern-plugin/lib/index.js', import.meta.url), 'utf8')
 const client = await readFile(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
 
-test('scene images are closed by the release capability', () => {
-  assert.equal(TAVERN_RELEASE_CAPABILITIES.sceneImages, false)
+test('scene images are available through the release capability', () => {
+  assert.equal(TAVERN_RELEASE_CAPABILITIES.sceneImages, true)
 })
 
 test('closed scene images do not start a runtime or mount client request sources', () => {

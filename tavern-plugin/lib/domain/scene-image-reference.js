@@ -1,27 +1,23 @@
 import { createHash } from 'node:crypto'
+import { imageReferenceCapability } from '../../packages/dsh-image-gen/src/tavern/scene-image-reference.js'
+export { imageReferenceCapability }
 
 const hash = value => createHash('sha256').update(value).digest('hex')
 const pathFor = chatId => 'scene-images/' + hash(String(chatId)) + '/references.json'
-const modes = new Set(['gemini-3.1-flash-image', 'gemini-3-pro-image', 'gemini-2.5-flash-image'])
 const formats = new Set(['image/png', 'image/jpeg', 'image/webp'])
 const limit = 8 * 1024 * 1024
 
 export function imageReferencePeople(version) {
   const subjects = new Set(version?.plan?.subjects || [])
-  return (version?.plan?.people || []).filter(person => subjects.has(person.id) && person.identity?.quote).map(person => ({
+  return (version?.plan?.people || []).filter(person => subjects.has(person.id) && (
+    person.identity?.quote || person.identity?.kind === 'scene-person' && typeof person.identity.targetKey === 'string' && person.identity.targetKey.length > 0
+  )).map(person => ({
     id: person.id, name: person.name,
     description: ['position', 'appearance', 'clothing'].map(field => {
       const block = version.plan.blocks?.find(item => item.owner === person.id && item.field === field)
       return block ? block.text : person.fields?.[field]?.text
     }).filter(Boolean).join('；').slice(0, 800)
   }))
-}
-
-export function imageReferenceCapability(config) {
-  const supported = config.provider === 'gemini' && modes.has(config.model)
-  const service = [config.provider, config.baseURL, config.model].join(' · ')
-  return { supported, service, gateway: hash(service), maxImages: supported ? 4 : 0,
-    reason: supported ? '' : '当前渠道/模型尚未接入造型参考，仅使用文字外貌。' }
 }
 
 function imageDigest(image) {

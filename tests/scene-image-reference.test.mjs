@@ -17,6 +17,14 @@ function fixture() {
   return { store, config, api, bind, select, source, activation, version, image }
 }
 
+test('host-assigned scene identity supports explicit reference selection without quotes', async () => {
+  const f = fixture()
+  f.version.plan.people[0].identity = { kind: 'scene-person', targetKey: f.source.key }
+  assert.equal(imageReferencePeople(f.version)[0].name, 'Alice')
+  await f.bind()
+  assert.equal((await f.select()).records.length, 1)
+})
+
 test('reference requires explicit current-service consent and single-person identity, never previous picture automatically', async () => {
   const f = fixture()
   assert.deepEqual((await f.select()).records, [])

@@ -13,8 +13,9 @@ import { imageZip } from './scene-image-zip.mjs'
 import { createSceneWorldbooks, bindSceneWorldbook, sceneWorldbookBinding } from '../../tavern-plugin/lib/domain/scene-worldbook.js'
 import { createSceneImageDiagnostics } from '../../tavern-plugin/lib/domain/scene-image-diagnostics.js'
 import { createMvuDiagnosticStore, createMvuDiagnosticExport } from '../../tavern-plugin/lib/domain/mvu-diagnostics.js'
+import { assertImageToolSchema } from './assert-image-tool-schema.mjs'
 
-export async function createSceneImageNativeRuntime(bootPath) {
+export async function createSceneImageNativeRuntime(bootPath, { unifiedPlugin = false } = {}) {
   const bootUrl = pathToFileURL(bootPath)
   const { boot } = await import(bootUrl.href)
   const { LlmAdapter } = await import(new URL('../../dsh-llm/lib/index.js', bootUrl))
@@ -26,6 +27,7 @@ export async function createSceneImageNativeRuntime(bootPath) {
   ctx.baseUrl = bootUrl.href
   const requests = [], imageRequests = []
   let referenceQuery = ''
+  let characterQuery = ''
   let useVisualState = false
   let useMultiplePeople = false
   const comfyTasks = new Map()
@@ -34,11 +36,14 @@ export async function createSceneImageNativeRuntime(bootPath) {
   class FixtureModel extends LlmAdapter {
     async *stream(input) {
       requests.push(structuredClone({ system: input.system, messages: input.messages, tools: input.tools }))
+      for (const tool of input.tools || []) assertImageToolSchema(tool)
       const currentMessages = input.messages.slice(Math.max(0, input.messages.findLastIndex(message => message.source?.kind === 'plugin')))
       const referenceResult = currentMessages.flatMap(message => message.content || []).find(block => block.type === 'tool-result' && block.toolCallId === 'reference-call')
-      const referenceTool = referenceQuery && !referenceResult && input.tools?.find(item => item.name === 'read_scene_reference')
+      const referenceTool = !referenceResult && (characterQuery
+        ? input.tools?.find(item => item.name === 'character_design_read')
+        : referenceQuery && input.tools?.find(item => item.name === 'read_scene_reference'))
       const tool = referenceTool || input.tools?.find(item => ['submit_scene_plan', 'submit_image_adjustment'].includes(item.name))
-      const plan = { description: '窗边单幅画面', subjects: [], characters: [], continuity: 'uncertain', scene: { composition: { text: '窗边单幅画面', tags: 'A woman standing beside a rain-streaked window, left hand on the frame, quiet evening light.', evidence: [] } } }
+      const plan = { description: '窗边单幅画面', subjects: [], characters: [], continuity: 'uncertain', scene: { composition: { text: '窗边单幅画面', tags: 'A woman standing beside a rain-streaked window, left hand on the frame, quiet evening light.' } } }
       if (useVisualState && tool?.name === 'submit_scene_plan') {
         const material = currentMessages.flatMap(message => message.content || []).filter(block => block.type === 'text').flatMap(block => block.text.split('\n')).map(line => {
           try { return JSON.parse(line) } catch { return null }
@@ -46,10 +51,10 @@ export async function createSceneImageNativeRuntime(bootPath) {
         const source = material?.sources.find(item => item.origin?.kind === 'mvu-state' && item.text.includes('衣着：青色外套'))
         if (source) {
           const known = material.characters?.find(person => person.name === '林岚')
-          const person = known ? { id: known.id } : { id: 'state-person', name: '林岚', identity: { source: 'target', quote: '林岚' } }
+          const person = known ? { id: known.id } : { id: 'state-person', name: '林岚' }
           plan.subjects = [person.id]
           plan.characters = [{ ...person, fields: {
-            clothing: { text: '青色外套', tags: 'blue coat', evidence: [{ source: source.id, quote: '青色外套' }] }
+            clothing: { text: '青色外套', tags: 'blue coat' }
           } }]
         }
       }
@@ -59,9 +64,9 @@ export async function createSceneImageNativeRuntime(bootPath) {
         }).find(value => Array.isArray(value?.sources))
         plan.characters = ['林岚', '林雨'].map((name, index) => {
           const known = material?.characters?.find(person => person.name === name)
-          const person = known ? { id: known.id } : { id: 'multi-person-' + index, name, identity: { source: 'target', quote: name } }
+          const person = known ? { id: known.id } : { id: 'multi-person-' + index, name }
           const position = index ? '右侧' : '左侧'
-          return { ...person, fields: { position: { text: position, tags: index ? 'on the right' : 'on the left', evidence: [{ source: 'target', quote: name + '站在' + position }] } } }
+          return { ...person, fields: { position: { text: position, tags: index ? 'on the right' : 'on the left' } } }
         })
         plan.subjects = plan.characters.map(person => person.id)
       }
@@ -69,15 +74,15 @@ export async function createSceneImageNativeRuntime(bootPath) {
         const source = JSON.parse(referenceResult.content.filter(block => block.type === 'text').map(block => block.text).join('')).sources[0]
         if (source) {
           plan.subjects = ['local-reference-person']
-          plan.characters = [{ id: 'local-reference-person', name: '林岚', identity: { source: source.id, quote: '林岚' }, fields: {
-            appearance: { text: '黑色短发', tags: 'short black hair', evidence: [{ source: source.id, quote: '黑色短发' }] }
+          plan.characters = [{ id: 'local-reference-person', name: '林岚', fields: {
+            appearance: { text: '黑色短发', tags: 'short black hair' }
           } }]
         }
       }
       const update = JSON.stringify(input.messages).includes('仅这张改成胶片风格')
         ? { description: '仅这张胶片风格', patches: [], style: { text: '胶片', tags: 'film grain' } }
         : { description: '改为雨夜近景', patches: [{ owner: 'scene', field: 'composition', text: '雨夜近景', tags: 'rainy night, close-up at the window' }] }
-      const args = referenceTool ? { query: referenceQuery } : tool?.name === 'submit_image_adjustment' ? { update } : { plan }
+      const args = referenceTool ? (characterQuery ? { name: characterQuery } : { query: referenceQuery }) : tool?.name === 'submit_image_adjustment' ? { update } : { plan }
       const block = tool ? { type: 'tool-call', id: referenceTool ? 'reference-call' : 'image-call', name: tool.name, arguments: JSON.stringify(args) } : { type: 'text', text: '方案已提交。' }
       yield { type: 'block-start', index: 0, blockType: block.type }
       yield { type: 'block-end', index: 0, block }
@@ -94,6 +99,18 @@ export async function createSceneImageNativeRuntime(bootPath) {
   let failNext = false, holdNext = false
   const imageServer = createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost')
+    if (process.env.SCENE_BROWSER_PLUGIN === '1' && url.pathname === '/plugins/dsh-image-gen/studio') {
+      res.setHeader('Content-Type', 'application/json')
+      if (req.method === 'GET') {
+        res.end(JSON.stringify({ activeProvider: 'openai', providers: [{ provider: 'openai', model: 'fixture-plugin-image', configured: true, defaultRatio: '1:1', defaultQuality: 'standard', ratioOptions: [{ value: '1:1' }], qualityOptions: [{ value: 'standard' }] }] }))
+      } else {
+        let body = ''; for await (const chunk of req) body += chunk
+        imageRequests.push(JSON.parse(body))
+        const attachment = await ctx.attachments.saveImage({ data: png, mediaType: 'image/png', name: 'plugin-fixture' })
+        res.end(JSON.stringify({ provider: 'openai', model: 'fixture-plugin-image', attachment }))
+      }
+      return
+    }
     if (req.method === 'GET' && url.pathname.endsWith('/view')) { res.setHeader('Content-Type', 'image/png'); res.end(png); return }
     if (req.method === 'GET' && url.pathname.includes('/history/')) {
       const id = url.pathname.split('/').pop()
@@ -122,6 +139,7 @@ export async function createSceneImageNativeRuntime(bootPath) {
   const store = createProfileDataStore({ dataRoot: root })
   const worldbooks = createSceneWorldbooks({ store })
   const deps = {
+    webServer: () => process.env.SCENE_BROWSER_PLUGIN === '1' ? { port: imageServer.address().port } : undefined,
     store, chatForSession: async () => structuredClone(chat),
     worldbookAtTarget: (chat, target) => worldbooks.read(sceneWorldbookBinding(chat, target)),
     selection: () => ({ provider: 'scene-fixture', model: 'fixture-text' }),
@@ -141,6 +159,7 @@ export async function createSceneImageNativeRuntime(bootPath) {
     failNextSave() { failSave = true },
     holdNextImage() { holdNext = true },
     lookupReferences(query) { referenceQuery = query },
+    lookupCharacterDesigns(name) { characterQuery = name },
     useVisualState() { useVisualState = true },
     useMultiplePeople() { useMultiplePeople = true },
     async exportLogs() {

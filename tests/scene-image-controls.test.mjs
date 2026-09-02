@@ -6,6 +6,85 @@ import { readFile } from 'node:fs/promises'
 const source = await readFile(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
 const extract = (name, next) => source.slice(source.indexOf('function ' + name + '('), source.indexOf('function ' + next + '('))
 
+test('one repaint entry opens optional feedback; blank repaints and feedback adjusts without replacing old images', async () => {
+  const slots = [], calls = []
+  let cursor = 0, failure = false, requestId = 0
+  const record = { key: 'turn-key', status: 'succeeded', enabled: true, versions: [{ id: 'old-picture' }] }
+  const context = vm.createContext({
+    React: {
+      Fragment: 'fragment', createElement: (type, props, ...children) => ({ type, props, children }), useEffect() {},
+      useState(initial) { const i = cursor++; if (!(i in slots)) slots[i] = initial; return [slots[i], v => { slots[i] = v }] },
+      useRef(initial) { const i = cursor++; return slots[i] ||= { current: initial } }
+    },
+    URLSearchParams, useSceneImageRecord: () => record,
+    sceneImagePurchaseConfirmation: () => undefined, sceneImageRequestId: () => 'request-' + (++requestId),
+    window: { dispatchEvent() {} }, CustomEvent: class {},
+    rpc: async (method, args) => { calls.push({ method, args }); if (failure) throw new Error('connection lost') }
+  })
+  const Component = vm.runInContext(extract('SceneIllustration', 'TavernAssistantNodeView') + ';SceneIllustration', context)
+  const nodes = tree => tree && typeof tree === 'object' ? [tree, ...(tree.children || []).flat(Infinity).flatMap(nodes)] : []
+  const render = () => { cursor = 0; return nodes(Component({ sessionId: 'session', turn: 1 })) }
+  const button = label => render().find(n => n.type === 'button' && n.children.includes(label))
+  assert.equal(button('调整'), undefined)
+  await button('重画').props.onClick()
+  assert.equal(calls.length, 0, 'opening the form must not generate')
+  assert.equal(button('开始重画').props.disabled, false)
+  render().find(n => n.type === 'textarea').props.onChange({ target: { value: '  ' } })
+  await button('开始重画').props.onClick()
+  assert.equal(calls[0].args.kind, 'repaint')
+  assert.equal(calls[0].args.instruction, '')
+  assert.equal(calls[0].args.versionId, 'old-picture')
+  assert.equal(button('开始重画'), undefined)
+  await button('重画').props.onClick()
+  render().find(n => n.type === 'textarea').props.onChange({ target: { value: '改成雨夜' } })
+  failure = true
+  await button('开始重画').props.onClick()
+  assert.equal(render().find(n => n.type === 'textarea').props.value, '改成雨夜', 'keep feedback after errors')
+  failure = false
+  await button('开始重画').props.onClick()
+  assert.equal(calls[1].args.kind, 'adjust')
+  assert.equal(calls[1].args.instruction, '改成雨夜')
+  assert.equal(calls[1].args.requestId, calls[2].args.requestId, 'transport retry keeps its request identity')
+  assert.deepEqual(record.versions, [{ id: 'old-picture' }])
+  await button('重画').props.onClick()
+  await button('取消').props.onClick()
+  assert.equal(button('开始重画'), undefined)
+  assert.equal(calls.length, 3)
+})
+
+test('image action remains visible with an explanation until enabled and configured', async () => {
+  const slots = [], calls = []
+  let cursor = 0
+  const context = vm.createContext({
+    React: {
+      Fragment: 'fragment', createElement: (type, props, ...children) => ({ type, props, children }),
+      useState(initial) { const i = cursor++; if (!(i in slots)) slots[i] = initial; return [slots[i], value => { slots[i] = value }] },
+      useRef(initial) { const i = cursor++; return slots[i] ||= { current: initial } }, useEffect() {}
+    },
+    useSceneImageRecord: () => ({ key: 'turn', status: 'idle', versions: [] }),
+    rpc: async (...args) => calls.push(args)
+  })
+  const Component = vm.runInContext(extract('SceneImageAction', 'SceneImageSettings') + ';SceneImageAction', context)
+  const render = () => { cursor = 0; return Component({ sessionId: 'session', turn: 1 }) }
+  render()
+  for (const [settings, reason] of [
+    [null, /加载生图配置/],
+    [{ enabled: false, ready: false, migrationPending: true }, /迁移.*保存并启用/],
+    [{ enabled: false, ready: true }, /未开启/],
+    [{ enabled: true, ready: false }, /配置未完成/]
+  ]) {
+    slots[0] = settings
+    const view = render()
+    assert.ok(view, 'the image action must not disappear')
+    assert.equal(view.children[0].props.disabled, true)
+    assert.match(view.children[1].children.join(''), reason)
+    await view.children[0].props.onClick()
+  }
+  assert.equal(calls.length, 0)
+  slots[0] = { enabled: true, ready: true }
+  assert.equal(Boolean(render().children[0].props.disabled), false)
+})
+
 test('scene request identifiers also work on LAN HTTP without crypto.randomUUID', () => {
   const context = vm.createContext({ window: {} })
   const make = vm.runInContext(extract('sceneImageRequestId', 'sceneImageStageLabel') + ';sceneImageRequestId', context)
@@ -106,18 +185,63 @@ test('ComfyUI file chooser stores the parsed graph only on explicit save and has
   const render = () => { cursor = 0; return nodes(Component()) }
   render()
   slots[0] = { provider: 'comfyui', baseURL: 'http://localhost:8188', authType: 'none', username: '', workflow: null, style: { preset: 'default', custom: '' }, ready: false, channels: [{ id: 'comfyui', label: 'ComfyUI', fields: ['baseURL', 'authType', 'username'] }] }
+  await render().find(node => node.props?.role === 'switch').props.onChange({ target: { checked: true } })
   const file = render().find(node => node.type === 'input' && node.props.type === 'file')
   assert.ok(file)
   await file.props.onChange({ target: { files: [{ size: 80, text: async () => '{"1":{"class_type":"SaveImage","inputs":{}}}' }], value: 'file.json' } })
   assert.equal(calls.length, 0)
   assert.equal(slots[0].workflow['1'].class_type, 'SaveImage')
   assert.equal(render().filter(node => node.type === 'textarea').length, 1, 'only the optional style textarea')
-  await render().find(node => node.type === 'button' && node.children.includes('保存生图设置')).props.onClick()
+  await render().find(node => node.type === 'button' && node.children.includes('保存并启用')).props.onClick()
   assert.equal(calls[0].method, 'saveSceneImageSettings')
   assert.equal(calls[0].args.workflow['1'].class_type, 'SaveImage')
   await file.props.onChange({ target: { files: [{ size: 512001 }], value: '' } })
   assert.match(slots[4], /500 KB/)
   assert.equal(calls.length, 1)
+})
+
+test('setup order, read-only draft checks, model selection and stale status clearing', async () => {
+  const slots = [], calls = []
+  let cursor = 0
+  const context = vm.createContext({
+    React: { createElement: (type, props, ...children) => ({ type, props, children }), useEffect() {}, useState(initial) { const n = cursor++; if (!(n in slots)) slots[n] = initial; return [slots[n], value => { slots[n] = typeof value === 'function' ? value(slots[n]) : value }] } },
+    window: { dispatchEvent() {} }, CustomEvent: class {},
+    rpc: async (method, args) => { calls.push({ method, args }); return method === 'testSceneImageConnection' ? { status: 'reachable', apiKeyStatus: 'unverified', httpStatus: 404, probePath: '/models', message: '连接成功，但服务暂时无法完成 Key 验证。可展开连接诊断查看状态。' } : { models: ['new-image'], message: '已获取' } }
+  })
+  const Component = vm.runInContext(extract('SceneImageSettings', 'TavernSettingsSection') + ';SceneImageSettings', context)
+  const nodes = tree => tree && typeof tree === 'object' ? [tree, ...(tree.children || []).flat(Infinity).flatMap(nodes)] : []
+  const render = () => { cursor = 0; return nodes(Component()) }
+  render()
+  slots[0] = { provider: 'openai', baseURL: 'https://example.test/v1', model: 'image-default', size: '1024x1024', style: { preset: 'default', custom: '' }, channels: [{ id: 'openai', fields: ['baseURL', 'model', 'size'], models: ['image-default'], canListModels: true }] }
+  await render().find(node => node.props?.role === 'switch').props.onChange({ target: { checked: true } })
+  let tree = render()
+  const labelIndex = name => tree.findIndex(node => node.type === 'label' && node.children[0] === name)
+  const buttonIndex = name => tree.findIndex(node => node.type === 'button' && node.children.includes(name))
+  assert.ok(labelIndex('提供商') < labelIndex('API Key'))
+  assert.ok(labelIndex('API Key') < buttonIndex('测试连接与鉴权'))
+  assert.ok(buttonIndex('测试连接与鉴权') < labelIndex('生图模型'))
+  assert.ok(labelIndex('生图模型') < labelIndex('图片尺寸／分辨率'))
+  tree.find(node => node.type === 'input' && node.props.type === 'password').props.onChange({ target: { value: 'draft-key' } })
+  const button = name => render().find(node => node.type === 'button' && node.children.includes(name))
+  await button('测试连接与鉴权').props.onClick()
+  assert.equal(calls[0].method, 'testSceneImageConnection')
+  assert.equal(calls[0].args.apiKey, 'draft-key')
+  assert.equal(slots[2], 'draft-key', 'probe does not discard unsaved credential')
+  assert.ok(render().some(node => node.props?.['data-connection-status'] === 'reachable'))
+  const diagnostic = render().find(node => node.type === 'details' && node.children.some(child => child?.type === 'summary' && child.children.includes('连接诊断')))
+  assert.ok(diagnostic)
+  assert.ok(!diagnostic.props?.open, 'HTTP diagnostic is collapsed by default')
+  assert.ok(diagnostic.children.some(child => child?.type === 'p' && child.children[0].includes('HTTP 404')))
+  assert.ok(!render().find(node => node.props?.role === 'status').children[0].includes('404'))
+  await button('获取模型列表').props.onClick()
+  tree = render()
+  assert.ok(tree.some(node => node.type === 'option' && node.props.value === 'new-image'))
+  tree.find(node => node.type === 'select' && node.props.value === 'image-default').props.onChange({ target: { value: 'new-image' } })
+  assert.equal(slots[0].model, 'new-image')
+  render().find(node => node.type === 'input' && node.props.value === 'https://example.test/v1').props.onChange({ target: { value: 'https://another.test/v1' } })
+  assert.ok(!render().some(node => node.props?.['data-connection-status']))
+  assert.ok(!render().some(node => node.type === 'option' && node.props.value === 'new-image'))
+  assert.deepEqual(calls.map(call => call.method), ['testSceneImageConnection', 'listSceneImageModels'])
 })
 
 test('reference chooser never preselects a group member, freezes consent and permits per-person revocation while disabled', async () => {
@@ -138,6 +262,9 @@ test('reference chooser never preselects a group member, freezes consent and per
   const nodes = tree => tree && typeof tree === 'object' ? [tree, ...(tree.children || []).flat(Infinity).flatMap(nodes)] : []
   const render = () => { cursor = 0; return nodes(Component({ sessionId: 'session', turn: 1 })) }
   const button = name => render().find(node => node.type === 'button' && node.children.includes(name))
+  const more = render().find(node => node.type === 'summary' && node.props?.['aria-label'] === '更多插图操作')
+  assert.equal(more, undefined)
+  assert.ok(!render().some(node => node.children?.some(text => ['⋯', '下载', '查看说明', '删除'].includes(text))))
   await button('用作造型参考').props.onClick()
   assert.equal(calls.length, 0)
   assert.equal(render().find(node => node.type === 'select').props.value, '')

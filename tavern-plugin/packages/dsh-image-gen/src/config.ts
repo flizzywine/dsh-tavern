@@ -1,0 +1,167 @@
+/** User-facing configuration for supported image providers. */
+import z from '@deepseek-ai/schemastery'
+
+import {
+  DEFAULT_GROK_BASE_URL,
+  DEFAULT_GROK_MODEL,
+  DEFAULT_DASHSCOPE_ENDPOINT,
+  DEFAULT_DASHSCOPE_MODEL,
+  DEFAULT_COMFYUI_BASE_URL,
+  DEFAULT_COMFYUI_TIMEOUT_MS,
+  DEFAULT_COMFYUI_WORKFLOW_LABEL,
+  DEFAULT_GOOGLE_ENDPOINT,
+  DEFAULT_GOOGLE_MODEL,
+  DEFAULT_OPENAI_BASE_URL,
+  DEFAULT_OPENAI_MODEL,
+  DEFAULT_SEEDREAM_BASE_URL,
+  DEFAULT_SEEDREAM_MODEL,
+  IMAGE_PROVIDERS,
+  activeComfyUIWorkflow,
+  resolveComfyUIWorkflows,
+  type ComfyUIWorkflowEntry,
+  type ImageProvider,
+} from './shared.js'
+
+export {
+  DEFAULT_GROK_BASE_URL,
+  DEFAULT_GROK_MODEL,
+  DEFAULT_DASHSCOPE_ENDPOINT,
+  DEFAULT_DASHSCOPE_MODEL,
+  DEFAULT_COMFYUI_BASE_URL,
+  DEFAULT_COMFYUI_TIMEOUT_MS,
+  DEFAULT_COMFYUI_WORKFLOW_LABEL,
+  DEFAULT_GOOGLE_ENDPOINT,
+  DEFAULT_GOOGLE_MODEL,
+  DEFAULT_OPENAI_BASE_URL,
+  DEFAULT_OPENAI_MODEL,
+  DEFAULT_SEEDREAM_BASE_URL,
+  DEFAULT_SEEDREAM_MODEL,
+  IMAGE_PROVIDERS,
+  activeComfyUIWorkflow,
+  resolveComfyUIWorkflows,
+  type ComfyUIWorkflowEntry,
+  type ImageProvider,
+}
+
+/** Default workspace subfolder that receives generated image files. */
+export const DEFAULT_WORKSPACE_FOLDER = 'dsh-image-gen'
+
+/** Google API credential reference. */
+export const GOOGLE_API_KEY_ENV = 'GEMINI_API_KEY'
+/** OpenAI Platform or compatible relay credential reference. */
+export const OPENAI_API_KEY_ENV = 'OPENAI_API_KEY'
+/** xAI image generation credential; separate from other providers. */
+export const GROK_API_KEY_ENV = 'XAI_API_KEY'
+/** Volcengine Ark credential reference. */
+export const SEEDREAM_API_KEY_ENV = 'ARK_API_KEY'
+/** DashScope credential reference. */
+export const DASHSCOPE_API_KEY_ENV = 'DASHSCOPE_API_KEY'
+
+/** Google tool-level controls. */
+export const ASPECT_RATIOS = ['1:1', '3:2', '2:3', '4:3', '3:4', '16:9', '9:16'] as const
+export const IMAGE_SIZES = ['1K', '2K', '4K'] as const
+export type AspectRatio = typeof ASPECT_RATIOS[number]
+export type ImageSize = typeof IMAGE_SIZES[number]
+
+/** Bundle configuration from the profile patch and the Web settings page. */
+export interface Config {
+  /** Standalone tools; Tavern uses Studio through its own explicit generation flow. */
+  registerAgentTools?: boolean
+  /** Extra channel controls, encoded JSON; credentials never enter this field. */
+  tavernChannels?: string
+  provider?: ImageProvider
+  grokBaseURL?: string
+  grokModel?: string
+  googleModel?: string
+  googleEndpoint?: string
+  openaiBaseURL?: string
+  openaiModel?: string
+  seedreamBaseURL?: string
+  seedreamModel?: string
+  dashscopeEndpoint?: string
+  dashscopeModel?: string
+  comfyuiBaseURL?: string
+  /** Named ComfyUI workflows managed by the Web settings page. */
+  comfyuiWorkflows?: ComfyUIWorkflowEntry[]
+  /** Name of the workflow ComfyUI calls use by default. */
+  comfyuiActiveWorkflow?: string
+  /** Legacy single-workflow storage; synced to the active entry for downgrades. */
+  comfyuiWorkflowJson?: string
+  /** Original imported file name of the legacy single workflow. */
+  comfyuiWorkflowName?: string
+  comfyuiTimeoutMs?: number
+  /** Also write every generated image as a file under the session workspace. */
+  saveToWorkspace?: boolean
+  /** Workspace subfolder for generated images; empty means the workspace root. */
+  workspaceFolder?: string
+}
+
+/** Cordis configuration schema. */
+export const Config: z<Config> = z.object({
+  registerAgentTools: z.boolean().default(true),
+  tavernChannels: z.string().default('{}'),
+  provider: z.union(IMAGE_PROVIDERS).default('google'),
+  grokBaseURL: z.string().default(DEFAULT_GROK_BASE_URL),
+  grokModel: z.string().default(DEFAULT_GROK_MODEL),
+  googleModel: z.string().default(DEFAULT_GOOGLE_MODEL),
+  googleEndpoint: z.string().default(DEFAULT_GOOGLE_ENDPOINT),
+  openaiBaseURL: z.string().default(DEFAULT_OPENAI_BASE_URL),
+  openaiModel: z.string().default(DEFAULT_OPENAI_MODEL),
+  seedreamBaseURL: z.string().default(DEFAULT_SEEDREAM_BASE_URL),
+  seedreamModel: z.string().default(DEFAULT_SEEDREAM_MODEL),
+  dashscopeEndpoint: z.string().default(DEFAULT_DASHSCOPE_ENDPOINT),
+  dashscopeModel: z.string().default(DEFAULT_DASHSCOPE_MODEL),
+  comfyuiBaseURL: z.string().default(DEFAULT_COMFYUI_BASE_URL),
+  comfyuiWorkflows: z.array(z.object({ name: z.string(), json: z.string(), presetPrompt: z.string().default('') })).default([]),
+  comfyuiActiveWorkflow: z.string().default(''),
+  comfyuiWorkflowJson: z.string().default(''),
+  comfyuiWorkflowName: z.string().default(''),
+  comfyuiTimeoutMs: z.number().min(1_000).max(3_600_000).default(DEFAULT_COMFYUI_TIMEOUT_MS),
+  saveToWorkspace: z.boolean().default(true),
+  workspaceFolder: z.string().default(DEFAULT_WORKSPACE_FOLDER),
+})
+
+/** Resolve exactly one provider profile for a tool call. */
+export function resolveProvider(config: Config):
+  | { provider: 'grok'; apiKeyEnv: string; model: string; baseURL: string; imageSize: string }
+  | { provider: 'google'; apiKeyEnv: string; model: string; endpoint: string; aspectRatio: AspectRatio; imageSize: ImageSize }
+  | { provider: 'openai'; apiKeyEnv: string; model: string; baseURL: string; imageSize: string }
+  | { provider: 'seedream'; apiKeyEnv: string; model: string; baseURL: string; imageSize: string }
+  | { provider: 'dashscope'; apiKeyEnv: string; model: string; endpoint: string; imageSize: string }
+  | { provider: 'comfyui'; baseURL: string; workflows: ComfyUIWorkflowEntry[]; workflow?: ComfyUIWorkflowEntry; timeoutMs: number } {
+  switch (config.provider ?? 'google') {
+    case 'grok': return { provider: 'grok', apiKeyEnv: GROK_API_KEY_ENV, model: config.grokModel ?? DEFAULT_GROK_MODEL, baseURL: config.grokBaseURL ?? DEFAULT_GROK_BASE_URL, imageSize: '1k' }
+    case 'openai': return { provider: 'openai', apiKeyEnv: OPENAI_API_KEY_ENV, model: config.openaiModel ?? DEFAULT_OPENAI_MODEL, baseURL: config.openaiBaseURL ?? DEFAULT_OPENAI_BASE_URL, imageSize: '1024x1024' }
+    case 'seedream': return { provider: 'seedream', apiKeyEnv: SEEDREAM_API_KEY_ENV, model: config.seedreamModel ?? DEFAULT_SEEDREAM_MODEL, baseURL: config.seedreamBaseURL ?? DEFAULT_SEEDREAM_BASE_URL, imageSize: '2K' }
+    case 'dashscope': return { provider: 'dashscope', apiKeyEnv: DASHSCOPE_API_KEY_ENV, model: config.dashscopeModel ?? DEFAULT_DASHSCOPE_MODEL, endpoint: config.dashscopeEndpoint ?? DEFAULT_DASHSCOPE_ENDPOINT, imageSize: '1024*1024' }
+    case 'comfyui': {
+      const workflows = resolveComfyUIWorkflows(config)
+      const workflow = activeComfyUIWorkflow(config)
+      return {
+        provider: 'comfyui',
+        baseURL: config.comfyuiBaseURL ?? DEFAULT_COMFYUI_BASE_URL,
+        workflows,
+        ...(workflow === undefined ? {} : { workflow }),
+        timeoutMs: config.comfyuiTimeoutMs ?? DEFAULT_COMFYUI_TIMEOUT_MS,
+      }
+    }
+    case 'google': return { provider: 'google', apiKeyEnv: GOOGLE_API_KEY_ENV, model: config.googleModel ?? DEFAULT_GOOGLE_MODEL, endpoint: config.googleEndpoint ?? DEFAULT_GOOGLE_ENDPOINT, aspectRatio: '1:1', imageSize: '1K' }
+  }
+}
+
+/** The workflow a ComfyUI call runs: the requested name when given, else the active one. */
+export function selectComfyUIWorkflow(
+  active: { workflows: ComfyUIWorkflowEntry[]; workflow?: ComfyUIWorkflowEntry },
+  requested?: string,
+): ComfyUIWorkflowEntry {
+  if (active.workflow === undefined) {
+    throw new Error('ComfyUI image generation requires an imported workflow; import one in Settings > Plugins > Image generation.')
+  }
+  if (typeof requested !== 'string' || requested.trim().length === 0) return active.workflow
+  const name = requested.trim()
+  const workflow = active.workflows.find(candidate => candidate.name === name)
+  if (workflow === undefined) {
+    throw new Error(`No ComfyUI workflow named "${name}" is configured. Available workflows: ${active.workflows.map(entry => entry.name).join(', ')}.`)
+  }
+  return workflow
+}

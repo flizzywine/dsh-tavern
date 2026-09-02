@@ -3730,13 +3730,6 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					} catch (e) { setError(String(e.message || e)); }
 					finally { setBusy(false); notify(); }
 				}
-				async function remove() {
-					if (!version || !window.confirm("删除这张插图？不会修改正文或其他版本。")) return;
-					setBusy(true); setError("");
-					try { await rpc("removeSceneImage", { turn: props.turn, key: state.key, versionId: version.id }, props.sessionId); }
-					catch (e) { setError(String(e.message || e)); }
-					finally { setBusy(false); notify(); }
-				}
 				function openReference() {
 					const people = version.referencePeople || [];
 					setReferenceDraft({ key: state.key, versionId: version.id, gateway: state.reference.gateway, service: state.reference.service, personId: version.referenceSingle && people.length === 1 ? people[0].id : "" });
@@ -3765,16 +3758,10 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 							React.createElement("button", { type: "button", className: "dsh-tavern-btn", "aria-label": "下一张插图", disabled: index >= versions.length - 1, onClick: function () { setSelected(versions[index + 1].id); } }, "›")
 						) : null,
 						state.enabled ? React.createElement(React.Fragment, null,
-							React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: locked, onClick: function () { return generate("repaint"); } }, "重画"),
-							React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: locked, onClick: function () { setAdjusting(true); } }, "调整")
-						) : null,
-						React.createElement("details", null, React.createElement("summary", { "aria-label": "更多插图操作" }, "⋯"),
-							canBindReference || referenceBindings.length ? React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: locked, onClick: openReference }, referenceBindings.length ? "管理造型参考" : "用作造型参考") : null,
-							React.createElement("a", { href: url, download: "scene-illustration" }, "下载"),
-							React.createElement("details", null, React.createElement("summary", null, "查看说明"), React.createElement("p", null, version.description || "旧图片没有保存画面说明")),
-							React.createElement("button", { type: "button", disabled: locked, onClick: remove }, "删除")
-						)
+							React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: locked, onClick: function () { setAdjusting(true); } }, "重画")
+						) : null
 					) : null,
+					canBindReference || referenceBindings.length ? React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: locked, onClick: openReference }, referenceBindings.length ? "管理造型参考" : "用作造型参考") : null,
 					version && state.enabled && version.profile && version.profile !== state.profile ? React.createElement("span", { role: "status" }, "将按新渠道重新整理画面，可能产生文字模型费用。") : null,
 					state.referenceWarning || state.reference && state.reference.warning ? React.createElement("span", { role: "status" }, state.referenceWarning || state.reference.warning) : null,
 					showReference ? React.createElement("div", { className: "dsh-tavern-image-adjust dsh-tavern-image-reference", role: "region", "aria-label": "造型参考" },
@@ -3790,9 +3777,9 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 						referenceBindings.map(function (binding) { return React.createElement("button", { key: binding.personId, type: "button", className: "dsh-tavern-btn", disabled: locked, onClick: function () { return setReference(false, binding.personId); } }, "取消「" + binding.name + "」的参考"); }),
 						React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: busy, onClick: function () { setReferenceDraft(null); } }, "关闭参考设置")
 					) : null,
-					adjusting && state.enabled ? React.createElement("div", { className: "dsh-tavern-image-adjust", role: "region", "aria-label": "调整插图" },
-						React.createElement("label", null, "想怎样调整？", React.createElement("textarea", { value: instruction, maxLength: 2000, placeholder: "例如：改成雨夜，镜头拉近", onChange: function (event) { setInstruction(event.target.value); }, disabled: locked })),
-						React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: locked || !instruction.trim(), onClick: function () { return generate("adjust"); } }, "生成"),
+					adjusting && state.enabled ? React.createElement("div", { className: "dsh-tavern-image-adjust", role: "region", "aria-label": "重画插图" },
+						React.createElement("label", null, "重画意见（选填）", React.createElement("textarea", { value: instruction, maxLength: 2000, placeholder: "留空直接重画；例如：改成雨夜，镜头拉近", onChange: function (event) { setInstruction(event.target.value); }, disabled: locked })),
+						React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: locked, onClick: function () { return generate(instruction.trim() ? "adjust" : "repaint"); } }, "开始重画"),
 						React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: busy, onClick: function () { setAdjusting(false); } }, "取消")
 					) : null,
 					state.status === "running" ? React.createElement("span", { role: "status" }, sceneImageStageLabel(state)) : null,
@@ -4659,7 +4646,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				return function () { active = false; window.clearInterval(timer); window.removeEventListener("dsh-tavern-image-settings-changed", refresh); window.removeEventListener("focus", refresh); };
 			}, []);
 			async function generate() {
-				if (!state || busy || props.running || state.status === "running" || state.recovery === "save" || state.versions && state.versions.length) return;
+				if (!settings || !settings.enabled || !settings.ready || settings.migrationPending || !state || busy || props.running || state.status === "running" || state.recovery === "save" || state.versions && state.versions.length) return;
 				const confirmNewRequestId = sceneImagePurchaseConfirmation(state);
 				if (confirmNewRequestId === false) return;
 				if (requestRef.current && requestRef.current.id === state.requestId && ["failed", "cancelled"].includes(state.status)) requestRef.current = null;
@@ -4669,10 +4656,11 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				catch (e) { setError(String(e.message || e)); }
 				finally { setBusy(false); window.dispatchEvent(new CustomEvent("dsh-tavern-image-changed", { detail: { sessionId: props.sessionId } })); }
 			}
-			if (!settings || !settings.enabled) return null;
+			const unavailable = !settings ? "正在加载生图配置…" : settings.migrationPending ? "旧生图配置待迁移，请在设置中点击「保存并启用」。" : !settings.ready ? "生图配置未完成，请在设置中补全并保存。" : !settings.enabled ? "场景生图未开启，请在设置中开启。" : "";
 			const working = state && state.status === "running";
 			return React.createElement(React.Fragment, null,
-				React.createElement("button", { type: "button", className: "dsh-tavern-choice-trigger", disabled: !settings.ready || !state || props.running || busy || working || state.recovery === "save" || state.versions && state.versions.length > 0, onClick: generate }, busy ? "整理画面…" : working ? sceneImageStageLabel(state) : state && state.recovery === "save" ? "图片待保存" : state && state.outcome === "unconfirmed" ? state.providerTask ? "查询原任务" : "重新生图" : state && state.status === "failed" && !state.versions.length ? "重试生图" : "生图"),
+				React.createElement("button", { type: "button", className: "dsh-tavern-choice-trigger", title: unavailable || undefined, disabled: Boolean(unavailable) || !state || props.running || busy || working || state.recovery === "save" || state.versions && state.versions.length > 0, onClick: generate }, busy ? "整理画面…" : working ? sceneImageStageLabel(state) : state && state.recovery === "save" ? "图片待保存" : state && state.outcome === "unconfirmed" ? state.providerTask ? "查询原任务" : "重新生图" : state && state.status === "failed" && !state.versions.length ? "重试生图" : "生图"),
+				unavailable ? React.createElement("span", { role: "status", className: "dsh-tavern-settings-desc" }, unavailable) : null,
 				error ? React.createElement("span", { role: "alert", className: "dsh-tavern-settings-error" }, error) : null
 			);
 		}
@@ -4682,6 +4670,13 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const [key, setKey] = React.useState("");
 			const [busy, setBusy] = React.useState(false);
 			const [notice, setNotice] = React.useState("");
+			const [connection, setConnection] = React.useState(null);
+			const [models, setModels] = React.useState([]);
+			const [modelNotice, setModelNotice] = React.useState("");
+			const [checking, setChecking] = React.useState("");
+			// Testing default: show configuration even when legacy migration blocks generation.
+			const [expanded, setExpanded] = React.useState(true);
+			const opened = expanded === null ? Boolean(form && form.enabled) : expanded;
 			React.useEffect(function () {
 				let active = true;
 				rpc("getSceneImageSettings").then(function (result) { if (active) setForm(result.settings); }, function (e) { if (active) setNotice(String(e.message || e)); });
@@ -4694,22 +4689,62 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					const input = patch ? Object.assign({ provider: form.provider }, patch) : { provider: form.provider, style: form.style, apiKey: key };
 					if (!patch) channel.fields.forEach(function (field) { input[field] = form[field]; });
 					if (!patch && form.provider === "comfyui") input.workflow = form.workflow;
-					const result = await rpc("saveSceneImageSettings", input); setForm(result.settings); setKey(""); setDirty(false); setNotice("已保存");
+					let result = await rpc("saveSceneImageSettings", input); setForm(result.settings); setKey(""); setDirty(false);
 					window.dispatchEvent(new CustomEvent("dsh-tavern-image-settings-changed"));
+					if (!patch && result.settings.ready && !result.settings.enabled) {
+						result = await rpc("saveSceneImageSettings", { provider: result.settings.provider, enabled: true });
+						setForm(result.settings);
+					}
+					setNotice(result.settings.enabled ? "已保存并启用" : "已保存，请补全配置后启用");
+					window.dispatchEvent(new CustomEvent("dsh-tavern-image-settings-changed"));
+					return true;
 				}
-				catch (e) { setNotice(String(e.message || e)); }
+				catch (e) { setNotice(String(e.message || e)); return false; }
+				finally { setBusy(false); }
+			}
+			async function toggle(enabled) {
+				if (enabled) {
+					setExpanded(true); setNotice("");
+					if (form.ready && !dirty && form.provider === form.activeProvider) {
+						if (!await save({ enabled: true })) setExpanded(false);
+					}
+					return;
+				}
+				setBusy(true); setNotice("");
+				try {
+					// Disable the saved active channel, not a different unsaved preview.
+					await rpc("saveSceneImageSettings", { enabled: false });
+					setForm(function (current) { return Object.assign({}, current, { enabled: false }); });
+					setExpanded(false);
+					window.dispatchEvent(new CustomEvent("dsh-tavern-image-settings-changed"));
+				} catch (e) { setNotice(String(e.message || e)); }
 				finally { setBusy(false); }
 			}
 			async function chooseChannel(provider) {
 				setBusy(true); setNotice("");
+				setConnection(null); setModels([]); setModelNotice("");
 				try {
 					const result = await rpc("getSceneImageSettings", { provider });
 					setForm(result.settings); setKey(""); setDirty(true);
-					setNotice("已读取此渠道配置；保存后再手动启用。未保存的修改不保留。");
+					setNotice("已读取此渠道配置；配置完成后点击保存并启用。未保存的修改不保留。");
 				} catch (e) { setNotice(String(e.message || e)); }
 				finally { setBusy(false); }
 			}
 			const selectedChannel = form && (form.channels || []).find(function (item) { return item.id === form.provider; });
+			const modelOptions = Array.from(new Set((selectedChannel && selectedChannel.models || []).concat(models)));
+			function resetConnection() { setConnection(null); setModels([]); setModelNotice(""); }
+			async function inspectConnection(listModels) {
+				setBusy(true); setChecking(listModels ? "models" : "connection"); setNotice("");
+				if (listModels) setModelNotice(""); else setConnection(null);
+				try {
+					const result = await rpc(listModels ? "listSceneImageModels" : "testSceneImageConnection", { provider: form.provider, baseURL: form.baseURL, authType: form.authType, username: form.username, apiKey: key });
+					if (listModels) { setModels(result.models || []); setModelNotice(result.message); }
+					else setConnection(result);
+				} catch (e) {
+					if (listModels) setModelNotice(String(e.message || e));
+					else setConnection({ status: "failed", message: String(e.message || e) });
+				} finally { setBusy(false); setChecking(""); }
+			}
 			async function importWorkflow(event) {
 				const file = event.target.files && event.target.files[0];
 				if (!file) return;
@@ -4725,30 +4760,52 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			function channelField(field) {
 				if (field === "username" && form.authType !== "basic") return null;
 				const labels = { baseURL: "API 根地址", model: "生图模型名称", size: "图片尺寸／分辨率", aspectRatio: "画面比例", authType: "服务鉴权", username: "鉴权用户名" };
-				function change(event) { const value = event.target.value; setDirty(true); if (field === "authType") setKey(""); setForm(function (current) { return Object.assign({}, current, { [field]: value }, field === "authType" ? { hasKey: false } : {}); }); }
+				function change(event) { const value = event.target.value; setDirty(true); if (["baseURL", "authType", "username"].includes(field)) resetConnection(); if (field === "authType") setKey(""); setForm(function (current) { return Object.assign({}, current, { [field]: value }, field === "authType" ? { hasKey: false } : {}); }); }
 				const control = field === "authType" ? React.createElement("select", { value: form[field], disabled: busy, onChange: change }, [ ["none", "无需鉴权"], ["basic", "用户名和密码"], ["bearer", "Bearer Token（反向代理）"] ].map(function (option) { return React.createElement("option", { key: option[0], value: option[0] }, option[1]); }))
 					: React.createElement("input", { value: form[field], disabled: busy, onChange: change });
 				return React.createElement("label", { key: field }, labels[field] || field, control);
 			}
-			return React.createElement("details", { className: "dsh-tavern-settings-group" },
-				React.createElement("summary", { className: "dsh-tavern-settings-row" }, "场景生图"),
-				React.createElement("div", { className: "dsh-tavern-image-settings" },
-					React.createElement("p", { className: "dsh-tavern-settings-intro" }, "配置并手动启用后，在输入框上方点「生图」。生图会使用文字模型整理画面，并调用生图服务，可能产生额外费用。只需配置自己使用的渠道。"),
-					form ? React.createElement("label", null, "生图渠道", React.createElement("select", { value: form.provider, disabled: busy, onChange: function (e) { return chooseChannel(e.target.value); } }, (form.channels || []).map(function (item) { return React.createElement("option", { key: item.id, value: item.id }, item.label); }))) : null,
-					selectedChannel ? React.createElement("details", { key: form.provider, open: ["banana", "webui", "comfyui"].includes(form.provider) ? true : undefined },
-						React.createElement("summary", null, ["webui", "comfyui"].includes(form.provider) ? "自建服务连接" : "地址、模型与尺寸（官方渠道可用默认值）"),
-						React.createElement("p", null, selectedChannel.hint),
-						selectedChannel.fields.map(channelField)) : null,
+			return React.createElement("div", { className: "dsh-tavern-settings-group" },
+				React.createElement("label", { className: "dsh-tavern-settings-row" },
+					React.createElement("span", { className: "dsh-tavern-settings-copy" },
+						React.createElement("span", { className: "dsh-tavern-settings-title" }, "开启场景生图"),
+						React.createElement("span", { className: "dsh-tavern-settings-desc" }, opened && form && !form.enabled ? "请完成下方配置并保存后启用，不会自动生成图片。" : "开启后可手动为剧情配图；关闭保留配置和已有图片。")),
+					React.createElement("span", { className: "dsh-tavern-settings-switch" },
+						React.createElement("input", { type: "checkbox", role: "switch", "aria-label": "开启场景生图", "aria-expanded": opened, checked: Boolean(form && form.enabled), disabled: !form || busy, onChange: function (event) { return toggle(event.target.checked); } }),
+						React.createElement("span", { className: "dsh-tavern-settings-track", "aria-hidden": "true" }))),
+				opened ? React.createElement("div", { className: "dsh-tavern-image-settings" },
+					React.createElement("p", { className: "dsh-tavern-settings-intro" }, "配置并启用后，在输入框上方点「生图」。连接测试不生成图片；实际生图可能产生费用。"),
+					form ? React.createElement("label", null, "提供商", React.createElement("select", { value: form.provider, disabled: busy, onChange: function (e) { return chooseChannel(e.target.value); } }, (form.channels || []).map(function (item) { return React.createElement("option", { key: item.id, value: item.id }, item.label); }))) : null,
+					selectedChannel ? React.createElement("p", null, selectedChannel.hint) : null,
+					form && form.migrationPending ? React.createElement("p", { role: "status" }, "检测到旧配置。保存后将迁入生图模块；旧密钥不会显示或发送到新地址。") : null,
+					selectedChannel ? selectedChannel.fields.filter(function (field) { return ["baseURL", "authType", "username"].includes(field); }).map(channelField) : null,
+					form && form.provider !== "dsh-image-gen" && !(["webui", "comfyui"].includes(form.provider) && form.authType === "none") ? React.createElement("label", null, (form.authType === "basic" ? "鉴权密码" : "API Key") + (form.hasKey ? "（已配置，留空保留；更换地址需重新填写）" : ""), React.createElement("input", { type: "password", autoComplete: "new-password", value: key, disabled: busy, onChange: function (e) { setKey(e.target.value); setDirty(true); resetConnection(); } })) : null,
+					form && form.provider === "dsh-image-gen" ? React.createElement("div", null,
+						React.createElement("p", { role: "status" }, form.pluginError || (form.pluginReady ? "已读取插件配置：" + form.pluginProvider + " / " + form.model + " · " + form.aspectRatio + " · " + form.size + "。未验证 Key 或执行生图。" : "请先在 dsh-image-gen 插件设置中配置云端渠道和 Key。")),
+						React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: busy, onClick: function () { return chooseChannel("dsh-image-gen"); } }, "刷新插件配置"))
+						: React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: !form || busy || !form.baseURL, onClick: function () { return inspectConnection(false); } }, checking === "connection" ? "验证中…" : "测试连接与鉴权"),
+					connection ? React.createElement("span", { role: "status", "data-connection-status": connection.status }, connection.message) : null,
+					connection && connection.httpStatus ? React.createElement("details", null,
+						React.createElement("summary", null, "连接诊断"),
+						React.createElement("p", null, "HTTP " + connection.httpStatus + " · 只读检查路径：" + (connection.probePath || "/") + "。未调用生图接口；根路径返回 404 不代表生图接口不可用。")) : null,
+					selectedChannel && form.provider !== "dsh-image-gen" && selectedChannel.fields.includes("model") ? React.createElement("div", null,
+						React.createElement("label", null, "生图模型", React.createElement("select", { value: modelOptions.includes(form.model) ? form.model : "", disabled: busy, onChange: function (e) { const value = e.target.value; setDirty(true); setForm(function (current) { return Object.assign({}, current, { model: value }); }); } },
+							modelOptions.map(function (model) { return React.createElement("option", { key: model, value: model }, model); }),
+							React.createElement("option", { value: "" }, "手动填写模型…"))),
+						!modelOptions.includes(form.model) ? channelField("model") : null,
+						selectedChannel.canListModels ? React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: busy || !form.baseURL, onClick: function () { return inspectConnection(true); } }, checking === "models" ? "获取中…" : "获取模型列表") : React.createElement("p", null, "此渠道使用预设或手动填写模型；连接测试不验证模型。"),
+						modelNotice ? React.createElement("span", { role: "status" }, modelNotice) : null) : null,
 					form && form.provider === "comfyui" ? React.createElement("div", null,
 						React.createElement("p", null, form.workflow ? "工作流：" + (form.workflow.name || "已选择，待保存校验") : "尚未导入工作流"),
 						React.createElement("label", null, "导入工作流", React.createElement("input", { type: "file", accept: ".json,application/json", disabled: busy, onChange: importWorkflow }))) : null,
-					form && !(["webui", "comfyui"].includes(form.provider) && form.authType === "none") ? React.createElement("label", null, (form.authType === "basic" ? "鉴权密码" : "API Key") + (form.hasKey ? "（已配置，留空保留）" : ""), React.createElement("input", { type: "password", autoComplete: "new-password", value: key, disabled: busy, onChange: function (e) { setKey(e.target.value); setDirty(true); } })) : null,
+					form ? React.createElement("details", null,
+					React.createElement("summary", null, "绘图选项（风格、尺寸）"),
+					selectedChannel && form.provider !== "dsh-image-gen" ? selectedChannel.fields.filter(function (field) { return ["size", "aspectRatio"].includes(field); }).map(channelField) : null,
 					form ? React.createElement("label", null, "风格预设", React.createElement("select", { value: form.style.preset, disabled: busy, onChange: function (e) { const value = e.target.value; setDirty(true); setForm(function (current) { return Object.assign({}, current, { style: Object.assign({}, current.style, { preset: value }) }); }); } }, (form.stylePresets || []).map(function (preset) { return React.createElement("option", { key: preset.id, value: preset.id }, preset.label); }))) : null,
-					form ? React.createElement("label", null, "补充描述／标签（选填）", React.createElement("textarea", { value: form.style.custom, rows: 2, maxLength: 2000, placeholder: "例如：低饱和、柔和光线、胶片质感", disabled: busy, onChange: function (e) { const value = e.target.value; setDirty(true); setForm(function (current) { return Object.assign({}, current, { style: Object.assign({}, current.style, { custom: value }) }); }); } })) : null,
-					React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: !form || busy, onClick: function () { return save(); } }, busy ? "保存中…" : "保存生图设置"),
-					form ? React.createElement("label", { className: "dsh-tavern-settings-row" }, "启用场景生图", React.createElement("input", { type: "checkbox", role: "switch", checked: form.enabled === true, disabled: busy || dirty || !form.ready, onChange: function (event) { return save({ enabled: event.target.checked }); } })) : null,
-					notice ? React.createElement("span", { role: "status" }, notice) : null
-				)
+					form ? React.createElement("label", null, "补充描述／标签（选填）", React.createElement("textarea", { value: form.style.custom, rows: 2, maxLength: 2000, placeholder: "例如：低饱和、柔和光线、胶片质感", disabled: busy, onChange: function (e) { const value = e.target.value; setDirty(true); setForm(function (current) { return Object.assign({}, current, { style: Object.assign({}, current.style, { custom: value }) }); }); } })) : null) : null,
+					React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: !form || busy, onClick: function () { return save(); } }, busy && !checking ? "保存中…" : form && form.enabled ? "保存生图设置" : "保存并启用")
+				) : null,
+				notice ? React.createElement("div", { role: "status", className: "dsh-tavern-settings-desc" }, notice) : null
 			);
 		}
 		const EMPTY_PROJECTION_FACE = Object.freeze({ subscribe: function () { return function () {}; }, getSnapshot: function () { return null; } });

@@ -82,7 +82,11 @@ export function createSceneReferences({ snapshot, worldbook, target, sources, pe
   const anchors = [...sources.map(item => item.text), ...people.map(person => person.name), name]
   const tool = { name: 'read_scene_reference',
     description: '按本轮出现的人物名或地点名读取已保存设定的短片段；不是文件搜索，不读取当前资源库。仅在画面所需信息不足时使用，最多三次。',
-    parameters: { query: { type: 'string', required: true, description: '本轮材料中出现的明确人物名或地点名，2–80 字符；不能请求全卡或全部世界书。' } } }
+    parameters: {
+      type: 'object', additionalProperties: false,
+      properties: { query: { type: 'string', description: '本轮材料中出现的明确人物名或地点名，2–80 字符；不能请求全卡或全部世界书。' } },
+      required: ['query']
+    } }
 
   function read(args) {
     if (!available) return { sources: [], reason: '没有对应时期的可用设定快照；仅依据正文。' }

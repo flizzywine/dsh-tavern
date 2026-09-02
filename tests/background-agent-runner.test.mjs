@@ -2,6 +2,49 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { createBackgroundAgentRunner, executeBackgroundCompaction, maximumBackgroundTokens } from '../tavern-plugin/lib/background-agent-runner.js'
+import { readSceneImageSystemInstruction, readScenePlanInstruction } from '../tavern-plugin/lib/scene-image-prompts.js'
+
+test('人物设计读取工具在生图会话中只注册一次，跨任务保持稳定且不泄漏上一任务', async () => {
+  const registered = new Map(), counts = new Map(), answers = []
+  let pending
+  const session = { id: 'image-reader', header: {}, events: [], append(type, data) { this.events.push({ type, data }) } }
+  const agents = {
+    get: () => ({ session: { header: {} } }),
+    async create(options) {
+      await options.setup({
+        systemPrompt: { section() {}, suppressRuntimeContext() {} }, on() {},
+        tools: {
+          restrict() {},
+          register(tool) {
+            registered.set(tool.name, tool)
+            counts.set(tool.name, (counts.get(tool.name) || 0) + 1)
+            return () => registered.delete(tool.name)
+          }
+        }
+      })
+      return { agent: { session, followup() { pending = (async () => {
+        answers.push(await registered.get('character_design_read').execute({ name: '林岚' }))
+        session.append('assistant/message', { message: { content: [{ type: 'text', text: '完成' }] } })
+      })() }, async whenIdle() { await pending } }, async dispose() {} }
+    }
+  }
+  const runner = createBackgroundAgentRunner({ agents, id: () => session.id })
+  try {
+    for (const version of ['第一轮资料', '第二轮资料']) {
+      await runner.run({
+        sessionId: 'parent', persistent: true, task: 'image', selection: { provider: 'test', model: 'fake' },
+        messages: [], tools: [{ name: 'submit_scene_plan', parameters: { type: 'object' } }],
+        onToolCall: async call => { assert.equal(call.name, 'character_design_read'); return version }
+      })
+      assert.ok(registered.has('character_design_read'))
+      assert.equal(registered.has('submit_scene_plan'), false)
+      assert.equal(JSON.parse(await registered.get('character_design_read').execute({})).ok, false, '空闲时不能继续读取旧快照')
+    }
+    assert.deepEqual(answers, ['第一轮资料', '第二轮资料'])
+    assert.equal(counts.get('character_design_read'), 1)
+    assert.equal(registered.has('character_design_save'), false)
+  } finally { await runner.dispose() }
+})
 import { createContextPlanner } from '../tavern-plugin/lib/domain/context-planner.js'
 import { readSessionStablePrefix } from '../tavern-plugin/lib/domain/session-stable-prefix.js'
 import { createNativePlayOrchestrationStrategy } from '../tavern-plugin/lib/domain/foreground-orchestration-strategies.js'
@@ -581,13 +624,14 @@ test('后台 Agent 不执行前台预设正则，保持任务协议和结构化�
 
 test('生图常驻会话隔离后台任务与游戏，先保存编号且恢复后延续历史', async () => {
   const sessions = new Map(), bindings = new Map(), flushed = new Set()
+  const personas = new Map()
   let creates = 0, resumes = 0, disposed = 0
   async function open(options, resume = false) {
     const id = options.resumeSessionId || options.sessionId
     const session = resume ? sessions.get(id) : { id, header: options.meta, events: [], append(type, data) { this.events.push({ type, data }) } }
     assert.ok(session)
     sessions.set(id, session)
-    await options.setup({ systemPrompt: { section() {}, variable() {}, suppressRuntimeContext() {} }, tools: { restrict() {}, register() {} }, on() {} })
+    await options.setup({ systemPrompt: { section(value) { personas.set(id, value.text) }, variable() {}, suppressRuntimeContext() {} }, tools: { restrict() {}, register() {} }, on() {} })
     return { agent: { session, followup(message) {
       session.append('user/message', { message })
       session.append('assistant/message', { message: { content: [{ type: 'text', text: '完成' }] } })
@@ -599,7 +643,7 @@ test('生图常驻会话隔离后台任务与游戏，先保存编号且恢复�
   const options = { agents, id: () => 'child-' + creates, flushSession: async session => { flushed.add(session.id) } }
   let runner = createBackgroundAgentRunner(options)
   const common = { sessionId: 'game-a', persistent: true, selection: { provider: 'test', model: 'fake' }, messages: [], tools: [] }
-  const image = { ...common, task: 'image',
+  const image = { ...common, task: 'image', system: readScenePlanInstruction(),
     resolvePersistentSessionId: async () => bindings.get('game-a') || '',
     async onPersistentSessionReady(id) {
       assert.ok(flushed.has(id), 'native session must be durable before storing the binding')
@@ -607,6 +651,10 @@ test('生图常驻会话隔离后台任务与游戏，先保存编号且恢复�
     } }
   const [first, second] = await Promise.all([runner.run(image), runner.run(image)])
   assert.equal(first.traceSessionId, second.traceSessionId)
+  assert.equal(personas.get(first.traceSessionId), readSceneImageSystemInstruction())
+  const taskMessage = sessions.get(first.traceSessionId).events.find(event => event.type === 'user/message').data.message.content[0].text
+  assert.ok(taskMessage.endsWith('【DSH 后台任务协议（最终指令）】\n' + readScenePlanInstruction()))
+  assert.ok(!taskMessage.includes(readSceneImageSystemInstruction()), '初始系统提示词不重复放入本次任务')
   assert.equal(creates, 1)
   assert.equal(disposed, 0)
   const background = await runner.run({ ...common, task: 'settlement' })
@@ -621,6 +669,7 @@ test('生图常驻会话隔离后台任务与游戏，先保存编号且恢复�
     await assert.rejects(runner.run({ ...common, task: 'settlement', persistentSessionId: first.traceSessionId }), /任务类型不匹配/)
     await assert.rejects(runner.run({ ...common, task: 'image', sessionId: 'game-b', persistentSessionId: first.traceSessionId }), /父会话/)
     assert.equal((await runner.run(image)).traceSessionId, first.traceSessionId)
+    assert.equal(personas.get(first.traceSessionId), readSceneImageSystemInstruction(), '恢复会话仍从文件安装系统提示词')
     assert.equal(resumes, 3)
     assert.equal(creates, 3)
     const events = sessions.get(first.traceSessionId).events

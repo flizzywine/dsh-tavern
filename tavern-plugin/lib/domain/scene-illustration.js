@@ -1,14 +1,17 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { projectAgentContent } from './runtime-content-projection.js'
-import { generateSceneImage } from './scene-image-provider.js'
-import { createSceneImageSettings } from './scene-image-settings.js'
+import { createImageGenerationModule } from '../../packages/dsh-image-gen/src/module.js'
+import { createModuleSceneImageSettings } from './scene-image-module-settings.js'
 import { channelSettings, channelReady, imageExpressionProfile, imageExpressionGuidance } from './scene-image-channels.js'
-import { createScenePlans, SCENE_PLAN_INSTRUCTION, SCENE_PLAN_TOOL } from './scene-plan.js'
-import { imageAdjustmentInput, applyImageAdjustment, legacyImagePlan, SCENE_ADJUSTMENT_INSTRUCTION, SCENE_ADJUSTMENT_TOOL } from './scene-image-adjustment.js'
+import { createScenePlans, SCENE_PLAN_TOOL } from './scene-plan.js'
+import { readScenePlanInstruction, readSceneAdjustmentInstruction } from '../scene-image-prompts.js'
+import { imageAdjustmentInput, applyImageAdjustment, legacyImagePlan, SCENE_ADJUSTMENT_TOOL } from './scene-image-adjustment.js'
 import { createSceneImageStyles, applyImageStyle, composeSceneImagePrompt } from './scene-image-style.js'
 import { createPendingSceneImages } from './scene-image-pending.js'
 import { createSceneImageQueue } from './scene-image-queue.js'
 import { createSceneReferences } from './scene-references.js'
+import { CHARACTER_DESIGN_READ_TOOL } from './character-design-document.js'
+import { createSceneCharacterDesigns } from './scene-character-designs.js'
 import { sceneStateSources } from './scene-state.js'
 import { createSceneImageDiagnostics, sceneAttemptDiagnostic } from './scene-image-diagnostics.js'
 import { createSceneImageReferences, imageReferencePeople } from './scene-image-reference.js'
@@ -112,7 +115,10 @@ export function createSceneIllustrations(deps) {
   }
   imageHosts.set(ownerId, path => jobs.has(path) || starts.has(path))
   imageAborters.set(ownerId, (path, requestId) => { const job = jobs.get(path); if (job?.requestId === requestId) job.controller.abort() })
-  const { config, settings, configure, capture } = createSceneImageSettings(deps)
+  const imageModule = deps.imageModule || createImageGenerationModule({ ...deps, generateImpl: deps.generate })
+  const setup = createModuleSceneImageSettings({ ...deps, imageModule })
+  const { config, settings, configure, capture } = setup
+  const connection = { test: setup.testConnection, models: setup.listModels }
   const plans = createScenePlans({ store: deps.store })
   const styles = createSceneImageStyles({ store: deps.store })
   const pendingImages = createPendingSceneImages(deps.store)
@@ -141,7 +147,7 @@ export function createSceneIllustrations(deps) {
     return { key: target.key, turn: target.turn, status: 'idle', ...publicRecord, ...(publicRecord.configuration ? { configuration: configuration(publicRecord.configuration) } : {}), versions: versionsOf(record).map(({ attachment, plan, ...item }) => ({ ...item, configuration: configuration(item.configuration), description: plan?.description || '', profile: plan?.profile || '',
       referencePeople: imageReferencePeople({ plan }),
       referenceSingle: plan?.subjects?.length === 1 && imageReferencePeople({ plan }).length === 1,
-      referencePerson: plan?.people?.length === 1 && plan.subjects?.length === 1 && plan.people[0].id === plan.subjects[0] && plan.people[0].identity?.quote ? plan.people[0].name : '' })) }
+      referencePerson: plan?.people?.length === 1 && plan.subjects?.length === 1 && imageReferencePeople({ plan }).length === 1 ? plan.people[0].name : '' })) }
   }
   async function status(sessionId, turn) {
     const { chat, target, path } = await resolve(sessionId, turn)
@@ -247,6 +253,9 @@ export function createSceneIllustrations(deps) {
       const providerTask = ['failed', 'cancelled'].includes(existing?.status) && existing.providerTask && !['rejected', 'failed'].includes(existing.providerTask.state) ? existing.providerTask : undefined
       if (providerTask && (kind !== existing.kind || instruction !== existing.instruction || (options.versionId || '') !== existing.baseVersionId || JSON.stringify({ ...channelSettings(active), style: active.style }) !== JSON.stringify(existing.configuration))) throw new Error('上次 ComfyUI 任务结果待确认，请恢复原渠道与风格配置，并重试原操作以查询；不会重新提交')
       let prepared, material = { omitted: [] }, basePlan, adjustment = false, references
+      const historical = await deps.stateAtTarget?.(chat, target)
+      const latestMessage = [...(chat.messages || [])].reverse().find(item => item.role === 'assistant')
+      const designSnapshot = historical || (Number(latestMessage?.turn || (latestMessage?.greeting ? 1 : 0)) === target.turn && chat.settleStatus === 'done' ? chat : null)
       if (kind !== 'generate') {
         const version = versionsOf(existing).find(item => item.id === options.versionId)
         if (!version) throw new Error('找不到要重画或调整的图片版本')
@@ -255,7 +264,6 @@ export function createSceneIllustrations(deps) {
         prepared = { saved: adjustment ? null : basePlan, input: adjustment ? imageAdjustmentInput(basePlan, instruction, profile, adjustment) : null }
         if (existing?.status === 'failed' && existing.plan && existing.kind === kind && existing.instruction === instruction && existing.baseVersionId === options.versionId && existing.plan.profile === profile && existing.plan.style?.id === style.id) prepared.saved = existing.plan
       } else {
-        const historical = await deps.stateAtTarget?.(chat, target)
         const snapshot = sceneInput(chat, target, historical)
         const basic = sceneSources(chat, target, snapshot)
         prepared = await plans.prepare({ chatId: chat.id, target, ...basic, profile })
@@ -280,6 +288,8 @@ export function createSceneIllustrations(deps) {
       if (prepared.input && expressionGuidance) prepared.input = { ...prepared.input, expressionGuidance }
       const selection = deps.selection(sessionId)
       if (!prepared.saved && !selection) throw new Error('请先为当前对话选择模型，供生图 Agent 理解场景')
+      const characterDesigns = !prepared.saved
+        ? createSceneCharacterDesigns({ snapshot: designSnapshot, target, sources: prepared.sources || [] }) : null
       const controller = new AbortController()
       let claimed = false
       const record = await deps.store.updateJson(path, current => {
@@ -297,7 +307,7 @@ export function createSceneIllustrations(deps) {
       diagnosticSecrets.set(record.requestId, [apiKey])
       const job = { controller, requestId: record.requestId, promise: null }
       jobs.set(path, job)
-      job.promise = execute({ sessionId, chatId: chat.id, target, path, record, prepared, material, references, selectedImageReferences, adjustment, basePlan, profile, style, active, apiKey, selection, controller })
+      job.promise = execute({ sessionId, chatId: chat.id, target, path, record, prepared, material, references, characterDesigns, selectedImageReferences, adjustment, basePlan, profile, style, active, apiKey, selection, controller })
         .finally(() => { jobs.delete(path); diagnosticSecrets.delete(record.requestId) })
       // Failure to persist a failure is reported locally, never as an unhandled rejection.
       job.promise.catch(() => deps.onStorageError?.())
@@ -332,15 +342,23 @@ export function createSceneIllustrations(deps) {
             record.traceSessionId = sessionId
             await writeJob(path, record)
           },
-          selection: input.selection, system: input.adjustment ? SCENE_ADJUSTMENT_INSTRUCTION : SCENE_PLAN_INSTRUCTION, maxTokens: 4096, signal: controller.signal,
+          selection: input.selection, system: input.adjustment ? readSceneAdjustmentInstruction() : readScenePlanInstruction(), signal: controller.signal,
           messages: [{ role: 'user', content: [{ type: 'text', text: JSON.stringify(input.prepared.input) }] }],
-          turnContext: '', tools: [input.adjustment ? SCENE_ADJUSTMENT_TOOL : SCENE_PLAN_TOOL,
+          turnContext: '', tools: [input.adjustment ? SCENE_ADJUSTMENT_TOOL : SCENE_PLAN_TOOL, CHARACTER_DESIGN_READ_TOOL,
             ...(input.references?.metadata.available ? [input.references.tool] : [])],
           maxToolCalls: input.references?.metadata.available ? 5 : 2,
           toolLimitMessage: '绘图工具次数已用完，请停止调用；没有有效方案时不会请求图片。',
           stopToolsWhen: () => Boolean(plan) || submissions >= 2,
           async onToolCall(call) {
             if (plan || submitting || submissions >= 2) return '方案已提交或校验中，不得重复调用。'
+            if (call.name === CHARACTER_DESIGN_READ_TOOL.name) {
+              controller.signal.throwIfAborted()
+              const result = await input.characterDesigns.read(call.arguments)
+              for (const source of result.sources) {
+                if (input.prepared.sources && !input.prepared.sources.some(item => item.id === source.id)) input.prepared.sources.push(source)
+              }
+              return JSON.stringify(result)
+            }
             if (call.name === 'read_scene_reference' && input.references?.metadata.available) {
               controller.signal.throwIfAborted()
               const result = input.references.read(call.arguments)
@@ -401,7 +419,7 @@ export function createSceneIllustrations(deps) {
         await writeJob(path, record)
         controller.signal.throwIfAborted()
         attempted = true
-        try { return await (deps.generate || generateSceneImage)({ ...active, apiKey: input.apiKey, prompt, plan, referenceImages: reference.images, providerTask: record.providerTask,
+        try { return await imageModule.generate({ ...active, apiKey: input.apiKey, prompt, plan, referenceImages: reference.images, providerTask: record.providerTask,
           async onProviderRequest(event) {
             if ((record.providerRequests || []).length >= 100) record.diagnostics.droppedProviderEvents = (record.diagnostics.droppedProviderEvents || 0) + 1
             record.providerRequests = [...(record.providerRequests || []), event].slice(-100)
@@ -412,6 +430,7 @@ export function createSceneIllustrations(deps) {
       record.stage = 'saving'
       record.recovery = 'save'
       record.outcome = 'received'
+      if (generated.attachment) record.savedAttachment = generated.attachment
       await pendingImages.put(path, record.requestId, generated, deps.attachments()?.imageLimits?.maxImageBytes)
       await writeJob(path, record)
       await savePendingImage(path, record, controller.signal)
@@ -499,7 +518,7 @@ export function createSceneIllustrations(deps) {
     })
     return present(target, next)
   }
-  return { settings, configure, status, start, cancel, retrySave, readImage, removeImage, setReference,
+  return { settings, configure, testConnection: connection.test, listModels: connection.models, status, start, cancel, retrySave, readImage, removeImage, setReference,
     async dispose() { for (const job of jobs.values()) job.controller.abort(); await Promise.allSettled([...jobs.values()].map(job => job.promise)); imageHosts.delete(ownerId); imageAborters.delete(ownerId) }
   }
 }

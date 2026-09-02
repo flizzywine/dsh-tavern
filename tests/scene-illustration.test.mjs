@@ -11,11 +11,81 @@ import { createHash } from 'node:crypto'
 import { imageZip } from './fixtures/scene-image-zip.mjs'
 import { comfyGraph } from './fixtures/scene-image-comfy-workflow.mjs'
 import { createSceneImageDiagnostics } from '../tavern-plugin/lib/domain/scene-image-diagnostics.js'
+import { readScenePlanInstruction, readSceneAdjustmentInstruction } from '../tavern-plugin/lib/scene-image-prompts.js'
 
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aKfoAAAAASUVORK5CYII=', 'base64')
 const imagePath = 'scene-images/' + createHash('sha256').update('test-chat').digest('hex') + '/'
 const chatFixture = () => ({ id: 'test-chat', mode: 'story', sessionId: 'parent', settleStatus: 'done', posture: '站在窗边，左手扶窗', messages: [{ role: 'user', text: '走到窗边' }, { role: 'assistant', turn: 2, sourceText: '她站在窗边看雨。', swipes: ['她站在窗边看雨。', '她坐在椅子上。'], swipeId: 0 }] })
-const planFixture = (tags = 'A woman standing at a rainy window') => ({ description: '窗边一景', subjects: [], characters: [], continuity: 'uncertain', scene: { composition: { text: '窗边一景', tags, evidence: [] } } })
+const planFixture = (tags = 'A woman standing at a rainy window') => ({ description: '窗边一景', subjects: [], characters: [], continuity: 'uncertain', scene: { composition: { text: '窗边一景', tags } } })
+
+test('image Agent reads historical character designs and submits text and tags without citations', async t => {
+  const fx = await fixture(t, { runAgent: async input => {
+    assert.ok(input.tools.some(tool => tool.name === 'character_design_read'))
+    assert.ok(!input.tools.some(tool => tool.name === 'character_design_save'))
+    const read = JSON.parse(await input.onToolCall({ name: 'character_design_read', arguments: { name: '林岚' } }))
+    assert.equal(read.character.design.appearance, '黑色短发')
+    const field = (text, tags) => ({ text, tags })
+    const plan = planFixture()
+    plan.subjects = ['lin']
+    plan.characters = [{ id: 'lin', name: '林岚', fields: {
+      appearance: field('黑色短发', 'short black hair')
+    } }]
+    assert.match(await input.onToolCall({ name: 'submit_scene_plan', arguments: { plan } }), /已校验保存/)
+  } })
+  fx.chat().characterDesignDocument = { revision: 1, characters: [{ name: '林岚', design: { appearance: '黑色短发', defaultPresentation: '白色外套' } }] }
+  const historical = structuredClone(fx.chat())
+  fx.deps.stateAtTarget = async () => historical
+  fx.chat().messages.push({ role: 'assistant', turn: 3, text: '之后她染了红发。' })
+  fx.chat().characterDesignDocument.characters[0].design.appearance = '红发'
+  const before = structuredClone(fx.chat())
+  await fx.service.start('parent', 2, sceneTarget(fx.chat(), 2).key)
+  await until(async () => (await fx.service.status('parent', 2)).status === 'succeeded')
+  assert.deepEqual(fx.chat(), before)
+})
+
+test('image reader stays available when historical design snapshot is missing, without reading current designs', async t => {
+  const fx = await fixture(t, { runAgent: async input => {
+    assert.ok(input.tools.some(tool => tool.name === 'character_design_read'))
+    const result = JSON.parse(await input.onToolCall({ name: 'character_design_read', arguments: { name: '林岚' } }))
+    assert.equal(result.found, false)
+    assert.equal(result.character, undefined)
+    await input.onToolCall({ name: 'submit_scene_plan', arguments: { plan: planFixture() } })
+  } })
+  fx.chat().characterDesignDocument = { characters: [{ name: '林岚', design: { appearance: '未来红发' } }] }
+  fx.chat().messages.push({ role: 'assistant', turn: 3, text: '未来。' })
+  await fx.service.start('parent', 2, sceneTarget(fx.chat(), 2).key)
+  await until(async () => (await fx.service.status('parent', 2)).status === 'succeeded')
+})
+
+test('built-in module needs no plugin registration or Studio HTTP and survives restart', async t => {
+  let posts = 0
+  const fx = await fixture(t, {
+    webServer: () => assert.fail('no loopback plugin lookup'),
+    fetchImpl: async () => assert.fail('no Studio HTTP'),
+    generate: async () => { posts++; return { data: png, mediaType: 'image/png' } }
+  })
+  const original = structuredClone(fx.chat())
+  const preview = await fx.service.settings()
+  assert.equal(preview.ready, true)
+  assert.ok(!preview.channels.some(channel => channel.id === 'dsh-image-gen'))
+  assert.equal(posts, 0)
+  const key = sceneTarget(fx.chat(), 2).key
+  await fx.service.start('parent', 2, key)
+  const done = await until(async () => { const status = await fx.service.status('parent', 2); return status.status === 'succeeded' && status })
+  assert.equal(posts, 1)
+  assert.deepEqual(fx.chat(), original)
+  assert.equal(done.model, 'test-image')
+  const restarted = fx.createService()
+  assert.equal((await restarted.status('parent', 2)).status, 'succeeded')
+  await restarted.start('parent', 2, key)
+  assert.equal(posts, 1)
+})
+
+test('legacy plugin selector resolves to a real provider without loading a plugin', async t => {
+  const fx = await fixture(t)
+  assert.equal((await fx.service.settings('dsh-image-gen')).provider, 'openai')
+  assert.equal((await fx.service.settings('dsh-image-gen')).ready, true)
+})
 async function until(check) { for (let n = 0; n < 400; n++) { const value = await check(); if (value) return value; await new Promise(resolve => setTimeout(resolve, 10)) } throw new Error('condition timeout') }
 
 test('OpenAI compatible request, inline data and remote download never forward key', async () => {
@@ -66,7 +136,7 @@ async function fixture(t, overrides = {}) {
   const saved = new Map()
   const deps = {
     store, chatForSession: async () => structuredClone(chat), selection: () => ({ provider: 'test', model: 'text' }),
-    credentials: () => ({ resolve: async ref => { assert.equal(ref, IMAGE_CREDENTIAL); return { value: key } }, set: async (_ref, value) => { key = value } }),
+    credentials: () => ({ resolve: async () => ({ value: key }), set: async (_ref, value) => { key = value } }),
     attachments: () => ({ saveImage: async image => { const ref = { attachmentId: 'test-image-' + saved.size, mediaType: image.mediaType }; saved.set(ref.attachmentId, image); return ref }, readImage: async ref => ({ ref, ...saved.get(ref.attachmentId) }) }),
     generate: async () => { imageCalls++; return { data: png, mediaType: 'image/png' } },
     runAgent: async input => { await input.onToolCall({ arguments: { plan: planFixture() } }); return { traceSessionId: 'image-child' } },
@@ -81,9 +151,28 @@ async function fixture(t, overrides = {}) {
   return { service, createService, deps, store, chat: () => chat, setChat: value => { chat = value }, imageCalls: () => imageCalls }
 }
 
+test('setup checks through illustration service do not save drafts or start agents/images', async t => {
+  const calls = []
+  const fx = await fixture(t, {
+    runAgent: async () => assert.fail('connection checks must not run an Agent'),
+    fetchImpl: async (url, init) => {
+      calls.push({ url, method: init.method })
+      return init.headers.authorization ? Response.json({ data: [{ id: 'sample-image' }] }) : new Response(null, { status: 401 })
+    }
+  })
+  const before = await fx.service.settings()
+  const draft = { provider: 'openai', baseURL: 'https://new.example/v1', apiKey: 'unsaved-key' }
+  assert.equal((await fx.service.testConnection(draft)).status, 'connected')
+  assert.deepEqual((await fx.service.listModels(draft)).models, ['sample-image'])
+  assert.deepEqual(await fx.service.settings(), before)
+  assert.equal(fx.imageCalls(), 0)
+  assert.deepEqual(calls.map(call => call.method), ['GET', 'GET', 'GET'])
+})
+
 test('image journal retains failed attempts, validation feedback, actual inputs and later success without exposing internals in status', async t => {
   let submissions = 0
   const fx = await fixture(t, { runAgent: async input => {
+    assert.equal(input.system, readScenePlanInstruction())
     submissions++
     if (submissions === 1) {
       await input.onToolCall({ arguments: { plan: { broken: true } } })
@@ -529,16 +618,17 @@ test('corrupted received bytes fail closed without a new paid request', async t 
   assert.equal(fx.imageCalls(), 1)
 })
 
-test('explicit opt-in, partial saves and legacy migration never cause paid requests', async t => {
+test('default enablement, partial saves and legacy migration never cause paid requests', async t => {
   let agentCalls = 0
   const fx = await fixture(t, { runAgent: async () => { agentCalls++ } })
   await fx.store.writeJson('scene-images/settings.json', { model: 'legacy', baseURL: 'https://provider.example/v1' })
-  assert.equal((await fx.service.settings()).enabled, false)
-  assert.equal((await fx.service.settings()).ready, true)
+  assert.equal((await fx.service.settings()).enabled, true)
+  assert.equal((await fx.service.settings()).ready, false)
+  assert.equal((await fx.service.settings()).migrationPending, true)
   const target = sceneTarget(fx.chat(), 2)
-  await assert.rejects(fx.service.start('parent', 2, target.key), /手动启用/)
+  await assert.rejects(fx.service.start('parent', 2, target.key), /迁移旧生图配置/)
   await fx.service.configure({ model: 'new-model' })
-  assert.equal((await fx.service.settings()).enabled, false)
+  assert.equal((await fx.service.settings()).enabled, true)
   await fx.service.configure({ enabled: true })
   assert.equal((await fx.service.settings()).model, 'new-model')
   assert.equal((await fx.service.settings()).enabled, true)
@@ -548,6 +638,10 @@ test('explicit opt-in, partial saves and legacy migration never cause paid reque
   await assert.rejects(fx.service.configure({ enabled: 'true' }), /布尔/)
   await fx.service.configure({ model: '' })
   await assert.rejects(fx.service.configure({ enabled: true, model: 'new' }), /先保存/)
+  await fx.service.configure({ enabled: true })
+  assert.equal((await fx.service.settings()).enabled, true)
+  assert.equal((await fx.service.settings()).ready, false)
+  await assert.rejects(fx.service.start('parent', 2, target.key), /完成生图渠道配置/)
   assert.equal(agentCalls, 0)
   assert.equal(fx.imageCalls(), 0)
 })
@@ -600,14 +694,13 @@ test('a channel change during planning cannot change the frozen paid request or 
   await fx.service.configure({ baseURL: 'https://new.example/v1', apiKey: 'rotated-openai-key' })
   await fx.service.configure({ provider: 'gemini', apiKey: 'gemini-key' })
   release()
-  await until(async () => (await fx.service.status('parent', 2)).status === 'succeeded')
-  assert.equal(generated[0].provider, 'openai')
-  assert.equal(generated[0].baseURL, 'https://provider.example/v1')
-  assert.equal(generated[0].apiKey, 'secret')
+  await until(async () => (await fx.service.status('parent', 2)).status === 'failed')
+  assert.equal(generated.length, 0)
   const current = await fx.service.status('parent', 2)
-  assert.equal(current.versions[0].configuration.provider, 'openai')
+  assert.equal(current.outcome, 'not_requested')
+  assert.match(current.error, /配置已变化/)
   assert.match(current.profile, /gemini/)
-  assert.equal(current.enabled, false)
+  assert.equal(current.enabled, true)
 })
 
 test('complete one-click native child Agent flow, no foreground writes, durable image, duplicate suppression', async t => {
@@ -677,24 +770,19 @@ test('provider failure is visible, not auto-retried, explicit retry works', asyn
   assert.equal(agentCalls, 1, 'valid persistent plan survives provider failure and is reused')
 })
 
-test('scene references stay out of initial input, bind evidence and cannot alone establish current clothing', async t => {
+test('scene references stay out of initial input; scene plans need not repeat their source or quote', async t => {
   const fx = await fixture(t, { runAgent: async input => {
-    assert.deepEqual(input.tools.map(tool => tool.name), ['submit_scene_plan', 'read_scene_reference'])
+    assert.deepEqual(input.tools.map(tool => tool.name), ['submit_scene_plan', 'character_design_read', 'read_scene_reference'])
     assert.equal(input.maxToolCalls, 5)
     assert.doesNotMatch(input.messages[0].content[0].text, /黑色短发|白色裙子/)
     const read = JSON.parse(await input.onToolCall({ name: 'read_scene_reference', arguments: { query: '林岚' } }))
     const source = read.sources[0]
     assert.match(source.text, /黑色短发/)
     const plan = planFixture()
-    const appearance = { text: '黑色短发', tags: 'short black hair', evidence: [{ source: source.id, quote: '黑色短发' }] }
+    const appearance = { text: '黑色短发', tags: 'short black hair' }
     plan.subjects = ['local-person']
-    plan.characters = [{ id: 'local-person', name: '林岚', identity: { source: source.id, quote: '林岚' }, fields: {
-      appearance, clothing: { text: '白色裙子', tags: 'white dress', evidence: [{ source: source.id, quote: '白色裙子' }] }
-    } }]
-    const rejected = await input.onToolCall({ name: 'submit_scene_plan', arguments: { plan } })
-    assert.match(rejected, /不能只引用初始设定/)
+    plan.characters = [{ id: 'local-person', name: '林岚', fields: { appearance } }]
     assert.equal(fx.imageCalls(), 0)
-    delete plan.characters[0].fields.clothing
     assert.match(await input.onToolCall({ name: 'submit_scene_plan', arguments: { plan } }), /已校验保存/)
     return {}
   } })
@@ -707,8 +795,8 @@ test('scene references stay out of initial input, bind evidence and cannot alone
   assert.match(result.versions[0].prompt, /short black hair/)
   assert.doesNotMatch(result.versions[0].prompt, /white dress/)
   const record = await fx.store.readJson(imagePath + target.key + '.json')
-  assert.equal(record.plan.people[0].identity.origin.kind, 'play-card-snapshot')
-  assert.equal(record.plan.people[0].fields.appearance.evidence[0].origin.snapshotVersion, 5)
+  assert.equal(record.plan.people[0].identity.kind, 'scene-person')
+  assert.equal(record.plan.people[0].fields.appearance.evidence, undefined)
   assert.equal(record.diagnostics.references[0].query, '林岚')
   assert.equal(fx.imageCalls(), 1)
   assert.deepEqual(fx.chat(), before)
@@ -740,7 +828,7 @@ test('historical reference lookup uses that target snapshot or omits references,
 
 test('format repair happens before image request; a saved plan survives failed final acknowledgement', async t => {
   const fx = await fixture(t, { runAgent: async input => {
-    assert.deepEqual(input.tools.map(tool => tool.name), ['submit_scene_plan'])
+    assert.deepEqual(input.tools.map(tool => tool.name), ['submit_scene_plan', 'character_design_read'])
     assert.equal(input.maxToolCalls, 2)
     const error = await input.onToolCall({ arguments: { plan: { prompt: 'not the schema' } } })
     assert.match(error, /未知字段.*尚未收费.*修正一次/)
@@ -770,7 +858,7 @@ test('two invalid submissions stop before charging and preserve the concrete val
   assert.equal(fx.imageCalls(), 0)
 })
 
-test('historical visual variables reach planning with durable evidence, never future values or full mirrors', async t => {
+test('historical visual variables reach planning without output citations; input provenance stays host-side', async t => {
   let history, material
   const fx = await fixture(t, { stateAtTarget: async () => structuredClone(history), runAgent: async input => {
     material = JSON.parse(input.messages[0].content[0].text)
@@ -778,8 +866,8 @@ test('historical visual variables reach planning with durable evidence, never fu
     assert.ok(source)
     const plan = planFixture()
     plan.subjects = ['local-person']
-    plan.characters = [{ id: 'local-person', name: '林岚', identity: { source: 'target', quote: '林岚' }, fields: {
-      clothing: { text: '青色外套', tags: 'blue coat', evidence: [{ source: source.id, quote: '青色外套' }] }
+    plan.characters = [{ id: 'local-person', name: '林岚', fields: {
+      clothing: { text: '青色外套', tags: 'blue coat' }
     } }]
     const reply = await input.onToolCall({ arguments: { plan } })
     assert.match(reply, /已校验保存/)
@@ -798,8 +886,11 @@ test('historical visual variables reach planning with durable evidence, never fu
   assert.ok(material.sources.reduce((sum, source) => sum + source.text.length, 0) <= 12000)
   const plans = await fx.store.readJson(imagePath + 'plans.json')
   const person = Object.values(plans.characters)[0]
-  assert.equal(person.fields.clothing.evidence[0].origin.path, '/stat_data/人物/林岚/衣着')
-  assert.equal(person.fields.clothing.evidence[0].origin.bodyDigest, target.sourceDigest)
+  assert.equal(person.fields.clothing.evidence, undefined)
+  assert.equal(person.fields.clothing.text, '青色外套')
+  const record = await fx.store.readJson(imagePath + target.key + '.json')
+  assert.equal(record.diagnostics.state.sources[0].origin.path, '/stat_data/人物/林岚/衣着')
+  assert.equal(record.diagnostics.state.sources[0].origin.bodyDigest, target.sourceDigest)
   assert.deepEqual(fx.chat(), unchanged)
 })
 
@@ -881,13 +972,16 @@ test('repaint bypasses text Agent, retains each version and deduplicates replaye
 
 test('image-only adjustment uses just old plan plus instruction, persists through provider failure, and does not change canonical plans', async t => {
   let calls = 0, generated = 0
+  const outputBudgets = []
   const fx = await fixture(t, {
     generate: async input => { generated++; if (generated === 2) throw new Error('temporary image error'); return { data: png, mediaType: 'image/png' } },
     runAgent: async input => {
       calls++
+      outputBudgets.push(input.maxTokens)
       if (input.tools[0].name === 'submit_scene_plan') await input.onToolCall({ arguments: { plan: planFixture() } })
       else {
         assert.equal(input.tools[0].name, 'submit_image_adjustment')
+        assert.equal(input.system, readSceneAdjustmentInstruction())
         const context = JSON.parse(input.messages[0].content[0].text)
         assert.equal(context.instruction, '改成雨夜')
         assert.equal(context.sources, undefined)
@@ -909,6 +1003,7 @@ test('image-only adjustment uses just old plan plus instruction, persists throug
   await fx.service.start('parent', 2, key, { ...options, confirmNewRequestId: failed.requestId })
   const adjusted = await until(async () => { const state = await fx.service.status('parent', 2); return state.status === 'succeeded' && state })
   assert.equal(calls, 2, 'failed image retry reuses saved adjustment, not another text task')
+  assert.deepEqual(outputBudgets, [undefined, undefined], 'planning and adjustment must inherit the background model output budget')
   assert.equal(adjusted.versions[1].prompt, 'rainy night')
   assert.equal(adjusted.versions[0].prompt, first.versions[0].prompt)
   await fx.service.start('parent', 2, key, { kind: 'repaint', versionId: first.versions[0].id })

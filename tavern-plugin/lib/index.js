@@ -5,6 +5,7 @@ import { createBackgroundAgentRunner, executeBackgroundCompaction } from './back
 import { createApplicationUpdater } from './application-updater.js'
 import { CANDIDATE_SUBMIT_TOOL, SCRIPT_POINT_TOOL, SCRIPT_READ_TOOL, createCandidateGenerator } from './domain/candidate-generation.js'
 import { createSceneIllustrations, sceneTarget } from './domain/scene-illustration.js'
+import { legacyImageConfigurationReader } from './domain/image-generation-host.js'
 import { createSceneWorldbooks, sceneWorldbookBinding } from './domain/scene-worldbook.js'
 import { createSceneImageDiagnostics } from './domain/scene-image-diagnostics.js'
 import { TAVERN_RELEASE_CAPABILITIES } from './domain/release-capabilities.js'
@@ -1236,6 +1237,7 @@ export async function apply(ctx) {
   })
   ctx.effect(() => () => backgroundAgentRunner.dispose(), 'dsh-tavern: dispose resident background agents')
   const sceneIllustrations = TAVERN_RELEASE_CAPABILITIES.sceneImages ? createSceneIllustrations({
+    readLegacyConfiguration: legacyImageConfigurationReader(ctx.get('settings')?.documentPath),
     store: profileData, diagnostics: sceneDiagnostics, chatForSession, selection: modelSelection,
     worldbookAtTarget: async (chat, target) => {
       try { return await sceneWorldbooks.read(sceneWorldbookBinding(chat, target)) }
@@ -1982,6 +1984,8 @@ export async function apply(ctx) {
       case 'getTavernSettings': return { settings: await readTavernSettings(), modelCatalog: await tavernModelCatalog(), releaseCapabilities: TAVERN_RELEASE_CAPABILITIES }
       case 'getSceneImageSettings': return { settings: await enabledSceneIllustrations().settings(args?.provider) }
       case 'saveSceneImageSettings': return { settings: await enabledSceneIllustrations().configure(args) }
+      case 'testSceneImageConnection': return await enabledSceneIllustrations().testConnection(args)
+      case 'listSceneImageModels': return await enabledSceneIllustrations().listModels(args)
       case 'sceneImageStatus': return { illustration: await enabledSceneIllustrations().status(args.sessionId, args.turn) }
       case 'generateSceneImage': return { illustration: await enabledSceneIllustrations().start(args.sessionId, args.turn, args.key, args) }
       case 'retrySceneImageSave': return { illustration: await enabledSceneIllustrations().retrySave(args.sessionId, args.turn, args.key, args.requestId) }
@@ -2120,7 +2124,7 @@ export async function apply(ctx) {
         const readsStaticAsset = req.method === 'GET' && pathname === '/api/dsh-tavern/static-assets'
         const readsOfficialMvu = req.method === 'GET' && pathname === OFFICIAL_MVU_VERSION.assetUrl
         const origin = req.headers.origin
-        const sceneImageRoute = TAVERN_RELEASE_CAPABILITIES.sceneImages && /^\/api\/dsh-tavern\/(?:scene-image|getSceneImageSettings|saveSceneImageSettings|sceneImageStatus|generateSceneImage|retrySceneImageSave|cancelSceneImage|removeSceneImage|setSceneImageReference)$/.test(pathname)
+        const sceneImageRoute = TAVERN_RELEASE_CAPABILITIES.sceneImages && /^\/api\/dsh-tavern\/(?:scene-image|getSceneImageSettings|saveSceneImageSettings|testSceneImageConnection|listSceneImageModels|sceneImageStatus|generateSceneImage|retrySceneImageSave|cancelSceneImage|removeSceneImage|setSceneImageReference)$/.test(pathname)
         const sceneSameOrigin = sceneImageRoute && (origin === 'http://' + req.headers.host || origin === 'https://' + req.headers.host)
         if (sceneImageRoute && origin && !sceneSameOrigin) {
           res.writeHead(403)
