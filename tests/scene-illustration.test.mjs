@@ -577,16 +577,17 @@ test('corrupted received bytes fail closed without a new paid request', async t 
   assert.equal(fx.imageCalls(), 1)
 })
 
-test('explicit opt-in, partial saves and legacy migration never cause paid requests', async t => {
+test('default enablement, partial saves and legacy migration never cause paid requests', async t => {
   let agentCalls = 0
   const fx = await fixture(t, { runAgent: async () => { agentCalls++ } })
   await fx.store.writeJson('scene-images/settings.json', { model: 'legacy', baseURL: 'https://provider.example/v1' })
-  assert.equal((await fx.service.settings()).enabled, false)
+  assert.equal((await fx.service.settings()).enabled, true)
+  assert.equal((await fx.service.settings()).ready, false)
   assert.equal((await fx.service.settings()).migrationPending, true)
   const target = sceneTarget(fx.chat(), 2)
   await assert.rejects(fx.service.start('parent', 2, target.key), /迁移旧生图配置/)
   await fx.service.configure({ model: 'new-model' })
-  assert.equal((await fx.service.settings()).enabled, false)
+  assert.equal((await fx.service.settings()).enabled, true)
   await fx.service.configure({ enabled: true })
   assert.equal((await fx.service.settings()).model, 'new-model')
   assert.equal((await fx.service.settings()).enabled, true)
@@ -596,6 +597,10 @@ test('explicit opt-in, partial saves and legacy migration never cause paid reque
   await assert.rejects(fx.service.configure({ enabled: 'true' }), /布尔/)
   await fx.service.configure({ model: '' })
   await assert.rejects(fx.service.configure({ enabled: true, model: 'new' }), /先保存/)
+  await fx.service.configure({ enabled: true })
+  assert.equal((await fx.service.settings()).enabled, true)
+  assert.equal((await fx.service.settings()).ready, false)
+  await assert.rejects(fx.service.start('parent', 2, target.key), /完成生图渠道配置/)
   assert.equal(agentCalls, 0)
   assert.equal(fx.imageCalls(), 0)
 })
@@ -654,7 +659,7 @@ test('a channel change during planning cannot change the frozen paid request or 
   assert.equal(current.outcome, 'not_requested')
   assert.match(current.error, /配置已变化/)
   assert.match(current.profile, /gemini/)
-  assert.equal(current.enabled, false)
+  assert.equal(current.enabled, true)
 })
 
 test('complete one-click native child Agent flow, no foreground writes, durable image, duplicate suppression', async t => {
