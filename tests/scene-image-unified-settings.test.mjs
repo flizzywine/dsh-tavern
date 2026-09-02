@@ -24,7 +24,7 @@ test('统一 UI 保存到插件，Key 只在凭据库，捕获与生图使用同
   assert.ok(!ui.channels.some(x => x.id === 'dsh-image-gen'))
   ui = await f.settings.configure({ provider: 'grok', baseURL: 'https://api.x.ai/v1', model: 'grok-imagine-image-2.0', size: '2k', aspectRatio: '16:9', apiKey: 'private-key' })
   assert.equal(ui.hasKey, true)
-  assert.equal(ui.enabled, true)
+  assert.equal(ui.enabled, false, '保存渠道配置本身不自动开启生图')
   assert.equal(f.readPlugin().grokModel, ui.model)
   assert.equal(f.keys.get('XAI_API_KEY'), 'private-key')
   assert.equal(JSON.stringify(f.readPlugin()).includes('private-key'), false)

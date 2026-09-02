@@ -28,10 +28,10 @@ function fixture(initial = {}) {
     save: () => render().find(n => n.type === 'button' && n.children.includes('保存并启用')).props.onClick() }
 }
 
-test('testing default opens even disabled legacy config without enabling or generating before saving', async () => {
+test('disabled configuration starts collapsed; manual opening does not enable or generate before saving', async () => {
   const f = fixture({ enabled: false, migrationPending: true })
   assert.equal(f.switch().props.checked, false)
-  assert.ok(f.render().some(n => n.type === 'select'))
+  assert.equal(f.render().some(n => n.type === 'select'), false)
   assert.equal(f.render().filter(n => n.props?.role === 'switch').length, 1)
   await f.toggle(true)
   assert.equal(f.switch().props.checked, false, 'opening incomplete configuration must not claim generation is enabled')

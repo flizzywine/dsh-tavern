@@ -4674,8 +4674,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const [models, setModels] = React.useState([]);
 			const [modelNotice, setModelNotice] = React.useState("");
 			const [checking, setChecking] = React.useState("");
-			// Testing default: show configuration even when legacy migration blocks generation.
-			const [expanded, setExpanded] = React.useState(true);
+			// Follow the saved enable state until the user expands or closes the form.
+			const [expanded, setExpanded] = React.useState(null);
 			const opened = expanded === null ? Boolean(form && form.enabled) : expanded;
 			React.useEffect(function () {
 				let active = true;

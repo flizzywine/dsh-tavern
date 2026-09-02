@@ -39,10 +39,10 @@ async function fixture(t, legacy = {}) {
   return { ...create(), create, store, keys, requests, oldFile }
 }
 
-test('testing default is on without generation; an explicitly saved off state survives restart', async t => {
+test('default is off without generation; saved choices survive restart', async t => {
   const f = await fixture(t)
   const initial = await f.setup.settings()
-  assert.equal(initial.enabled, true)
+  assert.equal(initial.enabled, false)
   assert.equal(initial.ready, false)
   assert.equal(f.requests.length, 0)
   await f.setup.configure({ enabled: false })
@@ -50,12 +50,14 @@ test('testing default is on without generation; an explicitly saved off state su
   assert.equal(f.requests.length, 0)
 })
 
-test('testing rollout enables existing disabled configurations, independent of readiness', async t => {
+test('legacy and current configurations stay off unless explicitly enabled', async t => {
   const f = await fixture(t)
-  for (const version of [2, 3]) {
+  for (const version of [undefined, 2, 3, 4]) {
+    await f.store.writeJson('scene-images/settings.json', { version, provider: 'grok', providers: {} })
+    assert.equal((await f.setup.settings()).enabled, false)
     await f.store.writeJson('scene-images/settings.json', { version, provider: 'grok', enabled: false, providers: {} })
     const settings = await f.setup.settings()
-    assert.equal(settings.enabled, true)
+    assert.equal(settings.enabled, false)
     assert.equal(settings.ready, false)
     await f.setup.configure({ enabled: false })
     assert.equal((await f.create().setup.settings()).enabled, false)
