@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
+import { parameterSchemaSpecToJsonSchema } from '../tavern-plugin/node_modules/@deepseek-ai/dsh-tools/lib/index.js'
+import { dshParameterFields } from '../tavern-plugin/lib/domain/dsh-tool-schema.js'
 import { createHistoryRecall, renderHistoryRecall } from '../tavern-plugin/lib/domain/history-recall.js'
+import { HISTORY_RECALL_TOOL } from '../tavern-plugin/lib/domain/history-recall.js'
 
 function chat() {
   return {
@@ -17,6 +20,16 @@ function chat() {
     ]
   }
 }
+
+test('历史检索的标准 JSON Schema 可适配为 DSH 工具参数字段', () => {
+  const fields = dshParameterFields(HISTORY_RECALL_TOOL.parameters)
+  const schema = parameterSchemaSpecToJsonSchema(fields)
+
+  assert.equal(schema.type, 'object')
+  assert.deepEqual(Object.keys(schema.properties), ['query', 'turn', 'radius', 'limit'])
+  assert.equal('minLength' in schema.properties.query, false)
+  assert.equal('minimum' in schema.properties.turn, false)
+})
 
 test('按关键词检索正式 Session 正文，不读取展示层、原始层、旧 Swipe 或未提交输入', () => {
   const recall = createHistoryRecall()

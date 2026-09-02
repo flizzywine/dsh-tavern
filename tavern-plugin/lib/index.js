@@ -27,6 +27,7 @@ import { createForegroundHandoff } from './domain/foreground-handoff.js'
 import { createForegroundFrameBuilder } from './domain/agent-input-frame.js'
 import { createForegroundFrameSessionAdapter } from './domain/foreground-frame-session-adapter.js'
 import { HISTORY_RECALL_OUTPUT_SCHEMA, HISTORY_RECALL_TOOL, createHistoryRecall, renderHistoryRecall } from './domain/history-recall.js'
+import { dshParameterFields } from './domain/dsh-tool-schema.js'
 import { createModelRequestLog } from './domain/model-request-log.js'
 import { MVU_SUBMIT_UPDATE_TOOL, createMvuSettlementModule } from './domain/mvu-background-settlement.js'
 import { CHARACTER_DESIGN_READ_TOOL, CHARACTER_DESIGN_SAVE_TOOL } from './domain/character-design-document.js'
@@ -2771,7 +2772,7 @@ export async function apply(ctx) {
     tools.register(defineTool({
       name: HISTORY_RECALL_TOOL.name,
       description: HISTORY_RECALL_TOOL.description,
-      parameters: HISTORY_RECALL_TOOL.parameters,
+      parameters: dshParameterFields(HISTORY_RECALL_TOOL.parameters),
       output: {
         schema: HISTORY_RECALL_OUTPUT_SCHEMA,
         render: function (_args, value) { return [{ type: 'text', text: renderHistoryRecall(value) }] }
