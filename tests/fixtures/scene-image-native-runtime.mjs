@@ -141,7 +141,7 @@ export async function createSceneImageNativeRuntime(bootPath, { unifiedPlugin = 
     let body = ''; for await (const chunk of req) body += chunk
     imageRequests.push(JSON.parse(body))
     if (holdNext) { holdNext = false; return }
-    if (failNext) { failNext = false; res.writeHead(503).end('test failure'); return }
+    if (failNext) { const failure = failNext; failNext = false; res.writeHead(failure.status).end(JSON.stringify({error: {message: failure.message, param: 'size', code: 'invalid_parameter'}})); return }
     if (url.pathname.endsWith('/prompt')) {
       const data = JSON.parse(body), outputNode = Object.keys(data.prompt).find(id => data.prompt[id].class_type === 'SaveImage')
       comfyTasks.set(data.prompt_id, { status: { status_str: 'success', completed: true }, outputs: { [outputNode]: { images: [{ filename: 'fixture.png', subfolder: '', type: 'output' }] } } })
@@ -157,6 +157,7 @@ export async function createSceneImageNativeRuntime(bootPath, { unifiedPlugin = 
   })
   await new Promise(resolve => imageServer.listen(0, '127.0.0.1', resolve))
   let failSave = false
+  let agentRuns = 0
   const store = createProfileDataStore({ dataRoot: root })
   const worldbooks = createSceneWorldbooks({ store })
   const deps = {
@@ -169,14 +170,14 @@ export async function createSceneImageNativeRuntime(bootPath, { unifiedPlugin = 
       imageLimits: ctx.attachments.imageLimits,
       async saveImage(image) { if (failSave) { failSave = false; throw new Error('fixture attachment storage unavailable') } return ctx.attachments.saveImage(image) },
       readImage: ref => ctx.attachments.readImage(ref)
-    }), runAgent: input => runner.run(input)
+    }), runAgent: async input => { agentRuns++; try { return await runner.run(input) } finally { agentRuns-- } }
   }
   let service = createSceneIllustrations(deps)
   const endpoint = 'http://127.0.0.1:' + imageServer.address().port + '/v1'
   await service.configure({ model: 'fixture-image', baseURL: endpoint, apiKey: keys.get(IMAGE_CREDENTIAL) })
   await service.configure({ enabled: true })
-  return { get service() { return service }, chat, before, requests, imageRequests, parent, endpoint,
-    failNext() { failNext = true },
+  return { get service() { return service }, get agentRunning() { return agentRuns > 0 }, chat, before, requests, imageRequests, parent, endpoint,
+    failNext(status = 503, message = 'test failure') { failNext = { status, message } },
     failNextSave() { failSave = true },
     holdNextImage() { holdNext = true },
     lookupReferences(query) { referenceQuery = query },

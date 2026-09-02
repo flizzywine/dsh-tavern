@@ -17,7 +17,7 @@ export const SCENE_LAYOUT_TOOL = {
   }, ['description', 'subjects', 'continuity', 'scene'])
 }
 export const SCENE_PLAN_TOOL = {
-  name: 'submit_scene_plan', description: '无参数确认当前草稿。检查人物和场景完整性，保存正式画面方案；通过后程序才请求一张图片。不要重复携带 plan 或人物描述。',
+  name: 'submit_scene_plan', description: '无参数确认当前草稿。校验后请求一张图片并等待保存，返回成功或具体失败结果。服务失败不会自动重发。不要重复携带 plan 或人物描述。',
   parameters: object({})
 }
 export const SCENE_DRAFT_TOOLS = [SCENE_CHARACTER_TOOL, SCENE_LAYOUT_TOOL, SCENE_PLAN_TOOL]

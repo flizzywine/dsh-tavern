@@ -180,7 +180,7 @@ test('split tool calls serialize in one model response; only confirmation publis
     await input.onToolCall({ name: 'submit_scene_layout', arguments: layout })
     assert.match(await input.onToolCall({ name: 'submit_scene_plan', arguments: {} }), /已校验保存/)
     assert.match(await input.onToolCall({ name: 'submit_scene_plan', arguments: {} }), /不得重复/)
-    assert.equal(fx.imageCalls(), 0)
+    assert.equal(fx.imageCalls(), 1, 'confirmation waits for the image, duplicate confirmation cannot request it twice')
   } })
   await fx.service.start('parent', 2, sceneTarget(fx.chat(), 2).key)
   await until(async () => (await fx.service.status('parent', 2)).status === 'succeeded')
@@ -276,6 +276,7 @@ test('setup checks through illustration service do not save drafts or start agen
 test('image journal retains failed attempts, validation feedback, actual inputs and later success without exposing internals in status', async t => {
   let submissions = 0
   const fx = await fixture(t, { runAgent: async input => {
+    await input.onPersistentSessionReady('image-child-log')
     assert.equal(input.system, readScenePlanInstruction())
     submissions++
     if (submissions === 1) {
@@ -859,6 +860,46 @@ test('complete one-click native child Agent flow, no foreground writes, durable 
   assert.equal(JSON.stringify(await fx.store.readJson('scene-images/settings.json')).includes('secret'), false)
 })
 
+test('confirmation waits for both provider response and attachment publication before reporting success', async t => {
+  let releaseImage, releaseSave, receipt
+  const fx = await fixture(t, {
+    generate: () => new Promise(resolve => { releaseImage = () => resolve({ data: png, mediaType: 'image/png' }) }),
+    runAgent: async input => { receipt = JSON.parse(await submitPlanCall(input, { arguments: { plan: planFixture() } })) }
+  })
+  const attachments = fx.deps.attachments()
+  fx.deps.attachments = () => ({ ...attachments, saveImage: async image => {
+    await new Promise(resolve => { releaseSave = resolve })
+    return attachments.saveImage(image)
+  } })
+  await fx.service.start('parent', 2, sceneTarget(fx.chat(), 2).key)
+  await until(() => releaseImage)
+  assert.equal(receipt, undefined)
+  releaseImage()
+  await until(() => releaseSave)
+  assert.equal(receipt, undefined)
+  releaseSave()
+  await until(() => receipt)
+  assert.equal(receipt.ok, true)
+  assert.equal((await fx.service.status('parent', 2)).versions[0].id, receipt.versionId)
+})
+
+test('saving failure is returned to the Agent as received-but-unsaved, duplicate calls cannot charge again', async t => {
+  let receipt
+  const fx = await fixture(t, { runAgent: async input => {
+    receipt = JSON.parse(await submitPlanCall(input, { arguments: { plan: planFixture() } }))
+    assert.match(await input.onToolCall({ name: 'submit_scene_plan', arguments: {} }), /不得重复/)
+  } })
+  const attachments = fx.deps.attachments()
+  fx.deps.attachments = () => ({ ...attachments, saveImage: async () => { throw new Error('storage unavailable') } })
+  await fx.service.start('parent', 2, sceneTarget(fx.chat(), 2).key)
+  await until(() => receipt)
+  assert.equal(receipt.ok, false)
+  assert.equal(receipt.outcome, 'received')
+  assert.equal(receipt.recovery, 'save')
+  assert.match(receipt.instruction, /重试保存.*不要重新生图/)
+  assert.equal(fx.imageCalls(), 1)
+})
+
 test('provider failure is visible, not auto-retried, explicit retry works', async t => {
   let calls = 0, agentCalls = 0
   const fx = await fixture(t, {
@@ -944,7 +985,7 @@ test('format repair happens before image request; a saved plan survives failed f
     const result = await submitPlanCall(input, { arguments: { plan: planFixture() } })
     assert.match(result, /已校验保存/)
     assert.equal(input.stopToolsWhen(), true)
-    assert.equal(fx.imageCalls(), 0, 'image request is host-controlled, not a tool side effect')
+    assert.equal(fx.imageCalls(), 1, 'confirmation returns after the host has generated and saved the image')
     await submitPlanCall(input, { arguments: { plan: planFixture('duplicate') } })
     throw new Error('acknowledgement failed')
   } })

@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { imageStyleOverride } from './scene-image-style.js'
 
 export const SCENE_ADJUSTMENT_TOOL = {
-  name: 'submit_image_adjustment', description: '仅提交这张图片需要替换的表达块，不改人物资料或剧情。',
+  name: 'submit_image_adjustment', description: '仅提交这张图片需要替换的表达块，不改人物资料或剧情。校验后等待图片生成并保存，返回实际成功或失败结果，不自动重发请求。',
   parameters: {
     type: 'object', additionalProperties: false,
     properties: { update: { type: 'object', properties: {}, additionalProperties: true, description: '{description:string,patches:[{owner:string,field:string,text:string,tags:string}],style?:{text:string,tags:string}}。style 仅在调整本图风格时提交；只改风格时 patches 为空。同一块仅提交一次，清除时 text/tags 同时为空。' } },

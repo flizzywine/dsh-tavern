@@ -125,10 +125,18 @@ async function requestSceneImage(input, deps) {
     headers: spec.headers,
     body: JSON.stringify(spec.body)
   })
-  // Provider errors can echo secrets; return status rather than raw bodies.
+  // Keep bounded, useful error fields; never forward arbitrary bodies or secrets.
   if (!response.ok) {
-    await response.body?.cancel()
-    const error = new Error('生图服务请求失败（HTTP ' + response.status + '）')
+    let detail = {}
+    try {
+      const payload = JSON.parse((await boundedBytes(response, 8192)).toString('utf8'))
+      const value = payload?.error && typeof payload.error === 'object' ? payload.error : payload
+      const message = typeof payload?.error === 'string' ? payload.error : value?.message || (typeof payload?.detail === 'string' ? payload.detail : '')
+      const safe = value => redactSceneDiagnostic(value, [input.apiKey]).replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 400)
+      detail = Object.fromEntries(Object.entries({ message, code: value?.code, param: value?.param }).filter(([, item]) => typeof item === 'string').map(([key, item]) => [key, safe(item)]))
+    } catch { /* A malformed/oversized error must not hide the actual HTTP status. */ }
+    const error = new Error('生图服务请求失败（HTTP ' + response.status + '）' + (detail.message ? '：' + detail.message : '') + (detail.param ? '（字段：' + detail.param + '）' : ''))
+    error.imageFailure = { httpStatus: response.status, ...detail }
     // A proxy timeout/5xx or 429 does not establish whether the upstream took
     // the job. Only explicit validation/auth rejection is safe for ordinary retry.
     if ([400, 401, 402, 403, 404, 422].includes(response.status)) error.imageOutcome = 'rejected'

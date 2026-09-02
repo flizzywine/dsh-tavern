@@ -17,7 +17,7 @@ test('多人图只绑定明确选择的人物，保留来源位置提示且重�
     await runtime.service.start('scene-parent', 1, target.key, options)
     for (let i = 0; i < 300; i++) {
       const state = await runtime.service.status('scene-parent', 1)
-      if (state.status !== 'running') { assert.equal(state.status, 'succeeded', state.error); return state }
+      if (state.status !== 'running' && !runtime.agentRunning) { assert.equal(state.status, 'succeeded', state.error); return state }
       await new Promise(resolve => setTimeout(resolve, 20))
     }
     assert.fail('multi-person reference timed out')
@@ -56,7 +56,7 @@ test('显式单人参考跨轮与重启传给 Gemini，取消后不再发送，�
     await runtime.service.start('scene-parent', turn, target.key, options)
     for (let index = 0; index < 300; index++) {
       const status = await runtime.service.status('scene-parent', turn)
-      if (status.status !== 'running') { assert.equal(status.status, 'succeeded', status.error); return status }
+      if (status.status !== 'running' && !runtime.agentRunning) { assert.equal(status.status, 'succeeded', status.error); return status }
       await new Promise(resolve => setTimeout(resolve, 20))
     }
     assert.fail('reference fixture timed out')
@@ -111,7 +111,7 @@ test('原生 DSH 仅接收已就绪可视变量，引用衣着片段并跨重启
   async function finished() {
     for (let index = 0; index < 300; index++) {
       const status = await runtime.service.status('scene-parent', 1)
-      if (status.status !== 'running') { assert.equal(status.status, 'succeeded', status.error); return status }
+      if (status.status !== 'running' && !runtime.agentRunning) { assert.equal(status.status, 'succeeded', status.error); return status }
       await new Promise(resolve => setTimeout(resolve, 20))
     }
     assert.fail('state image flow did not finish')
@@ -141,7 +141,7 @@ test('日志 ZIP 连接真实生图子 Session 与成功失败诊断，不导出
   async function finish() {
     for (let index = 0; index < 300; index++) {
       const result = await runtime.service.status('scene-parent', 1)
-      if (result.status !== 'running') return result
+      if (result.status !== 'running' && !runtime.agentRunning) return result
       await new Promise(resolve => setTimeout(resolve, 20))
     }
     assert.fail('log fixture timed out')
@@ -178,7 +178,7 @@ test('原生 DSH 生图 Agent 按需读历史设定、引用片段，前台不�
     await runtime.service.start('scene-parent', 1, target.key, options)
     for (let index = 0; index < 300; index++) {
       const status = await runtime.service.status('scene-parent', 1)
-      if (status.status !== 'running') { assert.equal(status.status, 'succeeded', status.error); return status }
+      if (status.status !== 'running' && !runtime.agentRunning) { assert.equal(status.status, 'succeeded', status.error); return status }
       await new Promise(resolve => setTimeout(resolve, 20))
     }
     assert.fail('reference flow did not complete')
@@ -213,7 +213,7 @@ test('非恒定世界书归档跨重启按正文读取，真实 DSH 生图请求
   let result
   for (let index = 0; index < 300; index++) {
     result = await runtime.service.status('scene-parent', 1)
-    if (result.status !== 'running') break
+    if (result.status !== 'running' && !runtime.agentRunning) break
     await new Promise(resolve => setTimeout(resolve, 20))
   }
   assert.equal(result.status, 'succeeded', result.error)
@@ -248,7 +248,7 @@ test('九渠道正在等待 HTTP 时均可取消；关开关后仍可取消，�
     let result
     for (let n = 0; n < 300; n++) {
       result = await runtime.service.status('scene-parent', turn)
-      if (result.status !== 'running') break
+      if (result.status !== 'running' && !runtime.agentRunning) break
       await new Promise(resolve => setTimeout(resolve, 20))
     }
     assert.equal(result.status, 'cancelled', provider + ': ' + result.error)
@@ -280,7 +280,7 @@ test('九种协议通过真实 DSH 子任务；附件失败后重启仅保存，
     let result
     for (let n = 0; n < 300; n++) {
       result = await runtime.service.status('scene-parent', count + 2)
-      if (result.status !== 'running') break
+      if (result.status !== 'running' && !runtime.agentRunning) break
       await new Promise(resolve => setTimeout(resolve, 20))
     }
     assert.equal(result.status, 'failed', provider + ': must reach injected attachment failure')
@@ -291,7 +291,7 @@ test('九种协议通过真实 DSH 子任务；附件失败后重启仅保存，
     await runtime.service.retrySave('scene-parent', count + 2, target.key, result.requestId)
     for (let n = 0; n < 300; n++) {
       result = await runtime.service.status('scene-parent', count + 2)
-      if (result.status !== 'running') break
+      if (result.status !== 'running' && !runtime.agentRunning) break
       await new Promise(resolve => setTimeout(resolve, 20))
     }
     assert.equal(result.status, 'succeeded', provider + ': ' + result.error)
@@ -324,6 +324,26 @@ test('九种协议通过真实 DSH 子任务；附件失败后重启仅保存，
   }
 })
 
+test('真实 DSH 确认工具收到生图服务拒绝详情，不谎报图片完成也不自动重发', { skip: !process.env.DSH_BOOT_MODULE }, async t => {
+  const runtime = await createSceneImageNativeRuntime(process.env.DSH_BOOT_MODULE)
+  t.after(() => runtime.dispose())
+  runtime.failNext(400, 'Unsupported size: square')
+  const initial = await runtime.service.status('scene-parent', 1)
+  await runtime.service.start('scene-parent', 1, initial.key)
+  let status
+  for (let n = 0; n < 300; n++) {
+    status = await runtime.service.status('scene-parent', 1)
+    if (status.status !== 'running' && !runtime.agentRunning) break
+    await new Promise(resolve => setTimeout(resolve, 20))
+  }
+  assert.equal(status.status, 'failed')
+  assert.match(status.error, /HTTP 400.*Unsupported size/s)
+  assert.match(JSON.stringify(runtime.requests.at(-1).messages), /Unsupported size/)
+  assert.match(JSON.stringify(runtime.requests.at(-1).messages), /未自动重试/)
+  assert.equal(runtime.imageRequests.length, 1)
+  assert.equal(status.versions.length, 0)
+})
+
 test('真实 DSH 原始 JSON 错误返回准确位置，修正后拆分提交只生成一次图片', { skip: !process.env.DSH_BOOT_MODULE }, async t => {
   const runtime = await createSceneImageNativeRuntime(process.env.DSH_BOOT_MODULE)
   t.after(() => runtime.dispose())
@@ -334,7 +354,7 @@ test('真实 DSH 原始 JSON 错误返回准确位置，修正后拆分提交只
   let status
   for (let n = 0; n < 300; n++) {
     status = await runtime.service.status('scene-parent', 1)
-    if (status.status !== 'running') break
+    if (status.status !== 'running' && !runtime.agentRunning) break
     await new Promise(resolve => setTimeout(resolve, 20))
   }
   assert.equal(status.status, 'succeeded', status.error)
@@ -354,7 +374,7 @@ test('真实 DSH 子 Agent 调用生图工具，HTTP 返回图经宿主校验落
   let status
   for (let n = 0; n < 300; n++) {
     status = await runtime.service.status('scene-parent', 1)
-    if (status.status !== 'running') break
+    if (status.status !== 'running' && !runtime.agentRunning) break
     await new Promise(resolve => setTimeout(resolve, 20))
   }
   assert.equal(status.status, 'succeeded', status.error)
@@ -375,7 +395,7 @@ test('真实 DSH 子 Agent 调用生图工具，HTTP 返回图经宿主校验落
     await runtime.service.start('scene-parent', 1, initial.key, options)
     for (let n = 0; n < 300; n++) {
       const next = await runtime.service.status('scene-parent', 1)
-      if (next.status !== 'running') { assert.equal(next.status, 'succeeded', next.error); return next }
+      if (next.status !== 'running' && !runtime.agentRunning) { assert.equal(next.status, 'succeeded', next.error); return next }
       await new Promise(resolve => setTimeout(resolve, 20))
     }
     assert.fail('native image flow did not complete')
