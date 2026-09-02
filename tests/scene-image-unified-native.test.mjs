@@ -33,3 +33,31 @@ test('统一设置 → 插件生成 → 真实 DSH 附件，关闭和重启不�
   assert.ok(image.data.length)
   assert.equal(runtime.imageRequests.length, 1)
 })
+
+test('生图读取参考、提交方案、调整图片的 Schema 在真实模型边界均有效', { skip: !process.env.DSH_BOOT_MODULE }, async t => {
+  const runtime = await createSceneImageNativeRuntime(process.env.DSH_BOOT_MODULE, { unifiedPlugin: true })
+  t.after(() => runtime.dispose())
+  runtime.chat.cardContextSnapshotVersion = 5
+  runtime.chat.cardContextSnapshot = '【故事设定 · 人物卡】\n名字: 林岚\n\n设定: 林岚留着黑色短发。'
+  runtime.lookupReferences('林岚')
+  const target = await runtime.service.status('scene-parent', 1)
+  async function finish(options) {
+    await runtime.service.start('scene-parent', 1, target.key, options)
+    for (let n = 0; n < 300; n++) {
+      const status = await runtime.service.status('scene-parent', 1)
+      if (status.status !== 'running') { assert.equal(status.status, 'succeeded', status.error); return status }
+      await new Promise(resolve => setTimeout(resolve, 20))
+    }
+    assert.fail('image task timed out')
+  }
+  const first = await finish()
+  await finish({ kind: 'adjust', versionId: first.versions[0].id, instruction: '改成雨夜近景' })
+  const observed = new Map(runtime.requests.flatMap(request => (request.tools || []).map(tool => [tool.name, tool.parameters])))
+  for (const [name, property] of [['read_scene_reference', 'query'], ['submit_scene_plan', 'plan'], ['submit_image_adjustment', 'update']]) {
+    const schema = observed.get(name)
+    assert.equal(schema?.type, 'object', name)
+    assert.ok(schema.properties[property], name)
+    assert.deepEqual(schema.required, [property], name)
+  }
+  assert.equal(runtime.imageRequests.length, 2)
+})

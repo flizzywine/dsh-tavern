@@ -27,7 +27,11 @@ description 简短描述本图。只转换有变化的字段；已有标签由�
 
 export const SCENE_PLAN_TOOL = {
   name: 'submit_scene_plan', description: '提交画面、人物事实变化与标签块。仅校验和保存，不直接收费生图；无变化部分不要重发。',
-  parameters: { plan: { type: 'object', required: true, description: '包含 description、subjects、characters、scene、continuity；可选 expressions。具体字段格式见任务指令。' } }
+  parameters: {
+    type: 'object', additionalProperties: false,
+    properties: { plan: { type: 'object', properties: {}, additionalProperties: true, description: '包含 description、subjects、characters、scene、continuity；可选 expressions。具体字段格式见任务指令。' } },
+    required: ['plan']
+  }
 }
 
 /** A per-game atomic document publishes character revisions, blocks and frames

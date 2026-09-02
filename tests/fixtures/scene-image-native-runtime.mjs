@@ -14,6 +14,7 @@ import { createSceneWorldbooks, bindSceneWorldbook, sceneWorldbookBinding } from
 import { createSceneImageDiagnostics } from '../../tavern-plugin/lib/domain/scene-image-diagnostics.js'
 import { createImageConfiguration } from '../../tavern-plugin/packages/dsh-image-gen/src/configuration.js'
 import { createMvuDiagnosticStore, createMvuDiagnosticExport } from '../../tavern-plugin/lib/domain/mvu-diagnostics.js'
+import { assertImageToolSchema } from './assert-image-tool-schema.mjs'
 
 export async function createSceneImageNativeRuntime(bootPath, { unifiedPlugin = false } = {}) {
   const bootUrl = pathToFileURL(bootPath)
@@ -35,6 +36,7 @@ export async function createSceneImageNativeRuntime(bootPath, { unifiedPlugin = 
   class FixtureModel extends LlmAdapter {
     async *stream(input) {
       requests.push(structuredClone({ system: input.system, messages: input.messages, tools: input.tools }))
+      for (const tool of input.tools || []) assertImageToolSchema(tool)
       const currentMessages = input.messages.slice(Math.max(0, input.messages.findLastIndex(message => message.source?.kind === 'plugin')))
       const referenceResult = currentMessages.flatMap(message => message.content || []).find(block => block.type === 'tool-result' && block.toolCallId === 'reference-call')
       const referenceTool = referenceQuery && !referenceResult && input.tools?.find(item => item.name === 'read_scene_reference')
