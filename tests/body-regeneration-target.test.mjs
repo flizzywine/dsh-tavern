@@ -19,7 +19,7 @@ test('失败清理节点不能被当作旧正文，重试定位权威剧情轮�
   assert.deepEqual(events, before)
 })
 
-test('连续重新生成允许同一剧情轮次的空模型替换节点，跳过后来的失败清理', () => {
+test('旧版空替换节点仍可作为连续重新生成目标，并跳过后来的失败清理', () => {
   const events = [assistant(0, 6), assistant(1, 8), assistant(2, 6, model, []), cleanup(3, 9)]
   assert.equal(select(events, [2, 3]).oldSeq, 2)
 })
