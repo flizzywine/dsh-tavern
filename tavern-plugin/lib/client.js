@@ -6584,6 +6584,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const taskForMessage = candidateTask && candidateTask.kind === "candidate" && candidateTask.input && String(candidateTask.input.messageId || "") === String(props.messageId || "") ? candidateTask : null;
 			const taskBusy = !!(taskForMessage && taskForMessage.busy);
 			const regenBusy = regenPanelState !== null && regenPanelState.sessionId === props.sessionId && regenPanelState.phase === "loading";
+			const rollbackBlocked = rolling || frontRunning || regenBusy || activity.busy;
 			const projectedTaskRef = React.useRef("");
 			React.useEffect(function () {
 				if (!taskForMessage) return;
@@ -6622,7 +6623,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				finally { setBusy(false); liveTavernView.invalidate(props.sessionId); tavernCoordination.invalidate(props.sessionId); }
 			}
 			async function rollback() {
-				if (rolling) return;
+				if (rollbackBlocked) return;
 				if (!window.confirm("回退本轮？\n将删除你最近一次输入和这段 LLM 输出，并同步回退故事状态与剧本游标。")) return;
 				setRolling(true);
 				try {
@@ -6631,12 +6632,11 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					setCandidatePanel(null);
 					setRegenPanel(null);
 					setCandidateGuidePanel(null);
-					liveTavernView.invalidate(props.sessionId);
-					tavernCoordination.invalidate(props.sessionId);
 					notifyTavernDataChanged(["sessions"], "play-controls");
+					if (result && result.view && result.view.rollbackWarning) tavernErrorHub.report("回退脚本联动", new Error(result.view.rollbackWarning));
 				} catch (err) {
 					tavernErrorHub.report("回退本轮", err);
-				} finally { setRolling(false); }
+				} finally { setRolling(false); liveTavernView.invalidate(props.sessionId); tavernCoordination.invalidate(props.sessionId); }
 			}
 			function regenerationPanelFor(event, phase) {
 				const tail = event && event.currentTarget ? event.currentTarget.closest('[data-chat-flow-kind="turn-tail"]') : null;
@@ -6678,7 +6678,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				} }, activity.busy ? activity.label : ((busy || taskBusy) ? "生成中…" : (hasReadyPanel ? "重新生成候选项" : "生成候选项"))),
 				h("button", { className: "dsh-tavern-choice-trigger", disabled: regenBusy || rolling, title: "不填写意见，立即重新生成正文", onClick: regenerateImmediately }, regenBusy ? "重生成中…" : "一键重新生成正文"),
 				h("button", { className: "dsh-tavern-choice-trigger", disabled: regenBusy || rolling, title: "填写指导意见后重新生成正文", onClick: openGuidedRegeneration }, "带意见重新生成正文"),
-				canRollback ? h("button", { className: "dsh-tavern-choice-trigger", disabled: rolling, title: "删除最近一次用户输入和这段 LLM 输出", onClick: rollback }, rolling ? "回退中…" : "回退本轮") : null
+				canRollback ? h("button", { className: "dsh-tavern-choice-trigger", disabled: rollbackBlocked, title: rollbackBlocked ? "请等待当前生成或后台处理完成后再回退" : "删除最近一次用户输入和这段 LLM 输出", onClick: rollback }, rolling ? "回退中…" : "回退本轮") : null
 			);
 		}
 
