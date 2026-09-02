@@ -3635,13 +3635,6 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					} catch (e) { setError(String(e.message || e)); }
 					finally { setBusy(false); notify(); }
 				}
-				async function remove() {
-					if (!version || !window.confirm("删除这张插图？不会修改正文或其他版本。")) return;
-					setBusy(true); setError("");
-					try { await rpc("removeSceneImage", { turn: props.turn, key: state.key, versionId: version.id }, props.sessionId); }
-					catch (e) { setError(String(e.message || e)); }
-					finally { setBusy(false); notify(); }
-				}
 				function openReference() {
 					const people = version.referencePeople || [];
 					setReferenceDraft({ key: state.key, versionId: version.id, gateway: state.reference.gateway, service: state.reference.service, personId: version.referenceSingle && people.length === 1 ? people[0].id : "" });
@@ -3670,16 +3663,10 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 							React.createElement("button", { type: "button", className: "dsh-tavern-btn", "aria-label": "下一张插图", disabled: index >= versions.length - 1, onClick: function () { setSelected(versions[index + 1].id); } }, "›")
 						) : null,
 						state.enabled ? React.createElement(React.Fragment, null,
-							React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: locked, onClick: function () { return generate("repaint"); } }, "重画"),
-							React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: locked, onClick: function () { setAdjusting(true); } }, "调整")
-						) : null,
-						React.createElement("details", null, React.createElement("summary", { "aria-label": "更多插图操作" }, "⋯"),
-							canBindReference || referenceBindings.length ? React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: locked, onClick: openReference }, referenceBindings.length ? "管理造型参考" : "用作造型参考") : null,
-							React.createElement("a", { href: url, download: "scene-illustration" }, "下载"),
-							React.createElement("details", null, React.createElement("summary", null, "查看说明"), React.createElement("p", null, version.description || "旧图片没有保存画面说明")),
-							React.createElement("button", { type: "button", disabled: locked, onClick: remove }, "删除")
-						)
+							React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: locked, onClick: function () { setAdjusting(true); } }, "重画")
+						) : null
 					) : null,
+					canBindReference || referenceBindings.length ? React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: locked, onClick: openReference }, referenceBindings.length ? "管理造型参考" : "用作造型参考") : null,
 					version && state.enabled && version.profile && version.profile !== state.profile ? React.createElement("span", { role: "status" }, "将按新渠道重新整理画面，可能产生文字模型费用。") : null,
 					state.referenceWarning || state.reference && state.reference.warning ? React.createElement("span", { role: "status" }, state.referenceWarning || state.reference.warning) : null,
 					showReference ? React.createElement("div", { className: "dsh-tavern-image-adjust dsh-tavern-image-reference", role: "region", "aria-label": "造型参考" },
@@ -3695,9 +3682,9 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 						referenceBindings.map(function (binding) { return React.createElement("button", { key: binding.personId, type: "button", className: "dsh-tavern-btn", disabled: locked, onClick: function () { return setReference(false, binding.personId); } }, "取消「" + binding.name + "」的参考"); }),
 						React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: busy, onClick: function () { setReferenceDraft(null); } }, "关闭参考设置")
 					) : null,
-					adjusting && state.enabled ? React.createElement("div", { className: "dsh-tavern-image-adjust", role: "region", "aria-label": "调整插图" },
-						React.createElement("label", null, "想怎样调整？", React.createElement("textarea", { value: instruction, maxLength: 2000, placeholder: "例如：改成雨夜，镜头拉近", onChange: function (event) { setInstruction(event.target.value); }, disabled: locked })),
-						React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: locked || !instruction.trim(), onClick: function () { return generate("adjust"); } }, "生成"),
+					adjusting && state.enabled ? React.createElement("div", { className: "dsh-tavern-image-adjust", role: "region", "aria-label": "重画插图" },
+						React.createElement("label", null, "重画意见（选填）", React.createElement("textarea", { value: instruction, maxLength: 2000, placeholder: "留空直接重画；例如：改成雨夜，镜头拉近", onChange: function (event) { setInstruction(event.target.value); }, disabled: locked })),
+						React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: locked, onClick: function () { return generate(instruction.trim() ? "adjust" : "repaint"); } }, "开始重画"),
 						React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: busy, onClick: function () { setAdjusting(false); } }, "取消")
 					) : null,
 					state.status === "running" ? React.createElement("span", { role: "status" }, sceneImageStageLabel(state)) : null,

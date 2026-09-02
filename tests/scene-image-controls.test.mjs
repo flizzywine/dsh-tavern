@@ -6,6 +6,52 @@ import { readFile } from 'node:fs/promises'
 const source = await readFile(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
 const extract = (name, next) => source.slice(source.indexOf('function ' + name + '('), source.indexOf('function ' + next + '('))
 
+test('one repaint entry opens optional feedback; blank repaints and feedback adjusts without replacing old images', async () => {
+  const slots = [], calls = []
+  let cursor = 0, failure = false, requestId = 0
+  const record = { key: 'turn-key', status: 'succeeded', enabled: true, versions: [{ id: 'old-picture' }] }
+  const context = vm.createContext({
+    React: {
+      Fragment: 'fragment', createElement: (type, props, ...children) => ({ type, props, children }), useEffect() {},
+      useState(initial) { const i = cursor++; if (!(i in slots)) slots[i] = initial; return [slots[i], v => { slots[i] = v }] },
+      useRef(initial) { const i = cursor++; return slots[i] ||= { current: initial } }
+    },
+    URLSearchParams, useSceneImageRecord: () => record,
+    sceneImagePurchaseConfirmation: () => undefined, sceneImageRequestId: () => 'request-' + (++requestId),
+    window: { dispatchEvent() {} }, CustomEvent: class {},
+    rpc: async (method, args) => { calls.push({ method, args }); if (failure) throw new Error('connection lost') }
+  })
+  const Component = vm.runInContext(extract('SceneIllustration', 'TavernAssistantNodeView') + ';SceneIllustration', context)
+  const nodes = tree => tree && typeof tree === 'object' ? [tree, ...(tree.children || []).flat(Infinity).flatMap(nodes)] : []
+  const render = () => { cursor = 0; return nodes(Component({ sessionId: 'session', turn: 1 })) }
+  const button = label => render().find(n => n.type === 'button' && n.children.includes(label))
+  assert.equal(button('调整'), undefined)
+  await button('重画').props.onClick()
+  assert.equal(calls.length, 0, 'opening the form must not generate')
+  assert.equal(button('开始重画').props.disabled, false)
+  render().find(n => n.type === 'textarea').props.onChange({ target: { value: '  ' } })
+  await button('开始重画').props.onClick()
+  assert.equal(calls[0].args.kind, 'repaint')
+  assert.equal(calls[0].args.instruction, '')
+  assert.equal(calls[0].args.versionId, 'old-picture')
+  assert.equal(button('开始重画'), undefined)
+  await button('重画').props.onClick()
+  render().find(n => n.type === 'textarea').props.onChange({ target: { value: '改成雨夜' } })
+  failure = true
+  await button('开始重画').props.onClick()
+  assert.equal(render().find(n => n.type === 'textarea').props.value, '改成雨夜', 'keep feedback after errors')
+  failure = false
+  await button('开始重画').props.onClick()
+  assert.equal(calls[1].args.kind, 'adjust')
+  assert.equal(calls[1].args.instruction, '改成雨夜')
+  assert.equal(calls[1].args.requestId, calls[2].args.requestId, 'transport retry keeps its request identity')
+  assert.deepEqual(record.versions, [{ id: 'old-picture' }])
+  await button('重画').props.onClick()
+  await button('取消').props.onClick()
+  assert.equal(button('开始重画'), undefined)
+  assert.equal(calls.length, 3)
+})
+
 test('image action remains visible with an explanation until enabled and configured', async () => {
   const slots = [], calls = []
   let cursor = 0
@@ -216,6 +262,9 @@ test('reference chooser never preselects a group member, freezes consent and per
   const nodes = tree => tree && typeof tree === 'object' ? [tree, ...(tree.children || []).flat(Infinity).flatMap(nodes)] : []
   const render = () => { cursor = 0; return nodes(Component({ sessionId: 'session', turn: 1 })) }
   const button = name => render().find(node => node.type === 'button' && node.children.includes(name))
+  const more = render().find(node => node.type === 'summary' && node.props?.['aria-label'] === '更多插图操作')
+  assert.equal(more, undefined)
+  assert.ok(!render().some(node => node.children?.some(text => ['⋯', '下载', '查看说明', '删除'].includes(text))))
   await button('用作造型参考').props.onClick()
   assert.equal(calls.length, 0)
   assert.equal(render().find(node => node.type === 'select').props.value, '')
