@@ -271,8 +271,15 @@ test('Helper Context 首次快照后只发送消息和变量增量', () => {
 test('变量回执区分后台结算中和过期结果', function () {
   assert.match(clientSource, /pending:\s*"变量结算中…"/)
   assert.match(clientSource, /stale:\s*"变量结算已过期，未覆盖当前状态"/)
-  assert.match(clientSource, /rpc\("retryMvuSettlement", \{ turn: props\.turn \}, props\.sessionId\)/)
+  assert.match(clientSource, /rpc\("retrySettlement", \{ turn: props\.turn \}, props\.sessionId\)/)
   assert.match(clientSource, /"重试变量结算"/)
+})
+
+test('普通姿势结算失败时右侧状态栏提供统一重试入口', function () {
+  const status = clientSource.slice(clientSource.indexOf('function TavernStatusPanel'), clientSource.indexOf('function TavernStatusTab'))
+  assert.match(status, /rpc\("retrySettlement", \{ turn: view\.settlementTurn \}, props\.sessionId\)/)
+  assert.match(status, /"重试后台结算"/)
+  assert.match(status, /view\.settleError/)
 })
 
 test('Helper iframe 在增量版本失配时请求完整快照，不自行重载', () => {

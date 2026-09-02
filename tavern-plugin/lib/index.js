@@ -1021,6 +1021,8 @@ export async function apply(ctx) {
       lastWorldBookRecall: chat.lastWorldBookRecall || null,
       activity,
       settleStatus: activity.busy ? 'running' : (activity.phase === 'failed' && activity.role === 'settlement' ? 'error' : 'done'),
+      settleError: chat.settleError || null,
+      settlementTurn: settlementTurn(chat),
       scriptProgress: scriptProgress,
       updatedAt: chat.updatedAt || 0
     }
@@ -1610,9 +1612,10 @@ export async function apply(ctx) {
         if (failed.status === 'missing') return
         if (failed.status === 'stale' && backgroundTasks.activity(failed.chat).busy) continue
         const latest = await readChat(chatId)
+        if (latest === undefined) return
         const target = pendingMvuTarget(latest)
+        const message = str(err && err.message || err) || '后台结算失败'
         if (target !== null) {
-          const message = str(err && err.message || err) || 'MVU 后台变量结算失败'
           target.message.mvu = {
             pending: false,
             modified: false,
@@ -1620,10 +1623,10 @@ export async function apply(ctx) {
             events: [],
             receipt: { version: 1, status: 'error', summary: '', changes: [], failures: [{ command: '', message }] }
           }
-          latest.settleStatus = 'failed'
-          latest.settleError = message
-          await writeChat(latest, { source: 'settlement.mvu-failed' })
         }
+        latest.settleStatus = 'failed'
+        latest.settleError = message
+        await writeChat(latest, { source: target === null ? 'settlement.posture-failed' : 'settlement.mvu-failed' })
         console.error('dsh-tavern: 结算失败', chatId, str(err && err.message || err))
         return
       }
@@ -1648,30 +1651,35 @@ export async function apply(ctx) {
     })
   })
   ctx.effect(() => unsubscribeMvuRuntimeReady, 'dsh-tavern: resume deferred MVU settlement')
-  async function retryMvuSettlement(sessionId, turn) {
+  async function retrySettlement(sessionId, turn) {
     const chat = await chatForSession(sessionId)
     if (chat === undefined) throw new Error('当前会话没有绑定人物卡')
-    if (!chat.mvu || chat.mvu.enabled !== true || chat.mvu.owner !== 'official') throw new Error('当前对话没有启用官方 MVU')
     const activity = backgroundTasks.activity(chat)
     if (activity.busy) throw new Error('后台 Agent 正在运行，请稍候')
     const messages = Array.isArray(chat.messages) ? chat.messages : []
     let target = null
     for (let messageId = messages.length - 1; messageId >= 0; messageId--) {
       const message = messages[messageId]
-      if (!message || message.role !== 'assistant' || !message.mvu) continue
+      if (!message || message.role !== 'assistant' || message.greeting === true) continue
       target = { messageId, message }
       break
     }
     if (target === null || Math.max(0, Number(target.message.turn) || 0) !== Math.max(0, Number(turn) || 0)) {
-      throw new Error('只能重试当前最新正文的变量结算')
+      throw new Error('只能重试当前最新正文的后台结算')
     }
-    target.message.mvu = { pending: true, modified: false, diagnostics: [], events: [] }
+    const officialMvu = chat.mvu && chat.mvu.enabled === true && chat.mvu.owner === 'official'
+    if (officialMvu) {
+      if (!target.message.mvu) throw new Error('当前最新正文没有可重试的变量结算')
+      target.message.mvu = { pending: true, modified: false, diagnostics: [], events: [] }
+    } else if (activity.phase !== 'failed' || activity.role !== 'settlement') {
+      throw new Error('当前最新正文没有失败的后台结算')
+    }
     chat.settleStatus = 'pending'
     chat.settleError = null
     chat.updatedAt = Date.now()
-    await writeChat(chat, { source: 'settlement.mvu-retry' })
+    await writeChat(chat, { source: 'settlement.retry' })
     void queueSettlement(chat.id).catch(function (error) {
-      console.error('dsh-tavern: 重试变量结算失败', str(error && error.message || error))
+      console.error('dsh-tavern: 重试后台结算失败', str(error && error.message || error))
     })
     return await view(chat, await readChatCard(chat))
   }
@@ -2053,7 +2061,8 @@ export async function apply(ctx) {
       case 'deleteGuide': return { guides: await deleteGuide(args && args.sessionId, args && args.index) }
       case 'regenBody': return { view: await regenBody(args && args.chatId, args && args.guidance, args && args.sessionId) }
       case 'rollbackTurn': return { view: await rollbackTurn(args && args.sessionId, args && args.chatId) }
-      case 'retryMvuSettlement': return { view: await retryMvuSettlement(args && args.sessionId, args && args.turn) }
+      case 'retrySettlement': return { view: await retrySettlement(args && args.sessionId, args && args.turn) }
+      case 'retryMvuSettlement': return { view: await retrySettlement(args && args.sessionId, args && args.turn) }
       default: throw new Error('未知方法: ' + method)
     }
   }
