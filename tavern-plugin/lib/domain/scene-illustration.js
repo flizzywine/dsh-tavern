@@ -335,7 +335,7 @@ export function createSceneIllustrations(deps) {
             record.traceSessionId = sessionId
             await writeJob(path, record)
           },
-          selection: input.selection, system: input.adjustment ? SCENE_ADJUSTMENT_INSTRUCTION : SCENE_PLAN_INSTRUCTION, maxTokens: 4096, signal: controller.signal,
+          selection: input.selection, system: input.adjustment ? SCENE_ADJUSTMENT_INSTRUCTION : SCENE_PLAN_INSTRUCTION, signal: controller.signal,
           messages: [{ role: 'user', content: [{ type: 'text', text: JSON.stringify(input.prepared.input) }] }],
           turnContext: '', tools: [input.adjustment ? SCENE_ADJUSTMENT_TOOL : SCENE_PLAN_TOOL,
             ...(input.references?.metadata.available ? [input.references.tool] : [])],

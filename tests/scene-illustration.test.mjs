@@ -928,10 +928,12 @@ test('repaint bypasses text Agent, retains each version and deduplicates replaye
 
 test('image-only adjustment uses just old plan plus instruction, persists through provider failure, and does not change canonical plans', async t => {
   let calls = 0, generated = 0
+  const outputBudgets = []
   const fx = await fixture(t, {
     generate: async input => { generated++; if (generated === 2) throw new Error('temporary image error'); return { data: png, mediaType: 'image/png' } },
     runAgent: async input => {
       calls++
+      outputBudgets.push(input.maxTokens)
       if (input.tools[0].name === 'submit_scene_plan') await input.onToolCall({ arguments: { plan: planFixture() } })
       else {
         assert.equal(input.tools[0].name, 'submit_image_adjustment')
@@ -956,6 +958,7 @@ test('image-only adjustment uses just old plan plus instruction, persists throug
   await fx.service.start('parent', 2, key, { ...options, confirmNewRequestId: failed.requestId })
   const adjusted = await until(async () => { const state = await fx.service.status('parent', 2); return state.status === 'succeeded' && state })
   assert.equal(calls, 2, 'failed image retry reuses saved adjustment, not another text task')
+  assert.deepEqual(outputBudgets, [undefined, undefined], 'planning and adjustment must inherit the background model output budget')
   assert.equal(adjusted.versions[1].prompt, 'rainy night')
   assert.equal(adjusted.versions[0].prompt, first.versions[0].prompt)
   await fx.service.start('parent', 2, key, { kind: 'repaint', versionId: first.versions[0].id })
