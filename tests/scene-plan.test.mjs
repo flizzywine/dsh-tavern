@@ -1,10 +1,18 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createScenePlans } from '../tavern-plugin/lib/domain/scene-plan.js'
+import { readScenePlanInstruction } from '../tavern-plugin/lib/scene-image-prompts.js'
 import { createProfileDataStore } from '../tavern-plugin/lib/profile-data-store.js'
+
+test('scene planner loads its task instruction from the standalone prompt file', async () => {
+  const file = await readFile(new URL('../tavern-plugin/prompts/scene-plan.md', import.meta.url), 'utf8')
+  assert.equal(readScenePlanInstruction(), file.trim())
+  assert.match(readScenePlanInstruction(), /最终调用 submit_scene_plan/)
+  assert.match(readScenePlanInstruction(), /不续写、不改游戏变量/)
+})
 
 const field = (text, tags, quote = text) => ({ text, tags, evidence: [{ source: 'target', quote }] })
 const composition = { text: '半身构图', tags: 'medium shot', evidence: [] }

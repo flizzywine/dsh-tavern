@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { readSceneImageSystemInstruction } from './scene-image-prompts.js'
 import { runtimePresetPhaseMessages } from './domain/runtime-preset-lifecycle.js'
 import { ensureSessionStablePrefix, readSessionStablePrefix } from './domain/session-stable-prefix.js'
 
@@ -159,7 +160,7 @@ export function createBackgroundAgentTask(options) {
         name: 'deployment:persona',
         order: 0,
         complete: true,
-        text: state.input.task === 'image' ? '你是独立的场景生图 Agent，不续写故事、不修改变量。你会持续处理同一游戏的绘图任务；旧任务只供参考，当前目标材料与已保存方案是本次依据。不要沿用已废弃分支、旧站位或之前仅限单图的调整；严格按每轮末尾追加的任务协议执行。' : backgroundPersona
+        text: state.input.task === 'image' ? readSceneImageSystemInstruction() : backgroundPersona
       })
       childCtx.systemPrompt.suppressRuntimeContext()
       childCtx.tools.restrict({ allow: state.input.task === 'image' ? [] : ['skill', 'web_search'] })

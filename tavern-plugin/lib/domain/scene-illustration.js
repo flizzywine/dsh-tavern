@@ -3,8 +3,9 @@ import { projectAgentContent } from './runtime-content-projection.js'
 import { createImageGenerationModule } from '../../packages/dsh-image-gen/src/module.js'
 import { createModuleSceneImageSettings } from './scene-image-module-settings.js'
 import { channelSettings, channelReady, imageExpressionProfile, imageExpressionGuidance } from './scene-image-channels.js'
-import { createScenePlans, SCENE_PLAN_INSTRUCTION, SCENE_PLAN_TOOL } from './scene-plan.js'
-import { imageAdjustmentInput, applyImageAdjustment, legacyImagePlan, SCENE_ADJUSTMENT_INSTRUCTION, SCENE_ADJUSTMENT_TOOL } from './scene-image-adjustment.js'
+import { createScenePlans, SCENE_PLAN_TOOL } from './scene-plan.js'
+import { readScenePlanInstruction, readSceneAdjustmentInstruction } from '../scene-image-prompts.js'
+import { imageAdjustmentInput, applyImageAdjustment, legacyImagePlan, SCENE_ADJUSTMENT_TOOL } from './scene-image-adjustment.js'
 import { createSceneImageStyles, applyImageStyle, composeSceneImagePrompt } from './scene-image-style.js'
 import { createPendingSceneImages } from './scene-image-pending.js'
 import { createSceneImageQueue } from './scene-image-queue.js'
@@ -335,7 +336,7 @@ export function createSceneIllustrations(deps) {
             record.traceSessionId = sessionId
             await writeJob(path, record)
           },
-          selection: input.selection, system: input.adjustment ? SCENE_ADJUSTMENT_INSTRUCTION : SCENE_PLAN_INSTRUCTION, signal: controller.signal,
+          selection: input.selection, system: input.adjustment ? readSceneAdjustmentInstruction() : readScenePlanInstruction(), signal: controller.signal,
           messages: [{ role: 'user', content: [{ type: 'text', text: JSON.stringify(input.prepared.input) }] }],
           turnContext: '', tools: [input.adjustment ? SCENE_ADJUSTMENT_TOOL : SCENE_PLAN_TOOL,
             ...(input.references?.metadata.available ? [input.references.tool] : [])],

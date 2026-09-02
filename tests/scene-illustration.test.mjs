@@ -11,6 +11,7 @@ import { createHash } from 'node:crypto'
 import { imageZip } from './fixtures/scene-image-zip.mjs'
 import { comfyGraph } from './fixtures/scene-image-comfy-workflow.mjs'
 import { createSceneImageDiagnostics } from '../tavern-plugin/lib/domain/scene-image-diagnostics.js'
+import { readScenePlanInstruction, readSceneAdjustmentInstruction } from '../tavern-plugin/lib/scene-image-prompts.js'
 
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aKfoAAAAASUVORK5CYII=', 'base64')
 const imagePath = 'scene-images/' + createHash('sha256').update('test-chat').digest('hex') + '/'
@@ -132,6 +133,7 @@ test('setup checks through illustration service do not save drafts or start agen
 test('image journal retains failed attempts, validation feedback, actual inputs and later success without exposing internals in status', async t => {
   let submissions = 0
   const fx = await fixture(t, { runAgent: async input => {
+    assert.equal(input.system, readScenePlanInstruction())
     submissions++
     if (submissions === 1) {
       await input.onToolCall({ arguments: { plan: { broken: true } } })
@@ -942,6 +944,7 @@ test('image-only adjustment uses just old plan plus instruction, persists throug
       if (input.tools[0].name === 'submit_scene_plan') await input.onToolCall({ arguments: { plan: planFixture() } })
       else {
         assert.equal(input.tools[0].name, 'submit_image_adjustment')
+        assert.equal(input.system, readSceneAdjustmentInstruction())
         const context = JSON.parse(input.messages[0].content[0].text)
         assert.equal(context.instruction, '改成雨夜')
         assert.equal(context.sources, undefined)
