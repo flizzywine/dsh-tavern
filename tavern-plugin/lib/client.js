@@ -1518,6 +1518,78 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			});
 		}
 
+		// Also used on runtime-report clones: presentation preferences must never become saved card styles.
+		function restoreTavernFrameFontStyles(root) {
+			const attribute = "data-dsh-tavern-font-original";
+			const nodes = Array.from(root.querySelectorAll("[" + attribute + "]"));
+			if (root.hasAttribute && root.hasAttribute(attribute)) nodes.unshift(root);
+			nodes.forEach(function (node) {
+				try {
+					const saved = JSON.parse(node.getAttribute(attribute));
+					["font-size", "line-height"].forEach(function (name, index) {
+						if (node.style.getPropertyValue(name) !== saved.applied[index]) return;
+						const original = saved.original[index];
+						if (original[0]) node.style.setProperty(name, original[0], original[1]);
+						else node.style.removeProperty(name);
+					});
+					if (!saved.hadStyle && !node.getAttribute("style")) node.removeAttribute("style");
+				} catch (_) {}
+				node.removeAttribute(attribute);
+			});
+		}
+
+		function installTavernFrameFonts(token, restore) {
+			let fontSize = 14, scheduled = false, disposed = false;
+			const observer = new MutationObserver(schedule);
+			function observe() { observer.observe(document.documentElement, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ["style", "class", "hidden"] }); }
+			function schedule() {
+				if (scheduled || disposed) return;
+				scheduled = true;
+				requestAnimationFrame(apply);
+			}
+			function apply() {
+				scheduled = false;
+				if (disposed || !document.body) return;
+				observer.disconnect();
+				try {
+					restore(document.body);
+					const ratio = fontSize / 14;
+					if (ratio === 1) return;
+					// Measure everything before writing, with our old overrides removed. This prevents
+					// inherited em/rem sizes and repeated preference changes from compounding.
+					const measured = [document.body].concat(Array.from(document.body.querySelectorAll("*"))).filter(function (node) {
+						return node.style && !/^(SCRIPT|STYLE|LINK|META|NOSCRIPT)$/.test(node.tagName) && (!node.closest("svg") || node.tagName.toLowerCase() === "svg");
+					}).map(function (node) {
+						const text = /^(INPUT|TEXTAREA|SELECT|OPTION)$/.test(node.tagName) || Array.from(node.childNodes).some(function (child) { return child.nodeType === 3 && /\S/.test(child.nodeValue || ""); });
+						const style = getComputedStyle(node), factor = text ? ratio : 1;
+						return { node: node, size: parseFloat(style.fontSize) * factor, line: parseFloat(style.lineHeight) * factor };
+					});
+					measured.forEach(function (item) {
+						if (!Number.isFinite(item.size) || item.size <= 0) return;
+						const node = item.node, names = ["font-size", "line-height"];
+						const saved = { hadStyle: node.hasAttribute("style"), original: names.map(function (name) { return [node.style.getPropertyValue(name), node.style.getPropertyPriority(name)]; }), applied: [] };
+						node.style.setProperty("font-size", item.size.toFixed(4) + "px", "important");
+						if (Number.isFinite(item.line)) node.style.setProperty("line-height", item.line.toFixed(4) + "px", "important");
+						saved.applied = names.map(function (name) { return node.style.getPropertyValue(name); });
+						node.setAttribute("data-dsh-tavern-font-original", JSON.stringify(saved));
+					});
+				} finally { observe(); }
+			}
+			function receive(event) {
+				const data = event.data;
+				if (event.source !== parent || !data || data.token !== token || data.type !== "dsh-tavern-font-size") return;
+				const next = Number(data.fontSize);
+				if (!Number.isFinite(next) || next < 8 || next > 48 || next === fontSize) return;
+				fontSize = next;
+				schedule();
+			}
+			observe();
+			addEventListener("message", receive);
+			addEventListener("resize", schedule);
+			document.addEventListener("load", schedule, true);
+			addEventListener("pagehide", function () { disposed = true; observer.disconnect(); removeEventListener("message", receive); removeEventListener("resize", schedule); document.removeEventListener("load", schedule, true); }, { once: true });
+		}
+
 		function buildTavernFrameDocument(input) {
 			const html = rewriteTavernStaticMarkup(String(input && (input.content !== undefined ? input.content : input.html) || ""));
 			const token = JSON.stringify(String(input && input.token || "")).replace(/</g, "\\u003c");
@@ -1531,14 +1603,16 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const reporter = '<script data-dsh-tavern-frame>(function(){var token=' + token + ';var last=0;var queued=false;function nodeBottom(node){if(!node||typeof node.getBoundingClientRect!=="function")return 0;var style;try{style=getComputedStyle(node);}catch(e){return 0;}if(style.display==="none"||style.visibility==="hidden"||style.position==="fixed")return 0;var rect=node.getBoundingClientRect();if(rect.width===0&&rect.height===0)return 0;var top=rect.top,bottom=rect.bottom+Math.max(0,parseFloat(style.marginBottom)||0);var ancestor=node.parentElement;while(ancestor&&ancestor!==document.documentElement){var ancestorStyle;try{ancestorStyle=getComputedStyle(ancestor);}catch(e){ancestorStyle=null;}var overflow=String(ancestorStyle&&(ancestorStyle.overflowY||ancestorStyle.overflow)||"visible");if(overflow!=="visible"){var ancestorRect=ancestor.getBoundingClientRect();top=Math.max(top,ancestorRect.top);bottom=Math.min(bottom,ancestorRect.bottom);if(bottom<=top)return 0;}ancestor=ancestor.parentElement;}return Math.ceil(bottom+(window.scrollY||0));}function measure(){var body=document.body;if(!body)return 48;var bodyRect=body.getBoundingClientRect();var height=Math.max(body.scrollHeight||0,Math.ceil(bodyRect.bottom+(window.scrollY||0)),48);var nodes=[body].concat(Array.prototype.slice.call(body.querySelectorAll("*")));for(var i=0;i<nodes.length;i+=1)height=Math.max(height,nodeBottom(nodes[i]));return height;}function report(){queued=false;var height=measure();if(height===last)return;last=height;parent.postMessage({type:"dsh-tavern-frame-height",token:token,height:height},"*");}function schedule(){if(queued)return;queued=true;if(typeof requestAnimationFrame==="function")requestAnimationFrame(report);else setTimeout(report,0);}if(typeof ResizeObserver==="function"){var observer=new ResizeObserver(schedule);observer.observe(document.documentElement);if(document.body)observer.observe(document.body);}addEventListener("load",schedule);if(document.fonts&&document.fonts.ready)document.fonts.ready.then(schedule);new MutationObserver(schedule).observe(document.documentElement,{subtree:true,childList:true,attributes:true,characterData:true});schedule();})();<\/script>';
 			const readyReporter = '<script data-dsh-tavern-frame-ready>(function(){var token=' + token + ',armed=false,timer=0,reported=false;function report(){timer=0;if(reported)return;reported=true;var finish=function(){parent.postMessage({type:"dsh-tavern-frame-ready",token:token},"*");};if(typeof requestAnimationFrame==="function")requestAnimationFrame(function(){requestAnimationFrame(finish);});else setTimeout(finish,0);}function schedule(){if(!armed||reported)return;if(timer)clearTimeout(timer);timer=setTimeout(report,240);}new MutationObserver(schedule).observe(document.documentElement,{subtree:true,childList:true,attributes:true,characterData:true});addEventListener("load",schedule);Promise.resolve(window.__dshTavernHelperReady).catch(function(){return false;}).then(function(){armed=true;schedule();});})();<\/script>';
 			const layoutNormalizer = '<script data-dsh-tavern-layout>(function(){if(!document.body)return;Array.prototype.slice.call(document.body.childNodes).forEach(function(node){var value=String(node.nodeValue||"");if(node.nodeType===3&&!/\\S/.test(value)&&/[\\r\\n]/.test(value))node.nodeValue="";});})();<\/script>';
+			const fontRuntime = '<script data-dsh-tavern-font-runtime>(' + installTavernFrameFonts.toString() + ')(' + token + ',' + restoreTavernFrameFontStyles.toString() + ');<\/script>';
+			const cleanRuntimeReporter = runtimeReporter.replace('dom=copy.innerHTML;', '(' + restoreTavernFrameFontStyles.toString() + ')(copy);Array.from(copy.querySelectorAll("script[data-dsh-tavern-font-runtime]")).forEach(function(node){node.remove();});dom=copy.innerHTML;');
 			return '<!doctype html><html><head><meta charset="utf-8">'
 				+ '<meta name="viewport" content="width=device-width,initial-scale=1">'
 				+ '<meta name="referrer" content="no-referrer">'
 				+ '<meta http-equiv="Content-Security-Policy" content="default-src https: http: data: blob:; img-src https: http: data: blob:; media-src https: http: data: blob:; font-src https: http: data:; style-src \'unsafe-inline\' https: http:; script-src \'unsafe-inline\' \'unsafe-eval\' https: http: data: blob:; connect-src https: http: wss: data: blob:; frame-src https: http: data: blob:; object-src \'none\'; base-uri \'none\'; form-action \'none\'">'
-				+ '<style>:root{color-scheme:light dark}html,body{box-sizing:border-box;margin:0;min-height:0;background:transparent;color:CanvasText;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:16px;line-height:1.75}body{padding:0 1px;overflow-wrap:anywhere;white-space:pre-wrap}body>*{white-space:normal}maintext{display:block;white-space:pre-wrap;overflow-wrap:anywhere}.dsh-tavern-plain-text{white-space:pre-wrap;overflow-wrap:anywhere}*,*:before,*:after{box-sizing:border-box}img,video,svg,canvas{max-width:100%;height:auto}pre{max-width:100%;overflow:auto;white-space:pre-wrap}table{max-width:100%;border-collapse:collapse}a{color:LinkText}</style>' + helperDependencies + tavernStaticAssetShim() + storageShim + helperShim + mvuViewObservationShim + runtimeReporter
+				+ '<style>:root{color-scheme:light dark}html,body{box-sizing:border-box;margin:0;min-height:0;background:transparent;color:CanvasText;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:16px;line-height:1.75}body{padding:0 1px;overflow-wrap:anywhere;white-space:pre-wrap}body>*{white-space:normal}maintext{display:block;white-space:pre-wrap;overflow-wrap:anywhere}.dsh-tavern-plain-text{white-space:pre-wrap;overflow-wrap:anywhere}*,*:before,*:after{box-sizing:border-box}img,video,svg,canvas{max-width:100%;height:auto}pre{max-width:100%;overflow:auto;white-space:pre-wrap}table{max-width:100%;border-collapse:collapse}a{color:LinkText}</style>' + helperDependencies + tavernStaticAssetShim() + storageShim + helperShim + mvuViewObservationShim + cleanRuntimeReporter
 				+ (input && input.helperContext ? '<script data-dsh-tavern-frame-variable-aliases>(' + installTavernFrameVariableAliases.toString() + ')();<\/script>' : '')
 				+ (input && input.helperContext && input.persistent === true ? '<script data-dsh-tavern-status-refresh>(' + installTavernStatusRefresh.toString() + ')(' + token + ');<\/script>' : '')
-				+ '</head><body class="no-blur">' + html + layoutNormalizer + reporter + readyReporter + '</body></html>';
+				+ '</head><body class="no-blur">' + html + layoutNormalizer + fontRuntime + reporter + readyReporter + '</body></html>';
 		}
 
 		function encodeTavernScriptSource(value) {
@@ -3172,6 +3246,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			let listener = null;
 			let lifetime = 0;
 			let synchronizationKey = "";
+			let lastFontSize = null;
 			let documentInputs = null;
 			let cachedDocumentKey = "";
 			let desired = createDocument();
@@ -3213,6 +3288,19 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			function sendContext(document, mode) {
 				const channel = document && channels.get(document.token);
 				if (channel) channel.sync(helperContext, props.turn, mode);
+			}
+			function sendFontSize(document) {
+				const body = hostWindow.document && hostWindow.document.body;
+				if (!body || typeof hostWindow.getComputedStyle !== "function") return;
+				const value = parseFloat(hostWindow.getComputedStyle(body).getPropertyValue("--dsh-content-font-size"));
+				const fontSize = Number.isFinite(value) && value >= 8 && value <= 48 ? value : 14;
+				if (!document && fontSize === lastFontSize) return;
+				lastFontSize = fontSize;
+				channels.forEach(function (channel, token) {
+					if (document && token !== document.token) return;
+					const node = channel.element();
+					if (node && node.contentWindow) node.contentWindow.postMessage({ type: "dsh-tavern-font-size", token: token, fontSize: fontSize }, "*");
+				});
 			}
 			function reconcile() {
 				if (desired.key === visible.key) {
@@ -3268,6 +3356,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					return;
 				}
 				if (data.type === "dsh-tavern-frame-ready") {
+					sendFontSize(sourceDocument);
 					sendContext(sourceDocument, "ready");
 					if (sourceDocument === pending && pending.key === desired.key) {
 						rememberHeight(pending, pending.height || restoredTavernFrameHeight(pending.heightKey, pending.content));
@@ -3305,7 +3394,13 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				start: function (onChange) {
 					listener = onChange;
 					hostWindow.addEventListener("message", receive);
+					let fontObserver = null;
+					if (hostWindow.document && typeof hostWindow.MutationObserver === "function") {
+						fontObserver = new hostWindow.MutationObserver(function () { sendFontSize(); });
+						[hostWindow.document.documentElement, hostWindow.document.body].filter(Boolean).forEach(function (node) { fontObserver.observe(node, { attributes: true, attributeFilter: ["style", "class"] }); });
+					}
 					return function () {
+						if (fontObserver) fontObserver.disconnect();
 						listener = null; lifetime++;
 						hostWindow.removeEventListener("message", receive);
 						cancelRuntimeReport();
