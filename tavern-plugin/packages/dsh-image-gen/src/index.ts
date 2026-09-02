@@ -16,6 +16,7 @@ import { editSeedreamImage } from './seedream.js'
 import { IMAGE_GENERATION_NAMESPACE, STUDIO_ROUTE, mergeComfyUIPrompt } from './shared.js'
 import { generateFromStudio, describeStudio } from './studio.js'
 import { generateGrokImage } from './grok.js'
+import { createImageConfiguration, configurationServiceName } from './configuration.js'
 import { serveStudio } from './studio-route.js'
 import { deleteImageFromWorkspace, getDshWorkspacesFull, saveImageToWorkspace } from './workspace-save.js'
 
@@ -44,6 +45,13 @@ export function apply(ctx: Context, config: Config = {}): void {
   installImageSettings(ctx, config, {
     setSource: source => { current = source }, onChange: () => {},
   })
+  const configuration = createImageConfiguration({ read: () => current(),
+    write: async (patch: object) => {
+      const settings = ctx.get('settings')
+      if (typeof settings?.update !== 'function') throw new Error('当前 DSH 不支持统一插件设置写入，请更新 DSH；未保存配置或密钥')
+      await settings.update(IMAGE_GENERATION_NAMESPACE as never, patch)
+    }, credentials: ctx.credentials, attachments: ctx.attachments })
+  if (typeof ctx.provide === 'function') ctx.provide(configurationServiceName, configuration)
   ctx.effect(() => ctx.webServer.register({
     kind: 'exact', path: IMAGE_ROUTE,
     handler: (req, res) => serveImage(req, res, { readImage: ref => ctx.attachments.readImage(ref) }),
@@ -57,7 +65,7 @@ export function apply(ctx: Context, config: Config = {}): void {
   ctx.effect(() => ctx.webServer.register({
     kind: 'exact', path: STUDIO_ROUTE,
     handler: (req, res) => serveStudio(req, res, {
-      describe: async () => {
+      describe: () => configuration.serial(async () => {
         const base = await describeStudio(ctx, current())
         const workspaces = await getDshWorkspacesFull().catch(() => [])
         const activeRoot = Array.from(knownWorkspaceRoots)[0] || workspaces[0]?.path || process.cwd()
@@ -66,10 +74,10 @@ export function apply(ctx: Context, config: Config = {}): void {
           workspaceRoot: activeRoot,
           workspaces,
         }
-      },
+      }),
       generate: (input, signal) => {
         const fallbackRoot = Array.from(knownWorkspaceRoots)[0] || process.cwd()
-        return generateFromStudio(ctx, current(), input, signal, fallbackRoot)
+        return configuration.serial(() => generateFromStudio(ctx, current(), input, signal, fallbackRoot))
       },
       maxBodyBytes: Math.ceil(ctx.attachments.imageLimits.maxImageBytes * 1.4 * 5) + 256 * 1024,
     }),

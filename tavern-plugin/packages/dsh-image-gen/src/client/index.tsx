@@ -45,6 +45,7 @@ import { conversationRegenerateRequest } from './conversation-regenerate.js'
 
 type Provider = ImageProvider
 interface ImageSettings {
+  registerAgentTools?: boolean
   provider?: Provider
   grokBaseURL?: string
   grokModel?: string
@@ -775,6 +776,7 @@ export function ImageGenerationSettingsCard(props: SettingsCardProps) {
     setWorkflows(current => current.map((entry, position) => position === index ? { ...entry, presetPrompt } : entry))
   }
 
+  if (snapshot.value?.registerAgentTools === false) return null
   return (
     <li className={`dsh-ig-card ${open ? 'dsh-ig-card-open' : ''}`}>
       <button type="button" className="dsh-ig-head" aria-expanded={open} onClick={() => { setOpen(value => !value) }}>

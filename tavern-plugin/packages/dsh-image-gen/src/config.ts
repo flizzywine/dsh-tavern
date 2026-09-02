@@ -67,6 +67,8 @@ export type ImageSize = typeof IMAGE_SIZES[number]
 export interface Config {
   /** Standalone tools; Tavern uses Studio through its own explicit generation flow. */
   registerAgentTools?: boolean
+  /** Extra channel controls, encoded JSON; credentials never enter this field. */
+  tavernChannels?: string
   provider?: ImageProvider
   grokBaseURL?: string
   grokModel?: string
@@ -97,6 +99,7 @@ export interface Config {
 /** Cordis configuration schema. */
 export const Config: z<Config> = z.object({
   registerAgentTools: z.boolean().default(true),
+  tavernChannels: z.string().default('{}'),
   provider: z.union(IMAGE_PROVIDERS).default('google'),
   grokBaseURL: z.string().default(DEFAULT_GROK_BASE_URL),
   grokModel: z.string().default(DEFAULT_GROK_MODEL),

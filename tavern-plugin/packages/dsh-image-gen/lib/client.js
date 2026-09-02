@@ -5057,6 +5057,7 @@ window.__ModuleLoader__.load({
 					presetPrompt
 				} : entry));
 			};
+			if (snapshot.value?.registerAgentTools === false) return null;
 			return (0, react_jsx_runtime.jsxs)("li", {
 				className: `dsh-ig-card ${open ? "dsh-ig-card-open" : ""}`,
 				children: [(0, react_jsx_runtime.jsxs)("button", {

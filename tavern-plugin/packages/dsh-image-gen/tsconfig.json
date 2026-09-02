@@ -6,6 +6,7 @@
     "lib": ["ES2024", "DOM", "DOM.Iterable"],
     "types": ["node", "react"],
     "strict": true,
+    "allowJs": true,
     "noImplicitOverride": true,
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
@@ -18,6 +19,6 @@
     "sourceMap": true,
     "skipLibCheck": true
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  "include": ["src/**/*.ts", "src/**/*.tsx", "src/**/*.js"],
   "exclude": ["lib", "tests"]
 }

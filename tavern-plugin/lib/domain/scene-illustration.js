@@ -3,6 +3,7 @@ import { projectAgentContent } from './runtime-content-projection.js'
 import { generateSceneImage } from './scene-image-provider.js'
 import { createSceneImagePlugin } from './scene-image-plugin.js'
 import { createSceneImageSettings } from './scene-image-settings.js'
+import { createPluginSceneImageSettings } from './scene-image-plugin-settings.js'
 import { createSceneImageConnection } from './scene-image-connection.js'
 import { channelSettings, channelReady, imageExpressionProfile, imageExpressionGuidance } from './scene-image-channels.js'
 import { createScenePlans, SCENE_PLAN_INSTRUCTION, SCENE_PLAN_TOOL } from './scene-plan.js'
@@ -115,8 +116,9 @@ export function createSceneIllustrations(deps) {
   imageHosts.set(ownerId, path => jobs.has(path) || starts.has(path))
   imageAborters.set(ownerId, (path, requestId) => { const job = jobs.get(path); if (job?.requestId === requestId) job.controller.abort() })
   const imagePlugin = createSceneImagePlugin(deps)
-  const { config, settings, configure, capture } = createSceneImageSettings({ ...deps, imagePlugin })
-  const connection = createSceneImageConnection({ settings, credentials: deps.credentials, fetchImpl: deps.fetchImpl })
+  const setup = deps.imagePluginService ? createPluginSceneImageSettings(deps) : createSceneImageSettings({ ...deps, imagePlugin })
+  const { config, settings, configure, capture } = setup
+  const connection = deps.imagePluginService ? { test: setup.testConnection, models: setup.listModels } : createSceneImageConnection({ settings, credentials: deps.credentials, fetchImpl: deps.fetchImpl })
   const plans = createScenePlans({ store: deps.store })
   const styles = createSceneImageStyles({ store: deps.store })
   const pendingImages = createPendingSceneImages(deps.store)
@@ -405,7 +407,7 @@ export function createSceneIllustrations(deps) {
         await writeJob(path, record)
         controller.signal.throwIfAborted()
         attempted = true
-        try { return await (active.provider === 'dsh-image-gen' ? imagePlugin.generate : deps.generate || generateSceneImage)({ ...active, apiKey: input.apiKey, prompt, plan, referenceImages: reference.images, providerTask: record.providerTask,
+        try { return await (active.backend === 'dsh-image-gen' ? deps.imagePluginService().generate : active.provider === 'dsh-image-gen' ? imagePlugin.generate : deps.generate || generateSceneImage)({ ...active, apiKey: input.apiKey, prompt, plan, referenceImages: reference.images, providerTask: record.providerTask,
           async onProviderRequest(event) {
             if ((record.providerRequests || []).length >= 100) record.diagnostics.droppedProviderEvents = (record.diagnostics.droppedProviderEvents || 0) + 1
             record.providerRequests = [...(record.providerRequests || []), event].slice(-100)

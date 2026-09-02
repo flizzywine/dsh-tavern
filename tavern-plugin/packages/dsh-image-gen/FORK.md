@@ -6,7 +6,7 @@
 ## 分工
 
 - 本插件负责供应商协议、凭据、配置、实际出图和 DSH 附件。
-- DSH Tavern 通过本机 Studio 接口调用整个插件，负责画面设计、剧情轮次绑定及重试控制。
+- DSH Tavern 通过同进程私有服务 `tavernImageConfiguration` 调用整个插件，负责画面设计、剧情轮次绑定及重试控制；Studio 接口保留供独立工作台使用。
 - 保留 upstream remote，独立功能提交，合并上游时运行完整测试，不覆盖我们的供应商实现。
 
 ## Grok 首批接入
@@ -17,8 +17,8 @@
 - 使用 xAI `aspect_ratio`、`resolution` 与 `response_format=b64_json`；不把 OpenAI 的 `size` 参数套到 xAI 上。
 - 按图片内容区分 PNG/JPEG/WebP，附件由 DSH 再验证和保存；不下载临时 URL，不转发 Key，不自动重试收费请求。
 - 暂不支持 Grok 图生图/参考图；Studio 的能力查询明确报告 `supportsEditing=false`。
-- 不自动读取或搬迁 Tavern 的 Grok Key；原 Tavern 配置与旧图片不变。
-- 本次不增加免费鉴权按钮；插件原有“Key 已配置”只表示凭据存在，不能当作鉴权通过。Tavern 内置 Grok 的只读鉴权仍保留，后续可独立迁入插件。
+- 不自动搬迁 Tavern 的 Grok Key；旧配置需用户在统一设置中点击保存后才迁移，旧图片不变。
+- 统一设置的免费鉴权与模型列表已迁入本插件。Grok 官方用只读 `/api-key` 验证；凭据存在不等于鉴权通过，鉴权通过不保证图片权限或余额。
 
 协议依据：[xAI 官方文档](https://docs.x.ai/developers/model-capabilities/images/generation)。测试使用模拟供应商，不代表真实出图或画质验收；未发布 npm 包。
 
@@ -35,5 +35,13 @@
 - 维护者在本目录运行 `pnpm install --frozen-lockfile`，然后在 Tavern 根目录运行 `pnpm run build:image-gen`、`pnpm run test:image-gen`。修改源码必须一并提交构建产物；CI 检查二者同步。
 - 安装时服务端外部依赖全部链接到当前 DSH 宿主；不会另装一套 Cordis 或 DSH。开发依赖仅用于维护者构建测试。
 - 保留完整源码、测试、上游文档、MIT 许可证和作者信息。上游 README 的 npm 安装说明仅供独立插件参考，不是 Tavern 的安装方式。
-- 生图仍默认关闭；不会迁移 Tavern 旧渠道的 Key，也不会自动调用收费接口。此次未修改用户当前运行 Profile。
-- 内置 bundle 设置 `registerAgentTools: false`，不向 Agent 直接暴露 `generate_image` / `edit_image`，避免绕过 Tavern 的手动生图与轮次绑定。完整实现仍保留，Studio 接口及插件界面不受影响；插件工作台的手动操作仍遵循其自身配置。
+- 生图仍默认关闭；旧渠道配置在明确保存时迁移，不自动调用收费接口。
+- 内置 bundle 设置 `registerAgentTools: false`，不向 Agent 直接暴露 `generate_image` / `edit_image`，并隐藏重复的插件设置卡片。Studio 接口和工作台保留；插件工作台手动操作仍遵循其自身配置。
+
+## 统一 Tavern 设置
+
+`src/configuration.js` 是私有配置/鉴权/模型/生图服务。`src/tavern/` 接收原 Tavern 九种渠道实现，保留授权参考图、ComfyUI 任务恢复和安全下载，不重写供应商行为。Tavern 原路径仅兼容导出，新增供应商在本插件维护。
+
+云端设置与凭据复用原插件字段；补充参数及其他渠道存为不含 Key 的 `tavernChannels` JSON。Key 只进 DSH 凭据库。保存、捕获和生成共用串行边界，Studio 同样遵守；地址变更不复用旧 Key。返回已收到的字节供 Tavern 做持久保存恢复，附件失败不触发重复生成。统一接口不额外写入工作区副本。
+
+测试：Tavern 根目录 `node --test tests/scene-image*.test.mjs`；`tests/fixtures/scene-image-unified-ui.mjs` 可用实际构建的插件与 Tavern 设置组件做模拟浏览器验证，不请求真实供应商。界面测试不能替代真实出图验收。
