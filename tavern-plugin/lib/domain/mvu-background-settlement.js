@@ -400,8 +400,7 @@ export function createMvuSettlementModule(options = {}) {
       document: input.characterDesignDocument,
       currentVariables: input.currentVariables,
       variableSchema: frame.authoritativeState.variableSchema,
-      now: options.now,
-      id: options.characterId
+      now: options.now
     })
     let attempt = 0
     let result = null

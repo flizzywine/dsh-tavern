@@ -1,5 +1,3 @@
-import { randomUUID } from 'node:crypto'
-
 export const CHARACTER_DESIGN_READ_TOOL_NAME = 'character_design_read'
 export const CHARACTER_DESIGN_SAVE_TOOL_NAME = 'character_design_save'
 
@@ -42,7 +40,11 @@ function text(value, field, limit = 4000) {
 function normalizeDocument(value) {
   const source = object(clone(value))
   const characters = Array.isArray(source.characters)
-    ? source.characters.filter(function (item) { return item !== null && typeof item === 'object' && !Array.isArray(item) }).map(clone)
+    ? source.characters.filter(function (item) { return item !== null && typeof item === 'object' && !Array.isArray(item) }).map(function (item) {
+      const normalized = clone(item)
+      delete normalized.id
+      return normalized
+    })
     : []
   return Object.assign({}, source, { spec: SPEC, version: 1, characters })
 }
@@ -63,14 +65,13 @@ const mvuFieldsProperty = Object.freeze({
 
 export const CHARACTER_DESIGN_READ_TOOL = Object.freeze({
   name: CHARACTER_DESIGN_READ_TOOL_NAME,
-  description: '读取当前对话的人物设计档案。无参数时返回精简索引及 mvuCoverage 完整性；需要复用、补全或修改某人时按 characterId 或姓名读取完整方案。',
+  description: '读取当前对话的人物设计档案。无参数时返回精简索引及 mvuCoverage 完整性；需要复用、补全或修改某人时按姓名读取完整方案。',
   countsTowardLimit: false,
   parameters: Object.freeze({
     type: 'object',
     additionalProperties: false,
     properties: {
-      characterId: stringProperty('索引返回的稳定人物编号。'),
-      name: stringProperty('没有编号时按人物姓名查找。')
+      name: stringProperty('索引返回的人物姓名。')
     }
   })
 })
@@ -82,7 +83,6 @@ export const CHARACTER_DESIGN_SAVE_TOOL = Object.freeze({
     type: 'object',
     additionalProperties: false,
     properties: {
-      characterId: stringProperty('更新既有人物时传入索引中的稳定编号；新建时省略。'),
       name: stringProperty('人物姓名。'),
       aliases: { type: 'array', description: '可选别名。', items: { type: 'string' } },
       mvuPath: stringProperty('该人物在当前卡 stat_data 下的 JSON Pointer，例如 /在场女生/人物名。'),
@@ -226,13 +226,12 @@ function pointerForCharacter(variables, character) {
 /** One settlement-local draft. The caller persists document() only with its atomic Chat commit. */
 export function createCharacterDesignDocumentSession(options = {}) {
   const now = typeof options.now === 'function' ? options.now : Date.now
-  const makeId = typeof options.id === 'function' ? options.id : function () { return 'character-' + randomUUID() }
   const original = normalizeDocument(options.document)
   const variableSchema = clone(object(options.variableSchema))
   const currentVariables = clone(object(options.currentVariables))
   let current = clone(original)
   let dirty = false
-  const changedIds = new Set()
+  const changedNames = new Set()
 
   function coverage(character) {
     const projection = object(character && character.mvuProjection)
@@ -249,16 +248,14 @@ export function createCharacterDesignDocumentSession(options = {}) {
   }
 
   function find(input) {
-    const characterId = str(input.characterId).trim()
     const name = str(input.name).trim()
-    if (characterId !== '') return current.characters.find(function (item) { return str(item.id) === characterId })
     if (name !== '') return current.characters.find(function (item) { return str(item.name) === name })
     return undefined
   }
 
   function read(args) {
     const input = object(args)
-    const requested = str(input.characterId).trim() !== '' || str(input.name).trim() !== ''
+    const requested = str(input.name).trim() !== ''
     if (requested) {
       const character = find(input)
       return character === undefined
@@ -270,7 +267,6 @@ export function createCharacterDesignDocumentSession(options = {}) {
       characters: current.characters.map(function (item) {
         const design = object(item.design)
         return {
-          characterId: str(item.id),
           name: str(item.name),
           identity: str(design.identity),
           narrativeRole: str(design.narrativeRole),
@@ -287,14 +283,10 @@ export function createCharacterDesignDocumentSession(options = {}) {
     const aliases = Array.isArray(input.aliases)
       ? Array.from(new Set(input.aliases.map(function (item) { return text(item, 'aliases', 200) })))
       : []
-    const requestedId = str(input.characterId).trim()
     let existing = find(input)
-    if (requestedId !== '' && existing === undefined) throw new Error('人物档案不存在：' + requestedId + '；请重新读取索引后再保存')
-    if (existing === undefined) existing = current.characters.find(function (item) { return str(item.name) === name })
     const created = existing === undefined
     const timestamp = Math.max(0, Number(now()) || 0)
     const character = Object.assign({}, existing || {}, {
-      id: created ? str(makeId()) : str(existing.id),
       name,
       aliases,
       design: designFrom(input),
@@ -302,7 +294,6 @@ export function createCharacterDesignDocumentSession(options = {}) {
       createdAt: created ? timestamp : Math.max(0, Number(existing.createdAt) || timestamp),
       updatedAt: timestamp
     })
-    if (character.id === '') throw new Error('人物设计工具未能生成有效人物编号')
     const characters = current.characters.slice()
     if (created) characters.push(character)
     else characters[characters.indexOf(existing)] = character
@@ -312,17 +303,17 @@ export function createCharacterDesignDocumentSession(options = {}) {
       updatedAt: timestamp
     })
     dirty = true
-    changedIds.add(character.id)
-    return { ok: true, created, characterId: character.id, name: character.name, revision: current.revision }
+    changedNames.add(character.name)
+    return { ok: true, created, name: character.name, revision: current.revision }
   }
 
   function validateSubmission(operations) {
     for (const character of current.characters) {
       const currentCoverage = coverage(character)
-      if (currentCoverage.status === 'incomplete' && !changedIds.has(str(character.id))) {
+      if (currentCoverage.status === 'incomplete' && !changedNames.has(str(character.name))) {
         throw new Error('人物 ' + character.name + ' 的 MVU 档案不完整（' + currentCoverage.error + '）；请先调用 skill 加载 tavern-character-design，再调用 character_design_save 补全后提交变量。')
       }
-      if (!changedIds.has(str(character.id))) continue
+      if (!changedNames.has(str(character.name))) continue
       const projection = object(character.mvuProjection)
       const path = str(projection.path)
       const normalizedOperations = operations.map(function (item) {

@@ -40,21 +40,21 @@ const completeDesign = Object.freeze({
 })
 
 test('人物档案先索引、后完整读取，并在同名保存时更新而非重复创建', async () => {
-  const session = createCharacterDesignDocumentSession({ variableSchema, now: () => 100, id: () => 'character-1' })
+  const session = createCharacterDesignDocumentSession({ variableSchema, now: () => 100 })
   const empty = JSON.parse(await session.execute({ name: CHARACTER_DESIGN_READ_TOOL_NAME, arguments: {} }))
   assert.deepEqual(empty.characters, [])
 
   const saved = JSON.parse(await session.execute({ name: CHARACTER_DESIGN_SAVE_TOOL_NAME, arguments: completeDesign }))
   assert.equal(saved.ok, true)
   assert.equal(saved.created, true)
-  assert.equal(saved.characterId, 'character-1')
+  assert.equal(saved.name, '鹿野栞')
 
   const index = JSON.parse(await session.execute({ name: CHARACTER_DESIGN_READ_TOOL_NAME, arguments: {} }))
   assert.deepEqual(index.characters, [{
-    characterId: 'character-1', name: '鹿野栞', identity: completeDesign.identity,
+    name: '鹿野栞', identity: completeDesign.identity,
     narrativeRole: completeDesign.narrativeRole, mvuCoverage: { status: 'not-projected', path: '/在场女生/鹿野栞' }, updatedAt: 100
   }])
-  const full = JSON.parse(await session.execute({ name: CHARACTER_DESIGN_READ_TOOL_NAME, arguments: { characterId: 'character-1' } }))
+  const full = JSON.parse(await session.execute({ name: CHARACTER_DESIGN_READ_TOOL_NAME, arguments: { name: '鹿野栞' } }))
   assert.equal(full.character.design.behaviorStyle, completeDesign.behaviorStyle)
   assert.equal(full.character.design.defaultPresentation, completeDesign.defaultPresentation)
   assert.throws(function () {
@@ -73,7 +73,7 @@ test('人物档案先索引、后完整读取，并在同名保存时更新而�
 
 test('人物档案拒绝不完整设计和未知占位值，且不修改输入文档', async () => {
   const source = { spec: 'dsh-tavern.character-design-document', version: 1, characters: [] }
-  const session = createCharacterDesignDocumentSession({ document: source, variableSchema, now: () => 100, id: () => 'character-1' })
+  const session = createCharacterDesignDocumentSession({ document: source, variableSchema, now: () => 100 })
 
   const incomplete = JSON.parse(await session.execute({
     name: CHARACTER_DESIGN_SAVE_TOOL_NAME,
@@ -98,5 +98,16 @@ test('人物档案只为已有重要人物提供复用索引，不设置每轮�
   const saveTool = session.tools.find(tool => tool.name === CHARACTER_DESIGN_SAVE_TOOL_NAME)
   assert.match(saveTool.description, /完整.*方案/)
   assert.deepEqual(saveTool.parameters.required.slice(0, 3), ['name', 'mvuPath', 'mvuFields'])
+  assert.doesNotMatch(JSON.stringify(session.tools), /characterId/)
   assert.doesNotMatch(JSON.stringify(saveTool), /最多|上限|每轮只能|一次只能/)
+})
+
+test('旧人物编号读取后自动退出文档协议', () => {
+  const session = createCharacterDesignDocumentSession({
+    document: {
+      spec: 'dsh-tavern.character-design-document', version: 1,
+      characters: [{ id: 'character-legacy', name: '鹿野栞', aliases: [], design: completeDesign }]
+    }
+  })
+  assert.equal(Object.hasOwn(session.document().characters[0], 'id'), false)
 })

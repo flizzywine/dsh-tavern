@@ -98,7 +98,6 @@ test('人物完整档案先在结算内暂存，成功后与 MVU 投影一起返
   const sourceDocument = { spec: 'dsh-tavern.character-design-document', version: 1, characters: [] }
   const module = createMvuSettlementModule({
     now: () => 100,
-    characterId: () => 'character-1',
     model: { async run(input) {
       const index = JSON.parse(await input.onToolCall({ name: CHARACTER_DESIGN_READ_TOOL_NAME, arguments: {} }))
       assert.deepEqual(index.characters, [])
@@ -146,7 +145,6 @@ test('人物设计必须覆盖当前 MVU 人物模板，残缺投影不能写入
   const module = createMvuSettlementModule({
     maxAttempts: 3,
     now: () => 100,
-    characterId: () => 'character-1',
     model: { async run(input) {
       const index = JSON.parse(await input.onToolCall({ name: CHARACTER_DESIGN_READ_TOOL_NAME, arguments: {} }))
       assert.equal(index.characters[0].mvuCoverage.status, 'incomplete')
@@ -162,7 +160,7 @@ test('人物设计必须覆盖当前 MVU 人物模板，残缺投影不能写入
       const rejectedDesign = JSON.parse(await input.onToolCall({
         name: CHARACTER_DESIGN_SAVE_TOOL_NAME,
         arguments: {
-          ...fullCharacterDesign, characterId: 'character-1',
+          ...fullCharacterDesign,
           mvuPath: '/在场女生/鹿野栞',
           mvuFields: { ...fullCharacterMvuFields, 袜子: '未明确' }
         }
@@ -174,7 +172,7 @@ test('人物设计必须覆盖当前 MVU 人物模板，残缺投影不能写入
       const saved = JSON.parse(await input.onToolCall({
         name: CHARACTER_DESIGN_SAVE_TOOL_NAME,
         arguments: {
-          ...fullCharacterDesign, characterId: 'character-1',
+          ...fullCharacterDesign,
           mvuPath: '/在场女生/鹿野栞', mvuFields: fullCharacterMvuFields
         }
       }))
