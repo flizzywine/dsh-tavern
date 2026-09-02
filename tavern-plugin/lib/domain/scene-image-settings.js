@@ -12,15 +12,16 @@ function selection(doc, provider = doc.provider) {
 }
 
 /** Provider preview is read-only; saving a different provider requires opting in again. */
-export function createSceneImageSettings({ store, credentials }) {
+export function createSceneImageSettings({ store, credentials, imagePlugin }) {
   let pending = Promise.resolve()
-  async function config() { return selection(document(await store.readJson(path) || {})) }
+  const resolve = value => imagePlugin ? imagePlugin.resolve(value) : value
+  async function config() { return resolve(selection(document(await store.readJson(path) || {}))) }
   async function capture() {
     let snapshot
     // Share the settings write lock: never pair an old endpoint with a key
     // saved by a concurrent channel edit. No settings write is performed here.
     await store.updateJson(path, async value => {
-      const active = selection(document(value || {}))
+      const active = await resolve(selection(document(value || {})))
       const key = channelNeedsKey(active) ? await credentials()?.resolve(imageCredentialRef(active.provider, active.authType)) : undefined
       snapshot = { active, apiKey: key?.value || '' }
       return undefined
@@ -29,8 +30,8 @@ export function createSceneImageSettings({ store, credentials }) {
   }
   async function settings(provider) {
     const doc = document(await store.readJson(path) || {})
-    const current = selection(doc, provider)
-    const key = await credentials()?.resolve(imageCredentialRef(current.provider, current.authType))
+    const current = await resolve(selection(doc, provider))
+    const key = channelNeedsKey(current) ? await credentials()?.resolve(imageCredentialRef(current.provider, current.authType)) : undefined
     return { ...current, activeProvider: doc.provider, channels: SCENE_IMAGE_CHANNELS, stylePresets: SCENE_STYLE_PRESETS, hasKey: Boolean(key?.value), ready: channelReady(current, key?.value) }
   }
   function configure(input = {}) {
@@ -46,12 +47,12 @@ export function createSceneImageSettings({ store, credentials }) {
     await store.updateJson(path, async value => {
       const doc = document(value || {})
       const provider = input.provider ?? doc.provider
-      const current = selection(doc, provider)
+      const current = await resolve(selection(doc, provider))
       const next = channelSettings({ ...current, ...input }, provider)
       const ref = imageCredentialRef(provider, next.authType)
-      const suppliedKey = next.authType === 'basic' ? input.apiKey : input.apiKey?.trim()
+      const suppliedKey = channelNeedsKey(next) ? (next.authType === 'basic' ? input.apiKey : input.apiKey?.trim()) : undefined
       const credentialStore = credentials()
-      const key = await credentialStore?.resolve(ref)
+      const key = channelNeedsKey(next) ? await credentialStore?.resolve(ref) : undefined
       const switched = provider !== doc.provider || next.authType !== current.authType
       // An enable call cannot simultaneously introduce a new channel/config.
       const changed = JSON.stringify(channelSettings(current)) !== JSON.stringify(next) || Boolean(suppliedKey)
@@ -61,7 +62,7 @@ export function createSceneImageSettings({ store, credentials }) {
         if (typeof credentialStore?.set !== 'function') throw new Error('当前 DSH 不支持保存凭据，请配置 ' + ref)
         await credentialStore.set(ref, suppliedKey)
       }
-      const ready = channelReady(next, suppliedKey || key?.value)
+      const ready = channelReady({ ...next, pluginReady: current.pluginReady }, suppliedKey || key?.value)
       return { ...doc, provider, style, enabled: ready && !switched && (input.enabled ?? doc.enabled), providers: { ...doc.providers, [provider]: next } }
     })
     return settings()

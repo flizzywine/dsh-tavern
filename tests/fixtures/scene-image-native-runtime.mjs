@@ -94,6 +94,18 @@ export async function createSceneImageNativeRuntime(bootPath) {
   let failNext = false, holdNext = false
   const imageServer = createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost')
+    if (process.env.SCENE_BROWSER_PLUGIN === '1' && url.pathname === '/plugins/dsh-image-gen/studio') {
+      res.setHeader('Content-Type', 'application/json')
+      if (req.method === 'GET') {
+        res.end(JSON.stringify({ activeProvider: 'openai', providers: [{ provider: 'openai', model: 'fixture-plugin-image', configured: true, defaultRatio: '1:1', defaultQuality: 'standard', ratioOptions: [{ value: '1:1' }], qualityOptions: [{ value: 'standard' }] }] }))
+      } else {
+        let body = ''; for await (const chunk of req) body += chunk
+        imageRequests.push(JSON.parse(body))
+        const attachment = await ctx.attachments.saveImage({ data: png, mediaType: 'image/png', name: 'plugin-fixture' })
+        res.end(JSON.stringify({ provider: 'openai', model: 'fixture-plugin-image', attachment }))
+      }
+      return
+    }
     if (req.method === 'GET' && url.pathname.endsWith('/view')) { res.setHeader('Content-Type', 'image/png'); res.end(png); return }
     if (req.method === 'GET' && url.pathname.includes('/history/')) {
       const id = url.pathname.split('/').pop()
@@ -122,6 +134,7 @@ export async function createSceneImageNativeRuntime(bootPath) {
   const store = createProfileDataStore({ dataRoot: root })
   const worldbooks = createSceneWorldbooks({ store })
   const deps = {
+    webServer: () => process.env.SCENE_BROWSER_PLUGIN === '1' ? { port: imageServer.address().port } : undefined,
     store, chatForSession: async () => structuredClone(chat),
     worldbookAtTarget: (chat, target) => worldbooks.read(sceneWorldbookBinding(chat, target)),
     selection: () => ({ provider: 'scene-fixture', model: 'fixture-text' }),

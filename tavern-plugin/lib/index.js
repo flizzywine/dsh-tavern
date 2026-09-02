@@ -1236,6 +1236,7 @@ export async function apply(ctx) {
   })
   ctx.effect(() => () => backgroundAgentRunner.dispose(), 'dsh-tavern: dispose resident background agents')
   const sceneIllustrations = TAVERN_RELEASE_CAPABILITIES.sceneImages ? createSceneIllustrations({
+    webServer: () => ctx.get('webServer'),
     store: profileData, diagnostics: sceneDiagnostics, chatForSession, selection: modelSelection,
     worldbookAtTarget: async (chat, target) => {
       try { return await sceneWorldbooks.read(sceneWorldbookBinding(chat, target)) }

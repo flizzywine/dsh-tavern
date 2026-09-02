@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { projectAgentContent } from './runtime-content-projection.js'
 import { generateSceneImage } from './scene-image-provider.js'
+import { createSceneImagePlugin } from './scene-image-plugin.js'
 import { createSceneImageSettings } from './scene-image-settings.js'
 import { createSceneImageConnection } from './scene-image-connection.js'
 import { channelSettings, channelReady, imageExpressionProfile, imageExpressionGuidance } from './scene-image-channels.js'
@@ -113,7 +114,8 @@ export function createSceneIllustrations(deps) {
   }
   imageHosts.set(ownerId, path => jobs.has(path) || starts.has(path))
   imageAborters.set(ownerId, (path, requestId) => { const job = jobs.get(path); if (job?.requestId === requestId) job.controller.abort() })
-  const { config, settings, configure, capture } = createSceneImageSettings(deps)
+  const imagePlugin = createSceneImagePlugin(deps)
+  const { config, settings, configure, capture } = createSceneImageSettings({ ...deps, imagePlugin })
   const connection = createSceneImageConnection({ settings, credentials: deps.credentials, fetchImpl: deps.fetchImpl })
   const plans = createScenePlans({ store: deps.store })
   const styles = createSceneImageStyles({ store: deps.store })
@@ -241,7 +243,7 @@ export function createSceneIllustrations(deps) {
       // A failure may reach disk just before the job's finally removes its handle.
       // An explicit retry waits for that cleanup, rather than returning the old failure.
       if (jobs.has(path)) await jobs.get(path).promise
-      if (!channelReady(active, apiKey)) throw new Error('请先在设置中完成生图渠道配置（地址、模型或 API Key）')
+      if (!channelReady(active, apiKey)) throw new Error(active.pluginError || '请先在设置中完成生图渠道配置（地址、模型或 API Key）')
       const selectedImageReferences = await imageReferences.select({ chatId: chat.id, lineage: sceneLineage(chat, target), config: active })
       if (typeof deps.attachments()?.saveImage !== 'function' || typeof deps.attachments()?.readImage !== 'function') throw new Error('当前 DSH 未提供图片附件服务，无法保存插画')
       const profile = imageExpressionProfile(active)
@@ -403,7 +405,7 @@ export function createSceneIllustrations(deps) {
         await writeJob(path, record)
         controller.signal.throwIfAborted()
         attempted = true
-        try { return await (deps.generate || generateSceneImage)({ ...active, apiKey: input.apiKey, prompt, plan, referenceImages: reference.images, providerTask: record.providerTask,
+        try { return await (active.provider === 'dsh-image-gen' ? imagePlugin.generate : deps.generate || generateSceneImage)({ ...active, apiKey: input.apiKey, prompt, plan, referenceImages: reference.images, providerTask: record.providerTask,
           async onProviderRequest(event) {
             if ((record.providerRequests || []).length >= 100) record.diagnostics.droppedProviderEvents = (record.diagnostics.droppedProviderEvents || 0) + 1
             record.providerRequests = [...(record.providerRequests || []), event].slice(-100)
@@ -414,6 +416,7 @@ export function createSceneIllustrations(deps) {
       record.stage = 'saving'
       record.recovery = 'save'
       record.outcome = 'received'
+      if (generated.attachment) record.savedAttachment = generated.attachment
       await pendingImages.put(path, record.requestId, generated, deps.attachments()?.imageLimits?.maxImageBytes)
       await writeJob(path, record)
       await savePendingImage(path, record, controller.signal)

@@ -16,6 +16,46 @@ const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR
 const imagePath = 'scene-images/' + createHash('sha256').update('test-chat').digest('hex') + '/'
 const chatFixture = () => ({ id: 'test-chat', mode: 'story', sessionId: 'parent', settleStatus: 'done', posture: '站在窗边，左手扶窗', messages: [{ role: 'user', text: '走到窗边' }, { role: 'assistant', turn: 2, sourceText: '她站在窗边看雨。', swipes: ['她站在窗边看雨。', '她坐在椅子上。'], swipeId: 0 }] })
 const planFixture = (tags = 'A woman standing at a rainy window') => ({ description: '窗边一景', subjects: [], characters: [], continuity: 'uncertain', scene: { composition: { text: '窗边一景', tags, evidence: [] } } })
+
+test('optional image plugin integrates with the existing round journal, reuses attachment and survives restart', async t => {
+  let posts = 0
+  const attachment = { attachmentId: 'plugin-image', mediaType: 'image/png' }
+  const fx = await fixture(t, {
+    webServer: () => ({ port: 3081 }),
+    fetchImpl: async (_url, init) => {
+      if (init.method === 'POST') { posts++; return Response.json({ provider: 'openai', model: 'plugin-model', attachment }) }
+      return Response.json({ activeProvider: 'openai', providers: [{ provider: 'openai', model: 'plugin-model', configured: true, defaultRatio: '1:1', defaultQuality: 'standard', ratioOptions: [{ value: '1:1' }], qualityOptions: [{ value: 'standard' }] }] })
+    },
+    attachments: () => ({ saveImage: async () => assert.fail('must reuse existing plugin attachment'), readImage: async () => ({ data: png, mediaType: 'image/png' }) }),
+    generate: async () => assert.fail('must not call the built-in provider')
+  })
+  const original = structuredClone(fx.chat())
+  const preview = await fx.service.settings('dsh-image-gen')
+  assert.equal(preview.ready, true)
+  assert.equal(preview.hasKey, false)
+  await fx.service.configure({ provider: 'dsh-image-gen', apiKey: 'must-not-save' })
+  assert.equal((await fx.service.settings()).enabled, false)
+  await fx.service.configure({ enabled: true })
+  assert.equal(posts, 0)
+  const key = sceneTarget(fx.chat(), 2).key
+  await fx.service.start('parent', 2, key)
+  const done = await until(async () => { const status = await fx.service.status('parent', 2); return status.status === 'succeeded' && status })
+  assert.equal(posts, 1)
+  assert.deepEqual(fx.chat(), original)
+  assert.equal(done.model, 'plugin-model')
+  const restarted = fx.createService()
+  assert.equal((await restarted.status('parent', 2)).status, 'succeeded')
+  await restarted.start('parent', 2, key)
+  assert.equal(posts, 1)
+})
+
+test('missing image plugin cannot be enabled and does not break the built-in provider', async t => {
+  const fx = await fixture(t)
+  assert.equal((await fx.service.settings('dsh-image-gen')).ready, false)
+  await fx.service.configure({ provider: 'dsh-image-gen' })
+  await assert.rejects(fx.service.configure({ enabled: true }), /完整生图配置/)
+  assert.equal((await fx.service.settings('openai')).ready, true)
+})
 async function until(check) { for (let n = 0; n < 400; n++) { const value = await check(); if (value) return value; await new Promise(resolve => setTimeout(resolve, 10)) } throw new Error('condition timeout') }
 
 test('OpenAI compatible request, inline data and remote download never forward key', async () => {
