@@ -11,7 +11,7 @@ function fixture(initial = {}, doc, options = {}) {
     set: async (ref, value) => { keys.set(ref, value) } }
   const service = createImageConfiguration({ read: () => plugin, write: async patch => { writes.push(patch); plugin = { ...plugin, ...patch } }, credentials,
     attachments: { saveImage: async () => { if (options.failAttachment) throw new Error('disk unavailable'); return { attachmentId: 'mock-image' } } },
-    fetchImpl: async (url, options) => { calls.push({ url, options }); return Response.json(url.endsWith('/images/generations') ? { data: [{ b64_json: png.toString('base64') }] } : { api_key_disabled: false, api_key_blocked: false, team_blocked: false }) } })
+    fetchImpl: async (url, request) => { calls.push({ url, options: request }); if (options.fetch) return options.fetch(url, request); return Response.json(url.endsWith('/images/generations') ? { data: [{ b64_json: png.toString('base64') }] } : { api_key_disabled: false, api_key_blocked: false, team_blocked: false }) } })
   const settings = createPluginSceneImageSettings({ imagePluginService: () => service, credentials: () => credentials,
     store: { readJson: async () => stored, updateJson: async (_path, fn) => { const next = await fn(stored); if (next !== undefined) stored = next } } })
   return { service, settings, keys, calls, writes, readPlugin: () => plugin, readDoc: () => stored }
@@ -41,6 +41,45 @@ test('统一 UI 保存到插件，Key 只在凭据库，捕获与生图使用同
   assert.equal(f.calls[0].options.method, 'GET')
   assert.equal(f.calls[0].options.headers.authorization, 'Bearer private-key')
   assert.equal(JSON.stringify(probe).includes('private-key'), false)
+})
+
+async function promptly(promise) {
+  let timer
+  try { return await Promise.race([promise, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('configuration blocked by image HTTP')), 1000) })]) }
+  finally { clearTimeout(timer) }
+}
+
+test('生图中可保存新配置，旧请求保留原地址与 Key，下一次捕获得到新配对', async () => {
+  const entered = Promise.withResolvers(), release = Promise.withResolvers()
+  const f = fixture({}, undefined, { fetch: async () => { entered.resolve(); await release.promise; return Response.json({ data: [{ b64_json: png.toString('base64') }] }) } })
+  await f.settings.configure({ provider: 'grok', apiKey: 'old-key' })
+  const { active, apiKey } = await f.settings.capture()
+  const generation = f.service.generate({ ...active, apiKey, prompt: 'a lake', signal: new AbortController().signal, maxBytes: 1024 * 1024 })
+  try {
+    await promptly(entered.promise)
+    await promptly(f.settings.configure({ provider: 'grok', baseURL: 'https://new.example/v1', apiKey: 'new-key' }))
+    const next = await promptly(f.settings.capture())
+    assert.equal(next.active.baseURL, 'https://new.example/v1')
+    assert.equal(next.apiKey, 'new-key')
+    assert.equal(f.calls.length, 1)
+    assert.equal(f.calls[0].url, 'https://api.x.ai/v1/images/generations')
+    assert.equal(f.calls[0].options.headers.authorization, 'Bearer old-key')
+  } finally { release.resolve(); await generation }
+})
+
+test('等待配置锁时取消，解锁后不能开始付费请求', async () => {
+  const f = fixture()
+  await f.settings.configure({ provider: 'grok', apiKey: 'test-key' })
+  const { active, apiKey } = await f.settings.capture()
+  const gate = Promise.withResolvers()
+  const lock = f.service.serial(() => gate.promise)
+  const controller = new AbortController()
+  const rejected = assert.rejects(f.service.generate({ ...active, apiKey, prompt: 'a lake', signal: controller.signal }), { name: 'AbortError' })
+  controller.abort()
+  gate.resolve()
+  await lock
+  await rejected
+  assert.equal(f.calls.length, 0)
 })
 
 test('统一服务请求一次图片并复用附件；配置变化在付费请求前拒绝', async () => {

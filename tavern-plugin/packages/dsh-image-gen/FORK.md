@@ -42,6 +42,6 @@
 
 `src/configuration.js` 是私有配置/鉴权/模型/生图服务。`src/tavern/` 接收原 Tavern 九种渠道实现，保留授权参考图、ComfyUI 任务恢复和安全下载，不重写供应商行为。Tavern 原路径仅兼容导出，新增供应商在本插件维护。
 
-云端设置与凭据复用原插件字段；补充参数及其他渠道存为不含 Key 的 `tavernChannels` JSON。Key 只进 DSH 凭据库。保存、捕获和生成共用串行边界，Studio 同样遵守；地址变更不复用旧 Key。返回已收到的字节供 Tavern 做持久保存恢复，附件失败不触发重复生成。统一接口不额外写入工作区副本。
+云端设置与凭据复用原插件字段；补充参数及其他渠道存为不含 Key 的 `tavernChannels` JSON。Key 只进 DSH 凭据库。配置保存、捕获与请求前校验共用短时串行边界；图片 HTTP 和附件保存必须在锁外执行，不能阻塞状态查询及设置。Studio 使用 `prepareStudioGeneration` 冻结配置和凭据后释放锁。已发请求不混用后来的配置，地址变更不复用旧 Key。返回已收到的字节供 Tavern 做持久保存恢复，附件失败不触发重复生成。统一接口不额外写入工作区副本。
 
 测试：Tavern 根目录 `node --test tests/scene-image*.test.mjs`；`tests/fixtures/scene-image-unified-ui.mjs` 可用实际构建的插件与 Tavern 设置组件做模拟浏览器验证，不请求真实供应商。界面测试不能替代真实出图验收。

@@ -1677,151 +1677,158 @@ async function describeStudio(ctx, config) {
 		activeProvider: preferred !== void 0 && cloudProvider$1(preferred) ? preferred : profiles.find((profile) => profile.configured)?.provider ?? "google"
 	};
 }
-/** Execute one validated browser workbench request using the existing provider adapters. */
-async function generateFromStudio(ctx, config, input, signal, fallbackWorkspaceRoot) {
+/** Capture endpoint and credential under the caller's short configuration lock.
+* The returned operation performs attachment IO and HTTP only after release. */
+async function prepareStudioGeneration(ctx, config, input, signal, fallbackWorkspaceRoot) {
+	signal.throwIfAborted();
+	config = structuredClone(config);
+	input = structuredClone(input);
 	assertAllowed(studioProfile(config, input.provider, true), input);
 	const active = resolveProvider(providerConfig(config, input.provider, input.model));
 	if (active.provider === "comfyui") throw new Error("ComfyUI 暂未接入工作台");
-	const credential = await ctx.credentials.resolve(credentialRef(active.apiKeyEnv));
+	const credential = structuredClone(await ctx.credentials.resolve(credentialRef(active.apiKeyEnv)));
 	if (credential === void 0 || credential.value.trim().length === 0) throw new Error(`${PROVIDER_LABELS[input.provider]} 尚未配置 API Key，请先到设置中配置`);
-	const rawRefs = input.references ?? (input.reference ? [input.reference] : []);
-	if (input.mode === "edit" && rawRefs.length === 0) throw new Error("图生图需要至少一张参考图");
-	const sourceImages = input.mode === "edit" ? await Promise.all(rawRefs.map((ref) => readStudioReference(ctx, ref, signal))) : [];
-	const startedAt = Date.now();
-	let generated;
-	let output;
-	if (active.provider === "grok") {
-		generated = await generateGrokImage({
-			apiKey: credential.value,
-			baseURL: active.baseURL,
-			model: active.model,
-			prompt: input.prompt,
-			aspectRatio: input.ratio,
-			resolution: input.quality,
-			maxBytes: ctx.attachments.imageLimits.maxImageBytes,
-			signal
-		});
-		output = `${input.ratio}, ${input.quality}`;
-	} else if (active.provider === "google") {
-		const aspectRatio = input.ratio;
-		const imageSize = input.quality;
-		generated = input.mode === "edit" ? await editGoogleImage({
-			apiKey: credential.value,
-			endpoint: active.endpoint,
-			model: active.model,
-			prompt: input.prompt,
-			sourceImages,
-			aspectRatio,
-			imageSize,
-			maxBytes: ctx.attachments.imageLimits.maxImageBytes,
-			signal
-		}) : await generateGoogleImage({
-			apiKey: credential.value,
-			endpoint: active.endpoint,
-			model: active.model,
-			prompt: input.prompt,
-			aspectRatio,
-			imageSize,
-			maxBytes: ctx.attachments.imageLimits.maxImageBytes,
-			signal
-		});
-		output = `${aspectRatio}, ${imageSize}`;
-	} else if (active.provider === "openai") {
-		const size = openAISize(input.ratio);
-		generated = input.mode === "edit" ? await editOpenAICompatibleImage({
-			apiKey: credential.value,
-			baseURL: active.baseURL,
-			model: active.model,
-			prompt: input.prompt,
-			sourceImages,
-			size,
-			maxBytes: ctx.attachments.imageLimits.maxImageBytes,
-			signal
-		}) : await generateOpenAICompatibleImage({
-			provider: "openai",
-			apiKey: credential.value,
-			baseURL: active.baseURL,
-			model: active.model,
-			prompt: input.prompt,
-			size,
-			maxBytes: ctx.attachments.imageLimits.maxImageBytes,
-			signal
-		});
-		output = size;
-	} else if (active.provider === "seedream") {
-		const size = input.quality;
-		generated = input.mode === "edit" ? await editSeedreamImage({
-			apiKey: credential.value,
-			baseURL: active.baseURL,
-			model: active.model,
-			prompt: input.prompt,
-			sourceImages,
-			size,
-			maxBytes: ctx.attachments.imageLimits.maxImageBytes,
-			signal
-		}) : await generateOpenAICompatibleImage({
-			provider: "seedream",
-			apiKey: credential.value,
-			baseURL: active.baseURL,
-			model: active.model,
-			prompt: input.prompt,
-			size,
-			maxBytes: ctx.attachments.imageLimits.maxImageBytes,
-			signal
-		});
-		output = size;
-	} else {
-		if (input.mode === "edit" && sourceImages.length > 3) throw new Error("DashScope (通义万相) 图生图目前最多支持 3 张参考图，请精简后重试");
-		const size = dashScopeSize(input.ratio);
-		generated = input.mode === "edit" ? await editDashScopeImage({
-			apiKey: credential.value,
-			endpoint: active.endpoint,
-			model: active.model,
-			prompt: input.prompt,
-			sourceImages,
-			size,
-			maxBytes: ctx.attachments.imageLimits.maxImageBytes,
-			signal
-		}) : await generateDashScopeImage({
-			apiKey: credential.value,
-			endpoint: active.endpoint,
-			model: active.model,
-			prompt: input.prompt,
-			size,
-			maxBytes: ctx.attachments.imageLimits.maxImageBytes,
-			signal
-		});
-		output = size;
-	}
-	if (!ctx.attachments.imageLimits.mediaTypes.includes(generated.mediaType)) throw new Error(`当前 DSH 不支持保存 ${generated.mediaType} 图片`);
-	const attachment = await ctx.attachments.saveImage({
-		data: generated.data,
-		mediaType: generated.mediaType,
-		name: "studio-image"
-	});
-	let savedTo;
-	const targetRoot = input.workspaceRoot || fallbackWorkspaceRoot;
-	if (config.saveToWorkspace !== false && targetRoot) try {
-		savedTo = await saveImageToWorkspace({
-			workspaceRoot: targetRoot,
-			folder: config.workspaceFolder,
-			attachmentId: attachment.attachmentId,
-			mediaType: generated.mediaType,
+	return async () => {
+		signal.throwIfAborted();
+		const rawRefs = input.references ?? (input.reference ? [input.reference] : []);
+		if (input.mode === "edit" && rawRefs.length === 0) throw new Error("图生图需要至少一张参考图");
+		const sourceImages = input.mode === "edit" ? await Promise.all(rawRefs.map((ref) => readStudioReference(ctx, ref, signal))) : [];
+		const startedAt = Date.now();
+		let generated;
+		let output;
+		if (active.provider === "grok") {
+			generated = await generateGrokImage({
+				apiKey: credential.value,
+				baseURL: active.baseURL,
+				model: active.model,
+				prompt: input.prompt,
+				aspectRatio: input.ratio,
+				resolution: input.quality,
+				maxBytes: ctx.attachments.imageLimits.maxImageBytes,
+				signal
+			});
+			output = `${input.ratio}, ${input.quality}`;
+		} else if (active.provider === "google") {
+			const aspectRatio = input.ratio;
+			const imageSize = input.quality;
+			generated = input.mode === "edit" ? await editGoogleImage({
+				apiKey: credential.value,
+				endpoint: active.endpoint,
+				model: active.model,
+				prompt: input.prompt,
+				sourceImages,
+				aspectRatio,
+				imageSize,
+				maxBytes: ctx.attachments.imageLimits.maxImageBytes,
+				signal
+			}) : await generateGoogleImage({
+				apiKey: credential.value,
+				endpoint: active.endpoint,
+				model: active.model,
+				prompt: input.prompt,
+				aspectRatio,
+				imageSize,
+				maxBytes: ctx.attachments.imageLimits.maxImageBytes,
+				signal
+			});
+			output = `${aspectRatio}, ${imageSize}`;
+		} else if (active.provider === "openai") {
+			const size = openAISize(input.ratio);
+			generated = input.mode === "edit" ? await editOpenAICompatibleImage({
+				apiKey: credential.value,
+				baseURL: active.baseURL,
+				model: active.model,
+				prompt: input.prompt,
+				sourceImages,
+				size,
+				maxBytes: ctx.attachments.imageLimits.maxImageBytes,
+				signal
+			}) : await generateOpenAICompatibleImage({
+				provider: "openai",
+				apiKey: credential.value,
+				baseURL: active.baseURL,
+				model: active.model,
+				prompt: input.prompt,
+				size,
+				maxBytes: ctx.attachments.imageLimits.maxImageBytes,
+				signal
+			});
+			output = size;
+		} else if (active.provider === "seedream") {
+			const size = input.quality;
+			generated = input.mode === "edit" ? await editSeedreamImage({
+				apiKey: credential.value,
+				baseURL: active.baseURL,
+				model: active.model,
+				prompt: input.prompt,
+				sourceImages,
+				size,
+				maxBytes: ctx.attachments.imageLimits.maxImageBytes,
+				signal
+			}) : await generateOpenAICompatibleImage({
+				provider: "seedream",
+				apiKey: credential.value,
+				baseURL: active.baseURL,
+				model: active.model,
+				prompt: input.prompt,
+				size,
+				maxBytes: ctx.attachments.imageLimits.maxImageBytes,
+				signal
+			});
+			output = size;
+		} else {
+			if (input.mode === "edit" && sourceImages.length > 3) throw new Error("DashScope (通义万相) 图生图目前最多支持 3 张参考图，请精简后重试");
+			const size = dashScopeSize(input.ratio);
+			generated = input.mode === "edit" ? await editDashScopeImage({
+				apiKey: credential.value,
+				endpoint: active.endpoint,
+				model: active.model,
+				prompt: input.prompt,
+				sourceImages,
+				size,
+				maxBytes: ctx.attachments.imageLimits.maxImageBytes,
+				signal
+			}) : await generateDashScopeImage({
+				apiKey: credential.value,
+				endpoint: active.endpoint,
+				model: active.model,
+				prompt: input.prompt,
+				size,
+				maxBytes: ctx.attachments.imageLimits.maxImageBytes,
+				signal
+			});
+			output = size;
+		}
+		if (!ctx.attachments.imageLimits.mediaTypes.includes(generated.mediaType)) throw new Error(`当前 DSH 不支持保存 ${generated.mediaType} 图片`);
+		const attachment = await ctx.attachments.saveImage({
 			data: generated.data,
-			signal
+			mediaType: generated.mediaType,
+			name: "studio-image"
 		});
-	} catch (saveError) {
-		ctx.logger.warn(`dsh-image-gen: studio failed to save image to workspace: ${saveError instanceof Error ? saveError.message : String(saveError)}`);
-	}
-	return {
-		attachment,
-		provider: input.provider,
-		model: input.model,
-		prompt: input.prompt,
-		output,
-		createdAt: Date.now(),
-		elapsedMs: Date.now() - startedAt,
-		...savedTo ? { savedTo } : {}
+		let savedTo;
+		const targetRoot = input.workspaceRoot || fallbackWorkspaceRoot;
+		if (config.saveToWorkspace !== false && targetRoot) try {
+			savedTo = await saveImageToWorkspace({
+				workspaceRoot: targetRoot,
+				folder: config.workspaceFolder,
+				attachmentId: attachment.attachmentId,
+				mediaType: generated.mediaType,
+				data: generated.data,
+				signal
+			});
+		} catch (saveError) {
+			ctx.logger.warn(`dsh-image-gen: studio failed to save image to workspace: ${saveError instanceof Error ? saveError.message : String(saveError)}`);
+		}
+		return {
+			attachment,
+			provider: input.provider,
+			model: input.model,
+			prompt: input.prompt,
+			output,
+			createdAt: Date.now(),
+			elapsedMs: Date.now() - startedAt,
+			...savedTo ? { savedTo } : {}
+		};
 	};
 }
 function studioProfile(config, provider, configured) {
@@ -3506,18 +3513,26 @@ function createImageConfiguration({ read, write, credentials, attachments, fetch
 		}),
 		test: (input) => serial(() => connection.test(input)),
 		models: (input) => serial(() => connection.models(input)),
-		generate: (input) => serial(async () => {
-			const current = await inspect(input.provider);
-			if ([
-				"baseURL",
-				"model",
-				"size",
-				"aspectRatio",
-				"authType",
-				"username"
-			].some((key) => current[key] !== input[key]) || current.workflow?.digest !== input.workflow?.digest) throw Object.assign(/* @__PURE__ */ new Error("生图配置已变化，请重新整理画面；未请求生图"), { imageOutcome: "not_requested" });
-			if (!channelReady(input, input.apiKey)) throw Object.assign(/* @__PURE__ */ new Error("请先完成生图配置"), { imageOutcome: "not_requested" });
-			const generated = await generateSceneImage(input, fetchImpl === globalThis.fetch ? {} : { fetch: fetchImpl });
+		generate: async (input) => {
+			const request = await serial(async () => {
+				input.signal?.throwIfAborted();
+				const current = await inspect(input.provider);
+				if ([
+					"baseURL",
+					"model",
+					"size",
+					"aspectRatio",
+					"authType",
+					"username"
+				].some((key) => current[key] !== input[key]) || current.workflow?.digest !== input.workflow?.digest) throw Object.assign(/* @__PURE__ */ new Error("生图配置已变化，请重新整理画面；未请求生图"), { imageOutcome: "not_requested" });
+				if (!channelReady(input, input.apiKey)) throw Object.assign(/* @__PURE__ */ new Error("请先完成生图配置"), { imageOutcome: "not_requested" });
+				return {
+					...input,
+					...structuredClone(channelSettings(input))
+				};
+			});
+			request.signal?.throwIfAborted();
+			const generated = await generateSceneImage(request, fetchImpl === globalThis.fetch ? {} : { fetch: fetchImpl });
 			try {
 				const attachment = await attachments.saveImage({
 					data: generated.data,
@@ -3531,7 +3546,7 @@ function createImageConfiguration({ read, write, credentials, attachments, fetch
 			} catch {
 				return generated;
 			}
-		})
+		}
 	};
 }
 //#endregion
@@ -3706,8 +3721,8 @@ function apply(ctx, config = {}) {
 		kind: "exact",
 		path: STUDIO_ROUTE,
 		handler: (req, res) => serveStudio(req, res, {
-			describe: () => configuration.serial(async () => {
-				const base = await describeStudio(ctx, current());
+			describe: async () => {
+				const base = await configuration.serial(() => describeStudio(ctx, structuredClone(current())));
 				const workspaces = await getDshWorkspacesFull().catch(() => []);
 				const activeRoot = Array.from(knownWorkspaceRoots)[0] || workspaces[0]?.path || process.cwd();
 				return {
@@ -3715,10 +3730,10 @@ function apply(ctx, config = {}) {
 					workspaceRoot: activeRoot,
 					workspaces
 				};
-			}),
-			generate: (input, signal) => {
+			},
+			generate: async (input, signal) => {
 				const fallbackRoot = Array.from(knownWorkspaceRoots)[0] || process.cwd();
-				return configuration.serial(() => generateFromStudio(ctx, current(), input, signal, fallbackRoot));
+				return (await configuration.serial(() => prepareStudioGeneration(ctx, current(), input, signal, fallbackRoot)))();
 			},
 			maxBodyBytes: Math.ceil(ctx.attachments.imageLimits.maxImageBytes * 1.4 * 5) + 262144
 		})

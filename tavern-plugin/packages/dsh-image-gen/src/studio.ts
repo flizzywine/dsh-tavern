@@ -82,90 +82,109 @@ export async function generateFromStudio(
   signal: AbortSignal,
   fallbackWorkspaceRoot?: string | undefined,
 ): Promise<StudioGenerateResponse> {
+  const generate = await prepareStudioGeneration(ctx, config, input, signal, fallbackWorkspaceRoot)
+  return generate()
+}
+
+/** Capture endpoint and credential under the caller's short configuration lock.
+ * The returned operation performs attachment IO and HTTP only after release. */
+export async function prepareStudioGeneration(
+  ctx: Context,
+  config: Config,
+  input: StudioGenerateRequest,
+  signal: AbortSignal,
+  fallbackWorkspaceRoot?: string | undefined,
+): Promise<() => Promise<StudioGenerateResponse>> {
+  signal.throwIfAborted()
+  config = structuredClone(config)
+  input = structuredClone(input)
   const profile = studioProfile(config, input.provider, true)
   assertAllowed(profile, input)
   const active = resolveProvider(providerConfig(config, input.provider, input.model))
   if (active.provider === 'comfyui') throw new Error('ComfyUI 暂未接入工作台')
-  const credential = await ctx.credentials.resolve(credentialRef(active.apiKeyEnv))
+  const credential = structuredClone(await ctx.credentials.resolve(credentialRef(active.apiKeyEnv)))
   if (credential === undefined || credential.value.trim().length === 0) {
     throw new Error(`${PROVIDER_LABELS[input.provider]} 尚未配置 API Key，请先到设置中配置`)
   }
 
-  const rawRefs = input.references ?? (input.reference ? [input.reference] : [])
-  if (input.mode === 'edit' && rawRefs.length === 0) {
-    throw new Error('图生图需要至少一张参考图')
-  }
-  const sourceImages = input.mode === 'edit'
-    ? await Promise.all(rawRefs.map(ref => readStudioReference(ctx, ref, signal)))
-    : []
-  const startedAt = Date.now()
-  let generated: { data: Uint8Array; mediaType: ImageMediaType }
-  let output: string
-
-  if (active.provider === 'grok') {
-    generated = await generateGrokImage({ apiKey: credential.value, baseURL: active.baseURL, model: active.model,
-      prompt: input.prompt, aspectRatio: input.ratio, resolution: input.quality, maxBytes: ctx.attachments.imageLimits.maxImageBytes, signal })
-    output = `${input.ratio}, ${input.quality}`
-  } else if (active.provider === 'google') {
-    const aspectRatio = input.ratio as AspectRatio
-    const imageSize = input.quality as ImageSize
-    generated = input.mode === 'edit'
-      ? await editGoogleImage({ apiKey: credential.value, endpoint: active.endpoint, model: active.model, prompt: input.prompt, sourceImages, aspectRatio, imageSize, maxBytes: ctx.attachments.imageLimits.maxImageBytes, signal })
-      : await generateGoogleImage({ apiKey: credential.value, endpoint: active.endpoint, model: active.model, prompt: input.prompt, aspectRatio, imageSize, maxBytes: ctx.attachments.imageLimits.maxImageBytes, signal })
-    output = `${aspectRatio}, ${imageSize}`
-  } else if (active.provider === 'openai') {
-    const size = openAISize(input.ratio)
-    generated = input.mode === 'edit'
-      ? await editOpenAICompatibleImage({ apiKey: credential.value, baseURL: active.baseURL, model: active.model, prompt: input.prompt, sourceImages, size, maxBytes: ctx.attachments.imageLimits.maxImageBytes, signal })
-      : await generateOpenAICompatibleImage({ provider: 'openai', apiKey: credential.value, baseURL: active.baseURL, model: active.model, prompt: input.prompt, size, maxBytes: ctx.attachments.imageLimits.maxImageBytes, signal })
-    output = size
-  } else if (active.provider === 'seedream') {
-    const size = input.quality
-    generated = input.mode === 'edit'
-      ? await editSeedreamImage({ apiKey: credential.value, baseURL: active.baseURL, model: active.model, prompt: input.prompt, sourceImages, size, maxBytes: ctx.attachments.imageLimits.maxImageBytes, signal })
-      : await generateOpenAICompatibleImage({ provider: 'seedream', apiKey: credential.value, baseURL: active.baseURL, model: active.model, prompt: input.prompt, size, maxBytes: ctx.attachments.imageLimits.maxImageBytes, signal })
-    output = size
-  } else {
-    if (input.mode === 'edit' && sourceImages.length > 3) {
-      throw new Error('DashScope (通义万相) 图生图目前最多支持 3 张参考图，请精简后重试')
+  return async () => {
+    signal.throwIfAborted()
+    const rawRefs = input.references ?? (input.reference ? [input.reference] : [])
+    if (input.mode === 'edit' && rawRefs.length === 0) {
+      throw new Error('图生图需要至少一张参考图')
     }
-    const size = dashScopeSize(input.ratio)
-    generated = input.mode === 'edit'
-      ? await editDashScopeImage({ apiKey: credential.value, endpoint: active.endpoint, model: active.model, prompt: input.prompt, sourceImages, size, maxBytes: ctx.attachments.imageLimits.maxImageBytes, signal })
-      : await generateDashScopeImage({ apiKey: credential.value, endpoint: active.endpoint, model: active.model, prompt: input.prompt, size, maxBytes: ctx.attachments.imageLimits.maxImageBytes, signal })
-    output = size
-  }
+    const sourceImages = input.mode === 'edit'
+      ? await Promise.all(rawRefs.map(ref => readStudioReference(ctx, ref, signal)))
+      : []
+    const startedAt = Date.now()
+    let generated: { data: Uint8Array; mediaType: ImageMediaType }
+    let output: string
 
-  if (!ctx.attachments.imageLimits.mediaTypes.includes(generated.mediaType)) {
-    throw new Error(`当前 DSH 不支持保存 ${generated.mediaType} 图片`)
-  }
-  const attachment = await ctx.attachments.saveImage({ data: generated.data, mediaType: generated.mediaType, name: 'studio-image' })
-  let savedTo: string | undefined
-  const targetRoot = input.workspaceRoot || fallbackWorkspaceRoot
-  if (config.saveToWorkspace !== false && targetRoot) {
-    try {
-      savedTo = await saveImageToWorkspace({
-        workspaceRoot: targetRoot,
-        folder: config.workspaceFolder,
-        attachmentId: attachment.attachmentId,
-        mediaType: generated.mediaType,
-        data: generated.data,
-        signal,
-      })
-    } catch (saveError) {
-      ctx.logger.warn(`dsh-image-gen: studio failed to save image to workspace: ${saveError instanceof Error ? saveError.message : String(saveError)}`)
+    if (active.provider === 'grok') {
+      generated = await generateGrokImage({ apiKey: credential.value, baseURL: active.baseURL, model: active.model,
+        prompt: input.prompt, aspectRatio: input.ratio, resolution: input.quality, maxBytes: ctx.attachments.imageLimits.maxImageBytes, signal })
+      output = `${input.ratio}, ${input.quality}`
+    } else if (active.provider === 'google') {
+      const aspectRatio = input.ratio as AspectRatio
+      const imageSize = input.quality as ImageSize
+      generated = input.mode === 'edit'
+        ? await editGoogleImage({ apiKey: credential.value, endpoint: active.endpoint, model: active.model, prompt: input.prompt, sourceImages, aspectRatio, imageSize, maxBytes: ctx.attachments.imageLimits.maxImageBytes, signal })
+        : await generateGoogleImage({ apiKey: credential.value, endpoint: active.endpoint, model: active.model, prompt: input.prompt, aspectRatio, imageSize, maxBytes: ctx.attachments.imageLimits.maxImageBytes, signal })
+      output = `${aspectRatio}, ${imageSize}`
+    } else if (active.provider === 'openai') {
+      const size = openAISize(input.ratio)
+      generated = input.mode === 'edit'
+        ? await editOpenAICompatibleImage({ apiKey: credential.value, baseURL: active.baseURL, model: active.model, prompt: input.prompt, sourceImages, size, maxBytes: ctx.attachments.imageLimits.maxImageBytes, signal })
+        : await generateOpenAICompatibleImage({ provider: 'openai', apiKey: credential.value, baseURL: active.baseURL, model: active.model, prompt: input.prompt, size, maxBytes: ctx.attachments.imageLimits.maxImageBytes, signal })
+      output = size
+    } else if (active.provider === 'seedream') {
+      const size = input.quality
+      generated = input.mode === 'edit'
+        ? await editSeedreamImage({ apiKey: credential.value, baseURL: active.baseURL, model: active.model, prompt: input.prompt, sourceImages, size, maxBytes: ctx.attachments.imageLimits.maxImageBytes, signal })
+        : await generateOpenAICompatibleImage({ provider: 'seedream', apiKey: credential.value, baseURL: active.baseURL, model: active.model, prompt: input.prompt, size, maxBytes: ctx.attachments.imageLimits.maxImageBytes, signal })
+      output = size
+    } else {
+      if (input.mode === 'edit' && sourceImages.length > 3) {
+        throw new Error('DashScope (通义万相) 图生图目前最多支持 3 张参考图，请精简后重试')
+      }
+      const size = dashScopeSize(input.ratio)
+      generated = input.mode === 'edit'
+        ? await editDashScopeImage({ apiKey: credential.value, endpoint: active.endpoint, model: active.model, prompt: input.prompt, sourceImages, size, maxBytes: ctx.attachments.imageLimits.maxImageBytes, signal })
+        : await generateDashScopeImage({ apiKey: credential.value, endpoint: active.endpoint, model: active.model, prompt: input.prompt, size, maxBytes: ctx.attachments.imageLimits.maxImageBytes, signal })
+      output = size
     }
-  }
 
-  return {
-    attachment,
-    provider: input.provider,
-    model: input.model,
-    prompt: input.prompt,
-    output,
-    createdAt: Date.now(),
-    elapsedMs: Date.now() - startedAt,
-    ...(savedTo ? { savedTo } : {}),
+    if (!ctx.attachments.imageLimits.mediaTypes.includes(generated.mediaType)) {
+      throw new Error(`当前 DSH 不支持保存 ${generated.mediaType} 图片`)
+    }
+    const attachment = await ctx.attachments.saveImage({ data: generated.data, mediaType: generated.mediaType, name: 'studio-image' })
+    let savedTo: string | undefined
+    const targetRoot = input.workspaceRoot || fallbackWorkspaceRoot
+    if (config.saveToWorkspace !== false && targetRoot) {
+      try {
+        savedTo = await saveImageToWorkspace({
+          workspaceRoot: targetRoot,
+          folder: config.workspaceFolder,
+          attachmentId: attachment.attachmentId,
+          mediaType: generated.mediaType,
+          data: generated.data,
+          signal,
+        })
+      } catch (saveError) {
+        ctx.logger.warn(`dsh-image-gen: studio failed to save image to workspace: ${saveError instanceof Error ? saveError.message : String(saveError)}`)
+      }
+    }
+
+    return {
+      attachment,
+      provider: input.provider,
+      model: input.model,
+      prompt: input.prompt,
+      output,
+      createdAt: Date.now(),
+      elapsedMs: Date.now() - startedAt,
+      ...(savedTo ? { savedTo } : {}),
+    }
   }
 }
 

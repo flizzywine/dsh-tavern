@@ -14,7 +14,7 @@ import { editOpenAICompatibleImage, generateOpenAICompatibleImage } from './open
 import { resolveReferenceImages } from './reference-image.js'
 import { editSeedreamImage } from './seedream.js'
 import { IMAGE_GENERATION_NAMESPACE, STUDIO_ROUTE, mergeComfyUIPrompt } from './shared.js'
-import { generateFromStudio, describeStudio } from './studio.js'
+import { prepareStudioGeneration, describeStudio } from './studio.js'
 import { generateGrokImage } from './grok.js'
 import { createImageConfiguration, configurationServiceName } from './configuration.js'
 import { serveStudio } from './studio-route.js'
@@ -65,8 +65,8 @@ export function apply(ctx: Context, config: Config = {}): void {
   ctx.effect(() => ctx.webServer.register({
     kind: 'exact', path: STUDIO_ROUTE,
     handler: (req, res) => serveStudio(req, res, {
-      describe: () => configuration.serial(async () => {
-        const base = await describeStudio(ctx, current())
+      describe: async () => {
+        const base = await configuration.serial(() => describeStudio(ctx, structuredClone(current())))
         const workspaces = await getDshWorkspacesFull().catch(() => [])
         const activeRoot = Array.from(knownWorkspaceRoots)[0] || workspaces[0]?.path || process.cwd()
         return {
@@ -74,10 +74,11 @@ export function apply(ctx: Context, config: Config = {}): void {
           workspaceRoot: activeRoot,
           workspaces,
         }
-      }),
-      generate: (input, signal) => {
+      },
+      generate: async (input, signal) => {
         const fallbackRoot = Array.from(knownWorkspaceRoots)[0] || process.cwd()
-        return configuration.serial(() => generateFromStudio(ctx, current(), input, signal, fallbackRoot))
+        const generate = await configuration.serial(() => prepareStudioGeneration(ctx, current(), input, signal, fallbackRoot))
+        return generate()
       },
       maxBodyBytes: Math.ceil(ctx.attachments.imageLimits.maxImageBytes * 1.4 * 5) + 256 * 1024,
     }),

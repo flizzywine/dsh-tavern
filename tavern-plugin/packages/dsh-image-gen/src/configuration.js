@@ -58,7 +58,7 @@ export function createImageConfiguration({ read, write, credentials, attachments
     }
     patch.tavernChannels = JSON.stringify({ ...extras(before), [id]: additional })
     // No write of a key occurs until settings validation/persistence succeeds.
-    // All capture/generation/probe calls share this queue.
+    // Snapshot capture and validation share this queue, not image HTTP or storage.
     await write(patch)
     try { if (supplied && channelNeedsKey(next)) await credentials.set(keyRef, supplied) }
     catch (error) {
@@ -79,19 +79,24 @@ export function createImageConfiguration({ read, write, credentials, attachments
     capture: id => serial(async () => { const active = await inspect(id); const key = channelNeedsKey(active) ? await credentials.resolve(ref(active.provider, active.authType)) : undefined; return { active, apiKey: key?.value || '' } }),
     test: input => serial(() => connection.test(input)),
     models: input => serial(() => connection.models(input)),
-    generate: input => serial(async () => {
-      const current = await inspect(input.provider)
-      const fields = ['baseURL', 'model', 'size', 'aspectRatio', 'authType', 'username']
-      if (fields.some(key => current[key] !== input[key]) || current.workflow?.digest !== input.workflow?.digest) throw Object.assign(new Error('生图配置已变化，请重新整理画面；未请求生图'), { imageOutcome: 'not_requested' })
-      // Snapshot key was captured together with this endpoint under the same lock.
-      if (!channelReady(input, input.apiKey)) throw Object.assign(new Error('请先完成生图配置'), { imageOutcome: 'not_requested' })
-      const generated = await generateSceneImage(input, fetchImpl === globalThis.fetch ? {} : { fetch: fetchImpl })
+    generate: async input => {
+      const request = await serial(async () => {
+        input.signal?.throwIfAborted()
+        const current = await inspect(input.provider)
+        const fields = ['baseURL', 'model', 'size', 'aspectRatio', 'authType', 'username']
+        if (fields.some(key => current[key] !== input[key]) || current.workflow?.digest !== input.workflow?.digest) throw Object.assign(new Error('生图配置已变化，请重新整理画面；未请求生图'), { imageOutcome: 'not_requested' })
+        // Keep the captured endpoint/key pair. Later saves only affect new jobs.
+        if (!channelReady(input, input.apiKey)) throw Object.assign(new Error('请先完成生图配置'), { imageOutcome: 'not_requested' })
+        return { ...input, ...structuredClone(channelSettings(input)) }
+      })
+      request.signal?.throwIfAborted()
+      const generated = await generateSceneImage(request, fetchImpl === globalThis.fetch ? {} : { fetch: fetchImpl })
       // Always hand received bytes back to Tavern's durable save/recovery flow.
       // A local attachment failure must never turn into another paid generation.
       try {
         const attachment = await attachments.saveImage({ data: generated.data, mediaType: generated.mediaType, name: 'scene-image' })
         return { ...generated, attachment }
       } catch { return generated }
-    }),
+    },
   }
 }
