@@ -1,0 +1,5 @@
+packages:
+  - .
+# Development only. Production installation links the four host imports and
+# never runs pnpm in this package, so it cannot install another DSH runtime.
+autoInstallPeers: true

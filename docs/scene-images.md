@@ -1,10 +1,10 @@
 # 场景生图（开发中）
 
-## 可选：复用 dsh-image-gen（最小接入）
+## 内置 dsh-image-gen（完整插件，Tavern 最小接入）
 
-在同一个 DSH Profile 安装支持 Studio 接口的 `dsh-image-gen`（本次按 0.3.0 源码接入），在「设置 → 插件 → Image generation」配置云端渠道、模型和 Key。然后打开 Tavern 的「开启场景生图」开关，选择「dsh-image-gen（已安装插件）」→「刷新插件配置」→「保存并启用」。Tavern 不安装或自动切换插件，不复制其 Key，也不改已有自建渠道配置。
+`flizzywine/dsh-image-gen` 的完整源码内置在 `tavern-plugin/packages/dsh-image-gen`，随 Tavern 安装、构建和发布，无需单独安装或下载 npm 原版。在「设置 → 插件 → Image generation」配置云端渠道、模型和 Key，再打开 Tavern 的「开启场景生图」开关，选择「dsh-image-gen（内置插件）」→「刷新插件配置」→「保存并启用」。不会自动切换已有自建渠道，也不会复制其 Key。插件仍为独立 bundle，通过 Studio 接口供 Tavern 调用。
 
-此模式读取插件工作台返回的当前云端渠道及默认比例/清晰度；与插件通用设置中的 ComfyUI 选择不是同一个概念，请以 Tavern 显示的渠道和模型为准。当前接入范围为 Google、OpenAI/兼容渠道、Seedream、DashScope 的文生图，不含参考图和 ComfyUI。没有专门的 Grok 适配，不能据此保证 Grok 在兼容渠道中可用。
+此模式读取插件工作台返回的当前云端渠道及默认比例/清晰度；与插件通用设置中的 ComfyUI 选择不是同一个概念，请以 Tavern 显示的渠道和模型为准。当前接入范围为 Google、OpenAI/兼容渠道、Seedream、DashScope、Grok 的文生图，Tavern 接入暂不含参考图和 ComfyUI。后续增加供应商只需在内置插件实现并通过 Studio 报告能力，不在 Tavern 重复实现。Grok 为独立 xAI 协议适配，支持 1k/2k，暂不支持编辑或参考图。
 
 Tavern 仍负责画面方案、目标轮次绑定和图片展示，图片请求与附件存储交给插件；成功后复用插件附件，不改正文或 MVU。配置只读取本机当前 DSH Host 的固定 Studio 路径，不把 Key 发给该接口。刷新配置不生图，也不代表 Key 已验证。插件缺失、未配置或接口不兼容时禁止启用；开始生成后发现模型/尺寸配置变化则停止，不自动改用其他渠道。
 

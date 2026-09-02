@@ -36,7 +36,7 @@ function resolveCommandFile(command, env, platform) {
   throw new Error(`无法定位当前 DSH 命令：${command}`)
 }
 
-export function resolveHostDependencies({ dsh, host = 'cli', env = process.env, execPath = process.execPath, platform = process.platform }) {
+export function resolveHostDependencies({ dsh, host = 'cli', env = process.env, execPath = process.execPath, platform = process.platform, requiredExports = REQUIRED_HOST_EXPORTS }) {
   let anchor
   if (host === 'desktop') {
     // Desktop's terminal supplies this on Windows. On macOS its node shim
@@ -59,7 +59,7 @@ export function resolveHostDependencies({ dsh, host = 'cli', env = process.env, 
   }
 
   const dependencies = []
-  for (const [name, exportName] of Object.entries(REQUIRED_HOST_EXPORTS)) {
+  for (const [name, exportName] of Object.entries(requiredExports)) {
     let dependency
     try { dependency = findPackage(name, anchor) } catch (error) {
       throw new Error(`当前 DSH 依赖 ${name} 无法解析：${error.message}`)
@@ -69,7 +69,7 @@ export function resolveHostDependencies({ dsh, host = 'cli', env = process.env, 
     }
     // Probe in a fresh process so module caching cannot hide a changed host.
     // Absolute import keeps the host package's own transitive dependencies.
-    const script = `const m = await import(${JSON.stringify(pathToFileURL(dependency.entry).href)}); if (typeof m[${JSON.stringify(exportName)}] !== 'function') throw new Error(${JSON.stringify(`缺少接口 ${exportName}`)});`
+    const script = `const m = await import(${JSON.stringify(pathToFileURL(dependency.entry).href)});` + (exportName ? ` if (typeof m[${JSON.stringify(exportName)}] !== 'function') throw new Error(${JSON.stringify(`缺少接口 ${exportName}`)});` : '')
     const probe = spawnSync(execPath, ['--expose-internals', '--input-type=module', '-e', script], {
       encoding: 'utf8', timeout: 15000, env: { ...env, ELECTRON_RUN_AS_NODE: '1' },
     })

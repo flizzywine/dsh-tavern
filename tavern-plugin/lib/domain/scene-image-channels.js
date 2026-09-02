@@ -4,7 +4,7 @@ import { imageReferenceCapability } from './scene-image-reference.js'
 
 // Protocol presets are versioned here, not inferred by issuing paid probes.
 const channels = [
-  { id: 'dsh-image-gen', label: 'dsh-image-gen（已安装插件）', model: '', pluginProvider: '', aspectRatio: '', size: '', fields: ['model', 'pluginProvider', 'aspectRatio', 'size'], hint: '复用同一 DSH Profile 中 dsh-image-gen 工作台的当前云端渠道、模型和默认尺寸。请到设置 → 插件 → Image generation 配置 Key；此处无需重复填写。最小版仅接文生图，不含 ComfyUI 或参考图。' },
+  { id: 'dsh-image-gen', label: 'dsh-image-gen（内置插件）', model: '', pluginProvider: '', aspectRatio: '', size: '', fields: ['model', 'pluginProvider', 'aspectRatio', 'size'], hint: '随 Tavern 安装，无需另装插件。请到设置 → 插件 → Image generation 配置渠道、模型和 Key；此处无需重复填写。目前 Tavern 接入文生图，不含 ComfyUI 或参考图。' },
   { id: 'comfyui', label: 'ComfyUI', baseURL: '', authType: 'none', username: '', fields: ['baseURL', 'authType', 'username'], hint: '使用维护者已部署的服务与工作流。导入 API 工作流或维护者准备的映射文件；不会安装模型、节点或清空共享队列。本机地址指 Tavern 服务器。' },
   { id: 'novelai', label: 'NovelAI / 同协议第三方', baseURL: 'https://image.novelai.net', model: 'nai-diffusion-5-full', size: '832x1216', fields: ['baseURL', 'model', 'size'], hint: '默认使用官方 V5 Full。第三方必须支持相同的 /ai/generate-image 协议与 ZIP 图片响应，不是 OpenAI 兼容地址。' },
   { id: 'openai', label: 'OpenAI / Images 兼容中转', baseURL: 'https://api.openai.com/v1', model: 'gpt-image-2', size: '1024x1024', fields: ['baseURL', 'model', 'size'], hint: '官方可使用默认地址与模型；兼容中转请填写自己的地址和模型。' },

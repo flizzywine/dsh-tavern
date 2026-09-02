@@ -59,3 +59,20 @@ test('no arbitrary endpoints or credentials; malformed port never makes a reques
   assert.equal(await plugin.resolve(normal), normal)
   assert.equal((await plugin.resolve({ provider: 'dsh-image-gen', baseURL: 'https://evil.example' })).pluginReady, false)
 })
+
+test('installed plugin owns new provider capabilities, including Grok, without a Tavern adapter', async () => {
+  for (const provider of ['grok', 'another-image-provider']) {
+    const calls = []
+    const plugin = createSceneImagePlugin({ webServer: () => ({ port: 3081 }),
+      attachments: () => ({ readImage: async () => ({ data: png, mediaType: 'image/png' }) }),
+      fetchImpl: async (_url, init) => {
+        calls.push(init)
+        return Response.json(init.method === 'POST' ? { provider, model: 'plugin-model', attachment: ref }
+          : { activeProvider: provider, providers: [{ ...profile, provider, model: 'plugin-model' }] })
+      } })
+    const active = await plugin.resolve({ provider: 'dsh-image-gen' })
+    assert.equal(active.pluginReady, true)
+    assert.equal((await plugin.generate({ ...active, prompt: 'A mountain lake' })).metadata.provider, provider)
+    assert.equal(JSON.parse(calls.at(-1).body).provider, provider)
+  }
+})

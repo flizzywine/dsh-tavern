@@ -67,6 +67,9 @@ export function mergeProfileManifest({ source, current = {}, pluginPath, dataRoo
   if (managedDependencies.includes('dsh-tavern-plugin')) {
     dependencies['dsh-tavern-plugin'] = `link:${String(pluginPath).replaceAll(path.sep, '/')}`
   }
+  if (managedDependencies.includes('dsh-image-gen')) {
+    dependencies['dsh-image-gen'] = `link:${path.join(pluginPath, 'packages', 'dsh-image-gen').replaceAll(path.sep, '/')}`
+  }
 
   return {
     ...currentDocument,

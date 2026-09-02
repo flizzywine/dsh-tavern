@@ -1,0 +1,9 @@
+node_modules/
+lib/*
+!lib/index.js
+!lib/client.js
+!lib/client.js.map
+*.tgz
+.DS_Store
+*.log
+.smoke-home/

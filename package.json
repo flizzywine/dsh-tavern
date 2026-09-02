@@ -6,6 +6,8 @@
     "dsh-tavern": "bin/dsh-tavern.mjs"
   },
   "scripts": {
+    "build:image-gen": "pnpm --dir tavern-plugin/packages/dsh-image-gen run build",
+    "test:image-gen": "pnpm --dir tavern-plugin/packages/dsh-image-gen test",
     "install:tavern": "node ./bin/dsh-tavern.mjs install",
     "start:tavern": "node ./bin/dsh-tavern.mjs start",
     "stop:tavern": "node ./bin/dsh-tavern.mjs stop",
@@ -19,6 +21,7 @@
     "chevrotain": "^11.2.0",
     "dsh-better-sidebar": "0.17.1",
     "dsh-tavern-plugin": "link:./tavern-plugin",
+    "dsh-image-gen": "link:./tavern-plugin/packages/dsh-image-gen",
     "ejs": "3.1.9",
     "mathjs": "12.4.3",
     "quickjs-emscripten-core": "0.32.0",
@@ -31,7 +34,8 @@
         "@deepseek-ai/dsh-web-app",
         "dsh-web-mobile",
         "dsh-better-sidebar",
-        "dsh-tavern-plugin"
+        "dsh-tavern-plugin",
+        "dsh-image-gen"
       ]
     }
   }

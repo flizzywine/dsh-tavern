@@ -23,9 +23,24 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       - name: Check launcher
-        run: node --test tests/launcher.test.mjs tests/runtime-package.test.mjs tests/cdn-upgrade.test.mjs tests/plugin-dependencies.test.mjs
+        run: node --test tests/launcher.test.mjs tests/runtime-package.test.mjs tests/cdn-upgrade.test.mjs tests/plugin-dependencies.test.mjs tests/bundled-image-plugin.test.mjs
       - name: Check help command
         run: node bin/dsh-tavern.mjs --help
+
+  image-plugin:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.22.0
+      - run: corepack enable && corepack prepare pnpm@11.9.0 --activate
+      - run: pnpm --dir tavern-plugin/packages/dsh-image-gen install --frozen-lockfile
+      - run: pnpm --dir tavern-plugin/packages/dsh-image-gen test
+      - run: pnpm --dir tavern-plugin/packages/dsh-image-gen run typecheck
+      - run: pnpm --dir tavern-plugin/packages/dsh-image-gen run build
+      - name: Prebuilt plugin must match source
+        run: git diff --exit-code -- tavern-plugin/packages/dsh-image-gen/lib
 
   windows-install:
     runs-on: windows-latest

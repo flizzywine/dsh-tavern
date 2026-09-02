@@ -1,8 +1,7 @@
-// Optional dsh-image-gen 0.3 Studio bridge. Only the current Host's loopback
+// Bundled dsh-image-gen Studio bridge. Only the current Host's loopback
 // route is reachable; provider credentials remain owned by that plugin.
 const route = '/plugins/dsh-image-gen/studio'
-const providers = new Set(['google', 'openai', 'seedream', 'dashscope'])
-const unavailable = '未连接 dsh-image-gen 工作台；请在同一个 DSH Profile 安装支持 Studio 接口的版本（0.3.0 起），并在插件设置中配置云端生图。'
+const unavailable = '内置 dsh-image-gen 工作台未就绪；请确认已更新安装并重启 Tavern，再到设置 → 插件 → Image generation 配置云端生图。'
 
 export function createSceneImagePlugin({ webServer, attachments, fetchImpl = globalThis.fetch }) {
   async function request(body, signal) {
@@ -31,8 +30,9 @@ export function createSceneImagePlugin({ webServer, attachments, fetchImpl = glo
   }
   async function inspect(signal) {
     const data = await request(undefined, signal)
-    const profile = data.providers?.find(item => item.provider === data.activeProvider)
-    if (!profile || !providers.has(profile.provider) || typeof profile.model !== 'string' || !profile.model.trim()
+    const profile = Array.isArray(data.providers) ? data.providers.find(item => item?.provider === data.activeProvider) : undefined
+    // The installed plugin owns provider support; new adapters need no Tavern protocol changes.
+    if (!profile || typeof profile.provider !== 'string' || !/^[a-z][a-z0-9-]{0,63}$/.test(profile.provider) || typeof profile.model !== 'string' || !profile.model.trim()
       || !profile.ratioOptions?.some(item => item.value === profile.defaultRatio)
       || !profile.qualityOptions?.some(item => item.value === profile.defaultQuality)) throw new Error('dsh-image-gen 工作台配置无效或版本不兼容')
     return { pluginReady: profile.configured === true, pluginProvider: profile.provider, model: profile.model,
