@@ -1,12 +1,12 @@
 import { constantWorldBookContext } from './worldbook-recall.js'
 import { sanitizeAgentProjectionText } from './runtime-content-projection.js'
 
-const VERSION = 5
+const VERSION = 6
 function str(value) { return value === undefined || value === null ? '' : String(value) }
 function isPlay(chat) { return chat && (!chat.mode || chat.mode === 'story' || chat.mode === 'script') }
 
 /** Owns snapshot preparation, migration, persistence and concurrent build sharing. */
-export function createPlayCardSnapshots({ worldBooks, planner, readCard, writeChat, captureSceneWorldbook, logger = console }) {
+export function createPlayCardSnapshots({ worldBooks, planner, readCard, writeChat, captureSceneWorldbook, userPreferenceProfile, logger = console }) {
   const pending = new Map()
 
   async function constantContext(chat, card) {
@@ -20,8 +20,17 @@ export function createPlayCardSnapshots({ worldBooks, planner, readCard, writeCh
     try { worldBook = await worldBooks.bound(chat.cardPath, card) }
     catch (error) { logger.warn('dsh-tavern: 常驻世界书读取失败，已跳过:', str(error && error.message || error)) }
     const worldBookContext = constantWorldBookContext({ worldBook }).context
-    const text = sanitizeAgentProjectionText((await planner.plan({ purpose: 'play-card-snapshot', card, chat, worldBookContext, worldBookLabel: '常驻世界书' })).text)
-    const patch = { cardContextSnapshot: text, cardContextSnapshotVersion: VERSION }
+    const planned = sanitizeAgentProjectionText((await planner.plan({ purpose: 'play-card-snapshot', card, chat, worldBookContext, worldBookLabel: '常驻世界书' })).text)
+    const preference = chat.userProfileEnabled === true && userPreferenceProfile
+      ? await userPreferenceProfile.stableContext()
+      : null
+    const text = preference === null ? planned : sanitizeAgentProjectionText([preference.text, planned].filter(Boolean).join('\n\n'))
+    const patch = {
+      cardContextSnapshot: text,
+      cardContextSnapshotVersion: VERSION,
+      userProfileRevision: preference === null ? 0 : preference.revision,
+      userProfileContextSnapshot: preference === null ? '' : preference.text
+    }
     // Only new, unpublished openings: migration cannot manufacture their past.
     if (!(chat.messages || []).length && typeof captureSceneWorldbook === 'function') {
       patch.sceneOpeningWorldbook = await captureSceneWorldbook(chat, card, worldBook)

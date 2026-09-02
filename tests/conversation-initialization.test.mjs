@@ -13,7 +13,7 @@ test('creation preserves opening source/projection, stable context, request mode
   assert.equal(chat.messages[0].sourceText, '{{user}}，你好。')
   assert.equal(chat.messages[0].displayText, '玩家，你好。')
   assert.equal(chat.runtimePresetSnapshot.unknown, 'preserved')
-  assert.equal(chat.cardContextSnapshotVersion, 5)
+  assert.equal(chat.cardContextSnapshotVersion, 6)
   for (const text of ['固定描述', '固定性格', '固定场景', '固定示例', '固定世界书']) assert.ok(chat.cardContextSnapshot.includes(text))
   assert.doesNotMatch(chat.cardContextSnapshot, /逐轮系统|逐轮后置|动态世界书/)
   assert.equal(h.session().prefix, chat.cardContextSnapshot)

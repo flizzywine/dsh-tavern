@@ -45,6 +45,9 @@ export function createConversationInitialization(options) {
       runtimePresetSnapshot: null,
       cardContextSnapshot: '',
       cardContextSnapshotVersion: 0,
+      userProfileEnabled: false,
+      userProfileRevision: 0,
+      userProfileContextSnapshot: '',
       macroState: { userName: '你', local: {}, global: {} },
       settleStatus: 'idle',
       settleError: null,
@@ -60,7 +63,7 @@ export function createConversationInitialization(options) {
     }
   }
 
-  async function initialize({ cardPath, sessionId, mode, openingId, userName, requestMode }) {
+  async function initialize({ cardPath, sessionId, mode, openingId, userName, requestMode, userProfileEnabled }) {
     const currentSettings = await settings()
     const effectiveRequestMode = currentSettings.compatibilityMode && requestMode === 'sillytavern' ? 'sillytavern' : 'dsh'
     const requestedMode = mode === 'card' || mode === 'revision' || mode === 'extract' ? 'card' : (mode === 'script' ? 'script' : (mode === 'story' ? 'story' : null))
@@ -117,6 +120,7 @@ export function createConversationInitialization(options) {
     chat.runtimePresetSnapshot = runtimePresetSnapshot
     chat.runtimePresetPath = ''
     chat.macroState = macroState
+    chat.userProfileEnabled = groupOfMode(chat.mode) === 'play' && userProfileEnabled === true
     chat.mvu = usesMvu ? {
       enabled: true,
       owner: 'official',
