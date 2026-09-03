@@ -56,6 +56,7 @@ test('产品概览和安装是独立入门入口，默认首页先讲产品和�
   assert.equal(pages[1].id, 'a02')
   for (const id of ['a01', 'a02']) assert.equal(pages.find(p => p.id === id).group, 'getting-started')
   const intro = pages.find(p => p.id === 'a01').body
+  assert.ok(intro.includes('提供类似 SillyTavern 的文字游戏体验'))
   for (const term of ['DSH Tavern 是什么', '两种主要使用方式', '界面大概是什么样', '一次游玩是怎样的', '开始前需要准备什么']) assert.ok(intro.includes(term), term)
   assert.match(intro, /href="#a02"/)
   assert.equal(resolveRoute('#main', routeIds).id, 'a01')
@@ -69,7 +70,7 @@ test('安装页提供与 README 一致的可复制命令、当前适配版本和
     assert.ok(readme.includes(command), 'Installation command must match README')
     assert.ok(install.includes(`<code>${escapeHTML(command)}</code>`), 'Commands must remain literal text')
   }
-  for (const term of ['方式一：桌面版', '方式二：命令行版', 'Open DSH Terminal', '配置模型并开始第一局', '关机后如何重新打开', '更新与重新安装', 'Android：实验性安装', '安装失败时', adaptedDshVersion]) assert.ok(install.includes(term), term)
+  for (const term of ['方式一：桌面版', '方式二：命令行版', 'Open DSH Terminal', '配置模型并开始第一局', '关机后如何重新打开', '更新与重新安装', 'Android：通过 DSHA 安装', '安装失败时', adaptedDshVersion]) assert.ok(install.includes(term), term)
   assert.match(install, /class="copy-code"/)
   assert.match(install, /不要分享给别人/)
   assert.doesNotMatch(install, /\{\{dshVersion\}\}|```/)
@@ -136,6 +137,18 @@ test('网页公开样例下载与原创源数据一致，人物卡没有远程�
   assert.deepEqual(card.data.extensions.tavern_helper.scripts, [])
   assert.doesNotMatch(demoDownloads['lighthouse-card.json'], /https?:\/\/|\/Users\//)
   assert.match(demoDownloads['README.txt'], /CC0/)
+})
+
+test('Android 在 README、介绍页及安装文档中作为支持平台，不再标为实验性', async () => {
+  for (const path of ['../README.md', 'product.html', 'android-install.md', 'manual/introduction.mjs', 'manual/topics.mjs', 'feature-inventory.md', 'index.html']) {
+    const content = await readFile(new URL(path, root), 'utf8')
+    assert.ok(!/Android[^\n。<]*(?:实验|不保证)/.test(content), path)
+    assert.ok(!content.includes('此方案仍为实验性'), path)
+    assert.ok(!content.includes('不保证稳定可用'), path)
+  }
+  const install = pages.find(p => p.id === 'a02').body
+  assert.match(install, /Android：通过 DSHA 安装/)
+  assert.match(install, /允许 DSHA 后台运行/)
 })
 
 test('所有静态资源、文章与页内锚点存在，支持 GitHub Pages 子目录', async () => {

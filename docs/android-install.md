@@ -1,6 +1,6 @@
-# Android 安装（实验性）
+# Android 安装
 
-dsh-tavern 可以借助 [DSHA](https://github.com/qiannianhuanxiang/DSHA) 在 Android 手机上运行，但不保证所有设备和 DSH 版本都可用。
+dsh-tavern 可以借助 [DSHA](https://github.com/qiannianhuanxiang/DSHA) 在 Android 手机上安装和使用。
 
 ## 最简单的安装方法
 

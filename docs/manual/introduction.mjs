@@ -11,7 +11,7 @@ const code = (language, text) => '\n```' + language + '\n' + text + '\n```\n'
 export const introduction = `
 ## DSH Tavern 是什么
 
-DSH Tavern 是一个以文字为主的 AI 角色扮演与故事游玩工具。导入一张人物卡，就可以进入它设定的世界，与角色对话、采取行动，让故事继续发展。
+DSH Tavern 是一个以文字为主的 AI 角色扮演与故事游玩工具，提供类似 SillyTavern 的文字游戏体验。导入一张人物卡，就可以进入它设定的世界，与角色对话、采取行动，让故事继续发展。
 
 它运行在 DeepSeek Harness（简称 DSH）上：DSH 提供模型连接和运行环境，Tavern 提供人物卡、游玩界面、资源工作台和相关功能。你现在看到的是使用文档，实际游戏需要安装后打开。
 
@@ -73,7 +73,7 @@ export const installation = `
 | --- | --- | --- |
 | DSH Desktop 桌面版 | 希望由桌面程序管理运行环境、启停和端口 | Windows x64、macOS |
 | 命令行版 | 希望通过浏览器访问、自己管理服务 | Windows、macOS、Linux / WSL2 |
-| Android 实验方案 | 愿意自行排错的手机用户 | 通过 DSHA 运行，不保证稳定可用 |
+| Android 版 | 希望在手机上游玩的用户 | 通过 DSHA 安装和运行 |
 
 桌面版与命令行版选择一种即可，不要同时运行。下方命令会下载并执行本项目安装脚本，请在确认项目来源可信后运行；网页本身不会自动执行安装。
 
@@ -134,14 +134,14 @@ export const installation = `
 ` + code('bash', 'dsh-tavern update') + `
 这个命令更新 Tavern，不是升级 DSH 本体。桌面版在 DSH Terminal 中重新运行桌面安装命令，完成后重启 Desktop。若内置更新失败，也可用对应安装命令更新安装器和程序。
 
-## Android：实验性安装
+## Android：通过 DSHA 安装
 
 1. 安装 [DSHA](https://github.com/qiannianhuanxiang/DSHA)，配置模型并成功启动一次。
 2. 打开“创造模式”，把下面这句话发给 AI。
 ` + code('text', installCommands.android) + `
 3. 安装完成后重启 DSHA，在侧栏打开“酒馆工作台”。
 
-以后可使用“更新到最新版”；打不开时尝试 DSHA 酒馆工作台入口中的“更新/修复”。此方案仍为实验性，不保证稳定可用。
+以后可使用“更新到最新版”；打不开时尝试 DSHA 酒馆工作台入口中的“更新/修复”。使用时请允许 DSHA 后台运行，避免系统省电策略中断服务。
 
 ## 安装失败时
 

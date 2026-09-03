@@ -8,6 +8,12 @@
 
 它可以直接导入酒馆人物卡，也可以从小说、剧本和人物素材中制作新卡。选一张卡后，你既可以自由游玩，也可以绑定一份剧本，让故事沿着既定主线长期推进。
 
+## 使用文档
+
+**[打开在线文档与功能指南](https://flizzywine.github.io/dsh-tavern/)** · [安装与启动](https://flizzywine.github.io/dsh-tavern/#a02) · [全部功能索引](https://flizzywine.github.io/dsh-tavern/#index)
+
+从产品概览和安装开始，按“酒馆生态兼容 → 游玩模式 → 卡片模式 → 高级功能”逐项查阅。100 个主题配有公开样例截图，可点击放大，也可以下载样例人物卡、世界书、预设和剧本。文档是静态网站，不是在线游戏服务。
+
 ![dsh-tavern 整体界面：左侧会话、中间游玩、右侧酒馆状态](docs/images/readme/overview.png)
 
 ## 产品功能
@@ -46,7 +52,7 @@
 
 - **人物卡库**：导入、导出和编辑 SillyTavern PNG / JSON 人物卡，管理世界书与剧本绑定；
 - **世界书库**：统一管理独立世界书和人物卡内置世界书；
-- **预设库（实验性）**：导入并选择 SillyTavern 预设，也可在详情中调整提示词和正则，或引用到卡片对话中交给 Agent 编辑；
+- **预设库**：为游玩选择文风、叙事方式与写作规则。支持导入 SillyTavern 预设，编辑提示词、正则和条目开关，也可交给卡片 Agent 修改；不导入预设也能直接开始；
 - **剧本库**：导入、查看和修改小说、剧情大纲与故事素材，并与人物卡一对一绑定。
 
 这些资源都可以按需引用到卡片对话中；导入时保留原版，Agent 修改的是独立工作版。
@@ -65,7 +71,7 @@
 
 #### 多平台支持
 
-dsh-tavern 支持 Windows、macOS、Linux 和 Android。Windows 与 macOS 可使用 DSH Desktop 客户端，也可以通过命令行运行；Linux 使用命令行运行；Android 可借助 [DSHA](https://github.com/qiannianhuanxiang/DSHA) 实验性部署，目前不保证稳定可用。
+dsh-tavern 支持 Windows、macOS、Linux 和 Android。Windows 与 macOS 可使用 DSH Desktop 客户端，也可以通过命令行运行；Linux 使用命令行运行；Android 可通过 [DSHA](https://github.com/qiannianhuanxiang/DSHA) 安装和使用。
 
 #### 自由安装插件
 
@@ -215,9 +221,9 @@ node ./bin/dsh-tavern.mjs install --host desktop
 
 然后重启 Desktop，并切换到 **tavern** Profile。
 
-### Android（实验性，不保证可用）
+### Android
 
-借助 [DSHA](https://github.com/qiannianhuanxiang/DSHA)，可以在 Android 手机上实验性运行本项目。首次安装只需要：
+借助 [DSHA](https://github.com/qiannianhuanxiang/DSHA)，可以在 Android 手机上运行本项目。首次安装只需要：
 
 1. 安装 DSHA，配置模型并成功启动一次；
 2. 打开“创造模式”，把下面一句话发给 AI：
