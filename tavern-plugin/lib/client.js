@@ -5034,7 +5034,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				catch (e) { setError(String(e.message || e)); }
 				finally { setBusy(false); window.dispatchEvent(new CustomEvent("dsh-tavern-image-changed", { detail: { sessionId: props.sessionId } })); }
 			}
-			const unavailable = !settings ? "正在加载生图配置…" : settings.migrationPending ? "旧生图配置待迁移，请在设置中点击「保存并启用」。" : !settings.ready ? "生图配置未完成，请在设置中补全并保存。" : !settings.enabled ? "场景生图未开启，请在设置中开启。" : "";
+			if (!settings || settings.enabled !== true) return null;
+			const unavailable = settings.migrationPending ? "旧生图配置待迁移，请在设置中点击「保存并启用」。" : !settings.ready ? "生图配置未完成，请在设置中补全并保存。" : "";
 			const working = state && state.status === "running";
 			return React.createElement(React.Fragment, null,
 				React.createElement("button", { type: "button", className: "dsh-tavern-choice-trigger", title: unavailable || undefined, disabled: Boolean(unavailable) || !state || props.running || busy || working || state.recovery === "save" || state.versions && state.versions.length > 0, onClick: generate }, busy ? "整理画面…" : working ? sceneImageStageLabel(state) : state && state.recovery === "save" ? "图片待保存" : state && state.outcome === "unconfirmed" ? state.providerTask ? "查询原任务" : "重新生图" : state && state.status === "failed" && !state.versions.length ? "重试生图" : "生图"),

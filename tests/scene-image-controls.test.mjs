@@ -52,7 +52,7 @@ test('one repaint entry opens optional feedback; blank repaints and feedback adj
   assert.equal(calls.length, 3)
 })
 
-test('image action remains visible with an explanation until enabled and configured', async () => {
+test('image action is hidden until explicitly enabled, including loading and legacy settings', async () => {
   const slots = [], calls = []
   let cursor = 0
   const context = vm.createContext({
@@ -67,15 +67,17 @@ test('image action remains visible with an explanation until enabled and configu
   const Component = vm.runInContext(extract('SceneImageAction', 'SceneImageSettings') + ';SceneImageAction', context)
   const render = () => { cursor = 0; return Component({ sessionId: 'session', turn: 1 }) }
   render()
+  for (const settings of [null, {}, { enabled: false, ready: false, migrationPending: true }, { enabled: false, ready: true }]) {
+    slots[0] = settings
+    assert.equal(render(), null, 'disabled or unknown settings leave no button or explanation')
+  }
   for (const [settings, reason] of [
-    [null, /加载生图配置/],
-    [{ enabled: false, ready: false, migrationPending: true }, /迁移.*保存并启用/],
-    [{ enabled: false, ready: true }, /未开启/],
+    [{ enabled: true, ready: false, migrationPending: true }, /迁移.*保存并启用/],
     [{ enabled: true, ready: false }, /配置未完成/]
   ]) {
     slots[0] = settings
     const view = render()
-    assert.ok(view, 'the image action must not disappear')
+    assert.ok(view, 'enabled but incomplete configuration remains explainable')
     assert.equal(view.children[0].props.disabled, true)
     assert.match(view.children[1].children.join(''), reason)
     await view.children[0].props.onClick()
@@ -83,6 +85,8 @@ test('image action remains visible with an explanation until enabled and configu
   assert.equal(calls.length, 0)
   slots[0] = { enabled: true, ready: true }
   assert.equal(Boolean(render().children[0].props.disabled), false)
+  slots[0] = { enabled: false, ready: true }
+  assert.equal(render(), null, 'disabling again hides the entry')
 })
 
 test('scene request identifiers also work on LAN HTTP without crypto.randomUUID', () => {

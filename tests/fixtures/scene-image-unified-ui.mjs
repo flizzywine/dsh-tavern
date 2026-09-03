@@ -25,22 +25,26 @@ const store = { readJson: async key => documents.get(key), updateJson: async (ke
 const imageModule = createImageGenerationModule({ store, credentials: () => credentials, readLegacyConfiguration: async () => ({ provider: 'grok' }) })
 const setup = createModuleSceneImageSettings({ imageModule, credentials: () => credentials, store })
 const component = await readFile(new URL('../../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
-const source = component.slice(component.indexOf('function SceneImageSettings()'), component.indexOf('function TavernSettingsSection()'))
+const source = component.slice(component.indexOf('function sceneImageRequestId()'), component.indexOf('function TavernSettingsSection()'))
 const css = component.split('const TAVERN_CSS = `')[1].split('`;')[0]
-const require = createRequire(new URL('../../dsh-client-ui-trajectory/package.json', pathToFileURL(process.env.DSH_BOOT_MODULE)))
+const hostRequire = createRequire(process.env.DSH_BROWSER_ROOT
+  ? join(process.env.DSH_BROWSER_ROOT, 'node_modules/@deepseek-ai/dsh-client-ui-primitives/package.json')
+  : new URL('../../dsh-client-ui-trajectory/package.json', pathToFileURL(process.env.DSH_BOOT_MODULE)))
+const require = createRequire(hostRequire.resolve('react-dom/client'))
 let script = 'const modules={};\n'
 for (const [name, file] of [['react', 'react.production.js'], ['react/jsx-runtime', 'react-jsx-runtime.production.js'], ['scheduler', 'scheduler.production.js'], ['react-dom', 'react-dom.production.js'], ['react-dom/client', 'react-dom-client.production.js']]) {
   script += `modules[${JSON.stringify(name)}]=(()=>{const module={exports:{}};const exports=module.exports;const require=name=>modules[name];\n${await readFile(join(dirname(require.resolve(name)), 'cjs', file), 'utf8')}\nreturn module.exports;})();\n`
 }
-script += `const React=modules.react;async function rpc(method,args){const r=await fetch('/rpc',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({method,args})});const d=await r.json();if(d.error)throw Error(d.error);return d;}\n${source}\nmodules['react-dom/client'].createRoot(document.querySelector('#app')).render(React.createElement(SceneImageSettings));`
-const page = `<!doctype html><meta charset="utf-8"><title>Tavern 统一生图设置（模拟验证）</title><style>:root{--dsw-alias-border-l2:#ddd;--dsw-specific-sidebar-fill:#f9fafb;--dsw-alias-text-primary:#222;--dsw-alias-brand-primary:#985e2c}body{font:16px sans-serif;max-width:780px;margin:32px auto;padding:16px}${css}</style><div id="app"></div><script>${script.replaceAll('</script', '<\\/script')}</script>`
+script += `const React=modules.react;async function rpc(method,args){const r=await fetch('/rpc',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({method,args})});const d=await r.json();if(d.error)throw Error(d.error);return d;}\n${source}\nmodules['react-dom/client'].createRoot(document.querySelector('#app')).render(React.createElement(SceneImageSettings));modules['react-dom/client'].createRoot(document.querySelector('#action')).render(React.createElement(SceneImageAction,{sessionId:'fixture',turn:1}));`
+const page = `<!doctype html><meta charset="utf-8"><title>Tavern 统一生图设置（模拟验证）</title><style>:root{--dsw-alias-border-l2:#ddd;--dsw-specific-sidebar-fill:#f9fafb;--dsw-alias-text-primary:#222;--dsw-alias-brand-primary:#985e2c}body{font:16px sans-serif;max-width:780px;margin:32px auto;padding:16px}${css}</style><h2>前台入口</h2><div id="action"></div><h2>后台设置</h2><div id="app"></div><script>${script.replaceAll('</script', '<\\/script')}</script>`
 const server = createServer(async (req, res) => {
   if (req.url === '/') return res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }).end(page)
   if (req.url === '/evidence') return res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ requests, documents: Object.fromEntries(documents), keyPresent: keys.has('XAI_API_KEY') }))
   try {
     let raw = ''; for await (const chunk of req) raw += chunk
     const { method, args } = JSON.parse(raw)
-    const result = method === 'getSceneImageSettings' ? { settings: await setup.settings(args?.provider) }
+    const result = method === 'sceneImageStatus' ? { illustration: { key: 'fixture-turn', status: 'idle', versions: [] } }
+      : method === 'getSceneImageSettings' ? { settings: await setup.settings(args?.provider) }
       : method === 'saveSceneImageSettings' ? { settings: await setup.configure(args) }
         : method === 'testSceneImageConnection' ? await setup.testConnection(args)
           : method === 'listSceneImageModels' ? await setup.listModels(args) : { error: 'Unknown method' }
