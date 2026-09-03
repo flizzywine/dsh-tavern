@@ -145,8 +145,9 @@ const server = createServer(async (req, res) => {
     }
     if (url.pathname === '/version') return res.end(JSON.stringify({ pkgVersion: '1.12.14' }))
     if (url.pathname === '/rpc') {
-      let body = ''; for await (const part of req) body += part
-      const { method, args = {}, sessionId } = JSON.parse(body)
+      // Decode once: a large Chinese card can split a UTF-8 character between chunks.
+      const chunks = []; for await (const part of req) chunks.push(part)
+      const { method, args = {}, sessionId } = JSON.parse(Buffer.concat(chunks).toString('utf8'))
       let result = {}
       if (method === 'pollTavernHelperEvent') result = adapter.pollEvent(sessionId, args.runtimeId, args.ready, args.initializationError)
       else if (method === 'completeTavernHelperEvent') result = gate.complete(sessionId, args.eventId, args.args, args.runtimeId, args.error, args.diagnostics)
