@@ -1,5 +1,6 @@
 // Real browser loader, execution lease, event gate and settlement. Only the model
 // and persistence are isolated. ?mode=manual|auto|unsafe|json|server-error covers recovery/diagnostics.
+// Add navigation=1 to test game ownership across parent/child header unmounts.
 import { createServer } from 'node:http'
 import { readFile, mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -158,14 +159,32 @@ const server = createServer(async (req, res) => {
       tavernMvuRuntime: { owner: 'official', assetUrl: '/mvu.js?id=' + id } }
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }).end(`<!doctype html><meta charset="utf-8"><title>MVU 初始化验证</title>
       <div id="recovery"></div><button id="network">恢复下载服务</button><button id="run" disabled>验证结算</button><button id="diagnostics">验证诊断包</button><pre id="logs"></pre><pre id="result">加载中</pre>
+      ${url.searchParams.has('navigation') ? '<button id="child">查看子代理</button><button id="parent">返回主对话</button><button id="other">切换另一游戏</button><p id="navigation">主对话</p>' : ''}
       <script>
       const react={createElement(tag,props,...children){const node=document.createElement(tag);for(const [key,value] of Object.entries(props||{})){if(key==='onClick')node.onclick=value;else if(key==='style')Object.assign(node.style,value);else if(key==='className')node.className=value;else node.setAttribute(key,value);}for(const child of children)if(child!==null&&child!==false)node.append(child);return node;}};
       window.__ModuleLoader__={load(d){window.client=d.factory(name=>name==='react'?react:{});}};</script><script src="/client.js"></script>
       <script>
       const id=${JSON.stringify(id)},output=document.querySelector('#result');
       async function rpc(method,args={},sessionId=id){const r=await fetch('/rpc',{method:'POST',body:JSON.stringify({method,args,sessionId})});const v=await r.json();if(!r.ok)throw Error(v.error);return v;}
-      const execution=client.createTavernScriptExecutionModule({rpc,invalidate(){},onMvuLoadState(state){const node=client.TavernMvuLoadRecovery({state,retry(){execution.retryMvuLoad();}});document.querySelector('#recovery').replaceChildren(...(node?[node]:[]));}});
-      execution.sync(id,${JSON.stringify(view)});
+      const view=${JSON.stringify(view)};
+      function display(state,retry){const node=client.TavernMvuLoadRecovery({state,retry});document.querySelector('#recovery').replaceChildren(...(node?[node]:[]));}
+      let execution, page='parent';
+      if (${url.searchParams.has('navigation')}) {
+        let current=id;const listeners=new Set();
+        const sessions={list:{getSnapshot:()=>({current}),subscribe(fn){listeners.add(fn);return()=>listeners.delete(fn);}},subagentAddress(sessionId){return sessionId===id+'-child'?{parentSessionId:id,childSessionId:sessionId}:undefined;}};
+        execution=client.createTavernScriptSessionOwner({sessions,rpc,transition:{getSnapshot:()=>false,subscribe:()=>()=>{}},liveView:{invalidate(){},subscribe(sessionId,fn){fn({phase:'ready',view:sessionId===id?view:{}});return()=>{};}}});
+        execution.start();
+        let stopHeader=()=>{};
+        function mountHeader(){stopHeader();document.querySelector('#recovery').replaceChildren();const render=()=>display(execution.getSnapshot().loadState,execution.retryMvuLoad);stopHeader=execution.subscribe(render);render();}
+        function navigate(sessionId,name){stopHeader();current=sessionId;page=name;listeners.forEach(fn=>fn());mountHeader();document.querySelector('#navigation').textContent=name;}
+        mountHeader();
+        document.querySelector('#child').onclick=()=>navigate(id+'-child','子代理');
+        document.querySelector('#parent').onclick=()=>navigate(id,'主对话');
+        document.querySelector('#other').onclick=()=>navigate('other-game','另一游戏');
+      } else {
+        execution=client.createTavernScriptExecutionModule({rpc,invalidate(){},onMvuLoadState(state){display(state,()=>execution.retryMvuLoad());}});
+        execution.sync(id,view);
+      }
       let ran=false;const timer=setInterval(async()=>{const s=await rpc('status');output.textContent=JSON.stringify(s,null,2);if(!ran&&(s.ready||s.initializationError||s.downloads>=3))document.querySelector('#run').disabled=false;},100);
       document.querySelector('#network').onclick=()=>rpc('recover');
       document.querySelector('#diagnostics').onclick=async()=>{try{document.querySelector('#logs').textContent=JSON.stringify(await rpc('diagnostics'),null,2);}catch(e){document.querySelector('#logs').textContent='FAIL: '+e.message;}};

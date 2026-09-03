@@ -11,6 +11,14 @@
 - 下载等待期间由下载器管理超时；执行阶段恢复初始化超时检测。切换会话、释放执行租约或离开页面后，旧沙箱与迟到消息不能操作新会话。
 - 运行时就绪后，已有结算队列接续保存的提交，沿用 branch/revision 检查，不重新生成正文或调用模型。正常的 MVU 初始化可能补写 schema，这不等于重复应用结算。
 
+## 查看子代理时的执行器归属
+
+脚本执行器由插件级 `createTavernScriptSessionOwner` 管理，不由会话页头 React 组件持有。管理器订阅宿主 `sessions.list`，沿 `subagentAddress` 的真实父子关系找到所属主对话；主对话与子代理（含嵌套子代理）共用同一份执行租约、脚本沙箱和主对话视图订阅。查看子代理时仍能处理主对话结算，返回不重跑初始化。
+
+页头只订阅加载状态，卸载只解除显示订阅。切换到不相关游戏、清空选择、插件停用或 `pagehide` 时释放执行器；`pageshow`（包括往返缓存恢复）重新登记一次。旧视图回调按订阅实例隔离，避免 A→B→A 的迟到数据串入新实例；异常父子循环直接停止，不猜测归属。不保留多个历史游戏执行器，也不改变跨窗口执行租约与变量提交校验。
+
+回归入口：`tests/script-session-owner.test.mjs`；浏览器夹具增加 `navigation=1`，可在子代理页点击“验证结算”，检查只下载/初始化一次，返回前结算已完成，切换另一游戏后主执行器离线。
+
 验证入口：`tests/mvu-load-recovery.test.mjs`、`tests/mvu-asset-route.test.mjs`、`tests/card-runtime-lifecycle.test.mjs`、`tests/helper-module-loading.test.mjs`、现有结算恢复测试。真实浏览器夹具为 `tests/fixtures/mvu-initialization-browser-smoke.mjs`，参数 `mode=manual|auto|unsafe|json|server-error`，加 `sandbox=1` 验证隔离模式。
 
 ## 加载诊断

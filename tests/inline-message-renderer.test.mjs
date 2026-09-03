@@ -1221,6 +1221,8 @@ test('Tavern 消息 renderer 以更低 priority 接管 assistant 和 user 正式
   const ctx = {
     effect(activate, label) {
       labels.push(label)
+      // The independent owner lifecycle is exercised in script-session-owner.test.mjs.
+      if (label === 'dsh-tavern: game script owner') return function () {}
       return activate()
     }
   }
@@ -1241,7 +1243,7 @@ test('Tavern 消息 renderer 以更低 priority 接管 assistant 和 user 正式
   assert.equal(registrations[1].spec.key, 'user')
   assert.equal(registrations[1].spec.priority, -1)
   assert.equal(typeof registrations[1].component, 'function')
-  assert.deepEqual(labels, ['dsh-tavern: conversation script lifecycle', 'dsh-tavern: inline assistant renderer', 'dsh-tavern: raw user message renderer'])
+  assert.deepEqual(labels, ['dsh-tavern: game script owner', 'dsh-tavern: conversation script lifecycle', 'dsh-tavern: inline assistant renderer', 'dsh-tavern: raw user message renderer'])
 })
 
 test('用户气泡优先展示持久化原始输入，不展示 promptOnly 的 Session 投影', () => {

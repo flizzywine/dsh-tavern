@@ -3345,18 +3345,107 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			});
 		}
 
+		// The selected game's executor belongs to the plugin, not its disposable header.
+		// Descendant navigation shares its owner; unrelated games never share a sandbox.
+		function createTavernScriptSessionOwner(options) {
+			const hostWindow = options.window || window;
+			const sessions = options.sessions;
+			const views = options.liveView || liveTavernView;
+			const transition = options.transition || tavernSessionTransition;
+			const listeners = new Set();
+			let snapshot = { sessionId: "", loadState: null };
+			let current = null, stopView = null, stopSessions = null, stopTransition = null;
+			let started = false, observing = false;
+			const execution = (options.createExecution || createTavernScriptExecutionModule)({
+				window: hostWindow, rpc: options.rpc || rpc,
+				invalidate: function (sessionId) { views.invalidate(sessionId); },
+				onMvuLoadState: function (state) { publish(current ? current.sessionId : "", state); }
+			});
+			function publish(sessionId, loadState) {
+				if (snapshot.sessionId === sessionId && snapshot.loadState === loadState) return;
+				snapshot = { sessionId: sessionId, loadState: loadState };
+				listeners.forEach(function (listener) { listener(); });
+			}
+			function selectedOwner() {
+				let id = String(sessions.list.getSnapshot().current || "");
+				const seen = new Set();
+				while (id) {
+					if (seen.has(id) || seen.size >= 32) return "";
+					seen.add(id);
+					const address = sessions.subagentAddress(id);
+					if (!address) return id;
+					if (address.childSessionId !== id) return "";
+					id = String(address.parentSessionId || "");
+				}
+				return "";
+			}
+			function release() {
+				current = null;
+				if (stopView) stopView();
+				stopView = null;
+				execution.dispose();
+				publish("", null);
+			}
+			function syncView() {
+				if (!current || transition.getSnapshot()) return;
+				const state = current.viewState;
+				if (state && state.phase === "ready") execution.sync(current.sessionId, state.view || {});
+			}
+			function select() {
+				if (!observing) return;
+				const sessionId = selectedOwner();
+				if ((current ? current.sessionId : "") === sessionId) return;
+				release();
+				if (!sessionId) return;
+				const record = { sessionId: sessionId, viewState: null };
+				current = record;
+				publish(sessionId, null);
+				stopView = views.subscribe(sessionId, function (state) {
+					// Identity, not just the id: an old A response must not enter a new A lifetime.
+					if (current !== record) return;
+					record.viewState = state;
+					syncView();
+				});
+			}
+			function resume() {
+				if (!started || observing) return;
+				observing = true;
+				stopSessions = sessions.list.subscribe(select);
+				stopTransition = transition.subscribe(syncView);
+				select();
+			}
+			function suspend() {
+				observing = false;
+				if (stopSessions) stopSessions();
+				if (stopTransition) stopTransition();
+				stopSessions = stopTransition = null;
+				release();
+			}
+			return Object.freeze({
+				start: function () {
+					if (started) return;
+					started = true;
+					hostWindow.addEventListener("pagehide", suspend);
+					hostWindow.addEventListener("pageshow", resume);
+					resume();
+				},
+				dispose: function () {
+					started = false;
+					hostWindow.removeEventListener("pagehide", suspend);
+					hostWindow.removeEventListener("pageshow", resume);
+					suspend();
+				},
+				subscribe: function (listener) { listeners.add(listener); return function () { listeners.delete(listener); }; },
+				getSnapshot: function () { return snapshot; },
+				retryMvuLoad: function () { return execution.retryMvuLoad(); }
+			});
+		}
+
 		function TavernScriptRuntime(props) {
-			const liveState = useLiveTavernView(props.sessionId);
-			const transitioning = React.useSyncExternalStore(tavernSessionTransition.subscribe, tavernSessionTransition.getSnapshot, tavernSessionTransition.getSnapshot);
-			const executionRef = React.useRef(null);
-			const [mvuLoadState, setMvuLoadState] = React.useState(null);
-			if (!executionRef.current) executionRef.current = createTavernScriptExecutionModule({ rpc: rpc, onMvuLoadState: setMvuLoadState, invalidate: function (sessionId) { liveTavernView.invalidate(sessionId); } });
-			const execution = executionRef.current;
-			React.useEffect(function () { return function () { execution.dispose(); }; }, [execution]);
-			React.useEffect(function () {
-				if (!transitioning && liveState.view) execution.sync(props.sessionId, liveState.view);
-			}, [execution, props.sessionId, liveState.view, transitioning]);
-			return React.createElement(TavernMvuLoadRecovery, { state: mvuLoadState, retry: function () { execution.retryMvuLoad(); } });
+			const owner = props.owner;
+			const state = React.useSyncExternalStore(owner.subscribe, owner.getSnapshot, owner.getSnapshot);
+			if (!state.sessionId || !state.loadState) return null;
+			return React.createElement(TavernMvuLoadRecovery, { state: state.loadState, retry: owner.retryMvuLoad });
 		}
 
 		function TavernMvuLoadRecovery(props) {
@@ -4067,10 +4156,15 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				return React.createElement("div", { className: "dsh-tavern-assistant", "data-streaming": data.status === "running" || undefined }, rendered, illustration, mvuReceiptNode);
 			}
 			function register(input) {
+				const scriptOwner = createTavernScriptSessionOwner({ sessions: input.ctx.sessions });
+				input.ctx.effect(function () {
+					scriptOwner.start();
+					return function () { scriptOwner.dispose(); };
+				}, "dsh-tavern: game script owner");
 				input.ctx.effect(function () {
 					return input.slots.inject("conversation.session.header.actions", function () { return input.slots.register({
 						name: "conversation.session.header.actions", id: "dsh-tavern-script-runtime", order: -140, label: "人物卡脚本运行时"
-					}, function (props) { return React.createElement(TavernScriptRuntime, { key: props.sessionId, sessionId: props.sessionId }); }); });
+					}, function () { return React.createElement(TavernScriptRuntime, { owner: scriptOwner }); }); });
 				}, "dsh-tavern: conversation script lifecycle");
 				input.ctx.effect(function () {
 					return input.slots.inject("conversation.chat.node", function () { return input.slots.register({
@@ -7418,6 +7512,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		exports.TavernMessageFrame = TavernMessageFrame;
 		exports.createTavernMessageFrameLifecycle = createTavernMessageFrameLifecycle;
 		exports.createTavernScriptExecutionModule = createTavernScriptExecutionModule;
+		exports.createTavernScriptSessionOwner = createTavernScriptSessionOwner;
 		exports.createMvuBundleLoader = createMvuBundleLoader;
 		exports.TavernMvuLoadRecovery = TavernMvuLoadRecovery;
 		exports.apply = apply;
