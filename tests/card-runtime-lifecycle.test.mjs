@@ -27,7 +27,12 @@ function host() {
   }
 }
 const context = (revision = 1) => ({ version: 1, stateRevision: revision, lifecycleRevision: 1, messages: [{ role: 'assistant', variables: { hp: revision } }], turnMessageIds: { 1: 0 }, chatVariables: {}, scriptVariables: {} })
-const view = (revision = 1) => ({ tavernHelper: context(revision), tavernHelperScripts: [{ id: 'script', name: 'script', content: 'void 0' }] })
+const view = (revision = 1) => ({ chatId: 'tavern-chat', tavernHelper: context(revision), tavernHelperScripts: [{ id: 'script', name: 'script', content: 'void 0' }] })
+const mvuView = () => {
+  const input = { ...view(), tavernMvuRuntime: { owner: 'official', assetUrl: '/bundle.js' } }
+  input.tavernHelper.messages[0].variables = { stat_data: { hp: 10 }, schema: {} }
+  return input
+}
 
 test('DSH 字号同步到已就绪 iframe，不替换文档；离开后停止监听', () => {
   const h = host(), sent = []
@@ -96,6 +101,7 @@ test('script owner acquires one lease, reuses sandbox on variable changes, initi
   assert.equal(h.runtimes[0].syncs.at(-1).view.tavernHelper.stateRevision, 2)
   await h.runtimes[0].options.onReady('A')
   assert.equal(h.runtimes[0].emissions[0][0], 'CHAT_CHANGED')
+  assert.deepEqual(copy(h.runtimes[0].emissions[0][1]), ['tavern-chat'], 'MVU transition requires the Tavern chat ID, not the DSH session ID or undefined')
   assert.equal(h.runtimes[0].emissions[0][2].stateRevision, 2)
   h.module.sync('A', view(3))
   assert.equal(await h.module.triggerButton('script', 'button'), 'clicked')
@@ -105,6 +111,16 @@ test('script owner acquires one lease, reuses sandbox on variable changes, initi
   assert.equal(h.calls.at(-1).method, 'releaseTavernHelperRuntime')
   h.module.dispose()
   assert.equal(h.calls.filter(x => x.method === 'releaseTavernHelperRuntime').length, 1)
+})
+
+test('script readiness without a chat identity never cancels MVU initialization with an undefined transition', async () => {
+  const h = execution(), input = view()
+  delete input.chatId
+  h.module.sync('A', input)
+  await h.runTimer()
+  await h.runtimes[0].options.onReady('A')
+  assert.equal(h.runtimes[0].emissions.length, 0)
+  h.module.dispose()
 })
 
 test('A -> B -> A rejects late polls/readiness and uses distinct leases, including same-session view updates during polling', async () => {
@@ -419,7 +435,7 @@ test('sandbox initialization failure remains observable; a new script document c
 test('MVU 导入失败不宣布就绪，也不把未订阅的事件静默当作成功；重建后可恢复', async () => {
   let announcements = 0
   const h = sandbox({ onReady() { announcements++ } })
-  const input = { ...view(), tavernMvuRuntime: { owner: 'official', assetUrl: '/bundle.js' } }
+  const input = mvuView()
   h.runtime.sync('A', input)
   const frame = h.frames[0]; frame.load()
   const message = 'Failed to fetch dynamically imported module: http://127.0.0.1:43120/bundle.js'
@@ -448,7 +464,7 @@ test('MVU 导入失败不宣布就绪，也不把未订阅的事件静默当作�
 
 test('下载等待暂停初始化超时，同一沙箱可手动恢复且拒绝重复、伪造和旧窗口重试', () => {
   const states = [], h = sandbox({ onMvuLoadState: state => states.push(copy(state)) })
-  const input = { ...view(), tavernMvuRuntime: { owner: 'official', assetUrl: '/bundle.js' } }
+  const input = mvuView()
   h.runtime.sync('A', input)
   const frame = h.frames[0]; frame.load()
   const report = state => h.message(frame, 'dsh-tavern-mvu-load-state', { state })
@@ -482,6 +498,53 @@ test('下载等待暂停初始化超时，同一沙箱可手动恢复且拒绝�
   assert.equal(h.runtime.retryMvuLoad(), false)
   h.runtime.dispose()
   assert.equal(states.at(-1), null)
+})
+
+test('MVU subscriptions cannot advertise settlement readiness until initialized variables are saved; late persistence recovers without replay', async () => {
+  const states = [], h = sandbox({ onMvuLoadState: state => states.push(copy(state)) })
+  const input = mvuView()
+  input.tavernHelper.messages[0].variables = {}
+  h.runtime.sync('A', input)
+  const frame = h.frames[0]; frame.load()
+  h.message(frame, 'dsh-tavern-helper-subscriptions', { ready: true, names: ['MESSAGE_RECEIVED'], scripts: [
+    { id: '__dsh_official_mvu__', ready: true }, { id: 'script', ready: true }
+  ] })
+  assert.equal(h.client.tavernScriptRuntimeReady(h.runtime.inspect()), false)
+  assert.equal(states.at(-1).phase, 'evaluating')
+  assert.equal(h.runtime.inspect().initializationError, undefined)
+  const saved = mvuView().tavernHelper
+  saved.chatId = input.chatId
+  h.respond(async () => ({ updated: false, stale: true, context: saved }))
+  h.message(frame, 'dsh-tavern-helper-call', { requestId: 'stale', method: 'updateTavernHelperMessages' })
+  await tick()
+  assert.equal(h.client.tavernScriptRuntimeReady(h.runtime.inspect()), false, 'rejected writes cannot satisfy initialization')
+  h.runTimer()
+  assert.match(h.runtime.inspect().initializationError, /初始变量.*保存/)
+  assert.equal(states.at(-1).phase, 'error')
+  assert.equal(h.runtime.retryMvuLoad(), false, 'never rerun partially executed initialization')
+  h.respond(async () => ({ updated: true, context: saved }))
+  h.message(frame, 'dsh-tavern-helper-call', { requestId: 'saved', method: 'updateTavernHelperMessages' })
+  await tick()
+  assert.equal(h.client.tavernScriptRuntimeReady(h.runtime.inspect()), true)
+  assert.equal(h.runtime.inspect().initializationError, undefined)
+  assert.equal(states.at(-1).phase, 'ready')
+  assert.equal(h.frames.length, 1)
+  h.runtime.dispose()
+  assert.equal(h.timers.size, 0)
+})
+
+test('MVU initialization timeout is removed with its old sandbox and cannot poison the next chat', () => {
+  const h = sandbox(), input = mvuView()
+  input.tavernHelper.messages[0].variables = {}
+  h.runtime.sync('A', input)
+  const frame = h.frames[0]; frame.load()
+  h.message(frame, 'dsh-tavern-helper-subscriptions', { ready: true, scripts: [
+    { id: '__dsh_official_mvu__', ready: true }, { id: 'script', ready: true }
+  ] })
+  assert.equal(h.timers.size, 1)
+  h.runtime.sync('B', mvuView())
+  assert.equal(h.timers.size, 0)
+  h.runtime.dispose()
 })
 
 test('加载诊断经认证沙箱归属到当前会话，限量且不影响运行状态', async () => {

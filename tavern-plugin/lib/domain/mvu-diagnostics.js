@@ -41,7 +41,7 @@ export function redactMvuLoadError(value, limit = 2000) {
 export function sanitizeMvuLoadDiagnostic(value) {
   const phases = ['download-started', 'download-response', 'download-completed', 'download-failed',
     'retry-scheduled', 'retry-exhausted', 'manual-retry', 'disposed', 'execution-started', 'execution-completed', 'execution-failed',
-    'initialization-ready', 'initialization-failed', 'initialization-timeout']
+    'subscriptions-ready', 'initialization-waiting', 'initialization-ready', 'initialization-failed', 'initialization-timeout']
   if (!value || !phases.includes(value.phase)) return null
   const result = { phase: value.phase }
   for (const [key, limit] of Object.entries({ loadId: 100, contentType: 120, bodyKind: 40, errorName: 80,

@@ -38,6 +38,20 @@ test('MVU 加载诊断只允许结构字段，错误脱敏、长度受限且随 
   assert.ok(JSON.stringify(sanitizeMvuLoadDiagnostic({ phase: 'execution-failed', message: 'x'.repeat(1000000) })).length < 4200)
 })
 
+test('MVU diagnostics distinguish script subscriptions from persisted initial variables', async () => {
+  const store = createMvuDiagnosticStore(storage())
+  for (const phase of ['subscriptions-ready', 'initialization-waiting', 'initialization-timeout', 'initialization-ready']) {
+    const diagnostic = sanitizeMvuLoadDiagnostic({ phase, failureStep: 'initial-variables', variables: { secret: 'DO_NOT_LOG' } })
+    assert.equal(diagnostic.phase, phase)
+    assert.equal(diagnostic.failureStep, 'initial-variables')
+    await store.record('s', { stage: 'mvu-load', diagnostic })
+  }
+  const zip = await createMvuDiagnosticExport({ sessionId: 's', store })
+  assert.match(zip.buffer.toString(), /initialization-waiting/)
+  assert.match(zip.buffer.toString(), /initial-variables/)
+  assert.doesNotMatch(zip.buffer.toString(), /DO_NOT_LOG/)
+})
+
 test('真实日志 RPC 保留加载字段；诊断写盘失败不向运行路径抛错', async () => {
   const source = await readFile(new URL('../tavern-plugin/lib/index.js', import.meta.url), 'utf8')
   const start = source.indexOf("case 'recordMvuRuntimeDiagnostic':")

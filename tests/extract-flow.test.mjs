@@ -1292,6 +1292,7 @@ test('Tavern 用独立启动标识刷新旧插件前端，不复用 Session 恢�
 
 test('Helper 全部就绪后直接广播 CHAT_CHANGED，官方 MVU 自行完成开场初始化', () => {
 	const module = between(clientSource, 'function createTavernScriptExecutionModule', 'function TavernScriptRuntime')
-	assert.match(module, /onReady: function \(readySessionId\)[\s\S]*runtime\.emit\("CHAT_CHANGED", \[\], input\.view && input\.view\.tavernHelper\)/)
+	// CHAT_CHANGED payload and lease behavior are exercised in card-runtime-lifecycle.test.mjs.
+	assert.match(module, /onReady: function \(readySessionId\)/)
 	assert.doesNotMatch(module, /initializeTavernMvuOpenings/)
 })

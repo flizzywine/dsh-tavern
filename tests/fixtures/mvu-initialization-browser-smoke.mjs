@@ -2,6 +2,9 @@
 // and persistence are isolated. ?mode=manual|auto|unsafe|json|server-error covers recovery/diagnostics.
 // Add navigation=1 to test game ownership across parent/child header unmounts.
 // mode=capture overlaps a display capture with real MVU execution/persistence.
+// mode=opening starts without variables. Optional MVU_SMOKE_CARD_PATH plus
+// MVU_SMOKE_OPERATIONS (JSON array) exercises a real card in mode=opening-card,
+// reading it without modifying any live chat or invoking a paid model.
 import { createServer } from 'node:http'
 import { readFile, mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -13,6 +16,10 @@ import { createMvuSettlementModule } from '../../tavern-plugin/lib/domain/mvu-ba
 import { createTavernScriptHostAdapter } from '../../tavern-plugin/lib/domain/tavern-script-host-adapter.js'
 import { createTavernHelperEventGate } from '../../tavern-plugin/lib/domain/tavern-helper-event-gate.js'
 import { createChatPersistence } from '../../tavern-plugin/lib/domain/chat-persistence.js'
+import { inspectWorldBookDocument, updateWorldBookDocument } from '../../tavern-plugin/lib/domain/worldbook-resource.js'
+import { projectTavernHelperWorldbook } from '../../tavern-plugin/lib/domain/tavern-helper-worldbook.js'
+import { createCardPreparation } from '../../tavern-plugin/lib/domain/card-preparation.js'
+import { projectTavernHelperScripts } from '../../tavern-plugin/lib/domain/tavern-helper-scripts.js'
 import { projectTavernHelperContext } from '../../tavern-plugin/lib/domain/tavern-helper-context.js'
 import { createTavernStaticResourceCache, rewriteCachedModuleImports } from '../../tavern-plugin/lib/domain/tavern-static-resource-cache.js'
 
@@ -23,6 +30,22 @@ const gate = createTavernHelperEventGate()
 const states = new Map()
 const records = new Map()
 const diagnostics = createMvuDiagnosticStore({ readJson: async key => records.get(key), updateJson: async (key, update) => { records.set(key, update(records.get(key))) } })
+const openingBook = { name: '开场变量', entries: [{ id: 1, comment: '[initvar]初始值', content: 'hp: 10', enabled: true }] }
+const cardWorkspace = process.env.MVU_SMOKE_CARD_PATH ? JSON.parse(await readFile(process.env.MVU_SMOKE_CARD_PATH, 'utf8')) : null
+const cardPreparation = createCardPreparation()
+const realCard = cardWorkspace ? cardPreparation.project(cardWorkspace) : null
+const realScripts = cardWorkspace ? projectTavernHelperScripts(cardPreparation.present({ card: cardWorkspace, as: 'card-extensions' }).helperScripts).scripts : []
+const realOperations = process.env.MVU_SMOKE_OPERATIONS ? JSON.parse(process.env.MVU_SMOKE_OPERATIONS) : null
+const books = new Map()
+function bookFor(id) {
+  const template = id.startsWith('opening-card') ? realCard?.character_book : id.startsWith('opening') ? openingBook : null
+  if (!template) return null
+  if (!books.has(id)) {
+    const document = structuredClone(template)
+    books.set(id, { source: { kind: 'card', cardPath: id }, document, view: inspectWorldBookDocument(document) })
+  }
+  return books.get(id)
+}
 function isErrorResponse(id) { return /^(json|server-error)/.test(id) }
 function state(id) {
   if (!states.has(id)) {
@@ -31,7 +54,12 @@ function state(id) {
       if (state(id).available) return bundle.body
       throw Object.assign(new Error("ENOENT: open 'C:\\Users\\PRIVATE_USER\\bundle.js'; apiKey=SECRET_VALUE"), { code: 'ENOENT' })
     } }), chat: { id, sessionId: id, mode: 'story', mvu: { enabled: true, owner: 'official' },
-      messages: [{ role: 'assistant', text: '测试正文', swipeId: 0, swipes: ['测试正文'], variables: [variables] }] } })
+      messages: [{ role: 'assistant', text: '测试正文', swipeId: 0, swipes: ['测试正文'], variables: [id.startsWith('opening') ? {} : variables] }] } })
+    if (id.startsWith('opening-card') && realCard) {
+      const swipes = [realCard.first_mes, ...(realCard.alternate_greetings || [])]
+      const swipeId = Math.min(2, swipes.length - 1)
+      states.get(id).chat.messages[0] = { role: 'assistant', greeting: true, turn: 1, text: swipes[swipeId], swipeId, swipes, variables: swipes.map(() => ({})) }
+    }
   }
   return states.get(id)
 }
@@ -43,12 +71,19 @@ const persistence = createChatPersistence({ store: {
 const adapter = createTavernScriptHostAdapter({ resolveChat: async id => id.startsWith('capture') ? persistence.read(id) : state(id).chat,
   writeChat: async chat => {
     const s = state(chat.id)
-    if (s.chat.messages[0].variables[0].stat_data.hp !== chat.messages[0].variables[0].stat_data.hp) s.hpWrites++
+    if (s.chat.messages[0].variables[0].stat_data?.hp !== chat.messages[0].variables[0].stat_data?.hp) s.hpWrites++
     s.writes++
     if (chat.id.startsWith('capture')) await persistence.write(chat)
     else s.chat = structuredClone(chat)
   },
-  readCard: async () => ({ name: '测试卡' }), worldBooks: { bound: async () => null }, eventGate: { ...gate,
+  readCard: async chat => ({ name: '测试卡', fixtureId: chat.id }), worldBooks: {
+    bound: async (_path, card) => bookFor(card.fixtureId),
+    update: async (source, request) => {
+      const record = bookFor(source.cardPath)
+      Object.assign(record, updateWorldBookDocument(record.document, request))
+      return record
+    }
+  }, eventGate: { ...gate,
     async dispatch(id, ...args) {
       if (id.startsWith('capture')) {
         const capture = await persistence.read(id)
@@ -62,7 +97,7 @@ const settlement = createMvuSettlementModule({ runtime: adapter, model: { async 
   const s = state(request.sessionId)
   await request.onToolCall({ name: 'posture_submit', arguments: { posture: '站立' } })
   s.calls++
-  s.feedback = JSON.parse(await request.onToolCall({ name: 'mvu_submit_update', arguments: { operations: [{ op: 'replace', path: '/hp', value: 9 }] } }))
+  s.feedback = JSON.parse(await request.onToolCall({ name: 'mvu_submit_update', arguments: { operations: s.operations || [{ op: 'replace', path: '/hp', value: 9 }] } }))
   return {}
 } } })
 function settlementInput(id) {
@@ -119,7 +154,9 @@ const server = createServer(async (req, res) => {
       else if (method === 'updateTavernHelperVariables') result = args.option?.type === 'global' ? { updated: true } : await adapter.updateVariables(sessionId, args.option, args.variables, 0)
       else if (method === 'updateTavernHelperMessages') result = await adapter.updateMessages(sessionId, args.messages, 0)
       else if (method === 'saveTavernExtensionSettings') result = { updated: true, extensionSettings: args.settings }
-      else if (method === 'getTavernHelperWorldbook') result = { worldbook: null }
+      else if (method === 'loadTavernWorldInfo') result = { worldInfo: { entries: {} } }
+      else if (method === 'getTavernHelperWorldbook') result = await adapter.getWorldbook(sessionId, args.name)
+      else if (method === 'replaceTavernHelperWorldbook') result = await adapter.replaceWorldbook(sessionId, args.name, args.entries, args.expectedEntries)
       else if (method === 'recover') { state(sessionId).available = true; result = { available: true } }
       else if (method === 'recordMvuRuntimeDiagnostic' && args.diagnostic?.kind === 'mvu-load') {
         const diagnostic = sanitizeMvuLoadDiagnostic(args.diagnostic)
@@ -154,11 +191,34 @@ const server = createServer(async (req, res) => {
       else if (method === 'status') {
         const s = state(sessionId)
         result = { ...gate.status(sessionId), downloads: s.downloads, calls: s.calls, writes: s.writes, hpWrites: s.hpWrites, resumes: s.resumes,
-          hp: s.chat.messages[0].variables[0].stat_data.hp, capture: s.chat.messages[0].displayRuntime, receipt: s.result?.receipt, resumeError: s.resumeError }
+          hp: s.chat.messages[0].variables[0].stat_data?.hp, variableKeys: Object.keys(s.chat.messages[0].variables[0].stat_data || {}), initialized: s.chat.mvu.openingInitialization, capture: s.chat.messages[0].displayRuntime, receipt: s.result?.receipt, resumeError: s.resumeError }
       }
       else if (method === 'run') {
-        const s = state(sessionId); s.writes = 0
-        const resultState = await settlement.settleVariables(settlementInput(sessionId))
+        const s = state(sessionId); s.writes = 0; s.hpWrites = 0
+        let input = settlementInput(sessionId), openingBefore
+        if (sessionId.startsWith('opening')) {
+          assert.equal(s.chat.mvu.openingInitialization?.status, 'complete', 'opening must initialize before settlement')
+          assert.ok(s.chat.messages[0].variables.every(v => v.stat_data !== undefined && v.schema !== undefined), 'all opening swipes need initial variables')
+          if (sessionId.startsWith('opening-card')) {
+            assert.ok(Array.isArray(realOperations) && realOperations.length > 0, 'set MVU_SMOKE_OPERATIONS for the chosen card')
+            s.operations = realOperations
+          }
+          openingBefore = structuredClone(s.chat.messages[0])
+          const variables = structuredClone(openingBefore.variables[openingBefore.swipeId])
+          s.chat.messages.push({ role: 'user', text: '继续', turn: 2, variables: [{}] }, { role: 'assistant', text: '测试正文', turn: 2, swipeId: 0, swipes: ['测试正文'], variables: [variables] })
+          input = { ...input, messageId: 2, currentVariables: variables }
+        }
+        const resultState = await settlement.settleVariables(input)
+        if (openingBefore) {
+          assert.equal(resultState.receipt.status, 'updated', JSON.stringify(resultState.receipt))
+          assert.equal(s.feedback.ok, true)
+          assert.equal(s.feedback.failures.length, 0)
+          assert.deepEqual(s.chat.messages[0], openingBefore, 'settlement must preserve opening history')
+          assert.equal(s.calls, 1)
+          s.result = resultState
+          result = { pass: true, calls: s.calls, writes: s.writes, receipt: resultState.receipt }
+          return res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(result))
+        }
         const failed = sessionId.startsWith('unsafe'), waiting = !gate.status(sessionId).ready && !failed
         assert.equal(resultState.receipt.status, failed ? 'error' : waiting ? 'pending' : 'updated')
         assert.equal(s.chat.messages[0].variables[0].stat_data.hp, failed || waiting ? 10 : 9)
@@ -175,7 +235,13 @@ const server = createServer(async (req, res) => {
     const mode = url.searchParams.get('mode') || 'normal', id = mode + (url.searchParams.has('sandbox') ? '-sandbox' : '-trusted')
     const view = { chatId: id, card: { name: '测试卡' }, tavernHelper: projectTavernHelperContext(state(id).chat),
       tavernRuntimePolicy: { trustedCardMode: !url.searchParams.has('sandbox') }, tavernHelperScripts: [],
+      tavernHelperWorldbook: bookFor(id) ? projectTavernHelperWorldbook(bookFor(id).view) : null,
       tavernMvuRuntime: { owner: 'official', assetUrl: '/mvu.js?id=' + id } }
+    if (id.startsWith('opening')) view.tavernHelperScripts.push({ id: 'opening-companion', name: '开场配套脚本', content: 'await updateVariablesWith(v=>({...v,enabled:true}),{type:"script"});', data: {}, enabled: true })
+    if (id.startsWith('opening-card')) {
+      assert.ok(realCard, 'set MVU_SMOKE_CARD_PATH for mode=opening-card')
+      view.card = realCard; view.tavernHelperScripts = realScripts
+    }
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }).end(`<!doctype html><meta charset="utf-8"><title>MVU 初始化验证</title>
       <div id="recovery"></div><button id="network">恢复下载服务</button><button id="run" disabled>验证结算</button><button id="diagnostics">验证诊断包</button><pre id="logs"></pre><pre id="result">加载中</pre>
       ${url.searchParams.has('navigation') ? '<button id="child">查看子代理</button><button id="parent">返回主对话</button><button id="other">切换另一游戏</button><p id="navigation">主对话</p>' : ''}
