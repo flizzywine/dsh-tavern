@@ -105,7 +105,7 @@ test('截图有有效本地资源、替代文字、说明、来源与放大入�
       assert.ok(shot?.alt && shot?.caption, key)
       const src = `images/manual/${shot.file}`
       assert.ok(body.includes(`href="${src}" target="_blank" rel="noopener noreferrer"`))
-      assert.ok(body.includes(`src="${src}" alt="${escapeHTML(shot.alt)}" width="1309" height="707" loading="lazy"`))
+      assert.ok(body.includes(`src="${src}" alt="${escapeHTML(shot.alt)}" width="${shot.width || 1309}" height="${shot.height || 707}" loading="lazy"`))
       const bytes = await readFile(new URL(src, root))
       assert.deepEqual([...bytes.subarray(0, 3)], [0xff, 0xd8, 0xff], `${src} must be a real JPEG capture`)
       assert.ok(bytes.length > 10000)
@@ -114,6 +114,17 @@ test('截图有有效本地资源、替代文字、说明、来源与放大入�
   const provenance = await readFile(new URL('../examples/manual-demo/README.md', import.meta.url), 'utf8')
   assert.match(provenance, /CC0/)
   assert.match(provenance, /独立 DSH Profile/)
+})
+
+test('全部 100 个功能主题均有明确配图，正常介绍不再引用报错截图', () => {
+  for (const { id } of readTopics(inventory)) {
+    assert.ok(pageScreenshots[id]?.length > 0, `${id} 缺少截图`)
+    for (const key of pageScreenshots[id]) assert.ok(screenshots[key], `${id}: ${key}`)
+  }
+  assert.equal(Object.keys(pageScreenshots).filter(id => /^[a-n]\d{2}$/.test(id)).length, 100)
+  assert.doesNotMatch(html, /images\/manual\/latest-error\.jpg/)
+  assert.match(screenshots['version-check'].caption, /尚未检查更新/)
+  assert.match(screenshots['settlement-retry'].caption, /正常结算/)
 })
 
 test('网页公开样例下载与原创源数据一致，人物卡没有远程脚本依赖', async () => {

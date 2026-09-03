@@ -36,6 +36,6 @@ export const worldbook = { name: '灯塔镇 · 地点与风俗', entries: {
 export const preset = { name: '温暖叙事 · 文档样例', temperature: 0.8, prompts: [
   { identifier: 'main', name: '叙事基调', role: 'system', content: '保持温暖、克制的叙事语气。用具体动作和环境细节推动场景，不替玩家作出选择。', system_prompt: true, enabled: true },
   { identifier: 'demo-style', name: '对话与节奏', role: 'system', content: '让人物对白自然简洁，每次推进一个可回应的小变化。不要突然跳过数日，也不要提前解释全部谜底。', enabled: true }
-], prompt_order: [{ character_id: 100001, order: [{ identifier: 'main', enabled: true }, { identifier: 'demo-style', enabled: true }] }], extensions: { regex_scripts: [] } }
+], prompt_order: [{ character_id: 100001, order: [{ identifier: 'main', enabled: true }, { identifier: 'demo-style', enabled: true }] }], extensions: { regex_scripts: [{ id: 'manual-demo-heading', scriptName: '清理示例章节标记', findRegex: '/^【章节】/gm', replaceString: '### ', placement: [2], disabled: false, markdownOnly: true, promptOnly: false, runOnEdit: true, trimStrings: [] }] } }
 
 export const script = '# 雨夜来信 · 三幕剧情大纲\n\n## 第一幕：没有署名的信\n新来的邮递员在雨夜收到林澄带来的旧信。信封上的蓝色鸢尾花印章指向镇上的旧花店。玩家可以查阅地址簿，也可以向邻居打听。\n\n## 第二幕：花店留下的地址\n旧花店的窗台上还留着花盆。地址簿里夹着一张灯塔开放日的旧照片；照片背面写着“等灯亮起来，一起回家”。玩家逐步找到曾在花店帮忙的邻居。\n\n## 第三幕：灯亮起来的时候\n开放日的傍晚，镇民聚在灯塔前。旧信可以交给收件人，也可以先由玩家询问对方是否愿意读它。结尾尊重玩家此前的选择，不强制感伤或团圆。\n'

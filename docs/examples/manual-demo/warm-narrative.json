@@ -34,6 +34,21 @@
     }
   ],
   "extensions": {
-    "regex_scripts": []
+    "regex_scripts": [
+      {
+        "id": "manual-demo-heading",
+        "scriptName": "清理示例章节标记",
+        "findRegex": "/^【章节】/gm",
+        "replaceString": "### ",
+        "placement": [
+          2
+        ],
+        "disabled": false,
+        "markdownOnly": true,
+        "promptOnly": false,
+        "runOnEdit": true,
+        "trimStrings": []
+      }
+    ]
   }
 }

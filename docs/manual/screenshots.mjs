@@ -1,4 +1,5 @@
 // Actual application captures, using only examples/manual-demo (original CC0 data).
+import { featureCaptures, featurePages } from './feature-captures.mjs'
 export const screenshotSource = {
   date: '2026-09-03',
   runtime: 'DSH 0.1.2-rc.1 / DSH Tavern 1.3.0',
@@ -7,6 +8,7 @@ export const screenshotSource = {
 }
 
 export const screenshots = {
+  ...featureCaptures,
   play: { file: 'play.jpg', title: '游玩界面', alt: '左侧游玩历史，中间雨夜来信开场正文与输入框，右侧灯塔镇 MVU 状态栏', caption: '左侧继续游戏，中间阅读正文和输入行动，右侧查看状态。这里展示的是人物卡预写开场与初始变量，不是模型生成的测试结果。' },
   opening: { file: 'opening.jpg', title: '选择开场', alt: '游戏准备窗口显示雨夜来信的第一条开场，可切换备选开场并点击以此开场', caption: '选择人物卡后，先预览开场。用左右箭头切换，再点击“以此开场”。' },
   workbench: { file: 'workbench.jpg', title: '卡片工作台', alt: '卡片模式左侧历史，中间未发送的样例修改要求，右侧人物卡库', caption: '把要保留的设定、想调整的内容说清楚，再与 Agent 讨论。输入框中的修改要求是演示草稿，尚未发送，也未修改人物卡。' },
@@ -17,14 +19,8 @@ export const screenshots = {
   profile: { file: 'user-profile.jpg', title: '用户画像入口', alt: '右侧用户画像面板处于尚未建立状态，显示开始建立用户画像按钮', caption: '用户画像是按需使用的高级功能，从右侧面板进入。独立样例环境尚未建立画像；它不是新建游戏的必填步骤。' },
 }
 
-// A small, maintained set of screenshots is shared by relevant instructions.
+// Each inventory feature has its own explicit screenshot assignment.
 export const pageScreenshots = {
-  a01: ['play', 'workbench'], compatibility: ['play'], d08: ['play'], play: ['play'], a05: ['play'], d02: ['play'],
-  a04: ['opening'], b01: ['opening'], b02: ['opening'],
-  cards: ['workbench'], h04: ['workbench'], h05: ['workbench'],
-  i01: ['workbench'], i02: ['card'], i03: ['card'],
-  j01: ['worldbook'], j03: ['worldbook'], j04: ['worldbook'],
-  l01: ['preset'], l03: ['preset'],
-  k01: ['script'], k03: ['script'], c01: ['script'], h03: ['script'],
-  e01: ['profile'],
+  ...featurePages,
+  compatibility: ['card-picker', 'card-extensions'], play: ['play'], cards: ['workbench'], advanced: ['tavern-settings'],
 }
