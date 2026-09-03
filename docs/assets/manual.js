@@ -42,6 +42,16 @@
   }
   for (const button of document.querySelectorAll('.group-toggle')) button.addEventListener('click', () => { const el = document.getElementById(button.getAttribute('aria-controls')); el.hidden = !el.hidden; button.setAttribute('aria-expanded', String(!el.hidden)); button.setAttribute('aria-label', `${el.hidden ? '展开' : '折叠'}${button.closest('.nav-group').querySelector('a').textContent}`) })
   menu.addEventListener('click', () => { const open = !sidebar.classList.contains('mobile-open'); sidebar.classList.toggle('mobile-open', open); document.body.classList.toggle('menu-open', open); menu.setAttribute('aria-expanded', String(open)) })
+  for (const button of document.querySelectorAll('.copy-code')) {
+    button.hidden = false
+    button.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(button.closest('.code-block').querySelector('code').textContent)
+        button.textContent = '已复制'
+      } catch { button.textContent = '请选中文字复制' }
+      setTimeout(() => { button.textContent = '复制' }, 2500)
+    })
+  }
   const themeButton = document.getElementById('theme-toggle')
   const saved = storage.get('dsh-docs-theme')
   const setTheme = theme => { document.documentElement.dataset.theme = theme; themeButton.setAttribute('aria-label', `切换${theme === 'dark' ? '浅色' : '深色'}主题`) }

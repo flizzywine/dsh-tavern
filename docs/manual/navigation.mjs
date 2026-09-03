@@ -1,4 +1,5 @@
 // The four product sections are deliberately separate from help and the full index.
+export const gettingStarted = { id: 'getting-started', title: '入门指南', chapters: [['开始使用', 'A01 A02']] }
 export const sections = [
   { id: 'compatibility', title: '酒馆生态兼容', intro: '已有的人物卡、世界书和预设，可以从这里继续使用。先了解支持范围，再按需要查看具体操作。', chapters: [
     ['资源与展示支持', 'D11 I01 J01 L02 D08 D02'],

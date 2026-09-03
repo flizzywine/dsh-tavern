@@ -1,10 +1,10 @@
 // Pure navigation/search rules shared by the browser and Node contract tests.
 ;(function (root) {
-  const aliases = { main: 'compatibility', features: 'index', start: 'play', create: 'cards', experience: 'play', illustrate: 'advanced', script: 'c01' }
+  const aliases = { main: 'a01', features: 'index', start: 'a02', create: 'cards', experience: 'play', illustrate: 'advanced', script: 'c01' }
   function resolveRoute(hash, ids) {
     let target
     try { target = decodeURIComponent(hash.replace(/^#/, '')) } catch { return { id: 'not-found', target: '' } }
-    if (!target) target = 'compatibility'
+    if (!target) target = 'a01'
     if (aliases[target]) target = aliases[target]
     const id = target.split('--')[0]
     return { id: ids.includes(id) ? id : 'not-found', target }

@@ -2,9 +2,11 @@ import assert from 'node:assert/strict'
 import { access, readFile } from 'node:fs/promises'
 import test from 'node:test'
 import vm from 'node:vm'
-import { renderSite, readTopics, markdown } from '../docs/manual/build.mjs'
-import { sections, help } from '../docs/manual/navigation.mjs'
+import { renderSite, readTopics, markdown, escapeHTML } from '../docs/manual/build.mjs'
+import { sections, help, gettingStarted } from '../docs/manual/navigation.mjs'
 import { topics } from '../docs/manual/topics.mjs'
+import { installCommands } from '../docs/manual/introduction.mjs'
+import { adaptedDshVersion } from '../bin/dsh-compatibility.mjs'
 
 const root = new URL('../docs/', import.meta.url)
 const inventory = await readFile(new URL('feature-inventory.md', root), 'utf8')
@@ -23,7 +25,7 @@ test('四个产品部分按认知顺序排列，帮助不算第五部分', () =>
   assert.deepEqual(sections.map(s => s.title), ['酒馆生态兼容', '游玩模式', '卡片模式', '高级功能'])
   assert.equal((html.match(/class="nav-group" data-group=/g) || []).length, 4)
   assert.equal(help.id, 'help')
-  assert.equal(resolveRoute('', routeIds).id, 'compatibility')
+  assert.equal(resolveRoute('', routeIds).id, 'a01')
 })
 
 test('全部 100 个主题都有独立完整文字与真实目录入口', () => {
@@ -31,17 +33,51 @@ test('全部 100 个主题都有独立完整文字与真实目录入口', () => 
   assert.equal(rows.length, 100)
   assert.equal(Object.keys(topics).length, 100)
   assert.equal(pages.filter(p => /^[a-n]\d{2}$/.test(p.id)).length, 100)
-  const navigation = [...sections, help].flatMap(g => g.chapters.flatMap(([, keys]) => keys.split(' ')))
+  const navigation = [gettingStarted, ...sections, help].flatMap(g => g.chapters.flatMap(([, keys]) => keys.split(' ')))
   for (const row of rows) {
     assert.ok(navigation.includes(row.key), row.key)
     const page = pages.find(p => p.id === row.id)
     assert.ok(page, row.id)
-    assert.ok(page.body.includes('在哪里'))
-    assert.ok(page.body.includes('结果与生效范围'))
-    assert.ok(page.body.includes('注意事项'))
+    if (!['A01', 'A02'].includes(row.key)) {
+      assert.ok(page.body.includes('在哪里'))
+      assert.ok(page.body.includes('结果与生效范围'))
+      assert.ok(page.body.includes('注意事项'))
+    }
     assert.ok(topics[row.key].steps.length > 0)
     for (const related of topics[row.key].related) assert.ok(topics[related], related)
   }
+})
+
+test('产品概览和安装是独立入门入口，默认首页先讲产品和界面', () => {
+  assert.ok(html.indexOf('aria-label="入门指南"') < html.indexOf('aria-label="四部分文档目录"'))
+  assert.equal(pages[0].id, 'a01')
+  assert.equal(pages[1].id, 'a02')
+  for (const id of ['a01', 'a02']) assert.equal(pages.find(p => p.id === id).group, 'getting-started')
+  const intro = pages.find(p => p.id === 'a01').body
+  for (const term of ['DSH Tavern 是什么', '两种主要使用方式', '界面大概是什么样', '一次游玩是怎样的', '开始前需要准备什么']) assert.ok(intro.includes(term), term)
+  assert.match(intro, /href="#a02"/)
+  assert.equal(resolveRoute('#main', routeIds).id, 'a01')
+  assert.equal(resolveRoute('#start', routeIds).id, 'a02')
+})
+
+test('安装页提供与 README 一致的可复制命令、当前适配版本和各平台步骤', async () => {
+  const readme = await readFile(new URL('../README.md', import.meta.url), 'utf8')
+  const install = pages.find(p => p.id === 'a02').body
+  for (const command of Object.values(installCommands)) {
+    assert.ok(readme.includes(command), 'Installation command must match README')
+    assert.ok(install.includes(`<code>${escapeHTML(command)}</code>`), 'Commands must remain literal text')
+  }
+  for (const term of ['方式一：桌面版', '方式二：命令行版', 'Open DSH Terminal', '配置模型并开始第一局', '关机后如何重新打开', '更新与重新安装', 'Android：实验性安装', '安装失败时', adaptedDshVersion]) assert.ok(install.includes(term), term)
+  assert.match(install, /class="copy-code"/)
+  assert.match(install, /不要分享给别人/)
+  assert.doesNotMatch(install, /\{\{dshVersion\}\}|```/)
+})
+
+test('代码块保持命令原文，转义 HTML 且不误识别管道和 Markdown', () => {
+  const command = "echo '<script>**raw**</script>' | next --arg='a&b'\n# heading"
+  const rendered = markdown('```bash\n' + command + '\n```', 'test')
+  assert.ok(rendered.includes(`<code>${escapeHTML(command)}</code>`))
+  assert.doesNotMatch(rendered, /<script>|<strong>|<table>|<h2/)
 })
 
 test('新文档页纯文字，无旧截图、图片占位和远程脚本', () => {
