@@ -6,6 +6,9 @@ cordis.yml
 *.log
 .DS_Store
 
+# 本地代码分析资料、快照和缓存
+.ua/
+
 # 用户数据（人物卡、聊天、剧本、素材、索引、设置、diff）
 data/
 
