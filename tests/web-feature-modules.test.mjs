@@ -3,12 +3,12 @@ import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 import vm from 'node:vm'
 
-async function clientExports() {
+async function clientExports(react = {}) {
   const source = await readFile(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
   let descriptor
   const sandbox = { window: { __ModuleLoader__: { load(value) { descriptor = value } } }, console }
   vm.runInNewContext(source, sandbox)
-  return descriptor.factory(function () { return {} })
+  return descriptor.factory(function (name) { return name === 'react' ? react : {} })
 }
 
 const browser = await clientExports()
@@ -54,9 +54,31 @@ test('预设 Feature module 只注册一个预设库', function () {
 
   assert.deepEqual(Object.keys(feature), ['register'])
   assert.deepEqual(registrations.map(function (item) { return [item.id, item.title] }), [
-    ['dsh-tavern:presets', '预设库（实验性）']
+    ['dsh-tavern:presets', '预设库']
   ])
   assert.ok(registrations.every(function (item) { return typeof item.component === 'function' }))
+})
+
+test('预设库实际渲染游玩说明、内置默认选项，不再显示实验标签和劝退说明', async () => {
+  const react = {
+    useState: value => [typeof value === 'function' ? value() : value, () => {}],
+    useRef: value => ({ current: value }),
+    useCallback: callback => callback,
+    useEffect() {},
+    createElement: (type, props, ...children) => typeof type === 'function' ? type(props) : { type, props, children }
+  }
+  const exports = await clientExports(react)
+  let registration
+  exports.createPresetLibraryFeatureModule().register({
+    ctx: { effect: activate => activate(), betterSidebar: { registerTab: value => { registration = value } } },
+    appendMention() {}
+  })
+  const rendered = JSON.stringify(registration.component({ scope: { sessionId: 'play-session' } }))
+  assert.match(rendered, /预设用于调整游玩的文风、叙事方式和写作规则/)
+  assert.match(rendered, /不导入预设也能直接开始/)
+  assert.match(rendered, /不使用外部预设（默认）/)
+  assert.match(rendered, /效果可能与原酒馆不同/)
+  assert.doesNotMatch(rendered, /实验性|除非坚持|破限效果/)
 })
 
 test('世界书库 Feature module 封装目录与编辑器并只暴露注册 interface', function () {
