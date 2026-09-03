@@ -7,6 +7,8 @@ import { sections, help, gettingStarted } from '../docs/manual/navigation.mjs'
 import { topics } from '../docs/manual/topics.mjs'
 import { installCommands } from '../docs/manual/introduction.mjs'
 import { adaptedDshVersion } from '../bin/dsh-compatibility.mjs'
+import { screenshots, pageScreenshots, screenshotSource } from '../docs/manual/screenshots.mjs'
+import { demoDownloads } from '../examples/manual-demo/downloads.mjs'
 
 const root = new URL('../docs/', import.meta.url)
 const inventory = await readFile(new URL('feature-inventory.md', root), 'utf8')
@@ -80,12 +82,49 @@ test('代码块保持命令原文，转义 HTML 且不误识别管道和 Markdow
   assert.doesNotMatch(rendered, /<script>|<strong>|<table>|<h2/)
 })
 
-test('新文档页纯文字，无旧截图、图片占位和远程脚本', () => {
-  assert.doesNotMatch(html, /<img\b|<picture\b|<video\b|<iframe\b|images\/readme\//)
+test('文档只采用独立样例截图，不复用旧图片或加载远程脚本', () => {
+  assert.doesNotMatch(html, /<picture\b|<video\b|<iframe\b|images\/readme\//)
   assert.doesNotMatch(html, /<script[^>]+src="https?:/)
   assert.ok(!/预设库（实验性）|保证永不失忆/.test(html))
   assert.match(pages.find(p => p.id === 'd11').body, /已停用/)
-  assert.match(html, /截图将在内容定稿后补充/)
+  assert.doesNotMatch(html, /截图将在内容定稿后补充|暂不使用旧版截图/)
+  assert.match(html, /界面截图均使用公开样例/)
+})
+
+test('截图有有效本地资源、替代文字、说明、来源与放大入口', async () => {
+  const expected = Object.values(pageScreenshots).flat().length
+  assert.equal((html.match(/<figure class="manual-screenshot">/g) || []).length, expected)
+  assert.equal((html.match(/<img /g) || []).length, expected)
+  for (const [id, keys] of Object.entries(pageScreenshots)) {
+    const body = pages.find(p => p.id === id)?.body
+    assert.ok(body, id)
+    assert.ok(body.includes(screenshotSource.label))
+    assert.ok(body.includes(screenshotSource.runtime))
+    for (const key of keys) {
+      const shot = screenshots[key]
+      assert.ok(shot?.alt && shot?.caption, key)
+      const src = `images/manual/${shot.file}`
+      assert.ok(body.includes(`href="${src}" target="_blank" rel="noopener noreferrer"`))
+      assert.ok(body.includes(`src="${src}" alt="${escapeHTML(shot.alt)}" width="1309" height="707" loading="lazy"`))
+      const bytes = await readFile(new URL(src, root))
+      assert.deepEqual([...bytes.subarray(0, 3)], [0xff, 0xd8, 0xff], `${src} must be a real JPEG capture`)
+      assert.ok(bytes.length > 10000)
+    }
+  }
+  const provenance = await readFile(new URL('../examples/manual-demo/README.md', import.meta.url), 'utf8')
+  assert.match(provenance, /CC0/)
+  assert.match(provenance, /独立 DSH Profile/)
+})
+
+test('网页公开样例下载与原创源数据一致，人物卡没有远程脚本依赖', async () => {
+  for (const [name, source] of Object.entries(demoDownloads)) {
+    assert.equal(await readFile(new URL(`examples/manual-demo/${name}`, root), 'utf8'), source)
+  }
+  const card = JSON.parse(demoDownloads['lighthouse-card.json'])
+  assert.equal(card.spec, 'chara_card_v3')
+  assert.deepEqual(card.data.extensions.tavern_helper.scripts, [])
+  assert.doesNotMatch(demoDownloads['lighthouse-card.json'], /https?:\/\/|\/Users\//)
+  assert.match(demoDownloads['README.txt'], /CC0/)
 })
 
 test('所有静态资源、文章与页内锚点存在，支持 GitHub Pages 子目录', async () => {

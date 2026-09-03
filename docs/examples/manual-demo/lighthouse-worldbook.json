@@ -1,0 +1,41 @@
+{
+  "name": "灯塔镇 · 地点与风俗",
+  "entries": {
+    "0": {
+      "uid": 0,
+      "key": [],
+      "comment": "灯塔镇概况",
+      "content": "灯塔镇是一座步行就能逛完的海边小镇。邮局、旧花店和码头沿着同一条石板路分布。故事以日常探索和邻里交流为主。",
+      "constant": true,
+      "disable": false,
+      "order": 100,
+      "position": 0
+    },
+    "1": {
+      "uid": 1,
+      "key": [
+        "鸢尾",
+        "花店"
+      ],
+      "comment": "蓝色鸢尾花印章",
+      "content": "旧花店曾用蓝色鸢尾花作为信纸印章。店主退休后，把店里的旧地址簿留给了邮局。印章是调查线索，不自动揭示寄信人身份。",
+      "constant": false,
+      "disable": false,
+      "order": 110,
+      "position": 0
+    },
+    "2": {
+      "uid": 2,
+      "key": [
+        "灯塔",
+        "开放日"
+      ],
+      "comment": "每周一次的灯塔开放日",
+      "content": "每周六傍晚，灯塔向居民开放。林澄会在门口准备热茶和路线图，天黑后带大家看海上的航标。",
+      "constant": false,
+      "disable": false,
+      "order": 120,
+      "position": 0
+    }
+  }
+}
