@@ -4,7 +4,7 @@ import test from 'node:test'
 import vm from 'node:vm'
 
 const root = new URL('../docs/', import.meta.url)
-const html = await readFile(new URL('index.html', root), 'utf8')
+const html = await readFile(new URL('product.html', root), 'utf8')
 
 test('产品页可作为静态目录发布，所有本地图片、样式、脚本和锚点存在', async () => {
   const ids = [...html.matchAll(/\bid="([^"]+)"/g)].map(match => match[1])
@@ -25,6 +25,16 @@ test('完整功能在 HTML 中，无需脚本；预设不再标为实验性，�
   assert.match(html, /这里是产品介绍页/)
   assert.match(html, /截图.*|演示截图/)
   assert.match(html, /og:image.*flizzywine\.github\.io\/dsh-tavern\/assets\/social\.png/)
+})
+
+test('高级功能分别介绍后台人物设计和互联网搜索，不与改卡及历史回忆混同', () => {
+  assert.match(html, /<h4>后台人物设计<\/h4>/)
+  assert.match(html, /不是手动改卡或用户画像/)
+  assert.match(html, /需要匹配人物卡的变量结构/)
+  assert.match(html, /<h4>互联网搜索<\/h4>/)
+  assert.match(html, /酒馆设置 → 开启联网搜索/)
+  assert.match(html, /与找回本局前文的历史回忆不同/)
+  assert.match(html, /修改设置不改变已有游戏/)
 })
 
 test('目录链接及直接访问锚点会展开对应功能', async () => {
