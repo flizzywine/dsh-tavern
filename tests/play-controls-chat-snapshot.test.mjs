@@ -14,7 +14,7 @@ function dockWith(nodes, mode = 'story', releaseCapabilities = { sceneImages: tr
     useTavernSessionMode: () => mode,
     useLiveTavernView: () => ({ view: { releaseCapabilities, replyProjections: nodes.some(node => node.kind === 'assistant') ? [{ turn: 1 }, { turn: 2 }] : [] } }),
     isPlayMode: value => ['story', 'free', 'script'].includes(value),
-    CandidateAction: 'actions', TavernCompactionAction: 'compact', SceneImageAction: 'scene-image',
+    CandidateAction: 'actions', TavernCompactionAction: 'compact', TavernMoreActions: 'more', SceneImageAction: 'scene-image',
     props: {
       sessionId: 'session1',
       useSession(selector) { selections.push('session'); return selector({ running: false, blank: false }) },
@@ -41,6 +41,7 @@ test('alpha.2 dock keeps play controls when messages only exist on the Chat snap
     assert.equal(rendered.children[1]?.type, 'scene-image')
     assert.equal(rendered.children[1].props.turn, 2)
     assert.equal(rendered.children[1].props.running, false)
+    assert.equal(rendered.children[2]?.type, 'more')
     assert.deepEqual(selections, ['chat', 'session'])
   }
 })
@@ -48,7 +49,7 @@ test('alpha.2 dock keeps play controls when messages only exist on the Chat snap
 test('empty Chat keeps compaction but does not invent a response or show play controls in card mode', () => {
   assert.equal(dockWith([]).rendered.children[0], null)
   assert.equal(dockWith([]).rendered.children[1].props.turn, 0)
-  assert.equal(dockWith([]).rendered.children[2].type, 'compact')
+  assert.equal(dockWith([]).rendered.children[2].type, 'more')
   assert.equal(dockWith([{ kind: 'assistant', messageId: 'a' }], 'card').rendered.children[0], null)
   assert.equal(dockWith([{ kind: 'assistant', messageId: 'a' }], 'card').rendered.children[1], null)
 })
@@ -60,11 +61,11 @@ test('disabled or missing image capability hides only the image action', () => {
       assert.equal(rendered.children[0].type, 'actions')
       assert.equal(rendered.children[0].props.messageId, 'reply2')
       assert.equal(rendered.children[1], null)
-      assert.equal(rendered.children[2].type, 'compact')
+      assert.equal(rendered.children[2].type, 'more')
       const empty = dockWith([], mode, capabilities).rendered
       assert.equal(empty.children[0], null)
       assert.equal(empty.children[1], null)
-      assert.equal(empty.children[2].type, 'compact')
+      assert.equal(empty.children[2].type, 'more')
     }
   }
 })

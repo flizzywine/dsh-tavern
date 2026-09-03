@@ -198,6 +198,13 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 .dsh-tavern-choice-trigger { border: 1px solid rgba(166,107,53,.55); background: rgba(166,107,53,.10); color: #a66b35; cursor: pointer; padding: 3px 9px; border-radius: 7px; font-size: 12px; font-weight: 650; }
 .dsh-tavern-choice-trigger:hover { background: rgba(166,107,53,.20); color: #8e5728; }
 .dsh-tavern-dock-actions { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; max-width: var(--dsh-composer-card-max-width, 780px); box-sizing: border-box; margin: 0 auto; padding: 8px 12px 0; flex-wrap: wrap; }
+.dsh-tavern-more-actions { position: relative; }
+.dsh-tavern-more-menu { position: absolute; z-index: 40; right: 0; bottom: calc(100% + 6px); display: grid; min-width: 150px; padding: 5px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 9px; background: var(--dsw-specific-sidebar-fill); box-shadow: 0 8px 24px rgba(0,0,0,.2); }
+.dsh-tavern-more-menu[hidden] { display: none; }
+.dsh-tavern-more-menu button { width: 100%; border: 0; border-radius: 6px; padding: 8px 10px; background: transparent; color: var(--dsw-alias-label-primary); cursor: pointer; text-align: left; white-space: nowrap; }
+.dsh-tavern-more-menu button:hover { background: var(--dsw-alias-interactive-bg-hover); }
+.dsh-tavern-more-menu button.danger { color: #c34f4f; }
+.dsh-tavern-more-menu button:disabled { cursor: default; opacity: .55; }
 .dsh-tavern-candidate-error-banner { width: 100%; max-width: var(--dsh-composer-card-max-width, 780px); box-sizing: border-box; margin: 0 auto; padding: 8px 12px; border: 1px solid rgba(196,95,95,.45); border-radius: 10px; background: rgba(196,95,95,.10); color: #c45f5f; font-size: 12px; line-height: 1.5; }
 .dsh-tavern-timeout-banner { display: flex; align-items: center; gap: 8px; width: 100%; max-width: var(--dsh-composer-card-max-width, 780px); box-sizing: border-box; margin: 0 auto; padding: 8px 12px; border: 1px solid rgba(196,145,72,.45); border-radius: 10px; background: rgba(196,145,72,.10); color: var(--dsw-alias-label-primary); font-size: 12px; line-height: 1.5; }
 .dsh-tavern-timeout-banner span { flex: 1; }
@@ -6810,7 +6817,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					} catch (err) { tavernErrorHub.report("压缩上下文", err); }
 					finally { setBusy(false); }
 				}
-				return React.createElement("button", { className: "dsh-tavern-choice-trigger", disabled: busy || running, title: resultTitle || "前台使用剧情提示词、后台使用 DSH 内置提示词并联合压缩", onClick: compactContext }, busy ? "压缩中…" : (resultLabel || "压缩上下文"));
+				return React.createElement("button", { className: props.inMenu ? "" : "dsh-tavern-choice-trigger", role: props.inMenu ? "menuitem" : undefined, disabled: busy || running, title: resultTitle || "前台使用剧情提示词、后台使用 DSH 内置提示词并联合压缩", onClick: compactContext }, busy ? "压缩中…" : (resultLabel || "压缩上下文"));
 			}
 
 			function TavernPlayerNameAction(props) {
@@ -7077,7 +7084,6 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 
 		function CandidateAction(props) {
 			const [busy, setBusy] = React.useState(false);
-			const [rolling, setRolling] = React.useState(false);
 			const candidatePanelState = useCandidatePanel();
 			const regenPanelState = useRegenPanel();
 			const sessionMode = useTavernSessionMode(props.sessionId);
@@ -7091,7 +7097,6 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const taskForMessage = candidateTask && candidateTask.kind === "candidate" && candidateTask.input && String(candidateTask.input.messageId || "") === String(props.messageId || "") ? candidateTask : null;
 			const taskBusy = !!(taskForMessage && taskForMessage.busy);
 			const regenBusy = regenPanelState !== null && regenPanelState.sessionId === props.sessionId && regenPanelState.phase === "loading";
-			const rollbackBlocked = rolling || frontRunning || regenBusy || activity.busy;
 			const projectedTaskRef = React.useRef("");
 			React.useEffect(function () {
 				if (!taskForMessage) return;
@@ -7129,8 +7134,48 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				} catch (err) { tavernErrorHub.report("候选项生成", err); setCandidatePanel({ sessionId: props.sessionId, messageId: props.messageId, phase: "error", choices: [], error: String(err && err.message || err) }); }
 				finally { setBusy(false); liveTavernView.invalidate(props.sessionId); tavernCoordination.invalidate(props.sessionId); }
 			}
+			function regenerationPanelFor(event, phase) {
+				const tail = event && event.currentTarget ? event.currentTarget.closest('[data-chat-flow-kind="turn-tail"]') : null;
+				return { sessionId: props.sessionId, phase: phase, guidance: "", text: "", error: "", tail: tail };
+			}
+			function openRegeneration(event) {
+				if (!canRollback || frontRunning || activity.busy || regenBusy) return;
+				setCandidatePanel(null);
+				setRegenPanel(regenerationPanelFor(event, "input"));
+			}
+			const h = React.createElement;
+			const isScript = sessionMode === "script";
+			const hasReadyPanel = candidatePanelState !== null && candidatePanelState.sessionId === props.sessionId && candidatePanelState.messageId === props.messageId && candidatePanelState.phase === "ready";
+			const hasLoadingPanel = candidatePanelState !== null && candidatePanelState.sessionId === props.sessionId && candidatePanelState.messageId === props.messageId && candidatePanelState.phase === "loading";
+			if (!isPlayMode(sessionMode) || latestMessageId !== props.messageId) return null;
+			return h(React.Fragment, null,
+				h("button", { className: "dsh-tavern-choice-trigger", disabled: busy || taskBusy || activity.busy || regenBusy, title: activity.busy ? activity.blockReason : (hasReadyPanel ? "重新生成候选项（可先填写意见）" : (isScript ? "手动生成候选项；由于跟随剧本，只有一个推荐候选项" : "手动生成候选项")), onClick: function () {
+					setRegenPanel(null);
+					if (hasReadyPanel) {
+						const previous = candidatePanelState;
+						setCandidatePanel(null);
+						setCandidateGuidePanel({ sessionId: props.sessionId, messageId: props.messageId, phase: "input", error: "", previous: previous });
+					} else {
+						generate(false);
+					}
+				} }, activity.busy ? activity.label : ((busy || taskBusy) ? "生成中…" : (hasReadyPanel ? "重新生成候选项" : "生成候选项"))),
+				canRollback ? h("button", { className: "dsh-tavern-choice-trigger", disabled: frontRunning || activity.busy || regenBusy, title: activity.busy ? activity.blockReason : "可选择填写意见，再重新生成并替换当前正文", onClick: openRegeneration }, regenBusy ? "重生成中…" : "重新生成正文") : null
+			);
+		}
+
+		function TavernRollbackAction(props) {
+			const [rolling, setRolling] = React.useState(false);
+			const regenPanelState = useRegenPanel();
+			const frontRunning = props.useSession(function (snapshot) { return snapshot.running === true; });
+			const latestMessageId = props.useChat(latestTavernAssistantMessageId);
+			const rollbackViewState = useLiveTavernView(props.sessionId, "rollback:" + String(frontRunning) + ":" + String(latestMessageId || ""));
+			const activityState = useTavernCoordination(props.sessionId, "rollback:" + String(frontRunning) + ":" + String(latestMessageId || ""));
+			const activity = describeTavernActivity(activityState.view && activityState.view.activity);
+			const canRollback = rollbackViewState.view && rollbackViewState.view.canRollback === true;
+			const regenBusy = regenPanelState !== null && regenPanelState.sessionId === props.sessionId && regenPanelState.phase === "loading";
+			const blocked = rolling || frontRunning || regenBusy || activity.busy;
 			async function rollback() {
-				if (rollbackBlocked) return;
+				if (!canRollback || blocked) return;
 				if (!window.confirm("回退本轮？\n将删除你最近一次输入和这段 LLM 输出，并同步回退故事状态与剧本游标。")) return;
 				setRolling(true);
 				try {
@@ -7145,47 +7190,26 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					tavernErrorHub.report("回退本轮", err);
 				} finally { setRolling(false); liveTavernView.invalidate(props.sessionId); tavernCoordination.invalidate(props.sessionId); }
 			}
-			function regenerationPanelFor(event, phase) {
-				const tail = event && event.currentTarget ? event.currentTarget.closest('[data-chat-flow-kind="turn-tail"]') : null;
-				return { sessionId: props.sessionId, phase: phase, guidance: "", text: "", error: "", tail: tail };
-			}
-			function openGuidedRegeneration(event) {
-				if (!canRollback || regenBusy || rolling) return;
-				setCandidatePanel(null);
-				setRegenPanel(regenerationPanelFor(event, "input"));
-			}
-			async function regenerateImmediately(event) {
-				if (!canRollback || regenBusy || rolling) return;
-				const panel = regenerationPanelFor(event, "loading");
-				setCandidatePanel(null);
-				setRegenPanel(panel);
-				try {
-					await submitBodyRegeneration(props.sessionId, panel, "");
-					setRegenPanel(null);
-				} catch (err) {
-					tavernErrorHub.report("正文重新生成", err);
-					setRegenPanel(Object.assign({}, panel, { phase: "error", error: String(err && err.message || err) }));
-				}
-			}
-			const h = React.createElement;
-			const isScript = sessionMode === "script";
-			const hasReadyPanel = candidatePanelState !== null && candidatePanelState.sessionId === props.sessionId && candidatePanelState.messageId === props.messageId && candidatePanelState.phase === "ready";
-			const hasLoadingPanel = candidatePanelState !== null && candidatePanelState.sessionId === props.sessionId && candidatePanelState.messageId === props.messageId && candidatePanelState.phase === "loading";
-			if (!isPlayMode(sessionMode) || latestMessageId !== props.messageId) return null;
-			return h(React.Fragment, null,
-				h("button", { className: "dsh-tavern-choice-trigger", disabled: busy || rolling || taskBusy || activity.busy || regenBusy, title: activity.busy ? activity.blockReason : (hasReadyPanel ? "重新生成候选项（可先填写意见）" : (isScript ? "手动生成候选项；由于跟随剧本，只有一个推荐候选项" : "手动生成候选项")), onClick: function () {
-					setRegenPanel(null);
-					if (hasReadyPanel) {
-						const previous = candidatePanelState;
-						setCandidatePanel(null);
-						setCandidateGuidePanel({ sessionId: props.sessionId, messageId: props.messageId, phase: "input", error: "", previous: previous });
-					} else {
-						generate(false);
-					}
-				} }, activity.busy ? activity.label : ((busy || taskBusy) ? "生成中…" : (hasReadyPanel ? "重新生成候选项" : "生成候选项"))),
-				canRollback ? h("button", { className: "dsh-tavern-choice-trigger", disabled: regenBusy || rolling, title: "不填写意见，立即重新生成正文", onClick: regenerateImmediately }, regenBusy ? "重生成中…" : "一键重新生成正文") : null,
-				canRollback ? h("button", { className: "dsh-tavern-choice-trigger", disabled: regenBusy || rolling, title: "填写指导意见后重新生成正文", onClick: openGuidedRegeneration }, "带意见重新生成正文") : null,
-				canRollback ? h("button", { className: "dsh-tavern-choice-trigger", disabled: rollbackBlocked, title: rollbackBlocked ? "请等待当前生成或后台处理完成后再回退" : "删除最近一次用户输入和这段 LLM 输出", onClick: rollback }, rolling ? "回退中…" : "回退本轮") : null
+			if (!canRollback) return null;
+			return React.createElement("button", { className: "danger", role: "menuitem", disabled: blocked, title: blocked ? "请等待当前生成或后台处理完成后再回退" : "删除最近一次用户输入和这段 LLM 输出", onClick: rollback }, rolling ? "回退中…" : "回退本轮");
+		}
+
+		function TavernMoreActions(props) {
+			const [open, setOpen] = React.useState(false);
+			const root = React.useRef(null);
+			React.useEffect(function () {
+				if (!open) return;
+				function closeOutside(event) { if (!root.current || !root.current.contains(event.target)) setOpen(false); }
+				function closeOnEscape(event) { if (event.key === "Escape") setOpen(false); }
+				document.addEventListener("pointerdown", closeOutside, true);
+				document.addEventListener("keydown", closeOnEscape);
+				return function () { document.removeEventListener("pointerdown", closeOutside, true); document.removeEventListener("keydown", closeOnEscape); };
+			}, [open]);
+			return React.createElement("div", { className: "dsh-tavern-more-actions", ref: root },
+				React.createElement("button", { type: "button", className: "dsh-tavern-choice-trigger", "aria-haspopup": "menu", "aria-expanded": open, onClick: function () { setOpen(function (value) { return !value; }); } }, "更多 ▾"),
+				React.createElement("div", { className: "dsh-tavern-more-menu", role: "menu", hidden: !open, onClick: function (event) { if (event.target && event.target.closest && event.target.closest("button:not(:disabled)")) setOpen(false); } },
+					React.createElement(TavernRollbackAction, props),
+					React.createElement(TavernCompactionAction, Object.assign({}, props, { inMenu: true })))
 			);
 		}
 
@@ -7200,7 +7224,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			return h("div", { className: "dsh-tavern-dock-actions" },
 				isPlayMode(sessionMode) && latestMessageId ? React.createElement(CandidateAction, Object.assign({}, props, { messageId: latestMessageId })) : null,
 				isPlayMode(sessionMode) && live.view && live.view.releaseCapabilities && live.view.releaseCapabilities.sceneImages ? React.createElement(SceneImageAction, { key: props.sessionId + ":" + imageTurn, sessionId: props.sessionId, turn: imageTurn, running: running }) : null,
-				React.createElement(TavernCompactionAction, props)
+				isPlayMode(sessionMode) ? React.createElement(TavernMoreActions, props) : React.createElement(TavernCompactionAction, props)
 			);
 		}
 

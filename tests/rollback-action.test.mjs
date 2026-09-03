@@ -17,7 +17,7 @@ function harness() {
       useState(initial) {
         const index = cursor++
         if (!(index in states)) states[index] = initial
-        return [states[index], value => { states[index] = value }]
+        return [states[index], value => { states[index] = typeof value === 'function' ? value(states[index]) : value }]
       }
     },
     useCandidatePanel: () => null, useRegenPanel: () => regen,
@@ -32,9 +32,10 @@ function harness() {
     liveTavernView: { invalidate: () => calls.push('refresh-view') },
     tavernCoordination: { invalidate: () => calls.push('refresh-activity') },
     notifyTavernDataChanged: () => calls.push('notify'),
-    tavernErrorHub: { report: (name, error) => calls.push(name + ': ' + error.message) }
+    tavernErrorHub: { report: (name, error) => calls.push(name + ': ' + error.message) },
+    TavernCompactionAction: function TavernCompactionAction() {}
   }
-  const action = vm.runInNewContext(component + '; CandidateAction', context)
+  const actions = vm.runInNewContext(component + '; ({ CandidateAction, TavernRollbackAction, TavernMoreActions })', context)
   return {
     calls,
     playerRound(value) { canRollback = value },
@@ -43,22 +44,48 @@ function harness() {
     fail(value) { fail = value }, warning(value) { warning = value },
     buttons() {
       cursor = 0
-      return action({ sessionId: 'session', messageId: 'reply',
+      return actions.CandidateAction({ sessionId: 'session', messageId: 'reply',
         useSession: select => select({ running }), useChat: select => select({})
       }).children.filter(Boolean)
     },
-    button() { return this.buttons().at(-1) }
+    button() {
+      cursor = 0
+      return actions.TavernRollbackAction({ sessionId: 'session',
+        useSession: select => select({ running }), useChat: select => select({})
+      })
+    },
+    more() {
+      cursor = 0
+      return actions.TavernMoreActions({ sessionId: 'session',
+        useSession: select => select({ running }), useChat: select => select({})
+      })
+    }
   }
 }
 
-test('开场白不显示两种正文重生成入口，正式玩家轮次完成后才显示', () => {
+test('开场白不显示正文重生成入口，正式玩家轮次完成后只显示一个入口', () => {
   const h = harness()
   h.running(false); h.playerRound(false)
   assert.deepEqual(h.buttons().map(button => button.children[0]), ['生成候选项'])
   h.playerRound(true)
-  assert.deepEqual(h.buttons().map(button => button.children[0]), ['生成候选项', '一键重新生成正文', '带意见重新生成正文', '回退本轮'])
+  assert.deepEqual(h.buttons().map(button => button.children[0]), ['生成候选项', '重新生成正文'])
   h.playerRound(false)
   assert.deepEqual(h.buttons().map(button => button.children[0]), ['生成候选项'])
+})
+
+test('更多菜单收起回退和压缩，并可再次关闭', () => {
+  const h = harness()
+  h.running(false)
+  let more = h.more()
+  assert.equal(more.children[0].children[0], '更多 ▾')
+  assert.equal(more.children[0].props['aria-expanded'], false)
+  assert.equal(more.children[1].props.hidden, true)
+  more.children[0].props.onClick()
+  more = h.more()
+  assert.equal(more.children[0].props['aria-expanded'], true)
+  assert.equal(more.children[1].props.hidden, false)
+  assert.equal(more.children[1].props.role, 'menu')
+  assert.deepEqual(more.children[1].children.map(child => child.type.name), ['TavernRollbackAction', 'TavernCompactionAction'])
 })
 
 test('实际回退组件在前台、后台和重生成期间禁用，完成后允许点击', async () => {
