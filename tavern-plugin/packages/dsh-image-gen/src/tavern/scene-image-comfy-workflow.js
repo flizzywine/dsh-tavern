@@ -5,6 +5,19 @@ const safeKey = value => typeof value === 'string' && /^[\w.:-]{1,120}$/.test(va
 const fail = message => { throw new Error('ComfyUI 工作流：' + message) }
 const hash = value => createHash('sha256').update(JSON.stringify(value)).digest('hex')
 
+function samplerSeedBinding(prompt, id) {
+  const node = prompt[id], input = node.class_type === 'KSampler' ? 'seed' : 'noise_seed'
+  const value = node.inputs[input]
+  if (!Array.isArray(value)) return { node: id, input }
+  // rgthree's sole output passes inputs.seed through. Keep the graph edge and
+  // inject into its source, rather than guessing arbitrary custom-node semantics.
+  // Contract: https://github.com/rgthree/rgthree-comfy/blob/main/py/seed.py
+  if (value.length === 2 && typeof value[0] === 'string' && value[1] === 0 && prompt[value[0]]?.class_type === 'Seed (rgthree)') {
+    return { node: value[0], input: 'seed' }
+  }
+  fail(`节点 ${id} 的输入 ${input} 使用了暂不支持自动识别的种子连接，请维护者提供映射文件`)
+}
+
 /** Import an API graph or a maintainer-prepared mapping. This never loads code,
  * probes a server, or guesses an arbitrary node's input semantics. */
 export function comfyWorkflow(value) {
@@ -58,7 +71,7 @@ export function comfyWorkflow(value) {
     if (samplers.length !== 1) fail('无法自动识别采样节点，请维护者提供映射文件')
     const id = samplers[0], node = prompt[id], positive = node.inputs.positive, negative = node.inputs.negative
     if (!Array.isArray(positive) || prompt[positive[0]]?.class_type !== 'CLIPTextEncode' || typeof prompt[positive[0]].inputs.text !== 'string' || positive[0] === negative?.[0]) fail('无法区分正负提示词，请维护者提供映射文件')
-    bindings = { positive: [{ node: positive[0], input: 'text' }], seed: [{ node: id, input: node.class_type === 'KSampler' ? 'seed' : 'noise_seed' }], batch: [] }
+    bindings = { positive: [{ node: positive[0], input: 'text' }], seed: [samplerSeedBinding(prompt, id)], batch: [] }
   }
   if (!object(bindings) || Object.keys(bindings).some(key => !['positive', 'seed', 'batch'].includes(key))) fail('映射只能包含 positive、seed、batch')
   const normalized = {}, used = new Set()
@@ -68,7 +81,12 @@ export function comfyWorkflow(value) {
     normalized[key] = items.map(item => {
       if (!object(item) || Object.keys(item).some(key => !['node', 'input'].includes(key)) || !safeKey(item.node) || !safeKey(item.input) || !reachable.has(item.node)) fail('映射指向无效或未连接到输出的节点')
       const value = prompt[item.node].inputs[item.input], slot = item.node + '/' + item.input
-      if (used.has(slot) || typeof value !== (key === 'positive' ? 'string' : 'number') || key !== 'positive' && !Number.isSafeInteger(value)) fail('映射字段重复或类型错误')
+      const field = `节点 ${item.node} 的输入 ${item.input}`
+      if (used.has(slot)) fail(`映射重复：${field} 已被使用`)
+      if (!Object.hasOwn(prompt[item.node].inputs, item.input)) fail(`${field} 不存在，请检查映射字段`)
+      if (Array.isArray(value)) fail(`${field} 是节点连接；种子等映射需指向源节点的实际字段，请维护者提供映射文件`)
+      if (key === 'positive' && typeof value !== 'string') fail(`${field} 必须是直接填写的字符串`)
+      if (key !== 'positive' && !Number.isSafeInteger(value)) fail(`${field} 必须是直接填写的安全整数（绝对值不超过 9007199254740991）`)
       used.add(slot)
       return { node: item.node, input: item.input }
     })

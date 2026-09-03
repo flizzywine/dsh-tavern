@@ -14,7 +14,7 @@
 
 1. 先在目标 ComfyUI 上验证工作流确实能输出一张最终图片，所有模型和节点均已存在。
 2. 导出 **API 格式**。画布格式的 `nodes` / `links` 文件不能直接提交。
-3. 简单的单 KSampler / KSamplerAdvanced → VAEDecode → SaveImage 路径，正向提示词直接来自 CLIPTextEncode 时可自动识别。负面提示词、模型名、采样参数和尺寸保留；正向提示词被当前画面替换，种子换新，`batch_size` 固定为 1。
+3. 简单的单 KSampler / KSamplerAdvanced → VAEDecode → SaveImage 路径，正向提示词直接来自 CLIPTextEncode 时可自动识别。种子既可直接填写在采样器的 `seed` / `noise_seed`，也可连接 `Seed (rgthree)` 的第一个输出：保留连接，将新随机种子写入该种子节点的 `inputs.seed`。源字段须为直接填写的安全整数；其他自定义种子节点、计算链或输出位置仍需明确映射。负面分支、模型名、采样参数和尺寸保留；正向提示词被当前画面替换，种子换新，`batch_size` 固定为 1。
 4. 复杂工作流提供下述映射封装。不用让普通用户编辑节点或 JSON；维护者一次准备好文件，用户只负责导入。
 
 映射文件格式（字段示意，`prompt` 需放完整 API 节点字典）：

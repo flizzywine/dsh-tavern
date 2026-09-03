@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createImageConfiguration } from '../tavern-plugin/packages/dsh-image-gen/src/configuration.js'
 import { createModuleSceneImageSettings } from '../tavern-plugin/lib/domain/scene-image-module-settings.js'
+import { comfyLinkedSeedGraph } from './fixtures/scene-image-comfy-workflow.mjs'
 
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Z0l8AAAAASUVORK5CYII=', 'base64')
 function fixture(initial = {}, doc, options = {}) {
@@ -167,6 +168,24 @@ test('NovelAI / WebUI / Banana 等渠道保留，额外配置同样归插件持�
   assert.equal(JSON.parse(f.readPlugin().tavernChannels).webui.baseURL, 'http://127.0.0.1:7860')
   assert.equal((await f.settings.settings('webui')).ready, true)
   assert.equal(f.readDoc().providers.webui, undefined)
+})
+
+test('ComfyUI 保存并启用接受独立种子节点，重载后映射不丢失且不试画', async () => {
+  const f = fixture()
+  // Match the UI's save-then-enable RPC sequence, not an unsupported combined write.
+  const saved = await f.settings.configure({ provider: 'comfyui', baseURL: 'http://127.0.0.1:8188', authType: 'none', workflow: comfyLinkedSeedGraph() })
+  assert.equal(saved.ready, true)
+  assert.equal(saved.enabled, false)
+  const ui = await f.settings.configure({ provider: saved.provider, enabled: true })
+  assert.equal(ui.ready, true)
+  assert.equal(ui.enabled, true)
+  assert.deepEqual(ui.workflow.bindings.seed, [{ node: '8', input: 'seed' }])
+  const reloaded = fixture(JSON.parse(JSON.stringify(f.readPlugin())), JSON.parse(JSON.stringify(f.readDoc())))
+  const snapshot = await reloaded.settings.capture()
+  assert.deepEqual(snapshot.active.workflow.bindings.seed, [{ node: '8', input: 'seed' }])
+  assert.deepEqual(snapshot.active.workflow.prompt['5'].inputs.seed, ['8', 0])
+  assert.equal(f.calls.length, 0)
+  assert.equal(reloaded.calls.length, 0)
 })
 
 test('模块并发保存与 capture 不混配地址和密钥', async () => {

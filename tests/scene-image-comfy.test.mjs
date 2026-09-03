@@ -3,10 +3,78 @@ import assert from 'node:assert/strict'
 import { comfyWorkflow, compileComfyWorkflow } from '../tavern-plugin/lib/domain/scene-image-comfy-workflow.js'
 import { generateSceneImage } from '../tavern-plugin/lib/domain/scene-image-provider.js'
 import { channelSettings, channelReady, imageExpressionProfile, imageCredentialRef } from '../tavern-plugin/lib/domain/scene-image-channels.js'
-import { comfyGraph } from './fixtures/scene-image-comfy-workflow.mjs'
+import { comfyGraph, comfyLinkedSeedGraph } from './fixtures/scene-image-comfy-workflow.mjs'
 
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aKfoAAAAASUVORK5CYII=', 'base64')
 const input = () => ({ provider: 'comfyui', baseURL: 'http://localhost:8188/prefix', workflow: comfyGraph(), prompt: 'rainy window' })
+
+test('ComfyUI auto-imports rgthree seed links through settings and persisted templates without replacing graph edges', () => {
+  for (const sampler of ['KSampler', 'KSamplerAdvanced']) {
+    const graph = comfyLinkedSeedGraph(sampler), original = structuredClone(graph)
+    const config = channelSettings({ ...input(), workflow: graph })
+    assert.deepEqual(config.workflow.bindings.seed, [{ node: '8', input: 'seed' }])
+    const saved = JSON.parse(JSON.stringify(config.workflow))
+    assert.deepEqual(comfyWorkflow(saved), config.workflow)
+    const compiled = compileComfyWorkflow(saved, 'replacement positive')
+    const seedInput = sampler === 'KSamplerAdvanced' ? 'noise_seed' : 'seed'
+    assert.deepEqual(compiled.prompt['5'].inputs[seedInput], ['8', 0])
+    assert.equal(compiled.prompt['8'].inputs.seed, compiled.seed)
+    assert.ok(Number.isSafeInteger(compiled.seed) && compiled.seed >= 0)
+    assert.equal(compiled.prompt['3'].inputs.text, 'replacement positive')
+    assert.deepEqual(compiled.prompt['9'], graph['9'])
+    assert.deepEqual(compiled.prompt['5'].inputs.negative, ['9', 0])
+    assert.equal(compiled.prompt['2'].inputs.batch_size, 1)
+    assert.equal(compiled.prompt['4'], undefined, 'unconnected negative encoder is pruned')
+    assert.deepEqual(graph, original, 'import and compile never mutate the source workflow')
+  }
+})
+
+test('ComfyUI refuses unknown seed node semantics, wrong output slots and chained seed sources with actionable errors', () => {
+  for (const mutate of [
+    g => { g['8'].class_type = 'UnknownSeedCalculator' },
+    g => { g['5'].inputs.seed = ['8', 1] },
+    g => { g['10'] = { class_type: 'Seed (rgthree)', inputs: { seed: 1 } }; g['8'].inputs.seed = ['10', 0] }
+  ]) {
+    const graph = comfyLinkedSeedGraph(); mutate(graph)
+    assert.throws(() => comfyWorkflow(graph), error => /种子.*映射文件/.test(error.message) && /节点 (5|8).*seed/.test(error.message))
+  }
+})
+
+test('ComfyUI mapping errors identify missing fields, types, unsafe integers and duplicates without leaking values', () => {
+  for (const [value, expected] of [['PRIVATE_SENTINEL', /节点 8.*seed.*安全整数/], [2 ** 53, /节点 8.*seed.*安全整数/], [1.5, /节点 8.*seed.*安全整数/]]) {
+    const graph = comfyLinkedSeedGraph(); graph['8'].inputs.seed = value
+    assert.throws(() => comfyWorkflow(graph), error => expected.test(error.message) && !error.message.includes('PRIVATE_SENTINEL'))
+  }
+  const missing = comfyLinkedSeedGraph(); delete missing['8'].inputs.seed
+  assert.throws(() => comfyWorkflow(missing), /节点 8.*seed.*不存在/)
+  const duplicate = comfyWorkflow(comfyGraph())
+  duplicate.bindings.seed.push({ ...duplicate.bindings.seed[0] })
+  assert.throws(() => comfyWorkflow(duplicate), /映射重复.*节点 5.*seed/)
+  const linked = comfyWorkflow(comfyLinkedSeedGraph())
+  linked.bindings.seed = [{ node: '5', input: 'seed' }]
+  assert.throws(() => comfyWorkflow(linked), /节点 5.*seed.*连接.*源节点/)
+  const badPositive = comfyWorkflow(comfyGraph()); badPositive.prompt['3'].inputs.text = 5
+  assert.throws(() => comfyWorkflow(badPositive), /节点 3.*text.*字符串/)
+})
+
+test('ComfyUI rgthree seed reaches the actual provider submission using the preserved link', async () => {
+  let task, posts = 0
+  const result = await generateSceneImage({ ...input(), workflow: comfyLinkedSeedGraph(), onProviderTask: async t => { task = t } }, { wait: async () => {}, fetch: async (url, init) => {
+    if (url.endsWith('/prompt')) {
+      posts++
+      const { prompt } = JSON.parse(init.body)
+      assert.deepEqual(prompt['5'].inputs.seed, ['8', 0])
+      assert.ok(Number.isSafeInteger(prompt['8'].inputs.seed) && prompt['8'].inputs.seed >= 0)
+      assert.equal(prompt['3'].inputs.text, 'rainy window')
+      assert.equal(prompt['2'].inputs.batch_size, 1)
+      return Response.json({ prompt_id: task.promptId })
+    }
+    if (url.includes('/history/')) return Response.json({ [task.promptId]: { status: { completed: true }, outputs: { '7': { images: [{ filename: 'fixture.png', subfolder: '', type: 'output' }] } } } })
+    return new Response(png)
+  } })
+  assert.equal(posts, 1)
+  assert.deepEqual(result.data, png)
+})
 test('ComfyUI imports API graph once, preserves unrelated parameters, sets one image and random seed', () => {
   const graph = comfyGraph(), snapshot = structuredClone(graph), template = comfyWorkflow(graph)
   assert.deepEqual(comfyWorkflow(template), template)
