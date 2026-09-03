@@ -67,8 +67,9 @@ export function createConversationInitialization(options) {
   }
 
   async function initialize({ cardPath, sessionId, mode, openingId, userName, requestMode, userProfileEnabled }) {
+    if (requestMode === 'sillytavern') throw new Error('兼容模式已停用')
     const currentSettings = await settings()
-    const effectiveRequestMode = currentSettings.compatibilityMode && requestMode === 'sillytavern' ? 'sillytavern' : 'dsh'
+    const effectiveRequestMode = 'dsh'
     const requestedMode = mode === 'card' || mode === 'revision' || mode === 'extract' ? 'card' : (mode === 'script' ? 'script' : (mode === 'story' ? 'story' : null))
     const card = str(cardPath) === '' && requestedMode === 'card' ? null : await cards.read(cardPath)
     if (card === undefined) throw new Error('人物卡不存在: ' + cardPath)
@@ -81,6 +82,7 @@ export function createConversationInitialization(options) {
     if (chatMode === 'story' && hasScript) chatMode = 'script'
     if (typeof sessionId === 'string' && sessionId !== '') {
       const current = await chats.resolve(sessionId)
+      if (current && current.requestMode === 'sillytavern') throw new Error('兼容模式已停用，原对话存档保留，请新建游玩对话')
       // 同一大模式（游玩/卡片）内复用当前会话；旧的自由故事会话不会被强行切换成剧本。
       if (current !== undefined && current.cardPath === str(cardPath) && groupOfMode(current.mode) === groupOfMode(chatMode)) {
         if (groupOfMode(current.mode) === 'play') await snapshots.ensure(current, card)

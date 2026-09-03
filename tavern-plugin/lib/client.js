@@ -3865,7 +3865,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const [error, setError] = usePersistentError("左侧栏操作");
 			const [uiMode, setUiMode] = React.useState("play");
 			const [requestMode, setRequestMode] = React.useState("dsh");
-			const [compatibilityAvailable, setCompatibilityAvailable] = React.useState(false);
+			const compatibilityAvailable = false;
 			const [trustedCardMode, setTrustedCardMode] = React.useState(true);
 			const [cardEntry, setCardEntry] = React.useState("");
 			const [openingPicker, setOpeningPicker] = React.useState(null);
@@ -3932,16 +3932,11 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			}
 			function refresh() {
 				return Promise.all([call("listCards"), call("listSessions")]).then(function (all) {
-					const sessions = all[1].sessions || [];
-					const compatibilityMode = Boolean(all[1].capabilities && all[1].capabilities.compatibilityMode);
+					const sessions = (all[1].sessions || []).filter(function (item) { return item.requestMode !== "sillytavern"; });
 					const nextTrustedCardMode = !all[1].capabilities || all[1].capabilities.trustedCardMode !== false;
-					setCards(all[0].cards || []); setHistory(sessions); setCompatibilityAvailable(compatibilityMode); setTrustedCardMode(nextTrustedCardMode); publishSessionModes(sessions);
-					if (!compatibilityMode) {
-						setRequestMode("dsh");
-						window.localStorage.removeItem("dsh-tavern-request-mode");
-					} else if (!sessions.some(function (entry) { return entry.sessionId === current && isPlayMode(entry.mode); })) {
-						setRequestMode(window.localStorage.getItem("dsh-tavern-request-mode") === "sillytavern" ? "sillytavern" : "dsh");
-					}
+					setCards(all[0].cards || []); setHistory(sessions); setTrustedCardMode(nextTrustedCardMode); publishSessionModes(sessions);
+					setRequestMode("dsh");
+					window.localStorage.removeItem("dsh-tavern-request-mode");
 					tavernErrorHub.resolve("左侧栏");
 				}, function (err) { tavernErrorHub.report("左侧栏", err); });
 			}
@@ -4529,18 +4524,13 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					h("button", { className: "dsh-tavern-update-button", disabled: checkingOrRunning || updateStatus.phase === "restart-required" || updateStatus.phase === "installed-restart-required", onClick: checkUpdate }, updateStatus.phase === "checking" ? "正在检查…" : (updateStatus.phase === "running" ? "正在更新…" : (updateStatus.phase === "installed-restart-required" ? "请手动重启" : (updateStatus.phase === "restart-required" ? "重启 Desktop 后可用" : "检查更新")))));
 			return h(React.Fragment, null, h(TavernErrorCenter), h("div", { className: "dsh-tavern-sidebar", style: { position: "relative", width: props.embedded ? "100%" : props.width + "px" } },
 				h("div", { className: "dsh-tavern-side-head" }, h("div", { className: "dsh-tavern-side-brand" }, "🍺 DSH Tavern"), props.embedded ? null : h("button", { className: "dsh-tavern-side-icon", title: "收起侧栏", onClick: props.toggleSidebar }, "◧")),
-				h("div", { className: "dsh-tavern-mode-switch" + (compatibilityAvailable ? " compatibility-enabled" : "") },
+				h("div", { className: "dsh-tavern-mode-switch" },
 					h("button", { className: uiMode === "play" && requestMode === "dsh" ? "active" : "", disabled: busy, onClick: function () { switchPlayRequestMode("dsh"); } }, "游玩"),
-					h("button", { className: uiMode === "card" ? "active" : "", disabled: busy, onClick: function () { switchMode("card"); } }, "卡片"),
-					compatibilityAvailable ? h("button", { className: uiMode === "play" && requestMode === "sillytavern" ? "active" : "", disabled: busy, title: "按 SillyTavern 语义构造正文请求；后台变量结算与普通游玩共用同一链路，候选项可按需手动生成", onClick: function () { switchPlayRequestMode("sillytavern"); } }, "兼容（实验性）") : null
+					h("button", { className: uiMode === "card" ? "active" : "", disabled: busy, onClick: function () { switchMode("card"); } }, "卡片")
 				),
-				h("button", { className: "dsh-tavern-side-new", disabled: busy, onClick: function () { openPicker(); } }, uiMode === "play" ? (requestMode === "sillytavern" ? "＋ 选择人物卡 · 新开兼容对话" : "＋ 选择人物卡 · 新开游玩") : "＋ 新建卡片工作台对话"),
-				uiMode === "play" && requestMode === "sillytavern" ? h("div", { className: "dsh-tavern-compatibility-notice" },
-					h("strong", null, "什么是兼容模式？"),
-					h("div", null, "兼容模式会尽可能复刻 SillyTavern（酒馆）的行为，与游玩模式存在很大差异。它会使用预设库中当前选择的整份预设，并遵循预设原有的提示词顺序、启用状态和正则设置。预设库可从右侧面板打开。")
-				) : null,
-				h("div", { className: "dsh-tavern-side-title" }, uiMode === "play" ? (requestMode === "sillytavern" ? "兼容对话" : "游玩历史") : "卡片历史"),
-				h("div", { className: "dsh-tavern-side-list" }, rows.length ? rows : h("div", { className: "dsh-tavern-side-empty" }, uiMode === "play" ? (requestMode === "sillytavern" ? "还没有兼容对话。\n选择人物卡开始；兼容效果可能因预设、模型和供应商而异。" : "还没有游玩对话。\n选择人物卡开始；绑定剧本的卡会按剧本推进。") : "还没有卡片工作台对话。\n可以空白开始，再按需添加人物卡和剧本。")),
+				h("button", { className: "dsh-tavern-side-new", disabled: busy, onClick: function () { openPicker(); } }, uiMode === "play" ? "＋ 选择人物卡 · 新开游玩" : "＋ 新建卡片工作台对话"),
+				h("div", { className: "dsh-tavern-side-title" }, uiMode === "play" ? "游玩历史" : "卡片历史"),
+				h("div", { className: "dsh-tavern-side-list" }, rows.length ? rows : h("div", { className: "dsh-tavern-side-empty" }, uiMode === "play" ? "还没有游玩对话。\n选择人物卡开始；绑定剧本的卡会按剧本推进。" : "还没有卡片工作台对话。\n可以空白开始，再按需添加人物卡和剧本。")),
 				!picking && error ? h("div", { className: "dsh-tavern-dock-error", role: "alert" }, error) : null,
 				h("div", { className: "dsh-tavern-update" },
 					h("div", { className: "dsh-tavern-update-identity" }, "DSH Tavern " + currentVersionLabel + " · " + currentCommitLabel + " · " + updateHostLabel),
@@ -4854,27 +4844,16 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		}
 
 		function TavernSettingsSection() {
-			const [state, setState] = React.useState({ loading: true, busy: false, compatibilityMode: false, webSearchEnabled: false, backgroundModel: null, modelCatalog: [], sceneImages: false, error: "" });
+			const [state, setState] = React.useState({ loading: true, busy: false, webSearchEnabled: false, backgroundModel: null, modelCatalog: [], sceneImages: false, error: "" });
 			React.useEffect(function () {
 				let active = true;
 				rpc("getTavernSettings").then(function (result) {
-					if (active) setState({ loading: false, busy: false, compatibilityMode: Boolean(result.settings && result.settings.compatibilityMode), webSearchEnabled: Boolean(result.settings && result.settings.webSearchEnabled), backgroundModel: result.settings && result.settings.backgroundModel || null, modelCatalog: Array.isArray(result.modelCatalog) ? result.modelCatalog : [], sceneImages: Boolean(result.releaseCapabilities && result.releaseCapabilities.sceneImages), error: "" });
+					if (active) setState({ loading: false, busy: false, webSearchEnabled: Boolean(result.settings && result.settings.webSearchEnabled), backgroundModel: result.settings && result.settings.backgroundModel || null, modelCatalog: Array.isArray(result.modelCatalog) ? result.modelCatalog : [], sceneImages: Boolean(result.releaseCapabilities && result.releaseCapabilities.sceneImages), error: "" });
 				}, function (error) {
 					if (active) setState(function (current) { return Object.assign({}, current, { loading: false, busy: false, error: String(error && error.message || error) }); });
 				});
 				return function () { active = false; };
 			}, []);
-			async function setCompatibilityMode(enabled) {
-				setState(function (current) { return Object.assign({}, current, { busy: true, error: "" }); });
-				try {
-					const result = await rpc("updateTavernSettings", { patch: { compatibilityMode: enabled } });
-					setState(function (current) { return Object.assign({}, current, { loading: false, busy: false, compatibilityMode: Boolean(result.settings && result.settings.compatibilityMode), error: "" }); });
-					window.dispatchEvent(new CustomEvent("dsh-tavern-settings-changed"));
-					window.dispatchEvent(new CustomEvent("dsh-tavern-data-changed"));
-				} catch (error) {
-					setState(function (current) { return Object.assign({}, current, { busy: false, error: String(error && error.message || error) }); });
-				}
-			}
 			async function setWebSearchEnabled(enabled) {
 				setState(function (current) { return Object.assign({}, current, { busy: true, error: "" }); });
 				try {
@@ -4899,18 +4878,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				}
 			}
 			return React.createElement("div", { className: "dsh-tavern-settings-section" },
-				React.createElement("p", { className: "dsh-tavern-settings-intro" }, "管理 DSH Tavern 的可选实验功能。"),
+				React.createElement("p", { className: "dsh-tavern-settings-intro" }, "设置新游戏的默认选项。"),
 				React.createElement("div", { className: "dsh-tavern-settings-group" },
-					React.createElement("label", { className: "dsh-tavern-settings-row" },
-						React.createElement("span", { className: "dsh-tavern-settings-copy" },
-							React.createElement("span", { className: "dsh-tavern-settings-title" }, "启用兼容模式（实验性）"),
-							React.createElement("span", { className: "dsh-tavern-settings-desc" }, "开启后，侧栏最右侧会显示兼容模式。该模式按 SillyTavern 语义构造正文请求；后台变量结算与普通游玩共用同一链路，候选项可按需手动生成。兼容效果可能因预设、模型和供应商而异。兼容模式可用于测试外部预设条目的兼容效果，但不保证游戏体验良好。")
-						),
-						React.createElement("span", { className: "dsh-tavern-settings-switch" },
-							React.createElement("input", { type: "checkbox", checked: state.compatibilityMode, disabled: state.loading || state.busy, onChange: function (event) { void setCompatibilityMode(event.target.checked); }, "aria-label": "启用兼容模式（实验性）" }),
-							React.createElement("span", { className: "dsh-tavern-settings-track", "aria-hidden": "true" })
-						)
-					),
 					React.createElement("label", { className: "dsh-tavern-settings-row" },
 						React.createElement("span", { className: "dsh-tavern-settings-copy" },
 							React.createElement("span", { className: "dsh-tavern-settings-title" }, "开启联网搜索"),
@@ -5407,7 +5376,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				if (preset && preset.path === detailPath) return h("div", { className: "dsh-tavern-presets" },
 					h("div", { className: "dsh-tavern-status-head" }, h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { setDetailPath(""); setPreset(null); } }, "← 返回预设库"), h("div", { className: "dsh-tavern-status-title" }, preset.title)),
 					h("div", { className: "dsh-tavern-preset-detail" }, error ? h("div", { className: "dsh-tavern-dock-error" }, error) : null,
-						h("div", { className: "dsh-tavern-preset-summary" }, h("b", null, "编辑预设提示词和正则"), h("p", null, "点击条目展开编辑，保存后会直接写回预设文件。普通游玩和兼容模式会在下一轮请求中使用修改后的内容。"), h("p", null, "普通游玩可以使用外部预设，但不能保证完全适配 SillyTavern。"), h("p", null, "卡片模式中的引用只供 Agent 阅读和编辑，后台 Agent 也不会运行预设。")),
+						h("div", { className: "dsh-tavern-preset-summary" }, h("b", null, "编辑预设提示词和正则"), h("p", null, "点击条目展开编辑，保存后会直接写回预设文件。游玩会在下一轮请求中使用修改后的内容。"), h("p", null, "游玩可以使用外部预设，但不能保证完全适配 SillyTavern。"), h("p", null, "卡片模式中的引用只供 Agent 阅读和编辑，后台 Agent 也不会运行预设。")),
 						h("div", { className: "dsh-tavern-preset-detail-actions" }, h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { exportFile(preset); } }, "导出"), h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { rename(preset); } }, "重命名"), h("button", { className: "dsh-tavern-btn danger", disabled: busy, onClick: function () { remove(preset); } }, "删除")),
 						h("div", { className: "dsh-tavern-preset-section-title" }, "提示词条目 · " + (preset.entries || []).length), (preset.entries || []).map(entryRow),
 						h("div", { className: "dsh-tavern-preset-section-title" }, "正则脚本 · " + (preset.extractableRegexScripts || []).length), (preset.extractableRegexScripts || []).map(regexRow)));
@@ -5418,8 +5387,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 						h("div", { className: "dsh-tavern-preset-summary dsh-tavern-external-preset-notice" },
 						h("strong", null, catalog.activePresetPath ? "当前预设：" + catalog.activePresetTitle : "当前不使用预设"),
 						h("p", { className: "dsh-tavern-preset-warning" }, h("strong", null, "使用建议："), "DSH Tavern 已自带原生运行预设。除非坚持要使用预设，否则建议保持“不使用预设”；开启外部预设可能导致系统行为异常，请用户自行判断。如果要调整内容偏好，建议通过改卡将偏好写入人物卡，或使用 Guide 注入偏好。"),
-						h("p", null, h("strong", null, "普通游玩模式："), "可以使用外部预设，但不能保证完全适配 SillyTavern，也不保证达到破限效果。"),
-						h("p", null, h("strong", null, "兼容模式："), "会尽最大可能复刻 SillyTavern 的消息结构与预设行为，对预设的适配度更高。进入“设置 → DSH Tavern”，开启“兼容模式（实验性）”；开启后左侧会显示“兼容（实验性）”入口。"),
+						h("p", null, "游玩可以使用外部预设，但不能保证完全适配 SillyTavern，也不保证达到破限效果。"),
 						h("p", null, "修改预设后，下一轮游玩请求直接生效；卡片模式中的引用仅供 Agent 阅读和编辑，后台 Agent 不运行预设。")),
 					catalog.presets.length ? catalog.presets.map(function (item) {
 						return h("div", { key: item.path, className: "dsh-tavern-preset-row" },

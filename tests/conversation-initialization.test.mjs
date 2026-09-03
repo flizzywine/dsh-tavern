@@ -68,7 +68,7 @@ test('double clicks and ensureOpening share session ordering and do not create d
 test('mode selection preserves legacy aliases, script alignment and compatibility policy', async () => {
   for (const mode of ['card', 'revision', 'extract']) {
     const h = initializationFixture()
-    const chat = await h.make().start({ ...h.input, cardPath: '', mode, requestMode: 'sillytavern' })
+    const chat = await h.make().start({ ...h.input, cardPath: '', mode })
     assert.equal(chat.mode, 'card'); assert.equal(chat.requestMode, 'dsh')
     assert.equal(chat.cardName, '卡片工作台'); assert.equal(chat.cardPath, '')
     assert.equal(chat.openingText, '卡片工作台开场白')
@@ -78,12 +78,15 @@ test('mode selection preserves legacy aliases, script alignment and compatibilit
   }
   const h = initializationFixture()
   h.state.script = { title: '剧本', version: 1, chunks: [{ id: 'one', text: '第二个开场白' }, { id: 'two', text: '后续' }] }
-  const chat = await h.make().start({ ...h.input, mode: 'story', openingId: 'alternate:0', requestMode: 'sillytavern' })
+  const chat = await h.make().start({ ...h.input, mode: 'story', openingId: 'alternate:0' })
   assert.equal(chat.mode, 'script'); assert.equal(chat.openingText, '第二个开场白')
-  assert.equal(chat.requestMode, 'sillytavern'); assert.ok(chat.scriptState)
-  assert.equal(h.session().prefix, undefined, 'compatibility path must not install native prefix')
-  const restricted = initializationFixture(); restricted.state.settings.compatibilityMode = false
-  assert.equal((await restricted.make().start({ ...restricted.input, requestMode: 'sillytavern' })).requestMode, 'dsh')
+  assert.equal(chat.requestMode, 'dsh'); assert.ok(chat.scriptState)
+  for (const enabled of [true, false]) {
+    const restricted = initializationFixture(); restricted.state.settings.compatibilityMode = enabled
+    const before = structuredClone(restricted.state)
+    await assert.rejects(restricted.make().start({ ...restricted.input, requestMode: 'sillytavern' }), /兼容模式已停用/)
+    assert.deepEqual(restricted.state, before)
+  }
 })
 
 test('opening binds a pre-publication worldbook snapshot without leaving temporary chat metadata', async () => {

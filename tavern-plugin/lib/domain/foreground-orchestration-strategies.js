@@ -199,7 +199,8 @@ export function createForegroundOrchestrationStrategies(options) {
   const compatibility = createCompatibilityOrchestrationStrategy(options.compatibility)
 
   function select(chat) {
-    return chat && chat.requestMode === 'sillytavern' ? compatibility : nativePlay
+    if (chat && chat.requestMode === 'sillytavern') throw new Error('兼容模式已停用，原对话存档保留，请新建游玩对话')
+    return nativePlay
   }
 
   async function prepareStep(input) {

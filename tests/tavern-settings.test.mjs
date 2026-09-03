@@ -90,7 +90,7 @@ test('真实设置保存链路关闭兼容模式成功返回，旧关闭信任�
   }
 })
 
-test('设置界面提供兼容模式、联网搜索与后台模型选择，不渲染旧样式选项', () => {
+test('设置界面只提供联网搜索与后台模型选择，不渲染兼容模式和旧样式选项', () => {
   const context = { SceneImageSettings: function SceneImageSettings() {}, React: {
     useState: initial => [initial, () => {}],
     useEffect() {},
@@ -108,12 +108,12 @@ test('设置界面提供兼容模式、联网搜索与后台模型选择，不�
   }
   visit(root)
   const inputs = nodes.filter(node => node.type === 'input')
-  assert.deepEqual(inputs.map(input => input.props['aria-label']), ['启用兼容模式（实验性）', '开启联网搜索'])
+  assert.deepEqual(inputs.map(input => input.props['aria-label']), ['开启联网搜索'])
   const select = nodes.find(node => node.type === 'select' && node.props['aria-label'] === '后台模型')
   assert.ok(select)
   assert.match(JSON.stringify(select), /跟随前台（开局时）/)
   assert.equal(nodes.some(node => node.type === 'textarea' || node.type === 'details'), false)
-  assert.doesNotMatch(JSON.stringify(root), /受信任人物卡模式|SillyTavern 样式环境|Custom CSS/)
+  assert.doesNotMatch(JSON.stringify(root), /兼容模式|受信任人物卡模式|SillyTavern 样式环境|Custom CSS/)
 })
 
 test('联网搜索开关保存为以后新游戏的默认值', async t => {
@@ -175,30 +175,16 @@ test('后台对话框以只读标签显示实际模型，不替换前台模型�
   assert.doesNotMatch(clientSource.slice(clientSource.indexOf('function TavernBackgroundModelLabel'), clientSource.indexOf('function TavernSettingsSection')), /React\.createElement\("button"/)
 })
 
-test('前端兼容开关保存后通知侧栏；真正写入失败才显示失败', async t => {
+test('旧开启设置无效，接口拒绝重新开启，重新读取仍关闭且保留原始数据', async t => {
   const harness = await settingsHarness(t)
-  let state = { compatibilityMode: true }
-  const events = []
-  const context = {
-    setState: updater => { state = updater(state) },
-    rpc: async (_method, args) => ({ settings: await harness.update(args.patch) }),
-    window: { dispatchEvent: event => events.push(event.type) },
-    CustomEvent: class { constructor(type) { this.type = type } }
-  }
-  const start = clientSource.indexOf('async function setCompatibilityMode(enabled)')
-  assert.ok(start >= 0)
-  vm.runInNewContext(clientSource.slice(start, clientSource.indexOf('\n\t\t\treturn React.createElement', start)) +
-    '; this.toggle = setCompatibilityMode;', context)
-  await context.toggle(false)
-  assert.equal(state.error, '')
-  assert.equal(state.compatibilityMode, false)
-  assert.deepEqual(events, ['dsh-tavern-settings-changed', 'dsh-tavern-data-changed'])
-  context.rpc = async () => { throw new Error('磁盘写入失败') }
-  await context.toggle(true)
-  assert.equal(state.compatibilityMode, false)
-  assert.equal(state.busy, false)
-  assert.equal(state.error, '磁盘写入失败')
-  assert.equal(events.length, 2)
+  const legacy = { compatibilityMode: true, unknown: '保留' }
+  await harness.profileData.writeJson(harness.settingsPath, legacy)
+  assert.equal((await harness.read()).compatibilityMode, false)
+  await assert.rejects(harness.update({ compatibilityMode: true }), /兼容模式已停用/)
+  assert.equal((await harness.read()).compatibilityMode, false)
+  assert.deepEqual(await harness.saved(), legacy)
+  assert.equal(presentTavernSettings(await harness.saved(), {}).compatibilityMode, false)
+  assert.doesNotMatch(clientSource, /启用兼容模式|新开兼容对话|兼容（实验性）|什么是兼容模式/)
 })
 
 test('旧 play-mode 覆盖保留在数据中，但不再出现在可用提示词列表', () => {
@@ -227,7 +213,7 @@ test('系统正文提示词默认使用内置内容，并可保存自定义覆�
   assert.equal(saved.unknown, 1)
   assert.equal(resolveSystemPrompt(saved, 'story', function () { return '默认' }), '用户正文提示词')
   assert.deepEqual(presentTavernSettings(saved, defaults), {
-    compatibilityMode: true,
+    compatibilityMode: false,
     webSearchEnabled: false,
     backgroundModel: null,
     trustedCardMode: true,

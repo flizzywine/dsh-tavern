@@ -1384,11 +1384,11 @@ export async function apply(ctx) {
     return name
   }
   async function setRequestMode(sessionId, requestMode) {
+    if (requestMode === 'sillytavern') throw new Error('兼容模式已停用')
     const chat = await chatForSession(sessionId)
     if (chat === undefined) throw new Error('当前会话没有绑定人物卡')
     if ((chat.mode || 'story') === 'card') throw new Error('卡片工作台不能切换请求模式')
-    const settings = await readTavernSettings()
-    if (requestMode === 'sillytavern' && !settings.compatibilityMode) throw new Error('请先在设置中启用兼容模式（实验性）')
+    if (chat.requestMode === 'sillytavern') throw new Error('兼容模式已停用，原对话存档保留，请新建游玩对话')
     chat.requestMode = requestMode === 'sillytavern' ? 'sillytavern' : 'dsh'
     await writeChat(chat)
     return chat.requestMode
@@ -1851,14 +1851,16 @@ export async function apply(ctx) {
     return await readIndex()
   }
   async function recoverRuntimeHistory(recoveredIndex) {
+    const activeChatIds = []
     for (const row of recoveredIndex.chats || []) {
       const chat = await readChat(row.id)
-      if (chat === undefined) continue
+      if (chat === undefined || chat.requestMode === 'sillytavern') continue
+      activeChatIds.push(row.id)
       try { if (await presetLibrary.migrateChat(chat)) await writeChat(chat) } catch (error) { console.warn('dsh-tavern: 旧对话预设条目配置迁移失败', chat.id, error) }
       await syncChatSummary(chat)
     }
-    await foregroundHandoff.recover((recoveredIndex.chats || []).map(function (row) { return row.id }))
-    await candidateTasks.recover((recoveredIndex.chats || []).map(function (row) { return row.id }))
+    await foregroundHandoff.recover(activeChatIds)
+    await candidateTasks.recover(activeChatIds)
   }
   // ---------- 重新生成正文（生成即替换，无确认） ----------
   const { regenerate: regenBody, rollback: rollbackTurn } = createRoundHistory({
@@ -1875,6 +1877,13 @@ export async function apply(ctx) {
 
   // ---------- HTTP RPC（客户端同源 fetch） ----------
   async function dispatch(method, args) {
+    if (args && args.requestMode === 'sillytavern') throw new Error('兼容模式已停用')
+    // Retired conversations remain on disk, but stale clients cannot operate them.
+    const targetChats = [
+      args && args.sessionId ? await chatForSession(args.sessionId) : undefined,
+      args && args.chatId ? await readChat(args.chatId) : undefined
+    ]
+    if (targetChats.some(function (chat) { return chat && chat.requestMode === 'sillytavern' })) throw new Error('兼容模式已停用，原对话存档保留，请新建游玩对话')
     switch (method) {
       case 'listCards': return { cards: await listCards() }
       case 'getUpdateStatus': return { status: await applicationUpdater.status() }
@@ -2021,7 +2030,7 @@ export async function apply(ctx) {
       }
       case 'listSessions': {
         const settings = await readTavernSettings()
-        return { sessions: await listTavernSessions(), capabilities: { compatibilityMode: settings.compatibilityMode, trustedCardMode: settings.trustedCardMode } }
+        return { sessions: (await listTavernSessions()).filter(function (chat) { return chat.requestMode !== 'sillytavern' }), capabilities: { compatibilityMode: false, trustedCardMode: settings.trustedCardMode } }
       }
       case 'importCard': return { card: await importCard(args && args.payload) }
       case 'deleteCard': return await deleteCard(args && args.path)

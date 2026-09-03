@@ -12,6 +12,7 @@ function promptOverride(document, name) {
 export function applyTavernSettingsPatch(current, patch) {
   const next = Object.assign({}, object(current))
   const input = object(patch)
+  if (input.compatibilityMode === true) throw new Error('兼容模式已停用')
   if (Object.prototype.hasOwnProperty.call(input, 'compatibilityMode')) next.compatibilityMode = input.compatibilityMode === true
   if (Object.prototype.hasOwnProperty.call(input, 'webSearchEnabled')) next.webSearchEnabled = input.webSearchEnabled === true
   if (Object.prototype.hasOwnProperty.call(input, 'backgroundModel')) {
@@ -65,7 +66,7 @@ export function presentTavernSettings(document, defaults) {
   })
   const story = prompts.find(function (item) { return item.name === 'story' }) || { text: '', customized: false }
   return {
-    compatibilityMode: object(document).compatibilityMode === true,
+    compatibilityMode: false,
     webSearchEnabled: object(document).webSearchEnabled === true,
     backgroundModel: normalizeBackgroundModel(object(document).backgroundModel),
     // Card rendering uses a fixed trusted policy; legacy preferences are no longer applied.

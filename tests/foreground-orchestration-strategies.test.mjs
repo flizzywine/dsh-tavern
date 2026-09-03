@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { createForegroundOrchestrationStrategies, createNativePlayOrchestrationStrategy } from '../tavern-plugin/lib/domain/foreground-orchestration-strategies.js'
+import { createForegroundOrchestrationStrategies, createNativePlayOrchestrationStrategy, createCompatibilityOrchestrationStrategy } from '../tavern-plugin/lib/domain/foreground-orchestration-strategies.js'
 import { ensureSessionStablePrefix, readSessionStablePrefix } from '../tavern-plugin/lib/domain/session-stable-prefix.js'
 
 function userMessage(text) {
@@ -11,7 +11,7 @@ function userMessage(text) {
 function strategies(overrides = {}) {
   const calls = []
   const chats = new Map([['native', { id: 'native', requestMode: 'dsh', mode: 'story' }], ['compat', { id: 'compat', requestMode: 'sillytavern', mode: 'story' }]])
-  const value = createForegroundOrchestrationStrategies({
+  const options = {
     compatibility: {
       async beforeTurn(input) { calls.push(['compat.before', input.userText]) },
       async beginTurn(input) { calls.push(['compat.begin', input.turn, input.requestId]) },
@@ -38,9 +38,22 @@ function strategies(overrides = {}) {
       controlledToolNames: new Set(['bash'])
     },
     ...overrides
-  })
-  return { value, calls, chats }
+  }
+  return { value: createForegroundOrchestrationStrategies(options), compatibility: createCompatibilityOrchestrationStrategy(options.compatibility), calls, chats }
 }
+
+test('正式编排拒绝旧兼容对话的生成与系统提示组装，不写入、不调用模型也不静默迁移', async () => {
+  const run = strategies()
+  const chat = run.chats.get('compat')
+  const before = structuredClone(chat)
+  for (const step of [1, 2]) {
+    await assert.rejects(run.value.prepareStep({ chat, sessionId: 'compat', payload: { turn: 3, step, messages: [userMessage('继续')] } }), /兼容模式已停用/)
+  }
+  await assert.rejects(run.value.assembleSystemPrompt({ sections: [], tools: [] }, { chat, sessionId: 'compat' }), /兼容模式已停用/)
+  assert.deepEqual(run.calls, [])
+  assert.deepEqual(chat, before)
+  assert.equal(run.value.projectRequest({ sessionId: 'compat', messages: [] }), null)
+})
 
 test('前台固定背景位于全部历史之前，不进入当轮 system、Frame 或预设注入', async () => {
   const session = { id: 'native', events: [], append(type, data) { this.events.push({ type, data }) } }
@@ -75,14 +88,14 @@ test('前台固定背景位于全部历史之前，不进入当轮 system、Fram
   assert.equal(savedPrefixes.size, 1)
 })
 
-test('普通游玩与兼容模式只在策略选择点分叉', async () => {
+test('普通游玩正常运行，保留的兼容实现仅供独立测试', async () => {
   const run = strategies()
   const nativePayload = { turn: 2, step: 1, messages: [userMessage('继续')] }
   const native = await run.value.prepareStep({ sessionId: 'native', payload: nativePayload, decision: { kind: 'enter', messages: nativePayload.messages }, chat: run.chats.get('native'), requestId: 'rpc-native' })
   assert.deepEqual(native.messages.map(function (message) { return message.content[0].text }), ['projected', 'frame'])
 
   const compatPayload = { turn: 3, step: 1, messages: [userMessage('向前走')] }
-  const compat = await run.value.prepareStep({ sessionId: 'compat', payload: compatPayload, decision: { kind: 'enter', messages: compatPayload.messages }, chat: run.chats.get('compat'), requestId: 'rpc-compat' })
+  const compat = await run.compatibility.prepareStep({ sessionId: 'compat', payload: compatPayload, decision: { kind: 'enter', messages: compatPayload.messages }, chat: run.chats.get('compat'), requestId: 'rpc-compat' })
   assert.equal(compat.messages, compatPayload.messages)
   assert.deepEqual(run.calls, [
     ['native.sync', 'native'],
@@ -105,16 +118,16 @@ test('两种策略分别投影模型请求且不改写 DSH 原请求', async () 
   assert.equal(nativeOptions.messages.length, 0)
 
   const compatPayload = { turn: 3, step: 1, messages: [userMessage('向前走')] }
-  await run.value.prepareStep({ sessionId: 'compat', payload: compatPayload, decision: { kind: 'enter', messages: compatPayload.messages }, chat: run.chats.get('compat') })
+  await run.compatibility.prepareStep({ sessionId: 'compat', payload: compatPayload, decision: { kind: 'enter', messages: compatPayload.messages }, chat: run.chats.get('compat') })
   const compatOptions = Object.freeze({ sessionId: 'compat', messages: Object.freeze([]) })
-  const compatProjected = run.value.projectRequest(compatOptions, { turn: 3, step: 1 })
+  const compatProjected = run.compatibility.projectRequest(compatOptions, { turn: 3, step: 1 })
   assert.notEqual(compatProjected, compatOptions)
   assert.equal(compatProjected.messages[0].content[0].text, 'compat')
 })
 
 test('兼容与普通游玩均清空独立系统提示，工具过滤不受影响', async () => {
   const run = strategies()
-  const compatAssembly = await run.value.assembleSystemPrompt({ sections: [{}], contexts: [{}], tools: [{ name: 'bash' }] }, { sessionId: 'compat', chat: run.chats.get('compat') })
+  const compatAssembly = await run.compatibility.assembleSystemPrompt({ sections: [{}], contexts: [{}], tools: [{ name: 'bash' }] }, { sessionId: 'compat', chat: run.chats.get('compat') })
   assert.deepEqual(compatAssembly, { sections: [], contexts: [], tools: [] })
 
   const nativeAssembly = await run.value.assembleSystemPrompt({ sections: [], contexts: [], tools: [{ name: 'bash' }, { name: 'read' }] }, { sessionId: 'native', chat: run.chats.get('native') })
@@ -126,11 +139,11 @@ test('兼容前台仅在游戏快照开启时保留联网搜索工具', async ()
   const run = strategies()
   const chat = run.chats.get('compat')
   const tools = [{ name: 'bash' }, { name: 'web_search' }]
-  const disabled = await run.value.assembleSystemPrompt({ sections: [{ name: 'old' }], contexts: [{}], tools: tools.slice() }, { sessionId: 'compat', chat })
+  const disabled = await run.compatibility.assembleSystemPrompt({ sections: [{ name: 'old' }], contexts: [{}], tools: tools.slice() }, { sessionId: 'compat', chat })
   assert.deepEqual(disabled.tools, [])
 
   chat.webSearchEnabled = true
-  const enabled = await run.value.assembleSystemPrompt({ sections: [{ name: 'old' }], contexts: [{}], tools: tools.slice() }, { sessionId: 'compat', chat })
+  const enabled = await run.compatibility.assembleSystemPrompt({ sections: [{ name: 'old' }], contexts: [{}], tools: tools.slice() }, { sessionId: 'compat', chat })
   assert.deepEqual(enabled.tools.map(function (tool) { return tool.name }), ['web_search'])
 })
 
