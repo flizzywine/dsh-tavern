@@ -1692,7 +1692,18 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				name = eventName(name);
 				const args = Array.prototype.slice.call(arguments, 1);
 				const items = listeners[name] ? Array.from(listeners[name]) : [];
-				for (const entry of items) await invokeEventEntry(name, entry, args);
+				// mvu_zod gates validation details on the official panel's checkbox.
+				// Our executor has no visible panel: capture those errors for the receipt
+				// without changing stored settings, commands, or validation behavior.
+				let notification, previous;
+				if (name === "mag_command_parsed_for_zod") {
+					try {
+						notification = options.document && options.document.getElementById("mvu_notification_error");
+						if (notification) { previous = notification.checked; notification.checked = true; }
+					} catch (_) { notification = null; }
+				}
+				try { for (const entry of items) await invokeEventEntry(name, entry, args); }
+				finally { try { if (notification) notification.checked = previous; } catch (_) {} }
 			}
 			async function emitHostEvent(eventId, name, args) {
 				name = eventName(name);
@@ -2113,7 +2124,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			});
 			const call = transport.request;
 			const events = modules.createEvents({ currentScript: currentScript, withScript: withScript,
-				reportSubscriptions: reportSubscriptions, post: transport.post });
+				reportSubscriptions: reportSubscriptions, post: transport.post, document: window.document });
 			function copy(value) {
 				try { return structuredClone(value); }
 				catch (_) { return value === undefined ? undefined : JSON.parse(JSON.stringify(value)); }
