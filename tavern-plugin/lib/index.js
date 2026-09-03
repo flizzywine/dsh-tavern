@@ -36,7 +36,7 @@ import { MVU_SUBMIT_UPDATE_TOOL, createMvuSettlementModule } from './domain/mvu-
 import { CHARACTER_DESIGN_READ_TOOL, CHARACTER_DESIGN_SAVE_TOOL } from './domain/character-design-document.js'
 import { POSTURE_SUBMIT_TOOL, POSTURE_SUBMIT_TOOL_NAME, normalizePostureSubmission } from './domain/posture-submission.js'
 import { TAVERN_COMPATIBILITY_CAPABILITIES, createTavernCompatibilityDiagnosticStore } from './domain/tavern-compatibility-diagnostics.js'
-import { createMvuDiagnosticStore, createMvuDiagnosticExport, sanitizeRuntimeDiagnostics, sanitizeMvuLoadDiagnostic } from './domain/mvu-diagnostics.js'
+import { createMvuDiagnosticStore, createMvuDiagnosticExport, sanitizeRuntimeDiagnostics, sanitizeMvuLoadDiagnostic, redactMvuLoadError } from './domain/mvu-diagnostics.js'
 import { projectPersistentStatusView } from './domain/persistent-status-view.js'
 import { createPlayChatDebugReference, readPlayChatDebugTurn } from './domain/play-chat-debug.js'
 import { createPresetLibrary } from './domain/preset-library.js'
@@ -2301,6 +2301,12 @@ export async function apply(ctx) {
           res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' })
           res.end(JSON.stringify(Object.assign({ ok: true }, result, { runtimeGeneration })))
         } catch (err) {
+          if (readsOfficialMvu) {
+            res.writeHead(503, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store',
+              'Access-Control-Allow-Origin': '*', 'X-Content-Type-Options': 'nosniff' })
+            res.end(JSON.stringify({ ok: false, error: redactMvuLoadError(err && err.message || err) }))
+            return
+          }
           res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' })
           res.end(JSON.stringify({ ok: false, error: str(err && err.message || err) }))
         }

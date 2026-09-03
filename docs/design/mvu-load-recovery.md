@@ -3,20 +3,22 @@
 官方 MVU Core 的下载与执行分离。下载失败不再立刻终止本轮结算；保持运行时未就绪，由现有 pendingSubmission 队列保存提交。
 
 - 每轮最多下载三次：初次失败后，间隔 1 秒、2 秒自动重试；每次下载（含响应体）限时 10 秒。
+- 下载响应必须为成功状态与 JavaScript 内容类型；JSON 错误、HTML 页面、forbidden 不进入脚本执行，即使错误地返回 HTTP 200。失败提示保留底层错误，仍按下载失败自动重试/暂停。
+- 服务端 MVU 文件读取、校验或运行时准备失败返回 HTTP 503 JSON，禁止缓存，并允许隔离沙箱读取原因。只缓存已校验成功的文件；失败后释放读取缓存，下一次请求可以恢复。
 - 三次均失败后暂停，显示“重新加载 MVU”。手动重试继续同一沙箱中的下载，不重建沙箱、不提前运行配套脚本，也不并发启动多次。
 - 下载成功后，使用现有页面模块加载器执行已下载的内容一次，保留文档基准 URL；等待 MVU 就绪后才运行配套脚本。
 - 执行开始后，不再自动或手动重跑初始化。执行异常或初始化超时仍为终止性错误，提示刷新或重启。这个恢复入口不保证基础依赖、配套脚本或执行阶段的网络错误可恢复。
 - 下载等待期间由下载器管理超时；执行阶段恢复初始化超时检测。切换会话、释放执行租约或离开页面后，旧沙箱与迟到消息不能操作新会话。
 - 运行时就绪后，已有结算队列接续保存的提交，沿用 branch/revision 检查，不重新生成正文或调用模型。正常的 MVU 初始化可能补写 schema，这不等于重复应用结算。
 
-验证入口：`tests/mvu-load-recovery.test.mjs`、`tests/card-runtime-lifecycle.test.mjs`、`tests/helper-module-loading.test.mjs`、现有结算恢复测试。真实浏览器夹具为 `tests/fixtures/mvu-initialization-browser-smoke.mjs`，参数 `mode=manual|auto|unsafe`，加 `sandbox=1` 验证隔离模式。
+验证入口：`tests/mvu-load-recovery.test.mjs`、`tests/mvu-asset-route.test.mjs`、`tests/card-runtime-lifecycle.test.mjs`、`tests/helper-module-loading.test.mjs`、现有结算恢复测试。真实浏览器夹具为 `tests/fixtures/mvu-initialization-browser-smoke.mjs`，参数 `mode=manual|auto|unsafe|json|server-error`，加 `sandbox=1` 验证隔离模式。
 
 ## 加载诊断
 
-`mvu/diagnostics.json` 中 `stage=mvu-load` 记录一次加载的 `loadId`、手动重试轮次 `cycle`、下载次数 `attempt`、阶段、耗时、HTTP 状态、内容类型、响应长度、是否重定向，以及浏览器版本和隔离模式。响应地址只保留路径，去掉查询参数。对于已经读取的、至多 16 KiB 的 JSON 错误，只保留有限长度的错误字段；不记录完整响应体、脚本、额外字段或请求头。HTTP 非成功响应不会为了诊断额外读取响应体。
+`mvu/diagnostics.json` 中 `stage=mvu-load` 记录一次加载的 `loadId`、手动重试轮次 `cycle`、下载次数 `attempt`、阶段、耗时、HTTP 状态、内容类型、响应长度、是否重定向，以及浏览器版本和隔离模式。响应地址只保留路径，去掉查询参数。失败状态或非 JavaScript 类型的响应体最多读取 16 KiB，超过上限取消读取并使用状态/类型报错；对于小型 JSON 错误只保留有限长度的错误字段，不记录完整响应体、脚本、额外字段或请求头。
 
 `mvu/environment.json` 补充服务端平台、Node 版本、运行实例标识和 `mvuAsset`：读取结果、错误码、实际/预期哈希、字节数、LF/CRLF 数量、缓存命中数。`mvuAsset` 是当前服务进程共享的最近观察，不是会话故障时的历史快照；导出只读观察，不触发新的文件加载。错误文本中的凭据和个人目录会脱敏。
 
-记录有长度、条数和容量限制；异步传输与持久化失败不影响加载、重试或结算，关闭页面可能漏记。更新前缺失的信息不能追溯补录。本次诊断增强不改变原始异常、错误响应执行行为或失败缓存策略。
+记录有长度、条数和容量限制；异步传输与持久化失败不影响加载、重试或结算，关闭页面可能漏记。更新前缺失的信息不能追溯补录。
 
-浏览器夹具新增 `mode=json`，复现 HTTP 200 返回 JSON 错误后继续出现原语法错误，并验证 ZIP 中同时保留下载原因与执行错误。测试还覆盖日志观察者异常、写盘失败、伪造/旧沙箱消息、字段脱敏和容量上限。
+浏览器夹具 `mode=json` 覆盖旧版 HTTP 200 JSON 错误，`mode=server-error` 覆盖 HTTP 503 错误；验证均不进入脚本执行、失败原因入 ZIP，服务恢复后手动加载并仅接续一次已有结算。测试还覆盖日志观察者异常、写盘失败、伪造/旧沙箱消息、字段脱敏和容量上限。

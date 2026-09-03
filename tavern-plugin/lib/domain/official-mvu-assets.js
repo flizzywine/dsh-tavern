@@ -16,7 +16,7 @@ function sha256(value) {
   return createHash('sha256').update(value).digest('hex')
 }
 
-/** Observe the existing cached read, without introducing reads during export or changing retries. */
+/** Cache verified bytes only; failed reads can recover without restarting the server. */
 export function createOfficialMvuBundleReader({ read = readFile } = {}) {
   let bundlePromise
   const diagnostic = { scope: 'current-server-process', phase: 'not-read', requests: 0, cacheHits: 0,
@@ -27,6 +27,7 @@ export function createOfficialMvuBundleReader({ read = readFile } = {}) {
       if (bundlePromise !== undefined) diagnostic.cacheHits++
       if (bundlePromise === undefined) {
         const startedAt = Date.now()
+        for (const key of ['error', 'errorCode', 'actualSha256', 'bytes', 'crlfCount', 'loneLfCount', 'completedAt', 'durationMs']) delete diagnostic[key]
         Object.assign(diagnostic, { phase: 'reading', startedAt })
         bundlePromise = Promise.resolve().then(() => read(bundleUrl)).then(function (body) {
           const actual = sha256(body)
@@ -45,6 +46,7 @@ export function createOfficialMvuBundleReader({ read = readFile } = {}) {
         }).catch(error => {
           if (diagnostic.phase !== 'verify-failed') Object.assign(diagnostic, { phase: 'read-failed', errorCode: String(error.code || 'READ_FAILED').slice(0, 80) })
           Object.assign(diagnostic, { completedAt: Date.now(), durationMs: Date.now() - startedAt, error: redactMvuLoadError(error.message || error) })
+          bundlePromise = undefined
           throw error
         })
       }

@@ -2538,6 +2538,24 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				} catch (_) {}
 				return details;
 			}
+			async function readErrorBody(response) {
+				const limit = 16384;
+				if (!response.body || typeof response.body.getReader !== "function") {
+					const text = typeof response.text === "function" ? await response.text() : "";
+					return text.length <= limit ? text : "";
+				}
+				const reader = response.body.getReader(), decoder = new TextDecoder();
+				let text = "", bytes = 0;
+				try {
+					while (true) {
+						const chunk = await reader.read();
+						if (chunk.done) return text + decoder.decode();
+						bytes += chunk.value.byteLength;
+						if (bytes > limit) return "";
+						text += decoder.decode(chunk.value, { stream: true });
+					}
+				} finally { try { Promise.resolve(reader.cancel()).catch(function () {}); reader.releaseLock(); } catch (_) {} }
+			}
 			function check() { if (disposed) throw new Error("MVU loader disposed"); }
 			function state(value) { if (!disposed && options.onState) options.onState(value); }
 			function wait(delay) {
@@ -2564,10 +2582,16 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 							details = responseDetails(response);
 							failureStep = "http-status";
 							if (!disposed && !controller.signal.aborted) observe("download-response", details);
-							if (!response.ok) throw new Error("MVU 下载失败（HTTP " + response.status + "）");
 							failureStep = "response-body";
-							const source = await response.text();
-							if (!disposed && !controller.signal.aborted) observe("download-completed", Object.assign({}, details, bodyDetails(source), { durationMs: Date.now() - startedAt }));
+							const isJavaScript = /^(?:application|text)\/(?:x-)?(?:java|ecma)script(?:\s*;|$)/i.test(details.contentType || "");
+							const source = response.ok && isJavaScript ? await response.text() : await readErrorBody(response);
+							const body = bodyDetails(source);
+							if (!disposed && !controller.signal.aborted) observe("download-completed", Object.assign({}, details, body, { durationMs: Date.now() - startedAt }));
+							failureStep = "response-validation";
+							if (!response.ok || !isJavaScript || body.bodyKind === "json-error" || body.bodyKind === "json" || body.bodyKind === "forbidden" || /^\s*<(?:!doctype\s+html|html)\b/i.test(source)) {
+								const reason = body.serverError || (body.bodyKind === "forbidden" ? "访问被拒绝（forbidden）" : !response.ok ? "HTTP " + response.status : "响应不是 MVU JavaScript（Content-Type: " + (details.contentType || "未提供") + "）");
+								throw new Error("MVU 下载失败：" + reason);
+							}
 							return source;
 						}),
 						new Promise(function (_resolve, reject) {

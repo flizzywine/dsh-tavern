@@ -1,12 +1,12 @@
 // Real browser loader, execution lease, event gate and settlement. Only the model
-// and persistence are isolated. ?mode=manual|auto|unsafe|json covers recovery/diagnostics.
+// and persistence are isolated. ?mode=manual|auto|unsafe|json|server-error covers recovery/diagnostics.
 import { createServer } from 'node:http'
 import { readFile, mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import assert from 'node:assert/strict'
 import { readOfficialMvuBundle, createOfficialMvuBundleReader } from '../../tavern-plugin/lib/domain/official-mvu-assets.js'
-import { createMvuDiagnosticStore, createMvuDiagnosticExport, sanitizeMvuLoadDiagnostic } from '../../tavern-plugin/lib/domain/mvu-diagnostics.js'
+import { createMvuDiagnosticStore, createMvuDiagnosticExport, sanitizeMvuLoadDiagnostic, redactMvuLoadError } from '../../tavern-plugin/lib/domain/mvu-diagnostics.js'
 import { createMvuSettlementModule } from '../../tavern-plugin/lib/domain/mvu-background-settlement.js'
 import { createTavernScriptHostAdapter } from '../../tavern-plugin/lib/domain/tavern-script-host-adapter.js'
 import { createTavernHelperEventGate } from '../../tavern-plugin/lib/domain/tavern-helper-event-gate.js'
@@ -20,11 +20,14 @@ const gate = createTavernHelperEventGate()
 const states = new Map()
 const records = new Map()
 const diagnostics = createMvuDiagnosticStore({ readJson: async key => records.get(key), updateJson: async (key, update) => { records.set(key, update(records.get(key))) } })
-const failingReader = createOfficialMvuBundleReader({ read: async () => { throw Object.assign(new Error("ENOENT: open 'C:\\Users\\PRIVATE_USER\\bundle.js'; apiKey=SECRET_VALUE"), { code: 'ENOENT' }) } })
+function isErrorResponse(id) { return /^(json|server-error)/.test(id) }
 function state(id) {
   if (!states.has(id)) {
     const variables = { stat_data: { hp: 10 }, schema: { type: 'object', properties: { hp: { type: 'number' } } }, display_data: {}, delta_data: {}, initialized_lorebooks: {} }
-    states.set(id, { downloads: 0, writes: 0, hpWrites: 0, resumes: 0, calls: 0, chat: { id, sessionId: id, mode: 'story', mvu: { enabled: true, owner: 'official' },
+    states.set(id, { downloads: 0, writes: 0, hpWrites: 0, resumes: 0, calls: 0, reader: createOfficialMvuBundleReader({ read: async () => {
+      if (state(id).available) return bundle.body
+      throw Object.assign(new Error("ENOENT: open 'C:\\Users\\PRIVATE_USER\\bundle.js'; apiKey=SECRET_VALUE"), { code: 'ENOENT' })
+    } }), chat: { id, sessionId: id, mode: 'story', mvu: { enabled: true, owner: 'official' },
       messages: [{ role: 'assistant', text: '测试正文', swipeId: 0, swipes: ['测试正文'], variables: [variables] }] } })
   }
   return states.get(id)
@@ -72,9 +75,10 @@ const server = createServer(async (req, res) => {
     if (url.pathname === '/client.js') return res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8' }).end(client)
     if (url.pathname === '/mvu.js') {
       const id = url.searchParams.get('id'), s = state(id); s.downloads++
-      if (id.startsWith('json')) {
-        try { await failingReader.read() } catch (error) {
-          return res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ ok: false, error: error.message, body: 'DO_NOT_LOG_BODY' }))
+      if (isErrorResponse(id)) {
+        try { await s.reader.read() } catch (error) {
+          const legacy = id.startsWith('json')
+          return res.writeHead(legacy ? 200 : 503, { 'content-type': 'application/json', 'cache-control': 'no-store' }).end(JSON.stringify({ ok: false, error: legacy ? error.message : redactMvuLoadError(error.message), body: 'DO_NOT_LOG_BODY' }))
         }
       }
       const fail = id.startsWith('manual') ? !s.available : id.startsWith('auto') && s.downloads < 3
@@ -104,16 +108,27 @@ const server = createServer(async (req, res) => {
       }
       else if (method === 'diagnostics') {
         const log = await diagnostics.read(sessionId)
-        const zip = await createMvuDiagnosticExport({ sessionId, store: diagnostics, environment: { mvuAsset: failingReader.inspect() } })
+        const s = state(sessionId)
+        const zip = await createMvuDiagnosticExport({ sessionId, store: diagnostics, environment: { mvuAsset: s.reader.inspect() } })
         const text = zip.buffer.toString()
         assert.doesNotMatch(text, /PRIVATE_USER|SECRET_VALUE|DO_NOT_LOG_BODY/)
-        if (sessionId.startsWith('json')) {
+        if (isErrorResponse(sessionId)) {
           assert.match(text, /json-error/)
           assert.match(text, /ENOENT/)
-          assert.match(text, /execution-failed/)
-          assert.match(text, /read-failed/)
-          assert.equal(state(sessionId).downloads, 1)
-          assert.equal(state(sessionId).writes, 0)
+          assert.match(text, /retry-exhausted/)
+          assert.doesNotMatch(text, /execution-failed/)
+          if (!s.available) {
+            assert.match(text, /read-failed/)
+            assert.doesNotMatch(text, /execution-started/)
+            assert.equal(s.downloads, 3)
+            assert.equal(s.writes, 0)
+          } else {
+            assert.match(text, /verified/)
+            assert.equal(s.downloads, 4)
+            assert.equal(s.hpWrites, 1)
+            assert.equal(s.resumes, 1)
+            assert.equal(s.calls, 1)
+          }
         }
         result = { pass: true, zipBytes: zip.buffer.length, records: log.records }
       }
@@ -125,12 +140,12 @@ const server = createServer(async (req, res) => {
       else if (method === 'run') {
         const s = state(sessionId); s.writes = 0
         const resultState = await settlement.settleVariables(settlementInput(sessionId))
-        const failed = /^(unsafe|json)/.test(sessionId), waiting = !gate.status(sessionId).ready && !failed
+        const failed = sessionId.startsWith('unsafe'), waiting = !gate.status(sessionId).ready && !failed
         assert.equal(resultState.receipt.status, failed ? 'error' : waiting ? 'pending' : 'updated')
         assert.equal(s.chat.messages[0].variables[0].stat_data.hp, failed || waiting ? 10 : 9)
         assert.equal(s.writes, failed || waiting ? 0 : 1)
         assert.equal(s.calls, 1)
-        if (failed) { assert.equal(s.feedback.retryable, false); assert.match(JSON.stringify(resultState.receipt), sessionId.startsWith('json') ? /Unexpected token/ : /partial initialization/) }
+        if (failed) { assert.equal(s.feedback.retryable, false); assert.match(JSON.stringify(resultState.receipt), /partial initialization/) }
         s.result = resultState
         if (waiting) { s.pending = resultState.submission; void resume(sessionId) }
         result = { pass: true, hp: s.chat.messages[0].variables[0].stat_data.hp, writes: s.writes, calls: s.calls, receipt: resultState.receipt }
