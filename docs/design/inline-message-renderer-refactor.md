@@ -3,6 +3,18 @@
 > 状态：已实施并完成本地验收。
 > 机制依据：[酒馆正则如何把 `【首页】` 变成可交互卡片](../research/sillytavern-regex-rendering-memo.md)。
 
+## 普通正文原生渲染
+
+普通文本、Markdown 和代码示例走 DSH `MarkdownText`，不再为了统一 HTML 渲染而创建 iframe。这样正文与聊天页共用滚动区域。
+
+- 明确的 HTML 围栏（`html` / `htm`，或未标语言但含 HTML）仍各自进入 iframe；前后普通正文保持原生渲染和原始顺序。
+- 明确标注其他语言的代码围栏、行内代码中的 HTML 标签不执行。
+- 含 raw HTML 的片段和完整 HTML 页面仍原样隔离，不猜测其 DOM、样式和脚本依赖，也不把外来 HTML 注入宿主。
+- 纯 Markdown 历史若与 Session 显示文本相同，沿用原生正文；显示正则改变文字、旧候选覆盖等情形仍产生 Markdown 投影。
+- 不改 `sourceText` / `sessionText`、正则处理顺序、iframe 权限及交互。整篇正文被正则包成 HTML 的场景不在本次移出 iframe 的范围内。
+
+验证入口：`tests/reply-presentation.test.mjs`、`tests/card-opening-previews.test.mjs`、`tests/fixtures/native-prose-browser-smoke.mjs`。后者使用真实 DSH MarkdownText 和正式消息 renderer；桌面 Chromium 的手机尺寸与触摸模拟不能代替 iOS / Android 真机验收。
+
 ## 目标
 
 dsh-tavern 在消息原位置承接酒馆的“显示正则 + 前端渲染”机制，同时支持模型直接输出的 HTML：
@@ -39,7 +51,7 @@ dsh-tavern 在消息原位置承接酒馆的“显示正则 + 前端渲染”机
   projectionText,
   sessionText,
   displayText,
-  displayMode,       // 'markdown' | 'rich'
+  displayMode,       // 'markdown' | 'html'（含 HTML 的混排通过 displayParts 分流）
   displayParts: [
     { kind: 'markdown', text },
     { kind: 'html', content },
@@ -52,7 +64,7 @@ dsh-tavern 在消息原位置承接酒馆的“显示正则 + 前端渲染”机
 `displayParts` 是临时 UI 投影，不是新的聊天权威数据：
 
 - `markdown`：交给 DSH 原生 Markdown 组件；
-- `html`：统一表示需要浏览器解释和运行的内容。raw HTML 与同片段 Markdown 先由固定版本 `marked@16.3.0` 编译；HTML 围栏去掉围栏；两者随后进入同一种 iframe；
+- `html`：表示需要隔离解释和运行的内容。raw HTML 片段原样保留，HTML 围栏去掉围栏；两者进入同一种 iframe。`marked` 仅用于识别代码示例之外的活动 HTML，不再把普通正文编译成 iframe 文档；
 - 历史显示应从 `sourceText` 和当前正则重新生成，因此关闭显示正则后可恢复原始消息。
 
 投影版本为 `2`。旧版本 `{ mode: 'html', html }` 只作为只读兼容输入。

@@ -43,25 +43,24 @@ test('展示层把带空行和缩进的完整 HTML 原样交给同一个 iframe'
   assert.doesNotMatch(result.parts[0].content, /<pre><code>|&lt;div/)
 })
 
-test('纯文本按酒馆语义渲染 Markdown 并转义普通尖括号', () => {
+test('纯文本保留 Markdown 原文交给原生渲染，不创建 iframe', () => {
   const source = '# 标题\n\n**不是粗体**\n2 < 3 & 5 > 4'
   const result = projectDisplayParts(source)
 
-  assert.deepEqual(result.parts.map(part => part.kind), ['html'])
-  assert.match(result.parts[0].content, /<h1>标题<\/h1>/)
-  assert.match(result.parts[0].content, /<strong>不是粗体<\/strong>/)
-  assert.match(result.parts[0].content, /2 &lt; 3 &amp; 5 &gt; 4/)
+  assert.deepEqual(result.parts, [{ kind: 'markdown', text: source }])
+  assert.equal(displayModeOf(source), 'markdown')
+  const layers = projectReplyLayers(source)
+  assert.equal(layers.sourceText, source)
+  assert.equal(layers.sessionText, source)
+  assert.equal(layers.displayMode, 'markdown')
 })
 
-test('没有展示正则的纯文本历史也生成整轮 HTML 投影', () => {
+test('没有展示正则的纯文本历史沿用原生正文，不生成 HTML 投影', () => {
   const result = projectReplyHistory([
     { role: 'assistant', turn: 2, text: '# 原样标题', sourceText: '# 原样标题' }
   ])
 
-  assert.equal(result.projections.length, 1)
-  assert.equal(result.projections[0].mode, 'html')
-  assert.deepEqual(result.projections[0].parts.map(part => part.kind), ['html'])
-  assert.match(result.projections[0].parts[0].content, /<h1>原样标题<\/h1>/)
+  assert.deepEqual(result.projections, [])
 })
 
 test('markdownOnly 只改变展示投影并保持替换位置', () => {
@@ -128,8 +127,8 @@ test('HTML 代码围栏在原位置进入独立 HTML 渲染', () => {
   const source = '示例：\n\n```html\n<div>只展示源码</div>\n```'
   const projected = projectDisplayParts(source)
   assert.equal(displayModeOf(source), 'html')
-  assert.deepEqual(projected.parts.map(part => part.kind), ['html', 'html'])
-  assert.match(projected.parts[0].content, /示例：/)
+  assert.deepEqual(projected.parts.map(part => part.kind), ['markdown', 'html'])
+  assert.match(projected.parts[0].text, /示例：/)
   assert.equal(projected.parts[1].content, '<div>只展示源码</div>\n')
 })
 
@@ -137,9 +136,9 @@ test('独立围栏 UI 不与正文共用 iframe，避免 body.load 清空正文'
   const source = '【开局二·虞汐颜】\n\n幽暗秘境深处。\n\n```html\n<body><script>$("body").load("/status.html")</script></body>\n```'
   const projected = projectDisplayParts(source)
 
-  assert.deepEqual(projected.parts.map(part => part.kind), ['html', 'html'])
-  assert.match(projected.parts[0].content, /幽暗秘境深处/)
-  assert.doesNotMatch(projected.parts[0].content, /body.*load/s)
+  assert.deepEqual(projected.parts.map(part => part.kind), ['markdown', 'html'])
+  assert.match(projected.parts[0].text, /幽暗秘境深处/)
+  assert.doesNotMatch(projected.parts[0].text, /body.*load/s)
   assert.match(projected.parts[1].content, /body.*load/s)
   assert.doesNotMatch(projected.parts[1].content, /幽暗秘境深处/)
 })
@@ -158,10 +157,10 @@ test('混合内容只要含有 HTML 就整段原样渲染，并保留独立围�
 
 test('未标语言但包含 HTML 的代码围栏也进入独立 HTML 渲染', () => {
   const projected = projectDisplayParts('正文前\n```\n<section>远程面板</section>\n```\n正文后')
-  assert.deepEqual(projected.parts.map(part => part.kind), ['html', 'html', 'html'])
-  assert.match(projected.parts[0].content, /正文前/)
+  assert.deepEqual(projected.parts.map(part => part.kind), ['markdown', 'html', 'markdown'])
+  assert.match(projected.parts[0].text, /正文前/)
   assert.match(projected.parts[1].content, /<section>远程面板<\/section>/)
-  assert.match(projected.parts[2].content, /正文后/)
+  assert.match(projected.parts[2].text, /正文后/)
 })
 
 test('首页占位符经 markdownOnly 正则变成前端代码，但 Session 保留占位符', () => {
@@ -174,10 +173,10 @@ test('首页占位符经 markdownOnly 正则变成前端代码，但 Session 保
 
   assert.equal(result.sessionText, source)
   assert.match(result.displayText, /<button>首页<\/button>/)
-  assert.deepEqual(result.displayParts.map(part => part.kind), ['html', 'html', 'html'])
-  assert.match(result.displayParts[0].content, /正文前/)
+  assert.deepEqual(result.displayParts.map(part => part.kind), ['markdown', 'html', 'markdown'])
+  assert.match(result.displayParts[0].text, /正文前/)
   assert.match(result.displayParts[1].content, /document\.body\.dataset\.ready/)
-  assert.match(result.displayParts[2].content, /正文后/)
+  assert.match(result.displayParts[2].text, /正文后/)
 })
 
 test('损坏规则只产生目标诊断，后续规则继续执行', () => {
@@ -203,7 +202,7 @@ test('历史投影从原文重算，关闭展示正则后恢复原始消息', ()
   ], { regexScripts: [rule], placement: 2 })
 
   assert.deepEqual(enabled.projections.map(({ turn, text, mode }) => ({ turn, text, mode })), [
-    { turn: 2, text: '正文。\n\n', mode: 'html' }
+    { turn: 2, text: '正文。\n\n', mode: 'markdown' }
   ])
 
   const disabled = projectReplyHistory([
@@ -221,6 +220,18 @@ test('多 Swipe 的纯 Markdown 也生成展示投影，使旧候选可覆盖原
     role: 'assistant', turn: 3, text: '旧候选', sourceText: '旧候选', projectionText: '旧候选', swipeId: 0, swipes: ['旧候选', '新候选']
   }])
   assert.deepEqual(result.projections.map(function (item) { return { turn: item.turn, text: item.text, mode: item.mode } }), [
-    { turn: 3, text: '旧候选', mode: 'html' }
+    { turn: 3, text: '旧候选', mode: 'markdown' }
   ])
+})
+
+test('代码示例中的 HTML 不作为活动页面执行', () => {
+  for (const source of ['使用 `<button>按钮</button>` 标签。', '```js\nconst html = "<button>按钮</button>"\n```', '    <script>示例</script>']) {
+    assert.deepEqual(projectDisplayParts(source).parts, [{ kind: 'markdown', text: source }])
+  }
+})
+
+test('整页美化和 raw HTML 继续隔离，不把外来脚本和样式注入宿主', () => {
+  for (const source of ['<html><head><style>body{color:red}</style></head><body>正文</body></html>', '正文\n<script>document.body.replaceChildren()</script>', '正文 <b>强调</b>']) {
+    assert.deepEqual(projectDisplayParts(source).parts, [{ kind: 'html', content: source }])
+  }
 })

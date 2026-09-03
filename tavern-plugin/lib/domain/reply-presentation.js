@@ -8,8 +8,8 @@ function str(value) {
 function isHtmlSource(value, info = '') {
   const content = str(value)
   const language = str(info).trim().split(/\s+/, 1)[0].toLowerCase()
-  return language === 'html' || language === 'htm'
-    || /<!--[\s\S]*?-->|<\/?[a-z][\w:-]*(?:\s[^<>]*?)?>/i.test(content)
+  if (language !== '') return language === 'html' || language === 'htm'
+  return /<!--[\s\S]*?-->|<\/?[a-z][\w:-]*(?:\s[^<>]*?)?>/i.test(content)
 }
 
 function fencedSegments(value) {
@@ -55,41 +55,29 @@ function fencedSegments(value) {
 }
 
 function hasRawHtml(value) {
-  return /<!--[\s\S]*?-->|<\/?[a-z][\w:-]*(?:\s[^<>]*?)?>/i.test(str(value))
-}
-
-function escapeHtmlText(value) {
-  return str(value)
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-}
-
-function htmlDocumentContent(value) {
-  const source = fencedSegments(value).map(function (segment) {
-    return segment.kind === 'html' ? segment.content : segment.text
-  }).join('')
-  if (hasRawHtml(source)) return source
+  if (!/<!--[\s\S]*?-->|<\/?[a-z][\w:-]*(?:\s[^<>]*?)?>/i.test(str(value))) return false
   try {
-    return marked.parse(source, { async: false, breaks: true, gfm: true })
+    // Code examples are Markdown, not active HTML. Inspect nested inline tokens
+    // as well, so raw HTML in lists/emphasis still retains iframe isolation.
+    let found = false
+    marked.walkTokens(marked.lexer(str(value), { gfm: true }), function (token) {
+      if (token.type === 'html') found = true
+    })
+    return found
   } catch (_error) {
-    if (hasRawHtml(source)) return source
-    return '<div class="dsh-tavern-plain-text">' + escapeHtmlText(source) + '</div>'
+    return true
   }
 }
 
-/** Keep explicitly fenced UI documents isolated so document-level scripts cannot erase adjacent story text. */
+/** Native prose and isolated HTML share one ordered projection; never split a raw HTML document. */
 export function projectDisplayParts(value) {
   const segments = fencedSegments(value)
-  if (!segments.some(function (segment) { return segment.kind === 'html' })) {
-    return { parts: [{ kind: 'html', content: htmlDocumentContent(value) }], warnings: [] }
-  }
   return {
     parts: segments.map(function (segment) {
-      return {
-        kind: 'html',
-        content: segment.kind === 'html' ? segment.content : htmlDocumentContent(segment.text)
-      }
+      if (segment.kind === 'html') return { kind: 'html', content: segment.content }
+      return hasRawHtml(segment.text)
+        ? { kind: 'html', content: segment.text }
+        : { kind: 'markdown', text: segment.text }
     }),
     warnings: []
   }
@@ -101,7 +89,9 @@ export function hasHtmlCodeBlock(value) {
 }
 
 /** Classify whether the display projection needs isolated rich rendering. */
-export function displayModeOf() { return 'html' }
+export function displayModeOf(value) {
+  return projectDisplayParts(value).parts.some(part => part.kind === 'html') ? 'html' : 'markdown'
+}
 
 function targetOptions(options, isMarkdown) {
   return {
@@ -126,7 +116,7 @@ export function projectReplyLayers(value, options = {}) {
   const session = applyTavernRegexText(projectionText, scripts, targetOptions(options, false))
   const display = applyTavernRegexText(projectionText, scripts, targetOptions(options, true))
   const displayProjection = projectDisplayParts(display.text)
-  const displayMode = 'html'
+  const displayMode = displayProjection.parts.some(part => part.kind === 'html') ? 'html' : 'markdown'
 
   return {
     sourceText,

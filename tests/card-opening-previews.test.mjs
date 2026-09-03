@@ -121,7 +121,7 @@ test('普通人物卡无需伪造 MVU Helper 上下文', async () => {
     userName: '小明'
   })
 
-  assert.equal(result.openings[0].projection.parts[0].content.includes('你好，小明。'), true)
+  assert.deepEqual(result.openings[0].projection.parts, [{ kind: 'markdown', text: '你好，小明。' }])
   assert.equal(result.openings[0].helperContext, null)
 })
 
