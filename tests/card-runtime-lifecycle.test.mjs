@@ -347,7 +347,7 @@ test('runtime reports coalesce and cancel on stop; restart attaches once and rea
   stopAgain()
 })
 
-function sandbox() {
+function sandbox(options = {}) {
   const h = host(), frames = [], calls = [], mutations = [], errors = []
   let respond = () => Promise.resolve({ updated: true })
   const document = { body: { appendChild() {} }, createElement(tag) {
@@ -359,7 +359,7 @@ function sandbox() {
   } }
   const runtime = h.client.createTavernHelperScriptRuntime({ window: h.window, document,
     rpc(method, args, sessionId) { calls.push({ method, args, sessionId }); return respond(method, args, sessionId) },
-    onMutation(...args) { mutations.push(args) }, reportError(_source, error) { errors.push(error.message) }, resolveError() {}
+    onMutation(...args) { mutations.push(args) }, reportError(_source, error) { errors.push(error.message) }, resolveError() {}, ...options
   })
   function message(frame, type, data = {}) {
     const token = frame.contentWindow.messages[0].token
@@ -414,6 +414,49 @@ test('sandbox initialization failure remains observable; a new script document c
   assert.equal(h.runtime.inspect().scripts[0].initializationFailed, false)
   h.runtime.dispose()
   assert.equal(h.timers.size, 0)
+})
+
+test('MVU 导入失败不宣布就绪，也不把未订阅的事件静默当作成功；重建后可恢复', async () => {
+  let announcements = 0
+  const h = sandbox({ onReady() { announcements++ } })
+  const input = { ...view(), tavernMvuRuntime: { owner: 'official', assetUrl: '/bundle.js' } }
+  h.runtime.sync('A', input)
+  const frame = h.frames[0]; frame.load()
+  const message = 'Failed to fetch dynamically imported module: http://127.0.0.1:43120/bundle.js'
+  h.message(frame, 'dsh-tavern-helper-script-runtime', { scriptId: '__dsh_official_mvu__', message })
+  h.message(frame, 'dsh-tavern-helper-subscriptions', { ready: true, names: [], scripts: [
+    { id: '__dsh_official_mvu__', ready: false, failed: true }, { id: 'script', ready: true, failed: false }
+  ] })
+  assert.equal(h.client.tavernScriptRuntimeReady(h.runtime.inspect()), false)
+  assert.match(h.runtime.inspect().initializationError, /Failed to fetch/)
+  assert.equal(announcements, 0)
+  const diagnostics = []
+  await assert.rejects(h.runtime.emit('MESSAGE_RECEIVED', [0], context(), diagnostics), /MVU.*加载失败/)
+  assert.equal(diagnostics[0].initializationFailed, true)
+  assert.equal(frame.contentWindow.messages.some(x => x.type === 'dsh-tavern-helper-event'), false)
+  assert.equal(h.timers.size, 0)
+  h.runtime.sync('B', input)
+  const recovered = h.frames.at(-1); recovered.load()
+  h.message(recovered, 'dsh-tavern-helper-subscriptions', { ready: true, names: ['MESSAGE_RECEIVED'], scripts: [
+    { id: '__dsh_official_mvu__', ready: true, failed: false }, { id: 'script', ready: true, failed: false }
+  ] })
+  assert.equal(h.client.tavernScriptRuntimeReady(h.runtime.inspect()), true)
+  assert.equal(h.runtime.inspect().initializationError, undefined)
+  assert.equal(announcements, 1)
+  h.runtime.dispose()
+})
+
+test('执行租约轮询将 MVU 加载失败与未就绪分开报告', async () => {
+  const h = execution()
+  h.module.sync('A', view())
+  h.runtimes[0].inspect = () => ({ initializationError: 'MVU 加载失败：bundle.js', scripts: [
+    { id: '__dsh_official_mvu__', subscriptionsReady: false, initializationFailed: true }
+  ] })
+  await h.runTimer()
+  const poll = h.calls.find(x => x.method === 'pollTavernHelperEvent')
+  assert.equal(poll.args.ready, false)
+  assert.equal(poll.args.initializationError, 'MVU 加载失败：bundle.js')
+  h.module.dispose()
 })
 
 test('another window owning the lease keeps local scripts inactive until ownership is available', async () => {

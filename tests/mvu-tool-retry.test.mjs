@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createMvuSettlementModule } from '../tavern-plugin/lib/domain/mvu-background-settlement.js'
 import { createTavernScriptHostAdapter } from '../tavern-plugin/lib/domain/tavern-script-host-adapter.js'
+import { createTavernHelperEventGate } from '../tavern-plugin/lib/domain/tavern-helper-event-gate.js'
 
 const input = { operationId: 'op', chatId: 'c', branchId: 'b', basedOnRevision: 1,
   sessionId: 's', messageId: 0, swipeId: 0, storyText: '测试正文',
@@ -9,6 +10,36 @@ const input = { operationId: 'op', chatId: 'c', branchId: 'b', basedOnRevision: 
 const call = operations => ({ name: 'mvu_submit_update', arguments: { operations } })
 const submitPosture = request => request.onToolCall({ name: 'posture_submit', arguments: { posture: '原地站立' } })
 const patch = [ { op: 'delta', path: '/hp', value: -1 }, { op: 'replace', path: '/location', value: 'hall' } ]
+
+test('MVU 启动失败停止模型纠错且保留原变量；等待中的提交也返回明确加载失败', async () => {
+  const gate = createTavernHelperEventGate()
+  const chat = { id: 'c', sessionId: 's', mvu: { enabled: true, owner: 'official' },
+    messages: [{ role: 'assistant', text: input.storyText, swipeId: 0, swipes: [input.storyText], variables: [structuredClone(input.currentVariables)] }] }
+  let writes = 0, runs = 0
+  const feedback = []
+  const adapter = createTavernScriptHostAdapter({ resolveChat: async () => chat, writeChat: async () => writes++,
+    readCard: async () => ({}), worldBooks: { bound: async () => null }, eventGate: gate })
+  const module = createMvuSettlementModule({ runtime: adapter, model: { async run(request) {
+    runs++
+    await submitPosture(request)
+    feedback.push(JSON.parse(await request.onToolCall(call(patch))))
+    // Even a queued malformed correction cannot overwrite the loading failure.
+    feedback.push(JSON.parse(await request.onToolCall(call({ path: '/hp' }))))
+    return {}
+  } } })
+  gate.poll('s', 'browser', false, 'MVU 模块加载失败：Failed to fetch dynamically imported module: http://localhost/bundle.js')
+  const result = await module.settleVariables(input)
+  assert.equal(result.receipt.status, 'error')
+  assert.equal(feedback[0].retryable, false)
+  assert.deepEqual(feedback[0], feedback[1])
+  assert.match(JSON.stringify(result.receipt.failures), /MVU 模块加载失败.*bundle.js/)
+  const resumed = await module.resumeVariables({ ...input, submission: { operations: patch } })
+  assert.equal(resumed.receipt.status, 'error')
+  assert.match(JSON.stringify(resumed.receipt.failures), /MVU 模块加载失败/)
+  assert.equal(runs, 1)
+  assert.equal(writes, 0)
+  assert.deepEqual(chat.messages[0].variables[0], input.currentVariables)
+})
 
 function harness(model, { rejectAlways = false } = {}) {
   const chat = { id: 'c', sessionId: 's', mode: 'story', mvu: { enabled: true, owner: 'official' },

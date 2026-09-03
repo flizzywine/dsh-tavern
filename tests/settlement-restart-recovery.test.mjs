@@ -49,7 +49,7 @@ async function harness() {
   vm.runInContext(section('  async function runSettlement(', '  const unsubscribeMvuRuntimeReady'), sandbox)
   vm.runInContext(section('  async function retrySettlement(', '  async function pullBackgroundCycle('), sandbox)
   let onReady
-  sandbox.tavernHelperEventGate = { subscribeReady(fn) { onReady = fn } }
+  sandbox.tavernHelperEventGate = { subscribeSettled(fn) { onReady = fn }, status() { return { ready: false } } }
   vm.runInContext(section('  const unsubscribeMvuRuntimeReady', '  ctx.effect(() => unsubscribeMvuRuntimeReady'), sandbox)
   const history = createRoundHistory({ chats: { read: store.readChat, forSession: store.readChat, readCard: async () => ({}) },
     sessions: { get: () => undefined }, scripts: {}, timeline, queueSettlement: async () => {}, present() {} })
@@ -123,6 +123,29 @@ test('执行中断即使留有旧提交也不会在浏览器就绪时自动重�
   await new Promise(resolve => setImmediate(resolve))
   assert.equal(queued, 0)
   assert.equal(run.tasks.activity(run.get()).reason, 'interrupted')
+})
+
+test('保存 pending 期间 MVU 已加载失败，不丢失通知或永久等待，也不重开模型', async () => {
+  const run = await harness()
+  await run.tasks.recover(run.get())
+  let generated = 0, resumed = 0
+  run.sandbox.tavernHelperEventGate.status = () => ({ ready: false, initializationError: 'MVU 模块加载失败：bundle.js' })
+  run.sandbox.mvuSettlement.settleVariables = async () => {
+    generated++
+    return { submission: { operations: [] }, receipt: { status: 'pending', changes: [] } }
+  }
+  run.sandbox.mvuSettlement.resumeVariables = async () => {
+    resumed++
+    return { receipt: { status: 'error', failures: [{ message: 'MVU 模块加载失败：bundle.js' }] } }
+  }
+  await run.sandbox.retrySettlement('session', 2)
+  await run.sandbox.queueSettlement('chat')
+  assert.equal(generated, 1)
+  assert.equal(resumed, 1)
+  assert.equal(run.tasks.activity(run.get()).phase, 'failed')
+  assert.match(run.get().settleError, /MVU 模块加载失败/)
+  assert.equal(run.get().timeline.checkpoints.length, 0)
+  assert.equal(run.get().messages[1].variables[0].stat_data.hp, 10)
 })
 
 test('MVU 执行超时返回错误回执时不提交 Round，仍能重试', async () => {

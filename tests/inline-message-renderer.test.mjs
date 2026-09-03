@@ -78,6 +78,8 @@ test('脚本执行模块按 Helper Runtime 的真实检查结构报告 MVU 已�
   inspection.scripts[0].subscriptionsReady = false
   assert.equal(client.tavernScriptRuntimeReady(inspection), false)
   inspection.scripts[0].initializationFailed = true
+  assert.equal(client.tavernScriptRuntimeReady(inspection), false)
+  inspection.scripts[0].id = 'optional-card-script'
   assert.equal(client.tavernScriptRuntimeReady(inspection), true)
 })
 

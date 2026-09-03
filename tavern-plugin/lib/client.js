@@ -2608,6 +2608,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			}
 			function maybeAnnounceReady() {
 				if (!readinessKey || records.size === 0 || announcedReadinessKey === readinessKey) return;
+				if (Array.from(records.values()).some(function (record) { return mvuInitializationError(record); })) return;
 				if (Array.from(records.values()).some(function (record) { return !record.loaded || (!record.subscriptionsReady && !record.initializationFailed); })) return;
 				announcedReadinessKey = readinessKey;
 				Promise.resolve(onReady(activeSessionId)).catch(function (error) { reportError("人物卡脚本初始化", error); });
@@ -2618,7 +2619,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				if (error && !record.subscriptionsReady) {
 					record.initializationFailed = true;
 					const unfinished = Array.from(record.scripts.values()).filter(function (script) { return !script.subscriptionsReady && !script.initializationFailed; });
-					for (const script of unfinished) script.initializationFailed = true;
+					for (const script of unfinished) { script.initializationFailed = true; script.initializationError = String(error && error.message || error).slice(0, 4000); }
 					const message = String(error && error.message || error || "初始化失败");
 					if (message !== record.lastRuntimeError) {
 						record.lastRuntimeError = message;
@@ -2739,7 +2740,16 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				for (const item of records.values()) item.frame.hidden = item !== record;
 				record.frame.style.cssText = "display:block;width:100%;height:100%;border:0;background:transparent";
 			}
+			function mvuInitializationError(record) {
+				const core = record && record.scripts.get("__dsh_official_mvu__");
+				return core && core.initializationFailed ? "MVU 模块加载失败：" + (core.initializationError || "初始化未完成") + "\n请刷新页面或重启酒馆后重试。" : "";
+			}
 			function emitToRecord(record, name, args, context, diagnostics) {
+				const initializationError = mvuInitializationError(record);
+				if (initializationError) {
+					if (diagnostics) diagnostics.push({ kind: "initialization", name: name, level: "error", ready: false, initializationFailed: true, scriptId: "__dsh_official_mvu__", message: initializationError });
+					return Promise.reject(new Error(initializationError));
+				}
 				if (diagnostics) diagnostics.push({ kind: "dispatch", name: name, ready: record.subscriptionsReady, initializationFailed: record.initializationFailed, subscribed: record.subscriptions.has(String(name)) });
 				if (!record.loaded || !record.subscriptionsReady || record.initializationFailed) return Promise.resolve(args);
 				if (context && typeof context === "object") {
@@ -2908,9 +2918,9 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					}
 					if (statuses.length === 0 && record.scripts.size === 1 && data.ready === true) record.scripts.values().next().value.subscriptionsReady = true;
 					if (data.ready === true) {
-						record.subscriptionsReady = true;
-						record.initializationFailed = false;
-						resolveError("人物卡共享脚本沙箱", record.startedAt);
+						record.initializationFailed = Boolean(mvuInitializationError(record));
+						record.subscriptionsReady = !record.initializationFailed;
+						if (!record.initializationFailed) resolveError("人物卡共享脚本沙箱", record.startedAt);
 						settleInitialization(record);
 					}
 					return;
@@ -2939,6 +2949,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					const message = String(data.message || "人物卡脚本运行失败");
 					const script = record.scripts.get(String(data.scriptId || ""));
 					const source = script ? "人物卡脚本「" + script.name + "」" : "人物卡" + record.name;
+					if (script && !script.subscriptionsReady) script.initializationError = message.slice(0, 4000);
 					invoke("recordMvuRuntimeDiagnostic", { diagnostic: { level: "error", scriptId: String(data.scriptId || ""), message: message.slice(0, 4000) } }, activeSessionId).catch(function () {});
 					if (message !== record.lastRuntimeError) { record.lastRuntimeError = message; reportError(source, new Error(message)); }
 					return;
@@ -2973,7 +2984,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				inspect: function () {
 					const record = records.get("shared");
 					const scripts = record ? Array.from(record.scripts.values()).map(function (script) { return { id: script.id, loaded: script.loaded, subscriptionsReady: script.subscriptionsReady, initializationFailed: script.initializationFailed }; }) : [];
-					return { sessionId: activeSessionId, frameCount: record ? 1 : 0, scriptIds: scripts.map(function (script) { return script.id; }), scripts: scripts };
+					const initializationError = mvuInitializationError(record);
+					return { sessionId: activeSessionId, frameCount: record ? 1 : 0, scriptIds: scripts.map(function (script) { return script.id; }), scripts: scripts, ...(initializationError ? { initializationError: initializationError } : {}) };
 				}
 			});
 		}
@@ -3026,12 +3038,12 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				});
 				return runtime;
 			}
-			function pollServer(currentLease, runtimeReady) {
+			function pollServer(currentLease, runtimeReady, initializationError) {
 				const Controller = hostWindow.AbortController;
 				const controller = typeof Controller === "function" ? new Controller() : null;
 				let deadlineTimer = null;
 				const request = Promise.resolve().then(function () {
-					return invoke("pollTavernHelperEvent", { runtimeId: currentLease.id, ready: runtimeReady }, currentLease.sessionId, controller ? { signal: controller.signal } : undefined);
+					return invoke("pollTavernHelperEvent", { runtimeId: currentLease.id, ready: runtimeReady, ...(initializationError ? { initializationError: initializationError } : {}) }, currentLease.sessionId, controller ? { signal: controller.signal } : undefined);
 				});
 				const deadline = new Promise(function (_resolve, reject) {
 					deadlineTimer = hostWindow.setTimeout(function () {
@@ -3056,8 +3068,9 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 						let currentEvent = null;
 						const diagnostics = [];
 						try {
-							const runtimeReady = tavernScriptRuntimeReady(currentRuntime.inspect());
-							const result = await pollServer(currentLease, runtimeReady);
+							const inspection = currentRuntime.inspect();
+							const runtimeReady = tavernScriptRuntimeReady(inspection);
+							const result = await pollServer(currentLease, runtimeReady, inspection.initializationError);
 							if (lease !== currentLease) {
 								// The server may have processed this poll after our first release.
 								// Release only its old identity, never the replacement owner's lease.
@@ -3112,6 +3125,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		function tavernScriptRuntimeReady(inspection) {
 			const scripts = inspection && Array.isArray(inspection.scripts) ? inspection.scripts : [];
 			return scripts.length > 0 && scripts.every(function (script) {
+				if (script && script.id === "__dsh_official_mvu__" && script.initializationFailed === true) return false;
 				return script && (script.subscriptionsReady === true || script.initializationFailed === true);
 			});
 		}

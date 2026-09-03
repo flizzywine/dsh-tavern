@@ -297,6 +297,14 @@ export function createTavernScriptHostAdapter(options = {}) {
       projected.swipes[swipeId] = internalText
       const availability = options.eventGate.status?.(sessionId)
       await record('runtime-dispatch', { availability })
+      async function initializationRejected(error) {
+        const validation = { changes: [], sideEffects: [], failures: [{ message: error }] }
+        await record('runtime-initialization-failed', { error })
+        return { updated: false, rejected: true, retryable: false, validation,
+          diagnostics: [{ kind: 'initialization', level: 'error', initializationFailed: true, message: error }],
+          context: projectTavernHelperContext(current) }
+      }
+      if (availability?.initializationError) return await initializationRejected(availability.initializationError)
       // MVU is a local capability of the chat. A temporarily absent browser
       // executor is scheduling state, not a failed settlement. Return the
       // prepared transaction immediately so the caller can persist and resume
@@ -308,6 +316,7 @@ export function createTavernScriptHostAdapter(options = {}) {
       const dispatched = await options.eventGate.dispatch(sessionId, 'MESSAGE_RECEIVED', [messageId], eventContext)
       await record('runtime-completed', { handled: dispatched.handled === true, timedOut: dispatched.timedOut === true, disposed: dispatched.disposed === true, error: dispatched.error, diagnostics: dispatched.diagnostics || [] })
       if (dispatched.handled !== true) {
+        if (dispatched.initializationFailed === true) return await initializationRejected(str(dispatched.error))
         if (dispatched.unavailable === true) {
           await record('runtime-deferred', { availability: options.eventGate.status?.(sessionId) })
           return { updated: false, deferred: true, context: projectTavernHelperContext(current) }
@@ -382,7 +391,7 @@ export function createTavernScriptHostAdapter(options = {}) {
     saveChatData,
     loadWorldInfo,
     saveWorldInfo,
-    pollEvent: function (sessionId, runtimeId, ready) { return options.eventGate.poll(sessionId, runtimeId, ready) },
+    pollEvent: function (sessionId, runtimeId, ready, initializationError) { return options.eventGate.poll(sessionId, runtimeId, ready, initializationError) },
     completeEvent: function (sessionId, eventId, args, runtimeId, error, diagnostics) { return options.eventGate.complete(sessionId, eventId, args, runtimeId, error, diagnostics) },
     releaseRuntime: function (sessionId, runtimeId) { return options.eventGate.dispose(sessionId, runtimeId) }
   })

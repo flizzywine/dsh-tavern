@@ -93,3 +93,41 @@ test('执行器只在从未就绪变为就绪时通知接续任务', function ()
   assert.deepEqual(ready, ['session-a', 'session-a'])
   unsubscribe()
 })
+
+test('MVU 加载失败即时终止在途事件，保留脱敏原因且不发布 ready；只有租约所有者可报告', async () => {
+  const gate = createTavernHelperEventGate({ timeoutMs: 200 })
+  let ready = 0, settled = 0
+  gate.subscribeReady(() => ready++)
+  gate.subscribeSettled(() => settled++)
+  gate.poll('s', 'owner', true)
+  const pending = gate.dispatch('s', 'MESSAGE_RECEIVED', [0])
+  const error = 'Failed to fetch dynamically imported module: http://localhost/bundle.js?token=private-value'
+  gate.poll('s', 'other', false, error)
+  assert.equal(gate.status('s').ready, true)
+  gate.poll('s', 'owner', false, error)
+  const failed = await pending
+  assert.equal(failed.initializationFailed, true)
+  assert.match(failed.error, /bundle.js/)
+  assert.doesNotMatch(failed.error, /private-value/)
+  assert.equal(gate.status('s').ready, false)
+  assert.equal(ready, 1)
+  assert.equal(settled, 2)
+  gate.poll('s', 'owner', false, error)
+  assert.equal(settled, 2)
+  assert.equal((await gate.dispatch('s', 'MESSAGE_RECEIVED')).initializationFailed, true)
+  gate.poll('s', 'owner', true)
+  assert.equal(gate.status('s').initializationError, undefined)
+  assert.equal(ready, 2)
+})
+
+test('轮询尚未同步失败时，事件回执也识别初始化失败并脱敏', async () => {
+  const gate = createTavernHelperEventGate()
+  gate.poll('s', 'owner', true)
+  const pending = gate.dispatch('s', 'MESSAGE_RECEIVED')
+  const { event } = gate.poll('s', 'owner', true)
+  gate.complete('s', event.id, [], 'owner', 'MVU 加载失败 http://localhost/bundle.js?token=secret-value',
+    [{ kind: 'initialization', initializationFailed: true }])
+  const result = await pending
+  assert.equal(result.initializationFailed, true)
+  assert.doesNotMatch(result.error, /secret-value/)
+})

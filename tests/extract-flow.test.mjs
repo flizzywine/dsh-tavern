@@ -1155,7 +1155,6 @@ test('兼容模式入口关闭，普通游玩与资源兼容能力保留', () =>
 	assert.match(clientSource, /sandbox: document\.trustedCardMode \? undefined : "allow-scripts"/)
 	assert.match(clientSource, /if \(!trustedCardMode\) frame\.sandbox = "allow-scripts"/)
 	assert.match(serverSource, /trustedCardMode/)
-	assert.match(clientSource, /pollTavernHelperEvent", \{ runtimeId: currentLease\.id, ready: runtimeReady \}/)
 	assert.match(clientSource, /Boolean\(result && result\.active\) !== active/)
 	assert.match(clientSource, /releaseTavernHelperRuntime/)
 	assert.match(clientSource, /updateTavernSettings/)
