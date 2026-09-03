@@ -1,6 +1,7 @@
 // Real renderer + real DSH child Agent/tools/attachment store + local image HTTP API.
 // DSH_BOOT_MODULE=/path/dsh-app-boot/lib/index.js node --expose-internals tests/fixtures/scene-image-browser-smoke.mjs
 import { createServer } from 'node:http'
+import { sessionEvents } from '../../tavern-plugin/lib/domain/session-events.js'
 import { readFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
@@ -99,7 +100,7 @@ const server = createServer(async (req, res) => {
       await runtime.service.start('scene-parent', 2, target.key)
       for (let n = 0; n < 300 && !runtime.imageRequests.length; n++) await new Promise(resolve => setTimeout(resolve, 20))
     }
-    else if (method === 'fixtureEvidence') result = { modelRequests: runtime.requests.length, imageRequests: runtime.imageRequests.length, referenceImages: runtime.imageRequests.at(-1)?.input?.filter(item => item.type === 'image').length || 0, parentMessages: runtime.parent.agent.session.events.filter(e => /message/.test(e.type)).length, prompt: runtime.imageRequests.at(-1)?.prompt, status: await runtime.service.status('scene-parent', 1) }
+    else if (method === 'fixtureEvidence') result = { modelRequests: runtime.requests.length, imageRequests: runtime.imageRequests.length, referenceImages: runtime.imageRequests.at(-1)?.input?.filter(item => item.type === 'image').length || 0, parentMessages: sessionEvents(runtime.parent.agent.session).filter(e => /message/.test(e.type)).length, prompt: runtime.imageRequests.at(-1)?.prompt, status: await runtime.service.status('scene-parent', 1) }
     res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ ok: true, ...result }))
   } catch (error) { res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ ok: false, error: error.message })) }
 })

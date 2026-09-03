@@ -1,3 +1,4 @@
+import { sessionEvents } from './session-events.js'
 import { createHash } from 'node:crypto'
 import { cardOpeningChoices, resolveCardOpening } from './card-openings.js'
 import { projectAgentContent, projectOpeningCommit } from './runtime-content-projection.js'
@@ -202,7 +203,7 @@ export function createConversationInitialization(options) {
 
   function appendOpeningEvents(session, chat, text, selected, recovering) {
     // DSH adds a seed boundary on restore; it is not part of the opening turn.
-    const openingEvents = () => session.events.filter(event => event.type !== 'session/end-seed')
+    const openingEvents = () => sessionEvents(session).filter(event => event.type !== 'session/end-seed')
     const events = openingEvents()
     const messageId = openingId(chat)
     const stages = [

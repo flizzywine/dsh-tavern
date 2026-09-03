@@ -1,3 +1,4 @@
+import { sessionEvents } from './domain/session-events.js'
 import { snapshotSubagentDescriptor } from '@deepseek-ai/dsh-subagent'
 import { randomUUID } from 'node:crypto'
 import { maximumBackgroundTokens, traceError } from './background-agent-task.js'
@@ -123,7 +124,7 @@ export function createBackgroundAgentSessions(options, task) {
           }
           if (handle !== undefined) {
             const session = handle.agent.session
-            const savedDescriptor = session.events?.find(event => event.type === 'subagent/descriptor')?.data
+            const savedDescriptor = sessionEvents(session).find(event => event.type === 'subagent/descriptor')?.data
             const savedParent = session.header?.parentSession
             if (savedParent && savedParent !== parent.id || savedDescriptor &&
               (savedDescriptor.provider === 'dsh-tavern-image') !== (input.task === 'image')) {

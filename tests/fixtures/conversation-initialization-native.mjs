@@ -1,3 +1,4 @@
+import { sessionEvents } from '../../tavern-plugin/lib/domain/session-events.js'
 // Production initialization, Chat journal and installed DSH Session/Agent loop.
 // All files are temporary and the text model is scripted; no paid requests.
 import { mkdtemp, writeFile, readFile, rm } from 'node:fs/promises'
@@ -34,8 +35,8 @@ export async function createInitializationNative(bootPath) {
   let storage = createSessionStablePrefixStorage(join(root, 'prefix'))
   const eventsPath = join(root, 'native-events.json')
   async function flush(session) {
-    if (state.failFlush && session.events.some(e => e.type === 'assistant/message')) throw Error('native flush failure')
-    await writeFile(eventsPath, JSON.stringify({ header: session.header, events: session.events }))
+    if (state.failFlush && sessionEvents(session).some(e => e.type === 'assistant/message')) throw Error('native flush failure')
+    await writeFile(eventsPath, JSON.stringify({ header: session.header, inheritedEventCount: session.inheritedEventCount ?? 0, events: sessionEvents(session) }))
   }
   ctx.on('session/flush', flush)
   class FixtureModel extends LlmAdapter {
@@ -91,7 +92,7 @@ export async function createInitializationNative(bootPath) {
     async restoreDetached() {
       // Recreate the native Session from only persisted JSON, including its header.
       const saved = JSON.parse(await readFile(eventsPath, 'utf8'))
-      target = { session: Session.fromRestore(sessionId, saved.events, saved.header) }
+      target = { session: Session.fromRestore(sessionId, saved.events, saved.header, saved.inheritedEventCount ?? 0) }
       storage = createSessionStablePrefixStorage(join(root, 'prefix'))
     },
     async checkpoint() { await flush(target.session) },

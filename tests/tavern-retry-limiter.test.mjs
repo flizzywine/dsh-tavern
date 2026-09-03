@@ -34,6 +34,17 @@ function fixture() {
   }
 }
 
+test('rc.1 snapshot-only Session still limits requests to one retry', async () => {
+  const { session, payload } = fixture()
+  const events = session.events
+  delete session.events
+  session.snapshotEvents = () => Object.freeze(events.slice())
+  const limiter = createTavernRetryLimiter({ owns: async () => true, wait: async () => true })
+  assert.deepEqual(await limiter.handle(payload, async () => {}), { kind: 'retry' })
+  assert.equal(await limiter.handle(payload, async () => {}), undefined)
+  assert.equal(events.filter(event => event.type === 'llm/retry').length, 1)
+})
+
 test('Tavern 最多执行两次请求并把重试上限记录为 1', async () => {
   const { session, payload } = fixture()
   const waits = []

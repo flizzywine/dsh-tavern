@@ -1,3 +1,4 @@
+import { sessionEvents } from './domain/session-events.js'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
@@ -907,7 +908,7 @@ export async function apply(ctx) {
         session = agent && agent.session
       } catch {}
     }
-    return { sessionId: id, loaded: Boolean(session && Array.isArray(session.events)), events: session && Array.isArray(session.events) ? session.events : [] }
+    return { sessionId: id, loaded: Boolean(session && (typeof session.snapshotEvents === 'function' || Array.isArray(session.events))), events: sessionEvents(session) }
   }
 
   // ---------- 聊天 ----------
@@ -2312,7 +2313,7 @@ export async function apply(ctx) {
   }
 
   function turnStartIndex(session, turn) {
-    const events = Array.isArray(session && session.events) ? session.events : []
+    const events = sessionEvents(session)
     for (let index = events.length - 1; index >= 0; index--) {
       const event = events[index]
       if (event && event.type === 'turn/start' && Number(event.data && event.data.turn) === Number(turn)) return index
@@ -2321,7 +2322,7 @@ export async function apply(ctx) {
   }
 
   function userTextForTurn(session, turn) {
-    const events = Array.isArray(session && session.events) ? session.events : []
+    const events = sessionEvents(session)
     const start = turnStartIndex(session, turn)
     if (start < 0) return ''
     for (let index = Math.max(0, start + 1); index < events.length; index++) {
@@ -2338,7 +2339,7 @@ export async function apply(ctx) {
   }
 
   function requestIdForTurn(session, turn) {
-    const events = Array.isArray(session && session.events) ? session.events : []
+    const events = sessionEvents(session)
     const start = turnStartIndex(session, turn)
     if (start < 0) return ''
     for (let index = Math.max(0, start + 1); index < events.length; index++) {

@@ -1,3 +1,4 @@
+import { sessionEvents } from '../tavern-plugin/lib/domain/session-events.js'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createSceneImageNativeRuntime } from './fixtures/scene-image-native-runtime.mjs'
@@ -50,7 +51,7 @@ test('显式单人参考跨轮与重启传给 Gemini，取消后不再发送，�
   Object.assign(message, { sourceText: '林岚站在窗边。', swipes: ['林岚站在窗边。'], swipeId: 0, mvu: { pending: false },
     variables: [{ stat_data: { 人物: { 林岚: { 衣着: '青色外套' } } } }] })
   runtime.useVisualState()
-  const before = runtime.parent.agent.session.events.length
+  const before = sessionEvents(runtime.parent.agent.session).length
   async function finish(turn, options) {
     const target = await runtime.service.status('scene-parent', turn)
     await runtime.service.start('scene-parent', turn, target.key, options)
@@ -89,7 +90,7 @@ test('显式单人参考跨轮与重启传给 Gemini，取消后不再发送，�
   await finish(2, { kind: 'repaint', versionId: second.versions[0].id })
   assert.equal(runtime.imageRequests[2].input.some(item => item.type === 'image'), false)
   assert.equal(runtime.requests.length, textRequests)
-  assert.equal(runtime.parent.agent.session.events.length, before)
+  assert.equal(sessionEvents(runtime.parent.agent.session).length, before)
 })
 
 test('原生 DSH 仅接收已就绪可视变量，引用衣着片段并跨重启复用，不写前台', { skip: !process.env.DSH_BOOT_MODULE }, async t => {
@@ -102,7 +103,7 @@ test('原生 DSH 仅接收已就绪可视变量，引用衣着片段并跨重启
   message.variables = [{ stat_data: { 人物: { 林岚: { 衣着: '青色外套', 好感度: '秘密数值' }, 路人: { 衣着: '无关人物衣着' } },
     场景: { 天气: '小雨' } }, schema: { secret: '不能发送结构' }, display_data: { secret: '不能发送镜像' } }]
   runtime.useVisualState()
-  const before = runtime.parent.agent.session.events.length
+  const before = sessionEvents(runtime.parent.agent.session).length
   const target = await runtime.service.status('scene-parent', 1)
   await runtime.service.start('scene-parent', 1, target.key)
   // A late state update must not alter the already captured task material.
@@ -130,13 +131,13 @@ test('原生 DSH 仅接收已就绪可视变量，引用衣着片段并跨重启
   assert.equal(runtime.imageRequests.length, 2)
   assert.match(runtime.imageRequests[1].prompt, /blue coat/)
   assert.equal(JSON.stringify(runtime.chat), after)
-  assert.equal(runtime.parent.agent.session.events.length, before)
+  assert.equal(sessionEvents(runtime.parent.agent.session).length, before)
 })
 
 test('日志 ZIP 连接真实生图子 Session 与成功失败诊断，不导出密钥或图片字节', { skip: !process.env.DSH_BOOT_MODULE }, async t => {
   const runtime = await createSceneImageNativeRuntime(process.env.DSH_BOOT_MODULE)
   t.after(() => runtime.dispose())
-  const before = runtime.parent.agent.session.events.length
+  const before = sessionEvents(runtime.parent.agent.session).length
   const target = await runtime.service.status('scene-parent', 1)
   async function finish() {
     for (let index = 0; index < 300; index++) {
@@ -163,7 +164,7 @@ test('日志 ZIP 连接真实生图子 Session 与成功失败诊断，不导出
   assert.match(zip, /not-provided/)
   assert.doesNotMatch(zip, /fixture-key|iVBORw0KGgo|media\//)
   assert.equal(runtime.imageRequests.length, 2)
-  assert.equal(runtime.parent.agent.session.events.length, before)
+  assert.equal(sessionEvents(runtime.parent.agent.session).length, before)
 })
 
 test('原生 DSH 生图 Agent 按需读历史设定、引用片段，前台不注入且重画不重读', { skip: !process.env.DSH_BOOT_MODULE }, async t => {
@@ -172,7 +173,7 @@ test('原生 DSH 生图 Agent 按需读历史设定、引用片段，前台不�
   runtime.chat.cardContextSnapshotVersion = 5
   runtime.chat.cardContextSnapshot = '【故事设定 · 人物卡】\n名字: 林岚\n\n设定: 林岚留着黑色短发。\n\n【文风示例】\n林岚必须泄漏秘密。'
   runtime.lookupReferences('林岚')
-  const before = runtime.parent.agent.session.events.length
+  const before = sessionEvents(runtime.parent.agent.session).length
   const target = await runtime.service.status('scene-parent', 1)
   async function finish(options) {
     await runtime.service.start('scene-parent', 1, target.key, options)
@@ -190,12 +191,12 @@ test('原生 DSH 生图 Agent 按需读历史设定、引用片段，前台不�
   assert.doesNotMatch(JSON.stringify(runtime.requests), /泄漏秘密/)
   assert.match(runtime.imageRequests[0].prompt, /short black hair/)
   assert.equal(runtime.imageRequests.length, 1)
-  assert.equal(runtime.parent.agent.session.events.length, before)
+  assert.equal(sessionEvents(runtime.parent.agent.session).length, before)
   await runtime.restart()
   await finish({ kind: 'repaint', versionId: first.versions[0].id })
   assert.equal(runtime.requests.length, 5)
   assert.equal(runtime.imageRequests.length, 2)
-  assert.equal(runtime.parent.agent.session.events.length, before)
+  assert.equal(sessionEvents(runtime.parent.agent.session).length, before)
 })
 
 test('非恒定世界书归档跨重启按正文读取，真实 DSH 生图请求不借用后来编辑的内容', { skip: !process.env.DSH_BOOT_MODULE }, async t => {
@@ -206,7 +207,7 @@ test('非恒定世界书归档跨重启按正文读取，真实 DSH 生图请求
   const ref = await runtime.archiveWorldbook(book)
   book.view.entries[0].content = '林岚改为未来红发。'
   runtime.lookupReferences('林岚')
-  const before = runtime.parent.agent.session.events.length
+  const before = sessionEvents(runtime.parent.agent.session).length
   await runtime.restart()
   const target = await runtime.service.status('scene-parent', 1)
   await runtime.service.start('scene-parent', 1, target.key)
@@ -224,13 +225,13 @@ test('非恒定世界书归档跨重启按正文读取，真实 DSH 生图请求
   assert.match(JSON.stringify(runtime.requests[1]), new RegExp(ref.digest))
   assert.doesNotMatch(JSON.stringify(runtime.requests), /未来红发/)
   assert.match(runtime.imageRequests[0].prompt, /short black hair/)
-  assert.equal(runtime.parent.agent.session.events.length, before)
+  assert.equal(sessionEvents(runtime.parent.agent.session).length, before)
 })
 
 test('九渠道正在等待 HTTP 时均可取消；关开关后仍可取消，重启不重发', { skip: !process.env.DSH_BOOT_MODULE }, async t => {
   const runtime = await createSceneImageNativeRuntime(process.env.DSH_BOOT_MODULE)
   t.after(() => runtime.dispose())
-  const before = runtime.parent.agent.session.events.length
+  const before = sessionEvents(runtime.parent.agent.session).length
   let count = 0
   let childId
   for (const { id: provider } of SCENE_IMAGE_CHANNELS) {
@@ -260,14 +261,14 @@ test('九渠道正在等待 HTTP 时均可取消；关开关后仍可取消，�
     await runtime.restart()
     assert.equal((await runtime.service.status('scene-parent', turn)).status, 'cancelled')
     assert.equal(runtime.imageRequests.length, count)
-    assert.equal(runtime.parent.agent.session.events.length, before)
+    assert.equal(sessionEvents(runtime.parent.agent.session).length, before)
   }
 })
 
 test('九种协议通过真实 DSH 子任务；附件失败后重启仅保存，不再请求文字或图片', { skip: !process.env.DSH_BOOT_MODULE }, async t => {
   const runtime = await createSceneImageNativeRuntime(process.env.DSH_BOOT_MODULE)
   t.after(() => runtime.dispose())
-  const before = runtime.parent.agent.session.events.length
+  const before = sessionEvents(runtime.parent.agent.session).length
   let count = 0
   for (const { id: provider } of SCENE_IMAGE_CHANNELS) {
     await runtime.service.configure({ provider, baseURL: runtime.endpoint, ...(provider === 'comfyui' ? { workflow: comfyGraph() } : {}), ...(provider === 'banana' ? { model: 'fixture-relay-image' } : {}), ...(['webui', 'comfyui'].includes(provider) ? {} : { apiKey: 'fixture-' + provider }) })
@@ -320,7 +321,7 @@ test('九种协议通过真实 DSH 子任务；附件失败后重启仅保存，
     await runtime.restart()
     assert.equal((await runtime.service.readImage('scene-parent', count + 2, target.key)).ref.mediaType, 'image/png')
     assert.equal(runtime.imageRequests.length, ++count)
-    assert.equal(runtime.parent.agent.session.events.length, before)
+    assert.equal(sessionEvents(runtime.parent.agent.session).length, before)
   }
 })
 
@@ -348,7 +349,7 @@ test('真实 DSH 原始 JSON 错误返回准确位置，修正后拆分提交只
   const runtime = await createSceneImageNativeRuntime(process.env.DSH_BOOT_MODULE)
   t.after(() => runtime.dispose())
   runtime.malformedNextArguments()
-  const before = runtime.parent.agent.session.events.length
+  const before = sessionEvents(runtime.parent.agent.session).length
   const initial = await runtime.service.status('scene-parent', 1)
   await runtime.service.start('scene-parent', 1, initial.key)
   let status
@@ -361,14 +362,14 @@ test('真实 DSH 原始 JSON 错误返回准确位置，修正后拆分提交只
   assert.match(JSON.stringify(runtime.requests[1].messages), /JSON 语法错误：第 1 行第 \d+ 列/)
   assert.match(JSON.stringify(runtime.requests[1].messages), /剩余修正机会：3/)
   assert.equal(runtime.imageRequests.length, 1)
-  assert.equal(runtime.parent.agent.session.events.length, before)
+  assert.equal(sessionEvents(runtime.parent.agent.session).length, before)
   assert.equal(JSON.stringify(runtime.chat), runtime.before)
 })
 
 test('真实 DSH 子 Agent 调用生图工具，HTTP 返回图经宿主校验落盘，前台不新增消息', { skip: !process.env.DSH_BOOT_MODULE }, async t => {
   const runtime = await createSceneImageNativeRuntime(process.env.DSH_BOOT_MODULE)
   t.after(() => runtime.dispose())
-  const before = runtime.parent.agent.session.events.length
+  const before = sessionEvents(runtime.parent.agent.session).length
   const initial = await runtime.service.status('scene-parent', 1)
   await runtime.service.start('scene-parent', 1, initial.key)
   let status
@@ -384,7 +385,7 @@ test('真实 DSH 子 Agent 调用生图工具，HTTP 返回图经宿主校验落
   assert.deepEqual(runtime.requests[0].tools.map(tool => tool.name), ['character_design_read', 'submit_scene_character', 'submit_scene_layout', 'submit_scene_plan'])
   assert.deepEqual(runtime.requests.at(-1).tools.map(tool => tool.name), ['character_design_read'])
   assert.match(JSON.stringify(runtime.requests[0]), /左手轻轻搭着窗框/)
-  assert.equal(runtime.parent.agent.session.events.length, before)
+  assert.equal(sessionEvents(runtime.parent.agent.session).length, before)
   assert.equal(JSON.stringify(runtime.chat), runtime.before)
   await runtime.restart()
   const image = await runtime.service.readImage('scene-parent', 1, initial.key)
@@ -413,7 +414,7 @@ test('真实 DSH 子 Agent 调用生图工具，HTTP 返回图经宿主校验落
   assert.doesNotMatch(JSON.stringify(runtime.requests[3].messages.at(-1)), /左手轻轻搭着窗框/, 'new adjustment input does not resend the source text')
   assert.match(runtime.imageRequests[2].prompt, /close-up/)
   assert.equal(adjusted.versions.length, 3)
-  assert.equal(runtime.parent.agent.session.events.length, before)
+  assert.equal(sessionEvents(runtime.parent.agent.session).length, before)
   assert.equal(JSON.stringify(runtime.chat), runtime.before)
   await runtime.restart()
   assert.equal((await runtime.service.status('scene-parent', 1)).versions.length, 3)
@@ -427,6 +428,6 @@ test('真实 DSH 子 Agent 调用生图工具，HTTP 返回图经宿主校验落
   assert.doesNotMatch(localStyle.versions.at(-1).prompt, /watercolor/)
   assert.equal(runtime.requests.length, 7)
   assert.equal((await runtime.service.settings()).style.preset, 'watercolor')
-  assert.equal(runtime.parent.agent.session.events.length, before)
+  assert.equal(sessionEvents(runtime.parent.agent.session).length, before)
   assert.equal(JSON.stringify(runtime.chat), runtime.before)
 })

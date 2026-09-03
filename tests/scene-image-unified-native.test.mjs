@@ -1,3 +1,4 @@
+import { sessionEvents } from '../tavern-plugin/lib/domain/session-events.js'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createSceneImageNativeRuntime } from './fixtures/scene-image-native-runtime.mjs'
@@ -39,7 +40,7 @@ test('慢速生图不阻塞状态和关闭设置，关闭后仍可取消且不�
 test('统一设置 → 插件生成 → 真实 DSH 附件，关闭和重启不丢图或重复生成', { skip: !process.env.DSH_BOOT_MODULE }, async t => {
   const runtime = await createSceneImageNativeRuntime(process.env.DSH_BOOT_MODULE, { unifiedPlugin: true })
   t.after(() => runtime.dispose())
-  const before = runtime.parent.agent.session.events.length
+  const before = sessionEvents(runtime.parent.agent.session).length
   await runtime.service.configure({ provider: 'grok', baseURL: runtime.endpoint, model: 'fixture-grok-image', apiKey: 'fixture-key' })
   await runtime.service.configure({ enabled: true })
   const target = await runtime.service.status('scene-parent', 1)
@@ -54,7 +55,7 @@ test('统一设置 → 插件生成 → 真实 DSH 附件，关闭和重启不�
   assert.equal(runtime.imageRequests.length, 1)
   assert.equal(runtime.imageRequests[0].model, 'fixture-grok-image')
   assert.equal(runtime.imageRequests[0].resolution, '1k')
-  assert.equal(runtime.parent.agent.session.events.length, before)
+  assert.equal(sessionEvents(runtime.parent.agent.session).length, before)
   assert.equal(JSON.stringify(runtime.chat), runtime.before)
   await runtime.service.configure({ enabled: false })
   await runtime.restart()

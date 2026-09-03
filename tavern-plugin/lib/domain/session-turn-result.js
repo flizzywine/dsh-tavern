@@ -1,3 +1,4 @@
+import { sessionEvents } from './session-events.js'
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
 }
@@ -22,7 +23,7 @@ function blockText(message, type) {
 
 /** Preserve the distinction between model reasoning and user-visible reply text. */
 export function assistantResultForTurn(session, turn) {
-  const events = Array.isArray(session && session.events) ? session.events : []
+  const events = sessionEvents(session)
   const start = turnStartIndex(events, turn)
   for (let index = events.length - 1; index > start; index -= 1) {
     const event = events[index]

@@ -1,3 +1,4 @@
+import { sessionEvents } from './domain/session-events.js'
 import { randomUUID } from 'node:crypto'
 import { readSceneImageSystemInstruction } from './scene-image-prompts.js'
 import { CHARACTER_DESIGN_READ_TOOL } from './domain/character-design-document.js'
@@ -103,7 +104,7 @@ export function createBackgroundAgentTask(options) {
 
   function rewindSurface(session, boundary) {
     if (!Number.isSafeInteger(boundary)) return 0
-    const events = Array.isArray(session && session.events) ? session.events : []
+    const events = sessionEvents(session)
     const nodes = session && session.surface && Array.isArray(session.surface.nodes) ? session.surface.nodes : []
     const shadowed = nodes.filter(function (seq) { return Number.isSafeInteger(seq) && seq > boundary })
     if (shadowed.length === 0) return 0
@@ -213,7 +214,7 @@ export function createBackgroundAgentTask(options) {
   }
 
   function installTaskTools(state, input, session) {
-    const eventStart = session?.events?.length || 0
+    const eventStart = sessionEvents(session).length
     const tools = (Array.isArray(input.tools) ? input.tools : []).filter(tool => input.task !== 'image' || tool.name !== CHARACTER_DESIGN_READ_TOOL.name)
     if (input.task === 'image') state.imageReadTask = async args => {
       if (input.stopToolsWhen?.()) return JSON.stringify({ ok: false, error: '画面方案已提交，请结束本轮。' })
@@ -277,7 +278,7 @@ export function createBackgroundAgentTask(options) {
                 return JSON.stringify({ message: input.toolLimitMessage || '已达到剧本查询上限，请停止查询，基于已有材料开始推理并输出最终候选。' })
               }
             }
-            const call = input.task === 'image' ? imageToolCall(tool.name, args, execution, session?.events, eventStart) : { name: tool.name, arguments: args }
+            const call = input.task === 'image' ? imageToolCall(tool.name, args, execution, sessionEvents(session), eventStart) : { name: tool.name, arguments: args }
             const result = str(await input.onToolCall(call))
             if (typeof input.stopToolsWhen === 'function' && (input.stopToolsWhen() || toolCallCount >= maxToolCalls)) await removeTools()
             return result
@@ -307,7 +308,7 @@ export function createBackgroundAgentTask(options) {
         const prefix = await ensureSessionStablePrefix(agent.session, background, options.stablePrefixStorage)
         if (prefix && typeof options.flushSession === 'function') await options.flushSession(agent.session)
       }
-      const eventStart = Array.isArray(agent.session.events) ? agent.session.events.length : 0
+      const eventStart = sessionEvents(agent.session).length
       agent.followup({
         id: randomUUID(),
         role: 'user',
@@ -316,9 +317,9 @@ export function createBackgroundAgentTask(options) {
       })
       await agent.whenIdle()
       input.signal?.throwIfAborted()
-      const rawResult = finalMessage(agent.session.events, eventStart)
+      const rawResult = finalMessage(sessionEvents(agent.session), eventStart)
       if (rawResult === null) {
-        const underlying = terminalError(agent.session.events, eventStart)
+        const underlying = terminalError(sessionEvents(agent.session), eventStart)
         if (underlying !== null) throw underlying
         if (typeof runtimeInput.acceptWithoutText !== 'function' || runtimeInput.acceptWithoutText() !== true) {
           throw new Error(input.task === 'settlement' ? '后台 Agent 没有返回结算文本' : '后台 Agent 没有返回候选文本')
@@ -328,7 +329,7 @@ export function createBackgroundAgentTask(options) {
       if (persistent && input.task === 'image' && typeof options.flushSession === 'function') {
         await options.flushSession(agent.session)
       }
-      return { text, traceSessionId, persistent, traceBoundary: completedBoundary(agent.session.events) }
+      return { text, traceSessionId, persistent, traceBoundary: completedBoundary(sessionEvents(agent.session)) }
     } catch (error) {
       throw traceError(error, traceSessionId, input.task)
     } finally {

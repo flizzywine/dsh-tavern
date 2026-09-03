@@ -1,3 +1,4 @@
+import { sessionEvents } from './session-events.js'
 import { randomUUID } from 'node:crypto'
 
 function object(value) {
@@ -181,7 +182,7 @@ export function clearFailedTurnSurface(input) {
   const session = input && input.session
   if (!session || typeof session.append !== 'function') return 0
   const cleanup = planFailedTurnSurface({
-    events: session.events,
+    events: sessionEvents(session),
     nodes: session.surface && session.surface.nodes,
     turn: input.turn
   })

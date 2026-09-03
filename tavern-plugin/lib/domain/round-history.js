@@ -1,3 +1,4 @@
+import { sessionEvents } from './session-events.js'
 import { randomUUID } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
 import { clearRegenerationAttemptSurface, locateRegenerationSurface, locateRollbackSurface, planRegenerationSurface } from './rollback-surface.js'
@@ -10,7 +11,7 @@ function str(value) {
 
 export function selectRegenerationTarget(chat, session, observe) {
   const nodes = (session.surface !== undefined && Array.isArray(session.surface.nodes)) ? session.surface.nodes : []
-  const eventStart = Array.isArray(session.events) ? session.events.length : 0
+  const eventStart = sessionEvents(session).length
   const msgs0 = chat.messages || []
   let oldAssistantIndex = -1
   for (let i = msgs0.length - 1; i >= 0; i--) {
@@ -29,7 +30,7 @@ export function selectRegenerationTarget(chat, session, observe) {
       : msgs0[oldAssistantIndex - 1] === null || typeof msgs0[oldAssistantIndex - 1] !== 'object' ? 'previous-message-invalid' : 'previous-message-not-user')
     throw new Error('没有可重新生成的玩家输入与正文组合')
   }
-  const target = locateRegenerationSurface({ events: session.events, nodes, turn: msgs0[oldAssistantIndex].turn })
+  const target = locateRegenerationSurface({ events: sessionEvents(session), nodes, turn: msgs0[oldAssistantIndex].turn })
   if (target === null) { report('native-target-missing'); throw new Error('原生消息流中找不到与当前剧情轮次对应的正文消息') }
   report('selected', target)
   const oldSeq = target.assistantSeq
@@ -208,7 +209,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     // 把旧正文、失败残留、合成输入和新模型节点折叠为唯一的新正文。
     const currentNodes = session.surface !== undefined && Array.isArray(session.surface.nodes) ? session.surface.nodes : []
     const replacement = planRegenerationSurface({
-      events: session.events,
+      events: sessionEvents(session),
       nodes: currentNodes,
       oldAssistantSeq: oldSeq,
       eventStart
@@ -259,7 +260,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     const agent = sessions.get(chat.sessionId)
     if (agent === undefined || agent.session === undefined) throw new Error('无法访问 DSH 会话: ' + chat.sessionId)
     const session = agent.session
-    const events = Array.isArray(session.events) ? session.events : []
+    const events = sessionEvents(session)
     const nodes = session.surface !== undefined && Array.isArray(session.surface.nodes) ? session.surface.nodes : []
     const rollbackSurface = locateRollbackSurface({ events, nodes })
     if (rollbackSurface === null) throw new Error('原生消息流中找不到可回退的用户输入与正文组合')

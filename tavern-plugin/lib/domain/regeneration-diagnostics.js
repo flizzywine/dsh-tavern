@@ -1,3 +1,4 @@
+import { sessionEvents } from './session-events.js'
 import { createHash } from 'node:crypto'
 
 const type = value => value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value
@@ -24,7 +25,7 @@ function event(value) {
 /** Structural evidence only: no text, prompts, names, arbitrary keys or raw events. */
 export function regenerationTargetDiagnostic(chat, session, { reason, assistantIndex, target }) {
   const messages = Array.isArray(chat?.messages) ? chat.messages : []
-  const events = Array.isArray(session?.events) ? session.events : []
+  const events = sessionEvents(session)
   const nodes = Array.isArray(session?.surface?.nodes) ? session.surface.nodes : []
   const turn = messages[assistantIndex]?.turn
   const selectedNodes = new Set(nodes)

@@ -1,3 +1,4 @@
+import { sessionEvents } from './session-events.js'
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { createDurableFilePromotion } from '../durable-file-promotion.js'
@@ -30,7 +31,7 @@ export function createSessionStablePrefixStorage(directory) {
 export function readSessionStablePrefix(session) {
   if (!session) return null
   if (cached.has(session)) return cached.get(session)
-  const event = (session.events || []).find(item => item.type === EVENT && item.data?.version === 1)
+  const event = sessionEvents(session).find(item => item.type === EVENT && item.data?.version === 1)
   if (!event) return null
   cached.set(session, event.data)
   return event.data

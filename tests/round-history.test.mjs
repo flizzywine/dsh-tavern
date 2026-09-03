@@ -79,6 +79,24 @@ function harness({ checkpoint = false, mode = 'story' } = {}) {
     setGeneration(value) { generation = value }, setSettlement(value) { settlementOutcome = value }, beforeGenerate(fn) { beforeGenerate = fn }, revisions }
 }
 
+test('rc.1 snapshot-only history supports regeneration and rollback without rewriting native events', async () => {
+  for (const operation of ['regenerate', 'rollback']) {
+    const h = harness({ checkpoint: true })
+    const events = h.session.events
+    const before = structuredClone(events)
+    delete h.session.events
+    h.session.snapshotEvents = () => Object.freeze(events.slice())
+    const history = h.create()
+    const result = operation === 'regenerate'
+      ? await history.regenerate('chat', '', 'session')
+      : await history.rollback('session', 'chat')
+    if (operation === 'regenerate') assert.match(result.messages.at(-1).text, /新正文/)
+    else assert.deepEqual(result.messages.map(item => item.text), ['开场'])
+    assert.deepEqual(events.slice(0, before.length), before)
+    assert.ok(events.length > before.length)
+  }
+})
+
 test('配对失败的证据写入现有诊断包，原错误与聊天、原生历史保持不变', async () => {
   const h = harness()
   h.chat.messages.splice(1, 1)

@@ -1,3 +1,4 @@
+import { sessionEvents } from './session-events.js'
 import { randomUUID } from 'node:crypto'
 
 const POLICY_KEY = 'dsh-tavern:max-attempts:2'
@@ -11,7 +12,7 @@ function retryable(payload) {
 }
 
 function priorRetry(session, payload) {
-  const events = Array.isArray(session && session.events) ? session.events : []
+  const events = sessionEvents(session)
   return events.findLast(function (event) {
     const data = event && event.data
     return event && event.type === 'llm/retry' && data &&

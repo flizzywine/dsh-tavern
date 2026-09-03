@@ -3,7 +3,8 @@ import test from 'node:test'
 import { mkdtemp, rm } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { Session } from '../tavern-plugin/node_modules/@deepseek-ai/dsh-session/lib/index.js'
+import { Session } from './fixtures/dsh-session-host.mjs'
+import { sessionEvents } from '../tavern-plugin/lib/domain/session-events.js'
 import { createSessionStablePrefixStorage, ensureSessionStablePrefix, readSessionStablePrefix, projectSessionStablePrefix } from '../tavern-plugin/lib/domain/session-stable-prefix.js'
 
 const text = '【故事设定 · 人物卡】\n名字: 测试人物\n\n设定: 固定背景\n\n【常驻世界书】\n固定世界'
@@ -21,10 +22,10 @@ test('背景独立持久化，真实 Session 恢复与 Surface 压缩均不丢�
   const second = session.append('user/message', user('第二轮'), { surfaceOp: 'append' })
   assert.equal(await ensureSessionStablePrefix(session, '后来改卡不重新注入', storage), prefix)
   session.append('user/message', plugin('剧情摘要'), { surfaceOp: { op: 'replace', start: first.seq, end: second.seq }, sourceEventSeqs: [first.seq, second.seq] })
-  session = Session.create(session.id, session.events, session.header)
+  session = Session.create(session.id, sessionEvents(session), session.header)
   storage = createSessionStablePrefixStorage(directory)
   assert.equal((await ensureSessionStablePrefix(session, '重启不重新注入', storage)).text, text)
-  assert.equal(session.events.filter(event => event.type === 'dsh-tavern/stable-prefix').length, 0)
+  assert.equal(sessionEvents(session).filter(event => event.type === 'dsh-tavern/stable-prefix').length, 0)
   const request = { system: '当轮任务', messages: [plugin('剧情摘要'), user('第三轮')] }
   const projected = projectSessionStablePrefix(request, readSessionStablePrefix(session))
   assert.equal(projected.system, '当轮任务')
