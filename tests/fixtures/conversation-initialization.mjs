@@ -37,6 +37,7 @@ export function initializationFixture(options = {}) {
   }
   function make() {
     const snapshots = createPlayCardSnapshots({
+      userPreferenceProfile: options.userPreferenceProfile,
       captureSceneWorldbook: options.captureSceneWorldbook,
       worldBooks: { bound: async () => ({ view: { entries: [{ constant: true, content: '固定世界书' }, { constant: false, content: '动态世界书' }] } }) },
       planner: createContextPlanner({ prompt: () => '' }), readCard: async () => structuredClone(card), writeChat: write
@@ -44,6 +45,7 @@ export function initializationFixture(options = {}) {
     return createConversationInitialization({
       cards: { read: async path => { state.reads++; await fail('card'); return path === card.path ? structuredClone(card) : undefined }, readChat: async () => structuredClone(card), script: async () => structuredClone(state.script), extensions: async () => structuredClone(state.extensions) },
       chats: { resolve: registry.resolve, publish: registry.publish, write }, snapshots,
+      userPreferenceProfile: options.userPreferenceProfile,
       presets: { fullSnapshot: async () => { state.presetReads++; await fail('preset'); return structuredClone(state.preset) } },
       settings: async () => state.settings, cardGreeting: () => '卡片工作台开场白', emptyCardWorkspace: () => ({ mountedResources: [], draft: {} }),
       id: prefix => prefix + '-' + ++sequence, now: () => 123,

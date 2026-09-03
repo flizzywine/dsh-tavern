@@ -166,7 +166,7 @@ test('新开游玩在创建 Session 前完成游戏准备，创建后不提供�
   assert.match(sidebar, /dsh-tavern-player-name/)
   assert.match(sidebar, /preparePlayConversation\(card\)/)
   assert.doesNotMatch(prepareFlow, /connectWorkspace|startChat/)
-  assert.match(sidebar, /newConversation\(openingPicker\.card, null, selectedOpening \? selectedOpening\.id : "", openingPicker\.userName \|\| "你", openingPicker\.userProfileEnabled === true\)/)
+  assert.match(sidebar, /newConversation\(openingPicker\.card, null, selectedOpening \? selectedOpening\.id : "", openingPicker\.userName \|\| "你"\)/)
   assert.match(sidebar, /openingId: openingId \|\| ""/)
   assert.match(sidebar, /userName: resolvedUserName/)
   assert.match(sidebar, /dsh-tavern-picker-overlay/)
@@ -458,17 +458,18 @@ test('人物卡转 MVU 起始任务写入 Skill、目标卡与简短转换要求
   assert.match(injectTaskPrompt, /统一使用 DSH Tavern 内置候选项/)
 })
 
-test('用户画像作为卡片 Agent 起始任务，并在新游戏准备页手动启用', () => {
+test('用户画像只从右侧栏进入，开场准备和起始任务不展示画像', () => {
   const sidebar = between(clientSource, 'function TavernSidebar', 'function TavernResourcesTab')
   const injectTaskPrompt = between(clientSource, 'async function injectTaskPrompt', 'playControlsFeature.register')
 
   assert.match(sidebar, /newCardConversation\(null, "user-profile", "建立用户画像"\)/)
-  assert.match(sidebar, /可确认、可跨人物卡复用的长期偏好/)
+  const opening = between(sidebar, 'const openingChoice', 'const playPicker')
+  const taskPicker = between(sidebar, 'const cardPicker', 'const updateMessage')
+  assert.doesNotMatch(opening, /用户画像|userProfile|长期偏好/)
+  assert.doesNotMatch(taskPicker, /用户画像|user-profile/)
   assert.match(injectTaskPrompt, /if \(task === "user-profile"\)/)
   assert.match(injectTaskPrompt, /\/tavern-user-profile/)
-  assert.match(sidebar, /手动启用已确认的长期偏好/)
-  assert.match(sidebar, /userProfileEnabled: userProfileEnabled === true/)
-  assert.match(sidebar, /response\.userProfile\.defaultEnabled/)
+  assert.doesNotMatch(sidebar, /userProfileEnabled|response\.userProfile/)
 })
 
 test('用户画像右侧栏聚焦实际生效偏好，详细依据折叠并可跳转卡片 Agent', () => {
@@ -483,6 +484,8 @@ test('用户画像右侧栏聚焦实际生效偏好，详细依据折叠并可�
   assert.match(profileTab, /偏好维度/)
   assert.match(profileTab, /原始回答/)
   assert.match(profileTab, /新游戏默认启用/)
+  assert.match(profileTab, /仅在此处开启或关闭/)
+  assert.doesNotMatch(profileTab, /准备页仍可单局覆盖/)
   assert.match(profileTab, /本局创建后保持冻结/)
   assert.match(profileTab, /dsh-tavern-open-user-profile-task/)
   assert.match(sidebar, /addEventListener\("dsh-tavern-open-user-profile-task"/)

@@ -658,16 +658,10 @@ export async function apply(ctx) {
       userName,
       presetRegexScripts: Array.isArray(preset && preset.regexScripts) ? preset.regexScripts : []
     })
-    const profile = await userPreferenceProfile.read()
     return {
       openings: previews.openings,
       diagnostics: previews.diagnostics,
-      trustedCardMode: settings.trustedCardMode,
-      userProfile: {
-        hasConfirmed: profile.hasConfirmed,
-        revision: profile.hasConfirmed ? Number(profile.confirmed.profileRevision) || 0 : 0,
-        defaultEnabled: profile.hasConfirmed && profile.defaultEnabled === true
-      }
+      trustedCardMode: settings.trustedCardMode
     }
   }
   function presentUserPreferenceProfile(value) {
@@ -1126,8 +1120,8 @@ export async function apply(ctx) {
     })
     return result.sort(function (left, right) { return Number(left.turn) - Number(right.turn) })
   }
-  async function startChat(cardPath, sessionId, mode, openingId, userName, requestMode, userProfileEnabled) {
-    return await conversationInitialization.start({ cardPath, sessionId, mode, openingId, userName, requestMode, userProfileEnabled })
+  async function startChat(cardPath, sessionId, mode, openingId, userName, requestMode) {
+    return await conversationInitialization.start({ cardPath, sessionId, mode, openingId, userName, requestMode })
   }
 
   async function scriptPreviewOf(chat) {
@@ -1179,6 +1173,7 @@ export async function apply(ctx) {
     cards: { read: readCard, readChat: readChatCard, script: readScript, extensions: readCardExtensions },
     chats: { resolve: chatForSession, publish: conversationRegistry.publish, write: writeChat },
     snapshots: playCardSnapshots,
+    userPreferenceProfile,
     presets: runtimePresets,
     settings: readTavernSettings,
     cardGreeting: function () { return runtimePrompt('card-mode-greeting') },
@@ -2071,7 +2066,7 @@ export async function apply(ctx) {
 	  case 'releaseTavernHelperRuntime': return { released: tavernScriptHostAdapter.releaseRuntime(args && args.sessionId, args && args.runtimeId) }
       case 'startChat': {
         try {
-          return { view: await startChat(args && args.path, args && args.sessionId, args && args.mode, args && args.openingId, args && args.userName, args && args.requestMode, args && args.userProfileEnabled) }
+          return { view: await startChat(args && args.path, args && args.sessionId, args && args.mode, args && args.openingId, args && args.userName, args && args.requestMode) }
         } catch (error) {
           console.error('dsh-tavern: 创建对话失败', {
             cardPath: str(args && args.path),

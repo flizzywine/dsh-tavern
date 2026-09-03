@@ -66,7 +66,7 @@ export function createConversationInitialization(options) {
     }
   }
 
-  async function initialize({ cardPath, sessionId, mode, openingId, userName, requestMode, userProfileEnabled }) {
+  async function initialize({ cardPath, sessionId, mode, openingId, userName, requestMode }) {
     if (requestMode === 'sillytavern') throw new Error('兼容模式已停用')
     const currentSettings = await settings()
     const effectiveRequestMode = 'dsh'
@@ -125,7 +125,11 @@ export function createConversationInitialization(options) {
     chat.runtimePresetSnapshot = runtimePresetSnapshot
     chat.runtimePresetPath = ''
     chat.macroState = macroState
-    chat.userProfileEnabled = groupOfMode(chat.mode) === 'play' && userProfileEnabled === true
+    // The sidebar setting is the sole opt-in; opening previews and legacy clients cannot override it.
+    const profile = groupOfMode(chat.mode) === 'play' && options.userPreferenceProfile
+      ? await options.userPreferenceProfile.read()
+      : null
+    chat.userProfileEnabled = profile?.hasConfirmed === true && profile.defaultEnabled === true
     chat.webSearchEnabled = groupOfMode(chat.mode) === 'play' && currentSettings.webSearchEnabled === true
     chat.backgroundModelSelection = groupOfMode(chat.mode) === 'play'
       ? snapshotBackgroundModel(currentSettings.backgroundModel, native.selection(sessionId))

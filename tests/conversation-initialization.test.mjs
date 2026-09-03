@@ -1,8 +1,58 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { initializationFixture } from './fixtures/conversation-initialization.mjs'
+import { createUserPreferenceProfile } from '../tavern-plugin/lib/domain/user-preference-profile.js'
 
 const messages = session => session.events.filter(event => event.type === 'assistant/message')
+
+async function profileFixture() {
+  let value
+  const profile = createUserPreferenceProfile({ store: {
+    readJson: async () => structuredClone(value),
+    updateJson: async (_path, update) => { value = await update(structuredClone(value)); return structuredClone(value) }
+  } })
+  const draft = await profile.saveDraft({ summary: '偏好', injectionText: '偏好慢热但持续推进。' })
+  await profile.confirm({ draftRevision: draft.draft.revision, confirmation: '确认保存用户画像' })
+  return profile
+}
+
+test('画像仅采用右侧保存的开关，旧开场参数不能启用或覆盖设置', async () => {
+  const profile = await profileFixture()
+  const h = initializationFixture({ userPreferenceProfile: profile })
+  const off = await h.make().start({ ...h.input, userProfileEnabled: true })
+  assert.equal(off.userProfileEnabled, false)
+  assert.equal(off.userProfileContextSnapshot, '')
+
+  await profile.setDefaultEnabled(true)
+  const on = await h.make().start({ ...h.input, sessionId: 'enabled', userProfileEnabled: false })
+  assert.equal(on.userProfileEnabled, true)
+  assert.match(on.userProfileContextSnapshot, /偏好慢热但持续推进/)
+  assert.ok(on.userProfileRevision > 0)
+  assert.match(h.session('enabled').prefix, /偏好慢热但持续推进/)
+
+  const card = await h.make().start({ ...h.input, sessionId: 'workbench', mode: 'card', cardPath: '' })
+  assert.equal(card.userProfileEnabled, false)
+  assert.equal(card.userProfileContextSnapshot, '')
+})
+
+test('画像开关和确认版本只影响新局，不改写已创建的游戏', async () => {
+  const profile = await profileFixture()
+  await profile.setDefaultEnabled(true)
+  const h = initializationFixture({ userPreferenceProfile: profile })
+  const first = await h.make().start(h.input)
+  await profile.updateConfirmed({ expectedRevision: first.userProfileRevision, summary: '新偏好', injectionText: '改为快节奏冒险。' })
+  await profile.setDefaultEnabled(false)
+  const existing = await h.make().start(h.input)
+  assert.equal(existing.userProfileEnabled, true)
+  assert.equal(existing.userProfileRevision, first.userProfileRevision)
+  assert.equal(existing.userProfileContextSnapshot, first.userProfileContextSnapshot)
+  assert.equal((await h.make().start({ ...h.input, sessionId: 'next' })).userProfileEnabled, false)
+})
+
+test('没有确认画像时，即使旧数据保存了开启标记，也不会注入', async () => {
+  const h = initializationFixture({ userPreferenceProfile: { read: async () => ({ hasConfirmed: false, defaultEnabled: true }) } })
+  assert.equal((await h.make().start(h.input)).userProfileEnabled, false)
+})
 
 test('creation preserves opening source/projection, stable context, request mode and unknown preset fields', async () => {
   const h = initializationFixture(), before = structuredClone(h.card)
