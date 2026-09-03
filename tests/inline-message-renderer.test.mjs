@@ -400,7 +400,8 @@ test('官方 MVU owner 作为共享沙箱首个系统模块本地加载', () => 
   assert.ok(frames[0].srcdoc.indexOf('__dsh_official_mvu__') < frames[0].srcdoc.indexOf('guard'))
   const loaderUrl = frames[0].srcdoc.match(/<script type="module" src="data:text\/javascript;base64,([^"]+)"/)[1]
   const loader = Buffer.from(loaderUrl, 'base64').toString('utf8')
-  const modules = JSON.parse(loader.match(/const scripts=(\[[\s\S]*?\]);\ntry/)[1])
+  const modules = JSON.parse(loader.match(/const scripts=(\[[^\n]*\]);\n/)[1])
+  assert.equal(modules[0].assetUrl, '/api/dsh-tavern/vendor/magvarupdate/bundle.js')
   const officialModule = modules[0].content
   assert.match(officialModule, /vendor\/magvarupdate\/bundle\.js/)
   assert.match(loader, /await window\.waitGlobalInitialized\("Mvu"\)/)

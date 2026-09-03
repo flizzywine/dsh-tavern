@@ -1,5 +1,5 @@
 // Real browser loader, execution lease, event gate and settlement. Only the model
-// and persistence are isolated. Open /?fail=1 to reject the actual MVU import.
+// and persistence are isolated. ?mode=manual|auto|unsafe covers recovery.
 import { createServer } from 'node:http'
 import { readFile, mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -20,13 +20,17 @@ const states = new Map()
 function state(id) {
   if (!states.has(id)) {
     const variables = { stat_data: { hp: 10 }, schema: { type: 'object', properties: { hp: { type: 'number' } } }, display_data: {}, delta_data: {}, initialized_lorebooks: {} }
-    states.set(id, { writes: 0, calls: 0, chat: { id, sessionId: id, mode: 'story', mvu: { enabled: true, owner: 'official' },
+    states.set(id, { downloads: 0, writes: 0, hpWrites: 0, resumes: 0, calls: 0, chat: { id, sessionId: id, mode: 'story', mvu: { enabled: true, owner: 'official' },
       messages: [{ role: 'assistant', text: '测试正文', swipeId: 0, swipes: ['测试正文'], variables: [variables] }] } })
   }
   return states.get(id)
 }
 const adapter = createTavernScriptHostAdapter({ resolveChat: async id => state(id).chat,
-  writeChat: async chat => { state(chat.id).writes++; state(chat.id).chat = structuredClone(chat) },
+  writeChat: async chat => {
+    const s = state(chat.id)
+    if (s.chat.messages[0].variables[0].stat_data.hp !== chat.messages[0].variables[0].stat_data.hp) s.hpWrites++
+    s.writes++; s.chat = structuredClone(chat)
+  },
   readCard: async () => ({ name: '测试卡' }), worldBooks: { bound: async () => null }, eventGate: gate })
 const settlement = createMvuSettlementModule({ runtime: adapter, model: { async run(request) {
   const s = state(request.sessionId)
@@ -35,12 +39,39 @@ const settlement = createMvuSettlementModule({ runtime: adapter, model: { async 
   s.feedback = JSON.parse(await request.onToolCall({ name: 'mvu_submit_update', arguments: { operations: [{ op: 'replace', path: '/hp', value: 9 }] } }))
   return {}
 } } })
+function settlementInput(id) {
+  const s = state(id)
+  return { sessionId: id, operationId: 'op', chatId: id, branchId: 'b', basedOnRevision: 0,
+    messageId: 0, swipeId: 0, storyText: '测试正文', currentVariables: s.chat.messages[0].variables[0] }
+}
+async function resume(id) {
+  const s = state(id)
+  if (!s.pending || s.resuming || !gate.status(id).ready) return
+  s.resuming = true
+  s.resumes++
+  try {
+    s.result = await settlement.resumeVariables({ ...settlementInput(id), submission: s.pending })
+    assert.equal(s.result.receipt.status, 'updated')
+    assert.equal(s.chat.messages[0].variables[0].stat_data.hp, 9)
+    assert.equal(s.calls, 1)
+    // Core initializes its schema once before settlement; count game mutations separately.
+    assert.equal(s.hpWrites, 1)
+    assert.equal(s.resumes, 1)
+    s.pending = null
+  } catch (error) { s.resumeError = error.message } finally { s.resuming = false }
+}
+gate.subscribeReady(sessionId => { void resume(sessionId) })
 const server = createServer(async (req, res) => {
   try {
     const url = new URL(req.url, 'http://localhost')
     res.setHeader('Access-Control-Allow-Origin', '*')
     if (url.pathname === '/client.js') return res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8' }).end(client)
-    if (url.pathname === '/mvu.js') return res.writeHead(url.searchParams.has('fail') ? 503 : 200, { 'content-type': bundle.mediaType }).end(url.searchParams.has('fail') ? 'unavailable' : bundle.body)
+    if (url.pathname === '/mvu.js') {
+      const id = url.searchParams.get('id'), s = state(id); s.downloads++
+      const fail = id.startsWith('manual') ? !s.available : id.startsWith('auto') && s.downloads < 3
+      const body = id.startsWith('unsafe') ? 'window.partialWrites=(window.partialWrites||0)+1;throw Error("partial initialization");' : bundle.body
+      return res.writeHead(fail ? 503 : 200, { 'content-type': bundle.mediaType }).end(fail ? 'unavailable' : body)
+    }
     if (url.pathname === '/api/dsh-tavern/static-assets') {
       const asset = await assets.get(url.searchParams.get('url'))
       return res.writeHead(200, { 'content-type': asset.mediaType }).end(/javascript/.test(asset.mediaType) ? rewriteCachedModuleImports(asset.body.toString(), asset.finalUrl) : asset.body)
@@ -57,35 +88,44 @@ const server = createServer(async (req, res) => {
       else if (method === 'updateTavernHelperMessages') result = await adapter.updateMessages(sessionId, args.messages, 0)
       else if (method === 'saveTavernExtensionSettings') result = { updated: true, extensionSettings: args.settings }
       else if (method === 'getTavernHelperWorldbook') result = { worldbook: null }
-      else if (method === 'status') result = gate.status(sessionId)
+      else if (method === 'recover') { state(sessionId).available = true; result = { available: true } }
+      else if (method === 'status') {
+        const s = state(sessionId)
+        result = { ...gate.status(sessionId), downloads: s.downloads, calls: s.calls, writes: s.writes, hpWrites: s.hpWrites, resumes: s.resumes,
+          hp: s.chat.messages[0].variables[0].stat_data.hp, receipt: s.result?.receipt, resumeError: s.resumeError }
+      }
       else if (method === 'run') {
         const s = state(sessionId); s.writes = 0
-        const resultState = await settlement.settleVariables({ sessionId, operationId: 'op', chatId: sessionId, branchId: 'b', basedOnRevision: 0,
-          messageId: 0, swipeId: 0, storyText: '测试正文', currentVariables: s.chat.messages[0].variables[0] })
-        const failed = sessionId === 'failed'
-        assert.equal(resultState.receipt.status, failed ? 'error' : 'updated')
-        assert.equal(s.chat.messages[0].variables[0].stat_data.hp, failed ? 10 : 9)
-        assert.equal(s.writes, failed ? 0 : 1)
+        const resultState = await settlement.settleVariables(settlementInput(sessionId))
+        const failed = sessionId.startsWith('unsafe'), waiting = !gate.status(sessionId).ready && !failed
+        assert.equal(resultState.receipt.status, failed ? 'error' : waiting ? 'pending' : 'updated')
+        assert.equal(s.chat.messages[0].variables[0].stat_data.hp, failed || waiting ? 10 : 9)
+        assert.equal(s.writes, failed || waiting ? 0 : 1)
         assert.equal(s.calls, 1)
-        if (failed) { assert.equal(s.feedback.retryable, false); assert.match(JSON.stringify(resultState.receipt), /Failed to fetch dynamically imported module/) }
+        if (failed) { assert.equal(s.feedback.retryable, false); assert.match(JSON.stringify(resultState.receipt), /partial initialization/) }
+        s.result = resultState
+        if (waiting) { s.pending = resultState.submission; void resume(sessionId) }
         result = { pass: true, hp: s.chat.messages[0].variables[0].stat_data.hp, writes: s.writes, calls: s.calls, receipt: resultState.receipt }
       }
       return res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(result))
     }
-    const failed = url.searchParams.has('fail'), id = failed ? 'failed' : 'normal'
+    const mode = url.searchParams.get('mode') || 'normal', id = mode + (url.searchParams.has('sandbox') ? '-sandbox' : '-trusted')
     const view = { chatId: id, card: { name: '测试卡' }, tavernHelper: projectTavernHelperContext(state(id).chat),
       tavernRuntimePolicy: { trustedCardMode: !url.searchParams.has('sandbox') }, tavernHelperScripts: [],
-      tavernMvuRuntime: { owner: 'official', assetUrl: '/mvu.js' + (failed ? '?fail=1' : '') } }
+      tavernMvuRuntime: { owner: 'official', assetUrl: '/mvu.js?id=' + id } }
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }).end(`<!doctype html><meta charset="utf-8"><title>MVU 初始化验证</title>
-      <button id="run" disabled>验证结算</button><pre id="result">加载中</pre>
-      <script>window.__ModuleLoader__={load(d){window.client=d.factory(()=>({}));}};</script><script src="/client.js"></script>
+      <div id="recovery"></div><button id="network">恢复下载服务</button><button id="run" disabled>验证结算</button><pre id="result">加载中</pre>
+      <script>
+      const react={createElement(tag,props,...children){const node=document.createElement(tag);for(const [key,value] of Object.entries(props||{})){if(key==='onClick')node.onclick=value;else if(key==='style')Object.assign(node.style,value);else if(key==='className')node.className=value;else node.setAttribute(key,value);}for(const child of children)if(child!==null&&child!==false)node.append(child);return node;}};
+      window.__ModuleLoader__={load(d){window.client=d.factory(name=>name==='react'?react:{});}};</script><script src="/client.js"></script>
       <script>
       const id=${JSON.stringify(id)},output=document.querySelector('#result');
       async function rpc(method,args={},sessionId=id){const r=await fetch('/rpc',{method:'POST',body:JSON.stringify({method,args,sessionId})});const v=await r.json();if(!r.ok)throw Error(v.error);return v;}
-      const execution=client.createTavernScriptExecutionModule({rpc,invalidate(){}});
+      const execution=client.createTavernScriptExecutionModule({rpc,invalidate(){},onMvuLoadState(state){const node=client.TavernMvuLoadRecovery({state,retry(){execution.retryMvuLoad();}});document.querySelector('#recovery').replaceChildren(...(node?[node]:[]));}});
       execution.sync(id,${JSON.stringify(view)});
-      const timer=setInterval(async()=>{const s=await rpc('status');if(s.ready||s.initializationError){clearInterval(timer);output.textContent=s.initializationError||'MVU 已就绪';document.querySelector('#run').disabled=false;}},100);
-      document.querySelector('#run').onclick=async()=>{document.querySelector('#run').disabled=true;try{output.textContent='PASS\\n'+JSON.stringify(await rpc('run'),null,2);}catch(e){output.textContent='FAIL: '+e.message;}};
+      let ran=false;const timer=setInterval(async()=>{const s=await rpc('status');output.textContent=JSON.stringify(s,null,2);if(!ran&&(s.ready||s.initializationError||s.downloads>=3))document.querySelector('#run').disabled=false;},100);
+      document.querySelector('#network').onclick=()=>rpc('recover');
+      document.querySelector('#run').onclick=async()=>{ran=true;document.querySelector('#run').disabled=true;try{await rpc('run');}catch(e){clearInterval(timer);output.textContent='FAIL: '+e.message;}};
       </script>`)
   } catch (error) { res.writeHead(500, { 'content-type': 'application/json' }).end(JSON.stringify({ error: error.message })) }
 })

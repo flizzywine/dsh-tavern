@@ -446,6 +446,44 @@ test('MVU 导入失败不宣布就绪，也不把未订阅的事件静默当作�
   h.runtime.dispose()
 })
 
+test('下载等待暂停初始化超时，同一沙箱可手动恢复且拒绝重复、伪造和旧窗口重试', () => {
+  const states = [], h = sandbox({ onMvuLoadState: state => states.push(copy(state)) })
+  const input = { ...view(), tavernMvuRuntime: { owner: 'official', assetUrl: '/bundle.js' } }
+  h.runtime.sync('A', input)
+  const frame = h.frames[0]; frame.load()
+  const report = state => h.message(frame, 'dsh-tavern-mvu-load-state', { state })
+  assert.equal(h.timers.size, 1)
+  report({ phase: 'loading', attempt: 1 })
+  assert.equal(h.timers.size, 0)
+  frame.load()
+  assert.equal(h.timers.size, 0, '迟到 load 事件不能恢复下载阶段的初始化超时')
+  const token = frame.contentWindow.messages[0].token
+  h.deliver(frame, { token, type: 'dsh-tavern-mvu-load-state', state: { phase: 'failed' } }, {})
+  assert.equal(h.runtime.retryMvuLoad(), false)
+  report({ phase: 'failed', error: 'HTTP 503', attempt: 3 })
+  assert.equal(h.client.tavernScriptRuntimeReady(h.runtime.inspect()), false)
+  assert.equal(h.runtime.inspect().initializationError, undefined, '可恢复下载失败保持 pending，不终止已保存结算')
+  assert.equal(h.runtime.retryMvuLoad(), true)
+  assert.equal(h.runtime.retryMvuLoad(), false)
+  assert.equal(frame.contentWindow.messages.filter(m => m.type === 'dsh-tavern-mvu-reload').length, 1)
+  assert.equal(h.frames.length, 1)
+  report({ phase: 'evaluating' })
+  assert.equal(h.timers.size, 1)
+  report({ phase: 'failed' })
+  assert.equal(h.runtime.retryMvuLoad(), false, '执行后不能退回可重试状态')
+  h.message(frame, 'dsh-tavern-helper-subscriptions', { ready: true, names: [], scripts: [
+    { id: '__dsh_official_mvu__', ready: true }, { id: 'script', ready: true }
+  ] })
+  assert.equal(h.timers.size, 0)
+  assert.equal(states.at(-1).phase, 'ready')
+  assert.equal(h.client.tavernScriptRuntimeReady(h.runtime.inspect()), true)
+  h.runtime.sync('B', input)
+  report({ phase: 'failed' })
+  assert.equal(h.runtime.retryMvuLoad(), false)
+  h.runtime.dispose()
+  assert.equal(states.at(-1), null)
+})
+
 test('执行租约轮询将 MVU 加载失败与未就绪分开报告', async () => {
   const h = execution()
   h.module.sync('A', view())

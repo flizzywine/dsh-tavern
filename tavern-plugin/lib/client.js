@@ -2493,6 +2493,68 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			parent.postMessage({ type: "dsh-tavern-helper-script-ready", token: token }, "*");
 		}
 
+		// Only downloading is repeatable. Once evaluation starts, its effects are unknown.
+		function createMvuBundleLoader(options) {
+			const delays = options.retryDelays || [1000, 2000];
+			let disposed = false, pending = null, resume = null, cancel = null;
+			function check() { if (disposed) throw new Error("MVU loader disposed"); }
+			function state(value) { if (!disposed && options.onState) options.onState(value); }
+			function wait(delay) {
+				return new Promise(function (resolve, reject) {
+					let timer;
+					function finish(error) { clearTimeout(timer); cancel = null; resume = null; if (error) reject(error); else resolve(); }
+					cancel = function () { finish(new Error("MVU loader disposed")); };
+					if (delay === null) resume = function () { finish(); };
+					else timer = setTimeout(finish, delay);
+				});
+			}
+			async function download(url) {
+				const controller = new AbortController();
+				let timer;
+				try {
+					return await Promise.race([
+						Promise.resolve().then(async function () {
+							check();
+							const response = await options.fetch(url, { signal: controller.signal, cache: "no-store" });
+							if (!response.ok) throw new Error("MVU 下载失败（HTTP " + response.status + "）");
+							return await response.text();
+						}),
+						new Promise(function (_resolve, reject) {
+							cancel = function () { controller.abort(); reject(new Error("MVU loader disposed")); };
+							timer = setTimeout(function () { controller.abort(); reject(new Error("MVU 下载超时")); }, options.timeoutMs || 10000);
+						})
+					]);
+				} finally { clearTimeout(timer); cancel = null; }
+			}
+			async function run(url) {
+				while (true) {
+					for (let attempt = 0; attempt <= delays.length; attempt++) {
+						check();
+						state({ phase: "loading", attempt: attempt + 1, canRetry: false });
+						let source;
+						try { source = await download(url); }
+						catch (error) {
+							check();
+							if (attempt < delays.length) { await wait(delays[attempt]); continue; }
+							const waiting = wait(null);
+							state({ phase: "failed", attempt: attempt + 1, canRetry: true, error: String(error.message || error).slice(0, 4000) });
+							await waiting;
+							break;
+						}
+						check();
+						state({ phase: "evaluating", canRetry: false });
+						// Never catch evaluation errors in the download retry loop.
+						return await options.evaluate(source);
+					}
+				}
+			}
+			return Object.freeze({
+				load: function (url) { if (!pending) pending = run(url); return pending; },
+				retry: function () { if (disposed || !resume) return false; resume(); return true; },
+				dispose: function () { disposed = true; if (cancel) cancel(); }
+			});
+		}
+
 		function loadTavernHelperModule(source) {
 			return new Promise(function (resolve, reject) {
 				const element = document.createElement("script");
@@ -2549,12 +2611,20 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				+ 'createChatData:' + createTavernChatDataFacade.toString() + ','
 				+ 'installFacade:' + installTavernHelperFacade.toString() + '});';
 			const modules = scripts.map(function (script) {
-				return { id: String(script && script.id || ""), system: String(script && script.system || ""), content: String(script && script.content || "") };
+				return { id: String(script && script.id || ""), system: String(script && script.system || ""), assetUrl: String(script && script.assetUrl || ""), content: String(script && script.content || "") };
 			});
 			const loaderSource = 'await window.__dshTavernHelperReady;\n'
 				+ 'const loadModule=' + loadTavernHelperModule.toString() + ';\n'
+				+ 'const createMvuLoader=' + createMvuBundleLoader.toString() + ';\n'
 				+ 'const scripts=' + JSON.stringify(modules).replace(/</g, "\\u003c") + ';\n'
-				+ 'try{for(const script of scripts){window.__dshTavernHelperSetCurrentScript(script.id);try{await loadModule(script.content);if(script.system==="official-mvu")await window.waitGlobalInitialized("Mvu");window.__dshTavernHelperSubscriptionsReady(script.id);}catch(error){window.__dshTavernHelperSubscriptionsFailed(script.id,error);}}}finally{window.__dshTavernResolveCompanionScriptsReady();}';
+				+ 'const token=' + JSON.stringify(metadata.token) + ';\n'
+				+ 'try{for(const script of scripts){window.__dshTavernHelperSetCurrentScript(script.id);try{'
+				+ 'if(script.system==="official-mvu"&&script.assetUrl){const loader=createMvuLoader({fetch:window.fetch.bind(window),evaluate:loadModule,onState(state){parent.postMessage({type:"dsh-tavern-mvu-load-state",token,state},"*");}});'
+				+ 'const retry=event=>{if(event.source===parent&&event.data?.token===token&&event.data.type==="dsh-tavern-mvu-reload")loader.retry();};'
+				+ 'window.addEventListener("message",retry);window.addEventListener("pagehide",()=>loader.dispose(),{once:true});'
+				+ 'try{await loader.load(new URL(script.assetUrl,document.baseURI).href);}finally{window.removeEventListener("message",retry);}}else await loadModule(script.content);'
+				+ 'if(script.system==="official-mvu")await window.waitGlobalInitialized("Mvu");window.__dshTavernHelperSubscriptionsReady(script.id);'
+				+ '}catch(error){window.__dshTavernHelperSubscriptionsFailed(script.id,error);if(script.system==="official-mvu")break;}}}finally{window.__dshTavernResolveCompanionScriptsReady();}';
 			const moduleUrl = "data:text/javascript;base64," + encodeTavernScriptSource(loaderSource);
 			return '<!doctype html><html><head><meta charset="utf-8">'
 				+ '<meta name="referrer" content="no-referrer">'
@@ -2574,6 +2644,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const resolveError = options && options.resolveError || function (source, beforeAt) { tavernErrorHub.resolve(source, beforeAt); };
 			const reportMutation = options && options.onMutation || function (sessionId) { liveTavernView.invalidate(sessionId); };
 			const onReady = options && typeof options.onReady === "function" ? options.onReady : function () {};
+			const onMvuLoadState = options && options.onMvuLoadState || function () {};
 			const initializationTimeoutMs = Math.max(1000, Number(options && options.initializationTimeoutMs) || 15000);
 			const eventTimeoutMs = Math.max(10, Number(options && options.eventTimeoutMs) || 15000);
 			const records = new Map();
@@ -2617,6 +2688,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				if (record.initializationTimer) hostWindow.clearTimeout(record.initializationTimer);
 				record.initializationTimer = null;
 				if (error && !record.subscriptionsReady) {
+					if (record.scripts.has("__dsh_official_mvu__")) onMvuLoadState({ phase: "error", canRetry: false, error: String(error.message || error) });
 					record.initializationFailed = true;
 					const unfinished = Array.from(record.scripts.values()).filter(function (script) { return !script.subscriptionsReady && !script.initializationFailed; });
 					for (const script of unfinished) { script.initializationFailed = true; script.initializationError = String(error && error.message || error).slice(0, 4000); }
@@ -2792,6 +2864,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				announcedReadinessKey = "";
 				closedEventIds.clear();
 				closedEventOrder.length = 0;
+				onMvuLoadState(null);
 			}
 			function createRecord(sessionId, scripts, context, trustedCardMode) {
 				const frame = hostDocument.createElement("iframe");
@@ -2827,7 +2900,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					record.loaded = true;
 					for (const script of record.scripts.values()) script.loaded = true;
 					post(record, { type: "dsh-tavern-helper-context", context: record.context });
-					if (!record.subscriptionsReady && !record.initializationFailed) {
+					if (!record.subscriptionsReady && !record.initializationFailed && !record.mvuLoadState) {
 						record.initializationTimer = hostWindow.setTimeout(function () {
 							settleInitialization(record, new Error("初始化超时（" + String(initializationTimeoutMs) + "ms）"));
 						}, initializationTimeoutMs);
@@ -2846,6 +2919,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 						id: "__dsh_official_mvu__",
 						name: "官方 MVU Core",
 						system: "official-mvu",
+						assetUrl: String(mvu.assetUrl),
 						content: 'await import(new URL(' + JSON.stringify(String(mvu.assetUrl)) + ', document.baseURI).href);',
 						data: {}, buttons: [], info: ""
 					});
@@ -2883,6 +2957,22 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				if (!data || !data.token) return;
 				const record = Array.from(records.values()).find(function (item) { return item.token === data.token && event.source === item.frame.contentWindow; });
 				if (!record) return;
+				if (data.type === "dsh-tavern-mvu-load-state") {
+					const core = record.scripts.get("__dsh_official_mvu__");
+					if (!core || core.subscriptionsReady || core.initializationFailed) return;
+					const state = data.state;
+					if (!state || !["loading", "failed", "evaluating"].includes(state.phase)) return;
+					// Bootstrap can report before the iframe load event (top-level await).
+					record.loaded = true;
+					if (record.mvuLoadState && record.mvuLoadState.phase === "evaluating") return;
+					if (record.initializationTimer) hostWindow.clearTimeout(record.initializationTimer);
+					record.initializationTimer = null;
+					record.mvuLoadState = { phase: state.phase, canRetry: state.phase === "failed", attempt: Number(state.attempt) || 0, error: String(state.error || "").slice(0, 4000) };
+					if (state.phase === "failed") invoke("recordMvuRuntimeDiagnostic", { diagnostic: { level: "error", scriptId: core.id, message: "MVU 下载重试耗尽，等待手动重新加载：" + record.mvuLoadState.error } }, record.sessionId).catch(function () {});
+					if (state.phase === "evaluating") record.initializationTimer = hostWindow.setTimeout(function () { settleInitialization(record, new Error("MVU 初始化超时")); }, initializationTimeoutMs);
+					onMvuLoadState(record.mvuLoadState);
+					return;
+				}
 				if (data.type === "dsh-tavern-helper-compatibility") {
 					const script = record.scripts.get(data.scriptId);
 					const entry = record.compatibilityCatalog.get(data.capabilityId);
@@ -2915,6 +3005,11 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 						script.subscriptionsReady = status.ready === true;
 						script.initializationFailed = status.failed === true;
 						if (script.subscriptionsReady && !script.initializationFailed) resolveError("人物卡脚本「" + script.name + "」", record.startedAt);
+						if (script.id === "__dsh_official_mvu__" && (script.subscriptionsReady || script.initializationFailed)) {
+							record.mvuLoadState = { phase: script.initializationFailed ? "error" : "ready", canRetry: false, error: mvuInitializationError(record) };
+							onMvuLoadState(record.mvuLoadState);
+							if (script.initializationFailed) settleInitialization(record);
+						}
 					}
 					if (statuses.length === 0 && record.scripts.size === 1 && data.ready === true) record.scripts.values().next().value.subscriptionsReady = true;
 					if (data.ready === true) {
@@ -2974,6 +3069,14 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			return Object.freeze({
 				sync: sync,
 				emit: emit,
+				retryMvuLoad: function () {
+					const record = records.get("shared");
+					if (!record || !record.mvuLoadState || !record.mvuLoadState.canRetry) return false;
+					record.mvuLoadState = { phase: "loading", canRetry: false, attempt: 1 };
+					onMvuLoadState(record.mvuLoadState);
+					post(record, { type: "dsh-tavern-mvu-reload" });
+					return true;
+				},
 				flushCompatibilityDiagnostics: function () { return Promise.all(Array.from(records.values()).map(flushCompatibility)); },
 				triggerButton: function (scriptId, name) {
 					const record = records.get("shared");
@@ -2985,7 +3088,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					const record = records.get("shared");
 					const scripts = record ? Array.from(record.scripts.values()).map(function (script) { return { id: script.id, loaded: script.loaded, subscriptionsReady: script.subscriptionsReady, initializationFailed: script.initializationFailed }; }) : [];
 					const initializationError = mvuInitializationError(record);
-					return { sessionId: activeSessionId, frameCount: record ? 1 : 0, scriptIds: scripts.map(function (script) { return script.id; }), scripts: scripts, ...(initializationError ? { initializationError: initializationError } : {}) };
+					return { sessionId: activeSessionId, frameCount: record ? 1 : 0, scriptIds: scripts.map(function (script) { return script.id; }), scripts: scripts, ...(record && record.mvuLoadState ? { mvuLoadState: record.mvuLoadState } : {}), ...(initializationError ? { initializationError: initializationError } : {}) };
 				}
 			});
 		}
@@ -3023,6 +3126,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				pollTimer = null;
 				if (runtime) runtime.dispose();
 				runtime = null;
+				if (options && options.onMvuLoadState) options.onMvuLoadState(null);
 				if (previousLease && previousLease.sessionId) invoke("releaseTavernHelperRuntime", { runtimeId: previousLease.id }, previousLease.sessionId).catch(function () {});
 			}
 			function ensureRuntime(sessionId) {
@@ -3031,6 +3135,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				const currentLease = lease;
 				runtime = createRuntime({
 					window: hostWindow, rpc: invoke, onMutation: invalidate,
+					onMvuLoadState: function (state) { if (lease === currentLease && options && options.onMvuLoadState) options.onMvuLoadState(state); },
 					onReady: function (readySessionId) {
 						if (lease !== currentLease || !readySessionId || !input || input.sessionId !== readySessionId) return;
 						return runtime.emit("CHAT_CHANGED", [], input.view && input.view.tavernHelper);
@@ -3114,6 +3219,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			}
 			return Object.freeze({
 				sync: sync, dispose: dispose,
+				retryMvuLoad: function () { return Boolean(runtime && active && runtime.retryMvuLoad()); },
 				triggerButton: function (scriptId, name) {
 					if (!runtime || !active) return Promise.reject(new Error("人物卡脚本正在其他窗口运行，或尚未加载完成"));
 					return runtime.triggerButton(scriptId, name);
@@ -3134,13 +3240,24 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const liveState = useLiveTavernView(props.sessionId);
 			const transitioning = React.useSyncExternalStore(tavernSessionTransition.subscribe, tavernSessionTransition.getSnapshot, tavernSessionTransition.getSnapshot);
 			const executionRef = React.useRef(null);
-			if (!executionRef.current) executionRef.current = createTavernScriptExecutionModule({ rpc: rpc, invalidate: function (sessionId) { liveTavernView.invalidate(sessionId); } });
+			const [mvuLoadState, setMvuLoadState] = React.useState(null);
+			if (!executionRef.current) executionRef.current = createTavernScriptExecutionModule({ rpc: rpc, onMvuLoadState: setMvuLoadState, invalidate: function (sessionId) { liveTavernView.invalidate(sessionId); } });
 			const execution = executionRef.current;
 			React.useEffect(function () { return function () { execution.dispose(); }; }, [execution]);
 			React.useEffect(function () {
 				if (!transitioning && liveState.view) execution.sync(props.sessionId, liveState.view);
 			}, [execution, props.sessionId, liveState.view, transitioning]);
-			return null;
+			return React.createElement(TavernMvuLoadRecovery, { state: mvuLoadState, retry: function () { execution.retryMvuLoad(); } });
+		}
+
+		function TavernMvuLoadRecovery(props) {
+			const state = props.state;
+			if (!state || state.phase === "ready") return null;
+			const failed = state.phase === "failed" || state.phase === "error";
+			return React.createElement("div", { role: failed ? "alert" : "status", style: { padding: "8px 12px", fontSize: "13px", maxWidth: "min(420px, 80vw)" } },
+				React.createElement("div", null, state.phase === "failed" ? "MVU 下载失败，已自动重试两次。变量结算已暂停，重新加载成功后会自动继续。" : state.phase === "error" ? "MVU 初始化失败，请刷新页面或重启酒馆。为避免重复修改变量，不自动重跑初始化。" : state.phase === "evaluating" ? "正在初始化 MVU…" : "正在加载 MVU…" + (state.attempt > 1 ? "（自动重试 " + (state.attempt - 1) + "/2）" : "")),
+				failed && state.error ? React.createElement("div", { style: { opacity: 0.7, overflowWrap: "anywhere" } }, state.error) : null,
+				state.canRetry ? React.createElement("button", { type: "button", className: "dsh-tavern-btn", onClick: props.retry }, "重新加载 MVU") : null);
 		}
 
 		const TAVERN_FRAME_MAX_HEIGHT = 1200;
@@ -7192,6 +7309,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		exports.TavernMessageFrame = TavernMessageFrame;
 		exports.createTavernMessageFrameLifecycle = createTavernMessageFrameLifecycle;
 		exports.createTavernScriptExecutionModule = createTavernScriptExecutionModule;
+		exports.createMvuBundleLoader = createMvuBundleLoader;
+		exports.TavernMvuLoadRecovery = TavernMvuLoadRecovery;
 		exports.apply = apply;
 		exports.createTurnHistoryProjection = createTurnHistoryProjection;
 		exports.createSupersededErrorProjection = createSupersededErrorProjection;

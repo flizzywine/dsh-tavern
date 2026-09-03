@@ -85,6 +85,15 @@ test('模块等待 bootstrap 与前一个脚本完成，官方核心就绪后才
   assert.deepEqual(run.events, [['start', 'core'], ['global', 'Mvu'], ['ready', 'core'], ['start', 'schema'], ['ready', 'schema'], ['done']])
 })
 
+test('官方核心执行失败停止配套脚本，不能部分初始化后继续写入', async () => {
+  const run = harness([{ id: 'core', system: 'official-mvu', content: 'bad' }, { id: 'schema', content: 'write()' }], ({ element }) => {
+    element.onerror({ message: 'partial execution' })
+  })
+  await run.run()
+  assert.equal(run.elements.length, 1)
+  assert.deepEqual(run.events, [['start', 'core'], ['failed', 'core', 'partial execution'], ['done']])
+})
+
 test('模块加载、执行和插入失败均清理监听并继续下一脚本', async () => {
   for (const kind of ['load', 'execute', 'append']) {
     let index = 0
