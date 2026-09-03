@@ -36,7 +36,7 @@ import { MVU_SUBMIT_UPDATE_TOOL, createMvuSettlementModule } from './domain/mvu-
 import { CHARACTER_DESIGN_READ_TOOL, CHARACTER_DESIGN_SAVE_TOOL } from './domain/character-design-document.js'
 import { POSTURE_SUBMIT_TOOL, POSTURE_SUBMIT_TOOL_NAME, normalizePostureSubmission } from './domain/posture-submission.js'
 import { TAVERN_COMPATIBILITY_CAPABILITIES, createTavernCompatibilityDiagnosticStore } from './domain/tavern-compatibility-diagnostics.js'
-import { createMvuDiagnosticStore, createMvuDiagnosticExport, sanitizeRuntimeDiagnostics } from './domain/mvu-diagnostics.js'
+import { createMvuDiagnosticStore, createMvuDiagnosticExport, sanitizeRuntimeDiagnostics, sanitizeMvuLoadDiagnostic } from './domain/mvu-diagnostics.js'
 import { projectPersistentStatusView } from './domain/persistent-status-view.js'
 import { createPlayChatDebugReference, readPlayChatDebugTurn } from './domain/play-chat-debug.js'
 import { createPresetLibrary } from './domain/preset-library.js'
@@ -55,7 +55,7 @@ import { createTavernHelperEventGate } from './domain/tavern-helper-event-gate.j
 import { createTavernExtensionSettings } from './domain/tavern-extension-settings.js'
 import { createTavernScriptHostAdapter } from './domain/tavern-script-host-adapter.js'
 import { createTavernRemoteAssetPinStore } from './domain/tavern-remote-assets.js'
-import { OFFICIAL_MVU_VERSION, readOfficialMvuBundle } from './domain/official-mvu-assets.js'
+import { OFFICIAL_MVU_VERSION, readOfficialMvuBundle, inspectOfficialMvuAsset } from './domain/official-mvu-assets.js'
 import { createTavernStaticResourceCache, projectCachedResourceBody } from './domain/tavern-static-resource-cache.js'
 import { SILLYTAVERN_CSS_COMPAT_URLS } from './domain/sillytavern-css-compatibility.js'
 import { createRoundHistory } from './domain/round-history.js'
@@ -768,7 +768,7 @@ export async function apply(ctx) {
     let compatibilityDiagnostic
     try { compatibilityDiagnostic = await compatibilityDiagnostics.read(sessionId) }
     catch { compatibilityDiagnostic = { version: 1, records: [], error: '兼容能力诊断读取失败，仍导出其他日志。' } }
-    const exported = await createMvuDiagnosticExport({ sessionId, backgroundSessionIds, compatibilityDiagnostics: compatibilityDiagnostic, store: mvuDiagnostics, sceneDiagnostics: imageDiagnostic, sessions: sessionStore, persistence: ctx.get('sessionPersistence'), query: ctx.get('sessionQuery'), attachments: ctx.get('attachments'), environment: { mvu: OFFICIAL_MVU_VERSION } })
+    const exported = await createMvuDiagnosticExport({ sessionId, backgroundSessionIds, compatibilityDiagnostics: compatibilityDiagnostic, store: mvuDiagnostics, sceneDiagnostics: imageDiagnostic, sessions: sessionStore, persistence: ctx.get('sessionPersistence'), query: ctx.get('sessionQuery'), attachments: ctx.get('attachments'), environment: { mvu: OFFICIAL_MVU_VERSION, mvuAsset: inspectOfficialMvuAsset(), runtime: { generation: runtimeGeneration, platform: process.platform, arch: process.arch, nodeVersion: process.version } } })
     return { filename: exported.filename, base64: exported.buffer.toString('base64') }
   }
   async function attachPlayChatDebug(targetSessionId, sourceSessionId, turn) {
@@ -2047,6 +2047,13 @@ export async function apply(ctx) {
         const chat = await chatForSession(str(args && args.sessionId))
         if (!chat) throw new Error('当前 Session 没有绑定 Tavern 对话')
         const diagnostic = args && args.diagnostic || {}
+        if (diagnostic.kind === 'mvu-load') {
+          const detail = sanitizeMvuLoadDiagnostic(diagnostic)
+          if (!detail) return { recorded: false }
+          try { await mvuDiagnostics.record(chat.sessionId, { stage: 'mvu-load', diagnostic: detail }) }
+          catch { return { recorded: false } }
+          return { recorded: true }
+        }
         await mvuDiagnostics.record(chat.sessionId, { stage: 'script-runtime', diagnostic: { level: diagnostic.level === 'error' ? 'error' : 'warn', scriptId: str(diagnostic.scriptId).slice(0, 200), message: str(diagnostic.message).slice(0, 4000) } })
         return { recorded: true }
       }

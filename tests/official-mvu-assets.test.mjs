@@ -2,7 +2,39 @@ import assert from 'node:assert/strict'
 import { access, readFile } from 'node:fs/promises'
 import test from 'node:test'
 
-import { OFFICIAL_MVU_VERSION, readOfficialMvuBundle } from '../tavern-plugin/lib/domain/official-mvu-assets.js'
+import { OFFICIAL_MVU_VERSION, readOfficialMvuBundle, createOfficialMvuBundleReader } from '../tavern-plugin/lib/domain/official-mvu-assets.js'
+
+test('文件读取错误保留原异常，诊断脱敏且观察不会重新读文件', async () => {
+  const original = Object.assign(new Error("ENOENT: open 'C:\\Users\\PRIVATE_USER\\bundle.js' apiKey=SECRET_VALUE"), { code: 'ENOENT' })
+  let reads = 0
+  const reader = createOfficialMvuBundleReader({ read: async () => { reads++; throw original } })
+  assert.equal(reader.inspect().phase, 'not-read')
+  assert.equal(reads, 0)
+  await assert.rejects(reader.read(), error => error === original)
+  await assert.rejects(reader.read(), error => error === original)
+  const diagnostic = reader.inspect()
+  assert.equal(diagnostic.phase, 'read-failed')
+  assert.equal(diagnostic.errorCode, 'ENOENT')
+  assert.equal(diagnostic.cacheHits, 1)
+  assert.equal(reads, 1, '本次仅记录，不改变既有失败缓存行为')
+  assert.doesNotMatch(JSON.stringify(diagnostic), /PRIVATE_USER|SECRET_VALUE/)
+  diagnostic.phase = 'forged'
+  assert.equal(reader.inspect().phase, 'read-failed')
+})
+
+test('校验失败记录实际哈希、字节数和换行格式，而不保存文件内容', async () => {
+  const reader = createOfficialMvuBundleReader({ read: async () => Buffer.from('PRIVATE_SCRIPT\r\nline\r\n') })
+  await assert.rejects(reader.read(), /本地官方 MVU 产物校验失败/)
+  const diagnostic = reader.inspect()
+  assert.equal(diagnostic.phase, 'verify-failed')
+  assert.equal(diagnostic.errorCode, 'HASH_MISMATCH')
+  assert.equal(diagnostic.expectedSha256, OFFICIAL_MVU_VERSION.bundleSha256)
+  assert.match(diagnostic.actualSha256, /^[a-f0-9]{64}$/)
+  assert.equal(diagnostic.crlfCount, 2)
+  assert.equal(diagnostic.loneLfCount, 0)
+  assert.equal(diagnostic.bytes, 22)
+  assert.doesNotMatch(JSON.stringify(diagnostic), /PRIVATE_SCRIPT/)
+})
 
 test('官方 MVU 固定产物可离线读取且内容哈希匹配', async function () {
   const asset = await readOfficialMvuBundle()

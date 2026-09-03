@@ -30,6 +30,34 @@ export function sanitizeRuntimeDiagnostics(value) {
   })))
 }
 
+export function redactMvuLoadError(value, limit = 2000) {
+  return redactDiagnostic(String(value || ''))
+    .replace(/[A-Za-z]:[\\/][^\r\n"'<>;]*/g, '[local path]')
+    .replace(/\/(?:Users|home|private|var|tmp|Volumes|opt)\/[^\r\n"'<>;]*/g, '[local path]')
+    .slice(0, limit)
+}
+
+/** An explicit allowlist: neither response bodies nor arbitrary request headers enter logs. */
+export function sanitizeMvuLoadDiagnostic(value) {
+  const phases = ['download-started', 'download-response', 'download-completed', 'download-failed',
+    'retry-scheduled', 'retry-exhausted', 'manual-retry', 'disposed', 'execution-started', 'execution-completed', 'execution-failed',
+    'initialization-ready', 'initialization-failed', 'initialization-timeout']
+  if (!value || !phases.includes(value.phase)) return null
+  const result = { phase: value.phase }
+  for (const [key, limit] of Object.entries({ loadId: 100, contentType: 120, bodyKind: 40, errorName: 80,
+    message: 2000, serverError: 2000, browser: 120, platform: 40, runtimeMode: 20, failureStep: 40 })) {
+    if (typeof value[key] === 'string') result[key] = redactMvuLoadError(value[key], limit)
+  }
+  for (const key of ['cycle', 'attempt', 'at', 'durationMs', 'delayMs', 'httpStatus', 'contentLength', 'receivedChars']) {
+    if (Number.isSafeInteger(value[key]) && value[key] >= 0) result[key] = value[key]
+  }
+  if (typeof value.responsePath === 'string') {
+    try { result.responsePath = redactMvuLoadError(new URL(value.responsePath, 'http://diagnostic.invalid').pathname, 300) } catch {}
+  }
+  if (typeof value.redirected === 'boolean') result.redirected = value.redirected
+  return result
+}
+
 function bounded(value) {
   const text = JSON.stringify(redactDiagnostic(value))
   if (Buffer.byteLength(text) <= MAX_RECORD_BYTES) return JSON.parse(text)
@@ -88,6 +116,7 @@ export function diagnosticZip(entries) {
 export async function createMvuDiagnosticExport({ sessionId, backgroundSessionIds = [], store, sessions, persistence, query, attachments, sceneDiagnostics, compatibilityDiagnostics, environment = {} }) {
   const notes = ['包含对话文本、附件与变量信息，分享前请检查隐私。凭据已尽力脱敏。MVU 记录有容量限制，旧故障不会被追溯补录。']
   notes.push('mvu/diagnostics.json 中 stage=regeneration-target 是正文重新生成的目标定位证据：记录失败分支、消息结构、轮次和会话绑定摘要，不记录正文或指导意见；只对更新后再次操作生效。')
+  notes.push('stage=mvu-load 记录下载响应类型、状态、有限的错误信息、尝试次数和执行阶段；不记录完整脚本或响应体。mvu/environment.json 的 mvuAsset 是当前服务进程共享的最近文件读取/校验观察，不代表导出会话在故障时的文件状态；导出不会重新加载文件。日志限量、异步写入，关闭页面或写盘失败可能漏记，旧错误不能追溯补录。')
   const ids = new Set([sessionId, ...backgroundSessionIds.filter(Boolean), ...(sceneDiagnostics?.records || []).map(record => record.traceSessionId).filter(Boolean)])
   const sceneContent = sceneDiagnostics ? JSON.stringify(redactDiagnostic(sceneDiagnostics)) : ''
   const sceneBytes = Buffer.byteLength(sceneContent)

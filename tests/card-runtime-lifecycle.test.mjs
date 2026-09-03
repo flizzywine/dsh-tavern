@@ -484,6 +484,32 @@ test('下载等待暂停初始化超时，同一沙箱可手动恢复且拒绝�
   assert.equal(states.at(-1), null)
 })
 
+test('加载诊断经认证沙箱归属到当前会话，限量且不影响运行状态', async () => {
+  const h = sandbox()
+  h.window.navigator = { userAgent: 'Mozilla Windows Chrome/128.0.0.0 custom-private-text' }
+  h.runtime.sync('A', { ...view(), tavernMvuRuntime: { owner: 'official', assetUrl: '/bundle.js' } })
+  const frame = h.frames[0]; frame.load()
+  const token = frame.contentWindow.messages[0].token
+  const diagnostic = { loadId: 'mvu-load-1', phase: 'download-response', attempt: 1, httpStatus: 200, contentType: 'application/json' }
+  h.deliver(frame, { token, type: 'dsh-tavern-mvu-load-diagnostic', diagnostic }, {})
+  assert.equal(h.calls.length, 0)
+  h.respond(() => Promise.reject(Error('disk unavailable')))
+  h.message(frame, 'dsh-tavern-mvu-load-diagnostic', { diagnostic })
+  await tick()
+  assert.equal(h.calls[0].sessionId, 'A')
+  assert.equal(h.calls[0].args.diagnostic.platform, 'Windows')
+  assert.equal(h.calls[0].args.diagnostic.browser, 'Chrome/128.0.0.0')
+  assert.doesNotMatch(JSON.stringify(h.calls), /custom-private-text/)
+  assert.equal(h.runtime.inspect().initializationError, undefined)
+  for (let i = 0; i < 100; i++) h.message(frame, 'dsh-tavern-mvu-load-diagnostic', { diagnostic })
+  assert.equal(h.calls.length, 80)
+  h.runtime.sync('B', view())
+  h.message(frame, 'dsh-tavern-mvu-load-diagnostic', { diagnostic })
+  assert.equal(h.calls.length, 80)
+  h.runtime.dispose()
+  await tick()
+})
+
 test('执行租约轮询将 MVU 加载失败与未就绪分开报告', async () => {
   const h = execution()
   h.module.sync('A', view())

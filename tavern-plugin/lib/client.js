@@ -2497,6 +2497,47 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		function createMvuBundleLoader(options) {
 			const delays = options.retryDelays || [1000, 2000];
 			let disposed = false, pending = null, resume = null, cancel = null;
+			const loadId = "mvu-load-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2);
+			let cycle = 0, attemptNumber = 0, diagnosticCount = 0;
+			function observe(phase, extra) {
+				try {
+					if (!options.onDiagnostic || diagnosticCount++ >= 64) return;
+					const result = options.onDiagnostic(Object.assign({ loadId: loadId, phase: phase, cycle: cycle, attempt: attemptNumber, at: Date.now() }, extra));
+					if (result && typeof result.catch === "function") result.catch(function () {});
+				} catch (_) {} // Observers must never alter loading, retries or the original error.
+			}
+			function responseDetails(response) {
+				const details = {};
+				try {
+					if (Number.isFinite(response.status)) details.httpStatus = response.status;
+					details.redirected = response.redirected === true;
+					if (response.url) details.responsePath = new URL(response.url).pathname;
+					if (response.headers) {
+						details.contentType = String(response.headers.get("content-type") || "").slice(0, 120);
+						const length = response.headers.get("content-length");
+						if (length !== null && /^\d+$/.test(length)) details.contentLength = Number(length);
+					}
+				} catch (_) {}
+				return details;
+			}
+			function bodyDetails(source) {
+				const details = { receivedChars: source.length, bodyKind: source.length > 16384 ? "not-inspected-large" : "unclassified" };
+				try {
+					// Only inspect bounded error envelopes; never log source, body previews or JSON extras.
+					if (source.length <= 16384) {
+						if (source.trim() === "forbidden") details.bodyKind = "forbidden";
+						else {
+							const value = JSON.parse(source);
+							details.bodyKind = "json";
+							if (value && value.ok === false) {
+								details.bodyKind = "json-error";
+								if (typeof value.error === "string") details.serverError = value.error.slice(0, 2000);
+							}
+						}
+					}
+				} catch (_) {}
+				return details;
+			}
 			function check() { if (disposed) throw new Error("MVU loader disposed"); }
 			function state(value) { if (!disposed && options.onState) options.onState(value); }
 			function wait(delay) {
@@ -2510,33 +2551,49 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			}
 			async function download(url) {
 				const controller = new AbortController();
+				const startedAt = Date.now();
+				let details = {};
+				let failureStep = "fetch";
 				let timer;
 				try {
+					observe("download-started");
 					return await Promise.race([
 						Promise.resolve().then(async function () {
 							check();
 							const response = await options.fetch(url, { signal: controller.signal, cache: "no-store" });
+							details = responseDetails(response);
+							failureStep = "http-status";
+							if (!disposed && !controller.signal.aborted) observe("download-response", details);
 							if (!response.ok) throw new Error("MVU 下载失败（HTTP " + response.status + "）");
-							return await response.text();
+							failureStep = "response-body";
+							const source = await response.text();
+							if (!disposed && !controller.signal.aborted) observe("download-completed", Object.assign({}, details, bodyDetails(source), { durationMs: Date.now() - startedAt }));
+							return source;
 						}),
 						new Promise(function (_resolve, reject) {
 							cancel = function () { controller.abort(); reject(new Error("MVU loader disposed")); };
 							timer = setTimeout(function () { controller.abort(); reject(new Error("MVU 下载超时")); }, options.timeoutMs || 10000);
 						})
 					]);
+				} catch (error) {
+					observe(disposed ? "disposed" : "download-failed", Object.assign({}, details, { failureStep: failureStep, durationMs: Date.now() - startedAt, errorName: String(error.name || ""), message: String(error.message || error).slice(0, 2000) }));
+					throw error;
 				} finally { clearTimeout(timer); cancel = null; }
 			}
 			async function run(url) {
 				while (true) {
+					cycle++;
 					for (let attempt = 0; attempt <= delays.length; attempt++) {
+						attemptNumber = attempt + 1;
 						check();
 						state({ phase: "loading", attempt: attempt + 1, canRetry: false });
 						let source;
 						try { source = await download(url); }
 						catch (error) {
 							check();
-							if (attempt < delays.length) { await wait(delays[attempt]); continue; }
+							if (attempt < delays.length) { observe("retry-scheduled", { delayMs: delays[attempt] }); await wait(delays[attempt]); continue; }
 							const waiting = wait(null);
+							observe("retry-exhausted");
 							state({ phase: "failed", attempt: attempt + 1, canRetry: true, error: String(error.message || error).slice(0, 4000) });
 							await waiting;
 							break;
@@ -2544,13 +2601,22 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 						check();
 						state({ phase: "evaluating", canRetry: false });
 						// Never catch evaluation errors in the download retry loop.
-						return await options.evaluate(source);
+						const startedAt = Date.now();
+						observe("execution-started");
+						try {
+							const result = await options.evaluate(source);
+							observe("execution-completed", { durationMs: Date.now() - startedAt });
+							return result;
+						} catch (error) {
+							observe("execution-failed", { durationMs: Date.now() - startedAt, errorName: String(error.name || ""), message: String(error.message || error).slice(0, 2000) });
+							throw error;
+						}
 					}
 				}
 			}
 			return Object.freeze({
 				load: function (url) { if (!pending) pending = run(url); return pending; },
-				retry: function () { if (disposed || !resume) return false; resume(); return true; },
+				retry: function () { if (disposed || !resume) return false; observe("manual-retry"); resume(); return true; },
 				dispose: function () { disposed = true; if (cancel) cancel(); }
 			});
 		}
@@ -2619,7 +2685,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				+ 'const scripts=' + JSON.stringify(modules).replace(/</g, "\\u003c") + ';\n'
 				+ 'const token=' + JSON.stringify(metadata.token) + ';\n'
 				+ 'try{for(const script of scripts){window.__dshTavernHelperSetCurrentScript(script.id);try{'
-				+ 'if(script.system==="official-mvu"&&script.assetUrl){const loader=createMvuLoader({fetch:window.fetch.bind(window),evaluate:loadModule,onState(state){parent.postMessage({type:"dsh-tavern-mvu-load-state",token,state},"*");}});'
+				+ 'if(script.system==="official-mvu"&&script.assetUrl){const loader=createMvuLoader({fetch:window.fetch.bind(window),evaluate:loadModule,onDiagnostic(diagnostic){parent.postMessage({type:"dsh-tavern-mvu-load-diagnostic",token,diagnostic},"*");},onState(state){parent.postMessage({type:"dsh-tavern-mvu-load-state",token,state},"*");}});'
 				+ 'const retry=event=>{if(event.source===parent&&event.data?.token===token&&event.data.type==="dsh-tavern-mvu-reload")loader.retry();};'
 				+ 'window.addEventListener("message",retry);window.addEventListener("pagehide",()=>loader.dispose(),{once:true});'
 				+ 'try{await loader.load(new URL(script.assetUrl,document.baseURI).href);}finally{window.removeEventListener("message",retry);}}else await loadModule(script.content);'
@@ -2688,6 +2754,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				if (record.initializationTimer) hostWindow.clearTimeout(record.initializationTimer);
 				record.initializationTimer = null;
 				if (error && !record.subscriptionsReady) {
+					recordMvuLoadDiagnostic(record, { phase: "initialization-timeout", failureStep: record.mvuLoadState ? "initialization" : "bootstrap", message: String(error.message || error).slice(0, 2000) });
 					if (record.scripts.has("__dsh_official_mvu__")) onMvuLoadState({ phase: "error", canRetry: false, error: String(error.message || error) });
 					record.initializationFailed = true;
 					const unfinished = Array.from(record.scripts.values()).filter(function (script) { return !script.subscriptionsReady && !script.initializationFailed; });
@@ -2866,6 +2933,19 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				closedEventOrder.length = 0;
 				onMvuLoadState(null);
 			}
+			function recordMvuLoadDiagnostic(record, diagnostic) {
+				try {
+					if (!record.scripts.has("__dsh_official_mvu__") || (record.mvuDiagnosticCount || 0) >= 80) return;
+					if (!diagnostic || typeof diagnostic.phase !== "string" || JSON.stringify(diagnostic).length > 12000) return;
+					record.mvuDiagnosticCount = (record.mvuDiagnosticCount || 0) + 1;
+					if (diagnostic.loadId) record.mvuLoadId = String(diagnostic.loadId).slice(0, 100);
+					const ua = String(hostWindow.navigator && hostWindow.navigator.userAgent || "");
+					const browser = (ua.match(/\b(?:Edg|Chrome|HeadlessChrome|CriOS|Firefox|FxiOS|Version|AppleWebKit)\/[\d.]+/g) || []).join(" ").slice(0, 120);
+					const platform = /Windows/i.test(ua) ? "Windows" : /Android/i.test(ua) ? "Android" : /iPhone|iPad/i.test(ua) ? "iOS" : /Macintosh/i.test(ua) ? "macOS" : /Linux/i.test(ua) ? "Linux" : "unknown";
+					const data = Object.assign({}, diagnostic, { kind: "mvu-load", loadId: record.mvuLoadId || "", browser: browser, platform: platform, runtimeMode: record.trustedCardMode ? "trusted" : "sandbox" });
+					Promise.resolve(invoke("recordMvuRuntimeDiagnostic", { diagnostic: data }, record.sessionId)).catch(function () {});
+				} catch (_) {}
+			}
 			function createRecord(sessionId, scripts, context, trustedCardMode) {
 				const frame = hostDocument.createElement("iframe");
 				const fingerprint = scripts.map(function (script) { return script.id + "\n" + script.content; }).join("\n---\n") + "\ntrusted=" + String(trustedCardMode);
@@ -2873,6 +2953,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					id: "shared",
 					sessionId: sessionId,
 					name: "共享脚本沙箱",
+					trustedCardMode: trustedCardMode,
 					startedAt: Date.now(),
 					fingerprint: fingerprint,
 					token: token(),
@@ -2957,6 +3038,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				if (!data || !data.token) return;
 				const record = Array.from(records.values()).find(function (item) { return item.token === data.token && event.source === item.frame.contentWindow; });
 				if (!record) return;
+				if (data.type === "dsh-tavern-mvu-load-diagnostic") { recordMvuLoadDiagnostic(record, data.diagnostic); return; }
 				if (data.type === "dsh-tavern-mvu-load-state") {
 					const core = record.scripts.get("__dsh_official_mvu__");
 					if (!core || core.subscriptionsReady || core.initializationFailed) return;
@@ -3006,6 +3088,9 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 						script.initializationFailed = status.failed === true;
 						if (script.subscriptionsReady && !script.initializationFailed) resolveError("人物卡脚本「" + script.name + "」", record.startedAt);
 						if (script.id === "__dsh_official_mvu__" && (script.subscriptionsReady || script.initializationFailed)) {
+							const phase = script.initializationFailed ? "initialization-failed" : "initialization-ready";
+							if (record.mvuLastInitializationDiagnostic !== phase) recordMvuLoadDiagnostic(record, { phase: phase, message: mvuInitializationError(record) });
+							record.mvuLastInitializationDiagnostic = phase;
 							record.mvuLoadState = { phase: script.initializationFailed ? "error" : "ready", canRetry: false, error: mvuInitializationError(record) };
 							onMvuLoadState(record.mvuLoadState);
 							if (script.initializationFailed) settleInitialization(record);

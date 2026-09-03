@@ -5,7 +5,7 @@ import vm from 'node:vm'
 
 let descriptor
 vm.runInNewContext(await readFile(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8'), {
-  window: { __ModuleLoader__: { load(value) { descriptor = value } } }, console, AbortController, setTimeout, clearTimeout
+  window: { __ModuleLoader__: { load(value) { descriptor = value } } }, console, AbortController, setTimeout, clearTimeout, URL
 })
 const client = descriptor.factory(() => ({}))
 const tick = () => new Promise(resolve => setImmediate(resolve))
@@ -16,6 +16,51 @@ function harness(fetch, evaluate = async () => {}) {
   return { loader, states, evaluations }
 }
 const ok = () => ({ ok: true, text: async () => 'bundle' })
+
+test('HTTP 200 JSON error is observed before the unchanged execution error, without logging its body', async () => {
+  const records = [], original = new SyntaxError("Unexpected token ':'")
+  const body = JSON.stringify({ ok: false, error: 'local bundle checksum mismatch', secret: 'BODY_SECRET', source: 'FULL_SCRIPT' })
+  const loader = client.createMvuBundleLoader({
+    fetch: async () => ({ ok: true, status: 200, url: 'http://localhost/bundle.js?token=URL_SECRET',
+      headers: new Headers({ 'content-type': 'application/json', 'content-length': String(body.length) }), text: async () => body }),
+    evaluate: async text => { assert.equal(text, body); throw original }, onDiagnostic: record => records.push(record)
+  })
+  await assert.rejects(loader.load('http://localhost/bundle.js?token=URL_SECRET'), error => error === original)
+  const response = records.find(record => record.phase === 'download-completed')
+  assert.equal(response.httpStatus, 200)
+  assert.equal(response.contentType, 'application/json')
+  assert.equal(response.bodyKind, 'json-error')
+  assert.equal(response.serverError, 'local bundle checksum mismatch')
+  assert.equal(records.at(-1).phase, 'execution-failed')
+  assert.equal(records.at(-1).attempt, 1)
+  assert.equal(records.at(-1).cycle, 1)
+  assert.doesNotMatch(JSON.stringify(records), /BODY_SECRET|FULL_SCRIPT|URL_SECRET/)
+})
+
+test('diagnostic observer rejection cannot turn successful execution into retry or failure', async () => {
+  let downloads = 0, evaluations = 0
+  const loader = client.createMvuBundleLoader({ fetch: async () => { downloads++; return ok() },
+    evaluate: async () => { evaluations++ }, onDiagnostic: async () => { throw Error('disk full') } })
+  await loader.load('/bundle.js')
+  await tick()
+  assert.equal(downloads, 1)
+  assert.equal(evaluations, 1)
+})
+
+test('HTTP failures retain original timing: no diagnostic-only body read; retries carry cycle and attempt', async () => {
+  const records = []
+  let available = false
+  const loader = client.createMvuBundleLoader({ retryDelays: [0, 0],
+    fetch: async () => available ? ok() : { ok: false, status: 503, headers: new Headers({ 'content-type': 'application/json' }), text: () => assert.fail('must not read extra body') },
+    evaluate: async () => {}, onDiagnostic: r => records.push(r) })
+  const pending = loader.load('/bundle.js')
+  while (!records.some(r => r.phase === 'retry-exhausted')) await tick()
+  assert.deepEqual(records.filter(r => r.phase === 'download-failed').map(r => [r.cycle, r.attempt, r.httpStatus]), [[1,1,503],[1,2,503],[1,3,503]])
+  available = true
+  loader.retry()
+  await pending
+  assert.equal(records.find(r => r.phase === 'execution-completed').cycle, 2)
+})
 
 test('recovery UI offers retry only for download failures', () => {
   const ui = descriptor.factory(name => name === 'react' ? { createElement: (tag, props, ...children) => ({ tag, props, children }) } : {})

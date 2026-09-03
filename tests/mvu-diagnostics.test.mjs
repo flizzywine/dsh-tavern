@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { createMvuDiagnosticStore, createMvuDiagnosticExport, redactDiagnostic } from '../tavern-plugin/lib/domain/mvu-diagnostics.js'
+import { createMvuDiagnosticStore, createMvuDiagnosticExport, redactDiagnostic, sanitizeMvuLoadDiagnostic } from '../tavern-plugin/lib/domain/mvu-diagnostics.js'
 import { createMvuSettlementModule } from '../tavern-plugin/lib/domain/mvu-background-settlement.js'
 import { createTavernScriptHostAdapter } from '../tavern-plugin/lib/domain/tavern-script-host-adapter.js'
 import { createTavernHelperEventGate } from '../tavern-plugin/lib/domain/tavern-helper-event-gate.js'
@@ -17,6 +17,42 @@ function storage() {
     updateJson: async (path, update) => { data.set(path, update(data.get(path))); }
   }
 }
+
+test('MVU 加载诊断只允许结构字段，错误脱敏、长度受限且随 ZIP 导出', async () => {
+  const diagnostic = sanitizeMvuLoadDiagnostic({ phase: 'download-completed', loadId: 'load-1', cycle: 2, attempt: 3,
+    httpStatus: 200, contentType: 'application/json', bodyKind: 'json-error', receivedChars: 200,
+    serverError: 'ENOENT C:\\Users\\PRIVATE_USER\\bundle.js; apiKey=KEY_SECRET',
+    responsePath: '/bundle.js?token=URL_SECRET', message: 'Bearer AUTH_SECRET',
+    body: 'DO_NOT_LOG_BODY', source: 'DO_NOT_LOG_SCRIPT', headers: { authorization: 'DO_NOT_LOG_HEADER' }, browser: 'Chromium/128.0' })
+  assert.equal(diagnostic.httpStatus, 200)
+  assert.equal(diagnostic.cycle, 2)
+  assert.match(diagnostic.serverError, /ENOENT/)
+  assert.doesNotMatch(JSON.stringify(diagnostic), /PRIVATE_USER|KEY_SECRET|URL_SECRET|AUTH_SECRET|DO_NOT_LOG/)
+  const store = createMvuDiagnosticStore(storage())
+  await store.record('s', { stage: 'mvu-load', diagnostic })
+  const zip = await createMvuDiagnosticExport({ sessionId: 's', store, environment: { mvuAsset: { phase: 'verify-failed', expectedSha256: 'a'.repeat(64), actualSha256: 'b'.repeat(64) } } })
+  assert.match(zip.buffer.toString(), /download-completed/)
+  assert.match(zip.buffer.toString(), /verify-failed/)
+  assert.doesNotMatch(zip.buffer.toString(), /PRIVATE_USER|DO_NOT_LOG/)
+  assert.equal(sanitizeMvuLoadDiagnostic({ phase: 'invented', httpStatus: Infinity }), null)
+  assert.ok(JSON.stringify(sanitizeMvuLoadDiagnostic({ phase: 'execution-failed', message: 'x'.repeat(1000000) })).length < 4200)
+})
+
+test('真实日志 RPC 保留加载字段；诊断写盘失败不向运行路径抛错', async () => {
+  const source = await readFile(new URL('../tavern-plugin/lib/index.js', import.meta.url), 'utf8')
+  const start = source.indexOf("case 'recordMvuRuntimeDiagnostic':")
+  const end = source.indexOf("case 'getPlayChatDebugTarget':", start)
+  const store = createMvuDiagnosticStore(storage())
+  const context = { chatForSession: async id => ({ sessionId: id }), str: String, sanitizeMvuLoadDiagnostic, mvuDiagnostics: store }
+  const invoke = vm.runInNewContext('(async function(args){switch("recordMvuRuntimeDiagnostic"){' + source.slice(start, end) + '}})', context)
+  const args = { sessionId: 's', diagnostic: { kind: 'mvu-load', phase: 'download-response', httpStatus: 403, contentType: 'text/plain' } }
+  assert.equal((await invoke(args)).recorded, true)
+  const row = (await store.read('s')).records[0]
+  assert.equal(row.stage, 'mvu-load')
+  assert.equal(row.diagnostic.httpStatus, 403)
+  context.mvuDiagnostics = { record: async () => { throw Error('disk failure') } }
+  assert.equal((await invoke(args)).recorded, false)
+})
 
 test('诊断记录持久化、限量，并移除凭据', async () => {
   const data = storage()

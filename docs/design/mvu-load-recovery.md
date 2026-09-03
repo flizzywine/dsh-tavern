@@ -10,3 +10,13 @@
 - 运行时就绪后，已有结算队列接续保存的提交，沿用 branch/revision 检查，不重新生成正文或调用模型。正常的 MVU 初始化可能补写 schema，这不等于重复应用结算。
 
 验证入口：`tests/mvu-load-recovery.test.mjs`、`tests/card-runtime-lifecycle.test.mjs`、`tests/helper-module-loading.test.mjs`、现有结算恢复测试。真实浏览器夹具为 `tests/fixtures/mvu-initialization-browser-smoke.mjs`，参数 `mode=manual|auto|unsafe`，加 `sandbox=1` 验证隔离模式。
+
+## 加载诊断
+
+`mvu/diagnostics.json` 中 `stage=mvu-load` 记录一次加载的 `loadId`、手动重试轮次 `cycle`、下载次数 `attempt`、阶段、耗时、HTTP 状态、内容类型、响应长度、是否重定向，以及浏览器版本和隔离模式。响应地址只保留路径，去掉查询参数。对于已经读取的、至多 16 KiB 的 JSON 错误，只保留有限长度的错误字段；不记录完整响应体、脚本、额外字段或请求头。HTTP 非成功响应不会为了诊断额外读取响应体。
+
+`mvu/environment.json` 补充服务端平台、Node 版本、运行实例标识和 `mvuAsset`：读取结果、错误码、实际/预期哈希、字节数、LF/CRLF 数量、缓存命中数。`mvuAsset` 是当前服务进程共享的最近观察，不是会话故障时的历史快照；导出只读观察，不触发新的文件加载。错误文本中的凭据和个人目录会脱敏。
+
+记录有长度、条数和容量限制；异步传输与持久化失败不影响加载、重试或结算，关闭页面可能漏记。更新前缺失的信息不能追溯补录。本次诊断增强不改变原始异常、错误响应执行行为或失败缓存策略。
+
+浏览器夹具新增 `mode=json`，复现 HTTP 200 返回 JSON 错误后继续出现原语法错误，并验证 ZIP 中同时保留下载原因与执行错误。测试还覆盖日志观察者异常、写盘失败、伪造/旧沙箱消息、字段脱敏和容量上限。
