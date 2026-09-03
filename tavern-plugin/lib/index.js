@@ -2284,11 +2284,17 @@ export async function apply(ctx) {
             res.end()
             return
           }
-          let body = ''
+          const bodyChunks = []
+          let bodyBytes = 0
           for await (const chunk of req) {
-            body += chunk
-            if (sceneImageRoute && Buffer.byteLength(body) > 16384) throw new Error('生图请求过大')
+            const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
+            bodyBytes += bytes.length
+            if (sceneImageRoute && bodyBytes > 16384) throw new Error('生图请求过大')
+            bodyChunks.push(bytes)
           }
+          // HTTP chunks may split a UTF-8 code point. Decode only after joining bytes;
+          // decoding each chunk corrupts Chinese snapshots and causes false conflicts.
+          const body = Buffer.concat(bodyChunks, bodyBytes).toString('utf8')
           let args = {}
           try {
             args = body.trim() === '' ? {} : JSON.parse(body)

@@ -59,3 +59,37 @@ test('MVU readiness errors use 503 while existing RPC error envelope stays uncha
   assert.equal(rpc.status, 200)
   assert.deepEqual(JSON.parse(rpc.body), { ok: false, error: 'runtime startup failed' })
 })
+
+test('production RPC preserves Chinese snapshots and variable paths at every UTF-8 byte boundary', async () => {
+  const payload = { sessionId: 's', expectedEntries: [{ content: '世界书𠮷🙂' }], variables: { stat_data: { 当前处境: '未改变' } } }
+  const bytes = Buffer.from(JSON.stringify(payload))
+  let calls = 0
+  const handler = route({ dispatch: async (method, args) => {
+    calls++
+    assert.equal(method, 'updateTavernHelperVariables')
+    assert.deepEqual(JSON.parse(JSON.stringify(args)), payload)
+    return { updated: true }
+  } })
+  for (let split = 1; split < bytes.length; split++) {
+    const result = await request(handler, { method: 'POST', url: '/api/dsh-tavern/updateTavernHelperVariables', headers: {},
+      async *[Symbol.asyncIterator]() { yield bytes.subarray(0, split); yield bytes.subarray(split) }
+    })
+    assert.equal(JSON.parse(result.body).ok, true, 'split at byte ' + split + ': ' + result.body)
+  }
+  assert.equal(calls, bytes.length - 1)
+})
+
+test('RPC keeps malformed JSON rejection and scene-image byte limits before dispatch', async () => {
+  let calls = 0
+  const handler = route({ TAVERN_RELEASE_CAPABILITIES: { sceneImages: true }, dispatch: async () => { calls++; return {} } })
+  const malformed = await request(handler, { method: 'POST', url: '/api/dsh-tavern/test', headers: {},
+    async *[Symbol.asyncIterator]() { yield Buffer.from('{') }
+  })
+  assert.equal(malformed.status, 400)
+  const large = await request(handler, { method: 'POST', url: '/api/dsh-tavern/generateSceneImage', headers: {},
+    async *[Symbol.asyncIterator]() { yield Buffer.from(JSON.stringify({ text: '中'.repeat(6000) })) }
+  })
+  assert.equal(JSON.parse(large.body).ok, false)
+  assert.match(JSON.parse(large.body).error, /生图请求过大/)
+  assert.equal(calls, 0)
+})
