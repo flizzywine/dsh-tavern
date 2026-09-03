@@ -1,6 +1,7 @@
 // Real browser loader, execution lease, event gate and settlement. Only the model
 // and persistence are isolated. ?mode=manual|auto|unsafe|json|server-error covers recovery/diagnostics.
 // Add navigation=1 to test game ownership across parent/child header unmounts.
+// mode=capture overlaps a display capture with real MVU execution/persistence.
 import { createServer } from 'node:http'
 import { readFile, mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -11,6 +12,7 @@ import { createMvuDiagnosticStore, createMvuDiagnosticExport, sanitizeMvuLoadDia
 import { createMvuSettlementModule } from '../../tavern-plugin/lib/domain/mvu-background-settlement.js'
 import { createTavernScriptHostAdapter } from '../../tavern-plugin/lib/domain/tavern-script-host-adapter.js'
 import { createTavernHelperEventGate } from '../../tavern-plugin/lib/domain/tavern-helper-event-gate.js'
+import { createChatPersistence } from '../../tavern-plugin/lib/domain/chat-persistence.js'
 import { projectTavernHelperContext } from '../../tavern-plugin/lib/domain/tavern-helper-context.js'
 import { createTavernStaticResourceCache, rewriteCachedModuleImports } from '../../tavern-plugin/lib/domain/tavern-static-resource-cache.js'
 
@@ -33,13 +35,29 @@ function state(id) {
   }
   return states.get(id)
 }
-const adapter = createTavernScriptHostAdapter({ resolveChat: async id => state(id).chat,
+const persistence = createChatPersistence({ store: {
+  read: async id => structuredClone(state(id).chat),
+  update: async (id, mutate) => { state(id).chat = await mutate(structuredClone(state(id).chat)); return structuredClone(state(id).chat) },
+  remove: async () => {}
+} })
+const adapter = createTavernScriptHostAdapter({ resolveChat: async id => id.startsWith('capture') ? persistence.read(id) : state(id).chat,
   writeChat: async chat => {
     const s = state(chat.id)
     if (s.chat.messages[0].variables[0].stat_data.hp !== chat.messages[0].variables[0].stat_data.hp) s.hpWrites++
-    s.writes++; s.chat = structuredClone(chat)
+    s.writes++
+    if (chat.id.startsWith('capture')) await persistence.write(chat)
+    else s.chat = structuredClone(chat)
   },
-  readCard: async () => ({ name: '测试卡' }), worldBooks: { bound: async () => null }, eventGate: gate })
+  readCard: async () => ({ name: '测试卡' }), worldBooks: { bound: async () => null }, eventGate: { ...gate,
+    async dispatch(id, ...args) {
+      if (id.startsWith('capture')) {
+        const capture = await persistence.read(id)
+        capture.messages[0].displayRuntime = { frames: [{ capturedAt: Date.now(), dom: 'concurrent display capture' }] }
+        await persistence.write(capture, { source: 'display.capture', touchUpdatedAt: false })
+      }
+      return gate.dispatch(id, ...args)
+    }
+  } })
 const settlement = createMvuSettlementModule({ runtime: adapter, model: { async run(request) {
   const s = state(request.sessionId)
   await request.onToolCall({ name: 'posture_submit', arguments: { posture: '站立' } })
@@ -136,7 +154,7 @@ const server = createServer(async (req, res) => {
       else if (method === 'status') {
         const s = state(sessionId)
         result = { ...gate.status(sessionId), downloads: s.downloads, calls: s.calls, writes: s.writes, hpWrites: s.hpWrites, resumes: s.resumes,
-          hp: s.chat.messages[0].variables[0].stat_data.hp, receipt: s.result?.receipt, resumeError: s.resumeError }
+          hp: s.chat.messages[0].variables[0].stat_data.hp, capture: s.chat.messages[0].displayRuntime, receipt: s.result?.receipt, resumeError: s.resumeError }
       }
       else if (method === 'run') {
         const s = state(sessionId); s.writes = 0
@@ -146,6 +164,7 @@ const server = createServer(async (req, res) => {
         assert.equal(s.chat.messages[0].variables[0].stat_data.hp, failed || waiting ? 10 : 9)
         assert.equal(s.writes, failed || waiting ? 0 : 1)
         assert.equal(s.calls, 1)
+        if (sessionId.startsWith('capture') && !waiting) assert.equal(s.chat.messages[0].displayRuntime.frames[0].dom, 'concurrent display capture')
         if (failed) { assert.equal(s.feedback.retryable, false); assert.match(JSON.stringify(resultState.receipt), /partial initialization/) }
         s.result = resultState
         if (waiting) { s.pending = resultState.submission; void resume(sessionId) }

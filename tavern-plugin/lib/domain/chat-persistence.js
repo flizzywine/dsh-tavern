@@ -25,9 +25,54 @@ function conflict(chatId, path) {
   return error
 }
 
+function withoutDisplayCapture(messages) {
+  return messages.map(function ({ displayRuntime: _capture, ...message }) { return message })
+}
+
+function sameCaptureTarget(left, right) {
+  if (!object(left) || !object(right)) return false
+  for (const key of ['id', 'role', 'turn', 'greeting']) if (!same(left[key], right[key])) return false
+  if (Number(left.swipeId || 0) !== Number(right.swipeId || 0)) return false
+  for (const key of ['text', 'sourceText', 'projectionText', 'sessionText', 'displayText']) {
+    if (!same(left[key] ?? left.text, right[key] ?? right.text)) return false
+  }
+  return same(left.swipes ?? [left.text], right.swipes ?? [right.text])
+}
+
+function captureOf(message) {
+  return object(message) && Object.hasOwn(message, 'displayRuntime') ? message.displayRuntime : MISSING
+}
+
+function mergeMessages(base, latest, desired, chatId) {
+  // Display captures are observational data, not competing story edits. Keep
+  // the authoritative array atomic: two distinct story/variable edits still
+  // conflict, even when they affect different messages or also carry captures.
+  const before = withoutDisplayCapture(base)
+  const current = withoutDisplayCapture(latest)
+  const proposed = withoutDisplayCapture(desired)
+  let chosen, other
+  if (same(proposed, before)) { chosen = latest; other = desired }
+  else if (same(current, before) || same(current, proposed)) { chosen = desired; other = latest }
+  else throw conflict(chatId, 'messages')
+  const result = clone(chosen)
+  for (let index = 0; index < result.length; index++) {
+    const previousCapture = captureOf(base[index])
+    const otherCapture = captureOf(other[index])
+    if (same(otherCapture, previousCapture) || !same(captureOf(chosen[index]), previousCapture)) continue
+    // Never attach a late capture to a replacement, reordered message or swipe.
+    if (!sameCaptureTarget(base[index], chosen[index]) || !sameCaptureTarget(other[index], chosen[index])) continue
+    if (otherCapture === MISSING) delete result[index].displayRuntime
+    else result[index].displayRuntime = clone(otherCapture)
+  }
+  return result
+}
+
 function mergeValue(base, latest, desired, path, chatId) {
   if (same(desired, base)) return clone(latest)
   if (same(latest, base) || same(latest, desired)) return clone(desired)
+  if (path === 'messages' && [base, latest, desired].every(value => Array.isArray(value) && value.every(object))) {
+    return mergeMessages(base, latest, desired, chatId)
+  }
   if (object(base) && object(latest) && object(desired)) {
     const result = {}
     const keys = new Set([...Object.keys(base), ...Object.keys(latest), ...Object.keys(desired)])

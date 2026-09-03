@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 import { createChatPersistence } from '../tavern-plugin/lib/domain/chat-persistence.js'
+import { createChatJournalStore } from '../tavern-plugin/lib/domain/chat-journal-store.js'
+import { createTavernScriptHostAdapter } from '../tavern-plugin/lib/domain/tavern-script-host-adapter.js'
 
 function harness(initial) {
   let value = initial === undefined ? undefined : structuredClone(initial)
@@ -22,6 +27,97 @@ function harness(initial) {
   const persistence = createChatPersistence({ data, now: function () { return 1000 } })
   return { persistence, stored: function () { return structuredClone(value) } }
 }
+
+function message() {
+  return { role: 'assistant', turn: 1, text: '正文', sourceText: '正文', swipes: ['正文'], swipeId: 0,
+    variables: [{ stat_data: { hp: 10 }, schema: {} }], displayRuntime: { frames: [{ capturedAt: 1, dom: 'old' }] } }
+}
+
+for (const mutations of [false, true]) test('真实 MVU 草稿结算与显示捕获并发保存：' + (mutations ? '变量更新' : '空操作'), async () => {
+  const app = harness({ id: 'chat-1', sessionId: 's', mvu: { enabled: true }, messages: [message()], _storageRevision: 1 })
+  let adapter
+  adapter = createTavernScriptHostAdapter({
+    resolveChat: () => app.persistence.read('chat-1'), writeChat: app.persistence.write,
+    readCard: async () => ({}), worldBooks: { bound: async () => null },
+    eventGate: { status: () => ({ ready: true }), dispatch: async () => {
+      const capture = await app.persistence.read('chat-1')
+      capture.messages[0].displayRuntime.frames[0] = { capturedAt: 2, dom: 'new' }
+      await app.persistence.write(capture, { source: 'display.capture', touchUpdatedAt: false })
+      if (mutations) await adapter.updateVariables('s', { type: 'message', message_id: 0 }, { stat_data: { hp: 9 }, schema: {} }, 0)
+      return { handled: true }
+    } }
+  })
+  const receipt = await adapter.settleMvuUpdate({ sessionId: 's', messageId: 0, swipeId: 0,
+    storyText: '正文', command: '<UpdateVariable><JSONPatch>[]</JSONPatch></UpdateVariable>' })
+  assert.equal(receipt.updated, true)
+  assert.equal(app.stored().messages[0].variables[0].stat_data.hp, mutations ? 9 : 10)
+  assert.equal(app.stored().messages[0].displayRuntime.frames[0].dom, 'new')
+  assert.equal(app.stored().messages[0].text, '正文')
+})
+
+for (const captureFirst of [true, false]) test('显示捕获与业务写入独立合并，保存顺序 captureFirst=' + captureFirst, async () => {
+  const app = harness({ id: 'chat-1', messages: [message()], _storageRevision: 1 })
+  const capture = await app.persistence.read('chat-1'), business = await app.persistence.read('chat-1')
+  capture.messages[0].displayRuntime.frames[0].dom = 'new'
+  business.messages[0].variables[0].stat_data.hp = 9
+  for (const draft of captureFirst ? [capture, business] : [business, capture]) await app.persistence.write(draft)
+  assert.equal(app.stored().messages[0].variables[0].stat_data.hp, 9)
+  assert.equal(app.stored().messages[0].displayRuntime.frames[0].dom, 'new')
+})
+
+for (const change of ['text', 'variables', 'append', 'delete', 'reorder']) test('显示捕获不能掩盖真正的消息冲突：' + change, async () => {
+  const app = harness({ id: 'chat-1', messages: [message(), { role: 'user', text: '第二条' }], _storageRevision: 1 })
+  const first = await app.persistence.read('chat-1'), second = await app.persistence.read('chat-1')
+  first.messages[0].variables[0].stat_data.hp = 8
+  first.messages[0].displayRuntime.frames[0].dom = 'new'
+  if (change === 'text') second.messages[0].text = '另一正文'
+  if (change === 'variables') second.messages[0].variables[0].stat_data.hp = 9
+  if (change === 'append') second.messages.push({ role: 'assistant', text: '第三条' })
+  if (change === 'delete') second.messages.pop()
+  if (change === 'reorder') second.messages.reverse()
+  await app.persistence.write(first)
+  const before = app.stored()
+  await assert.rejects(app.persistence.write(second), error => error.code === 'DSH_TAVERN_CHAT_CONFLICT' && error.path === 'messages')
+  assert.deepEqual(app.stored(), before)
+})
+
+for (const captureFirst of [true, false]) test('过期显示捕获不附着到已替换的正文：' + captureFirst, async () => {
+  const app = harness({ id: 'chat-1', messages: [message()], _storageRevision: 1 })
+  const capture = await app.persistence.read('chat-1'), replacement = await app.persistence.read('chat-1')
+  capture.messages[0].displayRuntime.frames[0].dom = 'stale'
+  replacement.messages[0] = { role: 'assistant', turn: 1, text: '替代正文' }
+  for (const draft of captureFirst ? [capture, replacement] : [replacement, capture]) await app.persistence.write(draft)
+  assert.deepEqual(app.stored().messages, replacement.messages)
+})
+
+test('清理显示记录与结算合并后不会复活旧记录', async () => {
+  for (const cleanupFirst of [true, false]) {
+    const app = harness({ id: 'chat-1', messages: [message()], _storageRevision: 1 })
+    const cleanup = await app.persistence.read('chat-1'), business = await app.persistence.read('chat-1')
+    delete cleanup.messages[0].displayRuntime
+    business.messages[0].variables[0].stat_data.hp = 9
+    for (const draft of cleanupFirst ? [cleanup, business] : [business, cleanup]) await app.persistence.write(draft)
+    assert.equal(app.stored().messages[0].variables[0].stat_data.hp, 9)
+    assert.equal(Object.hasOwn(app.stored().messages[0], 'displayRuntime'), false)
+  }
+})
+
+test('真实 journal 重开后仍保留并发结算与捕获结果，原历史 revision 不变', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'tavern-capture-regression-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const persistence = createChatPersistence({ store: createChatJournalStore({ dataRoot: root }) })
+  const original = await persistence.write({ id: 'chat-1', messages: [message()] })
+  const capture = await persistence.read('chat-1'), business = await persistence.read('chat-1')
+  capture.messages[0].displayRuntime.frames[0].dom = 'new'
+  business.messages[0].variables[0].stat_data.hp = 9
+  await persistence.write(capture, { source: 'display.capture', touchUpdatedAt: false })
+  await persistence.write(business, { source: 'tavern-helper.mvu-settlement' })
+  const reopened = createChatPersistence({ store: createChatJournalStore({ dataRoot: root }) })
+  const saved = await reopened.read('chat-1')
+  assert.equal(saved.messages[0].variables[0].stat_data.hp, 9)
+  assert.equal(saved.messages[0].displayRuntime.frames[0].dom, 'new')
+  assert.deepEqual((await reopened.readRevision('chat-1', original._storageRevision)).messages, original.messages)
+})
 
 test('并发写入互不相交的聊天字段时保留双方结果', async function () {
   const app = harness({ id: 'chat-1', messages: [], timeline: { revision: 3 }, taskMailbox: { version: 0 }, _storageRevision: 1 })

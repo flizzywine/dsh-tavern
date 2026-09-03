@@ -300,7 +300,7 @@ test('重生成的后台结算失败时恢复旧整轮，并清理临时模型�
   const h = harness({ checkpoint: true })
   const original = structuredClone(h.chat.messages)
   h.setSettlement('failure')
-  await assert.rejects(h.create().regenerate('chat', '', 'session'), /后台结算尚未完成/)
+  await assert.rejects(h.create().regenerate('chat', '', 'session'), /已恢复原正文和状态.*后台结算尚未完成/)
   assert.deepEqual(h.chat.messages, original)
   assert.equal(h.chat.regenInProgress, undefined)
   assert.ok(h.calls.includes('foreground.regen-abort'))
@@ -309,6 +309,28 @@ test('重生成的后台结算失败时恢复旧整轮，并清理临时模型�
   assert.equal(cleanup.data.source.plugin, 'dsh-tavern-regeneration-abort')
   assert.deepEqual(cleanup.data.content, [])
   assert.deepEqual(cleanup.sourceEventSeqs, [2, 3])
+})
+
+for (const thrown of [false, true]) test('重生成保留真实结算错误并明确恢复旧整轮：throw=' + thrown, async () => {
+  const h = harness({ checkpoint: true })
+  const original = structuredClone(h.chat.messages)
+  const cause = new Error('Tavern Chat 已被另一项操作修改，拒绝覆盖冲突字段：messages')
+  cause.code = 'DSH_TAVERN_CHAT_CONFLICT'
+  h.options.queueSettlement = async () => {
+    if (thrown) throw cause
+    h.chat.settleStatus = 'failed'
+    h.chat.settleError = cause.message
+  }
+  await assert.rejects(h.create().regenerate('chat', '', 'session'), error => {
+    assert.match(error.message, /已恢复原正文和状态/)
+    assert.match(error.message, /冲突字段：messages/)
+    assert.doesNotMatch(error.message, /请先重试结算/)
+    if (thrown) { assert.equal(error.cause, cause); assert.equal(error.code, cause.code) }
+    return true
+  })
+  assert.deepEqual(h.chat.messages, original)
+  assert.equal(h.chat.settleStatus, 'done')
+  assert.ok(h.calls.includes('foreground.regen-abort'))
 })
 
 for (const mode of ['throw', 'missing', 'empty']) test('重生成 '+mode+' 恢复原剧情且不排后台结算', async () => {

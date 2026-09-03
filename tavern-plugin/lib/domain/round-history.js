@@ -223,10 +223,14 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
       const incompleteRound = Object.values(storyTimeline.inspect({ chat: settledChat }).operations || {}).find(function (operation) {
         return operation && operation.kind === 'body' && operation.status === 'foreground-completed'
       })
-      if (incompleteRound !== undefined) throw new Error('重新生成正文的后台结算尚未完成，请先重试结算')
+      if (settledChat.settleStatus === 'failed' || incompleteRound !== undefined) {
+        throw new Error(str(settledChat.settleError).trim() || '后台结算尚未完成')
+      }
     } catch (error) {
       await restoreFailedRegen()
-      throw error
+      const failure = new Error('重新生成失败，已恢复原正文和状态。后台结算原因：' + str(error?.message || error), { cause: error })
+      if (error?.code) failure.code = error.code
+      throw failure
     }
     session.append('assistant/message', {
       turn: oldTurn,
