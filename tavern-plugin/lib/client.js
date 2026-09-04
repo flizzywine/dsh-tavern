@@ -400,6 +400,17 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 .dsh-tavern-script-buttons { display: flex; flex-wrap: wrap; gap: 7px; }
 .dsh-tavern-status-label { margin-bottom: 7px; color: var(--dsw-alias-label-secondary); font-size: 11px; font-weight: 700; letter-spacing: .06em; }
 .dsh-tavern-status-now { padding: 9px 10px; border: 1px solid rgba(166,107,53,.30); border-radius: 9px; background: rgba(166,107,53,.08); font-size: 12px; line-height: 1.55; }
+.dsh-tavern-character-designs { display: flex; flex-direction: column; gap: 7px; }
+.dsh-tavern-character-design { border: 1px solid var(--dsw-alias-border-l2); border-radius: 9px; background: var(--dsw-specific-input-major); overflow: hidden; }
+.dsh-tavern-character-design summary { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center; gap: 8px; padding: 9px 10px; cursor: pointer; list-style: none; }
+.dsh-tavern-character-design summary::-webkit-details-marker { display: none; }
+.dsh-tavern-character-design-name { display: block; font-size: 12px; font-weight: 800; }
+.dsh-tavern-character-design-summary { display: block; margin-top: 3px; color: var(--dsw-alias-label-tertiary); font-size: 10px; line-height: 1.45; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dsh-tavern-character-design-meta { color: #a66b35; font-size: 9px; white-space: nowrap; }
+.dsh-tavern-character-design-body { padding: 2px 10px 10px; border-top: 1px solid var(--dsw-alias-border-l3); }
+.dsh-tavern-character-design-row { padding-top: 8px; }
+.dsh-tavern-character-design-row b { display: block; color: var(--dsw-alias-label-tertiary); font-size: 9px; }
+.dsh-tavern-character-design-row p { margin: 3px 0 0; color: var(--dsw-alias-label-secondary); font-size: 11px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
 .dsh-tavern-guide-list { display: flex; flex-direction: column; gap: 6px; }
 .dsh-tavern-guide-item { display: flex; align-items: flex-start; gap: 6px; padding: 7px 8px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-alias-interactive-bg-hover); }
 .dsh-tavern-guide-text { flex: 1; min-width: 0; font-size: 12px; line-height: 1.5; white-space: pre-wrap; }
@@ -7143,6 +7154,11 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				} catch (retryError) { tavernErrorHub.report("重试后台结算", retryError); }
 				finally { setSettlementRetryBusy(false); }
 			}
+			function characterDesignTime(ts) {
+				if (!ts) return "";
+				const date = new Date(ts);
+				return (date.getMonth() + 1) + "/" + date.getDate() + " " + String(date.getHours()).padStart(2, "0") + ":" + String(date.getMinutes()).padStart(2, "0");
+			}
 			const h = React.createElement;
 			if (!view) return h("aside", { className: "dsh-tavern-status" },
 				h("div", { className: "dsh-tavern-status-head" }, h("div", { className: "dsh-tavern-status-title" }, "状态栏")),
@@ -7210,6 +7226,30 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 							h("button", { className: "dsh-card-primary", disabled: guideBusy || guideDraft.trim() === "", onClick: addGuide }, guideBusy ? "保存中…" : "添加 Guide")
 						),
 						guideError ? h("div", { className: "dsh-card-error" }, guideError) : null
+					),
+					h("section", { className: "dsh-tavern-status-section" },
+						h("div", { className: "dsh-tavern-status-label" }, "人物设计档案（" + ((view.characterDesigns && view.characterDesigns.characters || []).length) + "）"),
+						h("div", { className: "dsh-tavern-character-designs" },
+							(view.characterDesigns && view.characterDesigns.characters || []).length ? view.characterDesigns.characters.map(function (character, index) {
+								const summary = character.identity || character.narrativeRole || "已建立完整人物设计";
+								const aliases = Array.isArray(character.aliases) && character.aliases.length ? character.aliases.join("、") : "";
+								return h("details", { key: character.name || index, className: "dsh-tavern-character-design" },
+									h("summary", null,
+										h("span", null,
+											h("span", { className: "dsh-tavern-character-design-name" }, character.name),
+											h("span", { className: "dsh-tavern-character-design-summary", title: summary }, summary)
+									),
+									character.updatedAt ? h("time", { className: "dsh-tavern-character-design-meta", dateTime: new Date(character.updatedAt).toISOString() }, characterDesignTime(character.updatedAt)) : h("span", { className: "dsh-tavern-character-design-meta" }, "查看")
+								),
+									h("div", { className: "dsh-tavern-character-design-body" },
+										aliases ? h("div", { className: "dsh-tavern-character-design-row" }, h("b", null, "别名"), h("p", null, aliases)) : null,
+										(character.sections || []).map(function (section) {
+											return h("div", { key: section.key, className: "dsh-tavern-character-design-row" }, h("b", null, section.label), h("p", null, section.text));
+										})
+									)
+								);
+							}) : h("div", { className: "dsh-tavern-status-empty" }, "后台发现重要人物需要补全设计后，档案会自动出现在这里。")
+						)
 					),
 					h("section", { className: "dsh-tavern-status-section" },
 						h("div", { className: "dsh-tavern-status-label" }, "人物姿势"),

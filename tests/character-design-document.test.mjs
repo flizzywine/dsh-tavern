@@ -5,7 +5,8 @@ import {
   CHARACTER_DESIGN_READ_TOOL_NAME,
   CHARACTER_DESIGN_SAVE_TOOL_NAME,
   createCharacterDesignDocumentSession,
-  createCharacterDesignDocumentTools
+  createCharacterDesignDocumentTools,
+  projectCharacterDesignDocument
 } from '../tavern-plugin/lib/domain/character-design-document.js'
 
 const completeDesign = Object.freeze({
@@ -85,6 +86,25 @@ test('人物档案只为已有重要人物提供复用索引，不设置每轮�
   assert.equal(saveTool.parameters.required.includes('mvuFields'), false)
   assert.doesNotMatch(JSON.stringify(session.tools), /characterId/)
   assert.doesNotMatch(JSON.stringify(saveTool), /最多|上限|每轮只能|一次只能/)
+})
+
+test('人物档案模块提供不泄漏存储结构的只读状态面板投影', () => {
+  const source = {
+    spec: 'dsh-tavern.character-design-document', version: 1, revision: 3, updatedAt: 120,
+    characters: [{ name: '鹿野栞', aliases: ['阿栞'], design: completeDesign, createdAt: 90, updatedAt: 110, internal: 'hidden' }],
+    internal: 'hidden'
+  }
+  const view = projectCharacterDesignDocument(source)
+  assert.equal(view.revision, 3)
+  assert.equal(view.characters[0].name, '鹿野栞')
+  assert.equal(view.characters[0].identity, completeDesign.identity)
+  assert.deepEqual(view.characters[0].aliases, ['阿栞'])
+  assert.deepEqual(view.characters[0].sections.map(section => section.label), [
+    '身份', '剧情作用', '核心动机', '内在矛盾', '性格', '外貌', '行为方式', '说话方式', '人物关系', '默认形象', '剧情潜力'
+  ])
+  assert.equal(Object.hasOwn(view.characters[0], 'design'), false)
+  assert.equal(Object.hasOwn(view.characters[0], 'internal'), false)
+  assert.deepEqual(source.characters[0].aliases, ['阿栞'])
 })
 
 test('旧人物编号读取后自动退出文档协议', () => {

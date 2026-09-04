@@ -6,6 +6,19 @@ const REQUIRED_DESIGN_FIELDS = Object.freeze([
   'identity', 'narrativeRole', 'coreMotivation', 'innerConflict', 'personality', 'appearance',
   'behaviorStyle', 'speechStyle', 'relationships', 'defaultPresentation', 'plotPotential'
 ])
+const PRESENTATION_FIELDS = Object.freeze([
+  ['identity', '身份'],
+  ['narrativeRole', '剧情作用'],
+  ['coreMotivation', '核心动机'],
+  ['innerConflict', '内在矛盾'],
+  ['personality', '性格'],
+  ['appearance', '外貌'],
+  ['behaviorStyle', '行为方式'],
+  ['speechStyle', '说话方式'],
+  ['relationships', '人物关系'],
+  ['defaultPresentation', '默认形象'],
+  ['plotPotential', '剧情潜力']
+])
 const UNKNOWN_MARKER = /未明确|未知|待定|不详|尚未设定|暂未决定/
 
 function str(value) {
@@ -18,6 +31,11 @@ function clone(value) {
 
 function object(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value : {}
+}
+
+function timestamp(value) {
+  const result = Number(value)
+  return Number.isFinite(result) && result > 0 ? result : 0
 }
 
 function text(value, field, limit = 4000) {
@@ -38,6 +56,28 @@ function normalizeDocument(value) {
     })
     : []
   return Object.assign({}, source, { spec: SPEC, version: 1, characters })
+}
+
+/** Stable read-only projection for user surfaces; callers never depend on the stored schema. */
+export function projectCharacterDesignDocument(value) {
+  const document = normalizeDocument(value)
+  return {
+    revision: Math.max(0, Number(document.revision) || 0),
+    updatedAt: timestamp(document.updatedAt),
+    characters: document.characters.map(function (item) {
+      const design = object(item.design)
+      return {
+        name: str(item.name),
+        aliases: Array.isArray(item.aliases) ? item.aliases.map(str).filter(Boolean) : [],
+        identity: str(design.identity),
+        narrativeRole: str(design.narrativeRole),
+        updatedAt: timestamp(item.updatedAt),
+        sections: PRESENTATION_FIELDS.map(function ([key, label]) {
+          return { key, label, text: str(design[key]) }
+        }).filter(function (section) { return section.text !== '' })
+      }
+    }).filter(function (item) { return item.name !== '' })
+  }
 }
 
 function designFrom(input) {

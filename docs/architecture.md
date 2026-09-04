@@ -151,7 +151,7 @@ Tavern Profile 是 CLI 与 DSH Desktop 共用的宿主 seam，本身不声明 We
 | World Book Library | `catalog`、`get`、`binding`、`bound`、`bind`、`unbind`、`import`、`update`、`export`、`remove` | 统一人物卡内置世界书与独立世界书的身份、读取、绑定、编辑和存储适配 |
 | Tavern Conversation Registry | `links`、`resolve`、`publish`、`remove` | 原子维护 DSH Session、Tavern 对话索引和对话文件之间的对应关系 |
 | Background Task Coordinator | `begin` | 串行化同一对话的后台任务，统一任务开始、完成、失败及前台可用状态 |
-| Live Tavern View | `getSnapshot`、`subscribe`、`invalidate` | 向 Web UI 提供单一的实时 Tavern 视图缓存、刷新和重试入口 |
+| Live Tavern View | `getSnapshot`、`subscribe`、`invalidate` | 向 Web UI 提供单一的实时 Tavern 视图缓存、刷新和重试入口；人物设计档案通过领域模块的只读投影进入该视图 |
 | Conversation Lifecycle | `start` | 把新建游玩或卡片工作台拆成可诊断的顺序阶段，并统一失败位置 |
 | Preset Reading | `inspectPreset` | 把不同 SillyTavern JSON 预设投影为统一的只读摘要和有序提示词条目，不改写原文件 |
 | Preset Compatibility | `inspectPreset`、`selectPreset`、`fullSnapshot`、`compileCompatibilityTurn` | 用户在预设库中选择一份外部预设；普通游玩把可识别提示词按头、中、尾投影到 DSH 前台请求并应用受支持的正则；兼容模式按 SillyTavern 语义编译；后台与卡片 Agent 不运行该预设 |

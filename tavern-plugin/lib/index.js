@@ -40,7 +40,8 @@ import { createMvuSettlementReconciler } from './domain/mvu-settlement-reconcile
 import {
   CHARACTER_DESIGN_READ_TOOL,
   CHARACTER_DESIGN_SAVE_TOOL,
-  createCharacterDesignDocumentTools
+  createCharacterDesignDocumentTools,
+  projectCharacterDesignDocument
 } from './domain/character-design-document.js'
 import { POSTURE_SUBMIT_TOOL, POSTURE_SUBMIT_TOOL_NAME, normalizePostureSubmission } from './domain/posture-submission.js'
 import { TAVERN_COMPATIBILITY_CAPABILITIES, createTavernCompatibilityDiagnosticStore } from './domain/tavern-compatibility-diagnostics.js'
@@ -1063,6 +1064,7 @@ export async function apply(ctx) {
       runtimePreset: activePresetSnapshot === null ? null : { id: activePresetSnapshot.presetPath, name: activePresetSnapshot.presetName },
       card: cardViewOf(card, chat),
       posture: chat.posture || '',
+      characterDesigns: projectCharacterDesignDocument(chat.characterDesignDocument),
       guides: Array.isArray(chat.guides) ? chat.guides : [],
       debugTurns: debugTurns.slice(-12).reverse(),
       inputSources,
