@@ -68,6 +68,7 @@ import { createTavernScriptHostAdapter } from './domain/tavern-script-host-adapt
 import { createTavernRemoteAssetPinStore } from './domain/tavern-remote-assets.js'
 import { OFFICIAL_MVU_VERSION, readOfficialMvuBundle, inspectOfficialMvuAsset } from './domain/official-mvu-assets.js'
 import { TAVERN_RUNTIME_ASSET_PREFIX, readTavernRuntimeAsset } from './domain/tavern-runtime-assets.js'
+import { TAVERN_CLIENT_ASSET_PREFIX, readTavernClientAsset } from './domain/tavern-client-assets.js'
 import { createTavernStaticResourceCache, projectCachedResourceBody } from './domain/tavern-static-resource-cache.js'
 import { SILLYTAVERN_CSS_COMPAT_URLS } from './domain/sillytavern-css-compatibility.js'
 import { createRoundHistory } from './domain/round-history.js'
@@ -2286,6 +2287,7 @@ export async function apply(ctx) {
         const readsStaticAsset = req.method === 'GET' && pathname === '/api/dsh-tavern/static-assets'
         const readsOfficialMvu = req.method === 'GET' && pathname === OFFICIAL_MVU_VERSION.assetUrl
         const readsRuntimeAsset = req.method === 'GET' && pathname.startsWith(TAVERN_RUNTIME_ASSET_PREFIX)
+        const readsClientAsset = req.method === 'GET' && pathname.startsWith(TAVERN_CLIENT_ASSET_PREFIX)
         const origin = req.headers.origin
         const sceneImageRoute = TAVERN_RELEASE_CAPABILITIES.sceneImages && /^\/api\/dsh-tavern\/(?:scene-image|getSceneImageSettings|saveSceneImageSettings|testSceneImageConnection|listSceneImageModels|sceneImageStatus|generateSceneImage|retrySceneImageSave|cancelSceneImage|removeSceneImage|setSceneImageReference)$/.test(pathname)
         const sceneSameOrigin = sceneImageRoute && (origin === 'http://' + req.headers.host || origin === 'https://' + req.headers.host)
@@ -2301,7 +2303,7 @@ export async function apply(ctx) {
           res.end('forbidden')
           return
         }
-        if (!readsCachedAsset && !readsStaticAsset && !readsOfficialMvu && !readsRuntimeAsset && !sceneSameOrigin && typeof origin === 'string' && origin !== '' && !/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin)) {
+        if (!readsCachedAsset && !readsStaticAsset && !readsOfficialMvu && !readsRuntimeAsset && !readsClientAsset && !sceneSameOrigin && typeof origin === 'string' && origin !== '' && !/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin)) {
           res.writeHead(403)
           res.end('forbidden')
           return
@@ -2315,6 +2317,22 @@ export async function apply(ctx) {
           return
         }
         try {
+          if (readsClientAsset) {
+            const asset = await readTavernClientAsset(pathname)
+            if (asset === undefined) {
+              res.writeHead(404, { 'X-Content-Type-Options': 'nosniff' })
+              res.end('not found')
+              return
+            }
+            res.writeHead(200, {
+              'Content-Type': asset.mediaType,
+              'Content-Length': asset.body.length,
+              'Cache-Control': 'no-cache',
+              'X-Content-Type-Options': 'nosniff'
+            })
+            res.end(asset.body)
+            return
+          }
           if (readsRuntimeAsset) {
             const asset = await readTavernRuntimeAsset(pathname)
             res.writeHead(200, {

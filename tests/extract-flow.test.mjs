@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
 const clientSource = await readFile(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
+const clientCss = await readFile(new URL('../tavern-plugin/lib/client-assets/tavern.css', import.meta.url), 'utf8')
 const serverSource = await readFile(new URL('../tavern-plugin/lib/index.js', import.meta.url), 'utf8')
 const orchestrationStrategiesSource = await readFile(new URL('../tavern-plugin/lib/domain/foreground-orchestration-strategies.js', import.meta.url), 'utf8')
 const scriptHostAdapterSource = await readFile(new URL('../tavern-plugin/lib/domain/tavern-script-host-adapter.js', import.meta.url), 'utf8')
@@ -135,7 +136,7 @@ test('Tavern 游玩对话顶栏显示当前选择的整份预设', () => {
 })
 
 test('手机宽度隐藏顶栏长预设条目标签，避免挤压会话标题', () => {
-	assert.match(clientSource, /@media \(max-width: 640px\)[\s\S]*\.dsh-tavern-preset-status \{ display: none; \}/)
+	assert.match(clientCss, /@media \(max-width: 640px\)[\s\S]*\.dsh-tavern-preset-status \{ display: none; \}/)
 })
 
 test('后台协调快照不参与 Session 恢复、页面重载或正文锁定', () => {
@@ -177,9 +178,9 @@ test('新开游玩在创建 Session 前完成游戏准备，创建后不提供�
 	assert.match(sidebar, /helperContext: selectedOpening\.helperContext/)
 	assert.doesNotMatch(sidebar, /styleEnvironment/)
 	assert.doesNotMatch(sidebar, /srcDoc: buildOpeningPreviewDocument\(selectedOpening\.text\)/)
-	assert.match(clientSource, /\.dsh-tavern-greeting-preview \{[^\n]*background: var\(--dsw-specific-sidebar-fill\)/)
-	assert.match(clientSource, /\.dsh-tavern-greeting-preview \{[^\n]*overflow-anchor: none/)
-	assert.doesNotMatch(clientSource, /\.dsh-tavern-greeting-preview \{[^\n]*background: #fff/)
+	assert.match(clientCss, /\.dsh-tavern-greeting-preview \{[^\n]*background: var\(--dsw-specific-sidebar-fill\)/)
+	assert.match(clientCss, /\.dsh-tavern-greeting-preview \{[^\n]*overflow-anchor: none/)
+	assert.doesNotMatch(clientCss, /\.dsh-tavern-greeting-preview \{[^\n]*background: #fff/)
 	assert.doesNotMatch(sidebar, /展示页不可作为开场/)
 })
 
@@ -268,7 +269,7 @@ test('展示投影通过正式消息 renderer 渲染，并在配置变化后重�
 test('候选项列表限制高度并独立滚动，底部操作保持在滚动区外', () => {
   const question = between(clientSource, 'function CandidateQuestion', 'function CandidateGuidePanel')
 
-  assert.match(clientSource, /\.dsh-tavern-question-body \{ max-height: min\(360px, 45vh\); overflow-y: auto;/)
+  assert.match(clientCss, /\.dsh-tavern-question-body \{ max-height: min\(360px, 45vh\); overflow-y: auto;/)
   assert.match(question, /className: "dsh-tavern-question-body"/)
   assert.ok(question.indexOf('className: "dsh-tavern-question-body"') < question.indexOf('className: "dsh-tavern-question-foot"'))
 })
@@ -761,8 +762,8 @@ test('卡片模式预加载人物卡、预设、世界书和剧本四个库', ()
   assert.doesNotMatch(clientSource, /group\("剧本", "script"/)
   assert.match(clientSource, /kind === "worldbook".*tavern-worldbook:/)
   assert.match(clientSource, /: "@\\\"" \+ safePath \+ "\\\""/)
-  assert.match(clientSource, /body\.dsh-tavern-shell-active \[data-ref-chip="file"\].*max-width: calc\(100% - 4px\).*text-overflow: ellipsis/s)
-  assert.match(clientSource, /\.dsh-tavern-candidate-question \{ max-width: 680px; \}/)
+  assert.match(clientCss, /body\.dsh-tavern-shell-active \[data-ref-chip="file"\].*max-width: calc\(100% - 4px\).*text-overflow: ellipsis/s)
+  assert.match(clientCss, /\.dsh-tavern-candidate-question \{ max-width: 680px; \}/)
   assert.match(clientSource, /rpc\("importSource"/)
   assert.match(clientSource, /已绑定：/)
   assert.match(clientSource, /未绑定/)
@@ -1256,8 +1257,8 @@ test('右侧系统提示词面板编辑唯一一套提示词并支持整套导�
 	assert.match(panel, /dsh-tavern-system-prompt-head/)
 	assert.match(panel, /dsh-tavern-system-prompt-top-actions/)
 	assert.match(panel, /dsh-tavern-system-prompt-body/)
-	assert.match(clientSource, /\.dsh-tavern-system-prompt-top-actions \{ display: flex; flex-wrap: wrap; gap: 8px 10px; margin-top: 10px; \}/)
-	assert.match(clientSource, /\.dsh-tavern-preset-detail\.dsh-tavern-system-prompt-body \{ padding: 20px 24px 28px; \}/)
+	assert.match(clientCss, /\.dsh-tavern-system-prompt-top-actions \{ display: flex; flex-wrap: wrap; gap: 8px 10px; margin-top: 10px; \}/)
+	assert.match(clientCss, /\.dsh-tavern-preset-detail\.dsh-tavern-system-prompt-body \{ padding: 20px 24px 28px; \}/)
 	assert.match(serverSource, /spec: 'dsh-tavern\.system-prompts'/)
 	assert.match(serverSource, /createContextPlanner\(\{ prompt: runtimePrompt/)
 	assert.match(serverSource, /prompt: runtimePrompt/)
@@ -1297,7 +1298,7 @@ test('隔离 Helper iframe 可以只读加载已锁定的本机远程资源', ()
 	assert.match(handler, /const readsStaticAsset = req\.method === 'GET'/)
 	assert.match(handler, /const localOrOpaqueOrigin =/)
 	assert.match(handler, /if \(readsStaticAsset && !localOrOpaqueOrigin\)/)
-	assert.match(handler, /if \(!readsCachedAsset && !readsStaticAsset && !readsOfficialMvu && !readsRuntimeAsset && !sceneSameOrigin && typeof origin === 'string'/)
+	assert.match(handler, /if \(!readsCachedAsset && !readsStaticAsset && !readsOfficialMvu && !readsRuntimeAsset && !readsClientAsset && !sceneSameOrigin && typeof origin === 'string'/)
 	assert.match(handler, /'Access-Control-Allow-Origin': '\*'/)
 	assert.match(handler, /'Cross-Origin-Resource-Policy': 'cross-origin'/)
 })

@@ -4,6 +4,7 @@ import test from 'node:test'
 import vm from 'node:vm'
 import { OFFICIAL_MVU_VERSION, createOfficialMvuBundleReader, readOfficialMvuBundle } from '../tavern-plugin/lib/domain/official-mvu-assets.js'
 import { TAVERN_RUNTIME_ASSET_PREFIX, readTavernRuntimeAsset } from '../tavern-plugin/lib/domain/tavern-runtime-assets.js'
+import { TAVERN_CLIENT_ASSET_PREFIX, readTavernClientAsset } from '../tavern-plugin/lib/domain/tavern-client-assets.js'
 import { redactMvuLoadError } from '../tavern-plugin/lib/domain/mvu-diagnostics.js'
 
 // Execute the registered production handler, not a second implementation of its catch path.
@@ -14,7 +15,8 @@ function route(overrides = {}) {
   return vm.runInNewContext('(' + source.slice(start, end).trim() + ')', {
     URL, Buffer, TAVERN_RELEASE_CAPABILITIES: { sceneImages: false }, OFFICIAL_MVU_VERSION,
     runtimeReadiness: Promise.resolve({ ok: true }), readOfficialMvuBundle, redactMvuLoadError, str: String,
-    runtimeGeneration: 'test', TAVERN_RUNTIME_ASSET_PREFIX, readTavernRuntimeAsset, ...overrides
+    runtimeGeneration: 'test', TAVERN_RUNTIME_ASSET_PREFIX, readTavernRuntimeAsset,
+    TAVERN_CLIENT_ASSET_PREFIX, readTavernClientAsset, ...overrides
   })
 }
 async function request(handler, options = {}) {
@@ -88,6 +90,18 @@ test('固定脚本依赖从本地发布，不经过远程静态缓存', async ()
     assert.equal(asset.headers['Access-Control-Allow-Origin'], '*', path)
     assert.ok(asset.body.length > 0, path)
   }
+})
+
+test('客户端样式不等待 Tavern 运行时初始化即可从本地发布', async () => {
+  const handler = route({ runtimeReadiness: new Promise(() => {}) })
+  const asset = await request(handler, {
+    url: TAVERN_CLIENT_ASSET_PREFIX + 'tavern.css',
+    headers: { origin: 'null' }
+  })
+  assert.equal(asset.status, 200)
+  assert.equal(asset.headers['Content-Type'], 'text/css; charset=utf-8')
+  assert.equal(asset.headers['Cache-Control'], 'no-cache')
+  assert.match(asset.body.toString('utf8'), /\.dsh-tavern-sidebar/)
 })
 
 test('production RPC preserves Chinese snapshots and variable paths at every UTF-8 byte boundary', async () => {
