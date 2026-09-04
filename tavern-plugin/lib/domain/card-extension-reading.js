@@ -31,7 +31,7 @@ function depth(value) {
   return value === null || value === undefined || value === '' || !Number.isFinite(Number(value)) ? null : Number(value)
 }
 
-function regexScriptsOf(extensions) {
+export function regexScriptsOf(extensions) {
   const scripts = Array.isArray(extensions.regex_scripts) ? extensions.regex_scripts : []
   return scripts.filter(object).map(function (script, index) {
     const id = str(script.id).trim() || 'regex-' + (index + 1)
@@ -144,11 +144,25 @@ export function inspectCardExtensions(value) {
   const helperScripts = helperScriptsOf(extensions)
   const mvuResources = mvuResourcesOf(data, extensions, regexScripts, helperScripts)
   const otherExtensions = otherExtensionsOf(extensions)
+  const tavernHelper = object(extensions.tavern_helper) ? extensions.tavern_helper : {}
   return {
     extensionCount: regexScripts.length + helperScripts.length + otherExtensions.length + mvuResources.filter(function (item) { return item.kind === 'extension' }).length,
     regexScripts,
     helperScripts,
     mvuResources,
-    otherExtensions
+    otherExtensions,
+    variables: object(tavernHelper.variables) ? clone(tavernHelper.variables) : {}
   }
+}
+
+/** Add Profile-owned global regexes without losing their scope identity. */
+export function withGlobalRegexScripts(extensions, settings) {
+  const source = object(extensions) ? extensions : {}
+  const characterRegexScripts = Array.isArray(source.regexScripts) ? source.regexScripts : []
+  const globalRegexScripts = regexScriptsOf({ regex_scripts: Array.isArray(settings && settings.regex) ? settings.regex : [] })
+  return Object.assign({}, source, {
+    characterRegexScripts,
+    globalRegexScripts,
+    regexScripts: globalRegexScripts.concat(characterRegexScripts)
+  })
 }

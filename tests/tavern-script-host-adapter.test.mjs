@@ -324,6 +324,33 @@ test('Host Adapter 把全局变量保存到 Profile 作用域而不改写 Chat',
   assert.equal(writes.length, 0)
 })
 
+test('Host Adapter 把人物卡变量保存到人物卡而不改写 Chat', async () => {
+  const value = chat()
+  const writes = []
+  const saved = []
+  const adapter = createTavernScriptHostAdapter({
+    resolveChat: async () => value,
+    writeChat: async (...args) => { writes.push(args) },
+    readCard: async () => ({ name: '测试卡' }),
+    worldBooks: { bound: async () => null },
+    scriptDispatch: { dispatch: async () => ({ handled: true }) },
+    characterVariables: {
+      save: async (cardPath, variables) => {
+        saved.push({ cardPath, variables: structuredClone(variables) })
+        return structuredClone(variables)
+      }
+    },
+    isPlayChat: () => true
+  })
+  const variables = { phone_data: { user: { name: '绘梨衣' } } }
+  const result = await adapter.updateVariables('session-1', { type: 'character' }, variables, 2)
+  assert.equal(result.updated, true)
+  assert.deepEqual(result.target, { type: 'character' })
+  assert.deepEqual(result.characterVariables, variables)
+  assert.deepEqual(saved, [{ cardPath: 'cards/test.json', variables }])
+  assert.equal(writes.length, 0)
+})
+
 test('Host Adapter 保留脚本门控并拒绝过期 iframe 覆盖新状态', async function () {
   const disabled = harness(Object.assign(chat(), { mvu: { enabled: false } }))
   await assert.rejects(function () {

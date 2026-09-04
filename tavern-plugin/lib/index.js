@@ -14,6 +14,7 @@ import { createSessionStablePrefixStorage, ensureSessionStablePrefix, readSessio
 import { waitForWritableSession } from './domain/agent-readiness.js'
 import { createCardDeletion } from './domain/card-deletion.js'
 import { createCardPreparation } from './domain/card-preparation.js'
+import { withGlobalRegexScripts } from './domain/card-extension-reading.js'
 import { projectCardOpeningPreviews } from './domain/card-opening-previews.js'
 import { READABLE_CARD_FIELDS, readCardField } from './domain/card-reading.js'
 import { createConversationInitialization } from './domain/conversation-initialization.js'
@@ -455,7 +456,9 @@ export async function apply(ctx) {
   }
   async function readCardExtensions(cardPath) {
     const workspace = await readCardWorkspace(cardPath)
-    return workspace === undefined ? undefined : cardPreparation.present({ card: workspace, as: 'card-extensions' })
+    if (workspace === undefined) return undefined
+    const extensions = cardPreparation.present({ card: workspace, as: 'card-extensions' })
+    return withGlobalRegexScripts(extensions, await tavernExtensionSettings.read())
   }
   async function readScript(scriptOrCardPath) {
     if (str(scriptOrCardPath) === '') return undefined
@@ -758,6 +761,16 @@ export async function apply(ctx) {
     await syncCardName(cardPath, savedCard.name)
     return Object.assign({}, change, { card: savedCard })
   }
+  async function replaceCardVariables(cardPath, variables) {
+    const workspace = await readCardWorkspace(cardPath)
+    if (workspace === undefined) throw new Error('人物卡不存在: ' + cardPath)
+    const raw = cardPreparation.present({ card: workspace, as: 'raw' })
+    const root = raw && (raw.spec === 'chara_card_v2' || raw.spec === 'chara_card_v3') && raw.data && typeof raw.data === 'object'
+      ? '/data/extensions/tavern_helper/variables'
+      : '/extensions/tavern_helper/variables'
+    await updateCard(cardPath, {}, undefined, [{ op: 'set', path: root, value: variables }])
+    return structuredClone(variables)
+  }
   async function syncCardName(cardPath, cardName) {
     const idx = await readIndex()
     idx.chats = (idx.chats || []).map(function (item) { return item.cardPath === cardPath ? Object.assign({}, item, { cardName: cardName }) : item })
@@ -927,11 +940,21 @@ export async function apply(ctx) {
     worldBooks,
     scriptDispatch: tavernScriptDispatch,
     extensionSettings: tavernExtensionSettings,
+    extensionSettingsChanged: async function (sessionId) {
+      sessionSignals.publish(sessionId, { kind: 'tavern-state', version: 'extension-settings:' + await profileData.version('tavern-extension-settings.json') })
+    },
     globalVariables: {
       read: readPromptTemplateGlobalVariables,
       save: async function (variables) {
         await writePromptTemplateGlobalVariables(variables)
         return await readPromptTemplateGlobalVariables()
+      }
+    },
+    characterVariables: {
+      save: async function (cardPath, variables, sessionId) {
+        const saved = await replaceCardVariables(cardPath, variables)
+        sessionSignals.publish(sessionId, { kind: 'tavern-state', version: 'character-variables:' + Date.now() })
+        return saved
       }
     },
     diagnostics: mvuDiagnostics,
@@ -1064,7 +1087,7 @@ export async function apply(ctx) {
       replyProjections: replyDisplay.projections,
       tavernStatusView: replyDisplay.statusView || null,
       mvuReceipts: mvuReceiptsOf(chat),
-      tavernHelper: helperEnabled ? { ...projectTavernHelperContext(chat), globalVariables: await readPromptTemplateGlobalVariables(), compatibilityCapabilities: TAVERN_COMPATIBILITY_CAPABILITIES, extensionSettings: await tavernExtensionSettings.read() } : null,
+      tavernHelper: helperEnabled ? { ...projectTavernHelperContext(chat), globalVariables: await readPromptTemplateGlobalVariables(), characterVariables: cardExtensions.variables || {}, compatibilityCapabilities: TAVERN_COMPATIBILITY_CAPABILITIES, extensionSettings: await tavernExtensionSettings.read(), regexScripts: { global: cardExtensions.globalRegexScripts || [], character: cardExtensions.characterRegexScripts || [] } } : null,
       tavernMvuRuntime: chat.mvu && chat.mvu.enabled === true ? {
         owner: chat.mvu.owner === 'official' ? 'official' : 'legacy',
         commit: OFFICIAL_MVU_VERSION.commit,

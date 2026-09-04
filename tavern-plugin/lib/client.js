@@ -2218,7 +2218,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			}
 			// Both entry points reference the same functions; plugin wrappers stay visible to each other.
 			const helper = {};
-			const helperNames = ["getScriptId", "getScriptName", "getScriptInfo", "replaceScriptInfo", "getScriptButtons", "replaceScriptButtons", "updateScriptButtonsWith", "appendInexistentScriptButtons", "getButtonEvent", "getCharData", "getCurrentMessageId", "getLastMessageId", "getChatMessages", "setChatMessages", "getVariables", "getAllVariables", "replaceVariables", "insertOrAssignVariables", "insertVariables", "updateVariablesWith", "deleteVariable", "replaceWorldbook", "createWorldbookEntries", "deleteWorldbookEntries", "setLorebookEntries", "createLorebookEntries", "deleteLorebookEntries", "getLorebooks", "getWorldbookNames", "getCharWorldbookNames", "getWorldbook", "getLorebookEntries", "getCharLorebooks", "getCurrentCharPrimaryLorebook", "getLorebookSettings", "setLorebookSettings", "updateWorldbookWith", "getTavernHelperVersion", "substitudeMacros"];
+			const helperNames = ["getScriptId", "getScriptName", "getScriptInfo", "replaceScriptInfo", "getScriptButtons", "replaceScriptButtons", "updateScriptButtonsWith", "appendInexistentScriptButtons", "getButtonEvent", "getCharData", "getCurrentMessageId", "getLastMessageId", "getChatMessages", "setChatMessages", "getVariables", "getAllVariables", "replaceVariables", "insertOrAssignVariables", "insertVariables", "updateVariablesWith", "deleteVariable", "getTavernRegexes", "replaceTavernRegexes", "updateTavernRegexesWith", "importRawTavernRegex", "replaceWorldbook", "createWorldbookEntries", "deleteWorldbookEntries", "setLorebookEntries", "createLorebookEntries", "deleteLorebookEntries", "getLorebooks", "getWorldbookNames", "getCharWorldbookNames", "getWorldbook", "getLorebookEntries", "getCharLorebooks", "getCurrentCharPrimaryLorebook", "getLorebookSettings", "setLorebookSettings", "updateWorldbookWith", "getTavernHelperVersion", "substitudeMacros"];
 			for (const name of helperNames) Object.defineProperty(helper, name, { enumerable: true, configurable: true, get: function () { return window[name]; }, set: function (value) { window[name] = value; } });
 			window.TavernHelper = helper;
 			const eventSource = { on: window.eventOn, once: window.eventOnce, off: window.eventOff, removeListener: window.eventOff, makeFirst: window.eventMakeFirst, makeLast: window.eventMakeLast, emit: window.eventEmit };
@@ -2435,6 +2435,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			function getVariables(option) {
 				const resolved = optionOf(option);
 				if (resolved.type === "global") return copy(state.globalVariables || {});
+				if (resolved.type === "character") return copy(state.characterVariables || {});
 				if (resolved.type === "chat") return copy(state.chatVariables || {});
 				if (resolved.type === "script") return copy(state.scriptVariables && state.scriptVariables[resolved.script_id] || {});
 				const message = (state.messages || [])[normalizeId(resolved.message_id)];
@@ -2443,6 +2444,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			function localReplace(variables, option) {
 				const resolved = optionOf(option);
 				if (resolved.type === "global") state.globalVariables = copy(variables);
+				else if (resolved.type === "character") state.characterVariables = copy(variables);
 				else if (resolved.type === "chat") state.chatVariables = copy(variables);
 				else if (resolved.type === "script") {
 					if (!state.scriptVariables || typeof state.scriptVariables !== "object") state.scriptVariables = {};
@@ -2481,6 +2483,42 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				});
 			}
 
+			function regexGroups() {
+				if (!state.regexScripts || typeof state.regexScripts !== "object") state.regexScripts = { global: [], character: [] };
+				if (!Array.isArray(state.regexScripts.global)) state.regexScripts.global = [];
+				if (!Array.isArray(state.regexScripts.character)) state.regexScripts.character = [];
+				return state.regexScripts;
+			}
+			function helperRegex(script, scope) {
+				const placements = Array.isArray(script.placement) ? script.placement.map(Number) : [];
+				return {
+					id: String(script.id || ""), script_name: String(script.name || script.scriptName || ""), enabled: script.enabled !== false,
+					find_regex: String(script.findRegex || ""), trim_strings: copy(Array.isArray(script.trimStrings) ? script.trimStrings : []), replace_string: String(script.replaceString || ""),
+					source: { user_input: placements.includes(1), ai_output: placements.includes(2), slash_command: placements.includes(3), world_info: placements.includes(5), reasoning: placements.includes(6) },
+					destination: { display: script.markdownOnly === true, prompt: script.promptOnly === true }, run_on_edit: script.runOnEdit === true,
+					min_depth: script.minDepth == null ? null : Number(script.minDepth), max_depth: script.maxDepth == null ? null : Number(script.maxDepth), scope: scope
+				};
+			}
+			function internalRegex(regex) {
+				const source = regex && regex.source || {}, destination = regex && regex.destination || {};
+				return {
+					id: String(regex && regex.id || ""), name: String(regex && (regex.script_name || regex.scriptName) || ""), enabled: !regex || (Object.prototype.hasOwnProperty.call(regex, "enabled") ? regex.enabled !== false : regex.disabled !== true),
+					findRegex: String(regex && (regex.find_regex || regex.findRegex) || ""), trimStrings: copy(regex && (regex.trim_strings || regex.trimStrings) || []), replaceString: String(regex && (regex.replace_string || regex.replaceString) || ""),
+					placement: Array.isArray(regex && regex.placement) ? copy(regex.placement) : [source.user_input && 1, source.ai_output && 2, source.slash_command && 3, source.world_info && 5, source.reasoning && 6].filter(Boolean),
+					markdownOnly: regex && regex.markdownOnly === true || destination.display === true, promptOnly: regex && regex.promptOnly === true || destination.prompt === true, runOnEdit: regex && (regex.runOnEdit === true || regex.run_on_edit === true),
+					substituteRegex: 0, minDepth: regex && (regex.min_depth ?? regex.minDepth) == null ? null : Number(regex.min_depth ?? regex.minDepth), maxDepth: regex && (regex.max_depth ?? regex.maxDepth) == null ? null : Number(regex.max_depth ?? regex.maxDepth)
+				};
+			}
+			function rawRegex(script) {
+				return {
+					id: String(script.id || ""), scriptName: String(script.name || ""), disabled: script.enabled === false,
+					findRegex: String(script.findRegex || ""), trimStrings: copy(script.trimStrings || []), replaceString: String(script.replaceString || ""),
+					placement: copy(script.placement || []), markdownOnly: script.markdownOnly === true, promptOnly: script.promptOnly === true,
+					runOnEdit: script.runOnEdit === true, substituteRegex: script.substituteRegex == null ? 0 : script.substituteRegex,
+					minDepth: script.minDepth == null ? null : script.minDepth, maxDepth: script.maxDepth == null ? null : script.maxDepth
+				};
+			}
+
 			window.getScriptId = function () { return currentScript().id; };
 			window.getScriptName = function () { return currentScript().name; };
 			window.getScriptInfo = function () { return currentScript().info; };
@@ -2499,9 +2537,25 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			window.getCurrentMessageId = currentId;
 			window.getLastMessageId = lastId;
 			window.getChatMessages = messagesFor;
+			window.getTavernRegexes = function (option) {
+				const groups = regexGroups(), resolved = option && typeof option === "object" ? option : {};
+				let items = [];
+				if (resolved.type) {
+					if (!Object.prototype.hasOwnProperty.call(groups, resolved.type)) throw new Error("不支持的酒馆正则类型: " + resolved.type);
+					items = groups[resolved.type].map(function (script) { return helperRegex(script); });
+				} else {
+					const scope = resolved.scope || "all", enabled = resolved.enable_state || "all";
+					if (!["all", "global", "character"].includes(scope)) throw new Error("无效的酒馆正则 scope: " + scope);
+					if (!["all", "enabled", "disabled"].includes(enabled)) throw new Error("无效的酒馆正则 enable_state: " + enabled);
+					if (scope === "all" || scope === "global") items.push.apply(items, groups.global.map(function (script) { return helperRegex(script, "global"); }));
+					if (scope === "all" || scope === "character") items.push.apply(items, groups.character.map(function (script) { return helperRegex(script, "character"); }));
+					if (enabled !== "all") items = items.filter(function (script) { return script.enabled === (enabled === "enabled"); });
+				}
+				return copy(items);
+			};
 			window.getVariables = getVariables;
 			window.getAllVariables = function () {
-				const merged = Object.assign({}, copy(state.globalVariables || {}), copy(state.chatVariables || {}), getVariables({ type: "script" }));
+				const merged = Object.assign({}, copy(state.globalVariables || {}), copy(state.characterVariables || {}), copy(state.chatVariables || {}), getVariables({ type: "script" }));
 				for (const message of state.messages || []) Object.assign(merged, copy(message.variables || {}));
 				return merged;
 			};
@@ -2718,6 +2772,47 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			};
 			facade = modules.installFacade({ installCompatibility: modules.installCompatibility, currentScript: currentScript, post: transport.post, createChatData: modules.createChatData, window: window, copy: copy, request: call, context: function () { return state; },
 				Popup: modules.createPopup({ document: window.document, parent: parent, token: token }) });
+			let regexSaveTimer = null;
+			async function persistGlobalRegexes() {
+				if (regexSaveTimer !== null) { clearTimeout(regexSaveTimer); regexSaveTimer = null; }
+				window.SillyTavern.extensionSettings.regex = regexGroups().global.map(rawRegex);
+				await window.SillyTavern.saveSettingsDebounced();
+				return window.getTavernRegexes({ type: "global" });
+			}
+			window.replaceTavernRegexes = async function (regexes, option) {
+				const resolved = option && typeof option === "object" ? option : {};
+				const items = Array.isArray(regexes) ? copy(regexes) : [];
+				if (resolved.type && resolved.type !== "global") throw new Error("当前兼容层只允许脚本修改全局正则");
+				if (!resolved.type && resolved.scope && !["all", "global"].includes(resolved.scope)) throw new Error("当前兼容层只允许脚本修改全局正则");
+				const globals = resolved.type === "global" ? items : items.filter(function (item) { return item && item.scope === "global"; });
+				if (!resolved.type && (!resolved.scope || resolved.scope === "all")) {
+					const submittedCharacters = items.filter(function (item) { return item && item.scope === "character"; });
+					const currentCharacters = window.getTavernRegexes({ scope: "character", enable_state: "all" });
+					if (JSON.stringify(submittedCharacters) !== JSON.stringify(currentCharacters)) throw new Error("当前兼容层不允许脚本修改人物卡内置正则");
+				}
+				regexGroups().global = globals.map(internalRegex);
+				await persistGlobalRegexes();
+			};
+			window.updateTavernRegexesWith = async function (updater, option) {
+				if (typeof updater !== "function") throw new TypeError("酒馆正则更新器必须是函数");
+				const current = window.getTavernRegexes(option), draft = copy(current);
+				const updated = await updater(draft);
+				const next = updated === undefined ? draft : updated;
+				await window.replaceTavernRegexes(next, option);
+				return window.getTavernRegexes(option);
+			};
+			window.importRawTavernRegex = function (filename, content) {
+				try {
+					const raw = JSON.parse(String(content || ""));
+					if (!raw || typeof raw !== "object" || !raw.findRegex) return false;
+					raw.id = "dsh-regex-" + Date.now() + "-" + Math.random().toString(16).slice(2);
+					raw.scriptName = String(filename || "未命名正则");
+					regexGroups().global.push(internalRegex(raw));
+					if (regexSaveTimer !== null) clearTimeout(regexSaveTimer);
+					regexSaveTimer = setTimeout(function () { regexSaveTimer = null; void persistGlobalRegexes().catch(function (error) { console.error(error); }); }, 50);
+					return true;
+				} catch (_) { return false; }
+			};
 			// MVU reports some rejected operations through warn/toastr without throwing.
 			let diagnosticCount = 0;
 			for (const level of ["warn", "error"]) {
@@ -3063,7 +3158,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			function decorateHelperContext(value, fallback) {
 				const context = clone(value && typeof value === "object" ? value : {});
 				const previous = fallback && typeof fallback === "object" ? fallback : {};
-				for (const key of ["character", "chatId", "playerName", "characterName", "worldbook"]) {
+				for (const key of ["character", "characterVariables", "chatId", "playerName", "characterName", "worldbook"]) {
 					if (context[key] === undefined && previous[key] !== undefined) context[key] = clone(previous[key]);
 				}
 				if (!context.scriptVariables || typeof context.scriptVariables !== "object") context.scriptVariables = clone(previous.scriptVariables || {});

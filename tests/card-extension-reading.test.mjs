@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { inspectCardExtensions } from '../tavern-plugin/lib/domain/card-extension-reading.js'
+import { inspectCardExtensions, withGlobalRegexScripts } from '../tavern-plugin/lib/domain/card-extension-reading.js'
 
 test('读取人物卡正则和 Tavern Helper 脚本，但不执行脚本', () => {
   const card = {
@@ -32,6 +32,28 @@ test('读取人物卡正则和 Tavern Helper 脚本，但不执行脚本', () =>
   assert.equal(result.helperScripts[0].dataText, '{\n  "auto_apply": true\n}')
   assert.deepEqual(result.helperScripts[0].buttons, [])
   assert.equal(result.helperScripts[0].buttonCount, 1)
+  assert.deepEqual(result.variables, {})
+})
+
+test('人物卡变量作为独立扩展数据投影', () => {
+  const result = inspectCardExtensions({
+    spec: 'chara_card_v3',
+    data: { extensions: { tavern_helper: { variables: { phone_data: { contacts: [{ name: '王夫人' }] } } } } }
+  })
+  assert.deepEqual(result.variables, { phone_data: { contacts: [{ name: '王夫人' }] } })
+  result.variables.phone_data.contacts[0].name = '已修改副本'
+  assert.equal(inspectCardExtensions({
+    spec: 'chara_card_v3',
+    data: { extensions: { tavern_helper: { variables: { phone_data: { contacts: [{ name: '王夫人' }] } } } } }
+  }).variables.phone_data.contacts[0].name, '王夫人')
+})
+
+test('Profile 全局正则排在人物卡正则之前并保留作用域', () => {
+  const character = { regexScripts: [{ id: 'card', name: '卡片正则', placement: [2], enabled: true }] }
+  const effective = withGlobalRegexScripts(character, { regex: [{ id: 'global', scriptName: '全局正则', findRegex: 'A', replaceString: 'B', placement: [2] }] })
+  assert.deepEqual(effective.regexScripts.map(item => item.id), ['global', 'card'])
+  assert.deepEqual(effective.globalRegexScripts.map(item => item.id), ['global'])
+  assert.deepEqual(effective.characterRegexScripts.map(item => item.id), ['card'])
 })
 
 test('将 MVU 的脚本、正则、世界书和独立配置汇总为相关资源', () => {
@@ -83,6 +105,7 @@ test('未知扩展保持可见，并兼容没有 extensions 的纯文本卡', ()
     regexScripts: [],
     helperScripts: [],
     mvuResources: [],
-    otherExtensions: []
+    otherExtensions: [],
+    variables: {}
   })
 })

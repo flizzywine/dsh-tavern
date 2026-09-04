@@ -102,6 +102,15 @@ export function createTavernScriptHostAdapter(options = {}) {
       const saved = await options.globalVariables.save(variables && typeof variables === 'object' && !Array.isArray(variables) ? variables : {})
       return { updated: true, target: { type: 'global' }, globalVariables: structuredClone(saved) }
     }
+    if (option && option.type === 'character') {
+      if (!options.characterVariables || typeof options.characterVariables.save !== 'function') throw new Error('人物卡变量存储未连接')
+      const transaction = settlementTransactions.get(str(sessionId))
+      if (transaction) throw new Error('MVU 结算事务不能修改跨对话的人物卡变量')
+      const saved = await serializeWorldbook('card-variables:' + str(chat.cardPath), function () {
+        return options.characterVariables.save(chat.cardPath, variables && typeof variables === 'object' && !Array.isArray(variables) ? variables : {}, str(sessionId))
+      })
+      return { updated: true, target: { type: 'character' }, characterVariables: structuredClone(saved) }
+    }
     const updated = replaceTavernHelperVariables(chat, { option, variables })
     const transactional = transactionResult(sessionId, updated)
     if (transactional !== null) return transactional
@@ -240,7 +249,9 @@ export function createTavernScriptHostAdapter(options = {}) {
   async function saveExtensionSettings(sessionId, settings, expectedSettings) {
     await assertScriptEnabled(await resolveChat(sessionId))
     if (!options.extensionSettings) throw new Error('插件设置存储未连接')
-    return { updated: true, extensionSettings: await options.extensionSettings.save(settings, expectedSettings) }
+    const extensionSettings = await options.extensionSettings.save(settings, expectedSettings)
+    if (typeof options.extensionSettingsChanged === 'function') await options.extensionSettingsChanged(str(sessionId))
+    return { updated: true, extensionSettings }
   }
 
   async function context(sessionId, chatValue, transientUserText = '') {
