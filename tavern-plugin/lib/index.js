@@ -2336,7 +2336,7 @@ export async function apply(ctx) {
                 res.write('data: ' + JSON.stringify(signal) + '\n\n')
               } catch (_error) { close() }
             })
-            stopCoordination = kind === '' || kind === 'candidate' ? coordinationEvents.watch(sessionId) : function () {}
+            stopCoordination = kind === '' || kind === 'tavern-state' ? coordinationEvents.watch(sessionId) : function () {}
             const heartbeat = setInterval(function () {
               if (!closed) res.write(': heartbeat\n\n')
             }, 10000)

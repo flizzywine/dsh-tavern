@@ -20,7 +20,7 @@ export function coordinationEventId(snapshot) {
   ].join(':')
 }
 
-/** Project durable coordination changes into typed candidate wake signals. */
+/** Project durable Tavern view changes into typed wake signals. */
 export function createCoordinationEventPublisher(options = {}) {
   if (typeof options.load !== 'function') throw new Error('Coordination Event Publisher 缺少快照读取 adapter')
   if (typeof options.publishSignal !== 'function') throw new Error('Coordination Event Publisher 缺少 Session Signal adapter')
@@ -55,7 +55,7 @@ export function createCoordinationEventPublisher(options = {}) {
       const eventId = coordinationEventId(snapshot)
       if (eventId === record.lastId) return
       record.lastId = eventId
-      options.publishSignal(record.id, { kind: 'candidate', version: eventId })
+      options.publishSignal(record.id, { kind: 'tavern-state', version: eventId })
     } catch (error) {
       if (typeof options.onError === 'function') options.onError(error)
     } finally {

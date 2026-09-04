@@ -31,7 +31,7 @@ function createPublisher(received, options) {
   })
 }
 
-test('写入通知立即发布 candidate signal，文件检查只作为低频兜底', async function () {
+test('写入通知立即发布 tavern-state signal，文件检查只作为低频兜底', async function () {
   const clock = intervals()
   let phase = 'running'
   let loads = 0
@@ -54,7 +54,7 @@ test('写入通知立即发布 candidate signal，文件检查只作为低频兜
   await publisher.publish('session-active')
 
   assert.equal(loads, 2)
-  assert.equal(received.at(-1).kind, 'candidate')
+  assert.equal(received.at(-1).kind, 'tavern-state')
   close()
 })
 
@@ -76,8 +76,8 @@ test('低频兜底发现 busy 变为 idle 时发布新版本 signal', async func
   await clock.tick()
 
   assert.equal(received.length, 2)
-  assert.equal(received[0].kind, 'candidate')
-  assert.equal(received[1].kind, 'candidate')
+  assert.equal(received[0].kind, 'tavern-state')
+  assert.equal(received[1].kind, 'tavern-state')
   assert.equal(clock.count(), 1)
   close()
   assert.equal(clock.count(), 0)
@@ -104,7 +104,7 @@ test('文件内容未变化时不重复通知，单次读取失败不会终止�
   await clock.tick()
 
   assert.equal(received.length, 1)
-  assert.equal(received[0].kind, 'candidate')
+  assert.equal(received[0].kind, 'tavern-state')
   close()
 })
 
@@ -132,7 +132,7 @@ test('服务器只轮询小版本文件，版本不变时不重读完整对话',
   version = 'v2'
   await clock.tick()
   assert.equal(fullLoads, 2)
-  assert.equal(received.at(-1).kind, 'candidate')
+  assert.equal(received.at(-1).kind, 'tavern-state')
   close()
 })
 

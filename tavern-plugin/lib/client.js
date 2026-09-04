@@ -1165,7 +1165,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 						if (active && reloadRequested) { reloadRequested = false; void load(); }
 					}
 				}
-				const stop = tavernSessionSignals.subscribe(sessionId, "candidate", function () { void load(); }, handlers.error);
+				const stop = tavernSessionSignals.subscribe(sessionId, "tavern-state", function () { void load(); }, handlers.error);
 				return { close: function () { active = false; stop(); }, refresh: load };
 			}
 		});
