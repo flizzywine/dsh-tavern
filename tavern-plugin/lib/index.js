@@ -26,6 +26,7 @@ import { createCoordinationEventPublisher } from './domain/coordination-event-pu
 import { createCandidateTasks } from './domain/candidate-tasks.js'
 import { extractEpubText } from './domain/epub-text.js'
 import { createFileResourceStore, normalizeResourcePath, resourceKind } from './domain/file-resources.js'
+import { createMobileCardImport } from './domain/mobile-card-import.js'
 import { createForegroundHandoff } from './domain/foreground-handoff.js'
 import { createForegroundFrameBuilder } from './domain/agent-input-frame.js'
 import { createForegroundFrameSessionAdapter } from './domain/foreground-frame-session-adapter.js'
@@ -421,6 +422,7 @@ export async function apply(ctx) {
   }
   async function writeIndex(idx) { await writeJson('index.json', idx) }
   const fileResources = createFileResourceStore({ dataRoot })
+  const mobileCardImport = createMobileCardImport({ runtimeHost: process.env.DSH_TAVERN_RUNTIME_HOST })
   const cardDeletion = createCardDeletion({ resources: fileResources })
   const cardTaskPrompts = Object.freeze({
     edit: 'card-task-edit',
@@ -2032,6 +2034,8 @@ export async function apply(ctx) {
         const settings = await readTavernSettings()
         return { sessions: (await listTavernSessions()).filter(function (chat) { return chat.requestMode !== 'sillytavern' }), capabilities: { compatibilityMode: false, trustedCardMode: settings.trustedCardMode } }
       }
+      case 'listMobileCardImports': return await mobileCardImport.list()
+      case 'importMobileCard': return { card: await importCard(await mobileCardImport.read(args && args.id)) }
       case 'importCard': return { card: await importCard(args && args.payload) }
       case 'deleteCard': return await deleteCard(args && args.path)
       case 'deleteChat': return await deleteChat(args && args.chatId)

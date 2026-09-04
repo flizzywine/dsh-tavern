@@ -17,6 +17,13 @@ window.__ModuleLoader__.load({
 .dsh-tavern-btn:disabled { opacity: .45; cursor: default; }
 .dsh-tavern-btn.danger { border-color: rgba(196,79,79,.55); color: #d96b6b; }
 .dsh-tavern-btn.danger:hover { background: rgba(196,79,79,.14); }
+.dsh-tavern-mobile-import { position: fixed; inset: 0; z-index: 2300; display: grid; place-items: center; padding: 18px; background: rgba(0,0,0,.52); }
+.dsh-tavern-mobile-import-shell { display: contents; }
+.dsh-tavern-mobile-import-panel { box-sizing: border-box; width: min(520px, 100%); max-height: min(78vh, 680px); display: flex; flex-direction: column; gap: 10px; padding: 16px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 14px; background: var(--dsw-specific-sidebar-fill); color: var(--dsw-alias-label-primary); box-shadow: 0 18px 54px rgba(0,0,0,.35); }
+.dsh-tavern-mobile-import-title { font-size: 15px; font-weight: 750; }
+.dsh-tavern-mobile-import-list { display: flex; flex-direction: column; gap: 7px; overflow: auto; }
+.dsh-tavern-mobile-import-file { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; padding: 10px 12px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 9px; background: var(--dsw-alias-bg-base); color: inherit; text-align: left; cursor: pointer; }
+.dsh-tavern-mobile-import-file span { color: var(--dsw-alias-label-secondary); font-size: 11px; }
 .dsh-tavern-empty { margin: auto; text-align: center; color: #6b6878; padding: 24px; line-height: 1.8; white-space: pre-wrap; }
 .dsh-tavern-dock-error { color: #ef8f8f; padding: 0 10px 7px; font-size: 12px; }
 .dsh-tavern-picker-error { position: sticky; top: 0; z-index: 2; margin: 0 0 10px; padding: 10px 12px; border: 1px solid rgba(196,95,95,.45); border-radius: 10px; background: color-mix(in srgb, var(--dsw-specific-sidebar-fill) 88%, #c45f5f 12%); color: #c45f5f; font-size: 13px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -184,6 +191,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 .dsh-tavern-player-name input:focus { border-color: #a66b35; }
 .dsh-tavern-player-name-help { margin: -3px 0 8px; color: var(--dsw-alias-label-tertiary); font-size: 11px; line-height: 1.5; }
 @media (max-width: 640px) {
+  .dsh-tavern-mobile-import { place-items: start center; padding-top: 12px; }
   .dsh-tavern-picker-overlay { align-items: stretch; padding: 12px; }
   .dsh-tavern-card-picker { width: 100%; max-height: none; padding: 14px; border-radius: 14px; }
   .dsh-tavern-card-pick-wrap { grid-template-columns: minmax(0, 1fr) auto auto; }
@@ -562,6 +570,39 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				}
 				throw new Error("PNG 中未找到角色卡数据（chara/ccv3 文本块）");
 			});
+		}
+
+		function MobileCardImportButton(props) {
+			const [catalog, setCatalog] = React.useState(null);
+			const [open, setOpen] = React.useState(false);
+			const [busy, setBusy] = React.useState(false);
+			const [error, setError] = React.useState("");
+			function load() {
+				return rpcWithTimeout("listMobileCardImports", {}).then(function (result) { setCatalog(result); return result; }, function () { setCatalog({ available: false, files: [] }); return { available: false, files: [] }; });
+			}
+			React.useEffect(function () { load(); }, []);
+			async function activate() {
+				const current = catalog || await load();
+				if (current.available) { setOpen(true); load(); }
+				else if (props.inputRef.current) props.inputRef.current.click();
+			}
+			async function importFile(file) {
+				setBusy(true); setError("");
+				try { const result = await rpc("importMobileCard", { id: file.id }); setOpen(false); await props.onImported(result.card); }
+				catch (err) { setError(String(err && err.message || err)); }
+				finally { setBusy(false); }
+			}
+			const h = React.createElement;
+			return h(React.Fragment, null,
+				h("button", { className: "dsh-tavern-btn", disabled: props.disabled || busy, onClick: activate }, "导入人物卡"),
+				open ? h("div", { className: "dsh-tavern-mobile-import", role: "dialog", "aria-modal": "true", "aria-label": "从手机下载目录导入人物卡" }, h("div", { className: "dsh-tavern-mobile-import-shell" }, h("div", { className: "dsh-tavern-mobile-import-panel" },
+					h("div", { className: "dsh-tavern-mobile-import-title" }, "从手机下载目录导入"),
+					h("div", { className: "dsh-tavern-question-sub" }, "把 PNG 或 JSON 人物卡放进手机 Download，回到这里点选。"),
+					error ? h("div", { className: "dsh-tavern-dock-error", role: "alert" }, error) : null,
+					h("div", { className: "dsh-tavern-mobile-import-list" }, catalog && catalog.files.length ? catalog.files.map(function (file) { return h("button", { key: file.id, className: "dsh-tavern-mobile-import-file", disabled: busy, onClick: function () { importFile(file); } }, h("b", null, file.name), h("span", null, file.directory + " · " + Math.ceil(file.size / 1024) + " KB")); }) : h("div", { className: "dsh-tavern-empty" }, "下载目录里还没有 PNG/JSON 人物卡。")),
+					h("div", { className: "dsh-tavern-library-head-actions" }, h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: load }, "刷新"), h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { setOpen(false); if (props.inputRef.current) props.inputRef.current.click(); } }, "使用系统文件选择器"), h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { setOpen(false); } }, "关闭"))
+				))) : null
+			);
 		}
 
 		function createTavernRuntimeGenerationMonitor(options) {
@@ -4834,7 +4875,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				h("div", { className: "dsh-tavern-picker-foot" }, h("button", { className: "dsh-tavern-question-primary", disabled: busy || (openingPicker.openings.length > 0 && !selectedOpening), onClick: function () { newConversation(openingPicker.card, null, selectedOpening ? selectedOpening.id : "", openingPicker.userName || "你"); } }, selectedOpening && openingPicker.openings.length > 1 ? "以此开场" : "开始游戏"))
 			) : null;
 			const playPicker = h("div", { className: "dsh-tavern-card-picker", role: "dialog", "aria-modal": "true", "aria-label": openingPicker ? "游戏准备" : "选择人物卡开始游玩" }, pickerError, openingPicker ? openingChoice : h(React.Fragment, null,
-				h("div", { className: "dsh-tavern-card-picker-head" }, h("span", null, "选择人物卡 · 开始游玩"), h("span", { className: "dsh-tavern-spacer" }), h("button", { className: "dsh-tavern-btn", onClick: function () { fileRef.current && fileRef.current.click(); } }, "导入人物卡"), h("button", { className: "dsh-tavern-btn", onClick: closePicker }, "关闭")),
+				h("div", { className: "dsh-tavern-card-picker-head" }, h("span", null, "选择人物卡 · 开始游玩"), h("span", { className: "dsh-tavern-spacer" }), h(MobileCardImportButton, { inputRef: fileRef, disabled: busy, onImported: async function () { await refresh(); notifyDataChanged(["cards"]); } }), h("button", { className: "dsh-tavern-btn", onClick: closePicker }, "关闭")),
 				h("input", { ref: fileRef, type: "file", accept: ".png,.json", style: { display: "none" }, onChange: function (e) { const f = e.target.files && e.target.files[0]; if (f) importCard(f); e.target.value = ""; } }),
 				cards.length ? h(React.Fragment, null, h("div", { className: "dsh-tavern-side-empty", style: { padding: "4px 6px" } }, "已绑定剧本的人物卡将自动按剧本推进；未绑定的按自由故事推进。剧本绑定在“卡片模式”中管理。"), cards.map(function (card) { return h("div", { key: card.path, className: "dsh-tavern-card-pick-wrap" },
 					h("button", { className: "dsh-tavern-card-pick", disabled: busy, onClick: function () { preparePlayConversation(card); } }, h("b", null, card.name), h("span", null, card.script ? ("剧本：" + card.script.title) : "自由故事（未绑定剧本）")),
@@ -4872,7 +4913,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const initialImportLabel = cardEntry === "worldbook" ? "导入世界书" : cardEntry === "preset" ? "导入预设" : cardEntry === "extract" || cardEntry === "script" ? "导入剧本" : "";
 			const initialImportAccept = cardEntry === "worldbook" || cardEntry === "preset" ? ".json,application/json" : ".txt,.md,.json,.epub,text/plain,text/markdown,application/json,application/epub+zip";
 			const cardPicker = h("div", { className: "dsh-tavern-card-picker", role: "dialog", "aria-modal": "true", "aria-label": "选择卡片工作台起始任务" }, pickerError,
-				h("div", { className: "dsh-tavern-card-picker-head" }, cardEntry ? h("button", { className: "dsh-tavern-btn", onClick: function () { setCardEntry(""); } }, "← 返回") : h("span", null, "选择起始任务"), cardEntry === "extract" ? h("span", null, "选择初始剧本（至少 1 份）") : cardEntry === "mvu" ? h("span", null, "选择要转换的人物卡") : cardEntry === "script" || cardEntry === "worldbook" || cardEntry === "preset" ? h("span", null, "选择一个编辑目标") : null, h("span", { className: "dsh-tavern-spacer" }), cardEntry === "edit" || cardEntry === "mvu" ? h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { fileRef.current && fileRef.current.click(); } }, "导入人物卡") : null, initialImportLabel ? h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { initialImportRef.current && initialImportRef.current.click(); } }, initialImportLabel) : null, h("button", { className: "dsh-tavern-btn", onClick: closePicker }, "关闭")),
+				h("div", { className: "dsh-tavern-card-picker-head" }, cardEntry ? h("button", { className: "dsh-tavern-btn", onClick: function () { setCardEntry(""); } }, "← 返回") : h("span", null, "选择起始任务"), cardEntry === "extract" ? h("span", null, "选择初始剧本（至少 1 份）") : cardEntry === "mvu" ? h("span", null, "选择要转换的人物卡") : cardEntry === "script" || cardEntry === "worldbook" || cardEntry === "preset" ? h("span", null, "选择一个编辑目标") : null, h("span", { className: "dsh-tavern-spacer" }), cardEntry === "edit" || cardEntry === "mvu" ? h(MobileCardImportButton, { inputRef: fileRef, disabled: busy, onImported: async function () { await refresh(); notifyDataChanged(["cards"]); } }) : null, initialImportLabel ? h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { initialImportRef.current && initialImportRef.current.click(); } }, initialImportLabel) : null, h("button", { className: "dsh-tavern-btn", onClick: closePicker }, "关闭")),
 				h("input", { ref: fileRef, type: "file", accept: ".png,.json", style: { display: "none" }, onChange: function (e) { const f = e.target.files && e.target.files[0]; if (f) importCard(f); e.target.value = ""; } }),
 				h("input", { ref: initialImportRef, type: "file", accept: initialImportAccept, style: { display: "none" }, onChange: function (e) { const f = e.target.files && e.target.files[0]; if (f) importInitialResource(f, cardEntry); e.target.value = ""; } }),
 					cardEntry === "edit" ? cardEditRows : cardEntry === "mvu" ? cardMvuRows : cardEntry === "extract" || cardEntry === "script" || cardEntry === "worldbook" || cardEntry === "preset" ? initialResourcePicker : h(React.Fragment, null,
@@ -6163,7 +6204,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const needle = query.trim().toLocaleLowerCase();
 			const visible = cards.filter(function (item) { return !needle || (item.name + " " + item.path).toLocaleLowerCase().includes(needle); });
 			return h("div", { className: "dsh-tavern-library" },
-				h("div", { className: "dsh-tavern-status-head" }, h("div", { className: "dsh-tavern-status-title" }, "人物卡库"), h("div", { className: "dsh-tavern-question-sub" }, cards.length + " 张人物卡"), h("div", { className: "dsh-tavern-library-head-actions" }, h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { importInput.current && importInput.current.click(); } }, "导入人物卡"), h("input", { ref: importInput, type: "file", accept: ".png,.json", style: { display: "none" }, onChange: function (event) { const file = event.target.files && event.target.files[0]; importCardFile(file); event.target.value = ""; } }))),
+				h("div", { className: "dsh-tavern-status-head" }, h("div", { className: "dsh-tavern-status-title" }, "人物卡库"), h("div", { className: "dsh-tavern-question-sub" }, cards.length + " 张人物卡"), h("div", { className: "dsh-tavern-library-head-actions" }, h(MobileCardImportButton, { inputRef: importInput, disabled: busy, onImported: async function (imported) { await refreshCards(); await loadCard(imported.path); notifyTavernDataChanged(["cards"], "cards"); } }), h("input", { ref: importInput, type: "file", accept: ".png,.json", style: { display: "none" }, onChange: function (event) { const file = event.target.files && event.target.files[0]; importCardFile(file); event.target.value = ""; } }))),
 				h("input", { className: "dsh-tavern-library-search", value: query, placeholder: "搜索名称或文件名", onChange: function (event) { setQuery(event.target.value); } }),
 				h("div", { className: "dsh-tavern-resource-body" }, error ? h("div", { className: "dsh-tavern-dock-error" }, error) : null, visible.length ? visible.map(function (item) { return h("div", { key: item.path, className: "dsh-tavern-library-card-row" },
 					h("button", { className: "dsh-tavern-library-card", onClick: function () { loadCard(item.path); } }, h("b", null, item.name), h("span", null, item.path.split("/").pop()), item.script ? h("span", null, "已绑定剧本：" + item.script.title) : null),

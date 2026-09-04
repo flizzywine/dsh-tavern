@@ -797,6 +797,16 @@ test('人物卡库可以查看详情，并在当前卡片对话中引用人物�
   assert.match(clientSource, /loadCard\(requestedPath\)/)
 })
 
+test('Android 人物卡导入默认使用下载目录适配层，同时保留系统文件选择器', () => {
+  assert.match(clientSource, /function MobileCardImportButton/)
+  assert.match(clientSource, /rpcWithTimeout\("listMobileCardImports", \{\}\)/)
+  assert.match(clientSource, /rpc\("importMobileCard", \{ id: file\.id \}\)/)
+  assert.match(clientSource, /"从手机下载目录导入"/)
+  assert.match(clientSource, /"使用系统文件选择器"/)
+  assert.match(serverSource, /case 'listMobileCardImports'/)
+  assert.match(serverSource, /case 'importMobileCard'/)
+})
+
 test('隐藏的人物卡库不会刷新或上报迟到的读取错误', () => {
   const library = between(clientSource, 'function CardLibraryTab', 'function CardFieldsPanel')
 
