@@ -1,5 +1,10 @@
 import { createBackgroundTaskFrame } from './agent-input-frame.js'
-import { CHARACTER_DESIGN_REQUEST_TOOL_NAME } from './character-design-tasks.js'
+import {
+  CHARACTER_DESIGN_READ_TOOL,
+  CHARACTER_DESIGN_READ_TOOL_NAME,
+  CHARACTER_DESIGN_SAVE_TOOL,
+  CHARACTER_DESIGN_SAVE_TOOL_NAME
+} from './character-design-document.js'
 import { variableDiagnosticSummary } from './mvu-diagnostics.js'
 import { POSTURE_SUBMIT_TOOL, POSTURE_SUBMIT_TOOL_NAME, normalizePostureSubmission } from './posture-submission.js'
 
@@ -317,12 +322,14 @@ export function projectMvuBackgroundRequest(frame) {
       JSON.stringify(promptVariables(state.currentVariables)),
       '【变量结构】',
       JSON.stringify(state.variableSchema || {}),
-      ...(updateRules.length === 0 ? [] : ['【人物卡变量更新规则】', updateRules.join('\n\n')])
+      ...(updateRules.length === 0 ? [] : ['【人物卡变量更新规则】', updateRules.join('\n\n')]),
+      '【人物设计（按需）】',
+      '若本轮出现值得长期保留的重要人物，可先调用 skill 加载 tavern-character-design，再按 Skill 读取或保存人物档案。人物设计独立保存，不属于 MVU operations。'
     ].join('\n'),
     system: [
       '只根据【正文】中已经确认发生的事实结算变量，不得读取或推断玩家意图。',
       '不得根据旧轮剧情、隐藏思考、候选项或未发生事件更新变量。',
-      '若发现重要人物需要建立、补全或修订长期设计，只调用 ' + CHARACTER_DESIGN_REQUEST_TOOL_NAME + ' 提交独立任务；不要在本任务中设计或保存人物，也不要等待该任务完成。',
+      '若确实需要人物设计，在当前后台 Agent 内先加载 tavern-character-design 并调用人物档案工具；无需也不得创建另一个 Agent。完成后继续本轮姿势与变量结算。',
       '调用 mvu_submit_update 前必须调用 posture_submit 提交本轮结束时可见的人物姿势；不得输出 JSON。',
       '必须调用 mvu_submit_update，以工具返回的实际执行校验结果为准。最多提交三次。',
       '变量通过工具提交，不在回复中输出 XML 变量协议；人物卡中的变量含义、更新条件和校验规则仍须遵守。',
@@ -331,7 +338,7 @@ export function projectMvuBackgroundRequest(frame) {
       'rolledBack=true 表示整批变量修改未保存，可以基于原快照重新提交完整更新；不得用空 operations 掩盖尚未修复的失败。',
       'ok=true 或 retryable=false 后停止调用，不能重复执行已成功的更新，也不能绕过人物卡校验。'
     ].join('\n'),
-    tools: [POSTURE_SUBMIT_TOOL, MVU_SUBMIT_UPDATE_TOOL]
+    tools: [POSTURE_SUBMIT_TOOL, CHARACTER_DESIGN_READ_TOOL, CHARACTER_DESIGN_SAVE_TOOL, MVU_SUBMIT_UPDATE_TOOL]
   }
 }
 
@@ -339,6 +346,7 @@ export function projectMvuBackgroundRequest(frame) {
 export function createMvuSettlementModule(options = {}) {
   if (!options.model || typeof options.model.run !== 'function') throw new Error('MVU Settlement 缺少后台模型 adapter')
   if (!options.runtime || typeof options.runtime.settleMvuUpdate !== 'function') throw new Error('MVU Settlement 缺少官方 Runtime adapter')
+  const characterDesign = options.characterDesign
   const maxAttempts = Math.max(1, Math.min(3, Math.floor(Number(options.maxAttempts) || 3)))
   function taskFrame(input) {
     return createMvuBackgroundTaskFrame(input)
@@ -403,6 +411,12 @@ export function createMvuSettlementModule(options = {}) {
       try { await options.diagnostics?.record(input.sessionId, { diagnosticId, operationId: input.operationId, chatId: input.chatId, branchId: input.branchId, basedOnRevision: input.basedOnRevision, messageId: input.messageId, swipeId: input.swipeId, attempt, traceSessionId, stage, ...details }) } catch { /* Diagnostics must not change settlement behaviour. */ }
     }
     async function executeTool(call) {
+      if (call && (call.name === CHARACTER_DESIGN_READ_TOOL_NAME || call.name === CHARACTER_DESIGN_SAVE_TOOL_NAME)) {
+        if (!characterDesign || typeof characterDesign.execute !== 'function') {
+          return JSON.stringify({ ok: false, retryable: false, error: '人物设计存储不可用，请继续完成姿势与变量结算' })
+        }
+        return await characterDesign.execute(input.chatId, call)
+      }
       if (call && call.name === POSTURE_SUBMIT_TOOL_NAME) {
         try {
           posture = normalizePostureSubmission(call.arguments)
@@ -487,7 +501,7 @@ export function createMvuSettlementModule(options = {}) {
         task: 'settlement', persistent: true, persistentSessionId: traceSessionId, rewindTo: -1,
         selection: input.selection, messages: request.messages, turnContext: request.turnContext,
         system: [str(input.system).trim(), request.system].filter(Boolean).join('\n\n'),
-        tools: request.tools, maxToolCalls: maxAttempts + 8,
+        tools: request.tools, maxToolCalls: maxAttempts + 12,
         toolLimitMessage: '本轮后台工具调用过多，请停止额外查询；变量更新仍不得跳过校验。',
         stopToolsWhen: () => feedback !== null && (feedback.ok || !feedback.retryable),
         acceptWithoutText: () => result !== null,

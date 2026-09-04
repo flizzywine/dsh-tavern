@@ -4,7 +4,8 @@ import test from 'node:test'
 import {
   CHARACTER_DESIGN_READ_TOOL_NAME,
   CHARACTER_DESIGN_SAVE_TOOL_NAME,
-  createCharacterDesignDocumentSession
+  createCharacterDesignDocumentSession,
+  createCharacterDesignDocumentTools
 } from '../tavern-plugin/lib/domain/character-design-document.js'
 
 const completeDesign = Object.freeze({
@@ -109,4 +110,28 @@ test('旧档案的 MVU 投影可保留，但通用人物设计不读取、不校
   assert.equal(Object.hasOwn(read.character, 'mvuCoverage'), false)
   await session.execute({ name: CHARACTER_DESIGN_SAVE_TOOL_NAME, arguments: completeDesign })
   assert.deepEqual(session.document().characters[0].mvuProjection, legacyProjection)
+})
+
+test('当前后台 Agent 保存人物后立即独立落盘，无需人物设计任务或结算回执', async () => {
+  let chat = { id: 'chat-1' }
+  const tools = createCharacterDesignDocumentTools({
+    now: () => 100,
+    store: {
+      async readChat() { return structuredClone(chat) },
+      async updateChat(_chatId, mutate) {
+        const next = await mutate(structuredClone(chat))
+        if (next !== undefined) chat = structuredClone(next)
+        return next
+      }
+    }
+  })
+
+  const saved = JSON.parse(await tools.execute('chat-1', { name: CHARACTER_DESIGN_SAVE_TOOL_NAME, arguments: completeDesign }))
+  assert.equal(saved.ok, true)
+  assert.equal(chat.characterDesignDocument.characters[0].name, '鹿野栞')
+  assert.equal(Object.hasOwn(chat, 'characterDesignTaskReceipt'), false)
+  assert.equal(Object.hasOwn(chat, 'settleStatus'), false)
+
+  const read = JSON.parse(await tools.execute('chat-1', { name: CHARACTER_DESIGN_READ_TOOL_NAME, arguments: { name: '鹿野栞' } }))
+  assert.equal(read.character.design.identity, completeDesign.identity)
 })

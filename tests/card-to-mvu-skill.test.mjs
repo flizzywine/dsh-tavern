@@ -57,7 +57,7 @@ test('转换 Skill 将随机人物迁移为当前对话专属人物库', async (
   assert.match(skill.content, /在场[^\n]*false[^\n]*不展示/)
 })
 
-test('人物设计是后台专用的独立内置 Skill', async () => {
+test('人物设计是现有后台 Agent 按需加载的内置 Skill', async () => {
   const cardSkillNames = (await readdir(root, { withFileTypes: true })).filter(entry => entry.isDirectory()).map(entry => entry.name).sort()
   const backgroundSkillNames = (await readdir(backgroundRoot, { withFileTypes: true })).filter(entry => entry.isDirectory()).map(entry => entry.name).sort()
   assert.equal(cardSkillNames.includes('tavern-character-design'), false)
@@ -69,16 +69,17 @@ test('人物设计是后台专用的独立内置 Skill', async () => {
   assert.equal(metadata.name, 'tavern-character-design')
   assert.equal(metadata['user-invocable'], false)
   assert.match(skill.content, /提前储备/)
-  assert.match(skill.content, /独立的人物设计任务/)
+  assert.match(skill.content, /同一个 Agent 会话/)
+  assert.match(skill.content, /不要创建或请求另一个人物设计 Agent/)
   assert.match(skill.content, /普通卡与 MVU 卡/)
   assert.match(skill.content, /不接收变量路径或变量对象/)
   assert.match(skill.content, /character_design_read/)
   assert.match(skill.content, /character_design_save/)
-  assert.match(skill.content, /character_design_complete/)
+  assert.doesNotMatch(skill.content, /character_design_complete/)
   assert.match(skill.content, /不使用“未明确”“未知”“待定”/)
   assert.match(skill.content, /不设固定数量上限/)
   assert.doesNotMatch(skill.content, /仅在卡片已有人物库/)
-  assert.match(skill.content, /不得调用 `posture_submit` 或 `mvu_submit_update`/)
+  assert.match(skill.content, /`posture_submit` 或 `mvu_submit_update`，仍须照常调用/)
   assert.match(skill.content, /不[^\n]*前台正文 Agent/)
 })
 

@@ -74,7 +74,7 @@ export function createBackgroundAgentSessions(options, task) {
       label: '酒馆后台 Agent',
       agentProvider: input.selection.provider,
       agentModel: input.selection.model,
-      persona: '共享剧情背景，承担世界书召回、状态结算、候选生成与独立人物设计任务。'
+      persona: '共享剧情背景，承担世界书召回、状态结算与候选生成，并在当前任务需要时加载人物设计 Skill。'
     })
   }
 

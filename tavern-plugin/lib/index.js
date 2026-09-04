@@ -25,11 +25,6 @@ import { createConversationTextExport } from './domain/conversation-text-export.
 import { createCoordinationEventPublisher } from './domain/coordination-event-publisher.js'
 import { createSessionSignalTransport } from './domain/session-signal-transport.js'
 import { createCandidateTasks } from './domain/candidate-tasks.js'
-import {
-  CHARACTER_DESIGN_COMPLETE_TOOL,
-  CHARACTER_DESIGN_REQUEST_TOOL,
-  createCharacterDesignTasks
-} from './domain/character-design-tasks.js'
 import { extractEpubText } from './domain/epub-text.js'
 import { createFileResourceStore, normalizeResourcePath, resourceKind } from './domain/file-resources.js'
 import { createMobileCardImport } from './domain/mobile-card-import.js'
@@ -44,7 +39,8 @@ import { applyMvuSettlementEffect } from './domain/mvu-settlement-effect.js'
 import { createMvuSettlementReconciler } from './domain/mvu-settlement-reconciler.js'
 import {
   CHARACTER_DESIGN_READ_TOOL,
-  CHARACTER_DESIGN_SAVE_TOOL
+  CHARACTER_DESIGN_SAVE_TOOL,
+  createCharacterDesignDocumentTools
 } from './domain/character-design-document.js'
 import { POSTURE_SUBMIT_TOOL, POSTURE_SUBMIT_TOOL_NAME, normalizePostureSubmission } from './domain/posture-submission.js'
 import { TAVERN_COMPATIBILITY_CAPABILITIES, createTavernCompatibilityDiagnosticStore } from './domain/tavern-compatibility-diagnostics.js'
@@ -1251,35 +1247,14 @@ export async function apply(ctx) {
     }
   })
   const runtimePresetSnapshots = new Map()
-  let characterDesignTasks = null
   const backgroundAgentRunner = createBackgroundAgentRunner({
-    backgroundTools: [POSTURE_SUBMIT_TOOL, CHARACTER_DESIGN_READ_TOOL, CHARACTER_DESIGN_SAVE_TOOL, CHARACTER_DESIGN_COMPLETE_TOOL, MVU_SUBMIT_UPDATE_TOOL, CANDIDATE_SUBMIT_TOOL, SCRIPT_READ_TOOL, SCRIPT_POINT_TOOL],
-    sharedTools: [
-      {
-        tool: HISTORY_RECALL_TOOL,
-        async execute({ input, args }) {
-          return renderHistoryRecall(await recallHistoryForSession(input.sessionId, args))
-        }
-      },
-      {
-        tool: CHARACTER_DESIGN_REQUEST_TOOL,
-        async execute({ input, args, execution }) {
-          if (input.task === 'character-design') return JSON.stringify({ ok: false, error: '人物设计任务不能递归请求人物设计' })
-          if (characterDesignTasks === null) return JSON.stringify({ ok: false, error: '人物设计任务模块尚未就绪' })
-          try {
-            return JSON.stringify(await characterDesignTasks.request({
-              sessionId: input.sessionId,
-              requestId: str(execution && execution.callId),
-              turn: input.turn,
-              reason: args && args.reason,
-              subjects: args && args.subjects
-            }))
-          } catch (error) {
-            return JSON.stringify({ ok: false, taskId: '', status: 'failed', message: str(error && error.message || error) || '人物设计任务排队失败' })
-          }
-        }
+    backgroundTools: [POSTURE_SUBMIT_TOOL, CHARACTER_DESIGN_READ_TOOL, CHARACTER_DESIGN_SAVE_TOOL, MVU_SUBMIT_UPDATE_TOOL, CANDIDATE_SUBMIT_TOOL, SCRIPT_READ_TOOL, SCRIPT_POINT_TOOL],
+    sharedTools: [{
+      tool: HISTORY_RECALL_TOOL,
+      async execute({ input, args }) {
+        return renderHistoryRecall(await recallHistoryForSession(input.sessionId, args))
       }
-    ],
+    }],
     stablePrefixStorage,
     agents: agentRegistry,
     agentPreset: 'tavern-background',
@@ -1311,50 +1286,15 @@ export async function apply(ctx) {
       })
     }
   })
+  const characterDesignDocuments = createCharacterDesignDocumentTools({
+    store: { readChat, updateChat },
+    now: Date.now
+  })
   const mvuSettlement = createMvuSettlementModule({
     model: backgroundAgentRunner,
     runtime: tavernScriptHostAdapter,
-    diagnostics: mvuDiagnostics
-  })
-  characterDesignTasks = createCharacterDesignTasks({
-    chats: { read: readChat, write: writeChat, update: updateChat, forSession: chatForSession },
-    model: backgroundAgentRunner,
-    selection: backgroundModelSelection,
-    ready(chat) {
-      if (!chat || chat.settleStatus !== 'done') return false
-      return !Object.values(storyTimeline.inspect({ chat }).operations || {}).some(function (operation) {
-        return operation && operation.kind === 'body' && (operation.status === 'running' || operation.status === 'foreground-completed')
-      })
-    },
-    scopeForChat(chat) {
-      const inspected = storyTimeline.inspect({ chat })
-      const body = Object.values(inspected.operations || {}).filter(function (operation) {
-        return operation && operation.kind === 'body' && ['running', 'foreground-completed', 'completed'].includes(operation.status)
-      }).sort(function (left, right) {
-        return (Number(right.createdAt) || 0) - (Number(left.createdAt) || 0)
-      })[0]
-      return { branchId: inspected.branchId, bodyOperationId: str(body && body.id) }
-    },
-    validScope(chat, scope) {
-      const inspected = storyTimeline.inspect({ chat })
-      if (str(scope.branchId) !== '' && str(scope.branchId) !== str(inspected.branchId)) return false
-      const operationId = str(scope.bodyOperationId)
-      if (operationId === '') return true
-      const operation = inspected.operations && inspected.operations[operationId]
-      return Boolean(operation && operation.kind === 'body' && operation.status === 'completed')
-    },
-    messagesForChat(chat) {
-      return (Array.isArray(chat.messages) ? chat.messages : []).slice(-8).map(function (message, index) {
-        return {
-          id: 'character-design-context-' + index,
-          role: message && message.role === 'assistant' ? 'assistant' : 'user',
-          regexPlacement: 2,
-          content: [{ type: 'text', text: projectAgentMessageText(message, { charName: chat.cardName, macroState: chat.macroState }) }],
-          source: { kind: 'plugin', plugin: 'dsh-tavern', form: 'character-design-context' }
-        }
-      })
-    },
-    now: Date.now
+    diagnostics: mvuDiagnostics,
+    characterDesign: characterDesignDocuments
   })
   ctx.effect(() => () => backgroundAgentRunner.dispose(), 'dsh-tavern: dispose resident background agents')
   const sceneIllustrations = TAVERN_RELEASE_CAPABILITIES.sceneImages ? createSceneIllustrations({
@@ -1433,6 +1373,7 @@ export async function apply(ctx) {
     scripts: scriptContinuity,
     timeline: storyTimeline,
     tasks: backgroundTasks,
+    characterDesign: characterDesignDocuments,
     waitUntilSettled: async function (chat) {
       let current = await readChat(chat.id)
       if (current === undefined) return
@@ -1672,6 +1613,7 @@ export async function apply(ctx) {
           const selection = backgroundModelSelection(snapshot)
           if (selection === null) throw new Error('没有可用的模型配置，请先在当前会话的模型选择器中选择模型')
           let submittedPosture = null
+          let settlementToolTail = Promise.resolve()
           const run = await backgroundAgentRunner.run({
             task: 'settlement',
             persistent: true,
@@ -1687,30 +1629,40 @@ export async function apply(ctx) {
             }],
             system: [
               runtimePrompt('posture-settlement'),
-              '若发现重要人物需要建立、补全或修订长期设计，只调用 request_character_design 提交独立任务；不要在姿势结算中设计或保存人物，也不要等待该任务完成。',
+              '若发现重要人物需要建立、补全或修订长期设计，在当前后台 Agent 内调用 skill 加载 tavern-character-design，并按 Skill 读取或保存人物档案；无需也不得创建另一个 Agent。',
+              '人物设计保存独立于姿势结算；完成设计后继续当前任务。',
               'posture_submit 是本任务最后一步。'
             ].join('\n\n'),
-            turnContext: '',
-            tools: [POSTURE_SUBMIT_TOOL],
-            maxToolCalls: 3,
+            turnContext: '【人物设计（按需）】\n普通卡与 MVU 卡均可使用人物设计 Skill；不需要设计时直接跳过。',
+            tools: [POSTURE_SUBMIT_TOOL, CHARACTER_DESIGN_READ_TOOL, CHARACTER_DESIGN_SAVE_TOOL],
+            maxToolCalls: 12,
             temperature: 0.2,
             sessionId: snapshot.sessionId,
             webSearchEnabled: snapshot.webSearchEnabled === true,
             signal,
             stopToolsWhen: function () { return submittedPosture !== null },
             acceptWithoutText: function () { return submittedPosture !== null },
-            async onToolCall(call) {
-              if (!call || call.name !== POSTURE_SUBMIT_TOOL_NAME) {
-                return JSON.stringify({ ok: false, retryable: true, error: '当前任务只允许调用 posture_submit' })
-              }
-              try {
-                submittedPosture = normalizePostureSubmission(call.arguments)
-                return JSON.stringify({ ok: true })
-              } catch (error) {
-                return JSON.stringify({ ok: false, retryable: true, error: str(error && error.message || error) })
-              }
+            onToolCall(call) {
+              const pending = settlementToolTail.then(async function () {
+                if (call && (call.name === CHARACTER_DESIGN_READ_TOOL.name || call.name === CHARACTER_DESIGN_SAVE_TOOL.name)) {
+                  if (submittedPosture !== null) return JSON.stringify({ ok: false, retryable: false, error: '姿势已经提交，本轮后台任务已结束' })
+                  return await characterDesignDocuments.execute(snapshot.id, call)
+                }
+                if (!call || call.name !== POSTURE_SUBMIT_TOOL_NAME) {
+                  return JSON.stringify({ ok: false, retryable: true, error: '当前任务只允许调用人物设计工具和 posture_submit' })
+                }
+                try {
+                  submittedPosture = normalizePostureSubmission(call.arguments)
+                  return JSON.stringify({ ok: true })
+                } catch (error) {
+                  return JSON.stringify({ ok: false, retryable: true, error: str(error && error.message || error) })
+                }
+              })
+              settlementToolTail = pending.catch(function () {})
+              return pending
             }
           })
+          await settlementToolTail
           if (submittedPosture === null) throw new Error('后台 Agent 未调用 posture_submit 提交有效姿势')
           result = submittedPosture
           text = str(run.text) || JSON.stringify(result)
@@ -1763,8 +1715,6 @@ export async function apply(ctx) {
         }
         console.log('dsh-tavern: 结算完成', chatId, '姿势', stat.postureUpdated ? '已更新' : '未更新')
         console.log('dsh-tavern: 结算原始输出:', text.slice(0, 200))
-        try { await characterDesignTasks.resume(chatId) }
-        catch (error) { console.error('dsh-tavern: 人物设计任务恢复失败，不影响已完成结算', str(error && error.message || error)) }
         return
       } catch (err) {
         if (signal?.aborted) return
@@ -2010,8 +1960,6 @@ export async function apply(ctx) {
     }
     await foregroundHandoff.recover(activeChatIds)
     await candidateTasks.recover(activeChatIds)
-    try { await characterDesignTasks.recover(activeChatIds) }
-    catch (error) { console.error('dsh-tavern: 人物设计任务启动恢复失败', str(error && error.message || error)) }
   }
   // ---------- 重新生成正文（生成即替换，无确认） ----------
   const { regenerate: regenBody, rollback: rollbackTurn } = createRoundHistory({
@@ -2783,7 +2731,7 @@ export async function apply(ctx) {
     })
   }
 
-  const controlledToolNames = new Set(['bash', 'pwsh', 'str_replace_editor', 'skill', 'web_search', 'tavern_save_skill', ...cordisToolNames, CHARACTER_DESIGN_REQUEST_TOOL.name, 'tavern_user_profile_read', 'tavern_user_profile_save_draft', 'tavern_user_profile_confirm', 'tavern_read_card', 'tavern_read_card_raw', 'tavern_read_play_chat', 'tavern_read_script', 'tavern_recall_history', 'tavern_read_worldbook', 'tavern_update_worldbook', 'tavern_read_preset', 'tavern_update_preset', 'tavern_update_card', 'tavern_restore_card'])
+  const controlledToolNames = new Set(['bash', 'pwsh', 'str_replace_editor', 'skill', 'web_search', 'tavern_save_skill', ...cordisToolNames, 'tavern_user_profile_read', 'tavern_user_profile_save_draft', 'tavern_user_profile_confirm', 'tavern_read_card', 'tavern_read_card_raw', 'tavern_read_play_chat', 'tavern_read_script', 'tavern_recall_history', 'tavern_read_worldbook', 'tavern_update_worldbook', 'tavern_read_preset', 'tavern_update_preset', 'tavern_update_card', 'tavern_restore_card'])
   const foregroundStrategies = createForegroundOrchestrationStrategies({
     compatibility: {
       beforeTurn: async function (input) {
@@ -3005,35 +2953,6 @@ export async function apply(ctx) {
   // ---------- 模型可选工具 ----------
   const tools = ctx.get('tools')
   if (tools !== undefined) {
-    tools.register(defineTool({
-      name: CHARACTER_DESIGN_REQUEST_TOOL.name,
-      description: CHARACTER_DESIGN_REQUEST_TOOL.description,
-      parameters: dshParameterFields(CHARACTER_DESIGN_REQUEST_TOOL.parameters),
-      output: {
-        schema: { type: 'object', additionalProperties: false, properties: {
-          ok: { type: 'boolean', required: true },
-          taskId: { type: 'string', required: true },
-          status: { type: 'string', required: true },
-          message: { type: 'string', required: true }
-        } },
-        render: function (_args, value) { return [{ type: 'text', text: value.message }] }
-      },
-      isConcurrencySafe: function () { return true },
-      async execute(args, exec) {
-        const session = exec && exec.agent && exec.agent.session
-        try {
-          return await characterDesignTasks.request({
-            sessionId: session ? session.id : '',
-            requestId: str(exec && exec.callId),
-            turn: exec && exec.turn,
-            reason: args && args.reason,
-            subjects: args && args.subjects
-          })
-        } catch (error) {
-          return { ok: false, taskId: '', status: 'failed', message: str(error && error.message || error) || '人物设计任务排队失败' }
-        }
-      }
-    }))
     tools.register(defineTool({
       name: HISTORY_RECALL_TOOL.name,
       description: HISTORY_RECALL_TOOL.description,

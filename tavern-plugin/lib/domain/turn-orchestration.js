@@ -168,12 +168,6 @@ function foregroundFrameInputs(plan, sourceText, projectedText, presetSnapshot, 
       source: { stage: 'mvu-background-owner' }
     })
   }
-  inputs.push({
-    kind: 'foreground.writing-rules',
-    text: '若本轮确实需要建立、补全或修订可持续登场的重要人物，只调用 request_character_design 提交独立后台任务并继续完成正文；不要在正文中输出人物档案，也不要等待设计任务完成。',
-    required: true,
-    source: { stage: 'character-design-request' }
-  })
   return inputs.concat(presetMiddleInstructions(presetSnapshot))
 }
 
@@ -641,9 +635,9 @@ export function createTurnOrchestrator(options) {
     if (chat === undefined) return []
     const mode = chat.mode || 'story'
     const webTools = chat.webSearchEnabled === true ? ['web_search'] : []
-    if (mode === 'script') return ['tavern_read_script', 'tavern_recall_history', 'request_character_design', ...webTools]
+    if (mode === 'script') return ['tavern_read_script', 'tavern_recall_history', ...webTools]
     if (mode === 'card') return [shellToolName, 'str_replace_editor', 'skill', 'tavern_save_skill', ...cordisToolNames, 'tavern_user_profile_read', 'tavern_user_profile_save_draft', 'tavern_user_profile_confirm', 'tavern_read_card', 'tavern_read_card_raw', 'tavern_read_play_chat', 'tavern_read_worldbook', 'tavern_update_worldbook', 'tavern_read_preset', 'tavern_update_preset', 'tavern_update_card', 'tavern_restore_card']
-    return ['tavern_recall_history', 'request_character_design', ...webTools]
+    return ['tavern_recall_history', ...webTools]
   }
 
   async function modeFor(sessionId) {

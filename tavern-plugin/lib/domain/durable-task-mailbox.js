@@ -165,21 +165,6 @@ export function createDurableTaskMailbox(options = {}) {
     })
   }
 
-  async function list(chatId, selector = {}) {
-    return await serialize(chatId, async function () {
-      const chat = await store.readChat(chatId)
-      if (!chat) return { mailboxVersion: 0, tasks: [] }
-      const mailbox = mailboxOf(chat)
-      const kind = str(selector.kind)
-      const tasks = Object.values(mailbox.tasks).filter(function (task) {
-        return kind === '' || str(task && task.kind) === kind
-      }).sort(function (left, right) {
-        return (Number(left && left.createdAt) || 0) - (Number(right && right.createdAt) || 0)
-      }).map(publicTask)
-      return { mailboxVersion: mailbox.version, tasks }
-    })
-  }
-
   async function recover(chatId) {
     return await serialize(chatId, async function () {
       const chat = await store.readChat(chatId)
@@ -198,5 +183,5 @@ export function createDurableTaskMailbox(options = {}) {
     })
   }
 
-  return Object.freeze({ submit, transition, sync, list, recover })
+  return Object.freeze({ submit, transition, sync, recover })
 }

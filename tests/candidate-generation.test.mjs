@@ -108,6 +108,7 @@ function harness({ mode = 'story', outputs, initialCandidates, initialCandidateA
   }
   const candidates = createCandidateGenerator({
     store, model, planner, prompt, scripts: continuity,
+    characterDesign: { async execute() { return JSON.stringify({ ok: true }) } },
     async stableWorldBookContext(currentChat, currentCard) {
       assert.equal(currentChat.id, chat.id)
       assert.equal(currentCard.name, card.name)
@@ -135,7 +136,8 @@ test('普通和剧本候选都分离固定背景、逐轮指令与动态状态',
     const request = run.modelRequests[0]
     assert.equal(run.plannerCalls[0].constantWorldBookContext, '常驻世界设定')
     assert.equal(request.backgroundContext, '稳定候选上下文')
-    assert.equal(request.system, '候选格式规则')
+    assert.match(request.system, /^候选格式规则/)
+    assert.match(request.system, /当前后台 Agent 内调用 skill 加载 tavern-character-design/)
     assert.equal(request.turnContext, '本轮游标、Guide 与姿势')
     assert.equal(request.systemPromptText, '本轮系统提示')
     assert.equal(request.postHistoryText, '本轮历史后指令')
@@ -469,7 +471,7 @@ test('剧本候选可按数字自由读取远处剧本并直接定位游标', as
   const progress = run.continuity.inspect({ script: script(), state: savedChat.scriptState, request: { kind: 'progress' } })
   assert.equal(progress.cursor, 2)
   assert.equal(run.plannerCalls[0].scriptWindow.chunks[0].id, 'chunk-00001')
-  assert.deepEqual(run.modelRequests[0].tools.map((tool) => tool.name), ['tavern_read_script', 'tavern_point_script', 'candidate_submit_choices'])
+  assert.deepEqual(run.modelRequests[0].tools.map((tool) => tool.name), ['tavern_read_script', 'tavern_point_script', 'character_design_read', 'character_design_save', 'candidate_submit_choices'])
   assert.equal(run.modelRequests[0].tools[0].parameters.properties.position.minimum, 1)
   assert.equal(run.modelRequests[0].tools[0].parameters.properties.point, undefined)
   assert.equal(run.modelRequests[0].tools[1].parameters.properties.position.minimum, 1)
@@ -491,7 +493,7 @@ test('剧本候选保存并复用持久 Agent，会话建立后每轮只追加�
   assert.equal(run.chat().candidateAgent.mode, 'continuable')
   assert.equal(run.modelRequests[0].persistent, true)
   assert.equal(run.modelRequests[0].persistentSessionId, '')
-  assert.equal(run.modelRequests[0].system, '候选格式规则')
+  assert.match(run.modelRequests[0].system, /^候选格式规则/)
   assert.equal(run.modelRequests[0].backgroundContext, '稳定候选上下文')
   assert.equal(run.modelRequests[0].turnContext, '本轮游标、Guide 与姿势')
 

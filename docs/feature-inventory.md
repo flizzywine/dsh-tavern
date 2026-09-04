@@ -312,7 +312,7 @@
 | D07 | 压缩长对话上下文 | 界面：压缩操作 | 协调前台与后台压缩、展示执行结果；部分失败应按提示处理，不宣传为无损永久记忆。 |
 | D08 | 正则美化与 HTML 面板 | 自动：人物卡消息展示 | 人物卡正则处理、正文内 HTML 展示；展示能力与完整脚本运行能力分开说明。 |
 | D09 | Tavern Helper 与卡内脚本支持范围 | 自动 / 指南 | 已实现桥接、变量和界面联动；按实际脚本依赖判断，不承诺所有手机、数据库或酒馆插件可用。 |
-| D10 | 后台人物设计 | 自动：现有 Agent 提交独立任务请求 | 普通卡与 MVU 卡都可按需为本局重要人物建立、补全、复用完整档案；人物设计 Agent 单独加载 Skill，MVU 变量另行结算。无独立操作按钮；不等同于改卡或用户画像，不向前台追加完整设计说明。 |
+| D10 | 后台人物设计 | 自动：现有后台 Agent 按需加载 Skill | 普通卡与 MVU 卡都可按需为本局重要人物建立、补全、复用完整档案；不新建人物设计 Agent，档案保存与姿势/MVU 数据相互独立。无独立操作按钮；不等同于改卡或用户画像，不向前台追加完整设计说明。 |
 | D11 | 酒馆生态兼容总览 | 指南：资源导入与运行支持 | 统一索引人物卡 PNG / JSON、世界书、预设导入、正则、MVU 与前端美化。逐项区分导入、编辑、展示和运行支持；链接具体教程及状态栏掉格式时的 MVU 转换。不是兼容模式，不承诺所有酒馆插件或原版运行语义可用。 |
 
 ### E. 长期偏好与用户画像
@@ -510,7 +510,7 @@
 - [界面入口与交互](../tavern-plugin/lib/client.js)、[服务端工具与操作](../tavern-plugin/lib/index.js)
 - [发布能力开关](../tavern-plugin/lib/domain/release-capabilities.js)
 - [历史检索](../tavern-plugin/lib/domain/history-recall.js)、[用户画像](../tavern-plugin/lib/domain/user-preference-profile.js)
-- [后台人物设计规则](../presets/tavern-background/skills/tavern-character-design/SKILL.md)、[独立人物设计任务](../tavern-plugin/lib/domain/character-design-tasks.js)、[人物档案](../tavern-plugin/lib/domain/character-design-document.js)
+- [后台人物设计 Skill](../presets/tavern-background/skills/tavern-character-design/SKILL.md)、[人物档案工具与即时保存](../tavern-plugin/lib/domain/character-design-document.js)
 - [后台任务与搜索授权](../tavern-plugin/lib/background-agent-runner.js)、[联网设置测试](../tests/tavern-settings.test.mjs)、[前台搜索授权测试](../tests/turn-orchestration.test.mjs)
 - [生图渠道目录](../tavern-plugin/packages/dsh-image-gen/src/tavern/scene-image-channels.js)、[绘图风格](../tavern-plugin/packages/dsh-image-gen/src/tavern/scene-image-style.js)
 - [内置卡片工作台 Skill](../presets/tavern/skills/)、[兼容模式停用记录](design/sillytavern-compatibility-mode.md)

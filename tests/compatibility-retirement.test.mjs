@@ -68,8 +68,7 @@ test('startup does not migrate, resume or settle retired conversations', async (
     presetLibrary: { migrateChat: async chat => { calls.push(chat.id); return false } },
     syncChatSummary: async () => {},
     foregroundHandoff: { recover: async ids => { context.foreground = ids } },
-    candidateTasks: { recover: async ids => { context.background = ids } },
-    characterDesignTasks: { recover: async ids => { context.characterDesign = ids } }
+    candidateTasks: { recover: async ids => { context.background = ids } }
   }
   const start = server.indexOf('async function recoverRuntimeHistory(')
   vm.runInNewContext(server.slice(start, server.indexOf('// ---------- 重新生成正文', start)) + '; this.recover = recoverRuntimeHistory;', context)
@@ -77,5 +76,4 @@ test('startup does not migrate, resume or settle retired conversations', async (
   assert.deepEqual(calls, ['native'])
   assert.deepEqual(Array.from(context.foreground), ['native'])
   assert.deepEqual(Array.from(context.background), ['native'])
-  assert.deepEqual(Array.from(context.characterDesign), ['native'])
 })

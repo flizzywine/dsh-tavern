@@ -8,6 +8,7 @@ import { createRoundHistory } from '../tavern-plugin/lib/domain/round-history.js
 import { applyMvuSettlementEffect, createMvuSettlementEffect } from '../tavern-plugin/lib/domain/mvu-settlement-effect.js'
 import { createMvuSettlementReconciler } from '../tavern-plugin/lib/domain/mvu-settlement-reconciler.js'
 import { POSTURE_SUBMIT_TOOL, POSTURE_SUBMIT_TOOL_NAME, normalizePostureSubmission } from '../tavern-plugin/lib/domain/posture-submission.js'
+import { CHARACTER_DESIGN_READ_TOOL, CHARACTER_DESIGN_SAVE_TOOL } from '../tavern-plugin/lib/domain/character-design-document.js'
 
 const server = await readFile(new URL('../tavern-plugin/lib/index.js', import.meta.url), 'utf8')
 function section(start, end) {
@@ -47,7 +48,8 @@ async function harness({ beginRunning = true, mvu = true } = {}) {
     settleUserText: () => '【本轮正文】\n门开了',
     applySettlement: () => ({ postureUpdated: false }), applyMvuSettlementEffect, createMvuSettlementReconciler,
     backgroundAgentRunner: { async run() { throw new Error('backgroundAgentRunner not configured') } },
-    characterDesignTasks: { async resume() {} },
+    characterDesignDocuments: { async execute() { return JSON.stringify({ ok: true }) } },
+    CHARACTER_DESIGN_READ_TOOL, CHARACTER_DESIGN_SAVE_TOOL,
     POSTURE_SUBMIT_TOOL, POSTURE_SUBMIT_TOOL_NAME, normalizePostureSubmission,
     conversationRegistry: { list: async () => [] }, ctx: { effect() {} },
     mvuSettlement: { settleVariables: async () => ({ receipt: { version: 1, status: 'unchanged', changes: [] } }) }
@@ -64,11 +66,12 @@ async function harness({ beginRunning = true, mvu = true } = {}) {
   return { tasks, timeline, store, running, body, sandbox, history, onReady, get: () => structuredClone(current) }
 }
 
-test('普通卡姿势结算不再获得人物设计读写工具', async () => {
+test('普通卡由当前后台 Agent 按需加载 Skill 并使用人物设计工具', async () => {
   const run = await harness({ beginRunning: false, mvu: false })
   run.sandbox.backgroundAgentRunner.run = async input => {
-    assert.deepEqual(Array.from(input.tools, tool => tool.name), [POSTURE_SUBMIT_TOOL_NAME])
-    assert.match(input.system, /request_character_design/)
+    assert.deepEqual(Array.from(input.tools, tool => tool.name), [POSTURE_SUBMIT_TOOL_NAME, 'character_design_read', 'character_design_save'])
+    assert.match(input.system, /skill 加载 tavern-character-design/)
+    assert.match(input.system, /不得创建另一个 Agent/)
     await input.onToolCall({ name: POSTURE_SUBMIT_TOOL_NAME, arguments: { posture: '站在门边' } })
     return { text: '', traceSessionId: 'background-settlement', traceBoundary: 4 }
   }
@@ -81,7 +84,7 @@ test('普通卡姿势结算不再获得人物设计读写工具', async () => {
   assert.equal(saved.timeline.operations[run.body.value.operationId].status, 'completed')
 })
 
-test('普通卡姿势未提交时 Round 失败，与人物设计任务无关', async () => {
+test('普通卡姿势未提交时 Round 失败，人物设计不能替代姿势结算', async () => {
   const run = await harness({ beginRunning: false, mvu: false })
   run.sandbox.backgroundAgentRunner.run = async () => ({ text: '' })
 
@@ -93,13 +96,15 @@ test('普通卡姿势未提交时 Round 失败，与人物设计任务无关', a
   assert.match(saved.settleError, /未调用 posture_submit/)
 })
 
-test('人物设计队列恢复失败不反向污染已经提交的姿势结算', async () => {
+test('人物设计工具失败不阻止当前后台 Agent 继续提交姿势', async () => {
   const run = await harness({ beginRunning: false, mvu: false })
   run.sandbox.backgroundAgentRunner.run = async input => {
+    const failed = JSON.parse(await input.onToolCall({ name: 'character_design_save', arguments: {} }))
+    assert.equal(failed.ok, false)
     await input.onToolCall({ name: POSTURE_SUBMIT_TOOL_NAME, arguments: { posture: '坐在窗边' } })
     return { text: '', traceSessionId: 'background-settlement', traceBoundary: 5 }
   }
-  run.sandbox.characterDesignTasks.resume = async () => { throw new Error('人物设计信箱不可用') }
+  run.sandbox.characterDesignDocuments.execute = async () => JSON.stringify({ ok: false, retryable: true, error: '人物档案保存失败' })
 
   await run.sandbox.queueSettlement('chat')
 

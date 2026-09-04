@@ -69,6 +69,46 @@ test('深模块强制一次工具调用并以官方 Runtime 的实际差异生�
   assert.deepEqual(result.receipt.changes, [{ operation: 'set', path: '/stat_data/体力', before: '10', after: '9' }])
 })
 
+test('MVU 后台 Agent 在同一回合加载人物设计工具后继续完成姿势和变量结算', async function () {
+  const designCalls = []
+  const module = createMvuSettlementModule({
+    characterDesign: {
+      async execute(chatId, call) {
+        designCalls.push({ chatId, name: call.name })
+        return JSON.stringify({ ok: true })
+      }
+    },
+    model: { async run(input) {
+      assert.deepEqual(input.tools.map(tool => tool.name), ['posture_submit', 'character_design_read', 'character_design_save', 'mvu_submit_update'])
+      await input.onToolCall({ name: 'character_design_read', arguments: {} })
+      await input.onToolCall({ name: 'character_design_save', arguments: completeDesignFixture() })
+      await input.onToolCall({ name: 'posture_submit', arguments: { posture: '站在门边' } })
+      await input.onToolCall({ name: 'mvu_submit_update', arguments: { operations: [] } })
+      return { text: '' }
+    } },
+    runtime: { async settleMvuUpdate() { return { context: { messages: [{ variables: { hp: 10 } }] } } } }
+  })
+  const result = await module.settleVariables({
+    operationId: 'operation-design', chatId: 'chat-design', branchId: 'branch-1', basedOnRevision: 1,
+    sessionId: 'session-1', messageId: 0, swipeId: 0, storyText: '她走进门内。', currentVariables: { hp: 10 }
+  })
+  assert.deepEqual(designCalls, [
+    { chatId: 'chat-design', name: 'character_design_read' },
+    { chatId: 'chat-design', name: 'character_design_save' }
+  ])
+  assert.equal(result.posture, '站在门边')
+  assert.equal(result.receipt.status, 'unchanged')
+})
+
+function completeDesignFixture() {
+  return {
+    name: '林岚', identity: '镇上的邮差', narrativeRole: '持续传递线索的人物', coreMotivation: '找到失踪的同伴',
+    innerConflict: '职责与私人追寻彼此冲突', personality: '谨慎而执着', appearance: '高挑，短黑发，左眉有浅疤',
+    behaviorStyle: '先观察出口再交谈', speechStyle: '措辞简短而准确', relationships: '与镇民保持克制友善',
+    defaultPresentation: '深蓝邮差制服和旧皮靴', plotPotential: '失踪同伴留下的信件可牵出后续冲突'
+  }
+}
+
 test('深模块逐项核验提交结果并把人物卡脚本联动与失败操作分开记录', async function () {
   const module = createMvuSettlementModule({
     maxAttempts: 1,
@@ -176,7 +216,7 @@ test('变量结算 Frame 明确隔离用户输入、旧轮正文和隐藏思考'
   assert.match(suppliedContext, /突破失败/)
   assert.doesNotMatch(suppliedContext, /尝试突破|隐藏思考|旧轮正文/)
   assert.deepEqual(request.tools.map(function (tool) { return tool.name }), [
-    'posture_submit', 'mvu_submit_update'
+    'posture_submit', 'character_design_read', 'character_design_save', 'mvu_submit_update'
   ])
   const mvuTool = request.tools.find(function (tool) { return tool.name === 'mvu_submit_update' })
   assert.deepEqual(mvuTool.parameters.required, ['operations'])

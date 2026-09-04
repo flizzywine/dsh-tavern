@@ -82,7 +82,7 @@ export const CHARACTER_DESIGN_SAVE_TOOL = Object.freeze({
   })
 })
 
-/** One settlement-local draft. The caller persists document() only with its atomic Chat commit. */
+/** One in-memory draft. Persistence policy belongs to the adapter at the caller's seam. */
 export function createCharacterDesignDocumentSession(options = {}) {
   const now = typeof options.now === 'function' ? options.now : Date.now
   let current = normalizeDocument(options.document)
@@ -148,5 +148,45 @@ export function createCharacterDesignDocumentSession(options = {}) {
   return Object.freeze({
     tools: Object.freeze([CHARACTER_DESIGN_READ_TOOL, CHARACTER_DESIGN_SAVE_TOOL]), execute,
     document: function () { return clone(current) }, changed: function () { return dirty }
+  })
+}
+
+/** Expose read/save tools backed by the current Chat, persisting every valid save immediately. */
+export function createCharacterDesignDocumentTools(options = {}) {
+  const store = options.store
+  const now = typeof options.now === 'function' ? options.now : Date.now
+  if (!store || typeof store.readChat !== 'function' || typeof store.updateChat !== 'function') {
+    throw new Error('Character Design Document Tools 缺少 Chat Store adapter')
+  }
+
+  async function execute(chatId, call) {
+    try {
+      if (!call || ![CHARACTER_DESIGN_READ_TOOL_NAME, CHARACTER_DESIGN_SAVE_TOOL_NAME].includes(call.name)) {
+        return JSON.stringify({ ok: false, retryable: true, error: '不是人物档案工具调用' })
+      }
+      if (call.name === CHARACTER_DESIGN_READ_TOOL_NAME) {
+        const chat = await store.readChat(chatId)
+        if (!chat) throw new Error('人物设计所属聊天不存在')
+        return await createCharacterDesignDocumentSession({ document: chat.characterDesignDocument, now }).execute(call)
+      }
+      let output = JSON.stringify({ ok: false, retryable: true, error: '人物设计所属聊天不存在' })
+      await store.updateChat(chatId, async function (chat) {
+        if (!chat) return undefined
+        const session = createCharacterDesignDocumentSession({ document: chat.characterDesignDocument, now })
+        output = await session.execute(call)
+        const result = JSON.parse(output)
+        if (result.ok !== true || !session.changed()) return undefined
+        chat.characterDesignDocument = session.document()
+        return chat
+      }, { source: 'character-design.save' })
+      return output
+    } catch (error) {
+      return JSON.stringify({ ok: false, retryable: true, error: str(error && error.message || error) })
+    }
+  }
+
+  return Object.freeze({
+    tools: Object.freeze([CHARACTER_DESIGN_READ_TOOL, CHARACTER_DESIGN_SAVE_TOOL]),
+    execute
   })
 }
