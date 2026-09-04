@@ -10,6 +10,7 @@ const initializationSource = await readFile(new URL('../tavern-plugin/lib/domain
 const snapshotsSource = await readFile(new URL('../tavern-plugin/lib/domain/play-card-snapshots.js', import.meta.url), 'utf8')
 const backgroundTaskSource = await readFile(new URL('../tavern-plugin/lib/background-agent-task.js', import.meta.url), 'utf8')
 const backgroundSessionsSource = await readFile(new URL('../tavern-plugin/lib/background-agent-sessions.js', import.meta.url), 'utf8')
+const characterDesignDocumentSource = await readFile(new URL('../tavern-plugin/lib/domain/character-design-document.js', import.meta.url), 'utf8')
 const runtimePresetLifecycleSource = await readFile(new URL('../tavern-plugin/lib/domain/runtime-preset-lifecycle.js', import.meta.url), 'utf8')
 const orchestratorSource = await readFile(new URL('../tavern-plugin/lib/domain/turn-orchestration.js', import.meta.url), 'utf8')
 const orchestrationStrategiesSource = await readFile(new URL('../tavern-plugin/lib/domain/foreground-orchestration-strategies.js', import.meta.url), 'utf8')
@@ -109,10 +110,10 @@ test('卡片 Agent 以极简模式工具为底座，游玩 Agent 不暴露文件
   assert.match(orchestrationStrategiesSource, /name: 'tavern:resource-workspace'/)
   assert.match(advancedSkillSource, /Cordis 动态插件/)
   assert.match(advancedSkillSource, /tools\.cordis\.yml/)
-  assert.match(orchestratorSource, /if \(mode === 'card'\) return \[shellToolName, 'str_replace_editor', 'skill', 'tavern_save_skill', \.\.\.cordisToolNames, 'tavern_user_profile_read', 'tavern_user_profile_save_draft', 'tavern_user_profile_confirm', 'tavern_read_card'/)
+  assert.match(orchestratorSource, /if \(mode === 'card'\) return \[shellToolName, \.\.\.dshFileToolNames, 'skill', 'tavern_save_skill', \.\.\.cordisToolNames, 'tavern_user_profile_read', 'tavern_user_profile_save_draft', 'tavern_user_profile_confirm', 'tavern_read_card'/)
   assert.doesNotMatch(orchestratorSource, /mode === 'revision'|mode === 'extract'/)
   assert.doesNotMatch(orchestratorSource, /if \(mode === 'script'\) return \[[^\]]*'bash'/)
-	assert.match(serverSource, /controlledToolNames = new Set\(\['bash', 'pwsh', 'str_replace_editor', 'skill', 'web_search', 'tavern_save_skill', \.\.\.cordisToolNames, 'tavern_user_profile_read', 'tavern_user_profile_save_draft', 'tavern_user_profile_confirm', 'tavern_read_card'/)
+	assert.match(serverSource, /controlledToolNames = new Set\(\['bash', 'pwsh', \.\.\.dshFileToolNames, 'skill', 'web_search', 'tavern_save_skill', \.\.\.cordisToolNames, 'tavern_user_profile_read'/)
   assert.match(serverSource, /name: 'tavern_save_skill'/)
   assert.doesNotMatch(serverSource, /name: 'tavern_bind_script'/)
 })
@@ -144,8 +145,9 @@ test('后台最小预设提供原生 Skill 目录与按需加载工具', () => {
   assert.match(backgroundPresetSource, /@deepseek-ai\/dsh-tool-skill/)
   assert.match(backgroundSessionsSource, /dsh-tavern-background-tools-v4/)
   assert.match(backgroundSessionsSource, /STALE_BACKGROUND_PROVIDERS\.has\(savedDescriptor\.provider\)/)
-  assert.match(serverSource, /characterDesignDocument: snapshot\.characterDesignDocument/)
-  assert.match(serverSource, /draft\.characterDesignDocument = structuredClone\(mvuResult\.characterDesignDocument\)/)
+  assert.match(serverSource, /createCharacterDesignDocumentTools/)
+  assert.match(characterDesignDocumentSource, /persisting every valid save immediately/)
+  assert.doesNotMatch(serverSource, /task: 'character-design'|request_character_design/)
 })
 
 test('候选项通过持久任务信箱提交，同步快照原子携带结果', () => {
@@ -177,7 +179,9 @@ test('姿势结算通过短工具参数提交', () => {
   assert.match(systemPrompt, /posture_submit/)
   assert.match(systemPrompt, /位置、姿势、动作/)
   assert.doesNotMatch(flow, /maxTokens:/)
-  assert.match(flow, /tools: \[POSTURE_SUBMIT_TOOL\]/)
+  assert.match(flow, /tools: \[POSTURE_SUBMIT_TOOL, CHARACTER_DESIGN_READ_TOOL, CHARACTER_DESIGN_SAVE_TOOL\]/)
+  assert.match(flow, /skill 加载 tavern-character-design/)
+  assert.match(flow, /characterDesignDocuments\.execute/)
   assert.match(flow, /normalizePostureSubmission/)
   assert.match(flow, /未调用 posture_submit/)
   assert.match(flow, /text\.slice\(0, 200\)/)
@@ -250,7 +254,7 @@ test('无玩家输入的开场回合不进入正文结算', () => {
 test('游玩 Agent 接收解析后的玩家输入，不接收原始 Tavern 宏代码', () => {
   const lifecycle = between(serverSource, '// ---------- DSH 回合生命周期 ----------', '// ---------- 模型可选工具 ----------')
 
-  assert.match(orchestrationStrategiesSource, /replaceTurnInput\(decision\.messages, prepared\.frame\.userInput\.projectedText\)/)
+  assert.match(orchestrationStrategiesSource, /replaceTurnInput\(agentMessages, prepared\.frame\.userInput\.projectedText\)/)
 })
 
 test('读取 Session View 不启动后台工作，开场回合由玩家输入边界过滤', () => {
@@ -303,7 +307,7 @@ test('人物卡基本信息固定为会话前缀，仅系统和历史后指令�
   assert.match(ensureSnapshot, /cardContextSnapshot: sanitized/)
   assert.match(ensureSnapshot, /await writeChat\(draft, \{ source \}\)/)
   assert.doesNotMatch(orchestrationStrategiesSource, /name: 'tavern:card-snapshot'/)
-  assert.match(orchestrationStrategiesSource, /projectSessionStablePrefix/)
+  assert.doesNotMatch(orchestrationStrategiesSource, /projectSessionStablePrefix/)
   assert.match(startChat + serverSource, /ensureSessionStablePrefix/)
   assert.match(bodyPlanner, /includeDetails: true/)
   assert.match(bodyPlanner, /includeDescription: false/)

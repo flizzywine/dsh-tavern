@@ -3,8 +3,7 @@ import {
   CHARACTER_DESIGN_READ_TOOL,
   CHARACTER_DESIGN_READ_TOOL_NAME,
   CHARACTER_DESIGN_SAVE_TOOL,
-  CHARACTER_DESIGN_SAVE_TOOL_NAME,
-  createCharacterDesignDocumentSession
+  CHARACTER_DESIGN_SAVE_TOOL_NAME
 } from './character-design-document.js'
 import { variableDiagnosticSummary } from './mvu-diagnostics.js'
 import { POSTURE_SUBMIT_TOOL, POSTURE_SUBMIT_TOOL_NAME, normalizePostureSubmission } from './posture-submission.js'
@@ -325,13 +324,13 @@ export function projectMvuBackgroundRequest(frame) {
       JSON.stringify(state.variableSchema || {}),
       ...(updateRules.length === 0 ? [] : ['【人物卡变量更新规则】', updateRules.join('\n\n')]),
       '【人物设计（按需）】',
-      '若本轮需要重要人物登场、补全或提前储备，请调用 skill 加载 tavern-character-design：先读取当前对话人物档案，保存完整人物方案后再映射到变量；能复用或补充既有人物时不新建。否则跳过人物设计。'
+      '若本轮出现值得长期保留的重要人物，可先调用 skill 加载 tavern-character-design，再按 Skill 读取或保存人物档案。人物设计独立保存，不属于 MVU operations。'
     ].join('\n'),
     system: [
       '只根据【正文】中已经确认发生的事实结算变量，不得读取或推断玩家意图。',
       '不得根据旧轮剧情、隐藏思考、候选项或未发生事件更新变量。',
-      '人物档案中的稳定设计字段与默认形象可以按 tavern-character-design 合理创作；在场、位置、关系进展与已发生事件仍须依据正文。',
-      '人物设计如有需要，先按 Skill 使用人物档案工具；调用 mvu_submit_update 前必须调用 posture_submit 提交本轮结束时可见的人物姿势；不得输出 JSON。',
+      '若确实需要人物设计，在当前后台 Agent 内先加载 tavern-character-design 并调用人物档案工具；无需也不得创建另一个 Agent。完成后继续本轮姿势与变量结算。',
+      '调用 mvu_submit_update 前必须调用 posture_submit 提交本轮结束时可见的人物姿势；不得输出 JSON。',
       '必须调用 mvu_submit_update，以工具返回的实际执行校验结果为准。最多提交三次。',
       '变量通过工具提交，不在回复中输出 XML 变量协议；人物卡中的变量含义、更新条件和校验规则仍须遵守。',
       '有变化时提交完整 operations；没有变化时也必须提交 operations: []。',
@@ -347,6 +346,7 @@ export function projectMvuBackgroundRequest(frame) {
 export function createMvuSettlementModule(options = {}) {
   if (!options.model || typeof options.model.run !== 'function') throw new Error('MVU Settlement 缺少后台模型 adapter')
   if (!options.runtime || typeof options.runtime.settleMvuUpdate !== 'function') throw new Error('MVU Settlement 缺少官方 Runtime adapter')
+  const characterDesign = options.characterDesign
   const maxAttempts = Math.max(1, Math.min(3, Math.floor(Number(options.maxAttempts) || 3)))
   function taskFrame(input) {
     return createMvuBackgroundTaskFrame(input)
@@ -398,12 +398,6 @@ export function createMvuSettlementModule(options = {}) {
   async function settleVariables(input = {}) {
     const frame = taskFrame(input)
     const request = projectMvuBackgroundRequest(frame)
-    const characterDesigns = createCharacterDesignDocumentSession({
-      document: input.characterDesignDocument,
-      currentVariables: input.currentVariables,
-      variableSchema: frame.authoritativeState.variableSchema,
-      now: options.now
-    })
     let attempt = 0
     let result = null
     let feedback = null
@@ -418,7 +412,10 @@ export function createMvuSettlementModule(options = {}) {
     }
     async function executeTool(call) {
       if (call && (call.name === CHARACTER_DESIGN_READ_TOOL_NAME || call.name === CHARACTER_DESIGN_SAVE_TOOL_NAME)) {
-        return await characterDesigns.execute(call)
+        if (!characterDesign || typeof characterDesign.execute !== 'function') {
+          return JSON.stringify({ ok: false, retryable: false, error: '人物设计存储不可用，请继续完成姿势与变量结算' })
+        }
+        return await characterDesign.execute(input.chatId, call)
       }
       if (call && call.name === POSTURE_SUBMIT_TOOL_NAME) {
         try {
@@ -441,7 +438,6 @@ export function createMvuSettlementModule(options = {}) {
       try {
         if (!call || call.name !== MVU_SUBMIT_UPDATE_TOOL_NAME) throw new Error('后台 Agent 调用了未授权的变量工具')
         submission = normalizeMvuToolSubmission(call.arguments)
-        characterDesigns.validateSubmission(submission.operations)
         if (feedback && submission.operations.length === 0) throw new Error('上一批更新未通过校验，请修正完整 operations，不能用空数组跳过失败')
       } catch (error) {
         await record('submission-rejected', { error: error.message, argumentKeys: Object.keys(object(call?.arguments)), operations: object(call?.arguments).operations })
@@ -505,7 +501,7 @@ export function createMvuSettlementModule(options = {}) {
         task: 'settlement', persistent: true, persistentSessionId: traceSessionId, rewindTo: -1,
         selection: input.selection, messages: request.messages, turnContext: request.turnContext,
         system: [str(input.system).trim(), request.system].filter(Boolean).join('\n\n'),
-        tools: request.tools, maxToolCalls: maxAttempts + 8,
+        tools: request.tools, maxToolCalls: maxAttempts + 12,
         toolLimitMessage: '本轮后台工具调用过多，请停止额外查询；变量更新仍不得跳过校验。',
         stopToolsWhen: () => feedback !== null && (feedback.ok || !feedback.retryable),
         acceptWithoutText: () => result !== null,
@@ -542,8 +538,6 @@ export function createMvuSettlementModule(options = {}) {
       posture: posture.posture,
       traceSessionId,
       traceBoundary,
-      characterDesignDocument: characterDesigns.document(),
-      characterDesignChanged: characterDesigns.changed(),
       ...result
     }
   }

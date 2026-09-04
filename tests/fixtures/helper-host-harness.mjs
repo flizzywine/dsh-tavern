@@ -13,7 +13,7 @@ export function helperHostHarness(context = {}, options = {}) {
   const scripts = [{ id: 'a', content: '' }, { id: 'b', content: '' }]
   const html = helperClient.buildTavernHelperScriptDocument({ token: 'host-test', scripts, context: { compatibilityCapabilities: TAVERN_COMPATIBILITY_CAPABILITIES, ...context } })
   let source = html.match(/<script data-dsh-tavern-helper-script>([\s\S]*?)<\/script>/)[1]
-  const download = 'import(window.__dshTavernStaticAssetUrl("https://testingcf.jsdelivr.net/npm/zod@4.4.3/+esm"))'
+  const download = 'import("/api/dsh-tavern/vendor/runtime-assets/zod/index.mjs")'
   assert(source.includes(download))
   // The host implementation is real; only the unrelated CDN dependency is excluded.
   source = source.replace(download, 'Promise.resolve({})')

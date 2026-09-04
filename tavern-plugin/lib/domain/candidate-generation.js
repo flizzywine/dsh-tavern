@@ -1,5 +1,6 @@
 import { projectAgentContent, projectAgentMessageText } from './runtime-content-projection.js'
 import { createBackgroundTaskCoordinator } from './background-task-coordinator.js'
+import { CHARACTER_DESIGN_READ_TOOL, CHARACTER_DESIGN_SAVE_TOOL } from './character-design-document.js'
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
@@ -279,6 +280,7 @@ export function createCandidateGenerator(options) {
   const scripts = options.scripts
   const timeline = options.timeline
   const tasks = options.tasks || createBackgroundTaskCoordinator({ store, timeline })
+  const characterDesign = options.characterDesign
   const waitUntilSettled = typeof options.waitUntilSettled === 'function' ? options.waitUntilSettled : async function () {}
   const now = typeof options.now === 'function' ? options.now : Date.now
   const logger = options.logger || console
@@ -358,6 +360,12 @@ export function createCandidateGenerator(options) {
     let submittedChoices = null
     let submissionError = null
     async function onToolCall(call) {
+      if (call && (call.name === CHARACTER_DESIGN_READ_TOOL.name || call.name === CHARACTER_DESIGN_SAVE_TOOL.name)) {
+        if (!characterDesign || typeof characterDesign.execute !== 'function') {
+          return JSON.stringify({ ok: false, retryable: false, error: '人物设计存储不可用，请继续完成候选生成' })
+        }
+        return await characterDesign.execute(chat.id, call)
+      }
       if (call && call.name === CANDIDATE_SUBMIT_TOOL_NAME) {
         try {
           const args = call.arguments !== null && typeof call.arguments === 'object' ? call.arguments : parseJsonLenient(call.arguments)
@@ -384,7 +392,10 @@ export function createCandidateGenerator(options) {
       task: 'candidate',
       selection,
       temperature: 0.8,
-      system: context.taskText,
+      system: [
+        context.taskText,
+        '若确实需要建立、补全或修订长期人物设计，在当前后台 Agent 内调用 skill 加载 tavern-character-design，并按 Skill 使用人物档案工具；无需也不得创建另一个 Agent。完成后继续提交候选项。'
+      ].join('\n\n'),
       backgroundContext: context.stableText,
       turnContext: context.dynamicText,
       systemPromptText: context.systemPromptText,
@@ -400,9 +411,11 @@ export function createCandidateGenerator(options) {
       try {
         await reportStage('generating')
         run = await model.runCandidate(Object.assign({}, callOptions, {
-          tools: scriptMode ? [SCRIPT_READ_TOOL, SCRIPT_POINT_TOOL, CANDIDATE_SUBMIT_TOOL] : [CANDIDATE_SUBMIT_TOOL],
+          tools: scriptMode
+            ? [SCRIPT_READ_TOOL, SCRIPT_POINT_TOOL, CHARACTER_DESIGN_READ_TOOL, CHARACTER_DESIGN_SAVE_TOOL, CANDIDATE_SUBMIT_TOOL]
+            : [CHARACTER_DESIGN_READ_TOOL, CHARACTER_DESIGN_SAVE_TOOL, CANDIDATE_SUBMIT_TOOL],
           onToolCall,
-          maxToolCalls: scriptMode ? 7 : 2,
+          maxToolCalls: scriptMode ? 15 : 10,
           stopToolsWhen: function () { return submittedChoices !== null },
           acceptWithoutText: function () { return submittedChoices !== null }
         }))

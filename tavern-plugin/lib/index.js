@@ -37,7 +37,12 @@ import { createModelRequestLog } from './domain/model-request-log.js'
 import { MVU_SUBMIT_UPDATE_TOOL, createMvuSettlementModule } from './domain/mvu-background-settlement.js'
 import { applyMvuSettlementEffect } from './domain/mvu-settlement-effect.js'
 import { createMvuSettlementReconciler } from './domain/mvu-settlement-reconciler.js'
-import { CHARACTER_DESIGN_READ_TOOL, CHARACTER_DESIGN_SAVE_TOOL } from './domain/character-design-document.js'
+import {
+  CHARACTER_DESIGN_READ_TOOL,
+  CHARACTER_DESIGN_SAVE_TOOL,
+  createCharacterDesignDocumentTools,
+  projectCharacterDesignDocument
+} from './domain/character-design-document.js'
 import { POSTURE_SUBMIT_TOOL, POSTURE_SUBMIT_TOOL_NAME, normalizePostureSubmission } from './domain/posture-submission.js'
 import { TAVERN_COMPATIBILITY_CAPABILITIES, createTavernCompatibilityDiagnosticStore } from './domain/tavern-compatibility-diagnostics.js'
 import { createMvuDiagnosticStore, createMvuDiagnosticExport, sanitizeRuntimeDiagnostics, sanitizeMvuLoadDiagnostic, redactMvuLoadError } from './domain/mvu-diagnostics.js'
@@ -60,6 +65,7 @@ import { createTavernExtensionSettings } from './domain/tavern-extension-setting
 import { createTavernScriptHostAdapter } from './domain/tavern-script-host-adapter.js'
 import { createTavernRemoteAssetPinStore } from './domain/tavern-remote-assets.js'
 import { OFFICIAL_MVU_VERSION, readOfficialMvuBundle, inspectOfficialMvuAsset } from './domain/official-mvu-assets.js'
+import { TAVERN_RUNTIME_ASSET_PREFIX, readTavernRuntimeAsset } from './domain/tavern-runtime-assets.js'
 import { createTavernStaticResourceCache, projectCachedResourceBody } from './domain/tavern-static-resource-cache.js'
 import { SILLYTAVERN_CSS_COMPAT_URLS } from './domain/sillytavern-css-compatibility.js'
 import { createRoundHistory } from './domain/round-history.js'
@@ -83,7 +89,7 @@ import { createTavernSkillModule } from './domain/tavern-skills.js'
 import { createTavernConversationRegistry } from './domain/tavern-conversation-registry.js'
 import { applyTavernRegexText } from './domain/tavern-regex-display.js'
 import { createTavernCompactionCoordinator } from './domain/tavern-compaction.js'
-import { cordisToolNames, createTurnOrchestrator } from './domain/turn-orchestration.js'
+import { cordisToolNames, createTurnOrchestrator, dshFileToolNames } from './domain/turn-orchestration.js'
 import { resourceWorkspaceContext } from './domain/workspace-resources.js'
 import { createWorldBookLibrary } from './domain/worldbook-library.js'
 import { mvuUpdateRulesFromWorldBook, prepareWorldBookRecall } from './domain/worldbook-recall.js'
@@ -144,19 +150,7 @@ export async function apply(ctx) {
     updateJson: async function (path, updater) { return await profileData.updateJson(path, updater) }
   })
   const tavernStaticResources = createTavernStaticResourceCache({ rootDir: dataRoot + '/cache/static-assets' })
-  void tavernStaticResources.warm([
-    'https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.1.12/dist/index.global.js',
-    'https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js',
-    'https://cdn.jsdelivr.net/npm/jquery-ui@1.14.1/dist/jquery-ui.min.js',
-    'https://cdn.jsdelivr.net/npm/jquery-ui@1.14.1/themes/base/theme.min.css',
-    'https://cdn.jsdelivr.net/npm/jquery-ui-touch-punch@0.2.3/jquery.ui.touch-punch.min.js',
-    'https://cdn.jsdelivr.net/npm/lodash@4.18.1/lodash.min.js',
-    'https://cdn.jsdelivr.net/npm/vue@3.5.41/dist/vue.runtime.global.prod.js',
-    'https://cdn.jsdelivr.net/npm/vue-router@5.2.0/dist/vue-router.global.prod.js',
-    'https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.7.2/css/all.min.css',
-    'https://testingcf.jsdelivr.net/npm/zod@4.4.3/+esm',
-    'https://testingcf.jsdelivr.net/npm/pinia/+esm'
-  ].concat(SILLYTAVERN_CSS_COMPAT_URLS)).then(function (results) {
+  void tavernStaticResources.warm(SILLYTAVERN_CSS_COMPAT_URLS).then(function (results) {
     const failures = results.filter(function (result) { return result.status === 'rejected' })
     if (failures.length > 0) console.warn('dsh-tavern: 部分静态运行库暂未缓存，将在使用时重试:', failures.map(function (result) { return str(result.reason && result.reason.message || result.reason) }).join('；'))
   })
@@ -1059,6 +1053,7 @@ export async function apply(ctx) {
       runtimePreset: activePresetSnapshot === null ? null : { id: activePresetSnapshot.presetPath, name: activePresetSnapshot.presetName },
       card: cardViewOf(card, chat),
       posture: chat.posture || '',
+      characterDesigns: projectCharacterDesignDocument(chat.characterDesignDocument),
       guides: Array.isArray(chat.guides) ? chat.guides : [],
       debugTurns: debugTurns.slice(-12).reverse(),
       inputSources,
@@ -1282,10 +1277,15 @@ export async function apply(ctx) {
       })
     }
   })
+  const characterDesignDocuments = createCharacterDesignDocumentTools({
+    store: { readChat, updateChat },
+    now: Date.now
+  })
   const mvuSettlement = createMvuSettlementModule({
     model: backgroundAgentRunner,
     runtime: tavernScriptHostAdapter,
-    diagnostics: mvuDiagnostics
+    diagnostics: mvuDiagnostics,
+    characterDesign: characterDesignDocuments
   })
   ctx.effect(() => () => backgroundAgentRunner.dispose(), 'dsh-tavern: dispose resident background agents')
   const sceneIllustrations = TAVERN_RELEASE_CAPABILITIES.sceneImages ? createSceneIllustrations({
@@ -1364,6 +1364,7 @@ export async function apply(ctx) {
     scripts: scriptContinuity,
     timeline: storyTimeline,
     tasks: backgroundTasks,
+    characterDesign: characterDesignDocuments,
     waitUntilSettled: async function (chat) {
       let current = await readChat(chat.id)
       if (current === undefined) return
@@ -1574,7 +1575,6 @@ export async function apply(ctx) {
             currentVariables: mvuTarget.variables,
             variableSchema: mvuTarget.variables.schema,
             updateRules: await mvuUpdateRules(snapshot, card),
-            characterDesignDocument: snapshot.characterDesignDocument,
             webSearchEnabled: snapshot.webSearchEnabled === true
           }
           const pendingSubmission = mvuTarget.message.mvu && mvuTarget.message.mvu.pendingSubmission
@@ -1604,6 +1604,7 @@ export async function apply(ctx) {
           const selection = backgroundModelSelection(snapshot)
           if (selection === null) throw new Error('没有可用的模型配置，请先在当前会话的模型选择器中选择模型')
           let submittedPosture = null
+          let settlementToolTail = Promise.resolve()
           const run = await backgroundAgentRunner.run({
             task: 'settlement',
             persistent: true,
@@ -1617,28 +1618,42 @@ export async function apply(ctx) {
               content: [{ type: 'text', text: settleUserText(snapshot) }],
               source: { kind: 'plugin', plugin: 'dsh-tavern' }
             }],
-            system: runtimePrompt('posture-settlement'),
-            turnContext: '',
-            tools: [POSTURE_SUBMIT_TOOL],
-            maxToolCalls: 3,
+            system: [
+              runtimePrompt('posture-settlement'),
+              '若发现重要人物需要建立、补全或修订长期设计，在当前后台 Agent 内调用 skill 加载 tavern-character-design，并按 Skill 读取或保存人物档案；无需也不得创建另一个 Agent。',
+              '人物设计保存独立于姿势结算；完成设计后继续当前任务。',
+              'posture_submit 是本任务最后一步。'
+            ].join('\n\n'),
+            turnContext: '【人物设计（按需）】\n普通卡与 MVU 卡均可使用人物设计 Skill；不需要设计时直接跳过。',
+            tools: [POSTURE_SUBMIT_TOOL, CHARACTER_DESIGN_READ_TOOL, CHARACTER_DESIGN_SAVE_TOOL],
+            maxToolCalls: 12,
             temperature: 0.2,
             sessionId: snapshot.sessionId,
             webSearchEnabled: snapshot.webSearchEnabled === true,
             signal,
             stopToolsWhen: function () { return submittedPosture !== null },
             acceptWithoutText: function () { return submittedPosture !== null },
-            async onToolCall(call) {
-              if (!call || call.name !== POSTURE_SUBMIT_TOOL_NAME) {
-                return JSON.stringify({ ok: false, retryable: true, error: '当前任务只允许调用 posture_submit' })
-              }
-              try {
-                submittedPosture = normalizePostureSubmission(call.arguments)
-                return JSON.stringify({ ok: true })
-              } catch (error) {
-                return JSON.stringify({ ok: false, retryable: true, error: str(error && error.message || error) })
-              }
+            onToolCall(call) {
+              const pending = settlementToolTail.then(async function () {
+                if (call && (call.name === CHARACTER_DESIGN_READ_TOOL.name || call.name === CHARACTER_DESIGN_SAVE_TOOL.name)) {
+                  if (submittedPosture !== null) return JSON.stringify({ ok: false, retryable: false, error: '姿势已经提交，本轮后台任务已结束' })
+                  return await characterDesignDocuments.execute(snapshot.id, call)
+                }
+                if (!call || call.name !== POSTURE_SUBMIT_TOOL_NAME) {
+                  return JSON.stringify({ ok: false, retryable: true, error: '当前任务只允许调用人物设计工具和 posture_submit' })
+                }
+                try {
+                  submittedPosture = normalizePostureSubmission(call.arguments)
+                  return JSON.stringify({ ok: true })
+                } catch (error) {
+                  return JSON.stringify({ ok: false, retryable: true, error: str(error && error.message || error) })
+                }
+              })
+              settlementToolTail = pending.catch(function () {})
+              return pending
             }
           })
+          await settlementToolTail
           if (submittedPosture === null) throw new Error('后台 Agent 未调用 posture_submit 提交有效姿势')
           result = submittedPosture
           text = str(run.text) || JSON.stringify(result)
@@ -1650,15 +1665,12 @@ export async function apply(ctx) {
         const waitingRuntime = Boolean(mvuResult && mvuResult.receipt && mvuResult.receipt.status === 'pending')
         const completion = {
           stateChanged: Boolean(mvuResult && mvuResult.receipt && mvuResult.receipt.status === 'updated') ||
-            Boolean(mvuResult && mvuResult.characterDesignChanged) || str(result && result.posture).trim() !== '',
+            str(result && result.posture).trim() !== '',
           participant: taskRun.participant({ sessionId: backgroundSessionId, boundary: backgroundBoundary }),
           apply(draft) {
             if (mvuResult && mvuResult.effect) applyMvuSettlementEffect(draft, mvuResult.effect)
             stat = applySettlement(draft, result)
             if (mvuResult !== null) {
-              if (mvuResult.characterDesignChanged) {
-                draft.characterDesignDocument = structuredClone(mvuResult.characterDesignDocument)
-              }
               const target = draft.messages[mvuTarget.messageId]
               if (target && target.role === 'assistant' && Math.max(0, Number(target.swipeId) || 0) === mvuTarget.swipeId) {
                 const receipt = structuredClone(mvuResult.receipt)
@@ -2236,6 +2248,7 @@ export async function apply(ctx) {
         const cachedAssetMatch = /^\/api\/dsh-tavern\/remote-assets\/([0-9a-f]{64})(?:\/[^/]*)?$/i.exec(pathname)
         const readsStaticAsset = req.method === 'GET' && pathname === '/api/dsh-tavern/static-assets'
         const readsOfficialMvu = req.method === 'GET' && pathname === OFFICIAL_MVU_VERSION.assetUrl
+        const readsRuntimeAsset = req.method === 'GET' && pathname.startsWith(TAVERN_RUNTIME_ASSET_PREFIX)
         const origin = req.headers.origin
         const sceneImageRoute = TAVERN_RELEASE_CAPABILITIES.sceneImages && /^\/api\/dsh-tavern\/(?:scene-image|getSceneImageSettings|saveSceneImageSettings|testSceneImageConnection|listSceneImageModels|sceneImageStatus|generateSceneImage|retrySceneImageSave|cancelSceneImage|removeSceneImage|setSceneImageReference)$/.test(pathname)
         const sceneSameOrigin = sceneImageRoute && (origin === 'http://' + req.headers.host || origin === 'https://' + req.headers.host)
@@ -2251,7 +2264,7 @@ export async function apply(ctx) {
           res.end('forbidden')
           return
         }
-        if (!readsCachedAsset && !readsStaticAsset && !readsOfficialMvu && !sceneSameOrigin && typeof origin === 'string' && origin !== '' && !/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin)) {
+        if (!readsCachedAsset && !readsStaticAsset && !readsOfficialMvu && !readsRuntimeAsset && !sceneSameOrigin && typeof origin === 'string' && origin !== '' && !/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin)) {
           res.writeHead(403)
           res.end('forbidden')
           return
@@ -2265,6 +2278,19 @@ export async function apply(ctx) {
           return
         }
         try {
+          if (readsRuntimeAsset) {
+            const asset = await readTavernRuntimeAsset(pathname)
+            res.writeHead(200, {
+              'Content-Type': asset.mediaType,
+              'Content-Length': asset.body.length,
+              'Cache-Control': 'public, max-age=31536000, immutable',
+              'Access-Control-Allow-Origin': '*',
+              'Cross-Origin-Resource-Policy': 'cross-origin',
+              'X-Content-Type-Options': 'nosniff'
+            })
+            res.end(asset.body)
+            return
+          }
           const readiness = await runtimeReadiness
           if (!readiness.ok) throw readiness.error
           if (TAVERN_RELEASE_CAPABILITIES.sceneImages && req.method === 'GET' && pathname === '/api/dsh-tavern/scene-image') {
@@ -2396,7 +2422,7 @@ export async function apply(ctx) {
           res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' })
           res.end(JSON.stringify(Object.assign({ ok: true }, result, { runtimeGeneration })))
         } catch (err) {
-          if (readsOfficialMvu) {
+          if (readsOfficialMvu || readsRuntimeAsset) {
             res.writeHead(503, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store',
               'Access-Control-Allow-Origin': '*', 'X-Content-Type-Options': 'nosniff' })
             res.end(JSON.stringify({ ok: false, error: redactMvuLoadError(err && err.message || err) }))
@@ -2710,7 +2736,7 @@ export async function apply(ctx) {
     })
   }
 
-  const controlledToolNames = new Set(['bash', 'pwsh', 'str_replace_editor', 'skill', 'web_search', 'tavern_save_skill', ...cordisToolNames, 'tavern_user_profile_read', 'tavern_user_profile_save_draft', 'tavern_user_profile_confirm', 'tavern_read_card', 'tavern_read_card_raw', 'tavern_read_play_chat', 'tavern_read_script', 'tavern_recall_history', 'tavern_read_worldbook', 'tavern_update_worldbook', 'tavern_read_preset', 'tavern_update_preset', 'tavern_update_card', 'tavern_restore_card'])
+  const controlledToolNames = new Set(['bash', 'pwsh', ...dshFileToolNames, 'skill', 'web_search', 'tavern_save_skill', ...cordisToolNames, 'tavern_user_profile_read', 'tavern_user_profile_save_draft', 'tavern_user_profile_confirm', 'tavern_read_card', 'tavern_read_card_raw', 'tavern_read_play_chat', 'tavern_read_script', 'tavern_recall_history', 'tavern_read_worldbook', 'tavern_update_worldbook', 'tavern_read_preset', 'tavern_update_preset', 'tavern_update_card', 'tavern_restore_card'])
   const foregroundStrategies = createForegroundOrchestrationStrategies({
     compatibility: {
       beforeTurn: async function (input) {
@@ -2771,13 +2797,11 @@ export async function apply(ctx) {
       workspaceContext: resourceWorkspaceContext,
       ensureSessionPrefix: async function (input) {
         const session = input.payload.agent.session
-        if (readSessionStablePrefix(session)) return
-        await ensureSessionStablePrefix(session, await ensurePlayCardSnapshot(input.chat), stablePrefixStorage)
+        const existing = readSessionStablePrefix(session)
+        if (existing) return existing
+        const fixed = await ensureSessionStablePrefix(session, await ensurePlayCardSnapshot(input.chat), stablePrefixStorage)
         await sessionStore.flush(session)
-      },
-      sessionPrefix: function (sessionId) {
-        const session = backgroundAgentRunner.requestSession(sessionId) || agentRegistry.get(sessionId)?.session || sessionStore.get(sessionId)
-        return readSessionStablePrefix(session)
+        return fixed
       },
       controlledToolNames
     }

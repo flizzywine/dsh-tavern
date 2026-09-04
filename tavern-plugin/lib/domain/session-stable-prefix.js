@@ -4,8 +4,13 @@ import path from 'node:path'
 import { createDurableFilePromotion } from '../durable-file-promotion.js'
 
 const EVENT = 'dsh-tavern/stable-prefix'
-const cached = new WeakMap()
 const pending = new WeakMap()
+const MESSAGE_FORM = 'snapshot'
+const LEGACY_MESSAGE_FORM = 'session-prefix'
+
+function str(value) {
+  return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
+}
 
 export function createSessionStablePrefixStorage(directory) {
   const files = createDurableFilePromotion()
@@ -27,73 +32,80 @@ export function createSessionStablePrefixStorage(directory) {
   }
 }
 
-/** Session metadata, not a turn message: never compacted or appended again on resume. */
-export function readSessionStablePrefix(session) {
-  if (!session) return null
-  if (cached.has(session)) return cached.get(session)
-  const event = sessionEvents(session).find(item => item.type === EVENT && item.data?.version === 1)
-  if (!event) return null
-  cached.set(session, event.data)
-  return event.data
+function messageRecord(session, event) {
+  const message = event && event.type === 'user/message' ? event.data : null
+  if (message?.id !== 'tavern-session-prefix:' + session.id || message.role !== 'user' || message.source?.kind !== 'plugin' ||
+      message.source?.plugin !== 'dsh-tavern' || ![MESSAGE_FORM, LEGACY_MESSAGE_FORM].includes(message.source?.form) || !Array.isArray(message.content)) return null
+  const text = message.content.filter(block => block?.type === 'text').map(block => str(block.text)).join('').trim()
+  if (text === '') return null
+  return { version: 2, id: message.id, text, message, event }
 }
 
+function sourceSections(text) {
+  const boundaries = [
+    { marker: '【用户已确认的长期偏好】', name: 'tavern:user-preference' },
+    { marker: '【故事设定 · 人物卡】', name: 'tavern:character-card' },
+    { marker: '【常驻世界书】', name: 'tavern:constant-worldbook' }
+  ]
+  const starts = boundaries.map(function (boundary) {
+    return { ...boundary, index: text.indexOf(boundary.marker) }
+  }).filter(function (boundary) { return boundary.index >= 0 }).sort(function (left, right) { return left.index - right.index })
+  if (starts.length === 0) return [{ name: 'tavern:session-context', text }]
+  const sections = []
+  if (starts[0].index > 0 && text.slice(0, starts[0].index).trim() !== '') {
+    sections.push({ name: 'tavern:session-context', text: text.slice(0, starts[0].index).trim() })
+  }
+  for (let index = 0; index < starts.length; index += 1) {
+    const start = starts[index]
+    const end = starts[index + 1]?.index ?? text.length
+    sections.push({ name: start.name, text: text.slice(start.index, end).trim() })
+  }
+  return sections
+}
+
+/** Read the one standard DSH surface message that owns this Session's fixed Tavern context. */
+export function readSessionStablePrefix(session) {
+  if (!session) return null
+  for (const event of sessionEvents(session)) {
+    const record = messageRecord(session, event)
+    if (record !== null) return record
+  }
+  return null
+}
+
+function legacyEventText(session) {
+  const event = sessionEvents(session).find(item => item.type === EVENT && item.data?.version === 1 && item.data.id === 'tavern-session-prefix:' + session.id)
+  return str(event && event.data && event.data.text).trim()
+}
+
+function fixedContextMessage(session, text) {
+  return {
+    id: 'tavern-session-prefix:' + session.id,
+    role: 'user',
+    content: [{ type: 'text', text }],
+    source: {
+      kind: 'plugin',
+      plugin: 'dsh-tavern',
+      form: MESSAGE_FORM,
+      sections: sourceSections(text)
+    }
+  }
+}
+
+/** Ensure fixed card/worldbook context is model-visible because it is Session-recorded. */
 export async function ensureSessionStablePrefix(session, text, storage) {
   const existing = readSessionStablePrefix(session)
   if (existing) return existing
-  if (!session) throw new Error('无法保存 Session 固定背景')
+  if (!session || typeof session.append !== 'function') throw new Error('无法写入 Session 固定背景')
   if (pending.has(session)) return pending.get(session)
   const operation = (async function () {
     const saved = storage ? await storage.read(session.id) : null
-    if (saved) { cached.set(session, saved); return saved }
-    if (typeof text !== 'string' || !text.trim()) return null
-    if (!storage) throw new Error('缺少 Session 固定背景存储')
-    const data = { version: 1, id: 'tavern-session-prefix:' + session.id, text: text.trim() }
-    // Not a model message or a custom DSH event. Commit before exposing it to requests.
-    await storage.write(session.id, data)
-    cached.set(session, data)
-    return data
+    const context = legacyEventText(session) || str(saved && saved.text).trim() || str(text).trim()
+    if (context === '') return null
+    const message = fixedContextMessage(session, context)
+    const event = session.append('user/message', message, { surfaceOp: 'append' })
+    return { version: 2, id: message.id, text: context, message: event.data, event }
   })()
   pending.set(session, operation)
   try { return await operation } finally { pending.delete(session) }
-}
-
-function textOf(message) {
-  return message.content.map(block => block.text).join('')
-}
-
-function stripLegacyCardContext(message) {
-  // Only rewrite Tavern-owned text inputs. Never touch player prose or tool traffic.
-  if (message?.role !== 'user' || message.source?.kind !== 'plugin' || message.source.plugin !== 'dsh-tavern' ||
-      message.tool_call_id !== undefined || message.tool_calls?.length ||
-      !Array.isArray(message.content) || !message.content.every(block => block.type === 'text')) return message
-  const text = textOf(message)
-  const sections = message.source.sections
-  if (message.source.form === 'foreground-frame' && Array.isArray(sections) &&
-      sections.map(section => section.text).join('\n\n') === text) {
-    const kept = sections.filter(section => section.source?.sectionKind !== 'card')
-    if (kept.length === sections.length) return message
-    return { ...message, content: [{ type: 'text', text: kept.map(section => section.text).join('\n\n') }], source: { ...message.source, sections: kept } }
-  }
-  // Pre-prefix candidate messages embedded the entire card in the task protocol.
-  if (!text.startsWith('【最近剧情与本次任务】\n任务类型：候选生成\n') || !text.includes('【DSH 后台任务协议（最终指令）】')) return message
-  const start = text.indexOf('\n\n【故事设定 · 人物卡】\n名字: ')
-  if (start < 0) return message
-  const rest = text.slice(start + 2)
-  const boundary = /\n\n【(?:附加要求|特殊指令|用户指导 Guide · 优先遵循|现场 · 主要人物状态（每轮结算更新，务必与之一致）|剧本候选参考[^】]*)】/.exec(rest)
-  const end = boundary ? start + 2 + boundary.index : text.length
-  return { ...message, content: [{ type: 'text', text: text.slice(0, start) + text.slice(end) }] }
-}
-
-/** Put the saved background before all conversation history, never into request.system. */
-export function projectSessionStablePrefix(request, prefix) {
-  if (!prefix || request?.purpose !== undefined) return request
-  const messages = Array.isArray(request.messages) ? request.messages : []
-  const ordinary = messages.filter(message => message.id !== prefix.id).map(stripLegacyCardContext)
-  const head = {
-    id: prefix.id,
-    role: 'user',
-    content: [{ type: 'text', text: prefix.text }],
-    source: { kind: 'plugin', plugin: 'dsh-tavern', form: 'session-prefix' }
-  }
-  return { ...request, messages: [head, ...ordinary] }
 }

@@ -13,6 +13,16 @@ export const cordisToolNames = Object.freeze([
   'cordis_undefine'
 ])
 
+// DSH keeps the legacy editor package while the Web profile enables the newer
+// file-tool suite. Treat both generations as one capability boundary.
+export const dshFileToolNames = Object.freeze([
+  'str_replace_editor',
+  'read',
+  'write',
+  'edit',
+  'read_image'
+])
+
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
 }
@@ -636,7 +646,7 @@ export function createTurnOrchestrator(options) {
     const mode = chat.mode || 'story'
     const webTools = chat.webSearchEnabled === true ? ['web_search'] : []
     if (mode === 'script') return ['tavern_read_script', 'tavern_recall_history', ...webTools]
-    if (mode === 'card') return [shellToolName, 'str_replace_editor', 'skill', 'tavern_save_skill', ...cordisToolNames, 'tavern_user_profile_read', 'tavern_user_profile_save_draft', 'tavern_user_profile_confirm', 'tavern_read_card', 'tavern_read_card_raw', 'tavern_read_play_chat', 'tavern_read_worldbook', 'tavern_update_worldbook', 'tavern_read_preset', 'tavern_update_preset', 'tavern_update_card', 'tavern_restore_card']
+    if (mode === 'card') return [shellToolName, ...dshFileToolNames, 'skill', 'tavern_save_skill', ...cordisToolNames, 'tavern_user_profile_read', 'tavern_user_profile_save_draft', 'tavern_user_profile_confirm', 'tavern_read_card', 'tavern_read_card_raw', 'tavern_read_play_chat', 'tavern_read_worldbook', 'tavern_update_worldbook', 'tavern_read_preset', 'tavern_update_preset', 'tavern_update_card', 'tavern_restore_card']
     return ['tavern_recall_history', ...webTools]
   }
 

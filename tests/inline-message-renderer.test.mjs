@@ -187,14 +187,14 @@ test('Tavern Helper 消息 iframe 按官方顺序加载完整前端依赖', () =
     helperContext: { messages: [] }
   })
   const markers = [
-    '%40fortawesome%2Ffontawesome-free%406.7.2%2Fcss%2Fall.min.css',
-    '%40tailwindcss%2Fbrowser%404.1.12%2Fdist%2Findex.global.js',
-    'jquery%403.7.1%2Fdist%2Fjquery.min.js',
-    'jquery-ui%401.14.1%2Fdist%2Fjquery-ui.min.js',
-    'jquery-ui%401.14.1%2Fthemes%2Fbase%2Ftheme.min.css',
-    'jquery-ui-touch-punch%400.2.3%2Fjquery.ui.touch-punch.min.js',
-    'vue%403.5.41%2Fdist%2Fvue.runtime.global.prod.js',
-    'vue-router%405.2.0%2Fdist%2Fvue-router.global.prod.js'
+    '/vendor/runtime-assets/fontawesome/css/all.min.css',
+    '/vendor/runtime-assets/tailwind/index.global.js',
+    '/vendor/runtime-assets/jquery/jquery.min.js',
+    '/vendor/runtime-assets/jquery-ui/jquery-ui.min.js',
+    '/vendor/runtime-assets/jquery-ui/themes/base/theme.min.css',
+    '/vendor/runtime-assets/jquery-ui-touch-punch/jquery.ui.touch-punch.min.js',
+    '/vendor/runtime-assets/vue/vue.runtime.global.prod.js',
+    '/vendor/runtime-assets/vue-router/vue-router.global.prod.js'
   ]
   let previous = -1
   for (const marker of markers) {
@@ -202,7 +202,7 @@ test('Tavern Helper 消息 iframe 按官方顺序加载完整前端依赖', () =
     assert.ok(current > previous, `${marker} 应按 Tavern Helper 官方顺序出现`)
     previous = current
   }
-  assert.match(document, /lodash%404\.18\.1%2Flodash\.min\.js/)
+  assert.match(document, /\/vendor\/runtime-assets\/lodash\/lodash\.min\.js/)
   assert.doesNotMatch(document, /data-dsh-sillytavern-css-compat/)
 })
 
@@ -360,8 +360,8 @@ test('Helper 脚本文档提供可见弹窗容器和固定 Tavern Helper 按钮�
   assert.match(document, /data-dsh-tavern-icons/)
   assert.match(document, /dsh-tavern-helper-ui-open/)
   assert.match(document, /return String\(scriptId \|\| currentScript\(\)\.id\) \+ "_" \+ stringHash/)
-  assert.match(document, /vue%403\.5\.41%2Fdist%2Fvue\.runtime\.global\.prod\.js/)
-  assert.match(document, /vue-router%405\.2\.0%2Fdist%2Fvue-router\.global\.prod\.js/)
+  assert.match(document, /\/vendor\/runtime-assets\/vue\/vue\.runtime\.global\.prod\.js/)
+  assert.match(document, /\/vendor\/runtime-assets\/vue-router\/vue-router\.global\.prod\.js/)
 })
 
 test('官方 MVU owner 作为共享沙箱首个系统模块本地加载', () => {
@@ -610,7 +610,7 @@ test('官方 MVU 与人物卡脚本共用沙箱时仍先提供全局 Zod', () =>
   const loader = Buffer.from(encoded[1], 'base64').toString('utf8')
 
   assert.match(document, /const officialMvuEnabled = metadata\.officialMvu === true/)
-  assert.match(document, /const ready = import\(window\.__dshTavernStaticAssetUrl\("https:\/\/testingcf\.jsdelivr\.net\/npm\/zod@4\.4\.3\/\+esm"\)\)\.then\(function \(module\) \{ window\.z = module; return true; \}\)/)
+  assert.match(document, /const ready = import\("\/api\/dsh-tavern\/vendor\/runtime-assets\/zod\/index\.mjs"\)\.then\(function \(module\) \{ window\.z = module; return true; \}\)/)
   assert.doesNotMatch(document, /officialMvuEnabled\s*\?\s*Promise\.resolve/)
   assert.ok(loader.indexOf('await window.__dshTavernHelperReady') < loader.indexOf('for(const script of scripts)'))
 })

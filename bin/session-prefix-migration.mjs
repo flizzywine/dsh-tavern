@@ -37,18 +37,38 @@ export async function migrateSessionPrefixEvents({ sessionsRoot, backupRoot }) {
       const original = await readFile(file)
       const compressed = entry.name.endsWith('.zstd')
       const text = (compressed ? decodeZstdFrames(original) : original).toString('utf8')
-      if (!text.includes('dsh-tavern/stable-prefix')) continue
+      if (!text.includes('dsh-tavern/stable-prefix') && !text.includes('tavern-session-prefix:')) continue
       if (!text.endsWith('\n')) throw new Error('历史末尾不完整，未改写：' + file)
       const lines = text.slice(0, -1).split('\n')
       const header = JSON.parse(lines[0])
       if (header.type !== 'session' || typeof header.id !== 'string') throw new Error('历史头无效，未改写：' + file)
+      const prefixId = 'tavern-session-prefix:' + header.id
       let count = 0
+      let visiblePrefixSeen = false
       for (let index = 1; index < lines.length; index++) {
         const event = JSON.parse(lines[index])
-        if (event.type !== 'dsh-tavern/stable-prefix' || event.ignorable === true) continue
-        if (event.data?.version !== 1 || event.data.id !== 'tavern-session-prefix:' + header.id || typeof event.data.text !== 'string' || !event.data.text.trim() || event.surfaceOp !== undefined) throw new Error('固定背景事件格式无效，未改写：' + file)
-        // Unknown to DSH, but retained verbatim for Tavern to recover its prefix.
-        lines[index] = JSON.stringify({ ...event, ignorable: true })
+        if (event.type === 'dsh-tavern/stable-prefix' && event.ignorable !== true) {
+          if (event.data?.version !== 1 || event.data.id !== prefixId || typeof event.data.text !== 'string' || !event.data.text.trim() || event.surfaceOp !== undefined) throw new Error('固定背景事件格式无效，未改写：' + file)
+          // Unknown to DSH, but retained verbatim for Tavern to recover its prefix.
+          lines[index] = JSON.stringify({ ...event, ignorable: true })
+          count++
+          continue
+        }
+        if (event.type !== 'user/message' || event.data?.id !== prefixId) continue
+        if (event.surfaceOp !== 'append' || event.data.role !== 'user' || event.data.source?.kind !== 'plugin' || event.data.source.plugin !== 'dsh-tavern' || event.data.source.form !== 'snapshot' || !Array.isArray(event.data.content)) throw new Error('固定背景消息格式无效，未改写：' + file)
+        if (!visiblePrefixSeen) {
+          visiblePrefixSeen = true
+          continue
+        }
+        // Older runtimes appended this deterministic message ID twice. DSH's
+        // event sequence remains intact, while its chat surface sees one ID.
+        lines[index] = JSON.stringify({
+          type: 'dsh-tavern/duplicate-stable-prefix',
+          seq: event.seq,
+          time: event.time,
+          ignorable: true,
+          data: { version: 1, id: prefixId, originalType: event.type },
+        })
         count++
       }
       if (!count) continue

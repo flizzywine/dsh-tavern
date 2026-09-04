@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
+import { Session } from './fixtures/dsh-session-host.mjs'
+import { sessionEvents } from '../tavern-plugin/lib/domain/session-events.js'
 import { createForegroundOrchestrationStrategies, createNativePlayOrchestrationStrategy, createCompatibilityOrchestrationStrategy } from '../tavern-plugin/lib/domain/foreground-orchestration-strategies.js'
-import { ensureSessionStablePrefix, readSessionStablePrefix } from '../tavern-plugin/lib/domain/session-stable-prefix.js'
+import { ensureSessionStablePrefix } from '../tavern-plugin/lib/domain/session-stable-prefix.js'
 
 function userMessage(text) {
   return { role: 'user', content: [{ type: 'text', text }], source: { kind: 'user' } }
@@ -55,37 +57,62 @@ test('正式编排拒绝旧兼容对话的生成与系统提示组装，不写�
   assert.equal(run.value.projectRequest({ sessionId: 'compat', messages: [] }), null)
 })
 
-test('前台固定背景位于全部历史之前，不进入当轮 system、Frame 或预设注入', async () => {
-  const session = { id: 'native', events: [], append(type, data) { this.events.push({ type, data }) } }
+test('前台固定背景来自标准 Session 消息，不进入当轮 system、Frame 或预设投影', async () => {
+  const session = Session.create('native')
   const savedPrefixes = new Map()
   const storage = { async read(id) { return savedPrefixes.get(id) }, async write(id, value) { savedPrefixes.set(id, value) } }
   let cardText = '人物卡固定基本信息\n常驻世界书'
+  await ensureSessionStablePrefix(session, cardText, storage)
   const run = strategies({ nativePlay: {
     async modeFor() { return 'story' },
     filterMessages(messages) { return messages },
     async resolvePreset() { return { front: { text: '预设前置指令' } } },
-    async ensureSessionPrefix() { await ensureSessionStablePrefix(session, cardText, storage) },
-    sessionPrefix() { return readSessionStablePrefix(session) },
+    async ensureSessionPrefix() { return await ensureSessionStablePrefix(session, cardText, storage) },
     async prepareTurn() { return { frame: { userInput: { projectedText: '本轮玩家输入' } } } },
     appendFrame(input) { return { messages: input.messages.concat(userMessage('本轮动态指令')), receipt: {} } },
     recordFrame() {}, async visibleTools() { return [] },
     modePrompt() { return '正文任务' }, controlledToolNames: new Set()
   } })
   for (const turn of [2, 3]) {
-    const history = [userMessage('开场历史'), userMessage('新输入')]
-    const prepared = await run.value.prepareStep({ sessionId: 'native', payload: { turn, step: 1, messages: history }, decision: { kind: 'enter', messages: history }, chat: run.chats.get('native') })
+    const incoming = [userMessage('新输入')]
+    const prepared = await run.value.prepareStep({ sessionId: 'native', payload: { turn, step: 1, messages: incoming }, decision: { kind: 'enter', messages: incoming }, chat: run.chats.get('native') })
     const assembly = await run.value.assembleSystemPrompt({ sections: [], tools: [] }, { sessionId: 'native', chat: run.chats.get('native') })
     const system = assembly.sections.map(section => section.text).join('\n')
     assert.doesNotMatch(system, /人物卡固定基本信息|常驻世界书/)
-    assert.doesNotMatch(JSON.stringify(prepared.messages), /人物卡固定基本信息|常驻世界书/)
-    const request = run.value.projectRequest({ sessionId: 'native', system, messages: prepared.messages })
-    assert.equal(request.messages[0].content[0].text, '人物卡固定基本信息\n常驻世界书')
-    assert.equal(request.messages[0].source.form, 'session-prefix')
+    assert.deepEqual(prepared.messages.map(message => message.content[0].text), ['本轮玩家输入', '本轮动态指令'])
+    assert.equal(prepared.messages.some(message => message.id === 'tavern-session-prefix:native'), false)
+    const modelMessages = session.deriveMessages().concat(prepared.messages)
+    assert.equal(modelMessages.filter(message => message.id === 'tavern-session-prefix:native').length, 1)
+    assert.equal(modelMessages[0].source.form, 'snapshot')
+    const request = run.value.projectRequest({ sessionId: 'native', system, messages: modelMessages })
+    assert.equal(request.messages[0], modelMessages[0])
     assert.equal(run.value.projectRequest(request), null)
     cardText = '后续轮次不重新覆盖最初背景'
   }
-  assert.equal(session.events.length, 0)
-  assert.equal(savedPrefixes.size, 1)
+  assert.equal(sessionEvents(session).filter(event => event.type === 'user/message' && event.data.id === 'tavern-session-prefix:native').length, 1)
+  assert.equal(savedPrefixes.size, 0)
+})
+
+test('旧会话在 pre-step 提升外部背景后，不把已记录消息再次作为本轮输入提交', async () => {
+  const session = Session.create('legacy-native')
+  const fixed = await ensureSessionStablePrefix(session, '人物卡旧背景\n常驻世界书')
+  const run = strategies({ nativePlay: {
+    async modeFor() { return 'story' },
+    filterMessages(messages) { return messages }, async resolvePreset() { return null },
+    async ensureSessionPrefix() { return fixed },
+    async prepareTurn() { return { frame: { userInput: { projectedText: '继续' } } } },
+    appendFrame(input) { return { messages: input.messages.concat(userMessage('本轮 Frame')), receipt: {} } },
+    recordFrame() {}, async visibleTools() { return [] }, modePrompt() { return '' }, controlledToolNames: new Set()
+  } })
+  const input = [userMessage('旧历史'), userMessage('继续')]
+  const prepared = await run.value.prepareStep({
+    sessionId: 'native', payload: { turn: 2, step: 1, messages: input },
+    decision: { kind: 'enter', messages: input }, chat: run.chats.get('native')
+  })
+
+  assert.deepEqual(prepared.messages.map(message => message.content[0].text), ['旧历史', '继续', '本轮 Frame'])
+  assert.equal(prepared.messages.some(message => message.id === fixed.id), false)
+  assert.equal(session.deriveMessages().filter(message => message.id === fixed.id).length, 1)
 })
 
 test('普通游玩正常运行，保留的兼容实现仅供独立测试', async () => {
@@ -236,6 +263,36 @@ test('卡片策略保留 Shell 与未知的通用基础工具，不要求先走 
   assert.deepEqual(assembly.tools.map(function (tool) { return tool.name }), [
     'bash', 'read_file', 'write_file', 'tavern_read_card'
   ])
+})
+
+test('新版 DSH 文件工具只向卡片 Agent 开放，不泄漏给正文 Agent', async () => {
+  async function assembledToolNames(mode) {
+    const fileTools = ['read', 'write', 'edit', 'read_image']
+    const run = strategies({
+      nativePlay: {
+        async modeFor() { return mode },
+        filterMessages(messages) { return messages },
+        async resolvePreset() { return null },
+        async prepareTurn() { return { text: '' } },
+        appendFrame(input) { return { messages: input.messages, receipt: {} } },
+        recordFrame() {},
+        async visibleTools() { return mode === 'card' ? fileTools : ['tavern_recall_history'] },
+        modePrompt() { return mode },
+        workspaceContext() { return '/resources' },
+        async ensureSessionPrefix() {},
+        controlledToolNames: new Set([...fileTools, 'tavern_recall_history'])
+      }
+    })
+    const assembly = await run.value.assembleSystemPrompt({
+      sections: [],
+      contexts: [],
+      tools: [...fileTools, 'tavern_recall_history'].map(function (name) { return { name } })
+    }, { sessionId: 'native', chat: run.chats.get('native'), cwd: '/workspace' })
+    return assembly.tools.map(function (tool) { return tool.name })
+  }
+
+  assert.deepEqual(await assembledToolNames('card'), ['read', 'write', 'edit', 'read_image'])
+  assert.deepEqual(await assembledToolNames('story'), ['tavern_recall_history'])
 })
 
 test('卡片回合没有实际资料片段时不追加空快照消息', async () => {

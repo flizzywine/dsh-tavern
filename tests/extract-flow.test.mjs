@@ -1090,6 +1090,17 @@ test('人物卡持久状态栏由酒馆状态面板承载，不再覆盖对话�
 	assert.doesNotMatch(clientSource, /dsh-tavern-persistent-status-view/)
 })
 
+test('本局人物设计档案以只读折叠项进入酒馆状态并随实时视图刷新', () => {
+	const statusPanel = between(clientSource, 'function TavernStatusPanel', 'function TavernStatusTab')
+	const view = between(serverSource, 'async function view(chat, card)', 'function replyProjectionsOf')
+	assert.match(view, /characterDesigns: projectCharacterDesignDocument\(chat\.characterDesignDocument\)/)
+	assert.match(statusPanel, /"人物设计档案（"/)
+	assert.match(statusPanel, /view\.characterDesigns\.characters\.map/)
+	assert.match(statusPanel, /h\("details", \{ key: character\.name \|\| index, className: "dsh-tavern-character-design" \}/)
+	assert.match(statusPanel, /后台发现重要人物需要补全设计后，档案会自动出现在这里。/)
+	assert.doesNotMatch(statusPanel, /deleteCharacterDesign|saveCharacterDesign|编辑人物设计/)
+})
+
 test('酒馆状态只服务游玩模式，卡片工作台面板暂不复用该侧栏', () => {
   const status = between(clientSource, 'function TavernStatusPanel', 'function TavernStatusTab')
   const view = between(serverSource, 'async function view(chat, card)', 'function replyProjectionsOf')
@@ -1271,7 +1282,7 @@ test('隔离 Helper iframe 可以只读加载已锁定的本机远程资源', ()
 	assert.match(handler, /const readsStaticAsset = req\.method === 'GET'/)
 	assert.match(handler, /const localOrOpaqueOrigin =/)
 	assert.match(handler, /if \(readsStaticAsset && !localOrOpaqueOrigin\)/)
-	assert.match(handler, /if \(!readsCachedAsset && !readsStaticAsset && !readsOfficialMvu && !sceneSameOrigin && typeof origin === 'string'/)
+	assert.match(handler, /if \(!readsCachedAsset && !readsStaticAsset && !readsOfficialMvu && !readsRuntimeAsset && !sceneSameOrigin && typeof origin === 'string'/)
 	assert.match(handler, /'Access-Control-Allow-Origin': '\*'/)
 	assert.match(handler, /'Cross-Origin-Resource-Policy': 'cross-origin'/)
 })

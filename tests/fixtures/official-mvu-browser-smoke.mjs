@@ -1,6 +1,7 @@
 import { createServer } from 'node:http'
 import { readFile } from 'node:fs/promises'
 import vm from 'node:vm'
+import { TAVERN_RUNTIME_ASSET_PREFIX, readTavernRuntimeAsset } from '../../tavern-plugin/lib/domain/tavern-runtime-assets.js'
 
 const root = new URL('../../', import.meta.url)
 const clientSource = await readFile(new URL('tavern-plugin/lib/client.js', root), 'utf8')
@@ -111,6 +112,16 @@ const server = createServer(async (request, response) => {
   if (url.pathname === '/api/dsh-tavern/vendor/magvarupdate/bundle.js') {
     response.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'no-store' })
     response.end(officialBundle)
+    return
+  }
+  if (url.pathname.startsWith(TAVERN_RUNTIME_ASSET_PREFIX)) {
+    try {
+      const asset = await readTavernRuntimeAsset(url.pathname)
+      response.writeHead(200, { 'content-type': asset.mediaType, 'cache-control': 'no-store' })
+      response.end(asset.body)
+    } catch (error) {
+      response.writeHead(404).end(String(error && error.message || error))
+    }
     return
   }
   if (url.pathname === '/version') {

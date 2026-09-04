@@ -46,8 +46,6 @@ test('人物设计读取工具在生图会话中只注册一次，跨任务保�
   } finally { await runner.dispose() }
 })
 import { createContextPlanner } from '../tavern-plugin/lib/domain/context-planner.js'
-import { readSessionStablePrefix } from '../tavern-plugin/lib/domain/session-stable-prefix.js'
-import { createNativePlayOrchestrationStrategy } from '../tavern-plugin/lib/domain/foreground-orchestration-strategies.js'
 
 test('后台联网搜索按游戏快照统一开放，并在后台各任务间保持不变', async () => {
   async function visible(enabled) {
@@ -143,6 +141,76 @@ test('共享后台 Session 从建立起固定注册完整工具目录，切换�
   await runner.dispose()
 })
 
+test('人物设计阶段独立提高温度，结束后恢复结算温度', async () => {
+  const registered = new Map()
+  const listeners = []
+  const temperatures = []
+  const results = []
+  let work = Promise.resolve()
+  const runner = createBackgroundAgentRunner({
+    id: () => 'background-character-design-temperature',
+    backgroundTools: [
+      { name: 'character_design_read', parameters: { type: 'object' } },
+      { name: 'character_design_save', parameters: { type: 'object' } },
+      { name: 'posture_submit', parameters: { type: 'object' } }
+    ],
+    agents: {
+      get: () => ({ id: 'parent', session: { header: {} } }),
+      async create(options) {
+        await options.setup({
+          systemPrompt: { section() {}, suppressRuntimeContext() {} },
+          on(name, listener) { listeners.push({ name, listener }) },
+          tools: { restrict() {}, register(tool) { registered.set(tool.name, tool) } }
+        })
+        async function sampleTemperature() {
+          const listener = listeners.find(entry => entry.name === 'agent/request')
+          const request = await listener.listener({}, async () => ({}))
+          temperatures.push(request.temperature)
+        }
+        return { agent: {
+          session: { id: 'background-character-design-temperature', events: [], append() {} },
+          followup() {
+            work = (async () => {
+              await sampleTemperature()
+              results.push(await registered.get('character_design_read').execute({}))
+              await sampleTemperature()
+              results.push(await registered.get('posture_submit').execute({ posture: '不应提前提交' }))
+              results.push(await registered.get('character_design_save').execute({ name: '王夫人' }))
+              await sampleTemperature()
+              results.push(await registered.get('character_design_finish').execute({}))
+              await sampleTemperature()
+              results.push(await registered.get('posture_submit').execute({ posture: '佛龛前端坐' }))
+            })()
+          },
+          async whenIdle() { await work }
+        }, async dispose() {} }
+      }
+    }
+  })
+  let submitted = false
+  await runner.run({
+    sessionId: 'parent', persistent: true, task: 'settlement',
+    selection: { provider: 'test', model: 'test' }, temperature: 0.2,
+    messages: [], tools: [
+      { name: 'character_design_read', parameters: { type: 'object' } },
+      { name: 'character_design_save', parameters: { type: 'object' } },
+      { name: 'posture_submit', parameters: { type: 'object' } }
+    ],
+    acceptWithoutText: () => submitted,
+    stopToolsWhen: () => submitted,
+    async onToolCall(call) {
+      if (call.name === 'posture_submit') submitted = true
+      return JSON.stringify({ ok: true })
+    }
+  })
+
+  assert.deepEqual(temperatures, [0.2, 0.7, 0.7, 0.2])
+  assert.match(results[1], /character_design_finish/)
+  assert.equal(JSON.parse(results[3]).ok, true)
+  assert.equal(submitted, true)
+  await runner.dispose()
+})
+
 test('后台共享只读工具跨候选和结算保持注册并始终可用', async () => {
   const submitted = { name: 'candidate_submit_choices', parameters: { type: 'object' } }
   const recalled = { name: 'tavern_recall_history', parameters: { type: 'object' } }
@@ -234,9 +302,12 @@ test('后台固定背景只保存一次，连续候选、结算和恢复均从 S
   const savedPrefixes = new Map()
   const stablePrefixStorage = { async read(id) { return savedPrefixes.get(id) }, async write(id, value) { savedPrefixes.set(id, value) } }
   async function open(options) {
-    const session = { id: 'background', events, append(type, data) { events.push({ type, data: structuredClone(data) }) } }
-    const stagedRequests = new Map()
-    const projection = createNativePlayOrchestrationStrategy({ stagedRequests, sessionPrefix: () => readSessionStablePrefix(session) })
+    const session = { id: 'background', events, append(type, data, intent) {
+      const event = { type, data: structuredClone(data), ...(intent || {}) }
+      events.push(event)
+      if (type === 'user/message' && data.id === 'tavern-session-prefix:' + session.id && !history.some(message => message.id === data.id)) history.push(event.data)
+      return event
+    } }
     const variables = new Map()
     const sections = []
     await options.setup({
@@ -249,9 +320,7 @@ test('后台固定背景只保存一次，连续候选、结算和恢复均从 S
         followup(message) {
           const system = sections.map(section => section.text.replace(/\{\{([^}]+)\}\}/g, (_, name) => variables.get(name)())).join('\n')
           history.push(message)
-          stagedRequests.set('background', { scope: 'background', snapshot: null, turn: packets.length + 1, step: 1 })
-          const request = projection.projectRequest({ sessionId: 'background', system, messages: history })
-          assert.equal(projection.projectRequest(request), null, '重新分发不能重复拼接前缀')
+          const request = { sessionId: 'background', system, messages: history.slice() }
           packets.push({ system: request.system, messages: request.messages, text: message.content[0].text })
           events.push({ type: 'assistant/message', data: { message: { content: [{ type: 'text', text: '{"choices":[]}' }] } } })
         }, async whenIdle() {}
@@ -291,7 +360,7 @@ test('后台固定背景只保存一次，连续候选、结算和恢复均从 S
     const texts = packet.messages.map(message => message.content.map(block => block.text).join('')).join('\n')
     assert.equal(texts.split('固定背景A').length - 1, 1)
     assert.equal(texts.split('固定世界设定').length - 1, 1)
-    assert.equal(packet.messages[0].source.form, 'session-prefix')
+    assert.equal(packet.messages[0].source.form, 'snapshot')
     assert.doesNotMatch(texts, /固定背景B/)
     assert.doesNotMatch(packet.system, /每轮系统要求|每轮末尾要求|修改后的末尾要求|最新Guide|最新姿势/)
     assert.doesNotMatch(packet.text, /固定背景|固定性格|固定场景|固定示例|固定世界设定/)
@@ -308,7 +377,8 @@ test('后台固定背景只保存一次，连续候选、结算和恢复均从 S
   assert.doesNotMatch(packets.at(-1).system, /不应带入|固定背景|每轮系统要求/)
   assert.match(packets.at(-1).messages[0].content[0].text, /固定背景A/)
   assert.equal(events.filter(event => event.type === 'dsh-tavern/stable-prefix').length, 0)
-  assert.equal(savedPrefixes.size, 1)
+  assert.equal(events.filter(event => event.type === 'user/message' && event.data.id === 'tavern-session-prefix:background').length, 1)
+  assert.equal(savedPrefixes.size, 0)
   await runner.dispose()
 })
 
@@ -894,7 +964,7 @@ test('状态结算与候选生成复用同一个常驻后台 Agent，并且每�
     label: '酒馆后台 Agent',
     agentProvider: 'test',
     agentModel: 'scripted',
-    persona: '共享剧情背景，承担世界书召回、状态结算与候选生成任务。'
+    persona: '共享剧情背景，承担世界书召回、状态结算与候选生成，并在当前任务需要时加载人物设计 Skill。'
   })
   assert.match(prompts[0], /游标 2，姿势 A/)
   assert.match(prompts[0], /任务类型：状态结算/)

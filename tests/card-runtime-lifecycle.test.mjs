@@ -639,6 +639,21 @@ test('MVU 导入失败不宣布就绪，也不把未订阅的事件静默当作�
   h.runtime.dispose()
 })
 
+test('脚本依赖导入失败立即结束初始化等待并保留原始错误', () => {
+  const h = sandbox()
+  h.runtime.sync('A', mvuView())
+  const frame = h.frames[0]
+  frame.load()
+  assert.equal(h.timers.size, 1)
+  const message = 'Failed to fetch dynamically imported module: /api/dsh-tavern/vendor/runtime-assets/zod/index.mjs'
+  h.message(frame, 'dsh-tavern-helper-bootstrap-failed', { message })
+  assert.equal(h.timers.size, 0)
+  assert.equal(h.runtime.inspect().scripts[0].initializationFailed, true)
+  assert.match(h.runtime.inspect().initializationError, /Failed to fetch dynamically imported module/)
+  assert.doesNotMatch(h.errors.join('\n'), /初始化超时/)
+  h.runtime.dispose()
+})
+
 test('下载等待暂停初始化超时，同一沙箱可手动恢复且拒绝重复、伪造和旧窗口重试', () => {
   const states = [], h = sandbox({ onMvuLoadState: state => states.push(copy(state)) })
   const input = mvuView()

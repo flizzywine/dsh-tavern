@@ -24,7 +24,7 @@ const scripts = [
   ` }
 ]
 let source = await readFile(new URL('../../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
-source = source.replace('import(window.__dshTavernStaticAssetUrl("https://testingcf.jsdelivr.net/npm/zod@4.4.3/+esm"))', 'Promise.resolve({})')
+source = source.replace('import("/api/dsh-tavern/vendor/runtime-assets/zod/index.mjs")', 'Promise.resolve({})')
 for (const dependency of ['tavernIconDependencies', 'tavernStaticAssetShim', 'tavernHelperScriptDependencies']) source = source.replaceAll('+ ' + dependency + '()', "+ ''")
 const server = createServer(async (req, res) => {
   try {

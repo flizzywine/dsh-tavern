@@ -2,6 +2,10 @@ import { sessionEvents } from './domain/session-events.js'
 import { randomUUID } from 'node:crypto'
 import { readSceneImageSystemInstruction } from './scene-image-prompts.js'
 import { CHARACTER_DESIGN_READ_TOOL } from './domain/character-design-document.js'
+import {
+  CHARACTER_DESIGN_FINISH_TOOL,
+  createCharacterDesignStage
+} from './domain/character-design-stage.js'
 import { imageToolCall } from './domain/scene-plan-draft.js'
 import { runtimePresetPhaseMessages } from './domain/runtime-preset-lifecycle.js'
 import { ensureSessionStablePrefix, readSessionStablePrefix } from './domain/session-stable-prefix.js'
@@ -89,7 +93,14 @@ export function createBackgroundAgentTask(options) {
   const sharedByName = new Map(sharedBackgroundTools.map(function (item) { return [item.tool.name, item] }))
   const stableBackgroundTools = []
   const stableNames = new Set()
-  for (const tool of (Array.isArray(options.backgroundTools) ? options.backgroundTools : []).concat(sharedBackgroundTools.map(function (item) { return item.tool }))) {
+  const configuredBackgroundTools = Array.isArray(options.backgroundTools) ? options.backgroundTools : []
+  const hasCharacterDesignTools = configuredBackgroundTools.some(function (tool) {
+    return tool && (tool.name === 'character_design_read' || tool.name === 'character_design_save')
+  })
+  const backgroundToolCatalog = configuredBackgroundTools
+    .concat(hasCharacterDesignTools ? [CHARACTER_DESIGN_FINISH_TOOL] : [])
+    .concat(sharedBackgroundTools.map(function (item) { return item.tool }))
+  for (const tool of backgroundToolCatalog) {
     if (!tool || typeof tool.name !== 'string' || stableNames.has(tool.name)) continue
     stableNames.add(tool.name)
     stableBackgroundTools.push(tool)
@@ -134,7 +145,7 @@ export function createBackgroundAgentTask(options) {
   }
 
   function setupFor(state, descriptor, appendDescriptor) {
-    const backgroundPersona = '你是与前台正文生成隔离的酒馆后台 Agent。你会在同一个剧情分支中依次承担状态结算与候选生成；严格按每轮末尾追加的任务协议输出，不得把某类任务的输出格式混入另一类任务。最新权威状态优先于 Session 中的旧动态状态。'
+    const backgroundPersona = '你是与前台正文生成隔离的酒馆后台 Agent。你会在同一个剧情分支中依次承担状态结算与候选生成，并可在任务确有需要时加载人物设计 Skill；严格按每轮末尾追加的任务协议输出，不得把某类任务的输出格式混入另一类任务。最新权威状态优先于 Session 中的旧动态状态。'
     let descriptorAppended = !appendDescriptor
     return async function (childCtx) {
       if (setupAgent !== null) await setupAgent(childCtx)
@@ -207,15 +218,28 @@ export function createBackgroundAgentTask(options) {
       childCtx.on('agent/request', async function (_payload, next) {
         const input = state.input || {}
         const request = await next()
-        if (typeof input.temperature !== 'number' || input.selection && input.selection.provider === 'openai-codex') return request
-        return Object.assign({}, request, { temperature: input.temperature })
+        const temperature = state.characterDesignStage
+          ? state.characterDesignStage.temperature(input.temperature)
+          : input.temperature
+        if (typeof temperature !== 'number' || input.selection && input.selection.provider === 'openai-codex') return request
+        return Object.assign({}, request, { temperature })
       })
     }
   }
 
   function installTaskTools(state, input, session) {
     const eventStart = sessionEvents(session).length
-    const tools = (Array.isArray(input.tools) ? input.tools : []).filter(tool => input.task !== 'image' || tool.name !== CHARACTER_DESIGN_READ_TOOL.name)
+    let tools = (Array.isArray(input.tools) ? input.tools : []).filter(tool => input.task !== 'image' || tool.name !== CHARACTER_DESIGN_READ_TOOL.name)
+    const hasCharacterDesignTools = input.task !== 'image' && tools.some(function (tool) {
+      return tool && (tool.name === 'character_design_read' || tool.name === 'character_design_save')
+    })
+    if (hasCharacterDesignTools && !tools.some(function (tool) { return tool && tool.name === CHARACTER_DESIGN_FINISH_TOOL.name })) {
+      tools = tools.concat([CHARACTER_DESIGN_FINISH_TOOL])
+    }
+    const characterDesignStage = hasCharacterDesignTools
+      ? createCharacterDesignStage({ temperature: input.characterDesignTemperature })
+      : null
+    state.characterDesignStage = characterDesignStage
     if (input.task === 'image') state.imageReadTask = async args => {
       if (input.stopToolsWhen?.()) return JSON.stringify({ ok: false, error: '画面方案已提交，请结束本轮。' })
       return str(await input.onToolCall({ name: CHARACTER_DESIGN_READ_TOOL.name, arguments: args }))
@@ -245,15 +269,21 @@ export function createBackgroundAgentTask(options) {
               return JSON.stringify({ ok: false, retryable: false, message: input.toolLimitMessage || '当前任务的工具调用次数已达上限，请结束本轮。' })
             }
           }
-          const result = shared
-            ? str(await shared.execute({ input, args, execution }))
-            : str(await input.onToolCall({ name: tool.name, arguments: args }))
+          const invoke = async function () {
+            return shared
+              ? str(await shared.execute({ input, args, execution }))
+              : str(await input.onToolCall({ name: tool.name, arguments: args }))
+          }
+          const result = characterDesignStage
+            ? str(await characterDesignStage.execute(tool.name, invoke))
+            : await invoke()
           if (typeof input.stopToolsWhen === 'function' && input.stopToolsWhen()) execution?.concludeTurn?.()
           return result
         }
       }
       return async function () {
         if (state.activeToolTask !== null && state.activeToolTask !== undefined) state.activeToolTask = null
+        if (state.characterDesignStage === characterDesignStage) state.characterDesignStage = null
       }
     }
     async function removeTools() {
@@ -279,13 +309,19 @@ export function createBackgroundAgentTask(options) {
               }
             }
             const call = input.task === 'image' ? imageToolCall(tool.name, args, execution, sessionEvents(session), eventStart) : { name: tool.name, arguments: args }
-            const result = str(await input.onToolCall(call))
+            const invoke = async function () { return str(await input.onToolCall(call)) }
+            const result = characterDesignStage
+              ? str(await characterDesignStage.execute(tool.name, invoke))
+              : await invoke()
             if (typeof input.stopToolsWhen === 'function' && (input.stopToolsWhen() || toolCallCount >= maxToolCalls)) await removeTools()
             return result
           }
         })
     }).filter(function (dispose) { return typeof dispose === 'function' })
-    return removeTools
+    return async function () {
+      await removeTools()
+      if (state.characterDesignStage === characterDesignStage) state.characterDesignStage = null
+    }
   }
 
   async function execute({ agent, state, traceSessionId, persistent }, input) {

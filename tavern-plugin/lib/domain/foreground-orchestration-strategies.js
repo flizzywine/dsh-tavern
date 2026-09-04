@@ -1,6 +1,5 @@
 import { createEphemeralCompatibilityRequest, isCompatibilityConversationRequest } from './compatibility-request.js'
 import { projectRuntimePresetRequest } from './runtime-preset-lifecycle.js'
-import { projectSessionStablePrefix } from './session-stable-prefix.js'
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
@@ -112,13 +111,16 @@ export function createNativePlayOrchestrationStrategy(options) {
     const payload = input.payload
     const mode = await options.modeFor(sessionId)
     const visibleMessages = options.filterMessages(input.decision.messages, mode)
-    const decision = visibleMessages === input.decision.messages ? input.decision : Object.assign({}, input.decision, { messages: visibleMessages })
-    let agentMessages = decision.messages
+    let agentMessages = visibleMessages
     const snapshot = mode === 'story' || mode === 'script' ? await options.resolvePreset(input.chat) : null
     if (mode === 'story' || mode === 'script') {
       if (Number(payload.step) === 1 && typeof options.synchronizeTail === 'function') {
         await options.synchronizeTail({ sessionId, chat: input.chat, payload })
       }
+      // ensureSessionPrefix writes the fixed context directly to the DSH
+      // Session surface. Returning it in this incoming batch would make the
+      // Agent loop append the same message ID a second time and break Chat's
+      // node index; request derivation reads the newly written surface itself.
       if (typeof options.ensureSessionPrefix === 'function') await options.ensureSessionPrefix(input)
       stagedRequests.set(sessionId, {
         turn: Math.max(0, Number(payload.turn) || 0),
@@ -131,12 +133,12 @@ export function createNativePlayOrchestrationStrategy(options) {
       const prepared = await options.prepareTurn({ sessionId, turn: payload.turn, requestId: input.requestId, userText: userTextOf(payload.messages) })
       if (prepared && prepared.duplicate) throw new Error('该消息已由酒馆处理，请勿重复发送')
       if (mode === 'story' || mode === 'script') {
-        agentMessages = replaceTurnInput(decision.messages, prepared.frame.userInput.projectedText)
+        agentMessages = replaceTurnInput(agentMessages, prepared.frame.userInput.projectedText)
         const adapted = options.appendFrame({ messages: agentMessages, frame: prepared.frame, step: payload.step })
         agentMessages = adapted.messages
         options.recordFrame(sessionId, prepared.frame, adapted.receipt)
       } else if (str(prepared.text).trim() !== '') {
-        agentMessages = decision.messages.concat([snapshotMessage(prepared.text)])
+        agentMessages = agentMessages.concat([snapshotMessage(prepared.text)])
       }
     }
     return { kind: 'enter', messages: agentMessages }
@@ -151,7 +153,6 @@ export function createNativePlayOrchestrationStrategy(options) {
       turn: staged.turn,
       step: staged.step
     })
-    if (typeof options.sessionPrefix === 'function') request = projectSessionStablePrefix(request, options.sessionPrefix(sessionId))
     // DSH's renderer returns '' for no sections; adapters otherwise serialize
     // it as an empty system message. Preserve any explicit non-empty prompt.
     if (request.system === '') {
