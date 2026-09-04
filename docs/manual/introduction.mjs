@@ -6,7 +6,7 @@ export const installCommands = {
   cliUnix: 'curl -fsSL https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@main/install.sh | DSH_TAVERN_HOST=cli sh',
   // Pin the bootstrap itself so jsDelivr cannot serve an older @main script.
   // The bootstrap still installs or updates the application from current main.
-  android: '请运行这条命令安装 DSH Tavern，完成后告诉我结果：curl -fsSL https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@c188ac8/android/setup.sh | bash',
+  android: '请运行这条命令安装 DSH Tavern，完成后告诉我结果：curl -fsSL https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@bc7ac0d/android/setup.sh | bash',
 }
 const code = (language, text) => '\n```' + language + '\n' + text + '\n```\n'
 
