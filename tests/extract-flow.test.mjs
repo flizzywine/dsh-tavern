@@ -1028,6 +1028,7 @@ test('资料库读取 RPC 有超时收尾，不会永久停留在加载状态', 
   const timeout = between(clientSource, 'function rpcWithTimeout', 'function createLiveTavernViewModule')
 
   assert.match(timeout, /new AbortController\(\)/)
+  assert.match(timeout, /tavernSessionSignals\.withConnectionSlot/)
   assert.match(timeout, /window\.setTimeout/)
   assert.match(timeout, /读取超时，请重新读取/)
   assert.match(timeout, /window\.clearTimeout/)

@@ -704,7 +704,9 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		function rpcWithTimeout(method, args, sessionId) {
 			const controller = new AbortController();
 			const timer = window.setTimeout(function () { controller.abort(); }, 15000);
-			return rpc(method, args, sessionId, { signal: controller.signal }).catch(function (error) {
+			return tavernSessionSignals.withConnectionSlot(function () {
+				return rpc(method, args, sessionId, { signal: controller.signal });
+			}).catch(function (error) {
 				if (controller.signal.aborted) throw new Error("读取超时，请重新读取");
 				throw error;
 			}).finally(function () { window.clearTimeout(timer); });
@@ -998,6 +1000,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		function createTavernSessionSignalModule(options) {
 			if (!options || typeof options.connect !== "function") throw new Error("Tavern Session Signal 缺少连接 adapter");
 			const records = new Map();
+			let connectionReservations = 0;
 			function recordFor(sessionId) {
 				const id = String(sessionId || "");
 				if (!records.has(id)) records.set(id, { id: id, listeners: new Map(), connection: null, connected: false });
@@ -1009,7 +1012,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				return count;
 			}
 			function connect(record) {
-				if (record.connection !== null || listenerCount(record) === 0) return;
+				if (connectionReservations > 0 || record.connection !== null || listenerCount(record) === 0) return;
 				record.connection = options.connect(record.id, {
 					open: function () {
 						record.connected = true;
@@ -1030,7 +1033,25 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					}
 				});
 			}
+			function disconnect(record) {
+				if (record.connection) record.connection.close();
+				record.connection = null;
+				record.connected = false;
+			}
+			async function withConnectionSlot(run) {
+				if (typeof run !== "function") throw new Error("Tavern Session Signal 缺少连接槽任务");
+				connectionReservations += 1;
+				if (connectionReservations === 1) records.forEach(disconnect);
+				try { return await run(); }
+				finally {
+					connectionReservations -= 1;
+					// Signals are only wake-ups. Reconnect after the read and let consumers
+					// reload authoritative state instead of competing for the last HTTP slot.
+					if (connectionReservations === 0) records.forEach(connect);
+				}
+			}
 			return Object.freeze({
+				withConnectionSlot: withConnectionSlot,
 				subscribe: function (sessionId, kind, listener, onError, onConnect) {
 					const record = recordFor(sessionId);
 					const typedListener = function (signal) { listener(signal); };
@@ -1047,11 +1068,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 						const listeners = record.listeners.get(kind);
 						if (listeners) listeners.delete(typedListener);
 						if (listeners && listeners.size === 0) record.listeners.delete(kind);
-						if (listenerCount(record) === 0 && record.connection) {
-							record.connection.close();
-							record.connection = null;
-							record.connected = false;
-						}
+						if (listenerCount(record) === 0) disconnect(record);
 					};
 				}
 			});
@@ -1165,7 +1182,11 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 						if (active && reloadRequested) { reloadRequested = false; void load(); }
 					}
 				}
-				const stop = tavernSessionSignals.subscribe(sessionId, "tavern-state", function () { void load(); }, handlers.error);
+				let opened = false;
+				const stop = tavernSessionSignals.subscribe(sessionId, "tavern-state", function () { void load(); }, handlers.error, function () {
+					if (opened) void load();
+					opened = true;
+				});
 				return { close: function () { active = false; stop(); }, refresh: load };
 			}
 		});

@@ -132,6 +132,40 @@ test('typed session signal client shares one connection and isolates kinds and s
   assert.equal(connections[0].closed, 1)
 })
 
+test('resource request temporarily releases every SSE connection and reconnects after all concurrent reads settle', async () => {
+  const h = host(), connections = []
+  const ready = []
+  const signals = h.client.createTavernSessionSignalModule({
+    connect(sessionId, handlers) {
+      const connection = { sessionId, handlers, closed: 0, close() { this.closed++ } }
+      connections.push(connection)
+      return connection
+    }
+  })
+  const stopA = signals.subscribe('A', 'tavern-state', function () {}, undefined, () => ready.push('A'))
+  const stopB = signals.subscribe('B', 'tavern-state', function () {}, undefined, () => ready.push('B'))
+  connections.forEach(connection => connection.handlers.open())
+  const first = deferred(), second = deferred()
+
+  const readingA = signals.withConnectionSlot(function () {
+    assert.deepEqual(connections.slice(0, 2).map(connection => connection.closed), [1, 1])
+    return first.promise
+  })
+  const readingB = signals.withConnectionSlot(function () { return second.promise })
+  assert.equal(connections.length, 2, 'SSE stays suspended while resource reads overlap')
+  first.resolve()
+  await readingA
+  assert.equal(connections.length, 2, 'one finished read cannot reconnect ahead of another')
+  second.resolve()
+  await readingB
+  assert.deepEqual(connections.slice(2).map(connection => connection.sessionId).sort(), ['A', 'B'])
+  connections.slice(2).forEach(connection => connection.handlers.open())
+  assert.deepEqual(ready, ['A', 'B', 'A', 'B'], 'reconnect wakes consumers so they can reread authoritative state')
+
+  stopA()
+  stopB()
+})
+
 test('coordination subscription performs an authoritative initial refresh when a restart signal was lost', async () => {
   const h = host()
   const states = []
