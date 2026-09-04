@@ -135,12 +135,6 @@ fi
 
 verify_source "${APP_DIR}"
 
-if [ -f "${DSH_ROOT}/profiles/tavern/package.json" ]; then
-  printf '正在停止旧版酒馆服务……\n'
-  DSH_HOME="${DSH_ROOT}" DSH_TAVERN_PORT=3088 \
-    node "${APP_DIR}/bin/dsh-tavern.mjs" stop
-fi
-
 if ! DSH_HOME="${DSH_ROOT}" bash "${APP_DIR}/android/install.sh"; then
   rollback_source
   fail "依赖或 Profile 安装失败，源码已恢复到更新前版本。"

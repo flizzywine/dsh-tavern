@@ -153,6 +153,53 @@ test('Android 安装脚本增量配置两个 Profile，失败不会伪装成成�
   assert.doesNotMatch(installer, /tavern-plugin\/lib\/client\.js/)
 })
 
+test('Android 更新先安装新源码依赖，再用新源码停止旧服务', async (t) => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'dsh-android-install-order-'))
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  const dshHome = path.join(directory, 'dsh-home')
+  const mockBin = path.join(directory, 'mock-bin')
+  const events = path.join(directory, 'events')
+  const dependenciesReady = path.join(directory, 'dependencies-ready')
+  for (const profile of ['tavern', 'web']) {
+    const profileDir = path.join(dshHome, 'profiles', profile)
+    await mkdir(profileDir, { recursive: true })
+    await writeFile(path.join(profileDir, 'package.json'), '{}\n', 'utf8')
+  }
+  await mkdir(mockBin, { recursive: true })
+  await writeFile(path.join(mockBin, 'pnpm'), `#!/usr/bin/env bash
+set -euo pipefail
+if [ "\$1" = "--dir" ] && [ "\$2" = "${new URL('..', import.meta.url).pathname.replace(/\/$/, '')}" ]; then
+  printf 'dependencies\\n' >> "${events}"
+  : > "${dependenciesReady}"
+fi
+`, { mode: 0o755 })
+  await writeFile(path.join(mockBin, 'dsh'), '#!/usr/bin/env bash\nexit 0\n', { mode: 0o755 })
+  await writeFile(path.join(mockBin, 'node'), `#!/usr/bin/env bash
+set -euo pipefail
+case "\${1:-}" in
+  -) exit 0 ;;
+  --expose-internals) exit 0 ;;
+  */bin/dsh-tavern.mjs)
+    action="\${2:-}"
+    if [ "\${action}" = stop ] && [ ! -f "${dependenciesReady}" ]; then
+      printf 'stop-before-dependencies\\n' >> "${events}"
+      exit 91
+    fi
+    printf '%s\\n' "\${action}" >> "${events}"
+    exit 0
+    ;;
+  *) exit 0 ;;
+esac
+`, { mode: 0o755 })
+
+  const result = spawnSync('bash', [new URL('../android/install.sh', import.meta.url).pathname], {
+    env: { ...process.env, DSH_HOME: dshHome, PATH: `${mockBin}${path.delimiter}${process.env.PATH}` },
+    encoding: 'utf8',
+  })
+  assert.equal(result.status, 0, result.stderr)
+  assert.deepEqual((await readFile(events, 'utf8')).trim().split('\n').slice(0, 3), ['dependencies', 'stop', 'install'])
+})
+
 test('Android setup 是唯一公开入口，优先 Git 并提供压缩包回退', () => {
   assert.match(setup, /^#!\/usr\/bin\/env bash\nset -euo pipefail/m)
   assert.match(setup, /DSH_TAVERN_ANDROID_APP_DIR/)
@@ -166,6 +213,7 @@ test('Android setup 是唯一公开入口，优先 Git 并提供压缩包回退'
   assert.match(setup, /\.dsh-tavern-tarball-source/)
   assert.match(setup, /rollback_source/)
   assert.match(setup, /android\/install\.sh/)
+  assert.doesNotMatch(setup, /dsh-tavern\.mjs" stop/)
   assert.doesNotMatch(setup, /reset --hard|git clean|git checkout/)
   assert.doesNotMatch(setup, /rm -rf/)
 })

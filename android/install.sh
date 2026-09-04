@@ -67,6 +67,13 @@ WEB_PROFILE_DIR="${DSH_ROOT}/profiles/${WEB_PROFILE_NAME}"
 
 printf '\n正在安装 dsh-tavern 核心依赖……\n'
 pnpm --dir "${REPO_ROOT}" install --frozen-lockfile
+
+if [ -f "${TAVERN_PROFILE_DIR}/package.json" ]; then
+  printf '\n正在停止旧版酒馆服务……\n'
+  DSH_HOME="${DSH_ROOT}" DSH_TAVERN_PORT="${TAVERN_PORT}" \
+    node "${REPO_ROOT}/bin/dsh-tavern.mjs" stop
+fi
+
 DSH_HOME="${DSH_ROOT}" node "${REPO_ROOT}/bin/dsh-tavern.mjs" install --host android
 
 printf '\n正在把安卓插件加入 tavern 与 %s Profile……\n' "${WEB_PROFILE_NAME}"
