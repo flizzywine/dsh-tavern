@@ -50,8 +50,27 @@ test('Desktop alpha.1 本地依赖存在而 npm 未发布：安装直接复用�
   assert.equal(readFileSync(path.join(f.pluginDirectory, 'pnpm-workspace.yaml'), 'utf8'), f.original)
 })
 
+test('Desktop 更新不预删仍可能被运行中宿主占用的插件依赖目录', t => {
+  const f = fixture(t)
+  const modules = path.join(f.pluginDirectory, 'node_modules')
+  const sentinel = path.join(modules, 'desktop-in-use.txt')
+  mkdirSync(modules)
+  writeFileSync(sentinel, 'in use')
+
+  installPluginDependencies({ ...f, dsh: 'dsh', host: 'desktop',
+    env: { DSH_DESKTOP_DSH_BOOTSTRAP: f.bootstrap },
+    run() {
+      assert.equal(readFileSync(sentinel, 'utf8'), 'in use', 'pnpm 应接管原地更新，安装器不得先删除运行中 Desktop 可能占用的目录')
+    },
+  })
+})
+
 test('真实 pnpm 离线安装本地链接，并由插件解析到宿主原包及其传递依赖', t => {
   const f = fixture(t)
+  const staleTools = path.join(f.pluginDirectory, 'node_modules/@deepseek-ai/dsh-tools')
+  mkdirSync(staleTools, { recursive: true })
+  writeFileSync(path.join(staleTools, 'package.json'), '{"name":"@deepseek-ai/dsh-tools","version":"0.0.0","type":"module","exports":"./index.js"}')
+  writeFileSync(path.join(staleTools, 'index.js'), 'export function defineTool() { return "stale" }')
   const helper = path.resolve(path.dirname(f.bootstrap), '../node_modules/host-helper')
   mkdirSync(helper)
   writeFileSync(path.join(helper, 'package.json'), '{"name":"host-helper","type":"module","exports":"./index.js"}')

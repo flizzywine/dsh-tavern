@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { existsSync, readFileSync, realpathSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -95,7 +95,6 @@ export function installPluginDependencies({ pluginDirectory, run, ...hostOptions
   try {
     writeFileSync(temporary, workspace.toString(), 'utf8')
     renameSync(temporary, workspacePath)
-    rmSync(path.join(pluginDirectory, 'node_modules'), { recursive: true, force: true })
     run('pnpm', ['install', '--lockfile=false'], { cwd: pluginDirectory })
   } finally {
     if (existsSync(temporary)) unlinkSync(temporary)
