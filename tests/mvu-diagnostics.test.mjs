@@ -182,9 +182,9 @@ test('真实 iframe bootstrap 捕获 console.warn 和 toastr，带事件编号�
   vm.runInNewContext(source, { window: { __ModuleLoader__: { load(value) { descriptor = value } } }, console })
   const client = descriptor.factory(() => ({}))
   const document = client.buildTavernHelperScriptDocument({ token: 'test', scripts: [{ id: 'guard' }], context: { messages: [] } })
-  // Execute the production document, replacing only the unrelated CDN dependency.
+  // Execute the production document, replacing only the unrelated packaged module import.
   const bootstrap = document.match(/<script data-dsh-tavern-helper-script>([\s\S]*?)<\/script>/)[1]
-    .replace(/import\(window\.__dshTavernStaticAssetUrl\([^\n]+?\)\)/, 'Promise.resolve({})')
+    .replace('import("/api/dsh-tavern/vendor/runtime-assets/zod/index.mjs")', 'Promise.resolve({})')
   const messages = [], listeners = new Map()
   const parent = { postMessage: value => messages.push(value) }
   const sandbox = { parent, console: { info() {}, warn() {}, error() {} }, structuredClone, setTimeout, clearTimeout,
