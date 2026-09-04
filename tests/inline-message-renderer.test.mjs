@@ -394,8 +394,10 @@ test('人物卡挂到宿主 Shadow DOM 的 Font Awesome 样式改用内置资源
   assert.equal(restored.href, 'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css')
 })
 
-test('人物卡手机进入酒馆状态应用槽并由 ShadowRoot 直接加载内置图标', () => {
+test('人物卡手机进入酒馆状态应用槽并由 ShadowRoot 直接加载内置图标', async () => {
   const shadowChildren = []
+  let phoneMounted = false
+  let iconsInstalledAfterMount = false
   const shadowRoot = {
     ownerDocument: null,
     querySelector(selector) {
@@ -409,12 +411,16 @@ test('人物卡手机进入酒馆状态应用槽并由 ShadowRoot 直接加载�
     const attributes = new Map()
     return {
       tagName: tagName.toUpperCase(), style: { setProperty(name, value) { this[name] = value } },
-      setAttribute(name, value) { attributes.set(name, String(value)); if (name === 'href') this.href = String(value) },
+      setAttribute(name, value) {
+        attributes.set(name, String(value))
+        if (name === 'href') this.href = String(value)
+      },
       getAttribute(name) { return attributes.has(name) ? attributes.get(name) : null },
       removeAttribute(name) { attributes.delete(name) }
     }
   }
   const body = { appendChild(node) { node.parentNode = this; this.child = node; return node } }
+  const head = { appendChild(node) { node.parentNode = this; this.child = node; return node } }
   const host = element('div')
   host.id = 'improved-phone-shadow-host-card-script'
   host.shadowRoot = shadowRoot
@@ -422,20 +428,27 @@ test('人物卡手机进入酒馆状态应用槽并由 ShadowRoot 直接加载�
   const floatingButton = element('button')
   floatingButton.id = 'improved-phone-floating-button-card-script'
   const document = {
-    body,
+    body, head,
     createElement: element,
     querySelectorAll(selector) { return selector.includes('shadow-host') ? [host] : [] },
     querySelector(selector) { return selector.includes('floating-button') ? floatingButton : null }
   }
   shadowRoot.ownerDocument = document
-  const slot = { clientWidth: 320, appendChild(node) { node.parentNode = this; this.child = node; return node } }
+  const slot = { clientWidth: 320, appendChild(node) { phoneMounted = true; node.parentNode = this; this.child = node; return node } }
 
-  const controller = client.createTavernCardAppDock({ document, slot, MutationObserver: null, ResizeObserver: null })
+  const controller = client.createTavernCardAppDock({
+    document, slot, MutationObserver: null, ResizeObserver: null,
+    loadIconCss() { iconsInstalledAfterMount = phoneMounted; return Promise.resolve('.fas{font-family:icons}') }
+  })
+  await new Promise(resolve => setImmediate(resolve))
   assert.equal(slot.child, host)
   assert.equal(host.style.position, 'relative')
   assert.equal(host.style['--dsh-tavern-card-app-scale'], String(296 / 360))
-  const icons = shadowChildren.find((node) => node.tagName === 'LINK')
-  assert.equal(icons.href, '/api/dsh-tavern/vendor/runtime-assets/fontawesome/css/all.min.css')
+  const icons = shadowChildren.find((node) => node.tagName === 'STYLE' && !node.layoutStyle)
+  assert.equal(icons.textContent, '.fas{font-family:icons}')
+  assert.equal(iconsInstalledAfterMount, true, 'ShadowRoot stylesheet must be installed after cross-document adoption')
+  assert.match(head.child.textContent, /Font Awesome 6 Free/)
+  assert.match(head.child.textContent, /fontawesome\/webfonts\/fa-solid-900\.woff2/)
   assert.ok(shadowChildren.some((node) => node.layoutStyle))
   assert.equal(floatingButton.style.display, 'none')
 

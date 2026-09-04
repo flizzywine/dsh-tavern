@@ -1135,6 +1135,30 @@ window.__ModuleLoader__.load({
 		const TAVERN_CARD_PHONE_HOST = '[id^="improved-phone-shadow-host-"]';
 		const TAVERN_CARD_PHONE_BUTTON = '[id^="improved-phone-floating-button-"]';
 		const TAVERN_CARD_PHONE_CSS = '/api/dsh-tavern/vendor/runtime-assets/fontawesome/css/all.min.css';
+		const TAVERN_CARD_PHONE_FONTS = '/api/dsh-tavern/vendor/runtime-assets/fontawesome/webfonts/';
+		let tavernCardIconCssPromise = null;
+		function loadTavernCardIconCss() {
+			if (!tavernCardIconCssPromise) tavernCardIconCssPromise = window.fetch(TAVERN_CARD_PHONE_CSS).then(function (response) {
+				if (!response.ok) throw new Error("人物卡图标样式加载失败（HTTP " + String(response.status) + "）");
+				return response.text();
+			}).then(function (css) {
+				return String(css).replace(/url\((['"]?)\.\.\/webfonts\//g, "url($1" + TAVERN_CARD_PHONE_FONTS);
+			}).catch(function (error) {
+				tavernCardIconCssPromise = null;
+				throw error;
+			});
+			return tavernCardIconCssPromise;
+		}
+		function ensureTavernCardIconFonts(hostDocument) {
+			if (!hostDocument || !hostDocument.head || typeof hostDocument.createElement !== "function") return;
+			if (hostDocument.querySelector && hostDocument.querySelector('style[data-dsh-tavern-card-app-fonts]')) return;
+			const fonts = hostDocument.createElement("style");
+			fonts.setAttribute("data-dsh-tavern-card-app-fonts", "fontawesome");
+			fonts.textContent = '@font-face{font-family:"Font Awesome 6 Free";font-style:normal;font-weight:900;font-display:block;src:url("' + TAVERN_CARD_PHONE_FONTS + 'fa-solid-900.woff2") format("woff2")}\n'
+				+ '@font-face{font-family:"Font Awesome 6 Free";font-style:normal;font-weight:400;font-display:block;src:url("' + TAVERN_CARD_PHONE_FONTS + 'fa-regular-400.woff2") format("woff2")}\n'
+				+ '@font-face{font-family:"Font Awesome 6 Brands";font-style:normal;font-weight:400;font-display:block;src:url("' + TAVERN_CARD_PHONE_FONTS + 'fa-brands-400.woff2") format("woff2")}';
+			hostDocument.head.appendChild(fonts);
+		}
 		function createTavernCardAppPresence(options) {
 			const hostWindow = options && options.window || window;
 			const notify = options && typeof options.onChange === "function" ? options.onChange : function () {};
@@ -1177,6 +1201,7 @@ window.__ModuleLoader__.load({
 		function createTavernCardAppDock(options) {
 			const hostDocument = options && options.document || document;
 			const slot = options && options.slot;
+			const loadIconCss = options && options.loadIconCss || loadTavernCardIconCss;
 			const notify = options && typeof options.onChange === "function" ? options.onChange : function () {};
 			const Mutation = options && Object.prototype.hasOwnProperty.call(options, "MutationObserver") ? options.MutationObserver : (hostDocument.defaultView && hostDocument.defaultView.MutationObserver);
 			const Resize = options && Object.prototype.hasOwnProperty.call(options, "ResizeObserver") ? options.ResizeObserver : (hostDocument.defaultView && hostDocument.defaultView.ResizeObserver);
@@ -1193,14 +1218,17 @@ window.__ModuleLoader__.load({
 			function installShadowDependencies(host) {
 				const root = host && host.shadowRoot;
 				if (!root) return false;
-				let icons = root.querySelector('link[href*="font-awesome"], link[href*="fontawesome"], link[data-dsh-tavern-card-app-icons]');
-				if (!icons) {
-					icons = root.ownerDocument.createElement("link");
-					icons.rel = "stylesheet";
-					icons.setAttribute("data-dsh-tavern-card-app-icons", "fontawesome");
-					root.appendChild(icons);
-				}
-				icons.setAttribute("href", TAVERN_CARD_PHONE_CSS);
+				const staleIcons = typeof root.querySelectorAll === "function"
+					? Array.from(root.querySelectorAll('link[href*="font-awesome"], link[href*="fontawesome"], link[data-dsh-tavern-card-app-icons], style[data-dsh-tavern-card-app-icons]'))
+					: [];
+				const icons = root.ownerDocument.createElement("style");
+				icons.setAttribute("data-dsh-tavern-card-app-icons", "fontawesome");
+				root.appendChild(icons);
+				staleIcons.forEach(function (item) { if (item && item !== icons && typeof item.remove === "function") item.remove(); });
+				Promise.resolve(loadIconCss()).then(function (css) {
+					if (icons.isConnected === false) return;
+					icons.textContent = String(css || "");
+				}).catch(function (error) { console.warn("人物卡图标样式加载失败", error); });
 				let layout = root.querySelector('[data-dsh-tavern-card-app-layout]');
 				if (!layout) {
 					layout = root.ownerDocument.createElement("style");
@@ -1221,18 +1249,20 @@ window.__ModuleLoader__.load({
 			}
 
 			function attach(host) {
-				if (!host || host === attached || !installShadowDependencies(host)) return false;
+				if (!host || host === attached) return false;
 				if (attached) restore();
 				attached = host;
 				originalParent = host.parentNode;
 				originalNext = host.nextSibling;
 				originalStyle = host.getAttribute && host.getAttribute("style");
+				slot.appendChild(host);
+				ensureTavernCardIconFonts(hostDocument);
+				if (!installShadowDependencies(host)) { restore(); return false; }
 				host.style.position = "relative";
 				host.style.inset = "auto";
 				host.style.zIndex = "auto";
 				host.style.width = "100%";
 				host.style.overflow = "hidden";
-				slot.appendChild(host);
 				const phoneKey = String(host.id || "").slice("improved-phone-shadow-host-".length);
 				floatingButton = hostDocument.getElementById && hostDocument.getElementById("improved-phone-floating-button-" + phoneKey) || hostDocument.querySelector(TAVERN_CARD_PHONE_BUTTON);
 				if (floatingButton) {
