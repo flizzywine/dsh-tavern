@@ -2013,6 +2013,10 @@ export async function apply(ctx) {
       case 'checkUpdate': return { status: await applicationUpdater.check() }
       case 'startUpdate': return { status: await applicationUpdater.start() }
       case 'getCardOpenings': return await getCardOpenings(args && args.path, args && args.userName, args && args.requestMode)
+      case 'preparePlayStart': {
+        await runtimePresets.prepareFullSnapshot()
+        return { prepared: true }
+      }
       case 'getUserPreferenceProfile': {
         const chat = await chatForSession(args && args.sessionId)
         return {

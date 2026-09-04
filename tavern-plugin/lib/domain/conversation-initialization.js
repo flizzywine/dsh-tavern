@@ -67,6 +67,13 @@ export function createConversationInitialization(options) {
     }
   }
 
+  async function playPresetSnapshot() {
+    const prepared = typeof presets.claimPreparedFullSnapshot === 'function'
+      ? await presets.claimPreparedFullSnapshot()
+      : undefined
+    return prepared === undefined ? await presets.fullSnapshot() : prepared
+  }
+
   async function initialize({ cardPath, sessionId, mode, openingId, userName, requestMode }) {
     if (requestMode === 'sillytavern') throw new Error('兼容模式已停用')
     const currentSettings = await settings()
@@ -92,7 +99,7 @@ export function createConversationInitialization(options) {
       }
     }
     const macroState = { userName: str(userName).trim().slice(0, 80) || '你', local: {}, global: {} }
-    const runtimePresetSnapshot = groupOfMode(chatMode) === 'play' ? await presets.fullSnapshot() : null
+    const runtimePresetSnapshot = groupOfMode(chatMode) === 'play' ? await playPresetSnapshot() : null
     const openingSourceText = chatMode === 'card' ? cardGreeting() : resolveCardOpening(card, openingId)
     const openingExtensions = chatMode === 'card' ? null : await cards.extensions(cardPath)
     const openingChoices = chatMode === 'card' ? [] : cardOpeningChoices(card)

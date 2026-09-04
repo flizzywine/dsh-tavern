@@ -169,11 +169,14 @@ export function createRuntimePresetModule(options = {}) {
   const readState = options.readState
   const updateState = options.updateState
   const now = typeof options.now === 'function' ? options.now : Date.now
+  const pendingFullSnapshots = new Map()
+  let preparedFullSnapshot = null
   if ([listPaths, readPreset, readState, updateState].some(function (fn) { return typeof fn !== 'function' })) {
     throw new TypeError('运行时预设模块缺少存储适配器')
   }
 
   async function mutate(updater) {
+    preparedFullSnapshot = null
     return updateState(async function (value) {
       const state = normalizeState(value)
       const next = await updater(state)
@@ -375,9 +378,7 @@ export function createRuntimePresetModule(options = {}) {
     }
   }
 
-  async function fullSnapshot(requestedPath) {
-    const current = await state()
-    const activePath = typeof requestedPath === 'string' && requestedPath !== '' ? requestedPath : current.activePreset
+  async function buildFullSnapshot(activePath, current) {
     if (activePath === '') return null
     try {
       const available = new Set(await listPaths())
@@ -433,6 +434,33 @@ export function createRuntimePresetModule(options = {}) {
       await persistError(message)
       throw new Error(message)
     }
+  }
+
+  async function fullSnapshot(requestedPath) {
+    const current = await state()
+    const activePath = typeof requestedPath === 'string' && requestedPath !== '' ? requestedPath : current.activePreset
+    if (pendingFullSnapshots.has(activePath)) return await pendingFullSnapshots.get(activePath)
+    const operation = buildFullSnapshot(activePath, current)
+    pendingFullSnapshots.set(activePath, operation)
+    try { return await operation }
+    finally { if (pendingFullSnapshots.get(activePath) === operation) pendingFullSnapshots.delete(activePath) }
+  }
+
+  async function prepareFullSnapshot() {
+    const current = await state()
+    const snapshot = await fullSnapshot(current.activePreset)
+    preparedFullSnapshot = {
+      preparedAt: now(),
+      snapshot
+    }
+    return snapshot
+  }
+
+  async function claimPreparedFullSnapshot() {
+    const prepared = preparedFullSnapshot
+    preparedFullSnapshot = null
+    if (prepared === null || now() - prepared.preparedAt > 60_000) return undefined
+    return prepared.snapshot
   }
 
   async function regexScriptsFor(snapshot) {
@@ -588,5 +616,5 @@ export function createRuntimePresetModule(options = {}) {
     })
   }
 
-  return { register, state, view, select, toggle, toggleRegex, disablePreset, disableAll, snapshot, fullSnapshot, regexScriptsFor, plans, savePlan, applyPlan, renamePlan, removePlan, rename, remove }
+  return { register, state, view, select, toggle, toggleRegex, disablePreset, disableAll, snapshot, fullSnapshot, prepareFullSnapshot, claimPreparedFullSnapshot, regexScriptsFor, plans, savePlan, applyPlan, renamePlan, removePlan, rename, remove }
 }

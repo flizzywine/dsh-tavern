@@ -1034,6 +1034,20 @@ test('资料库读取 RPC 有超时收尾，不会永久停留在加载状态', 
   assert.match(timeout, /window\.clearTimeout/)
 })
 
+test('游戏准备预热启动资源，正式启动会临时释放 SSE 连接槽', () => {
+  const sidebar = between(clientSource, 'function TavernSidebar', 'const tavernShellFeature = createTavernShellFeatureModule()')
+  const assistantRenderer = between(clientSource, 'function createTavernAssistantRendererFeatureModule', 'function createTavernShellFeatureModule')
+
+  assert.match(sidebar, /call\("preparePlayStart"\)/)
+  assert.match(sidebar, /tavernSessionSignals\.withConnectionSlot\(function \(\) \{ return call\("startChat"/)
+  assert.match(sidebar, /tavernSessionTransition\.begin\(\{ projection: transitionOpening && transitionOpening\.projection/)
+  assert.match(sidebar, /busy && selectedOpening[\s\S]*renderTavernProjection\(selectedOpening\.projection/)
+  assert.match(sidebar, /busy \? h\("div", \{ className: "dsh-tavern-session-switching", role: "status" \}, "正在完成游戏初始化…"\)/)
+  assert.match(assistantRenderer, /renderTavernProjection\(sessionTransitioning\.projection/)
+  assert.match(assistantRenderer, /正在完成游戏初始化/)
+  assert.match(serverSource, /case 'preparePlayStart':[\s\S]*await runtimePresets\.prepareFullSnapshot\(\)/)
+})
+
 test('世界书条目的低频匹配开关默认收进兼容字段', () => {
   const editor = between(clientSource, 'function WorldBookEditor', 'function WorldBookLibraryTab')
   const compatibility = editor.indexOf('h("details", null, h("summary", null, "兼容字段")')
@@ -1153,8 +1167,9 @@ test('人物卡 iframe 不因等价上下文或切换会话而重复启动', () 
 	assert.match(renderer, /tavernSessionTransition\.subscribe/)
 	assert.match(renderer, /latestProjectionTurn/)
 	assert.match(renderer, /eagerFrame: turn > 0 && turn === latestProjectionTurn/)
-	assert.match(renderer, /正在切换人物卡/)
-	assert.match(sidebar, /tavernSessionTransition\.begin\(\)/)
+	assert.match(renderer, /sessionTransitioning\.projection/)
+	assert.match(renderer, /正在完成游戏初始化/)
+	assert.match(sidebar, /tavernSessionTransition\.begin\(\{ projection:/)
 	assert.match(sidebar, /setOpeningPicker\(null\)/)
 	assert.match(capture, /sameDisplayRuntimeCapture/)
 	assert.match(capture, /touchUpdatedAt: false/)

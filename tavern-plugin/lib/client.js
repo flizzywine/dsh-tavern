@@ -4413,7 +4413,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		}
 
 		const tavernSessionTransition = (function () {
-			let active = false;
+			let active = null;
 			const listeners = new Set();
 			function publish(next) {
 				if (active === next) return;
@@ -4421,8 +4421,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				listeners.forEach(function (listener) { listener(); });
 			}
 			return {
-				begin: function () { publish(true); },
-				end: function () { publish(false); },
+				begin: function (preview) { publish(preview && typeof preview === "object" ? preview : {}); },
+				end: function () { publish(null); },
 				getSnapshot: function () { return active; },
 				subscribe: function (listener) { listeners.add(listener); return function () { listeners.delete(listener); }; }
 			};
@@ -4581,7 +4581,10 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					return { turn: turnRef, seq: data.finalNode.seq, openFile: props.openFile };
 				}, [turnRef, data.finalNode, tail, props.openFile]);
 				const mentions = React.useMemo(function () { return owner === undefined ? undefined : props.fileMentions(owner); }, [owner, props.fileMentions]);
-				const rendered = sessionTransitioning ? [React.createElement("div", { key: "switching", className: "dsh-tavern-session-switching" }, "正在切换人物卡…")] : renderTavernAssistantBlocks({
+				const rendered = sessionTransitioning ? (sessionTransitioning.projection ? [
+					React.createElement(React.Fragment, { key: "opening-preview" }, renderTavernProjection(sessionTransitioning.projection, { streaming: false, codeLabels: { copyLabel: "复制", copiedLabel: "已复制" }, mentions: [], sessionId: "", turn: 1, helperContext: null, trustedCardMode: sessionTransitioning.trustedCardMode === true })),
+					React.createElement("div", { key: "switching", className: "dsh-tavern-session-switching", role: "status" }, "正在完成游戏初始化…")
+				] : [React.createElement("div", { key: "switching", className: "dsh-tavern-session-switching", role: "status" }, "正在完成游戏初始化…")]) : renderTavernAssistantBlocks({
 					blocks: data.blocks,
 					streaming: data.status === "running",
 					interrupted: data.status === "interrupted",
@@ -4842,6 +4845,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				setOpeningPicker(null);
 				setError("");
 				setPicking(true);
+				void tavernSessionSignals.withConnectionSlot(function () { return call("preparePlayStart"); }).catch(function (error) { console.warn("dsh-tavern: 游戏启动资源预热失败，将在开始时读取", error); });
 			}
 			function closePicker() {
 				playPrewarmRef.current.cancel();
@@ -4949,14 +4953,14 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				waitForSession: waitForSessionSummary,
 				ensurePreset: ensureTavernPreset,
 				createChat: function (request, sessionId) {
-					return call("startChat", {
+					return tavernSessionSignals.withConnectionSlot(function () { return call("startChat", {
 						path: request.card && request.card.path ? request.card.path : "",
 						sessionId: sessionId,
 						mode: request.targetMode,
 						openingId: request.openingId || "",
 						userName: request.userName || "你",
 						requestMode: compatibilityAvailable && request.requestMode === "sillytavern" ? "sillytavern" : "dsh"
-					});
+					}); });
 				},
 				rememberPending: setPendingOpen,
 				finishOpen: finishPendingOpen
@@ -4972,8 +4976,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				const targetMode = requestedMode || (uiMode === "play" ? playModeOfCard(card) : "card");
 				const startedAt = Date.now();
 				const previousOpeningPicker = openingPicker;
-				tavernSessionTransition.begin();
-				setOpeningPicker(null);
+				const transitionOpening = previousOpeningPicker && previousOpeningPicker.openings ? previousOpeningPicker.openings.filter(function (item) { return item.id === openingId; })[0] : null;
+				tavernSessionTransition.begin({ projection: transitionOpening && transitionOpening.projection, trustedCardMode: previousOpeningPicker && previousOpeningPicker.trustedCardMode === true });
 				setBusy(true); setError("");
 				try {
 					const resolvedUserName = String(userName || "你").trim() || "你";
@@ -5187,6 +5191,21 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			) : null;
 			const openingChoice = openingPicker ? h(React.Fragment, null,
 				h("div", { className: "dsh-tavern-card-picker-head" }, h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { playPrewarmRef.current.cancel(); setOpeningPicker(null); } }, "← 返回"), h("span", null, openingPicker.card.name + " · 游戏准备"), h("span", { className: "dsh-tavern-spacer" }), h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: closePicker }, "关闭")),
+				busy && selectedOpening ? h("div", {
+					key: "starting-" + selectedOpening.id,
+					className: "dsh-tavern-greeting-preview",
+					role: "region",
+					"aria-label": openingPicker.card.name + "开场白预览"
+				}, renderTavernProjection(selectedOpening.projection, {
+					streaming: false,
+					codeLabels: { copyLabel: "复制", copiedLabel: "已复制" },
+					mentions: [],
+					sessionId: "",
+					turn: 1,
+					helperContext: null,
+					trustedCardMode: openingPicker.trustedCardMode
+				})) : null,
+				busy ? h("div", { className: "dsh-tavern-session-switching", role: "status" }, "正在完成游戏初始化…") : null,
 					selectedOpening && selectedOpening.usesUser ? h(React.Fragment, null,
 						h("label", { className: "dsh-tavern-player-name" }, h("span", null, "故事中的玩家称呼（可选）"), h("input", { value: openingPicker.userName || "你", maxLength: 80, autoFocus: true, placeholder: "你", disabled: busy, onChange: function (event) { setOpeningPicker(Object.assign({}, openingPicker, { userName: event.target.value })); } })),
 						h("div", { className: "dsh-tavern-player-name-help" }, "可以填写姓名、昵称或身份；不填则使用“你”。开场白预览会随之更新。")
@@ -5196,7 +5215,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					h("div", { className: "dsh-tavern-greeting-count" }, (openingPicker.index + 1) + " / " + openingPicker.openings.length),
 					h("button", { className: "dsh-tavern-btn", disabled: busy, "aria-label": "下一条开场白", onClick: function () { setOpeningPicker(Object.assign({}, openingPicker, { index: (openingPicker.index + 1) % openingPicker.openings.length })); } }, "→")
 				) : (openingPicker.openings.length === 0 ? h("div", { className: "dsh-tavern-side-empty" }, "这张人物卡没有开场白，将从空白场景开始。") : null),
-				selectedOpening && openingPicker.openings.length > 1 ? h("div", {
+				!busy && selectedOpening && openingPicker.openings.length > 1 ? h("div", {
 					key: selectedOpening.id,
 					className: "dsh-tavern-greeting-preview",
 					role: "region",

@@ -211,7 +211,9 @@ test('后台 Agent 不进入前台正文上下文注入和工具过滤', () => {
 
 test('外部预设作用于前台游玩，后台与卡片 Agent 保持 DSH 原生上下文', () => {
   const startChat = between(initializationSource, 'async function initialize', 'function openingText')
-  assert.match(startChat, /const runtimePresetSnapshot = groupOfMode\(chatMode\) === 'play' \? await presets\.fullSnapshot\(\) : null/)
+  assert.match(startChat, /const runtimePresetSnapshot = groupOfMode\(chatMode\) === 'play' \? await playPresetSnapshot\(\) : null/)
+  assert.match(initializationSource, /presets\.claimPreparedFullSnapshot/)
+  assert.match(initializationSource, /prepared === undefined \? await presets\.fullSnapshot\(\) : prepared/)
   assert.match(startChat, /chat\.runtimePresetSnapshot = runtimePresetSnapshot/)
   const resolver = between(serverSource, 'async function resolveChatRuntimePreset', 'function compatibilityWorldBookMatch')
   assert.match(resolver, /const raw = groupOfMode\(chat\.mode\) === 'play' \? await runtimePresets\.fullSnapshot\(\) : null/)
