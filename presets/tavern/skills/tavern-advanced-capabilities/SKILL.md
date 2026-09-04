@@ -5,7 +5,7 @@ description: "在 Tavern 卡片工作台中创建或修改 Skill、通用工具�
 
 # Tavern 高级能力
 
-仅在用户明确要求创建或修改 Skill、通用工具、Cordis 插件等扩展时使用。普通 Tavern 资源能由专用工具完成时，仍优先走专用工具。
+在用户要求创建或修改 Skill、通用工具、Cordis 插件等扩展时使用。它提供持久位置和加载约定，不限制 Agent 组合当前已有的 Shell、文件与 Tavern 工具。
 
 ## 扩展位置
 

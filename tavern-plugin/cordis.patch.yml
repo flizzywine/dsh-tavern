@@ -13,6 +13,16 @@
   config:
     timeoutMs: 600000
     maxTimeoutMs: 600000
+# dsh-web-app disables command and filesystem tools for its generic web
+# profile. Tavern's card workspace is an explicitly writable Agent surface,
+# so restore the cross-platform primitives here instead of replacing them
+# with task-specific RPCs.
+- id: tool-bash
+  disabled: !!js process.platform === 'win32'
+- id: tool-pwsh
+  disabled: !!js process.platform !== 'win32'
+- id: tool-fs
+  disabled: false
 - id: agent-presets
   config:
     default: tavern

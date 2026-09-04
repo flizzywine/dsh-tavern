@@ -205,6 +205,39 @@ test('卡片策略不把按需 Cordis 说明放入固定前缀', async () => {
   ])
 })
 
+test('卡片策略保留 Shell 与未知的通用基础工具，不要求先走 Tavern 专用工具', async () => {
+  const run = strategies({
+    nativePlay: {
+      async modeFor() { return 'card' },
+      filterMessages(messages) { return messages },
+      async resolvePreset() { return null },
+      async prepareTurn() { return { text: '' } },
+      appendFrame(input) { return { messages: input.messages, receipt: {} } },
+      recordFrame() {},
+      async visibleTools() { return ['bash', 'tavern_read_card'] },
+      modePrompt() { return 'card' },
+      workspaceContext() { return '/resources' },
+      async ensureSessionPrefix() {},
+      controlledToolNames: new Set(['bash', 'tavern_read_card', 'tavern_update_card'])
+    }
+  })
+  const assembly = await run.value.assembleSystemPrompt({
+    sections: [],
+    contexts: [],
+    tools: [
+      { name: 'bash' },
+      { name: 'read_file' },
+      { name: 'write_file' },
+      { name: 'tavern_read_card' },
+      { name: 'tavern_update_card' }
+    ]
+  }, { sessionId: 'native', chat: run.chats.get('native'), cwd: '/workspace' })
+
+  assert.deepEqual(assembly.tools.map(function (tool) { return tool.name }), [
+    'bash', 'read_file', 'write_file', 'tavern_read_card'
+  ])
+})
+
 test('卡片回合没有实际资料片段时不追加空快照消息', async () => {
   const original = userMessage('检查当前人物卡')
   const run = strategies({
