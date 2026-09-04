@@ -105,6 +105,22 @@ update_source() {
     printf '正在检查 DSH Tavern 更新……\n'
     if git -C "${APP_DIR}" fetch origin main; then
       if ! git -C "${APP_DIR}" merge-base --is-ancestor HEAD origin/main; then
+        local generated_only=1
+        local commit subject files
+        while IFS= read -r commit; do
+          [ -n "${commit}" ] || continue
+          subject="$(git -C "${APP_DIR}" show -s --format=%s "${commit}")"
+          files="$(git -C "${APP_DIR}" diff-tree --no-commit-id --name-only -r "${commit}")"
+          if [ "${subject}" != 'chore: publish runtime manifest [skip ci]' ] || [ "${files}" != 'dsh-tavern-runtime.json' ]; then
+            generated_only=0
+            break
+          fi
+        done < <(git -C "${APP_DIR}" rev-list origin/main..HEAD)
+        if [ "${generated_only}" -eq 1 ]; then
+          printf '仅检测到自动生成的运行清单分叉，正在安全重新下载源码……\n'
+          install_source
+          return
+        fi
         fail "项目目录包含本地提交或已经分叉，无法自动安全更新。"
       fi
       git -C "${APP_DIR}" merge --ff-only origin/main

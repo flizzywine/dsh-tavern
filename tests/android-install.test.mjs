@@ -282,6 +282,42 @@ test('Android setup 通过同一命令完成首次安装和后续更新', async 
   assert.notEqual(protectedUpdate.status, 0)
   assert.match(protectedUpdate.stderr, /存在未提交修改/)
   assert.equal(await readFile(path.join(dshHome, 'apps', 'dsh-tavern', 'version.txt'), 'utf8'), 'user change\n')
+
+  await writeFile(path.join(dshHome, 'apps', 'dsh-tavern', 'version.txt'), 'next\n', 'utf8')
+  const installed = path.join(dshHome, 'apps', 'dsh-tavern')
+  for (const args of [['config', 'user.email', 'test@example.com'], ['config', 'user.name', 'Test']]) {
+    const result = spawnSync('git', args, { cwd: installed, encoding: 'utf8' })
+    assert.equal(result.status, 0, result.stderr)
+  }
+  await writeFile(path.join(installed, 'dsh-tavern-runtime.json'), '{"generated":true}\n', 'utf8')
+  for (const args of [['add', 'dsh-tavern-runtime.json'], ['commit', '-m', 'chore: publish runtime manifest [skip ci]']]) {
+    const result = spawnSync('git', args, { cwd: installed, encoding: 'utf8' })
+    assert.equal(result.status, 0, result.stderr)
+  }
+  await writeFile(path.join(source, 'version.txt'), 'remote-after-manifest\n', 'utf8')
+  for (const args of [['add', '.'], ['commit', '-m', 'remote update']]) {
+    const result = spawnSync('git', args, { cwd: source, encoding: 'utf8' })
+    assert.equal(result.status, 0, result.stderr)
+  }
+  const recovered = spawnSync('bash', [new URL('../android/setup.sh', import.meta.url).pathname], { env: environment, encoding: 'utf8' })
+  assert.equal(recovered.status, 0, recovered.stderr)
+  assert.match(recovered.stdout, /运行清单分叉/)
+  assert.equal(await readFile(path.join(installed, 'version.txt'), 'utf8'), 'remote-after-manifest\n')
+
+  await writeFile(path.join(installed, 'local.txt'), 'user commit\n', 'utf8')
+  for (const args of [['add', 'local.txt'], ['commit', '-m', 'user commit']]) {
+    const result = spawnSync('git', args, { cwd: installed, encoding: 'utf8' })
+    assert.equal(result.status, 0, result.stderr)
+  }
+  await writeFile(path.join(source, 'version.txt'), 'another remote update\n', 'utf8')
+  for (const args of [['add', '.'], ['commit', '-m', 'another remote update']]) {
+    const result = spawnSync('git', args, { cwd: source, encoding: 'utf8' })
+    assert.equal(result.status, 0, result.stderr)
+  }
+  const protectedCommit = spawnSync('bash', [new URL('../android/setup.sh', import.meta.url).pathname], { env: environment, encoding: 'utf8' })
+  assert.notEqual(protectedCommit.status, 0)
+  assert.match(protectedCommit.stderr, /本地提交或已经分叉/)
+  assert.equal(await readFile(path.join(installed, 'local.txt'), 'utf8'), 'user commit\n')
 })
 
 test('Git 下载失败时通过 tarball 安装更新，保留旧数据并在安装失败时回滚', async (t) => {
