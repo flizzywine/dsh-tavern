@@ -14,7 +14,7 @@ playwright-report/
 test-results/
 *.tsbuildinfo
 
-# 浏览器验证产生的临时截图；已纳入 Git 的正式证据不受影响
+# 浏览器验证产生的本地临时截图
 output/playwright/
 
 # 本地代码分析资料、快照和缓存
