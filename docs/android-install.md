@@ -10,7 +10,7 @@ dsh-tavern 可以借助 [DSHA](https://github.com/qiannianhuanxiang/DSHA) 尝试
 2. 打开 DSHA 的“创造模式”，把下面一句话发给 AI：
 
 ```text
-请运行这条命令安装 DSH Tavern，完成后告诉我结果：curl -fsSL https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@bc7ac0d/android/setup.sh | bash
+请运行这条命令安装 DSH Tavern，完成后告诉我结果：node -e "fetch('https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@69d74f5/android/setup.sh').then(async r=>{if(!r.ok)throw Error('HTTP '+r.status);require('fs').writeFileSync('/tmp/dsh-tavern-setup.sh',await r.text())}).then(()=>{const r=require('child_process').spawnSync('bash',['/tmp/dsh-tavern-setup.sh'],{stdio:'inherit'});process.exit(r.status??1)}).catch(e=>{console.error(e);process.exit(1)})"
 ```
 
 3. 看到“全部完成”后重启 DSHA，点击侧栏里的 **酒馆工作台**。

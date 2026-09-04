@@ -85,6 +85,11 @@ test('Android 公开安装命令固定引导脚本版本，避免 jsDelivr main 
   }
 })
 
+test('Android 公开安装命令不依赖 DSHA rc1 未提供的 curl', () => {
+  assert.match(installCommands.android, /node -e/)
+  assert.doesNotMatch(installCommands.android, /\bcurl\b/)
+})
+
 test('代码块保持命令原文，转义 HTML 且不误识别管道和 Markdown', () => {
   const command = "echo '<script>**raw**</script>' | next --arg='a&b'\n# heading"
   const rendered = markdown('```bash\n' + command + '\n```', 'test')
