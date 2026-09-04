@@ -44,6 +44,10 @@ Story Timeline 中 Background Operation 生命周期的只读投影，用于回�
 
 从权威领域状态派生、可随时重建的只读表示。DSH Session Surface、Background Activity、Tavern 状态视图和浏览器交互状态都是 Projection。
 
+## Session Signal
+
+Host 向某一 Tavern Session 的浏览器消费者发布的带类型唤醒通知。它只携带领域类型与权威版本标识，促使消费者从对应领域 Module 重读状态；它不是 Projection、任务载荷或权威状态，重复与丢失都不能改变领域结果。
+
 ## External Preset
 
 从 SillyTavern 等外部系统导入的只读来源。中文正式名称为“外部预设”。用户在预设库中查看它，并手动选择需要启用的提示词和正则；系统不会直接运行整份预设。

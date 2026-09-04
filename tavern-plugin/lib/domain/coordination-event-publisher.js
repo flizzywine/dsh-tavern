@@ -20,9 +20,10 @@ export function coordinationEventId(snapshot) {
   ].join(':')
 }
 
-/** Publish coordination state after local writes, with a low-frequency file fallback. */
+/** Project durable coordination changes into typed candidate wake signals. */
 export function createCoordinationEventPublisher(options = {}) {
   if (typeof options.load !== 'function') throw new Error('Coordination Event Publisher 缺少快照读取 adapter')
+  if (typeof options.publishSignal !== 'function') throw new Error('Coordination Event Publisher 缺少 Session Signal adapter')
   const startInterval = typeof options.startInterval === 'function' ? options.startInterval : setInterval
   const stopInterval = typeof options.stopInterval === 'function' ? options.stopInterval : clearInterval
   const fallbackIntervalMs = Number(options.fallbackIntervalMs) > 0 ? Number(options.fallbackIntervalMs) : 5000
@@ -30,12 +31,12 @@ export function createCoordinationEventPublisher(options = {}) {
 
   function recordFor(sessionId) {
     const id = str(sessionId)
-    if (!records.has(id)) records.set(id, { id, listeners: new Set(), timer: null, loading: false, reloadRequested: false, forceRequested: false, lastId: '', hasVersion: false, lastVersion: undefined })
+    if (!records.has(id)) records.set(id, { id, watchers: 0, timer: null, loading: false, reloadRequested: false, forceRequested: false, lastId: '', hasVersion: false, lastVersion: undefined })
     return records.get(id)
   }
 
   async function refresh(record, checkVersion) {
-    if (record.listeners.size === 0) return
+    if (record.watchers === 0) return
     if (record.loading) {
       record.reloadRequested = true
       if (!checkVersion) record.forceRequested = true
@@ -46,7 +47,7 @@ export function createCoordinationEventPublisher(options = {}) {
       const version = checkVersion && typeof options.readVersion === 'function' ? await options.readVersion(record.id) : undefined
       if (checkVersion && record.hasVersion && Object.is(version, record.lastVersion)) return
       const snapshot = await options.load(record.id)
-      if (record.listeners.size === 0 || snapshot === null || snapshot === undefined) return
+      if (record.watchers === 0 || snapshot === null || snapshot === undefined) return
       if (checkVersion && typeof options.readVersion === 'function') {
         record.lastVersion = version
         record.hasVersion = true
@@ -54,7 +55,7 @@ export function createCoordinationEventPublisher(options = {}) {
       const eventId = coordinationEventId(snapshot)
       if (eventId === record.lastId) return
       record.lastId = eventId
-      record.listeners.forEach(function (listener) { listener(snapshot, eventId) })
+      options.publishSignal(record.id, { kind: 'candidate', version: eventId })
     } catch (error) {
       if (typeof options.onError === 'function') options.onError(error)
     } finally {
@@ -68,10 +69,10 @@ export function createCoordinationEventPublisher(options = {}) {
     }
   }
 
-  function subscribe(sessionId, listener) {
+  function watch(sessionId) {
     const record = recordFor(sessionId)
-    record.listeners.add(listener)
-    if (record.listeners.size === 1) {
+    record.watchers += 1
+    if (record.watchers === 1) {
       void refresh(record, true)
       record.timer = startInterval(function () { void refresh(record, true) }, fallbackIntervalMs)
       if (record.timer && typeof record.timer.unref === 'function') record.timer.unref()
@@ -80,8 +81,8 @@ export function createCoordinationEventPublisher(options = {}) {
     return function () {
       if (stopped) return
       stopped = true
-      record.listeners.delete(listener)
-      if (record.listeners.size === 0 && record.timer !== null) {
+      record.watchers = Math.max(0, record.watchers - 1)
+      if (record.watchers === 0 && record.timer !== null) {
         stopInterval(record.timer)
         record.timer = null
       }
@@ -98,5 +99,5 @@ export function createCoordinationEventPublisher(options = {}) {
     await Promise.all(Array.from(records.values()).map(function (record) { return refresh(record, false) }))
   }
 
-  return Object.freeze({ subscribe, publish, publishAll })
+  return Object.freeze({ watch, publish, publishAll })
 }

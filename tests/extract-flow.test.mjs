@@ -288,6 +288,7 @@ test('自由行动只聚焦输入框并保留已生成候选项', () => {
 
 test('后台结算期间禁用候选项按钮，完成后自动恢复', () => {
   const action = between(clientSource, 'function CandidateAction', 'function CandidateDockActions')
+  const signals = between(clientSource, 'function createTavernSessionSignalModule', 'function createTavernCoordinationEventModule')
   const coordination = between(clientSource, 'const tavernCoordination', 'function describeTavernActivity')
   const submit = between(clientSource, 'async function submitCandidateTask', 'const regenPanel')
   const guide = between(clientSource, 'function CandidateGuidePanel', 'function RegenPanel')
@@ -310,8 +311,10 @@ test('后台结算期间禁用候选项按钮，完成后自动恢复', () => {
   assert.doesNotMatch(clientSource, /rpc\("generateChoices"/)
   assert.match(submit, /rpc\("submitTask"/)
   assert.match(submit, /tavernCoordination\.setView\(sessionId/)
-  assert.match(coordination, /new window\.EventSource/)
-  assert.doesNotMatch(coordination, /rpc\("syncSession"|setTimeout|setInterval/)
+  assert.match(signals, /new window\.EventSource/)
+  assert.match(coordination, /tavernSessionSignals\.subscribe/)
+  assert.match(coordination, /rpc\("syncSession"/)
+  assert.doesNotMatch(coordination, /setTimeout|setInterval/)
   assert.doesNotMatch(serverSource, /case 'generateChoices'/)
   assert.doesNotMatch(action, /rpc\("getSession"/)
 })

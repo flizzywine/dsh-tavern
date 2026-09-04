@@ -89,6 +89,32 @@ function execution(options = {}) {
   return Object.assign(h, { module, calls, runtimes, respond(fn) { handle = fn } })
 }
 
+test('typed session signal client shares one connection and isolates kinds and sessions', () => {
+  const h = host(), connections = []
+  const signals = h.client.createTavernSessionSignalModule({
+    connect(sessionId, handlers) {
+      const connection = { sessionId, handlers, closed: 0, close() { this.closed++ } }
+      connections.push(connection)
+      return connection
+    }
+  })
+  const candidate = [], runtime = [], errors = []
+  const stopCandidate = signals.subscribe('A', 'candidate', signal => candidate.push(signal), error => errors.push(error.message))
+  const stopRuntime = signals.subscribe('A', 'runtime-work', signal => runtime.push(signal), error => errors.push(error.message))
+  assert.equal(connections.length, 1)
+  connections[0].handlers.message({ sessionId: 'B', kind: 'candidate', version: 'wrong-session' })
+  connections[0].handlers.message({ sessionId: 'A', kind: 'candidate', version: '1' })
+  connections[0].handlers.message({ sessionId: 'A', kind: 'runtime-work', version: '2' })
+  connections[0].handlers.error(new Error('reconnecting'))
+  assert.deepEqual(copy(candidate.map(signal => signal.version)), ['1'])
+  assert.deepEqual(copy(runtime.map(signal => signal.version)), ['2'])
+  assert.deepEqual(errors, ['reconnecting', 'reconnecting'])
+  stopCandidate()
+  assert.equal(connections[0].closed, 0)
+  stopRuntime()
+  assert.equal(connections[0].closed, 1)
+})
+
 test('script owner acquires one lease, reuses sandbox on variable changes, initializes and releases on empty view', async () => {
   const h = execution()
   h.module.sync('A', view())

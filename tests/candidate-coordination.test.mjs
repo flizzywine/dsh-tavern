@@ -21,13 +21,16 @@ test('宿主将候选提交、旧入口、同步与恢复交给同一个模块',
   assert.doesNotMatch(serverSource, /scheduleCandidateTask|createDurableTaskMailbox/)
 })
 
-test('前端只通过 SSE 消费统一快照，不再定时轮询或竞争读取结果', function () {
+test('前端通过 typed SSE signal 重读权威快照，不再定时轮询', function () {
+  const signals = between(clientSource, 'function createTavernSessionSignalModule', 'function createTavernCoordinationEventModule')
   const coordination = between(clientSource, 'const tavernCoordination', 'function describeTavernActivity')
   const submit = between(clientSource, 'async function submitCandidateTask', 'const regenPanel')
 
-  assert.match(coordination, /new window\.EventSource/)
-  assert.match(coordination, /\/api\/dsh-tavern\/events/)
-  assert.doesNotMatch(coordination, /rpc\("syncSession"|setTimeout|setInterval/)
+  assert.match(signals, /new window\.EventSource/)
+  assert.match(signals, /\/api\/dsh-tavern\/events/)
+  assert.match(coordination, /tavernSessionSignals\.subscribe/)
+  assert.match(coordination, /rpc\("syncSession"/)
+  assert.doesNotMatch(coordination, /setTimeout|setInterval/)
   assert.match(submit, /rpc\("submitTask"/)
   assert.doesNotMatch(submit, /getBackgroundOperation|getChoices|startChoices|Promise\.race/)
   assert.doesNotMatch(clientSource, /createCandidateGenerationCoordinator/)
@@ -52,8 +55,10 @@ test('服务器主动发布 SSE，并以轻量存储版本做低频兜底', func
   assert.doesNotMatch(coordinationVersion, /agentRegistry\.get|sessionStore\.get/, '高频版本检查不得跨线程读取完整 Session/Agent')
   assert.match(serverSource, /fallbackIntervalMs: 5000/)
   assert.match(serverSource, /'Content-Type': 'text\/event-stream; charset=utf-8'/)
-  assert.match(serverSource, /coordinationEvents\.subscribe\(sessionId/)
-  assert.match(serverSource, /data: ' \+ JSON\.stringify\(snapshot\)/)
+  assert.match(serverSource, /sessionSignals\.subscribe\(sessionId/)
+  assert.match(serverSource, /coordinationEvents\.watch\(sessionId/)
+  assert.match(serverSource, /data: ' \+ JSON\.stringify\(signal\)/)
+  assert.doesNotMatch(serverSource, /data: ' \+ JSON\.stringify\(snapshot\)/)
 })
 
 test('所有 Tavern Chat 热写入统一经过增量 Persistence', function () {

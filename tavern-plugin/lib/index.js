@@ -23,6 +23,7 @@ import { createUserPreferenceProfile } from './domain/user-preference-profile.js
 import { createContextPlanner } from './domain/context-planner.js'
 import { createConversationTextExport } from './domain/conversation-text-export.js'
 import { createCoordinationEventPublisher } from './domain/coordination-event-publisher.js'
+import { createSessionSignalTransport } from './domain/session-signal-transport.js'
 import { createCandidateTasks } from './domain/candidate-tasks.js'
 import { extractEpubText } from './domain/epub-text.js'
 import { createFileResourceStore, normalizeResourcePath, resourceKind } from './domain/file-resources.js'
@@ -237,6 +238,7 @@ export async function apply(ctx) {
   }
   const runtimeGeneration = uid('runtime')
   let coordinationEvents = null
+  const sessionSignals = createSessionSignalTransport()
   function str(v) {
     return typeof v === 'string' ? v : (v === undefined || v === null ? '' : String(v))
   }
@@ -2184,6 +2186,7 @@ export async function apply(ctx) {
   coordinationEvents = createCoordinationEventPublisher({
     readVersion: async function (sessionId) { return await coordinationVersion(sessionId) },
     load: async function (sessionId) { return await candidateTasks.sync(sessionId, { kind: 'candidate' }) },
+    publishSignal: function (sessionId, signal) { sessionSignals.publish(sessionId, signal) },
     fallbackIntervalMs: 5000,
     onError(error) { console.warn('dsh-tavern: 协调文件读取失败，将继续重试:', str(error && error.message || error)) }
   })
@@ -2302,13 +2305,17 @@ export async function apply(ctx) {
             })
             res.write('retry: 1000\n\n')
             let closed = false
-            const stop = coordinationEvents.subscribe(sessionId, function (snapshot, eventId) {
+            const kind = str(target.searchParams.get('kind')).trim()
+            let stopSignals = function () {}
+            let stopCoordination = function () {}
+            stopSignals = sessionSignals.subscribe(sessionId, kind === '' ? [] : [kind], function (signal) {
               if (closed) return
               try {
-                res.write('id: ' + str(eventId).replace(/[\r\n]/g, '') + '\n')
-                res.write('data: ' + JSON.stringify(snapshot) + '\n\n')
+                res.write('id: ' + str(signal.id).replace(/[\r\n]/g, '') + '\n')
+                res.write('data: ' + JSON.stringify(signal) + '\n\n')
               } catch (_error) { close() }
             })
+            stopCoordination = kind === '' || kind === 'candidate' ? coordinationEvents.watch(sessionId) : function () {}
             const heartbeat = setInterval(function () {
               if (!closed) res.write(': heartbeat\n\n')
             }, 10000)
@@ -2317,7 +2324,8 @@ export async function apply(ctx) {
               if (closed) return
               closed = true
               clearInterval(heartbeat)
-              stop()
+              stopCoordination()
+              stopSignals()
               if (!res.writableEnded) res.end()
             }
             req.once('close', close)

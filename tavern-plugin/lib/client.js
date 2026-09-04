@@ -995,6 +995,71 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			};
 		}
 
+		function createTavernSessionSignalModule(options) {
+			if (!options || typeof options.connect !== "function") throw new Error("Tavern Session Signal 缺少连接 adapter");
+			const records = new Map();
+			function recordFor(sessionId) {
+				const id = String(sessionId || "");
+				if (!records.has(id)) records.set(id, { id: id, listeners: new Map(), connection: null });
+				return records.get(id);
+			}
+			function listenerCount(record) {
+				let count = 0;
+				record.listeners.forEach(function (listeners) { count += listeners.size; });
+				return count;
+			}
+			function connect(record) {
+				if (record.connection !== null || listenerCount(record) === 0) return;
+				record.connection = options.connect(record.id, {
+					message: function (signal) {
+						if (!signal || signal.sessionId !== record.id || typeof signal.kind !== "string") return;
+						const listeners = record.listeners.get(signal.kind);
+						if (listeners) listeners.forEach(function (listener) { listener(signal); });
+					},
+					error: function (error) {
+						record.listeners.forEach(function (listeners) {
+							listeners.forEach(function (listener) { if (typeof listener.error === "function") listener.error(error); });
+						});
+					}
+				});
+			}
+			return Object.freeze({
+				subscribe: function (sessionId, kind, listener, onError) {
+					const record = recordFor(sessionId);
+					const typedListener = function (signal) { listener(signal); };
+					typedListener.error = onError;
+					if (!record.listeners.has(kind)) record.listeners.set(kind, new Set());
+					record.listeners.get(kind).add(typedListener);
+					connect(record);
+					let stopped = false;
+					return function () {
+						if (stopped) return;
+						stopped = true;
+						const listeners = record.listeners.get(kind);
+						if (listeners) listeners.delete(typedListener);
+						if (listeners && listeners.size === 0) record.listeners.delete(kind);
+						if (listenerCount(record) === 0 && record.connection) {
+							record.connection.close();
+							record.connection = null;
+						}
+					};
+				}
+			});
+		}
+
+		const tavernSessionSignals = createTavernSessionSignalModule({
+			connect: function (sessionId, handlers) {
+				const target = "/api/dsh-tavern/events?sessionId=" + encodeURIComponent(sessionId);
+				const source = new window.EventSource(target);
+				source.onmessage = function (event) {
+					try { handlers.message(JSON.parse(event.data)); }
+					catch (error) { handlers.error(error); }
+				};
+				source.onerror = function () { handlers.error(new Error("Tavern SSE 正在重连")); };
+				return { close: function () { source.close(); } };
+			}
+		});
+
 		function createTavernCoordinationEventModule(options) {
 			if (!options || typeof options.connect !== "function") throw new Error("Tavern Coordination Event 缺少 SSE adapter");
 			const records = new Map();
@@ -1027,6 +1092,10 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			function invalidate(sessionId) {
 				const targets = sessionId === undefined || sessionId === null || sessionId === "" ? Array.from(records.values()) : [recordFor(sessionId)];
 				targets.forEach(function (record) {
+					if (record.connection && typeof record.connection.refresh === "function") {
+						void record.connection.refresh();
+						return;
+					}
 					disconnect(record);
 					if (record.listeners.size > 0) {
 						publish(record, { phase: "connecting", view: record.state.view, error: "", updatedAt: record.state.updatedAt });
@@ -1065,14 +1134,25 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				if (observed && previous === "" && cardPath !== "") notifyTavernDataChanged(["cards", "sessions"], "coordination");
 			},
 			connect: function (sessionId, handlers) {
-				const target = "/api/dsh-tavern/events?sessionId=" + encodeURIComponent(sessionId) + "&kind=candidate";
-				const source = new window.EventSource(target);
-				source.onmessage = function (event) {
-					try { handlers.message(coordinationView({ sync: JSON.parse(event.data) }, sessionId)); }
-					catch (error) { handlers.error(error); }
-				};
-				source.onerror = function () { handlers.error(new Error("Tavern SSE 正在重连")); };
-				return { close: function () { source.close(); } };
+				let active = true;
+				let loading = false;
+				let reloadRequested = false;
+				async function load() {
+					if (!active) return;
+					if (loading) { reloadRequested = true; return; }
+					loading = true;
+					try {
+						const result = await rpc("syncSession", { kind: "candidate" }, sessionId);
+						if (active) handlers.message(coordinationView(result, sessionId));
+					} catch (error) {
+						if (active) handlers.error(error);
+					} finally {
+						loading = false;
+						if (active && reloadRequested) { reloadRequested = false; void load(); }
+					}
+				}
+				const stop = tavernSessionSignals.subscribe(sessionId, "candidate", function () { void load(); }, handlers.error);
+				return { close: function () { active = false; stop(); }, refresh: load };
 			}
 		});
 
@@ -7685,6 +7765,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		exports.TavernMessageFrame = TavernMessageFrame;
 		exports.createTavernMessageFrameLifecycle = createTavernMessageFrameLifecycle;
 		exports.createTavernScriptExecutionModule = createTavernScriptExecutionModule;
+		exports.createTavernSessionSignalModule = createTavernSessionSignalModule;
 		exports.createTavernScriptSessionOwner = createTavernScriptSessionOwner;
 		exports.createMvuBundleLoader = createMvuBundleLoader;
 		exports.TavernMvuLoadRecovery = TavernMvuLoadRecovery;
