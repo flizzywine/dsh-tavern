@@ -1000,7 +1000,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const records = new Map();
 			function recordFor(sessionId) {
 				const id = String(sessionId || "");
-				if (!records.has(id)) records.set(id, { id: id, listeners: new Map(), connection: null });
+				if (!records.has(id)) records.set(id, { id: id, listeners: new Map(), connection: null, connected: false });
 				return records.get(id);
 			}
 			function listenerCount(record) {
@@ -1011,12 +1011,19 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			function connect(record) {
 				if (record.connection !== null || listenerCount(record) === 0) return;
 				record.connection = options.connect(record.id, {
+					open: function () {
+						record.connected = true;
+						record.listeners.forEach(function (listeners) {
+							listeners.forEach(function (listener) { if (typeof listener.connected === "function") listener.connected(); });
+						});
+					},
 					message: function (signal) {
 						if (!signal || signal.sessionId !== record.id || typeof signal.kind !== "string") return;
 						const listeners = record.listeners.get(signal.kind);
 						if (listeners) listeners.forEach(function (listener) { listener(signal); });
 					},
 					error: function (error) {
+						record.connected = false;
 						record.listeners.forEach(function (listeners) {
 							listeners.forEach(function (listener) { if (typeof listener.error === "function") listener.error(error); });
 						});
@@ -1024,13 +1031,15 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				});
 			}
 			return Object.freeze({
-				subscribe: function (sessionId, kind, listener, onError) {
+				subscribe: function (sessionId, kind, listener, onError, onConnect) {
 					const record = recordFor(sessionId);
 					const typedListener = function (signal) { listener(signal); };
 					typedListener.error = onError;
+					typedListener.connected = onConnect;
 					if (!record.listeners.has(kind)) record.listeners.set(kind, new Set());
 					record.listeners.get(kind).add(typedListener);
 					connect(record);
+					if (record.connected && typeof typedListener.connected === "function") typedListener.connected();
 					let stopped = false;
 					return function () {
 						if (stopped) return;
@@ -1041,6 +1050,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 						if (listenerCount(record) === 0 && record.connection) {
 							record.connection.close();
 							record.connection = null;
+							record.connected = false;
 						}
 					};
 				}
@@ -1051,6 +1061,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			connect: function (sessionId, handlers) {
 				const target = "/api/dsh-tavern/events?sessionId=" + encodeURIComponent(sessionId);
 				const source = new window.EventSource(target);
+				source.onopen = function () { handlers.open(); };
 				source.onmessage = function (event) {
 					try { handlers.message(JSON.parse(event.data)); }
 					catch (error) { handlers.error(error); }
@@ -3482,7 +3493,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					}
 				});
 				if (signals && typeof signals.subscribe === "function") {
-					workStop = signals.subscribe(sessionId, "runtime-work", function () { void claimWork(); }, function (error) { console.warn("Tavern Script signal 连接正在恢复", error); });
+					workStop = signals.subscribe(sessionId, "runtime-work", function () { void claimWork(); }, function (error) { console.warn("Tavern Script signal 连接正在恢复", error); }, function () { void claimWork(); });
 				}
 				return runtime;
 			}

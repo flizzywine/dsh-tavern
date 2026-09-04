@@ -70,12 +70,13 @@ test('正文文档带认证字号通道与原字号恢复逻辑', () => {
   assert.match(html, /restoreTavernFrameFontStyles/)
 })
 function execution(options = {}) {
-  const h = host(), calls = [], runtimes = [], signalListeners = new Map()
+  const h = host(), calls = [], runtimes = [], signalListeners = new Map(), connectionListeners = new Map()
   let handle = () => Promise.resolve({ active: true })
   const module = h.client.createTavernScriptExecutionModule({ window: h.window,
-    signals: { subscribe(sessionId, kind, listener) {
+    signals: { subscribe(sessionId, kind, listener, _onError, onConnect) {
       signalListeners.set(sessionId + ':' + kind, listener)
-      return () => signalListeners.delete(sessionId + ':' + kind)
+      connectionListeners.set(sessionId + ':' + kind, onConnect)
+      return () => { signalListeners.delete(sessionId + ':' + kind); connectionListeners.delete(sessionId + ':' + kind) }
     } },
     rpc(method, args, sessionId) { calls.push({ method, args: copy(args), sessionId }); return handle(method, args, sessionId) },
     createRuntime(options) {
@@ -93,6 +94,7 @@ function execution(options = {}) {
   return Object.assign(h, { module, calls, runtimes,
     respond(fn) { handle = fn },
     wake(sessionId = 'A') { signalListeners.get(sessionId + ':runtime-work')?.({ sessionId, kind: 'runtime-work', version: String(Date.now()) }) },
+    reconnect(sessionId = 'A') { connectionListeners.get(sessionId + ':runtime-work')?.() },
     async settle() { await tick(); await tick() }
   })
 }
@@ -106,10 +108,11 @@ test('typed session signal client shares one connection and isolates kinds and s
       return connection
     }
   })
-  const candidate = [], runtime = [], errors = []
+  const candidate = [], runtime = [], errors = [], connectionsReady = []
   const stopCandidate = signals.subscribe('A', 'candidate', signal => candidate.push(signal), error => errors.push(error.message))
-  const stopRuntime = signals.subscribe('A', 'runtime-work', signal => runtime.push(signal), error => errors.push(error.message))
+  const stopRuntime = signals.subscribe('A', 'runtime-work', signal => runtime.push(signal), error => errors.push(error.message), () => connectionsReady.push('A'))
   assert.equal(connections.length, 1)
+  connections[0].handlers.open()
   connections[0].handlers.message({ sessionId: 'B', kind: 'candidate', version: 'wrong-session' })
   connections[0].handlers.message({ sessionId: 'A', kind: 'candidate', version: '1' })
   connections[0].handlers.message({ sessionId: 'A', kind: 'runtime-work', version: '2' })
@@ -117,6 +120,7 @@ test('typed session signal client shares one connection and isolates kinds and s
   assert.deepEqual(copy(candidate.map(signal => signal.version)), ['1'])
   assert.deepEqual(copy(runtime.map(signal => signal.version)), ['2'])
   assert.deepEqual(errors, ['reconnecting', 'reconnecting'])
+  assert.deepEqual(connectionsReady, ['A'])
   stopCandidate()
   assert.equal(connections[0].closed, 0)
   stopRuntime()
@@ -251,6 +255,19 @@ test('服务重启遗留的悬挂 claim 超时后由重放 signal 向新服务�
   assert.equal(h.calls.filter(call => call.method === 'claimTavernScriptWork').length, 2)
   assert.equal(h.module.inspect().active, true)
   stale.resolve({ active: true })
+  h.module.dispose()
+})
+
+test('SSE 重连会立即向重启后的 Host 重新登记脚本执行器', async () => {
+  const h = execution()
+  h.module.sync('A', view())
+  await h.settle()
+  const before = h.calls.filter(call => call.method === 'claimTavernScriptWork').length
+
+  h.reconnect()
+  await h.settle()
+
+  assert.equal(h.calls.filter(call => call.method === 'claimTavernScriptWork').length, before + 1)
   h.module.dispose()
 })
 

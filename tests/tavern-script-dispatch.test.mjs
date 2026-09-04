@@ -57,11 +57,17 @@ test('claimed script work times out without blocking later events', async functi
   assert.equal((await pending).handled, true)
 })
 
-test('unclaimed work returns scheduling state after the short claim budget', async function () {
+test('unclaimed work expires the stale ready lease before settlement retries', async function () {
   const gate = createTavernScriptDispatch({ claimTimeoutMs: 100 })
+  const settled = []
+  gate.subscribeSettled(sessionId => settled.push(sessionId))
   gate.touch('session-a', 'browser', true)
   const result = await gate.dispatch('session-a', 'MESSAGE_SENT', [5])
   assert.deepEqual(result, { handled: false, unavailable: true, claimTimedOut: true, phase: 'queued', args: [5] })
+  assert.deepEqual(gate.status('session-a'), { present: false, ready: false, busy: false, phase: 'idle' })
+
+  gate.claim('session-a', 'browser', true)
+  assert.deepEqual(settled, ['session-a', 'session-a'])
 })
 
 test('同一会话只允许一个浏览器运行 Helper，租约过期后才能接管', function () {

@@ -117,6 +117,11 @@ export function createTavernScriptDispatch(options = {}) {
     return await new Promise(function (resolve) {
       const record = { event, resolve, claimedBy: '', claimTimer: null, executionTimer: null }
       record.claimTimer = setTimeout(function () {
+        // A runtime that stays "ready" but cannot claim signalled work is no
+        // longer a usable lease. Keeping that stale presence makes settlement
+        // immediately redispatch forever. Its next real claim/heartbeat will
+        // register a fresh ready transition and resume the deferred work once.
+        if (records.get(id) === record && record.claimedBy === '') presence.delete(id)
         resolveRecord(id, record, { handled: false, unavailable: true, claimTimedOut: true, phase: 'queued', args: clone(event.args) })
       }, claimTimeoutMs)
       records.set(id, record)
