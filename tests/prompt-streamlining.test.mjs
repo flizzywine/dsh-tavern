@@ -254,7 +254,7 @@ test('无玩家输入的开场回合不进入正文结算', () => {
 test('游玩 Agent 接收解析后的玩家输入，不接收原始 Tavern 宏代码', () => {
   const lifecycle = between(serverSource, '// ---------- DSH 回合生命周期 ----------', '// ---------- 模型可选工具 ----------')
 
-  assert.match(orchestrationStrategiesSource, /replaceTurnInput\(decision\.messages, prepared\.frame\.userInput\.projectedText\)/)
+  assert.match(orchestrationStrategiesSource, /replaceTurnInput\(agentMessages, prepared\.frame\.userInput\.projectedText\)/)
 })
 
 test('读取 Session View 不启动后台工作，开场回合由玩家输入边界过滤', () => {
@@ -307,7 +307,7 @@ test('人物卡基本信息固定为会话前缀，仅系统和历史后指令�
   assert.match(ensureSnapshot, /cardContextSnapshot: sanitized/)
   assert.match(ensureSnapshot, /await writeChat\(draft, \{ source \}\)/)
   assert.doesNotMatch(orchestrationStrategiesSource, /name: 'tavern:card-snapshot'/)
-  assert.match(orchestrationStrategiesSource, /projectSessionStablePrefix/)
+  assert.doesNotMatch(orchestrationStrategiesSource, /projectSessionStablePrefix/)
   assert.match(startChat + serverSource, /ensureSessionStablePrefix/)
   assert.match(bodyPlanner, /includeDetails: true/)
   assert.match(bodyPlanner, /includeDescription: false/)

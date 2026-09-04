@@ -13,7 +13,7 @@ import { createTavernConversationRegistry } from '../../tavern-plugin/lib/domain
 import { createChatPersistence } from '../../tavern-plugin/lib/domain/chat-persistence.js'
 import { createChatJournalStore } from '../../tavern-plugin/lib/domain/chat-journal-store.js'
 import { createProfileDataStore } from '../../tavern-plugin/lib/profile-data-store.js'
-import { createSessionStablePrefixStorage, ensureSessionStablePrefix, readSessionStablePrefix, projectSessionStablePrefix } from '../../tavern-plugin/lib/domain/session-stable-prefix.js'
+import { createSessionStablePrefixStorage, ensureSessionStablePrefix } from '../../tavern-plugin/lib/domain/session-stable-prefix.js'
 
 export async function createInitializationNative(bootPath) {
   const bootUrl = pathToFileURL(bootPath)
@@ -49,17 +49,7 @@ export async function createInitializationNative(bootPath) {
   }
   ctx.llm.registerAdapter([selection.provider], new FixtureModel())
   async function createAgent(seed) {
-    const handle = await ctx.agents.create({ sessionId, seed, agentOptions: selection,
-      setup: async agentCtx => {
-        const projected = new WeakSet()
-        agentCtx.on('llm/stream', (request, next) => {
-          if (projected.has(request)) return next()
-          const withPrefix = projectSessionStablePrefix(request, readSessionStablePrefix(target?.session))
-          projected.add(withPrefix)
-          return agentCtx.llm.stream(withPrefix)
-        })
-      }
-    })
+    const handle = await ctx.agents.create({ sessionId, seed, agentOptions: selection })
     handles.add(handle)
     target = { agent: handle.agent, session: handle.agent.session }
     return handle
@@ -101,7 +91,7 @@ export async function createInitializationNative(bootPath) {
       for (const handle of handles) await handle.dispose()
       handles.clear()
       await createAgent(seed)
-      // Reconnect saved prefix before first request, as the host opening boundary does.
+      // Promote any legacy prefix before first request, as the host opening boundary does.
       await ensureSessionStablePrefix(target.session, '', storage)
       target.agent.followup({ id: randomUUID(), role: 'user', content: [{ type: 'text', text: '继续。' }], source: { kind: 'human' } })
       await target.agent.whenIdle()

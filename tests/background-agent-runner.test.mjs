@@ -46,8 +46,6 @@ test('人物设计读取工具在生图会话中只注册一次，跨任务保�
   } finally { await runner.dispose() }
 })
 import { createContextPlanner } from '../tavern-plugin/lib/domain/context-planner.js'
-import { readSessionStablePrefix } from '../tavern-plugin/lib/domain/session-stable-prefix.js'
-import { createNativePlayOrchestrationStrategy } from '../tavern-plugin/lib/domain/foreground-orchestration-strategies.js'
 
 test('后台联网搜索按游戏快照统一开放，并在后台各任务间保持不变', async () => {
   async function visible(enabled) {
@@ -234,9 +232,12 @@ test('后台固定背景只保存一次，连续候选、结算和恢复均从 S
   const savedPrefixes = new Map()
   const stablePrefixStorage = { async read(id) { return savedPrefixes.get(id) }, async write(id, value) { savedPrefixes.set(id, value) } }
   async function open(options) {
-    const session = { id: 'background', events, append(type, data) { events.push({ type, data: structuredClone(data) }) } }
-    const stagedRequests = new Map()
-    const projection = createNativePlayOrchestrationStrategy({ stagedRequests, sessionPrefix: () => readSessionStablePrefix(session) })
+    const session = { id: 'background', events, append(type, data, intent) {
+      const event = { type, data: structuredClone(data), ...(intent || {}) }
+      events.push(event)
+      if (type === 'user/message' && data.id === 'tavern-session-prefix:' + session.id && !history.some(message => message.id === data.id)) history.push(event.data)
+      return event
+    } }
     const variables = new Map()
     const sections = []
     await options.setup({
@@ -249,9 +250,7 @@ test('后台固定背景只保存一次，连续候选、结算和恢复均从 S
         followup(message) {
           const system = sections.map(section => section.text.replace(/\{\{([^}]+)\}\}/g, (_, name) => variables.get(name)())).join('\n')
           history.push(message)
-          stagedRequests.set('background', { scope: 'background', snapshot: null, turn: packets.length + 1, step: 1 })
-          const request = projection.projectRequest({ sessionId: 'background', system, messages: history })
-          assert.equal(projection.projectRequest(request), null, '重新分发不能重复拼接前缀')
+          const request = { sessionId: 'background', system, messages: history.slice() }
           packets.push({ system: request.system, messages: request.messages, text: message.content[0].text })
           events.push({ type: 'assistant/message', data: { message: { content: [{ type: 'text', text: '{"choices":[]}' }] } } })
         }, async whenIdle() {}
@@ -291,7 +290,7 @@ test('后台固定背景只保存一次，连续候选、结算和恢复均从 S
     const texts = packet.messages.map(message => message.content.map(block => block.text).join('')).join('\n')
     assert.equal(texts.split('固定背景A').length - 1, 1)
     assert.equal(texts.split('固定世界设定').length - 1, 1)
-    assert.equal(packet.messages[0].source.form, 'session-prefix')
+    assert.equal(packet.messages[0].source.form, 'snapshot')
     assert.doesNotMatch(texts, /固定背景B/)
     assert.doesNotMatch(packet.system, /每轮系统要求|每轮末尾要求|修改后的末尾要求|最新Guide|最新姿势/)
     assert.doesNotMatch(packet.text, /固定背景|固定性格|固定场景|固定示例|固定世界设定/)
@@ -308,7 +307,8 @@ test('后台固定背景只保存一次，连续候选、结算和恢复均从 S
   assert.doesNotMatch(packets.at(-1).system, /不应带入|固定背景|每轮系统要求/)
   assert.match(packets.at(-1).messages[0].content[0].text, /固定背景A/)
   assert.equal(events.filter(event => event.type === 'dsh-tavern/stable-prefix').length, 0)
-  assert.equal(savedPrefixes.size, 1)
+  assert.equal(events.filter(event => event.type === 'user/message' && event.data.id === 'tavern-session-prefix:background').length, 1)
+  assert.equal(savedPrefixes.size, 0)
   await runner.dispose()
 })
 

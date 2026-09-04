@@ -8,7 +8,7 @@ SillyTavern 采用提示词工程的思路：每轮动态拼接一个超大上�
 
 这会带来两个问题：一是动态插入不断改变上下文前缀，提示词缓存难以充分复用，增加费用和等待时间；二是多个复杂目标互相争夺模型注意力，任务越多，越容易出现失忆、掉格式、人物状态矛盾和明显的 AI 味。
 
-dsh-tavern 改用“一主多子”Agent 架构：前台主 Agent 持续保存追加式对话历史并专注正文生成；持续存在的后台子 Agent 分步处理候选项、姿势与状态总结等小任务，再由程序把结果合并为完整体验。世界书不再调用后台 Agent 分析：常驻条目进入稳定前缀，非常驻条目按关键词匹配后直接注入。每个 Agent 都维护自己的追加式历史和稳定前缀，后台结果回写主 Session 后才进入后续对话。当前只使用一个后台子 Agent；后续可在确有职责隔离需要时扩展为多个。
+dsh-tavern 改用“一主多子”Agent 架构：前台主 Agent 持续保存追加式对话历史并专注正文生成；持续存在的后台子 Agent 分步处理候选项、姿势与状态总结等小任务，再由程序把结果合并为完整体验。世界书不再调用后台 Agent 分析：常驻条目与人物卡固定信息作为标准消息记入 DSH Session，非常驻条目按关键词匹配后注入当轮。每个 Agent 都维护自己的追加式历史，固定上下文可在轨迹中查看并由 Session 重建；后台结果回写主 Session 后才进入后续对话。当前只使用一个后台子 Agent；后续可在确有职责隔离需要时扩展为多个。
 
 主 Agent 与后台 Agent 各自维护前缀稳定，从而提高缓存利用率、降低费用与等待时间；拆分后的每次生成只解决一个明确问题，也能显著提升输出质量。
 
@@ -140,6 +140,7 @@ Tavern Profile 是 CLI 与 DSH Desktop 共用的宿主 seam，本身不声明 We
 | 模块 | 接口 | 职责 |
 | --- | --- | --- |
 | Context Planner | `plan` | 为正文、候选或卡片任务选择并组合最少上下文，同时返回注入审计 |
+| Session Fixed Context | `readSessionStablePrefix`、`ensureSessionStablePrefix` | 把人物卡固定信息与常驻世界书以标准 DSH `user/message` 记入 Session，负责去重和旧外部快照迁移；不负责预设的请求时投影 |
 | Runtime Content Projection | `preserveRuntimeSource`、`projectAgentContent`、`projectOpeningPreview`、`projectOpeningCommit`、`projectRuntimeReply`、`projectBackgroundInput`、`projectBackgroundOutput` | 按具体场景解析宏、分离 HTML、应用展示正则；卡片准备仍保留完整 raw，调用方不能绕过投影边界 |
 | Script Continuity | `start`、`transition`、`inspect` | 维护剧本游标、回合参考、提交与回退 |
 | Story Timeline | `apply`、`complete`、`inspect` | 统一正文、候选、回退、替代与结算，拒绝迟到结果 |
@@ -172,6 +173,7 @@ Web 端按产品能力划分为 Tavern Shell、Play Controls、Card Library、Wo
 9. 开场白选择是运行时投影的特殊预览边界：选择阶段使用隔离变量渲染并保留完整正文与 HTML；用户确认后才重新从原始开场白解析一次、提交变量，并将剧情正文写入 Agent、HTML 写入酒馆状态。纯展示页也是有效开场白，可以创建会话；没有正文时使用一个不可见空白字符维持原生开场消息结构，不把 HTML 送入 Agent。
 10. 后台任务不使用插件自定的小型统一输出上限。已知模型按官方最大输出能力运行；未知模型交由 DSH 适配器选择上限，且保留当前会话选择的推理等级。
 11. 外部预设属于实验能力。普通游玩只在前台正文请求中投影可识别提示词和受支持的正则，不改变 DSH 追加式历史，也不进入后台或卡片 Agent，因此不保证完整适配或破限效果；兼容模式则以尽最大可能复刻 SillyTavern 的消息结构与预设行为为目标。
+12. 人物卡固定信息和常驻世界书属于游戏 Session，必须在开场白之前以标准 DSH 消息记录，使轨迹、模型请求与磁盘恢复使用同一条历史。可切换预设仍仅做请求时投影。
 
 ## 源码地图
 

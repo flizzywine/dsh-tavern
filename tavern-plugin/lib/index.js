@@ -2792,13 +2792,11 @@ export async function apply(ctx) {
       workspaceContext: resourceWorkspaceContext,
       ensureSessionPrefix: async function (input) {
         const session = input.payload.agent.session
-        if (readSessionStablePrefix(session)) return
-        await ensureSessionStablePrefix(session, await ensurePlayCardSnapshot(input.chat), stablePrefixStorage)
+        const existing = readSessionStablePrefix(session)
+        if (existing) return existing
+        const fixed = await ensureSessionStablePrefix(session, await ensurePlayCardSnapshot(input.chat), stablePrefixStorage)
         await sessionStore.flush(session)
-      },
-      sessionPrefix: function (sessionId) {
-        const session = backgroundAgentRunner.requestSession(sessionId) || agentRegistry.get(sessionId)?.session || sessionStore.get(sessionId)
-        return readSessionStablePrefix(session)
+        return fixed
       },
       controlledToolNames
     }

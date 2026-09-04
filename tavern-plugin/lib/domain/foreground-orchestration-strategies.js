@@ -1,6 +1,5 @@
 import { createEphemeralCompatibilityRequest, isCompatibilityConversationRequest } from './compatibility-request.js'
 import { projectRuntimePresetRequest } from './runtime-preset-lifecycle.js'
-import { projectSessionStablePrefix } from './session-stable-prefix.js'
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
@@ -112,14 +111,21 @@ export function createNativePlayOrchestrationStrategy(options) {
     const payload = input.payload
     const mode = await options.modeFor(sessionId)
     const visibleMessages = options.filterMessages(input.decision.messages, mode)
-    const decision = visibleMessages === input.decision.messages ? input.decision : Object.assign({}, input.decision, { messages: visibleMessages })
-    let agentMessages = decision.messages
+    let agentMessages = visibleMessages
     const snapshot = mode === 'story' || mode === 'script' ? await options.resolvePreset(input.chat) : null
     if (mode === 'story' || mode === 'script') {
       if (Number(payload.step) === 1 && typeof options.synchronizeTail === 'function') {
         await options.synchronizeTail({ sessionId, chat: input.chat, payload })
       }
-      if (typeof options.ensureSessionPrefix === 'function') await options.ensureSessionPrefix(input)
+      if (typeof options.ensureSessionPrefix === 'function') {
+        const fixed = await options.ensureSessionPrefix(input)
+        if (fixed?.message && !agentMessages.some(message => message && message.id === fixed.message.id)) {
+          // A legacy external prefix is promoted during pre-step, after DSH
+          // already derived this decision. Mirror that newly logged tail node
+          // into this request; later requests derive it from Session normally.
+          agentMessages = agentMessages.concat([fixed.message])
+        }
+      }
       stagedRequests.set(sessionId, {
         turn: Math.max(0, Number(payload.turn) || 0),
         step: Math.max(1, Number(payload.step) || 1),
@@ -131,12 +137,12 @@ export function createNativePlayOrchestrationStrategy(options) {
       const prepared = await options.prepareTurn({ sessionId, turn: payload.turn, requestId: input.requestId, userText: userTextOf(payload.messages) })
       if (prepared && prepared.duplicate) throw new Error('该消息已由酒馆处理，请勿重复发送')
       if (mode === 'story' || mode === 'script') {
-        agentMessages = replaceTurnInput(decision.messages, prepared.frame.userInput.projectedText)
+        agentMessages = replaceTurnInput(agentMessages, prepared.frame.userInput.projectedText)
         const adapted = options.appendFrame({ messages: agentMessages, frame: prepared.frame, step: payload.step })
         agentMessages = adapted.messages
         options.recordFrame(sessionId, prepared.frame, adapted.receipt)
       } else if (str(prepared.text).trim() !== '') {
-        agentMessages = decision.messages.concat([snapshotMessage(prepared.text)])
+        agentMessages = agentMessages.concat([snapshotMessage(prepared.text)])
       }
     }
     return { kind: 'enter', messages: agentMessages }
@@ -151,7 +157,6 @@ export function createNativePlayOrchestrationStrategy(options) {
       turn: staged.turn,
       step: staged.step
     })
-    if (typeof options.sessionPrefix === 'function') request = projectSessionStablePrefix(request, options.sessionPrefix(sessionId))
     // DSH's renderer returns '' for no sections; adapters otherwise serialize
     // it as an empty system message. Preserve any explicit non-empty prompt.
     if (request.system === '') {
