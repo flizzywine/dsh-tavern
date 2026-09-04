@@ -88,6 +88,10 @@ Host 中管理酒馆脚本工作的排队、领取、执行租约、分段超时
 
 由 dsh-tavern 重新实现的 MVU 协议解析器和变量状态机。中文正式名称为“MVU 核心”；它读取模型原始输出、提取变量命令、计算楼层与 swipe 变量，并向酒馆脚本运行模块产生 MVU 生命周期事件。它不属于酒馆脚本运行模块。
 
+## MVU Settlement Effect
+
+酒馆脚本运行模块完成一次 MVU 结算后返回的、绑定 Background Operation 与 Story Timeline 版本的纯数据效果。它在浏览器执行阶段不写入 Chat；只有对应 Round 仍有效时，Background Task Coordinator 才把变量效果、Settlement Receipt、checkpoint 与新 revision 一次提交。中文正式名称为“MVU 结算效果”。
+
 ## Prompt Template Runtime
 
 由 dsh-tavern 重新实现的 ST Prompt Template/EJS 运行模块。中文正式名称为“提示词模板运行模块”；它在请求构造阶段处理模板、变量和提示词加工，不属于酒馆脚本运行模块。

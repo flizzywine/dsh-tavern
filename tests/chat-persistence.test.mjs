@@ -7,6 +7,7 @@ import { join } from 'node:path'
 import { createChatPersistence } from '../tavern-plugin/lib/domain/chat-persistence.js'
 import { createChatJournalStore } from '../tavern-plugin/lib/domain/chat-journal-store.js'
 import { createTavernScriptHostAdapter } from '../tavern-plugin/lib/domain/tavern-script-host-adapter.js'
+import { applyMvuSettlementEffect } from '../tavern-plugin/lib/domain/mvu-settlement-effect.js'
 
 function harness(initial) {
   let value = initial === undefined ? undefined : structuredClone(initial)
@@ -47,9 +48,12 @@ for (const mutations of [false, true]) test('真实 MVU 草稿结算与显示捕
       return { handled: true }
     } }
   })
-  const receipt = await adapter.settleMvuUpdate({ sessionId: 's', messageId: 0, swipeId: 0,
+  const receipt = await adapter.settleMvuUpdate({ operationId: 'persist-settlement-1', chatId: 'chat-1', sessionId: 's', messageId: 0, swipeId: 0,
     storyText: '正文', command: '<UpdateVariable><JSONPatch>[]</JSONPatch></UpdateVariable>' })
   assert.equal(receipt.updated, true)
+  const latest = await app.persistence.read('chat-1')
+  applyMvuSettlementEffect(latest, receipt.effect)
+  await app.persistence.write(latest, { source: 'settlement.commit' })
   assert.equal(app.stored().messages[0].variables[0].stat_data.hp, mutations ? 9 : 10)
   assert.equal(app.stored().messages[0].displayRuntime.frames[0].dom, 'new')
   assert.equal(app.stored().messages[0].text, '正文')

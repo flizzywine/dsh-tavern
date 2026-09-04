@@ -3,6 +3,7 @@ import test from 'node:test'
 
 import { createTavernScriptHostAdapter } from '../tavern-plugin/lib/domain/tavern-script-host-adapter.js'
 import { createTavernScriptDispatch } from '../tavern-plugin/lib/domain/tavern-script-dispatch.js'
+import { applyMvuSettlementEffect } from '../tavern-plugin/lib/domain/mvu-settlement-effect.js'
 
 function chat() {
   return {
@@ -84,6 +85,8 @@ test('后台 MVU 命令只在隔离草稿执行并原子提交，协议不进入
   adapter = createTavernScriptHostAdapter(adapterOptions)
 
   const result = await adapter.settleMvuUpdate({
+    operationId: 'atomic-settlement-1',
+    chatId: 'chat-1',
     sessionId: 'session-1', messageId: 0, swipeId: 0, expectedLifecycleRevision: 2,
     storyText: '旧正文',
     command: '<UpdateVariable><JSONPatch>[{"op":"replace","path":"/hp","value":7}]</JSONPatch></UpdateVariable>'
@@ -91,17 +94,65 @@ test('后台 MVU 命令只在隔离草稿执行并原子提交，协议不进入
 
   assert.equal(result.updated, true)
   assert.equal(result.mutations, 1)
-  assert.equal(writes.length, 1)
-  assert.equal(writes[0].metadata.source, 'tavern-helper.mvu-settlement')
+  assert.equal(writes.length, 0)
+  applyMvuSettlementEffect(value, result.effect)
   assert.equal(value.messages[0].text, '旧正文')
   assert.equal(value.messages[0].swipes[0], '旧正文')
   assert.doesNotMatch(JSON.stringify(value.messages[0]), /UpdateVariable/)
   assert.equal(value.messages[0].variables[0].stat_data.hp, 7)
 })
 
+test('MVU Runtime 只返回确定性 effect；重复应用不会重复 delta', async function () {
+  const value = chat()
+  value.mvu.owner = 'official'
+  let adapter
+  let dispatches = 0
+  const writes = []
+  adapter = createTavernScriptHostAdapter({
+    resolveChat: async function () { return value },
+    writeChat: async function (draft, metadata) {
+      writes.push({ draft: structuredClone(draft), metadata })
+      Object.assign(value, structuredClone(draft))
+    },
+    readCard: async function () { return { name: '测试卡' } },
+    worldBooks: { bound: async function () { return null } },
+    scriptDispatch: {
+      status: function () { return { present: true, ready: true, busy: false } },
+      async dispatch() {
+        dispatches++
+        const current = value.messages[0].variables[0].stat_data?.hp ?? value.messages[0].variables[0].hp
+        await adapter.updateMessages('session-1', [{
+          message_id: 0,
+          data: { hp: current - 1, schema: { type: 'object' }, stat_data: { hp: current - 1 } }
+        }], 2)
+        return { handled: true }
+      },
+      poll: function () {}, complete: function () {}, dispose: function () {}
+    },
+    isPlayChat: function (candidate) { return candidate.mode === 'story' }
+  })
+
+  const input = {
+    operationId: 'settlement-operation-1',
+    chatId: 'chat-1',
+    sessionId: 'session-1', messageId: 0, swipeId: 0, expectedLifecycleRevision: 2,
+    storyText: '旧正文', command: '<UpdateVariable></UpdateVariable>'
+  }
+  const first = await adapter.settleMvuUpdate(input)
+
+  assert.equal(first.updated, true)
+  assert.equal(dispatches, 1)
+  assert.equal(writes.length, 0)
+  assert.deepEqual(value.messages[0].variables[0], { hp: 10 })
+  applyMvuSettlementEffect(value, first.effect)
+  applyMvuSettlementEffect(value, first.effect)
+  assert.equal(value.messages[0].variables[0].stat_data.hp, 9)
+})
+
 test('后台 MVU 结算遇到过期生命周期时不触发脚本和写入', async function () {
   const run = harness()
   const result = await run.adapter.settleMvuUpdate({
+    operationId: 'stale-settlement-1',
     sessionId: 'session-1', messageId: 0, swipeId: 0, expectedLifecycleRevision: 1,
     storyText: '旧正文', command: '<UpdateVariable></UpdateVariable>'
   })
@@ -120,6 +171,7 @@ test('浏览器执行器暂时缺席时立即挂起，不等待也不写入', as
   })
   const startedAt = Date.now()
   const result = await run.adapter.settleMvuUpdate({
+    operationId: 'deferred-settlement-1',
     sessionId: 'session-1', messageId: 0, swipeId: 0, expectedLifecycleRevision: 2,
     storyText: '旧正文', command: '<UpdateVariable></UpdateVariable>'
   })
@@ -148,6 +200,7 @@ test('后台 MVU 脚本链失败时丢弃整份事务草稿', async function () 
 
   await assert.rejects(function () {
     return adapter.settleMvuUpdate({
+      operationId: 'failed-settlement-1',
       sessionId: 'session-1', messageId: 0, swipeId: 0, expectedLifecycleRevision: 2,
       storyText: '旧正文', command: '<UpdateVariable></UpdateVariable>'
     })
@@ -176,13 +229,17 @@ test('明确脚本错误可修正重试，但已写世界书时不得自动重�
         return { handled: false, error: 'hp: expected number', diagnostics: [{ level: 'error', message: 'schema rejected' }] }
       } }
     })
-    const result = await adapter.settleMvuUpdate({ sessionId: 'session-1', messageId: 0, swipeId: 0, expectedLifecycleRevision: 2, command: '<UpdateVariable/>' })
-    assert.equal(result.rejected, true)
-    assert.equal(result.retryable, !external)
-    assert.equal(result.retryAfterMs, 3100)
-    assert.equal(result.validation.failures[0].message, 'hp: expected number')
+    const settlement = adapter.settleMvuUpdate({ operationId: 'external-settlement-' + String(external), sessionId: 'session-1', messageId: 0, swipeId: 0, expectedLifecycleRevision: 2, command: '<UpdateVariable/>' })
+    if (external) await assert.rejects(settlement, /结算事务不能修改.*世界书/)
+    else {
+      const result = await settlement
+      assert.equal(result.rejected, true)
+      assert.equal(result.retryable, true)
+      assert.equal(result.retryAfterMs, 3100)
+      assert.equal(result.validation.failures[0].message, 'hp: expected number')
+    }
     assert.equal(writes, 0)
-    assert.equal(worldbookWrites, external ? 1 : 0)
+    assert.equal(worldbookWrites, 0)
     assert.deepEqual(value.messages[0].variables[0], { hp: 10 })
   }
 })
@@ -198,7 +255,7 @@ test('脚本执行期间目标生命周期变化时，草稿不得覆盖新目�
       return { handled: true }
     } }
   })
-  const result = await adapter.settleMvuUpdate({ sessionId: 'session-1', messageId: 0, swipeId: 0, expectedLifecycleRevision: 2, command: '<UpdateVariable/>' })
+  const result = await adapter.settleMvuUpdate({ operationId: 'lifecycle-settlement-1', sessionId: 'session-1', messageId: 0, swipeId: 0, expectedLifecycleRevision: 2, command: '<UpdateVariable/>' })
   assert.equal(result.stale, true)
   assert.equal(writes, 0)
   assert.deepEqual(value.messages[0].variables[0], { hp: 10 })
@@ -291,6 +348,7 @@ test('服务重启后结算立即挂起，由上层在浏览器重新登记后�
   const gate = createTavernScriptDispatch({ timeoutMs: 500, readyTimeoutMs: 200 })
   const run = harness(value, { scriptDispatch: gate })
   const result = await run.adapter.settleMvuUpdate({
+    operationId: 'restart-settlement-1',
     sessionId: 'session-1', messageId: 0, swipeId: 0, expectedLifecycleRevision: 2,
     storyText: '旧正文', command: '<UpdateVariable></UpdateVariable>'
   })
@@ -302,7 +360,7 @@ test('MVU 执行回执超时释放事务，不写入草稿并明确提示重试'
   const gate = createTavernScriptDispatch({ timeoutMs: 100 })
   gate.touch('session-1', 'browser', true)
   const run = harness(chat(), { scriptDispatch: gate })
-  const input = { sessionId: 'session-1', messageId: 0, swipeId: 0, expectedLifecycleRevision: 2,
+  const input = { operationId: 'timeout-settlement-1', sessionId: 'session-1', messageId: 0, swipeId: 0, expectedLifecycleRevision: 2,
     storyText: '旧正文', command: '<UpdateVariable></UpdateVariable>' }
   const rejected = assert.rejects(run.adapter.settleMvuUpdate(input), /回执超时.*重试/)
   await new Promise(resolve => setImmediate(resolve))

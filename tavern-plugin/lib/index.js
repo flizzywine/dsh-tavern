@@ -35,6 +35,7 @@ import { HISTORY_RECALL_OUTPUT_SCHEMA, HISTORY_RECALL_TOOL, createHistoryRecall,
 import { dshParameterFields } from './domain/dsh-tool-schema.js'
 import { createModelRequestLog } from './domain/model-request-log.js'
 import { MVU_SUBMIT_UPDATE_TOOL, createMvuSettlementModule } from './domain/mvu-background-settlement.js'
+import { applyMvuSettlementEffect } from './domain/mvu-settlement-effect.js'
 import { CHARACTER_DESIGN_READ_TOOL, CHARACTER_DESIGN_SAVE_TOOL } from './domain/character-design-document.js'
 import { POSTURE_SUBMIT_TOOL, POSTURE_SUBMIT_TOOL_NAME, normalizePostureSubmission } from './domain/posture-submission.js'
 import { TAVERN_COMPATIBILITY_CAPABILITIES, createTavernCompatibilityDiagnosticStore } from './domain/tavern-compatibility-diagnostics.js'
@@ -1647,6 +1648,7 @@ export async function apply(ctx) {
             Boolean(mvuResult && mvuResult.characterDesignChanged) || str(result && result.posture).trim() !== '',
           participant: taskRun.participant({ sessionId: backgroundSessionId, boundary: backgroundBoundary }),
           apply(draft) {
+            if (mvuResult && mvuResult.effect) applyMvuSettlementEffect(draft, mvuResult.effect)
             stat = applySettlement(draft, result)
             if (mvuResult !== null) {
               if (mvuResult.characterDesignChanged) {

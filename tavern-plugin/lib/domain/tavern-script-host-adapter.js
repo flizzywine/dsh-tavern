@@ -10,6 +10,7 @@ import {
   projectTavernHelperWorldbook,
   replaceTavernHelperWorldbookOperations
 } from './tavern-helper-worldbook.js'
+import { createMvuSettlementEffect } from './mvu-settlement-effect.js'
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
@@ -88,7 +89,7 @@ export function createTavernScriptHostAdapter(options = {}) {
     if (option && option.type === 'global') {
       if (!options.globalVariables || typeof options.globalVariables.save !== 'function') throw new Error('全局变量存储未连接')
       const transaction = settlementTransactions.get(str(sessionId))
-      if (transaction) transaction.externalEffects = true
+      if (transaction) throw new Error('MVU 结算事务不能修改跨对话的全局变量')
       const saved = await options.globalVariables.save(variables && typeof variables === 'object' && !Array.isArray(variables) ? variables : {})
       return { updated: true, target: { type: 'global' }, globalVariables: structuredClone(saved) }
     }
@@ -176,9 +177,8 @@ export function createTavernScriptHostAdapter(options = {}) {
         throw new Error('世界书已被其他操作修改，请重新读取后重试')
       }
       const operations = replaceTavernHelperWorldbookOperations(resolved.record.view, entries)
-      // Worldbook writes are outside the chat draft; never automatically replay them.
       const transaction = settlementTransactions.get(str(sessionId))
-      if (transaction && operations.length > 0) transaction.externalEffects = true
+      if (transaction && operations.length > 0) throw new Error('MVU 结算事务不能修改跨存储的世界书')
       const updated = operations.length === 0
         ? resolved.record
         : await options.worldBooks.update(resolved.record.source, { operations })
@@ -204,7 +204,7 @@ export function createTavernScriptHostAdapter(options = {}) {
       const current = (await options.worldBooks.export(resolved.record.source)).document
       if (!isDeepStrictEqual(current, expectedWorldInfo)) throw new Error('世界书已被其他操作修改，请重新读取后重试')
       const transaction = settlementTransactions.get(str(sessionId))
-      if (transaction) transaction.externalEffects = true
+      if (transaction) throw new Error('MVU 结算事务不能修改跨存储的世界书')
       const updated = await options.worldBooks.replaceNative(resolved.record.source, worldInfo)
       return { updated: true, worldbook: projectTavernHelperWorldbook(updated.view), worldInfo: (await options.worldBooks.export(resolved.record.source)).document }
     })
@@ -268,6 +268,8 @@ export function createTavernScriptHostAdapter(options = {}) {
     if (settlementTransactions.has(sessionId)) throw new Error('当前对话已有 MVU 变量结算正在执行')
     const current = await resolveChat(sessionId)
     assertMvuEnabled(current)
+    const operationId = str(input.operationId).trim()
+    if (operationId === '') throw new Error('MVU 变量结算缺少 operationId')
     const expectedLifecycleRevision = Math.max(0, Number(input.expectedLifecycleRevision) || 0)
     if (!mutationIsCurrent(current, expectedLifecycleRevision)) return { updated: false, stale: true, context: projectTavernHelperContext(current) }
     const messageId = Number(input.messageId)
@@ -359,9 +361,13 @@ export function createTavernScriptHostAdapter(options = {}) {
       const latest = await resolveChat(sessionId)
       if (!mutationIsCurrent(latest, expectedLifecycleRevision)
         || Number(latest.messages[messageId]?.swipeId || 0) !== swipeId) return staleMutation(latest)
-      transaction.draft.updatedAt = Date.now()
-      await options.writeChat(transaction.draft, { source: 'tavern-helper.mvu-settlement' })
-      await record('persisted', { mutations: transaction.mutations })
+      const effect = createMvuSettlementEffect({
+        operationId, chatId: current.id, sessionId,
+        branchId: input.branchId, basedOnRevision: input.basedOnRevision,
+        expectedLifecycleRevision, messageId, swipeId,
+        before: current, after: transaction.draft
+      })
+      await record('prepared', { mutations: transaction.mutations })
       return {
         updated: true,
         validation,
@@ -369,6 +375,7 @@ export function createTavernScriptHostAdapter(options = {}) {
         mutations: transaction.mutations,
         messageId,
         swipeId,
+        effect,
         context: projectTavernHelperContext(transaction.draft)
       }
     } catch (error) {

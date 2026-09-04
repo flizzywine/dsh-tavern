@@ -5,6 +5,7 @@ import vm from 'node:vm'
 import { createStoryTimeline } from '../tavern-plugin/lib/domain/story-timeline.js'
 import { createBackgroundTaskCoordinator } from '../tavern-plugin/lib/domain/background-task-coordinator.js'
 import { createRoundHistory } from '../tavern-plugin/lib/domain/round-history.js'
+import { applyMvuSettlementEffect, createMvuSettlementEffect } from '../tavern-plugin/lib/domain/mvu-settlement-effect.js'
 
 const server = await readFile(new URL('../tavern-plugin/lib/index.js', import.meta.url), 'utf8')
 function section(start, end) {
@@ -14,7 +15,7 @@ function section(start, end) {
   return server.slice(from, to)
 }
 
-async function harness() {
+async function harness({ beginRunning = true } = {}) {
   let current = { id: 'chat', sessionId: 'session', mode: 'story', messages: [], mvu: { enabled: true, owner: 'official' } }
   let sequence = 0
   const timeline = createStoryTimeline({ id: prefix => prefix + ++sequence, now: () => 1000 + sequence })
@@ -31,7 +32,7 @@ async function harness() {
         { role: 'assistant', text: '门开了', turn: 2, variables: [{ stat_data: { hp: 10 } }], mvu: { pending: true } })
     }
   }).chat
-  const running = await tasks.begin(current, 'settlement')
+  const running = beginRunning ? await tasks.begin(current, 'settlement') : null
   const sandbox = vm.createContext({
     structuredClone, Date, console: { log() {}, error() {} },
     str: value => value == null ? '' : String(value),
@@ -41,7 +42,7 @@ async function harness() {
     view: async chat => chat, settlementTurn: () => 2,
     projectAgentMessageText: message => message.text, mvuUpdateRules: async () => [],
     backgroundModelSelection: () => ({}), runtimePrompt: () => '',
-    applySettlement: () => ({ postureUpdated: false }),
+    applySettlement: () => ({ postureUpdated: false }), applyMvuSettlementEffect,
     mvuSettlement: { settleVariables: async () => ({ receipt: { version: 1, status: 'unchanged', changes: [] } }) }
   })
   vm.runInContext(section('  function mvuReceiptsOf(', '  function withLegacyPresentationProjection('), sandbox)
@@ -80,6 +81,38 @@ test('重启丢失 MVU 回执：显示中断、保留正文变量、可从真实
   assert.equal(run.get().messages[1].text, before.messages[1].text)
   assert.deepEqual(run.get().messages[1].variables, before.messages[1].variables)
   await assert.rejects(run.history.regenerate('chat', '', 'session'), /无法访问 DSH 会话/, '结算完成后已通过保护，继续访问原生会话')
+})
+
+test('变量 effect、receipt、checkpoint 与 Round revision 在一次 commit 中落盘', async () => {
+  const run = await harness({ beginRunning: false })
+  let updates = 0
+  const originalUpdate = run.store.updateChat
+  run.store.updateChat = async function (...args) { updates++; return await originalUpdate(...args) }
+  run.sandbox.mvuSettlement.settleVariables = async input => {
+    const before = run.get()
+    const after = structuredClone(before)
+    after.messages[1].variables[0].stat_data.hp = 9
+    return {
+      effect: createMvuSettlementEffect({
+        operationId: input.operationId,
+        chatId: before.id, sessionId: before.sessionId,
+        branchId: input.branchId, basedOnRevision: input.basedOnRevision,
+        expectedLifecycleRevision: 0, messageId: 1, swipeId: 0,
+        before, after
+      }),
+      receipt: { version: 1, status: 'updated', changes: [{ path: '/hp', before: 10, after: 9 }] }
+    }
+  }
+
+  await run.sandbox.queueSettlement('chat')
+
+  const saved = run.get()
+  assert.equal(updates, 1)
+  assert.equal(saved.messages[1].variables[0].stat_data.hp, 9)
+  assert.equal(saved.messages[1].mvu.receipt.status, 'updated')
+  assert.equal(saved.timeline.operations[run.body.value.operationId].status, 'completed')
+  assert.equal(saved.timeline.revision, 1)
+  assert.equal(saved.timeline.checkpoints.length, 1)
 })
 
 test('旧版已恢复成 pending 但没有待执行提交的存档也能恢复，重复恢复幂等', async () => {

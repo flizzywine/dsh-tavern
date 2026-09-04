@@ -209,6 +209,33 @@ test('同一 operation 协议可扩展到状态结算，迟到结算不能覆盖
   assert.equal(late.chat.posture, '门边站立')
 })
 
+test('关联 Round 已失效时先拒绝结算，再执行 apply', () => {
+  const { timeline, chat } = harness()
+  const body = timeline.apply({ chat, intent: { kind: 'body.begin', turn: 1, userText: '推门' } })
+  const foreground = timeline.complete({
+    chat: body.chat,
+    operationId: body.value.operationId,
+    basedOn: body.value.basedOn,
+    outcome: { status: 'success' },
+    apply(draft) { draft.messages.push({ role: 'user', text: '推门' }, { role: 'assistant', text: '门开了。' }) }
+  })
+  const settlement = timeline.apply({ chat: foreground.chat, intent: { kind: 'agent.begin', role: 'settlement' } })
+  settlement.chat.timeline.operations[body.value.operationId].status = 'cancelled'
+  let applied = false
+
+  const completed = timeline.complete({
+    chat: settlement.chat,
+    operationId: settlement.value.operationId,
+    basedOn: settlement.value.basedOn,
+    outcome: { status: 'success' },
+    apply(draft) { applied = true; draft.posture = '不应写入' }
+  })
+
+  assert.equal(completed.value.status, 'stale')
+  assert.equal(applied, false)
+  assert.equal(completed.chat.posture, '门边站立')
+})
+
 test('世界书不创建 Agent operation，候选与状态结算共用后台 participant', () => {
   const { timeline, chat } = harness()
   let current = beginAndCommitBody(timeline, chat, 1, '推门', '门开了。')

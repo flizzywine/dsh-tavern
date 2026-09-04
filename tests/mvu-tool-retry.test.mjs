@@ -3,6 +3,7 @@ import test from 'node:test'
 import { createMvuSettlementModule } from '../tavern-plugin/lib/domain/mvu-background-settlement.js'
 import { createTavernScriptHostAdapter } from '../tavern-plugin/lib/domain/tavern-script-host-adapter.js'
 import { createTavernScriptDispatch } from '../tavern-plugin/lib/domain/tavern-script-dispatch.js'
+import { applyMvuSettlementEffect } from '../tavern-plugin/lib/domain/mvu-settlement-effect.js'
 
 const input = { operationId: 'op', chatId: 'c', branchId: 'b', basedOnRevision: 1,
   sessionId: 's', messageId: 0, swipeId: 0, storyText: '测试正文',
@@ -75,7 +76,7 @@ test('工具等待真实校验，失败回传错误后修正重试；整批回�
     assert.equal(h.writes.length, 0)
     const second = JSON.parse(await request.onToolCall(call(patch)))
     assert.equal(second.ok, true)
-    assert.equal(h.writes.length, 1)
+    assert.equal(h.writes.length, 0)
     // A duplicate call after success must not execute the delta again.
     assert.equal(JSON.parse(await request.onToolCall(call(patch))).ok, true)
     completed = true
@@ -85,8 +86,10 @@ test('工具等待真实校验，失败回传错误后修正重试；整批回�
   assert.equal(result.receipt.status, 'updated')
   assert.equal(completed, true)
   assert.deepEqual(h.bases, [10, 10])
+  assert.deepEqual(h.chat.messages[0].variables[0], input.currentVariables)
+  applyMvuSettlementEffect(h.chat, result.effect)
   assert.equal(h.chat.messages[0].variables[0].stat_data.hp, 9)
-  assert.equal(h.writes.length, 1)
+  assert.equal(h.writes.length, 0)
 })
 
 test('连续失败最多三次，保留原变量和最后错误', async () => {

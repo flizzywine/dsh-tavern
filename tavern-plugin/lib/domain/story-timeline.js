@@ -493,18 +493,22 @@ export function createStoryTimeline(options = {}) {
       }
       return { chat, value: { status: 'failed', branchId: chat.timeline.branchId, revision: chat.timeline.revision } }
     }
+    let settlementRound = null
+    if (operation.kind === 'agent' && operation.role === 'settlement' && str(operation.roundOperationId) !== '') {
+      settlementRound = chat.timeline.operations[operation.roundOperationId]
+      if (!settlementRound || settlementRound.kind !== 'body' || settlementRound.status !== 'foreground-completed'
+        || !sameBasedOn(settlementRound.basedOn, operation.basedOn)) {
+        operation.status = 'stale'
+        return { chat, value: { status: 'stale', branchId: chat.timeline.branchId, revision: chat.timeline.revision } }
+      }
+    }
     if (typeof input.apply === 'function') input.apply(chat)
     if (operation.kind === 'body') {
       operation.status = 'foreground-completed'
       operation.foregroundCompletedAt = now()
       operation.background = { phase: 'pending', role: 'settlement', updatedAt: now() }
-    } else if (operation.kind === 'agent' && operation.role === 'settlement' && str(operation.roundOperationId) !== '') {
-      const round = chat.timeline.operations[operation.roundOperationId]
-      if (!round || round.kind !== 'body' || round.status !== 'foreground-completed' || !sameBasedOn(round.basedOn, operation.basedOn)) {
-        operation.status = 'stale'
-        return { chat, value: { status: 'stale', branchId: chat.timeline.branchId, revision: chat.timeline.revision } }
-      }
-      finalizeRound(chat, round)
+    } else if (settlementRound !== null) {
+      finalizeRound(chat, settlementRound)
     } else if (outcome.stateChanged === true) {
       chat.timeline.revision++
     }

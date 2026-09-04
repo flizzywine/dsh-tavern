@@ -354,6 +354,8 @@ export function createMvuSettlementModule(options = {}) {
 
   async function applySubmission(input, frame, submission, diagnosticId) {
     const applied = await options.runtime.settleMvuUpdate({
+      operationId: input.operationId,
+      chatId: input.chatId, branchId: input.branchId, basedOnRevision: input.basedOnRevision,
       sessionId: input.sessionId, messageId: input.messageId, swipeId: input.swipeId,
       expectedLifecycleRevision: input.expectedLifecycleRevision, diagnosticId,
       storyText: frame.foregroundOutput.storyText,
@@ -370,7 +372,7 @@ export function createMvuSettlementModule(options = {}) {
     const status = audit.failures.length > 0
       ? (changes.length > 0 ? 'partial' : 'error')
       : (changes.length > 0 ? 'updated' : 'unchanged')
-    return { applied, after, audit, rolledBack, changes, sideEffects, status }
+    return { applied, after, audit, rolledBack, changes, sideEffects, status, effect: applied.effect }
   }
 
   async function resumeVariables(input = {}) {
@@ -386,7 +388,7 @@ export function createMvuSettlementModule(options = {}) {
       return { frame, submission, receipt: { version: 1, status: 'stale', summary: '变量结算目标已经变化，迟到结果未写入。', diagnosticId, changes: [], sideEffects: [], failures: [] } }
     }
     return {
-      frame, submission, variables: outcome.after,
+      frame, submission, variables: outcome.after, effect: outcome.effect,
       receipt: { version: 1, status: outcome.status, summary: '', diagnosticId,
         runtimeDiagnostics: outcome.applied.diagnostics || [], changes: outcome.changes,
         sideEffects: outcome.sideEffects, failures: outcome.audit.failures }
@@ -482,7 +484,7 @@ export function createMvuSettlementModule(options = {}) {
       const sideEffects = applied.sideEffects
       const status = applied.status
       result = {
-        variables: after, submission,
+        variables: after, submission, effect: applied.effect,
         receipt: { version: 1, status, summary: '', diagnosticId,
           runtimeDiagnostics: applied.applied.diagnostics || [], changes, sideEffects, failures: audit.failures }
       }
