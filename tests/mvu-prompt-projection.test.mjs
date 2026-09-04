@@ -53,6 +53,17 @@ test('没有人物库字段时仍然提示 Agent 按需设计人物', () => {
   assert.match(request.turnContext, /tavern-character-design/)
 })
 
+test('MVU 结算把取消信号传给后台 Agent', async () => {
+  const controller = new AbortController()
+  let received
+  const module = createMvuSettlementModule({
+    model: { async run(request) { received = request.signal; throw new Error('fixture stopped') } },
+    runtime: { async settleMvuUpdate() { throw new Error('unexpected runtime call') } }
+  })
+  await assert.rejects(module.settleVariables({ ...input, signal: controller.signal }), /fixture stopped/)
+  assert.equal(received, controller.signal)
+})
+
 test('不按字段名误删扁平变量，不删除 stat_data 内同名游戏字段，显式结构优先', () => {
   const flat = { hp: 10, display_data: '游戏字段', delta_data: 4, schema: '剧情用词' }
   const override = { type: 'object', properties: { other: { type: 'boolean' } } }

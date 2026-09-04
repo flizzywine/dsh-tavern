@@ -7,7 +7,7 @@ const source = await readFile(new URL('../tavern-plugin/lib/client.js', import.m
 const component = source.slice(source.indexOf('function CandidateAction('), source.indexOf('function CandidateDockActions('))
 
 function harness() {
-  let running = true, background = false, regen = null, fail = false, warning = '', canRollback = true
+  let running = true, activity = { phase: 'idle', busy: false, role: '' }, regen = null, fail = false, warning = '', canRollback = true
   const states = [], calls = []
   let cursor = 0
   const context = {
@@ -23,7 +23,7 @@ function harness() {
     useCandidatePanel: () => null, useRegenPanel: () => regen,
     useTavernSessionMode: () => 'story', latestTavernAssistantMessageId: () => 'reply',
     useLiveTavernView: () => ({ view: { canRollback } }),
-    useTavernCoordination: () => ({ view: { activity: { busy: background } } }),
+    useTavernCoordination: () => ({ view: { activity } }),
     describeTavernActivity: value => value, isPlayMode: () => true,
     window: { confirm: () => { calls.push('confirm'); return true } },
     rpc: async () => { calls.push('rpc'); if (fail) throw new Error('本次回复未完成'); return { view: { rollbackWarning: warning } } },
@@ -39,7 +39,9 @@ function harness() {
   return {
     calls,
     playerRound(value) { canRollback = value },
-    running(value) { running = value }, background(value) { background = value },
+    running(value) { running = value },
+    background(value) { activity = value ? { phase: 'running', busy: true, role: 'settlement' } : { phase: 'idle', busy: false, role: '' } },
+    activity(value) { activity = value },
     regen(value) { regen = value ? { sessionId: 'session', phase: 'loading' } : null },
     fail(value) { fail = value }, warning(value) { warning = value },
     buttons() {
@@ -102,6 +104,22 @@ test('实际回退组件在前台、后台和重生成期间禁用，完成后�
   await h.button().props.onClick()
   assert.ok(h.calls.includes('project'))
   assert.equal(h.button().props.disabled, false)
+})
+
+test('待接续或运行中的结算只允许重新生成取消旧结算，其他轮次操作保持禁用', async () => {
+  const h = harness()
+  h.running(false)
+  for (const phase of ['pending', 'running']) {
+    h.activity({ phase, busy: phase === 'running', role: 'settlement' })
+    const [candidate, regenerate] = h.buttons()
+    assert.equal(candidate.props.disabled, true)
+    assert.equal(candidate.children[0], '后台结算中…')
+    assert.equal(regenerate.props.disabled, false)
+    assert.match(regenerate.props.title, /取消当前正文的后台结算/)
+    assert.equal(h.button().props.disabled, true, '回退不能绕过结算取消协议')
+  }
+  h.activity({ phase: 'running', busy: true, role: 'candidate' })
+  assert.equal(h.buttons()[1].props.disabled, true, '候选任务不能被正文重生成误取消')
 })
 
 test('实际回退组件在请求被拒后解除忙碌并刷新，下一次点击重新提交', async () => {

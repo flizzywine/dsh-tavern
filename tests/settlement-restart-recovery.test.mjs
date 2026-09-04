@@ -35,7 +35,7 @@ async function harness({ beginRunning = true } = {}) {
   }).chat
   const running = beginRunning ? await tasks.begin(current, 'settlement') : null
   const sandbox = vm.createContext({
-    structuredClone, Date, console: { log() {}, error() {} },
+    structuredClone, Date, AbortController, console: { log() {}, error() {} },
     str: value => value == null ? '' : String(value),
     backgroundTasks: tasks, storyTimeline: timeline, settlementJobs: new Map(),
     readChat: store.readChat, chatForSession: store.readChat, writeChat: store.writeChat,
@@ -68,7 +68,8 @@ test('重启丢失 MVU 回执：显示中断、保留正文变量、可从真实
   assert.deepEqual(recovered.messages, before.messages)
   assert.equal(recovered.timeline.revision, before.timeline.revision)
   assert.equal(run.sandbox.mvuReceiptsOf(recovered)[0].receipt.status, 'interrupted')
-  await assert.rejects(run.history.regenerate('chat', '', 'session'), /尚未完成状态结算/)
+  await assert.rejects(run.history.regenerate('chat', '', 'session'), /无法访问 DSH 会话/,
+    '中断的旧结算不再阻止重生成，继续访问原生会话')
   let calls = 0
   run.sandbox.mvuSettlement.settleVariables = async () => {
     calls++

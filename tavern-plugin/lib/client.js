@@ -7310,6 +7310,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const rollbackViewState = useLiveTavernView(props.sessionId, String(frontRunning) + ":" + String(latestMessageId || ""));
 			const activityState = useTavernCoordination(props.sessionId, String(frontRunning) + ":" + String(latestMessageId || ""));
 			const activity = describeTavernActivity(activityState.view && activityState.view.activity);
+			const settlementActive = activity.role === "settlement" && (activity.phase === "pending" || activity.phase === "running");
 			const canRollback = rollbackViewState.view && rollbackViewState.view.canRollback === true;
 			const candidateTask = activityState.view && activityState.view.task;
 			const taskForMessage = candidateTask && candidateTask.kind === "candidate" && candidateTask.input && String(candidateTask.input.messageId || "") === String(props.messageId || "") ? candidateTask : null;
@@ -7357,7 +7358,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				return { sessionId: props.sessionId, phase: phase, guidance: "", text: "", error: "", tail: tail };
 			}
 			function openRegeneration(event) {
-				if (!canRollback || frontRunning || activity.busy || regenBusy) return;
+				if (!canRollback || frontRunning || (activity.busy && !settlementActive) || regenBusy) return;
 				setCandidatePanel(null);
 				setRegenPanel(regenerationPanelFor(event, "input"));
 			}
@@ -7367,7 +7368,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const hasLoadingPanel = candidatePanelState !== null && candidatePanelState.sessionId === props.sessionId && candidatePanelState.messageId === props.messageId && candidatePanelState.phase === "loading";
 			if (!isPlayMode(sessionMode) || latestMessageId !== props.messageId) return null;
 			return h(React.Fragment, null,
-				h("button", { className: "dsh-tavern-choice-trigger", disabled: busy || taskBusy || activity.busy || regenBusy, title: activity.busy ? activity.blockReason : (hasReadyPanel ? "重新生成候选项（可先填写意见）" : (isScript ? "手动生成候选项；由于跟随剧本，只有一个推荐候选项" : "手动生成候选项")), onClick: function () {
+				h("button", { className: "dsh-tavern-choice-trigger", disabled: busy || taskBusy || activity.busy || settlementActive || regenBusy, title: settlementActive ? "当前正文正在后台结算，请等待完成" : (activity.busy ? activity.blockReason : (hasReadyPanel ? "重新生成候选项（可先填写意见）" : (isScript ? "手动生成候选项；由于跟随剧本，只有一个推荐候选项" : "手动生成候选项"))), onClick: function () {
 					setRegenPanel(null);
 					if (hasReadyPanel) {
 						const previous = candidatePanelState;
@@ -7376,8 +7377,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					} else {
 						generate(false);
 					}
-				} }, activity.busy ? activity.label : ((busy || taskBusy) ? "生成中…" : (hasReadyPanel ? "重新生成候选项" : "生成候选项"))),
-				canRollback ? h("button", { className: "dsh-tavern-choice-trigger", disabled: frontRunning || activity.busy || regenBusy, title: activity.busy ? activity.blockReason : "可选择填写意见，再重新生成并替换当前正文", onClick: openRegeneration }, regenBusy ? "重生成中…" : "重新生成正文") : null
+				} }, settlementActive ? "后台结算中…" : (activity.busy ? activity.label : ((busy || taskBusy) ? "生成中…" : (hasReadyPanel ? "重新生成候选项" : "生成候选项")))),
+				canRollback ? h("button", { className: "dsh-tavern-choice-trigger", disabled: frontRunning || (activity.busy && !settlementActive) || regenBusy, title: settlementActive ? "重新生成将取消当前正文的后台结算" : (activity.busy ? activity.blockReason : "可选择填写意见，再重新生成并替换当前正文"), onClick: openRegeneration }, regenBusy ? "重生成中…" : "重新生成正文") : null
 			);
 		}
 
@@ -7389,9 +7390,10 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			const rollbackViewState = useLiveTavernView(props.sessionId, "rollback:" + String(frontRunning) + ":" + String(latestMessageId || ""));
 			const activityState = useTavernCoordination(props.sessionId, "rollback:" + String(frontRunning) + ":" + String(latestMessageId || ""));
 			const activity = describeTavernActivity(activityState.view && activityState.view.activity);
+			const settlementActive = activity.role === "settlement" && (activity.phase === "pending" || activity.phase === "running");
 			const canRollback = rollbackViewState.view && rollbackViewState.view.canRollback === true;
 			const regenBusy = regenPanelState !== null && regenPanelState.sessionId === props.sessionId && regenPanelState.phase === "loading";
-			const blocked = rolling || frontRunning || regenBusy || activity.busy;
+			const blocked = rolling || frontRunning || regenBusy || activity.busy || settlementActive;
 			async function rollback() {
 				if (!canRollback || blocked) return;
 				if (!window.confirm("回退本轮？\n将删除你最近一次输入和这段 LLM 输出，并同步回退故事状态与剧本游标。")) return;

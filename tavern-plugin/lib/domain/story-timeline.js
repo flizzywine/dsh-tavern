@@ -374,7 +374,7 @@ export function createStoryTimeline(options = {}) {
     const currentParticipants = object(chat.timeline.participants)
     const operations = chat.timeline.operations
     for (const operation of Object.values(operations)) {
-      if (operation.status === 'running') operation.status = 'cancelled'
+      if (operation.status === 'running' || (operation.kind === 'body' && operation.status === 'foreground-completed')) operation.status = 'cancelled'
     }
     let restoredState
     if (checkpoint.before !== undefined) {
@@ -456,7 +456,7 @@ export function createStoryTimeline(options = {}) {
       chat.timeline.revision = Math.max(currentRevision, chat.timeline.revision) + 1
       chat.timeline.participants = participants
       for (const operation of Object.values(chat.timeline.operations)) {
-        if (operation.status === 'running') operation.status = 'cancelled'
+        if (operation.status === 'running' || (operation.kind === 'body' && operation.status === 'foreground-completed')) operation.status = 'cancelled'
       }
       chat.candidateAgent = null
       value = { status: 'restored', branchId, revision: chat.timeline.revision }

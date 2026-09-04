@@ -1540,8 +1540,9 @@ export async function apply(ctx) {
     await writeChat(latest, { source: 'worldbook.projection' })
     return latest
   }
-  async function runSettlement(chatId) {
+  async function runSettlement(chatId, signal) {
     while (true) {
+      signal?.throwIfAborted()
       let snapshot = await readChat(chatId)
       if (snapshot === undefined) return
       snapshot = await prepareNextWorldBookContext(snapshot)
@@ -1586,7 +1587,8 @@ export async function apply(ctx) {
               ...settlementInput,
               system: runtimePrompt('posture-settlement'),
               selection,
-              persistentSessionId: backgroundSessionId
+              persistentSessionId: backgroundSessionId,
+              signal
             })
           }
           text = str(mvuResult.text) || JSON.stringify({ posture: mvuResult.posture })
@@ -1622,6 +1624,7 @@ export async function apply(ctx) {
             temperature: 0.2,
             sessionId: snapshot.sessionId,
             webSearchEnabled: snapshot.webSearchEnabled === true,
+            signal,
             stopToolsWhen: function () { return submittedPosture !== null },
             acceptWithoutText: function () { return submittedPosture !== null },
             async onToolCall(call) {
@@ -1642,6 +1645,7 @@ export async function apply(ctx) {
           backgroundSessionId = str(run.traceSessionId)
           backgroundBoundary = Number.isSafeInteger(run.traceBoundary) ? run.traceBoundary : null
         }
+        signal?.throwIfAborted()
         let stat = { postureUpdated: false }
         const waitingRuntime = Boolean(mvuResult && mvuResult.receipt && mvuResult.receipt.status === 'pending')
         const completion = {
@@ -1692,6 +1696,7 @@ export async function apply(ctx) {
         console.log('dsh-tavern: 结算原始输出:', text.slice(0, 200))
         return
       } catch (err) {
+        if (signal?.aborted) return
         if (backgroundSessionId === '') backgroundSessionId = str(err && err.traceSessionId)
         if (backgroundBoundary === null && Number.isSafeInteger(err && err.traceBoundary)) backgroundBoundary = err.traceBoundary
         const failed = await taskRun.commit({
@@ -1724,12 +1729,20 @@ export async function apply(ctx) {
   }
   function queueSettlement(chatId) {
     const existing = settlementJobs.get(chatId)
-    if (existing !== undefined) return existing
-    const job = runSettlement(chatId).finally(function () {
-      settlementJobs.delete(chatId)
+    if (existing !== undefined) return existing.promise
+    const job = { controller: new AbortController(), promise: null }
+    job.promise = runSettlement(chatId, job.controller.signal).finally(function () {
+      if (settlementJobs.get(chatId) === job) settlementJobs.delete(chatId)
     })
     settlementJobs.set(chatId, job)
-    return job
+    return job.promise
+  }
+  async function cancelSettlement(chatId) {
+    const job = settlementJobs.get(chatId)
+    if (job === undefined) return false
+    job.controller.abort()
+    await job.promise.catch(function () {})
+    return true
   }
   const mvuSettlementReconciler = createMvuSettlementReconciler({
     list: () => conversationRegistry.list(),
@@ -1937,6 +1950,7 @@ export async function apply(ctx) {
       dispatchEvent: function (event) { return tavernScriptHostAdapter.dispatchEvent(event) } },
     timeline: storyTimeline,
     queueSettlement,
+    cancelSettlement,
     present: view
   })
 

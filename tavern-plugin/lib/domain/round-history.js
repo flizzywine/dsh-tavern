@@ -44,7 +44,7 @@ export function selectRegenerationTarget(chat, session, observe) {
  * Timeline owns revisions; this module owns the workflow, including aborts.
  * Callers supply host adapters, never intermediate rollback or swipe state.
  */
-export function createRoundHistory({ chats, sessions, scripts, timeline, queueSettlement, present, diagnostics }) {
+export function createRoundHistory({ chats, sessions, scripts, timeline, queueSettlement, cancelSettlement, present, diagnostics }) {
   const { read: readChat, forSession: chatForSession, readCard: readChatCard,
     readRevision: readChatRevision, write: writeChat, update: updateChat } = chats
   const { read: readScript, continuity: scriptContinuity } = scripts
@@ -78,7 +78,6 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     const activeRound = Object.values(storyTimeline.inspect({ chat }).operations || {}).find(function (operation) {
       return operation && operation.kind === 'body' && operation.status === 'foreground-completed'
     })
-    if (activeRound !== undefined) throw new Error('当前轮次尚未完成状态结算，不能重新生成正文')
     if (chat.regenInProgress === true) throw new Error('正文正在重新生成，请等待完成')
     const card = await readChatCard(chat)
     const storedSessionId = chat.sessionId
@@ -148,6 +147,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
       next.regenInProgress = true
       return next
     }, { source: 'rollback.regen' })
+    if (activeRound !== undefined && typeof cancelSettlement === 'function') await cancelSettlement(chat.id)
     const rolledMessageCount = (chat.messages || []).length
     const guide = str(guidance).trim()
     const syntheticText = '【重新生成正文】\n原玩家输入：\n' + originalUserText + '\n\n指导意见：\n' + (guide !== '' ? guide : '（无）') + '\n\n请根据原玩家输入和指导意见重新生成小说正文。'

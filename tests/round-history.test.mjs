@@ -296,6 +296,23 @@ test('完整重生成保留玩家输入，只在结算成功后原子替换唯�
   assert.deepEqual(replacement.data.message.content, [{ type: 'text', text: '新正文3' }])
 })
 
+test('当前正文尚在后台结算时，重新生成先取消旧结算再替换正文', async () => {
+  const h = harness({ checkpoint: true })
+  const body = Object.values(h.chat.timeline.operations).find(operation => operation.kind === 'body')
+  body.status = 'foreground-completed'
+  body.background = { phase: 'pending', role: 'settlement', updatedAt: 1 }
+  h.chat.settleStatus = 'pending'
+  const running = h.timeline.apply({ chat: h.chat, intent: { kind: 'agent.begin', role: 'settlement' } })
+  Object.assign(h.chat, running.chat)
+  h.options.cancelSettlement = async chatId => { h.calls.push('cancel-settlement:' + chatId) }
+
+  const result = await h.create().regenerate('chat', '', 'session')
+
+  assert.ok(result.messages.at(-1).text.startsWith('新正文'))
+  assert.ok(h.calls.indexOf('rollback.regen') < h.calls.indexOf('cancel-settlement:chat'))
+  assert.ok(h.calls.indexOf('cancel-settlement:chat') < h.calls.indexOf('followup'))
+})
+
 test('重生成的后台结算失败时恢复旧整轮，并清理临时模型消息', async () => {
   const h = harness({ checkpoint: true })
   const original = structuredClone(h.chat.messages)

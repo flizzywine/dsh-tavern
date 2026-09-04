@@ -509,7 +509,7 @@ export function createMvuSettlementModule(options = {}) {
         toolLimitMessage: '本轮后台工具调用过多，请停止额外查询；变量更新仍不得跳过校验。',
         stopToolsWhen: () => feedback !== null && (feedback.ok || !feedback.retryable),
         acceptWithoutText: () => result !== null,
-        temperature: 0.1, sessionId: input.sessionId, turn: Math.max(0, Number(input.turn) || 0),
+        temperature: 0.1, sessionId: input.sessionId, turn: Math.max(0, Number(input.turn) || 0), signal: input.signal,
         webSearchEnabled: input.webSearchEnabled === true,
         onToolCall(call) {
           const pending = toolTail.then(() => executeTool(call))
