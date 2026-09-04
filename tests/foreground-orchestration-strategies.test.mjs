@@ -265,6 +265,36 @@ test('卡片策略保留 Shell 与未知的通用基础工具，不要求先走 
   ])
 })
 
+test('新版 DSH 文件工具只向卡片 Agent 开放，不泄漏给正文 Agent', async () => {
+  async function assembledToolNames(mode) {
+    const fileTools = ['read', 'write', 'edit', 'read_image']
+    const run = strategies({
+      nativePlay: {
+        async modeFor() { return mode },
+        filterMessages(messages) { return messages },
+        async resolvePreset() { return null },
+        async prepareTurn() { return { text: '' } },
+        appendFrame(input) { return { messages: input.messages, receipt: {} } },
+        recordFrame() {},
+        async visibleTools() { return mode === 'card' ? fileTools : ['tavern_recall_history'] },
+        modePrompt() { return mode },
+        workspaceContext() { return '/resources' },
+        async ensureSessionPrefix() {},
+        controlledToolNames: new Set([...fileTools, 'tavern_recall_history'])
+      }
+    })
+    const assembly = await run.value.assembleSystemPrompt({
+      sections: [],
+      contexts: [],
+      tools: [...fileTools, 'tavern_recall_history'].map(function (name) { return { name } })
+    }, { sessionId: 'native', chat: run.chats.get('native'), cwd: '/workspace' })
+    return assembly.tools.map(function (tool) { return tool.name })
+  }
+
+  assert.deepEqual(await assembledToolNames('card'), ['read', 'write', 'edit', 'read_image'])
+  assert.deepEqual(await assembledToolNames('story'), ['tavern_recall_history'])
+})
+
 test('卡片回合没有实际资料片段时不追加空快照消息', async () => {
   const original = userMessage('检查当前人物卡')
   const run = strategies({
