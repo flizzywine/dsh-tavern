@@ -17,7 +17,8 @@ import { readOfficialMvuBundle, createOfficialMvuBundleReader } from '../../tave
 import { createMvuDiagnosticStore, createMvuDiagnosticExport, sanitizeMvuLoadDiagnostic, redactMvuLoadError } from '../../tavern-plugin/lib/domain/mvu-diagnostics.js'
 import { createMvuSettlementModule } from '../../tavern-plugin/lib/domain/mvu-background-settlement.js'
 import { createTavernScriptHostAdapter } from '../../tavern-plugin/lib/domain/tavern-script-host-adapter.js'
-import { createTavernHelperEventGate } from '../../tavern-plugin/lib/domain/tavern-helper-event-gate.js'
+import { createTavernScriptDispatch } from '../../tavern-plugin/lib/domain/tavern-script-dispatch.js'
+import { createSessionSignalTransport } from '../../tavern-plugin/lib/domain/session-signal-transport.js'
 import { createChatPersistence } from '../../tavern-plugin/lib/domain/chat-persistence.js'
 import { createChatJournalStore } from '../../tavern-plugin/lib/domain/chat-journal-store.js'
 import { inspectWorldBookDocument, updateWorldBookDocument } from '../../tavern-plugin/lib/domain/worldbook-resource.js'
@@ -30,7 +31,8 @@ import { createTavernStaticResourceCache, rewriteCachedModuleImports } from '../
 const client = await readFile(new URL('../../tavern-plugin/lib/client.js', import.meta.url))
 const bundle = await readOfficialMvuBundle()
 const assets = createTavernStaticResourceCache({ rootDir: process.env.MVU_SMOKE_ASSET_CACHE || await mkdtemp(path.join(tmpdir(), 'mvu-init-assets-')) })
-const gate = createTavernHelperEventGate()
+const signals = createSessionSignalTransport()
+const gate = createTavernScriptDispatch({ publishSignal: (sessionId, signal) => signals.publish(sessionId, signal) })
 const states = new Map()
 const records = new Map()
 const diagnostics = createMvuDiagnosticStore({ readJson: async key => records.get(key), updateJson: async (key, update) => { records.set(key, update(records.get(key))) } })
@@ -91,7 +93,7 @@ const adapter = createTavernScriptHostAdapter({ diagnostics, resolveChat: async 
       Object.assign(record, updateWorldBookDocument(record.document, request))
       return record
     }
-  }, eventGate: { ...gate,
+  }, scriptDispatch: { ...gate,
     async dispatch(id, ...args) {
       if (id.startsWith('capture')) {
         const capture = await persistence.read(id)
@@ -135,6 +137,13 @@ const server = createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost')
     res.setHeader('Access-Control-Allow-Origin', '*')
     if (url.pathname === '/client.js') return res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8' }).end(client)
+    if (url.pathname === '/api/dsh-tavern/events') {
+      const sessionId = url.searchParams.get('sessionId') || ''
+      res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' })
+      const stop = signals.subscribe(sessionId, [], signal => res.write('id: ' + signal.id + '\ndata: ' + JSON.stringify(signal) + '\n\n'))
+      req.once('close', stop)
+      return
+    }
     if (url.pathname === '/mvu.js') {
       const id = url.searchParams.get('id'), s = state(id); s.downloads++
       if (isErrorResponse(id)) {
@@ -157,7 +166,8 @@ const server = createServer(async (req, res) => {
       const chunks = []; for await (const part of req) chunks.push(part)
       const { method, args = {}, sessionId } = JSON.parse(Buffer.concat(chunks).toString('utf8'))
       let result = {}
-      if (method === 'pollTavernHelperEvent') result = adapter.pollEvent(sessionId, args.runtimeId, args.ready, args.initializationError)
+      if (method === 'claimTavernScriptWork') result = adapter.claimWork(sessionId, args.runtimeId, args.ready, args.initializationError)
+      else if (method === 'heartbeatTavernScriptRuntime') result = adapter.heartbeatRuntime(sessionId, args.runtimeId, args.ready, args.initializationError)
       else if (method === 'completeTavernHelperEvent') result = gate.complete(sessionId, args.eventId, args.args, args.runtimeId, args.error, args.diagnostics)
       else if (method === 'releaseTavernHelperRuntime') result = gate.dispose(sessionId, args.runtimeId)
       else if (method === 'updateTavernHelperVariables') result = args.option?.type === 'global' ? { updated: true } : await adapter.updateVariables(sessionId, args.option, args.variables, args.expectedLifecycleRevision)

@@ -70,9 +70,13 @@ test('正文文档带认证字号通道与原字号恢复逻辑', () => {
   assert.match(html, /restoreTavernFrameFontStyles/)
 })
 function execution(options = {}) {
-  const h = host(), calls = [], runtimes = []
+  const h = host(), calls = [], runtimes = [], signalListeners = new Map()
   let handle = () => Promise.resolve({ active: true })
   const module = h.client.createTavernScriptExecutionModule({ window: h.window,
+    signals: { subscribe(sessionId, kind, listener) {
+      signalListeners.set(sessionId + ':' + kind, listener)
+      return () => signalListeners.delete(sessionId + ':' + kind)
+    } },
     rpc(method, args, sessionId) { calls.push({ method, args: copy(args), sessionId }); return handle(method, args, sessionId) },
     createRuntime(options) {
       const runtime = { options, syncs: [], emissions: [], disposed: 0,
@@ -86,7 +90,11 @@ function execution(options = {}) {
     },
     ...options
   })
-  return Object.assign(h, { module, calls, runtimes, respond(fn) { handle = fn } })
+  return Object.assign(h, { module, calls, runtimes,
+    respond(fn) { handle = fn },
+    wake(sessionId = 'A') { signalListeners.get(sessionId + ':runtime-work')?.({ sessionId, kind: 'runtime-work', version: String(Date.now()) }) },
+    async settle() { await tick(); await tick() }
+  })
 }
 
 test('typed session signal client shares one connection and isolates kinds and sessions', () => {
@@ -122,7 +130,7 @@ test('script owner acquires one lease, reuses sandbox on variable changes, initi
   assert.equal(h.runtimes.length, 1)
   assert.equal(h.timers.size, 1)
   assert.equal(h.runtimes[0].syncs.at(-1).view.tavernHelperScripts.length, 0, 'no script execution before lease acquisition')
-  await h.runTimer()
+  await h.settle()
   assert.equal(h.module.inspect().active, true)
   assert.equal(h.runtimes[0].syncs.at(-1).view.tavernHelper.stateRevision, 2)
   await h.runtimes[0].options.onReady('A')
@@ -143,95 +151,98 @@ test('script readiness without a chat identity never cancels MVU initialization 
   const h = execution(), input = view()
   delete input.chatId
   h.module.sync('A', input)
-  await h.runTimer()
+  await h.settle()
   await h.runtimes[0].options.onReady('A')
   assert.equal(h.runtimes[0].emissions.length, 0)
   h.module.dispose()
 })
 
-test('A -> B -> A rejects late polls/readiness and uses distinct leases, including same-session view updates during polling', async () => {
+test('A -> B -> A rejects late claims/readiness and uses distinct leases', async () => {
   const h = execution(), late = deferred()
-  h.respond(method => method === 'pollTavernHelperEvent' ? late.promise : Promise.resolve({}))
+  let firstClaim = true
+  h.respond(method => {
+    if (method !== 'claimTavernScriptWork') return Promise.resolve({})
+    if (firstClaim) { firstClaim = false; return late.promise }
+    return Promise.resolve({ active: true })
+  })
   h.module.sync('A', view())
-  const pending = h.runTimer()
+  await tick()
   h.module.sync('B', view())
   h.module.sync('A', view(3))
   const last = h.runtimes.at(-1)
   await h.runtimes[0].options.onReady('A')
   late.resolve({ active: true, event: { id: 'old-event', name: 'OLD', args: [] } })
-  await pending
+  await h.settle()
   assert.equal(last.emissions.length, 0)
-  assert.equal(h.module.inspect().active, false)
-  assert.equal(h.calls.at(-1).method, 'releaseTavernHelperRuntime', 'late poll cannot retain the old server lease')
-  assert.equal(h.calls.at(-1).args.runtimeId, h.calls[0].args.runtimeId)
-  assert.equal(h.timers.size, 1)
-  const newer = deferred()
-  h.respond(method => method === 'pollTavernHelperEvent' ? newer.promise : Promise.resolve({}))
-  const current = h.runTimer()
+  assert.equal(h.module.inspect().active, true)
+  assert.ok(h.calls.some(call => call.method === 'releaseTavernHelperRuntime' && call.args.runtimeId === h.calls[0].args.runtimeId), 'late claim cannot retain the old server lease')
   h.module.sync('A', view(4))
-  newer.resolve({ active: true })
-  await current
+  h.wake()
+  await h.settle()
   assert.equal(last.syncs.at(-1).view.tavernHelper.stateRevision, 4)
-  const polls = h.calls.filter(x => x.method === 'pollTavernHelperEvent')
-  assert.notEqual(polls[0].args.runtimeId, polls[1].args.runtimeId)
+  const claims = h.calls.filter(x => x.method === 'claimTavernScriptWork')
+  assert.notEqual(claims[0].args.runtimeId, claims.at(-1).args.runtimeId)
   assert.equal(h.calls.some(x => x.method === 'completeTavernHelperEvent'), false)
   h.module.dispose()
 })
 
 test('event completion stays in its lease; disposal during execution does not acknowledge into another lifetime', async () => {
   const h = execution(), running = deferred()
-  h.respond(method => Promise.resolve(method === 'pollTavernHelperEvent' ? { active: true, event: { id: 'E', name: 'UPDATE', args: [1] } } : {}))
+  let delivered = false
+  h.respond(method => {
+    if (method !== 'claimTavernScriptWork') return Promise.resolve({})
+    if (delivered) return Promise.resolve({ active: true })
+    delivered = true
+    return Promise.resolve({ active: true, event: { id: 'E', name: 'UPDATE', args: [1] } })
+  })
   h.module.sync('A', view())
   h.runtimes[0].emit = () => running.promise
-  const pending = h.runTimer()
   await tick()
   h.module.dispose()
   h.module.sync('A', view())
   running.resolve([2])
-  await pending
+  await h.settle()
   assert.equal(h.calls.some(x => x.method === 'completeTavernHelperEvent'), false)
-  assert.equal(h.timers.size, 1)
   h.module.dispose()
   assert.equal(h.timers.size, 0)
 })
 
-test('服务重启遗留的悬挂轮询超时后继续向新服务登记', async () => {
+test('服务重启遗留的悬挂 claim 超时后由重放 signal 向新服务登记', async () => {
   const h = execution({ pollRequestTimeoutMs: 100 })
   const stale = deferred()
   let restarted = false
   h.respond(method => {
-    if (method !== 'pollTavernHelperEvent') return Promise.resolve({})
+    if (method !== 'claimTavernScriptWork') return Promise.resolve({})
     return restarted ? Promise.resolve({ active: true }) : stale.promise
   })
   h.module.sync('A', view())
-  const stuck = h.runTimer()
   await tick()
 
   restarted = true
-  assert.equal(h.timers.size, 1, '悬挂轮询必须有独立超时保护')
+  assert.equal(h.timers.size, 1, '悬挂 claim 必须有独立超时保护')
   await h.runTimer()
-  await stuck
-  assert.equal(h.timers.size, 1, '超时后必须安排下一次轮询')
-  await h.runTimer()
+  await h.settle()
+  h.wake()
+  await h.settle()
 
-  assert.equal(h.calls.filter(call => call.method === 'pollTavernHelperEvent').length, 2)
+  assert.equal(h.calls.filter(call => call.method === 'claimTavernScriptWork').length, 2)
   assert.equal(h.module.inspect().active, true)
   stale.resolve({ active: true })
   h.module.dispose()
 })
 
-test('script failure is acknowledged with diagnostics; the poll loop can execute the next event', async () => {
+test('script failure is acknowledged with diagnostics; the next signal can execute another event', async () => {
   const h = execution()
   let eventId = 0
-  h.respond(method => Promise.resolve(method === 'pollTavernHelperEvent' ? { active: true, event: { id: 'E' + ++eventId, name: 'UPDATE', args: [1], context: context() } } : {}))
+  h.respond(method => Promise.resolve(method === 'claimTavernScriptWork' ? { active: true, event: { id: 'E' + ++eventId, name: 'UPDATE', args: [1], context: context() } } : {}))
   h.module.sync('A', view())
   h.runtimes[0].emit = async (_name, _args, _context, diagnostics) => { diagnostics.push({ stage: 'script' }); throw Error('fixture failure') }
-  await h.runTimer()
+  await h.settle()
   assert.match(h.calls.at(-1).args.error, /fixture failure/)
   assert.deepEqual(h.calls.at(-1).args.diagnostics, [{ stage: 'script' }])
-  assert.equal([...h.timers.values()][0].delay, 0)
   h.runtimes[0].emit = async () => [2]
-  await h.runTimer()
+  h.wake()
+  await h.settle()
   assert.equal(h.calls.at(-1).args.eventId, 'E2')
   assert.deepEqual(h.calls.at(-1).args.args, [2])
   h.module.dispose()
@@ -599,16 +610,17 @@ test('加载诊断经认证沙箱归属到当前会话，限量且不影响运�
   await tick()
 })
 
-test('执行租约轮询将 MVU 加载失败与未就绪分开报告', async () => {
+test('执行租约 claim 将 MVU 加载失败与未就绪分开报告', async () => {
   const h = execution()
   h.module.sync('A', view())
   h.runtimes[0].inspect = () => ({ initializationError: 'MVU 加载失败：bundle.js', scripts: [
     { id: '__dsh_official_mvu__', subscriptionsReady: false, initializationFailed: true }
   ] })
-  await h.runTimer()
-  const poll = h.calls.find(x => x.method === 'pollTavernHelperEvent')
-  assert.equal(poll.args.ready, false)
-  assert.equal(poll.args.initializationError, 'MVU 加载失败：bundle.js')
+  h.wake()
+  await h.settle()
+  const claim = h.calls.filter(x => x.method === 'claimTavernScriptWork').at(-1)
+  assert.equal(claim.args.ready, false)
+  assert.equal(claim.args.initializationError, 'MVU 加载失败：bundle.js')
   h.module.dispose()
 })
 
@@ -617,16 +629,16 @@ test('another window owning the lease keeps local scripts inactive until ownersh
   let owns = false
   h.respond(() => Promise.resolve({ active: owns }))
   h.module.sync('A', view())
-  await h.runTimer()
+  await h.settle()
   assert.equal(h.module.inspect().active, false)
   assert.ok(h.runtimes[0].syncs.every(x => x.view.tavernHelperScripts.length === 0))
   await assert.rejects(h.module.triggerButton('script', 'button'), /其他窗口/)
   owns = true
-  await h.runTimer()
+  h.wake(); await h.settle()
   assert.equal(h.module.inspect().active, true)
   assert.equal(h.runtimes[0].syncs.at(-1).view.tavernHelperScripts.length, 1)
   owns = false
-  await h.runTimer()
+  h.wake(); await h.settle()
   assert.equal(h.runtimes[0].syncs.at(-1).view.tavernHelperScripts.length, 0)
   h.module.dispose()
 })

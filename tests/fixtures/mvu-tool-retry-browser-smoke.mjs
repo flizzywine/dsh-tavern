@@ -5,7 +5,7 @@ import { readFile } from 'node:fs/promises'
 import assert from 'node:assert/strict'
 import { createMvuSettlementModule } from '../../tavern-plugin/lib/domain/mvu-background-settlement.js'
 import { createTavernScriptHostAdapter } from '../../tavern-plugin/lib/domain/tavern-script-host-adapter.js'
-import { createTavernHelperEventGate } from '../../tavern-plugin/lib/domain/tavern-helper-event-gate.js'
+import { createTavernScriptDispatch } from '../../tavern-plugin/lib/domain/tavern-script-dispatch.js'
 import { projectTavernHelperContext } from '../../tavern-plugin/lib/domain/tavern-helper-context.js'
 import { createTavernStaticResourceCache, rewriteCachedModuleImports } from '../../tavern-plugin/lib/domain/tavern-static-resource-cache.js'
 import { mkdtemp } from 'node:fs/promises'
@@ -23,10 +23,10 @@ const chat = { id: 'fixture', sessionId: 'fixture', mode: 'story', mvu: { enable
   messages: [{ role: 'assistant', text: '测试正文', swipes: ['测试正文'], swipeId: 0, variables: [structuredClone(variables)] }] }
 let writes = 0, started = false
 const feedback = []
-const gate = createTavernHelperEventGate()
+const gate = createTavernScriptDispatch()
 const adapter = createTavernScriptHostAdapter({
   resolveChat: async () => chat, writeChat: async draft => { writes++; Object.assign(chat, structuredClone(draft)) },
-  readCard: async () => ({ name: '测试卡' }), worldBooks: { bound: async () => null }, eventGate: gate
+  readCard: async () => ({ name: '测试卡' }), worldBooks: { bound: async () => null }, scriptDispatch: gate
 })
 const module = createMvuSettlementModule({ runtime: adapter, model: { async run(request) {
   assert(!request.turnContext.includes('"display_data"'))
@@ -98,7 +98,7 @@ const server = createServer(async (request, response) => {
       const { method, args } = JSON.parse(body)
       let result = {}
       if (method === 'recordMvuRuntimeDiagnostic') console.log('FIXTURE_DIAGNOSTIC', JSON.stringify(args))
-      if (method === 'poll') result = gate.poll('fixture', 'browser', true)
+      if (method === 'poll') result = gate.claim('fixture', 'browser', true)
       else if (method === 'complete') result = gate.complete('fixture', args.id, args.args, 'browser', args.error, args.diagnostics)
       else if (method === 'updateTavernHelperMessages') result = await adapter.updateMessages('fixture', args.messages, 0)
       else if (method === 'updateTavernHelperVariables') {

@@ -39,7 +39,7 @@ for (const mutations of [false, true]) test('真实 MVU 草稿结算与显示捕
   adapter = createTavernScriptHostAdapter({
     resolveChat: () => app.persistence.read('chat-1'), writeChat: app.persistence.write,
     readCard: async () => ({}), worldBooks: { bound: async () => null },
-    eventGate: { status: () => ({ ready: true }), dispatch: async () => {
+    scriptDispatch: { status: () => ({ ready: true }), dispatch: async () => {
       const capture = await app.persistence.read('chat-1')
       capture.messages[0].displayRuntime.frames[0] = { capturedAt: 2, dom: 'new' }
       await app.persistence.write(capture, { source: 'display.capture', touchUpdatedAt: false })

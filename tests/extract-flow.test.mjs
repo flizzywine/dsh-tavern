@@ -1308,5 +1308,8 @@ test('Helper 全部就绪后直接广播 CHAT_CHANGED，官方 MVU 自行完成�
 	const module = between(clientSource, 'function createTavernScriptExecutionModule', 'function TavernScriptRuntime')
 	// CHAT_CHANGED payload and lease behavior are exercised in card-runtime-lifecycle.test.mjs.
 	assert.match(module, /onReady: function \(readySessionId\)/)
+	assert.match(module, /signals\.subscribe\(sessionId, "runtime-work"/)
+	assert.match(module, /"claimTavernScriptWork"/)
+	assert.doesNotMatch(module, /schedulePoll|pollTavernHelperEvent|active \? 100 : 500/)
 	assert.doesNotMatch(module, /initializeTavernMvuOpenings/)
 })

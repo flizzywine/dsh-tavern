@@ -53,7 +53,7 @@ import { lastTavernHelperVariables, projectTavernHelperContext } from './domain/
 import { projectTavernHelperWorldbook } from './domain/tavern-helper-worldbook.js'
 import { applyTavernHelperVariableMacros } from './domain/tavern-helper-variable-macros.js'
 import { projectTavernHelperScripts, hasTavernScriptRuntime } from './domain/tavern-helper-scripts.js'
-import { createTavernHelperEventGate } from './domain/tavern-helper-event-gate.js'
+import { createTavernScriptDispatch } from './domain/tavern-script-dispatch.js'
 import { createTavernExtensionSettings } from './domain/tavern-extension-settings.js'
 import { createTavernScriptHostAdapter } from './domain/tavern-script-host-adapter.js'
 import { createTavernRemoteAssetPinStore } from './domain/tavern-remote-assets.js'
@@ -108,7 +108,10 @@ export async function apply(ctx) {
     return
   }
   const agentDefaultModel = ctx.get('agentDefaultModel')
-	const tavernHelperEventGate = createTavernHelperEventGate()
+  const sessionSignals = createSessionSignalTransport()
+	const tavernScriptDispatch = createTavernScriptDispatch({
+    publishSignal: function (sessionId, signal) { sessionSignals.publish(sessionId, signal) }
+  })
   let tavernPromptTemplateRuntime
   async function promptTemplateRuntime() {
     tavernPromptTemplateRuntime ??= TavernPromptTemplateRuntime.create()
@@ -238,7 +241,6 @@ export async function apply(ctx) {
   }
   const runtimeGeneration = uid('runtime')
   let coordinationEvents = null
-  const sessionSignals = createSessionSignalTransport()
   function str(v) {
     return typeof v === 'string' ? v : (v === undefined || v === null ? '' : String(v))
   }
@@ -926,7 +928,7 @@ export async function apply(ctx) {
     readChatRevision,
     readCard: readChatCard,
     worldBooks,
-    eventGate: tavernHelperEventGate,
+    scriptDispatch: tavernScriptDispatch,
     extensionSettings: tavernExtensionSettings,
     globalVariables: {
       read: readPromptTemplateGlobalVariables,
@@ -1678,7 +1680,7 @@ export async function apply(ctx) {
         if (completed.status === 'deferred') {
           // Initialization may settle while the pending submission is being saved.
           // Recheck here so a ready/failure notification cannot be lost in that gap.
-          const runtimeState = tavernHelperEventGate.status(snapshot.sessionId)
+          const runtimeState = tavernScriptDispatch.status(snapshot.sessionId)
           if (runtimeState.ready || runtimeState.initializationError) continue
           console.log('dsh-tavern: 变量结算等待 MVU 运行时接续', chatId)
           return
@@ -1726,7 +1728,7 @@ export async function apply(ctx) {
     settlementJobs.set(chatId, job)
     return job
   }
-  const unsubscribeMvuRuntimeReady = tavernHelperEventGate.subscribeSettled(function (sessionId) {
+  const unsubscribeMvuRuntimeReady = tavernScriptDispatch.subscribeSettled(function (sessionId) {
     void chatForSession(sessionId).then(function (chat) {
       const target = pendingMvuTarget(chat)
       if (!target || !target.message.mvu || !target.message.mvu.pendingSubmission) return
@@ -2121,7 +2123,8 @@ export async function apply(ctx) {
       case 'saveTavernWorldInfo': return await tavernScriptHostAdapter.saveWorldInfo(args && args.sessionId, args && args.name, args && args.worldInfo, args && args.expectedWorldInfo)
       case 'getTavernHelperWorldbook': return await tavernScriptHostAdapter.getWorldbook(args && args.sessionId, args && args.name)
       case 'replaceTavernHelperWorldbook': return await tavernScriptHostAdapter.replaceWorldbook(args && args.sessionId, args && args.name, args && args.entries, args && args.expectedEntries)
-	  case 'pollTavernHelperEvent': return tavernScriptHostAdapter.pollEvent(args && args.sessionId, args && args.runtimeId, args && args.ready, args && args.initializationError)
+	  case 'claimTavernScriptWork': return tavernScriptHostAdapter.claimWork(args && args.sessionId, args && args.runtimeId, args && args.ready, args && args.initializationError)
+	  case 'heartbeatTavernScriptRuntime': return tavernScriptHostAdapter.heartbeatRuntime(args && args.sessionId, args && args.runtimeId, args && args.ready, args && args.initializationError)
 	  case 'completeTavernHelperEvent': return { completed: tavernScriptHostAdapter.completeEvent(args && args.sessionId, args && args.eventId, args && args.args, args && args.runtimeId, args && args.error, sanitizeRuntimeDiagnostics(args && args.diagnostics)) }
 	  case 'releaseTavernHelperRuntime': return { released: tavernScriptHostAdapter.releaseRuntime(args && args.sessionId, args && args.runtimeId) }
       case 'startChat': {

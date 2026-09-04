@@ -6,7 +6,8 @@ import { createServer } from 'node:http'
 import { readFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import path from 'node:path'
-import { createTavernHelperEventGate } from '../../tavern-plugin/lib/domain/tavern-helper-event-gate.js'
+import { createTavernScriptDispatch } from '../../tavern-plugin/lib/domain/tavern-script-dispatch.js'
+import { createSessionSignalTransport } from '../../tavern-plugin/lib/domain/session-signal-transport.js'
 
 const dsh = process.env.STATUS_SMOKE_DSH_ROOT
 if (!dsh) throw Error('Set STATUS_SMOKE_DSH_ROOT to the installed DSH package')
@@ -19,7 +20,8 @@ for (let i = 0; i < names.length; i++) {
   bundle += `modules[${JSON.stringify(names[i])}]=(function(){const module={exports:{}};const exports=module.exports;const require=name=>modules[name];\n${await readFile(file, 'utf8')}\nreturn module.exports;})();\n`
 }
 const client = await readFile(new URL('../../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
-const gate = createTavernHelperEventGate({ timeoutMs: 10000 })
+const signals = createSessionSignalTransport()
+const gate = createTavernScriptDispatch({ timeoutMs: 10000, publishSignal: (sessionId, signal) => signals.publish(sessionId, signal) })
 const calls = [], failures = []
 const revisions = new Map()
 function view(sessionId) {
@@ -81,6 +83,13 @@ const server = createServer(async (request, response) => {
     return response.end('<!doctype html><meta charset="utf-8"><title>Card lifecycle regression</title><pre id="result">RUNNING</pre><div id="app"></div><script src="/runner.js"></script>')
   }
   if (url.pathname === '/runner.js') { response.setHeader('Content-Type', 'text/javascript'); return response.end(runner) }
+  if (url.pathname === '/api/dsh-tavern/events') {
+    const sessionId = url.searchParams.get('sessionId') || ''
+    response.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' })
+    const stop = signals.subscribe(sessionId, [], signal => response.write('id: ' + signal.id + '\ndata: ' + JSON.stringify(signal) + '\n\n'))
+    request.once('close', stop)
+    return
+  }
   if (url.pathname === '/api/dsh-tavern/static-assets') {
     const module = (url.searchParams.get('url') || '').includes('+esm')
     response.setHeader('Content-Type', module ? 'text/javascript' : 'text/plain')
@@ -92,13 +101,14 @@ const server = createServer(async (request, response) => {
     let raw = ''; for await (const chunk of request) raw += chunk
     const body = raw ? JSON.parse(raw) : {}, sessionId = body.sessionId
     let result
-    if (url.pathname === '/fixture/status') result = { A: gate.status('A'), B: gate.status('B'), pollCount: calls.filter(x => x.method === 'pollTavernHelperEvent').length, failures }
+    if (url.pathname === '/fixture/status') result = { A: gate.status('A'), B: gate.status('B'), pollCount: calls.filter(x => x.method === 'claimTavernScriptWork').length, failures }
     else if (url.pathname === '/fixture/dispatch') result = await gate.dispatch(sessionId, body.name, body.args || [])
     else {
       const method = url.pathname.split('/').at(-1)
       calls.push({ method, sessionId })
       if (method === 'getSession') result = { ok: true, view: view(sessionId) }
-      else if (method === 'pollTavernHelperEvent') result = { ok: true, ...gate.poll(sessionId, body.runtimeId, body.ready) }
+      else if (method === 'claimTavernScriptWork') result = { ok: true, ...gate.claim(sessionId, body.runtimeId, body.ready) }
+      else if (method === 'heartbeatTavernScriptRuntime') result = { ok: true, active: gate.touch(sessionId, body.runtimeId, body.ready) }
       else if (method === 'completeTavernHelperEvent') result = { ok: true, completed: gate.complete(sessionId, body.eventId, body.args, body.runtimeId, body.error, body.diagnostics) }
       else if (method === 'releaseTavernHelperRuntime') result = { ok: true, released: gate.dispose(sessionId, body.runtimeId) }
       else if (method === 'updateTavernHelperVariables') { revisions.set(sessionId, (revisions.get(sessionId) || 1) + 1); result = { ok: true, updated: true } }

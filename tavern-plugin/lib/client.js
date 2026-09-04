@@ -3413,18 +3413,24 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			});
 		}
 
-		// The execution owner holds the lease, poll loop and sandbox as one lifetime.
+		// The execution owner holds the lease, signal subscription and sandbox as one lifetime.
 		// A new session (including A -> B -> A) gets a distinct lease identity.
 		function createTavernScriptExecutionModule(options) {
 			const hostWindow = options && options.window || window;
 			const invoke = options && options.rpc || rpc;
+			const signals = options && options.signals || tavernSessionSignals;
 			const invalidate = options && options.invalidate || function (sessionId) { liveTavernView.invalidate(sessionId); };
 			const createRuntime = options && options.createRuntime || createTavernHelperScriptRuntime;
-			const pollRequestTimeoutMs = Math.max(100, Number(options && options.pollRequestTimeoutMs) || 3000);
+			const requestTimeoutMs = Math.max(100, Number(options && (options.requestTimeoutMs || options.pollRequestTimeoutMs)) || 3000);
+			const startHeartbeat = options && options.startHeartbeat || (typeof hostWindow.setInterval === "function" ? function (run, delay) { return hostWindow.setInterval(run, delay); } : null);
+			const stopHeartbeat = options && options.stopHeartbeat || (typeof hostWindow.clearInterval === "function" ? function (timer) { hostWindow.clearInterval(timer); } : function () {});
+			const heartbeatIntervalMs = Math.max(1000, Number(options && options.heartbeatIntervalMs) || 30000);
 			let runtime = null;
 			let lease = null;
-			let pollTimer = null;
-			let pollBusy = null;
+			let workStop = null;
+			let heartbeatTimer = null;
+			let claimBusy = null;
+			let claimRequested = false;
 			let active = false;
 			let input = null;
 
@@ -3442,8 +3448,11 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				lease = null;
 				input = null;
 				active = false;
-				if (pollTimer !== null) hostWindow.clearTimeout(pollTimer);
-				pollTimer = null;
+				claimRequested = false;
+				if (workStop) workStop();
+				workStop = null;
+				if (heartbeatTimer !== null) stopHeartbeat(heartbeatTimer);
+				heartbeatTimer = null;
 				if (runtime) runtime.dispose();
 				runtime = null;
 				if (options && options.onMvuLoadState) options.onMvuLoadState(null);
@@ -3455,82 +3464,90 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				const currentLease = lease;
 				runtime = createRuntime({
 					window: hostWindow, rpc: invoke, onMutation: invalidate,
-					onMvuLoadState: function (state) { if (lease === currentLease && options && options.onMvuLoadState) options.onMvuLoadState(state); },
+					onMvuLoadState: function (state) {
+						if (lease !== currentLease) return;
+						if (options && options.onMvuLoadState) options.onMvuLoadState(state);
+						void claimWork();
+					},
 					onReady: function (readySessionId) {
 						if (lease !== currentLease || !readySessionId || !input || input.sessionId !== readySessionId) return;
 						const chatId = String(input.view && input.view.chatId || "");
 						// MVU uses this identity to invalidate older asynchronous initialization.
 						// An absent ID cancels the real chat's startup without initializing a replacement.
-						if (!chatId) return;
-						return runtime.emit("CHAT_CHANGED", [chatId], input.view && input.view.tavernHelper);
+						if (!chatId) { void claimWork(); return; }
+						return Promise.resolve(runtime.emit("CHAT_CHANGED", [chatId], input.view && input.view.tavernHelper)).finally(function () { void claimWork(); });
 					}
 				});
+				if (signals && typeof signals.subscribe === "function") {
+					workStop = signals.subscribe(sessionId, "runtime-work", function () { void claimWork(); }, function (error) { console.warn("Tavern Script signal 连接正在恢复", error); });
+				}
 				return runtime;
 			}
-			function pollServer(currentLease, runtimeReady, initializationError) {
+			function invokeWithDeadline(method, currentLease, inspection) {
 				const Controller = hostWindow.AbortController;
 				const controller = typeof Controller === "function" ? new Controller() : null;
 				let deadlineTimer = null;
 				const request = Promise.resolve().then(function () {
-					return invoke("pollTavernHelperEvent", { runtimeId: currentLease.id, ready: runtimeReady, ...(initializationError ? { initializationError: initializationError } : {}) }, currentLease.sessionId, controller ? { signal: controller.signal } : undefined);
+					return invoke(method, { runtimeId: currentLease.id, ready: tavernScriptRuntimeReady(inspection), ...(inspection.initializationError ? { initializationError: inspection.initializationError } : {}) }, currentLease.sessionId, controller ? { signal: controller.signal } : undefined);
 				});
 				const deadline = new Promise(function (_resolve, reject) {
 					deadlineTimer = hostWindow.setTimeout(function () {
 						if (controller) controller.abort();
-						reject(new Error("Tavern Helper 轮询超时"));
-					}, pollRequestTimeoutMs);
+						reject(new Error("Tavern Script Host 请求超时"));
+					}, requestTimeoutMs);
 				});
 				return Promise.race([request, deadline]).finally(function () {
 					if (deadlineTimer !== null) hostWindow.clearTimeout(deadlineTimer);
 				});
 			}
-			function schedulePoll(delayMs) {
-				if (pollTimer !== null || !lease || !input || !input.sessionId || !hasScriptRuntime(input.view)) return;
+			async function claimWork() {
+				if (!lease || !runtime || !input || !input.sessionId || !hasScriptRuntime(input.view)) return;
 				const currentLease = lease;
 				const currentRuntime = runtime;
-				pollTimer = hostWindow.setTimeout(async function poll() {
-					pollTimer = null;
-					if (lease !== currentLease) return;
-					let completedEvent = false;
-					if (pollBusy !== currentLease) {
-						pollBusy = currentLease;
-						let currentEvent = null;
-						const diagnostics = [];
-						try {
-							const inspection = currentRuntime.inspect();
-							const runtimeReady = tavernScriptRuntimeReady(inspection);
-							const result = await pollServer(currentLease, runtimeReady, inspection.initializationError);
-							if (lease !== currentLease) {
-								// The server may have processed this poll after our first release.
-								// Release only its old identity, never the replacement owner's lease.
-								if (result && result.active) invoke("releaseTavernHelperRuntime", { runtimeId: currentLease.id }, currentLease.sessionId).catch(function () {});
-								return;
-							}
-							if (Boolean(result && result.active) !== active) {
-								active = Boolean(result && result.active);
-								currentRuntime.sync(input.sessionId, active ? input.view : inactiveView(input.view));
-							}
-							currentEvent = result && result.event;
-							if (active && currentEvent) {
-								const args = await currentRuntime.emit(currentEvent.name, currentEvent.args, currentEvent.context, diagnostics);
-								if (lease !== currentLease) return;
-								await invoke("completeTavernHelperEvent", { eventId: currentEvent.id, args: args, runtimeId: currentLease.id, diagnostics: diagnostics }, currentLease.sessionId);
-								completedEvent = true;
-							}
-						} catch (error) {
-							if (lease !== currentLease) return;
-							console.warn("Tavern Helper 生命周期同步失败", error);
-							if (currentEvent) {
-								try {
-									await invoke("completeTavernHelperEvent", { eventId: currentEvent.id, args: currentEvent.args, error: String(error && error.message || error), runtimeId: currentLease.id, diagnostics: diagnostics }, currentLease.sessionId);
-									completedEvent = true;
-								} catch (completeError) { console.warn("Tavern Helper 失败回执同步失败", completeError); }
-							}
-						}
-						finally { if (pollBusy === currentLease) pollBusy = null; }
+				if (claimBusy === currentLease) { claimRequested = true; return; }
+				claimBusy = currentLease;
+				let currentEvent = null;
+				const diagnostics = [];
+				try {
+					const result = await invokeWithDeadline("claimTavernScriptWork", currentLease, currentRuntime.inspect());
+					if (lease !== currentLease) {
+						if (result && result.active) invoke("releaseTavernHelperRuntime", { runtimeId: currentLease.id }, currentLease.sessionId).catch(function () {});
+						return;
 					}
-					if (lease === currentLease) schedulePoll(completedEvent ? 0 : undefined);
-				}, delayMs === undefined ? (active ? 100 : 500) : Math.max(0, Number(delayMs) || 0));
+					if (Boolean(result && result.active) !== active) {
+						active = Boolean(result && result.active);
+						currentRuntime.sync(input.sessionId, active ? input.view : inactiveView(input.view));
+					}
+					currentEvent = result && result.event;
+					if (active && currentEvent) {
+						const args = await currentRuntime.emit(currentEvent.name, currentEvent.args, currentEvent.context, diagnostics);
+						if (lease !== currentLease) return;
+						await invoke("completeTavernHelperEvent", { eventId: currentEvent.id, args: args, runtimeId: currentLease.id, diagnostics: diagnostics }, currentLease.sessionId);
+					}
+				} catch (error) {
+					if (lease !== currentLease) return;
+					console.warn("Tavern Helper 生命周期同步失败", error);
+					if (currentEvent) {
+						try {
+							await invoke("completeTavernHelperEvent", { eventId: currentEvent.id, args: currentEvent.args, error: String(error && error.message || error), runtimeId: currentLease.id, diagnostics: diagnostics }, currentLease.sessionId);
+						} catch (completeError) { console.warn("Tavern Helper 失败回执同步失败", completeError); }
+					}
+				} finally {
+					if (claimBusy === currentLease) claimBusy = null;
+					if (lease === currentLease && claimRequested) { claimRequested = false; void claimWork(); }
+				}
+			}
+			async function heartbeat() {
+				if (!lease || !runtime || !input) return;
+				const currentLease = lease;
+				try {
+					const result = await invokeWithDeadline("heartbeatTavernScriptRuntime", currentLease, runtime.inspect());
+					if (lease === currentLease && Boolean(result && result.active) !== active) {
+						active = Boolean(result && result.active);
+						runtime.sync(input.sessionId, active ? input.view : inactiveView(input.view));
+					}
+				}
+				catch (error) { if (lease === currentLease) console.warn("Tavern Script lease 心跳失败", error); }
 			}
 			function sync(sessionId, view) {
 				const nextSessionId = String(sessionId || "");
@@ -3539,7 +3556,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				const currentRuntime = ensureRuntime(nextSessionId);
 				input = { sessionId: nextSessionId, view: view };
 				currentRuntime.sync(nextSessionId, active ? view : inactiveView(view));
-				schedulePoll();
+				if (heartbeatTimer === null && startHeartbeat) heartbeatTimer = startHeartbeat(function () { void heartbeat(); }, heartbeatIntervalMs);
+				void claimWork();
 			}
 			return Object.freeze({
 				sync: sync, dispose: dispose,
@@ -3574,6 +3592,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			let started = false, observing = false;
 			const execution = (options.createExecution || createTavernScriptExecutionModule)({
 				window: hostWindow, rpc: options.rpc || rpc,
+				signals: options.signals || tavernSessionSignals,
 				invalidate: function (sessionId) { views.invalidate(sessionId); },
 				onMvuLoadState: function (state) { publish(current ? current.sessionId : "", state); }
 			});

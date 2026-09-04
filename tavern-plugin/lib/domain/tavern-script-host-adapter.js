@@ -33,7 +33,7 @@ export function createTavernScriptHostAdapter(options = {}) {
   const settlementTransactions = new Map()
 
   function assertDependencies() {
-    for (const name of ['resolveChat', 'writeChat', 'readCard', 'worldBooks', 'eventGate']) {
+    for (const name of ['resolveChat', 'writeChat', 'readCard', 'worldBooks', 'scriptDispatch']) {
       if (!options[name]) throw new Error('Tavern Script Host Adapter 缺少依赖: ' + name)
     }
   }
@@ -256,7 +256,7 @@ export function createTavernScriptHostAdapter(options = {}) {
 
   async function dispatchEvent(input = {}) {
     const eventContext = input.context || await context(input.sessionId, input.chat, input.transientUserText)
-    return await options.eventGate.dispatch(input.sessionId, input.name, input.args, eventContext)
+    return await options.scriptDispatch.dispatch(input.sessionId, input.name, input.args, eventContext)
   }
 
   /** Run one internal MVU command against an isolated draft and commit once. */
@@ -295,7 +295,7 @@ export function createTavernScriptHostAdapter(options = {}) {
       projected.message = internalText
       if (!Array.isArray(projected.swipes)) projected.swipes = [originalText]
       projected.swipes[swipeId] = internalText
-      const availability = options.eventGate.status?.(sessionId)
+      const availability = options.scriptDispatch.status?.(sessionId)
       await record('runtime-dispatch', { availability })
       async function initializationRejected(error) {
         const validation = { changes: [], sideEffects: [], failures: [{ message: error }] }
@@ -313,12 +313,12 @@ export function createTavernScriptHostAdapter(options = {}) {
         await record('runtime-deferred', { availability })
         return { updated: false, deferred: true, context: projectTavernHelperContext(current) }
       }
-      const dispatched = await options.eventGate.dispatch(sessionId, 'MESSAGE_RECEIVED', [messageId], eventContext)
-      await record('runtime-completed', { handled: dispatched.handled === true, timedOut: dispatched.timedOut === true, disposed: dispatched.disposed === true, error: dispatched.error, diagnostics: dispatched.diagnostics || [] })
+      const dispatched = await options.scriptDispatch.dispatch(sessionId, 'MESSAGE_RECEIVED', [messageId], eventContext)
+      await record('runtime-completed', { handled: dispatched.handled === true, timedOut: dispatched.timedOut === true, claimTimedOut: dispatched.claimTimedOut === true, phase: dispatched.phase, disposed: dispatched.disposed === true, error: dispatched.error, diagnostics: dispatched.diagnostics || [] })
       if (dispatched.handled !== true) {
         if (dispatched.initializationFailed === true) return await initializationRejected(str(dispatched.error))
         if (dispatched.unavailable === true) {
-          await record('runtime-deferred', { availability: options.eventGate.status?.(sessionId) })
+          await record('runtime-deferred', { availability: options.scriptDispatch.status?.(sessionId) })
           return { updated: false, deferred: true, context: projectTavernHelperContext(current) }
         }
         if (str(dispatched.error).trim() !== '' && !dispatched.timedOut && !dispatched.disposed
@@ -391,8 +391,9 @@ export function createTavernScriptHostAdapter(options = {}) {
     saveChatData,
     loadWorldInfo,
     saveWorldInfo,
-    pollEvent: function (sessionId, runtimeId, ready, initializationError) { return options.eventGate.poll(sessionId, runtimeId, ready, initializationError) },
-    completeEvent: function (sessionId, eventId, args, runtimeId, error, diagnostics) { return options.eventGate.complete(sessionId, eventId, args, runtimeId, error, diagnostics) },
-    releaseRuntime: function (sessionId, runtimeId) { return options.eventGate.dispose(sessionId, runtimeId) }
+    claimWork: function (sessionId, runtimeId, ready, initializationError) { return options.scriptDispatch.claim(sessionId, runtimeId, ready, initializationError) },
+    heartbeatRuntime: function (sessionId, runtimeId, ready, initializationError) { return { active: options.scriptDispatch.touch(sessionId, runtimeId, ready, initializationError) } },
+    completeEvent: function (sessionId, eventId, args, runtimeId, error, diagnostics) { return options.scriptDispatch.complete(sessionId, eventId, args, runtimeId, error, diagnostics) },
+    releaseRuntime: function (sessionId, runtimeId) { return options.scriptDispatch.dispose(sessionId, runtimeId) }
   })
 }

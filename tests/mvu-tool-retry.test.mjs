@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createMvuSettlementModule } from '../tavern-plugin/lib/domain/mvu-background-settlement.js'
 import { createTavernScriptHostAdapter } from '../tavern-plugin/lib/domain/tavern-script-host-adapter.js'
-import { createTavernHelperEventGate } from '../tavern-plugin/lib/domain/tavern-helper-event-gate.js'
+import { createTavernScriptDispatch } from '../tavern-plugin/lib/domain/tavern-script-dispatch.js'
 
 const input = { operationId: 'op', chatId: 'c', branchId: 'b', basedOnRevision: 1,
   sessionId: 's', messageId: 0, swipeId: 0, storyText: '测试正文',
@@ -12,13 +12,13 @@ const submitPosture = request => request.onToolCall({ name: 'posture_submit', ar
 const patch = [ { op: 'delta', path: '/hp', value: -1 }, { op: 'replace', path: '/location', value: 'hall' } ]
 
 test('MVU 启动失败停止模型纠错且保留原变量；等待中的提交也返回明确加载失败', async () => {
-  const gate = createTavernHelperEventGate()
+  const gate = createTavernScriptDispatch()
   const chat = { id: 'c', sessionId: 's', mvu: { enabled: true, owner: 'official' },
     messages: [{ role: 'assistant', text: input.storyText, swipeId: 0, swipes: [input.storyText], variables: [structuredClone(input.currentVariables)] }] }
   let writes = 0, runs = 0
   const feedback = []
   const adapter = createTavernScriptHostAdapter({ resolveChat: async () => chat, writeChat: async () => writes++,
-    readCard: async () => ({}), worldBooks: { bound: async () => null }, eventGate: gate })
+    readCard: async () => ({}), worldBooks: { bound: async () => null }, scriptDispatch: gate })
   const module = createMvuSettlementModule({ runtime: adapter, model: { async run(request) {
     runs++
     await submitPosture(request)
@@ -27,7 +27,7 @@ test('MVU 启动失败停止模型纠错且保留原变量；等待中的提交�
     feedback.push(JSON.parse(await request.onToolCall(call({ path: '/hp' }))))
     return {}
   } } })
-  gate.poll('s', 'browser', false, 'MVU 模块加载失败：Failed to fetch dynamically imported module: http://localhost/bundle.js')
+  gate.claim('s', 'browser', false, 'MVU 模块加载失败：Failed to fetch dynamically imported module: http://localhost/bundle.js')
   const result = await module.settleVariables(input)
   assert.equal(result.receipt.status, 'error')
   assert.equal(feedback[0].retryable, false)
@@ -50,7 +50,7 @@ function harness(model, { rejectAlways = false } = {}) {
     resolveChat: async () => chat,
     writeChat: async draft => { writes.push(structuredClone(draft)); Object.assign(chat, structuredClone(draft)) },
     readCard: async () => ({}), worldBooks: { bound: async () => null },
-    eventGate: { async dispatch(_s, _name, _args, context) {
+    scriptDispatch: { async dispatch(_s, _name, _args, context) {
       const before = structuredClone(context.messages[0].variables)
       bases.push(before.stat_data.hp)
       const rejected = rejectAlways || bases.length === 1

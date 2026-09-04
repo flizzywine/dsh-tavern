@@ -49,7 +49,7 @@ async function harness() {
   vm.runInContext(section('  async function runSettlement(', '  const unsubscribeMvuRuntimeReady'), sandbox)
   vm.runInContext(section('  async function retrySettlement(', '  async function pullBackgroundCycle('), sandbox)
   let onReady
-  sandbox.tavernHelperEventGate = { subscribeSettled(fn) { onReady = fn }, status() { return { ready: false } } }
+  sandbox.tavernScriptDispatch = { subscribeSettled(fn) { onReady = fn }, status() { return { ready: false } } }
   vm.runInContext(section('  const unsubscribeMvuRuntimeReady', '  ctx.effect(() => unsubscribeMvuRuntimeReady'), sandbox)
   const history = createRoundHistory({ chats: { read: store.readChat, forSession: store.readChat, readCard: async () => ({}) },
     sessions: { get: () => undefined }, scripts: {}, timeline, queueSettlement: async () => {}, present() {} })
@@ -129,7 +129,7 @@ test('保存 pending 期间 MVU 已加载失败，不丢失通知或永久等待
   const run = await harness()
   await run.tasks.recover(run.get())
   let generated = 0, resumed = 0
-  run.sandbox.tavernHelperEventGate.status = () => ({ ready: false, initializationError: 'MVU 模块加载失败：bundle.js' })
+  run.sandbox.tavernScriptDispatch.status = () => ({ ready: false, initializationError: 'MVU 模块加载失败：bundle.js' })
   run.sandbox.mvuSettlement.settleVariables = async () => {
     generated++
     return { submission: { operations: [] }, receipt: { status: 'pending', changes: [] } }

@@ -80,6 +80,10 @@ Host 向某一 Tavern Session 的浏览器消费者发布的带类型唤醒通�
 
 执行人物卡携带的 Tavern Helper 和其他 JavaScript 程序的独立模块。中文正式名称为“酒馆脚本运行模块”；它由 dsh-tavern 重新实现，复刻人物卡脚本可观察到的酒馆 API、事件与运行环境，只认识酒馆脚本和酒馆宿主接口，通过 Host Adapter 与 dsh-tavern 隔离。
 
+## Tavern Script Dispatch
+
+Host 中管理酒馆脚本工作的排队、领取、执行租约、分段超时和结果回执的 Module。它通过 Session Signal 唤醒浏览器执行器，但工作记录仍由自身持有；浏览器沙箱只能领取并回执，不能凭 Signal 决定工作是否存在或完成。
+
 ## Tavern MVU Core
 
 由 dsh-tavern 重新实现的 MVU 协议解析器和变量状态机。中文正式名称为“MVU 核心”；它读取模型原始输出、提取变量命令、计算楼层与 swipe 变量，并向酒馆脚本运行模块产生 MVU 生命周期事件。它不属于酒馆脚本运行模块。

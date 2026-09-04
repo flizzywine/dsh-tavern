@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { createTavernScriptHostAdapter } from '../tavern-plugin/lib/domain/tavern-script-host-adapter.js'
-import { createTavernHelperEventGate } from '../tavern-plugin/lib/domain/tavern-helper-event-gate.js'
+import { createTavernScriptDispatch } from '../tavern-plugin/lib/domain/tavern-script-dispatch.js'
 
 function chat() {
   return {
@@ -43,7 +43,7 @@ function harness(chatValue = chat(), overrides = {}) {
         return worldbook
       }
     },
-    eventGate: {
+    scriptDispatch: {
       dispatch: async function (sessionId, name, args, context) { events.push({ sessionId, name, args, context }); return { handled: true, args } },
       poll: function () { return { active: true, event: null } },
       complete: function () { return true },
@@ -68,7 +68,7 @@ test('后台 MVU 命令只在隔离草稿执行并原子提交，协议不进入
     },
     readCard: async function () { return { name: '测试卡' } },
     worldBooks: { bound: async function () { return null } },
-    eventGate: {
+    scriptDispatch: {
       async dispatch(_sessionId, _name, _args, context) {
         assert.match(context.messages[0].message, /<UpdateVariable>/)
         await adapter.updateMessages('session-1', [{
@@ -112,7 +112,7 @@ test('后台 MVU 结算遇到过期生命周期时不触发脚本和写入', asy
 
 test('浏览器执行器暂时缺席时立即挂起，不等待也不写入', async function () {
   const run = harness(chat(), {
-    eventGate: {
+    scriptDispatch: {
       status: function () { return { present: false, ready: false, busy: false } },
       dispatch: async function () { throw new Error('不应投递') },
       poll: function () {}, complete: function () {}, dispose: function () {}
@@ -137,7 +137,7 @@ test('后台 MVU 脚本链失败时丢弃整份事务草稿', async function () 
     writeChat: async function (draft, metadata) { writes.push({ draft: structuredClone(draft), metadata }) },
     readCard: async function () { return { name: '测试卡' } },
     worldBooks: { bound: async function () { return null } },
-    eventGate: {
+    scriptDispatch: {
       async dispatch() {
         await adapter.updateMessages('session-1', [{ message_id: 0, data: { hp: 1 } }], 2)
         return { handled: false, error: '人物卡脚本「变量守卫」处理事件超时' }
@@ -166,7 +166,7 @@ test('明确脚本错误可修正重试，但已写世界书时不得自动重�
         bound: async () => ({ source: { kind: 'card', path: 'card' }, view: { displayName: 'book', entries: [{ ref: '1', sourceUid: 1, content: 'old', enabled: true }] } }),
         update: async (_source, _input) => { worldbookWrites++; return { view: { displayName: 'book', entries: [] } } }
       },
-      eventGate: { async dispatch() {
+      scriptDispatch: { async dispatch() {
         await adapter.updateMessages('session-1', [{ message_id: 0, data: { hp: 1 } }], 2)
         if (external) {
           const { worldbook } = await adapter.getWorldbook('session-1', 'book')
@@ -192,7 +192,7 @@ test('脚本执行期间目标生命周期变化时，草稿不得覆盖新目�
   let adapter, writes = 0
   adapter = createTavernScriptHostAdapter({
     resolveChat: async () => value, writeChat: async () => { writes++ }, readCard: async () => ({}), worldBooks: { bound: async () => null },
-    eventGate: { async dispatch() {
+    scriptDispatch: { async dispatch() {
       await adapter.updateMessages('session-1', [{ message_id: 0, data: { hp: 1 } }], 2)
       value.tavernHelperLifecycleRevision++
       return { handled: true }
@@ -226,7 +226,7 @@ test('Host Adapter 把全局变量保存到 Profile 作用域而不改写 Chat',
     writeChat: async (...args) => { writes.push(args) },
     readCard: async () => ({}),
     worldBooks: { bound: async () => null },
-    eventGate: { dispatch: async () => ({ handled: true }) },
+    scriptDispatch: { dispatch: async () => ({ handled: true }) },
     globalVariables: {
       read: async () => structuredClone(globals),
       save: async variables => { globals = structuredClone(variables); return structuredClone(globals) }
@@ -288,8 +288,8 @@ test('Host Adapter 统一翻译世界书与生命周期事件', async function (
 
 test('服务重启后结算立即挂起，由上层在浏览器重新登记后接续', async function () {
   const value = chat()
-  const gate = createTavernHelperEventGate({ timeoutMs: 500, readyTimeoutMs: 200 })
-  const run = harness(value, { eventGate: gate })
+  const gate = createTavernScriptDispatch({ timeoutMs: 500, readyTimeoutMs: 200 })
+  const run = harness(value, { scriptDispatch: gate })
   const result = await run.adapter.settleMvuUpdate({
     sessionId: 'session-1', messageId: 0, swipeId: 0, expectedLifecycleRevision: 2,
     storyText: '旧正文', command: '<UpdateVariable></UpdateVariable>'
@@ -299,12 +299,15 @@ test('服务重启后结算立即挂起，由上层在浏览器重新登记后�
 })
 
 test('MVU 执行回执超时释放事务，不写入草稿并明确提示重试', async () => {
-  const gate = createTavernHelperEventGate({ timeoutMs: 100 })
+  const gate = createTavernScriptDispatch({ timeoutMs: 100 })
   gate.touch('session-1', 'browser', true)
-  const run = harness(chat(), { eventGate: gate })
+  const run = harness(chat(), { scriptDispatch: gate })
   const input = { sessionId: 'session-1', messageId: 0, swipeId: 0, expectedLifecycleRevision: 2,
     storyText: '旧正文', command: '<UpdateVariable></UpdateVariable>' }
-  await assert.rejects(run.adapter.settleMvuUpdate(input), /回执超时.*重试/)
+  const rejected = assert.rejects(run.adapter.settleMvuUpdate(input), /回执超时.*重试/)
+  await new Promise(resolve => setImmediate(resolve))
+  gate.claim('session-1', 'browser', true)
+  await rejected
   assert.equal(run.writes.length, 0)
   assert.equal(gate.status('session-1').busy, false)
   gate.dispose('session-1')
@@ -329,7 +332,7 @@ test('非 MVU 普通脚本可使用变量和世界书，但不能执行官方 MV
   let enabled = true, saves = 0
   const adapter = createTavernScriptHostAdapter({ resolveChat: async () => current, writeChat: async () => { saves++ },
     readCard: async () => ({}), hasScripts: async () => enabled, isPlayChat: value => value.mode === 'story',
-    worldBooks: { bound: async () => ({ view: { displayName: 'book', entries: [] } }) }, eventGate: {} })
+    worldBooks: { bound: async () => ({ view: { displayName: 'book', entries: [] } }) }, scriptDispatch: {} })
   await adapter.updateVariables('session-1', { type: 'chat' }, { setting: 1 })
   assert.equal(saves, 1)
   assert.equal((await adapter.getWorldbook('session-1', 'book')).worldbook.name, 'book')

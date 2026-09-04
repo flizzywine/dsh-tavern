@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 import vm from 'node:vm'
-import { createTavernHelperEventGate } from '../tavern-plugin/lib/domain/tavern-helper-event-gate.js'
+import { createTavernScriptDispatch } from '../tavern-plugin/lib/domain/tavern-script-dispatch.js'
 
 const source = await readFile(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
 function store(value) {
@@ -32,12 +32,15 @@ function harness() {
     invalidate() {},
     update(id, value) { views.set(id, value); for (const sub of subscriptions) if (sub.active && sub.id === id) sub.fn({ phase: 'ready', view: value }) }
   }
-  const gate = createTavernHelperEventGate()
+  let runtimeWorkListener = null
+  const gate = createTavernScriptDispatch({ publishSignal(_sessionId, signal) { if (signal.kind === 'runtime-work') runtimeWorkListener?.(signal) } })
   const options = { window, sessions, liveView, transition,
+    signals: { subscribe(_sessionId, kind, listener) { if (kind === 'runtime-work') runtimeWorkListener = listener; return () => { if (runtimeWorkListener === listener) runtimeWorkListener = null } } },
     createExecution: settings => client.createTavernScriptExecutionModule({ ...settings, window,
       rpc: async (method, args, id) => {
         calls.push({ method, args, id })
-        if (method === 'pollTavernHelperEvent') return gate.poll(id, args.runtimeId, args.ready)
+        if (method === 'claimTavernScriptWork') return gate.claim(id, args.runtimeId, args.ready)
+        if (method === 'heartbeatTavernScriptRuntime') return { active: gate.touch(id, args.runtimeId, args.ready) }
         if (method === 'releaseTavernHelperRuntime') return gate.dispose(id, args.runtimeId)
         if (method === 'completeTavernHelperEvent') return gate.complete(id, args.eventId, args.args, args.runtimeId)
         return {}
@@ -50,7 +53,7 @@ function harness() {
         runtimes.push(runtime); return runtime
       } }) }
   return { client, options, list, transition, liveView, subscriptions, gate, runtimes, calls, events, uiStops,
-    async poll() { const [id, fn] = timers.entries().next().value; timers.delete(id); await fn() } }
+    async poll() { await new Promise(resolve => setImmediate(resolve)); await new Promise(resolve => setImmediate(resolve)) } }
 }
 
 test('viewing a child and returning keeps one game executor; events complete while its header is unmounted', async () => {

@@ -3,7 +3,7 @@ import test from 'node:test'
 import { createMvuDiagnosticStore, createMvuDiagnosticExport, redactDiagnostic, sanitizeMvuLoadDiagnostic } from '../tavern-plugin/lib/domain/mvu-diagnostics.js'
 import { createMvuSettlementModule } from '../tavern-plugin/lib/domain/mvu-background-settlement.js'
 import { createTavernScriptHostAdapter } from '../tavern-plugin/lib/domain/tavern-script-host-adapter.js'
-import { createTavernHelperEventGate } from '../tavern-plugin/lib/domain/tavern-helper-event-gate.js'
+import { createTavernScriptDispatch } from '../tavern-plugin/lib/domain/tavern-script-dispatch.js'
 import { mkdtemp, writeFile, rm, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -131,15 +131,15 @@ test('超长诊断明确标记截断，日志 ZIP 保留子任务及图片附件
 
 test('浏览器非抛出警告经事件门、执行器和结算回执持久保留，而不进入正文', async () => {
   const store = createMvuDiagnosticStore(storage())
-  const gate = createTavernHelperEventGate()
+  const gate = createTavernScriptDispatch()
   gate.touch('s', 'browser', true)
   const chat = { id: 'c', sessionId: 's', mode: 'story', mvu: { enabled: true, owner: 'official' }, messages: [{ role: 'assistant', text: '正文', swipes: ['正文'], swipeId: 0, variables: [{}] }] }
   const adapter = createTavernScriptHostAdapter({
     resolveChat: async () => chat, writeChat: async () => {}, readCard: async () => ({}), worldBooks: { bound: async () => null }, diagnostics: store,
-    eventGate: { ...gate, async dispatch(...args) {
+    scriptDispatch: { ...gate, async dispatch(...args) {
       const pending = gate.dispatch(...args)
       await new Promise(resolve => setImmediate(resolve))
-      const event = gate.poll('s', 'browser', true).event
+      const event = gate.claim('s', 'browser', true).event
       assert.ok(event)
       // A rejection reported by console.warn does not reject the JS event itself.
       gate.complete('s', event.id, [0], 'browser', '', [{ level: 'warn', scriptId: 'mvu', message: '目标容器尚未初始化' }])

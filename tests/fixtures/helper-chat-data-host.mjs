@@ -22,7 +22,7 @@ export async function createHelperChatDataHost() {
     resolveChat: id => persistence.read(id), writeChat: (...args) => persistence.write(...args),
     updateChat: (...args) => persistence.update(...args), readChatRevision: (...args) => persistence.readRevision(...args),
     hasScripts: async () => true, isPlayChat: chat => chat.mode === 'story',
-    readCard: async () => ({}), worldBooks: {}, eventGate: {}
+    readCard: async () => ({}), worldBooks: {}, scriptDispatch: {}
   })
   const host = { directory, persistence, adapter, open,
     context: async (id = 'audit') => projectTavernHelperContext(await persistence.read(id)),
