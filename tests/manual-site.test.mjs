@@ -76,6 +76,15 @@ test('安装页提供与 README 一致的可复制命令、当前适配版本和
   assert.doesNotMatch(install, /\{\{dshVersion\}\}|```/)
 })
 
+test('Android 公开安装命令固定引导脚本版本，避免 jsDelivr main 缓存倒退', async () => {
+  const readme = await readFile(new URL('../README.md', import.meta.url), 'utf8')
+  const androidGuide = await readFile(new URL('android-install.md', root), 'utf8')
+  for (const content of [readme, androidGuide, installCommands.android]) {
+    assert.match(content, /cdn\.jsdelivr\.net\/gh\/flizzywine\/dsh-tavern@[0-9a-f]{7,40}\/android\/setup\.sh/)
+    assert.doesNotMatch(content, /dsh-tavern@main\/android\/setup\.sh/)
+  }
+})
+
 test('代码块保持命令原文，转义 HTML 且不误识别管道和 Markdown', () => {
   const command = "echo '<script>**raw**</script>' | next --arg='a&b'\n# heading"
   const rendered = markdown('```bash\n' + command + '\n```', 'test')

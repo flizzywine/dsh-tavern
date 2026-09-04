@@ -231,7 +231,7 @@ node ./bin/dsh-tavern.mjs install --host desktop
 2. 打开“创造模式”，把下面一句话发给 AI：
 
 ```text
-请运行这条命令安装 DSH Tavern，完成后告诉我结果：curl -fsSL https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@main/android/setup.sh | bash
+请运行这条命令安装 DSH Tavern，完成后告诉我结果：curl -fsSL https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@3444304/android/setup.sh | bash
 ```
 
 3. 安装完成后重启 DSHA，点击侧栏里的 **酒馆工作台**。
