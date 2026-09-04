@@ -447,6 +447,45 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 .dsh-tavern-status-dot { width: 6px; height: 6px; border-radius: 50%; background: #6ea676; }
 .dsh-tavern-status-dot.running { background: #c68a3a; animation: dsh-tavern-pulse 1s infinite alternate; }
 .dsh-tavern-status-dot.error { background: #c45f5f; }
+.dsh-tavern-status-view-switch { margin-top: 10px; border: 1px solid rgba(166,107,53,.42); border-radius: 999px; padding: 5px 10px; background: rgba(166,107,53,.09); color: #a66b35; cursor: pointer; font-size: 11px; font-weight: 700; }
+.dsh-tavern-phone-host { align-items: center; overflow: auto; padding: 12px; background: radial-gradient(circle at 50% 0, rgba(63,145,255,.08), transparent 38%), var(--dsw-specific-sidebar-fill); }
+.dsh-tavern-phone-toolbar { width: min(100%, 360px); display: flex; justify-content: flex-end; margin-bottom: 8px; }
+.dsh-tavern-phone-exit { border: 0; border-radius: 999px; padding: 6px 11px; background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-secondary); cursor: pointer; font-size: 11px; }
+.dsh-tavern-phone-device { position: relative; width: min(100%, 360px); height: min(720px, calc(100vh - 110px)); min-height: 520px; overflow: hidden; box-sizing: border-box; border: 9px solid #121318; border-radius: 44px; background: #edf3fb; box-shadow: 0 20px 55px rgba(0,0,0,.32), inset 0 0 0 1px rgba(255,255,255,.18); color: #162033; }
+.dsh-tavern-phone-screen { height: 100%; display: flex; flex-direction: column; overflow: hidden; background: linear-gradient(150deg,#dff8ff 0%,#b7dcff 25%,#314eae 56%,#071536 100%); }
+.dsh-tavern-phone-island { position: absolute; z-index: 4; top: 10px; left: 50%; width: 104px; height: 29px; transform: translateX(-50%); border-radius: 999px; background: #090b10; }
+.dsh-tavern-phone-statusbar { position: relative; z-index: 3; height: 49px; flex: none; display: flex; align-items: center; justify-content: space-between; box-sizing: border-box; padding: 7px 19px 0; color: #fff; font-size: 12px; font-weight: 800; text-shadow: 0 1px 3px rgba(0,0,0,.35); }
+.dsh-tavern-phone-status-icons { letter-spacing: 1px; }
+.dsh-tavern-phone-home { flex: 1; min-height: 0; padding: 32px 24px; }
+.dsh-tavern-phone-app { width: 68px; border: 0; padding: 0; background: transparent; color: #fff; cursor: pointer; text-align: center; text-shadow: 0 1px 4px rgba(0,0,0,.55); }
+.dsh-tavern-phone-app-icon { position: relative; width: 58px; height: 58px; display: grid; place-items: center; margin: 0 auto 7px; border-radius: 16px; background: linear-gradient(145deg,#4ed76f,#12a947); box-shadow: 0 8px 20px rgba(0,0,0,.22); color: #fff; text-shadow: none; }
+.dsh-tavern-phone-app-icon::before { content: ""; width: 31px; height: 25px; border-radius: 50%; background: #fff; }
+.dsh-tavern-phone-app-icon::after { content: ""; position: absolute; left: 16px; bottom: 14px; width: 10px; height: 10px; background: #fff; clip-path: polygon(0 0,100% 0,0 100%); transform: rotate(-10deg); }
+.dsh-tavern-phone-app-label { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 650; }
+.dsh-tavern-phone-page { flex: 1; min-height: 0; display: flex; flex-direction: column; background: #f5f7fb; color: #172033; }
+.dsh-tavern-phone-nav { min-height: 48px; flex: none; display: grid; grid-template-columns: 56px minmax(0,1fr) 56px; align-items: center; padding: 0 8px; border-bottom: 1px solid #dce2eb; background: rgba(255,255,255,.94); }
+.dsh-tavern-phone-nav strong { overflow: hidden; text-align: center; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+.dsh-tavern-phone-nav button { border: 0; background: transparent; color: #3478e5; cursor: pointer; font-size: 12px; }
+.dsh-tavern-phone-contact-list { min-height: 0; overflow-y: auto; background: #fff; }
+.dsh-tavern-phone-contact { width: 100%; display: grid; grid-template-columns: 42px minmax(0,1fr) auto; align-items: center; gap: 10px; box-sizing: border-box; border: 0; border-bottom: 1px solid #edf0f4; padding: 11px 14px; background: #fff; color: inherit; cursor: pointer; text-align: left; }
+.dsh-tavern-phone-avatar { width: 42px; height: 42px; display: grid; place-items: center; border-radius: 13px; background: linear-gradient(145deg,#7b8cff,#5265d6); color: #fff; font-size: 17px; font-weight: 800; }
+.dsh-tavern-phone-contact-copy { min-width: 0; }
+.dsh-tavern-phone-contact-name { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 750; }
+.dsh-tavern-phone-contact-preview { display: block; margin-top: 4px; overflow: hidden; color: #89919f; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+.dsh-tavern-phone-contact-time { color: #a0a7b2; font-size: 9px; }
+.dsh-tavern-phone-empty { margin: auto; padding: 28px; color: #7d8694; text-align: center; font-size: 12px; line-height: 1.6; }
+.dsh-tavern-phone-messages { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding: 14px 12px; background: #eef1f6; }
+.dsh-tavern-phone-bubble { max-width: 82%; padding: 8px 10px; border-radius: 13px; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.06); font-size: 12px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.dsh-tavern-phone-bubble.user { align-self: flex-end; border-bottom-right-radius: 4px; background: #95e766; }
+.dsh-tavern-phone-bubble.assistant { align-self: flex-start; border-bottom-left-radius: 4px; }
+.dsh-tavern-phone-bubble.pending { opacity: .58; }
+.dsh-tavern-phone-bubble.failed { outline: 1px solid #e16a6a; }
+.dsh-tavern-phone-message-error { display: block; margin-top: 3px; color: #c54d4d; font-size: 9px; }
+.dsh-tavern-phone-compose { flex: none; display: flex; align-items: flex-end; gap: 7px; padding: 8px; border-top: 1px solid #dce2eb; background: #fff; }
+.dsh-tavern-phone-compose textarea { min-width: 0; flex: 1; resize: none; box-sizing: border-box; max-height: 96px; border: 1px solid #d4dae4; border-radius: 16px; padding: 7px 10px; background: #f7f8fa; color: #172033; font: inherit; font-size: 12px; line-height: 1.4; }
+.dsh-tavern-phone-compose button { width: 34px; height: 34px; flex: none; border: 0; border-radius: 50%; background: #2e79e8; color: #fff; cursor: pointer; font-size: 15px; }
+.dsh-tavern-phone-compose button:disabled { opacity: .4; cursor: default; }
+.dsh-tavern-phone-indicator { width: 96px; height: 4px; flex: none; margin: 7px auto 8px; border-radius: 999px; background: currentColor; opacity: .75; }
 .dsh-tavern-card-fields { flex: 1; min-height: 0; overflow-y: auto; padding: 12px; }
 .dsh-tavern-card-field { margin-bottom: 10px; }
 .dsh-tavern-card-field label { display: block; margin-bottom: 4px; color: var(--dsw-alias-label-secondary); font-size: 10px; font-weight: 700; }
@@ -7108,8 +7147,93 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				);
 			}
 
+			function TavernPhone(props) {
+				const h = React.createElement;
+				const [page, setPage] = React.useState("home");
+				const [contactId, setContactId] = React.useState("");
+				const [draft, setDraft] = React.useState("");
+				const [busy, setBusy] = React.useState(false);
+				const [phone, setPhone] = React.useState(props.view.phoneChat || { contacts: [], threads: [] });
+				const [optimistic, setOptimistic] = React.useState("");
+				const messagesRef = React.useRef(null);
+				React.useEffect(function () { setPhone(props.view.phoneChat || { contacts: [], threads: [] }); }, [props.view.phoneChat]);
+				const contacts = Array.isArray(phone.contacts) ? phone.contacts : [];
+				const contact = contacts.find(function (item) { return item.id === contactId; }) || null;
+				const thread = (Array.isArray(phone.threads) ? phone.threads : []).find(function (item) { return item.contactId === contactId; }) || { messages: [] };
+				React.useEffect(function () {
+					const element = messagesRef.current;
+					if (element) element.scrollTop = element.scrollHeight;
+				}, [contactId, thread.messages.length, optimistic, busy]);
+				function clock() {
+					const date = new Date();
+					return String(date.getHours()).padStart(2, "0") + ":" + String(date.getMinutes()).padStart(2, "0");
+				}
+				function openContact(next) { setContactId(next.id); setPage("chat"); setDraft(""); }
+				async function send() {
+					const text = draft.trim();
+					if (!contact || !text || busy) return;
+					const requestId = "phone-" + Date.now() + "-" + Math.random().toString(36).slice(2);
+					setDraft(""); setOptimistic(text); setBusy(true);
+					try {
+						const result = await rpc("sendPhoneMessage", { contactId: contact.id, text: text, requestId: requestId }, props.sessionId);
+						setPhone(result.phoneChat || phone);
+						setOptimistic("");
+						liveTavernView.invalidate(props.sessionId);
+					} catch (error) {
+						setOptimistic("");
+						tavernErrorHub.report("手机聊天", error);
+						liveTavernView.invalidate(props.sessionId);
+					} finally { setBusy(false); }
+				}
+				function timeLabel(value) {
+					if (!value) return "";
+					const date = new Date(value);
+					return String(date.getHours()).padStart(2, "0") + ":" + String(date.getMinutes()).padStart(2, "0");
+				}
+				let content;
+				if (page === "home") {
+					content = h("div", { className: "dsh-tavern-phone-home" },
+						h("button", { className: "dsh-tavern-phone-app", onClick: function () { setPage("contacts"); }, "aria-label": "打开消息" },
+							h("span", { className: "dsh-tavern-phone-app-icon", "aria-hidden": "true" }),
+							h("span", { className: "dsh-tavern-phone-app-label" }, "消息")
+						)
+					);
+				} else if (page === "contacts") {
+					content = h("div", { className: "dsh-tavern-phone-page" },
+						h("div", { className: "dsh-tavern-phone-nav" }, h("button", { onClick: function () { setPage("home"); } }, "‹ 主屏"), h("strong", null, "消息"), h("span", null)),
+						contacts.length ? h("div", { className: "dsh-tavern-phone-contact-list" }, contacts.map(function (item) {
+							const itemThread = (phone.threads || []).find(function (value) { return value.contactId === item.id; }) || {};
+							return h("button", { key: item.id, className: "dsh-tavern-phone-contact", onClick: function () { openContact(item); } },
+								h("span", { className: "dsh-tavern-phone-avatar" }, item.name.slice(0, 1)),
+								h("span", { className: "dsh-tavern-phone-contact-copy" }, h("span", { className: "dsh-tavern-phone-contact-name" }, item.name), h("span", { className: "dsh-tavern-phone-contact-preview" }, itemThread.preview || (item.main ? "开始聊天" : "尚无消息"))),
+								h("time", { className: "dsh-tavern-phone-contact-time" }, timeLabel(itemThread.updatedAt))
+							);
+						})) : h("div", { className: "dsh-tavern-phone-empty" }, "暂时没有可聊天的人物。人物卡主角或后台建立的人物设计会出现在这里。")
+					);
+				} else {
+					const messages = Array.isArray(thread.messages) ? thread.messages : [];
+					content = h("div", { className: "dsh-tavern-phone-page" },
+						h("div", { className: "dsh-tavern-phone-nav" }, h("button", { onClick: function () { setPage("contacts"); } }, "‹ 消息"), h("strong", null, contact ? contact.name : "联系人"), h("span", null)),
+						h("div", { ref: messagesRef, className: "dsh-tavern-phone-messages" },
+							messages.length || optimistic ? messages.map(function (message) {
+								return h("div", { key: message.id, className: "dsh-tavern-phone-bubble " + message.role + " " + message.status }, message.text, message.status === "failed" ? h("span", { className: "dsh-tavern-phone-message-error" }, message.error || "发送失败") : null);
+							}).concat(optimistic ? [h("div", { key: "optimistic", className: "dsh-tavern-phone-bubble user pending" }, optimistic)] : []) : h("div", { className: "dsh-tavern-phone-empty" }, "发一条消息，开始这段独立私聊。")
+						),
+						h("div", { className: "dsh-tavern-phone-compose" },
+							h("textarea", { rows: 1, value: draft, maxLength: 1200, disabled: busy || !contact, placeholder: busy ? "对方正在回复…" : "输入消息", onChange: function (event) { setDraft(event.target.value); }, onKeyDown: function (event) { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); send(); } } }),
+							h("button", { disabled: busy || !contact || draft.trim() === "", onClick: send, "aria-label": "发送消息" }, busy ? "…" : "↑")
+						)
+					);
+				}
+				return h("aside", { className: "dsh-tavern-status dsh-tavern-phone-host" },
+					h("div", { className: "dsh-tavern-phone-toolbar" }, h("button", { className: "dsh-tavern-phone-exit", onClick: props.onClose }, "退出手机视图")),
+					h("div", { className: "dsh-tavern-phone-device" }, h("div", { className: "dsh-tavern-phone-island", "aria-hidden": "true" }), h("div", { className: "dsh-tavern-phone-screen" }, h("div", { className: "dsh-tavern-phone-statusbar" }, h("span", null, clock()), h("span", { className: "dsh-tavern-phone-status-icons" }, "▮▮ ᴡɪғɪ ▰")), content, h("div", { className: "dsh-tavern-phone-indicator", "aria-hidden": "true" })))
+				);
+			}
+
 			function TavernStatusPanel(props) {
 			const [error, setError] = usePersistentError("酒馆状态");
+			const [phoneEnabled, setPhoneEnabled] = React.useState(function () { try { return window.localStorage.getItem("dsh-tavern-phone-view") === "1"; } catch (_error) { return false; } });
 			const [guideDraft, setGuideDraft] = React.useState("");
 			const [guideBusy, setGuideBusy] = React.useState(false);
 			const [guideError, setGuideError] = usePersistentError("Guide");
@@ -7176,13 +7300,19 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				)
 			);
 			if (view.mode === "card") return null;
+			function setPhoneView(enabled) {
+				setPhoneEnabled(enabled);
+				try { window.localStorage.setItem("dsh-tavern-phone-view", enabled ? "1" : "0"); } catch (_error) {}
+			}
+			if (phoneEnabled) return h(TavernPhone, { sessionId: props.sessionId, view: view, onClose: function () { setPhoneView(false); } });
 			const statusText = view.settleStatus === "running" ? "正在执行后台结算" : (view.settleStatus === "error" ? "后台结算失败" : "后台结算已完成");
 			return h("aside", { className: "dsh-tavern-status" },
 				h("div", { className: "dsh-tavern-status-head" },
 					h("div", { className: "dsh-tavern-status-title" }, "酒馆状态"),
 					h("div", { className: "dsh-tavern-status-role" }, view.card.name),
 					(view.card.tags || []).length ? h("div", { className: "dsh-tavern-status-tags" }, (view.card.tags || []).slice(0, 8).map(function (tag) { return h("span", { key: tag, className: "dsh-tavern-status-tag" }, tag); })) : null,
-					h("div", { className: "dsh-tavern-status-settle" }, h("span", { className: "dsh-tavern-status-dot " + (view.settleStatus || "idle") }), statusText)
+					h("div", { className: "dsh-tavern-status-settle" }, h("span", { className: "dsh-tavern-status-dot " + (view.settleStatus || "idle") }), statusText),
+					h("button", { className: "dsh-tavern-status-view-switch", onClick: function () { setPhoneView(true); } }, "打开小手机")
 				),
 					h("div", { className: "dsh-tavern-status-body" },
 					view.settleStatus === "error" ? h("div", { className: "dsh-card-error" },

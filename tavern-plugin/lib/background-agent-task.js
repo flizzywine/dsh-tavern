@@ -29,10 +29,12 @@ function backgroundPrompt(messages, turnContext, task, taskProtocol, input = {})
     sections.push('【本轮权威状态】\n以下内容是当前最新状态；若与后台会话中的旧游标、姿势或指导冲突，以本节为准。\n' + authoritative)
   }
   const recent = (messages || []).map(function (message) {
-    const role = message && message.role === 'assistant' ? '正文' : '用户'
+    const role = task === 'phone'
+      ? (message && message.role === 'assistant' ? '联系人' : '你')
+      : (message && message.role === 'assistant' ? '正文' : '用户')
     return '[' + role + ']\n' + messageText(message)
   }).filter(function (text) { return text.trim() !== '' }).join('\n\n')
-  const taskName = task === 'image' ? '场景生图' : task === 'settlement' ? '状态结算' : '候选生成'
+  const taskName = task === 'image' ? '场景生图' : task === 'settlement' ? '状态结算' : task === 'phone' ? '手机私聊' : '候选生成'
   sections.push('【最近剧情与本次任务】\n任务类型：' + taskName + '\n' + recent)
   const protocol = str(taskProtocol).trim()
   if (protocol !== '') sections.push('【DSH 后台任务协议（最终指令）】\n' + protocol)
@@ -78,7 +80,7 @@ export function maximumBackgroundTokens(selection) {
 }
 
 export function traceError(error, traceSessionId, task) {
-  const fallback = task === 'settlement' ? '后台状态结算失败' : '后台候选生成失败'
+  const fallback = task === 'settlement' ? '后台状态结算失败' : task === 'phone' ? '手机私聊回复失败' : '后台候选生成失败'
   const wrapped = new Error(str(error && error.message || error) || fallback, { cause: error })
   wrapped.traceSessionId = traceSessionId
   return wrapped
@@ -145,7 +147,9 @@ export function createBackgroundAgentTask(options) {
   }
 
   function setupFor(state, descriptor, appendDescriptor) {
-    const backgroundPersona = '你是与前台正文生成隔离的酒馆后台 Agent。你会在同一个剧情分支中依次承担状态结算与候选生成，并可在任务确有需要时加载人物设计 Skill；严格按每轮末尾追加的任务协议输出，不得把某类任务的输出格式混入另一类任务。最新权威状态优先于 Session 中的旧动态状态。'
+    const backgroundPersona = state.input.task === 'phone'
+      ? '你是与故事正文隔离的手机私聊 Agent。你只代表指定联系人回复当前手机消息，不推进正文、不修改状态，也不把私聊虚构成已经发生的现场剧情。'
+      : '你是与前台正文生成隔离的酒馆后台 Agent。你会在同一个剧情分支中依次承担状态结算与候选生成，并可在任务确有需要时加载人物设计 Skill；严格按每轮末尾追加的任务协议输出，不得把某类任务的输出格式混入另一类任务。最新权威状态优先于 Session 中的旧动态状态。'
     let descriptorAppended = !appendDescriptor
     return async function (childCtx) {
       if (setupAgent !== null) await setupAgent(childCtx)
@@ -187,9 +191,16 @@ export function createBackgroundAgentTask(options) {
           }
         })
       }
-      childCtx.tools.restrict({ allow: state.input.task === 'image' ? [] : ['skill', 'web_search'] })
+      childCtx.tools.restrict({ allow: state.input.task === 'image' || state.input.task === 'phone' ? [] : ['skill', 'web_search'] })
       childCtx.on('system-prompt/assemble', async function (_assembly, _context, next) {
         const assembly = await next()
+        if (state.input.task === 'phone') {
+          assembly.sections = (assembly.sections || []).filter(function (section) {
+            return !section || typeof section.name !== 'string' || !section.name.startsWith('tool:')
+          })
+          assembly.tools = []
+          return assembly
+        }
         if (state.input.task !== 'image' && state.input.webSearchEnabled === true) return assembly
         assembly.sections = (assembly.sections || []).filter(function (section) { return section && section.name !== 'tool:web_search' })
         assembly.tools = (assembly.tools || []).filter(function (tool) { return tool && tool.name !== 'web_search' })

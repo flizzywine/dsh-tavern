@@ -48,6 +48,7 @@ import { TAVERN_COMPATIBILITY_CAPABILITIES, createTavernCompatibilityDiagnosticS
 import { createMvuDiagnosticStore, createMvuDiagnosticExport, sanitizeRuntimeDiagnostics, sanitizeMvuLoadDiagnostic, redactMvuLoadError } from './domain/mvu-diagnostics.js'
 import { projectPersistentStatusView } from './domain/persistent-status-view.js'
 import { createPlayChatDebugReference, readPlayChatDebugTurn } from './domain/play-chat-debug.js'
+import { createPhoneChat } from './domain/phone-chat.js'
 import { createPresetLibrary } from './domain/preset-library.js'
 import { resolveRuntimePresetMacros } from './domain/runtime-presets.js'
 import { compileSillyTavernRequest } from './domain/sillytavern-compatibility.js'
@@ -1054,6 +1055,7 @@ export async function apply(ctx) {
       card: cardViewOf(card, chat),
       posture: chat.posture || '',
       characterDesigns: projectCharacterDesignDocument(chat.characterDesignDocument),
+      phoneChat: phoneChat.project(chat, card),
       guides: Array.isArray(chat.guides) ? chat.guides : [],
       debugTurns: debugTurns.slice(-12).reverse(),
       inputSources,
@@ -1280,6 +1282,13 @@ export async function apply(ctx) {
   const characterDesignDocuments = createCharacterDesignDocumentTools({
     store: { readChat, updateChat },
     now: Date.now
+  })
+  const phoneChat = createPhoneChat({
+    store: { chatForSession, readCard, updateChat },
+    runAgent: function (input) { return backgroundAgentRunner.run(input) },
+    selection: backgroundModelSelection,
+    now: Date.now,
+    id: function () { return uid('phone-message') }
   })
   const mvuSettlement = createMvuSettlementModule({
     model: backgroundAgentRunner,
@@ -2186,6 +2195,7 @@ export async function apply(ctx) {
         }
       }
       case 'getSession': return { view: await sessionView(args && args.sessionId) }
+      case 'sendPhoneMessage': return { phoneChat: await phoneChat.send(args || {}) }
       case 'prepareCompaction': return { plan: await tavernCompaction.prepare(args && args.sessionId) }
       case 'compactBackground': return { result: await compactBackground(args && args.sessionId, args && args.operationId) }
       case 'completeCompaction': return { result: await tavernCompaction.complete(args && args.sessionId, args) }

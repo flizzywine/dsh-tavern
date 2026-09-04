@@ -84,6 +84,46 @@ test('后台联网搜索按游戏快照统一开放，并在后台各任务间�
   assert.deepEqual(await visible(true), { allowed: ['skill', 'web_search'], names: ['skill', 'web_search'] })
 })
 
+test('手机私聊后台任务不暴露 Skill、搜索或文件工具', async () => {
+  let assemble = null
+  let allowed = null
+  let visible = null
+  const runner = createBackgroundAgentRunner({
+    id: () => 'phone-agent',
+    agents: {
+      get: () => ({ id: 'parent', session: { header: {} } }),
+      async create(options) {
+        await options.setup({
+          systemPrompt: { section() {}, suppressRuntimeContext() {} },
+          on(event, callback) { if (event === 'system-prompt/assemble') assemble = callback },
+          tools: { restrict(input) { allowed = input.allow }, register() {} }
+        })
+        return { agent: {
+          session: { id: 'phone-agent', events: [], append() {} },
+          followup() {},
+          async whenIdle() {
+            const assembly = {
+              sections: [{ name: 'tool:skill' }, { name: 'tool:web_search' }, { name: 'tool:read' }, { name: 'persona' }],
+              tools: [{ name: 'skill' }, { name: 'web_search' }, { name: 'read' }]
+            }
+            visible = await assemble(assembly, {}, async () => assembly)
+            this.session.events.push({ type: 'assistant/message', data: { message: { content: [{ type: 'text', text: '在。' }] } } })
+          }
+        }, async dispose() {} }
+      }
+    }
+  })
+
+  const result = await runner.run({ sessionId: 'parent', task: 'phone', persistent: false,
+    selection: { provider: 'test', model: 'test' }, messages: [], tools: [] })
+
+  assert.equal(result.text, '在。')
+  assert.deepEqual(allowed, [])
+  assert.deepEqual(visible.tools, [])
+  assert.deepEqual(visible.sections.map(section => section.name), ['persona'])
+  await runner.dispose()
+})
+
 test('共享后台 Session 从建立起固定注册完整工具目录，切换任务只改变本轮授权', async () => {
   const catalog = [
     { name: 'posture_submit', parameters: { type: 'object' } },
