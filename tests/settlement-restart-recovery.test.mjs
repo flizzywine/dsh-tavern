@@ -7,6 +7,14 @@ import { createBackgroundTaskCoordinator } from '../tavern-plugin/lib/domain/bac
 import { createRoundHistory } from '../tavern-plugin/lib/domain/round-history.js'
 import { applyMvuSettlementEffect, createMvuSettlementEffect } from '../tavern-plugin/lib/domain/mvu-settlement-effect.js'
 import { createMvuSettlementReconciler } from '../tavern-plugin/lib/domain/mvu-settlement-reconciler.js'
+import {
+  CHARACTER_DESIGN_READ_TOOL,
+  CHARACTER_DESIGN_READ_TOOL_NAME,
+  CHARACTER_DESIGN_SAVE_TOOL,
+  CHARACTER_DESIGN_SAVE_TOOL_NAME,
+  createCharacterDesignDocumentSession
+} from '../tavern-plugin/lib/domain/character-design-document.js'
+import { POSTURE_SUBMIT_TOOL, POSTURE_SUBMIT_TOOL_NAME, normalizePostureSubmission } from '../tavern-plugin/lib/domain/posture-submission.js'
 
 const server = await readFile(new URL('../tavern-plugin/lib/index.js', import.meta.url), 'utf8')
 function section(start, end) {
@@ -16,8 +24,8 @@ function section(start, end) {
   return server.slice(from, to)
 }
 
-async function harness({ beginRunning = true } = {}) {
-  let current = { id: 'chat', sessionId: 'session', mode: 'story', messages: [], mvu: { enabled: true, owner: 'official' } }
+async function harness({ beginRunning = true, mvu = true } = {}) {
+  let current = { id: 'chat', sessionId: 'session', mode: 'story', messages: [], mvu: { enabled: mvu, owner: mvu ? 'official' : null } }
   let sequence = 0
   const timeline = createStoryTimeline({ id: prefix => prefix + ++sequence, now: () => 1000 + sequence })
   const store = {
@@ -43,7 +51,13 @@ async function harness({ beginRunning = true } = {}) {
     view: async chat => chat, settlementTurn: () => 2,
     projectAgentMessageText: message => message.text, mvuUpdateRules: async () => [],
     backgroundModelSelection: () => ({}), runtimePrompt: () => '',
+    settleUserText: () => '【本轮正文】\n门开了',
     applySettlement: () => ({ postureUpdated: false }), applyMvuSettlementEffect, createMvuSettlementReconciler,
+    backgroundAgentRunner: { async run() { throw new Error('backgroundAgentRunner not configured') } },
+    createCharacterDesignDocumentSession,
+    CHARACTER_DESIGN_READ_TOOL, CHARACTER_DESIGN_READ_TOOL_NAME,
+    CHARACTER_DESIGN_SAVE_TOOL, CHARACTER_DESIGN_SAVE_TOOL_NAME,
+    POSTURE_SUBMIT_TOOL, POSTURE_SUBMIT_TOOL_NAME, normalizePostureSubmission,
     conversationRegistry: { list: async () => [] }, ctx: { effect() {} },
     mvuSettlement: { settleVariables: async () => ({ receipt: { version: 1, status: 'unchanged', changes: [] } }) }
   })
@@ -58,6 +72,51 @@ async function harness({ beginRunning = true } = {}) {
     sessions: { get: () => undefined }, scripts: {}, timeline, queueSettlement: async () => {}, present() {} })
   return { tasks, timeline, store, running, body, sandbox, history, onReady, get: () => structuredClone(current) }
 }
+
+const completeCharacterDesign = {
+  name: '林岚', identity: '港口诊所医生', narrativeRole: '持续提供线索并挑战主角判断的盟友',
+  coreMotivation: '查清镇上反复出现的失忆病例', innerConflict: '追求真相，却害怕再次连累病人',
+  personality: '冷静细致，遇到含糊说法会耐心追问', appearance: '黑色短发，身形清瘦，左眉有浅疤',
+  behaviorStyle: '先记录细节再行动，紧张时会转动钢笔', speechStyle: '语速平稳，用词准确，很少夸张',
+  relationships: '与港务人员互相信任，对镇长保持礼貌警惕',
+  defaultPresentation: '深蓝长外套、浅灰衬衫和便于行走的短靴', plotPotential: '病例来源会迫使她在职业责任与私人秘密间选择'
+}
+
+test('普通卡后台结算可保存人物设计，并与姿势在同一 Round 原子提交', async () => {
+  const run = await harness({ beginRunning: false, mvu: false })
+  run.sandbox.backgroundAgentRunner.run = async input => {
+    assert.deepEqual(Array.from(input.tools, tool => tool.name), [
+      POSTURE_SUBMIT_TOOL_NAME, CHARACTER_DESIGN_READ_TOOL_NAME, CHARACTER_DESIGN_SAVE_TOOL_NAME
+    ])
+    const saved = JSON.parse(await input.onToolCall({ name: CHARACTER_DESIGN_SAVE_TOOL_NAME, arguments: completeCharacterDesign }))
+    assert.equal(saved.ok, true)
+    await input.onToolCall({ name: POSTURE_SUBMIT_TOOL_NAME, arguments: { posture: '站在门边' } })
+    return { text: '', traceSessionId: 'background-character-design', traceBoundary: 4 }
+  }
+
+  await run.sandbox.queueSettlement('chat')
+
+  const saved = run.get()
+  assert.equal(saved.characterDesignDocument.characters[0].name, '林岚')
+  assert.equal(saved.characterDesignDocument.characters[0].design.identity, completeCharacterDesign.identity)
+  assert.equal(saved.timeline.operations[run.body.value.operationId].status, 'completed')
+})
+
+test('普通卡后台人物设计完成但未提交姿势时，整个 Round 失败且不保存人物', async () => {
+  const run = await harness({ beginRunning: false, mvu: false })
+  run.sandbox.backgroundAgentRunner.run = async input => {
+    const saved = JSON.parse(await input.onToolCall({ name: CHARACTER_DESIGN_SAVE_TOOL_NAME, arguments: completeCharacterDesign }))
+    assert.equal(saved.ok, true)
+    return { text: '' }
+  }
+
+  await run.sandbox.queueSettlement('chat')
+
+  const saved = run.get()
+  assert.equal(saved.characterDesignDocument, undefined)
+  assert.equal(saved.settleStatus, 'failed')
+  assert.match(saved.settleError, /未调用 posture_submit/)
+})
 
 test('重启丢失 MVU 回执：显示中断、保留正文变量、可从真实重试入口完成同一 Round', async () => {
   const run = await harness()

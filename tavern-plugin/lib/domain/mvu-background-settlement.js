@@ -325,13 +325,13 @@ export function projectMvuBackgroundRequest(frame) {
       JSON.stringify(state.variableSchema || {}),
       ...(updateRules.length === 0 ? [] : ['【人物卡变量更新规则】', updateRules.join('\n\n')]),
       '【人物设计（按需）】',
-      '若本轮需要重要人物登场、补全或提前储备，请调用 skill 加载 tavern-character-design：先读取当前对话人物档案，保存完整人物方案后再映射到变量；能复用或补充既有人物时不新建。否则跳过人物设计。'
+      '若本轮需要重要人物登场、补全或提前储备，请调用 skill 加载 tavern-character-design：先读取并保存独立的人物设计，再按当前变量结构单独映射；能复用或补充既有人物时不新建。否则跳过人物设计。'
     ].join('\n'),
     system: [
       '只根据【正文】中已经确认发生的事实结算变量，不得读取或推断玩家意图。',
       '不得根据旧轮剧情、隐藏思考、候选项或未发生事件更新变量。',
       '人物档案中的稳定设计字段与默认形象可以按 tavern-character-design 合理创作；在场、位置、关系进展与已发生事件仍须依据正文。',
-      '人物设计如有需要，先按 Skill 使用人物档案工具；调用 mvu_submit_update 前必须调用 posture_submit 提交本轮结束时可见的人物姿势；不得输出 JSON。',
+      '人物设计如有需要，先按 Skill 使用人物档案工具，再把正文已确认的状态按当前变量结构交给 MVU；人物设计与变量映射是两个独立步骤。调用 mvu_submit_update 前必须调用 posture_submit 提交本轮结束时可见的人物姿势；不得输出 JSON。',
       '必须调用 mvu_submit_update，以工具返回的实际执行校验结果为准。最多提交三次。',
       '变量通过工具提交，不在回复中输出 XML 变量协议；人物卡中的变量含义、更新条件和校验规则仍须遵守。',
       '有变化时提交完整 operations；没有变化时也必须提交 operations: []。',
@@ -400,8 +400,6 @@ export function createMvuSettlementModule(options = {}) {
     const request = projectMvuBackgroundRequest(frame)
     const characterDesigns = createCharacterDesignDocumentSession({
       document: input.characterDesignDocument,
-      currentVariables: input.currentVariables,
-      variableSchema: frame.authoritativeState.variableSchema,
       now: options.now
     })
     let attempt = 0
@@ -441,7 +439,6 @@ export function createMvuSettlementModule(options = {}) {
       try {
         if (!call || call.name !== MVU_SUBMIT_UPDATE_TOOL_NAME) throw new Error('后台 Agent 调用了未授权的变量工具')
         submission = normalizeMvuToolSubmission(call.arguments)
-        characterDesigns.validateSubmission(submission.operations)
         if (feedback && submission.operations.length === 0) throw new Error('上一批更新未通过校验，请修正完整 operations，不能用空数组跳过失败')
       } catch (error) {
         await record('submission-rejected', { error: error.message, argumentKeys: Object.keys(object(call?.arguments)), operations: object(call?.arguments).operations })

@@ -145,7 +145,7 @@ test('后台最小预设提供原生 Skill 目录与按需加载工具', () => {
   assert.match(backgroundSessionsSource, /dsh-tavern-background-tools-v4/)
   assert.match(backgroundSessionsSource, /STALE_BACKGROUND_PROVIDERS\.has\(savedDescriptor\.provider\)/)
   assert.match(serverSource, /characterDesignDocument: snapshot\.characterDesignDocument/)
-  assert.match(serverSource, /draft\.characterDesignDocument = structuredClone\(mvuResult\.characterDesignDocument\)/)
+  assert.match(serverSource, /draft\.characterDesignDocument = structuredClone\(characterDesignDocument\)/)
 })
 
 test('候选项通过持久任务信箱提交，同步快照原子携带结果', () => {
@@ -177,7 +177,7 @@ test('姿势结算通过短工具参数提交', () => {
   assert.match(systemPrompt, /posture_submit/)
   assert.match(systemPrompt, /位置、姿势、动作/)
   assert.doesNotMatch(flow, /maxTokens:/)
-  assert.match(flow, /tools: \[POSTURE_SUBMIT_TOOL\]/)
+  assert.match(flow, /tools: \[POSTURE_SUBMIT_TOOL, CHARACTER_DESIGN_READ_TOOL, CHARACTER_DESIGN_SAVE_TOOL\]/)
   assert.match(flow, /normalizePostureSubmission/)
   assert.match(flow, /未调用 posture_submit/)
   assert.match(flow, /text\.slice\(0, 200\)/)

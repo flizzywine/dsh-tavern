@@ -37,7 +37,13 @@ import { createModelRequestLog } from './domain/model-request-log.js'
 import { MVU_SUBMIT_UPDATE_TOOL, createMvuSettlementModule } from './domain/mvu-background-settlement.js'
 import { applyMvuSettlementEffect } from './domain/mvu-settlement-effect.js'
 import { createMvuSettlementReconciler } from './domain/mvu-settlement-reconciler.js'
-import { CHARACTER_DESIGN_READ_TOOL, CHARACTER_DESIGN_SAVE_TOOL } from './domain/character-design-document.js'
+import {
+  CHARACTER_DESIGN_READ_TOOL,
+  CHARACTER_DESIGN_READ_TOOL_NAME,
+  CHARACTER_DESIGN_SAVE_TOOL,
+  CHARACTER_DESIGN_SAVE_TOOL_NAME,
+  createCharacterDesignDocumentSession
+} from './domain/character-design-document.js'
 import { POSTURE_SUBMIT_TOOL, POSTURE_SUBMIT_TOOL_NAME, normalizePostureSubmission } from './domain/posture-submission.js'
 import { TAVERN_COMPATIBILITY_CAPABILITIES, createTavernCompatibilityDiagnosticStore } from './domain/tavern-compatibility-diagnostics.js'
 import { createMvuDiagnosticStore, createMvuDiagnosticExport, sanitizeRuntimeDiagnostics, sanitizeMvuLoadDiagnostic, redactMvuLoadError } from './domain/mvu-diagnostics.js'
@@ -1559,6 +1565,8 @@ export async function apply(ctx) {
         let text = ''
         let result = null
         let mvuResult = null
+        let characterDesignDocument = snapshot.characterDesignDocument
+        let characterDesignChanged = false
         if (mvuTarget !== null) {
           const settlementInput = {
             operationId: taskRun.operationId,
@@ -1600,10 +1608,14 @@ export async function apply(ctx) {
             throw error
           }
           result = { posture: mvuResult.posture }
+          characterDesignDocument = mvuResult.characterDesignDocument
+          characterDesignChanged = mvuResult.characterDesignChanged === true
         } else {
           const selection = backgroundModelSelection(snapshot)
           if (selection === null) throw new Error('没有可用的模型配置，请先在当前会话的模型选择器中选择模型')
           let submittedPosture = null
+          const characterDesigns = createCharacterDesignDocumentSession({ document: snapshot.characterDesignDocument })
+          let characterDesignToolTail = Promise.resolve()
           const run = await backgroundAgentRunner.run({
             task: 'settlement',
             persistent: true,
@@ -1617,10 +1629,14 @@ export async function apply(ctx) {
               content: [{ type: 'text', text: settleUserText(snapshot) }],
               source: { kind: 'plugin', plugin: 'dsh-tavern' }
             }],
-            system: runtimePrompt('posture-settlement'),
-            turnContext: '',
-            tools: [POSTURE_SUBMIT_TOOL],
-            maxToolCalls: 3,
+            system: [
+              runtimePrompt('posture-settlement'),
+              '若本轮需要重要人物登场、补全或提前储备，先调用 skill 加载 tavern-character-design，读取并保存人物设计；能复用或补充既有人物时不新建。否则跳过人物设计。',
+              '人物设计工具必须在 posture_submit 之前调用；posture_submit 是本任务最后一步。'
+            ].join('\n\n'),
+            turnContext: '【人物设计（按需）】\n人物设计独立于变量系统，普通人物卡也可保存并复用。',
+            tools: [POSTURE_SUBMIT_TOOL, CHARACTER_DESIGN_READ_TOOL, CHARACTER_DESIGN_SAVE_TOOL],
+            maxToolCalls: 8,
             temperature: 0.2,
             sessionId: snapshot.sessionId,
             webSearchEnabled: snapshot.webSearchEnabled === true,
@@ -1628,37 +1644,46 @@ export async function apply(ctx) {
             stopToolsWhen: function () { return submittedPosture !== null },
             acceptWithoutText: function () { return submittedPosture !== null },
             async onToolCall(call) {
-              if (!call || call.name !== POSTURE_SUBMIT_TOOL_NAME) {
-                return JSON.stringify({ ok: false, retryable: true, error: '当前任务只允许调用 posture_submit' })
-              }
-              try {
-                submittedPosture = normalizePostureSubmission(call.arguments)
-                return JSON.stringify({ ok: true })
-              } catch (error) {
-                return JSON.stringify({ ok: false, retryable: true, error: str(error && error.message || error) })
-              }
+              const pending = characterDesignToolTail.then(async function () {
+                if (call && (call.name === CHARACTER_DESIGN_READ_TOOL_NAME || call.name === CHARACTER_DESIGN_SAVE_TOOL_NAME)) {
+                  if (submittedPosture !== null) return JSON.stringify({ ok: false, retryable: false, error: '姿势已经提交，本轮人物设计已结束' })
+                  return await characterDesigns.execute(call)
+                }
+                if (!call || call.name !== POSTURE_SUBMIT_TOOL_NAME) {
+                  return JSON.stringify({ ok: false, retryable: true, error: '当前任务只允许调用人物设计工具和 posture_submit' })
+                }
+                try {
+                  submittedPosture = normalizePostureSubmission(call.arguments)
+                  return JSON.stringify({ ok: true })
+                } catch (error) {
+                  return JSON.stringify({ ok: false, retryable: true, error: str(error && error.message || error) })
+                }
+              })
+              characterDesignToolTail = pending.catch(function () {})
+              return await pending
             }
           })
+          await characterDesignToolTail
           if (submittedPosture === null) throw new Error('后台 Agent 未调用 posture_submit 提交有效姿势')
           result = submittedPosture
           text = str(run.text) || JSON.stringify(result)
           backgroundSessionId = str(run.traceSessionId)
           backgroundBoundary = Number.isSafeInteger(run.traceBoundary) ? run.traceBoundary : null
+          characterDesignDocument = characterDesigns.document()
+          characterDesignChanged = characterDesigns.changed()
         }
         signal?.throwIfAborted()
         let stat = { postureUpdated: false }
         const waitingRuntime = Boolean(mvuResult && mvuResult.receipt && mvuResult.receipt.status === 'pending')
         const completion = {
           stateChanged: Boolean(mvuResult && mvuResult.receipt && mvuResult.receipt.status === 'updated') ||
-            Boolean(mvuResult && mvuResult.characterDesignChanged) || str(result && result.posture).trim() !== '',
+            characterDesignChanged || str(result && result.posture).trim() !== '',
           participant: taskRun.participant({ sessionId: backgroundSessionId, boundary: backgroundBoundary }),
           apply(draft) {
             if (mvuResult && mvuResult.effect) applyMvuSettlementEffect(draft, mvuResult.effect)
             stat = applySettlement(draft, result)
+            if (characterDesignChanged) draft.characterDesignDocument = structuredClone(characterDesignDocument)
             if (mvuResult !== null) {
-              if (mvuResult.characterDesignChanged) {
-                draft.characterDesignDocument = structuredClone(mvuResult.characterDesignDocument)
-              }
               const target = draft.messages[mvuTarget.messageId]
               if (target && target.role === 'assistant' && Math.max(0, Number(target.swipeId) || 0) === mvuTarget.swipeId) {
                 const receipt = structuredClone(mvuResult.receipt)
