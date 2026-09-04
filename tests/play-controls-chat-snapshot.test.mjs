@@ -81,5 +81,5 @@ test('all dependent panels read messages from Chat, never from Session lifecycle
     assert.match(component, /props\.useChat\(latestTavernAssistantMessageId\)/, name)
     assert.doesNotMatch(component, /snapshot\.nodes/, name)
   }
-  assert.match(functionSource('TavernStatusTab', 'setCandidatePanel'), /uiConversation\.binding\(binding\)\.target\("chat"\)/)
+  assert.match(functionSource('TavernStatusTab', 'setCandidatePanel'), /resolveConversationChatBinding\(props\.uiConversation, binding\)/)
 })

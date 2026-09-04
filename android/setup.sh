@@ -96,6 +96,11 @@ install_source() {
   install_from_tarball
 }
 
+is_disposable_upgrade_residue() {
+  [ -d "${APP_DIR}" ] || return 1
+  [ -z "$(find "${APP_DIR}" -mindepth 1 ! -type d ! -type l -print -quit 2>/dev/null)" ]
+}
+
 update_source() {
   if [ -d "${APP_DIR}/.git" ]; then
     require_command git
@@ -135,6 +140,11 @@ update_source() {
       [ -n "${TARBALL_URL}" ] || TARBALL_URL="${DEFAULT_TARBALL_URL}"
     fi
     install_from_tarball
+    return
+  fi
+  if is_disposable_upgrade_residue; then
+    printf '检测到 DSHA 升级残留的空依赖目录，正在重新安装 DSH Tavern……\n'
+    install_source
     return
   fi
   fail "${APP_DIR} 已存在但不是受支持的 Git 或压缩包安装，请备份并移走该目录后重试。"

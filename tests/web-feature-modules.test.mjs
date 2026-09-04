@@ -119,6 +119,7 @@ test('游玩控制 Feature module 统一注册状态栏与对话控制面板', f
   const injectedSlots = []
   const ctx = {
     sessions: {},
+    get() { return {} },
     effect(activate) { return activate() },
     betterSidebar: { registerTab(value) { tabs.push(value); return function () {} } }
   }

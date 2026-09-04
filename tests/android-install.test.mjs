@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { access, mkdir, mkdtemp, readFile, readlink, rename, rm, writeFile } from 'node:fs/promises'
+import { access, mkdir, mkdtemp, readFile, readlink, rename, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
@@ -371,6 +371,42 @@ test('Git 下载失败时通过 tarball 安装更新，保留旧数据并在安�
   assert.match(failed.stderr, /源码已恢复到更新前版本/)
   assert.equal(await readFile(path.join(appDir, 'version.txt'), 'utf8'), 'v2\n')
   assert.equal(await readFile(path.join(appDir, 'data', 'legacy.txt'), 'utf8'), '用户数据\n')
+})
+
+test('DSHA 升级留下的空依赖目录可安全重装，真实用户文件仍受保护', async (t) => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'dsh-android-upgrade-residue-'))
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  const source = path.join(directory, 'source')
+  await mkdir(path.join(source, 'android'), { recursive: true })
+  await mkdir(path.join(source, 'bin'), { recursive: true })
+  await writeFile(path.join(source, 'package.json'), JSON.stringify({ name: 'dsh-profile-tavern' }), 'utf8')
+  await writeFile(path.join(source, 'bin', 'dsh-tavern.mjs'), '', 'utf8')
+  await writeFile(path.join(source, 'android', 'install.sh'), '#!/usr/bin/env bash\n', 'utf8')
+  for (const args of [['init', '-b', 'main'], ['config', 'user.email', 'test@example.com'], ['config', 'user.name', 'Test'], ['add', '.'], ['commit', '-m', 'initial']]) {
+    const result = spawnSync('git', args, { cwd: source, encoding: 'utf8' })
+    assert.equal(result.status, 0, result.stderr)
+  }
+
+  const setupPath = new URL('../android/setup.sh', import.meta.url).pathname
+  const dshHome = path.join(directory, 'dsh-home')
+  const appDir = path.join(dshHome, 'apps', 'dsh-tavern')
+  await mkdir(path.join(appDir, 'node_modules', '.bin'), { recursive: true })
+  await mkdir(path.join(appDir, 'tavern-plugin', 'node_modules', '.bin'), { recursive: true })
+  await symlink('../missing-package/bin.js', path.join(appDir, 'node_modules', '.bin', 'generated-link'))
+  const environment = { ...process.env, DSH_HOME: dshHome, DSH_TAVERN_REPOSITORY: source }
+
+  const recovered = spawnSync('bash', [setupPath], { env: environment, encoding: 'utf8' })
+  assert.equal(recovered.status, 0, recovered.stderr)
+  assert.match(recovered.stdout, /DSHA 升级残留/)
+  await access(path.join(appDir, 'package.json'))
+
+  await rm(appDir, { recursive: true, force: true })
+  await mkdir(appDir, { recursive: true })
+  await writeFile(path.join(appDir, 'user-notes.txt'), 'keep me\n', 'utf8')
+  const protectedInstall = spawnSync('bash', [setupPath], { env: environment, encoding: 'utf8' })
+  assert.notEqual(protectedInstall.status, 0)
+  assert.match(protectedInstall.stderr, /不是受支持的 Git 或压缩包安装/)
+  assert.equal(await readFile(path.join(appDir, 'user-notes.txt'), 'utf8'), 'keep me\n')
 })
 
 test('Git 仓库 fetch 失败时切换为 tarball 更新', async (t) => {

@@ -105,6 +105,26 @@ test('Remote refusal aborts startup before writing a Tavern chat', async () => {
   assert.equal(written, false)
 })
 
+test('DSHA 1.1 legacy connection API can select the Tavern preset', async () => {
+  const calls = []
+  const ctx = {
+    sessions: { create: async () => 's1' },
+    connection: { api: { agentPresets: {
+      async select(payload) {
+        calls.push(payload)
+        return { result: { ok: true, value: { agentPreset: payload.agentPreset } } }
+      }
+    } } }
+  }
+
+  const host = client.createConversationHostAdapter(ctx)
+  await host.ensurePreset('s1', { kind: 'play' })
+
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0].sessionId, 's1')
+  assert.equal(calls[0].agentPreset, 'tavern')
+})
+
 test('sidebar and prewarm are wired to the host adapter, with required services injected', () => {
   assert.ok(client.inject.includes('conversation'))
   assert.ok(client.inject.includes('remote'))
@@ -117,4 +137,59 @@ test('sidebar and prewarm are wired to the host adapter, with required services 
   assert.doesNotMatch(source, /props\.workspaces\.connectWorkspace|props\.connection\.api|noteAgentPreset/)
   const cleanup = source.slice(source.indexOf('async function archiveCurrentBlankSession'), source.indexOf('async function waitForSessionSummary'))
   assert.match(cleanup, /history\.some\(function \(entry\) \{ return entry\.sessionId === current; \}\)/)
+})
+
+test('play status tab receives the host conversation service when it is opened', () => {
+  const React = {
+    Fragment: Symbol('Fragment'),
+    createElement(type, props, ...children) { return { type, props, children } }
+  }
+  const runtime = descriptor.factory(id => id === 'react' ? React : {})
+  const uiConversation = { binding() {} }
+  let statusTab
+  const ctx = {
+    sessions: {},
+    remote: { commands: { execute() {} } },
+    betterSidebar: {
+      registerTab(tab) {
+        if (tab.id === 'dsh-tavern:status') statusTab = tab
+        return () => {}
+      }
+    },
+    get(id) {
+      return id === 'conversation' ? uiConversation : undefined
+    },
+    effect(start) { return start() }
+  }
+  const slots = {
+    inject(_name, register) { return register() },
+    register() { return () => {} }
+  }
+
+  runtime.createPlayControlsFeatureModule().register({ ctx, slots })
+  const rendered = statusTab.component({ scope: { sessionId: 's1' } })
+
+  assert.equal(rendered.props.uiConversation, uiConversation)
+  assert.equal(rendered.props.sessionId, 's1')
+})
+
+test('conversation Chat binding adapts both current and DSHA 1.1 read interfaces', () => {
+  const modernChat = { subscribe() {}, getSnapshot() { return { legacy: { nodes: ['modern'] } } } }
+  const binding = {
+    session: {
+      subscribe() {},
+      getSnapshot() { return { chat: { legacy: { nodes: ['legacy'] } } } }
+    }
+  }
+  const modernConversation = { binding(value) {
+    assert.equal(value, binding)
+    return { target(name) {
+      assert.equal(name, 'chat')
+      return modernChat
+    } }
+  } }
+
+  assert.equal(client.resolveConversationChatBinding(modernConversation, binding), modernChat)
+  const legacyChat = client.resolveConversationChatBinding({}, binding)
+  assert.deepEqual(legacyChat.getSnapshot().legacy.nodes, ['legacy'])
 })

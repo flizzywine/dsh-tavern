@@ -1192,9 +1192,18 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					// Keep Tavern's private Skill roots; its preset also mounts Cordis tools for card workbenches.
 					const agentPreset = "tavern";
 					const agentPresets = ctx.remote && ctx.remote.agentPresets;
-					if (!agentPresets || typeof agentPresets.select !== "function") throw new Error("当前 DSHA 版本不支持切换酒馆模式，请升级 DSHA 后重试");
-					const result = await agentPresets.select(sessionId, agentPreset);
-					if (!result.ok) throw new Error(result.error && result.error.message || "无法切换到酒馆模式");
+					if (agentPresets && typeof agentPresets.select === "function") {
+						const result = await agentPresets.select(sessionId, agentPreset);
+						if (!result.ok) throw new Error(result.error && result.error.message || "无法切换到酒馆模式");
+						return;
+					}
+					// DSHA 1.1 exposes the same host operation on the authenticated
+					// connection API and wraps the result in the request envelope.
+					const legacyAgentPresets = ctx.connection && ctx.connection.api && ctx.connection.api.agentPresets;
+					if (!legacyAgentPresets || typeof legacyAgentPresets.select !== "function") throw new Error("当前 DSHA 版本不支持切换酒馆模式，请升级 DSHA 后重试");
+					const response = await legacyAgentPresets.select({ sessionId: sessionId, agentPreset: agentPreset });
+					const result = response && response.result;
+					if (!result || !result.ok) throw new Error(result && result.error && result.error.message || "无法切换到酒馆模式");
 				}
 			});
 		}
@@ -6775,6 +6784,23 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			options.historyProjection.regenerated(options.sessionId, options.view, options.tail);
 		}
 
+		function resolveConversationChatBinding(uiConversation, binding) {
+			if (uiConversation && typeof uiConversation.binding === "function") {
+				return uiConversation.binding(binding).target("chat");
+			}
+			if (!binding || !binding.session || typeof binding.session.subscribe !== "function" || typeof binding.session.getSnapshot !== "function") {
+				throw new Error("当前 DSHA 无法提供酒馆状态所需的对话消息");
+			}
+			return {
+				subscribe: function (listener) { return binding.session.subscribe(listener); },
+				getSnapshot: function () {
+					const snapshot = binding.session.getSnapshot();
+					if (!snapshot || !snapshot.chat) throw new Error("当前 DSHA 的对话消息尚未就绪");
+					return snapshot.chat;
+				}
+			};
+		}
+
 		function createPlayControlsFeatureModule() {
 			const historyProjection = createTurnHistoryProjection();
 			function TavernConversationExportAction(props) {
@@ -7042,7 +7068,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					function () { return selector(binding.session.getSnapshot()); }
 				);
 			}
-			const chat = props.uiConversation.binding(binding).target("chat");
+			const chat = resolveConversationChatBinding(props.uiConversation, binding);
 			function useChat(selector) {
 				return React.useSyncExternalStore(
 					function (listener) { return chat.subscribe(listener); },
@@ -7471,6 +7497,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		function register(input) {
 			const ctx = input.ctx;
 			const slots = input.slots;
+			const uiConversation = ctx.get("uiConversation") || ctx.get("conversation");
 			ctx.effect(() => ctx.betterSidebar.registerTab({
 				id: "dsh-tavern:status",
 				title: "酒馆状态",
@@ -7673,6 +7700,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		exports.createConversationLifecycleModule = createConversationLifecycleModule;
 		exports.createConversationHostAdapter = createConversationHostAdapter;
 		exports.createConversationPrewarmModule = createConversationPrewarmModule;
+		exports.resolveConversationChatBinding = resolveConversationChatBinding;
 		exports.createResourcesLibraryFeatureModule = createResourcesLibraryFeatureModule;
 		exports.createPresetLibraryFeatureModule = createExternalPresetAndBypassPlanFeatureModule;
 		exports.createWorldBookLibraryFeatureModule = createWorldBookLibraryFeatureModule;
