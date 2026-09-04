@@ -13,10 +13,15 @@ export function helperHostHarness(context = {}, options = {}) {
   const scripts = [{ id: 'a', content: '' }, { id: 'b', content: '' }]
   const html = helperClient.buildTavernHelperScriptDocument({ token: 'host-test', scripts, context: { compatibilityCapabilities: TAVERN_COMPATIBILITY_CAPABILITIES, ...context } })
   let source = html.match(/<script data-dsh-tavern-helper-script>([\s\S]*?)<\/script>/)[1]
-  const download = 'import("/api/dsh-tavern/vendor/runtime-assets/zod/index.mjs")'
-  assert(source.includes(download))
-  // The host implementation is real; only the unrelated CDN dependency is excluded.
-  source = source.replace(download, 'Promise.resolve({})')
+  const downloads = [
+    'import("/api/dsh-tavern/vendor/runtime-assets/zod/index.mjs")',
+    'import("/api/dsh-tavern/vendor/runtime-assets/yaml/index.mjs")'
+  ]
+  for (const download of downloads) {
+    assert(source.includes(download))
+    // The host implementation is real; only packaged module loading is stubbed.
+    source = source.replace(download, 'Promise.resolve({})')
+  }
   const sent = [], listeners = new Map()
   const parent = { postMessage(message) { sent.push(message); options.onCall?.(message) } }
   const window = { parent, structuredClone, setTimeout, clearTimeout, localStorage: {},

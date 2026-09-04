@@ -65,6 +65,7 @@ test('固定脚本依赖从本地发布，不经过远程静态缓存', async ()
   const handler = route({ runtimeReadiness: new Promise(() => {}) })
   const assets = [
     ['zod/index.mjs', /^text\/javascript/],
+    ['yaml/index.mjs', /^text\/javascript/],
     ['vue/vue.runtime.global.prod.js', /^text\/javascript/],
     ['vue-router/vue-router.global.prod.js', /^text\/javascript/],
     ['jquery/jquery.min.js', /^text\/javascript/],

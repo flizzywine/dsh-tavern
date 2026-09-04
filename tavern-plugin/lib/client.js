@@ -2731,7 +2731,10 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			}
 			window.toastr.warning = console.warn;
 			window.toastr.error = console.error;
-			const ready = import("/api/dsh-tavern/vendor/runtime-assets/zod/index.mjs").then(function (module) { window.z = module; return true; });
+			const ready = Promise.all([
+				import("/api/dsh-tavern/vendor/runtime-assets/zod/index.mjs"),
+				import("/api/dsh-tavern/vendor/runtime-assets/yaml/index.mjs")
+			]).then(function (modules) { window.z = modules[0]; window.YAML = modules[1]; return true; });
 			window.__dshTavernHelperReady = ready;
 			void ready.catch(function (error) {
 				parent.postMessage({ type: "dsh-tavern-helper-bootstrap-failed", token: token, message: String(error && error.message || error || "人物卡脚本依赖加载失败") }, "*");

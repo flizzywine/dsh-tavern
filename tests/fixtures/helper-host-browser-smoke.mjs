@@ -8,6 +8,7 @@ const host = await createHelperWorldbookHost(process.argv.includes('--embedded')
 async function browserClientSource() {
 let source = await readFile(new URL('../../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
 source = source.replace('import("/api/dsh-tavern/vendor/runtime-assets/zod/index.mjs")', 'Promise.resolve({})')
+source = source.replace('import("/api/dsh-tavern/vendor/runtime-assets/yaml/index.mjs")', 'Promise.resolve({})')
 for (const dependency of ['tavernIconDependencies', 'tavernStaticAssetShim', 'tavernHelperScriptDependencies']) source = source.replaceAll('+ ' + dependency + '()', "+ ''")
 return source
 }

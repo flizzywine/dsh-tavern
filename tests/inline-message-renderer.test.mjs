@@ -596,7 +596,7 @@ test('人物卡 Helper 脚本使用独立不透明 iframe，并获得脚本、�
   assert.doesNotMatch(document, /allow-same-origin/)
 })
 
-test('官方 MVU 与人物卡脚本共用沙箱时仍先提供全局 Zod', () => {
+test('官方 MVU 与人物卡脚本共用沙箱时仍先提供全局 Zod 与 YAML', () => {
   const document = client.buildTavernHelperScriptDocument({
     token: 'official-mvu-zod-token',
     scripts: [
@@ -610,7 +610,10 @@ test('官方 MVU 与人物卡脚本共用沙箱时仍先提供全局 Zod', () =>
   const loader = Buffer.from(encoded[1], 'base64').toString('utf8')
 
   assert.match(document, /const officialMvuEnabled = metadata\.officialMvu === true/)
-  assert.match(document, /const ready = import\("\/api\/dsh-tavern\/vendor\/runtime-assets\/zod\/index\.mjs"\)\.then\(function \(module\) \{ window\.z = module; return true; \}\)/)
+  assert.match(document, /import\("\/api\/dsh-tavern\/vendor\/runtime-assets\/zod\/index\.mjs"\)/)
+  assert.match(document, /import\("\/api\/dsh-tavern\/vendor\/runtime-assets\/yaml\/index\.mjs"\)/)
+  assert.match(document, /window\.z = modules\[0\]/)
+  assert.match(document, /window\.YAML = modules\[1\]/)
   assert.doesNotMatch(document, /officialMvuEnabled\s*\?\s*Promise\.resolve/)
   assert.ok(loader.indexOf('await window.__dshTavernHelperReady') < loader.indexOf('for(const script of scripts)'))
 })
