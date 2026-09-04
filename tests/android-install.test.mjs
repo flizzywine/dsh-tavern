@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 
-import { createEntryManager, resolveEntryConfig } from '../android/dsh-tavern-entry/index.js'
+import { createEntryHandler, createEntryManager, resolveEntryConfig } from '../android/dsh-tavern-entry/index.js'
 import { configureAndroidProfiles } from '../android/configure-profiles.mjs'
 
 const root = new URL('../', import.meta.url)
@@ -38,6 +38,51 @@ test('自动拉起插件默认使用 3088，并优先读取 Tavern Profile 的�
   assert.throws(() => resolveEntryConfig({ DSH_TAVERN_ANDROID_PORT: '0' }, home), /有效端口/)
   assert.match(entryClient, /127\.0\.0\.1:3088/)
   assert.doesNotMatch(entryClient, /127\.0\.0\.1:3081/)
+})
+
+test('Android 入口只使用当前 Tavern 进程通过鉴权的完整地址并安全重定向', async (t) => {
+  const home = await mkdtemp(path.join(tmpdir(), 'dsh-android-access-'))
+  t.after(() => rm(home, { recursive: true, force: true }))
+  const dshHome = path.join(home, '.dsh')
+  const appDir = path.join(home, 'apps', 'dsh-tavern')
+  const logs = path.join(dshHome, 'logs')
+  await mkdir(path.join(appDir, 'bin'), { recursive: true })
+  await mkdir(logs, { recursive: true })
+  await writeFile(path.join(appDir, 'bin', 'dsh-tavern.mjs'), '', 'utf8')
+  const old = 'dsh web: http://127.0.0.1:3088/?token=old\n'
+  const current = 'dsh web: http://127.0.0.1:3088/?token=current\n'
+  await writeFile(path.join(logs, 'tavern.log'), old + current, 'utf8')
+  await writeFile(path.join(logs, 'tavern.pid.json'), JSON.stringify({ pid: 123, port: 3088, logOffset: Buffer.byteLength(old) }), 'utf8')
+  const calls = []
+  const manager = createEntryManager({
+    env: { DSH_HOME: dshHome, DSH_TAVERN_ANDROID_APP_DIR: appDir },
+    home,
+    portProbe: async () => true,
+    request: async (url, options) => {
+      calls.push({ url, options })
+      return { status: url.includes('token=current') ? 303 : 401, body: { cancel() {} } }
+    },
+  })
+
+  assert.equal(await manager.accessUrl(), 'http://127.0.0.1:3088/?token=current')
+  assert.deepEqual(calls.map(call => call.url), ['http://127.0.0.1:3088/?token=current'])
+  assert.equal(calls[0].options.redirect, 'manual')
+
+  const response = { status: 0, headers: {}, body: undefined,
+    writeHead(status, headers) { this.status = status; this.headers = headers },
+    end(body) { this.body = body },
+  }
+  await createEntryHandler(manager)({
+    method: 'GET', url: '/api/dsh-tavern-android/open', headers: { origin: 'http://127.0.0.1:3080' },
+  }, response)
+  assert.equal(response.status, 302)
+  assert.equal(response.headers.Location, 'http://127.0.0.1:3088/?token=current')
+  assert.equal(response.headers['Cache-Control'], 'no-store')
+})
+
+test('Android 按钮通过本机入口打开，不再直接打开缺少 token 的 3088 裸地址', () => {
+  assert.match(entryClient, /window\.open\("\/api\/dsh-tavern-android\/open", "_blank"\)/)
+  assert.doesNotMatch(entryClient, /window\.open\("http:\/\/127\.0\.0\.1:3088"/)
 })
 
 test('Android 入口在 Tavern 离线时仍可启动更新或修复', async (t) => {

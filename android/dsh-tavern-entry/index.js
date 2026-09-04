@@ -54,10 +54,42 @@ function isPortOpen(port, timeoutMs = 1200) {
   })
 }
 
+function webUrlFromLogChunk(source) {
+  const matches = [...String(source || '').matchAll(/^dsh web: (https?:\/\/\S+)$/gm)]
+  return matches.length > 0 ? matches[matches.length - 1][1] : ''
+}
+
+async function resolveAccessUrl({ dshHome, port, request }) {
+  const origin = `http://127.0.0.1:${port}`
+  let log = Buffer.alloc(0)
+  let offset = 0
+  try { log = readFileSync(path.join(dshHome, 'logs', 'tavern.log')) } catch {}
+  try {
+    const record = record(JSON.parse(readFileSync(path.join(dshHome, 'logs', 'tavern.pid.json'), 'utf8')))
+    if (Number(record.port) === port && Number.isSafeInteger(record.logOffset) && record.logOffset >= 0) offset = record.logOffset
+  } catch {}
+  const candidate = webUrlFromLogChunk(log.subarray(offset).toString('utf8'))
+  const candidates = []
+  try {
+    const url = new URL(candidate)
+    if (url.origin === origin && !url.username && !url.password) candidates.push(url.href)
+  } catch {}
+  candidates.push(`${origin}/`)
+  for (const url of new Set(candidates)) {
+    try {
+      const response = await request(url, { redirect: 'manual', signal: AbortSignal.timeout(1000) })
+      await response.body?.cancel()
+      if (response.status >= 200 && response.status < 400) return url
+    } catch {}
+  }
+  return ''
+}
+
 export function createEntryManager(options = {}) {
   const config = resolveEntryConfig(options.env || process.env, options.home || os.homedir())
   const launcher = path.join(config.appDir, 'bin', 'dsh-tavern.mjs')
   const portProbe = options.portProbe || isPortOpen
+  const request = options.request || fetch
   const spawnProcess = options.spawnProcess || spawn
   const updater = createApplicationUpdater({
     dataRoot: path.join(config.dshHome, 'profile-data', 'tavern', 'data'),
@@ -102,12 +134,51 @@ export function createEntryManager(options = {}) {
     return { installed: true, online: await portProbe(config.port), update }
   }
 
-  return Object.freeze({ ensureStarted, status, update })
+  async function accessUrl() {
+    if (!(await portProbe(config.port))) return ''
+    return resolveAccessUrl({ dshHome: config.dshHome, port: config.port, request })
+  }
+
+  return Object.freeze({ accessUrl, ensureStarted, status, update })
 }
 
 function sendJson(res, status, value) {
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' })
   res.end(JSON.stringify(value))
+}
+
+export function createEntryHandler(manager) {
+  return async (req, res) => {
+    const origin = req.headers.origin
+    if (typeof origin === 'string' && origin !== '' && !/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin)) {
+      sendJson(res, 403, { error: 'forbidden' })
+      return
+    }
+    try {
+      const pathname = decodeURIComponent(new URL(req.url || '/', 'http://x').pathname)
+      if (req.method === 'GET' && pathname === '/api/dsh-tavern-android/status') {
+        sendJson(res, 200, await manager.status())
+        return
+      }
+      if (req.method === 'GET' && pathname === '/api/dsh-tavern-android/open') {
+        const url = await manager.accessUrl()
+        if (url === '') {
+          sendJson(res, 503, { error: '尚未取得酒馆鉴权地址，请稍后重试或点击更新/修复。' })
+          return
+        }
+        res.writeHead(302, { Location: url, 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' })
+        res.end()
+        return
+      }
+      if (req.method === 'POST' && pathname === '/api/dsh-tavern-android/update') {
+        sendJson(res, 202, await manager.update())
+        return
+      }
+      sendJson(res, 404, { error: 'not found' })
+    } catch (error) {
+      sendJson(res, 500, { error: String(error && error.message || error) })
+    }
+  }
 }
 
 export function apply(ctx) {
@@ -129,27 +200,7 @@ export function apply(ctx) {
     ctx.effect(() => webServer.register({
       kind: 'prefix',
       path: '/api/dsh-tavern-android',
-      handler: async (req, res) => {
-        const origin = req.headers.origin
-        if (typeof origin === 'string' && origin !== '' && !/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin)) {
-          sendJson(res, 403, { error: 'forbidden' })
-          return
-        }
-        try {
-          const pathname = decodeURIComponent(new URL(req.url || '/', 'http://x').pathname)
-          if (req.method === 'GET' && pathname === '/api/dsh-tavern-android/status') {
-            sendJson(res, 200, await manager.status())
-            return
-          }
-          if (req.method === 'POST' && pathname === '/api/dsh-tavern-android/update') {
-            sendJson(res, 202, await manager.update())
-            return
-          }
-          sendJson(res, 404, { error: 'not found' })
-        } catch (error) {
-          sendJson(res, 500, { error: String(error && error.message || error) })
-        }
-      },
+      handler: createEntryHandler(manager),
     }), 'dsh-tavern-entry: Android tavern management')
   }
 }
