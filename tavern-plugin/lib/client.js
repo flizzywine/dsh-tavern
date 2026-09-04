@@ -3120,7 +3120,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					onMvuLoadState(record.mvuLoadState);
 				}
 			}
-			function emitToRecord(record, name, args, context, diagnostics) {
+			function emitToRecord(record, name, args, context, diagnostics, hostEventId) {
 				const initializationError = mvuInitializationError(record);
 				if (initializationError) {
 					if (diagnostics) diagnostics.push({ kind: "initialization", name: name, level: "error", ready: false, initializationFailed: true, scriptId: "__dsh_official_mvu__", message: initializationError });
@@ -3133,7 +3133,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					post(record, { type: "dsh-tavern-helper-context", context: record.context });
 				}
 				if (!record.subscriptions.has(String(name))) return Promise.resolve(args);
-				const eventId = "host-event-" + (++eventSequence);
+				const eventId = String(hostEventId || "") || "host-event-" + (++eventSequence);
 				const startedAt = Date.now();
 				return new Promise(function (resolve, reject) {
 					const timer = hostWindow.setTimeout(function () {
@@ -3154,9 +3154,9 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					post(record, { type: "dsh-tavern-helper-event", eventId: eventId, name: name, args: clone(args) });
 				});
 			}
-			async function emit(name, args, context, diagnostics) {
+			async function emit(name, args, context, diagnostics, hostEventId) {
 				let current = clone(Array.isArray(args) ? args : []);
-				for (const record of records.values()) current = await emitToRecord(record, name, current, context, diagnostics);
+				for (const record of records.values()) current = await emitToRecord(record, name, current, context, diagnostics, hostEventId);
 				return current;
 			}
 			function clear() {
@@ -3551,7 +3551,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 						if (active && currentEvent) {
 							const started = await invokeWithDeadline("startTavernScriptWork", currentLease, currentRuntime.inspect(), { eventId: currentEvent.id, leaseToken: leaseToken });
 							if (!started || started.started !== true) throw new Error("Tavern Script 工作租约已失效");
-							const args = await currentRuntime.emit(currentEvent.name, currentEvent.args, currentEvent.context, diagnostics);
+							const args = await currentRuntime.emit(currentEvent.name, currentEvent.args, currentEvent.context, diagnostics, currentEvent.id);
 							if (lease !== currentLease) return;
 							await invoke("completeTavernHelperEvent", { eventId: currentEvent.id, leaseToken: leaseToken, args: args, runtimeId: currentLease.id, diagnostics: diagnostics }, currentLease.sessionId);
 						}

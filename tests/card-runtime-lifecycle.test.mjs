@@ -290,6 +290,19 @@ test('claim 响应丢失后自动重试同一 offer，脚本只执行一次', as
   h.module.dispose()
 })
 
+test('claimed host event identity reaches the shared script runtime unchanged', async () => {
+  const h = execution()
+  const offer = { active: true, ready: true, leaseToken: 'offer-1', event: { id: 'operation-1:attempt-1', name: 'MESSAGE_RECEIVED', args: [0], context: context() } }
+  h.respond(method => Promise.resolve(method === 'claimTavernScriptWork' ? offer : {}))
+
+  h.module.sync('A', view())
+  await h.settle()
+
+  assert.equal(h.runtimes[0].emissions.length, 1)
+  assert.equal(h.runtimes[0].emissions[0][4], offer.event.id)
+  h.module.dispose()
+})
+
 test('SSE 重连会立即向重启后的 Host 重新登记脚本执行器', async () => {
   const h = execution()
   h.module.sync('A', view())
@@ -497,6 +510,27 @@ function sandbox(options = {}) {
   }
   return Object.assign(h, { runtime, frames, calls, mutations, errors, ready, message, respond(fn) { respond = fn } })
 }
+
+test('shared script mutation keeps the claimed host event identity', async () => {
+  const h = sandbox()
+  h.runtime.sync('A', view())
+  const frame = h.ready()
+  const hostEventId = 'operation-1:attempt-1'
+  const emission = h.runtime.emit('UPDATE', [1], context(), [], hostEventId)
+  const dispatched = frame.contentWindow.messages.find(message => message.type === 'dsh-tavern-helper-event')
+
+  assert.equal(dispatched.eventId, hostEventId)
+  h.message(frame, 'dsh-tavern-helper-call', {
+    requestId: 'mutation-1', eventId: dispatched.eventId,
+    method: 'updateTavernHelperVariables', args: { option: { type: 'message', message_id: 0 }, variables: { hp: 2 } }
+  })
+  await tick()
+  assert.equal(h.calls.at(-1).args.eventId, hostEventId)
+
+  h.message(frame, 'dsh-tavern-helper-event-complete', { eventId: dispatched.eventId, args: [1] })
+  await emission
+  h.runtime.dispose()
+})
 
 test('replacing the shared sandbox cancels its pending events and ignores detached load and RPC completion', async () => {
   const h = sandbox(), result = deferred()
