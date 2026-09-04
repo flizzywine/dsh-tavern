@@ -196,6 +196,11 @@ test('品牌首页只匹配没有会话的 hero，空白任务和已有对话保
   assert.ok(!source.includes('选择人物卡后开始游戏，或者在卡片工作台中编辑人物卡'))
 })
 
+test('酒馆正文消息底栏只保留用时和时间', async () => {
+  const css = await readFile(new URL('../tavern-plugin/lib/client-assets/tavern.css', import.meta.url), 'utf8')
+  assert.ok(css.includes('body.dsh-tavern-shell-active [data-turn-tail] > [data-slot="conversation.chat.turnTail"] + div > :nth-child(-n+3) { display: none !important; }'))
+})
+
 
 test('首页选择器行只在 Tavern hero 隐藏，不更改宿主预设和工作区逻辑', async () => {
   const source = await readFile(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')

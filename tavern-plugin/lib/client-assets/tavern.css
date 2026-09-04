@@ -79,6 +79,7 @@
 .dsh-tavern-sidebar { height: 100%; box-sizing: border-box; display: flex; flex-direction: column; padding: 12px; color: var(--dsw-alias-label-primary); background: var(--dsw-specific-sidebar-fill); }
 .dsh-tavern-sidebar.collapsed { padding: 12px 10px; align-items: center; }
 body.dsh-tavern-shell-active button[aria-label="新建会话"], body.dsh-tavern-shell-active button[aria-label="New session"] { display: none !important; }
+body.dsh-tavern-shell-active [data-turn-tail] > [data-slot="conversation.chat.turnTail"] + div > :nth-child(-n+3) { display: none !important; }
 body.dsh-tavern-shell-active [data-phase="hero"] div:has(> [data-slot="conversation.hero.agentPreset"]) { display: none !important; }
 /* A blank session is also a hero. Only the session-less landing page loses its composer. */
 body.dsh-tavern-shell-active [data-phase="hero"]:has([data-composer-seat]):not(:has(> [data-slot="conversation.session.header"])) { display: grid !important; place-items: center; }
