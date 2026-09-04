@@ -123,6 +123,29 @@ test('typed session signal client shares one connection and isolates kinds and s
   assert.equal(connections[0].closed, 1)
 })
 
+test('coordination subscription performs an authoritative initial refresh when a restart signal was lost', async () => {
+  const h = host()
+  const states = []
+  let refreshes = 0
+  const coordination = h.client.createTavernCoordinationEventModule({
+    connect(_sessionId, handlers) {
+      return {
+        close() {},
+        refresh() {
+          refreshes++
+          handlers.message({ task: { kind: 'candidate', status: 'succeeded', busy: false, terminal: true } })
+        }
+      }
+    }
+  })
+
+  const stop = coordination.subscribe('A', state => states.push(copy(state)))
+  await tick()
+  assert.equal(refreshes, 1)
+  assert.equal(states.at(-1).view.task.status, 'succeeded')
+  stop()
+})
+
 test('script owner acquires one lease, reuses sandbox on variable changes, initializes and releases on empty view', async () => {
   const h = execution()
   h.module.sync('A', view())

@@ -1088,6 +1088,9 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 						publish(record, { phase: "retrying", view: record.state.view, error: String(error && error.message || ""), updatedAt: record.state.updatedAt });
 					}
 				});
+				// Session Signals are lossy wake-ups, not state. Always establish the
+				// coordination view from its authoritative source after (re)connecting.
+				if (record.connection && typeof record.connection.refresh === "function") void record.connection.refresh();
 			}
 			function invalidate(sessionId) {
 				const targets = sessionId === undefined || sessionId === null || sessionId === "" ? Array.from(records.values()) : [recordFor(sessionId)];
