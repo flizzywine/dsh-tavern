@@ -394,6 +394,56 @@ test('人物卡挂到宿主 Shadow DOM 的 Font Awesome 样式改用内置资源
   assert.equal(restored.href, 'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css')
 })
 
+test('人物卡手机进入酒馆状态应用槽并由 ShadowRoot 直接加载内置图标', () => {
+  const shadowChildren = []
+  const shadowRoot = {
+    ownerDocument: null,
+    querySelector(selector) {
+      if (selector.includes('font-awesome') || selector.includes('fontawesome')) return shadowChildren.find((node) => node.tagName === 'LINK') || null
+      if (selector === '[data-dsh-tavern-card-app-layout]') return shadowChildren.find((node) => node.layoutStyle) || null
+      return null
+    },
+    appendChild(node) { shadowChildren.push(node); node.parentNode = this; return node }
+  }
+  function element(tagName) {
+    const attributes = new Map()
+    return {
+      tagName: tagName.toUpperCase(), style: { setProperty(name, value) { this[name] = value } },
+      setAttribute(name, value) { attributes.set(name, String(value)); if (name === 'href') this.href = String(value) },
+      getAttribute(name) { return attributes.has(name) ? attributes.get(name) : null },
+      removeAttribute(name) { attributes.delete(name) }
+    }
+  }
+  const body = { appendChild(node) { node.parentNode = this; this.child = node; return node } }
+  const host = element('div')
+  host.id = 'improved-phone-shadow-host-card-script'
+  host.shadowRoot = shadowRoot
+  body.appendChild(host)
+  const floatingButton = element('button')
+  floatingButton.id = 'improved-phone-floating-button-card-script'
+  const document = {
+    body,
+    createElement: element,
+    querySelectorAll(selector) { return selector.includes('shadow-host') ? [host] : [] },
+    querySelector(selector) { return selector.includes('floating-button') ? floatingButton : null }
+  }
+  shadowRoot.ownerDocument = document
+  const slot = { clientWidth: 320, appendChild(node) { node.parentNode = this; this.child = node; return node } }
+
+  const controller = client.createTavernCardAppDock({ document, slot, MutationObserver: null, ResizeObserver: null })
+  assert.equal(slot.child, host)
+  assert.equal(host.style.position, 'relative')
+  assert.equal(host.style['--dsh-tavern-card-app-scale'], String(296 / 360))
+  const icons = shadowChildren.find((node) => node.tagName === 'LINK')
+  assert.equal(icons.href, '/api/dsh-tavern/vendor/runtime-assets/fontawesome/css/all.min.css')
+  assert.ok(shadowChildren.some((node) => node.layoutStyle))
+  assert.equal(floatingButton.style.display, 'none')
+
+  controller.dispose()
+  assert.equal(body.child, host)
+  assert.equal(floatingButton.style.display, undefined)
+})
+
 test('官方 MVU owner 作为共享沙箱首个系统模块本地加载', () => {
   const frames = []
   const hostWindow = {

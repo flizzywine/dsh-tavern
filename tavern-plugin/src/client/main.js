@@ -876,6 +876,124 @@ window.__ModuleLoader__.load({
 			return release;
 		}
 
+		const TAVERN_CARD_PHONE_HOST = '[id^="improved-phone-shadow-host-"]';
+		const TAVERN_CARD_PHONE_BUTTON = '[id^="improved-phone-floating-button-"]';
+		const TAVERN_CARD_PHONE_CSS = '/api/dsh-tavern/vendor/runtime-assets/fontawesome/css/all.min.css';
+		function createTavernCardAppDock(options) {
+			const hostDocument = options && options.document || document;
+			const slot = options && options.slot;
+			const notify = options && typeof options.onChange === "function" ? options.onChange : function () {};
+			const Mutation = options && Object.prototype.hasOwnProperty.call(options, "MutationObserver") ? options.MutationObserver : (hostDocument.defaultView && hostDocument.defaultView.MutationObserver);
+			const Resize = options && Object.prototype.hasOwnProperty.call(options, "ResizeObserver") ? options.ResizeObserver : (hostDocument.defaultView && hostDocument.defaultView.ResizeObserver);
+			let attached = null;
+			let originalParent = null;
+			let originalNext = null;
+			let originalStyle = null;
+			let floatingButton = null;
+			let floatingDisplay = null;
+			let mutationObserver = null;
+			let resizeObserver = null;
+			let disposed = false;
+
+			function installShadowDependencies(host) {
+				const root = host && host.shadowRoot;
+				if (!root) return false;
+				let icons = root.querySelector('link[href*="font-awesome"], link[href*="fontawesome"], link[data-dsh-tavern-card-app-icons]');
+				if (!icons) {
+					icons = root.ownerDocument.createElement("link");
+					icons.rel = "stylesheet";
+					icons.setAttribute("data-dsh-tavern-card-app-icons", "fontawesome");
+					root.appendChild(icons);
+				}
+				icons.setAttribute("href", TAVERN_CARD_PHONE_CSS);
+				let layout = root.querySelector('[data-dsh-tavern-card-app-layout]');
+				if (!layout) {
+					layout = root.ownerDocument.createElement("style");
+					layout.setAttribute("data-dsh-tavern-card-app-layout", "phone");
+					layout.layoutStyle = true;
+					layout.textContent = '.phone-wrapper{position:absolute!important;top:10px!important;left:50%!important;right:auto!important;transform:translateX(-50%) scale(var(--dsh-tavern-card-app-scale,1))!important;transform-origin:top center!important}.phone-drag-btn,.phone-charm{display:none!important}';
+					root.appendChild(layout);
+				}
+				return true;
+			}
+
+			function resize() {
+				if (!attached) return;
+				const available = Math.max(240, Number(slot && slot.clientWidth) || 384) - 24;
+				const scale = Math.min(1, available / 360);
+				attached.style.setProperty("--dsh-tavern-card-app-scale", String(scale));
+				attached.style.height = String(Math.ceil(620 * scale)) + "px";
+			}
+
+			function attach(host) {
+				if (!host || host === attached || !installShadowDependencies(host)) return false;
+				if (attached) restore();
+				attached = host;
+				originalParent = host.parentNode;
+				originalNext = host.nextSibling;
+				originalStyle = host.getAttribute && host.getAttribute("style");
+				host.style.position = "relative";
+				host.style.inset = "auto";
+				host.style.zIndex = "auto";
+				host.style.width = "100%";
+				host.style.overflow = "hidden";
+				slot.appendChild(host);
+				const phoneKey = String(host.id || "").slice("improved-phone-shadow-host-".length);
+				floatingButton = hostDocument.getElementById && hostDocument.getElementById("improved-phone-floating-button-" + phoneKey) || hostDocument.querySelector(TAVERN_CARD_PHONE_BUTTON);
+				if (floatingButton) {
+					floatingDisplay = floatingButton.style.display;
+					floatingButton.style.display = "none";
+				}
+				resize();
+				notify(true);
+				return true;
+			}
+
+			function restore() {
+				if (!attached) return;
+				const host = attached;
+				attached = null;
+				if (originalStyle === null && host.removeAttribute) host.removeAttribute("style");
+				else if (host.setAttribute) host.setAttribute("style", originalStyle || "");
+				if (originalParent) {
+					if (originalNext && originalNext.parentNode === originalParent && typeof originalParent.insertBefore === "function") originalParent.insertBefore(host, originalNext);
+					else if (typeof originalParent.appendChild === "function") originalParent.appendChild(host);
+				}
+				if (floatingButton) floatingButton.style.display = floatingDisplay;
+				originalParent = null; originalNext = null; originalStyle = null; floatingButton = null; floatingDisplay = null;
+				notify(false);
+			}
+
+			function scan() {
+				if (disposed || attached) return;
+				const hosts = hostDocument.querySelectorAll(TAVERN_CARD_PHONE_HOST);
+				for (let index = 0; index < hosts.length; index += 1) if (attach(hosts[index])) break;
+			}
+
+			scan();
+			if (typeof Mutation === "function" && hostDocument.body) {
+				mutationObserver = new Mutation(function () {
+					if (attached && attached.isConnected === false) {
+						attached = null; originalParent = null; originalNext = null; originalStyle = null;
+						if (floatingButton) floatingButton.style.display = floatingDisplay;
+						floatingButton = null; floatingDisplay = null;
+						notify(false);
+					}
+					scan();
+				});
+				mutationObserver.observe(hostDocument.body, { childList: true, subtree: true });
+			}
+			if (typeof Resize === "function" && slot) {
+				resizeObserver = new Resize(resize);
+				resizeObserver.observe(slot);
+			}
+			return Object.freeze({
+				open: function () { const button = hostDocument.querySelector(TAVERN_CARD_PHONE_BUTTON); if (button && typeof button.click === "function") button.click(); },
+				inspect: function () { return { attached: Boolean(attached) }; },
+				dispose: function () { disposed = true; if (mutationObserver) mutationObserver.disconnect(); if (resizeObserver) resizeObserver.disconnect(); restore(); }
+			});
+		}
+
 		function tavernHelperMessageDependencies() {
 			return tavernIconDependencies()
 				+ '<script data-dsh-tavern-helper-dependency="tailwind" src="/api/dsh-tavern/vendor/runtime-assets/tailwind/index.global.js"><\/script>'
@@ -6693,6 +6811,7 @@ window.__ModuleLoader__.load({
 					h("div", { className: "dsh-tavern-status-settle" }, h("span", { className: "dsh-tavern-status-dot " + (view.settleStatus || "idle") }), statusText)
 				),
 					h("div", { className: "dsh-tavern-status-body" },
+					h(TavernCardAppDock, null),
 					view.settleStatus === "error" ? h("div", { className: "dsh-card-error" },
 						h("div", null, view.settleError || "后台结算失败，请重试。"),
 						h("button", { className: "dsh-tavern-btn", disabled: settlementRetryBusy, onClick: retrySettlement }, settlementRetryBusy ? "重试中…" : "重试后台结算")
@@ -6772,6 +6891,25 @@ window.__ModuleLoader__.load({
 						view.posture ? h("div", { className: "dsh-tavern-status-now" }, view.posture) : h("div", { className: "dsh-tavern-status-empty" }, "等待第一轮状态结算")
 					)
 				)
+			);
+		}
+
+		function TavernCardAppDock() {
+			const slotRef = React.useRef(null);
+			const controllerRef = React.useRef(null);
+			const [available, setAvailable] = React.useState(false);
+			React.useEffect(function () {
+				if (!slotRef.current) return;
+				const controller = createTavernCardAppDock({ document: document, slot: slotRef.current, onChange: setAvailable });
+				controllerRef.current = controller;
+				return function () { controllerRef.current = null; controller.dispose(); };
+			}, []);
+			return React.createElement("section", { className: "dsh-tavern-status-section dsh-tavern-card-app-section", hidden: !available },
+				React.createElement("div", { className: "dsh-tavern-card-app-head" },
+					React.createElement("div", { className: "dsh-tavern-status-label" }, "人物卡应用"),
+					React.createElement("button", { className: "dsh-tavern-btn", onClick: function () { if (controllerRef.current) controllerRef.current.open(); } }, "打开手机")
+				),
+				React.createElement("div", { ref: slotRef, className: "dsh-tavern-card-app-slot" })
 			);
 		}
 
@@ -7409,6 +7547,7 @@ window.__ModuleLoader__.load({
 		exports.createTavernHelperEventBus = createTavernHelperEventBus;
 		exports.buildTavernHelperScriptDocument = buildTavernHelperScriptDocument;
 		exports.createTavernHostStylesheetBridge = createTavernHostStylesheetBridge;
+		exports.createTavernCardAppDock = createTavernCardAppDock;
 		exports.createTavernHelperScriptRuntime = createTavernHelperScriptRuntime;
 		exports.tavernScriptRuntimeReady = tavernScriptRuntimeReady;
 		exports.clampTavernFrameHeight = clampTavernFrameHeight;
