@@ -1628,6 +1628,43 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			return '<link rel="stylesheet" data-dsh-tavern-icons href="/api/dsh-tavern/vendor/runtime-assets/fontawesome/css/all.min.css">';
 		}
 
+		const tavernHostStylesheetBridges = new WeakMap();
+		function bundledTavernStylesheetHref(value) {
+			const source = String(value || "");
+			const href = source.split(/[?#]/)[0];
+			const cdnjs = /^https:\/\/cdnjs\.cloudflare\.com\/ajax\/libs\/font-awesome\/[^/]+\/css\/all(?:\.min)?\.css$/i.test(href);
+			const jsdelivr = /^https:\/\/(?:cdn|testingcf)\.jsdelivr\.net\/npm\/@fortawesome\/fontawesome-free@[^/]+\/css\/all(?:\.min)?\.css$/i.test(href);
+			if (cdnjs || jsdelivr) return "/api/dsh-tavern/vendor/runtime-assets/fontawesome/css/all.min.css";
+			return source;
+		}
+
+		function createTavernHostStylesheetBridge(options) {
+			const hostWindow = options && options.window || window;
+			let entry = tavernHostStylesheetBridges.get(hostWindow);
+			if (entry) {
+				entry.references += 1;
+				return function () { release(); };
+			}
+			const Link = hostWindow && hostWindow.HTMLLinkElement;
+			const prototype = Link && Link.prototype;
+			const descriptor = prototype && Object.getOwnPropertyDescriptor(prototype, "href");
+			if (!descriptor || descriptor.configurable === false || typeof descriptor.set !== "function") return function () {};
+			const nativeSet = descriptor.set;
+			const bridgedSet = function (value) { return nativeSet.call(this, bundledTavernStylesheetHref(value)); };
+			Object.defineProperty(prototype, "href", Object.assign({}, descriptor, { set: bridgedSet }));
+			entry = { prototype: prototype, descriptor: descriptor, bridgedSet: bridgedSet, references: 1 };
+			tavernHostStylesheetBridges.set(hostWindow, entry);
+			function release() {
+				if (!entry || entry.references <= 0) return;
+				entry.references -= 1;
+				if (entry.references > 0) return;
+				const current = Object.getOwnPropertyDescriptor(entry.prototype, "href");
+				if (current && current.set === entry.bridgedSet) Object.defineProperty(entry.prototype, "href", entry.descriptor);
+				tavernHostStylesheetBridges.delete(hostWindow);
+			}
+			return release;
+		}
+
 		function tavernHelperMessageDependencies() {
 			return tavernIconDependencies()
 				+ '<script data-dsh-tavern-helper-dependency="tailwind" src="/api/dsh-tavern/vendor/runtime-assets/tailwind/index.global.js"><\/script>'
@@ -3084,6 +3121,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		function createTavernHelperScriptRuntime(options) {
 			const hostWindow = options && options.window || window;
 			const hostDocument = options && options.document || document;
+			const releaseHostStylesheetBridge = createTavernHostStylesheetBridge({ window: hostWindow });
 			const invoke = options && options.rpc || rpc;
 			const reportError = options && options.reportError || function (source, error) { tavernErrorHub.report(source, error); };
 			const resolveError = options && options.resolveError || function (source, beforeAt) { tavernErrorHub.resolve(source, beforeAt); };
@@ -3599,7 +3637,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					if (!record || !record.scripts.has(String(scriptId))) return Promise.reject(new Error("人物卡脚本尚未运行"));
 					return emitToRecord(record, buttonEvent(scriptId, name), [], record.context);
 				},
-				dispose: function () { hostWindow.removeEventListener("message", receive); clear(); },
+				dispose: function () { hostWindow.removeEventListener("message", receive); clear(); releaseHostStylesheetBridge(); },
 				inspect: function () {
 					const record = records.get("shared");
 					const scripts = record ? Array.from(record.scripts.values()).map(function (script) { return { id: script.id, loaded: script.loaded, subscriptionsReady: script.subscriptionsReady, initializationFailed: script.initializationFailed }; }) : [];
@@ -8159,6 +8197,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		exports.createTavernHelperTransport = createTavernHelperTransport;
 		exports.createTavernHelperEventBus = createTavernHelperEventBus;
 		exports.buildTavernHelperScriptDocument = buildTavernHelperScriptDocument;
+		exports.createTavernHostStylesheetBridge = createTavernHostStylesheetBridge;
 		exports.createTavernHelperScriptRuntime = createTavernHelperScriptRuntime;
 		exports.tavernScriptRuntimeReady = tavernScriptRuntimeReady;
 		exports.clampTavernFrameHeight = clampTavernFrameHeight;

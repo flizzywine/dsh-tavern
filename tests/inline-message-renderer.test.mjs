@@ -364,6 +364,36 @@ test('Helper 脚本文档提供可见弹窗容器和固定 Tavern Helper 按钮�
   assert.match(document, /\/vendor\/runtime-assets\/vue-router\/vue-router\.global\.prod\.js/)
 })
 
+test('人物卡挂到宿主 Shadow DOM 的 Font Awesome 样式改用内置资源', () => {
+  class FakeLink {}
+  Object.defineProperty(FakeLink.prototype, 'href', {
+    configurable: true,
+    enumerable: true,
+    get() { return this.value || '' },
+    set(value) { this.value = String(value) }
+  })
+  const hostWindow = { HTMLLinkElement: FakeLink }
+  const disposeFirst = client.createTavernHostStylesheetBridge({ window: hostWindow })
+  const disposeSecond = client.createTavernHostStylesheetBridge({ window: hostWindow })
+  const phoneIcons = new FakeLink()
+  phoneIcons.href = 'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css'
+  assert.equal(phoneIcons.href, '/api/dsh-tavern/vendor/runtime-assets/fontawesome/css/all.min.css')
+
+  const unrelated = new FakeLink()
+  unrelated.href = 'https://example.test/card-theme.css'
+  assert.equal(unrelated.href, 'https://example.test/card-theme.css')
+
+  disposeFirst()
+  const shared = new FakeLink()
+  shared.href = 'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css'
+  assert.equal(shared.href, '/api/dsh-tavern/vendor/runtime-assets/fontawesome/css/all.min.css')
+  disposeSecond()
+
+  const restored = new FakeLink()
+  restored.href = 'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css'
+  assert.equal(restored.href, 'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css')
+})
+
 test('官方 MVU owner 作为共享沙箱首个系统模块本地加载', () => {
   const frames = []
   const hostWindow = {
