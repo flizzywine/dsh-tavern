@@ -40,9 +40,10 @@ function harness() {
       rpc: async (method, args, id) => {
         calls.push({ method, args, id })
         if (method === 'claimTavernScriptWork') return gate.claim(id, args.runtimeId, args.ready)
+        if (method === 'startTavernScriptWork') return gate.start(id, args.eventId, args.leaseToken, args.runtimeId)
         if (method === 'heartbeatTavernScriptRuntime') return { active: gate.touch(id, args.runtimeId, args.ready) }
         if (method === 'releaseTavernHelperRuntime') return gate.dispose(id, args.runtimeId)
-        if (method === 'completeTavernHelperEvent') return gate.complete(id, args.eventId, args.args, args.runtimeId)
+        if (method === 'completeTavernHelperEvent') return gate.complete(id, args.eventId, args.args, args.runtimeId, args.leaseToken)
         return {}
       }, createRuntime(settings) {
         const runtime = { disposed: 0, syncs: [], emissions: [],

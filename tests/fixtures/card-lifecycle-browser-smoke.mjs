@@ -108,8 +108,9 @@ const server = createServer(async (request, response) => {
       calls.push({ method, sessionId })
       if (method === 'getSession') result = { ok: true, view: view(sessionId) }
       else if (method === 'claimTavernScriptWork') result = { ok: true, ...gate.claim(sessionId, body.runtimeId, body.ready) }
+      else if (method === 'startTavernScriptWork') result = { ok: true, ...gate.start(sessionId, body.eventId, body.leaseToken, body.runtimeId) }
       else if (method === 'heartbeatTavernScriptRuntime') result = { ok: true, active: gate.touch(sessionId, body.runtimeId, body.ready) }
-      else if (method === 'completeTavernHelperEvent') result = { ok: true, completed: gate.complete(sessionId, body.eventId, body.args, body.runtimeId, body.error, body.diagnostics) }
+      else if (method === 'completeTavernHelperEvent') result = { ok: true, completed: gate.complete(sessionId, body.eventId, body.args, body.runtimeId, body.leaseToken, body.error, body.diagnostics) }
       else if (method === 'releaseTavernHelperRuntime') result = { ok: true, released: gate.dispose(sessionId, body.runtimeId) }
       else if (method === 'updateTavernHelperVariables') { revisions.set(sessionId, (revisions.get(sessionId) || 1) + 1); result = { ok: true, updated: true } }
       else if (method === 'recordMvuRuntimeDiagnostic') { failures.push(body.diagnostic); result = { ok: true } }

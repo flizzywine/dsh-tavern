@@ -167,8 +167,9 @@ const server = createServer(async (req, res) => {
       const { method, args = {}, sessionId } = JSON.parse(Buffer.concat(chunks).toString('utf8'))
       let result = {}
       if (method === 'claimTavernScriptWork') result = adapter.claimWork(sessionId, args.runtimeId, args.ready, args.initializationError)
+      else if (method === 'startTavernScriptWork') result = adapter.startWork(sessionId, args.eventId, args.leaseToken, args.runtimeId)
       else if (method === 'heartbeatTavernScriptRuntime') result = adapter.heartbeatRuntime(sessionId, args.runtimeId, args.ready, args.initializationError)
-      else if (method === 'completeTavernHelperEvent') result = gate.complete(sessionId, args.eventId, args.args, args.runtimeId, args.error, args.diagnostics)
+      else if (method === 'completeTavernHelperEvent') result = gate.complete(sessionId, args.eventId, args.args, args.runtimeId, args.leaseToken, args.error, args.diagnostics)
       else if (method === 'releaseTavernHelperRuntime') result = gate.dispose(sessionId, args.runtimeId)
       else if (method === 'updateTavernHelperVariables') result = args.option?.type === 'global' ? { updated: true } : await adapter.updateVariables(sessionId, args.option, args.variables, args.expectedLifecycleRevision)
       else if (method === 'updateTavernHelperMessages') result = await adapter.updateMessages(sessionId, args.messages, args.expectedLifecycleRevision)

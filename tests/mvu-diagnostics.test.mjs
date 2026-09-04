@@ -139,10 +139,12 @@ test('浏览器非抛出警告经事件门、执行器和结算回执持久保�
     scriptDispatch: { ...gate, async dispatch(...args) {
       const pending = gate.dispatch(...args)
       await new Promise(resolve => setImmediate(resolve))
-      const event = gate.claim('s', 'browser', true).event
+      const offer = gate.claim('s', 'browser', true)
+      const event = offer.event
       assert.ok(event)
+      assert.equal(gate.start('s', event.id, offer.leaseToken, 'browser').started, true)
       // A rejection reported by console.warn does not reject the JS event itself.
-      gate.complete('s', event.id, [0], 'browser', '', [{ level: 'warn', scriptId: 'mvu', message: '目标容器尚未初始化' }])
+      gate.complete('s', event.id, [0], 'browser', offer.leaseToken, '', [{ level: 'warn', scriptId: 'mvu', message: '目标容器尚未初始化' }])
       return await pending
     } }
   })

@@ -82,7 +82,7 @@ Host 向某一 Tavern Session 的浏览器消费者发布的带类型唤醒通�
 
 ## Tavern Script Dispatch
 
-Host 中管理酒馆脚本工作的排队、领取、执行租约、分段超时和结果回执的 Module。它通过 Session Signal 唤醒浏览器执行器，但工作记录仍由自身持有；浏览器沙箱只能领取并回执，不能凭 Signal 决定工作是否存在或完成。
+Host 中管理酒馆脚本工作的排队、offer、显式 start、执行租约、分段超时和结果回执的 Module。它通过 Session Signal 唤醒浏览器执行器，但工作记录仍由自身持有；浏览器沙箱只能领取、确认开始并回执，不能凭 Signal 决定工作是否存在或完成。重复 claim 返回同一 offer，只有 start 确认后才开始计算执行超时。
 
 ## Tavern MVU Core
 

@@ -78,7 +78,12 @@ function execution(options = {}) {
       connectionListeners.set(sessionId + ':' + kind, onConnect)
       return () => { signalListeners.delete(sessionId + ':' + kind); connectionListeners.delete(sessionId + ':' + kind) }
     } },
-    rpc(method, args, sessionId) { calls.push({ method, args: copy(args), sessionId }); return handle(method, args, sessionId) },
+    rpc(method, args, sessionId) {
+      calls.push({ method, args: copy(args), sessionId })
+      return Promise.resolve(handle(method, args, sessionId)).then(function (result) {
+        return method === 'startTavernScriptWork' && (!result || result.started === undefined) ? { started: true } : result
+      })
+    },
     createRuntime(options) {
       const runtime = { options, syncs: [], emissions: [], disposed: 0,
         sync(sessionId, view) { this.syncs.push({ sessionId, view }) },
@@ -255,6 +260,33 @@ test('服务重启遗留的悬挂 claim 超时后由重放 signal 向新服务�
   assert.equal(h.calls.filter(call => call.method === 'claimTavernScriptWork').length, 2)
   assert.equal(h.module.inspect().active, true)
   stale.resolve({ active: true })
+  h.module.dispose()
+})
+
+test('claim 响应丢失后自动重试同一 offer，脚本只执行一次', async () => {
+  const h = execution({ pollRequestTimeoutMs: 100 })
+  const lost = deferred()
+  const offer = { active: true, ready: true, leaseToken: 'offer-1', event: { id: 'work-1', name: 'UPDATE', args: [1], context: context() } }
+  let claims = 0
+  h.respond((method, args) => {
+    if (method === 'claimTavernScriptWork') return ++claims === 1 ? lost.promise : Promise.resolve(offer)
+    if (method === 'startTavernScriptWork') return Promise.resolve({ started: args.eventId === 'work-1' && args.leaseToken === 'offer-1' })
+    return Promise.resolve({})
+  })
+  h.module.sync('A', view())
+  await tick()
+
+  await h.runTimer()
+  await h.settle()
+  await h.runTimer()
+  await h.settle()
+
+  assert.equal(claims, 2)
+  assert.equal(h.runtimes[0].emissions.length, 1)
+  const completed = h.calls.find(call => call.method === 'completeTavernHelperEvent')
+  assert.equal(completed.args.eventId, 'work-1')
+  assert.equal(completed.args.leaseToken, 'offer-1')
+  lost.resolve(offer)
   h.module.dispose()
 })
 

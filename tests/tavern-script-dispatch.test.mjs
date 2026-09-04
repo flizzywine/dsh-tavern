@@ -3,6 +3,13 @@ import test from 'node:test'
 
 import { createTavernScriptDispatch, TAVERN_SCRIPT_EXECUTION_TIMEOUT_MS } from '../tavern-plugin/lib/domain/tavern-script-dispatch.js'
 
+function claimAndStart(gate, sessionId, runtimeId = 'legacy') {
+  const offer = gate.claim(sessionId, runtimeId, true)
+  assert.ok(offer.event)
+  assert.equal(gate.start(sessionId, offer.event.id, offer.leaseToken, runtimeId).started, true)
+  return offer
+}
+
 test('默认执行预算覆盖多个隔离 Helper 脚本的串行事件上限', function () {
   assert.equal(TAVERN_SCRIPT_EXECUTION_TIMEOUT_MS, 60000)
 })
@@ -19,24 +26,45 @@ test('Script dispatch publishes one work signal and returns browser mutations', 
   const pending = gate.dispatch('session-a', 'COMMAND_PARSED', [{ value: 1 }, [{ type: 'set' }]], { messages: [] })
   assert.equal(gate.status('session-a').phase, 'queued')
   assert.deepEqual(signals, [{ sessionId: 'session-a', kind: 'runtime-work', version: 'script-work-1' }])
-  const event = gate.claim('session-a', 'legacy', true).event
+  const offer = claimAndStart(gate, 'session-a')
+  const event = offer.event
   assert.equal(gate.status('session-a').phase, 'executing')
   assert.equal(event.name, 'COMMAND_PARSED')
   assert.deepEqual(event.context, { messages: [] })
   event.args[1].length = 0
-  assert.equal(gate.complete('session-a', event.id, event.args), true)
+  assert.equal(gate.complete('session-a', event.id, event.args, 'legacy', offer.leaseToken), true)
   assert.deepEqual(await pending, { handled: true, args: [{ value: 1 }, []] })
   assert.equal(gate.status('session-a').phase, 'idle')
   assert.equal(gate.claim('session-a', 'legacy', true).event, null)
+})
+
+test('claim 响应丢失后重放同一 offer，显式 start 后才进入执行超时', async function () {
+  const gate = createTavernScriptDispatch({ claimTimeoutMs: 500, executionTimeoutMs: 100 })
+  gate.touch('session-a', 'browser-a', true)
+  const pending = gate.dispatch('session-a', 'MESSAGE_RECEIVED', [1])
+
+  const first = gate.claim('session-a', 'browser-a', true)
+  const replay = gate.claim('session-a', 'browser-a', true)
+  assert.equal(gate.status('session-a').phase, 'offered')
+  assert.equal(replay.event.id, first.event.id)
+  assert.equal(replay.leaseToken, first.leaseToken)
+  assert.deepEqual(gate.start('session-a', first.event.id, first.leaseToken, 'browser-a'), { started: true, alreadyStarted: false })
+  assert.deepEqual(gate.start('session-a', first.event.id, first.leaseToken, 'browser-a'), { started: true, alreadyStarted: true })
+  assert.equal(gate.status('session-a').phase, 'executing')
+
+  const result = await pending
+  assert.equal(result.timedOut, true)
+  assert.equal(result.phase, 'executing')
 })
 
 test('Script dispatch propagates browser script failure instead of reporting handled', async function () {
   const gate = createTavernScriptDispatch({ timeoutMs: 500 })
   gate.touch('session-a', 'browser-a', true)
   const pending = gate.dispatch('session-a', 'MESSAGE_RECEIVED', [2])
-  const event = gate.claim('session-a', 'browser-a', true).event
+  const offer = claimAndStart(gate, 'session-a', 'browser-a')
+  const event = offer.event
 
-  assert.equal(gate.complete('session-a', event.id, event.args, 'browser-a', '变量守卫执行超时'), true)
+  assert.equal(gate.complete('session-a', event.id, event.args, 'browser-a', offer.leaseToken, '变量守卫执行超时'), true)
   assert.deepEqual(await pending, { handled: false, error: '变量守卫执行超时', args: [2] })
   assert.equal(gate.claim('session-a', 'browser-a', true).event, null)
 })
@@ -46,14 +74,15 @@ test('claimed script work times out without blocking later events', async functi
   const gate = createTavernScriptDispatch({ timeoutMs: 100, presenceTtlMs: 1000, now: function () { return clock } })
   gate.touch('session-a', 'legacy', true)
   const first = gate.dispatch('session-a', 'MESSAGE_SENT', [3])
-  gate.claim('session-a', 'legacy', true)
+  claimAndStart(gate, 'session-a')
   const result = await first
   assert.equal(result.handled, false)
   assert.equal(result.timedOut, true)
   clock = 50
   const pending = gate.dispatch('session-a', 'MESSAGE_SENT', [4])
-  const event = gate.claim('session-a', 'legacy', true).event
-  gate.complete('session-a', event.id, event.args)
+  const offer = claimAndStart(gate, 'session-a')
+  const event = offer.event
+  gate.complete('session-a', event.id, event.args, 'legacy', offer.leaseToken)
   assert.equal((await pending).handled, true)
 })
 
@@ -85,11 +114,12 @@ test('非所有者不能完成事件或释放其他浏览器的执行权', async
   const gate = createTavernScriptDispatch({ timeoutMs: 500 })
   gate.claim('session-a', 'browser-a', true)
   const pending = gate.dispatch('session-a', 'MESSAGE_SENT', [1])
-  const event = gate.claim('session-a', 'browser-a', true).event
+  const offer = claimAndStart(gate, 'session-a', 'browser-a')
+  const event = offer.event
 
-  assert.equal(gate.complete('session-a', event.id, event.args, 'browser-b'), false)
+  assert.equal(gate.complete('session-a', event.id, event.args, 'browser-b', offer.leaseToken), false)
   assert.equal(gate.dispose('session-a', 'browser-b'), false)
-  assert.equal(gate.complete('session-a', event.id, event.args, 'browser-a'), true)
+  assert.equal(gate.complete('session-a', event.id, event.args, 'browser-a', offer.leaseToken), true)
   assert.equal((await pending).handled, true)
 })
 
@@ -144,8 +174,9 @@ test('claim 尚未同步失败时，事件回执也识别初始化失败并脱�
   const gate = createTavernScriptDispatch()
   gate.claim('s', 'owner', true)
   const pending = gate.dispatch('s', 'MESSAGE_RECEIVED')
-  const { event } = gate.claim('s', 'owner', true)
-  gate.complete('s', event.id, [], 'owner', 'MVU 加载失败 http://localhost/bundle.js?token=secret-value',
+  const offer = claimAndStart(gate, 's', 'owner')
+  const { event } = offer
+  gate.complete('s', event.id, [], 'owner', offer.leaseToken, 'MVU 加载失败 http://localhost/bundle.js?token=secret-value',
     [{ kind: 'initialization', initializationFailed: true }])
   const result = await pending
   assert.equal(result.initializationFailed, true)

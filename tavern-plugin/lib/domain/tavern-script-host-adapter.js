@@ -399,8 +399,9 @@ export function createTavernScriptHostAdapter(options = {}) {
     loadWorldInfo,
     saveWorldInfo,
     claimWork: function (sessionId, runtimeId, ready, initializationError) { return options.scriptDispatch.claim(sessionId, runtimeId, ready, initializationError) },
+    startWork: function (sessionId, eventId, leaseToken, runtimeId) { return options.scriptDispatch.start(sessionId, eventId, leaseToken, runtimeId) },
     heartbeatRuntime: function (sessionId, runtimeId, ready, initializationError) { return { active: options.scriptDispatch.touch(sessionId, runtimeId, ready, initializationError) } },
-    completeEvent: function (sessionId, eventId, args, runtimeId, error, diagnostics) { return options.scriptDispatch.complete(sessionId, eventId, args, runtimeId, error, diagnostics) },
+    completeEvent: function (sessionId, eventId, args, runtimeId, leaseToken, error, diagnostics) { return options.scriptDispatch.complete(sessionId, eventId, args, runtimeId, leaseToken, error, diagnostics) },
     releaseRuntime: function (sessionId, runtimeId) { return options.scriptDispatch.dispose(sessionId, runtimeId) }
   })
 }

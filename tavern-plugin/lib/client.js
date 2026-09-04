@@ -3442,7 +3442,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			let runtime = null;
 			let lease = null;
 			let workStop = null;
-			let heartbeatTimer = null;
+				let heartbeatTimer = null;
+				let claimRetryTimer = null;
 			let claimBusy = null;
 			let claimRequested = false;
 			let active = false;
@@ -3462,7 +3463,9 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				lease = null;
 				input = null;
 				active = false;
-				claimRequested = false;
+					claimRequested = false;
+					if (claimRetryTimer !== null) hostWindow.clearTimeout(claimRetryTimer);
+					claimRetryTimer = null;
 				if (workStop) workStop();
 				workStop = null;
 				if (heartbeatTimer !== null) stopHeartbeat(heartbeatTimer);
@@ -3497,12 +3500,12 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				}
 				return runtime;
 			}
-			function invokeWithDeadline(method, currentLease, inspection) {
+				function invokeWithDeadline(method, currentLease, inspection, extra) {
 				const Controller = hostWindow.AbortController;
 				const controller = typeof Controller === "function" ? new Controller() : null;
 				let deadlineTimer = null;
 				const request = Promise.resolve().then(function () {
-					return invoke(method, { runtimeId: currentLease.id, ready: tavernScriptRuntimeReady(inspection), ...(inspection.initializationError ? { initializationError: inspection.initializationError } : {}) }, currentLease.sessionId, controller ? { signal: controller.signal } : undefined);
+						return invoke(method, Object.assign({ runtimeId: currentLease.id, ready: tavernScriptRuntimeReady(inspection), ...(inspection.initializationError ? { initializationError: inspection.initializationError } : {}) }, extra || {}), currentLease.sessionId, controller ? { signal: controller.signal } : undefined);
 				});
 				const deadline = new Promise(function (_resolve, reject) {
 					deadlineTimer = hostWindow.setTimeout(function () {
@@ -3513,14 +3516,22 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				return Promise.race([request, deadline]).finally(function () {
 					if (deadlineTimer !== null) hostWindow.clearTimeout(deadlineTimer);
 				});
-			}
-			async function claimWork() {
+				}
+				function scheduleClaimRetry(currentLease) {
+					if (lease !== currentLease || claimRetryTimer !== null) return;
+					claimRetryTimer = hostWindow.setTimeout(function () {
+						claimRetryTimer = null;
+						if (lease === currentLease) void claimWork();
+					}, 250);
+				}
+				async function claimWork() {
 				if (!lease || !runtime || !input || !input.sessionId || !hasScriptRuntime(input.view)) return;
 				const currentLease = lease;
 				const currentRuntime = runtime;
 				if (claimBusy === currentLease) { claimRequested = true; return; }
 				claimBusy = currentLease;
-				let currentEvent = null;
+					let currentEvent = null;
+					let leaseToken = "";
 				const diagnostics = [];
 				try {
 					const result = await invokeWithDeadline("claimTavernScriptWork", currentLease, currentRuntime.inspect());
@@ -3532,20 +3543,24 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 						active = Boolean(result && result.active);
 						currentRuntime.sync(input.sessionId, active ? input.view : inactiveView(input.view));
 					}
-					currentEvent = result && result.event;
-					if (active && currentEvent) {
-						const args = await currentRuntime.emit(currentEvent.name, currentEvent.args, currentEvent.context, diagnostics);
-						if (lease !== currentLease) return;
-						await invoke("completeTavernHelperEvent", { eventId: currentEvent.id, args: args, runtimeId: currentLease.id, diagnostics: diagnostics }, currentLease.sessionId);
-					}
+						currentEvent = result && result.event;
+						leaseToken = String(result && result.leaseToken || "");
+						if (active && currentEvent) {
+							const started = await invokeWithDeadline("startTavernScriptWork", currentLease, currentRuntime.inspect(), { eventId: currentEvent.id, leaseToken: leaseToken });
+							if (!started || started.started !== true) throw new Error("Tavern Script 工作租约已失效");
+							const args = await currentRuntime.emit(currentEvent.name, currentEvent.args, currentEvent.context, diagnostics);
+							if (lease !== currentLease) return;
+							await invoke("completeTavernHelperEvent", { eventId: currentEvent.id, leaseToken: leaseToken, args: args, runtimeId: currentLease.id, diagnostics: diagnostics }, currentLease.sessionId);
+						}
 				} catch (error) {
 					if (lease !== currentLease) return;
 					console.warn("Tavern Helper 生命周期同步失败", error);
 					if (currentEvent) {
 						try {
-							await invoke("completeTavernHelperEvent", { eventId: currentEvent.id, args: currentEvent.args, error: String(error && error.message || error), runtimeId: currentLease.id, diagnostics: diagnostics }, currentLease.sessionId);
-						} catch (completeError) { console.warn("Tavern Helper 失败回执同步失败", completeError); }
-					}
+								await invoke("completeTavernHelperEvent", { eventId: currentEvent.id, leaseToken: leaseToken, args: currentEvent.args, error: String(error && error.message || error), runtimeId: currentLease.id, diagnostics: diagnostics }, currentLease.sessionId);
+							} catch (completeError) { console.warn("Tavern Helper 失败回执同步失败", completeError); }
+						}
+						scheduleClaimRetry(currentLease);
 				} finally {
 					if (claimBusy === currentLease) claimBusy = null;
 					if (lease === currentLease && claimRequested) { claimRequested = false; void claimWork(); }

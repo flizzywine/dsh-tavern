@@ -26,6 +26,7 @@ export function createTavernScriptDispatch(options = {}) {
   const readyListeners = new Set()
   const settledListeners = new Set()
   let sequence = 0
+  let leaseSequence = 0
 
   function publishReady(sessionId) {
     for (const listener of readyListeners) {
@@ -37,6 +38,7 @@ export function createTavernScriptDispatch(options = {}) {
     if (records.get(id) !== record) return false
     records.delete(id)
     if (record.claimTimer !== null) clearTimeout(record.claimTimer)
+    if (record.offerTimer !== null) clearTimeout(record.offerTimer)
     if (record.executionTimer !== null) clearTimeout(record.executionTimer)
     record.resolve(result)
     return true
@@ -76,23 +78,52 @@ export function createTavernScriptDispatch(options = {}) {
     const runtime = presence.get(id)
     const record = records.get(id)
     if (!runtime.ready || !record) return { active: true, ready: runtime.ready === true, event: null }
-    if (record.claimedBy !== '' && record.claimedBy !== str(runtimeId)) return { active: true, ready: true, event: null }
-    if (record.claimedBy === '') {
-      record.claimedBy = str(runtimeId)
+    if (record.phase === 'executing') return { active: true, ready: true, event: null }
+    if (record.offeredTo !== '' && record.offeredTo !== str(runtimeId)) return { active: true, ready: true, event: null }
+    if (record.phase === 'queued') {
+      record.phase = 'offered'
+      record.offeredTo = str(runtimeId)
+      record.leaseToken = record.event.id + ':lease-' + (++leaseSequence)
       if (record.claimTimer !== null) clearTimeout(record.claimTimer)
       record.claimTimer = null
-      record.executionTimer = setTimeout(function () {
-        resolveRecord(id, record, { handled: false, timedOut: true, phase: 'executing', args: clone(record.event.args) })
-      }, executionTimeoutMs)
+      record.offerTimer = setTimeout(function () {
+        if (records.get(id) !== record || record.phase !== 'offered') return
+        record.phase = 'queued'
+        record.offeredTo = ''
+        record.leaseToken = ''
+        record.offerTimer = null
+        record.claimTimer = setTimeout(function () {
+          if (records.get(id) === record && record.phase === 'queued') presence.delete(id)
+          resolveRecord(id, record, { handled: false, unavailable: true, claimTimedOut: true, phase: 'queued', args: clone(record.event.args) })
+        }, claimTimeoutMs)
+        publishSignal(id, { kind: 'runtime-work', version: record.event.id })
+      }, claimTimeoutMs)
     }
-    return { active: true, ready: true, event: clone(record.event) }
+    return { active: true, ready: true, event: clone(record.event), leaseToken: record.leaseToken }
   }
 
-  function complete(sessionId, eventId, args, runtimeId = 'legacy', error = '', diagnostics) {
+  function start(sessionId, eventId, leaseToken, runtimeId = 'legacy') {
+    const id = str(sessionId)
+    if (!available(id, runtimeId)) return { started: false }
+    const record = records.get(id)
+    if (!record || record.event.id !== str(eventId) || record.offeredTo !== str(runtimeId) || record.leaseToken !== str(leaseToken)) return { started: false }
+    if (record.phase === 'executing') return { started: true, alreadyStarted: true }
+    if (record.phase !== 'offered') return { started: false }
+    record.phase = 'executing'
+    if (record.offerTimer !== null) clearTimeout(record.offerTimer)
+    record.offerTimer = null
+    record.executionTimer = setTimeout(function () {
+      resolveRecord(id, record, { handled: false, timedOut: true, phase: 'executing', args: clone(record.event.args) })
+    }, executionTimeoutMs)
+    return { started: true, alreadyStarted: false }
+  }
+
+  function complete(sessionId, eventId, args, runtimeId = 'legacy', leaseToken = '', error = '', diagnostics) {
     const id = str(sessionId)
     if (!available(id, runtimeId)) return false
     const record = records.get(id)
-    if (!record || record.event.id !== str(eventId) || record.claimedBy !== str(runtimeId)) return false
+    if (!record || record.phase !== 'executing' || record.event.id !== str(eventId)
+      || record.offeredTo !== str(runtimeId) || record.leaseToken !== str(leaseToken)) return false
     const extra = Array.isArray(diagnostics) ? { diagnostics: clone(diagnostics.slice(-50)) } : {}
     const initializationFailed = extra.diagnostics?.some(item => item.kind === 'initialization' && item.initializationFailed)
     const message = initializationFailed ? redactDiagnostic(str(error).slice(0, 4000)).trim() : str(error).trim()
@@ -115,13 +146,13 @@ export function createTavernScriptDispatch(options = {}) {
       context: clone(context)
     }
     return await new Promise(function (resolve) {
-      const record = { event, resolve, claimedBy: '', claimTimer: null, executionTimer: null }
+      const record = { event, resolve, phase: 'queued', offeredTo: '', leaseToken: '', claimTimer: null, offerTimer: null, executionTimer: null }
       record.claimTimer = setTimeout(function () {
         // A runtime that stays "ready" but cannot claim signalled work is no
         // longer a usable lease. Keeping that stale presence makes settlement
         // immediately redispatch forever. Its next real claim/heartbeat will
         // register a fresh ready transition and resume the deferred work once.
-        if (records.get(id) === record && record.claimedBy === '') presence.delete(id)
+        if (records.get(id) === record && record.phase === 'queued') presence.delete(id)
         resolveRecord(id, record, { handled: false, unavailable: true, claimTimedOut: true, phase: 'queued', args: clone(event.args) })
       }, claimTimeoutMs)
       records.set(id, record)
@@ -147,16 +178,16 @@ export function createTavernScriptDispatch(options = {}) {
     presence.delete(id)
     const record = records.get(id)
     if (!record) return true
-    return resolveRecord(id, record, { handled: false, disposed: true, phase: record.claimedBy === '' ? 'queued' : 'executing', args: clone(record.event.args) })
+    return resolveRecord(id, record, { handled: false, disposed: true, phase: record.phase, args: clone(record.event.args) })
   }
 
   function status(sessionId) {
     const current = presence.get(str(sessionId))
     const present = Boolean(current && now() - current.seenAt <= presenceTtlMs)
     const record = records.get(str(sessionId))
-    return { present, ready: present && current.ready === true, busy: Boolean(record), phase: record ? (record.claimedBy === '' ? 'queued' : 'executing') : 'idle',
+    return { present, ready: present && current.ready === true, busy: Boolean(record), phase: record ? record.phase : 'idle',
       ...(present && current.initializationError ? { initializationError: current.initializationError } : {}) }
   }
 
-  return Object.freeze({ touch, available, claim, complete, dispatch, subscribeReady, subscribeSettled, dispose, status })
+  return Object.freeze({ touch, available, claim, start, complete, dispatch, subscribeReady, subscribeSettled, dispose, status })
 }
