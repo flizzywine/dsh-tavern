@@ -232,6 +232,8 @@ test('Android setup 是唯一公开入口，优先 Git 并提供压缩包回退'
   assert.match(setup, /git -C "\$\{APP_DIR\}" merge --ff-only origin\/main/)
   assert.match(setup, /https:\/\/codeload\.github\.com\/flizzywine\/dsh-tavern\/tar\.gz\/refs\/heads\/main/)
   assert.match(setup, /curl -fL/)
+  assert.match(setup, /fetch\(url, \{ redirect: 'follow' \}\)/)
+  assert.match(setup, /未检测到 curl，正在通过 Node\.js 下载/)
   assert.match(setup, /tar -xzf/)
   assert.match(setup, /\.dsh-tavern-tarball-source/)
   assert.match(setup, /rollback_source/)

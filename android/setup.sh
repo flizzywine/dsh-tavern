@@ -42,6 +42,30 @@ verify_source() {
   [ -f "${source}/android/install.sh" ] || fail "下载内容不完整，缺少 android/install.sh。"
 }
 
+download_file() {
+  local url="$1"
+  local destination="$2"
+  if command -v curl >/dev/null 2>&1; then
+    curl -fL --retry 2 --connect-timeout 20 -o "${destination}" "${url}"
+    return
+  fi
+  printf '未检测到 curl，正在通过 Node.js 下载……\n'
+  node - "${url}" "${destination}" <<'NODE'
+const fs = require('node:fs')
+const [url, destination] = process.argv.slice(2)
+fetch(url, { redirect: 'follow' })
+  .then(response => {
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    return response.arrayBuffer()
+  })
+  .then(body => fs.writeFileSync(destination, Buffer.from(body)))
+  .catch(error => {
+    console.error(`Node.js 下载失败：${error.message}`)
+    process.exitCode = 1
+  })
+NODE
+}
+
 replace_source() {
   local candidate="$1"
   verify_source "${candidate}"
@@ -67,13 +91,12 @@ rollback_source() {
 }
 
 install_from_tarball() {
-  require_command curl
   require_command tar
   prepare_temp_root
   local archive="${TEMP_ROOT}/dsh-tavern.tar.gz"
   local candidate="${TEMP_ROOT}/tarball-source"
   printf 'Git 下载失败，正在改用 GitHub 压缩包……\n'
-  curl -fL --retry 2 --connect-timeout 20 -o "${archive}" "${TARBALL_URL}" || fail "Git 与压缩包下载均失败，请检查网络后重试。"
+  download_file "${TARBALL_URL}" "${archive}" || fail "Git 与压缩包下载均失败，请检查网络后重试。"
   mkdir -p "${candidate}"
   tar -xzf "${archive}" -C "${candidate}" --strip-components=1 || fail "压缩包无法解压，旧版本未被修改。"
   verify_source "${candidate}"
