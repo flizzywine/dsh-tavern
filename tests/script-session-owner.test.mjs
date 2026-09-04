@@ -12,9 +12,11 @@ function store(value) {
     set(next) { value = next; for (const fn of listeners) fn() } }
 }
 const view = revision => ({ tavernHelperScripts: [{ id: 'companion', content: 'void 0' }], tavernHelper: { stateRevision: revision } })
-function harness() {
+function harness({ holdReleases = false } = {}) {
   const timers = new Map(), events = new Map(), runtimes = [], calls = []
   let sequence = 0, descriptor
+  let allowRelease
+  const releaseBarrier = holdReleases ? new Promise(resolve => { allowRelease = resolve }) : Promise.resolve()
   const window = { crypto: { randomUUID: () => 'lease-' + ++sequence },
     setTimeout(fn) { timers.set(++sequence, fn); return sequence }, clearTimeout(id) { timers.delete(id) },
     addEventListener(type, fn) { events.set(type, fn) }, removeEventListener(type) { events.delete(type) },
@@ -42,7 +44,10 @@ function harness() {
         if (method === 'claimTavernScriptWork') return gate.claim(id, args.runtimeId, args.ready)
         if (method === 'startTavernScriptWork') return gate.start(id, args.eventId, args.leaseToken, args.runtimeId)
         if (method === 'heartbeatTavernScriptRuntime') return { active: gate.touch(id, args.runtimeId, args.ready) }
-        if (method === 'releaseTavernHelperRuntime') return gate.dispose(id, args.runtimeId)
+        if (method === 'releaseTavernHelperRuntime') {
+          if (holdReleases) await releaseBarrier
+          return gate.dispose(id, args.runtimeId)
+        }
         if (method === 'completeTavernHelperEvent') return gate.complete(id, args.eventId, args.args, args.runtimeId, args.leaseToken)
         return {}
       }, createRuntime(settings) {
@@ -54,6 +59,7 @@ function harness() {
         runtimes.push(runtime); return runtime
       } }) }
   return { client, options, list, transition, liveView, subscriptions, gate, runtimes, calls, events, uiStops,
+    allowReleases() { allowRelease?.() },
     async poll() { await new Promise(resolve => setImmediate(resolve)); await new Promise(resolve => setImmediate(resolve)) } }
 }
 
@@ -97,6 +103,23 @@ test('other games release the old owner immediately; stale view callbacks cannot
   h.list.set({ current: undefined })
   assert.equal(h.gate.status('A').present, false)
   assert.equal(owner.getSnapshot().sessionId, '')
+  owner.dispose()
+})
+
+test('fast A-B-A switch waits for the previous runtime release before reclaiming scripts', async () => {
+  const h = harness({ holdReleases: true }), owner = h.client.createTavernScriptSessionOwner(h.options)
+  owner.start(); await h.poll()
+  assert.equal(h.gate.status('A').ready, true)
+
+  h.list.set({ current: 'otherChild' })
+  h.list.set({ current: 'A' })
+  await h.poll()
+  assert.equal(h.gate.status('A').ready, true, 'old A still owns the slot until its delayed release completes')
+
+  h.allowReleases()
+  await h.poll()
+  assert.equal(h.gate.status('A').ready, true, 'the new A runtime must reclaim the slot without waiting for the heartbeat')
+  assert.equal(h.runtimes.at(-1).syncs.at(-1).view.tavernHelperScripts.length, 1)
   owner.dispose()
 })
 

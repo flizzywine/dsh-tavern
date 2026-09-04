@@ -166,6 +166,7 @@ window.__ModuleLoader__.load({
 				body: JSON.stringify(payload)
 			};
 			if (requestOptions && requestOptions.signal) request.signal = requestOptions.signal;
+			if (requestOptions && requestOptions.keepalive === true) request.keepalive = true;
 			return fetch("/api/dsh-tavern/" + method, request).then(readTavernJsonResponse).then(function (result) {
 				tavernRuntimeGenerationMonitor.observe(result && result.runtimeGeneration);
 				if (!result || !result.ok) throw new Error(result && result.error ? result.error : "操作失败");
@@ -879,6 +880,45 @@ window.__ModuleLoader__.load({
 		const TAVERN_CARD_PHONE_HOST = '[id^="improved-phone-shadow-host-"]';
 		const TAVERN_CARD_PHONE_BUTTON = '[id^="improved-phone-floating-button-"]';
 		const TAVERN_CARD_PHONE_CSS = '/api/dsh-tavern/vendor/runtime-assets/fontawesome/css/all.min.css';
+		function createTavernCardAppPresence(options) {
+			const hostWindow = options && options.window || window;
+			const notify = options && typeof options.onChange === "function" ? options.onChange : function () {};
+			const listeners = new Set();
+			const schedule = options && options.setTimeout || (typeof hostWindow.setTimeout === "function" ? hostWindow.setTimeout.bind(hostWindow) : function () { return null; });
+			const cancel = options && options.clearTimeout || (typeof hostWindow.clearTimeout === "function" ? hostWindow.clearTimeout.bind(hostWindow) : function () {});
+			const graceMs = Math.max(0, Number(options && options.graceMs) || 5000);
+			let timer = null;
+			let disposed = false;
+			let state = Object.freeze({ visible: false, attached: false, recovering: false });
+			function publish(next) {
+				state = Object.freeze(next);
+				notify(state);
+				listeners.forEach(function (listener) { listener(); });
+			}
+			function cancelPending() { if (timer !== null) { cancel(timer); timer = null; } }
+			function change(attached) {
+				if (disposed) return;
+				if (attached) {
+					cancelPending();
+					publish({ visible: true, attached: true, recovering: false });
+					return;
+				}
+				if (!state.visible || state.recovering) return;
+				publish({ visible: true, attached: false, recovering: true });
+				timer = schedule(function () {
+					timer = null;
+					if (disposed || state.attached) return;
+					publish({ visible: false, attached: false, recovering: false });
+				}, graceMs);
+			}
+			return Object.freeze({
+				change: change,
+				inspect: function () { return state; },
+				subscribe: function (listener) { listeners.add(listener); return function () { listeners.delete(listener); }; },
+				dispose: function () { disposed = true; cancelPending(); listeners.clear(); }
+			});
+		}
+		const tavernCardAppPresence = createTavernCardAppPresence();
 		function createTavernCardAppDock(options) {
 			const hostDocument = options && options.document || document;
 			const slot = options && options.slot;
@@ -2993,8 +3033,11 @@ window.__ModuleLoader__.load({
 			let workStop = null;
 				let heartbeatTimer = null;
 				let claimRetryTimer = null;
+			let releaseBarrier = Promise.resolve();
+			let releasesPending = 0;
 			let claimBusy = null;
 			let claimRequested = false;
+			let claimRetryCount = 0;
 			let active = false;
 			let input = null;
 
@@ -3007,12 +3050,22 @@ window.__ModuleLoader__.load({
 					|| (view && view.tavernMvuRuntime && view.tavernMvuRuntime.owner === "official")
 				);
 			}
+			function releaseLease(previousLease) {
+				if (!previousLease || !previousLease.sessionId) return Promise.resolve();
+				releasesPending += 1;
+				const request = Promise.resolve(invoke("releaseTavernHelperRuntime", { runtimeId: previousLease.id }, previousLease.sessionId, { keepalive: true }))
+					.catch(function () {})
+					.finally(function () { releasesPending -= 1; });
+				releaseBarrier = Promise.all([releaseBarrier, request]).then(function () {});
+				return request;
+			}
 			function dispose() {
 				const previousLease = lease;
 				lease = null;
 				input = null;
 				active = false;
 					claimRequested = false;
+					claimRetryCount = 0;
 					if (claimRetryTimer !== null) hostWindow.clearTimeout(claimRetryTimer);
 					claimRetryTimer = null;
 				if (workStop) workStop();
@@ -3022,7 +3075,7 @@ window.__ModuleLoader__.load({
 				if (runtime) runtime.dispose();
 				runtime = null;
 				if (options && options.onMvuLoadState) options.onMvuLoadState(null);
-				if (previousLease && previousLease.sessionId) invoke("releaseTavernHelperRuntime", { runtimeId: previousLease.id }, previousLease.sessionId).catch(function () {});
+				releaseLease(previousLease);
 			}
 			function ensureRuntime(sessionId) {
 				if (runtime) return runtime;
@@ -3067,11 +3120,12 @@ window.__ModuleLoader__.load({
 				});
 				}
 				function scheduleClaimRetry(currentLease) {
-					if (lease !== currentLease || claimRetryTimer !== null) return;
+					if (lease !== currentLease || claimRetryTimer !== null || claimRetryCount >= 6) return;
+					const delay = Math.min(2000, 250 * Math.pow(2, claimRetryCount++));
 					claimRetryTimer = hostWindow.setTimeout(function () {
 						claimRetryTimer = null;
 						if (lease === currentLease) void claimWork();
-					}, 250);
+					}, delay);
 				}
 				async function claimWork() {
 				if (!lease || !runtime || !input || !input.sessionId || !hasScriptRuntime(input.view)) return;
@@ -3083,11 +3137,15 @@ window.__ModuleLoader__.load({
 					let leaseToken = "";
 				const diagnostics = [];
 				try {
+					if (releasesPending > 0) await releaseBarrier;
+					if (lease !== currentLease) return;
 					const result = await invokeWithDeadline("claimTavernScriptWork", currentLease, currentRuntime.inspect());
 					if (lease !== currentLease) {
-						if (result && result.active) invoke("releaseTavernHelperRuntime", { runtimeId: currentLease.id }, currentLease.sessionId).catch(function () {});
+						if (result && result.active) releaseLease(currentLease);
 						return;
 					}
+					if (result && result.active) claimRetryCount = 0;
+					else scheduleClaimRetry(currentLease);
 					if (Boolean(result && result.active) !== active) {
 						active = Boolean(result && result.active);
 						currentRuntime.sync(input.sessionId, active ? input.view : inactiveView(input.view));
@@ -6897,18 +6955,19 @@ window.__ModuleLoader__.load({
 		function TavernCardAppDock() {
 			const slotRef = React.useRef(null);
 			const controllerRef = React.useRef(null);
-			const [available, setAvailable] = React.useState(false);
+			const presence = React.useSyncExternalStore(tavernCardAppPresence.subscribe, tavernCardAppPresence.inspect);
 			React.useEffect(function () {
 				if (!slotRef.current) return;
-				const controller = createTavernCardAppDock({ document: document, slot: slotRef.current, onChange: setAvailable });
+				const controller = createTavernCardAppDock({ document: document, slot: slotRef.current, onChange: tavernCardAppPresence.change });
 				controllerRef.current = controller;
 				return function () { controllerRef.current = null; controller.dispose(); };
 			}, []);
-			return React.createElement("section", { className: "dsh-tavern-status-section dsh-tavern-card-app-section", hidden: !available },
+			return React.createElement("section", { className: "dsh-tavern-status-section dsh-tavern-card-app-section", hidden: !presence.visible },
 				React.createElement("div", { className: "dsh-tavern-card-app-head" },
 					React.createElement("div", { className: "dsh-tavern-status-label" }, "人物卡应用"),
-					React.createElement("button", { className: "dsh-tavern-btn", onClick: function () { if (controllerRef.current) controllerRef.current.open(); } }, "打开手机")
+					React.createElement("button", { className: "dsh-tavern-btn", disabled: !presence.attached, onClick: function () { if (controllerRef.current) controllerRef.current.open(); } }, presence.attached ? "打开手机" : "恢复中…")
 				),
+				presence.recovering ? React.createElement("div", { className: "dsh-tavern-card-app-recovering", role: "status" }, "正在恢复人物卡应用…") : null,
 				React.createElement("div", { ref: slotRef, className: "dsh-tavern-card-app-slot" })
 			);
 		}
@@ -7547,6 +7606,7 @@ window.__ModuleLoader__.load({
 		exports.createTavernHelperEventBus = createTavernHelperEventBus;
 		exports.buildTavernHelperScriptDocument = buildTavernHelperScriptDocument;
 		exports.createTavernHostStylesheetBridge = createTavernHostStylesheetBridge;
+		exports.createTavernCardAppPresence = createTavernCardAppPresence;
 		exports.createTavernCardAppDock = createTavernCardAppDock;
 		exports.createTavernHelperScriptRuntime = createTavernHelperScriptRuntime;
 		exports.tavernScriptRuntimeReady = tavernScriptRuntimeReady;

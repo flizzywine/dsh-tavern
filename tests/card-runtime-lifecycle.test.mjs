@@ -78,8 +78,8 @@ function execution(options = {}) {
       connectionListeners.set(sessionId + ':' + kind, onConnect)
       return () => { signalListeners.delete(sessionId + ':' + kind); connectionListeners.delete(sessionId + ':' + kind) }
     } },
-    rpc(method, args, sessionId) {
-      calls.push({ method, args: copy(args), sessionId })
+    rpc(method, args, sessionId, requestOptions) {
+      calls.push({ method, args: copy(args), sessionId, requestOptions })
       return Promise.resolve(handle(method, args, sessionId)).then(function (result) {
         return method === 'startTavernScriptWork' && (!result || result.started === undefined) ? { started: true } : result
       })
@@ -209,8 +209,25 @@ test('script owner acquires one lease, reuses sandbox on variable changes, initi
   assert.equal(h.runtimes[0].disposed, 1)
   assert.equal(h.timers.size, 0)
   assert.equal(h.calls.at(-1).method, 'releaseTavernHelperRuntime')
+  assert.equal(h.calls.at(-1).requestOptions.keepalive, true, 'navigation must not abort the ownership release')
   h.module.dispose()
   assert.equal(h.calls.filter(x => x.method === 'releaseTavernHelperRuntime').length, 1)
+})
+
+test('temporarily rejected script ownership retries promptly instead of waiting for the heartbeat', async () => {
+  const h = execution()
+  let claims = 0
+  h.respond(method => method === 'claimTavernScriptWork' ? { active: ++claims > 1 } : {})
+  h.module.sync('A', view())
+  await h.settle()
+  assert.equal(h.module.inspect().active, false)
+  assert.equal(h.timers.size, 1)
+
+  await h.runTimer()
+  await h.settle()
+  assert.equal(h.module.inspect().active, true)
+  assert.equal(claims, 2)
+  h.module.dispose()
 })
 
 test('script readiness without a chat identity never cancels MVU initialization with an undefined transition', async () => {

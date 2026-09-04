@@ -391,6 +391,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 .dsh-tavern-card-app-section[hidden] { display: none; }
 .dsh-tavern-card-app-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 7px; }
 .dsh-tavern-card-app-head .dsh-tavern-status-label { margin-bottom: 0; }
+.dsh-tavern-card-app-recovering { margin-bottom: 7px; color: var(--dsw-alias-label-secondary); font-size: 11px; }
 .dsh-tavern-card-app-slot { width: 100%; min-height: 120px; overflow: hidden; border: 1px solid var(--dsw-alias-border-l2); border-radius: 12px; background: rgba(0,0,0,.14); }
 .dsh-tavern-script-buttons { display: flex; flex-wrap: wrap; gap: 7px; }
 .dsh-tavern-status-label { margin-bottom: 7px; color: var(--dsw-alias-label-secondary); font-size: 11px; font-weight: 700; letter-spacing: .06em; }

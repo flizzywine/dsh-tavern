@@ -444,6 +444,30 @@ test('人物卡手机进入酒馆状态应用槽并由 ShadowRoot 直接加载�
   assert.equal(floatingButton.style.display, undefined)
 })
 
+test('人物卡手机切换对话重载期间保持应用槽，恢复后原位接管', () => {
+  const timers = []
+  const cleared = new Set()
+  const states = []
+  const presence = client.createTavernCardAppPresence({
+    onChange(state) { states.push(state) },
+    setTimeout(run) { timers.push(run); return timers.length - 1 },
+    clearTimeout(id) { cleared.add(id) }
+  })
+
+  presence.change(true)
+  presence.change(false)
+  assert.deepEqual(JSON.parse(JSON.stringify(states.at(-1))), { visible: true, attached: false, recovering: true })
+
+  presence.change(true)
+  timers[0]()
+  assert.ok(cleared.has(0))
+  assert.deepEqual(JSON.parse(JSON.stringify(states.at(-1))), { visible: true, attached: true, recovering: false })
+
+  presence.change(false)
+  timers[1]()
+  assert.deepEqual(JSON.parse(JSON.stringify(states.at(-1))), { visible: false, attached: false, recovering: false })
+})
+
 test('官方 MVU owner 作为共享沙箱首个系统模块本地加载', () => {
   const frames = []
   const hostWindow = {
