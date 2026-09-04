@@ -13,6 +13,24 @@ async function clientExports(react = {}) {
 
 const browser = await clientExports()
 
+test('世界书详情把常驻条目置顶并与非常驻条目分组，组内保持原顺序', function () {
+  const entries = [
+    { ref: 'dynamic-a', constant: false },
+    { ref: 'constant-a', constant: true },
+    { ref: 'dynamic-b' },
+    { ref: 'constant-b', constant: true }
+  ]
+  const groups = browser.groupWorldBookEditorEntries(entries)
+
+  assert.deepEqual(Array.from(groups.constant, function (item) { return [item.entry.ref, item.index] }), [
+    ['constant-a', 1], ['constant-b', 3]
+  ])
+  assert.deepEqual(Array.from(groups.dynamic, function (item) { return [item.entry.ref, item.index] }), [
+    ['dynamic-a', 0], ['dynamic-b', 2]
+  ])
+  assert.deepEqual(entries.map(function (entry) { return entry.ref }), ['dynamic-a', 'constant-a', 'dynamic-b', 'constant-b'])
+})
+
 test('资源变化只刷新相关资料库，并忽略来源资料库自己的通知', function () {
   const affects = browser.tavernDataChangeAffects
   assert.equal(affects({ detail: { kinds: ['cards'], source: 'cards' } }, ['cards'], 'cards'), false)

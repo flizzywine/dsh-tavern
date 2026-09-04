@@ -501,6 +501,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 .dsh-tavern-worldbook-add:hover { background: rgba(166,107,53,.20); }
 .dsh-tavern-worldbook-empty { padding: 10px; border: 1px dashed var(--dsw-alias-border-l2); border-radius: 8px; color: var(--dsw-alias-label-secondary); font-size: 11px; line-height: 1.6; }
 .dsh-tavern-worldbook-group + .dsh-tavern-worldbook-group { margin-top: 12px; }
+.dsh-tavern-worldbook-group-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 7px; color: var(--dsw-alias-label-secondary); font-size: 10px; }
+.dsh-tavern-worldbook-group-head b { color: #a66b35; font-size: 11px; }
 .dsh-tavern-worldbook-entry { margin-bottom: 10px; padding: 9px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 9px; background: var(--dsw-alias-interactive-bg-hover); }
 .dsh-tavern-worldbook-entry-head { color: #a66b35; cursor: pointer; font-size: 11px; font-weight: 700; }
 .dsh-tavern-worldbook-entry-body { padding-top: 9px; }
@@ -6087,6 +6089,14 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 			}
 			const presetLibraryFeature = createExternalPresetAndBypassPlanFeatureModule();
 
+		function groupWorldBookEditorEntries(entries) {
+			const groups = { constant: [], dynamic: [] };
+			for (const [index, entry] of (entries || []).entries()) {
+				groups[entry && entry.constant === true ? "constant" : "dynamic"].push({ entry: entry, index: index });
+			}
+			return groups;
+		}
+
 		function createWorldBookLibraryFeatureModule() {
 		function WorldBookEditor(props) {
 			const initial = props.record && props.record.view ? props.record.view : { displayName: "", description: "", entries: [], diagnostics: [] };
@@ -6188,6 +6198,13 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					)
 				);
 			}
+			function entryGroup(label, description, items) {
+				return h("section", { className: "dsh-tavern-worldbook-group" },
+					h("div", { className: "dsh-tavern-worldbook-group-head" }, h("b", null, label + " · " + items.length), h("span", null, description)),
+					items.length ? items.map(function (item) { return entryRow(item.entry, item.index); }) : h("div", { className: "dsh-tavern-worldbook-empty" }, "暂无" + label)
+				);
+			}
+			const entryGroups = groupWorldBookEditorEntries(draft.entries);
 			return h("div", { className: "dsh-tavern-library" },
 				h("div", { className: "dsh-tavern-status-head" }, h("button", { className: "dsh-tavern-btn", onClick: props.onBack }, "← 返回世界书库"), h("div", { className: "dsh-tavern-status-title" }, draft.displayName || "未命名世界书"), h("div", { className: "dsh-tavern-question-sub" }, props.record.source.kind === "card" ? "人物卡内置 · " + props.record.source.cardName : "独立世界书"), props.actions),
 				h("div", { className: "dsh-tavern-worldbook-editor" },
@@ -6197,7 +6214,8 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					h("div", { className: "dsh-tavern-worldbook-summary" }, draft.entries.length + " 个条目 · " + draft.entries.filter(function (entry) { return entry.enabled !== false; }).length + " 个启用。未知字段与 extensions 会原样保留；尚未实现的酒馆运行语义不会在这里伪装成已支持。"),
 					(initial.diagnostics || []).map(function (item, index) { return h("div", { key: index, className: "dsh-tavern-dock-error" }, item.message); }),
 					h("div", { className: "dsh-tavern-worldbook-head" }, h("span", { className: "dsh-tavern-worldbook-title" }, "条目"), h("button", { className: "dsh-tavern-worldbook-add", onClick: addEntry }, "＋ 新增条目")),
-					(draft.entries || []).length ? draft.entries.map(entryRow) : h("div", { className: "dsh-tavern-worldbook-empty" }, "暂无条目"),
+					entryGroup("常驻条目", "始终进入上下文", entryGroups.constant),
+					entryGroup("非常驻条目", "按触发词匹配", entryGroups.dynamic),
 					error ? h("div", { className: "dsh-card-error" }, error) : null,
 					h("div", { className: "dsh-tavern-worldbook-editor-actions" }, h("button", { className: "dsh-card-primary", disabled: busy, onClick: save }, busy ? "保存中…" : "保存世界书"))
 				)
@@ -8042,6 +8060,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		exports.tavernMvuReceiptForTurn = tavernMvuReceiptForTurn;
 		exports.tavernUserTextForTurn = tavernUserTextForTurn;
 		exports.createWorldBookLibraryRefreshModule = createWorldBookLibraryRefreshModule;
+		exports.groupWorldBookEditorEntries = groupWorldBookEditorEntries;
 		exports.createCardLibraryRefreshModule = createCardLibraryRefreshModule;
 		exports.tavernDataChangeAffects = tavernDataChangeAffects;
 		exports.createLiveTavernViewModule = createLiveTavernViewModule;
