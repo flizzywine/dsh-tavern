@@ -71,7 +71,7 @@
 
 #### 多平台支持
 
-dsh-tavern 支持 Windows、macOS、Linux 和 Android。Windows 与 macOS 可使用 DSH Desktop 客户端，也可以通过命令行运行；Linux 使用命令行运行；Android 可通过 [DSHA](https://github.com/qiannianhuanxiang/DSHA) 安装和使用。
+dsh-tavern 正式支持 Windows、macOS 和 Linux。Windows 与 macOS 可使用 DSH Desktop 客户端，也可以通过命令行运行；Linux 使用命令行运行。Android 可尝试通过 [DSHA](https://github.com/qiannianhuanxiang/DSHA) 安装，但属于实验性支持，不保证一定可用。
 
 #### 自由安装插件
 
@@ -223,7 +223,9 @@ node ./bin/dsh-tavern.mjs install --host desktop
 
 ### Android
 
-借助 [DSHA](https://github.com/qiannianhuanxiang/DSHA)，可以在 Android 手机上运行本项目。首次安装只需要：
+> **Android 属于实验性支持，不保证一定可用。** 不同手机系统、DSHA 版本、网络和后台限制都可能导致安装或运行失败。
+
+借助 [DSHA](https://github.com/qiannianhuanxiang/DSHA)，可以尝试在 Android 手机上运行本项目。首次安装步骤：
 
 1. 安装 DSHA，配置模型并成功启动一次；
 2. 打开“创造模式”，把下面一句话发给 AI：

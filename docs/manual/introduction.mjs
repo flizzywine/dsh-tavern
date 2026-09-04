@@ -73,7 +73,7 @@ export const installation = `
 | --- | --- | --- |
 | DSH Desktop 桌面版 | 希望由桌面程序管理运行环境、启停和端口 | Windows x64、macOS |
 | 命令行版 | 希望通过浏览器访问、自己管理服务 | Windows、macOS、Linux / WSL2 |
-| Android 版 | 希望在手机上游玩的用户 | 通过 DSHA 安装和运行 |
+| Android 实验版 | 愿意自行排错的手机用户 | 通过 DSHA 尝试安装，不保证一定可用 |
 
 桌面版与命令行版选择一种即可，不要同时运行。下方命令会下载并执行本项目安装脚本，请在确认项目来源可信后运行；网页本身不会自动执行安装。
 
@@ -135,6 +135,8 @@ export const installation = `
 这个命令更新 Tavern，不是升级 DSH 本体。桌面版在 DSH Terminal 中重新运行桌面安装命令，完成后重启 Desktop。若内置更新失败，也可用对应安装命令更新安装器和程序。
 
 ## Android：通过 DSHA 安装
+
+**Android 属于实验性支持，不保证一定可用。** 不同手机系统、DSHA 版本、网络和后台限制都可能导致安装或运行失败。
 
 1. 安装 [DSHA](https://github.com/qiannianhuanxiang/DSHA)，配置模型并成功启动一次。
 2. 打开“创造模式”，把下面这句话发给 AI。

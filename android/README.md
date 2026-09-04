@@ -1,5 +1,7 @@
 # Android 可选组件
 
+Android 属于实验性支持，不保证一定可用。这里的脚本和组件只处理项目已知的 DSHA 部署兼容问题。
+
 这里保存 DSHA 部署使用的酒馆入口插件：
 
 - `dsh-tavern-entry`：在 DSHA Web 启动后检查 3088，必要时自动拉起 Tavern，并每 60 秒复查一次。

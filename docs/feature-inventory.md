@@ -242,7 +242,7 @@
 ## 附录：辅助指南
 
 - 安装、更新与数据持久保存；支持界面检查更新。
-- Windows / macOS 桌面入口，Windows / macOS / Linux 命令行运行；Android 通过 DSHA 安装和使用。
+- Windows / macOS 桌面入口，Windows / macOS / Linux 命令行运行；Android 通过 DSHA 尝试安装，属于实验性支持，不保证一定可用。
 - 复制错误、将相关记录交给 Agent 调试，查看后台轨迹。
 - 导出 Session、MVU、生图相关日志，便于反馈问题；分享前检查私人剧情。
 - 启停、备份、重新安装与常见问题，始终提供可达的帮助入口。

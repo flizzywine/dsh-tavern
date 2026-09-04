@@ -139,12 +139,10 @@ test('网页公开样例下载与原创源数据一致，人物卡没有远程�
   assert.match(demoDownloads['README.txt'], /CC0/)
 })
 
-test('Android 在 README、介绍页及安装文档中作为支持平台，不再标为实验性', async () => {
+test('Android 在所有公开安装入口明确标为实验性且不保证一定可用', async () => {
   for (const path of ['../README.md', 'product.html', 'android-install.md', 'manual/introduction.mjs', 'manual/topics.mjs', 'feature-inventory.md', 'index.html']) {
     const content = await readFile(new URL(path, root), 'utf8')
-    assert.ok(!/Android[^\n。<]*(?:实验|不保证)/.test(content), path)
-    assert.ok(!content.includes('此方案仍为实验性'), path)
-    assert.ok(!content.includes('不保证稳定可用'), path)
+    assert.match(content, /Android[^\n。<]*实验性支持[^\n。<]*不保证一定可用/, path)
   }
   const install = pages.find(p => p.id === 'a02').body
   assert.match(install, /Android：通过 DSHA 安装/)
