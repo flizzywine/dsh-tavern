@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "e0b32447c86bf52473f5c4a84dd0c911a6de2db5",
-  "releaseSequence": 72,
+  "revision": "41ddb5a7e1059e7912b5b8a896fc46c288e4d94f",
+  "releaseSequence": 73,
   "version": "1.3.0",
   "files": [
     {
@@ -141,8 +141,8 @@
     },
     {
       "path": "presets/tavern/skills/tavern-advanced-capabilities/SKILL.md",
-      "sha256": "48862d3f2c47eba22f7ab4d8a4f8464d10eb15dbcace91eab18fa71152ebb2b5",
-      "size": 2282
+      "sha256": "2e39826396fbc00ab829f28469d30bd7af6804d59684bc7c00f2e8824a1daaa3",
+      "size": 2307
     },
     {
       "path": "presets/tavern/skills/tavern-card-to-mvu/assets/status.html",
@@ -156,8 +156,8 @@
     },
     {
       "path": "presets/tavern/skills/tavern-card-to-mvu/SKILL.md",
-      "sha256": "c59fd19b4857ad1126a9959c4619efc2feb287a4381b476adc7553d7a935ec52",
-      "size": 10923
+      "sha256": "aaa0709f114598c5e428785624cf68fae2142851582e415febb3c91d28251276",
+      "size": 11093
     },
     {
       "path": "presets/tavern/skills/tavern-create-skill/SKILL.md",
@@ -186,8 +186,8 @@
     },
     {
       "path": "tavern-plugin/cordis.patch.yml",
-      "sha256": "dafd80eb3fbe0367dc95854cfb8d7724e0a92bae80f994f748c97b9142cca997",
-      "size": 917
+      "sha256": "3c9286f5293bde043e0aba90743af34a86a37789f9d3789b985a90b1bc93b0c9",
+      "size": 1322
     },
     {
       "path": "tavern-plugin/lib/application-updater.js",
@@ -1846,8 +1846,8 @@
     },
     {
       "path": "tavern-plugin/prompts/card-mode.md",
-      "sha256": "0685862a8c17279e922ba3c6bc69b0a7cb542e139b670de91bbad7376e8ec747",
-      "size": 2916
+      "sha256": "7c7298577bfd82d81f32b7bea56e7d21c2e112ed32a4b02b57c86bee83ded289",
+      "size": 3080
     },
     {
       "path": "tavern-plugin/prompts/card-task-debug-play.md",
@@ -1856,28 +1856,28 @@
     },
     {
       "path": "tavern-plugin/prompts/card-task-edit.md",
-      "sha256": "261aa3eecd80fae79fee5f70ad40aade2876e080ff07aa89163ac8657ef0b9db",
-      "size": 238
+      "sha256": "fc875ab331a4b9959d1982260f028865c0f56f6e5c9f32578bb81ca40420aff5",
+      "size": 259
     },
     {
       "path": "tavern-plugin/prompts/card-task-extract.md",
-      "sha256": "2638a02989b35f3c9008a1e3e9fe67d82c1a32688ec230480082c72beeaccd9a",
-      "size": 379
+      "sha256": "a1d305ea67bb289f4453df60ae55a741d2ecfc8c41417f7bd88becc7c87abee7",
+      "size": 394
     },
     {
       "path": "tavern-plugin/prompts/card-task-preset.md",
-      "sha256": "96037f44b09696a29dac613365198ecfabbe3a1b6783cc56c24caa245ff85cf3",
-      "size": 529
+      "sha256": "7bb9557d65775576f6dd05f9c0ad21f84f4c1dcf4a9698e110dd565659e2585a",
+      "size": 489
     },
     {
       "path": "tavern-plugin/prompts/card-task-script.md",
-      "sha256": "7529650ba65f4fde7da3314233dfb264f2f374839025b8dae74758a8c85cf035",
-      "size": 564
+      "sha256": "7d3f92a3cea2c29a2ca44b43f42ad1415752df894644c6651a511147f1fc4230",
+      "size": 618
     },
     {
       "path": "tavern-plugin/prompts/card-task-worldbook.md",
-      "sha256": "92512e03bb6fea0accb1911c94f34fbf5e07224ac97f35aeddf31eda2ba9d2bf",
-      "size": 470
+      "sha256": "468da3f646723a30a95fcf26e0ec7aa1130a34e733d00105c9885a9d9c732204",
+      "size": 449
     },
     {
       "path": "tavern-plugin/prompts/posture-settlement.md",
