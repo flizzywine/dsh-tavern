@@ -92,6 +92,10 @@ Host 中管理酒馆脚本工作的排队、offer、显式 start、执行租约�
 
 酒馆脚本运行模块完成一次 MVU 结算后返回的、绑定 Background Operation 与 Story Timeline 版本的纯数据效果。它在浏览器执行阶段不写入 Chat；只有对应 Round 仍有效时，Background Task Coordinator 才把变量效果、Settlement Receipt、checkpoint 与新 revision 一次提交。中文正式名称为“MVU 结算效果”。
 
+## MVU Settlement Reconciler
+
+把持久化的 pendingSubmission 与当前酒馆脚本运行时状态重新协调的 Host Module。它在服务启动时扫描，在 Session Signal 唤醒时复查，并对瞬时读取或调度失败自动退避重试；pendingSubmission 才是待接续事实，浏览器就绪与 Signal 都只是触发复查的提示。中文正式名称为“MVU 结算协调器”。
+
 ## Prompt Template Runtime
 
 由 dsh-tavern 重新实现的 ST Prompt Template/EJS 运行模块。中文正式名称为“提示词模板运行模块”；它在请求构造阶段处理模板、变量和提示词加工，不属于酒馆脚本运行模块。

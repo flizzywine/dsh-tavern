@@ -36,6 +36,7 @@ import { dshParameterFields } from './domain/dsh-tool-schema.js'
 import { createModelRequestLog } from './domain/model-request-log.js'
 import { MVU_SUBMIT_UPDATE_TOOL, createMvuSettlementModule } from './domain/mvu-background-settlement.js'
 import { applyMvuSettlementEffect } from './domain/mvu-settlement-effect.js'
+import { createMvuSettlementReconciler } from './domain/mvu-settlement-reconciler.js'
 import { CHARACTER_DESIGN_READ_TOOL, CHARACTER_DESIGN_SAVE_TOOL } from './domain/character-design-document.js'
 import { POSTURE_SUBMIT_TOOL, POSTURE_SUBMIT_TOOL_NAME, normalizePostureSubmission } from './domain/posture-submission.js'
 import { TAVERN_COMPATIBILITY_CAPABILITIES, createTavernCompatibilityDiagnosticStore } from './domain/tavern-compatibility-diagnostics.js'
@@ -1730,17 +1731,31 @@ export async function apply(ctx) {
     settlementJobs.set(chatId, job)
     return job
   }
-  const unsubscribeMvuRuntimeReady = tavernScriptDispatch.subscribeSettled(function (sessionId) {
-    void chatForSession(sessionId).then(function (chat) {
+  const mvuSettlementReconciler = createMvuSettlementReconciler({
+    list: () => conversationRegistry.list(),
+    resolve: sessionId => chatForSession(sessionId),
+    shouldResume: function (chat) {
       const target = pendingMvuTarget(chat)
-      if (!target || !target.message.mvu || !target.message.mvu.pendingSubmission) return
-      if (backgroundTasks.activity(chat).phase !== 'pending') return
-      return queueSettlement(chat.id)
-    }).catch(function (error) {
-      console.error('dsh-tavern: 接续等待中的 MVU 变量结算失败', str(error && error.message || error))
-    })
+      return Boolean(target && target.message.mvu && target.message.mvu.pendingSubmission
+        && backgroundTasks.activity(chat).phase === 'pending')
+    },
+    isReady: function (sessionId) {
+      const state = tavernScriptDispatch.status(sessionId)
+      return state.ready || Boolean(state.initializationError)
+    },
+    resume: chatId => queueSettlement(chatId),
+    onError: function (error) {
+      console.error('dsh-tavern: 接续等待中的 MVU 变量结算失败，将自动重试', str(error && error.message || error))
+    }
   })
-  ctx.effect(() => unsubscribeMvuRuntimeReady, 'dsh-tavern: resume deferred MVU settlement')
+  const unsubscribeMvuRuntimeReady = tavernScriptDispatch.subscribeSettled(function (sessionId) {
+    void mvuSettlementReconciler.wake(sessionId)
+  })
+  void mvuSettlementReconciler.scan()
+  ctx.effect(() => function () {
+    unsubscribeMvuRuntimeReady()
+    mvuSettlementReconciler.dispose()
+  }, 'dsh-tavern: reconcile deferred MVU settlement')
   async function retrySettlement(sessionId, turn) {
     const chat = await chatForSession(sessionId)
     if (chat === undefined) throw new Error('当前会话没有绑定人物卡')

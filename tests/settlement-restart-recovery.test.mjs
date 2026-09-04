@@ -6,6 +6,7 @@ import { createStoryTimeline } from '../tavern-plugin/lib/domain/story-timeline.
 import { createBackgroundTaskCoordinator } from '../tavern-plugin/lib/domain/background-task-coordinator.js'
 import { createRoundHistory } from '../tavern-plugin/lib/domain/round-history.js'
 import { applyMvuSettlementEffect, createMvuSettlementEffect } from '../tavern-plugin/lib/domain/mvu-settlement-effect.js'
+import { createMvuSettlementReconciler } from '../tavern-plugin/lib/domain/mvu-settlement-reconciler.js'
 
 const server = await readFile(new URL('../tavern-plugin/lib/index.js', import.meta.url), 'utf8')
 function section(start, end) {
@@ -42,16 +43,17 @@ async function harness({ beginRunning = true } = {}) {
     view: async chat => chat, settlementTurn: () => 2,
     projectAgentMessageText: message => message.text, mvuUpdateRules: async () => [],
     backgroundModelSelection: () => ({}), runtimePrompt: () => '',
-    applySettlement: () => ({ postureUpdated: false }), applyMvuSettlementEffect,
+    applySettlement: () => ({ postureUpdated: false }), applyMvuSettlementEffect, createMvuSettlementReconciler,
+    conversationRegistry: { list: async () => [] }, ctx: { effect() {} },
     mvuSettlement: { settleVariables: async () => ({ receipt: { version: 1, status: 'unchanged', changes: [] } }) }
   })
   vm.runInContext(section('  function mvuReceiptsOf(', '  function withLegacyPresentationProjection('), sandbox)
   vm.runInContext(section('  function pendingMvuTarget(', '  async function mvuUpdateRules('), sandbox)
-  vm.runInContext(section('  async function runSettlement(', '  const unsubscribeMvuRuntimeReady'), sandbox)
+  vm.runInContext(section('  async function runSettlement(', '  const mvuSettlementReconciler'), sandbox)
   vm.runInContext(section('  async function retrySettlement(', '  async function pullBackgroundCycle('), sandbox)
   let onReady
-  sandbox.tavernScriptDispatch = { subscribeSettled(fn) { onReady = fn }, status() { return { ready: false } } }
-  vm.runInContext(section('  const unsubscribeMvuRuntimeReady', '  ctx.effect(() => unsubscribeMvuRuntimeReady'), sandbox)
+  sandbox.tavernScriptDispatch = { subscribeSettled(fn) { onReady = fn }, status() { return { ready: true } } }
+  vm.runInContext(section('  const mvuSettlementReconciler', '  async function retrySettlement'), sandbox)
   const history = createRoundHistory({ chats: { read: store.readChat, forSession: store.readChat, readCard: async () => ({}) },
     sessions: { get: () => undefined }, scripts: {}, timeline, queueSettlement: async () => {}, present() {} })
   return { tasks, timeline, store, running, body, sandbox, history, onReady, get: () => structuredClone(current) }
