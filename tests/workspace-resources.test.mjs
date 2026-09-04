@@ -4,13 +4,21 @@ import test from 'node:test'
 import { mentionedTavernResources, rememberTavernResources, resourceWorkspaceContext } from '../tavern-plugin/lib/domain/workspace-resources.js'
 
 test('卡片 Agent 获得原生文件工具所需的绝对资源根目录', () => {
-  const context = resourceWorkspaceContext('/workspace/data/resources')
+  const context = resourceWorkspaceContext('/workspace/data/resources', {
+    specPath: '.tavern/README.md',
+    bindingsPath: '.tavern/bindings.json',
+    contextPath: '.tavern/sessions/abc/context.json',
+    diagnosticsPath: '.tavern/sessions/abc/diagnostics.json'
+  })
 
   assert.match(context, /\/workspace\/data\/resources/)
   assert.match(context, /str_replace_editor/)
   assert.match(context, /必须使用绝对路径/)
   assert.match(context, /Tavern 工具.*相对路径/)
   assert.match(context, /不得猜测 `\/materials`/)
+  assert.match(context, /\.tavern\/README\.md/)
+  assert.match(context, /\.tavern\/sessions\/abc\/context\.json/)
+  assert.match(context, /由 Tavern 自动刷新/)
 })
 
 test('读取 DSH 原生路径引用并按真实路径挂载 Tavern 资料', () => {

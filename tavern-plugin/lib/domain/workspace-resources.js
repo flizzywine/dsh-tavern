@@ -2,17 +2,27 @@ function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
 }
 
-export function resourceWorkspaceContext(value) {
+export function resourceWorkspaceContext(value, projection) {
   const root = str(value).trim()
   if (root === '') return ''
-  return [
+  const lines = [
     '【当前 Tavern 资源工作区】',
     '- 资源根目录：' + JSON.stringify(root),
     '- 资源在 Tavern 界面、结构化引用和 Tavern 工具参数中仍使用 `materials/...`、`presets/...`、`cards/...` 等相对路径。',
     '- 调用 `str_replace_editor` 时，其 `path` 参数必须使用绝对路径：将上面的资源根目录与资源相对路径连接。',
     '- 不得把相对路径简单加 `/`，不得猜测 `/materials`、`/presets`、`/cards`。',
     '- shell 工具默认位于当前资源工作区，可继续使用相对路径。'
-  ].join('\n')
+  ]
+  if (projection && typeof projection === 'object') {
+    lines.push(
+      '- 资源格式与操作说明：`' + str(projection.specPath) + '`。',
+      '- 当前绑定快照：`' + str(projection.bindingsPath) + '`。',
+      '- 当前 Session 上下文：`' + str(projection.contextPath) + '`。',
+      '- 当前 Session 诊断摘要：`' + str(projection.diagnosticsPath) + '`。',
+      '- 上述 `.tavern/` 文件由 Tavern 自动刷新；可以读取，但不要把修改这些投影当成修改宿主状态。'
+    )
+  }
+  return lines.join('\n')
 }
 
 import { normalizeResourcePath, resourceKind } from './file-resources.js'

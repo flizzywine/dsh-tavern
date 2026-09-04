@@ -181,7 +181,7 @@ export function createNativePlayOrchestrationStrategy(options) {
     const sections = []
     if (mode === 'card') {
       sections.push({ name: 'tavern:mode-persona', text: options.modePrompt(mode) })
-      const workspace = options.workspaceContext(input.cwd)
+      const workspace = options.workspaceContext(input.cwd, input.workspaceProjection)
       if (workspace !== '') sections.push({ name: 'tavern:resource-workspace', text: workspace })
     }
     assembly.sections = sections
