@@ -74,15 +74,18 @@ test('前台固定背景来自标准 Session 消息，不进入当轮 system、F
     modePrompt() { return '正文任务' }, controlledToolNames: new Set()
   } })
   for (const turn of [2, 3]) {
-    const history = session.deriveMessages().concat([userMessage('开场历史'), userMessage('新输入')])
-    const prepared = await run.value.prepareStep({ sessionId: 'native', payload: { turn, step: 1, messages: history }, decision: { kind: 'enter', messages: history }, chat: run.chats.get('native') })
+    const incoming = [userMessage('新输入')]
+    const prepared = await run.value.prepareStep({ sessionId: 'native', payload: { turn, step: 1, messages: incoming }, decision: { kind: 'enter', messages: incoming }, chat: run.chats.get('native') })
     const assembly = await run.value.assembleSystemPrompt({ sections: [], tools: [] }, { sessionId: 'native', chat: run.chats.get('native') })
     const system = assembly.sections.map(section => section.text).join('\n')
     assert.doesNotMatch(system, /人物卡固定基本信息|常驻世界书/)
-    assert.equal(prepared.messages[0].content[0].text, '人物卡固定基本信息\n常驻世界书')
-    assert.equal(prepared.messages[0].source.form, 'snapshot')
-    const request = run.value.projectRequest({ sessionId: 'native', system, messages: prepared.messages })
-    assert.equal(request.messages[0], prepared.messages[0])
+    assert.deepEqual(prepared.messages.map(message => message.content[0].text), ['本轮玩家输入', '本轮动态指令'])
+    assert.equal(prepared.messages.some(message => message.id === 'tavern-session-prefix:native'), false)
+    const modelMessages = session.deriveMessages().concat(prepared.messages)
+    assert.equal(modelMessages.filter(message => message.id === 'tavern-session-prefix:native').length, 1)
+    assert.equal(modelMessages[0].source.form, 'snapshot')
+    const request = run.value.projectRequest({ sessionId: 'native', system, messages: modelMessages })
+    assert.equal(request.messages[0], modelMessages[0])
     assert.equal(run.value.projectRequest(request), null)
     cardText = '后续轮次不重新覆盖最初背景'
   }
@@ -90,7 +93,7 @@ test('前台固定背景来自标准 Session 消息，不进入当轮 system、F
   assert.equal(savedPrefixes.size, 0)
 })
 
-test('旧会话在 pre-step 提升外部背景后，本轮请求立即采用已记录的 Session 消息', async () => {
+test('旧会话在 pre-step 提升外部背景后，不把已记录消息再次作为本轮输入提交', async () => {
   const session = Session.create('legacy-native')
   const fixed = await ensureSessionStablePrefix(session, '人物卡旧背景\n常驻世界书')
   const run = strategies({ nativePlay: {
@@ -107,8 +110,9 @@ test('旧会话在 pre-step 提升外部背景后，本轮请求立即采用已�
     decision: { kind: 'enter', messages: input }, chat: run.chats.get('native')
   })
 
-  assert.deepEqual(prepared.messages.map(message => message.content[0].text), ['旧历史', '继续', '人物卡旧背景\n常驻世界书', '本轮 Frame'])
-  assert.equal(prepared.messages[2], session.deriveMessages()[0])
+  assert.deepEqual(prepared.messages.map(message => message.content[0].text), ['旧历史', '继续', '本轮 Frame'])
+  assert.equal(prepared.messages.some(message => message.id === fixed.id), false)
+  assert.equal(session.deriveMessages().filter(message => message.id === fixed.id).length, 1)
 })
 
 test('普通游玩正常运行，保留的兼容实现仅供独立测试', async () => {

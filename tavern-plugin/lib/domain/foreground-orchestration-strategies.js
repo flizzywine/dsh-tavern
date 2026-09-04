@@ -117,15 +117,11 @@ export function createNativePlayOrchestrationStrategy(options) {
       if (Number(payload.step) === 1 && typeof options.synchronizeTail === 'function') {
         await options.synchronizeTail({ sessionId, chat: input.chat, payload })
       }
-      if (typeof options.ensureSessionPrefix === 'function') {
-        const fixed = await options.ensureSessionPrefix(input)
-        if (fixed?.message && !agentMessages.some(message => message && message.id === fixed.message.id)) {
-          // A legacy external prefix is promoted during pre-step, after DSH
-          // already derived this decision. Mirror that newly logged tail node
-          // into this request; later requests derive it from Session normally.
-          agentMessages = agentMessages.concat([fixed.message])
-        }
-      }
+      // ensureSessionPrefix writes the fixed context directly to the DSH
+      // Session surface. Returning it in this incoming batch would make the
+      // Agent loop append the same message ID a second time and break Chat's
+      // node index; request derivation reads the newly written surface itself.
+      if (typeof options.ensureSessionPrefix === 'function') await options.ensureSessionPrefix(input)
       stagedRequests.set(sessionId, {
         turn: Math.max(0, Number(payload.turn) || 0),
         step: Math.max(1, Number(payload.step) || 1),
