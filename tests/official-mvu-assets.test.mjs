@@ -50,6 +50,19 @@ test('校验失败记录实际哈希、字节数和换行格式，而不保存�
   assert.doesNotMatch(JSON.stringify(diagnostic), /PRIVATE_SCRIPT/)
 })
 
+test('Windows Git 只把换行转成 CRLF 时仍校验并提供规范化官方产物', async () => {
+  const good = (await readOfficialMvuBundle()).body
+  const windowsCheckout = Buffer.from(good.toString('utf8').replaceAll('\n', '\r\n'))
+  const reader = createOfficialMvuBundleReader({ read: async () => windowsCheckout })
+
+  const asset = await reader.read()
+
+  assert.equal(asset.sha256, OFFICIAL_MVU_VERSION.bundleSha256)
+  assert.deepEqual(asset.body, good)
+  assert.equal(reader.inspect().phase, 'verified')
+  assert.equal(reader.inspect().normalizedLineEndings, true)
+})
+
 test('官方 MVU 固定产物可离线读取且内容哈希匹配', async function () {
   const asset = await readOfficialMvuBundle()
   assert.equal(OFFICIAL_MVU_VERSION.commit, '0a730cd4a9b99689d1135a49b542c780b977c24c')
@@ -75,6 +88,8 @@ test('官方 MVU 本地副本保留许可、源码和可复现构建输入', asy
     access(new URL('../host-build/build-host-bundle.sh', root))
   ])
   const license = await readFile(new URL('LICENSE', root), 'utf8')
+  const attributes = await readFile(new URL('../.gitattributes', import.meta.url), 'utf8')
   assert.match(license, /Permission is hereby granted, free of charge/)
   assert.match(license, /THE SOFTWARE IS PROVIDED "AS IS"/)
+  assert.match(attributes, /tavern-plugin\/lib\/vendor\/magvarupdate\/host-build\/artifact\/bundle\.js -text/)
 })

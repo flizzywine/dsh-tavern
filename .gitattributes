@@ -1,0 +1,2 @@
+# Audited runtime bytes must not be rewritten by Windows core.autocrlf.
+tavern-plugin/lib/vendor/magvarupdate/host-build/artifact/bundle.js -text
