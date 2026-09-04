@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "41ddb5a7e1059e7912b5b8a896fc46c288e4d94f",
-  "releaseSequence": 73,
+  "revision": "ffbc55b3949b16a5cf3a946eb78200686e2c7d5b",
+  "releaseSequence": 74,
   "version": "1.3.0",
   "files": [
     {
@@ -356,8 +356,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/foreground-orchestration-strategies.js",
-      "sha256": "da7c96afc2e9b6a3b080119e8a46985f3534b5353e29bdc604e10306b8ec24bb",
-      "size": 9766
+      "sha256": "467a103633b65cc3397388c158d60aeade591101606ba7051b61dbae4c060825",
+      "size": 9793
     },
     {
       "path": "tavern-plugin/lib/domain/history-recall.js",
@@ -468,6 +468,11 @@
       "path": "tavern-plugin/lib/domain/resource-mutation-journal.js",
       "sha256": "263d5d41176b9d19a7211ee7676340b2834493925973a1e9e512f25f5de5b760",
       "size": 5811
+    },
+    {
+      "path": "tavern-plugin/lib/domain/resource-workspace-projection.js",
+      "sha256": "ac988a6b73ba01dd595552727c10b8fad57987cf7985bb1d2ed4e557e1e232f6",
+      "size": 4633
     },
     {
       "path": "tavern-plugin/lib/domain/rollback-surface.js",
@@ -776,8 +781,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/workspace-resources.js",
-      "sha256": "f00d63d3b2bf292fa05200ab57dd8f9b9675a0757feaf5d5b227e6b12b08709c",
-      "size": 4421
+      "sha256": "ae46df8c56e39fc490e528d633a1ae2f70ce17e04fcb40d27b7a48f4a8b49cc4",
+      "size": 4986
     },
     {
       "path": "tavern-plugin/lib/domain/worldbook-library.js",
@@ -801,8 +806,8 @@
     },
     {
       "path": "tavern-plugin/lib/index.js",
-      "sha256": "4a8e85780cc4d91089cd53428258351ba3865c285930963d410885d39f622f10",
-      "size": 194025
+      "sha256": "490ce770912da45d5b7c20a56def7c003b0fd24d360d399edba51564bbb3c341",
+      "size": 196785
     },
     {
       "path": "tavern-plugin/lib/profile-data-store.js",
