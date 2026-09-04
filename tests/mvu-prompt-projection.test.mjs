@@ -24,33 +24,29 @@ test('后台只发送一份结构和真实状态，运行时 Frame、未知字�
   assert.equal(request.turnContext.split('unique-schema-marker').length - 1, 1)
   assert(request.turnContext.includes(JSON.stringify(schema)), 'structure uses compact lossless JSON')
   assert(request.turnContext.includes(input.updateRules[0]))
-  assert(request.turnContext.endsWith('否则跳过人物设计。'))
+  assert(request.turnContext.endsWith(input.updateRules[0]))
   assert.deepEqual(frame.authoritativeState.currentVariables, variables)
   assert.deepEqual(input, before)
 })
 
-test('人物设计提示不依赖固定人物库字段，也不注入 Skill 全文', () => {
+test('MVU 结算只保留变量规则，人物设计通过独立请求工具触发', () => {
   const request = projectMvuBackgroundRequest(createMvuBackgroundTaskFrame({
     ...input,
     currentVariables: { stat_data: { 人物库: { $meta: { extensible: true } } } },
     updateRules: ['人物库允许预先设计人物；设计字段为性格和外貌，状态字段为位置和在场。']
   }))
-  assert.match(request.turnContext, /【人物设计（按需）】/)
-  assert.match(request.turnContext, /调用 skill 加载 tavern-character-design/)
-  assert.match(request.turnContext, /重要人物登场、补全或提前储备/)
-  assert.match(request.turnContext, /先读取并保存独立的人物设计/)
-  assert.match(request.turnContext, /按当前变量结构单独映射/)
-  assert.match(request.system, /稳定设计字段与默认形象可以按 tavern-character-design 合理创作/)
-  assert.match(request.system, /在场、位置、关系进展与已发生事件仍须依据正文/)
+  assert.doesNotMatch(request.turnContext, /人物设计（按需）|tavern-character-design/)
+  assert.match(request.system, /request_character_design/)
+  assert.match(request.system, /不要在本任务中设计或保存人物/)
   assert.doesNotMatch(request.turnContext, /# 后台人物设计/)
 })
 
-test('没有人物库字段时仍然提示 Agent 按需设计人物', () => {
+test('没有人物库字段时也不把人物设计 Skill 混进 MVU 上下文', () => {
   const request = projectMvuBackgroundRequest(createMvuBackgroundTaskFrame({
     ...input
   }))
-  assert.match(request.turnContext, /人物设计（按需）/)
-  assert.match(request.turnContext, /tavern-character-design/)
+  assert.doesNotMatch(request.turnContext, /人物设计（按需）|tavern-character-design/)
+  assert.match(request.system, /request_character_design/)
 })
 
 test('MVU 结算把取消信号传给后台 Agent', async () => {

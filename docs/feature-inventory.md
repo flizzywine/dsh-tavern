@@ -312,7 +312,7 @@
 | D07 | 压缩长对话上下文 | 界面：压缩操作 | 协调前台与后台压缩、展示执行结果；部分失败应按提示处理，不宣传为无损永久记忆。 |
 | D08 | 正则美化与 HTML 面板 | 自动：人物卡消息展示 | 人物卡正则处理、正文内 HTML 展示；展示能力与完整脚本运行能力分开说明。 |
 | D09 | Tavern Helper 与卡内脚本支持范围 | 自动 / 指南 | 已实现桥接、变量和界面联动；按实际脚本依赖判断，不承诺所有手机、数据库或酒馆插件可用。 |
-| D10 | 后台人物设计 | 自动：后台结算 | 普通卡与 MVU 卡都可按需为本局重要人物建立、补全、复用完整档案；MVU 变量另行结算。无独立操作按钮；不等同于改卡或用户画像，不向前台追加完整设计说明。 |
+| D10 | 后台人物设计 | 自动：现有 Agent 提交独立任务请求 | 普通卡与 MVU 卡都可按需为本局重要人物建立、补全、复用完整档案；人物设计 Agent 单独加载 Skill，MVU 变量另行结算。无独立操作按钮；不等同于改卡或用户画像，不向前台追加完整设计说明。 |
 | D11 | 酒馆生态兼容总览 | 指南：资源导入与运行支持 | 统一索引人物卡 PNG / JSON、世界书、预设导入、正则、MVU 与前端美化。逐项区分导入、编辑、展示和运行支持；链接具体教程及状态栏掉格式时的 MVU 转换。不是兼容模式，不承诺所有酒馆插件或原版运行语义可用。 |
 
 ### E. 长期偏好与用户画像
@@ -468,7 +468,7 @@
 | 工作台与资源引用 | 任务选择、中央创作对话、右侧四库 | 有旧 workbench、libraries、editor 图，需更新旧文案 |
 | MVU 与正则美化 | 正文回执、右侧常驻状态栏；正文内 HTML 效果 | 有旧 MVU、regex 图，需复核 |
 | 用户画像 | 右侧栏入口 → 访谈 → 草案 / 确认文本 → 新游戏默认开关 | 需要补拍；开场准备不再展示画像 |
-| 后台人物设计 | 本局重要人物 → 后台档案与变量结算 → 卡片状态中的人物信息 | 需要用有相应 MVU 结构的演示卡补拍；不虚构人物设计面板 |
+| 后台人物设计 | 现有 Agent 发现需要 → 独立任务加载 Skill → 保存本局人物档案 | 普通卡与 MVU 卡共用；不虚构人物设计面板，MVU 状态另由变量结算维护 |
 | 互联网搜索 | 酒馆设置开关 → 新游戏 → 实际搜索调用与结果 | 需要在搜索能力可用时补拍；不能用开关截图代替真实搜索结果 |
 | 场景插画 | 开启配置、手动触发、图片版本、造型参考与重试保存 | 需要补拍 |
 | 预设、世界书与剧本绑定 | 库内操作入口 → 编辑 / 关联 → 保存后结果 | 需要按具体页面补拍 |
@@ -489,7 +489,7 @@
 | `SceneIllustration`、生图设置、渠道目录 | F、G | 启用、出图、重画、版本、参考授权、取消与保存恢复 |
 | 四个资源库及字段编辑器 | I、J、K、L | 导入 / 导出格式、编辑和只读区别、绑定与引用、删除范围 |
 | 工作台工具与内置 Skill | H、M | 读卡与原始扩展、游戏调试、资源修改、恢复卡、文风与工具扩展 |
-| 后台人物设计 Skill、档案模块与 MVU 结算 | D10 | 重要人物的按需设计、档案复用、变量完整性、本局隔离与事实边界 |
+| 后台人物设计 Skill、独立任务与档案模块 | D10 | 重要人物的按需请求、Skill 加载、档案复用、本局隔离与事实边界 |
 | 酒馆设置、前台编排与后台任务运行器 | M02 | 默认关闭、前后台搜索授权、开局快照与已有游戏不变 |
 | 酒馆设置、系统提示词、导出与错误中心 | L、M、N | 生效范围、DSH 依赖、纯正文与日志区别 |
 | 安装器、管理命令与 README 安装说明 | A、N | 平台入口、启停、升级、持久化与备份边界 |
@@ -510,7 +510,7 @@
 - [界面入口与交互](../tavern-plugin/lib/client.js)、[服务端工具与操作](../tavern-plugin/lib/index.js)
 - [发布能力开关](../tavern-plugin/lib/domain/release-capabilities.js)
 - [历史检索](../tavern-plugin/lib/domain/history-recall.js)、[用户画像](../tavern-plugin/lib/domain/user-preference-profile.js)
-- [后台人物设计规则](../presets/tavern-background/skills/tavern-character-design/SKILL.md)、[人物档案](../tavern-plugin/lib/domain/character-design-document.js)、[MVU 后台结算](../tavern-plugin/lib/domain/mvu-background-settlement.js)
+- [后台人物设计规则](../presets/tavern-background/skills/tavern-character-design/SKILL.md)、[独立人物设计任务](../tavern-plugin/lib/domain/character-design-tasks.js)、[人物档案](../tavern-plugin/lib/domain/character-design-document.js)
 - [后台任务与搜索授权](../tavern-plugin/lib/background-agent-runner.js)、[联网设置测试](../tests/tavern-settings.test.mjs)、[前台搜索授权测试](../tests/turn-orchestration.test.mjs)
 - [生图渠道目录](../tavern-plugin/packages/dsh-image-gen/src/tavern/scene-image-channels.js)、[绘图风格](../tavern-plugin/packages/dsh-image-gen/src/tavern/scene-image-style.js)
 - [内置卡片工作台 Skill](../presets/tavern/skills/)、[兼容模式停用记录](design/sillytavern-compatibility-mode.md)

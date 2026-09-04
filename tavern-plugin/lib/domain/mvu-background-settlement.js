@@ -1,11 +1,5 @@
 import { createBackgroundTaskFrame } from './agent-input-frame.js'
-import {
-  CHARACTER_DESIGN_READ_TOOL,
-  CHARACTER_DESIGN_READ_TOOL_NAME,
-  CHARACTER_DESIGN_SAVE_TOOL,
-  CHARACTER_DESIGN_SAVE_TOOL_NAME,
-  createCharacterDesignDocumentSession
-} from './character-design-document.js'
+import { CHARACTER_DESIGN_REQUEST_TOOL_NAME } from './character-design-tasks.js'
 import { variableDiagnosticSummary } from './mvu-diagnostics.js'
 import { POSTURE_SUBMIT_TOOL, POSTURE_SUBMIT_TOOL_NAME, normalizePostureSubmission } from './posture-submission.js'
 
@@ -323,15 +317,13 @@ export function projectMvuBackgroundRequest(frame) {
       JSON.stringify(promptVariables(state.currentVariables)),
       '【变量结构】',
       JSON.stringify(state.variableSchema || {}),
-      ...(updateRules.length === 0 ? [] : ['【人物卡变量更新规则】', updateRules.join('\n\n')]),
-      '【人物设计（按需）】',
-      '若本轮需要重要人物登场、补全或提前储备，请调用 skill 加载 tavern-character-design：先读取并保存独立的人物设计，再按当前变量结构单独映射；能复用或补充既有人物时不新建。否则跳过人物设计。'
+      ...(updateRules.length === 0 ? [] : ['【人物卡变量更新规则】', updateRules.join('\n\n')])
     ].join('\n'),
     system: [
       '只根据【正文】中已经确认发生的事实结算变量，不得读取或推断玩家意图。',
       '不得根据旧轮剧情、隐藏思考、候选项或未发生事件更新变量。',
-      '人物档案中的稳定设计字段与默认形象可以按 tavern-character-design 合理创作；在场、位置、关系进展与已发生事件仍须依据正文。',
-      '人物设计如有需要，先按 Skill 使用人物档案工具，再把正文已确认的状态按当前变量结构交给 MVU；人物设计与变量映射是两个独立步骤。调用 mvu_submit_update 前必须调用 posture_submit 提交本轮结束时可见的人物姿势；不得输出 JSON。',
+      '若发现重要人物需要建立、补全或修订长期设计，只调用 ' + CHARACTER_DESIGN_REQUEST_TOOL_NAME + ' 提交独立任务；不要在本任务中设计或保存人物，也不要等待该任务完成。',
+      '调用 mvu_submit_update 前必须调用 posture_submit 提交本轮结束时可见的人物姿势；不得输出 JSON。',
       '必须调用 mvu_submit_update，以工具返回的实际执行校验结果为准。最多提交三次。',
       '变量通过工具提交，不在回复中输出 XML 变量协议；人物卡中的变量含义、更新条件和校验规则仍须遵守。',
       '有变化时提交完整 operations；没有变化时也必须提交 operations: []。',
@@ -339,7 +331,7 @@ export function projectMvuBackgroundRequest(frame) {
       'rolledBack=true 表示整批变量修改未保存，可以基于原快照重新提交完整更新；不得用空 operations 掩盖尚未修复的失败。',
       'ok=true 或 retryable=false 后停止调用，不能重复执行已成功的更新，也不能绕过人物卡校验。'
     ].join('\n'),
-    tools: [POSTURE_SUBMIT_TOOL, CHARACTER_DESIGN_READ_TOOL, CHARACTER_DESIGN_SAVE_TOOL, MVU_SUBMIT_UPDATE_TOOL]
+    tools: [POSTURE_SUBMIT_TOOL, MVU_SUBMIT_UPDATE_TOOL]
   }
 }
 
@@ -398,10 +390,6 @@ export function createMvuSettlementModule(options = {}) {
   async function settleVariables(input = {}) {
     const frame = taskFrame(input)
     const request = projectMvuBackgroundRequest(frame)
-    const characterDesigns = createCharacterDesignDocumentSession({
-      document: input.characterDesignDocument,
-      now: options.now
-    })
     let attempt = 0
     let result = null
     let feedback = null
@@ -415,9 +403,6 @@ export function createMvuSettlementModule(options = {}) {
       try { await options.diagnostics?.record(input.sessionId, { diagnosticId, operationId: input.operationId, chatId: input.chatId, branchId: input.branchId, basedOnRevision: input.basedOnRevision, messageId: input.messageId, swipeId: input.swipeId, attempt, traceSessionId, stage, ...details }) } catch { /* Diagnostics must not change settlement behaviour. */ }
     }
     async function executeTool(call) {
-      if (call && (call.name === CHARACTER_DESIGN_READ_TOOL_NAME || call.name === CHARACTER_DESIGN_SAVE_TOOL_NAME)) {
-        return await characterDesigns.execute(call)
-      }
       if (call && call.name === POSTURE_SUBMIT_TOOL_NAME) {
         try {
           posture = normalizePostureSubmission(call.arguments)
@@ -539,8 +524,6 @@ export function createMvuSettlementModule(options = {}) {
       posture: posture.posture,
       traceSessionId,
       traceBoundary,
-      characterDesignDocument: characterDesigns.document(),
-      characterDesignChanged: characterDesigns.changed(),
       ...result
     }
   }

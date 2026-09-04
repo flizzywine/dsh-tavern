@@ -894,7 +894,7 @@ test('状态结算与候选生成复用同一个常驻后台 Agent，并且每�
     label: '酒馆后台 Agent',
     agentProvider: 'test',
     agentModel: 'scripted',
-    persona: '共享剧情背景，承担世界书召回、状态结算与候选生成任务。'
+    persona: '共享剧情背景，承担世界书召回、状态结算、候选生成与独立人物设计任务。'
   })
   assert.match(prompts[0], /游标 2，姿势 A/)
   assert.match(prompts[0], /任务类型：状态结算/)
