@@ -510,7 +510,7 @@
 - [界面入口与交互](../tavern-plugin/lib/client.js)、[服务端工具与操作](../tavern-plugin/lib/index.js)
 - [发布能力开关](../tavern-plugin/lib/domain/release-capabilities.js)
 - [历史检索](../tavern-plugin/lib/domain/history-recall.js)、[用户画像](../tavern-plugin/lib/domain/user-preference-profile.js)
-- [后台人物设计 Skill](../presets/tavern-background/skills/tavern-character-design/SKILL.md)、[人物档案工具与即时保存](../tavern-plugin/lib/domain/character-design-document.js)
+- [后台人物设计 Skill](../presets/tavern-background/skills/tavern-character-design/SKILL.md)、[人物档案工具与即时保存](../tavern-plugin/lib/domain/character-design-document.js)、[独立采样阶段](../tavern-plugin/lib/domain/character-design-stage.js)
 - [后台任务与搜索授权](../tavern-plugin/lib/background-agent-runner.js)、[联网设置测试](../tests/tavern-settings.test.mjs)、[前台搜索授权测试](../tests/turn-orchestration.test.mjs)
 - [生图渠道目录](../tavern-plugin/packages/dsh-image-gen/src/tavern/scene-image-channels.js)、[绘图风格](../tavern-plugin/packages/dsh-image-gen/src/tavern/scene-image-style.js)
 - [内置卡片工作台 Skill](../presets/tavern/skills/)、[兼容模式停用记录](design/sillytavern-compatibility-mode.md)

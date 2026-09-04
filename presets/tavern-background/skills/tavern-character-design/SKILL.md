@@ -28,6 +28,8 @@ user-invocable: false
 
 ## 返回当前任务
 
-完成必要的读取和保存后，立即返回原后台任务，继续遵守该任务的工具协议。若当前任务要求 `posture_submit` 或 `mvu_submit_update`，仍须照常调用；不要用人物设计结果代替状态结算。
+完成人物设计所需的全部读取和保存后，调用 `character_design_finish` 结束人物设计阶段，再返回原后台任务。不要在结束人物设计阶段之前提交姿势、变量或候选项。
+
+人物设计阶段使用独立的创造性采样策略；`character_design_finish` 之后恢复原任务的精确采样策略。若当前任务要求 `posture_submit` 或 `mvu_submit_update`，仍须照常调用；不要用人物设计结果代替状态结算。
 
 人物设计不输出到回复文本，不生成 HTML，也不向前台追加设计说明。

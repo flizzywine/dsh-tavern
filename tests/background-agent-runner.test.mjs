@@ -141,6 +141,76 @@ test('共享后台 Session 从建立起固定注册完整工具目录，切换�
   await runner.dispose()
 })
 
+test('人物设计阶段独立提高温度，结束后恢复结算温度', async () => {
+  const registered = new Map()
+  const listeners = []
+  const temperatures = []
+  const results = []
+  let work = Promise.resolve()
+  const runner = createBackgroundAgentRunner({
+    id: () => 'background-character-design-temperature',
+    backgroundTools: [
+      { name: 'character_design_read', parameters: { type: 'object' } },
+      { name: 'character_design_save', parameters: { type: 'object' } },
+      { name: 'posture_submit', parameters: { type: 'object' } }
+    ],
+    agents: {
+      get: () => ({ id: 'parent', session: { header: {} } }),
+      async create(options) {
+        await options.setup({
+          systemPrompt: { section() {}, suppressRuntimeContext() {} },
+          on(name, listener) { listeners.push({ name, listener }) },
+          tools: { restrict() {}, register(tool) { registered.set(tool.name, tool) } }
+        })
+        async function sampleTemperature() {
+          const listener = listeners.find(entry => entry.name === 'agent/request')
+          const request = await listener.listener({}, async () => ({}))
+          temperatures.push(request.temperature)
+        }
+        return { agent: {
+          session: { id: 'background-character-design-temperature', events: [], append() {} },
+          followup() {
+            work = (async () => {
+              await sampleTemperature()
+              results.push(await registered.get('character_design_read').execute({}))
+              await sampleTemperature()
+              results.push(await registered.get('posture_submit').execute({ posture: '不应提前提交' }))
+              results.push(await registered.get('character_design_save').execute({ name: '王夫人' }))
+              await sampleTemperature()
+              results.push(await registered.get('character_design_finish').execute({}))
+              await sampleTemperature()
+              results.push(await registered.get('posture_submit').execute({ posture: '佛龛前端坐' }))
+            })()
+          },
+          async whenIdle() { await work }
+        }, async dispose() {} }
+      }
+    }
+  })
+  let submitted = false
+  await runner.run({
+    sessionId: 'parent', persistent: true, task: 'settlement',
+    selection: { provider: 'test', model: 'test' }, temperature: 0.2,
+    messages: [], tools: [
+      { name: 'character_design_read', parameters: { type: 'object' } },
+      { name: 'character_design_save', parameters: { type: 'object' } },
+      { name: 'posture_submit', parameters: { type: 'object' } }
+    ],
+    acceptWithoutText: () => submitted,
+    stopToolsWhen: () => submitted,
+    async onToolCall(call) {
+      if (call.name === 'posture_submit') submitted = true
+      return JSON.stringify({ ok: true })
+    }
+  })
+
+  assert.deepEqual(temperatures, [0.2, 0.7, 0.7, 0.2])
+  assert.match(results[1], /character_design_finish/)
+  assert.equal(JSON.parse(results[3]).ok, true)
+  assert.equal(submitted, true)
+  await runner.dispose()
+})
+
 test('后台共享只读工具跨候选和结算保持注册并始终可用', async () => {
   const submitted = { name: 'candidate_submit_choices', parameters: { type: 'object' } }
   const recalled = { name: 'tavern_recall_history', parameters: { type: 'object' } }

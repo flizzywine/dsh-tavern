@@ -75,6 +75,7 @@ test('人物设计是现有后台 Agent 按需加载的内置 Skill', async () =
   assert.match(skill.content, /不接收变量路径或变量对象/)
   assert.match(skill.content, /character_design_read/)
   assert.match(skill.content, /character_design_save/)
+  assert.match(skill.content, /character_design_finish/)
   assert.doesNotMatch(skill.content, /character_design_complete/)
   assert.match(skill.content, /不使用“未明确”“未知”“待定”/)
   assert.match(skill.content, /不设固定数量上限/)
