@@ -65,16 +65,18 @@ export function createMobileCardImport(options = {}) {
     if (!enabled) return { available: false, files: [] }
     const files = []
     const seen = new Set()
+    let readableRoots = 0
     for (const root of roots) {
       let names
       try { names = await readdir(root.path) } catch { continue }
+      readableRoots += 1
       for (const name of names) {
         const item = await inspect(root, name)
         if (item && !seen.has(item.id)) { seen.add(item.id); files.push(item) }
       }
     }
     files.sort(function (left, right) { return right.modifiedAt - left.modifiedAt || left.name.localeCompare(right.name, 'zh-CN') })
-    return { available: true, files: files.slice(0, 100) }
+    return { available: true, storageAccessible: readableRoots > 0, files: files.slice(0, 100) }
   }
 
   async function read(id) {

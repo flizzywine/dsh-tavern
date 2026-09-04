@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { access, mkdir, mkdtemp, readFile, readlink, rename, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
@@ -80,8 +80,30 @@ test('Android 入口只使用当前 Tavern 进程通过鉴权的完整地址并�
   assert.equal(response.headers['Cache-Control'], 'no-store')
 })
 
+test('Android 入口复用当前 WebView 的 DSHA 鉴权 Cookie', async (t) => {
+  const home = await mkdtemp(path.join(tmpdir(), 'dsh-android-cookie-access-'))
+  t.after(() => rm(home, { recursive: true, force: true }))
+  const dshHome = path.join(home, '.dsh')
+  const appDir = path.join(home, 'apps', 'dsh-tavern')
+  const logs = path.join(dshHome, 'logs')
+  await mkdir(path.join(appDir, 'bin'), { recursive: true })
+  await mkdir(logs, { recursive: true })
+  await writeFile(path.join(appDir, 'bin', 'dsh-tavern.mjs'), '', 'utf8')
+  await writeFile(path.join(logs, 'tavern.log'), 'dsh web: http://127.0.0.1:3088\n', 'utf8')
+  await writeFile(path.join(logs, 'tavern.pid.json'), JSON.stringify({ pid: 123, port: 3088, logOffset: 0 }), 'utf8')
+  const manager = createEntryManager({
+    env: { DSH_HOME: dshHome, DSH_TAVERN_ANDROID_APP_DIR: appDir },
+    home,
+    portProbe: async () => true,
+    request: async () => new Response('forbidden', { status: 403 }),
+  })
+
+  assert.equal(await manager.accessUrl(), 'http://127.0.0.1:3088/')
+})
+
 test('Android 按钮通过本机入口打开，不再直接打开缺少 token 的 3088 裸地址', () => {
-  assert.match(entryClient, /window\.open\("\/api\/dsh-tavern-android\/open", "_blank"\)/)
+  assert.match(entryClient, /window\.location\.assign\("\/api\/dsh-tavern-android\/open"\)/)
+  assert.doesNotMatch(entryClient, /window\.open\(/)
   assert.doesNotMatch(entryClient, /window\.open\("http:\/\/127\.0\.0\.1:3088"/)
 })
 
@@ -144,6 +166,7 @@ test('Android 安装脚本增量配置两个 Profile，失败不会伪装成成�
   assert.match(installer, /pnpm config set side-effects-cache false --location=user/)
   assert.match(installer, /DSH_TAVERN_PORT="\$\{TAVERN_PORT\}"/)
   assert.match(installer, /configure-profiles\.mjs/)
+  assert.equal(installer.match(/configure-profiles\.mjs/g)?.length, 2)
   assert.match(installer, /dsh-tavern-entry/)
   assert.doesNotMatch(installer, /dsh-client-ui-mobile-adapt/)
   assert.match(installer, /install --host android/)
@@ -401,5 +424,30 @@ test('Android Profile 配置保留已有内容并幂等加入所需插件', asyn
   assert.equal(webPkg.dsh.profile.bundles.filter((name) => name === 'dsh-tavern-entry').length, 1)
   assert.match(webPkg.dependencies['dsh-tavern-entry'], /^link:\//)
   const linkedEntry = JSON.parse(await readFile(path.join(web, 'node_modules', 'dsh-tavern-entry', 'package.json'), 'utf8'))
+  assert.equal(linkedEntry.name, 'dsh-tavern-entry')
+})
+
+test('Android 入口链接跨越宿主 rootfs 与 proot 路径后仍可解析', async (t) => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'dsh-android-rootfs-'))
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  const originalRootfs = path.join(directory, 'rootfs-before')
+  const movedRootfs = path.join(directory, 'rootfs-after')
+  const dshRoot = path.join(originalRootfs, 'root', '.dsh')
+  const repo = path.join(dshRoot, 'apps', 'dsh-tavern')
+  const tavern = path.join(dshRoot, 'profiles', 'tavern')
+  const web = path.join(dshRoot, 'profiles', 'web')
+  await mkdir(path.join(repo, 'android', 'dsh-tavern-entry'), { recursive: true })
+  await mkdir(tavern, { recursive: true })
+  await mkdir(web, { recursive: true })
+  await writeFile(path.join(repo, 'android', 'dsh-tavern-entry', 'package.json'), JSON.stringify({ name: 'dsh-tavern-entry' }), 'utf8')
+  await writeFile(path.join(tavern, 'package.json'), '{}\n', 'utf8')
+  await writeFile(path.join(web, 'package.json'), '{}\n', 'utf8')
+
+  configureAndroidProfiles({ repoRoot: repo, tavernProfile: tavern, webProfile: web })
+  const link = path.join(web, 'node_modules', 'dsh-tavern-entry')
+  assert.equal(path.isAbsolute(await readlink(link)), false)
+
+  await rename(originalRootfs, movedRootfs)
+  const linkedEntry = JSON.parse(await readFile(path.join(movedRootfs, 'root', '.dsh', 'profiles', 'web', 'node_modules', 'dsh-tavern-entry', 'package.json'), 'utf8'))
   assert.equal(linkedEntry.name, 'dsh-tavern-entry')
 })

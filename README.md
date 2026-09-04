@@ -236,6 +236,8 @@ node ./bin/dsh-tavern.mjs install --host desktop
 
 3. 安装完成后重启 DSHA，点击侧栏里的 **酒馆工作台**。
 
+需要从手机 Download 目录导入人物卡时，请在 Android 系统设置中允许 DSHA **访问所有文件**；未授权时酒馆会给出提示，并保留系统文件选择器作为备选。
+
 以后更新直接点击酒馆左侧栏底部的 **更新到最新版**。如果酒馆打不开，可在 DSHA 的 **酒馆工作台**入口点击 **更新/修复**。
 
 详细排错见 [Android 安装说明](docs/android-install.md)。

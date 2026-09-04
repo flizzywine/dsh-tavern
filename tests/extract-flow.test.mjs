@@ -66,7 +66,8 @@ test('新建对话按会话类型选择 preset 以恢复被复用的冷 Session 
 
 	assert.match(guard, /props\.conversationHost\.ensurePreset\(sessionId, request\)/)
 	const adapter = between(clientSource, 'function createConversationHostAdapter', 'function createConversationLifecycleModule')
-	assert.match(adapter, /remote\.agentPresets\.select\(sessionId, agentPreset\)/)
+	assert.match(adapter, /agentPresets\.select\(sessionId, agentPreset\)/)
+	assert.match(adapter, /ctx\.remote && ctx\.remote\.agentPresets/)
 	assert.doesNotMatch(adapter, /"cordis"/)
 	assert.match(adapter, /const agentPreset = "tavern"/)
 	assert.doesNotMatch(guard, /agentPreset === "tavern"\) return/)
@@ -803,6 +804,7 @@ test('Android 人物卡导入默认使用下载目录适配层，同时保留系
   assert.match(clientSource, /rpc\("importMobileCard", \{ id: file\.id \}\)/)
   assert.match(clientSource, /"从手机下载目录导入"/)
   assert.match(clientSource, /"使用系统文件选择器"/)
+  assert.match(clientSource, /访问所有文件/)
   assert.match(serverSource, /case 'listMobileCardImports'/)
   assert.match(serverSource, /case 'importMobileCard'/)
 })

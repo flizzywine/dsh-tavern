@@ -82,7 +82,9 @@ async function resolveAccessUrl({ dshHome, port, request }) {
       if (response.status >= 200 && response.status < 400) return url
     } catch {}
   }
-  return ''
+  // DSHA v1.1.x 的 dsh web 日志只打印裸地址。Android WebView 已在 3080
+  // 写入同主机共享的 dsha_t Cookie；同页跳到 3088 时会自动复用它。
+  return `${origin}/`
 }
 
 export function createEntryManager(options = {}) {

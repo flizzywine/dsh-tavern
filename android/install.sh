@@ -81,6 +81,9 @@ node "${SCRIPT_DIR}/configure-profiles.mjs" "${REPO_ROOT}" "${TAVERN_PROFILE_DIR
 
 pnpm --dir "${TAVERN_PROFILE_DIR}" install
 pnpm --dir "${WEB_PROFILE_DIR}" install
+# pnpm 处理 link: 依赖时可能重新生成绝对链接。最后再规范化一次，确保
+# DSHA 从 Android 宿主 rootfs 检查 bundle 时也能解析酒馆入口。
+node "${SCRIPT_DIR}/configure-profiles.mjs" "${REPO_ROOT}" "${TAVERN_PROFILE_DIR}" "${WEB_PROFILE_DIR}"
 run_dsh --profile tavern --dump-config >/dev/null
 run_dsh --profile "${WEB_PROFILE_NAME}" --dump-config >/dev/null
 

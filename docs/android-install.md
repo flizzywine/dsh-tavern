@@ -15,6 +15,8 @@ dsh-tavern 可以借助 [DSHA](https://github.com/qiannianhuanxiang/DSHA) 尝试
 
 3. 看到“全部完成”后重启 DSHA，点击侧栏里的 **酒馆工作台**。
 
+如需从手机 Download 目录导入人物卡，还需在 Android 系统设置中允许 DSHA **访问所有文件**。酒馆检测到无法读取下载目录时会明确提示，也可尝试界面中的系统文件选择器。
+
 不需要手工克隆仓库、进入目录、配置 Profile 或输入端口。
 
 ## 更新与修复
@@ -44,6 +46,7 @@ dsh-tavern 可以借助 [DSHA](https://github.com/qiannianhuanxiang/DSHA) 尝试
 - 一键命令下载失败：确认 DSHA 已完成基础安装并且手机能访问 GitHub，然后重试同一句话。
 - 更新提示“存在未提交修改”或“已经分叉”：脚本为避免覆盖文件会主动停止，请先备份或移走 `/root/.dsh/apps/dsh-tavern` 中的手工修改。
 - 酒馆仍未启动：点击一次 **更新/修复**；仍失败时查看 `/root/.dsh/logs/tavern.log`。
+- 导入窗口显示无法读取下载目录：在系统设置中打开 DSHA 的 **访问所有文件** 权限，返回酒馆后点“刷新”。
 - 如果 DSHA 使用的 Web Profile 既不是 `web` 也不是 `user`，安装前设置 `DSH_ANDROID_WEB_PROFILE`。
 - 必须允许 DSHA 在后台运行；Android 杀死 DSHA 后，DSHA 和酒馆服务都会停止，重新打开 DSHA 后会自动拉起。
 - 手机适配依赖 DSH 前端结构；DSH 更新后如有布局异常，先点击 **更新/修复** 获取最新版适配。

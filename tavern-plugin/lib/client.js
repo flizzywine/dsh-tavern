@@ -599,7 +599,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					h("div", { className: "dsh-tavern-mobile-import-title" }, "从手机下载目录导入"),
 					h("div", { className: "dsh-tavern-question-sub" }, "把 PNG 或 JSON 人物卡放进手机 Download，回到这里点选。"),
 					error ? h("div", { className: "dsh-tavern-dock-error", role: "alert" }, error) : null,
-					h("div", { className: "dsh-tavern-mobile-import-list" }, catalog && catalog.files.length ? catalog.files.map(function (file) { return h("button", { key: file.id, className: "dsh-tavern-mobile-import-file", disabled: busy, onClick: function () { importFile(file); } }, h("b", null, file.name), h("span", null, file.directory + " · " + Math.ceil(file.size / 1024) + " KB")); }) : h("div", { className: "dsh-tavern-empty" }, "下载目录里还没有 PNG/JSON 人物卡。")),
+					h("div", { className: "dsh-tavern-mobile-import-list" }, catalog && catalog.files.length ? catalog.files.map(function (file) { return h("button", { key: file.id, className: "dsh-tavern-mobile-import-file", disabled: busy, onClick: function () { importFile(file); } }, h("b", null, file.name), h("span", null, file.directory + " · " + Math.ceil(file.size / 1024) + " KB")); }) : h("div", { className: "dsh-tavern-empty" }, catalog && catalog.storageAccessible === false ? "DSHA 无法读取下载目录。请在系统设置中允许 DSHA ‘访问所有文件’，然后点刷新；也可尝试系统文件选择器。" : "下载目录里还没有 PNG/JSON 人物卡。")),
 					h("div", { className: "dsh-tavern-library-head-actions" }, h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: load }, "刷新"), h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { setOpen(false); if (props.inputRef.current) props.inputRef.current.click(); } }, "使用系统文件选择器"), h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { setOpen(false); } }, "关闭"))
 				))) : null
 			);
@@ -1191,7 +1191,9 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					// Select before writing the opening; the Session stream publishes preset state.
 					// Keep Tavern's private Skill roots; its preset also mounts Cordis tools for card workbenches.
 					const agentPreset = "tavern";
-					const result = await ctx.remote.agentPresets.select(sessionId, agentPreset);
+					const agentPresets = ctx.remote && ctx.remote.agentPresets;
+					if (!agentPresets || typeof agentPresets.select !== "function") throw new Error("当前 DSHA 版本不支持切换酒馆模式，请升级 DSHA 后重试");
+					const result = await agentPresets.select(sessionId, agentPreset);
 					if (!result.ok) throw new Error(result.error && result.error.message || "无法切换到酒馆模式");
 				}
 			});
@@ -4979,6 +4981,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		function register(input) {
 			const ctx = input.ctx;
 			const slots = input.slots;
+			const uiConversation = ctx.get("uiConversation") || ctx.get("conversation");
 			ctx.effect(function () {
 				document.body.classList.add("dsh-tavern-shell-active");
 				return function () { document.body.classList.remove("dsh-tavern-shell-active"); };
@@ -7477,7 +7480,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					return { tab: { id: "dsh-tavern:status", type: "dsh-tavern:status", title: "酒馆状态" }, patch: { panelOpen: true } };
 				},
 				component: function (props) {
-					return React.createElement(TavernStatusTab, { sessions: ctx.sessions, uiConversation: ctx.uiConversation, sessionId: props.scope.sessionId });
+					return React.createElement(TavernStatusTab, { sessions: ctx.sessions, uiConversation: uiConversation, sessionId: props.scope.sessionId });
 				}
 			}), "dsh-tavern: Better Sidebar status tab");
 			ctx.effect(() => slots.inject("conversation.session.header.actions", () => slots.register(
@@ -7517,7 +7520,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 		const playControlsFeature = createPlayControlsFeatureModule();
 		const assistantRendererFeature = createTavernAssistantRendererFeatureModule();
 
-		const inject = ["slots", "sessions", "workspaces", "layout", "connection", "conversation", "uiConversation", "betterSidebar", "remote", "remote.commands", "remote.agentPresets"];
+		const inject = ["slots", "sessions", "workspaces", "layout", "connection", "conversation", "betterSidebar", "remote", "remote.commands"];
 
 		function apply(ctx) {
 			const slots = ctx.slots;

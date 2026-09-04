@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, realpathSync, renameSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -14,19 +14,22 @@ function ensurePluginLink(directory, plugin) {
   const sourceManifest = path.join(plugin.source, 'package.json')
   if (!existsSync(sourceManifest)) throw new Error(`Android 插件源码不存在：${sourceManifest}`)
   const target = path.join(directory, 'node_modules', ...plugin.name.split('/'))
-  try {
-    if (realpathSync(target) === realpathSync(plugin.source)) return
-  } catch {}
+  mkdirSync(path.dirname(target), { recursive: true })
+  const relativeSource = path.relative(realpathSync(path.dirname(target)), realpathSync(plugin.source)) || '.'
   try {
     const current = lstatSync(target)
-    if (current.isSymbolicLink()) unlinkSync(target)
+    if (current.isSymbolicLink()) {
+      if (readlinkSync(target) === relativeSource && existsSync(path.join(target, 'package.json'))) return
+      unlinkSync(target)
+    }
     else if (existsSync(path.join(target, 'package.json'))) return
     else throw new Error(`Android 插件位置已被未知文件占用：${target}`)
   } catch (error) {
     if (error?.code !== 'ENOENT') throw error
   }
-  mkdirSync(path.dirname(target), { recursive: true })
-  symlinkSync(plugin.source, target, 'dir')
+  // DSHA v1.1.x 会在 Android 宿主侧检查 Profile bundle。绝对的 proot
+  // 路径在那里不可见；相对链接则能同时在宿主 rootfs 与 proot 内解析。
+  symlinkSync(relativeSource, target, 'dir')
   if (!existsSync(path.join(target, 'package.json'))) throw new Error(`Android 插件链接创建后仍无法读取：${target}`)
 }
 

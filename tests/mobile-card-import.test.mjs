@@ -24,6 +24,7 @@ test('Android 下载目录人物卡只列出受限目录里的 PNG/JSON，并按
   const catalog = await imports.list()
 
   assert.equal(catalog.available, true)
+  assert.equal(catalog.storageAccessible, true)
   assert.deepEqual(catalog.files.map(function (file) { return file.name }), ['阿青.json'])
   assert.equal(catalog.files[0].directory, '手机 Download')
   assert.equal('path' in catalog.files[0], false)
@@ -38,6 +39,14 @@ test('Android 下载目录人物卡只列出受限目录里的 PNG/JSON，并按
 test('非 Android 宿主不开放下载目录导入', async function () {
   const imports = createMobileCardImport({ runtimeHost: 'cli', roots: [] })
   assert.deepEqual(await imports.list(), { available: false, files: [] })
+})
+
+test('Android 下载目录不可读时不伪装成空目录', async function () {
+  const imports = createMobileCardImport({
+    runtimeHost: 'android',
+    roots: [{ id: 'downloads', label: '手机 Download', path: '/path/that/does/not/exist' }]
+  })
+  assert.deepEqual(await imports.list(), { available: true, storageAccessible: false, files: [] })
 })
 
 test('下载目录导入拒绝过大文件', async function () {

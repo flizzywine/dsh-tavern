@@ -106,7 +106,11 @@ test('Remote refusal aborts startup before writing a Tavern chat', async () => {
 })
 
 test('sidebar and prewarm are wired to the host adapter, with required services injected', () => {
-  assert.ok(client.inject.includes('remote.agentPresets'))
+  assert.ok(client.inject.includes('conversation'))
+  assert.ok(client.inject.includes('remote'))
+  assert.equal(client.inject.includes('uiConversation'), false)
+  assert.equal(client.inject.includes('remote.agentPresets'), false)
+  assert.match(source, /ctx\.get\("uiConversation"\) \|\| ctx\.get\("conversation"\)/)
   assert.match(source, /conversationHost: createConversationHostAdapter\(ctx\)/)
   assert.equal((source.match(/props\.conversationHost\.connectWorkspace\(targetWorkspaceId\)/g) || []).length, 2)
   assert.match(source, /props\.conversationHost\.ensurePreset\(sessionId, request\)/)

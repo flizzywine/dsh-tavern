@@ -99,7 +99,7 @@ window.__ModuleLoader__.load({
 							react.createElement("button", {
 								type: "button", className: "dsh-tavern-entry-btn",
 								title: "打开酒馆工作台（3088）",
-								onClick: function () { window.open("/api/dsh-tavern-android/open", "_blank"); }
+								onClick: function () { window.location.assign("/api/dsh-tavern-android/open"); }
 							}, react.createElement("span", null, "🍺"), react.createElement("span", null, "酒馆工作台"),
 								react.createElement("span", { className: "dsh-tavern-entry-state" }, state.online === true ? "在线" : (state.online === false ? "未启动" : "检测中…"))),
 							react.createElement("button", { type: "button", className: "dsh-tavern-entry-btn dsh-tavern-entry-manage", disabled: updating, onClick: startUpdate }, updating ? "更新中…" : "更新/修复")

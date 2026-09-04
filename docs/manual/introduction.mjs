@@ -143,6 +143,8 @@ export const installation = `
 ` + code('text', installCommands.android) + `
 3. 安装完成后重启 DSHA，在侧栏打开“酒馆工作台”。
 
+从手机 Download 目录导入人物卡前，请在 Android 系统设置中允许 DSHA“访问所有文件”。未授权时酒馆会给出提示，也可尝试系统文件选择器。
+
 以后可使用“更新到最新版”；打不开时尝试 DSHA 酒馆工作台入口中的“更新/修复”。使用时请允许 DSHA 后台运行，避免系统省电策略中断服务。
 
 ## 安装失败时
