@@ -70,13 +70,13 @@ test('后台 MVU 命令只在隔离草稿执行并原子提交，协议不进入
     readCard: async function () { return { name: '测试卡' } },
     worldBooks: { bound: async function () { return null } },
     scriptDispatch: {
-      async dispatch(_sessionId, _name, _args, context) {
+      async dispatch(_sessionId, _name, _args, context, work) {
         assert.match(context.messages[0].message, /<UpdateVariable>/)
         await adapter.updateMessages('session-1', [{
           message_id: 0,
           message: context.messages[0].message,
           data: { hp: 7, schema: { type: 'object' }, stat_data: { hp: 7 } }
-        }], 2)
+        }], 2, work.eventId)
         return { handled: true }
       },
       poll: function () {}, complete: function () {}, dispose: function () {}
@@ -118,13 +118,13 @@ test('MVU Runtime 只返回确定性 effect；重复应用不会重复 delta', a
     worldBooks: { bound: async function () { return null } },
     scriptDispatch: {
       status: function () { return { present: true, ready: true, busy: false } },
-      async dispatch() {
+      async dispatch(_sessionId, _name, _args, _context, work) {
         dispatches++
         const current = value.messages[0].variables[0].stat_data?.hp ?? value.messages[0].variables[0].hp
         await adapter.updateMessages('session-1', [{
           message_id: 0,
           data: { hp: current - 1, schema: { type: 'object' }, stat_data: { hp: current - 1 } }
-        }], 2)
+        }], 2, work.eventId)
         return { handled: true }
       },
       poll: function () {}, complete: function () {}, dispose: function () {}
@@ -190,8 +190,8 @@ test('后台 MVU 脚本链失败时丢弃整份事务草稿', async function () 
     readCard: async function () { return { name: '测试卡' } },
     worldBooks: { bound: async function () { return null } },
     scriptDispatch: {
-      async dispatch() {
-        await adapter.updateMessages('session-1', [{ message_id: 0, data: { hp: 1 } }], 2)
+      async dispatch(_sessionId, _name, _args, _context, work) {
+        await adapter.updateMessages('session-1', [{ message_id: 0, data: { hp: 1 } }], 2, work.eventId)
         return { handled: false, error: '人物卡脚本「变量守卫」处理事件超时' }
       },
       poll: function () {}, complete: function () {}, dispose: function () {}
@@ -209,6 +209,32 @@ test('后台 MVU 脚本链失败时丢弃整份事务草稿', async function () 
   assert.deepEqual(value.messages[0].variables[0], { hp: 10 })
 })
 
+test('MVU 事务只接受当前 Host event 的变量写入', async function () {
+  const value = chat()
+  value.mvu.owner = 'official'
+  let adapter
+  adapter = createTavernScriptHostAdapter({
+    resolveChat: async () => value,
+    writeChat: async () => { throw new Error('Runtime 不应提前写入') },
+    readCard: async () => ({}), worldBooks: { bound: async () => null },
+    scriptDispatch: { async dispatch(_sessionId, _name, _args, _context, work) {
+      await assert.rejects(
+        adapter.updateMessages('session-1', [{ message_id: 0, data: { hp: 1 } }], 2, 'another-event'),
+        /不属于当前 MVU 结算事件/
+      )
+      await adapter.updateMessages('session-1', [{ message_id: 0, data: { hp: 9 } }], 2, work.eventId)
+      return { handled: true }
+    } }
+  })
+
+  const result = await adapter.settleMvuUpdate({
+    operationId: 'scoped-settlement-1', diagnosticId: 'attempt-1',
+    sessionId: 'session-1', messageId: 0, swipeId: 0, expectedLifecycleRevision: 2,
+    command: '<UpdateVariable/>'
+  })
+  assert.equal(result.updated, true)
+})
+
 test('明确脚本错误可修正重试，但已写世界书时不得自动重放', async () => {
   for (const external of [false, true]) {
     const value = chat()
@@ -219,8 +245,8 @@ test('明确脚本错误可修正重试，但已写世界书时不得自动重�
         bound: async () => ({ source: { kind: 'card', path: 'card' }, view: { displayName: 'book', entries: [{ ref: '1', sourceUid: 1, content: 'old', enabled: true }] } }),
         update: async (_source, _input) => { worldbookWrites++; return { view: { displayName: 'book', entries: [] } } }
       },
-      scriptDispatch: { async dispatch() {
-        await adapter.updateMessages('session-1', [{ message_id: 0, data: { hp: 1 } }], 2)
+      scriptDispatch: { async dispatch(_sessionId, _name, _args, _context, work) {
+        await adapter.updateMessages('session-1', [{ message_id: 0, data: { hp: 1 } }], 2, work.eventId)
         if (external) {
           const { worldbook } = await adapter.getWorldbook('session-1', 'book')
           worldbook.entries[0].content = 'new'
@@ -249,8 +275,8 @@ test('脚本执行期间目标生命周期变化时，草稿不得覆盖新目�
   let adapter, writes = 0
   adapter = createTavernScriptHostAdapter({
     resolveChat: async () => value, writeChat: async () => { writes++ }, readCard: async () => ({}), worldBooks: { bound: async () => null },
-    scriptDispatch: { async dispatch() {
-      await adapter.updateMessages('session-1', [{ message_id: 0, data: { hp: 1 } }], 2)
+    scriptDispatch: { async dispatch(_sessionId, _name, _args, _context, work) {
+      await adapter.updateMessages('session-1', [{ message_id: 0, data: { hp: 1 } }], 2, work.eventId)
       value.tavernHelperLifecycleRevision++
       return { handled: true }
     } }

@@ -133,14 +133,14 @@ export function createTavernScriptDispatch(options = {}) {
         ...(initializationFailed ? { initializationFailed: true } : {}) })
   }
 
-  async function dispatch(sessionId, name, args = [], context = null) {
+  async function dispatch(sessionId, name, args = [], context = null, work = {}) {
     const id = str(sessionId)
     const state = status(id)
     if (state.initializationError) return { handled: false, initializationFailed: true, error: state.initializationError, args: clone(args) }
     if (id === '' || !available(id, '', true)) return { handled: false, unavailable: true, args: clone(args) }
     if (records.has(id)) return { handled: false, busy: true, args: clone(args) }
     const event = {
-      id: 'script-work-' + (++sequence),
+      id: str(work && work.eventId).trim() || 'script-work-' + (++sequence),
       name: str(name),
       args: clone(Array.isArray(args) ? args : []),
       context: clone(context)

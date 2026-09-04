@@ -171,8 +171,8 @@ const server = createServer(async (req, res) => {
       else if (method === 'heartbeatTavernScriptRuntime') result = adapter.heartbeatRuntime(sessionId, args.runtimeId, args.ready, args.initializationError)
       else if (method === 'completeTavernHelperEvent') result = gate.complete(sessionId, args.eventId, args.args, args.runtimeId, args.leaseToken, args.error, args.diagnostics)
       else if (method === 'releaseTavernHelperRuntime') result = gate.dispose(sessionId, args.runtimeId)
-      else if (method === 'updateTavernHelperVariables') result = args.option?.type === 'global' ? { updated: true } : await adapter.updateVariables(sessionId, args.option, args.variables, args.expectedLifecycleRevision)
-      else if (method === 'updateTavernHelperMessages') result = await adapter.updateMessages(sessionId, args.messages, args.expectedLifecycleRevision)
+      else if (method === 'updateTavernHelperVariables') result = args.option?.type === 'global' ? { updated: true } : await adapter.updateVariables(sessionId, args.option, args.variables, args.expectedLifecycleRevision, args.eventId)
+      else if (method === 'updateTavernHelperMessages') result = await adapter.updateMessages(sessionId, args.messages, args.expectedLifecycleRevision, args.eventId)
       else if (method === 'saveTavernExtensionSettings') result = { updated: true, extensionSettings: args.settings }
       else if (method === 'loadTavernWorldInfo') result = { worldInfo: { entries: {} } }
       else if (method === 'getTavernHelperWorldbook') result = await adapter.getWorldbook(sessionId, args.name)

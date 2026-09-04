@@ -3380,9 +3380,12 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					post(record, { type: "dsh-tavern-helper-response", requestId: data.requestId, ok: false, error: "事件已经结束，已拒绝迟到写入" });
 					return;
 				}
-				let mutationArgs = data.args || {};
-				if (data.method === "updateTavernHelperVariables" || data.method === "updateTavernHelperMessages") {
-					mutationArgs = Object.assign({}, mutationArgs, { expectedLifecycleRevision: Math.max(0, Number(record.context && record.context.lifecycleRevision) || 0) });
+					let mutationArgs = data.args || {};
+					if (data.method === "updateTavernHelperVariables" || data.method === "updateTavernHelperMessages") {
+						mutationArgs = Object.assign({}, mutationArgs, {
+							eventId: String(data.eventId || ""),
+							expectedLifecycleRevision: Math.max(0, Number(record.context && record.context.lifecycleRevision) || 0)
+						});
 				}
 				invoke(data.method, mutationArgs, record.sessionId).then(function (result) {
 					// Readiness follows acknowledged persistence, not an iframe's speculative variables.

@@ -98,7 +98,7 @@ Host 中管理酒馆脚本工作的排队、offer、显式 start、执行租约�
 
 ## Host Adapter（桥接层）
 
-dsh-tavern 向酒馆脚本运行模块提供的宿主适配器。它把脚本对消息、变量、世界书、模型和展示的操作映射到 dsh-tavern 的权威状态、执行轨迹和 Projection。
+dsh-tavern 向酒馆脚本运行模块提供的宿主适配器。它把脚本对消息、变量、世界书、模型和展示的操作映射到 dsh-tavern 的权威状态、执行轨迹和 Projection。MVU 结算期间的写入必须携带当前 Tavern Script Dispatch event ID，不能仅凭 Session 身份加入事务。
 
 ## Stable Prefix
 

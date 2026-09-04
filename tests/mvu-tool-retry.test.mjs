@@ -51,13 +51,13 @@ function harness(model, { rejectAlways = false } = {}) {
     resolveChat: async () => chat,
     writeChat: async draft => { writes.push(structuredClone(draft)); Object.assign(chat, structuredClone(draft)) },
     readCard: async () => ({}), worldBooks: { bound: async () => null },
-    scriptDispatch: { async dispatch(_s, _name, _args, context) {
+    scriptDispatch: { async dispatch(_s, _name, _args, context, work) {
       const before = structuredClone(context.messages[0].variables)
       bases.push(before.stat_data.hp)
       const rejected = rejectAlways || bases.length === 1
       before.stat_data.hp -= 1
       if (!rejected) before.stat_data.location = 'hall'
-      await adapter.updateMessages('s', [{ message_id: 0, data: before }], 0)
+      await adapter.updateMessages('s', [{ message_id: 0, data: before }], 0, work.eventId)
       return { handled: true, diagnostics: rejected ? [{ level: 'warn', message: 'location: 校验拒绝，请修正位置字段' }] : [] }
     } }
   })

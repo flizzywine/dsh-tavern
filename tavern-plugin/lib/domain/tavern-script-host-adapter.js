@@ -65,8 +65,17 @@ export function createTavernScriptHostAdapter(options = {}) {
     return chat
   }
 
-  async function mutationChat(sessionId) {
+  function assertTransactionEvent(transaction, eventId) {
+    if (transaction !== undefined && transaction.eventId !== str(eventId)) {
+      const error = new Error('脚本写入不属于当前 MVU 结算事件')
+      error.code = 'MVU_SETTLEMENT_EVENT_MISMATCH'
+      throw error
+    }
+  }
+
+  async function mutationChat(sessionId, eventId) {
     const transaction = settlementTransactions.get(str(sessionId))
+    assertTransactionEvent(transaction, eventId)
     return transaction === undefined ? await resolveChat(sessionId) : transaction.draft
   }
 
@@ -82,8 +91,8 @@ export function createTavernScriptHostAdapter(options = {}) {
     }
   }
 
-  async function updateVariables(sessionId, option, variables, expectedLifecycleRevision) {
-    const chat = await mutationChat(sessionId)
+  async function updateVariables(sessionId, option, variables, expectedLifecycleRevision, eventId) {
+    const chat = await mutationChat(sessionId, eventId)
     await assertScriptEnabled(chat)
     if (!mutationIsCurrent(chat, expectedLifecycleRevision)) return staleMutation(chat)
     if (option && option.type === 'global') {
@@ -107,8 +116,9 @@ export function createTavernScriptHostAdapter(options = {}) {
     return { updated: true, target: updated, context: projectTavernHelperContext(chat) }
   }
 
-  async function updateMessages(sessionId, messages, expectedLifecycleRevision) {
+  async function updateMessages(sessionId, messages, expectedLifecycleRevision, eventId) {
     const transaction = settlementTransactions.get(str(sessionId))
+    assertTransactionEvent(transaction, eventId)
     const chat = transaction === undefined ? await resolveChat(sessionId) : transaction.draft
     await assertScriptEnabled(chat)
     if (!mutationIsCurrent(chat, expectedLifecycleRevision)) return staleMutation(chat)
@@ -284,6 +294,7 @@ export function createTavernScriptHostAdapter(options = {}) {
     const originalText = str((message.swipes && message.swipes[swipeId]) ?? message.sourceText ?? message.text)
     const transaction = {
       draft: structuredClone(current),
+      eventId: operationId + ':' + (str(input.diagnosticId).trim() || 'runtime'),
       messageId,
       swipeId,
       mutations: 0
@@ -315,7 +326,7 @@ export function createTavernScriptHostAdapter(options = {}) {
         await record('runtime-deferred', { availability })
         return { updated: false, deferred: true, context: projectTavernHelperContext(current) }
       }
-      const dispatched = await options.scriptDispatch.dispatch(sessionId, 'MESSAGE_RECEIVED', [messageId], eventContext)
+      const dispatched = await options.scriptDispatch.dispatch(sessionId, 'MESSAGE_RECEIVED', [messageId], eventContext, { eventId: transaction.eventId })
       await record('runtime-completed', { handled: dispatched.handled === true, timedOut: dispatched.timedOut === true, claimTimedOut: dispatched.claimTimedOut === true, phase: dispatched.phase, disposed: dispatched.disposed === true, error: dispatched.error, diagnostics: dispatched.diagnostics || [] })
       if (dispatched.handled !== true) {
         if (dispatched.initializationFailed === true) return await initializationRejected(str(dispatched.error))
