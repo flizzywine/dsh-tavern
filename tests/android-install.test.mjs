@@ -352,4 +352,6 @@ test('Android Profile 配置保留已有内容并幂等加入所需插件', asyn
   assert.equal(webPkg.dsh.profile.bundles.includes('dsh-client-ui-mobile-adapt'), false)
   assert.equal(webPkg.dsh.profile.bundles.filter((name) => name === 'dsh-tavern-entry').length, 1)
   assert.match(webPkg.dependencies['dsh-tavern-entry'], /^link:\//)
+  const linkedEntry = JSON.parse(await readFile(path.join(web, 'node_modules', 'dsh-tavern-entry', 'package.json'), 'utf8'))
+  assert.equal(linkedEntry.name, 'dsh-tavern-entry')
 })

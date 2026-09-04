@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -9,6 +9,26 @@ function linkSpec(source) {
 }
 
 const LEGACY_ANDROID_PLUGINS = Object.freeze(['dsh-client-ui-mobile-adapt'])
+
+function ensurePluginLink(directory, plugin) {
+  const sourceManifest = path.join(plugin.source, 'package.json')
+  if (!existsSync(sourceManifest)) throw new Error(`Android 插件源码不存在：${sourceManifest}`)
+  const target = path.join(directory, 'node_modules', ...plugin.name.split('/'))
+  try {
+    if (realpathSync(target) === realpathSync(plugin.source)) return
+  } catch {}
+  try {
+    const current = lstatSync(target)
+    if (current.isSymbolicLink()) unlinkSync(target)
+    else if (existsSync(path.join(target, 'package.json'))) return
+    else throw new Error(`Android 插件位置已被未知文件占用：${target}`)
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error
+  }
+  mkdirSync(path.dirname(target), { recursive: true })
+  symlinkSync(plugin.source, target, 'dir')
+  if (!existsSync(path.join(target, 'package.json'))) throw new Error(`Android 插件链接创建后仍无法读取：${target}`)
+}
 
 export function updateAndroidProfile(directory, plugins) {
   const manifest = path.join(directory, 'package.json')
@@ -35,9 +55,11 @@ export function updateAndroidProfile(directory, plugins) {
 export function configureAndroidProfiles({ repoRoot, tavernProfile, webProfile }) {
   const entry = path.join(repoRoot, 'android', 'dsh-tavern-entry')
   updateAndroidProfile(tavernProfile, [])
-  updateAndroidProfile(webProfile, [
+  const webPlugins = [
     { name: 'dsh-tavern-entry', source: entry },
-  ])
+  ]
+  updateAndroidProfile(webProfile, webPlugins)
+  for (const plugin of webPlugins) ensurePluginLink(webProfile, plugin)
 }
 
 const scriptPath = fileURLToPath(import.meta.url)
