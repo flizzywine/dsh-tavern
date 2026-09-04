@@ -125,6 +125,29 @@ test('DSHA 1.1 legacy connection API can select the Tavern preset', async () => 
   assert.equal(calls[0].agentPreset, 'tavern')
 })
 
+test('DSHA 1.2 injects the nested Agent Presets remote before selecting it', async () => {
+  const calls = []
+  const agentPresets = {
+    async select(sessionId, preset) {
+      calls.push({ sessionId, preset })
+      return { ok: true, value: preset }
+    }
+  }
+  const ctx = {
+    get remote() { throw new Error('cannot get property "remote.agentPresets" without inject') },
+    inject(services, callback) {
+      assert.equal(services.length, 1)
+      assert.equal(services[0], 'remote.agentPresets')
+      callback({ remote: { agentPresets } })
+    }
+  }
+
+  const host = client.createConversationHostAdapter(ctx)
+  await host.ensurePreset('s2', { kind: 'play' })
+
+  assert.deepEqual(calls, [{ sessionId: 's2', preset: 'tavern' }])
+})
+
 test('sidebar and prewarm are wired to the host adapter, with required services injected', () => {
   assert.ok(client.inject.includes('conversation'))
   assert.ok(client.inject.includes('remote'))

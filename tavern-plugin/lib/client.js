@@ -1178,6 +1178,16 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 
 		// alpha.2 exposes Session creation and preset selection on separate controllers.
 		function createConversationHostAdapter(ctx) {
+			let injectedAgentPresets;
+			if (ctx && typeof ctx.inject === "function") {
+				ctx.inject(["remote.agentPresets"], function (scope) {
+					const service = scope.remote.agentPresets;
+					injectedAgentPresets = service;
+					return function () {
+						if (injectedAgentPresets === service) injectedAgentPresets = undefined;
+					};
+				});
+			}
 			return Object.freeze({
 				workspaceId: function (snapshot, sessionId) {
 					const items = snapshot.items || [];
@@ -1191,7 +1201,14 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 					// Select before writing the opening; the Session stream publishes preset state.
 					// Keep Tavern's private Skill roots; its preset also mounts Cordis tools for card workbenches.
 					const agentPreset = "tavern";
-					const agentPresets = ctx.remote && ctx.remote.agentPresets;
+					let agentPresets = injectedAgentPresets;
+					if (!agentPresets) {
+						try {
+							agentPresets = ctx.remote && ctx.remote.agentPresets;
+						} catch (error) {
+							if (!error || !/without inject/.test(String(error.message || error))) throw error;
+						}
+					}
 					if (agentPresets && typeof agentPresets.select === "function") {
 						const result = await agentPresets.select(sessionId, agentPreset);
 						if (!result.ok) throw new Error(result.error && result.error.message || "无法切换到酒馆模式");
