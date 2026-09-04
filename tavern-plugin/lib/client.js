@@ -7282,6 +7282,7 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				);
 			}
 
+			// 暂时保留自研手机实现，但不从产品界面挂载；现阶段优先兼容人物卡自带手机。
 			function TavernPhone(props) {
 				const h = React.createElement;
 				const [page, setPage] = React.useState("home");
@@ -7368,7 +7369,6 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 
 			function TavernStatusPanel(props) {
 			const [error, setError] = usePersistentError("酒馆状态");
-			const [phoneEnabled, setPhoneEnabled] = React.useState(function () { try { return window.localStorage.getItem("dsh-tavern-phone-view") === "1"; } catch (_error) { return false; } });
 			const [guideDraft, setGuideDraft] = React.useState("");
 			const [guideBusy, setGuideBusy] = React.useState(false);
 			const [guideError, setGuideError] = usePersistentError("Guide");
@@ -7435,19 +7435,13 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 				)
 			);
 			if (view.mode === "card") return null;
-			function setPhoneView(enabled) {
-				setPhoneEnabled(enabled);
-				try { window.localStorage.setItem("dsh-tavern-phone-view", enabled ? "1" : "0"); } catch (_error) {}
-			}
-			if (phoneEnabled) return h(TavernPhone, { sessionId: props.sessionId, view: view, onClose: function () { setPhoneView(false); } });
 			const statusText = view.settleStatus === "running" ? "正在执行后台结算" : (view.settleStatus === "error" ? "后台结算失败" : "后台结算已完成");
 			return h("aside", { className: "dsh-tavern-status" },
 				h("div", { className: "dsh-tavern-status-head" },
 					h("div", { className: "dsh-tavern-status-title" }, "酒馆状态"),
 					h("div", { className: "dsh-tavern-status-role" }, view.card.name),
 					(view.card.tags || []).length ? h("div", { className: "dsh-tavern-status-tags" }, (view.card.tags || []).slice(0, 8).map(function (tag) { return h("span", { key: tag, className: "dsh-tavern-status-tag" }, tag); })) : null,
-					h("div", { className: "dsh-tavern-status-settle" }, h("span", { className: "dsh-tavern-status-dot " + (view.settleStatus || "idle") }), statusText),
-					h("button", { className: "dsh-tavern-status-view-switch", onClick: function () { setPhoneView(true); } }, "打开小手机")
+					h("div", { className: "dsh-tavern-status-settle" }, h("span", { className: "dsh-tavern-status-dot " + (view.settleStatus || "idle") }), statusText)
 				),
 					h("div", { className: "dsh-tavern-status-body" },
 					view.settleStatus === "error" ? h("div", { className: "dsh-card-error" },

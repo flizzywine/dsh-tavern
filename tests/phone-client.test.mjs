@@ -8,12 +8,13 @@ function between(start, end) {
   return source.slice(source.indexOf(start), source.indexOf(end))
 }
 
-test('酒馆状态提供持久的手动小手机开关', () => {
+test('自研小手机保留实现但不再暴露酒馆状态入口', () => {
   const panel = between('function TavernStatusPanel', 'function TavernStatusTab')
-  assert.match(panel, /dsh-tavern-phone-view/)
-  assert.match(panel, /打开小手机/)
-  assert.match(panel, /TavernPhone/)
-  assert.match(panel, /setPhoneView\(false\)/)
+  assert.doesNotMatch(panel, /dsh-tavern-phone-view/)
+  assert.doesNotMatch(panel, /打开小手机/)
+  assert.doesNotMatch(panel, /TavernPhone/)
+  assert.doesNotMatch(panel, /sendPhoneMessage/)
+  assert.match(source, /function TavernPhone/)
 })
 
 test('小手机只有消息 App、联系人和独立发送入口', () => {
