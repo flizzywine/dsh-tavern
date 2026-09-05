@@ -486,7 +486,8 @@ export function createCandidateGenerator(options) {
         operationId: savedCandidates.operationId,
         traceSessionId: savedCandidates.traceSessionId,
         traceSessionIds: savedCandidates.traceSessionIds,
-        traceMode: savedCandidates.traceMode
+        traceMode: savedCandidates.traceMode,
+        basedOn: savedCandidates.basedOn
       }
     }
     return Object.freeze({ operationId: taskRun.operationId, basedOn: taskRun.basedOn, created: true, execute })
@@ -510,7 +511,8 @@ export function createCandidateGenerator(options) {
     return {
       messageId: str(chat.candidates.messageId), choices, generatedAt: Number(chat.candidates.generatedAt) || 0,
       requestId: str(chat.candidates.requestId), operationId: str(chat.candidates.operationId),
-      traceSessionId, traceSessionIds, traceMode: chat.candidates.traceMode === 'continuable' ? 'continuable' : 'one-shot'
+      traceSessionId, traceSessionIds, traceMode: chat.candidates.traceMode === 'continuable' ? 'continuable' : 'one-shot',
+      basedOn: chat.candidates.basedOn || null
     }
   }
 

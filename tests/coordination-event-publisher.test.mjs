@@ -55,6 +55,7 @@ test('写入通知立即发布 tavern-state signal，文件检查只作为低频
 
   assert.equal(loads, 2)
   assert.equal(received.at(-1).kind, 'tavern-state')
+  assert.equal(received.at(-1).snapshot.mailboxVersion, 2, 'write signal carries the authoritative snapshot it already loaded')
   close()
 })
 

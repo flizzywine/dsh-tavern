@@ -447,7 +447,13 @@ window.__ModuleLoader__.load({
 					}
 				}
 				let opened = false;
-				const stop = tavernSessionSignals.subscribe(sessionId, "tavern-state", function () { void load(); }, handlers.error, function () {
+				const stop = tavernSessionSignals.subscribe(sessionId, "tavern-state", function (signal) {
+					if (signal && signal.snapshot) {
+						handlers.message(coordinationView(signal.snapshot, sessionId));
+						return;
+					}
+					void load();
+				}, handlers.error, function () {
 					if (opened) void load();
 					opened = true;
 				});

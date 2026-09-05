@@ -30,6 +30,8 @@ test('前端通过 typed SSE signal 重读权威快照，不再定时轮询', fu
   assert.match(signals, /\/api\/dsh-tavern\/events/)
   assert.match(coordination, /tavernSessionSignals\.subscribe/)
   assert.match(coordination, /tavernSessionSignals\.subscribe\(sessionId, "tavern-state"/)
+  assert.match(coordination, /signal\.snapshot/)
+  assert.match(coordination, /coordinationView\(signal\.snapshot, sessionId\)/)
   assert.match(coordination, /rpc\("syncSession"/)
   assert.doesNotMatch(coordination, /setTimeout|setInterval/)
   assert.match(submit, /rpc\("submitTask"/)

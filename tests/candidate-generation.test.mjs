@@ -292,6 +292,7 @@ test('自由故事只保存完整的 4 action + 1 scene', async () => {
   const result = await run.candidates.generate({ sessionId: 'session-1', messageId: 'message-1', guidance: '多写动作', onStarted(operation) { started = operation } })
   assert.match(started.operationId, /^operation-/)
   assert.equal(started.basedOn.revision, 0)
+  assert.deepEqual(result.basedOn, started.basedOn, 'durable task result must already match the committed candidate record')
   assert.equal(run.modelCalls(), 1)
   assert.equal(result.choices.length, 5)
   assert.equal(result.choices.filter((item) => item.type === 'action').length, 4)

@@ -55,7 +55,10 @@ export function createCoordinationEventPublisher(options = {}) {
       const eventId = coordinationEventId(snapshot)
       if (eventId === record.lastId) return
       record.lastId = eventId
-      options.publishSignal(record.id, { kind: 'tavern-state', version: eventId })
+      // The snapshot is already loaded to derive the version. Deliver it with the
+      // wake-up so the browser does not need a second HTTP connection just to
+      // discover the state that caused this signal.
+      options.publishSignal(record.id, { kind: 'tavern-state', version: eventId, snapshot })
     } catch (error) {
       if (typeof options.onError === 'function') options.onError(error)
     } finally {
