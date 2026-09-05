@@ -18,9 +18,12 @@ function modelSourceOf(event) {
   return source && source.kind === 'model' ? source : null
 }
 
-function isFailedTurnCleanup(event) {
+function isRollbackUserTombstone(event) {
   const source = event && event.type === 'user/message' && event.data && event.data.source
-  return source && source.kind === 'plugin' && source.plugin === 'dsh-tavern-failed-turn-cleanup'
+  return source && source.kind === 'plugin' && (
+    source.plugin === 'dsh-tavern-failed-turn-cleanup' ||
+    source.plugin === 'dsh-tavern-regeneration-abort'
+  )
 }
 
 // Legacy regeneration left a durable empty replacement at the saved story turn.
@@ -81,7 +84,7 @@ export function locateRollbackSurface(input) {
   let userIndex = -1
   for (let index = nodes.length - 1; index >= 0; index -= 1) {
     const event = eventAt(events, nodes[index])
-    if (event && event.type === 'user/message' && !isFailedTurnCleanup(event)) {
+    if (event && event.type === 'user/message' && !isRollbackUserTombstone(event)) {
       userIndex = index
       break
     }

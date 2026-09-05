@@ -56,6 +56,36 @@ test('只有开场白而没有用户输入时不存在可回退轮次', () => {
   assert.equal(locateRollbackSurface({ events, nodes: [2] }), null)
 })
 
+test('重生成失败清理墓碑不冒充最后用户输入，仍可回退原轮次', () => {
+  const events = []
+  events[15] = {
+    seq: 15,
+    type: 'user/message',
+    data: { role: 'user', content: [{ type: 'text', text: '本轮输入' }], source: { kind: 'user' } },
+    surfaceOp: 'append'
+  }
+  events[555] = {
+    seq: 555,
+    type: 'assistant/message',
+    data: { turn: 2, step: 1, message: { role: 'assistant', source: modelSource() } },
+    surfaceOp: 'append'
+  }
+  events[753] = {
+    seq: 753,
+    type: 'user/message',
+    data: { role: 'user', content: [], source: { kind: 'plugin', plugin: 'dsh-tavern-regeneration-abort' } },
+    surfaceOp: { op: 'replace', start: 562, end: 750 },
+    sourceEventSeqs: [562, 563, 750]
+  }
+
+  const located = locateRollbackSurface({ events, nodes: [15, 555, 753] })
+
+  assert.equal(located.userSeq, 15)
+  assert.equal(located.assistantSeq, 555)
+  assert.equal(located.turn, 2)
+  assert.deepEqual(located.shadowedSeqs, [15, 555, 753])
+})
+
 test('回退按钮只在权威消息尾部存在用户输入与正文组合时显示', () => {
   const opening = { role: 'assistant', greeting: true, text: '开场白' }
   const user = { role: 'user', text: '本轮输入' }
