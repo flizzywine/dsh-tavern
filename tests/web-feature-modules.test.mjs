@@ -13,6 +13,29 @@ async function clientExports(react = {}) {
 
 const browser = await clientExports()
 
+test('预设条目按实际请求位置分成前中后三段，未注入内容单列且不改原顺序', function () {
+  const preset = {
+    entries: [
+      { entryKey: 'back#1', name: '后段' },
+      { entryKey: 'marker#1', name: '人物卡占位' },
+      { entryKey: 'front#1', name: '前段' },
+      { entryKey: 'middle#1', name: '中段' }
+    ],
+    dshPreset: {
+      front: [{ id: 'front#1' }],
+      middle: [{ id: 'middle#1' }],
+      back: [{ id: 'back#1' }]
+    }
+  }
+
+  const groups = browser.groupPresetEntriesByPhase(preset)
+  assert.deepEqual(Array.from(groups.front, item => item.entryKey), ['front#1'])
+  assert.deepEqual(Array.from(groups.middle, item => item.entryKey), ['middle#1'])
+  assert.deepEqual(Array.from(groups.back, item => item.entryKey), ['back#1'])
+  assert.deepEqual(Array.from(groups.unassigned, item => item.entryKey), ['marker#1'])
+  assert.deepEqual(preset.entries.map(item => item.entryKey), ['back#1', 'marker#1', 'front#1', 'middle#1'])
+})
+
 test('世界书详情把常驻条目置顶并与非常驻条目分组，组内保持原顺序', function () {
   const entries = [
     { ref: 'dynamic-a', constant: false },

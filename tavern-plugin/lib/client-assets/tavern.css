@@ -297,6 +297,17 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 .dsh-tavern-plan-phase-description { margin-top: 3px; color: var(--dsw-alias-label-secondary); font-size: 10px; line-height: 1.5; }
 .dsh-tavern-plan-phase-count { flex: none; color: var(--dsw-alias-label-secondary); font-size: 10px; white-space: nowrap; }
 .dsh-tavern-plan-phase-empty { padding: 8px 2px 2px; color: var(--dsw-alias-label-tertiary); font-size: 10px; }
+.dsh-tavern-preset-phase { margin-top: 12px; padding: 10px; border: 1px solid var(--dsw-alias-border-l2); border-top: 3px solid #5b9cff; border-radius: 10px; background: var(--dsw-alias-interactive-bg-hover); }
+.dsh-tavern-preset-phase.phase-middle { border-top-color: #35c76f; }
+.dsh-tavern-preset-phase.phase-back { border-top-color: #b47cff; }
+.dsh-tavern-preset-phase-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 9px; }
+.dsh-tavern-preset-phase-title { font-size: 14px; font-weight: 800; }
+.dsh-tavern-preset-phase-description { max-width: 620px; margin-top: 3px; color: var(--dsw-alias-label-secondary); font-size: 10px; line-height: 1.5; }
+.dsh-tavern-preset-phase-count { flex: none; padding: 2px 7px; border-radius: 999px; background: var(--dsw-specific-input-major); color: var(--dsw-alias-label-secondary); font-size: 10px; white-space: nowrap; }
+.dsh-tavern-preset-phase-empty { padding: 10px 2px 4px; color: var(--dsw-alias-label-tertiary); font-size: 10px; }
+.dsh-tavern-preset-unassigned { margin-top: 12px; padding: 10px; border: 1px dashed var(--dsw-alias-border-l2); border-radius: 10px; color: var(--dsw-alias-label-secondary); }
+.dsh-tavern-preset-unassigned > summary { cursor: pointer; color: var(--dsw-alias-label-primary); font-size: 12px; font-weight: 750; }
+.dsh-tavern-preset-unassigned > p { margin: 7px 0 10px; font-size: 10px; line-height: 1.5; }
 .dsh-tavern-prompt-row { margin-bottom: 7px; border: 1px solid var(--dsw-alias-border-l2); border-left: 4px solid #5b9cff; border-radius: 9px; background: var(--dsw-specific-input-major); overflow: hidden; }
 .dsh-tavern-prompt-row.role-user { border-left-color: #35c76f; }
 .dsh-tavern-prompt-row.role-assistant { border-left-color: #b47cff; }

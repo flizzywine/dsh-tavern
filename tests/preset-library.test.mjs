@@ -105,3 +105,26 @@ test('无效导入在写入前失败，导出保留原始文本', async () => {
   await library.import({ name: 'imported.json', text })
   assert.equal((await library.export('presets/imported.json')).text, text)
 })
+
+test('预设目录公开前中后三段数量，不再只给无法判断位置的总数', async () => {
+  const h = harness()
+  h.files.set(path, JSON.stringify({
+    prompts: [
+      { identifier: 'front', content: '前段' },
+      { identifier: 'middle', content: '中段', injection_position: 1 },
+      { identifier: 'chatHistory', marker: true, content: '' },
+      { identifier: 'back', content: '后段' },
+      { identifier: 'orphan', content: '未编排' }
+    ],
+    prompt_order: [{ order: [
+      { identifier: 'front', enabled: true },
+      { identifier: 'middle', enabled: true },
+      { identifier: 'chatHistory', enabled: true },
+      { identifier: 'back', enabled: true }
+    ] }]
+  }))
+
+  const item = (await h.create().catalog()).presets[0]
+  assert.deepEqual(item.phaseCounts, { front: 1, middle: 1, back: 1 })
+  assert.equal(item.unassignedPromptCount, 2)
+})

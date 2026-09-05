@@ -5719,6 +5719,23 @@ window.__ModuleLoader__.load({
 		}
 		const resourcesLibraryFeature = createResourcesLibraryFeatureModule();
 
+		function groupPresetEntriesByPhase(preset) {
+			const result = { front: [], middle: [], back: [], unassigned: [] };
+			const phaseByEntryKey = new Map();
+			const draft = preset && preset.dshPreset && typeof preset.dshPreset === "object" ? preset.dshPreset : {};
+			["front", "middle", "back"].forEach(function (phase) {
+				(Array.isArray(draft[phase]) ? draft[phase] : []).forEach(function (entry) {
+					const key = String(entry && (entry.id || entry.entryKey) || "");
+					if (key) phaseByEntryKey.set(key, phase);
+				});
+			});
+			(Array.isArray(preset && preset.entries) ? preset.entries : []).forEach(function (entry) {
+				const phase = phaseByEntryKey.get(String(entry && entry.entryKey || ""));
+				result[phase || "unassigned"].push(entry);
+			});
+			return result;
+		}
+
 
 			function createExternalPresetAndBypassPlanFeatureModule() {
 			function usePresetCatalog(sessionId, errorSink) {
@@ -5847,13 +5864,25 @@ window.__ModuleLoader__.load({
 							h("label", { className: "dsh-tavern-prompt-editor-toggle" }, h("input", { type: "checkbox", checked: draft.enabled, disabled: busy, onChange: function (event) { updateRegexDraft(script, { enabled: event.target.checked }); } }), "启用此正则"),
 							h("div", { className: "dsh-tavern-prompt-editor-actions" }, h("button", { className: "dsh-tavern-btn", disabled: busy || !dirty, onClick: function () { savePresetRegex(script); } }, "保存此正则"))));
 				}
-				if (preset && preset.path === detailPath) return h("div", { className: "dsh-tavern-presets" },
+				function phaseSection(phase, title, description, entries) {
+					return h("section", { className: "dsh-tavern-preset-phase phase-" + phase, "aria-label": title },
+						h("div", { className: "dsh-tavern-preset-phase-head" }, h("div", null, h("div", { className: "dsh-tavern-preset-phase-title" }, title), h("div", { className: "dsh-tavern-preset-phase-description" }, description)), h("span", { className: "dsh-tavern-preset-phase-count" }, entries.length + " 项")),
+						entries.length ? entries.map(entryRow) : h("div", { className: "dsh-tavern-preset-phase-empty" }, "此段暂无提示词"));
+				}
+				if (preset && preset.path === detailPath) {
+					const entryGroups = groupPresetEntriesByPhase(preset);
+					return h("div", { className: "dsh-tavern-presets" },
 					h("div", { className: "dsh-tavern-status-head" }, h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { setDetailPath(""); setPreset(null); } }, "← 返回预设库"), h("div", { className: "dsh-tavern-status-title" }, preset.title)),
 					h("div", { className: "dsh-tavern-preset-detail" }, error ? h("div", { className: "dsh-tavern-dock-error" }, error) : null,
-						h("div", { className: "dsh-tavern-preset-summary" }, h("b", null, "编辑预设提示词和正则"), h("p", null, "点击条目展开编辑，保存后会直接写回预设文件。游玩会在下一轮请求中使用修改后的内容。"), h("p", null, "预设用于游玩正文；从 SillyTavern 导入的预设，效果可能与原酒馆不同。"), h("p", null, "卡片模式中的引用只供 Agent 阅读和编辑，后台 Agent 也不会运行预设。")),
+						h("div", { className: "dsh-tavern-preset-summary" }, h("b", null, "编辑前／中／后三段预设"), h("p", null, "三段代表提示词进入前台请求的真实位置；点击条目展开编辑，保存后下一轮游玩直接生效。"), h("p", null, "预设用于游玩正文；从 SillyTavern 导入的预设，效果可能与原酒馆不同。"), h("p", null, "卡片模式中的引用只供 Agent 阅读和编辑，后台 Agent 也不会运行预设。")),
 						h("div", { className: "dsh-tavern-preset-detail-actions" }, h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { exportFile(preset); } }, "导出"), h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { rename(preset); } }, "重命名"), h("button", { className: "dsh-tavern-btn danger", disabled: busy, onClick: function () { remove(preset); } }, "删除")),
-						h("div", { className: "dsh-tavern-preset-section-title" }, "提示词条目 · " + (preset.entries || []).length), (preset.entries || []).map(entryRow),
+						h("div", { className: "dsh-tavern-preset-section-title" }, "提示词三段 · " + (preset.entries || []).length + " 个源条目"),
+						phaseSection("front", "前段", "位于系统上下文和历史之前；适合稳定身份、世界前提与总体规则。", entryGroups.front),
+						phaseSection("middle", "中段", "位于历史之后、本轮输入之前；适合深度注入和临近当前回合的提醒。", entryGroups.middle),
+						phaseSection("back", "后段", "并入本轮输入末尾；距离本轮任务最近，适合最终写作约束与输出格式。", entryGroups.back),
+						entryGroups.unassigned.length ? h("details", { className: "dsh-tavern-preset-unassigned" }, h("summary", null, "未进入三段 · " + entryGroups.unassigned.length + " 项"), h("p", null, "这些是由宿主提供的材料占位，或未被 prompt_order 编排的条目，不会作为三段预设文本注入。"), entryGroups.unassigned.map(entryRow)) : null,
 						h("div", { className: "dsh-tavern-preset-section-title" }, "正则脚本 · " + (preset.extractableRegexScripts || []).length), (preset.extractableRegexScripts || []).map(regexRow)));
+				}
 				return h("div", { className: "dsh-tavern-presets" },
 					h("div", { className: "dsh-tavern-status-head" }, h("div", { className: "dsh-tavern-status-title" }, "预设库"), h("div", { className: "dsh-tavern-question-sub" }, "管理外部预设；日常调整优先改卡或使用 Guide"), h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { importInput.current && importInput.current.click(); } }, "导入外部预设"), h("input", { ref: importInput, type: "file", accept: ".json,application/json", style: { display: "none" }, onChange: function (event) { const file = event.target.files && event.target.files[0]; importFile(file); event.target.value = ""; } })),
 					h("div", { className: "dsh-tavern-preset-list" }, error ? h("div", { className: "dsh-tavern-dock-error" }, error) : null,
@@ -5865,7 +5894,7 @@ window.__ModuleLoader__.load({
 						h("p", null, "修改预设后，下一轮游玩请求直接生效；卡片模式中的引用仅供 Agent 阅读和编辑，后台 Agent 不运行预设。")),
 					catalog.presets.length ? catalog.presets.map(function (item) {
 						return h("div", { key: item.path, className: "dsh-tavern-preset-row" },
-							h("div", { className: "dsh-tavern-preset-row-head" }, h("button", { className: "dsh-tavern-preset-row-main", disabled: busy, title: "查看并编辑预设", onClick: function () { loadPreset(item.path); } }, h("b", null, item.title), h("span", null, item.promptCount + " 个提示词 · " + item.regexCount + " 条正则"))),
+								h("div", { className: "dsh-tavern-preset-row-head" }, h("button", { className: "dsh-tavern-preset-row-main", disabled: busy, title: "查看并编辑预设", onClick: function () { loadPreset(item.path); } }, h("b", null, item.title), h("span", null, "前 " + Number(item.phaseCounts && item.phaseCounts.front || 0) + " · 中 " + Number(item.phaseCounts && item.phaseCounts.middle || 0) + " · 后 " + Number(item.phaseCounts && item.phaseCounts.back || 0) + " · 正则 " + item.regexCount))),
 							inCardMode ? h("div", { className: "dsh-tavern-preset-row-actions" }, h("button", { className: "dsh-tavern-resource-at", disabled: busy, onClick: function () { props.appendMention("preset", item.path, item.title); } }, "在对话中引用")) : null
 						);
 					}) : h("div", { className: "dsh-tavern-status-empty" }, "还没有外部预设。请先导入。")));
@@ -7905,6 +7934,7 @@ window.__ModuleLoader__.load({
 		exports.createTavernFrameSlashExecutor = createTavernFrameSlashExecutor;
 		exports.createWorldBookLibraryRefreshModule = createWorldBookLibraryRefreshModule;
 		exports.groupWorldBookEditorEntries = groupWorldBookEditorEntries;
+		exports.groupPresetEntriesByPhase = groupPresetEntriesByPhase;
 		exports.createCardLibraryRefreshModule = createCardLibraryRefreshModule;
 		exports.tavernDataChangeAffects = tavernDataChangeAffects;
 		exports.createLiveTavernViewModule = createLiveTavernViewModule;

@@ -185,6 +185,12 @@ export function createPresetLibrary({ resources: fileResources, state: profileDa
       const inspected = record.inspected
       const preset = inspected
       const extractableRegexScripts = runtimeRegexScriptsOf(preset, await readPresetDocument(preset.path))
+      const phaseCounts = Object.fromEntries(['front', 'middle', 'back'].map(function (phase) {
+        return [phase, Array.isArray(preset.dshPreset && preset.dshPreset[phase]) ? preset.dshPreset[phase].length : 0]
+      }))
+      const phasedEntryKeys = new Set(['front', 'middle', 'back'].flatMap(function (phase) {
+        return (Array.isArray(preset.dshPreset && preset.dshPreset[phase]) ? preset.dshPreset[phase] : []).map(function (entry) { return str(entry && entry.id) })
+      }))
       result.push({
         path: preset.path,
         previewPath: preset.previewPath,
@@ -192,6 +198,8 @@ export function createPresetLibrary({ resources: fileResources, state: profileDa
         valid: preset.valid,
         recognized: preset.recognized,
         promptCount: preset.promptCount,
+        phaseCounts,
+        unassignedPromptCount: (preset.entries || []).filter(function (entry) { return !phasedEntryKeys.has(str(entry && entry.entryKey)) }).length,
         enabledCount: preset.enabledCount || 0,
         regexCount: extractableRegexScripts.length,
         enabledRegexCount: extractableRegexScripts.filter(function (script) { return script.enabled !== false }).length,
