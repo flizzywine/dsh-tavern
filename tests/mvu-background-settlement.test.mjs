@@ -100,6 +100,37 @@ test('MVU 后台 Agent 在同一回合加载人物设计工具后继续完成姿
   assert.equal(result.receipt.status, 'unchanged')
 })
 
+test('MVU 工具提交在进入官方运行时前解析姿势和变量值中的名字宏', async function () {
+  const module = createMvuSettlementModule({
+    model: { async run(input) {
+      await input.onToolCall({
+        name: 'posture_submit',
+        arguments: { posture: '{{char}}经过 {{ user }} 身侧后走远。' }
+      })
+      await input.onToolCall({ name: 'mvu_submit_update', arguments: { operations: [{
+        op: 'replace', path: '/stat_data/祝南枝/动作体位', value: '经过 {{user}} 身侧后走远。'
+      }] } })
+      return { text: '' }
+    } },
+    runtime: { async settleMvuUpdate(input) {
+      assert.match(input.command, /经过 陈锋 身侧后走远/)
+      assert.doesNotMatch(input.command, /\{\{\s*user\s*\}\}/i)
+      return { context: { messages: [{ variables: { stat_data: { 祝南枝: { 动作体位: '经过 陈锋 身侧后走远。' } } } }] } }
+    } }
+  })
+
+  const result = await module.settleVariables({
+    operationId: 'operation-macro', chatId: 'chat-macro', branchId: 'branch-1', basedOnRevision: 1,
+    sessionId: 'session-1', messageId: 0, swipeId: 0, storyText: '她从玩家身侧走过。',
+    charName: '祝南枝', macroState: { userName: '陈锋', local: {}, global: {} },
+    currentVariables: { stat_data: { 祝南枝: { 动作体位: '站在窗边。' } } }
+  })
+
+  assert.equal(result.posture, '祝南枝经过 陈锋 身侧后走远。')
+  assert.equal(result.receipt.status, 'updated')
+  assert.equal(result.variables.stat_data.祝南枝.动作体位, '经过 陈锋 身侧后走远。')
+})
+
 function completeDesignFixture() {
   return {
     name: '林岚', identity: '镇上的邮差', narrativeRole: '持续传递线索的人物', coreMotivation: '找到失踪的同伴',
@@ -229,6 +260,21 @@ test('空 operations 是有效的明确结算结果，旧 analysis 输入被兼�
   assert.equal(Object.hasOwn(value, 'analysis'), false)
   assert.match(formatMvuUpdateCommand(value), /<JSONPatch>\n\[\]\n<\/JSONPatch>/)
   assert.doesNotMatch(formatMvuUpdateCommand(value), /<Analyze>/)
+})
+
+test('发给官方 MVU 前把 DSH 绝对变量路径转为 stat_data 内的相对路径', function () {
+  const command = formatMvuUpdateCommand({ operations: [
+    { op: 'delta', path: '/stat_data/祝南枝/对主角的好感度', value: 1 },
+    { op: 'move', from: '/stat_data/祝南枝/旧位置', path: '/stat_data/祝南枝/当前位置' },
+    { op: 'replace', path: '/世界/当前时间', value: '10时38分' }
+  ] })
+  const patch = JSON.parse(command.match(/<JSONPatch>\n([\s\S]*?)\n<\/JSONPatch>/)[1])
+
+  assert.deepEqual(patch, [
+    { op: 'delta', path: '/祝南枝/对主角的好感度', value: 1 },
+    { op: 'move', from: '/祝南枝/旧位置', path: '/祝南枝/当前位置' },
+    { op: 'replace', path: '/世界/当前时间', value: '10时38分' }
+  ])
 })
 
 test('工具拒绝任意 JavaScript、非法路径和无效 delta', function () {

@@ -7,6 +7,7 @@ import {
 } from './character-design-document.js'
 import { variableDiagnosticSummary } from './mvu-diagnostics.js'
 import { POSTURE_SUBMIT_TOOL, POSTURE_SUBMIT_TOOL_NAME, normalizePostureSubmission } from './posture-submission.js'
+import { resolveRuntimeMacroText } from './runtime-content-projection.js'
 
 export const MVU_SUBMIT_UPDATE_TOOL_NAME = 'mvu_submit_update'
 
@@ -53,7 +54,7 @@ export const MVU_SUBMIT_UPDATE_TOOL = Object.freeze({
     properties: {
       operations: {
         type: 'array',
-        description: '官方 MVU JSON Patch 方言；没有变量变化时必须为空数组。',
+        description: '官方 MVU JSON Patch 方言。path/from 使用完整变量快照中的绝对路径（例如 /stat_data/角色/好感度）；没有变量变化时必须为空数组。',
         items: { oneOf: operationSchemas }
       }
     },
@@ -260,13 +261,53 @@ export function normalizeMvuToolSubmission(value) {
   }
 }
 
+function resolveMvuValueMacros(value, input) {
+  if (typeof value === 'string') {
+    return resolveRuntimeMacroText(value, {
+      charName: input.charName,
+      macroState: input.macroState
+    }).text
+  }
+  if (Array.isArray(value)) return value.map(item => resolveMvuValueMacros(item, input))
+  if (value !== null && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, resolveMvuValueMacros(item, input)]))
+  }
+  return value
+}
+
+function resolveMvuSubmissionMacros(submission, input) {
+  return {
+    operations: submission.operations.map(operation => Object.hasOwn(operation, 'value')
+      ? { ...operation, value: resolveMvuValueMacros(operation.value, input) }
+      : operation)
+  }
+}
+
+// DSH exposes paths against the complete variable snapshot so Agent input,
+// diagnostics, and receipts share one unambiguous namespace. Official MVU
+// already applies JSON Patch commands to `variables.stat_data`, so its wire
+// protocol must not receive that root a second time. Keep accepting legacy
+// relative paths because persisted pending submissions may still contain them.
+function officialMvuPointer(pointer) {
+  if (pointer === '/stat_data') return ''
+  return pointer.startsWith('/stat_data/') ? pointer.slice('/stat_data'.length) : pointer
+}
+
+function officialMvuOperations(operations) {
+  return operations.map(function (operation) {
+    const wire = { ...operation, path: officialMvuPointer(operation.path) }
+    if (operation.op === 'move') wire.from = officialMvuPointer(operation.from)
+    return wire
+  })
+}
+
 /** Convert a validated tool call into the canonical protocol understood by official MVU. */
 export function formatMvuUpdateCommand(value) {
   const submission = normalizeMvuToolSubmission(value)
   return [
     '<UpdateVariable>',
     '<JSONPatch>',
-    JSON.stringify(submission.operations, null, 2),
+    JSON.stringify(officialMvuOperations(submission.operations), null, 2),
     '</JSONPatch>',
     '</UpdateVariable>'
   ].join('\n')
@@ -377,7 +418,7 @@ export function createMvuSettlementModule(options = {}) {
 
   async function resumeVariables(input = {}) {
     const frame = taskFrame(input)
-    const submission = normalizeMvuToolSubmission(input.submission)
+    const submission = resolveMvuSubmissionMacros(normalizeMvuToolSubmission(input.submission), input)
     const diagnosticId = frame.frameId + ':resume'
     const outcome = await applySubmission(input, frame, submission, diagnosticId)
     if (outcome.applied.deferred === true) {
@@ -419,7 +460,10 @@ export function createMvuSettlementModule(options = {}) {
       }
       if (call && call.name === POSTURE_SUBMIT_TOOL_NAME) {
         try {
-          posture = normalizePostureSubmission(call.arguments)
+          posture = normalizePostureSubmission(call.arguments, {
+            charName: input.charName,
+            macroState: input.macroState
+          })
           return JSON.stringify({ ok: true })
         } catch (error) {
           return JSON.stringify({ ok: false, retryable: true, error: str(error && error.message || error) })
@@ -437,7 +481,7 @@ export function createMvuSettlementModule(options = {}) {
       let submission
       try {
         if (!call || call.name !== MVU_SUBMIT_UPDATE_TOOL_NAME) throw new Error('后台 Agent 调用了未授权的变量工具')
-        submission = normalizeMvuToolSubmission(call.arguments)
+        submission = resolveMvuSubmissionMacros(normalizeMvuToolSubmission(call.arguments), input)
         if (feedback && submission.operations.length === 0) throw new Error('上一批更新未通过校验，请修正完整 operations，不能用空数组跳过失败')
       } catch (error) {
         await record('submission-rejected', { error: error.message, argumentKeys: Object.keys(object(call?.arguments)), operations: object(call?.arguments).operations })

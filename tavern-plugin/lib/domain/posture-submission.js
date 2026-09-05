@@ -1,3 +1,5 @@
+import { resolveRuntimeMacroText } from './runtime-content-projection.js'
+
 export const POSTURE_SUBMIT_TOOL_NAME = 'posture_submit'
 
 export const POSTURE_SUBMIT_TOOL = Object.freeze({
@@ -13,8 +15,12 @@ export const POSTURE_SUBMIT_TOOL = Object.freeze({
   })
 })
 
-export function normalizePostureSubmission(value) {
-  const posture = typeof value?.posture === 'string' ? value.posture.trim() : ''
+export function normalizePostureSubmission(value, context = {}) {
+  const source = typeof value?.posture === 'string' ? value.posture.trim() : ''
+  const posture = source === '' ? '' : resolveRuntimeMacroText(source, {
+    charName: context.charName,
+    macroState: context.macroState
+  }).text.trim()
   if (posture === '') throw new Error('posture_submit 缺少非空 posture')
   return Object.freeze({ posture })
 }

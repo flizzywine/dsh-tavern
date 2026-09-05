@@ -38,7 +38,7 @@ Host Adapter 仍负责隔离变量/消息草稿。结算模块提供保存前核
 - `tests/mvu-tool-retry.test.mjs`：实际 Host Adapter 草稿、部分失败回滚、修正成功、次数上限、参数纠错、并行重复调用、成功后模型失败、过期和不确定结果。
 - `tests/mvu-prompt-projection.test.mjs`：首次输入和重试反馈去重、紧凑 JSON 可逆、规则和原始状态不变、扁平/自定义字段保留及新结构回传。
 - `tests/background-agent-runner.test.mjs`：失败后工具仍可用，成功或达到上限后撤下，清理不重复。
-- `node tests/fixtures/mvu-tool-retry-browser-smoke.mjs`：独立浏览器夹具，官方 MVU + 真实浏览器桥接与 Host Adapter；模型响应由脚本提供，不用付费模型或用户存档。可用 `MVU_SMOKE_ASSET_CACHE` 指定已有静态依赖缓存目录。
+- `node tests/fixtures/mvu-tool-retry-browser-smoke.mjs`：独立浏览器夹具，官方 MVU + 真实浏览器桥接与 Host Adapter；使用 DSH 的 `/stat_data/...` 绝对路径验证官方 MVU 路径适配。模型响应由脚本提供，不用付费模型或用户存档。可用 `MVU_SMOKE_ASSET_CACHE` 指定已有静态依赖缓存目录。
 - `node tests/fixtures/mvu-initialization-browser-smoke.mjs`：真实核心、启动器、租约轮询及结算链路。打开 `/` 验证 hp 从 10 更新到 9 且写入一次；打开 `/?fail=1` 令 bundle 返回 503，验证加载失败回执、停止纠错及零写入。可附加 `sandbox=1` 验证隔离模式。
 
-浏览器夹具仅模拟 Agent 决策及 MVU 全局设置保存，不模拟变量执行。实测首次位置校验失败、第二次修正成功：`attempts=2`、`writes=1`、`hp=9`（初值 10）。这验证反馈和持久化链路，不代表已经验证所有模型的纠错能力。
+浏览器夹具仅模拟 Agent 决策及 MVU 全局设置保存，不模拟付费模型。实测首次位置校验失败、第二次修正成功：`attempts=2`、`writes=0`、`hp=9`（初值 10）。`writes=0` 是因为浏览器结算只产生事务效果，权威 Chat 由后续 Round 原子提交统一写入。这验证反馈、路径适配和事务效果链路，不代表已经验证所有模型的纠错能力。

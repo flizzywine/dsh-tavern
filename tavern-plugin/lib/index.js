@@ -1659,6 +1659,8 @@ export async function apply(ctx) {
             storyText: projectAgentMessageText(mvuTarget.message, { charName: card && card.name, macroState: snapshot.macroState }),
             currentVariables: mvuTarget.variables,
             variableSchema: mvuTarget.variables.schema,
+            charName: card && card.name,
+            macroState: snapshot.macroState,
             updateRules: await mvuUpdateRules(snapshot, card),
             webSearchEnabled: snapshot.webSearchEnabled === true
           }
@@ -1728,7 +1730,10 @@ export async function apply(ctx) {
                   return JSON.stringify({ ok: false, retryable: true, error: '当前任务只允许调用人物设计工具和 posture_submit' })
                 }
                 try {
-                  submittedPosture = normalizePostureSubmission(call.arguments)
+                  submittedPosture = normalizePostureSubmission(call.arguments, {
+                    charName: card && card.name,
+                    macroState: snapshot.macroState
+                  })
                   return JSON.stringify({ ok: true })
                 } catch (error) {
                   return JSON.stringify({ ok: false, retryable: true, error: str(error && error.message || error) })
