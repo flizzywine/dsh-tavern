@@ -3,6 +3,8 @@ import test from 'node:test'
 import { projectOpeningCommit, projectRuntimeReplyHistory } from '../tavern-plugin/lib/domain/runtime-content-projection.js'
 
 import {
+  appendTavernHelperMessages,
+  lastTavernHelperVariables,
   projectTavernHelperContext,
   replaceTavernHelperMessages,
   replaceTavernHelperVariables
@@ -137,6 +139,29 @@ test('Helper 消息写入可切换开场 swipe 并修改当前正文', () => {
   assert.equal(chat.messages[0].text, '自定义开场')
   assert.equal(chat.messages[0].projectionText, '自定义开场')
   assert.deepEqual(chat.messages[0].variables[1], { hp: 7 })
+})
+
+test('Helper 创建的新楼层只进入脚本历史，不冒充剧情回合', () => {
+  const chat = macroOpeningChat()
+  const storyProjection = projectRuntimeReplyHistory(chat.messages)
+  assert.deepEqual(appendTavernHelperMessages(chat, [{
+    role: 'assistant', message: '<chat_history>手机记录</chat_history>',
+    name: '手机', is_hidden: false, data: { phone: true }
+  }]), [{ messageId: 1 }])
+
+  assert.equal(chat.messages[1].role, 'tavern-helper')
+  assert.equal(chat.messages[1].tavernRole, 'assistant')
+  assert.equal(chat.messages[1].turn, undefined)
+  const projected = projectTavernHelperContext(chat).messages[1]
+  assert.equal(projected.role, 'assistant')
+  assert.equal(projected.name, '手机')
+  assert.equal(projected.is_hidden, false)
+  assert.equal(projected.message, '<chat_history>手机记录</chat_history>')
+  assert.deepEqual(projected.variables, { phone: true })
+  assert.deepEqual(projectRuntimeReplyHistory(chat.messages), storyProjection)
+  assert.deepEqual(lastTavernHelperVariables(chat.messages), {})
+
+  assert.throws(() => appendTavernHelperMessages(chat, [{ role: 'assistant', message: '插入' }], { insert_before: 0 }), /只支持追加/)
 })
 
 test('官方 MVU 可以一次写回所有开场 swipe 的独立变量快照', () => {

@@ -300,6 +300,20 @@ test('Host Adapter 把脚本变量和消息调用写回 dsh-tavern 权威 Chat',
   assert.deepEqual(run.writes.map(function (item) { return item.metadata.source }), ['tavern-helper.variables', 'tavern-helper.messages'])
 })
 
+test('Host Adapter 追加 Helper 楼层并保留追加式剧情边界', async function () {
+  const run = harness()
+  const result = await run.adapter.createMessages('session-1', [{
+    role: 'assistant', message: '<chat_history>手机回复</chat_history>', is_hidden: false
+  }], {}, 2)
+
+  assert.equal(result.updated, true)
+  assert.deepEqual(result.targets, [{ messageId: 1 }])
+  assert.equal(run.chat.messages[1].role, 'tavern-helper')
+  assert.equal(run.chat.messages[1].tavernRole, 'assistant')
+  assert.equal(run.chat.messages[1].turn, undefined)
+  assert.equal(run.writes.at(-1).metadata.source, 'tavern-helper.messages.create')
+})
+
 test('Host Adapter 把全局变量保存到 Profile 作用域而不改写 Chat', async () => {
   const value = chat()
   const writes = []

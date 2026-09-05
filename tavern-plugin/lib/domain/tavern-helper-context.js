@@ -31,6 +31,7 @@ export function lastTavernHelperVariables(messages) {
   const source = Array.isArray(messages) ? messages : []
   for (let messageId = source.length - 1; messageId >= 0; messageId--) {
     const message = source[messageId]
+    if (message && message.role === 'tavern-helper') continue
     if (!message || !Array.isArray(message.variables) || message.variables.length === 0) continue
     const swipeId = selectedSwipe(message)
     const variables = message.variables[swipeId]
@@ -51,15 +52,22 @@ export function projectTavernHelperContext(chat) {
       ? source.swipes.map(str)
       : [str(source.sourceText || source.text)]
     const variables = Array.isArray(source.variables) ? clone(source.variables) : []
+    const tavernRole = source.role === 'tavern-helper'
+      ? (['system', 'assistant', 'user'].includes(source.tavernRole) ? source.tavernRole : 'assistant')
+      : (source.role === 'user' ? 'user' : 'assistant')
     const projected = {
       pluginData: clone(source.tavernPluginData || {}),
       message_id: messageId,
-      role: source.role === 'user' ? 'user' : 'assistant',
+      role: tavernRole,
       message: swipes[swipeId] ?? swipes[0] ?? '',
       swipe_id: swipeId,
       swipes,
       swipes_data: variables,
       variables: clone(variables[swipeId] || {})
+    }
+    if (source.role === 'tavern-helper') {
+      projected.is_hidden = source.tavernHidden === true
+      if (str(source.name) !== '') projected.name = str(source.name)
     }
     messages.push(projected)
     if (projected.role === 'assistant') {
@@ -79,6 +87,45 @@ export function projectTavernHelperContext(chat) {
     chatVariables: clone(chat && chat.variables && typeof chat.variables === 'object' ? chat.variables : {}),
     scriptVariables: clone(chat && chat.tavernHelperScriptVariables && typeof chat.tavernHelperScriptVariables === 'object' ? chat.tavernHelperScriptVariables : {})
   }
+}
+
+/** Append Helper-owned floors without turning plugin records into story rounds. */
+export function appendTavernHelperMessages(chat, values, option = {}) {
+  if (!chat || typeof chat !== 'object') throw new Error('聊天不存在')
+  const settings = option && typeof option === 'object' && !Array.isArray(option) ? option : {}
+  if (settings.insert_before !== undefined && settings.insert_before !== 'end') {
+    throw new Error('DSH 的 createChatMessages 只支持追加到末尾')
+  }
+  if (settings.refresh !== undefined && !['none', 'affected', 'all'].includes(settings.refresh)) {
+    throw new Error('createChatMessages refresh 参数无效')
+  }
+  if (!Array.isArray(chat.messages)) chat.messages = []
+  const created = []
+  for (const value of Array.isArray(values) ? values : []) {
+    if (!value || typeof value !== 'object') throw new TypeError('createChatMessages 消息必须是对象')
+    const role = str(value.role)
+    if (!['system', 'assistant', 'user'].includes(role)) throw new TypeError('createChatMessages role 无效: ' + role)
+    const text = str(value.message)
+    const message = {
+      role: 'tavern-helper',
+      tavernRole: role,
+      tavernHidden: value.is_hidden === true,
+      tavernHelperCreated: true,
+      text,
+      sourceText: text,
+      projectionText: text,
+      sessionText: text,
+      displayText: text,
+      displayMode: 'markdown',
+      swipeId: 0,
+      swipes: [text],
+      variables: [clone(value.data && typeof value.data === 'object' && !Array.isArray(value.data) ? value.data : {})]
+    }
+    if (str(value.name) !== '') message.name = str(value.name)
+    chat.messages.push(message)
+    created.push({ messageId: chat.messages.length - 1 })
+  }
+  return created
 }
 
 /** Apply one explicit Helper variable write without exposing Chat internals. */

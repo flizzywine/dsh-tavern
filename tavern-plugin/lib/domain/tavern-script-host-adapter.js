@@ -1,6 +1,7 @@
 import { isDeepStrictEqual } from 'node:util'
 import { applyChatPluginData, validateChatPluginRequest } from './tavern-chat-plugin-data.js'
 import {
+  appendTavernHelperMessages,
   lastTavernHelperVariables,
   projectTavernHelperContext,
   replaceTavernHelperMessages,
@@ -158,6 +159,25 @@ export function createTavernScriptHostAdapter(options = {}) {
       throw error
     }
     return { updated: true, targets: updated, context: projectTavernHelperContext(chat) }
+  }
+
+  async function createMessages(sessionId, messages, option, expectedLifecycleRevision, eventId) {
+    const transaction = settlementTransactions.get(str(sessionId))
+    assertTransactionEvent(transaction, eventId)
+    if (transaction !== undefined) throw new Error('MVU 结算事务不能创建额外聊天楼层')
+    const chat = await resolveChat(sessionId)
+    await assertScriptEnabled(chat)
+    if (!mutationIsCurrent(chat, expectedLifecycleRevision)) return staleMutation(chat)
+    const created = appendTavernHelperMessages(chat, messages, option)
+    try { await options.writeChat(chat, { source: 'tavern-helper.messages.create' }) }
+    catch (error) {
+      if (error && error.code === 'DSH_TAVERN_CHAT_CONFLICT') {
+        const latest = await options.resolveChat(str(sessionId))
+        if (latest !== undefined && !mutationIsCurrent(latest, expectedLifecycleRevision)) return staleMutation(latest)
+      }
+      throw error
+    }
+    return { updated: true, targets: created, context: projectTavernHelperContext(chat) }
   }
 
   async function worldbookRecord(sessionId, requestedName) {
@@ -414,6 +434,7 @@ export function createTavernScriptHostAdapter(options = {}) {
     settleMvuUpdate,
     updateVariables,
     updateMessages,
+    createMessages,
     getWorldbook,
     replaceWorldbook,
     saveExtensionSettings,
