@@ -102,6 +102,45 @@ function projectLegacyTemplatePrefix(messages, text) {
   return changed ? projected : messages
 }
 
+function legacyDeepSeekReplayBlocks(content) {
+  if (!Array.isArray(content) || !content.some(function (block) { return block && block.type === 'reasoning' })) return null
+  const blocks = []
+  for (const block of content) {
+    if (block && block.type === 'reasoning') blocks.push({ type: 'reasoning', thinkingSignature: 'reasoning_content' })
+    else if (block && block.type === 'text') blocks.push({ type: 'text' })
+    else if (block && block.type === 'tool-call') blocks.push({ type: 'tool-call' })
+    else return null
+  }
+  return blocks
+}
+
+/** Restore the provider replay envelope that pre-0.1.2 DSH Sessions lack. */
+function projectLegacyDeepSeekReasoningReplay(messages, request) {
+  const provider = str(request && request.provider)
+  const model = str(request && request.model)
+  if (!/^deepseek(?:-|$)/i.test(provider) || str(request && request.reasoningEffort) === 'off') return messages
+  let changed = false
+  const projected = (Array.isArray(messages) ? messages : []).map(function (message) {
+    const source = message && message.source
+    if (!source || source.kind !== 'model' || source.replayState !== undefined || str(source.provider) !== provider || str(source.model) !== model) return message
+    const blocks = legacyDeepSeekReplayBlocks(message.content)
+    if (blocks === null) return message
+    changed = true
+    return Object.assign({}, message, {
+      source: Object.assign({}, source, {
+        replayState: {
+          response: {
+            kind: 'pi-ai', version: 2, api: 'openai-completions', provider, model,
+            stopReason: blocks.some(function (block) { return block.type === 'tool-call' }) ? 'toolUse' : 'stop'
+          },
+          blocks
+        }
+      })
+    })
+  })
+  return changed ? projected : messages
+}
+
 export function createCompatibilityOrchestrationStrategy(options) {
   const stagedRequests = new Map()
   const redispatches = new WeakSet()
@@ -215,6 +254,8 @@ export function createNativePlayOrchestrationStrategy(options) {
     })
     const projectedMessages = projectLegacyTemplatePrefix(request.messages, staged.stablePrefixText)
     if (projectedMessages !== request.messages) request = Object.assign({}, request, { messages: projectedMessages })
+    const replayMessages = projectLegacyDeepSeekReasoningReplay(request.messages, request)
+    if (replayMessages !== request.messages) request = Object.assign({}, request, { messages: replayMessages })
     // DSH's renderer returns '' for no sections; adapters otherwise serialize
     // it as an empty system message. Preserve any explicit non-empty prompt.
     if (request.system === '') {
