@@ -57,7 +57,7 @@ import { resolveRuntimePresetMacros } from './domain/runtime-presets.js'
 import { compileSillyTavernRequest } from './domain/sillytavern-compatibility.js'
 import { applySillyTavernStrictTools } from './domain/sillytavern-strict-tools.js'
 import { createForegroundOrchestrationStrategies } from './domain/foreground-orchestration-strategies.js'
-import { clearFailedTurnSurface, hasRollbackMessages, supersededRegenerationErrorTurns } from './domain/rollback-surface.js'
+import { abortedRegenerationTurns, clearFailedTurnSurface, hasRollbackMessages, supersededRegenerationErrorTurns } from './domain/rollback-surface.js'
 import { assistantResultForTurn } from './domain/session-turn-result.js'
 import { createTavernRetryLimiter } from './domain/tavern-retry-limiter.js'
 import { lastTavernHelperVariables, projectTavernHelperContext } from './domain/tavern-helper-context.js'
@@ -1079,6 +1079,10 @@ export async function apply(ctx) {
         helperRuntime.diagnostics.push({ scriptId: '', name: '世界书', status: 'unavailable', message: str(error && error.message || error) })
       }
     }
+    const projectionEvents = sessionDebugEvidence(chat.sessionId).events
+    const suppressedDshTurns = Array.from(new Set((Array.isArray(chat.suppressedDshTurns) ? chat.suppressedDshTurns : [])
+      .concat(abortedRegenerationTurns({ events: projectionEvents }))
+      .map(Number).filter(function (turn) { return Number.isSafeInteger(turn) && turn > 0 }))).sort(function (left, right) { return left - right })
     return {
       chatId: chat.id,
       mode: chat.mode || 'story',
@@ -1109,13 +1113,12 @@ export async function apply(ctx) {
         commit: OFFICIAL_MVU_VERSION.commit,
         assetUrl: OFFICIAL_MVU_VERSION.assetUrl
       } : null,
-      suppressedDshTurns: Array.from(new Set((Array.isArray(chat.suppressedDshTurns) ? chat.suppressedDshTurns : [])
-        .map(Number).filter(function (turn) { return Number.isSafeInteger(turn) && turn > 0 }))).sort(function (left, right) { return left - right }),
+      suppressedDshTurns,
       regeneratedDshTurns: Object.fromEntries(Object.entries(chat.regeneratedDshTurns && typeof chat.regeneratedDshTurns === 'object' && !Array.isArray(chat.regeneratedDshTurns)
         ? chat.regeneratedDshTurns : {}).map(function ([turn, visibleTurn]) { return [String(Number(turn)), Number(visibleTurn)] })
         .filter(function ([turn, visibleTurn]) { return Number.isSafeInteger(Number(turn)) && Number(turn) > 0 && Number.isSafeInteger(visibleTurn) && visibleTurn > 0 })),
       suppressedDshErrorTurns: supersededRegenerationErrorTurns({
-        events: sessionDebugEvidence(chat.sessionId).events,
+        events: projectionEvents,
         suppressedDshTurns: chat.suppressedDshTurns
       }),
       tavernHelperScripts: helperRuntime.scripts,

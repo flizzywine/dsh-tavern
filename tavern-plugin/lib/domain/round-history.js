@@ -1,7 +1,7 @@
 import { sessionEvents } from './session-events.js'
 import { randomUUID } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
-import { clearRegenerationAttemptSurface, locateRegenerationSurface, locateRollbackSurface, planRegenerationSurface } from './rollback-surface.js'
+import { clearRegenerationAttemptSurface, locateRegenerationSurface, locateRollbackSurface, planRegenerationSurface, regenerationAttemptTurns } from './rollback-surface.js'
 import { assertRegenerationSourceCurrent, replaceLastRound } from './last-round-replacement.js'
 import { diagnosticIdentity, regenerationTargetDiagnostic } from './regeneration-diagnostics.js'
 
@@ -106,9 +106,12 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     async function restoreFailedRegen() {
       if (restored) return
       restored = true
+      const abortedTurns = regenerationAttemptTurns({ events: sessionEvents(session), eventStart })
       await updateChat(chat.id, function (current) {
         if (!current || typeof current !== 'object') return current
-        return storyTimeline.apply({ chat: current, intent: { kind: 'replacement.abort', restoreChat: originalChat } }).chat
+        const next = storyTimeline.apply({ chat: current, intent: { kind: 'replacement.abort', restoreChat: originalChat } }).chat
+        next.suppressedDshTurns = Array.from(new Set((Array.isArray(next.suppressedDshTurns) ? next.suppressedDshTurns : []).concat(abortedTurns))).sort(function (left, right) { return left - right })
+        return next
       }, { source: 'foreground.regen-abort' })
       clearRegenerationAttemptSurface({ session, eventStart })
     }

@@ -38,6 +38,35 @@ function isRollbackAssistantTombstone(event, events) {
   })
 }
 
+function modelTurns(events, seqs) {
+  const turns = new Set()
+  for (const seq of seqs) {
+    const event = eventAt(events, seq)
+    const turn = Number(event && event.data && event.data.turn)
+    if (event && event.type === 'assistant/message' && modelSourceOf(event) !== null && Number.isSafeInteger(turn) && turn > 0) turns.add(turn)
+  }
+  return [...turns].sort(function (left, right) { return left - right })
+}
+
+export function regenerationAttemptTurns(input) {
+  const events = Array.isArray(input && input.events) ? input.events : []
+  const eventStart = Math.max(0, Number(input && input.eventStart) || 0)
+  return modelTurns(events, events.filter(function (event) {
+    return event && Number.isSafeInteger(event.seq) && event.seq >= eventStart
+  }).map(function (event) { return event.seq }))
+}
+
+export function abortedRegenerationTurns(input) {
+  const events = Array.isArray(input && input.events) ? input.events : []
+  const seqs = []
+  for (const event of events) {
+    const source = event && event.type === 'user/message' && event.data && event.data.source
+    if (!source || source.kind !== 'plugin' || source.plugin !== 'dsh-tavern-regeneration-abort') continue
+    if (Array.isArray(event.sourceEventSeqs)) seqs.push(...event.sourceEventSeqs)
+  }
+  return modelTurns(events, seqs)
+}
+
 // Legacy regeneration left a durable empty replacement at the saved story turn.
 // Surface replacement hides messages, not DSH's turn/end error nodes. Derive
 // their display suppression without changing the immutable event history.

@@ -322,6 +322,7 @@ test('重生成的后台结算失败时恢复旧整轮，并清理临时模型�
   await assert.rejects(h.create().regenerate('chat', '', 'session'), /已恢复原正文和状态.*后台结算尚未完成/)
   assert.deepEqual(h.chat.messages, original)
   assert.equal(h.chat.regenInProgress, undefined)
+  assert.deepEqual(h.chat.suppressedDshTurns, [3])
   assert.ok(h.calls.includes('foreground.regen-abort'))
   assert.deepEqual(h.session.surface.nodes, [0, 1, h.session.events.length - 1])
   const cleanup = h.session.events.at(-1)

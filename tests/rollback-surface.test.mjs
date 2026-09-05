@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { clearFailedTurnSurface, hasRollbackMessages, locateRollbackSurface, planFailedTurnSurface, planRegenerationSurface } from '../tavern-plugin/lib/domain/rollback-surface.js'
+import { abortedRegenerationTurns, clearFailedTurnSurface, hasRollbackMessages, locateRollbackSurface, planFailedTurnSurface, planRegenerationSurface, regenerationAttemptTurns } from '../tavern-plugin/lib/domain/rollback-surface.js'
 
 function modelSource() {
   return { kind: 'model', provider: 'test', model: 'test-model' }
@@ -132,6 +132,26 @@ test('连续回退时跳过上一轮回退留下的助手墓碑，继续定位�
   assert.equal(located.assistantSeq, 8)
   assert.equal(located.turn, 2)
   assert.deepEqual(located.shadowedSeqs, [5, 8, 20])
+})
+
+test('失败重生成的模型轮次可从尝试区间和持久清理墓碑重建', () => {
+  const events = []
+  events[20] = { seq: 20, type: 'user/message', data: { source: { kind: 'plugin', plugin: 'dsh-tavern-regen' } } }
+  events[21] = {
+    seq: 21,
+    type: 'assistant/message',
+    data: { turn: 3, message: { source: modelSource(), content: [{ type: 'text', text: '临时正文' }] } }
+  }
+  events[22] = {
+    seq: 22,
+    type: 'user/message',
+    data: { source: { kind: 'plugin', plugin: 'dsh-tavern-regeneration-abort' }, content: [] },
+    surfaceOp: { op: 'replace', start: 20, end: 21 },
+    sourceEventSeqs: [20, 21]
+  }
+
+  assert.deepEqual(regenerationAttemptTurns({ events, eventStart: 20 }), [3])
+  assert.deepEqual(abortedRegenerationTurns({ events }), [3])
 })
 
 test('回退按钮只在权威消息尾部存在用户输入与正文组合时显示', () => {
