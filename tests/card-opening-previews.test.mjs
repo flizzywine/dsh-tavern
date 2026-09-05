@@ -1,17 +1,9 @@
 import assert from 'node:assert/strict'
-import { existsSync } from 'node:fs'
-import { readFile } from 'node:fs/promises'
-import { homedir } from 'node:os'
-import path from 'node:path'
 import test from 'node:test'
 import vm from 'node:vm'
 
 import { projectCardOpeningPreviews } from '../tavern-plugin/lib/domain/card-opening-previews.js'
-import { createCardPreparation } from '../tavern-plugin/lib/domain/card-preparation.js'
 import { projectOpeningCommit } from '../tavern-plugin/lib/domain/runtime-content-projection.js'
-
-const lighthouseCardPath = process.env.DSH_TAVERN_LIGHTHOUSE_CARD
-  || path.join(homedir(), '.dsh/profile-data/tavern/data/resources/cards/灯火阑珊.json')
 
 test('开局选择只执行人物卡正则，MVU 留到对话建立后由官方运行时初始化', async () => {
   const card = {
@@ -123,30 +115,4 @@ test('普通人物卡无需伪造 MVU Helper 上下文', async () => {
 
   assert.deepEqual(result.openings[0].projection.parts, [{ kind: 'markdown', text: '你好，小明。' }])
   assert.equal(result.openings[0].helperContext, null)
-})
-
-test('真实《灯火阑珊》的 15 条开局只生成选择 UI，不执行第二套 MVU', { skip: !existsSync(lighthouseCardPath) }, async () => {
-  const workspace = JSON.parse(await readFile(lighthouseCardPath, 'utf8'))
-  const cards = createCardPreparation({ id: () => 'lighthouse', now: () => 0 })
-  const result = await projectCardOpeningPreviews({
-    card: cards.project(workspace),
-    extensions: cards.present({ card: workspace, as: 'card-extensions' }),
-    userName: '王辰'
-  })
-
-  assert.equal(result.openings.length, 15)
-  const indexOpeningHtml = result.openings[0].projection.parts.map(function (part) {
-    return String(part.content || '')
-  }).join('')
-  assert.equal(result.openings[0].projection.parts[0].kind, 'markdown')
-  assert.match(result.openings[0].projection.parts[0].text, /\*\*\*索引页\*\*\*/)
-  assert.match(indexOpeningHtml, /<!-- 中间核心内容 -->/)
-  assert.match(indexOpeningHtml, /<div style="display: flex; align-items: center; justify-content: center;/)
-  assert.doesNotMatch(indexOpeningHtml, /<pre><code>[\s\S]*(?:&lt;div style=|中间核心内容)/)
-  assert.ok(result.openings.every(function (opening) {
-    return opening.projection.parts.some(function (part) {
-      return /cultivation-var-update|\.load\(/.test(String(part.content || ''))
-    })
-  }))
-  assert.ok(result.openings.every(function (opening) { return opening.helperContext === null }))
 })

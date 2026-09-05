@@ -6,7 +6,7 @@ import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 import { parse } from 'yaml'
-import { installPluginDependencies, resolveHostDependencies } from '../bin/plugin-dependencies.mjs'
+import { installPluginDependencies, resolveDshBootModule, resolveHostDependencies } from '../bin/plugin-dependencies.mjs'
 
 function fixture(t) {
   const root = mkdtempSync(path.join(os.tmpdir(), 'tavern-host-deps-'))
@@ -26,6 +26,10 @@ function fixture(t) {
     writeFileSync(path.join(directory, 'index.js'), `export function ${exportName}() { return 'host-alpha1' }\n`)
     packages[`@deepseek-ai/${name}`] = directory
   }
+  const bootDirectory = path.resolve(path.dirname(bootstrap), '../node_modules/@deepseek-ai/dsh-app-boot')
+  mkdirSync(bootDirectory)
+  writeFileSync(path.join(bootDirectory, 'package.json'), '{"name":"@deepseek-ai/dsh-app-boot","version":"0.1.2-rc.1","type":"module","exports":"./index.js"}')
+  writeFileSync(path.join(bootDirectory, 'index.js'), 'export function boot() {}\n')
   writeFileSync(path.join(pluginDirectory, 'package.json'), JSON.stringify({ name: 'host-deps-fixture', private: true, dependencies: Object.fromEntries(Object.keys(packages).map(name => [name, '>=0.1.0-rc.7'])) }))
   return { root, pluginDirectory, original, bootstrap, packages }
 }
@@ -123,6 +127,7 @@ test('CLI npm/pnpm 包目录及符号链接按当前 dsh 定位，不受 Desktop
   for (const dsh of [wrapper, path.join(cliRoot, 'lib/bin.js')]) {
     const deps = resolveHostDependencies({ dsh, env: { DSH_DESKTOP_DSH_BOOTSTRAP: '/wrong/desktop.js' } })
     assert.ok(deps.every(dep => dep.directory.startsWith(realpathSync(cliRoot))))
+    assert.equal(realpathSync(resolveDshBootModule({ dsh })), realpathSync(path.join(cliRoot, 'node_modules/@deepseek-ai/dsh-app-boot/index.js')))
   }
   if (process.platform !== 'win32') {
     const bin = path.join(f.root, 'bin')
@@ -138,11 +143,13 @@ test('Desktop 无 bootstrap 环境变量时按 app 可执行文件定位，不�
   const executable = path.join(f.root, 'DSH Desktop', 'DSH Desktop.exe')
   const deps = resolveHostDependencies({ host: 'desktop', dsh: '/wrong/cli', platform: 'win32', env: { DSH_DESKTOP_APP_EXECUTABLE: executable } })
   assert.equal(deps.length, 2)
+  assert.equal(realpathSync(resolveDshBootModule({ host: 'desktop', env: { DSH_DESKTOP_DSH_BOOTSTRAP: f.bootstrap } })), realpathSync(path.resolve(path.dirname(f.bootstrap), '../node_modules/@deepseek-ai/dsh-app-boot/index.js')))
   const macRoot = path.join(f.root, 'Desktop.app/Contents/Resources')
   mkdirSync(macRoot, { recursive: true })
   renameSync(path.resolve(path.dirname(f.bootstrap), '..'), path.join(macRoot, 'app.asar.unpacked'))
   const macDeps = resolveHostDependencies({ host: 'desktop', platform: 'darwin', env: { DSH_DESKTOP_APP_EXECUTABLE: path.join(f.root, 'Desktop.app/Contents/MacOS/DSH Desktop') } })
   assert.ok(macDeps.every(dep => dep.directory.includes('Desktop.app')))
+  assert.ok(resolveDshBootModule({ host: 'desktop', platform: 'darwin', env: { DSH_DESKTOP_APP_EXECUTABLE: path.join(f.root, 'Desktop.app/Contents/MacOS/DSH Desktop') } }).includes('Desktop.app'))
 })
 
 test('本地包版本不等于宿主或 alpha.2 也不拦截；依赖安装失败仍恢复源码配置', t => {

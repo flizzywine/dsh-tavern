@@ -36,7 +36,7 @@ function resolveCommandFile(command, env, platform) {
   throw new Error(`无法定位当前 DSH 命令：${command}`)
 }
 
-export function resolveHostDependencies({ dsh, host = 'cli', env = process.env, execPath = process.execPath, platform = process.platform, requiredExports = REQUIRED_HOST_EXPORTS }) {
+function resolveHostAnchor({ dsh, host = 'cli', env = process.env, execPath = process.execPath, platform = process.platform }) {
   let anchor
   if (host === 'desktop') {
     // Desktop's terminal supplies this on Windows. On macOS its node shim
@@ -57,6 +57,11 @@ export function resolveHostDependencies({ dsh, host = 'cli', env = process.env, 
     const cliPackage = findPackage('@deepseek-ai/dsh', commandFile, false)
     anchor = cliPackage ? path.join(cliPackage.directory, 'host-dependencies.cjs') : commandFile
   }
+  return anchor
+}
+
+export function resolveHostDependencies({ dsh, host = 'cli', env = process.env, execPath = process.execPath, platform = process.platform, requiredExports = REQUIRED_HOST_EXPORTS }) {
+  const anchor = resolveHostAnchor({ dsh, host, env, execPath, platform })
 
   const dependencies = []
   for (const [name, exportName] of Object.entries(requiredExports)) {
@@ -79,6 +84,13 @@ export function resolveHostDependencies({ dsh, host = 'cli', env = process.env, 
     dependencies.push(dependency)
   }
   return dependencies
+}
+
+export function resolveDshBootModule({ dsh, host = 'cli', env = process.env, execPath = process.execPath, platform = process.platform }) {
+  const anchor = resolveHostAnchor({ dsh, host, env, execPath, platform })
+  const dependency = findPackage('@deepseek-ai/dsh-app-boot', anchor)
+  if (!dependency) throw new Error(`当前 DSH 缺少 @deepseek-ai/dsh-app-boot（查找位置：${path.dirname(anchor)}）`)
+  return dependency.entry
 }
 
 export function installPluginDependencies({ pluginDirectory, run, ...hostOptions }) {
