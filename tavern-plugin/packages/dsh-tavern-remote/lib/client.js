@@ -4351,10 +4351,16 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 		const inject = ["remote"];
 		async function apply(ctx) {
 			const unmount = await ctx.remote.$mount(TYPERT_REMOTE);
+			const tavernSignals = ctx.get("remote.tavernSignals");
+			if (tavernSignals === void 0) throw new Error("dsh-tavern-remote: remote.tavernSignals is unavailable after mount");
 			const listeners = /* @__PURE__ */ new Set();
 			const latest = /* @__PURE__ */ new Map();
 			let connected = false;
 			let started = false;
+			let disposed = false;
+			let retryAttempt = 0;
+			let retryTimer;
+			let control;
 			const sessionIds = () => Array.from(new Set(Array.from(listeners, (item) => item.sessionId))).sort();
 			const key = (sessionId, kind) => `${sessionId}\u0000${kind}`;
 			const report = (error) => {
@@ -4364,30 +4370,53 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 				latest.set(key(signal.sessionId, signal.kind), signal);
 				for (const item of listeners) if (item.sessionId === signal.sessionId && item.kind === signal.kind) item.listener(signal);
 			};
-			const stream = ctx.remote.$stream({
-				name: "Tavern session signal stream",
-				open: (signal) => ctx.remote.tavernSignals.follow(sessionIds(), signal),
-				ended: (accepted) => accepted ? new _deepseek_ai_dsh_api_gateway_client.RemoteStreamCarrierError("Tavern session signal stream ended unexpectedly") : /* @__PURE__ */ new Error("Tavern session signal stream ended before its snapshot"),
-				carrierFailed: report
-			});
-			const control = new _deepseek_ai_dsh_api_gateway_client.RemoteSnapshotStream(stream, {
-				name: "Tavern session signal stream",
-				isSnapshot: (frame) => frame.type === "snapshot",
-				replace: (frame) => {
-					latest.clear();
-					for (const signal of frame.signals) latest.set(key(signal.sessionId, signal.kind), signal);
-					connected = true;
-					for (const item of listeners) {
-						item.onConnect?.();
-						const signal = latest.get(key(item.sessionId, item.kind));
-						if (signal !== void 0) item.listener(signal);
+			const scheduleRecovery = (failed) => {
+				if (disposed || retryTimer !== void 0 || control !== failed) return;
+				connected = false;
+				const delay = Math.min(5e3, 250 * 2 ** retryAttempt++);
+				retryTimer = setTimeout(() => {
+					retryTimer = void 0;
+					if (disposed || control !== failed) return;
+					failed.dispose().finally(() => {
+						if (disposed || control !== failed) return;
+						control = void 0;
+						startStream();
+					});
+				}, delay);
+			};
+			const startStream = () => {
+				if (disposed || control !== void 0 || listeners.size === 0) return;
+				const stream = ctx.remote.$stream({
+					name: "Tavern session signal stream",
+					open: (signal) => tavernSignals.follow(sessionIds(), signal),
+					ended: (accepted) => accepted ? new _deepseek_ai_dsh_api_gateway_client.RemoteStreamCarrierError("Tavern session signal stream ended unexpectedly") : /* @__PURE__ */ new Error("Tavern session signal stream ended before its snapshot"),
+					carrierFailed: report
+				});
+				const next = new _deepseek_ai_dsh_api_gateway_client.RemoteSnapshotStream(stream, {
+					name: "Tavern session signal stream",
+					isSnapshot: (frame) => frame.type === "snapshot",
+					replace: (frame) => {
+						retryAttempt = 0;
+						latest.clear();
+						for (const signal of frame.signals) latest.set(key(signal.sessionId, signal.kind), signal);
+						connected = true;
+						for (const item of listeners) {
+							item.onConnect?.();
+							const signal = latest.get(key(item.sessionId, item.kind));
+							if (signal !== void 0) item.listener(signal);
+						}
+					},
+					update: (frame) => {
+						publish(frame.signal);
+					},
+					failed: (error) => {
+						report(error);
+						scheduleRecovery(next);
 					}
-				},
-				update: (frame) => {
-					publish(frame.signal);
-				},
-				failed: report
-			});
+				});
+				control = next;
+				next.start();
+			};
 			const service = Object.freeze({ subscribe(sessionId, kind, listener, onError, onConnect) {
 				const item = {
 					sessionId: String(sessionId),
@@ -4404,20 +4433,23 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 				if (signal !== void 0) item.listener(signal);
 				if (!started) {
 					started = true;
-					control.start();
-				} else if (before !== after) control.restart();
+					startStream();
+				} else if (control === void 0) startStream();
+				else if (before !== after) control.restart();
 				let stopped = false;
 				return () => {
 					if (stopped) return;
 					stopped = true;
 					const previous = sessionIds().join("\0");
 					listeners.delete(item);
-					if (previous !== sessionIds().join("\0")) control.restart();
+					if (previous !== sessionIds().join("\0")) control?.restart();
 				};
 			} });
 			ctx.provide("tavernSessionSignals", service);
 			return async () => {
-				await control.dispose();
+				disposed = true;
+				if (retryTimer !== void 0) clearTimeout(retryTimer);
+				await control?.dispose();
 				await unmount();
 			};
 		}
