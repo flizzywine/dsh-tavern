@@ -86,8 +86,21 @@ test('Android 公开安装命令固定引导脚本版本，避免 jsDelivr main 
 })
 
 test('Android 公开安装命令不依赖 DSHA rc1 未提供的 curl', () => {
+  assert.match(installCommands.android, /^node -e /)
+  assert.doesNotMatch(installCommands.android, /请运行|告诉我结果/)
   assert.match(installCommands.android, /node -e/)
   assert.doesNotMatch(installCommands.android, /\bcurl\b/)
+})
+
+test('Android 安装以脚本为主流程，Agent 只作为无命令入口时的执行后备', async () => {
+  const readme = await readFile(new URL('../README.md', import.meta.url), 'utf8')
+  const androidGuide = await readFile(new URL('android-install.md', root), 'utf8')
+  const install = pages.find(p => p.id === 'a02').body
+  for (const content of [readme, androidGuide, install]) {
+    assert.match(content, /安装脚本.*主流程|主流程.*安装脚本/)
+    assert.match(content, /没有命令执行入口|找不到命令执行入口/)
+    assert.match(content, /只执行下面这一条命令/)
+  }
 })
 
 test('代码块保持命令原文，转义 HTML 且不误识别管道和 Markdown', () => {

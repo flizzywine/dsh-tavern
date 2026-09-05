@@ -7,13 +7,14 @@ dsh-tavern 可以借助 [DSHA](https://github.com/qiannianhuanxiang/DSHA) 尝试
 ## 最简单的安装方法
 
 1. 安装 DSHA，配置模型，并确认 DSHA 自身可以正常打开。
-2. 打开 DSHA 的“创造模式”，把下面一句话发给 AI：
+2. 在 DSHA 的命令执行入口直接运行下面这一条命令。安装脚本是主流程，会自行完成下载、配置、校验、启动和失败回滚：
 
-```text
-请运行这条命令安装 DSH Tavern，完成后告诉我结果：node -e "fetch('https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@69d74f5/android/setup.sh').then(async r=>{if(!r.ok)throw Error('HTTP '+r.status);require('fs').writeFileSync('/tmp/dsh-tavern-setup.sh',await r.text())}).then(()=>{const r=require('child_process').spawnSync('bash',['/tmp/dsh-tavern-setup.sh'],{stdio:'inherit'});process.exit(r.status??1)}).catch(e=>{console.error(e);process.exit(1)})"
+```bash
+node -e "fetch('https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@69d74f5/android/setup.sh').then(async r=>{if(!r.ok)throw Error('HTTP '+r.status);require('fs').writeFileSync('/tmp/dsh-tavern-setup.sh',await r.text())}).then(()=>{const r=require('child_process').spawnSync('bash',['/tmp/dsh-tavern-setup.sh'],{stdio:'inherit'});process.exit(r.status??1)}).catch(e=>{console.error(e);process.exit(1)})"
 ```
 
-3. 看到“全部完成”后重启 DSHA，点击侧栏里的 **酒馆工作台**。
+3. 如果当前 DSHA 版本没有命令执行入口，才打开“创造模式”，让 Agent **只执行下面这一条命令，等待结束后原样返回最后 30 行输出，不要拆解或改写安装步骤**，并附上上面的命令。Agent 只负责启动脚本，不参与安装判断。
+4. 看到“全部完成”后重启 DSHA，点击侧栏里的 **酒馆工作台**。
 
 如需从手机 Download 目录导入人物卡，还需在 Android 系统设置中允许 DSHA **访问所有文件**。酒馆检测到无法读取下载目录时会明确提示，也可尝试界面中的系统文件选择器。
 
