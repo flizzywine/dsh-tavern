@@ -25,7 +25,11 @@ test('正式消息 renderer 使用原生 Markdown、完整标签参数，并只�
     else if (value && typeof value === 'object') { if (value.tag === 'MarkdownText' || value.tag === client.TavernMessageFrame) result.push(value); else leaves(value.children, result) }
     return result
   }
-  const nodes = leaves(Assistant(props))
+  const registered = Assistant(props)
+  const rendered = registered && typeof registered.tag === 'function'
+    ? registered.tag(registered.props)
+    : registered
+  const nodes = leaves(rendered)
   assert.deepEqual(nodes.map(node => node.tag === 'MarkdownText' ? 'markdown' : 'html'), ['markdown', 'html', 'markdown'])
   assert.equal(nodes[0].props.text, '正文前\n\n')
   assert.equal(nodes[2].props.text, '\n正文后')
@@ -35,7 +39,10 @@ test('正式消息 renderer 使用原生 Markdown、完整标签参数，并只�
     assert.equal(node.props.labels.footnotes, '脚注')
   }
   props.node.data.status = 'running'
-  const streaming = leaves(Assistant(props))
+  const streamingRegistration = Assistant(props)
+  const streaming = leaves(streamingRegistration && typeof streamingRegistration.tag === 'function'
+    ? streamingRegistration.tag(streamingRegistration.props)
+    : streamingRegistration)
   assert.equal(streaming.length, 1)
   assert.equal(streaming[0].tag, 'MarkdownText')
   assert.equal(streaming[0].props.streaming, true)

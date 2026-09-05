@@ -505,7 +505,10 @@ test('same template in another session gets a new page and rejects old writes; p
   assert.equal(h.posts.length, 0)
   assert.equal(h.calls.length, 1)
   current.message('dsh-tavern-helper-call', { method: 'replaceTavernHelperWorldbook' })
-  assert.equal(h.calls.length, 1, 'message page retains its narrow write allowlist')
+  assert.equal(h.calls.length, 2, 'message page exposes the authenticated current-card worldbook bridge')
+  assert.equal(h.calls[1].sessionId, 'B')
+  assert.equal(h.calls[1].args.sessionId, 'B')
+  assert.equal(h.calls[1].args.expectedLifecycleRevision, 9)
   h.stop()
 })
 

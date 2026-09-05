@@ -206,6 +206,97 @@ test('Tavern Helper 消息 iframe 按官方顺序加载完整前端依赖', () =
   assert.doesNotMatch(document, /data-dsh-sillytavern-css-compat/)
 })
 
+test('交互消息 iframe 可经鉴权桥接读写世界书并触发当前对话发送', async () => {
+  const listeners = new Map()
+  const calls = []
+  const slashCalls = []
+  const frame = { contentWindow: { messages: [], postMessage(message) { this.messages.push(message) } } }
+  const hostWindow = {
+    crypto: { randomUUID() { return 'interactive-message-token' } },
+    sessionStorage: { getItem() { return null }, setItem() {} },
+    document: null,
+    setTimeout,
+    clearTimeout,
+    addEventListener(name, handler) { listeners.set(name, handler) },
+    removeEventListener(name) { listeners.delete(name) }
+  }
+  const lifecycle = client.createTavernMessageFrameLifecycle({
+    sessionId: 'session-magic-fairy', content: '<button>开始游戏</button>', turn: 1, partIndex: 0,
+    helperContext: { lifecycleRevision: 3, messages: [] }, eager: true
+  }, {
+    window: hostWindow,
+    rpc(method, args, sessionId) {
+      calls.push({ method, args, sessionId })
+      if (method === 'getSession') return Promise.resolve({ view: { tavernHelper: { lifecycleRevision: 4, messages: [{ role: 'assistant', variables: {} }, { role: 'user', variables: {} }, { role: 'assistant', variables: {} }] } } })
+      return Promise.resolve(method === 'getTavernHelperWorldbook'
+        ? { worldbook: { name: args.name, entries: [] } }
+        : { worldbook: { name: args.name, entries: args.entries || [] } })
+    },
+    executeSlash(line, sessionId) { slashCalls.push({ line, sessionId }); return Promise.resolve({ submitted: true }) }
+  })
+  const document = lifecycle.snapshot().visibleDocument
+  document.ref(frame)
+  const stop = lifecycle.start(function () {})
+  const receive = listeners.get('message')
+
+  receive({ source: frame.contentWindow, data: { type: 'dsh-tavern-helper-call', token: document.token, requestId: 'worldbook', method: 'getTavernHelperWorldbook', args: { name: '群星的资料库 v4.0' } } })
+  receive({ source: frame.contentWindow, data: { type: 'dsh-tavern-helper-call', token: document.token, requestId: 'send', method: 'triggerTavernSlash', args: { line: '/send 开始冒险|/trigger' } } })
+	await new Promise(resolve => setImmediate(resolve))
+
+  assert.equal(calls[0].method, 'getTavernHelperWorldbook')
+  assert.equal(calls[0].sessionId, 'session-magic-fairy')
+	assert.equal(calls[1].method, 'getSession')
+  assert.deepEqual(slashCalls, [{ line: '/send 开始冒险|/trigger', sessionId: 'session-magic-fairy' }])
+  assert.deepEqual(frame.contentWindow.messages.map(message => [message.requestId, message.ok]), [['worldbook', true], ['send', true]])
+  stop()
+})
+
+test('消息界面的 /send …|/trigger 通过当前 composer 提交并等待该轮完成', async () => {
+  const listeners = new Set()
+  const summary = { running: false }
+  const submissions = []
+  const input = {
+    setDraft(value) { submissions.push(['draft', value]) },
+    submit(mode) { submissions.push(['submit', mode]) }
+  }
+  const sessions = {
+    scope(id) { return id === 'session-magic-fairy' ? {} : undefined },
+    list: {
+      getSnapshot() { return { byId: { 'session-magic-fairy': summary } } },
+      subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener) }
+    }
+  }
+  const ctx = { sessions, get(name) { return name === 'conversation' ? { input: { for() { return input } } } : undefined } }
+  const execute = client.createTavernFrameSlashExecutor(ctx, { setTimeout, clearTimeout })
+  const completed = execute('/send <开局信息>\n魔法少女|/trigger', 'session-magic-fairy')
+
+  assert.deepEqual(submissions, [['draft', '<开局信息>\n魔法少女'], ['submit', 'queue']])
+  summary.running = true
+  listeners.forEach(listener => listener())
+  summary.running = false
+  listeners.forEach(listener => listener())
+  assert.deepEqual(JSON.parse(JSON.stringify(await completed)), { submitted: true })
+  assert.equal(listeners.size, 0)
+  await assert.rejects(execute('/compact', 'session-magic-fairy'), /只允许调用/)
+})
+
+test('消息 iframe 首次缺少 Helper Context 时，在上下文抵达后重建为可交互文档', () => {
+  const lifecycle = client.createTavernMessageFrameLifecycle({
+    sessionId: 'session-late-context', content: '<button>开始游戏</button>', turn: 1, partIndex: 0,
+    helperContext: null, eager: true
+  }, { window: { crypto: { randomUUID: (() => { let id = 0; return () => `late-context-${++id}` })() }, sessionStorage: { getItem() { return null }, setItem() {} }, document: null, setTimeout, clearTimeout, addEventListener() {}, removeEventListener() {} } })
+  const first = lifecycle.snapshot().visibleDocument
+  assert.doesNotMatch(first.html, /data-dsh-tavern-helper/)
+
+  lifecycle.update({
+    sessionId: 'session-late-context', content: '<button>开始游戏</button>', turn: 1, partIndex: 0,
+    helperContext: { lifecycleRevision: 1, messages: [] }, eager: true
+  })
+  const pending = lifecycle.snapshot().pendingDocument
+  assert.ok(pending)
+  assert.match(pending.html, /data-dsh-tavern-helper/)
+})
+
 test('消息 iframe 在实际读取 MVU 数据时标记自身为 MVU View', () => {
   const document = client.buildTavernFrameDocument({
     content: '<script>Mvu.getMvuData({ type: "message" })</script>',
