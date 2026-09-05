@@ -11,6 +11,7 @@ const backgroundSource = await readFile(new URL('../tavern-plugin/lib/background
 test('Tavern uses open DSH ecosystem package ranges instead of an exact host release', () => {
   assert.equal(pluginManifest.dependencies['@deepseek-ai/dsh-tools'], '>=0.1.0-rc.7')
   assert.equal(pluginManifest.dependencies['@deepseek-ai/dsh-subagent'], '>=0.1.0-rc.7')
+  assert.equal(pluginManifest.dependencies['@deepseek-ai/dsh-typert-protocol'], '>=0.1.2-rc.1 <0.2.0')
   assert.match(pluginSource, /from '@deepseek-ai\/dsh-tools'/)
   assert.match(backgroundSource, /from '@deepseek-ai\/dsh-subagent'/)
   assert.match(launcherSource, /import \{ installPluginDependencies \} from '.\/plugin-dependencies.mjs'/)

@@ -23,6 +23,9 @@ importers:
       dsh-tavern-plugin:
         specifier: link:./tavern-plugin
         version: link:tavern-plugin
+      dsh-tavern-remote:
+        specifier: link:./tavern-plugin/packages/dsh-tavern-remote
+        version: link:tavern-plugin/packages/dsh-tavern-remote
       dsh-web-mobile:
         specifier: 2.3.0
         version: 2.3.0

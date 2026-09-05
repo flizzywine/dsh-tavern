@@ -143,6 +143,13 @@ export function runDsh(command, args, options = {}) {
     encoding: 'utf8', shell: process.platform === 'win32', ...spawnOptions,
   })
   if (result.error) throw new Error(`无法运行 dsh：${result.error.message}`)
-  if (result.status !== 0) throw new Error('dsh 配置验证失败。')
+  if (result.status !== 0) {
+    const detail = [result.stderr, result.stdout]
+      .filter((value) => typeof value === 'string' && value.trim() !== '')
+      .join('\n')
+      .trim()
+      .slice(-2000)
+    throw new Error(`dsh 配置验证失败${detail ? `：\n${detail}` : '。'}`)
+  }
   return options.capture ? result.stdout.trim() : ''
 }

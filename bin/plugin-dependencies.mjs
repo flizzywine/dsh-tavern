@@ -8,6 +8,7 @@ import { parseDocument } from 'yaml'
 const REQUIRED_HOST_EXPORTS = {
   '@deepseek-ai/dsh-tools': 'defineTool',
   '@deepseek-ai/dsh-subagent': 'snapshotSubagentDescriptor',
+  '@deepseek-ai/dsh-typert-protocol': 'TypertRemoteService',
 }
 
 function findPackage(name, anchor, resolveEntry = true) {

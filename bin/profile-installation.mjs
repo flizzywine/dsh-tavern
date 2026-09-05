@@ -243,7 +243,7 @@ export async function installProfile(host = 'cli') {
     copyFileSync(path.join(SOURCE_ROOT, 'pnpm-workspace.yaml'), path.join(PROFILE_DIR, 'pnpm-workspace.yaml'))
     syncProfileDependencyPatches({ sourceRoot: SOURCE_ROOT, profileDir: PROFILE_DIR, workspaceText })
     run('pnpm', ['--dir', PROFILE_DIR, 'install'])
-    runDsh(dsh, ['--profile', PROFILE, '--dump-config'], { stdio: 'ignore', host })
+    runDsh(dsh, ['--profile', PROFILE, '--dump-config'], { host })
     ensureSidebarDefaults()
     transaction.commit()
   } catch (error) {

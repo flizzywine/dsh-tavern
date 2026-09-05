@@ -2348,6 +2348,18 @@ export async function apply(ctx) {
     onError(error) { console.warn('dsh-tavern: 协调文件读取失败，将继续重试:', str(error && error.message || error)) }
   })
 
+  ctx.provide('tavernSessionSignals', Object.freeze({
+    async * follow(sessionIds, signal) {
+      const ids = Array.from(new Set((Array.isArray(sessionIds) ? sessionIds : []).map(str).filter(Boolean)))
+      const stops = ids.map(function (sessionId) { return coordinationEvents.watch(sessionId) })
+      try {
+        yield * sessionSignals.follow(signal, ids)
+      } finally {
+        stops.forEach(function (stop) { stop() })
+      }
+    }
+  }))
+
   const webServer = ctx.get('webServer')
   if (webServer !== undefined) {
     ctx.effect(() => webServer.register({
@@ -2487,49 +2499,6 @@ export async function apply(ctx) {
               'X-DSH-Tavern-Cache': asset.cache
             })
             res.end(body)
-            return
-          }
-          if (req.method === 'GET' && pathname === '/api/dsh-tavern/events') {
-            const target = new URL(req.url ?? '/', 'http://x')
-            const sessionId = str(target.searchParams.get('sessionId'))
-            if (sessionId === '') {
-              res.writeHead(400)
-              res.end('missing sessionId')
-              return
-            }
-            res.writeHead(200, {
-              'Content-Type': 'text/event-stream; charset=utf-8',
-              'Cache-Control': 'no-cache, no-transform',
-              'Connection': 'keep-alive',
-              'X-Accel-Buffering': 'no'
-            })
-            res.write('retry: 1000\n\n')
-            let closed = false
-            const kind = str(target.searchParams.get('kind')).trim()
-            let stopSignals = function () {}
-            let stopCoordination = function () {}
-            stopSignals = sessionSignals.subscribe(sessionId, kind === '' ? [] : [kind], function (signal) {
-              if (closed) return
-              try {
-                res.write('id: ' + str(signal.id).replace(/[\r\n]/g, '') + '\n')
-                res.write('data: ' + JSON.stringify(signal) + '\n\n')
-              } catch (_error) { close() }
-            })
-            stopCoordination = kind === '' || kind === 'tavern-state' ? coordinationEvents.watch(sessionId) : function () {}
-            const heartbeat = setInterval(function () {
-              if (!closed) res.write(': heartbeat\n\n')
-            }, 10000)
-            if (heartbeat && typeof heartbeat.unref === 'function') heartbeat.unref()
-            function close() {
-              if (closed) return
-              closed = true
-              clearInterval(heartbeat)
-              stopCoordination()
-              stopSignals()
-              if (!res.writableEnded) res.end()
-            }
-            req.once('close', close)
-            res.once('close', close)
             return
           }
           const method = pathname.slice('/api/dsh-tavern'.length + 1)

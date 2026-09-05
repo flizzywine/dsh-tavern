@@ -4,6 +4,7 @@ import test from 'node:test'
 import vm from 'node:vm'
 
 const source = await readFile(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
+const remoteSource = await readFile(new URL('../tavern-plugin/packages/dsh-tavern-remote/src/client.ts', import.meta.url), 'utf8')
 const copy = value => JSON.parse(JSON.stringify(value))
 function deferred() { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no }); return { promise, resolve, reject } }
 const tick = () => new Promise(resolve => setImmediate(resolve))
@@ -104,66 +105,11 @@ function execution(options = {}) {
   })
 }
 
-test('typed session signal client shares one connection and isolates kinds and sessions', () => {
-  const h = host(), connections = []
-  const signals = h.client.createTavernSessionSignalModule({
-    connect(sessionId, handlers) {
-      const connection = { sessionId, handlers, closed: 0, close() { this.closed++ } }
-      connections.push(connection)
-      return connection
-    }
-  })
-  const candidate = [], runtime = [], errors = [], connectionsReady = []
-  const stopCandidate = signals.subscribe('A', 'candidate', signal => candidate.push(signal), error => errors.push(error.message))
-  const stopRuntime = signals.subscribe('A', 'runtime-work', signal => runtime.push(signal), error => errors.push(error.message), () => connectionsReady.push('A'))
-  assert.equal(connections.length, 1)
-  connections[0].handlers.open()
-  connections[0].handlers.message({ sessionId: 'B', kind: 'candidate', version: 'wrong-session' })
-  connections[0].handlers.message({ sessionId: 'A', kind: 'candidate', version: '1' })
-  connections[0].handlers.message({ sessionId: 'A', kind: 'runtime-work', version: '2' })
-  connections[0].handlers.error(new Error('reconnecting'))
-  assert.deepEqual(copy(candidate.map(signal => signal.version)), ['1'])
-  assert.deepEqual(copy(runtime.map(signal => signal.version)), ['2'])
-  assert.deepEqual(errors, ['reconnecting', 'reconnecting'])
-  assert.deepEqual(connectionsReady, ['A'])
-  stopCandidate()
-  assert.equal(connections[0].closed, 0)
-  stopRuntime()
-  assert.equal(connections[0].closed, 1)
-})
-
-test('resource request temporarily releases every SSE connection and reconnects after all concurrent reads settle', async () => {
-  const h = host(), connections = []
-  const ready = []
-  const signals = h.client.createTavernSessionSignalModule({
-    connect(sessionId, handlers) {
-      const connection = { sessionId, handlers, closed: 0, close() { this.closed++ } }
-      connections.push(connection)
-      return connection
-    }
-  })
-  const stopA = signals.subscribe('A', 'tavern-state', function () {}, undefined, () => ready.push('A'))
-  const stopB = signals.subscribe('B', 'tavern-state', function () {}, undefined, () => ready.push('B'))
-  connections.forEach(connection => connection.handlers.open())
-  const first = deferred(), second = deferred()
-
-  const readingA = signals.withConnectionSlot(function () {
-    assert.deepEqual(connections.slice(0, 2).map(connection => connection.closed), [1, 1])
-    return first.promise
-  })
-  const readingB = signals.withConnectionSlot(function () { return second.promise })
-  assert.equal(connections.length, 2, 'SSE stays suspended while resource reads overlap')
-  first.resolve()
-  await readingA
-  assert.equal(connections.length, 2, 'one finished read cannot reconnect ahead of another')
-  second.resolve()
-  await readingB
-  assert.deepEqual(connections.slice(2).map(connection => connection.sessionId).sort(), ['A', 'B'])
-  connections.slice(2).forEach(connection => connection.handlers.open())
-  assert.deepEqual(ready, ['A', 'B', 'A', 'B'], 'reconnect wakes consumers so they can reread authoritative state')
-
-  stopA()
-  stopB()
+test('typed session signals share one DSH Remote stream and never suspend for HTTP reads', () => {
+  assert.match(remoteSource, /ctx\.remote\.\$stream/)
+  assert.match(remoteSource, /new RemoteSnapshotStream/)
+  assert.match(remoteSource, /latest\.get\(key\(item\.sessionId, item\.kind\)\)/)
+  assert.doesNotMatch(remoteSource, /EventSource|withConnectionSlot/)
 })
 
 test('coordination subscription performs an authoritative initial refresh when a restart signal was lost', async () => {

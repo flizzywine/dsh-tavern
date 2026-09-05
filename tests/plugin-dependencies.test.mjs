@@ -19,7 +19,7 @@ function fixture(t) {
   mkdirSync(path.dirname(bootstrap), { recursive: true })
   writeFileSync(bootstrap, '')
   const packages = {}
-  for (const [name, exportName] of [['dsh-tools', 'defineTool'], ['dsh-subagent', 'snapshotSubagentDescriptor']]) {
+  for (const [name, exportName] of [['dsh-tools', 'defineTool'], ['dsh-subagent', 'snapshotSubagentDescriptor'], ['dsh-typert-protocol', 'TypertRemoteService']]) {
     const directory = path.resolve(path.dirname(bootstrap), '../node_modules/@deepseek-ai', name)
     mkdirSync(directory, { recursive: true })
     writeFileSync(path.join(directory, 'package.json'), JSON.stringify({ name: `@deepseek-ai/${name}`, version: '0.1.2-alpha.1', type: 'module', exports: './index.js' }))
@@ -142,7 +142,7 @@ test('Desktop 无 bootstrap 环境变量时按 app 可执行文件定位，不�
   const f = fixture(t)
   const executable = path.join(f.root, 'DSH Desktop', 'DSH Desktop.exe')
   const deps = resolveHostDependencies({ host: 'desktop', dsh: '/wrong/cli', platform: 'win32', env: { DSH_DESKTOP_APP_EXECUTABLE: executable } })
-  assert.equal(deps.length, 2)
+  assert.equal(deps.length, 3)
   assert.equal(realpathSync(resolveDshBootModule({ host: 'desktop', env: { DSH_DESKTOP_DSH_BOOTSTRAP: f.bootstrap } })), realpathSync(path.resolve(path.dirname(f.bootstrap), '../node_modules/@deepseek-ai/dsh-app-boot/index.js')))
   const macRoot = path.join(f.root, 'Desktop.app/Contents/Resources')
   mkdirSync(macRoot, { recursive: true })

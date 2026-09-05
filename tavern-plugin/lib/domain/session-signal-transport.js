@@ -17,6 +17,7 @@ function emit(listener, signal) {
  */
 export function createSessionSignalTransport() {
   const records = new Map()
+  const followers = new Set()
 
   function recordFor(sessionId) {
     const id = str(sessionId)
@@ -39,6 +40,7 @@ export function createSessionSignalTransport() {
     for (const subscription of record.listeners) {
       if (subscription.kinds.size === 0 || subscription.kinds.has(kind)) emit(subscription.listener, signal)
     }
+    for (const listener of followers) emit(listener, signal)
     return true
   }
 
@@ -58,5 +60,51 @@ export function createSessionSignalTransport() {
     }
   }
 
-  return Object.freeze({ publish, subscribe })
+  function snapshot() {
+    const signals = []
+    for (const record of records.values()) signals.push(...record.latest.values())
+    return signals.sort(function (left, right) {
+      return left.sessionId.localeCompare(right.sessionId) || left.kind.localeCompare(right.kind)
+    })
+  }
+
+  async function* follow(signal, sessionIds) {
+    const filter = Array.isArray(sessionIds) ? new Set(sessionIds.map(str).filter(Boolean)) : null
+    const accepts = function (value) { return filter === null || filter.has(value.sessionId) }
+    const pending = new Map()
+    let wake
+    let stopped = signal?.aborted === true
+    const notify = function (value) {
+      if (!accepts(value)) return
+      pending.set(value.sessionId + '\0' + value.kind, value)
+      if (wake) { const resolve = wake; wake = undefined; resolve() }
+    }
+    const stop = function () {
+      stopped = true
+      if (wake) { const resolve = wake; wake = undefined; resolve() }
+    }
+    followers.add(notify)
+    signal?.addEventListener('abort', stop, { once: true })
+    try {
+      const signals = snapshot().filter(accepts)
+      for (const value of signals) {
+        const key = value.sessionId + '\0' + value.kind
+        if (pending.get(key)?.version === value.version) pending.delete(key)
+      }
+      yield Object.freeze({ type: 'snapshot', signals })
+      while (!stopped) {
+        if (pending.size === 0) await new Promise(function (resolve) { wake = resolve })
+        if (stopped) break
+        const entry = pending.entries().next().value
+        if (!entry) continue
+        pending.delete(entry[0])
+        yield Object.freeze({ type: 'delta', signal: entry[1] })
+      }
+    } finally {
+      followers.delete(notify)
+      signal?.removeEventListener('abort', stop)
+    }
+  }
+
+  return Object.freeze({ publish, subscribe, snapshot, follow })
 }

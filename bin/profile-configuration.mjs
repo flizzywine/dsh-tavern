@@ -63,9 +63,12 @@ export function mergeProfileManifest({ source, current = {}, pluginPath, dataRoo
     : LEGACY_MANAGED_DEPENDENCIES
   const dependencies = { ...currentDependencies }
   for (const name of previousManagedDependencies) delete dependencies[name]
-  for (const name of managedDependencies) dependencies[name] = sourceDependencies[name]
-  if (managedDependencies.includes('dsh-tavern-plugin')) {
-    dependencies['dsh-tavern-plugin'] = `link:${String(pluginPath).replaceAll(path.sep, '/')}`
+  for (const name of managedDependencies) {
+    const sourceValue = sourceDependencies[name]
+    if (typeof sourceValue === 'string' && sourceValue.startsWith('link:./tavern-plugin')) {
+      const target = path.resolve(path.dirname(pluginPath), sourceValue.slice('link:'.length))
+      dependencies[name] = `link:${target.replaceAll(path.sep, '/')}`
+    } else dependencies[name] = sourceValue
   }
 
   return {

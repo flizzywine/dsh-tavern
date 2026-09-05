@@ -28,8 +28,9 @@ test('Tavern 客户端不保存 Session 恢复草稿，也不注入超时恢复 
   assert.doesNotMatch(source, /conversation\.blocks/)
 })
 
-test('候选项后台协调仍由 Tavern SSE 提供', function () {
+test('候选项后台协调由 DSH Remote 状态流提供', function () {
   assert.equal(typeof client.createTavernCoordinationEventModule, 'function')
-  assert.match(source, /new window\.EventSource/)
+  assert.match(source, /ctx\.tavernSessionSignals/)
+  assert.doesNotMatch(source, /new window\.EventSource/)
   assert.doesNotMatch(source, /runtimeVersionGuard\.observe/)
 })

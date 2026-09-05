@@ -62,7 +62,7 @@
 
 ## 候选任务完整流程
 
-- `domain/candidate-tasks.js` 集中持有候选命令的提交、进程内调度、阶段记录、结果对账、Session 同步投影与重启恢复。宿主只提供 Chat、后台 operation 和 Session 展示信息，RPC 与 SSE 读取同一接口。
+- `domain/candidate-tasks.js` 集中持有候选命令的提交、进程内调度、阶段记录、结果对账、Session 同步投影与重启恢复。宿主只提供 Chat、后台 operation 和 Session 展示信息；RPC 读取权威投影，DSH Remote Snapshot Stream 只负责通知与携带同版本只读快照。
 - `durable-task-mailbox` 继续负责请求去重、持久状态和终态保护；`candidate-generation` 继续负责剧情 revision 校验、模型调用与结果提交，不另建任务存储或生成规则。
 - 旧 `startChoices` 的等待准备、`preparing` / `operationId` / `basedOn` 返回格式和异步执行方式保留，由同一模块提供兼容入口；不强迫旧调用方提供持久 requestId，不改变存档格式。常驻任务排队与运行中的恢复规则保持原状，不承诺跨进程互斥。
 - 新流程测试直接导入生产模块，使用真实 ChatPersistence 与磁盘 journal，验证重复提交、响应丢失、磁盘重建、排队恢复、运行中断、结果已保存但回执丢失、失败/过期终态及旧 RPC。原宿主源码测试只保留接线约束，移除对已迁移函数的截取。

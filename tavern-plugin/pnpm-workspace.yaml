@@ -2,3 +2,6 @@ autoInstallPeers: true
 nodeLinker: hoisted
 minimumReleaseAgeExclude:
   - '@deepseek-ai/*'
+packages:
+  - .
+  - packages/dsh-tavern-remote

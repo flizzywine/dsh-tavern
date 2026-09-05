@@ -24,10 +24,11 @@ function sourceManifest() {
       'dsh-web-mobile': '2.3.0',
       'dsh-better-sidebar': '0.16.0',
       'dsh-tavern-plugin': 'link:./tavern-plugin',
+      'dsh-tavern-remote': 'link:./tavern-plugin/packages/dsh-tavern-remote',
     },
     dsh: {
       profile: {
-        bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', 'dsh-web-mobile', 'dsh-better-sidebar', 'dsh-tavern-plugin'],
+        bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', 'dsh-web-mobile', 'dsh-better-sidebar', 'dsh-tavern-plugin', 'dsh-tavern-remote'],
       },
     },
   }
@@ -60,13 +61,14 @@ test('Profile 更新替换项目管理项并保留用户额外插件', () => {
   assert.equal(next.dependencies['dsh-web-mobile'], '2.3.0')
   assert.equal(next.dependencies['dsh-better-sidebar'], '0.16.0')
   assert.equal(next.dependencies['dsh-tavern-plugin'], 'link:/app/tavern-plugin')
+  assert.equal(next.dependencies['dsh-tavern-remote'], 'link:/app/tavern-plugin/packages/dsh-tavern-remote')
   assert.equal(next.dependencies['dsh-codex-connect'], undefined)
   assert.equal(next.dsh.customFlag, true)
   assert.deepEqual(next.dsh.profile.bundles, [
-    '@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', 'dsh-web-mobile', 'dsh-better-sidebar', 'dsh-tavern-plugin', 'user-extra-plugin',
+    '@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', 'dsh-web-mobile', 'dsh-better-sidebar', 'dsh-tavern-plugin', 'dsh-tavern-remote', 'user-extra-plugin',
   ])
   assert.deepEqual(next.dshTavern.managedBundles, sourceManifest().dsh.profile.bundles)
-  assert.deepEqual(next.dshTavern.managedDependencies, ['dsh-web-mobile', 'dsh-better-sidebar', 'dsh-tavern-plugin'])
+  assert.deepEqual(next.dshTavern.managedDependencies, ['dsh-web-mobile', 'dsh-better-sidebar', 'dsh-tavern-plugin', 'dsh-tavern-remote'])
   assert.equal(next.dshTavern.profileConfigurationVersion, PROFILE_CONFIGURATION_VERSION)
 })
 

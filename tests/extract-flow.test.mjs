@@ -9,6 +9,7 @@ const orchestrationStrategiesSource = await readFile(new URL('../tavern-plugin/l
 const scriptHostAdapterSource = await readFile(new URL('../tavern-plugin/lib/domain/tavern-script-host-adapter.js', import.meta.url), 'utf8')
 const presetConversionSource = await readFile(new URL('../tavern-plugin/lib/domain/preset-conversion-preview.js', import.meta.url), 'utf8')
 const turnOrchestrationSource = await readFile(new URL('../tavern-plugin/lib/domain/turn-orchestration.js', import.meta.url), 'utf8')
+const remoteClientSource = await readFile(new URL('../tavern-plugin/packages/dsh-tavern-remote/src/client.ts', import.meta.url), 'utf8')
 
 function between(source, start, end) {
   const from = source.indexOf(start)
@@ -290,7 +291,6 @@ test('自由行动只聚焦输入框并保留已生成候选项', () => {
 
 test('后台结算期间禁用候选项按钮，完成后自动恢复', () => {
   const action = between(clientSource, 'function CandidateAction', 'function CandidateDockActions')
-  const signals = between(clientSource, 'function createTavernSessionSignalModule', 'function createTavernCoordinationEventModule')
   const coordination = between(clientSource, 'const tavernCoordination', 'function describeTavernActivity')
   const submit = between(clientSource, 'async function submitCandidateTask', 'const regenPanel')
   const guide = between(clientSource, 'function CandidateGuidePanel', 'function RegenPanel')
@@ -314,7 +314,7 @@ test('后台结算期间禁用候选项按钮，完成后自动恢复', () => {
   assert.doesNotMatch(clientSource, /rpc\("generateChoices"/)
   assert.match(submit, /rpc\("submitTask"/)
   assert.match(submit, /tavernCoordination\.setView\(sessionId/)
-  assert.match(signals, /new window\.EventSource/)
+  assert.match(remoteClientSource, /new RemoteSnapshotStream/)
   assert.match(coordination, /tavernSessionSignals\.subscribe/)
   assert.match(coordination, /rpc\("syncSession"/)
   assert.doesNotMatch(coordination, /setTimeout|setInterval/)
@@ -1056,18 +1056,19 @@ test('资料库读取 RPC 有超时收尾，不会永久停留在加载状态', 
   const timeout = between(clientSource, 'function rpcWithTimeout', 'function createLiveTavernViewModule')
 
   assert.match(timeout, /new AbortController\(\)/)
-  assert.match(timeout, /tavernSessionSignals\.withConnectionSlot/)
+  assert.doesNotMatch(timeout, /withConnectionSlot/)
   assert.match(timeout, /window\.setTimeout/)
   assert.match(timeout, /读取超时，请重新读取/)
   assert.match(timeout, /window\.clearTimeout/)
 })
 
-test('游戏准备预热启动资源，正式启动会临时释放 SSE 连接槽', () => {
+test('游戏准备预热与正式启动不再操纵通知连接槽', () => {
   const sidebar = between(clientSource, 'function TavernSidebar', 'const tavernShellFeature = createTavernShellFeatureModule()')
   const assistantRenderer = between(clientSource, 'function createTavernAssistantRendererFeatureModule', 'function createTavernShellFeatureModule')
 
   assert.match(sidebar, /call\("preparePlayStart"\)/)
-  assert.match(sidebar, /tavernSessionSignals\.withConnectionSlot\(function \(\) \{ return call\("startChat"/)
+  assert.match(sidebar, /return call\("startChat"/)
+  assert.doesNotMatch(sidebar, /withConnectionSlot/)
   assert.match(sidebar, /tavernSessionTransition\.begin\(\{ projection: transitionOpening && transitionOpening\.projection/)
   assert.match(sidebar, /busy && selectedOpening[\s\S]*renderTavernProjection\(selectedOpening\.projection/)
   assert.match(sidebar, /busy \? h\("div", \{ className: "dsh-tavern-session-switching", role: "status" \}, "正在完成游戏初始化…"\)/)
@@ -1320,7 +1321,7 @@ test('Foreground Frame 使用无需 Web Crypto 接收者的 UUID 回调', () => 
 })
 
 test('隔离 Helper iframe 可以只读加载已锁定的本机远程资源', () => {
-	const handler = between(serverSource, "handler: async (req, res) => {", "if (req.method === 'GET' && pathname === '/api/dsh-tavern/events')")
+	const handler = between(serverSource, "handler: async (req, res) => {", "function contentText(message)")
 	assert.match(handler, /const readsCachedAsset = req\.method === 'GET' && cachedAssetMatch/)
 	assert.match(handler, /const readsStaticAsset = req\.method === 'GET'/)
 	assert.match(handler, /const localOrOpaqueOrigin =/)

@@ -1,0 +1,6 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./packages/dsh-tavern-remote/tsconfig.host.json" }
+  ]
+}

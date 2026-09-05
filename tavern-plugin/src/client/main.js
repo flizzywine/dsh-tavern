@@ -177,9 +177,7 @@ window.__ModuleLoader__.load({
 		function rpcWithTimeout(method, args, sessionId) {
 			const controller = new AbortController();
 			const timer = window.setTimeout(function () { controller.abort(); }, 15000);
-			return tavernSessionSignals.withConnectionSlot(function () {
-				return rpc(method, args, sessionId, { signal: controller.signal });
-			}).catch(function (error) {
+			return rpc(method, args, sessionId, { signal: controller.signal }).catch(function (error) {
 				if (controller.signal.aborted) throw new Error("读取超时，请重新读取");
 				throw error;
 			}).finally(function () { window.clearTimeout(timer); });
@@ -261,96 +259,7 @@ window.__ModuleLoader__.load({
 			};
 		}
 
-		function createTavernSessionSignalModule(options) {
-			if (!options || typeof options.connect !== "function") throw new Error("Tavern Session Signal 缺少连接 adapter");
-			const records = new Map();
-			let connectionReservations = 0;
-			function recordFor(sessionId) {
-				const id = String(sessionId || "");
-				if (!records.has(id)) records.set(id, { id: id, listeners: new Map(), connection: null, connected: false });
-				return records.get(id);
-			}
-			function listenerCount(record) {
-				let count = 0;
-				record.listeners.forEach(function (listeners) { count += listeners.size; });
-				return count;
-			}
-			function connect(record) {
-				if (connectionReservations > 0 || record.connection !== null || listenerCount(record) === 0) return;
-				record.connection = options.connect(record.id, {
-					open: function () {
-						record.connected = true;
-						record.listeners.forEach(function (listeners) {
-							listeners.forEach(function (listener) { if (typeof listener.connected === "function") listener.connected(); });
-						});
-					},
-					message: function (signal) {
-						if (!signal || signal.sessionId !== record.id || typeof signal.kind !== "string") return;
-						const listeners = record.listeners.get(signal.kind);
-						if (listeners) listeners.forEach(function (listener) { listener(signal); });
-					},
-					error: function (error) {
-						record.connected = false;
-						record.listeners.forEach(function (listeners) {
-							listeners.forEach(function (listener) { if (typeof listener.error === "function") listener.error(error); });
-						});
-					}
-				});
-			}
-			function disconnect(record) {
-				if (record.connection) record.connection.close();
-				record.connection = null;
-				record.connected = false;
-			}
-			async function withConnectionSlot(run) {
-				if (typeof run !== "function") throw new Error("Tavern Session Signal 缺少连接槽任务");
-				connectionReservations += 1;
-				if (connectionReservations === 1) records.forEach(disconnect);
-				try { return await run(); }
-				finally {
-					connectionReservations -= 1;
-					// Signals are only wake-ups. Reconnect after the read and let consumers
-					// reload authoritative state instead of competing for the last HTTP slot.
-					if (connectionReservations === 0) records.forEach(connect);
-				}
-			}
-			return Object.freeze({
-				withConnectionSlot: withConnectionSlot,
-				subscribe: function (sessionId, kind, listener, onError, onConnect) {
-					const record = recordFor(sessionId);
-					const typedListener = function (signal) { listener(signal); };
-					typedListener.error = onError;
-					typedListener.connected = onConnect;
-					if (!record.listeners.has(kind)) record.listeners.set(kind, new Set());
-					record.listeners.get(kind).add(typedListener);
-					connect(record);
-					if (record.connected && typeof typedListener.connected === "function") typedListener.connected();
-					let stopped = false;
-					return function () {
-						if (stopped) return;
-						stopped = true;
-						const listeners = record.listeners.get(kind);
-						if (listeners) listeners.delete(typedListener);
-						if (listeners && listeners.size === 0) record.listeners.delete(kind);
-						if (listenerCount(record) === 0) disconnect(record);
-					};
-				}
-			});
-		}
-
-		const tavernSessionSignals = createTavernSessionSignalModule({
-			connect: function (sessionId, handlers) {
-				const target = "/api/dsh-tavern/events?sessionId=" + encodeURIComponent(sessionId);
-				const source = new window.EventSource(target);
-				source.onopen = function () { handlers.open(); };
-				source.onmessage = function (event) {
-					try { handlers.message(JSON.parse(event.data)); }
-					catch (error) { handlers.error(error); }
-				};
-				source.onerror = function () { handlers.error(new Error("Tavern SSE 正在重连")); };
-				return { close: function () { source.close(); } };
-			}
-		});
+		let tavernSessionSignals;
 
 		function createTavernCoordinationEventModule(options) {
 			if (!options || typeof options.connect !== "function") throw new Error("Tavern Coordination Event 缺少 SSE adapter");
@@ -446,7 +355,6 @@ window.__ModuleLoader__.load({
 						if (active && reloadRequested) { reloadRequested = false; void load(); }
 					}
 				}
-				let opened = false;
 				const stop = tavernSessionSignals.subscribe(sessionId, "tavern-state", function (signal) {
 					if (signal && signal.snapshot) {
 						handlers.message(coordinationView(signal.snapshot, sessionId));
@@ -454,8 +362,7 @@ window.__ModuleLoader__.load({
 					}
 					void load();
 				}, handlers.error, function () {
-					if (opened) void load();
-					opened = true;
+					void load();
 				});
 				return { close: function () { active = false; stop(); }, refresh: load };
 			}
@@ -4493,7 +4400,7 @@ window.__ModuleLoader__.load({
 				setOpeningPicker(null);
 				setError("");
 				setPicking(true);
-				void tavernSessionSignals.withConnectionSlot(function () { return call("preparePlayStart"); }).catch(function (error) { console.warn("dsh-tavern: 游戏启动资源预热失败，将在开始时读取", error); });
+				void call("preparePlayStart").catch(function (error) { console.warn("dsh-tavern: 游戏启动资源预热失败，将在开始时读取", error); });
 			}
 			function closePicker() {
 				playPrewarmRef.current.cancel();
@@ -4601,14 +4508,14 @@ window.__ModuleLoader__.load({
 				waitForSession: waitForSessionSummary,
 				ensurePreset: ensureTavernPreset,
 				createChat: function (request, sessionId) {
-					return tavernSessionSignals.withConnectionSlot(function () { return call("startChat", {
+					return call("startChat", {
 						path: request.card && request.card.path ? request.card.path : "",
 						sessionId: sessionId,
 						mode: request.targetMode,
 						openingId: request.openingId || "",
 						userName: request.userName || "你",
 						requestMode: compatibilityAvailable && request.requestMode === "sillytavern" ? "sillytavern" : "dsh"
-					}); });
+					});
 				},
 				rememberPending: setPendingOpen,
 				finishOpen: finishPendingOpen
@@ -4771,12 +4678,12 @@ window.__ModuleLoader__.load({
 				let forkCreated = false;
 				try {
 					targetSessionId = await props.conversationHost.forkSession(item.sessionId);
-					await tavernSessionSignals.withConnectionSlot(function () { return call("forkChat", {
+					await call("forkChat", {
 						chatId: item.chatId,
 						sessionId: item.sessionId,
 						targetSessionId: targetSessionId,
 						turn: Number(turn) || 0
-					}); });
+					});
 					forkCreated = true;
 					const forkTitle = (currentTitle || item.cardName + "的新对话") + " · 分支";
 					try { await props.renameSession(targetSessionId, forkTitle); }
@@ -7791,11 +7698,15 @@ window.__ModuleLoader__.load({
 		const playControlsFeature = createPlayControlsFeatureModule();
 		const assistantRendererFeature = createTavernAssistantRendererFeatureModule();
 
-		const inject = ["slots", "sessions", "workspaces", "layout", "connection", "conversation", "betterSidebar", "remote", "remote.commands"];
+		const inject = ["slots", "sessions", "workspaces", "layout", "connection", "conversation", "betterSidebar", "remote", "remote.commands", "tavernSessionSignals"];
 
 		function apply(ctx) {
 			const slots = ctx.slots;
 			if (slots === undefined) return;
+			const signals = ctx.tavernSessionSignals;
+			if (!signals || typeof signals.subscribe !== "function") throw new Error("DSH Tavern Remote 状态流不可用");
+			tavernSessionSignals = signals;
+			ctx.effect(function () { return function () { if (tavernSessionSignals === signals) tavernSessionSignals = undefined; }; }, "dsh-tavern: remote session signals");
 			ctx.effect(function () { return tavernRuntimeGenerationMonitor.start(); }, "dsh-tavern: runtime generation monitor");
 			function reconcileLibraryTabTitles() {
 				if (!ctx.betterSidebar || typeof ctx.betterSidebar.getSnapshot !== "function" || typeof ctx.betterSidebar.updateTab !== "function") return;
@@ -7912,7 +7823,6 @@ window.__ModuleLoader__.load({
 		exports.TavernMessageFrame = TavernMessageFrame;
 		exports.createTavernMessageFrameLifecycle = createTavernMessageFrameLifecycle;
 		exports.createTavernScriptExecutionModule = createTavernScriptExecutionModule;
-		exports.createTavernSessionSignalModule = createTavernSessionSignalModule;
 		exports.createTavernScriptSessionOwner = createTavernScriptSessionOwner;
 		exports.createMvuBundleLoader = createMvuBundleLoader;
 		exports.TavernMvuLoadRecovery = TavernMvuLoadRecovery;

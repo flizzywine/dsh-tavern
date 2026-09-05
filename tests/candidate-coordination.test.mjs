@@ -4,6 +4,7 @@ import test from 'node:test'
 
 const clientSource = await readFile(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
 const serverSource = await readFile(new URL('../tavern-plugin/lib/index.js', import.meta.url), 'utf8')
+const remoteClientSource = await readFile(new URL('../tavern-plugin/packages/dsh-tavern-remote/src/client.ts', import.meta.url), 'utf8')
 
 function between(source, start, end) {
   const from = source.indexOf(start)
@@ -21,13 +22,13 @@ test('宿主将候选提交、旧入口、同步与恢复交给同一个模块',
   assert.doesNotMatch(serverSource, /scheduleCandidateTask|createDurableTaskMailbox/)
 })
 
-test('前端通过 typed SSE signal 重读权威快照，不再定时轮询', function () {
-  const signals = between(clientSource, 'function createTavernSessionSignalModule', 'function createTavernCoordinationEventModule')
+test('前端通过 DSH Remote snapshot signal 接收快照，不再定时轮询', function () {
   const coordination = between(clientSource, 'const tavernCoordination', 'function describeTavernActivity')
   const submit = between(clientSource, 'async function submitCandidateTask', 'const regenPanel')
 
-  assert.match(signals, /new window\.EventSource/)
-  assert.match(signals, /\/api\/dsh-tavern\/events/)
+  assert.match(remoteClientSource, /new RemoteSnapshotStream/)
+  assert.match(remoteClientSource, /ctx\.remote\.\$stream/)
+  assert.doesNotMatch(remoteClientSource, /EventSource/)
   assert.match(coordination, /tavernSessionSignals\.subscribe/)
   assert.match(coordination, /tavernSessionSignals\.subscribe\(sessionId, "tavern-state"/)
   assert.match(coordination, /signal\.snapshot/)
@@ -47,7 +48,7 @@ test('Session、世界书、结算与候选使用同一持久同步快照', func
   assert.match(clientSync, /projectionRevision/)
 })
 
-test('服务器主动发布 SSE，并以轻量存储版本做低频兜底', function () {
+test('服务器向 Remote 流主动发布快照，并以轻量存储版本做低频兜底', function () {
   const coordinationVersion = between(serverSource, 'async function coordinationVersion', 'coordinationEvents = createCoordinationEventPublisher')
 
   assert.match(serverSource, /createCoordinationEventPublisher/)
@@ -57,12 +58,9 @@ test('服务器主动发布 SSE，并以轻量存储版本做低频兜底', func
   assert.match(serverSource, /profileData\.version\('card-projection-revisions\.json'\)/)
   assert.doesNotMatch(coordinationVersion, /agentRegistry\.get|sessionStore\.get/, '高频版本检查不得跨线程读取完整 Session/Agent')
   assert.match(serverSource, /fallbackIntervalMs: 5000/)
-  assert.match(serverSource, /'Content-Type': 'text\/event-stream; charset=utf-8'/)
-  assert.match(serverSource, /sessionSignals\.subscribe\(sessionId/)
-  assert.match(serverSource, /coordinationEvents\.watch\(sessionId/)
-  assert.match(serverSource, /kind === 'tavern-state'/)
-  assert.match(serverSource, /data: ' \+ JSON\.stringify\(signal\)/)
-  assert.doesNotMatch(serverSource, /data: ' \+ JSON\.stringify\(snapshot\)/)
+  assert.match(serverSource, /yield \* sessionSignals\.follow\(signal, ids\)/)
+  assert.match(serverSource, /coordinationEvents\.watch\(sessionId\)/)
+  assert.doesNotMatch(serverSource, /text\/event-stream|EventSource/)
 })
 
 test('所有 Tavern Chat 热写入统一经过增量 Persistence', function () {
