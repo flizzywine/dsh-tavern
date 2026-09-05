@@ -1,8 +1,8 @@
 {
   "schemaVersion": 2,
-  "revision": "8e27b376a73327afe67cb2cb37ba1ead165eb5a3",
-  "releaseSequence": 80,
-  "version": "1.3.0",
+  "revision": "5c408dd5803bcc27214d06dcaa43c8a18728a36c",
+  "releaseSequence": 81,
+  "version": "1.4.0",
   "files": [
     {
       "path": "bin/application-update.mjs",
@@ -101,7 +101,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "6d4684498c51cda93e79bb870c9c5dedc291dbd95e51f2807950f0f012c2817b",
+      "sha256": "f6c89d45a655ecef6da0d89f6231eed3d6c3dcbaf07ef4659dad95bed81366c2",
       "size": 1586
     },
     {
@@ -1631,7 +1631,7 @@
     },
     {
       "path": "tavern-plugin/package.json",
-      "sha256": "b53b4a64b1a70fed9bb4ac2bcd7be8e500db16dd11792b6ae53f21c27ad2f344",
+      "sha256": "f3f2f1a06c4502786b42995db1931b20763dff850baf54bfe37edbfe548b8ee6",
       "size": 1222
     },
     {
