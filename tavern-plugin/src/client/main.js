@@ -5707,12 +5707,12 @@ window.__ModuleLoader__.load({
 						h("div", { className: "dsh-tavern-preset-section-title" }, "提示词条目 · " + (preset.entries || []).length), (preset.entries || []).map(entryRow),
 						h("div", { className: "dsh-tavern-preset-section-title" }, "正则脚本 · " + (preset.extractableRegexScripts || []).length), (preset.extractableRegexScripts || []).map(regexRow)));
 				return h("div", { className: "dsh-tavern-presets" },
-					h("div", { className: "dsh-tavern-status-head" }, h("div", { className: "dsh-tavern-status-title" }, "预设库"), h("div", { className: "dsh-tavern-question-sub" }, "为游玩选择文风与写作规则，也可交给卡片 Agent 编辑"), h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { importInput.current && importInput.current.click(); } }, "导入外部预设"), h("input", { ref: importInput, type: "file", accept: ".json,application/json", style: { display: "none" }, onChange: function (event) { const file = event.target.files && event.target.files[0]; importFile(file); event.target.value = ""; } })),
+					h("div", { className: "dsh-tavern-status-head" }, h("div", { className: "dsh-tavern-status-title" }, "预设库"), h("div", { className: "dsh-tavern-question-sub" }, "管理外部预设；日常调整优先改卡或使用 Guide"), h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { importInput.current && importInput.current.click(); } }, "导入外部预设"), h("input", { ref: importInput, type: "file", accept: ".json,application/json", style: { display: "none" }, onChange: function (event) { const file = event.target.files && event.target.files[0]; importFile(file); event.target.value = ""; } })),
 					h("div", { className: "dsh-tavern-preset-list" }, error ? h("div", { className: "dsh-tavern-dock-error" }, error) : null,
 						h("label", { className: "dsh-tavern-preset-selector" }, h("span", null, "当前使用的预设"), h("select", { value: catalog.activePresetPath, disabled: busy, onChange: function (event) { selectPreset(event.target.value); } }, h("option", { value: "" }, "不使用外部预设（默认）"), catalog.presets.filter(function (item) { return item.valid === true && item.recognized === true; }).map(function (item) { return h("option", { key: item.path, value: item.path }, item.title); }))),
 						h("div", { className: "dsh-tavern-preset-summary dsh-tavern-external-preset-notice" },
 						h("strong", null, catalog.activePresetPath ? "当前预设：" + catalog.activePresetTitle : "当前使用内置设置"),
-						h("p", { className: "dsh-tavern-preset-warning" }, h("strong", null, "使用建议："), "预设用于调整游玩的文风、叙事方式和写作规则。不导入预设也能直接开始；需要不同风格时，再导入并选择。"),
+						h("p", { className: "dsh-tavern-preset-warning" }, h("strong", null, "使用建议："), "建议保留内置预设。要调整文风、叙事方式或写作规则，优先在卡片模式中写入人物卡，或在游玩中通过 Guide 注入要求。外部预设会参与前台请求并可能改变系统行为，仅在明确了解其内容和影响时使用。"),
 						h("p", null, "支持导入 SillyTavern 预设；在游玩中按 DSH Tavern 的方式应用，效果可能与原酒馆不同。"),
 						h("p", null, "修改预设后，下一轮游玩请求直接生效；卡片模式中的引用仅供 Agent 阅读和编辑，后台 Agent 不运行预设。")),
 					catalog.presets.length ? catalog.presets.map(function (item) {

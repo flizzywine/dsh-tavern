@@ -77,7 +77,7 @@ test('预设 Feature module 只注册一个预设库', function () {
   assert.ok(registrations.every(function (item) { return typeof item.component === 'function' }))
 })
 
-test('预设库实际渲染游玩说明、内置默认选项，不再显示实验标签和劝退说明', async () => {
+test('预设库明确建议内置预设，并说明改卡、Guide 与外部预设的边界', async () => {
   const react = {
     useState: value => [typeof value === 'function' ? value() : value, () => {}],
     useRef: value => ({ current: value }),
@@ -92,8 +92,9 @@ test('预设库实际渲染游玩说明、内置默认选项，不再显示实�
     appendMention() {}
   })
   const rendered = JSON.stringify(registration.component({ scope: { sessionId: 'play-session' } }))
-  assert.match(rendered, /预设用于调整游玩的文风、叙事方式和写作规则/)
-  assert.match(rendered, /不导入预设也能直接开始/)
+  assert.match(rendered, /建议保留内置预设/)
+  assert.match(rendered, /优先在卡片模式中写入人物卡，或在游玩中通过 Guide 注入要求/)
+  assert.match(rendered, /外部预设会参与前台请求并可能改变系统行为/)
   assert.match(rendered, /不使用外部预设（默认）/)
   assert.match(rendered, /效果可能与原酒馆不同/)
   assert.doesNotMatch(rendered, /实验性|除非坚持|破限效果/)
