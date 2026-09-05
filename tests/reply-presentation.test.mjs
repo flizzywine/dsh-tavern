@@ -28,9 +28,9 @@ test('没有正则时三层回复保持原文，HTML 只影响展示分类', () 
   assert.equal(result.sessionText, source)
   assert.equal(result.displayText, source)
   assert.equal(result.displayMode, 'html')
-  assert.equal(result.displayParts.length, 1)
-  assert.equal(result.displayParts[0].kind, 'html')
-  assert.match(result.displayParts[0].content, /<details><summary>状态<\/summary><!-- HP: 10 --><\/details>/)
+  assert.deepEqual(result.displayParts.map(part => part.kind), ['markdown', 'html'])
+  assert.equal(result.displayParts[0].text, '正文。\n\n')
+  assert.match(result.displayParts[1].content, /<details><summary>状态<\/summary><!-- HP: 10 --><\/details>/)
   assert.deepEqual(result.applied, { session: [], display: [] })
 })
 
@@ -53,6 +53,26 @@ test('纯文本保留 Markdown 原文交给原生渲染，不创建 iframe', () 
   assert.equal(layers.sourceText, source)
   assert.equal(layers.sessionText, source)
   assert.equal(layers.displayMode, 'markdown')
+})
+
+test('整段 content 叙事外壳不会把纯文本开场白送进 iframe', () => {
+  const source = '<content>\n第一段开场白。\n\n第二段开场白。\n</content>'
+  const result = projectDisplayParts(source)
+
+  assert.deepEqual(result.parts, [{ kind: 'markdown', text: '第一段开场白。\n\n第二段开场白。' }])
+  assert.equal(displayModeOf(source), 'markdown')
+})
+
+test('历史投影会下发剥离 content 外壳后的纯文本开场白', () => {
+  const source = '<content>\n第一段开场白。\n\n第二段开场白。\n</content>'
+  const result = projectReplyHistory([
+    { role: 'assistant', turn: 1, greeting: true, text: source, sourceText: source }
+  ])
+
+  assert.equal(result.projections.length, 1)
+  assert.deepEqual(result.projections[0].parts, [
+    { kind: 'markdown', text: '第一段开场白。\n\n第二段开场白。' }
+  ])
 })
 
 test('没有展示正则的纯文本历史沿用原生正文，不生成 HTML 投影', () => {
@@ -132,6 +152,18 @@ test('HTML 代码围栏在原位置进入独立 HTML 渲染', () => {
   assert.equal(projected.parts[1].content, '<div>只展示源码</div>\n')
 })
 
+test('正文中的块级 CG 展示独立进入 iframe，前后正文仍由原生 Markdown 渲染', () => {
+  const source = '第一段正文。\n\n<style>\n.cg-image{display:block;width:100%}\n</style>\n<div class="cg-container"><img class="cg-image" src="/祝南枝/教室.png"></div>\n\n第二段正文。'
+  const projected = projectDisplayParts(source)
+
+  assert.deepEqual(projected.parts.map(part => part.kind), ['markdown', 'html', 'markdown'])
+  assert.match(projected.parts[0].text, /第一段正文/)
+  assert.doesNotMatch(projected.parts[0].text, /cg-container|<style>/)
+  assert.match(projected.parts[1].content, /<style>[\s\S]*cg-container/)
+  assert.doesNotMatch(projected.parts[1].content, /第一段正文|第二段正文/)
+  assert.match(projected.parts[2].text, /第二段正文/)
+})
+
 test('独立围栏 UI 不与正文共用 iframe，避免 body.load 清空正文', () => {
   const source = '【开局二·虞汐颜】\n\n幽暗秘境深处。\n\n```html\n<body><script>$("body").load("/status.html")</script></body>\n```'
   const projected = projectDisplayParts(source)
@@ -143,16 +175,16 @@ test('独立围栏 UI 不与正文共用 iframe，避免 body.load 清空正文'
   assert.doesNotMatch(projected.parts[1].content, /幽暗秘境深处/)
 })
 
-test('混合内容只要含有 HTML 就整段原样渲染，并保留独立围栏 UI', () => {
+test('混合内容拆开原生 Markdown、块级 HTML 与独立围栏 UI', () => {
   const source = '***索引页***\n\n**开局一·自定义**\n\n<details><summary>天道推演</summary></details>\n\n```html\n<body><script>$("body").load("/status.html")</script></body>\n```'
   const projected = projectDisplayParts(source)
 
-  assert.deepEqual(projected.parts.map(part => part.kind), ['html', 'html'])
-  assert.match(projected.parts[0].content, /\*\*\*索引页\*\*\*/)
-  assert.match(projected.parts[0].content, /\*\*开局一·自定义\*\*/)
-  assert.match(projected.parts[0].content, /<details><summary>天道推演<\/summary><\/details>/)
-  assert.doesNotMatch(projected.parts[0].content, /<pre><code>/)
-  assert.match(projected.parts[1].content, /body.*load/s)
+  assert.deepEqual(projected.parts.map(part => part.kind), ['markdown', 'html', 'html'])
+  assert.match(projected.parts[0].text, /\*\*\*索引页\*\*\*/)
+  assert.match(projected.parts[0].text, /\*\*开局一·自定义\*\*/)
+  assert.match(projected.parts[1].content, /<details><summary>天道推演<\/summary><\/details>/)
+  assert.doesNotMatch(projected.parts[1].content, /<pre><code>/)
+  assert.match(projected.parts[2].content, /body.*load/s)
 })
 
 test('未标语言但包含 HTML 的代码围栏也进入独立 HTML 渲染', () => {
@@ -230,8 +262,16 @@ test('代码示例中的 HTML 不作为活动页面执行', () => {
   }
 })
 
-test('整页美化和 raw HTML 继续隔离，不把外来脚本和样式注入宿主', () => {
-  for (const source of ['<html><head><style>body{color:red}</style></head><body>正文</body></html>', '正文\n<script>document.body.replaceChildren()</script>', '正文 <b>强调</b>']) {
+test('整页美化和内联 raw HTML 继续整体隔离，不把外来脚本和样式注入宿主', () => {
+  for (const source of ['<html><head><style>body{color:red}</style></head><body>正文</body></html>', '正文 <b>强调</b>']) {
     assert.deepEqual(projectDisplayParts(source).parts, [{ kind: 'html', content: source }])
   }
+})
+
+test('独立块级脚本与正文拆开，但脚本仍只进入 iframe', () => {
+  const source = '正文\n<script>document.body.replaceChildren()</script>'
+  assert.deepEqual(projectDisplayParts(source).parts, [
+    { kind: 'markdown', text: '正文\n' },
+    { kind: 'html', content: '<script>document.body.replaceChildren()</script>' }
+  ])
 })

@@ -13,6 +13,7 @@ import { TAVERN_RELEASE_CAPABILITIES } from './domain/release-capabilities.js'
 import { createSessionStablePrefixStorage, ensureSessionStablePrefix, readSessionStablePrefix } from './domain/session-stable-prefix.js'
 import { waitForWritableSession } from './domain/agent-readiness.js'
 import { createCardDeletion } from './domain/card-deletion.js'
+import { orderCardsByNewestImport } from './domain/card-list-order.js'
 import { createCardPreparation } from './domain/card-preparation.js'
 import { withGlobalRegexScripts } from './domain/card-extension-reading.js'
 import { projectCardOpeningPreviews } from './domain/card-opening-previews.js'
@@ -649,11 +650,19 @@ export async function apply(ctx) {
   async function listCards() {
     const cardPaths = await fileResources.list('card')
     const scriptBindings = await fileResources.scriptBindingsForCards(cardPaths)
-    return await Promise.all(cardPaths.map(async function (cardPath) {
-      const [card, hasImage] = await Promise.all([readCard(cardPath), fileResources.hasCardImage(cardPath)])
+    const cards = await Promise.all(cardPaths.map(async function (cardPath) {
+      const [workspace, hasImage] = await Promise.all([readCardWorkspace(cardPath), fileResources.hasCardImage(cardPath)])
+      const card = cardPreparation.project(workspace)
       const scriptPath = scriptBindings[cardPath]
-      return { path: cardPath, name: card.name, hasImage, script: scriptPath === undefined ? null : { path: scriptPath, title: scriptPath.split('/').pop() } }
+      return {
+        path: cardPath,
+        name: card.name,
+        importedAt: Number(workspace && workspace.meta && workspace.meta.importedAt) || 0,
+        hasImage,
+        script: scriptPath === undefined ? null : { path: scriptPath, title: scriptPath.split('/').pop() }
+      }
     }))
+    return orderCardsByNewestImport(cards)
   }
   async function resourceBindingProjection() {
     const cards = await listCards()

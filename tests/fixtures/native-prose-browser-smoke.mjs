@@ -18,7 +18,7 @@ const prose = '# 原生正文\n\n' + Array.from({ length: 35 }, (_, i) => `第 $
 const panel = '<style>body{font:16px sans-serif}button{min-height:44px}</style><button id="status" onclick="this.textContent=\'状态已打开\'">查看状态</button><details><summary>展开说明</summary>卡片交互仍然有效</details>'
 const cases = {
   plain: prose,
-  mixed: prose + '\n\n```html\n' + panel + '\n```\n\n尾声仍在原生页面。',
+  mixed: prose + '\n\n' + panel + '\n\n尾声仍在原生页面。',
   full: '<!doctype html><html><body>' + panel + '<p>整页 HTML 仍隔离。</p></body></html>',
   code: '这是代码示例：`<button>不会执行</button>`\n\n```js\nconst html = "<script>window.unwanted=true</script>"\n```',
   streaming: prose

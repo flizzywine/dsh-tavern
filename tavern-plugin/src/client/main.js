@@ -883,6 +883,8 @@ window.__ModuleLoader__.load({
 
 		const TAVERN_CARD_PHONE_HOST = '[id^="improved-phone-shadow-host-"]';
 		const TAVERN_CARD_PHONE_BUTTON = '[id^="improved-phone-floating-button-"]';
+		const TAVERN_CARD_PHONE_PARKING = '[data-dsh-tavern-card-app-parking]';
+		const TAVERN_CARD_PHONE_SESSION = 'data-dsh-tavern-card-app-session';
 		const TAVERN_CARD_PHONE_CSS = '/api/dsh-tavern/vendor/runtime-assets/fontawesome/css/all.min.css';
 		const TAVERN_CARD_PHONE_FONTS = '/api/dsh-tavern/vendor/runtime-assets/fontawesome/webfonts/';
 		let tavernCardIconCssPromise = null;
@@ -907,6 +909,17 @@ window.__ModuleLoader__.load({
 				+ '@font-face{font-family:"Font Awesome 6 Free";font-style:normal;font-weight:400;font-display:block;src:url("' + TAVERN_CARD_PHONE_FONTS + 'fa-regular-400.woff2") format("woff2")}\n'
 				+ '@font-face{font-family:"Font Awesome 6 Brands";font-style:normal;font-weight:400;font-display:block;src:url("' + TAVERN_CARD_PHONE_FONTS + 'fa-brands-400.woff2") format("woff2")}';
 			hostDocument.head.appendChild(fonts);
+		}
+		function ensureTavernCardAppParking(hostDocument) {
+			if (!hostDocument || !hostDocument.body || typeof hostDocument.createElement !== "function") return null;
+			let parking = hostDocument.querySelector && hostDocument.querySelector(TAVERN_CARD_PHONE_PARKING);
+			if (parking) return parking;
+			parking = hostDocument.createElement("div");
+			parking.setAttribute("data-dsh-tavern-card-app-parking", "");
+			parking.setAttribute("aria-hidden", "true");
+			parking.hidden = true;
+			hostDocument.body.appendChild(parking);
+			return parking;
 		}
 		function createTavernCardAppPresence(options) {
 			const hostWindow = options && options.window || window;
@@ -950,6 +963,7 @@ window.__ModuleLoader__.load({
 		function createTavernCardAppDock(options) {
 			const hostDocument = options && options.document || document;
 			const slot = options && options.slot;
+			const sessionId = String(options && options.sessionId || "");
 			const loadIconCss = options && options.loadIconCss || loadTavernCardIconCss;
 			const notify = options && typeof options.onChange === "function" ? options.onChange : function () {};
 			const Mutation = options && Object.prototype.hasOwnProperty.call(options, "MutationObserver") ? options.MutationObserver : (hostDocument.defaultView && hostDocument.defaultView.MutationObserver);
@@ -962,7 +976,28 @@ window.__ModuleLoader__.load({
 			let floatingDisplay = null;
 			let mutationObserver = null;
 			let resizeObserver = null;
+			const candidateObservers = new Map();
 			let disposed = false;
+
+			function hasPhoneLayout(host) {
+				const root = host && host.shadowRoot;
+				return Boolean(root && typeof root.querySelector === "function" && root.querySelector(".phone-wrapper"));
+			}
+
+			function clearCandidateObserver(host) {
+				const observer = candidateObservers.get(host);
+				if (observer) observer.disconnect();
+				candidateObservers.delete(host);
+			}
+
+			function watchCandidate(host) {
+				if (typeof Mutation !== "function" || !host || !host.shadowRoot || candidateObservers.has(host)) return;
+				const observer = new Mutation(function () {
+					if (hasPhoneLayout(host)) { clearCandidateObserver(host); scan(); }
+				});
+				observer.observe(host.shadowRoot, { childList: true, subtree: true });
+				candidateObservers.set(host, observer);
+			}
 
 			function installShadowDependencies(host) {
 				const root = host && host.shadowRoot;
@@ -999,8 +1034,13 @@ window.__ModuleLoader__.load({
 
 			function attach(host) {
 				if (!host || host === attached) return false;
+				const ownerSessionId = host.getAttribute && host.getAttribute(TAVERN_CARD_PHONE_SESSION);
+				if (ownerSessionId && sessionId && ownerSessionId !== sessionId) return false;
+				if (!hasPhoneLayout(host)) { watchCandidate(host); return false; }
+				clearCandidateObserver(host);
 				if (attached) restore();
 				attached = host;
+				if (sessionId && host.setAttribute) host.setAttribute(TAVERN_CARD_PHONE_SESSION, sessionId);
 				originalParent = host.parentNode;
 				originalNext = host.nextSibling;
 				originalStyle = host.getAttribute && host.getAttribute("style");
@@ -1038,6 +1078,18 @@ window.__ModuleLoader__.load({
 				notify(false);
 			}
 
+			function park() {
+				if (!attached) return;
+				const host = attached;
+				attached = null;
+				const parking = ensureTavernCardAppParking(hostDocument);
+				if (parking && typeof parking.appendChild === "function") parking.appendChild(host);
+				else host.style.display = "none";
+				if (floatingButton) floatingButton.style.display = "none";
+				originalParent = null; originalNext = null; originalStyle = null; floatingButton = null; floatingDisplay = null;
+				notify(false);
+			}
+
 			function scan() {
 				if (disposed || attached) return;
 				const hosts = hostDocument.querySelectorAll(TAVERN_CARD_PHONE_HOST);
@@ -1064,7 +1116,7 @@ window.__ModuleLoader__.load({
 			return Object.freeze({
 				open: function () { const button = hostDocument.querySelector(TAVERN_CARD_PHONE_BUTTON); if (button && typeof button.click === "function") button.click(); },
 				inspect: function () { return { attached: Boolean(attached) }; },
-				dispose: function () { disposed = true; if (mutationObserver) mutationObserver.disconnect(); if (resizeObserver) resizeObserver.disconnect(); restore(); }
+				dispose: function () { disposed = true; if (mutationObserver) mutationObserver.disconnect(); if (resizeObserver) resizeObserver.disconnect(); candidateObservers.forEach(function (observer) { observer.disconnect(); }); candidateObservers.clear(); park(); }
 			});
 		}
 
@@ -4317,7 +4369,7 @@ window.__ModuleLoader__.load({
 				function refreshSettings() { void refresh(); }
 				window.addEventListener("dsh-tavern-settings-changed", refreshSettings);
 				return function () { window.removeEventListener("dsh-tavern-settings-changed", refreshSettings); };
-			}, []);
+			}, [props.sessionId]);
 			React.useEffect(function () {
 				refresh();
 				function onData(event) { if (tavernDataChangeAffects(event, ["cards", "sessions"], "sidebar")) refresh(); }
@@ -7100,7 +7152,7 @@ window.__ModuleLoader__.load({
 					h("div", { className: "dsh-tavern-status-settle" }, h("span", { className: "dsh-tavern-status-dot " + (view.settleStatus || "idle") }), statusText)
 				),
 					h("div", { className: "dsh-tavern-status-body" },
-					h(TavernCardAppDock, null),
+					h(TavernCardAppDock, { sessionId: props.sessionId }),
 					view.settleStatus === "error" ? h("div", { className: "dsh-card-error" },
 						h("div", null, view.settleError || "后台结算失败，请重试。"),
 						h("button", { className: "dsh-tavern-btn", disabled: settlementRetryBusy, onClick: retrySettlement }, settlementRetryBusy ? "重试中…" : "重试后台结算")
@@ -7183,17 +7235,17 @@ window.__ModuleLoader__.load({
 			);
 		}
 
-		function TavernCardAppDock() {
+		function TavernCardAppDock(props) {
 			const slotRef = React.useRef(null);
 			const controllerRef = React.useRef(null);
 			const presence = React.useSyncExternalStore(tavernCardAppPresence.subscribe, tavernCardAppPresence.inspect);
 			React.useEffect(function () {
 				if (!slotRef.current) return;
-				const controller = createTavernCardAppDock({ document: document, slot: slotRef.current, onChange: tavernCardAppPresence.change });
+				const controller = createTavernCardAppDock({ document: document, slot: slotRef.current, sessionId: props.sessionId, onChange: tavernCardAppPresence.change });
 				controllerRef.current = controller;
 				return function () { controllerRef.current = null; controller.dispose(); };
 			}, []);
-			return React.createElement("section", { className: "dsh-tavern-status-section dsh-tavern-card-app-section", hidden: !presence.visible },
+			return React.createElement("section", { className: "dsh-tavern-status-section dsh-tavern-card-app-section", hidden: !presence.attached },
 				React.createElement("div", { className: "dsh-tavern-card-app-head" },
 					React.createElement("div", { className: "dsh-tavern-status-label" }, "人物卡应用"),
 					React.createElement("button", { className: "dsh-tavern-btn", disabled: !presence.attached, onClick: function () { if (controllerRef.current) controllerRef.current.open(); } }, presence.attached ? "打开手机" : "恢复中…")

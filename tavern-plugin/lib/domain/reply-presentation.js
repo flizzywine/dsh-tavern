@@ -69,15 +69,60 @@ function hasRawHtml(value) {
   }
 }
 
-/** Native prose and isolated HTML share one ordered projection; never split a raw HTML document. */
+function isWrappedHtmlDocument(value) {
+  const source = str(value).trim()
+  if (/^<!doctype\s+html\b/i.test(source)) return true
+  const opening = source.match(/^<([a-z][\w:-]*)\b[^>]*>/i)
+  return opening !== null && new RegExp('</' + opening[1].replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '>\\s*$', 'i').test(source)
+}
+
+function unwrapNarrativeContent(value) {
+  const match = str(value).match(/^\s*<content>\s*\r?\n?([\s\S]*?)\r?\n?\s*<\/content>\s*$/i)
+  return match === null ? null : match[1]
+}
+
+function splitPlainSegment(value) {
+  const source = str(value)
+  const narrative = unwrapNarrativeContent(source)
+  if (narrative !== null) return splitPlainSegment(narrative)
+  if (!hasRawHtml(source)) return [{ kind: 'text', text: source }]
+  if (isWrappedHtmlDocument(source)) return [{ kind: 'html', content: source }]
+  try {
+    const segments = []
+    for (const token of marked.lexer(source, { gfm: true })) {
+      const raw = str(token && token.raw)
+      if (raw === '') continue
+      const kind = token.type === 'space'
+        ? (segments.length > 0 ? segments[segments.length - 1].kind : 'text')
+        : (token.type === 'html' || hasRawHtml(raw) ? 'html' : 'text')
+      const previous = segments[segments.length - 1]
+      if (previous && previous.kind === kind) {
+        if (kind === 'html') previous.content += raw
+        else previous.text += raw
+      } else {
+        segments.push(kind === 'html' ? { kind, content: raw } : { kind, text: raw })
+      }
+    }
+    const rebuilt = segments.map(function (segment) {
+      return segment.kind === 'html' ? segment.content : segment.text
+    }).join('')
+    return rebuilt === source && segments.length > 0 ? segments : [{ kind: 'html', content: source }]
+  } catch (_error) {
+    return [{ kind: 'html', content: source }]
+  }
+}
+
+/** Native prose and isolated block HTML share one ordered projection; never split inline or full-document HTML. */
 export function projectDisplayParts(value) {
   const segments = fencedSegments(value)
   return {
-    parts: segments.map(function (segment) {
+    parts: segments.flatMap(function (segment) {
       if (segment.kind === 'html') return { kind: 'html', content: segment.content }
-      return hasRawHtml(segment.text)
-        ? { kind: 'html', content: segment.text }
-        : { kind: 'markdown', text: segment.text }
+      return splitPlainSegment(segment.text).map(function (part) {
+        return part.kind === 'html'
+          ? { kind: 'html', content: part.content }
+          : { kind: 'markdown', text: part.text }
+      })
     }),
     warnings: []
   }
@@ -135,6 +180,10 @@ export function projectReplyLayers(value, options = {}) {
   }
 }
 
+function isNativeMarkdownProjection(parts, sessionText) {
+  return Array.isArray(parts) && parts.length === 1 && parts[0]?.kind === 'markdown' && str(parts[0].text) === str(sessionText)
+}
+
 /** Rebuild per-turn display projections from authoritative reply sources. */
 export function projectReplyHistory(messages, options = {}) {
   const projections = []
@@ -159,7 +208,7 @@ export function projectReplyHistory(messages, options = {}) {
     const projected = projectReplyLayers(sourceText, Object.assign({}, options, { projectionText }))
     const sessionText = str(message.text)
 
-    if (projected.displayText !== sessionText || projected.displayMode !== 'markdown' || (Array.isArray(message.swipes) && message.swipes.length > 1)) {
+    if (!isNativeMarkdownProjection(projected.displayParts, sessionText) || (Array.isArray(message.swipes) && message.swipes.length > 1)) {
       projections.push({
         version: 2,
         turn,

@@ -833,6 +833,8 @@ test('人物卡目录只读取卡片名称和剧本绑定，不加载或切分�
 
   assert.match(listing, /fileResources\.scriptBindingsForCards\(cardPaths\)/)
   assert.match(listing, /fileResources\.hasCardImage\(cardPath\)/)
+  assert.match(listing, /workspace\.meta\.importedAt/)
+  assert.match(listing, /orderCardsByNewestImport\(cards\)/)
   assert.match(listing, /hasImage/)
   assert.doesNotMatch(listing, /readScript|splitNovelText|sourceChars|chunkCount/)
   assert.match(sidebar, /"剧本：" \+ card\.script\.title/)

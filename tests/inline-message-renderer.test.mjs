@@ -487,11 +487,13 @@ test('人物卡挂到宿主 Shadow DOM 的 Font Awesome 样式改用内置资源
 
 test('人物卡手机进入酒馆状态应用槽并由 ShadowRoot 直接加载内置图标', async () => {
   const shadowChildren = []
+  const phoneWrapper = { className: 'phone-wrapper' }
   let phoneMounted = false
   let iconsInstalledAfterMount = false
   const shadowRoot = {
     ownerDocument: null,
     querySelector(selector) {
+      if (selector === '.phone-wrapper') return phoneWrapper
       if (selector.includes('font-awesome') || selector.includes('fontawesome')) return shadowChildren.find((node) => node.tagName === 'LINK') || null
       if (selector === '[data-dsh-tavern-card-app-layout]') return shadowChildren.find((node) => node.layoutStyle) || null
       return null
@@ -502,6 +504,7 @@ test('人物卡手机进入酒馆状态应用槽并由 ShadowRoot 直接加载�
     const attributes = new Map()
     return {
       tagName: tagName.toUpperCase(), style: { setProperty(name, value) { this[name] = value } },
+      appendChild(node) { node.parentNode = this; this.child = node; return node },
       setAttribute(name, value) {
         attributes.set(name, String(value))
         if (name === 'href') this.href = String(value)
@@ -510,7 +513,7 @@ test('人物卡手机进入酒馆状态应用槽并由 ShadowRoot 直接加载�
       removeAttribute(name) { attributes.delete(name) }
     }
   }
-  const body = { appendChild(node) { node.parentNode = this; this.child = node; return node } }
+  const body = { children: [], appendChild(node) { node.parentNode = this; this.children.push(node); return node } }
   const head = { appendChild(node) { node.parentNode = this; this.child = node; return node } }
   const host = element('div')
   host.id = 'improved-phone-shadow-host-card-script'
@@ -522,13 +525,16 @@ test('人物卡手机进入酒馆状态应用槽并由 ShadowRoot 直接加载�
     body, head,
     createElement: element,
     querySelectorAll(selector) { return selector.includes('shadow-host') ? [host] : [] },
-    querySelector(selector) { return selector.includes('floating-button') ? floatingButton : null }
+    querySelector(selector) {
+      if (selector.includes('floating-button')) return floatingButton
+      return body.children.find((node) => node.getAttribute && node.getAttribute('data-dsh-tavern-card-app-parking') !== null) || null
+    }
   }
   shadowRoot.ownerDocument = document
   const slot = { clientWidth: 320, appendChild(node) { phoneMounted = true; node.parentNode = this; this.child = node; return node } }
 
   const controller = client.createTavernCardAppDock({
-    document, slot, MutationObserver: null, ResizeObserver: null,
+    document, slot, sessionId: 'session-phone', MutationObserver: null, ResizeObserver: null,
     loadIconCss() { iconsInstalledAfterMount = phoneMounted; return Promise.resolve('.fas{font-family:icons}') }
   })
   await new Promise(resolve => setImmediate(resolve))
@@ -544,8 +550,47 @@ test('人物卡手机进入酒馆状态应用槽并由 ShadowRoot 直接加载�
   assert.equal(floatingButton.style.display, 'none')
 
   controller.dispose()
-  assert.equal(body.child, host)
-  assert.equal(floatingButton.style.display, undefined)
+  const parking = body.children.find((node) => node.getAttribute && node.getAttribute('data-dsh-tavern-card-app-parking') !== null)
+  assert.ok(parking, '状态面板卸载后必须保留一个隐藏停放容器')
+  assert.equal(parking.hidden, true)
+  assert.equal(parking.child, host, '手机必须停放在隐藏容器，不能恢复成全局浮层')
+  assert.equal(floatingButton.style.display, 'none')
+
+  const unrelatedSlot = { clientWidth: 360, appendChild(node) { node.parentNode = this; this.child = node; return node } }
+  const unrelatedController = client.createTavernCardAppDock({ document, slot: unrelatedSlot, sessionId: 'session-without-phone', MutationObserver: null, ResizeObserver: null, loadIconCss() { return Promise.resolve('') } })
+  assert.equal(unrelatedSlot.child, undefined, '没有手机的新 Session 不能接管上一张卡停放的手机')
+  assert.equal(unrelatedController.inspect().attached, false)
+  unrelatedController.dispose()
+
+  const nextSlot = { clientWidth: 360, appendChild(node) { node.parentNode = this; this.child = node; return node } }
+  const nextController = client.createTavernCardAppDock({ document, slot: nextSlot, sessionId: 'session-phone', MutationObserver: null, ResizeObserver: null, loadIconCss() { return Promise.resolve('') } })
+  assert.equal(nextSlot.child, host, '重新进入酒馆状态面板后应接回同一个手机实例')
+  nextController.dispose()
+})
+
+test('只有空宿主和问号按钮的人物卡不展示手机应用区', () => {
+  const attributes = new Map()
+  const host = {
+    id: 'improved-phone-shadow-host-empty-card',
+    style: { setProperty() {} },
+    shadowRoot: { querySelector() { return null } },
+    getAttribute(name) { return attributes.has(name) ? attributes.get(name) : null },
+    setAttribute(name, value) { attributes.set(name, String(value)) }
+  }
+  const slot = { clientWidth: 360, appendChild(node) { this.child = node; return node } }
+  const document = {
+    body: {},
+    querySelectorAll(selector) { return selector.includes('shadow-host') ? [host] : [] },
+    querySelector() { return null }
+  }
+
+  const controller = client.createTavernCardAppDock({
+    document, slot, sessionId: 'session-empty-card', MutationObserver: null, ResizeObserver: null
+  })
+
+  assert.equal(controller.inspect().attached, false)
+  assert.equal(slot.child, undefined, '空宿主不能撑出人物卡应用区域')
+  controller.dispose()
 })
 
 test('人物卡手机切换对话重载期间保持应用槽，恢复后原位接管', () => {
