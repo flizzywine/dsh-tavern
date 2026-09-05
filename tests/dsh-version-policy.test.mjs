@@ -54,20 +54,25 @@ command() {
     *) return 1 ;;
   esac
 }
+pnpm() {
+  if [ "$HAS_PNPM" = 1 ]; then printf '%s\n' "$MOCK_PNPM_VERSION"; else return 127; fi
+}
 mkdir() { :; }
 npm() { printf 'INSTALL:%s\\n' "$*"; HAS_DSH=1; HAS_PNPM=1; }
 fail() { printf 'FAIL:%s\\n' "$1"; exit 1; }
 `
   for (const row of [
-    { host: 'cli', dsh: '0', pnpm: '0', packages: ['pnpm', '@deepseek-ai/dsh@' + adaptedDshVersion] },
+    { host: 'cli', dsh: '0', pnpm: '0', packages: ['pnpm@11.25.0', '@deepseek-ai/dsh@' + adaptedDshVersion] },
     { host: 'cli', dsh: '0', pnpm: '1', packages: ['@deepseek-ai/dsh@' + adaptedDshVersion] },
-    { host: 'cli', dsh: '1', pnpm: '0', packages: ['pnpm'] },
+    { host: 'cli', dsh: '1', pnpm: '0', packages: ['pnpm@11.25.0'] },
+    { host: 'cli', dsh: '1', pnpm: '1', pnpmVersion: '12.3.4', packages: ['pnpm@11.25.0'] },
     { host: 'cli', dsh: '1', pnpm: '1', packages: [] },
     { host: 'desktop', dsh: '1', pnpm: '1', packages: [] }
   ]) {
     const result = spawnSync('sh', ['-ec', mocks + block], { encoding: 'utf8', env: {
       ...process.env, SOURCE_DIR: root, RUNTIME_ROOT: '/unused-mocked-runtime',
-      INSTALL_HOST: row.host, HAS_DSH: row.dsh, HAS_PNPM: row.pnpm
+      INSTALL_HOST: row.host, HAS_DSH: row.dsh, HAS_PNPM: row.pnpm,
+      PNPM_VERSION: '11.25.0', MOCK_PNPM_VERSION: row.pnpmVersion || '11.25.0'
     } })
     assert.equal(result.status, 0, result.stderr + result.stdout)
     const installed = result.stdout.split('\n').filter(line => line.startsWith('INSTALL:'))

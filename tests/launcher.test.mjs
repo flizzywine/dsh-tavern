@@ -390,10 +390,10 @@ test('Tavern applies sidebar migrations before every service start', () => {
 })
 
 test('installers accept the installed DSH host without pinning its release', () => {
-  assert.match(windowsInstaller, /if \(\$InstallHost -eq 'cli' -and -not \(Test-Command 'pnpm'\)\)/)
+  assert.match(windowsInstaller, /if \(\$InstallHost -eq 'cli'\)/)
   assert.doesNotMatch(windowsInstaller, /RequiredDshVersion|Test-DshVersion/)
   assert.match(windowsInstaller, /"@deepseek-ai\/dsh@\$AdaptedDshVersion"/)
-  assert.match(unixInstaller, /if ! command -v pnpm/)
+  assert.match(unixInstaller, /if \[ "\$\{INSTALL_HOST\}" = "cli" \]/)
   assert.doesNotMatch(unixInstaller, /REQUIRED_DSH_VERSION|dsh_version_is_compatible/)
   assert.match(unixInstaller, /"@deepseek-ai\/dsh@\$\{ADAPTED_DSH_VERSION\}"/)
   assert.doesNotMatch(launcherSource, /MINIMUM_DSH_VERSION|supportsDshVersion|requireDshVersion/)
@@ -440,6 +440,15 @@ test('一键更新在依赖检查前复用 Tavern 托管运行时', () => {
   const unixDependencyCheck = unixInstaller.indexOf('  set --')
   assert.ok(unixRuntimePath >= 0)
   assert.ok(unixRuntimePath < unixDependencyCheck)
+})
+
+test('一键安装固定经过验证的 pnpm 主版本并可从不兼容版本恢复', () => {
+  assert.match(windowsInstaller, /\$PnpmVersion = '11\.25\.0'/)
+  assert.match(windowsInstaller, /"pnpm@\$PnpmVersion"/)
+  assert.match(windowsInstaller, /--version/)
+  assert.match(unixInstaller, /PNPM_VERSION=11\.25\.0/)
+  assert.match(unixInstaller, /pnpm@\$\{PNPM_VERSION\}/)
+  assert.match(unixInstaller, /pnpm --version/)
 })
 
 test('Desktop 安装复用内置运行时，不启动独立 3081 服务', () => {

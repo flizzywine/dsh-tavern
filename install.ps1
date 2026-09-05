@@ -12,6 +12,7 @@ $CdnRootUrl = if ($env:DSH_TAVERN_CDN_ROOT_URL) { $env:DSH_TAVERN_CDN_ROOT_URL.T
 $DshRoot = if ($env:DSH_HOME) { $env:DSH_HOME } else { Join-Path ([Environment]::GetFolderPath('UserProfile')) '.dsh' }
 $AppDir = if ($env:DSH_TAVERN_APP_DIR) { $env:DSH_TAVERN_APP_DIR } else { Join-Path $DshRoot 'apps\dsh-tavern' }
 $RuntimeRoot = Join-Path $DshRoot 'runtime'
+$PnpmVersion = '11.25.0'
 $CommandBin = Join-Path $DshRoot 'bin'
 $SourceCache = Join-Path $DshRoot 'source-cache\dsh-tavern.git'
 $TempDir = Join-Path ([IO.Path]::GetTempPath()) ("dsh-tavern-install-" + [Guid]::NewGuid().ToString('N'))
@@ -179,7 +180,18 @@ try {
   & node $CompatibilityScript --notice
   Assert-LastCommand '读取 DSH 兼容提示失败。'
   $MissingPackages = @()
-  if ($InstallHost -eq 'cli' -and -not (Test-Command 'pnpm')) { $MissingPackages += 'pnpm' }
+  $PnpmCommand = Resolve-Command 'pnpm'
+  $PnpmNeedsInstall = $false
+  if ($InstallHost -eq 'cli') {
+    if ($null -eq $PnpmCommand) {
+      $PnpmNeedsInstall = $true
+    }
+    else {
+      try { $PnpmNeedsInstall = ((& $PnpmCommand --version).Trim() -ne $PnpmVersion) }
+      catch { $PnpmNeedsInstall = $true }
+    }
+  }
+  if ($PnpmNeedsInstall) { $MissingPackages += "pnpm@$PnpmVersion" }
   $DshCommand = Resolve-Command 'dsh'
   if ($InstallHost -eq 'cli' -and $null -eq $DshCommand) {
     $MissingPackages += "@deepseek-ai/dsh@$AdaptedDshVersion"

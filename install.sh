@@ -18,6 +18,7 @@ DSH_ROOT=${DSH_HOME:-${HOME}/.dsh}
 APP_DIR=${DSH_TAVERN_APP_DIR:-${DSH_ROOT}/apps/dsh-tavern}
 RUNTIME_ROOT=${DSH_ROOT}/runtime
 RUNTIME_BIN=${RUNTIME_ROOT}/bin
+PNPM_VERSION=11.25.0
 COMMAND_BIN=${HOME}/.local/bin
 SOURCE_CACHE=${DSH_ROOT}/source-cache/dsh-tavern.git
 RUNTIME_PATHS='package.json pnpm-lock.yaml pnpm-workspace.yaml cordis.patch.yml install.ps1 install.sh bin config presets tavern-plugin patches'
@@ -147,7 +148,10 @@ ADAPTED_DSH_VERSION=$(node "${SOURCE_DIR}/bin/dsh-compatibility.mjs" --version)
 node "${SOURCE_DIR}/bin/dsh-compatibility.mjs" --notice
 if [ "${INSTALL_HOST}" = "cli" ]; then
   set --
-  if ! command -v pnpm >/dev/null 2>&1; then set -- "$@" pnpm; fi
+  INSTALLED_PNPM_VERSION=$(pnpm --version 2>/dev/null || true)
+  if [ "${INSTALLED_PNPM_VERSION}" != "${PNPM_VERSION}" ]; then
+    set -- "$@" "pnpm@${PNPM_VERSION}"
+  fi
   if ! command -v dsh >/dev/null 2>&1; then
     set -- "$@" "@deepseek-ai/dsh@${ADAPTED_DSH_VERSION}"
   fi
