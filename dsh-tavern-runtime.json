@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "8d7642c690779437840896cf4a886d3d97dbacae",
-  "releaseSequence": 87,
+  "revision": "0a788770fcbed2070da1e4aa3621c194ffa12bd9",
+  "releaseSequence": 88,
   "version": "1.4.0",
   "files": [
     {
@@ -671,8 +671,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/session-signal-transport.js",
-      "sha256": "c2bd65ad66f9cdfa512342b2b118431b975c2dddfdea5a40fe90bdea3817d60e",
-      "size": 1994
+      "sha256": "702c8c5a04213b0b87241a4c9bffcd0630995f48c95531d008f5ba964611810b",
+      "size": 2287
     },
     {
       "path": "tavern-plugin/lib/domain/session-stable-prefix.js",
