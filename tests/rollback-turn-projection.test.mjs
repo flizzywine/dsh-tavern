@@ -28,7 +28,10 @@ function harness(rows) {
     return rows.filter(row => row.getAttribute('data-chat-flow-kind') === 'turn-tail')
   } }
   const projection = client.createTurnHistoryProjection({ root: () => document, storage: () => ({ getItem: () => '{}' }) })
-  return { applySuppressedDshTurns: turns => projection.apply('test-session', turns) }
+  return {
+    applySuppressedDshTurns: turns => projection.apply('test-session', turns),
+    applyRegeneration: (turns, regeneratedDshTurns) => projection.apply('test-session', turns, regeneratedDshTurns)
+  }
 }
 
 for (const alpha of [false, true]) {
@@ -58,3 +61,18 @@ test('alpha 上一轮尾部未挂载时，仍按明确轮次边界保留上一�
   assert.equal(before.style.display, '')
   assert.ok(removed.every(row => row.style.display === 'none'))
 })
+
+for (const alpha of [false, true]) {
+  test(`${alpha ? 'alpha' : 'main'} 重生成保留原玩家输入，并以可见 append 回合承载新正文`, () => {
+    const original = ['user', 'assistant-step', 'turn-tail'].map(kind => row(kind, 2, alpha))
+    const regenerated = ['user', 'assistant-step', 'turn-tail'].map(kind => row(kind, 3, alpha))
+    const projection = harness([...original, ...regenerated])
+
+    projection.applyRegeneration([3], { '2': 3 })
+
+    assert.equal(original[0].style.display, '', '原玩家输入继续可见')
+    assert.ok(original.slice(1).every(item => item.style.display === 'none'), '旧正文与旧 turn tail 被隐藏')
+    assert.equal(regenerated[0].style.display, 'none', '合成的重新生成指令不展示')
+    assert.ok(regenerated.slice(1).every(item => item.style.display === ''), '新的 append 正文不能在生成结束后消失')
+  })
+}

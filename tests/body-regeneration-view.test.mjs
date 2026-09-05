@@ -8,10 +8,11 @@ async function loadApplyResult() {
   let descriptor
   const sandbox = { window: { __ModuleLoader__: { load(value) { descriptor = value } } }, console }
   vm.runInNewContext(source, sandbox)
-  return descriptor.factory(function () { return {} }).applyBodyRegenerationResult
+  return descriptor.factory(function () { return {} })
 }
 
-const applyBodyRegenerationResult = await loadApplyResult()
+const client = await loadApplyResult()
+const applyBodyRegenerationResult = client.applyBodyRegenerationResult
 
 test('正文重生成先发布整轮成功后的新视图，再恢复原楼层', function () {
   let currentView = { marker: 'old' }
@@ -31,4 +32,10 @@ test('正文重生成先发布整轮成功后的新视图，再恢复原楼层',
   })
 
   assert.equal(viewWhenShown.marker, 'replacement')
+})
+
+test('DSH 2.0.5 可见的重生成 append 回合继续读取原剧情轮次投影', function () {
+  const view = { regeneratedDshTurns: { '17': 23 } }
+  assert.equal(client.tavernStoryTurnForDshTurn(view, 23), 17)
+  assert.equal(client.tavernStoryTurnForDshTurn(view, 18), 18)
 })

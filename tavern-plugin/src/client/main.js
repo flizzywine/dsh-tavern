@@ -3697,6 +3697,14 @@ window.__ModuleLoader__.load({
 			return null;
 		}
 
+		function tavernStoryTurnForDshTurn(view, turn) {
+			const mappings = view && view.regeneratedDshTurns && typeof view.regeneratedDshTurns === "object" ? view.regeneratedDshTurns : {};
+			for (const storyTurn of Object.keys(mappings)) {
+				if (Number(mappings[storyTurn]) === Number(turn)) return Number(storyTurn);
+			}
+			return Number(turn);
+		}
+
 		function tavernMvuReceiptForTurn(view, turn) {
 			const receipts = view && Array.isArray(view.mvuReceipts) ? view.mvuReceipts : [];
 			for (let index = receipts.length - 1; index >= 0; index -= 1) {
@@ -4026,9 +4034,10 @@ window.__ModuleLoader__.load({
 				const settled = data.status !== "running";
 				const revision = String(data.status || "") + ":" + String(data.finalNode && data.finalNode.seq || "");
 				const liveState = useLiveTavernView(props.sessionId, revision);
+				const storyTurn = tavernStoryTurnForDshTurn(liveState.view, turn);
 				const sessionTransitioning = React.useSyncExternalStore(tavernSessionTransition.subscribe, tavernSessionTransition.getSnapshot, tavernSessionTransition.getSnapshot);
-					const projection = settled ? tavernProjectionForTurn(liveState.view, turn) : null;
-					const mvuReceipt = settled ? tavernMvuReceiptForTurn(liveState.view, turn) : null;
+					const projection = settled ? tavernProjectionForTurn(liveState.view, storyTurn) : null;
+					const mvuReceipt = settled ? tavernMvuReceiptForTurn(liveState.view, storyTurn) : null;
 					const latestProjectionTurn = liveState.view && Array.isArray(liveState.view.replyProjections) ? liveState.view.replyProjections.reduce(function (latest, item) { return Math.max(latest, Number(item && item.turn) || 0); }, 0) : 0;
 				const tail = props.useTurnData("turn-tail");
 				const owner = React.useMemo(function () {
@@ -4046,17 +4055,17 @@ window.__ModuleLoader__.load({
 					projection: projection,
 					helperContext: liveState.view && liveState.view.tavernHelper,
 					trustedCardMode: Boolean(liveState.view && liveState.view.tavernRuntimePolicy && liveState.view.tavernRuntimePolicy.trustedCardMode),
-					eagerFrame: turn > 0 && turn === latestProjectionTurn,
+					eagerFrame: storyTurn > 0 && storyTurn === latestProjectionTurn,
 					sessionId: props.sessionId,
-					turn: turn,
+					turn: storyTurn,
 					renderMessageImages: props.renderMessageImages,
 					mentions: mentions,
 					t: props.t
 				});
 				if (!(data.status === "running" || data.status === "interrupted" || rendered.length > 0)) return null;
-				const mvuReceiptNode = mvuReceipt ? React.createElement(TavernMvuReceipt, { receipt: mvuReceipt, sessionId: props.sessionId, turn: turn }) : null;
+				const mvuReceiptNode = mvuReceipt ? React.createElement(TavernMvuReceipt, { receipt: mvuReceipt, sessionId: props.sessionId, turn: storyTurn }) : null;
 				const sceneImagesEnabled = Boolean(liveState.view && liveState.view.releaseCapabilities && liveState.view.releaseCapabilities.sceneImages);
-				const illustration = sceneImagesEnabled && settled && projection && !sessionTransitioning ? React.createElement(SceneIllustration, { key: props.sessionId + ":" + turn + ":" + JSON.stringify(projection), sessionId: props.sessionId, turn: turn }) : null;
+				const illustration = sceneImagesEnabled && settled && projection && !sessionTransitioning ? React.createElement(SceneIllustration, { key: props.sessionId + ":" + storyTurn + ":" + JSON.stringify(projection), sessionId: props.sessionId, turn: storyTurn }) : null;
 				return React.createElement("div", { className: "dsh-tavern-assistant", "data-streaming": data.status === "running" || undefined }, rendered, illustration, mvuReceiptNode);
 			}
 			function register(input) {
@@ -6565,18 +6574,34 @@ window.__ModuleLoader__.load({
 				}
 			} catch (err) {}
 		}
-		function applySuppressedDshTurns(turns) {
+		function applySuppressedDshTurns(turns, regeneratedDshTurns) {
 			const set = new Set((Array.isArray(turns) ? turns : []).map(String));
 			if (set.size === 0) return;
+			const visibleRegenerations = new Set(Object.values(regeneratedDshTurns && typeof regeneratedDshTurns === "object" ? regeneratedDshTurns : {}).map(String));
 			const tails = root().querySelectorAll('[data-chat-flow-kind="turn-tail"]');
 			for (let i = 0; i < tails.length; i++) {
 				const tail = tails[i];
-				if (!set.has(tailTurnOf(tail))) continue;
-				hideTurnTailWithUser(tail);
+				const turn = tailTurnOf(tail);
+				if (!set.has(turn)) continue;
+				if (visibleRegenerations.has(turn)) {
+					showTurnTail(tail);
+					hideUserForTurnTail(tail);
+				} else hideTurnTailWithUser(tail);
 			}
 		}
-			function apply(sessionId, turns) {
-				applySuppressedDshTurns(turns);
+		function applyRegeneratedDshTurns(regeneratedDshTurns) {
+			const mappings = regeneratedDshTurns && typeof regeneratedDshTurns === "object" ? regeneratedDshTurns : {};
+			const hiddenStoryTurns = new Set(Object.keys(mappings).map(String));
+			if (hiddenStoryTurns.size === 0) return;
+			const tails = root().querySelectorAll('[data-chat-flow-kind="turn-tail"]');
+			for (let i = 0; i < tails.length; i++) {
+				const tail = tails[i];
+				if (hiddenStoryTurns.has(tailTurnOf(tail))) hideTurnTail(tail);
+			}
+		}
+			function apply(sessionId, turns, regeneratedDshTurns) {
+				applySuppressedDshTurns(turns, regeneratedDshTurns);
+				applyRegeneratedDshTurns(regeneratedDshTurns);
 				applyHiddenTurns(sessionId);
 				applyRolledBackTurns(sessionId);
 				applyHiddenRegenUserTurns(sessionId);
@@ -6585,14 +6610,10 @@ window.__ModuleLoader__.load({
 				const adopted = view && view.adopted;
 				if (adopted && Number(adopted.hiddenTurn) > 0) forgetHiddenTurn(HIDDEN_TURNS_KEY, sessionId, Number(adopted.hiddenTurn));
 				if (adopted && Number(adopted.syntheticTurn) > 0) forgetHiddenTurn(HIDDEN_REGEN_USER_TURNS_KEY, sessionId, Number(adopted.syntheticTurn));
-				showTurnTail(tail);
-				applySuppressedDshTurns(view && view.suppressedDshTurns);
-				applyHiddenTurns(sessionId);
-				applyHiddenRegenUserTurns(sessionId);
+				apply(sessionId, view && view.suppressedDshTurns, view && view.regeneratedDshTurns);
 			}
 			function rolledBack(sessionId, view) {
-				applySuppressedDshTurns(view && view.suppressedDshTurns);
-				applyRolledBackTurns(sessionId);
+				apply(sessionId, view && view.suppressedDshTurns, view && view.regeneratedDshTurns);
 			}
 			return Object.freeze({ apply: apply, regenerated: regenerated, rolledBack: rolledBack });
 		}
@@ -7277,11 +7298,13 @@ window.__ModuleLoader__.load({
 			const suppressionState = useLiveTavernView(props.sessionId, "suppression:" + String(latestMessageId || "") + ":" + String(running));
 			const suppressedDshTurns = suppressionState.view && Array.isArray(suppressionState.view.suppressedDshTurns) ? suppressionState.view.suppressedDshTurns : [];
 			const suppressedDshTurnsRevision = suppressedDshTurns.join(",");
+			const regeneratedDshTurns = suppressionState.view && suppressionState.view.regeneratedDshTurns || {};
+			const regeneratedDshTurnsRevision = JSON.stringify(regeneratedDshTurns);
 			React.useEffect(function () {
 				let frame = null;
 				function applyProjectionState() {
 					frame = null;
-					historyProjection.apply(props.sessionId, suppressedDshTurns);
+					historyProjection.apply(props.sessionId, suppressedDshTurns, regeneratedDshTurns);
 				}
 				function scheduleProjection() {
 					if (frame === null) frame = window.requestAnimationFrame(applyProjectionState);
@@ -7290,7 +7313,7 @@ window.__ModuleLoader__.load({
 				const observer = new window.MutationObserver(scheduleProjection);
 				observer.observe(document.body, { childList: true, subtree: true });
 				return function () { observer.disconnect(); if (frame !== null) window.cancelAnimationFrame(frame); };
-			}, [props.sessionId, latestMessageId, running, suppressedDshTurnsRevision]);
+			}, [props.sessionId, latestMessageId, running, suppressedDshTurnsRevision, regeneratedDshTurnsRevision]);
 			return null;
 		}
 		function CandidateQuestion(props) {
@@ -7644,6 +7667,7 @@ window.__ModuleLoader__.load({
 		exports.createTavernHelperContextUpdate = createTavernHelperContextUpdate;
 		exports.applyTavernHelperContextUpdate = applyTavernHelperContextUpdate;
 		exports.projectionPartsOf = projectionPartsOf;
+		exports.tavernStoryTurnForDshTurn = tavernStoryTurnForDshTurn;
 		exports.tavernMvuReceiptForTurn = tavernMvuReceiptForTurn;
 		exports.tavernUserTextForTurn = tavernUserTextForTurn;
 		exports.createWorldBookLibraryRefreshModule = createWorldBookLibraryRefreshModule;

@@ -61,6 +61,7 @@ export function createConversationInitialization(options) {
       preparedWorldBook: null,
       nativeCommits: {},
       suppressedDshTurns: [],
+      regeneratedDshTurns: {},
       pendingCardChanges: {},
       createdAt: now(),
       updatedAt: now()

@@ -203,7 +203,10 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
       next.settleStatus = 'pending'
       next.settleError = null
       next.tavernHelperLifecycleRevision = lifecycleRevision + 1
-      next.suppressedDshTurns = Array.from(new Set((Array.isArray(next.suppressedDshTurns) ? next.suppressedDshTurns : []).concat([syntheticTurn])))
+      next.suppressedDshTurns = Array.from(new Set((Array.isArray(next.suppressedDshTurns) ? next.suppressedDshTurns : []).concat([syntheticTurn]))).sort(function (left, right) { return left - right })
+      next.regeneratedDshTurns = next.regeneratedDshTurns && typeof next.regeneratedDshTurns === 'object' && !Array.isArray(next.regeneratedDshTurns)
+        ? structuredClone(next.regeneratedDshTurns) : {}
+      next.regeneratedDshTurns[String(oldTurn)] = syntheticTurn
       return next
     }, { source: 'foreground.regen-commit' })
     // 把旧正文、失败残留、合成输入和新模型节点折叠为唯一的新正文。
@@ -270,6 +273,9 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     if (rollbackSurface === null) throw new Error('原生消息流中找不到可回退的用户输入与正文组合')
     const hiddenTurn = rollbackSurface.turn
     const shadowedSeqs = rollbackSurface.shadowedSeqs
+    const regeneratedDshTurns = originalChat.regeneratedDshTurns && typeof originalChat.regeneratedDshTurns === 'object' && !Array.isArray(originalChat.regeneratedDshTurns)
+      ? originalChat.regeneratedDshTurns : {}
+    const regeneratedVisibleTurn = Number(regeneratedDshTurns[String(hiddenTurn)])
 
     // 1) 定位要回退的最后一组 user + assistant
     const msgs = chat.messages || []
@@ -325,7 +331,11 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     chat = rolled.chat
     if (rollbackCommitKey !== '') delete chat.nativeCommits[rollbackCommitKey]
     chat.tavernHelperLifecycleRevision = Math.max(0, Number(chat.tavernHelperLifecycleRevision) || 0) + 1
-    chat.suppressedDshTurns = Array.from(new Set((Array.isArray(chat.suppressedDshTurns) ? chat.suppressedDshTurns : []).concat([hiddenTurn])))
+    chat.suppressedDshTurns = Array.from(new Set((Array.isArray(chat.suppressedDshTurns) ? chat.suppressedDshTurns : []).concat(
+      [hiddenTurn], Number.isSafeInteger(regeneratedVisibleTurn) && regeneratedVisibleTurn > 0 ? [regeneratedVisibleTurn] : []))).sort(function (left, right) { return left - right })
+    chat.regeneratedDshTurns = chat.regeneratedDshTurns && typeof chat.regeneratedDshTurns === 'object' && !Array.isArray(chat.regeneratedDshTurns)
+      ? structuredClone(chat.regeneratedDshTurns) : {}
+    delete chat.regeneratedDshTurns[String(hiddenTurn)]
     chat.updatedAt = Date.now()
     chat = await updateChat(chat.id, current => {
       assertRollbackSnapshot(current, originalChat)
