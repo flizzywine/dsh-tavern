@@ -145,6 +145,44 @@ test('生成中误点回退不写入，完成后再次点击能正常回退', as
   assert.deepEqual(result.messages.map(item => item.text), ['开场'])
 })
 
+test('变量结算失败后可丢弃未提交正文，不连带回退上一轮 checkpoint', async () => {
+  const h = harness({ checkpoint: true })
+  h.chat._storageRevision = 2
+  h.revisions.set(2, structuredClone(h.chat))
+  await h.options.chats.update('chat', current => {
+    const begun = h.timeline.apply({ chat: current, intent: { kind: 'body.begin', turn: 3, userText: '继续' } })
+    const foreground = h.timeline.complete({
+      chat: begun.chat,
+      operationId: begun.value.operationId,
+      basedOn: begun.value.basedOn,
+      outcome: { status: 'success' },
+      apply(draft) { draft.messages.push({ role: 'user', text: '继续' }, { role: 'assistant', turn: 3, text: '临时正文' }) }
+    })
+    const settlement = h.timeline.apply({ chat: foreground.chat, intent: { kind: 'agent.begin', role: 'settlement' } })
+    const failed = h.timeline.complete({
+      chat: settlement.chat,
+      operationId: settlement.value.operationId,
+      basedOn: settlement.value.basedOn,
+      outcome: { status: 'failure' }
+    }).chat
+    failed.settleStatus = 'failed'
+    failed.settleError = '变量更新失败'
+    return failed
+  }, { source: 'fixture' })
+  h.session.append('user/message', { turn: 3, role: 'user', content: [{ type: 'text', text: '继续' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+  h.session.append('assistant/message', { turn: 3, step: 1, message: { role: 'assistant', source: { kind: 'model', provider: 'fixture', model: 'fixture' }, content: [{ type: 'text', text: '临时正文' }] } }, { surfaceOp: 'append' })
+  const active = Object.values(h.timeline.inspect({ chat: h.chat }).operations).filter(operation => operation.status === 'running' || operation.status === 'foreground-completed')
+  assert.deepEqual(active.map(operation => [operation.kind, operation.status, operation.background?.phase]), [['body', 'foreground-completed', 'failed']])
+  assert.notEqual(h.agent.phase.kind, 'running')
+
+  const result = await h.create().rollback('session', 'chat')
+
+  assert.deepEqual(result.messages.map(item => item.text), ['开场', '推门', '旧正文'])
+  assert.equal(h.timeline.inspect({ chat: h.chat }).checkpointCount, 1)
+  assert.equal(h.chat.settleStatus, 'done')
+  assert.deepEqual(h.session.surface.nodes, [0, 1, 4])
+})
+
 test('模型消息面拒绝回退时恢复原剧情，重试仍能回退', async () => {
   const h = harness({ checkpoint: true }), history = h.create()
   const before = structuredClone(h.chat), surface = [...h.session.surface.nodes]

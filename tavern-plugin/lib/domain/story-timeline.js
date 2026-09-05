@@ -489,7 +489,10 @@ export function createStoryTimeline(options = {}) {
       operation.status = 'failed'
       operation.completedAt = now()
       if (operation.kind === 'agent' && operation.role === 'settlement') {
-        updateBackground(chat, 'failed', operation.role)
+        const round = chat.timeline.operations[str(operation.roundOperationId)]
+        if (round && round.kind === 'body' && round.status === 'foreground-completed') {
+          round.background = { phase: 'failed', role: operation.role, updatedAt: now() }
+        } else updateBackground(chat, 'failed', operation.role)
       }
       return { chat, value: { status: 'failed', branchId: chat.timeline.branchId, revision: chat.timeline.revision } }
     }

@@ -53,10 +53,16 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
   const view = present
   const pendingRollbacks = new Set()
 
+  function failedForegroundRound(chat) {
+    return Object.values(storyTimeline.inspect({ chat }).operations || {}).find(function (operation) {
+      return operation && operation.kind === 'body' && operation.status === 'foreground-completed' && operation.background?.phase === 'failed'
+    })
+  }
+
   function assertRollbackIdle(chat) {
     const agent = sessions.get(chat.sessionId)
     const unfinished = Object.values(storyTimeline.inspect({ chat }).operations || {}).some(function (operation) {
-      return operation && (operation.status === 'running' || (operation.kind === 'body' && operation.status === 'foreground-completed'))
+      return operation && (operation.status === 'running' || (operation.kind === 'body' && operation.status === 'foreground-completed' && operation.background?.phase !== 'failed'))
     })
     if (agent?.phase?.kind === 'running' || unfinished || chat.regenInProgress === true) throw new Error('当前轮次尚未完成生成或后台处理，请等待完成后再回退')
   }
@@ -264,6 +270,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
   async function rollbackChat(chat) {
     assertRollbackIdle(chat)
     const originalChat = structuredClone(chat)
+    const failedRound = failedForegroundRound(chat)
     const mode = chat.mode || 'story'
     if (mode !== 'story' && mode !== 'script') throw new Error('仅游玩模式支持回退本轮')
     const card = await readChatCard(chat)
@@ -328,7 +335,15 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
       const reference = rollbackCommit !== null && rollbackCommit.scriptReference !== null && typeof rollbackCommit.scriptReference === 'object' ? rollbackCommit.scriptReference : null
       legacyBefore.scriptState = scriptContinuity.transition({ script: script, state: chat.scriptState, event: { kind: 'restore', revision: revision, reference: reference } }).state
     }
-    const rollbackIntent = await prepareRollbackIntent(chat, { kind: 'turn.rollback', turn: hiddenTurn, legacyBefore })
+    let rollbackIntent
+    if (failedRound !== undefined) {
+      if (Number(failedRound.turn) !== hiddenTurn) throw new Error('变量结算失败轮次与原生消息流不一致，无法安全回退')
+      const beforeChat = await readChatRevision(chat.id, Math.max(0, Number(failedRound.beforeRevision) || 0))
+      if (beforeChat === undefined) throw new Error('找不到变量结算失败前的历史 Chat revision: ' + failedRound.beforeRevision)
+      rollbackIntent = { kind: 'replacement.abort', restoreChat: beforeChat }
+    } else {
+      rollbackIntent = await prepareRollbackIntent(chat, { kind: 'turn.rollback', turn: hiddenTurn, legacyBefore })
+    }
     assertRollbackIdle(chat)
     const rolled = storyTimeline.apply({ chat, intent: rollbackIntent })
     chat = rolled.chat
