@@ -209,7 +209,7 @@ export function createConversationInitialization(options) {
     return 'tavern-opening:' + createHash('sha256').update(str(chat.id)).digest('hex')
   }
 
-  function appendOpeningEvents(session, chat, text, selected, recovering) {
+  function appendOpeningEvents(session, chat, text, recovering) {
     // DSH adds a seed boundary on restore; it is not part of the opening turn.
     const openingEvents = () => sessionEvents(session).filter(event => event.type !== 'session/end-seed')
     const events = openingEvents()
@@ -217,7 +217,12 @@ export function createConversationInitialization(options) {
     const stages = [
       ['turn/start', { turn: 1 }],
       ['step/start', { turn: 1, step: 1 }],
-      ['assistant/message', { turn: 1, step: 1, message: { id: messageId, role: 'assistant', content: [{ type: 'text', text }], source: { kind: 'model', provider: selected.provider, model: selected.model } } }, { surfaceOp: 'append', sourceEventSeqs: [] }],
+      ['assistant/message', { turn: 1, step: 1, message: {
+        id: messageId,
+        role: 'assistant',
+        content: [{ type: 'text', text }],
+        source: { kind: 'model', provider: 'dsh-tavern', model: 'character-card' }
+      } }, { surfaceOp: 'append', sourceEventSeqs: [] }],
       ['step/end', { turn: 1, step: 1 }],
       ['turn/end', { turn: 1, reason: { kind: 'completed' } }]
     ]
@@ -263,8 +268,7 @@ export function createConversationInitialization(options) {
     }
     if (text !== '') {
       if (target.agent === undefined) logger.warn('dsh-tavern: Agent 尚未注册，直接使用已绑定 Session 写入开场白', { sessionId })
-      const selected = native.selection(sessionId) || { provider: 'dsh-tavern', model: 'character-card' }
-      appendOpeningEvents(target.session, chat, text, selected, recovering)
+      appendOpeningEvents(target.session, chat, text, recovering)
       if (target.agent?.phase?.kind === 'idle') target.agent.phase.lastTurn = Math.max(Number(target.agent.phase.lastTurn) || 0, 1)
       await native.flush(target.session)
     }

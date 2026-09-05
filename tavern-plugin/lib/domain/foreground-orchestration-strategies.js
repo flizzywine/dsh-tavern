@@ -102,6 +102,21 @@ function projectLegacyTemplatePrefix(messages, text) {
   return changed ? projected : messages
 }
 
+function projectLegacyOpeningSources(messages) {
+  let changed = false
+  const projected = (Array.isArray(messages) ? messages : []).map(function (message) {
+    const source = message && message.source
+    const text = contentText(message)
+    if (!str(message && message.id).startsWith('tavern-opening:') || message.role !== 'assistant'
+      || !source || source.kind !== 'model' || text === '') return message
+    changed = true
+    return Object.assign({}, message, {
+      source: { kind: 'model', provider: 'dsh-tavern', model: 'character-card' }
+    })
+  })
+  return changed ? projected : messages
+}
+
 function legacyDeepSeekReplayBlocks(content) {
   if (!Array.isArray(content) || !content.some(function (block) { return block && block.type === 'reasoning' })) return null
   const blocks = []
@@ -254,6 +269,8 @@ export function createNativePlayOrchestrationStrategy(options) {
     })
     const projectedMessages = projectLegacyTemplatePrefix(request.messages, staged.stablePrefixText)
     if (projectedMessages !== request.messages) request = Object.assign({}, request, { messages: projectedMessages })
+    const openingMessages = projectLegacyOpeningSources(request.messages)
+    if (openingMessages !== request.messages) request = Object.assign({}, request, { messages: openingMessages })
     const replayMessages = projectLegacyDeepSeekReasoningReplay(request.messages, request)
     if (replayMessages !== request.messages) request = Object.assign({}, request, { messages: replayMessages })
     // DSH's renderer returns '' for no sections; adapters otherwise serialize

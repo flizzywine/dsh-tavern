@@ -74,6 +74,14 @@ test('creation preserves opening source/projection, stable context, request mode
   assert.ok(h.trace.indexOf('wait') < h.trace.indexOf('chat.create'))
 })
 
+test('开场白使用 Tavern 合成模型来源，不冒充缺少 reasoning 续传信息的供应商原始回复', async () => {
+  const h = initializationFixture()
+  await h.make().start(h.input)
+  const opening = messages(h.session())[0].data.message
+
+  assert.deepEqual(opening.source, { kind: 'model', provider: 'dsh-tavern', model: 'character-card' })
+})
+
 test('新游戏固化创建时的联网搜索设置，之后不随设置变化', async () => {
   const h = initializationFixture()
   h.state.settings.webSearchEnabled = true
@@ -251,7 +259,9 @@ test('missing binding recovers through registry; old standalone UUID greeting is
   const h = initializationFixture()
   const first = await h.make().start(h.input)
   const stored = h.saved.get(first.id); delete stored.nativeOpeningAppended
-  const old = messages(h.session())[0]; old.data.message.id = '11111111-1111-4111-8111-111111111111'
+  const old = messages(h.session())[0]
+  old.data.message.id = '11111111-1111-4111-8111-111111111111'
+  old.data.message.source = { kind: 'model', provider: 'fixture', model: 'text' }
   h.state.links = {}
   const before = structuredClone(h.session().events)
   await h.make().ensureOpening('session')

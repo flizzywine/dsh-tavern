@@ -218,6 +218,34 @@ test('DeepSeek thinking 续传为旧 Session 的 reasoning 补齐可回放元数
   assert.equal(original.messages[0].source.replayState, undefined)
 })
 
+test('旧 Session 的 Tavern 开场白在请求边界恢复为合成模型来源，不触发 DeepSeek reasoning 续传校验', async () => {
+  const run = strategies()
+  const incoming = [userMessage('继续')]
+  await run.value.prepareStep({
+    sessionId: 'native', payload: { turn: 2, step: 1, messages: incoming },
+    decision: { kind: 'enter', messages: incoming }, chat: run.chats.get('native')
+  })
+  const opening = {
+    id: 'tavern-opening:legacy-chat', role: 'assistant',
+    content: [{ type: 'text', text: '旧开场白' }],
+    source: { kind: 'model', provider: 'deepseek-official', model: 'deepseek-v4-flash' }
+  }
+  const oldPresetBoundary = {
+    role: 'system', content: [{ type: 'text', text: '旧预设边界' }],
+    source: { kind: 'plugin', plugin: 'dsh-tavern', sections: [{ name: 'tavern:runtime-preset-front', text: '旧预设边界' }] }
+  }
+  const original = Object.freeze({
+    sessionId: 'native', provider: 'deepseek-official', model: 'deepseek-v4-flash', reasoningEffort: 'high',
+    messages: Object.freeze([oldPresetBoundary, opening, userMessage('下一轮')])
+  })
+
+  const projected = run.value.projectRequest(original)
+  const restored = projected.messages.find(message => message.id === opening.id)
+
+  assert.deepEqual(restored.source, { kind: 'model', provider: 'dsh-tavern', model: 'character-card' })
+  assert.equal(opening.source.kind, 'model')
+})
+
 test('正文重生成在请求边界回到原玩家输入，不泄露旧回答或重生成元信息', () => {
   const originalPlayer = { id: 'player-2', ...userMessage('推门') }
   const messages = [
