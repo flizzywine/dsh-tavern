@@ -650,9 +650,9 @@ export async function apply(ctx) {
     const cardPaths = await fileResources.list('card')
     const scriptBindings = await fileResources.scriptBindingsForCards(cardPaths)
     return await Promise.all(cardPaths.map(async function (cardPath) {
-      const card = await readCard(cardPath)
+      const [card, hasImage] = await Promise.all([readCard(cardPath), fileResources.hasCardImage(cardPath)])
       const scriptPath = scriptBindings[cardPath]
-      return { path: cardPath, name: card.name, script: scriptPath === undefined ? null : { path: scriptPath, title: scriptPath.split('/').pop() } }
+      return { path: cardPath, name: card.name, hasImage, script: scriptPath === undefined ? null : { path: scriptPath, title: scriptPath.split('/').pop() } }
     }))
   }
   async function resourceBindingProjection() {
@@ -2403,6 +2403,18 @@ export async function apply(ctx) {
           }
           const readiness = await runtimeReadiness
           if (!readiness.ok) throw readiness.error
+          if (req.method === 'GET' && pathname === '/api/dsh-tavern/card-image') {
+            const query = new URL(req.url, 'http://x').searchParams
+            const body = await fileResources.readCardImage(query.get('path'))
+            if (body === undefined) {
+              res.writeHead(404, { 'X-Content-Type-Options': 'nosniff' })
+              res.end('not found')
+              return
+            }
+            res.writeHead(200, { 'Content-Type': 'image/png', 'Content-Length': body.byteLength, 'Cache-Control': 'private, no-cache', 'X-Content-Type-Options': 'nosniff' })
+            res.end(body)
+            return
+          }
           if (TAVERN_RELEASE_CAPABILITIES.sceneImages && req.method === 'GET' && pathname === '/api/dsh-tavern/scene-image') {
             const query = new URL(req.url, 'http://x').searchParams
             const image = await sceneIllustrations.readImage(query.get('sessionId'), Number(query.get('turn')), query.get('key'), query.get('versionId'))

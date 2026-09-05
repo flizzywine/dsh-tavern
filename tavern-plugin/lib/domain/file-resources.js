@@ -151,7 +151,7 @@ export function createFileResourceStore(options = {}) {
     await durableFiles.write(target, data)
   }
 
-  async function originalCardPayload(normalized) {
+  async function originalCardName(normalized) {
     const stem = path.posix.basename(normalized, path.posix.extname(normalized))
     const originalDir = path.dirname(absolute(normalized, true))
     let entries
@@ -166,11 +166,30 @@ export function createFileResourceStore(options = {}) {
     })
     if (candidates.length === 0) return null
     if (candidates.length > 1) throw new Error('人物卡存在多个原版，无法确定来源: ' + candidates.map(function (entry) { return entry.name }).join('、'))
-    const originalName = candidates[0].name
+    return candidates[0].name
+  }
+
+  async function originalCardPayload(normalized) {
+    const originalName = await originalCardName(normalized)
+    if (originalName === null) return null
+    const originalDir = path.dirname(absolute(normalized, true))
     const originalData = await readFile(path.join(originalDir, originalName))
     return path.extname(originalName).toLowerCase() === '.png'
       ? pngCardPayload(originalData, originalName)
       : { kind: 'text', name: originalName, text: originalData.toString('utf8') }
+  }
+
+  async function hasCardImage(relative) {
+    const normalized = normalizeResourcePath(relative, 'card')
+    const originalName = await originalCardName(normalized)
+    return originalName !== null && path.extname(originalName).toLowerCase() === '.png'
+  }
+
+  async function readCardImage(relative) {
+    const normalized = normalizeResourcePath(relative, 'card')
+    const originalName = await originalCardName(normalized)
+    if (originalName === null || path.extname(originalName).toLowerCase() !== '.png') return undefined
+    return await readFile(path.join(path.dirname(absolute(normalized, true)), originalName))
   }
 
   async function ensureCardWorkspace(relative, migrate) {
@@ -820,5 +839,5 @@ export function createFileResourceStore(options = {}) {
     return result
   }
 
-  return Object.freeze({ absolute, bindMaterial, bindWorldBook, cardsForMaterial, ensure, ensureCardWorkspace, importCard, importText, importWorldBook, list, migrateLegacy, readCard, readText, remove, rename: renameResource, replaceScript, restoreCard, scriptBindingsForCards, scriptForCard, unbindMaterial, unbindWorldBook, worldBookBindingForCard, writeWorking })
+  return Object.freeze({ absolute, bindMaterial, bindWorldBook, cardsForMaterial, ensure, ensureCardWorkspace, hasCardImage, importCard, importText, importWorldBook, list, migrateLegacy, readCard, readCardImage, readText, remove, rename: renameResource, replaceScript, restoreCard, scriptBindingsForCards, scriptForCard, unbindMaterial, unbindWorldBook, worldBookBindingForCard, writeWorking })
 }

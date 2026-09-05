@@ -832,9 +832,25 @@ test('人物卡目录只读取卡片名称和剧本绑定，不加载或切分�
   const sidebar = between(clientSource, 'function TavernSidebar', 'function TavernResourcesTab')
 
   assert.match(listing, /fileResources\.scriptBindingsForCards\(cardPaths\)/)
+  assert.match(listing, /fileResources\.hasCardImage\(cardPath\)/)
+  assert.match(listing, /hasImage/)
   assert.doesNotMatch(listing, /readScript|splitNovelText|sourceChars|chunkCount/)
   assert.match(sidebar, /"剧本：" \+ card\.script\.title/)
   assert.doesNotMatch(sidebar, /card\.script\.chunkCount/)
+})
+
+test('PNG 人物卡在游玩选择器和人物卡库展示原版封面，JSON 卡不生成占位图', () => {
+  const sidebar = between(clientSource, 'function TavernSidebar', 'function TavernResourcesTab')
+  const library = between(clientSource, 'function CardLibraryTab', 'function CardFieldsPanel')
+
+  assert.match(serverSource, /pathname === '\/api\/dsh-tavern\/card-image'/)
+  assert.match(serverSource, /fileResources\.readCardImage\(query\.get\('path'\)\)/)
+  assert.match(sidebar, /function TavernCardListContent/)
+  assert.match(sidebar, /card\.hasImage \? " with-image" : ""/)
+  assert.match(sidebar, /TavernCardListContent/)
+  assert.match(library, /function TavernCardListContent/)
+  assert.match(library, /item\.hasImage \? " with-image" : ""/)
+  assert.doesNotMatch(clientSource, /人物卡默认头像|card-placeholder/)
 })
 
 test('已迁移的人物卡读取时不会再次加载原版并执行迁移', () => {

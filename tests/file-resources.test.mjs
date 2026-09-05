@@ -219,6 +219,21 @@ test('删除人物卡直接移除工作版和 PNG 原版', async () => {
   } finally { await rm(root, { recursive: true, force: true }) }
 })
 
+test('人物卡图片只读取 PNG 原版，JSON 卡不制造占位图', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-card-images-'))
+  try {
+    const store = createFileResourceStore({ dataRoot: root })
+    const png = pngCardBuffer({ name: '有封面' })
+    const pngPath = await store.importCard({ name: '有封面.png', kind: 'png', fileB64: png.toString('base64') }, { name: '有封面' })
+    const jsonPath = await store.importCard({ name: '无封面.json', text: '{"name":"无封面"}' }, { name: '无封面' })
+
+    assert.equal(await store.hasCardImage(pngPath), true)
+    assert.deepEqual(await store.readCardImage(pngPath), png)
+    assert.equal(await store.hasCardImage(jsonPath), false)
+    assert.equal(await store.readCardImage(jsonPath), undefined)
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
+
 test('读取旧工作区人物卡不会改写其中的宏', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-files-'))
   try {
