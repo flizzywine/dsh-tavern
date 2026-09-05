@@ -156,6 +156,27 @@ function projectLegacyDeepSeekReasoningReplay(messages, request) {
   return changed ? projected : messages
 }
 
+function projectDeepSeekThinkingPassback(messages, request) {
+  const provider = str(request && request.provider)
+  if (!/^deepseek(?:-|$)/i.test(provider) || str(request && request.reasoningEffort) === 'off') return messages
+  let changed = false
+  const projected = (Array.isArray(messages) ? messages : []).map(function (message) {
+    if (!message || message.role !== 'assistant' || !Array.isArray(message.content)
+      || message.content.some(function (block) { return block && block.type === 'reasoning' })) return message
+    changed = true
+    const source = message.source && message.source.kind === 'model' && message.source.replayState !== undefined
+      ? Object.assign({}, message.source, { replayState: undefined }) : message.source
+    // DeepSeek thinking requires reasoning_content on every assistant history
+    // message. Synthetic Tavern context has no private reasoning to replay, so
+    // use a whitespace carrier instead of inventing chain-of-thought content.
+    return Object.assign({}, message, {
+      content: [{ type: 'reasoning', text: ' ' }].concat(message.content),
+      ...(source === message.source ? {} : { source })
+    })
+  })
+  return changed ? projected : messages
+}
+
 export function createCompatibilityOrchestrationStrategy(options) {
   const stagedRequests = new Map()
   const redispatches = new WeakSet()
@@ -273,6 +294,8 @@ export function createNativePlayOrchestrationStrategy(options) {
     if (openingMessages !== request.messages) request = Object.assign({}, request, { messages: openingMessages })
     const replayMessages = projectLegacyDeepSeekReasoningReplay(request.messages, request)
     if (replayMessages !== request.messages) request = Object.assign({}, request, { messages: replayMessages })
+    const passbackMessages = projectDeepSeekThinkingPassback(request.messages, request)
+    if (passbackMessages !== request.messages) request = Object.assign({}, request, { messages: passbackMessages })
     // DSH's renderer returns '' for no sections; adapters otherwise serialize
     // it as an empty system message. Preserve any explicit non-empty prompt.
     if (request.system === '') {

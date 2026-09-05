@@ -246,6 +246,40 @@ test('旧 Session 的 Tavern 开场白在请求边界恢复为合成模型来源
   assert.equal(opening.source.kind, 'model')
 })
 
+test('DeepSeek thinking 请求为没有原始思考的合成 assistant 上下文补齐 reasoning_content 载体', async () => {
+  const run = strategies()
+  const incoming = [userMessage('继续')]
+  await run.value.prepareStep({
+    sessionId: 'native', payload: { turn: 2, step: 1, messages: incoming },
+    decision: { kind: 'enter', messages: incoming }, chat: run.chats.get('native')
+  })
+  const preset = pluginMessage('assistant', '预置助手示例', 'dsh-tavern', 'snapshot')
+  const opening = {
+    id: 'tavern-opening:current', role: 'assistant', content: [{ type: 'text', text: '开场白' }],
+    source: { kind: 'model', provider: 'deepseek-official', model: 'deepseek-v4-flash' }
+  }
+  const original = {
+    sessionId: 'native', provider: 'deepseek-official', model: 'deepseek-v4-flash', reasoningEffort: 'high',
+    messages: [{
+      role: 'system', content: [{ type: 'text', text: '旧预设边界' }],
+      source: { kind: 'plugin', plugin: 'dsh-tavern', sections: [{ name: 'tavern:runtime-preset-front', text: '旧预设边界' }] }
+    }, preset, opening, userMessage('下一轮')]
+  }
+
+  const projected = run.value.projectRequest(original)
+  const assistants = projected.messages.filter(message => message.role === 'assistant')
+
+  // Runtime preset projection replaces stale preset-boundary messages. The
+  // surviving opening is enough to prove the final DeepSeek serialization
+  // boundary repairs every assistant message that will actually be sent.
+  assert.equal(assistants.length >= 1, true)
+  for (const message of assistants) {
+    assert.equal(message.content.some(block => block.type === 'reasoning' && block.text.length > 0), true)
+  }
+  assert.equal(preset.content.some(block => block.type === 'reasoning'), false)
+  assert.equal(opening.content.some(block => block.type === 'reasoning'), false)
+})
+
 test('正文重生成在请求边界回到原玩家输入，不泄露旧回答或重生成元信息', () => {
   const originalPlayer = { id: 'player-2', ...userMessage('推门') }
   const messages = [
