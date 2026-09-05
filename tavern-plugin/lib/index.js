@@ -18,6 +18,7 @@ import { withGlobalRegexScripts } from './domain/card-extension-reading.js'
 import { projectCardOpeningPreviews } from './domain/card-opening-previews.js'
 import { READABLE_CARD_FIELDS, readCardField } from './domain/card-reading.js'
 import { createConversationInitialization } from './domain/conversation-initialization.js'
+import { assertConversationForkable, conversationForkReceipt, forkConversationChat } from './domain/conversation-fork.js'
 import { resolveChatBackgroundModel } from './domain/background-model-selection.js'
 import { createPlayCardSnapshots } from './domain/play-card-snapshots.js'
 import { createUserPreferenceProfile } from './domain/user-preference-profile.js'
@@ -1045,6 +1046,10 @@ export async function apply(ctx) {
       const source = (str(message.sourceText) || str(message.text)).replace(/\s+/g, ' ').trim()
       debugTurns.push({ turn, preview: source.slice(0, 90), chars: source.length })
     }
+    const latestStoryTurn = Number(debugTurns[debugTurns.length - 1]?.turn) || 0
+    const liveSession = sessionStore.get(str(chat.sessionId)) || agentRegistry.get(str(chat.sessionId))?.session
+    const latestAssistant = latestStoryTurn > 0 ? assistantResultForTurn(liveSession, latestStoryTurn) : null
+    const latestAssistantMessageId = str(latestAssistant?.event?.data?.message?.id)
     const inputSources = {}
     const runtimeInputs = chat.runtimeInputs && typeof chat.runtimeInputs === 'object' ? chat.runtimeInputs : {}
     for (const turn of Object.keys(runtimeInputs)) {
@@ -1082,6 +1087,7 @@ export async function apply(ctx) {
       phoneChat: phoneChat.project(chat, card),
       guides: Array.isArray(chat.guides) ? chat.guides : [],
       debugTurns: debugTurns.slice(-12).reverse(),
+      latestAssistantMessageId,
       inputSources,
       canRollback: hasRollbackMessages(chat.messages),
       presentation: null,
@@ -1266,6 +1272,21 @@ export async function apply(ctx) {
       return result
     }
   })
+  async function forkChat(sourceChatId, sourceSessionId, targetSessionId, requestedTurn) {
+    const source = str(sourceChatId) === '' ? await chatForSession(str(sourceSessionId)) : await readChat(str(sourceChatId))
+    if (source === undefined) throw new Error('找不到要分叉的源对话')
+    const sourceAgent = agentRegistry.get(str(source.sessionId))
+    assertConversationForkable(source, { agentRunning: sourceAgent?.phase?.kind === 'running' })
+    const targetId = str(targetSessionId)
+    if (targetId === '' || await chatForSession(targetId) !== undefined) throw new Error('分叉目标必须是尚未绑定对话的新 Session')
+    const sourceTurn = [...(Array.isArray(source.messages) ? source.messages : [])].reverse().find(message => message && message.role === 'assistant')
+    const latestTurn = Math.max(0, Number(sourceTurn?.turn || (sourceTurn?.greeting ? 1 : 0)) || 0)
+    const turn = Math.max(0, Number(requestedTurn) || 0)
+    if (turn > 0 && turn !== latestTurn) throw new Error('暂只能从当前最新的已提交进度分叉')
+    const fork = forkConversationChat(source, { chatId: uid('chat'), sessionId: targetId, id: uid, now: Date.now })
+    await conversationRegistry.publish(fork)
+    return conversationForkReceipt(fork, { lastTurn: latestTurn, messageCount: fork.messages.length })
+  }
   const runtimePresetSnapshots = new Map()
   const backgroundAgentRunner = createBackgroundAgentRunner({
     backgroundTools: [POSTURE_SUBMIT_TOOL, CHARACTER_DESIGN_READ_TOOL, CHARACTER_DESIGN_SAVE_TOOL, MVU_SUBMIT_UPDATE_TOOL, CANDIDATE_SUBMIT_TOOL, SCRIPT_READ_TOOL, SCRIPT_POINT_TOOL],
@@ -2197,6 +2218,7 @@ export async function apply(ctx) {
       case 'importCard': return { card: await importCard(args && args.payload) }
       case 'deleteCard': return await deleteCard(args && args.path)
       case 'deleteChat': return await deleteChat(args && args.chatId)
+      case 'forkChat': return { fork: await forkChat(args && args.chatId, args && args.sessionId, args && args.targetSessionId, args && args.turn) }
       case 'exportConversation': return await exportConversation(args && args.chatId, args && args.sessionId, args && args.title)
       case 'exportTavernLogs': return await exportTavernLogs(args && args.sessionId)
       case 'recordTavernCompatibilityCalls': {

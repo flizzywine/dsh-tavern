@@ -18,6 +18,11 @@ function hostFixture(result = { ok: true, value: 'tavern' }) {
         assert.equal(this, ctx.sessions)
         calls.push(['create', workspaceId])
         return 's' + calls.filter(call => call[0] === 'create').length
+      },
+      async fork(options) {
+        assert.equal(this, ctx.sessions)
+        calls.push(['fork', options])
+        return 's-fork'
       }
     },
     uiWorkspace: {
@@ -81,6 +86,17 @@ test('two new conversations never reuse a blank Session with an existing Tavern 
   assert.equal(await host.connectWorkspace('w1'), 's1')
   assert.equal(await host.connectWorkspace('w1'), 's2')
   assert.deepEqual(calls, [['create', 'w1'], ['create', 'w1']])
+})
+
+test('conversation host delegates a game fork to the native DSH Session fork', async () => {
+  const { ctx, calls } = hostFixture()
+  const host = client.createConversationHostAdapter(ctx)
+
+  assert.equal(await host.forkSession('s-source'), 's-fork')
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0][0], 'fork')
+  assert.equal(calls[0][1].sessionId, 's-source')
+  assert.equal(calls[0][1].increaseTitle, true)
 })
 
 test('workspace selection uses alpha.2 workspaceId and the current Session owner', () => {
@@ -157,6 +173,7 @@ test('sidebar and prewarm are wired to the host adapter, with required services 
   assert.match(source, /conversationHost: createConversationHostAdapter\(ctx\)/)
   assert.equal((source.match(/props\.conversationHost\.connectWorkspace\(targetWorkspaceId\)/g) || []).length, 2)
   assert.match(source, /props\.conversationHost\.ensurePreset\(sessionId, request\)/)
+  assert.match(source, /props\.conversationHost\.forkSession\(item\.sessionId\)/)
   assert.doesNotMatch(source, /props\.workspaces\.connectWorkspace|props\.connection\.api|noteAgentPreset/)
   const cleanup = source.slice(source.indexOf('async function archiveCurrentBlankSession'), source.indexOf('async function waitForSessionSummary'))
   assert.match(cleanup, /history\.some\(function \(entry\) \{ return entry\.sessionId === current; \}\)/)

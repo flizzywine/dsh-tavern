@@ -831,6 +831,10 @@ window.__ModuleLoader__.load({
 				// uiWorkspace.connectWorkspace may reuse a blank Session that already has a
 				// Tavern opening and a locked preset. New conversations must have their own Session.
 				connectWorkspace: function (workspaceId) { return ctx.sessions.create({ workspaceId: workspaceId }); },
+				forkSession: function (sessionId) {
+					if (!ctx.sessions || typeof ctx.sessions.fork !== "function") throw new Error("当前 DSH 版本不支持原生分叉，请升级 DSH 后重试");
+					return ctx.sessions.fork({ sessionId: sessionId, increaseTitle: true });
+				},
 				ensurePreset: async function (sessionId, request) {
 					// Select before writing the opening; the Session stream publishes preset state.
 					// Keep Tavern's private Skill roots; its preset also mounts Cordis tools for card workbenches.
@@ -4212,6 +4216,20 @@ window.__ModuleLoader__.load({
 			};
 		})();
 
+		const tavernConversationForkRequests = (function () {
+			let handler = null;
+			return Object.freeze({
+				bind: function (next) {
+					handler = next;
+					return function () { if (handler === next) handler = null; };
+				},
+				request: function (input) {
+					if (typeof handler !== "function") return Promise.reject(new Error("分叉功能尚未就绪，请刷新页面后重试"));
+					return Promise.resolve(handler(input));
+				}
+			});
+		})();
+
 		function createTavernAssistantRendererFeatureModule() {
 			function TavernUserNodeView(props) {
 				const data = props.node.data;
@@ -4390,6 +4408,24 @@ window.__ModuleLoader__.load({
 				const illustration = sceneImagesEnabled && settled && projection && !sessionTransitioning ? React.createElement(SceneIllustration, { key: props.sessionId + ":" + storyTurn + ":" + JSON.stringify(projection), sessionId: props.sessionId, turn: storyTurn }) : null;
 				return React.createElement("div", { className: "dsh-tavern-assistant", "data-streaming": data.status === "running" || undefined }, rendered, illustration, mvuReceiptNode);
 			}
+			function TavernForkAssistantAction(props) {
+				const liveState = useLiveTavernView(props.sessionId, String(props.messageId || ""));
+				const [forking, setForking] = React.useState(false);
+				const view = liveState.view;
+				const latestTurn = view && Array.isArray(view.debugTurns) ? Number(view.debugTurns[0] && view.debugTurns[0].turn) || 0 : 0;
+				const canFork = view && isPlayMode(view.mode) && latestTurn > 0 && String(view.latestAssistantMessageId || "") === String(props.messageId || "");
+				if (!canFork) return null;
+				async function fork() {
+					if (forking) return;
+					setForking(true);
+					try { await tavernConversationForkRequests.request({ sessionId: props.sessionId, turn: latestTurn }); }
+					catch (error) { tavernErrorHub.report("分叉对话", error); }
+					finally { setForking(false); }
+				}
+				return React.createElement(DshUi.Tooltip, { label: forking ? "正在分叉…" : "从当前进度分叉", side: "bottom" },
+					React.createElement("button", { type: "button", className: "dsh-tavern-message-fork", "aria-label": "从当前进度分叉", disabled: forking, onClick: fork },
+						React.createElement(DshUi.IconBranchOutline16, null)));
+			}
 			function register(input) {
 				const scriptOwner = createTavernScriptSessionOwner({ sessions: input.ctx.sessions });
 				const executeSlash = createTavernFrameSlashExecutor(input.ctx);
@@ -4416,6 +4452,12 @@ window.__ModuleLoader__.load({
 						priority: -1
 					}, TavernUserNodeView); });
 				}, "dsh-tavern: raw user message renderer");
+				input.ctx.effect(function () {
+					return input.slots.inject("conversation.chat.assistant-actions", function () { return input.slots.register({
+						name: "conversation.chat.assistant-actions", id: "dsh-tavern-fork", order: 20,
+						inject: function (sessionId) { return { sessionId: sessionId }; }
+					}, TavernForkAssistantAction); });
+				}, "dsh-tavern: conversation fork action");
 			}
 			return Object.freeze({ register: register });
 		}
@@ -4903,6 +4945,44 @@ window.__ModuleLoader__.load({
 				} catch (err) { setError(String(err && err.message || err)); }
 				finally { setBusy(false); }
 			}
+			async function forkConversation(item, currentTitle, turn) {
+				setMenuSession(null);
+				setBusy(true); setError("");
+				let targetSessionId = "";
+				let forkCreated = false;
+				try {
+					targetSessionId = await props.conversationHost.forkSession(item.sessionId);
+					await tavernSessionSignals.withConnectionSlot(function () { return call("forkChat", {
+						chatId: item.chatId,
+						sessionId: item.sessionId,
+						targetSessionId: targetSessionId,
+						turn: Number(turn) || 0
+					}); });
+					forkCreated = true;
+					const forkTitle = (currentTitle || item.cardName + "的新对话") + " · 分支";
+					try { await props.renameSession(targetSessionId, forkTitle); }
+					catch (renameError) { console.warn("dsh-tavern: 分叉已创建，但自动命名失败", renameError); }
+					const pending = { sessionId: targetSessionId, targetMode: item.mode };
+					setPendingOpen(pending);
+					await finishPendingOpen(pending);
+				} catch (err) {
+					if (targetSessionId && !forkCreated) {
+						try { await props.archiveSession(targetSessionId); }
+						catch (archiveError) { if (!isMissingSessionArchiveError(archiveError)) console.warn("dsh-tavern: 清理分叉目标 Session 失败", archiveError); }
+					}
+					setError("分叉对话失败：" + String(err && err.message || err));
+				} finally { setBusy(false); }
+			}
+			React.useEffect(function () {
+				return tavernConversationForkRequests.bind(function (request) {
+					if (busy) throw new Error("当前有其他操作正在进行，请稍后再分叉");
+					const item = history.find(function (entry) { return entry.sessionId === request.sessionId && isPlayMode(entry.mode); });
+					if (!item) throw new Error("找不到当前游玩存档");
+					const summary = summaries[item.sessionId];
+					const title = item.title || (summary && summary.displayTitle ? summary.displayTitle : item.cardName + "的新对话");
+					return forkConversation(item, title, request.turn);
+				});
+			}, [history, summaries, busy]);
 			async function exportCard(card) {
 				try {
 					const res = await call("exportCard", { path: card.path });

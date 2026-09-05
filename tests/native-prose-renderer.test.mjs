@@ -12,13 +12,19 @@ test('正式消息 renderer 使用原生 Markdown、完整标签参数，并只�
   vm.runInNewContext(await readFile(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8'), {
     window: { __ModuleLoader__: { load: value => { descriptor = value } } }, console
   })
-  const client = descriptor.factory(name => name === 'react' ? React : { MarkdownText: 'MarkdownText' })
-  let Assistant
+  const client = descriptor.factory(name => name === 'react' ? React : {
+    MarkdownText: 'MarkdownText', Tooltip: 'Tooltip', IconBranchOutline16: 'IconBranchOutline16'
+  })
+  let Assistant, ForkAction, forkInject
   client.createTavernAssistantRendererFeatureModule().register({ ctx: { effect: (run, label) => label === 'dsh-tavern: game script owner' ? () => {} : run() },
-    slots: { inject: (_name, run) => run(), register(spec, component) { if (spec.key === 'assistant-step') Assistant = component; return () => {} } } })
+    slots: { inject: (_name, run) => run(), register(spec, component) {
+      if (spec.key === 'assistant-step') Assistant = component
+      if (spec.id === 'dsh-tavern-fork') { ForkAction = component; forkInject = spec.inject }
+      return () => {}
+    } } })
   const text = '正文前\n\n```html\n<button>查看状态</button>\n```\n\n正文后'
   const projected = projectReplyLayers(text)
-  currentView = { mode: 'story', replyProjections: [{ version: 2, turn: 1, mode: projected.displayMode, parts: projected.displayParts }] }
+  currentView = { mode: 'story', latestAssistantMessageId: 'assistant-1', debugTurns: [{ turn: 1 }], replyProjections: [{ version: 2, turn: 1, mode: projected.displayMode, parts: projected.displayParts }] }
   const props = { sessionId: 'fixture', node: { data: { status: 'completed', blocks: [{ kind: 'text', text }], finalNode: { seq: 1 } }, location: { kind: 'turn', turn: { turn: 1, status: 'closed' } } }, useTurnData: () => null, fileMentions: () => undefined }
   function leaves(value, result = []) {
     if (Array.isArray(value)) value.forEach(item => leaves(item, result))
@@ -38,6 +44,18 @@ test('正式消息 renderer 使用原生 Markdown、完整标签参数，并只�
     assert.equal(node.props.labels.code.copiedLabel, '已复制')
     assert.equal(node.props.labels.footnotes, '脚注')
   }
+  function buttons(value, result = []) {
+    if (Array.isArray(value)) value.forEach(item => buttons(item, result))
+    else if (value && typeof value === 'object') {
+      if (value.tag === 'button') result.push(value)
+      buttons(value.children, result)
+    }
+    return result
+  }
+  assert.equal(buttons(rendered).filter(node => node.props['aria-label'] === '从当前进度分叉').length, 0)
+  const forkAction = ForkAction({ ...forkInject('fixture'), messageId: 'assistant-1' })
+  assert.equal(buttons(forkAction).filter(node => node.props['aria-label'] === '从当前进度分叉').length, 1)
+  assert.equal(ForkAction({ ...forkInject('fixture'), messageId: 'older-assistant' }), null)
   props.node.data.status = 'running'
   const streamingRegistration = Assistant(props)
   const streaming = leaves(streamingRegistration && typeof streamingRegistration.tag === 'function'

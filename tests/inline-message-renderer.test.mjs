@@ -1421,7 +1421,7 @@ test('Tavern 消息 renderer 以更低 priority 接管 assistant 和 user 正式
   const feature = client.createTavernAssistantRendererFeatureModule()
   const slots = {
     inject(name, activate) {
-      assert.ok(['conversation.chat.node', 'conversation.session.header.actions'].includes(name))
+      assert.ok(['conversation.chat.node', 'conversation.chat.assistant-actions', 'conversation.session.header.actions'].includes(name))
       return activate()
     },
     register(spec, component) {
@@ -1441,7 +1441,7 @@ test('Tavern 消息 renderer 以更低 priority 接管 assistant 和 user 正式
   feature.register({ ctx, slots })
 
   assert.deepEqual(Object.keys(feature), ['register'])
-  assert.equal(registrations.length, 3)
+  assert.equal(registrations.length, 4)
   const runtime = registrations.shift()
   assert.equal(runtime.spec.name, 'conversation.session.header.actions')
   assert.equal(runtime.spec.id, 'dsh-tavern-script-runtime')
@@ -1454,7 +1454,11 @@ test('Tavern 消息 renderer 以更低 priority 接管 assistant 和 user 正式
   assert.equal(registrations[1].spec.key, 'user')
   assert.equal(registrations[1].spec.priority, -1)
   assert.equal(typeof registrations[1].component, 'function')
-  assert.deepEqual(labels, ['dsh-tavern: game script owner', 'dsh-tavern: conversation script lifecycle', 'dsh-tavern: inline assistant renderer', 'dsh-tavern: raw user message renderer'])
+  assert.equal(registrations[2].spec.name, 'conversation.chat.assistant-actions')
+  assert.equal(registrations[2].spec.id, 'dsh-tavern-fork')
+  assert.equal(registrations[2].spec.order, 20)
+  assert.equal(typeof registrations[2].component, 'function')
+  assert.deepEqual(labels, ['dsh-tavern: game script owner', 'dsh-tavern: conversation script lifecycle', 'dsh-tavern: inline assistant renderer', 'dsh-tavern: raw user message renderer', 'dsh-tavern: conversation fork action'])
 })
 
 test('用户气泡优先展示持久化原始输入，不展示 promptOnly 的 Session 投影', () => {
