@@ -5,7 +5,7 @@ import vm from 'node:vm'
 import { renderSite, readTopics, markdown, escapeHTML } from '../docs/manual/build.mjs'
 import { sections, help, gettingStarted } from '../docs/manual/navigation.mjs'
 import { topics } from '../docs/manual/topics.mjs'
-import { installCommands } from '../docs/manual/introduction.mjs'
+import { androidAgentPrompt, installCommands } from '../docs/manual/introduction.mjs'
 import { adaptedDshVersion } from '../bin/dsh-compatibility.mjs'
 import { screenshots, pageScreenshots, screenshotSource } from '../docs/manual/screenshots.mjs'
 import { demoDownloads } from '../examples/manual-demo/downloads.mjs'
@@ -86,8 +86,24 @@ test('Android 公开安装命令固定引导脚本版本，避免 jsDelivr main 
 })
 
 test('Android 公开安装命令不依赖 DSHA rc1 未提供的 curl', () => {
+  assert.match(installCommands.android, /^node -e /)
+  assert.doesNotMatch(installCommands.android, /请运行|告诉我结果/)
   assert.match(installCommands.android, /node -e/)
   assert.doesNotMatch(installCommands.android, /\bcurl\b/)
+})
+
+test('Android 安装明确使用 DSHA 终端，并为小白提供可整段复制的 Agent 话术', async () => {
+  const readme = await readFile(new URL('../README.md', import.meta.url), 'utf8')
+  const androidGuide = await readFile(new URL('android-install.md', root), 'utf8')
+  const install = pages.find(p => p.id === 'a02').body
+  for (const content of [readme, androidGuide]) {
+    assert.match(content, /DSHA 底部的.*终端/)
+    assert.ok(content.includes(androidAgentPrompt), 'Agent fallback must be one complete copyable prompt')
+    assert.doesNotMatch(content, /命令执行入口/)
+  }
+  assert.match(install, /DSHA 底部的.*终端/)
+  assert.ok(install.includes(`<code>${escapeHTML(androidAgentPrompt)}</code>`))
+  assert.doesNotMatch(install, /命令执行入口/)
 })
 
 test('代码块保持命令原文，转义 HTML 且不误识别管道和 Markdown', () => {

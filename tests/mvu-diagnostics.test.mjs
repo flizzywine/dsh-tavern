@@ -185,6 +185,7 @@ test('真实 iframe bootstrap 捕获 console.warn 和 toastr，带事件编号�
   // Execute the production document, replacing only the unrelated packaged module import.
   const bootstrap = document.match(/<script data-dsh-tavern-helper-script>([\s\S]*?)<\/script>/)[1]
     .replace('import("/api/dsh-tavern/vendor/runtime-assets/zod/index.mjs")', 'Promise.resolve({})')
+    .replace('import("/api/dsh-tavern/vendor/runtime-assets/yaml/index.mjs")', 'Promise.resolve({})')
   const messages = [], listeners = new Map()
   const parent = { postMessage: value => messages.push(value) }
   const sandbox = { parent, console: { info() {}, warn() {}, error() {} }, structuredClone, setTimeout, clearTimeout,

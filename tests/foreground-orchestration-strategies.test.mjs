@@ -115,6 +115,34 @@ test('旧会话在 pre-step 提升外部背景后，不把已记录消息再次�
   assert.equal(session.deriveMessages().filter(message => message.id === fixed.id).length, 1)
 })
 
+test('旧原生 Session 的稳定前缀含 EJS 时仅在请求投影中换成新静态快照', async () => {
+  const oldPrefix = {
+    id: 'tavern-session-prefix:native', role: 'user',
+    content: [{ type: 'text', text: '人物卡\n@@preprocessing\n<% print(await getwi("资料")) %>' }],
+    source: { kind: 'plugin', plugin: 'dsh-tavern', form: 'snapshot' }
+  }
+  const run = strategies({ nativePlay: {
+    async modeFor() { return 'story' },
+    filterMessages(messages) { return messages }, async resolvePreset() { return null },
+    async ensureSessionPrefix() { return { projectedText: '人物卡\n真正静态的常驻规则' } },
+    async prepareTurn() { return { frame: { userInput: { projectedText: '继续' } } } },
+    appendFrame(input) { return { messages: input.messages, receipt: {} } },
+    recordFrame() {}, async visibleTools() { return [] }, modePrompt() { return '' }, controlledToolNames: new Set()
+  } })
+  const incoming = [userMessage('继续')]
+  await run.value.prepareStep({
+    sessionId: 'native', payload: { turn: 2, step: 1, messages: incoming },
+    decision: { kind: 'enter', messages: incoming }, chat: run.chats.get('native')
+  })
+  const original = Object.freeze({ sessionId: 'native', messages: Object.freeze([oldPrefix]) })
+
+  const projected = run.value.projectRequest(original)
+
+  assert.equal(projected.messages[0].content[0].text, '人物卡\n真正静态的常驻规则')
+  assert.doesNotMatch(projected.messages[0].content[0].text, /<%|getwi|@@preprocessing/)
+  assert.match(original.messages[0].content[0].text, /getwi/)
+})
+
 test('普通游玩正常运行，保留的兼容实现仅供独立测试', async () => {
   const run = strategies()
   const nativePayload = { turn: 2, step: 1, messages: [userMessage('继续')] }

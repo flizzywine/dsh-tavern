@@ -6,6 +6,8 @@
     "dsh-tavern": "bin/dsh-tavern.mjs"
   },
   "scripts": {
+    "build:client": "node bin/build-tavern-client.mjs",
+    "check:client": "node bin/build-tavern-client.mjs --check",
     "docs:build": "node docs/manual/build.mjs",
     "docs:dev": "node docs/manual/build.mjs && python3 -m http.server 4173 --bind 127.0.0.1 --directory docs",
     "test:docs": "node --test tests/manual-site.test.mjs tests/product-site.test.mjs tests/manual-pages.test.mjs",

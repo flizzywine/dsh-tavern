@@ -19,9 +19,10 @@ test('脚本宿主的固定运行时依赖全部使用随包本地资源', () =>
   const html = client.buildTavernHelperScriptDocument({ token: 'test', scripts: [], context: {} })
   for (const path of [
     'vue/vue.runtime.global.prod.js', 'vue-router/vue-router.global.prod.js',
-    'jquery/jquery.min.js', 'lodash/lodash.min.js', 'zod/index.mjs'
+    'jquery/jquery.min.js', 'lodash/lodash.min.js', 'zod/index.mjs', 'yaml/index.mjs'
   ]) assert.ok(html.includes('/api/dsh-tavern/vendor/runtime-assets/' + path), path)
-  assert.doesNotMatch(html, /(?:testingcf\.)?cdn\.jsdelivr\.net\/npm\/(?:zod|vue|vue-router|jquery|lodash)@/)
+  assert.match(html, /window\.YAML\s*=\s*modules\[1\]/)
+  assert.doesNotMatch(html, /(?:testingcf\.)?cdn\.jsdelivr\.net\/npm\/(?:zod|yaml|vue|vue-router|jquery|lodash)@/)
 })
 
 function harness(scripts, onAppend, ready = Promise.resolve()) {

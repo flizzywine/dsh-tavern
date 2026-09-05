@@ -41,7 +41,7 @@ function Opening(){
 }
 function App(){const [task,setTask]=React.useState('');React.useEffect(()=>{const listener=()=>setTask('已请求建立画像工作台');window.addEventListener('dsh-tavern-open-user-profile-task',listener);return()=>window.removeEventListener('dsh-tavern-open-user-profile-task',listener);},[]);return h(React.Fragment,null,h('h1',null,'画像入口验证 · 隔离演示'),h('main',null,h(Opening),h('aside',{'aria-label':'右侧栏'},h(UserPreferenceProfileTab,{scope:{sessionId:'demo'}}),h('p',{role:'status'},task))));}
 modules['react-dom/client'].createRoot(document.querySelector('#app')).render(h(App));`
-const css = source.split('const TAVERN_CSS = `')[1].split('`;')[0]
+const css = await readFile(new URL('../../tavern-plugin/lib/client-assets/tavern.css', import.meta.url), 'utf8')
 const page = `<!doctype html><meta charset="utf-8"><title>画像入口隔离验证</title><style>${css}
 body{font:16px system-ui;background:#1d1d1d;color:#eee;padding:24px}main{display:grid;grid-template-columns:2fr 1fr;gap:32px}section,aside{padding:20px;border:1px solid #555;border-radius:12px}button,input,textarea{font:inherit}button{cursor:pointer}input,textarea{color:#eee;background:#333}h1{font-size:20px}.dsh-tavern-user-profile{position:static}@media(max-width:700px){main{grid-template-columns:1fr}}</style><div id="app"></div><script>${script.replaceAll('</script', '<\\/script')}</script>`
 const server = createServer(async (req, res) => {

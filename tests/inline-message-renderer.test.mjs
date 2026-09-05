@@ -206,6 +206,97 @@ test('Tavern Helper 消息 iframe 按官方顺序加载完整前端依赖', () =
   assert.doesNotMatch(document, /data-dsh-sillytavern-css-compat/)
 })
 
+test('交互消息 iframe 可经鉴权桥接读写世界书并触发当前对话发送', async () => {
+  const listeners = new Map()
+  const calls = []
+  const slashCalls = []
+  const frame = { contentWindow: { messages: [], postMessage(message) { this.messages.push(message) } } }
+  const hostWindow = {
+    crypto: { randomUUID() { return 'interactive-message-token' } },
+    sessionStorage: { getItem() { return null }, setItem() {} },
+    document: null,
+    setTimeout,
+    clearTimeout,
+    addEventListener(name, handler) { listeners.set(name, handler) },
+    removeEventListener(name) { listeners.delete(name) }
+  }
+  const lifecycle = client.createTavernMessageFrameLifecycle({
+    sessionId: 'session-magic-fairy', content: '<button>开始游戏</button>', turn: 1, partIndex: 0,
+    helperContext: { lifecycleRevision: 3, messages: [] }, eager: true
+  }, {
+    window: hostWindow,
+    rpc(method, args, sessionId) {
+      calls.push({ method, args, sessionId })
+      if (method === 'getSession') return Promise.resolve({ view: { tavernHelper: { lifecycleRevision: 4, messages: [{ role: 'assistant', variables: {} }, { role: 'user', variables: {} }, { role: 'assistant', variables: {} }] } } })
+      return Promise.resolve(method === 'getTavernHelperWorldbook'
+        ? { worldbook: { name: args.name, entries: [] } }
+        : { worldbook: { name: args.name, entries: args.entries || [] } })
+    },
+    executeSlash(line, sessionId) { slashCalls.push({ line, sessionId }); return Promise.resolve({ submitted: true }) }
+  })
+  const document = lifecycle.snapshot().visibleDocument
+  document.ref(frame)
+  const stop = lifecycle.start(function () {})
+  const receive = listeners.get('message')
+
+  receive({ source: frame.contentWindow, data: { type: 'dsh-tavern-helper-call', token: document.token, requestId: 'worldbook', method: 'getTavernHelperWorldbook', args: { name: '群星的资料库 v4.0' } } })
+  receive({ source: frame.contentWindow, data: { type: 'dsh-tavern-helper-call', token: document.token, requestId: 'send', method: 'triggerTavernSlash', args: { line: '/send 开始冒险|/trigger' } } })
+	await new Promise(resolve => setImmediate(resolve))
+
+  assert.equal(calls[0].method, 'getTavernHelperWorldbook')
+  assert.equal(calls[0].sessionId, 'session-magic-fairy')
+	assert.equal(calls[1].method, 'getSession')
+  assert.deepEqual(slashCalls, [{ line: '/send 开始冒险|/trigger', sessionId: 'session-magic-fairy' }])
+  assert.deepEqual(frame.contentWindow.messages.map(message => [message.requestId, message.ok]), [['worldbook', true], ['send', true]])
+  stop()
+})
+
+test('消息界面的 /send …|/trigger 通过当前 composer 提交并等待该轮完成', async () => {
+  const listeners = new Set()
+  const summary = { running: false }
+  const submissions = []
+  const input = {
+    setDraft(value) { submissions.push(['draft', value]) },
+    submit(mode) { submissions.push(['submit', mode]) }
+  }
+  const sessions = {
+    scope(id) { return id === 'session-magic-fairy' ? {} : undefined },
+    list: {
+      getSnapshot() { return { byId: { 'session-magic-fairy': summary } } },
+      subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener) }
+    }
+  }
+  const ctx = { sessions, get(name) { return name === 'conversation' ? { input: { for() { return input } } } : undefined } }
+  const execute = client.createTavernFrameSlashExecutor(ctx, { setTimeout, clearTimeout })
+  const completed = execute('/send <开局信息>\n魔法少女|/trigger', 'session-magic-fairy')
+
+  assert.deepEqual(submissions, [['draft', '<开局信息>\n魔法少女'], ['submit', 'queue']])
+  summary.running = true
+  listeners.forEach(listener => listener())
+  summary.running = false
+  listeners.forEach(listener => listener())
+  assert.deepEqual(JSON.parse(JSON.stringify(await completed)), { submitted: true })
+  assert.equal(listeners.size, 0)
+  await assert.rejects(execute('/compact', 'session-magic-fairy'), /只允许调用/)
+})
+
+test('消息 iframe 首次缺少 Helper Context 时，在上下文抵达后重建为可交互文档', () => {
+  const lifecycle = client.createTavernMessageFrameLifecycle({
+    sessionId: 'session-late-context', content: '<button>开始游戏</button>', turn: 1, partIndex: 0,
+    helperContext: null, eager: true
+  }, { window: { crypto: { randomUUID: (() => { let id = 0; return () => `late-context-${++id}` })() }, sessionStorage: { getItem() { return null }, setItem() {} }, document: null, setTimeout, clearTimeout, addEventListener() {}, removeEventListener() {} } })
+  const first = lifecycle.snapshot().visibleDocument
+  assert.doesNotMatch(first.html, /data-dsh-tavern-helper/)
+
+  lifecycle.update({
+    sessionId: 'session-late-context', content: '<button>开始游戏</button>', turn: 1, partIndex: 0,
+    helperContext: { lifecycleRevision: 1, messages: [] }, eager: true
+  })
+  const pending = lifecycle.snapshot().pendingDocument
+  assert.ok(pending)
+  assert.match(pending.html, /data-dsh-tavern-helper/)
+})
+
 test('消息 iframe 在实际读取 MVU 数据时标记自身为 MVU View', () => {
   const document = client.buildTavernFrameDocument({
     content: '<script>Mvu.getMvuData({ type: "message" })</script>',
@@ -362,6 +453,123 @@ test('Helper 脚本文档提供可见弹窗容器和固定 Tavern Helper 按钮�
   assert.match(document, /return String\(scriptId \|\| currentScript\(\)\.id\) \+ "_" \+ stringHash/)
   assert.match(document, /\/vendor\/runtime-assets\/vue\/vue\.runtime\.global\.prod\.js/)
   assert.match(document, /\/vendor\/runtime-assets\/vue-router\/vue-router\.global\.prod\.js/)
+})
+
+test('人物卡挂到宿主 Shadow DOM 的 Font Awesome 样式改用内置资源', () => {
+  class FakeLink {}
+  Object.defineProperty(FakeLink.prototype, 'href', {
+    configurable: true,
+    enumerable: true,
+    get() { return this.value || '' },
+    set(value) { this.value = String(value) }
+  })
+  const hostWindow = { HTMLLinkElement: FakeLink }
+  const disposeFirst = client.createTavernHostStylesheetBridge({ window: hostWindow })
+  const disposeSecond = client.createTavernHostStylesheetBridge({ window: hostWindow })
+  const phoneIcons = new FakeLink()
+  phoneIcons.href = 'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css'
+  assert.equal(phoneIcons.href, '/api/dsh-tavern/vendor/runtime-assets/fontawesome/css/all.min.css')
+
+  const unrelated = new FakeLink()
+  unrelated.href = 'https://example.test/card-theme.css'
+  assert.equal(unrelated.href, 'https://example.test/card-theme.css')
+
+  disposeFirst()
+  const shared = new FakeLink()
+  shared.href = 'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css'
+  assert.equal(shared.href, '/api/dsh-tavern/vendor/runtime-assets/fontawesome/css/all.min.css')
+  disposeSecond()
+
+  const restored = new FakeLink()
+  restored.href = 'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css'
+  assert.equal(restored.href, 'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css')
+})
+
+test('人物卡手机进入酒馆状态应用槽并由 ShadowRoot 直接加载内置图标', async () => {
+  const shadowChildren = []
+  let phoneMounted = false
+  let iconsInstalledAfterMount = false
+  const shadowRoot = {
+    ownerDocument: null,
+    querySelector(selector) {
+      if (selector.includes('font-awesome') || selector.includes('fontawesome')) return shadowChildren.find((node) => node.tagName === 'LINK') || null
+      if (selector === '[data-dsh-tavern-card-app-layout]') return shadowChildren.find((node) => node.layoutStyle) || null
+      return null
+    },
+    appendChild(node) { shadowChildren.push(node); node.parentNode = this; return node }
+  }
+  function element(tagName) {
+    const attributes = new Map()
+    return {
+      tagName: tagName.toUpperCase(), style: { setProperty(name, value) { this[name] = value } },
+      setAttribute(name, value) {
+        attributes.set(name, String(value))
+        if (name === 'href') this.href = String(value)
+      },
+      getAttribute(name) { return attributes.has(name) ? attributes.get(name) : null },
+      removeAttribute(name) { attributes.delete(name) }
+    }
+  }
+  const body = { appendChild(node) { node.parentNode = this; this.child = node; return node } }
+  const head = { appendChild(node) { node.parentNode = this; this.child = node; return node } }
+  const host = element('div')
+  host.id = 'improved-phone-shadow-host-card-script'
+  host.shadowRoot = shadowRoot
+  body.appendChild(host)
+  const floatingButton = element('button')
+  floatingButton.id = 'improved-phone-floating-button-card-script'
+  const document = {
+    body, head,
+    createElement: element,
+    querySelectorAll(selector) { return selector.includes('shadow-host') ? [host] : [] },
+    querySelector(selector) { return selector.includes('floating-button') ? floatingButton : null }
+  }
+  shadowRoot.ownerDocument = document
+  const slot = { clientWidth: 320, appendChild(node) { phoneMounted = true; node.parentNode = this; this.child = node; return node } }
+
+  const controller = client.createTavernCardAppDock({
+    document, slot, MutationObserver: null, ResizeObserver: null,
+    loadIconCss() { iconsInstalledAfterMount = phoneMounted; return Promise.resolve('.fas{font-family:icons}') }
+  })
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(slot.child, host)
+  assert.equal(host.style.position, 'relative')
+  assert.equal(host.style['--dsh-tavern-card-app-scale'], String(296 / 360))
+  const icons = shadowChildren.find((node) => node.tagName === 'STYLE' && !node.layoutStyle)
+  assert.equal(icons.textContent, '.fas{font-family:icons}')
+  assert.equal(iconsInstalledAfterMount, true, 'ShadowRoot stylesheet must be installed after cross-document adoption')
+  assert.match(head.child.textContent, /Font Awesome 6 Free/)
+  assert.match(head.child.textContent, /fontawesome\/webfonts\/fa-solid-900\.woff2/)
+  assert.ok(shadowChildren.some((node) => node.layoutStyle))
+  assert.equal(floatingButton.style.display, 'none')
+
+  controller.dispose()
+  assert.equal(body.child, host)
+  assert.equal(floatingButton.style.display, undefined)
+})
+
+test('人物卡手机切换对话重载期间保持应用槽，恢复后原位接管', () => {
+  const timers = []
+  const cleared = new Set()
+  const states = []
+  const presence = client.createTavernCardAppPresence({
+    onChange(state) { states.push(state) },
+    setTimeout(run) { timers.push(run); return timers.length - 1 },
+    clearTimeout(id) { cleared.add(id) }
+  })
+
+  presence.change(true)
+  presence.change(false)
+  assert.deepEqual(JSON.parse(JSON.stringify(states.at(-1))), { visible: true, attached: false, recovering: true })
+
+  presence.change(true)
+  timers[0]()
+  assert.ok(cleared.has(0))
+  assert.deepEqual(JSON.parse(JSON.stringify(states.at(-1))), { visible: true, attached: true, recovering: false })
+
+  presence.change(false)
+  timers[1]()
+  assert.deepEqual(JSON.parse(JSON.stringify(states.at(-1))), { visible: false, attached: false, recovering: false })
 })
 
 test('官方 MVU owner 作为共享沙箱首个系统模块本地加载', () => {
@@ -596,7 +804,7 @@ test('人物卡 Helper 脚本使用独立不透明 iframe，并获得脚本、�
   assert.doesNotMatch(document, /allow-same-origin/)
 })
 
-test('官方 MVU 与人物卡脚本共用沙箱时仍先提供全局 Zod', () => {
+test('官方 MVU 与人物卡脚本共用沙箱时仍先提供全局 Zod 与 YAML', () => {
   const document = client.buildTavernHelperScriptDocument({
     token: 'official-mvu-zod-token',
     scripts: [
@@ -610,7 +818,10 @@ test('官方 MVU 与人物卡脚本共用沙箱时仍先提供全局 Zod', () =>
   const loader = Buffer.from(encoded[1], 'base64').toString('utf8')
 
   assert.match(document, /const officialMvuEnabled = metadata\.officialMvu === true/)
-  assert.match(document, /const ready = import\("\/api\/dsh-tavern\/vendor\/runtime-assets\/zod\/index\.mjs"\)\.then\(function \(module\) \{ window\.z = module; return true; \}\)/)
+  assert.match(document, /import\("\/api\/dsh-tavern\/vendor\/runtime-assets\/zod\/index\.mjs"\)/)
+  assert.match(document, /import\("\/api\/dsh-tavern\/vendor\/runtime-assets\/yaml\/index\.mjs"\)/)
+  assert.match(document, /window\.z = modules\[0\]/)
+  assert.match(document, /window\.YAML = modules\[1\]/)
   assert.doesNotMatch(document, /officialMvuEnabled\s*\?\s*Promise\.resolve/)
   assert.ok(loader.indexOf('await window.__dshTavernHelperReady') < loader.indexOf('for(const script of scripts)'))
 })

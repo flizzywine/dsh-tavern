@@ -6,8 +6,9 @@ export const installCommands = {
   cliUnix: 'curl -fsSL https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@main/install.sh | DSH_TAVERN_HOST=cli sh',
   // Pin the bootstrap itself so jsDelivr cannot serve an older @main script.
   // The bootstrap still installs or updates the application from current main.
-  android: '请运行这条命令安装 DSH Tavern，完成后告诉我结果：node -e "fetch(\'https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@69d74f5/android/setup.sh\').then(async r=>{if(!r.ok)throw Error(\'HTTP \'+r.status);require(\'fs\').writeFileSync(\'/tmp/dsh-tavern-setup.sh\',await r.text())}).then(()=>{const r=require(\'child_process\').spawnSync(\'bash\',[\'/tmp/dsh-tavern-setup.sh\'],{stdio:\'inherit\'});process.exit(r.status??1)}).catch(e=>{console.error(e);process.exit(1)})"',
+  android: 'node -e "fetch(\'https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@69d74f5/android/setup.sh\').then(async r=>{if(!r.ok)throw Error(\'HTTP \'+r.status);require(\'fs\').writeFileSync(\'/tmp/dsh-tavern-setup.sh\',await r.text())}).then(()=>{const r=require(\'child_process\').spawnSync(\'bash\',[\'/tmp/dsh-tavern-setup.sh\'],{stdio:\'inherit\'});process.exit(r.status??1)}).catch(e=>{console.error(e);process.exit(1)})"',
 }
+export const androidAgentPrompt = '请帮我安装 DSH Tavern。只需要原样执行下面这一条命令，等待它结束，然后把最后的结果告诉我；不要拆解步骤，也不要修改命令：\n\n' + installCommands.android
 const code = (language, text) => '\n```' + language + '\n' + text + '\n```\n'
 
 export const introduction = `
@@ -141,9 +142,11 @@ export const installation = `
 **Android 属于实验性支持，不保证一定可用。** 不同手机系统、DSHA 版本、网络和后台限制都可能导致安装或运行失败。
 
 1. 安装 [DSHA](https://github.com/qiannianhuanxiang/DSHA)，配置模型并成功启动一次。
-2. 打开“创造模式”，把下面这句话发给 AI。
-` + code('text', installCommands.android) + `
-3. 安装完成后重启 DSHA，在侧栏打开“酒馆工作台”。
+2. 打开 DSHA 底部的“终端”，把下面整条命令复制进去并回车。安装脚本会自行完成下载、配置、校验、启动和失败回滚。
+` + code('bash', installCommands.android) + `
+3. 如果不会使用终端，也可以打开“创造模式”，完整复制下面这一整段话发给 Agent：
+` + code('text', androidAgentPrompt) + `
+4. 看到“全部完成”后重启 DSHA，在底部“启动”页点“启动”；显示“已就绪，可进入”后点“进入”，再从侧栏打开“酒馆工作台”。
 
 从手机 Download 目录导入人物卡前，请在 Android 系统设置中允许 DSHA“访问所有文件”。未授权时酒馆会给出提示，也可尝试系统文件选择器。
 

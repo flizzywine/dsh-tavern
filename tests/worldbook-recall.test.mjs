@@ -4,8 +4,10 @@ import test from 'node:test'
 import {
   constantWorldBookContext,
   mvuUpdateRulesFromWorldBook,
+  projectWorldBookTemplates,
   prepareWorldBookRecall
 } from '../tavern-plugin/lib/domain/worldbook-recall.js'
+import { TavernPromptTemplateRuntime } from '../tavern-plugin/lib/domain/tavern-prompt-template-runtime.js'
 
 function entry(ref, content, options = {}) {
   return {
@@ -134,4 +136,53 @@ test('[mvu_update] 只进入后台变量规则，不再要求前台剧情模型�
 
   assert.equal(constantWorldBookContext({ worldBook }).context, '古殿深处传来水声。')
   assert.deepEqual(mvuUpdateRulesFromWorldBook(worldBook), ['每轮按正文更新体力。'])
+})
+
+test('原生世界书把 EJS 控制器移出稳定前缀，并可按最新 MVU 变量读取停用资料条目', async function () {
+  const runtime = await TavernPromptTemplateRuntime.create()
+  const worldBook = { view: { displayName: '测试世界书', entries: [
+    entry('entry:0', '始终可见的静态规则。', { constant: true, order: 300 }),
+    {
+      ...entry('entry:1', '@@preprocessing\n<% if (getvar("stat_data.stage") === "觉醒") print(await getwi("觉醒资料")) %>', { constant: true, order: 200 }),
+      comment: '阶段控制器', title: '阶段控制器', sourceUid: 1
+    },
+    {
+      ...entry('entry:2', '仅在觉醒阶段注入的完整设定。', { constant: true, enabled: false, order: 100 }),
+      comment: '觉醒资料', title: '觉醒资料', sourceUid: 2
+    }
+  ] } }
+
+  const stable = constantWorldBookContext({ worldBook })
+  const projected = projectWorldBookTemplates({
+    worldBook,
+    runtime,
+    card: { name: '阿芙拉' },
+    chat: {
+      macroState: { userName: '叶舟', global: {} },
+      variables: {},
+      messages: [{ role: 'assistant', text: '她抬起头。', variables: [{ stat_data: { stage: '觉醒' } }] }]
+    }
+  })
+
+  assert.equal(stable.context, '始终可见的静态规则。')
+  assert.doesNotMatch(stable.context, /preprocessing|getwi|觉醒资料/)
+  assert.equal(projected.context, '仅在觉醒阶段注入的完整设定。')
+  assert.deepEqual(projected.refs, ['entry:1'])
+  assert.deepEqual(projected.diagnostics, [])
+  assert.doesNotMatch(projected.context, /<%|getwi|@@preprocessing/)
+})
+
+test('原生世界书控制器失败时局部跳过，不把模板源码发送给正文模型', async function () {
+  const runtime = await TavernPromptTemplateRuntime.create()
+  const worldBook = { view: { entries: [
+    entry('entry:0', '静态规则。', { constant: true }),
+    entry('entry:1', '@@preprocessing\n<% if ( %>泄漏源码', { constant: true })
+  ] } }
+
+  const stable = constantWorldBookContext({ worldBook })
+  const projected = projectWorldBookTemplates({ worldBook, runtime, card: card(), chat: chat() })
+
+  assert.equal(stable.context, '静态规则。')
+  assert.equal(projected.context, '')
+  assert.deepEqual(projected.diagnostics, [{ kind: 'worldbook-template', code: 'syntax-error', ref: 'entry:1' }])
 })

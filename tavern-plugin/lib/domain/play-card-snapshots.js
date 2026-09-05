@@ -1,7 +1,7 @@
 import { constantWorldBookContext } from './worldbook-recall.js'
 import { sanitizeAgentProjectionText } from './runtime-content-projection.js'
 
-const VERSION = 6
+const VERSION = 7
 function str(value) { return value === undefined || value === null ? '' : String(value) }
 function isPlay(chat) { return chat && (!chat.mode || chat.mode === 'story' || chat.mode === 'script') }
 

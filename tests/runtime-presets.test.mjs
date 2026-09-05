@@ -103,6 +103,60 @@ test('整份预设快照每次读取源文件的原始启用状态，不依赖�
   assert.equal(snapshot.front.text, '编辑后立即生效\n\n第二段')
 })
 
+test('并发预热与正式启动共享同一次完整预设读取，完成后仍会重新读取最新内容', async () => {
+  const document = preset('presets/当前.json', [{ identifier: 'a', content: '第一版' }])
+  let release
+  let reads = 0
+  const firstRead = new Promise(function (resolve) { release = resolve })
+  const module = createRuntimePresetModule({
+    listPaths: async () => ['presets/当前.json'],
+    readPreset: async function () {
+      reads += 1
+      if (reads === 1) await firstRead
+      return structuredClone(document)
+    },
+    readPresetDocument: async () => ({}),
+    readState: async () => ({ activePreset: 'presets/当前.json' }),
+    updateState: async () => undefined
+  })
+
+  const warming = module.fullSnapshot()
+  await new Promise(function (resolve) { setImmediate(resolve) })
+  const starting = module.fullSnapshot()
+  assert.equal(reads, 1)
+
+  release()
+  assert.equal((await warming).front.text, '第一版')
+  assert.equal((await starting).front.text, '第一版')
+
+  document.entries[0].content = '第二版'
+  assert.equal((await module.fullSnapshot()).front.text, '第二版')
+  assert.equal(reads, 2)
+})
+
+test('游戏准备快照只能认领一次，预设设置被修改后立即失效', async () => {
+  const document = preset('presets/当前.json', [{ identifier: 'a', content: '准备内容' }])
+  let state = { version: 6, activePreset: 'presets/当前.json', updatedAt: 10 }
+  let reads = 0
+  const module = createRuntimePresetModule({
+    listPaths: async () => ['presets/当前.json'],
+    readPreset: async function () { reads += 1; return structuredClone(document) },
+    readPresetDocument: async () => ({}),
+    readState: async () => structuredClone(state),
+    updateState: async () => undefined,
+    now: function () { return 100 }
+  })
+
+  await module.prepareFullSnapshot()
+  assert.equal((await module.claimPreparedFullSnapshot()).front.text, '准备内容')
+  assert.equal(await module.claimPreparedFullSnapshot(), undefined)
+  assert.equal(reads, 1)
+
+  await module.prepareFullSnapshot()
+  await module.select('')
+  assert.equal(await module.claimPreparedFullSnapshot(), undefined)
+})
+
 test('提示词只维护一套开启状态，不再叠加酒馆默认开关', async () => {
   const value = harness()
   await value.module.register('presets/先导入.json')

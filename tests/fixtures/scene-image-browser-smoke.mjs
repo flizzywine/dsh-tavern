@@ -46,7 +46,7 @@ const client = await readFile(new URL('../../tavern-plugin/lib/client.js', impor
 // no sidebar. Seed only that metadata, leaving the registered dock/renderers intact.
 const fixtureClient = client.replace('const tavernSessionModes = { values: {},', 'const tavernSessionModes = { values: {"scene-parent":"story"},')
 const settingsSource = client.slice(client.indexOf('function SceneImageSettings()'), client.indexOf('function TavernSettingsSection()'))
-const css = client.match(/const TAVERN_CSS = `([\s\S]*?)`;/)[1]
+const css = await readFile(new URL('../../tavern-plugin/lib/client-assets/tavern.css', import.meta.url), 'utf8')
 const script = `${bundle}
 const React=modules.react;
 const primitives={MarkdownText:props=>React.createElement('p',null,props.text)};

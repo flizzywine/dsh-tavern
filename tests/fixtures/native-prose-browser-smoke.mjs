@@ -13,7 +13,7 @@ if (!process.env.DSH_BROWSER_ROOT) throw Error('Set DSH_BROWSER_ROOT to the inst
 const require = createRequire(path.join(process.env.DSH_BROWSER_ROOT, 'node_modules/@deepseek-ai/dsh-client-ui-primitives/package.json'))
 const domRequire = createRequire(require.resolve('react-dom/client'))
 const source = await readFile(new URL('../../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
-const css = source.match(/const TAVERN_CSS = `([\s\S]*?)`;/)[1]
+const css = await readFile(new URL('../../tavern-plugin/lib/client-assets/tavern.css', import.meta.url), 'utf8')
 const prose = '# 原生正文\n\n' + Array.from({ length: 35 }, (_, i) => `第 ${i + 1} 段：风吹过窗边，**她回过头**。这是一段用于检查正文中央滑动的文字。`).join('\n\n')
 const panel = '<style>body{font:16px sans-serif}button{min-height:44px}</style><button id="status" onclick="this.textContent=\'状态已打开\'">查看状态</button><details><summary>展开说明</summary>卡片交互仍然有效</details>'
 const cases = {

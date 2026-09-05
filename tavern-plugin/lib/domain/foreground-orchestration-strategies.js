@@ -46,6 +46,23 @@ function snapshotMessage(text) {
   }
 }
 
+function projectLegacyTemplatePrefix(messages, text) {
+  const replacement = str(text).trim()
+  if (replacement === '' || !Array.isArray(messages)) return messages
+  let changed = false
+  const projected = messages.map(function (message) {
+    const source = message && message.source
+    const current = contentText(message)
+    if (!source || source.kind !== 'plugin' || source.plugin !== 'dsh-tavern' || source.form !== 'snapshot' || !/<%[=_-]?[\s\S]*?%>/.test(current)) return message
+    changed = true
+    return Object.assign({}, message, {
+      content: [{ type: 'text', text: replacement }],
+      source: Object.assign({}, source, { sections: [{ name: 'tavern:session-context', text: replacement }] })
+    })
+  })
+  return changed ? projected : messages
+}
+
 export function createCompatibilityOrchestrationStrategy(options) {
   const stagedRequests = new Map()
   const redispatches = new WeakSet()
@@ -121,12 +138,13 @@ export function createNativePlayOrchestrationStrategy(options) {
       // Session surface. Returning it in this incoming batch would make the
       // Agent loop append the same message ID a second time and break Chat's
       // node index; request derivation reads the newly written surface itself.
-      if (typeof options.ensureSessionPrefix === 'function') await options.ensureSessionPrefix(input)
+      const stablePrefix = typeof options.ensureSessionPrefix === 'function' ? await options.ensureSessionPrefix(input) : null
       stagedRequests.set(sessionId, {
         turn: Math.max(0, Number(payload.turn) || 0),
         step: Math.max(1, Number(payload.step) || 1),
         scope: 'foreground',
-        snapshot: snapshot || null
+        snapshot: snapshot || null,
+        stablePrefixText: str(stablePrefix && stablePrefix.projectedText)
       })
     }
     if (Number(payload.step) === 1) {
@@ -153,6 +171,8 @@ export function createNativePlayOrchestrationStrategy(options) {
       turn: staged.turn,
       step: staged.step
     })
+    const projectedMessages = projectLegacyTemplatePrefix(request.messages, staged.stablePrefixText)
+    if (projectedMessages !== request.messages) request = Object.assign({}, request, { messages: projectedMessages })
     // DSH's renderer returns '' for no sections; adapters otherwise serialize
     // it as an empty system message. Preserve any explicit non-empty prompt.
     if (request.system === '') {

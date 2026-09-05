@@ -300,6 +300,20 @@ test('Host Adapter 把脚本变量和消息调用写回 dsh-tavern 权威 Chat',
   assert.deepEqual(run.writes.map(function (item) { return item.metadata.source }), ['tavern-helper.variables', 'tavern-helper.messages'])
 })
 
+test('Host Adapter 追加 Helper 楼层并保留追加式剧情边界', async function () {
+  const run = harness()
+  const result = await run.adapter.createMessages('session-1', [{
+    role: 'assistant', message: '<chat_history>手机回复</chat_history>', is_hidden: false
+  }], {}, 2)
+
+  assert.equal(result.updated, true)
+  assert.deepEqual(result.targets, [{ messageId: 1 }])
+  assert.equal(run.chat.messages[1].role, 'tavern-helper')
+  assert.equal(run.chat.messages[1].tavernRole, 'assistant')
+  assert.equal(run.chat.messages[1].turn, undefined)
+  assert.equal(run.writes.at(-1).metadata.source, 'tavern-helper.messages.create')
+})
+
 test('Host Adapter 把全局变量保存到 Profile 作用域而不改写 Chat', async () => {
   const value = chat()
   const writes = []
@@ -321,6 +335,33 @@ test('Host Adapter 把全局变量保存到 Profile 作用域而不改写 Chat',
   assert.deepEqual(result.target, { type: 'global' })
   assert.deepEqual(result.globalVariables, {})
   assert.deepEqual(globals, {})
+  assert.equal(writes.length, 0)
+})
+
+test('Host Adapter 把人物卡变量保存到人物卡而不改写 Chat', async () => {
+  const value = chat()
+  const writes = []
+  const saved = []
+  const adapter = createTavernScriptHostAdapter({
+    resolveChat: async () => value,
+    writeChat: async (...args) => { writes.push(args) },
+    readCard: async () => ({ name: '测试卡' }),
+    worldBooks: { bound: async () => null },
+    scriptDispatch: { dispatch: async () => ({ handled: true }) },
+    characterVariables: {
+      save: async (cardPath, variables) => {
+        saved.push({ cardPath, variables: structuredClone(variables) })
+        return structuredClone(variables)
+      }
+    },
+    isPlayChat: () => true
+  })
+  const variables = { phone_data: { user: { name: '绘梨衣' } } }
+  const result = await adapter.updateVariables('session-1', { type: 'character' }, variables, 2)
+  assert.equal(result.updated, true)
+  assert.deepEqual(result.target, { type: 'character' })
+  assert.deepEqual(result.characterVariables, variables)
+  assert.deepEqual(saved, [{ cardPath: 'cards/test.json', variables }])
   assert.equal(writes.length, 0)
 })
 

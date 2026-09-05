@@ -1,6 +1,7 @@
 import { isDeepStrictEqual } from 'node:util'
 import { applyChatPluginData, validateChatPluginRequest } from './tavern-chat-plugin-data.js'
 import {
+  appendTavernHelperMessages,
   lastTavernHelperVariables,
   projectTavernHelperContext,
   replaceTavernHelperMessages,
@@ -102,6 +103,15 @@ export function createTavernScriptHostAdapter(options = {}) {
       const saved = await options.globalVariables.save(variables && typeof variables === 'object' && !Array.isArray(variables) ? variables : {})
       return { updated: true, target: { type: 'global' }, globalVariables: structuredClone(saved) }
     }
+    if (option && option.type === 'character') {
+      if (!options.characterVariables || typeof options.characterVariables.save !== 'function') throw new Error('人物卡变量存储未连接')
+      const transaction = settlementTransactions.get(str(sessionId))
+      if (transaction) throw new Error('MVU 结算事务不能修改跨对话的人物卡变量')
+      const saved = await serializeWorldbook('card-variables:' + str(chat.cardPath), function () {
+        return options.characterVariables.save(chat.cardPath, variables && typeof variables === 'object' && !Array.isArray(variables) ? variables : {}, str(sessionId))
+      })
+      return { updated: true, target: { type: 'character' }, characterVariables: structuredClone(saved) }
+    }
     const updated = replaceTavernHelperVariables(chat, { option, variables })
     const transactional = transactionResult(sessionId, updated)
     if (transactional !== null) return transactional
@@ -149,6 +159,25 @@ export function createTavernScriptHostAdapter(options = {}) {
       throw error
     }
     return { updated: true, targets: updated, context: projectTavernHelperContext(chat) }
+  }
+
+  async function createMessages(sessionId, messages, option, expectedLifecycleRevision, eventId) {
+    const transaction = settlementTransactions.get(str(sessionId))
+    assertTransactionEvent(transaction, eventId)
+    if (transaction !== undefined) throw new Error('MVU 结算事务不能创建额外聊天楼层')
+    const chat = await resolveChat(sessionId)
+    await assertScriptEnabled(chat)
+    if (!mutationIsCurrent(chat, expectedLifecycleRevision)) return staleMutation(chat)
+    const created = appendTavernHelperMessages(chat, messages, option)
+    try { await options.writeChat(chat, { source: 'tavern-helper.messages.create' }) }
+    catch (error) {
+      if (error && error.code === 'DSH_TAVERN_CHAT_CONFLICT') {
+        const latest = await options.resolveChat(str(sessionId))
+        if (latest !== undefined && !mutationIsCurrent(latest, expectedLifecycleRevision)) return staleMutation(latest)
+      }
+      throw error
+    }
+    return { updated: true, targets: created, context: projectTavernHelperContext(chat) }
   }
 
   async function worldbookRecord(sessionId, requestedName) {
@@ -240,7 +269,9 @@ export function createTavernScriptHostAdapter(options = {}) {
   async function saveExtensionSettings(sessionId, settings, expectedSettings) {
     await assertScriptEnabled(await resolveChat(sessionId))
     if (!options.extensionSettings) throw new Error('插件设置存储未连接')
-    return { updated: true, extensionSettings: await options.extensionSettings.save(settings, expectedSettings) }
+    const extensionSettings = await options.extensionSettings.save(settings, expectedSettings)
+    if (typeof options.extensionSettingsChanged === 'function') await options.extensionSettingsChanged(str(sessionId))
+    return { updated: true, extensionSettings }
   }
 
   async function context(sessionId, chatValue, transientUserText = '') {
@@ -403,6 +434,7 @@ export function createTavernScriptHostAdapter(options = {}) {
     settleMvuUpdate,
     updateVariables,
     updateMessages,
+    createMessages,
     getWorldbook,
     replaceWorldbook,
     saveExtensionSettings,

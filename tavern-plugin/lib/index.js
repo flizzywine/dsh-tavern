@@ -14,6 +14,7 @@ import { createSessionStablePrefixStorage, ensureSessionStablePrefix, readSessio
 import { waitForWritableSession } from './domain/agent-readiness.js'
 import { createCardDeletion } from './domain/card-deletion.js'
 import { createCardPreparation } from './domain/card-preparation.js'
+import { withGlobalRegexScripts } from './domain/card-extension-reading.js'
 import { projectCardOpeningPreviews } from './domain/card-opening-previews.js'
 import { READABLE_CARD_FIELDS, readCardField } from './domain/card-reading.js'
 import { createConversationInitialization } from './domain/conversation-initialization.js'
@@ -48,6 +49,7 @@ import { TAVERN_COMPATIBILITY_CAPABILITIES, createTavernCompatibilityDiagnosticS
 import { createMvuDiagnosticStore, createMvuDiagnosticExport, sanitizeRuntimeDiagnostics, sanitizeMvuLoadDiagnostic, redactMvuLoadError } from './domain/mvu-diagnostics.js'
 import { projectPersistentStatusView } from './domain/persistent-status-view.js'
 import { createPlayChatDebugReference, readPlayChatDebugTurn } from './domain/play-chat-debug.js'
+import { createPhoneChat } from './domain/phone-chat.js'
 import { createPresetLibrary } from './domain/preset-library.js'
 import { resolveRuntimePresetMacros } from './domain/runtime-presets.js'
 import { compileSillyTavernRequest } from './domain/sillytavern-compatibility.js'
@@ -66,6 +68,7 @@ import { createTavernScriptHostAdapter } from './domain/tavern-script-host-adapt
 import { createTavernRemoteAssetPinStore } from './domain/tavern-remote-assets.js'
 import { OFFICIAL_MVU_VERSION, readOfficialMvuBundle, inspectOfficialMvuAsset } from './domain/official-mvu-assets.js'
 import { TAVERN_RUNTIME_ASSET_PREFIX, readTavernRuntimeAsset } from './domain/tavern-runtime-assets.js'
+import { TAVERN_CLIENT_ASSET_PREFIX, readTavernClientAsset } from './domain/tavern-client-assets.js'
 import { createTavernStaticResourceCache, projectCachedResourceBody } from './domain/tavern-static-resource-cache.js'
 import { SILLYTAVERN_CSS_COMPAT_URLS } from './domain/sillytavern-css-compatibility.js'
 import { createRoundHistory } from './domain/round-history.js'
@@ -92,7 +95,7 @@ import { createTavernCompactionCoordinator } from './domain/tavern-compaction.js
 import { cordisToolNames, createTurnOrchestrator, dshFileToolNames } from './domain/turn-orchestration.js'
 import { resourceWorkspaceContext } from './domain/workspace-resources.js'
 import { createWorldBookLibrary } from './domain/worldbook-library.js'
-import { mvuUpdateRulesFromWorldBook, prepareWorldBookRecall } from './domain/worldbook-recall.js'
+import { mvuUpdateRulesFromWorldBook, prepareWorldBookRecall, projectWorldBookTemplates } from './domain/worldbook-recall.js'
 import {
   createBackgroundTaskCoordinator,
   isOpeningAwaitingSettlement
@@ -454,7 +457,9 @@ export async function apply(ctx) {
   }
   async function readCardExtensions(cardPath) {
     const workspace = await readCardWorkspace(cardPath)
-    return workspace === undefined ? undefined : cardPreparation.present({ card: workspace, as: 'card-extensions' })
+    if (workspace === undefined) return undefined
+    const extensions = cardPreparation.present({ card: workspace, as: 'card-extensions' })
+    return withGlobalRegexScripts(extensions, await tavernExtensionSettings.read())
   }
   async function readScript(scriptOrCardPath) {
     if (str(scriptOrCardPath) === '') return undefined
@@ -757,6 +762,16 @@ export async function apply(ctx) {
     await syncCardName(cardPath, savedCard.name)
     return Object.assign({}, change, { card: savedCard })
   }
+  async function replaceCardVariables(cardPath, variables) {
+    const workspace = await readCardWorkspace(cardPath)
+    if (workspace === undefined) throw new Error('人物卡不存在: ' + cardPath)
+    const raw = cardPreparation.present({ card: workspace, as: 'raw' })
+    const root = raw && (raw.spec === 'chara_card_v2' || raw.spec === 'chara_card_v3') && raw.data && typeof raw.data === 'object'
+      ? '/data/extensions/tavern_helper/variables'
+      : '/extensions/tavern_helper/variables'
+    await updateCard(cardPath, {}, undefined, [{ op: 'set', path: root, value: variables }])
+    return structuredClone(variables)
+  }
   async function syncCardName(cardPath, cardName) {
     const idx = await readIndex()
     idx.chats = (idx.chats || []).map(function (item) { return item.cardPath === cardPath ? Object.assign({}, item, { cardName: cardName }) : item })
@@ -926,11 +941,21 @@ export async function apply(ctx) {
     worldBooks,
     scriptDispatch: tavernScriptDispatch,
     extensionSettings: tavernExtensionSettings,
+    extensionSettingsChanged: async function (sessionId) {
+      sessionSignals.publish(sessionId, { kind: 'tavern-state', version: 'extension-settings:' + await profileData.version('tavern-extension-settings.json') })
+    },
     globalVariables: {
       read: readPromptTemplateGlobalVariables,
       save: async function (variables) {
         await writePromptTemplateGlobalVariables(variables)
         return await readPromptTemplateGlobalVariables()
+      }
+    },
+    characterVariables: {
+      save: async function (cardPath, variables, sessionId) {
+        const saved = await replaceCardVariables(cardPath, variables)
+        sessionSignals.publish(sessionId, { kind: 'tavern-state', version: 'character-variables:' + Date.now() })
+        return saved
       }
     },
     diagnostics: mvuDiagnostics,
@@ -1054,6 +1079,7 @@ export async function apply(ctx) {
       card: cardViewOf(card, chat),
       posture: chat.posture || '',
       characterDesigns: projectCharacterDesignDocument(chat.characterDesignDocument),
+      phoneChat: phoneChat.project(chat, card),
       guides: Array.isArray(chat.guides) ? chat.guides : [],
       debugTurns: debugTurns.slice(-12).reverse(),
       inputSources,
@@ -1062,7 +1088,7 @@ export async function apply(ctx) {
       replyProjections: replyDisplay.projections,
       tavernStatusView: replyDisplay.statusView || null,
       mvuReceipts: mvuReceiptsOf(chat),
-      tavernHelper: helperEnabled ? { ...projectTavernHelperContext(chat), globalVariables: await readPromptTemplateGlobalVariables(), compatibilityCapabilities: TAVERN_COMPATIBILITY_CAPABILITIES, extensionSettings: await tavernExtensionSettings.read() } : null,
+      tavernHelper: helperEnabled ? { ...projectTavernHelperContext(chat), globalVariables: await readPromptTemplateGlobalVariables(), characterVariables: cardExtensions.variables || {}, compatibilityCapabilities: TAVERN_COMPATIBILITY_CAPABILITIES, extensionSettings: await tavernExtensionSettings.read(), regexScripts: { global: cardExtensions.globalRegexScripts || [], character: cardExtensions.characterRegexScripts || [] } } : null,
       tavernMvuRuntime: chat.mvu && chat.mvu.enabled === true ? {
         owner: chat.mvu.owner === 'official' ? 'official' : 'legacy',
         commit: OFFICIAL_MVU_VERSION.commit,
@@ -1284,6 +1310,13 @@ export async function apply(ctx) {
     store: { readChat, updateChat },
     now: Date.now
   })
+  const phoneChat = createPhoneChat({
+    store: { chatForSession, readCard, updateChat },
+    runAgent: function (input) { return backgroundAgentRunner.run(input) },
+    selection: backgroundModelSelection,
+    now: Date.now,
+    id: function () { return uid('phone-message') }
+  })
   const mvuSettlement = createMvuSettlementModule({
     model: backgroundAgentRunner,
     runtime: tavernScriptHostAdapter,
@@ -1348,6 +1381,28 @@ export async function apply(ctx) {
       return { status: 'failed', message: str(error && error.message || error) || '后台压缩失败' }
     }
   }
+  async function nativeWorldBookTemplateContext(chat, card) {
+    let worldBook
+    try {
+      worldBook = await worldBooks.bound(chat.cardPath, card)
+    } catch (error) {
+      console.warn('dsh-tavern: 动态世界书读取失败，已跳过:', str(error && error.message || error))
+      return { context: '', refs: [], diagnostics: [{ kind: 'worldbook-template', code: 'worldbook-read-failed' }] }
+    }
+    if (!worldBook || !worldBook.view) return { context: '', refs: [], diagnostics: [] }
+    try {
+      return projectWorldBookTemplates({
+        worldBook,
+        runtime: await promptTemplateRuntime(),
+        globalVariables: await readPromptTemplateGlobalVariables(),
+        card,
+        chat
+      })
+    } catch (error) {
+      console.warn('dsh-tavern: 动态世界书解析失败，已跳过:', str(error && error.message || error))
+      return { context: '', refs: [], diagnostics: [{ kind: 'worldbook-template', code: 'projection-failed' }] }
+    }
+  }
   const candidateGenerator = createCandidateGenerator({
     store: {
       chatForSession: chatForSession,
@@ -1362,7 +1417,11 @@ export async function apply(ctx) {
       runCandidate: backgroundAgentRunner.run
     },
     planner: contextPlanner,
-    stableWorldBookContext: playCardSnapshots.constantContext,
+    stableWorldBookContext: async function (chat, card) {
+      const fixed = await playCardSnapshots.constantContext(chat, card)
+      const dynamic = await nativeWorldBookTemplateContext(chat, card)
+      return [fixed, str(dynamic.context).trim()].filter(Boolean).join('\n\n')
+    },
     prompt: runtimePrompt,
     scripts: scriptContinuity,
     timeline: storyTimeline,
@@ -1446,7 +1505,9 @@ export async function apply(ctx) {
 
   // ---------- 后台结算 ----------
   function settleUserText(chat) {
-    const msgs = (chat.messages || []).slice(-2)
+    const msgs = (chat.messages || []).filter(function (message) {
+      return message && (message.role === 'user' || message.role === 'assistant')
+    }).slice(-2)
     const lines = [
       '【上一轮结算姿势】',
       str(chat.posture) !== '' ? projectAgentContent(chat.posture, { charName: chat.cardName, macroState: chat.macroState }).agentText : '（无）',
@@ -1912,6 +1973,7 @@ export async function apply(ctx) {
       return renderCardText(text, { name: chat.cardName }, chat.macroState)
     },
     projectReply: projectRuntimeReply,
+    projectWorldBookTemplates: nativeWorldBookTemplateContext,
     resolvePresetRegexScripts: async function (chat) {
       if (!chat || groupOfMode(chat.mode) !== 'play') return []
       const snapshot = await runtimePresets.fullSnapshot()
@@ -1984,6 +2046,10 @@ export async function apply(ctx) {
       case 'checkUpdate': return { status: await applicationUpdater.check() }
       case 'startUpdate': return { status: await applicationUpdater.start() }
       case 'getCardOpenings': return await getCardOpenings(args && args.path, args && args.userName, args && args.requestMode)
+      case 'preparePlayStart': {
+        await runtimePresets.prepareFullSnapshot()
+        return { prepared: true }
+      }
       case 'getUserPreferenceProfile': {
         const chat = await chatForSession(args && args.sessionId)
         return {
@@ -2163,6 +2229,7 @@ export async function apply(ctx) {
       case 'captureDisplayRuntime': return await captureDisplayRuntime(args && args.sessionId, args && args.turn, args && args.partIndex, args && args.runtime)
 	      case 'updateTavernHelperVariables': return await tavernScriptHostAdapter.updateVariables(args && args.sessionId, args && args.option, args && args.variables, args && args.expectedLifecycleRevision, args && args.eventId)
 	      case 'updateTavernHelperMessages': return await tavernScriptHostAdapter.updateMessages(args && args.sessionId, args && args.messages, args && args.expectedLifecycleRevision, args && args.eventId)
+	      case 'createTavernHelperMessages': return await tavernScriptHostAdapter.createMessages(args && args.sessionId, args && args.messages, args && args.option, args && args.expectedLifecycleRevision, args && args.eventId)
       case 'saveTavernChatData': return await tavernScriptHostAdapter.saveChatData(args && args.sessionId, args && args.request)
       case 'saveTavernExtensionSettings': return await tavernScriptHostAdapter.saveExtensionSettings(args && args.sessionId, args && args.settings, args && args.expectedSettings)
       case 'loadTavernWorldInfo': return await tavernScriptHostAdapter.loadWorldInfo(args && args.sessionId, args && args.name)
@@ -2189,6 +2256,7 @@ export async function apply(ctx) {
         }
       }
       case 'getSession': return { view: await sessionView(args && args.sessionId) }
+      case 'sendPhoneMessage': return { phoneChat: await phoneChat.send(args || {}) }
       case 'prepareCompaction': return { plan: await tavernCompaction.prepare(args && args.sessionId) }
       case 'compactBackground': return { result: await compactBackground(args && args.sessionId, args && args.operationId) }
       case 'completeCompaction': return { result: await tavernCompaction.complete(args && args.sessionId, args) }
@@ -2252,6 +2320,7 @@ export async function apply(ctx) {
         const readsStaticAsset = req.method === 'GET' && pathname === '/api/dsh-tavern/static-assets'
         const readsOfficialMvu = req.method === 'GET' && pathname === OFFICIAL_MVU_VERSION.assetUrl
         const readsRuntimeAsset = req.method === 'GET' && pathname.startsWith(TAVERN_RUNTIME_ASSET_PREFIX)
+        const readsClientAsset = req.method === 'GET' && pathname.startsWith(TAVERN_CLIENT_ASSET_PREFIX)
         const origin = req.headers.origin
         const sceneImageRoute = TAVERN_RELEASE_CAPABILITIES.sceneImages && /^\/api\/dsh-tavern\/(?:scene-image|getSceneImageSettings|saveSceneImageSettings|testSceneImageConnection|listSceneImageModels|sceneImageStatus|generateSceneImage|retrySceneImageSave|cancelSceneImage|removeSceneImage|setSceneImageReference)$/.test(pathname)
         const sceneSameOrigin = sceneImageRoute && (origin === 'http://' + req.headers.host || origin === 'https://' + req.headers.host)
@@ -2267,7 +2336,7 @@ export async function apply(ctx) {
           res.end('forbidden')
           return
         }
-        if (!readsCachedAsset && !readsStaticAsset && !readsOfficialMvu && !readsRuntimeAsset && !sceneSameOrigin && typeof origin === 'string' && origin !== '' && !/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin)) {
+        if (!readsCachedAsset && !readsStaticAsset && !readsOfficialMvu && !readsRuntimeAsset && !readsClientAsset && !sceneSameOrigin && typeof origin === 'string' && origin !== '' && !/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin)) {
           res.writeHead(403)
           res.end('forbidden')
           return
@@ -2281,6 +2350,22 @@ export async function apply(ctx) {
           return
         }
         try {
+          if (readsClientAsset) {
+            const asset = await readTavernClientAsset(pathname)
+            if (asset === undefined) {
+              res.writeHead(404, { 'X-Content-Type-Options': 'nosniff' })
+              res.end('not found')
+              return
+            }
+            res.writeHead(200, {
+              'Content-Type': asset.mediaType,
+              'Content-Length': asset.body.length,
+              'Cache-Control': 'no-cache',
+              'X-Content-Type-Options': 'nosniff'
+            })
+            res.end(asset.body)
+            return
+          }
           if (readsRuntimeAsset) {
             const asset = await readTavernRuntimeAsset(pathname)
             res.writeHead(200, {
@@ -2800,11 +2885,12 @@ export async function apply(ctx) {
       workspaceContext: resourceWorkspaceContext,
       ensureSessionPrefix: async function (input) {
         const session = input.payload.agent.session
+        const projectedText = await ensurePlayCardSnapshot(input.chat)
         const existing = readSessionStablePrefix(session)
-        if (existing) return existing
-        const fixed = await ensureSessionStablePrefix(session, await ensurePlayCardSnapshot(input.chat), stablePrefixStorage)
+        if (existing) return Object.assign({}, existing, { projectedText })
+        const fixed = await ensureSessionStablePrefix(session, projectedText, stablePrefixStorage)
         await sessionStore.flush(session)
-        return fixed
+        return fixed === null ? null : Object.assign({}, fixed, { projectedText })
       },
       controlledToolNames
     }

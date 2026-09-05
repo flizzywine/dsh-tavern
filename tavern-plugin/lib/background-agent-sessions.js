@@ -67,6 +67,10 @@ export function createBackgroundAgentSessions(options, task) {
       ...(persistent ? { agentProvider: input.selection.provider, agentModel: input.selection.model,
         persona: '维护本游戏的场景绘图方案，不续写故事、不修改变量。当前目标材料与保存的方案优先于旧任务。' } : {})
     })
+    if (input.task === 'phone') return snapshotSubagentDescriptor({
+      mode: 'one-shot', provider: 'dsh-tavern-phone', label: '手机私聊',
+      persona: '只扮演指定联系人回复一条手机私聊，不推进正文或修改游戏状态。'
+    })
     if (!persistent) return snapshotSubagentDescriptor({ mode: 'one-shot', provider: LEGACY_BACKGROUND_PROVIDER, label: '候选研究' })
     return snapshotSubagentDescriptor({
       mode: 'continuable',

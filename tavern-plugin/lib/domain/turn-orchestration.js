@@ -230,6 +230,9 @@ export function createTurnOrchestrator(options) {
   const projectReply = typeof options.projectReply === 'function'
     ? options.projectReply
     : function (text) { return { bodyText: str(text), presentationHtml: '', warnings: [] } }
+  const projectWorldBookTemplates = typeof options.projectWorldBookTemplates === 'function'
+    ? options.projectWorldBookTemplates
+    : async function () { return { context: '', refs: [], diagnostics: [] } }
   const shellToolName = options.shellToolName === 'pwsh' ? 'pwsh' : 'bash'
 
   async function prepare(input) {
@@ -336,9 +339,13 @@ export function createTurnOrchestrator(options) {
 
     // 世界书关键词匹配在上一轮正文提交后本地完成。正文准备只读取已经
     // 保存好的下一轮上下文，玩家输入和候选项选择都不能在此重新触发匹配。
-    const worldBookContext = str(chat.preparedWorldBookContext).trim()
+    const templateWorldBook = await projectWorldBookTemplates({ chat, card, turn, userText: runtimeUserText })
+    const worldBookContext = [str(chat.preparedWorldBookContext).trim(), str(templateWorldBook && templateWorldBook.context).trim()].filter(Boolean).join('\n\n')
     const sceneWorldbook = typeof options.captureSceneWorldbook === 'function' ? await options.captureSceneWorldbook(chat, card) : null
     const plan = await planner.plan({ purpose: 'body', card, chat, userText: runtimeUserText, sessionId: input.sessionId, nativeTurn: turn, scriptReference, worldBookContext })
+    const source = frameSource(chat, card, foregroundOperation)
+    source.worldBook.templateRefs = Array.isArray(templateWorldBook && templateWorldBook.refs) ? clone(templateWorldBook.refs) : []
+    source.worldBook.templateDiagnostics = Array.isArray(templateWorldBook && templateWorldBook.diagnostics) ? clone(templateWorldBook.diagnostics) : []
     const frame = frameBuilder.build({
       chatId: chat.id,
       branchId: foregroundOperation.basedOn.branchId,
@@ -346,7 +353,7 @@ export function createTurnOrchestrator(options) {
       operationId: foregroundOperation.operationId,
       turn,
       inputs: foregroundFrameInputs(plan, userText, runtimeUserText, chat.runtimePresetSnapshot, chat),
-      source: { ...frameSource(chat, card, foregroundOperation), ...(sceneWorldbook ? { sceneWorldbook } : {}) }
+      source: { ...source, ...(sceneWorldbook ? { sceneWorldbook } : {}) }
     })
     rememberFrame(chat, frame)
     chatChanged = true

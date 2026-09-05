@@ -21,7 +21,7 @@ ${settings}
 function ModeSwitch(){const [uiMode,setMode]=React.useState('play');const requestMode='dsh',busy=false;const switchMode=setMode;const switchPlayRequestMode=()=>setMode('play');return ${modeSwitch};}
 modules['react-dom/client'].createRoot(document.querySelector('#app')).render(h(React.Fragment,null,h(ModeSwitch),h(TavernSettingsSection)));
 `
-const css = source.split('const TAVERN_CSS = `')[1].split('`;')[0]
+const css = await readFile(new URL('../../tavern-plugin/lib/client-assets/tavern.css', import.meta.url), 'utf8')
 const page = `<!doctype html><meta charset="utf-8"><title>兼容模式关闭验证</title><style>body{font:16px sans-serif;max-width:680px;margin:40px auto;color:#222}${css}</style><div id="app"></div><script>${script.replaceAll('</script', '<\\/script')}</script>`
 let document = { compatibilityMode: true, unknown: 'preserved' }
 const server = createServer(async (req, res) => {

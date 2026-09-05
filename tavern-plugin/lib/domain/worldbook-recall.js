@@ -1,3 +1,5 @@
+import { lastTavernHelperVariables } from './tavern-helper-context.js'
+
 const DYNAMIC_ENTRY_LIMIT = 3
 const READ_COOLDOWN_TURNS = 10
 
@@ -28,6 +30,41 @@ function enabledEntries(worldBook) {
   if (view === null || typeof view !== 'object') return []
   return (Array.isArray(view.entries) ? view.entries : []).filter(function (entry) {
     return entry && entry.enabled !== false && str(entry.content).trim() !== ''
+  })
+}
+
+function allEntries(worldBook) {
+  const view = worldBook && worldBook.view
+  return view !== null && typeof view === 'object' && Array.isArray(view.entries) ? view.entries.filter(Boolean) : []
+}
+
+export function isWorldBookTemplateEntry(entry) {
+  return /<%[=_-]?[\s\S]*?%>/i.test(str(entry && entry.content))
+}
+
+function templateBody(value) {
+  const lines = str(value).replaceAll('\r\n', '\n').split('\n')
+  let index = 0
+  while (index < lines.length && /^@@\S*/.test(lines[index].trim())) index += 1
+  return lines.slice(index).join('\n')
+}
+
+function templateResource(entry, book) {
+  return {
+    id: str(entry.sourceUid ?? entry.ref),
+    name: str(entry.title || entry.comment),
+    comment: str(entry.comment || entry.title),
+    book: str(book),
+    content: str(entry.content)
+  }
+}
+
+function transcriptOf(chat) {
+  return (Array.isArray(chat && chat.messages) ? chat.messages : []).filter(Boolean).map(function (message) {
+    return {
+      role: message.role === 'user' ? 'user' : 'assistant',
+      content: str(message.sourceText || message.text)
+    }
   })
 }
 
@@ -137,13 +174,63 @@ function readRecorder(entries, turn) {
 /** Constant Tavern entries are part of the stable play prefix and never enter cooldown. */
 export function constantWorldBookContext(input = {}) {
   const entries = tavernOrder(enabledEntries(input.worldBook).filter(function (entry) {
-    return entry.constant === true && !isMvuUpdateEntry(entry)
+    return entry.constant === true && !isMvuUpdateEntry(entry) && !isWorldBookTemplateEntry(entry)
   }))
   return {
     context: entries.map(function (entry) { return str(entry.content).trim() }).filter(Boolean).join('\n\n'),
     refs: entries.map(function (entry) { return str(entry.ref) }),
     count: entries.length,
     totalChars: entries.reduce(function (total, entry) { return total + charCount(entry.content) }, 0)
+  }
+}
+
+/** Resolve enabled constant EJS controllers for one native DSH foreground turn.
+ * Disabled entries remain addressable by getwi(), but never activate themselves.
+ * Scope mutations stay inside this read-only projection and cannot change Chat state.
+ */
+export function projectWorldBookTemplates(input = {}) {
+  const runtime = input.runtime
+  if (!runtime || typeof runtime.render !== 'function') throw new Error('缺少世界书模板运行时')
+  const resources = allEntries(input.worldBook)
+  const controllers = tavernOrder(resources.filter(function (entry) {
+    return entry.enabled !== false && entry.constant === true && !isMvuUpdateEntry(entry) && isWorldBookTemplateEntry(entry)
+  }))
+  let scopes = {
+    global: clone(input.globalVariables || {}),
+    initial: clone(input.chat && input.chat.promptTemplateInitialVariables || {}),
+    local: clone(input.chat && input.chat.variables || {}),
+    message: lastTavernHelperVariables(input.chat && input.chat.messages) || {}
+  }
+  const context = []
+  const refs = []
+  const diagnostics = []
+  const templateContext = {
+    charName: str(input.card && input.card.name),
+    userName: str(input.chat && input.chat.macroState && input.chat.macroState.userName) || '你',
+    runType: 'generate',
+    generateType: str(input.generateType),
+    transcript: transcriptOf(input.chat),
+    worldBookEntries: resources.map(function (entry) {
+      return templateResource(entry, input.worldBook && input.worldBook.view && input.worldBook.view.displayName)
+    })
+  }
+  for (const entry of controllers) {
+    const result = runtime.render(templateBody(entry.content), Object.assign({}, templateContext, { scopes }))
+    if (!result.ok) {
+      diagnostics.push({ kind: 'worldbook-template', code: result.kind, ref: str(entry.ref) })
+      continue
+    }
+    scopes = clone(result.scopes)
+    const text = str(result.text).trim()
+    if (text === '') continue
+    context.push(text)
+    refs.push(str(entry.ref))
+  }
+  return {
+    context: context.join('\n\n'),
+    refs,
+    diagnostics,
+    evaluated: controllers.length
   }
 }
 

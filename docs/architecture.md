@@ -128,7 +128,9 @@ Tavern Profile 是 CLI 与 DSH Desktop 共用的宿主 seam，本身不声明 We
 用户可写数据固定存放在 `$DSH_HOME/profile-data/tavern/data`，不跟随源码目录、更新位置或 Git worktree。源码只保存内置提示词、默认配置和程序文件。升级安装会先完整备份旧源码目录中的 `data`，再合并到固定目录；普通文件冲突不覆盖主数据，而是保留到 `migration-conflicts/` 供人工检查。
 
 - `tavern-plugin/lib/index.js` 是宿主适配器，把 DSH 生命周期、HTTP 和文件存储接到领域模块。
-- `tavern-plugin/lib/client.js` 是 Web 宿主适配器。受 DSH 浏览器模块加载边界限制，纵向产品能力暂以文件内 Feature Module 存在；每个模块同时拥有自己的 UI 状态、RPC 调用和注册逻辑，只向宿主暴露 `register`。
+- `tavern-plugin/src/client/` 是 Web 客户端维护源码。纵向产品能力按 Feature Module 拆分，模块同时拥有自己的 UI 状态、RPC 调用和注册逻辑，只向宿主暴露窄接口。
+- `tavern-plugin/lib/client.js` 是由 `pnpm build:client` 确定性组装的单一 Web 运行产物，以适配 DSH 当前的浏览器模块加载边界；提交前用 `pnpm check:client` 拒绝过期产物，不直接编辑该文件。
+- `tavern-plugin/lib/client-assets/tavern.css` 是独立客户端样式模块，由 `tavern-client-assets.js` 通过本地只读路由提供；Web 宿主适配器只负责装载，不再同时持有整份视觉实现。
 - `tavern-plugin/lib/prompt-catalog.js` 是提示词文件适配器。领域模块通过注入的 `prompt` 读取固定提示词，不直接依赖文件系统。
 - Tavern preset 复用 DSH 原生 Skill 注册表、文件提供方和加载工具，但只扫描 `presets/tavern/skills/` 与 `data/skills/`；全局 Skills、游玩模式和后台任务均不进入这条能力边界。
 - `Tavern Skill Module` 是用户 Skill 的唯一写入口，校验名称和正文、原子保存文件、保护内置 Skill，并要求同名覆盖具有明确意图。
@@ -178,40 +180,42 @@ Web 端按产品能力划分为 Tavern Shell、Play Controls、Card Library、Wo
 ## 源码地图
 
 ```text
-tavern-plugin/lib/
-├── client.js                     Web 宿主适配器与纵向 Feature Modules
-├── index.js                      DSH、HTTP 与存储适配器
-├── background-agent-runner.js    后台 Agent 适配器
-├── prompt-catalog.js             提示词文件适配器
-└── domain/
-    ├── agent-readiness.js
-    ├── background-task-coordinator.js
-    ├── candidate-generation.js
-    ├── card-deletion.js
-    ├── card-extension-reading.js
-    ├── card-openings.js
-    ├── card-preparation.js
-    ├── card-reading.js
-    ├── context-planner.js
-    ├── epub-text.js
-    ├── file-resources.js
-    ├── preset-reading.js
-    ├── reply-presentation.js
-    ├── runtime-presets.js
-    ├── runtime-content-projection.js
-    ├── script-continuity.js
-    ├── skill-visibility.js
-    ├── story-timeline.js
-    ├── tavern-conversation-registry.js
-    ├── tavern-data.js
-    ├── tavern-macro-engine.js
-    ├── tavern-regex-display.js
-    ├── tavern-skills.js
-    ├── turn-orchestration.js
-    ├── workspace-resources.js
-    ├── worldbook-library.js
-    ├── worldbook-recall.js
-    └── worldbook-resource.js
+tavern-plugin/
+├── src/client/                   Web 宿主源码、组装模板与纵向 Feature Modules
+├── lib/client.js                 确定性生成的单文件 Web 运行产物
+└── lib/
+    ├── index.js                  DSH、HTTP 与存储适配器
+    ├── background-agent-runner.js 后台 Agent 适配器
+    ├── prompt-catalog.js         提示词文件适配器
+    └── domain/
+        ├── agent-readiness.js
+        ├── background-task-coordinator.js
+        ├── candidate-generation.js
+        ├── card-deletion.js
+        ├── card-extension-reading.js
+        ├── card-openings.js
+        ├── card-preparation.js
+        ├── card-reading.js
+        ├── context-planner.js
+        ├── epub-text.js
+        ├── file-resources.js
+        ├── preset-reading.js
+        ├── reply-presentation.js
+        ├── runtime-presets.js
+        ├── runtime-content-projection.js
+        ├── script-continuity.js
+        ├── skill-visibility.js
+        ├── story-timeline.js
+        ├── tavern-conversation-registry.js
+        ├── tavern-data.js
+        ├── tavern-macro-engine.js
+        ├── tavern-regex-display.js
+        ├── tavern-skills.js
+        ├── turn-orchestration.js
+        ├── workspace-resources.js
+        ├── worldbook-library.js
+        ├── worldbook-recall.js
+        └── worldbook-resource.js
 ```
 
 跨 Agent 同步见[剧情时间线设计](design/agent-timeline.md)，剧本进度见[剧本游标设计](design/script-cursor.md)。权威决策记录在 [`adr/`](adr/)；产品取舍以[产品设计原则](product-design.md)为准，本文件的“领域语言”章节是术语权威来源。

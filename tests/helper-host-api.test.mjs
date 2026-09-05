@@ -19,6 +19,40 @@ test('插件命名空间与全局函数共享实现，context 在更新后读取
   assert.equal(w.TavernHelper.generateRaw, undefined, '不暴露尚未实现的能力')
 })
 
+test('createChatMessages 追加楼层并等待宿主确认后更新同步上下文', async () => {
+  const run = helperHostHarness({
+    messages: [{ message_id: 0, role: 'assistant', message: '正文', swipes: ['正文'], swipe_id: 0 }]
+  })
+  const w = run.window
+  assert.equal(w.TavernHelper.createChatMessages, w.createChatMessages)
+
+  const pending = w.createChatMessages([{
+    role: 'assistant',
+    message: '<chat_history target="楚青妤">回复</chat_history>',
+    is_hidden: false,
+    data: { phone: true }
+  }])
+  await tick()
+
+  assert.deepEqual(JSON.parse(JSON.stringify(run.calls()[0])), {
+    type: 'dsh-tavern-helper-call', token: 'host-test', requestId: '1',
+    method: 'createTavernHelperMessages', args: {
+      messages: [{ role: 'assistant', message: '<chat_history target="楚青妤">回复</chat_history>', is_hidden: false, data: { phone: true } }],
+      option: {}
+    }, eventId: '', scriptId: 'a'
+  })
+  run.reply(run.calls()[0], {
+    updated: true,
+    context: { messages: [
+      { message_id: 0, role: 'assistant', message: '正文', swipes: ['正文'], swipe_id: 0 },
+      { message_id: 1, role: 'assistant', message: '<chat_history target="楚青妤">回复</chat_history>', swipes: ['<chat_history target="楚青妤">回复</chat_history>'], swipe_id: 0, variables: { phone: true } }
+    ] }
+  })
+  assert.equal(await pending, undefined)
+  assert.equal(w.getLastMessageId(), 1)
+  assert.equal(w.getChatMessages('1')[0].message, '<chat_history target="楚青妤">回复</chat_history>')
+})
+
 test('Helper 与 ST 共用事件总线，支持去重、重新排序、异步等待和旧字符串', async () => {
   const w = helperHostHarness().window, seen = []
   const first = async value => { await tick(); seen.push('first:' + value) }
