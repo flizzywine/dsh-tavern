@@ -34,6 +34,45 @@ function replaceTurnInput(messages, text) {
   return result
 }
 
+function isRegenerationInput(message) {
+  const source = message && message.source
+  return source && source.kind === 'plugin' && source.plugin === 'dsh-tavern-regen'
+}
+
+function isOriginalPlayerInput(message) {
+  const source = message && message.source
+  return message && message.role === 'user' && source && source.kind === 'user'
+}
+
+/**
+ * A body replacement is executed as a new append-only Agent turn, but the
+ * provider request must look like a fresh sample of the replaced story turn.
+ * Keep the original player-message identity, replace only its projected text,
+ * and remove the old turn frame/assistant plus the internal retry carrier.
+ */
+export function projectRegenerationRequestMessages(messages) {
+  const source = Array.isArray(messages) ? messages : []
+  let regenerationIndex = -1
+  for (let index = source.length - 1; index >= 0; index--) {
+    if (isRegenerationInput(source[index])) { regenerationIndex = index; break }
+  }
+  if (regenerationIndex < 0) return source
+  let assistantIndex = -1
+  for (let index = regenerationIndex - 1; index >= 0; index--) {
+    if (source[index] && source[index].role === 'assistant') { assistantIndex = index; break }
+  }
+  if (assistantIndex < 0) return source
+  let playerIndex = -1
+  for (let index = assistantIndex - 1; index >= 0; index--) {
+    if (isOriginalPlayerInput(source[index])) { playerIndex = index; break }
+  }
+  if (playerIndex < 0) return source
+  const projectedPlayer = Object.assign({}, source[playerIndex], {
+    content: Array.isArray(source[regenerationIndex].content) ? structuredClone(source[regenerationIndex].content) : []
+  })
+  return source.slice(0, playerIndex).concat([projectedPlayer], source.slice(regenerationIndex + 1))
+}
+
 function snapshotMessage(text) {
   return {
     id: crypto.randomUUID(),
@@ -166,7 +205,10 @@ export function createNativePlayOrchestrationStrategy(options) {
     const sessionId = str(optionsValue && optionsValue.sessionId)
     const staged = stagedRequests.get(sessionId)
     if (optionsValue === null || typeof optionsValue !== 'object' || optionsValue.purpose !== undefined || staged === undefined || redispatches.has(optionsValue)) return null
-    let request = projectRuntimePresetRequest(optionsValue, staged.snapshot, {
+    const regeneratedMessages = projectRegenerationRequestMessages(optionsValue.messages)
+    const baseRequest = regeneratedMessages === optionsValue.messages
+      ? optionsValue : Object.assign({}, optionsValue, { messages: regeneratedMessages })
+    let request = projectRuntimePresetRequest(baseRequest, staged.snapshot, {
       scope: staged.scope,
       turn: staged.turn,
       step: staged.step

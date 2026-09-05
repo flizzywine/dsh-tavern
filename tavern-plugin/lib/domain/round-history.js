@@ -150,7 +150,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     if (activeRound !== undefined && typeof cancelSettlement === 'function') await cancelSettlement(chat.id)
     const rolledMessageCount = (chat.messages || []).length
     const guide = str(guidance).trim()
-    const syntheticText = '【重新生成正文】\n原玩家输入：\n' + originalUserText + '\n\n指导意见：\n' + (guide !== '' ? guide : '（无）') + '\n\n请根据原玩家输入和指导意见重新生成小说正文。'
+    const syntheticText = originalUserText + (guide !== '' ? '\n\n【本轮补充要求】\n' + guide : '')
     const beforeLastTurn = agent.phase !== undefined && agent.phase !== null && Number.isFinite(Number(agent.phase.lastTurn)) ? Number(agent.phase.lastTurn) : 0
     try {
       agent.followup({

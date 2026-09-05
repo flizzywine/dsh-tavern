@@ -3,11 +3,15 @@ import test from 'node:test'
 
 import { Session } from './fixtures/dsh-session-host.mjs'
 import { sessionEvents } from '../tavern-plugin/lib/domain/session-events.js'
-import { createForegroundOrchestrationStrategies, createNativePlayOrchestrationStrategy, createCompatibilityOrchestrationStrategy } from '../tavern-plugin/lib/domain/foreground-orchestration-strategies.js'
+import { createForegroundOrchestrationStrategies, createNativePlayOrchestrationStrategy, createCompatibilityOrchestrationStrategy, projectRegenerationRequestMessages } from '../tavern-plugin/lib/domain/foreground-orchestration-strategies.js'
 import { ensureSessionStablePrefix } from '../tavern-plugin/lib/domain/session-stable-prefix.js'
 
 function userMessage(text) {
   return { role: 'user', content: [{ type: 'text', text }], source: { kind: 'user' } }
+}
+
+function pluginMessage(role, text, plugin, form) {
+  return { role, content: [{ type: 'text', text }], source: { kind: 'plugin', plugin, ...(form ? { form } : {}) } }
 }
 
 function strategies(overrides = {}) {
@@ -178,6 +182,44 @@ test('两种策略分别投影模型请求且不改写 DSH 原请求', async () 
   const compatProjected = run.compatibility.projectRequest(compatOptions, { turn: 3, step: 1 })
   assert.notEqual(compatProjected, compatOptions)
   assert.equal(compatProjected.messages[0].content[0].text, 'compat')
+})
+
+test('正文重生成在请求边界回到原玩家输入，不泄露旧回答或重生成元信息', () => {
+  const originalPlayer = { id: 'player-2', ...userMessage('推门') }
+  const messages = [
+    pluginMessage('user', '人物卡', 'dsh-tavern', 'snapshot'),
+    { role: 'assistant', content: [{ type: 'text', text: '开场' }], source: { kind: 'model' } },
+    originalPlayer,
+    pluginMessage('user', '旧本轮规则', 'dsh-tavern', 'foreground-frame'),
+    { role: 'assistant', content: [{ type: 'reasoning', text: '旧思考' }, { type: 'text', text: '旧正文' }], source: { kind: 'model' } },
+    pluginMessage('user', '推门', 'dsh-tavern-regen'),
+    pluginMessage('user', '新本轮规则', 'dsh-tavern', 'foreground-frame')
+  ]
+
+  const projected = projectRegenerationRequestMessages(messages)
+
+  assert.deepEqual(projected.map(message => message.role), ['user', 'assistant', 'user', 'user'])
+  assert.equal(projected[2].id, 'player-2')
+  assert.equal(projected[2].source.kind, 'user')
+  assert.equal(projected[2].content[0].text, '推门')
+  assert.equal(projected[3].content[0].text, '新本轮规则')
+  assert.doesNotMatch(JSON.stringify(projected), /旧思考|旧正文|旧本轮规则|重新生成|dsh-tavern-regen/)
+  assert.equal(messages.length, 7, '不改写 DSH 原请求')
+})
+
+test('带意见重生成只投影为本轮补充要求', () => {
+  const messages = [
+    userMessage('推门'),
+    pluginMessage('user', '旧本轮规则', 'dsh-tavern', 'foreground-frame'),
+    { role: 'assistant', content: [{ type: 'text', text: '旧正文' }], source: { kind: 'model' } },
+    pluginMessage('user', '推门\n\n【本轮补充要求】\n写得短一些', 'dsh-tavern-regen'),
+    pluginMessage('user', '新本轮规则', 'dsh-tavern', 'foreground-frame')
+  ]
+
+  const projected = projectRegenerationRequestMessages(messages)
+
+  assert.equal(projected[0].content[0].text, '推门\n\n【本轮补充要求】\n写得短一些')
+  assert.doesNotMatch(JSON.stringify(projected), /旧正文|重新生成|dsh-tavern-regen/)
 })
 
 test('兼容与普通游玩均清空独立系统提示，工具过滤不受影响', async () => {
