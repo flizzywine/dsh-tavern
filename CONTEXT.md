@@ -46,7 +46,7 @@ Story Timeline 中 Background Operation 生命周期的只读投影，用于回�
 
 ## Session Signal
 
-Host 向某一 Tavern Session 的浏览器消费者发布的带类型唤醒通知。它只携带领域类型与权威版本标识，促使消费者从对应领域 Module 重读状态；它不是 Projection、任务载荷或权威状态，重复与丢失都不能改变领域结果。`runtime-work` 表示浏览器脚本队列可能有新工作，`tavern-state` 表示包含结算、候选和展示投影的 Tavern 权威视图可能变化；候选持久任务自身的 `candidate` 类型不冒充 Session Signal。
+Host 向某一 Tavern Session 的浏览器消费者发布的带类型唤醒通知。它至少携带领域类型与权威版本标识；`tavern-state` 可以附带同版本的只读 Projection，供消费者避免二次 HTTP 读取。附带 Projection 仍不是权威状态，缺失、重复与丢失都不能改变领域结果，消费者在首次连接与重连时仍从领域 Module 校准。`runtime-work` 表示浏览器脚本队列可能有新工作，`tavern-state` 表示包含结算、候选和展示投影的 Tavern 权威视图可能变化；候选持久任务自身的 `candidate` 类型不冒充 Session Signal。
 
 ## External Preset
 

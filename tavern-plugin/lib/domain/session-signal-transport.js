@@ -12,7 +12,8 @@ function emit(listener, signal) {
 
 /**
  * Fan out typed, non-authoritative wake signals for one Tavern session.
- * Consumers must re-read the owning domain module after receiving a signal.
+ * tavern-state may carry the matching read-only projection so consumers can
+ * render without opening a second connection; version-only signals still work.
  */
 export function createSessionSignalTransport() {
   const records = new Map()
@@ -31,7 +32,9 @@ export function createSessionSignalTransport() {
     const record = recordFor(id)
     const current = record.latest.get(kind)
     if (current && current.version === version) return false
-    const signal = Object.freeze({ id: signalId(kind, version), sessionId: id, kind, version })
+    const base = { id: signalId(kind, version), sessionId: id, kind, version }
+    const snapshot = kind === 'tavern-state' && input.snapshot && typeof input.snapshot === 'object' ? input.snapshot : undefined
+    const signal = Object.freeze(snapshot === undefined ? base : Object.assign(base, { snapshot }))
     record.latest.set(kind, signal)
     for (const subscription of record.listeners) {
       if (subscription.kinds.size === 0 || subscription.kinds.has(kind)) emit(subscription.listener, signal)
