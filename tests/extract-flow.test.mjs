@@ -156,6 +156,7 @@ test('后台协调快照不参与 Session 恢复、页面重载或正文锁定',
 test('新开游玩在创建 Session 前完成游戏准备，创建后不提供开场白切换器', () => {
   const sidebar = between(clientSource, 'function TavernSidebar', 'function TavernResourcesTab')
   const prepareFlow = between(sidebar, 'async function preparePlayConversation', 'async function importCard')
+  const openingChoice = between(sidebar, 'const openingChoice =', 'const playPicker =')
 
   assert.match(sidebar, /getCardOpenings/)
   assert.match(sidebar, /上一条开场白/)
@@ -175,6 +176,9 @@ test('新开游玩在创建 Session 前完成游戏准备，创建后不提供�
   assert.match(sidebar, /dsh-tavern-picker-overlay/)
   assert.match(sidebar, /role: "dialog"/)
 	assert.match(sidebar, /renderTavernProjection\(selectedOpening\.projection/)
+	assert.match(openingChoice, /!busy && selectedOpening \? h\("div"/,
+		'只有一个开场白时也必须在点击开始游戏前持续显示预览')
+	assert.doesNotMatch(openingChoice, /!busy && selectedOpening && openingPicker\.openings\.length > 1/)
 	assert.match(sidebar, /key: selectedOpening\.id/)
 	assert.match(sidebar, /helperContext: selectedOpening\.helperContext/)
 	assert.doesNotMatch(sidebar, /styleEnvironment/)
