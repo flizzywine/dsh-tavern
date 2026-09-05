@@ -26,6 +26,18 @@ function isRollbackUserTombstone(event) {
   )
 }
 
+function isRollbackAssistantTombstone(event, events) {
+  if (!event || event.type !== 'assistant/message' || modelSourceOf(event) === null) return false
+  const content = event.data && event.data.message && event.data.message.content
+  const op = event.surfaceOp
+  if (!Array.isArray(content) || content.length !== 0 || !op || op.op !== 'replace') return false
+  const sources = Array.isArray(event.sourceEventSeqs) ? event.sourceEventSeqs : []
+  return sources.some(function (seq) {
+    const sourceEvent = eventAt(events, seq)
+    return sourceEvent && sourceEvent.type === 'user/message'
+  })
+}
+
 // Legacy regeneration left a durable empty replacement at the saved story turn.
 // Surface replacement hides messages, not DSH's turn/end error nodes. Derive
 // their display suppression without changing the immutable event history.
@@ -97,7 +109,10 @@ export function locateRollbackSurface(input) {
   for (let index = nodes.length - 1; index > userIndex; index -= 1) {
     const event = eventAt(events, nodes[index])
     const candidateSource = event && event.type === 'assistant/message' ? modelSourceOf(event) : null
-    if (candidateSource !== null) {
+    // A previous rollback leaves an empty, model-sourced replacement because
+    // native DSH restore rejects plugin-owned assistant messages. It is a
+    // projection tombstone, not the assistant reply paired with this user.
+    if (candidateSource !== null && !isRollbackAssistantTombstone(event, events)) {
       assistantIndex = index
       assistantEvent = event
       source = candidateSource

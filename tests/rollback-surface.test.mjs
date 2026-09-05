@@ -86,6 +86,54 @@ test('重生成失败清理墓碑不冒充最后用户输入，仍可回退原�
   assert.deepEqual(located.shadowedSeqs, [15, 555, 753])
 })
 
+test('连续回退时跳过上一轮回退留下的助手墓碑，继续定位更早一轮', () => {
+  const events = []
+  events[2] = {
+    seq: 2,
+    type: 'assistant/message',
+    data: { turn: 1, step: 1, message: { role: 'assistant', content: [{ type: 'text', text: '开场白' }], source: modelSource() } },
+    surfaceOp: 'append'
+  }
+  events[5] = {
+    seq: 5,
+    type: 'user/message',
+    data: { role: 'user', content: [{ type: 'text', text: '第一轮输入' }], source: { kind: 'user' } },
+    surfaceOp: 'append'
+  }
+  events[8] = {
+    seq: 8,
+    type: 'assistant/message',
+    data: { turn: 2, step: 1, message: { role: 'assistant', content: [{ type: 'text', text: '第一轮正文' }], source: modelSource() } },
+    surfaceOp: 'append'
+  }
+  events[10] = {
+    seq: 10,
+    type: 'user/message',
+    data: { role: 'user', content: [{ type: 'text', text: '第二轮输入' }], source: { kind: 'user' } },
+    surfaceOp: 'append'
+  }
+  events[12] = {
+    seq: 12,
+    type: 'assistant/message',
+    data: { turn: 3, step: 1, message: { role: 'assistant', content: [{ type: 'text', text: '第二轮正文' }], source: modelSource() } },
+    surfaceOp: 'append'
+  }
+  events[20] = {
+    seq: 20,
+    type: 'assistant/message',
+    data: { turn: 3, step: 1, message: { role: 'assistant', content: [], source: modelSource() } },
+    surfaceOp: { op: 'replace', start: 10, end: 12 },
+    sourceEventSeqs: [10, 12]
+  }
+
+  const located = locateRollbackSurface({ events, nodes: [2, 5, 8, 20] })
+
+  assert.equal(located.userSeq, 5)
+  assert.equal(located.assistantSeq, 8)
+  assert.equal(located.turn, 2)
+  assert.deepEqual(located.shadowedSeqs, [5, 8, 20])
+})
+
 test('回退按钮只在权威消息尾部存在用户输入与正文组合时显示', () => {
   const opening = { role: 'assistant', greeting: true, text: '开场白' }
   const user = { role: 'user', text: '本轮输入' }
