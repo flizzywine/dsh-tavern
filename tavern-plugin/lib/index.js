@@ -95,7 +95,7 @@ import { createTavernCompactionCoordinator } from './domain/tavern-compaction.js
 import { cordisToolNames, createTurnOrchestrator, dshFileToolNames } from './domain/turn-orchestration.js'
 import { resourceWorkspaceContext } from './domain/workspace-resources.js'
 import { createWorldBookLibrary } from './domain/worldbook-library.js'
-import { mvuUpdateRulesFromWorldBook, prepareWorldBookRecall } from './domain/worldbook-recall.js'
+import { mvuUpdateRulesFromWorldBook, prepareWorldBookRecall, projectWorldBookTemplates } from './domain/worldbook-recall.js'
 import {
   createBackgroundTaskCoordinator,
   isOpeningAwaitingSettlement
@@ -1381,6 +1381,28 @@ export async function apply(ctx) {
       return { status: 'failed', message: str(error && error.message || error) || '后台压缩失败' }
     }
   }
+  async function nativeWorldBookTemplateContext(chat, card) {
+    let worldBook
+    try {
+      worldBook = await worldBooks.bound(chat.cardPath, card)
+    } catch (error) {
+      console.warn('dsh-tavern: 动态世界书读取失败，已跳过:', str(error && error.message || error))
+      return { context: '', refs: [], diagnostics: [{ kind: 'worldbook-template', code: 'worldbook-read-failed' }] }
+    }
+    if (!worldBook || !worldBook.view) return { context: '', refs: [], diagnostics: [] }
+    try {
+      return projectWorldBookTemplates({
+        worldBook,
+        runtime: await promptTemplateRuntime(),
+        globalVariables: await readPromptTemplateGlobalVariables(),
+        card,
+        chat
+      })
+    } catch (error) {
+      console.warn('dsh-tavern: 动态世界书解析失败，已跳过:', str(error && error.message || error))
+      return { context: '', refs: [], diagnostics: [{ kind: 'worldbook-template', code: 'projection-failed' }] }
+    }
+  }
   const candidateGenerator = createCandidateGenerator({
     store: {
       chatForSession: chatForSession,
@@ -1395,7 +1417,11 @@ export async function apply(ctx) {
       runCandidate: backgroundAgentRunner.run
     },
     planner: contextPlanner,
-    stableWorldBookContext: playCardSnapshots.constantContext,
+    stableWorldBookContext: async function (chat, card) {
+      const fixed = await playCardSnapshots.constantContext(chat, card)
+      const dynamic = await nativeWorldBookTemplateContext(chat, card)
+      return [fixed, str(dynamic.context).trim()].filter(Boolean).join('\n\n')
+    },
     prompt: runtimePrompt,
     scripts: scriptContinuity,
     timeline: storyTimeline,
@@ -1947,6 +1973,7 @@ export async function apply(ctx) {
       return renderCardText(text, { name: chat.cardName }, chat.macroState)
     },
     projectReply: projectRuntimeReply,
+    projectWorldBookTemplates: nativeWorldBookTemplateContext,
     resolvePresetRegexScripts: async function (chat) {
       if (!chat || groupOfMode(chat.mode) !== 'play') return []
       const snapshot = await runtimePresets.fullSnapshot()
@@ -2858,11 +2885,12 @@ export async function apply(ctx) {
       workspaceContext: resourceWorkspaceContext,
       ensureSessionPrefix: async function (input) {
         const session = input.payload.agent.session
+        const projectedText = await ensurePlayCardSnapshot(input.chat)
         const existing = readSessionStablePrefix(session)
-        if (existing) return existing
-        const fixed = await ensureSessionStablePrefix(session, await ensurePlayCardSnapshot(input.chat), stablePrefixStorage)
+        if (existing) return Object.assign({}, existing, { projectedText })
+        const fixed = await ensureSessionStablePrefix(session, projectedText, stablePrefixStorage)
         await sessionStore.flush(session)
-        return fixed
+        return fixed === null ? null : Object.assign({}, fixed, { projectedText })
       },
       controlledToolNames
     }

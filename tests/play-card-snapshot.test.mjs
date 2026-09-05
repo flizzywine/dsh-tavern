@@ -4,7 +4,7 @@ import { createChatPersistence } from '../tavern-plugin/lib/domain/chat-persiste
 import { createContextPlanner } from '../tavern-plugin/lib/domain/context-planner.js'
 import { createPlayCardSnapshots } from '../tavern-plugin/lib/domain/play-card-snapshots.js'
 
-test('v5 老对话重建完整固定前缀，v6 后续请求和恢复复用快照', async () => {
+test('v5 老对话重建完整固定前缀，v7 后续请求和恢复复用快照', async () => {
   const card = { name: '测试人物', description: '固定描述', personality: '固定性格', scenario: '固定场景', mes_example: '固定示例', system_prompt: '逐轮系统指令', post_history_instructions: '逐轮历史后指令' }
   let reads = 0
   const writes = []
@@ -27,7 +27,7 @@ test('v5 老对话重建完整固定前缀，v6 后续请求和恢复复用快�
   const beforeMessages = structuredClone(chat.messages)
   const ensure = open()
   const first = await ensure(chat)
-  assert.equal(chat.cardContextSnapshotVersion, 6)
+  assert.equal(chat.cardContextSnapshotVersion, 7)
   for (const fixed of ['固定描述', '固定性格', '固定场景', '固定示例', '固定世界设定']) assert.equal(first.split(fixed).length - 1, 1)
   assert.doesNotMatch(first, /旧前缀|逐轮|动态条目|MVU规则/)
   assert.equal(await ensure(chat), first)
@@ -72,8 +72,8 @@ test('concurrent readers share one migration and all receive its fields without 
   await new Promise(resolve => setImmediate(resolve))
   finish({ text: '统一前缀' })
   assert.deepEqual(await Promise.all([one, two]), ['统一前缀', '统一前缀'])
-  assert.equal(first.cardContextSnapshotVersion, 6)
-  assert.equal(second.cardContextSnapshotVersion, 6)
+  assert.equal(first.cardContextSnapshotVersion, 7)
+  assert.equal(second.cardContextSnapshotVersion, 7)
   assert.equal(first._storageRevision, 8)
   assert.equal(second._storageRevision, 7)
   assert.deepEqual(h.counts, { reads: 1, writes: 1, builds: 1 })
@@ -86,7 +86,7 @@ test('failed save leaves caller state intact, releases concurrent build and perm
   assert.deepEqual(chat, before)
   h.write(async () => {})
   assert.equal(await h.api.ensure(chat), '固定背景')
-  assert.equal(chat.cardContextSnapshotVersion, 6)
+  assert.equal(chat.cardContextSnapshotVersion, 7)
   assert.equal(h.counts.writes, 2)
 })
 
@@ -141,7 +141,7 @@ test('snapshot owner exposes the same stable worldbook context to candidate gene
 
 
 test('sanitizing an existing snapshot is not visible until its save succeeds', async () => {
-  const h = fixture(), chat = { ...oldChat(), cardContextSnapshotVersion: 6, cardContextSnapshot: '{{literal}}' }
+  const h = fixture(), chat = { ...oldChat(), cardContextSnapshotVersion: 7, cardContextSnapshot: '{{literal}}' }
   const before = structuredClone(chat)
   h.write(async () => { throw Error('disk full') })
   await assert.rejects(h.api.ensure(chat), /disk full/)

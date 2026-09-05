@@ -128,6 +128,7 @@ function harness(mode, options = {}) {
     } : undefined,
     resolvePresetRegexScripts: options.resolvePresetRegexScripts,
     projectReply: projectReplyPresentation,
+    projectWorldBookTemplates: options.projectWorldBookTemplates,
     shellToolName: options.shellToolName,
     now: () => 2000
   })
@@ -204,6 +205,26 @@ test('连续正文回合的实际 Frame 消息不重复基本信息和常驻世�
     assert.equal(historyText.split('逐轮系统指令').length - 1, 2)
     assert.equal(historyText.split('逐轮历史后指令').length - 1, 2)
   }
+})
+
+test('原生正文 Frame 合并关键词世界书与每轮模板投影，不携带 EJS 源码', async function () {
+  const planner = createContextPlanner({ prompt: () => '正文写作规则' })
+  const run = harness('story', {
+    planner,
+    preparedWorldBookContext: '关键词命中的钟楼规则。',
+    projectWorldBookTemplates: async function ({ chat, card, turn }) {
+      assert.equal(card.name, '阿芙拉')
+      assert.equal(chat.id, 'chat-1')
+      assert.equal(turn, 2)
+      return { context: '当前阶段解析出的觉醒规则。', refs: ['entry:9'], diagnostics: [] }
+    }
+  })
+
+  const prepared = await run.orchestrator.prepare({ sessionId: 'session-1', turn: 2, userText: '继续' })
+
+  assert.equal(prepared.frame.context.activeWorldbook, '【本轮世界书上下文】\n关键词命中的钟楼规则。\n\n当前阶段解析出的觉醒规则。')
+  assert.doesNotMatch(foregroundFrameText(prepared.frame), /<%|getwi|@@preprocessing/)
+  assert.deepEqual(prepared.frame.source.worldBook.templateRefs, ['entry:9'])
 })
 
 test('游玩回合由生命周期自动准备与提交，不再要求模型回传正文', async () => {
