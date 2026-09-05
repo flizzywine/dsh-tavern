@@ -918,6 +918,86 @@ test('Helper Host 在受信任人物卡模式中完全移除 sandbox', () => {
   assert.equal(frames[1].sandbox, undefined)
 })
 
+test('Helper Host 切换人物卡时清理旧卡注入宿主的顶层节点和样式', () => {
+  function node(name) {
+    return {
+      name,
+      parentNode: null,
+      remove() {
+        if (!this.parentNode) return
+        const index = this.parentNode.childNodes.indexOf(this)
+        if (index >= 0) this.parentNode.childNodes.splice(index, 1)
+        this.parentNode = null
+      }
+    }
+  }
+  function container(children = []) {
+    const value = node('container')
+    value.childNodes = children
+    value.appendChild = child => {
+      child.parentNode = value
+      value.childNodes.push(child)
+      return child
+    }
+    for (const child of children) child.parentNode = value
+    return value
+  }
+
+  const permanentBodyNode = node('application-root')
+  const permanentHeadNode = node('application-style')
+  const body = container([permanentBodyNode])
+  const head = container([permanentHeadNode])
+  const frames = []
+  const hostWindow = {
+    crypto: { randomUUID() { return String(frames.length + 1) } },
+    setTimeout,
+    clearTimeout,
+    addEventListener() {},
+    removeEventListener() {}
+  }
+  const hostDocument = {
+    body,
+    head,
+    documentElement: body,
+    createElement(tag) {
+      if (tag === 'div') {
+        const root = container()
+        root.isConnected = true
+        root.remove = node('root').remove
+        return root
+      }
+      const frame = node('iframe')
+      frame.contentWindow = { postMessage() {} }
+      frame.addEventListener = () => {}
+      frames.push(frame)
+      return frame
+    }
+  }
+  const runtime = client.createTavernHelperScriptRuntime({ window: hostWindow, document: hostDocument, rpc() { return Promise.resolve({}) }, reportError() {} })
+  const view = content => ({
+    tavernRuntimePolicy: { trustedCardMode: true },
+    tavernHelper: { messages: [], scriptVariables: {} },
+    tavernHelperScripts: [{ id: 'script', name: '脚本', content, data: {}, buttons: [] }]
+  })
+
+  runtime.sync('session', view('card A'))
+  const leakedButton = node('card A floating button')
+  const leakedStyle = node('card A style')
+  body.appendChild(leakedButton)
+  head.appendChild(leakedStyle)
+
+  runtime.sync('session', view('card A'))
+  assert.deepEqual(body.childNodes.includes(leakedButton), true)
+  assert.deepEqual(head.childNodes.includes(leakedStyle), true)
+
+  runtime.sync('session', view('card B'))
+
+  assert.deepEqual(body.childNodes.includes(permanentBodyNode), true)
+  assert.deepEqual(head.childNodes.includes(permanentHeadNode), true)
+  assert.deepEqual(body.childNodes.includes(leakedButton), false)
+  assert.deepEqual(head.childNodes.includes(leakedStyle), false)
+})
+
 test('Helper Host 每个对话只创建一个共享脚本沙箱并只投递一次事件', async () => {
   const windowListeners = new Map()
   const frames = []

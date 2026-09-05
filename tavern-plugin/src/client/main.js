@@ -794,6 +794,29 @@ window.__ModuleLoader__.load({
 			return release;
 		}
 
+		function createTavernHostArtifactScope(options) {
+			const hostDocument = options && options.document;
+			const roots = [hostDocument && hostDocument.head, hostDocument && hostDocument.body].filter(Boolean);
+			const baselines = roots.map(function (root) {
+				return { root: root, nodes: new Set(Array.from(root.childNodes || root.children || [])) };
+			});
+			let disposed = false;
+			return Object.freeze({
+				dispose: function () {
+					if (disposed) return;
+					disposed = true;
+					for (const baseline of baselines) {
+						const current = Array.from(baseline.root.childNodes || baseline.root.children || []);
+						for (const node of current) {
+							if (baseline.nodes.has(node)) continue;
+							if (node && typeof node.remove === "function") node.remove();
+							else if (baseline.root && typeof baseline.root.removeChild === "function") baseline.root.removeChild(node);
+						}
+					}
+				}
+			});
+		}
+
 		const TAVERN_CARD_PHONE_HOST = '[id^="improved-phone-shadow-host-"]';
 		const TAVERN_CARD_PHONE_BUTTON = '[id^="improved-phone-floating-button-"]';
 		const TAVERN_CARD_PHONE_PARKING = '[data-dsh-tavern-card-app-parking]';
@@ -2659,6 +2682,7 @@ window.__ModuleLoader__.load({
 				if (record.initializationTimer) hostWindow.clearTimeout(record.initializationTimer);
 				if (record.mvuDataTimer) hostWindow.clearTimeout(record.mvuDataTimer);
 				record.frame.remove();
+				if (record.hostArtifacts) record.hostArtifacts.dispose();
 				records.delete(id);
 				announcedReadinessKey = "";
 			}
@@ -2773,6 +2797,7 @@ window.__ModuleLoader__.load({
 				} catch (_) {}
 			}
 			function createRecord(sessionId, scripts, context, trustedCardMode) {
+				const container = ensureRoot();
 				const frame = hostDocument.createElement("iframe");
 				const fingerprint = scripts.map(function (script) { return script.id + "\n" + script.content; }).join("\n---\n") + "\ntrusted=" + String(trustedCardMode);
 				const record = {
@@ -2788,6 +2813,7 @@ window.__ModuleLoader__.load({
 					compatibilityPending: new Map(),
 					compatibilityTail: Promise.resolve(),
 					compatibilityTimer: null,
+					hostArtifacts: trustedCardMode ? createTavernHostArtifactScope({ document: hostDocument }) : null,
 					frame: frame,
 					loaded: false,
 					context: context,
@@ -2814,7 +2840,7 @@ window.__ModuleLoader__.load({
 					}
 					maybeAnnounceReady();
 				});
-				ensureRoot().appendChild(frame);
+				container.appendChild(frame);
 				records.set(record.id, record);
 				return record;
 			}
