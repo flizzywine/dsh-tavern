@@ -242,3 +242,23 @@ test('initialization timings retain bounded phase counters in exported logs with
   assert.ok(exported.buffer.toString().includes('prompt-drain'))
   assert.ok(exported.buffer.toString().includes('oldestPendingMs'))
 })
+
+test('diagnostic ZIP includes card scripts and bound worldbook with credential redaction', async () => {
+  const result = await createMvuDiagnosticExport({ sessionId: 's', store: createMvuDiagnosticStore(storage()), cardDiagnostics: {
+    version: 1, source: 'export-time', card: { name: '测试卡', first_mes: '开场' },
+    extensions: { helperScripts: [{ id: 'broken-script', content: 'const broken = {;' }], apiKey: 'PRIVATE_CARD_KEY' },
+    worldbook: { document: { entries: { 0: { content: '世界书测试内容' } } } }
+  } })
+  const text = result.buffer.toString()
+  assert.match(text, /card\/context.json/)
+  assert.match(text, /const broken = \{;/)
+  assert.match(text, /世界书测试内容/)
+  assert.doesNotMatch(text, /PRIVATE_CARD_KEY/)
+})
+
+test('oversized card does not prevent exporting diagnostic logs', async () => {
+  const result = await createMvuDiagnosticExport({ sessionId: 's', store: createMvuDiagnosticStore(storage()), cardDiagnostics: { card: { first_mes: 'x'.repeat(8 * 1024 * 1024) } } })
+  assert.match(result.buffer.toString(), /人物卡资料超过 8 MiB/)
+  assert.match(result.buffer.toString(), /mvu\/diagnostics.json/)
+  assert.ok(result.buffer.length < 100000)
+})
