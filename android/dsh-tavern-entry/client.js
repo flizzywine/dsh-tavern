@@ -7,6 +7,9 @@ window.__ModuleLoader__.load({
 		let react = require("react");
 
 		const CSS = `
+.dsh-tavern-embed { position:fixed; inset:0; z-index:2147483000; background:#14110d; display:flex; flex-direction:column; }
+.dsh-tavern-embed-bar { display:flex; gap:12px; padding:8px; background:#eee; color:#222; }
+.dsh-tavern-embed iframe { flex:1; width:100%; border:0; background:white; }
 .dsh-tavern-entry-btn {
   display: flex; align-items: center; gap: 7px; width: 100%;
   box-sizing: border-box; margin: 4px 0;
@@ -64,6 +67,12 @@ window.__ModuleLoader__.load({
 				function (props) {
 					const [state, setState] = react.useState({ online: null, update: { phase: "idle", host: "android" } });
 					const [error, setError] = react.useState("");
+					const [frame, setFrame] = react.useState("");
+					const [frameKey, setFrameKey] = react.useState(0);
+					async function openEmbedded() {
+					  try { const result = await request("/api/dsh-tavern-android/embed", "POST"); setFrame(result.url); setError(""); }
+					  catch (err) { setError(String(err.message || err)); }
+					}
 					react.useEffect(function () {
 						let stopped = false;
 						async function refresh() {
@@ -95,16 +104,25 @@ window.__ModuleLoader__.load({
 								? (state.update.error || "更新失败，请重试。")
 								: state.online === false ? "酒馆未启动，可点击更新/修复。" : "";
 					return react.createElement("div", null,
+						frame ? react.createElement("div", { className: "dsh-tavern-embed" },
+						  react.createElement("div", { className: "dsh-tavern-embed-bar" },
+							react.createElement("span", null, "酒馆工作台"),
+							react.createElement("button", { onClick: function () { setFrameKey(frameKey + 1); } }, "刷新"),
+							react.createElement("button", { onClick: function () { window.location.assign("/api/dsh-tavern-android/open"); } }, "直接打开"),
+							react.createElement("button", { onClick: function () { setFrame(""); } }, "关闭")
+						  ),
+						  react.createElement("iframe", { title: "酒馆工作台", src: frame, key: frameKey, referrerPolicy: "no-referrer", allow: "clipboard-read; clipboard-write" })
+						) : null,
 						react.createElement("div", { className: "dsh-tavern-entry-actions" },
 							react.createElement("button", {
 								type: "button", className: "dsh-tavern-entry-btn",
 								title: "打开酒馆工作台（3088）",
-								onClick: function () { window.location.assign("/api/dsh-tavern-android/open"); }
+								onClick: openEmbedded
 							}, react.createElement("span", null, "🍺"), react.createElement("span", null, "酒馆工作台"),
 								react.createElement("span", { className: "dsh-tavern-entry-state" }, state.online === true ? "在线" : (state.online === false ? "未启动" : "检测中…"))),
 							react.createElement("button", { type: "button", className: "dsh-tavern-entry-btn dsh-tavern-entry-manage", disabled: updating, onClick: startUpdate }, updating ? "更新中…" : "更新/修复")
 						),
-						react.createElement("div", { className: "dsh-tavern-entry-message" }, "点击无反应？复制安装完成时显示的完整酒馆地址，到手机浏览器地址栏打开；保持 DSHA 运行。"),
+						react.createElement("div", { className: "dsh-tavern-entry-message" }, "酒馆在应用内打开；窗口顶部可刷新、直接打开或关闭。保持 DSHA 运行。"),
 						message || error ? react.createElement("div", { className: "dsh-tavern-entry-message" + (error || updateFailed ? " error" : "") }, error || message) : null
 					);
 				}

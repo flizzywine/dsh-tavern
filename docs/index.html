@@ -87,7 +87,7 @@ dsh-tavern restart</code></pre></div>
 
 node -e &quot;fetch(&#39;https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@69d74f5/android/setup.sh&#39;).then(async r=&gt;{if(!r.ok)throw Error(&#39;HTTP &#39;+r.status);require(&#39;fs&#39;).writeFileSync(&#39;/tmp/dsh-tavern-setup.sh&#39;,await r.text())}).then(()=&gt;{const r=require(&#39;child_process&#39;).spawnSync(&#39;bash&#39;,[&#39;/tmp/dsh-tavern-setup.sh&#39;],{stdio:&#39;inherit&#39;});process.exit(r.status??1)}).catch(e=&gt;{console.error(e);process.exit(1)})&quot;</code></pre></div>
 <ol><li>看到“全部完成”后重启 DSHA，在底部“启动”页点“启动”；显示“已就绪，可进入”后点“进入”，再从侧栏打开“酒馆工作台”。</li></ol>
-<p><strong>日常打开：DSHA → 底部“启动”→“进入”→ 侧栏“酒馆工作台”。</strong> 未运行时先点“启动”，等待“已就绪，可进入”。这条路径自动处理认证，无需复制 token。</p>
+<p><strong>日常打开：DSHA → 底部“启动”→“进入”→ 侧栏“酒馆工作台”。</strong> 未运行时先点“启动”，等待“已就绪，可进入”。酒馆会在 DSHA 内嵌窗口打开，顶部可刷新、直接打开或关闭；认证自动处理，无需复制 token。</p>
 <p>浏览器显示 <strong>dsh web authentication required; reopen the URL printed by dsh web.</strong>，表示当前浏览器缺少登录凭证（401），不代表安装失败。回到 DSHA 按上述路径进入即可，不必重装。</p>
 <p>必须使用外部浏览器时，在 DSHA“启动”页本次启动日志中找到“本机打开”，复制完整地址（包括 ?token= 后全部字符），在同一台安卓设备的浏览器打开，再点“酒馆工作台”。不要直接输入裸的 3080 / 3088 地址；内置页面与外部浏览器不共享登录状态。完整地址不要公开分享。MuMu 用户在模拟器里的浏览器操作。详细步骤见 <a href="https://github.com/flizzywine/dsh-tavern/blob/main/docs/android-install.md#浏览器提示需要认证怎么办">Android 认证排错</a>。</p>
 <p>从手机 Download 目录导入人物卡前，请在 Android 系统设置中允许 DSHA“访问所有文件”。未授权时酒馆会给出提示，也可尝试系统文件选择器。</p>

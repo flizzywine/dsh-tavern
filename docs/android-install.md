@@ -29,6 +29,8 @@ node -e "fetch('https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@69d74f5/androi
 
 不需要手工克隆仓库、进入目录、配置 Profile 或输入端口。
 
+酒馆工作台现在会在 DSHA 内嵌窗口中打开，顶部提供 **刷新、直接打开、关闭**。遇到白屏或连接问题时，可点 **直接打开** 使用原入口。
+
 ## 以后怎样打开酒馆
 
 1. 打开 DSHA，点底部 **启动** 页。

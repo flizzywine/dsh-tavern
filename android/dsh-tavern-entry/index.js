@@ -1,3 +1,4 @@
+import { createEmbeddedProxy } from './embedded-proxy.mjs'
 import { spawn } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import net from 'node:net'
@@ -141,7 +142,9 @@ export function createEntryManager(options = {}) {
     return resolveAccessUrl({ dshHome: config.dshHome, port: config.port, request })
   }
 
-  return Object.freeze({ accessUrl, ensureStarted, status, update })
+  const embedded = createEmbeddedProxy({ accessUrl, request })
+  async function embeddedUrl() { await ensureStarted(); return embedded.url() }
+  return Object.freeze({ accessUrl, embeddedUrl, close: () => embedded.close(), ensureStarted, status, update })
 }
 
 function sendJson(res, status, value) {
@@ -160,6 +163,13 @@ export function createEntryHandler(manager) {
       const pathname = decodeURIComponent(new URL(req.url || '/', 'http://x').pathname)
       if (req.method === 'GET' && pathname === '/api/dsh-tavern-android/status') {
         sendJson(res, 200, await manager.status())
+        return
+      }
+      if (req.method === 'POST' && pathname === '/api/dsh-tavern-android/embed') {
+        if (origin && origin !== `http://${req.headers.host}` && origin !== `https://${req.headers.host}`) {
+          sendJson(res, 403, { error: 'forbidden' }); return
+        }
+        sendJson(res, 200, { url: await manager.embeddedUrl() })
         return
       }
       if (req.method === 'GET' && pathname === '/api/dsh-tavern-android/open') {
@@ -193,6 +203,7 @@ export function apply(ctx) {
   if (typeof startup.unref === 'function') startup.unref()
   if (typeof health.unref === 'function') health.unref()
   ctx.effect(() => () => {
+    manager.close()
     clearTimeout(startup)
     clearInterval(health)
   }, 'dsh-tavern-entry: Android tavern watchdog')

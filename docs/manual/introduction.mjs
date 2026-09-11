@@ -154,7 +154,7 @@ export const installation = `
 ` + code('text', androidAgentPrompt) + `
 4. 看到“全部完成”后重启 DSHA，在底部“启动”页点“启动”；显示“已就绪，可进入”后点“进入”，再从侧栏打开“酒馆工作台”。
 
-**日常打开：DSHA → 底部“启动”→“进入”→ 侧栏“酒馆工作台”。** 未运行时先点“启动”，等待“已就绪，可进入”。这条路径自动处理认证，无需复制 token。
+**日常打开：DSHA → 底部“启动”→“进入”→ 侧栏“酒馆工作台”。** 未运行时先点“启动”，等待“已就绪，可进入”。酒馆会在 DSHA 内嵌窗口打开，顶部可刷新、直接打开或关闭；认证自动处理，无需复制 token。
 
 浏览器显示 **dsh web authentication required; reopen the URL printed by dsh web.**，表示当前浏览器缺少登录凭证（401），不代表安装失败。回到 DSHA 按上述路径进入即可，不必重装。
 
