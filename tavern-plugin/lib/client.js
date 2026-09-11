@@ -3424,6 +3424,22 @@ window.__ModuleLoader__.load({
 		}
 
 		function installTavernTrustedHostFacade(host, frameWindow) {
+			// Legacy sorting scripts address the parent document in trusted mode.
+			// This hidden select accepts their UI events only; it has no host listeners.
+			let sortControl = host.document && host.document.getElementById('world_info_sort_order');
+			if (!sortControl && host.document && host.document.createElement) {
+				sortControl = host.document.createElement('select');
+				sortControl.id = 'world_info_sort_order';
+				sortControl.hidden = true;
+				const option = host.document.createElement('option');
+				option.value = '13';
+				option.textContent = '自定义排序';
+				sortControl.appendChild(option);
+				sortControl.tavernCompatibilityOwners = 0;
+				host.document.body.appendChild(sortControl);
+			}
+			const ownsSortControl = sortControl && typeof sortControl.tavernCompatibilityOwners === 'number';
+			if (ownsSortControl) sortControl.tavernCompatibilityOwners++;
 			const bindings = ["SillyTavern", "TavernHelper"].map(function (name) {
 				const previous = Object.getOwnPropertyDescriptor(host, name);
 				if (previous && !previous.configurable) throw new Error("宿主接口不可替换：" + name);
@@ -3432,7 +3448,11 @@ window.__ModuleLoader__.load({
 				return binding;
 			});
 			for (const binding of bindings) Object.defineProperty(host, binding.name, { configurable: true, get: binding.get });
+			let released = false;
 			return function () {
+				if (released) return;
+				released = true;
+				if (ownsSortControl && --sortControl.tavernCompatibilityOwners === 0) sortControl.remove();
 				for (const binding of bindings) {
 					binding.active = false;
 					if (Object.getOwnPropertyDescriptor(host, binding.name)?.get !== binding.get) continue;
@@ -3514,7 +3534,7 @@ window.__ModuleLoader__.load({
 				+ tavernStaticAssetShim()
 				+ tavernHelperScriptDependencies()
 				+ '<script data-dsh-tavern-helper-script>' + bootstrap + '<\/script>',
-				body: '<div id="extensions_settings2" hidden></div><div id="tavern_helper" hidden></div><script type="module" src="' + moduleUrl + '"><\/script>'
+				body: '<div id="extensions_settings2" hidden><select id="world_info_sort_order"><option value="13">自定义排序</option></select></div><div id="tavern_helper" hidden></div><script type="module" src="' + moduleUrl + '"><\/script>'
 			};
         }
 
