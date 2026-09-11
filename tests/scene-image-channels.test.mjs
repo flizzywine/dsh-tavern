@@ -181,3 +181,16 @@ test('WebUI keeps only reported model/seed metadata and tolerates missing or mal
   assert.equal((await call('invalid json')).metadata, undefined)
   assert.equal((await call(JSON.stringify({ seed: -1 }))).metadata, undefined)
 })
+
+test('empty base64 does not hide a usable image URL', async () => {
+  for (const b64_json of ['', ' \n\t', null]) {
+    const requests = []
+    const image = await generateSceneImage({ provider: 'openai', baseURL: 'https://relay.example/v1', model: 'image', prompt: 'fixture', apiKey: 'fixture' }, {
+      fetch: async (url) => { requests.push(url); return requests.length === 1 ? Response.json({ data: [{ b64_json, url: 'https://cdn.example/image.png' }] }) : new Response(png) },
+      validateDownload: async url => url
+    })
+    assert.deepEqual(image.data, png)
+    assert.equal(requests.length, 2)
+    assert.equal(requests[1], 'https://cdn.example/image.png')
+  }
+})

@@ -168,7 +168,7 @@ async function requestSceneImage(input, deps) {
   if (spec.body.parameters?.negative_prompt !== undefined) controls.negative_prompt = spec.body.parameters.negative_prompt
   if (Object.keys(controls).length) metadata = { ...metadata, generationParameters: controls }
   const finish = data => ({ ...imageBytes(data, maxBytes), ...(metadata ? { metadata } : {}) })
-  const inline = typeof item.b64_json === 'string' ? item.b64_json : /^data:image\/[\w.+-]+;base64,/i.test(item.url || '') ? item.url.split(',')[1] : null
+  const inline = typeof item.b64_json === 'string' && item.b64_json.trim().length > 0 ? item.b64_json : /^data:image\/[\w.+-]+;base64,/i.test(item.url || '') ? item.url.split(',')[1] : null
   if (inline !== null) {
     const clean = inline.replace(/\s+/g, '')
     if (!/^[A-Za-z0-9+/]+={0,2}$/.test(clean)) throw new Error('图片 base64 数据不合法')

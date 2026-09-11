@@ -56,9 +56,9 @@ describe('OpenAI-compatible images', () => {
     expect(form.getAll('image[]')).toHaveLength(0)
   })
 
-  it('downloads Ark URL output with its declared media type', async () => {
+  it.each(['', ' \n\t', undefined])('downloads URL output when base64 is empty (%s)', async (b64_json) => {
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ url: 'https://image.example/result' }] }), { headers: { 'content-type': 'application/json' } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ b64_json, url: 'https://image.example/result' }] }), { headers: { 'content-type': 'application/json' } }))
       .mockResolvedValueOnce(new Response(new Uint8Array([1, 2]), { headers: { 'content-type': 'image/jpeg' } }))
     vi.stubGlobal('fetch', fetchMock)
     await expect(generateOpenAICompatibleImage({ provider: 'seedream', apiKey: 'key', baseURL: 'https://ark.example/api/v3', model: 'seedream', prompt: 'a cat', size: '2K', maxBytes: 1024, signal })).resolves.toEqual({ data: new Uint8Array([1, 2]), mediaType: 'image/jpeg' })

@@ -89,7 +89,7 @@ function firstImage(value: unknown): { b64_json?: string; url?: string; mime_typ
   if (typeof candidate !== 'object' || candidate === null || Array.isArray(candidate)) return undefined
   const item = candidate as { b64_json?: unknown; url?: unknown; mime_type?: unknown; mime?: unknown }
   const mime = typeof item.mime_type === 'string' ? item.mime_type : typeof item.mime === 'string' ? item.mime : undefined
-  return typeof item.b64_json === 'string'
+  return typeof item.b64_json === 'string' && item.b64_json.trim().length > 0
     ? { b64_json: item.b64_json, ...(mime === undefined ? {} : { mime_type: mime }) }
     : typeof item.url === 'string'
       ? { url: item.url, ...(mime === undefined ? {} : { mime_type: mime }) }

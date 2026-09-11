@@ -33,3 +33,13 @@ describe('editSeedreamImage', () => {
     expect(body.resolution).toBeUndefined()
   })
 })
+
+it.each(['', ' \n\t'])('uses the image URL when Seedream returns blank base64 (%s)', async (b64_json) => {
+  const request = vi.fn().mockResolvedValueOnce(Response.json({ data: [{ b64_json, url: 'https://image.example/result' }] }))
+    .mockResolvedValueOnce(new Response(new Uint8Array([1, 2]), { headers: { 'content-type': 'image/png' } }))
+  vi.stubGlobal('fetch', request)
+  await expect(editSeedreamImage({ apiKey: 'fixture', baseURL: 'https://ark.example/v3', model: 'seedream', prompt: 'fixture',
+    sourceImages: [{ data: new Uint8Array([1]), mediaType: 'image/png' }], size: '2K', maxBytes: 1024, signal
+  })).resolves.toEqual({ data: new Uint8Array([1, 2]), mediaType: 'image/png' })
+  expect(request).toHaveBeenCalledTimes(2)
+})

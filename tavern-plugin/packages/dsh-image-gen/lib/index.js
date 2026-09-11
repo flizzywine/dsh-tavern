@@ -1159,7 +1159,7 @@ function firstImage$1(value) {
 	if (typeof candidate !== "object" || candidate === null || Array.isArray(candidate)) return void 0;
 	const item = candidate;
 	const mime = typeof item.mime_type === "string" ? item.mime_type : typeof item.mime === "string" ? item.mime : void 0;
-	return typeof item.b64_json === "string" ? {
+	return typeof item.b64_json === "string" && item.b64_json.trim().length > 0 ? {
 		b64_json: item.b64_json,
 		...mime === void 0 ? {} : { mime_type: mime }
 	} : typeof item.url === "string" ? {
@@ -1299,7 +1299,7 @@ function firstImage(value) {
 	if (typeof candidate !== "object" || candidate === null || Array.isArray(candidate)) return void 0;
 	const item = candidate;
 	const mime = typeof item.mime_type === "string" ? item.mime_type : typeof item.mime === "string" ? item.mime : void 0;
-	return typeof item.b64_json === "string" ? {
+	return typeof item.b64_json === "string" && item.b64_json.trim().length > 0 ? {
 		b64_json: item.b64_json,
 		...mime === void 0 ? {} : { mime_type: mime }
 	} : typeof item.url === "string" ? {
@@ -3553,7 +3553,7 @@ async function requestSceneImage(input, deps) {
 		...imageBytes(data, maxBytes),
 		...metadata ? { metadata } : {}
 	});
-	const inline = typeof item.b64_json === "string" ? item.b64_json : /^data:image\/[\w.+-]+;base64,/i.test(item.url || "") ? item.url.split(",")[1] : null;
+	const inline = typeof item.b64_json === "string" && item.b64_json.trim().length > 0 ? item.b64_json : /^data:image\/[\w.+-]+;base64,/i.test(item.url || "") ? item.url.split(",")[1] : null;
 	if (inline !== null) {
 		const clean = inline.replace(/\s+/g, "");
 		if (!/^[A-Za-z0-9+/]+={0,2}$/.test(clean)) throw new Error("图片 base64 数据不合法");
