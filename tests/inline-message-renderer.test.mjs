@@ -2020,3 +2020,33 @@ test('retiring an older trusted facade cannot clear the newer one or restore a d
   releaseSecond()
   assert.equal(host.SillyTavern, original)
 })
+
+
+test('trusted opening exposes live MVU and EJS to original parent-window checks', async () => {
+  for (const trustedCardMode of [true, false]) {
+    const host = { jQuery: Object.assign(() => {}, { fn: { jquery: '3.7.1', draggable() {} } }) }
+    const events = {}
+    const frame = { parent: host, __dshTavernHelperReady: Promise.resolve(),
+      SillyTavern: { getContext: () => ({ extensionSettings: { EjsTemplate: { enabled: true } } }) },
+      addEventListener(name, handler) { events[name] = handler },
+      __dshTavernResolveCompanionScriptsReady() {} }
+    const html = client.buildTavernFrameDocument({ trustedCardMode, openingPreview: { runtime: { context: {}, scripts: [] } } })
+    const loader = Buffer.from(html.match(/<script type="module" src="data:text\/javascript;base64,([^"]+)"/)[1], 'base64').toString()
+    await vm.runInNewContext('(async()=>{' + loader + '})()', { window: frame })
+    const bridge = html.match(/<script data-dsh-tavern-opening-host>([\s\S]*?)<\/script>/)
+    if (bridge) vm.runInNewContext(bridge[1], { window: frame })
+    const checkMvu = () => !!host.Mvu && typeof host.Mvu.getMvuData === 'function' && typeof host.Mvu.replaceMvuData === 'function'
+    const checkEjs = () => !!host.SillyTavern?.getContext().extensionSettings.EjsTemplate.enabled
+    assert.equal(checkMvu(), false, 'unloaded MVU must remain offline')
+    frame.Mvu = { getMvuData() {}, replaceMvuData() {} }
+    assert.equal(checkMvu(), trustedCardMode)
+    assert.equal(checkEjs(), trustedCardMode)
+    if (trustedCardMode) {
+      frame.Mvu = undefined
+      assert.equal(checkMvu(), false)
+      events.pagehide()
+      assert.equal(Object.hasOwn(host, 'SillyTavern'), false)
+      assert.equal(Object.hasOwn(host, 'Mvu'), false)
+    }
+  }
+})
