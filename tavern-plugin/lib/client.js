@@ -1612,7 +1612,9 @@ window.__ModuleLoader__.load({
 		  let worldbook = preview.worldbook ? JSON.parse(JSON.stringify(preview.worldbook)) : null;
 		  function copy(value) { return JSON.parse(JSON.stringify(value)); }
 		  function request(type, payload) {
-		    const requestId = String(++nextId);
+		    // document.open() removes window listeners while preserving these API functions.
+		    addEventListener('message', receive);
+		    const requestId = 'opening-preview:' + (++nextId);
 		    return new Promise(function (resolve, reject) {
 		      const timer = setTimeout(function () { pending.delete(requestId); reject(new Error('开场操作超时，请重试')); }, type === 'dsh-tavern-helper-call' ? 300000 : 10000);
 		      pending.set(requestId, { resolve, reject, timer });
@@ -1697,14 +1699,15 @@ window.__ModuleLoader__.load({
 		  window.setChatMessage = function (message, messageId, options) {
 		    return window.setChatMessages([{ message_id: messageId, message, swipe_id: options && options.swipe_id }]);
 		  };
-		  addEventListener('message', function (event) {
+		  function receive(event) {
 		    const data = event.data;
 		    if (event.source !== parent || !data || data.token !== token || !['dsh-tavern-opening-response', 'dsh-tavern-helper-response'].includes(data.type)) return;
 		    const task = pending.get(data.requestId);
 		    if (!task) return;
 		    pending.delete(data.requestId); clearTimeout(task.timer);
 		    if (data.ok) task.resolve(data.result); else task.reject(new Error(data.error || '开场选择失败'));
-		  });
+		  }
+		  addEventListener('message', receive);
 		}
 
 		function openingPreviewSelection(preview, swipeId) {
@@ -2041,6 +2044,8 @@ window.__ModuleLoader__.load({
 			const pending = Object.create(null);
 			function post(message) { parent.postMessage(Object.assign({}, message, { token: token }), "*"); }
 			function request(method, args) {
+				// A card may replace its document; DOM listeners must be restored before RPC.
+				options.listen(receive);
 				return new Promise(function (resolve, reject) {
 					const requestId = String(nextId++);
 					const owner = identity();

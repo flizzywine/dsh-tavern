@@ -135,3 +135,23 @@ test('准备页复用正式脚本选择，保留启用脚本并排除重复 MVU 
   draft.runtime.scripts[0].data.count = 100
   assert.equal(service.get(draft.id).runtime.scripts[0].data.count, 1)
 })
+
+test('opening API restores its response listener after document replacement', async () => {
+  const listeners = new Set()
+  const entries = [{ name: 'mode', enabled: true }]
+  const parent = { postMessage(message) {
+    assert.match(message.requestId, /^opening-preview:/)
+    queueMicrotask(() => {
+      for (const receive of listeners) receive({ source: parent, data: {
+        type: 'dsh-tavern-opening-response', token: 'replacement', requestId: message.requestId,
+        ok: true, result: { worldbook: { name: 'book', entries } }
+      } })
+    })
+  } }
+  const context = vm.createContext({ window: {}, parent, setTimeout, clearTimeout, console,
+    addEventListener: (_, handler) => listeners.add(handler) })
+  vm.runInContext(await readFile(new URL('../tavern-plugin/src/client/opening-preview.js', import.meta.url), 'utf8'), context)
+  context.installOpeningPreviewBridge('replacement', { preparationId: 'draft', swipes: [''], openingIds: ['primary'], selectedIndex: 0, worldbook: { name: 'book', entries } })
+  listeners.clear() // document.open clears listeners but keeps global API functions.
+  assert.equal((await context.window.getWorldbook('book'))[0].name, 'mode')
+})

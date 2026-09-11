@@ -89,3 +89,17 @@ test('生产事件模块保留脚本身份、失败进度和once递归保护', a
   assert.equal(progress.at(-1).phase, 'failed')
   assert.ok(reports >= 4)
 })
+
+test('helper RPC recovers response delivery after document.open removes listeners', async () => {
+  const listeners = new Set()
+  const parent = { postMessage(message) {
+    queueMicrotask(() => listeners.forEach(receive => receive({ source: parent, data: {
+      type: 'dsh-tavern-helper-response', token: 'reload', requestId: message.requestId, ok: true, result: { ready: true }
+    } })))
+  } }
+  const transport = helperClient.createTavernHelperTransport({ parent, token: 'reload', copy: structuredClone,
+    identity: () => ({}), listen: fn => listeners.add(fn), onContext() {}, onEvent() {} })
+  listeners.clear()
+  assert.deepEqual(await transport.request('getTavernHelperWorldbook', {}), { ready: true })
+  assert.equal(listeners.size, 1)
+})

@@ -1380,6 +1380,8 @@ window.__ModuleLoader__.load({
 			const pending = Object.create(null);
 			function post(message) { parent.postMessage(Object.assign({}, message, { token: token }), "*"); }
 			function request(method, args) {
+				// A card may replace its document; DOM listeners must be restored before RPC.
+				options.listen(receive);
 				return new Promise(function (resolve, reject) {
 					const requestId = String(nextId++);
 					const owner = identity();
