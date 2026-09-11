@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "11573f4d5c269680a1dcf9bc3cda459b9afa4cc2",
-  "releaseSequence": 157,
+  "revision": "d5bd4a398ddedc1ed918e7c749848428dcb6247f",
+  "releaseSequence": 158,
   "version": "1.6.0",
   "files": [
     {
@@ -106,13 +106,13 @@
     },
     {
       "path": "install.ps1",
-      "sha256": "8f83b3813b5865d15bc85025223d92029b783d9dbad9895e57136798aec4f690",
-      "size": 13238
+      "sha256": "ff3998cc72c9a4b678a5bc39c2c7815612e98170ed82404bc0ed75edae0d0e92",
+      "size": 15770
     },
     {
       "path": "install.sh",
-      "sha256": "9d34df44ad8df8eed5277c9a8465c46523acefbf985a9a32867ff3f5fef39abb",
-      "size": 10012
+      "sha256": "98e28e817f1396b46ae0fadcf8b6da798aa93f28126efb799a98958f2de9ae6e",
+      "size": 12063
     },
     {
       "path": "package.json",
