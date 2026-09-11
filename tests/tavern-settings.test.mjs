@@ -283,12 +283,12 @@ test('后台任务设置默认三项开启，独立修改并持久化，变量�
 })
 
 
-test('台账维护可独立开启且不改变其他后台任务', async t => {
+test('遗留台账开关不能重新启用已移除的后台任务', async t => {
   const run = await settingsHarness(t)
   await run.update({ backgroundTasks: { ledger: true } })
-  assert.deepEqual((await run.read()).backgroundTasks, { posture: true, characterDesign: false, variables: true, ledger: true })
+  assert.deepEqual((await run.read()).backgroundTasks, { posture: true, characterDesign: false, variables: true, ledger: false })
   await run.update({ backgroundTasks: { posture: false } })
-  assert.equal((await run.read()).backgroundTasks.ledger, true)
+  assert.equal((await run.read()).backgroundTasks.ledger, false)
   await run.update({ backgroundTasks: { ledger: false } })
   assert.equal((await run.read()).backgroundTasks.ledger, false)
 })

@@ -65,7 +65,7 @@ import {
   projectCharacterDesignDocument
 } from './domain/character-design-document.js'
 import { createLedgerEditor } from './domain/ledger-editor.js'
-import { LEDGER_SUBMIT_TOOL, LEDGER_RULES, ledgerContext, createLedgerSubmission, readLedger } from './domain/story-ledger.js'
+import { readLedger } from './domain/story-ledger.js'
 import { POSTURE_SUBMIT_TOOL, POSTURE_SUBMIT_TOOL_NAME, normalizePostureSubmission } from './domain/posture-submission.js'
 import { TAVERN_COMPATIBILITY_CAPABILITIES, createTavernCompatibilityDiagnosticStore } from './domain/tavern-compatibility-diagnostics.js'
 import { createMvuDiagnosticStore, createMvuDiagnosticExport, sanitizeRuntimeDiagnostics, sanitizeMvuLoadDiagnostic, redactMvuLoadError } from './domain/mvu-diagnostics.js'
@@ -1466,7 +1466,7 @@ export async function apply(ctx) {
   const backgroundAgentRunner = createBackgroundAgentRunner({
     resolveWebSearch: async () => (await readTavernSettings()).webSearchEnabled === true,
     resolveBackgroundTasks: async () => normalizeBackgroundTasks((await readTavernSettings()).backgroundTasks),
-    backgroundTools: [LEDGER_SUBMIT_TOOL, POSTURE_SUBMIT_TOOL, CHARACTER_DESIGN_READ_TOOL, CHARACTER_DESIGN_SAVE_TOOL, MVU_SUBMIT_UPDATE_TOOL, CANDIDATE_SUBMIT_TOOL, SCRIPT_READ_TOOL, SCRIPT_POINT_TOOL],
+    backgroundTools: [POSTURE_SUBMIT_TOOL, CHARACTER_DESIGN_READ_TOOL, CHARACTER_DESIGN_SAVE_TOOL, MVU_SUBMIT_UPDATE_TOOL, CANDIDATE_SUBMIT_TOOL, SCRIPT_READ_TOOL, SCRIPT_POINT_TOOL],
     sharedTools: [{
       tool: HISTORY_RECALL_TOOL,
       async execute({ input, args }) {
@@ -1818,8 +1818,6 @@ export async function apply(ctx) {
       chat.posture = posture
       postureUpdated = true
     }
-    // Player-only ledger: never included in foreground or candidate prompts.
-    if (result.ledger) chat.ledger = result.ledger
     return { postureUpdated: postureUpdated }
   }
   function settlementTurn(chat) {
@@ -1918,7 +1916,6 @@ export async function apply(ctx) {
           const settlementInput = {
             onPersistentSessionReady: id => taskRun.bindSession(id),
             backgroundTasks: backgroundTasksSettings,
-            ledger: snapshot.ledger,
             operationId: taskRun.operationId,
             chatId: snapshot.id,
             branchId: taskRun.basedOn.branchId,
@@ -1958,14 +1955,13 @@ export async function apply(ctx) {
             error.mvuReceipt = mvuResult.receipt
             throw error
           }
-          result = { posture: mvuResult.posture, ledger: mvuResult.ledger }
-        } else if (!backgroundTasksSettings.posture && !backgroundTasksSettings.characterDesign && !backgroundTasksSettings.ledger) {
+          result = { posture: mvuResult.posture }
+        } else if (!backgroundTasksSettings.posture && !backgroundTasksSettings.characterDesign) {
           result = {}
         } else {
           const selection = backgroundModelSelection(snapshot)
           if (selection === null) throw new Error('没有可用的模型配置，请先在当前会话的模型选择器中选择模型')
           let submittedPosture = null
-          const ledger = createLedgerSubmission({ enabled: backgroundTasksSettings.ledger, current: snapshot.ledger, turn: settlementTurn(snapshot) })
           let settlementToolTail = Promise.resolve()
           const run = await backgroundAgentRunner.run({
             onPersistentSessionReady: id => taskRun.bindSession(id),
@@ -1978,24 +1974,23 @@ export async function apply(ctx) {
               id: 'settle-' + Date.now().toString(36),
               role: 'user',
               regexPlacement: 2,
-              content: [{ type: 'text', text: settleUserText(snapshot, backgroundTasksSettings.posture) + (backgroundTasksSettings.ledger ? '\n\n' + ledgerContext(snapshot.ledger) : '') }],
+              content: [{ type: 'text', text: settleUserText(snapshot, backgroundTasksSettings.posture) }],
               source: { kind: 'plugin', plugin: 'dsh-tavern' }
             }],
             system: [
               backgroundTasksSettings.posture ? runtimePrompt('posture-settlement') : '本轮不生成或提交姿势。完成启用的后台任务后简短回复完成。',
-              ...(backgroundTasksSettings.ledger ? [LEDGER_RULES] : []),
               ...(backgroundTasksSettings.characterDesign ? ['若发现重要人物需要建立、补全或修订长期设计，在当前后台 Agent 内调用 skill 加载 tavern-character-design，并按 Skill 读取或保存人物档案；无需也不得创建另一个 Agent。',
               '人物设计保存独立于姿势结算；完成设计后继续当前任务。'] : ['本轮人物设计已关闭，不调用人物设计 Skill 或生成档案。']),
               backgroundTasksSettings.posture ? 'posture_submit 是本任务最后一步。' : ''
             ].join('\n\n'),
-            tools: [...(backgroundTasksSettings.ledger ? [LEDGER_SUBMIT_TOOL] : []), ...(backgroundTasksSettings.posture ? [POSTURE_SUBMIT_TOOL] : []), ...(backgroundTasksSettings.characterDesign ? [CHARACTER_DESIGN_READ_TOOL, CHARACTER_DESIGN_SAVE_TOOL] : [])],
+            tools: [...(backgroundTasksSettings.posture ? [POSTURE_SUBMIT_TOOL] : []), ...(backgroundTasksSettings.characterDesign ? [CHARACTER_DESIGN_READ_TOOL, CHARACTER_DESIGN_SAVE_TOOL] : [])],
             maxToolCalls: 12,
             temperature: 0.2,
             sessionId: snapshot.sessionId,
             webSearchEnabled: snapshot.webSearchEnabled === true,
             signal,
-            stopToolsWhen: function () { return submittedPosture !== null && ledger.complete },
-            acceptWithoutText: function () { return ledger.complete && (submittedPosture !== null || (backgroundTasksSettings.ledger && !backgroundTasksSettings.posture)) },
+            stopToolsWhen: function () { return submittedPosture !== null },
+            acceptWithoutText: function () { return submittedPosture !== null },
             onToolCall(call) {
               const pending = settlementToolTail.then(async function () {
                 if (call && (call.name === CHARACTER_DESIGN_READ_TOOL.name || call.name === CHARACTER_DESIGN_SAVE_TOOL.name)) {
@@ -2003,8 +1998,6 @@ export async function apply(ctx) {
                   if (submittedPosture !== null) return JSON.stringify({ ok: false, retryable: false, error: '姿势已经提交，本轮后台任务已结束' })
                   return await characterDesignDocuments.execute(snapshot.id, call)
                 }
-                if (call?.name === LEDGER_SUBMIT_TOOL.name) return ledger.execute(call)
-                if (call?.name === POSTURE_SUBMIT_TOOL_NAME && !ledger.complete) return JSON.stringify({ ok: false, retryable: true, error: '请先调用 ledger_submit 维护台账，再提交姿势' })
                 if (!backgroundTasksSettings.posture || !call || call.name !== POSTURE_SUBMIT_TOOL_NAME) {
                   return JSON.stringify({ ok: false, retryable: true, error: '当前任务只允许调用人物设计工具和 posture_submit' })
                 }
@@ -2024,8 +2017,7 @@ export async function apply(ctx) {
           })
           await settlementToolTail
           if (backgroundTasksSettings.posture && submittedPosture === null) throw new Error('后台 Agent 未调用 posture_submit 提交有效姿势')
-          if (!ledger.complete) throw new Error('后台 Agent 未调用 ledger_submit 提交台账')
-          result = { ...(submittedPosture || {}), ...(ledger.result ? { ledger: ledger.result } : {}) }
+          result = { ...(submittedPosture || {}) }
           text = str(run.text) || JSON.stringify(result)
           backgroundSessionId = str(run.traceSessionId)
           backgroundBoundary = Number.isSafeInteger(run.traceBoundary) ? run.traceBoundary : null
@@ -2035,7 +2027,7 @@ export async function apply(ctx) {
         const waitingRuntime = Boolean(mvuResult && mvuResult.receipt && mvuResult.receipt.status === 'pending')
         const completion = {
           stateChanged: Boolean(mvuResult && mvuResult.receipt && mvuResult.receipt.status === 'updated') ||
-            str(result && result.posture).trim() !== '' || Boolean(result?.ledger),
+            str(result && result.posture).trim() !== '',
           participant: taskRun.participant({ sessionId: backgroundSessionId, boundary: backgroundBoundary }),
           apply(draft) {
             if (mvuResult && mvuResult.effect) applyMvuSettlementEffect(draft, mvuResult.effect)

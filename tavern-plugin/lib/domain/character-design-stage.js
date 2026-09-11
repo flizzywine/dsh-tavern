@@ -13,7 +13,7 @@ export const CHARACTER_DESIGN_FINISH_TOOL = Object.freeze({
   parameters: Object.freeze({ type: 'object', additionalProperties: false, properties: {} })
 })
 
-const FINAL_SUBMISSION_TOOLS = new Set(['ledger_submit', 'posture_submit', 'mvu_submit_update', 'candidate_submit_choices'])
+const FINAL_SUBMISSION_TOOLS = new Set(['posture_submit', 'mvu_submit_update', 'candidate_submit_choices'])
 
 /** Keep creative character work independent from the deterministic task surrounding it. */
 export function createCharacterDesignStage(options = {}) {

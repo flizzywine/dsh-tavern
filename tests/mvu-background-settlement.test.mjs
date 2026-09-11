@@ -315,14 +315,14 @@ test('关闭姿势和设计后直接结算 MVU，关闭的工具不能写入状�
   assert.equal(result.receipt.status, 'unchanged')
 })
 
-test('MVU 在同一个后台任务维护台账，先记账再提交变量，台账不进入官方变量 operations', async () => {
+test('旧配置开启台账时仍不注入台账任务或工具，变量无需等待台账', async () => {
   let calls = 0
   const module = createMvuSettlementModule({
     model: { async run(input) {
       calls++
-      assert.ok(input.turnContext.includes('当前台账'))
-      assert.equal(JSON.parse(await input.onToolCall({ name: 'mvu_submit_update', arguments: { operations: [] } })).retryable, true)
-      assert.equal(JSON.parse(await input.onToolCall({ name: 'ledger_submit', arguments: { npcs: { add: [{ name: '林岚', relation: '同行者' }] } } })).ok, true)
+      assert.ok(!input.turnContext.includes('当前台账'))
+      assert.ok(!input.system.includes('台账维护'))
+      assert.ok(!input.tools.some(tool => tool.name === 'ledger_submit'))
       assert.equal(JSON.parse(await input.onToolCall({ name: 'mvu_submit_update', arguments: { operations: [] } })).ok, true)
       return { traceSessionId: 'same-background', traceBoundary: 5 }
     } },
@@ -333,6 +333,6 @@ test('MVU 在同一个后台任务维护台账，先记账再提交变量，台�
   })
   const result = await module.settleVariables({ operationId: 'ledger-test', chatId: 'chat', branchId: 'branch', basedOnRevision: 1, sessionId: 's', messageId: 1, swipeId: 0, turn: 2, currentVariables: { stat_data: { hp: 10 } }, storyText: '林岚与你同行', backgroundTasks: { posture: false, characterDesign: false, ledger: true } })
   assert.equal(calls, 1)
-  assert.equal(result.ledger.npcs[0].name, '林岚')
+  assert.equal(result.ledger, undefined)
   assert.equal(result.traceSessionId, 'same-background')
 })

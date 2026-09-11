@@ -1285,8 +1285,8 @@ test('persistent background tools change with configuration without creating ano
   const selections = [['ledger_submit', 'posture_submit'], ['candidate_submit_choices']];
   for (const names of selections) await runner.run({ sessionId: 'game', backgroundTasksSnapshot: { variables: false, ledger: true, posture: true, characterDesign: false }, persistent: true, task: names.includes('ledger_submit') ? 'settlement' : 'candidate', selection: { provider: 'fake', model: 'fake' }, messages: [], tools: catalog.filter(tool => names.includes(tool.name)), onToolCall: async () => 'accepted' });
   requests.forEach((request, i) => {
-    assert.deepEqual(request.tools.map(tool => tool.name), ['ledger_submit', 'posture_submit', 'candidate_submit_choices']);
-    assert.deepEqual(request.sections.filter(s => s.name.startsWith('tool:')).map(s => s.name.slice(5)), ['ledger_submit', 'posture_submit', 'candidate_submit_choices']);
+    assert.deepEqual(request.tools.map(tool => tool.name), ['posture_submit', 'candidate_submit_choices']);
+    assert.deepEqual(request.sections.filter(s => s.name.startsWith('tool:')).map(s => s.name.slice(5)), ['posture_submit', 'candidate_submit_choices']);
   });
   configured = { variables: true, ledger: false, posture: false, characterDesign: false };
   await runner.run({ sessionId: 'game', persistent: true, task: 'settlement', selection: { provider: 'fake', model: 'fake' }, messages: [], tools: [catalog[2]], onToolCall: async () => 'accepted' });

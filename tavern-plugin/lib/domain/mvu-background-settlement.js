@@ -6,7 +6,6 @@ import {
   CHARACTER_DESIGN_SAVE_TOOL_NAME
 } from './character-design-document.js'
 import { variableDiagnosticSummary } from './mvu-diagnostics.js'
-import { LEDGER_SUBMIT_TOOL, LEDGER_RULES, ledgerContext, createLedgerSubmission } from './story-ledger.js'
 import { normalizeBackgroundTasks } from './tavern-settings.js'
 import { POSTURE_SUBMIT_TOOL, POSTURE_SUBMIT_TOOL_NAME, normalizePostureSubmission } from './posture-submission.js'
 import { resolveRuntimeMacroText } from './runtime-content-projection.js'
@@ -336,7 +335,7 @@ export function createMvuBackgroundTaskFrame(input = {}) {
       storyDigest: str(input.storyDigest)
     },
     foregroundOutput: { storyText },
-    authoritativeState: { currentVariables, variableSchema, ledger: clone(input.ledger || null) },
+    authoritativeState: { currentVariables, variableSchema },
     taskRules: {
       updateRules: Array.isArray(input.updateRules) ? input.updateRules.map(str).filter(Boolean) : [],
       backgroundTasks: normalizeBackgroundTasks(input.backgroundTasks),
@@ -363,7 +362,6 @@ export function projectMvuBackgroundRequest(frame) {
       source: { kind: 'plugin', plugin: 'dsh-tavern', form: 'mvu-final-story' }
     }],
     turnContext: [
-      ...(tasks.ledger ? [ledgerContext(state.ledger)] : []),
       '【当前变量快照】',
       JSON.stringify(promptVariables(state.currentVariables)),
       '【变量结构】',
@@ -373,7 +371,6 @@ export function projectMvuBackgroundRequest(frame) {
       '若本轮出现值得长期保留的重要人物，可先调用 skill 加载 tavern-character-design，再按 Skill 读取或保存人物档案。人物设计独立保存，不属于 MVU operations。'] : [])
     ].join('\n'),
     system: [
-      ...(tasks.ledger ? [LEDGER_RULES] : []),
       '只根据【正文】中已经确认发生的事实结算变量，不得读取或推断玩家意图。',
       '不得根据旧轮剧情、隐藏思考、候选项或未发生事件更新变量。',
       ...(tasks.characterDesign ? ['若确实需要人物设计，在当前后台 Agent 内先加载 tavern-character-design 并调用人物档案工具；无需也不得创建另一个 Agent。完成后继续本轮结算。'] : ['本轮人物设计已关闭，不调用人物设计 Skill 或生成档案。']),
@@ -385,7 +382,7 @@ export function projectMvuBackgroundRequest(frame) {
       'rolledBack=true 表示整批变量修改未保存，可以基于原快照重新提交完整更新；不得用空 operations 掩盖尚未修复的失败。',
       'mvu_submit_update 返回 ok=true 或 retryable=false 后停止调用，不能重复执行已成功的变量更新，也不能绕过人物卡校验。'
     ].join('\n'),
-    tools: [...(tasks.ledger ? [LEDGER_SUBMIT_TOOL] : []), ...(tasks.posture ? [POSTURE_SUBMIT_TOOL] : []), ...(tasks.characterDesign ? [CHARACTER_DESIGN_READ_TOOL, CHARACTER_DESIGN_SAVE_TOOL] : []), MVU_SUBMIT_UPDATE_TOOL]
+    tools: [...(tasks.posture ? [POSTURE_SUBMIT_TOOL] : []), ...(tasks.characterDesign ? [CHARACTER_DESIGN_READ_TOOL, CHARACTER_DESIGN_SAVE_TOOL] : []), MVU_SUBMIT_UPDATE_TOOL]
   }
 }
 
@@ -450,7 +447,6 @@ export function createMvuSettlementModule(options = {}) {
     let result = null
     let feedback = null
     let posture = null
-    const ledger = createLedgerSubmission({ enabled: tasks.ledger, current: input.ledger, turn: input.turn })
     let traceSessionId = str(input.persistentSessionId)
     let traceBoundary = null
     let diagnosticId = frame.frameId + ':attempt-1'
@@ -467,8 +463,6 @@ export function createMvuSettlementModule(options = {}) {
         }
         return await characterDesign.execute(input.chatId, call)
       }
-      if (call?.name === LEDGER_SUBMIT_TOOL.name) return ledger.execute(call)
-      if (!ledger.complete) return JSON.stringify({ ok: false, retryable: true, error: '请先调用 ledger_submit 维护台账，再提交姿势或变量' })
       if (call && call.name === POSTURE_SUBMIT_TOOL_NAME) {
         if (!tasks.posture) return JSON.stringify({ ok: false, error: '姿势结算已关闭' })
         try {
@@ -593,7 +587,6 @@ export function createMvuSettlementModule(options = {}) {
       frame,
       text: str(run.text),
       posture: posture?.posture,
-      ledger: ledger.result,
       traceSessionId,
       traceBoundary,
       ...result

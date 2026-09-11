@@ -186,9 +186,9 @@ export function createBackgroundAgentTask(options) {
         state.configuredToolsKey = key
         state.stableToolDisposers = stableBackgroundTools.filter(function (tool) {
           const tasks = state.input.backgroundTasksSnapshot
+          if (tool.name === 'ledger_submit') return false // Retired, including legacy task snapshots.
           if (!tasks) return true
           if (tool.name === 'mvu_submit_update') return tasks.variables === true
-          if (tool.name === 'ledger_submit') return tasks.ledger === true
           if (tool.name === 'posture_submit') return tasks.posture === true
           if (tool.name.startsWith('character_design_')) return tasks.characterDesign === true
           return true
