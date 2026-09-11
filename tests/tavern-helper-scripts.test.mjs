@@ -79,3 +79,13 @@ test('普通启用脚本可独立于 MVU 运行，禁用脚本及卡片编辑模
   assert.equal(hasTavernScriptRuntime({ ...chat, mode: 'card' }, [script]), false)
   assert.equal(hasTavernScriptRuntime({ ...chat, mvu: { enabled: true } }, []), true)
 })
+
+test('unwraps a complete JavaScript fence without changing template literals or source card', () => {
+  const body = 'const js = `var CH=${JSON.stringify("channel")};`;'
+  const source = { id: 'opening', name: 'opening', type: 'script', enabled: true, content: '\n```javascript\n' + body + '\n```' }
+  assert.equal(projectTavernHelperScripts([source]).scripts[0].content, body)
+  assert.ok(source.content.startsWith('\n```javascript'))
+  for (const content of [body, 'text\n```js\n' + body + '\n```', '```html\n<div></div>\n```']) {
+    assert.equal(projectTavernHelperScripts([{ ...source, content }]).scripts[0].content, content)
+  }
+})
