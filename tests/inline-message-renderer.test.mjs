@@ -2061,3 +2061,55 @@ test('preparation host APIs retain priority over a background session runtime', 
   releaseSession()
   assert.equal(Object.hasOwn(host, 'Mvu'), false)
 })
+
+test('managed MVU keeps jQuery when a card declares its own lexical dollar helper', async () => {
+  const html = client.buildTavernHelperScriptDocument({ scripts: [] })
+  const loader = Buffer.from(html.match(/<script type="module" src="data:text\/javascript;base64,([^"]+)"/)[1], 'base64').toString()
+  const source = loader.slice(loader.indexOf('const loadModule=') + 17, loader.indexOf(';\nconst createMvuLoader='))
+  const sandbox = { window: { jQuery: callback => callback(), addEventListener() {}, removeEventListener() {} }, document: {
+    getElementById: () => null,
+    createElement: () => ({ remove() {} }),
+    body: { appendChild(element) { vm.runInContext('(function(){' + element.textContent + '\n})()', context) } }
+  } }
+  const context = vm.createContext(sandbox)
+  vm.runInContext('const $ = id => document.getElementById(id);', context)
+  const load = vm.runInContext('(' + source + ')', context)
+  await load('$(function(){window.Mvu = {initialized:true}});', '__dsh_official_mvu__')
+  assert.equal(sandbox.window.Mvu?.initialized, true)
+  assert.equal(vm.runInContext('$("missing")', context), null, 'the card keeps its own helper')
+  await load('const $ = () => "card-local";window.cardResult=$();', 'user-card-script')
+  assert.equal(sandbox.window.cardResult, 'card-local', 'user module declarations remain valid')
+})
+
+test('opening refresh submits the same preparation draft that its iframe writes', () => {
+  const updater = clientSource.match(/setOpeningPicker\(function \(current\) \{([\s\S]*?)\n\s*\}\);/)[1]
+  const response = { preparationId: 'new-draft', trustedCardMode: true, openings: [
+    { id: 'alternate:0', openingPreview: { preparationId: 'new-draft' } }, { id: 'primary' }
+  ] }
+  const refresh = vm.runInNewContext('(function(current){' + updater + '})', { response, cardPath: 'card.json', userName: '你' })
+  const next = refresh({ card: { path: 'card.json' }, userName: '你', preparationId: 'old-draft', index: 1, openings: [{ id: 'primary' }, { id: 'alternate:0' }] })
+  assert.equal(next.openings[next.index].id, 'alternate:0')
+  assert.equal(next.preparationId, next.openings[next.index].openingPreview.preparationId)
+})
+
+test('pending opening frame can initialize its private MVU draft before becoming visible', async () => {
+  const listeners = new Map(), calls = [], replies = []
+  const host = { sessionStorage: { getItem() { return null }, setItem() {} }, document: null, setTimeout, clearTimeout,
+    addEventListener(name, fn) { listeners.set(name, fn) }, removeEventListener(name) { listeners.delete(name) } }
+  const props = { sessionId: '', content: '<button>old</button>', turn: 1, eager: true,
+    openingPreview: { preparationId: 'draft', swipes: ['old'], openingIds: ['primary'], selectedIndex: 0 } }
+  const lifecycle = client.createTavernMessageFrameLifecycle(props, { window: host, async rpc(...args) { calls.push(args); return { updated: true } } })
+  lifecycle.snapshot().visibleDocument.ref({ contentWindow: { postMessage() {} } })
+  const stop = lifecycle.start(() => {})
+  lifecycle.update({ ...props, content: '<button>new</button>' })
+  const pending = lifecycle.snapshot().pendingDocument
+  assert.ok(pending)
+  const source = { postMessage(data) { replies.push(data) } }; pending.ref({ contentWindow: source })
+  listeners.get('message')({ source, data: { type: 'dsh-tavern-helper-call', token: pending.token, requestId: 'init',
+    method: 'updateTavernHelperVariables', args: { option: { type: 'message', message_id: 0 }, variables: { stat_data: {} } } } })
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(calls[0]?.[0], 'callOpeningRuntime')
+  assert.equal(calls[0]?.[1].id, 'draft')
+  assert.equal(replies.find(reply => reply.requestId === 'init')?.ok, true)
+  stop()
+})

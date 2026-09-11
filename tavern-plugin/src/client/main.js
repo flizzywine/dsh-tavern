@@ -2683,6 +2683,9 @@ window.__ModuleLoader__.load({
 		}
 
 		function loadTavernHelperModule(source, scriptId) {
+			// Card pages may declare a lexical `$` that shadows window.jQuery.
+			// Bind the managed MVU module to its runtime dependency, not page globals.
+			if (scriptId === "__dsh_official_mvu__") source = "const $ = window.jQuery;\n" + source;
 			const sourceUrl = "dsh-tavern-script:" + encodeURIComponent(String(scriptId || "module"));
 			return new Promise(function (resolve, reject) {
 				const element = document.createElement("script");
@@ -4068,7 +4071,8 @@ window.__ModuleLoader__.load({
 						event.source.postMessage({ type: "dsh-tavern-opening-response", token: data.token, requestId: data.requestId, ok: false, error: String(error.message || error) }, "*");
 					}
 				} else if (data.type === "dsh-tavern-helper-call" && !props.sessionId && props.openingPreview) {
-					if (sourceDocument !== visible || sourceDocument.key !== desired.key) return;
+					// The pending frame initializes its private draft before it becomes visible.
+					if (sourceDocument.key !== desired.key) return;
 					invoke("callOpeningRuntime", { id: props.openingPreview.preparationId, method: data.method, args: data.args }).then(function (result) {
 						if (current()) event.source.postMessage({ type: "dsh-tavern-helper-response", token: data.token, requestId: data.requestId, ok: true, result }, "*");
 					}, function (error) {
@@ -5116,7 +5120,7 @@ window.__ModuleLoader__.load({
 							const openings = response.openings || [];
 							const selected = current.openings && current.openings[current.index];
 							const selectedIndex = selected ? openings.findIndex(function (item) { return item.id === selected.id; }) : -1;
-							return Object.assign({}, current, { openings: openings, index: selectedIndex >= 0 ? selectedIndex : 0, trustedCardMode: response.trustedCardMode });
+							return Object.assign({}, current, { preparationId: response.preparationId || "", openings: openings, index: selectedIndex >= 0 ? selectedIndex : 0, trustedCardMode: response.trustedCardMode });
 						});
 					} catch (err) { if (!stopped) setError(String(err && err.message || err)); }
 				}, 250);

@@ -403,3 +403,18 @@ test('starting from a preparation preserves chat and selected opening variables'
   preparation.messageVariables.stat_data.hp = 0
   assert.equal(opening.variables[opening.swipeId || 0].stat_data.hp, 12)
 })
+
+test('prepared MVU initialization preserves every opening and never marks partial data complete', async () => {
+  for (const complete of [true, false]) {
+    const h = initializationFixture()
+    h.state.extensions = { mvuResources: [{ enabled: true }] }
+    const first = complete ? { stat_data: { hp: 10 }, schema: {} } : {}
+    const selected = { stat_data: { hp: 20 }, schema: {} }
+    const preparation = { worldbookSnapshot: { version: 1 }, openingVariables: { primary: first, 'alternate:0': selected }, messageVariables: selected }
+    const chat = await h.make().start({ ...h.input, openingId: 'alternate:0', preparation })
+    assert.deepEqual(chat.messages[0].variables, [first, selected])
+    assert.equal(chat.mvu.openingInitialization.status, complete ? 'complete' : 'pending')
+    selected.stat_data.hp = 0
+    assert.equal(chat.messages[0].variables[1].stat_data.hp, 20)
+  }
+})

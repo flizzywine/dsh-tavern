@@ -193,8 +193,15 @@ export function createConversationInitialization(options) {
     if (preparation && groupOfMode(chatMode) === 'play') {
       chat.variables = structuredClone(preparation.variables || {});
       const opening = chat.messages.find(message => message.greeting);
-      if (usesMvu && opening && preparation.messageVariables) {
-        opening.variables[opening.swipeId || 0] = structuredClone(preparation.messageVariables);
+      if (usesMvu && opening) {
+        if (preparation.openingVariables) {
+          opening.variables = openingChoices.map(choice => structuredClone(preparation.openingVariables[choice.id] || {}));
+        }
+        if (preparation.messageVariables) opening.variables[opening.swipeId || 0] = structuredClone(preparation.messageVariables);
+        // Preserve completion only when every opening carries real MVU data.
+        if (opening.variables.length && opening.variables.every(value => value && typeof value === 'object' && !Array.isArray(value) && value.stat_data !== undefined && value.schema !== undefined)) {
+          chat.mvu.openingInitialization = { version: 2, status: 'complete', completedAt: Date.now() };
+        }
       }
     }
     delete chat.sceneOpeningWorldbook

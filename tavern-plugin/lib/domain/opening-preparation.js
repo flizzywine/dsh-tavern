@@ -129,7 +129,7 @@ export function createOpeningPreparation({ readCard, worldBooks, templateRuntime
       if (draft.cardPath !== cardPath) throw new Error('开局草稿与人物卡不匹配')
       const selected = openingId || 'primary'
       if (!draft.openings.some(opening => opening.id === selected)) throw new Error('人物卡开场白不存在')
-      return copy({ variables: draft.chat.variables || {}, messageVariables: draft.chat.messages[0]?.variables?.[draft.chat.messages[0]?.swipeId || 0] || {}, openingId: selected, sourceSessionId: draft.sourceSessionId, sourceLifecycleRevision: draft.sourceLifecycleRevision, worldbookSnapshot: { version: 1, source: draft.source, document: draft.document } })
+      return copy({ openingVariables: Object.fromEntries(draft.openings.map(opening => [opening.id, draft.chat.messages[0]?.variables?.[opening.id === 'primary' ? 0 : Number(opening.id.split(':')[1]) + 1] || {}])), variables: draft.chat.variables || {}, messageVariables: draft.chat.messages[0]?.variables?.[draft.chat.messages[0]?.swipeId || 0] || {}, openingId: selected, sourceSessionId: draft.sourceSessionId, sourceLifecycleRevision: draft.sourceLifecycleRevision, worldbookSnapshot: { version: 1, source: draft.source, document: draft.document } })
     }
   }
 }
