@@ -2346,6 +2346,20 @@ window.__ModuleLoader__.load({
 			const { window, copy, context, request: call, Popup: HelperPopup } = options;
 			const chatData = options.createChatData({ copy: copy, context: context, request: call });
 			const extensionSettings = Object.assign(Object.create(null), copy(context().extensionSettings || {}));
+			// Tavern applies enabled card regexes without ST's per-avatar opt-in.
+			// Project that host-owned permission without persisting a fabricated setting.
+			const visibleExtensionSettings = new Proxy(extensionSettings, {
+				get: function (target, key) {
+					if (key !== "character_allowed_regex") return target[key];
+					const allowed = Array.isArray(target[key]) ? target[key].slice() : [];
+					const character = context().character;
+					if (character && typeof character === "object") {
+						const avatar = character.avatar || String(character.path || "");
+						if (!allowed.includes(avatar)) allowed.push(avatar);
+					}
+					return allowed;
+				}
+			});
 			let savedExtensionSettings = copy(extensionSettings);
 			let settingsTail = Promise.resolve();
 			// Keep plugin-held object references stable when acknowledging persisted settings.
@@ -2399,7 +2413,7 @@ window.__ModuleLoader__.load({
 				Popup: HelperPopup,
 				POPUP_TYPE: Object.freeze({ DISPLAY: "display", TEXT: "text", CONFIRM: "confirm", INPUT: "input" }),
 				POPUP_RESULT: Object.freeze({ AFFIRMATIVE: 1, NEGATIVE: 0, CANCELLED: null, CUSTOM1: 2 }),
-				extensionSettings: extensionSettings,
+				extensionSettings: visibleExtensionSettings,
 				// These ST rewriting/media restrictions are disabled in Tavern rendering.
 				powerUserSettings: Object.freeze({ auto_fix_generated_markdown: false, trim_sentences: false, forbid_external_media: false, encode_tags: false }),
 				get characters() {
@@ -3038,6 +3052,22 @@ window.__ModuleLoader__.load({
 				resolve();
 			};
 			window.__dshTavernHelperSetCurrentScript = function (scriptId) { if (scriptsById[String(scriptId)]) currentScriptId = String(scriptId); };
+			// jQuery defers $(fn) until after module evaluation. Capture ownership at
+			// registration, before the loader advances to the next card script.
+			if (window.jQuery && window.jQuery.fn && typeof window.jQuery.fn.ready === "function") {
+				const originalReady = window.jQuery.fn.ready;
+				window.jQuery.fn.ready = function (callback) {
+					if (typeof callback !== "function") return originalReady.apply(this, arguments);
+					const owner = currentScript().id;
+					return originalReady.call(this, function () {
+						const receiver = this, args = arguments;
+						return withScript(owner, function () { return callback.apply(receiver, args); }).catch(function (error) {
+							if (error && typeof error === "object" && !error.dshTavernScriptId) error.dshTavernScriptId = owner;
+							throw error;
+						});
+					});
+				};
+			}
 			window.__dshTavernHelperSubscriptionsReady = function (scriptId) { const script = scriptsById[String(scriptId || currentScript().id)]; if (script) script.ready = true; reportSubscriptions(); };
 			window.__dshTavernHelperSubscriptionsFailed = function (scriptId, error) {
 				const script = scriptsById[String(scriptId || currentScript().id)];

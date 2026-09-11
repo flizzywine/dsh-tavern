@@ -32,6 +32,7 @@ export function helperHostHarness(context = {}, options = {}) {
       unset(target, path) { return delete target[String(path)] }
     }
   }
+  window.jQuery = options.jQuery
   window.window = window
   vm.runInNewContext(source, window)
   function receive(data) { listeners.get('message')({ source: parent, data: { token: 'host-test', ...data } }) }

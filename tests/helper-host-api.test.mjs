@@ -259,3 +259,18 @@ test('原卡关闭前端不兼容选项的 ready 回调无需写入不存在的 
   await callbacks[0]()
   assert.equal(run.calls().length, 0)
 })
+
+test('延迟执行的 jQuery ready 回调注册事件时保留原脚本归属', async () => {
+  const callbacks = []
+  const jquery = { fn: { ready(fn) { callbacks.push(fn); return this } } }
+  const h = helperHostHarness({}, { jQuery: jquery }), w = h.window
+  w.__dshTavernHelperSetCurrentScript('a')
+  jquery.fn.ready(() => w.eventOn('CHAT_CHANGED', () => { throw new Error('original script failure') }))
+  w.__dshTavernHelperSetCurrentScript('b')
+  await callbacks[0]()
+  h.receive({ type: 'dsh-tavern-helper-event', eventId: 'ready-owner', name: 'CHAT_CHANGED', args: ['chat'] })
+  await tick()
+  const result = h.sent.find(item => item.type === 'dsh-tavern-helper-event-complete' && item.eventId === 'ready-owner')
+  assert.equal(result.error, 'original script failure')
+  assert.equal(result.scriptId, 'a')
+})

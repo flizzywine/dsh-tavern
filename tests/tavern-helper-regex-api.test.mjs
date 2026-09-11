@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import vm from 'node:vm'
 import { helperHostHarness } from './fixtures/helper-host-harness.mjs'
 
 const tick = () => new Promise(resolve => setImmediate(resolve))
@@ -66,4 +67,35 @@ test('手机脚本读取并更新人物卡变量', async () => {
   assert.deepEqual(call.args.variables, { phone_data: { user: { name: '上杉绘梨衣' } } })
   run.reply(call, { updated: true, characterVariables: call.args.variables })
   assert.deepEqual(await pending, { phone_data: { user: { name: '上杉绘梨衣' } } })
+})
+
+// Reduced from StageDog's 自动开启角色卡局部正则: preserve the unguarded
+// includes and subsequent API calls so a missing field or empty-array shim fails.
+test('CHAT_CHANGED 自动开启局部正则读取宿主实际启用状态，不触发多余保存或重载', async () => {
+  const run = helperHostHarness({ character: { path: 'card.json' }, extensionSettings: {} })
+  const w = run.window
+  vm.runInNewContext(`eventOn(tavern_events.CHAT_CHANGED, async () => {
+    const id = SillyTavern.characterId;
+    if (id === undefined) return;
+    const avatar = SillyTavern.characters[id].avatar;
+    const allowed = SillyTavern.extensionSettings.character_allowed_regex;
+    if (!allowed.includes(avatar)) {
+      allowed.push(avatar);
+      await TavernHelper.builtin.saveSettings();
+      await SillyTavern.saveChat();
+      await SillyTavern.reloadCurrentChat();
+    }
+  });`, w)
+  await w.eventEmit('CHAT_CHANGED', 'chat')
+  assert.equal(run.calls().length, 0)
+  run.receive({ type: 'dsh-tavern-helper-context', context: { character: { avatar: 'next.png' } } })
+  await w.eventEmit('CHAT_CHANGED', 'next')
+  assert.equal(run.calls().length, 0)
+  assert(w.SillyTavern.extensionSettings.character_allowed_regex.includes('next.png'))
+  const save = w.SillyTavern.saveSettingsDebounced()
+  await tick()
+  const call = run.calls().at(-1)
+  assert.equal(Object.hasOwn(call.args.settings, 'character_allowed_regex'), false, '运行时启用状态不写入插件配置')
+  run.reply(call, { updated: true, extensionSettings: call.args.settings })
+  await save
 })
