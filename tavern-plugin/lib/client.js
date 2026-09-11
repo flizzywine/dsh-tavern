@@ -5427,6 +5427,58 @@ window.__ModuleLoader__.load({
 			return Object.freeze({ register: register });
 		}
 
+		async function deleteTavernCards(cards, remove) {
+			const results = [];
+			const paths = new Set();
+			for (const card of cards) {
+				if (paths.has(card.path)) continue;
+				paths.add(card.path);
+				try {
+					const result = await remove(card.path);
+					if (!result || result.deleted !== true) throw new Error("人物卡未删除");
+					results.push({ path: card.path, name: card.name, ok: true });
+				} catch (error) { results.push({ path: card.path, name: card.name, ok: false, error: String(error && error.message || error) }); }
+			}
+			return results;
+		}
+
+		function useCardBatchDeletion(cards, busy, setBusy, refresh) {
+			const [managing, setManaging] = React.useState(false);
+			const [paths, setPaths] = React.useState([]);
+			const [notice, setNotice] = React.useState("");
+			const running = React.useRef(false);
+			const selected = cards.filter(card => paths.includes(card.path));
+			function toggle(path) { if (!busy && !running.current) setPaths(previous => previous.includes(path) ? previous.filter(value => value !== path) : previous.concat(path)); }
+			async function removeSelected() {
+				if (busy || running.current || !selected.length) return;
+				const names = selected.slice(0, 20).map(card => "• " + card.name + "（" + card.path + "）").join("\n");
+				if (!window.confirm("删除所选的 " + selected.length + " 张人物卡吗？\n\n" + names + (selected.length > 20 ? "\n……共 " + selected.length + " 张" : "") + "\n\n人物卡工作版和原版都会删除，已有对话会保留。此操作不可撤销。")) return;
+				running.current = true; setBusy(true); setNotice("");
+				try {
+					const results = await deleteTavernCards(selected, path => rpc("deleteCard", { path }));
+					const failed = results.filter(item => !item.ok);
+					setPaths(failed.map(item => item.path));
+					setNotice("已删除 " + (results.length - failed.length) + " 张" + (failed.length ? "，" + failed.length + " 张失败，可重试：" + failed.map(item => item.name + "：" + item.error).join("；") : "。"));
+					await refresh();
+					notifyTavernDataChanged(["cards", "sessions"], "cards");
+				} catch (error) { setNotice(previous => previous + " 刷新失败：" + String(error && error.message || error)); }
+				finally { running.current = false; setBusy(false); }
+			}
+			function toolbar(visible) {
+				const h = React.createElement;
+				return h("div", { className: "dsh-tavern-card-batch" },
+					h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { setManaging(!managing); setPaths([]); setNotice(""); } }, managing ? "取消批量选择" : "批量删除"),
+					managing ? h(React.Fragment, null,
+						h("button", { className: "dsh-tavern-btn", disabled: busy || !visible.length, onClick: function () { setPaths(previous => Array.from(new Set(previous.concat(visible.map(card => card.path))))); } }, "全选当前列表"),
+						h("button", { className: "dsh-tavern-btn", disabled: busy || !selected.length, onClick: function () { setPaths([]); } }, "清空选择"),
+						h("span", null, "已选 " + selected.length + " 张"),
+						h("button", { className: "dsh-tavern-btn danger", disabled: busy || !selected.length, onClick: removeSelected }, busy ? "正在删除…" : "删除所选（" + selected.length + "）")) : null,
+					notice ? h("div", { role: "status", className: "dsh-tavern-card-batch-notice" }, notice) : null);
+			}
+			function checkbox(card) { return managing ? React.createElement("input", { type: "checkbox", checked: paths.includes(card.path), disabled: busy, "aria-label": "选择人物卡：" + card.name + "（" + card.path + "）", onChange: () => toggle(card.path) }) : null; }
+			return { managing, toggle, toolbar, checkbox };
+		}
+
 		function tavernHistoryCardKey(item) {
 			return item.cardPath ? "card:" + item.cardPath : "unbound:" + (item.chatId || item.sessionId);
 		}
@@ -5482,6 +5534,7 @@ window.__ModuleLoader__.load({
 			}, [historyGroupState]);
 			const [picking, setPicking] = React.useState(false);
 			const [busy, setBusy] = React.useState(false);
+			const cardBatch = useCardBatchDeletion(cards, busy, setBusy, refresh);
 			const [error, setError] = usePersistentError("左侧栏操作");
 			const [uiMode, setUiMode] = React.useState("play");
 			const [requestMode, setRequestMode] = React.useState("dsh");
@@ -6252,9 +6305,11 @@ window.__ModuleLoader__.load({
 			const playPicker = h("div", { className: "dsh-tavern-card-picker", role: "dialog", "aria-modal": "true", "aria-label": openingPicker ? "游戏准备" : "选择人物卡开始游玩" }, pickerError, openingPicker ? openingChoice : h(React.Fragment, null,
 				h("div", { className: "dsh-tavern-card-picker-head" }, h("span", null, "选择人物卡 · 开始游玩"), h("span", { className: "dsh-tavern-spacer" }), h(MobileCardImportButton, { inputRef: fileRef, disabled: busy, onImported: async function () { await refresh(); notifyDataChanged(["cards"]); } }), h("button", { className: "dsh-tavern-btn", onClick: closePicker }, "关闭")),
 				h("input", { ref: fileRef, type: "file", accept: ".png,.json", style: { display: "none" }, onChange: function (e) { const f = e.target.files && e.target.files[0]; if (f) importCard(f); e.target.value = ""; } }),
+				cardBatch.toolbar(cards),
 				cards.length ? h(React.Fragment, null, h("div", { className: "dsh-tavern-side-empty", style: { padding: "4px 6px" } }, "已绑定剧本的人物卡将自动按剧本推进；未绑定的按自由故事推进。剧本绑定在“卡片模式”中管理。"), cards.map(function (card) { return h("div", { key: card.path, className: "dsh-tavern-card-pick-wrap" },
-					h("button", { className: "dsh-tavern-card-pick" + (card.hasImage ? " with-image" : ""), disabled: busy || Boolean(card.readError), onClick: function () { preparePlayConversation(card); } }, h(TavernCardListContent, { card: card, detail: card.script ? ("剧本：" + card.script.title) : "自由故事（未绑定剧本）" })),
-					h("button", { className: "dsh-tavern-script-file", disabled: busy, title: "从人物卡库删除", onClick: function () { if (window.confirm("从人物卡库删除“" + card.name + "”吗？\n人物卡工作版和原版都会删除，已有对话会保留。")) call("deleteCard", { path: card.path }).then(refresh, function (err) { setError(String(err && err.message || err)); }); } }, "删除"),
+					cardBatch.checkbox(card),
+					h("button", { className: "dsh-tavern-card-pick" + (card.hasImage ? " with-image" : ""), disabled: busy || (!cardBatch.managing && Boolean(card.readError)), onClick: function () { if (cardBatch.managing) cardBatch.toggle(card.path); else preparePlayConversation(card); } }, h(TavernCardListContent, { card: card, detail: card.script ? ("剧本：" + card.script.title) : "自由故事（未绑定剧本）" })),
+					h("button", { className: "dsh-tavern-script-file", disabled: busy || cardBatch.managing, title: "从人物卡库删除", onClick: function () { if (window.confirm("从人物卡库删除“" + card.name + "”吗？\n人物卡工作版和原版都会删除，已有对话会保留。")) call("deleteCard", { path: card.path }).then(refresh, function (err) { setError(String(err && err.message || err)); }); } }, "删除"),
 					h("button", { className: "dsh-tavern-script-file", disabled: busy, title: "导出为 SillyTavern 兼容 JSON", onClick: function () { exportCard(card); } }, "导出")
 				); })) : h("div", { className: "dsh-tavern-empty" }, "还没有人物卡。\n点“导入人物卡”添加 PNG/JSON 卡片。")
 			));
@@ -7615,6 +7670,7 @@ window.__ModuleLoader__.load({
 			const [loading, setLoading] = React.useState(false);
 			const [query, setQuery] = React.useState("");
 			const [busy, setBusy] = React.useState(false);
+			const cardBatch = useCardBatchDeletion(cards, busy, setBusy, refreshCards);
 			const [error, setError] = usePersistentError("人物卡库");
 			const importInput = React.useRef(null);
 			const [importStatus, setImportStatus] = React.useState("");
@@ -7740,9 +7796,11 @@ window.__ModuleLoader__.load({
 			return h("div", { className: "dsh-tavern-library" },
 				h("div", { className: "dsh-tavern-status-head" }, h("div", { className: "dsh-tavern-status-title" }, "人物卡库"), h("div", { className: "dsh-tavern-question-sub" }, cards.length + " 张人物卡"), h("div", { className: "dsh-tavern-library-head-actions" }, h(MobileCardImportButton, { inputRef: importInput, disabled: busy, onImported: async function (imported) { await refreshCards(); await loadCard(imported.path); notifyTavernDataChanged(["cards"], "cards"); } }), h("input", { ref: importInput, type: "file", multiple: true, accept: ".png,.json", style: { display: "none" }, onChange: function (event) { const files = Array.from(event.target.files || []); importCardFiles(files); event.target.value = ""; } }))),
 				h("div", { className: "dsh-tavern-question-sub", role: "status" }, importStatus || "支持多选 PNG、JSON 人物卡一起导入"),
+				cardBatch.toolbar(visible),
 				h("input", { className: "dsh-tavern-library-search", value: query, placeholder: "搜索名称或文件名", onChange: function (event) { setQuery(event.target.value); } }),
 				h("div", { className: "dsh-tavern-resource-body" }, error ? h("div", { className: "dsh-tavern-dock-error" }, error) : null, visible.length ? visible.map(function (item) { return h("div", { key: item.path, className: "dsh-tavern-library-card-row" },
-					h("button", { className: "dsh-tavern-library-card" + (item.hasImage ? " with-image" : ""), onClick: function () { loadCard(item.path); } }, h(TavernCardListContent, { card: item, detail: item.path.split("/").pop(), extra: item.script ? "已绑定剧本：" + item.script.title : "" })),
+					cardBatch.checkbox(item),
+					h("button", { className: "dsh-tavern-library-card" + (item.hasImage ? " with-image" : ""), disabled: busy, onClick: function () { if (cardBatch.managing) cardBatch.toggle(item.path); else loadCard(item.path); } }, h(TavernCardListContent, { card: item, detail: item.path.split("/").pop(), extra: item.script ? "已绑定剧本：" + item.script.title : "" })),
 					sessionMode === "card" ? h("button", { className: "dsh-tavern-resource-at", title: "在对话中引用", onClick: function () { props.appendMention(item.path, item.name); } }, "在对话中引用") : null
 				); }) : h("div", { className: "dsh-tavern-empty" }, needle ? "没有匹配的人物卡" : "还没有人物卡") )
 			);
@@ -9707,6 +9765,7 @@ window.__ModuleLoader__.load({
 		exports.applyBodyRegenerationResult = applyBodyRegenerationResult;
 		exports.createTavernCoordinationEventModule = createTavernCoordinationEventModule;
 		exports.describeTavernActivity = describeTavernActivity;
+		exports.deleteTavernCards = deleteTavernCards;
 		exports.groupTavernHistory = groupTavernHistory;
 		exports.createPlayWorkspaceResolver = createPlayWorkspaceResolver;
 		exports.createSessionListRecoveryModule = createSessionListRecoveryModule;

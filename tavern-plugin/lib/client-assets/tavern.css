@@ -642,3 +642,7 @@ body.dsh-tavern-shell-active [data-dsh-panel-host] { overflow: clip; }
 .dsh-tavern-history-group-items { padding-left: 10px; display: flex; flex-direction: column; gap: 4px; }
 
 .dsh-tavern-history-group-items .dsh-tavern-side-row-meta > span:last-child { white-space: nowrap; flex-shrink: 0; }
+
+.dsh-tavern-card-batch { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 0; }
+.dsh-tavern-card-batch .danger { color: #c34848; }
+.dsh-tavern-card-batch-notice { flex-basis: 100%; overflow-wrap: anywhere; font-size: 12px; }
