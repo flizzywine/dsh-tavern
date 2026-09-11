@@ -648,3 +648,15 @@ body.dsh-tavern-shell-active [data-dsh-panel-host] { overflow: clip; }
 .dsh-tavern-card-batch { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 0; }
 .dsh-tavern-card-batch .danger { color: #c34848; }
 .dsh-tavern-card-batch-notice { flex-basis: 100%; overflow-wrap: anywhere; font-size: 12px; }
+
+
+/* Size every opening by content; scroll the dialog instead of squeezing long forms. */
+.dsh-tavern-card-picker:has(.dsh-tavern-greeting-preview) { display: flex; flex-direction: column; max-height: calc(100dvh - 48px); }
+.dsh-tavern-card-picker:has(.dsh-tavern-greeting-preview) > * { flex-shrink: 0; }
+.dsh-tavern-card-picker > .dsh-tavern-greeting-preview { height: auto; min-height: 0; max-height: min(1200px, 85dvh); flex: 0 0 auto; }
+.dsh-tavern-card-picker > .dsh-tavern-greeting-preview:has(iframe) { height: min(1200px, 85dvh); }
+.dsh-tavern-card-picker > .dsh-tavern-greeting-preview .dsh-tavern-message-frame-slot,
+.dsh-tavern-card-picker > .dsh-tavern-greeting-preview .dsh-tavern-message-frame { min-height: min(1200px, 85dvh); }
+@media (max-width: 640px) {
+  .dsh-tavern-card-picker:has(.dsh-tavern-greeting-preview) { max-height: calc(100dvh - 24px); }
+}
