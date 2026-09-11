@@ -2130,3 +2130,19 @@ test('opening script host stays inside the preview while transport retains its r
   scope.cardState = 1
   assert.equal(host.cardState, 1)
 })
+
+test('closing a trusted opening removes its host popup and stylesheet without removing existing UI', () => {
+  const body = { childNodes: [] }, head = { childNodes: [] }
+  function add(root, id) { const node = { id, remove() { root.childNodes.splice(root.childNodes.indexOf(node), 1) } }; root.childNodes.push(node); return node }
+  const app = add(body, 'app'), style = add(head, 'app-style')
+  const host = { document: { body, head, getElementById() { return {} } },
+    sessionStorage: { getItem() { return null } }, setTimeout, clearTimeout,
+    addEventListener() {}, removeEventListener() {} }
+  const lifecycle = client.createTavernMessageFrameLifecycle({ content: 'opening', sessionId: '', trustedCardMode: true,
+    openingPreview: { preparationId: 'draft', swipes: ['opening'], openingIds: ['primary'], selectedIndex: 0 } }, { window: host })
+  const stop = lifecycle.start(() => {})
+  add(body, 'card-popup'); add(head, 'card-style')
+  stop()
+  assert.deepEqual(body.childNodes, [app])
+  assert.deepEqual(head.childNodes, [style])
+})

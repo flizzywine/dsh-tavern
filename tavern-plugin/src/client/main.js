@@ -4151,6 +4151,10 @@ window.__ModuleLoader__.load({
 				update: update, snapshot: snapshot,
 				start: function (onChange) {
 					listener = onChange;
+					// Preview companions can import modules that append UI to the real host.
+					// Give them the same lifetime cleanup as the conversation script runtime.
+					const openingArtifacts = props.openingPreview && props.trustedCardMode
+						? createTavernHostArtifactScope({ document: hostWindow.document }) : null;
 					hostWindow.addEventListener("message", receive);
                     const releaseComposer = props.openingPreview && props.trustedCardMode && hostWindow.document
                         ? installOpeningHostComposer(hostWindow.document, function (text) {
@@ -4168,6 +4172,13 @@ window.__ModuleLoader__.load({
 					}
 					return function () {
 						releaseComposer();
+						if (openingArtifacts) {
+							for (const channel of channels.values()) {
+								const frame = channel.element();
+								if (frame) releaseTavernHostJQueryHandlers(hostWindow, frame.contentWindow);
+							}
+							openingArtifacts.dispose();
+						}
 						if (fontObserver) fontObserver.disconnect();
                         hostWindow.removeEventListener("dsh-tavern-text-colors-changed", colorsChanged);
                         hostWindow.removeEventListener("storage", colorsChanged);
