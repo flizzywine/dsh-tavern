@@ -33,3 +33,27 @@ function installLegacyTavernComposer() {
     }).finally(function () { pending = false; button.disabled = false; });
   });
 }
+
+// Preparation pages address the parent DOM. Own these controls only while that
+// preview is mounted; they must never forward a submission to the current chat.
+function installOpeningHostComposer(hostDocument, submit, report) {
+  if (hostDocument.getElementById('send_textarea') || hostDocument.getElementById('send_but')) return function () {};
+  const controls = hostDocument.createElement('div');
+  controls.hidden = true;
+  const area = hostDocument.createElement('textarea');
+  area.id = 'send_textarea';
+  const button = hostDocument.createElement('button');
+  button.id = 'send_but'; button.type = 'button';
+  controls.append(area, button);
+  hostDocument.body.append(controls);
+  let active = true, pending = false, completed = false;
+  button.addEventListener('click', function () {
+    const text = String(area.value || '').trim();
+    if (!active || pending || completed || !text) return;
+    pending = true; button.disabled = true;
+    Promise.resolve().then(function () { return submit(text); }).then(function () {
+      completed = true; area.value = '';
+    }, report).finally(function () { pending = false; button.disabled = completed; });
+  });
+  return function () { active = false; controls.remove(); };
+}

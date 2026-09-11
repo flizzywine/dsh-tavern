@@ -37,3 +37,17 @@ test('failed legacy send retains payload, displays failure and permits retry', a
   assert.equal(button.disabled, false)
   assert.ok(nodes.some(n => /开局消息发送失败/.test(n.textContent)))
 })
+
+test('preparation composer owns parent controls, submits once and ignores detached controls', async () => {
+  const nodes = [], calls = []; let finish
+  function element() { return { value: '', append(...items) { nodes.push(...items) }, remove() { this.removed = true }, addEventListener(name, fn) { this[name] = fn } } }
+  const document = { body: element(), createElement: element, getElementById: id => nodes.find(n => n.id === id) }
+  const release = helperClient.installOpeningHostComposer(document, text => { calls.push(text); return new Promise(resolve => { finish = resolve }) }, assert.fail)
+  const area = document.getElementById('send_textarea'), button = document.getElementById('send_but')
+  area.value = '建立角色\n名字：旅人 | 中立'; button.click(); button.click(); await tick()
+  assert.deepEqual(calls, [area.value])
+  finish(); await tick(); button.click(); await tick()
+  assert.equal(calls.length, 1)
+  release(); area.value = '过期开场'; button.click(); await tick()
+  assert.equal(calls.length, 1)
+})

@@ -1799,6 +1799,30 @@ window.__ModuleLoader__.load({
 		    }).finally(function () { pending = false; button.disabled = false; });
 		  });
 		}
+
+		// Preparation pages address the parent DOM. Own these controls only while that
+		// preview is mounted; they must never forward a submission to the current chat.
+		function installOpeningHostComposer(hostDocument, submit, report) {
+		  if (hostDocument.getElementById('send_textarea') || hostDocument.getElementById('send_but')) return function () {};
+		  const controls = hostDocument.createElement('div');
+		  controls.hidden = true;
+		  const area = hostDocument.createElement('textarea');
+		  area.id = 'send_textarea';
+		  const button = hostDocument.createElement('button');
+		  button.id = 'send_but'; button.type = 'button';
+		  controls.append(area, button);
+		  hostDocument.body.append(controls);
+		  let active = true, pending = false, completed = false;
+		  button.addEventListener('click', function () {
+		    const text = String(area.value || '').trim();
+		    if (!active || pending || completed || !text) return;
+		    pending = true; button.disabled = true;
+		    Promise.resolve().then(function () { return submit(text); }).then(function () {
+		      completed = true; area.value = '';
+		    }, report).finally(function () { pending = false; button.disabled = completed; });
+		  });
+		  return function () { active = false; controls.remove(); };
+		}
 		// The header counts session summaries; its popup reads the lazy catalog.
 		// Refresh an opened catalog when membership/activity changes in the summary feed.
 		function syncTavernSubagentCatalogs(sessions) {
@@ -2018,7 +2042,7 @@ window.__ModuleLoader__.load({
 				+ (input && input.helperContext ? '<script data-dsh-tavern-frame-variable-aliases>(' + installTavernFrameVariableAliases.toString() + ')();<\/script>' : '')
 				+ (input && input.helperContext && input.persistent === true && input.preserveInstance !== true ? '<script data-dsh-tavern-status-refresh>(' + installTavernStatusRefresh.toString() + ')(' + token + ');<\/script>' : '')
 				+ (input && input.openingPreview ? '<script data-dsh-tavern-opening-preview>(' + installOpeningPreviewBridge.toString() + ')(' + token + ',' + JSON.stringify(input.openingPreview).replace(/</g, '\\u003c') + ');<\/script>' : '')
-				+ (preparationRuntime && input.trustedCardMode === true ? '<script data-dsh-tavern-opening-host>(function(){const release=(' + installTavernTrustedHostFacade.toString() + ')(window.parent,window);window.addEventListener("pagehide",release,{once:true});window.addEventListener("unload",release,{once:true});})();<\/script>' : '')
+				+ (preparationRuntime && input.trustedCardMode === true ? '<script data-dsh-tavern-opening-host>(function(){const release=(' + installTavernTrustedHostFacade.toString() + ')(window.parent,window,10);window.addEventListener("pagehide",release,{once:true});window.addEventListener("unload",release,{once:true});})();<\/script>' : '')
 				+ '</head><body class="no-blur">' + (input && input.helperContext ? '<script data-dsh-tavern-legacy-composer>(' + installLegacyTavernComposer.toString() + ')();<\/script>' : '') + (preparationRuntime ? preparationRuntime.body : '') + html + layoutNormalizer + fontRuntime + (input && input.persistent ? "" : textColorRuntime) + reporter + readyReporter + '</body></html>';
 		}
 
@@ -3429,7 +3453,7 @@ window.__ModuleLoader__.load({
 			return script.tavernReady;
 		}
 
-		function installTavernTrustedHostFacade(host, frameWindow) {
+		function installTavernTrustedHostFacade(host, frameWindow, priority) {
 			// Legacy sorting scripts address the parent document in trusted mode.
 			// This hidden select accepts their UI events only; it has no host listeners.
 			let sortControl = host.document && host.document.getElementById('world_info_sort_order');
@@ -3446,10 +3470,18 @@ window.__ModuleLoader__.load({
 			}
 			const ownsSortControl = sortControl && typeof sortControl.tavernCompatibilityOwners === 'number';
 			if (ownsSortControl) sortControl.tavernCompatibilityOwners++;
-			const bindings = ["SillyTavern", "TavernHelper", "Mvu"].map(function (name) {
+			const bindings = ["SillyTavern", "TavernHelper", "Mvu", "_"].map(function (name) {
 				const previous = Object.getOwnPropertyDescriptor(host, name);
 				if (previous && !previous.configurable) throw new Error("宿主接口不可替换：" + name);
-				const binding = { name: name, previous: previous, active: true, get: function () { return frameWindow[name]; } };
+				const binding = { name: name, previous: previous, active: true, priority: Number(priority) || 0, frameWindow: frameWindow, get: function () {
+                    let selected = binding, descriptor = binding.previous;
+                    while (descriptor && descriptor.get && descriptor.get.tavernHostBinding) {
+                        const older = descriptor.get.tavernHostBinding;
+                        if (older.active && older.priority > selected.priority) selected = older;
+                        descriptor = older.previous;
+                    }
+                    return selected.frameWindow[name];
+                } };
 				binding.get.tavernHostBinding = binding;
 				return binding;
 			});
@@ -4580,6 +4612,7 @@ window.__ModuleLoader__.load({
 				// Stable callback identity preserves the per-document delta baseline.
 				document.ref = function (node) {
 					channel.attach(node);
+
 					if (node) channels.set(document.token, channel);
 					else channels.delete(document.token);
 				};
@@ -4785,6 +4818,12 @@ window.__ModuleLoader__.load({
 				start: function (onChange) {
 					listener = onChange;
 					hostWindow.addEventListener("message", receive);
+                    const releaseComposer = props.openingPreview && props.trustedCardMode && hostWindow.document
+                        ? installOpeningHostComposer(hostWindow.document, function (text) {
+                            if (!listener || visible.key !== desired.key || typeof props.onSubmitOpening !== "function") throw new Error("开场预览已失效，请重新打开");
+                            return props.onSubmitOpening(text);
+                        }, function (error) { tavernErrorHub.report("开始游戏", error); }) : function () {};
+
                     const colorsChanged = function () { sendTextColors(); };
                     hostWindow.addEventListener("dsh-tavern-text-colors-changed", colorsChanged);
                     hostWindow.addEventListener("storage", colorsChanged);
@@ -4794,6 +4833,7 @@ window.__ModuleLoader__.load({
 						[hostWindow.document.documentElement, hostWindow.document.body].filter(Boolean).forEach(function (node) { fontObserver.observe(node, { attributes: true, attributeFilter: ["style", "class"] }); });
 					}
 					return function () {
+						releaseComposer();
 						if (fontObserver) fontObserver.disconnect();
                         hostWindow.removeEventListener("dsh-tavern-text-colors-changed", colorsChanged);
                         hostWindow.removeEventListener("storage", colorsChanged);
@@ -5027,7 +5067,7 @@ window.__ModuleLoader__.load({
 			return projectionPartsOf(projection).map(function (part, index) {
 				if (part.kind === "markdown") return h(TavernColoredMarkdown, { key: index, text: String(part.text || ""), streaming: options.streaming, labels: { code: options.codeLabels, footnotes: "脚注" }, codeLabels: options.codeLabels, fileMentions: options.mentions });
 				const content = String(part.content !== undefined ? part.content : part.html || "");
-				return h(TavernMessageFrame, { key: index, content: content, sessionId: options.sessionId, turn: options.turn, partIndex: index, helperContext: options.helperContext, openingPreview: options.openingPreview, onSelectOpening: options.onSelectOpening, trustedCardMode: options.trustedCardMode, eager: options.eagerFrame, executeSlash: options.executeSlash });
+				return h(TavernMessageFrame, { key: index, content: content, sessionId: options.sessionId, turn: options.turn, partIndex: index, helperContext: options.helperContext, openingPreview: options.openingPreview, onSelectOpening: options.onSelectOpening, onSubmitOpening: options.onSubmitOpening, trustedCardMode: options.trustedCardMode, eager: options.eagerFrame, executeSlash: options.executeSlash });
 			});
 		}
 
@@ -5971,10 +6011,11 @@ window.__ModuleLoader__.load({
 				} catch (error) { setError("导入失败：" + String(error.message || error)); }
 				finally { setBusy(false); }
 			}
-			async function newConversation(card, requestedMode, openingId, userName) {
+			async function newConversation(card, requestedMode, openingId, userName, initialMessage) {
 				const targetMode = requestedMode || (uiMode === "play" ? playModeOfCard(card) : "card");
 				const startedAt = Date.now();
 				const previousOpeningPicker = openingPicker;
+                let created = null;
 				const transitionOpening = previousOpeningPicker && previousOpeningPicker.openings ? previousOpeningPicker.openings.filter(function (item) { return item.id === openingId; })[0] : null;
 				tavernSessionTransition.begin({ projection: transitionOpening && transitionOpening.projection, trustedCardMode: previousOpeningPicker && previousOpeningPicker.trustedCardMode === true });
 				setBusy(true); setError("");
@@ -5983,10 +6024,11 @@ window.__ModuleLoader__.load({
 					let preparedSessionId = "";
 					try { preparedSessionId = await playPrewarmRef.current.claim(card && card.path); }
 					catch (prewarmError) { console.warn("dsh-tavern: 预热 Session 不可用，改为正常创建", prewarmError); }
-					await conversationLifecycle.start({ kind: "play", targetMode: targetMode, card: card, preparationId: previousOpeningPicker && previousOpeningPicker.preparationId || "", openingId: openingId || "", userName: resolvedUserName, requestMode: compatibilityAvailable && requestMode === "sillytavern" ? "sillytavern" : "dsh", preparedSessionId: preparedSessionId });
+					created = await conversationLifecycle.start({ kind: "play", targetMode: targetMode, card: card, preparationId: previousOpeningPicker && previousOpeningPicker.preparationId || "", openingId: openingId || "", userName: resolvedUserName, requestMode: compatibilityAvailable && requestMode === "sillytavern" ? "sillytavern" : "dsh", preparedSessionId: preparedSessionId });
+					if (initialMessage) await props.executeSlash("/send " + initialMessage + "|/trigger", created.sessionId);
 					if (targetMode !== "card") window.localStorage.setItem("dsh-tavern-player-name", resolvedUserName);
 					console.info("dsh-tavern: 开始游戏完成", (Date.now() - startedAt) + "ms", preparedSessionId ? "预热命中" : "即时创建");
-				} catch (err) { setOpeningPicker(previousOpeningPicker); setError(String(err && err.phase || "创建对话") + "失败：" + String(err && err.message || err)); }
+				} catch (err) { if (!created) setOpeningPicker(previousOpeningPicker); setError((created ? "游戏已创建，开局消息发送失败：" : "创建对话失败：") + String(err && err.message || err)); if (initialMessage) throw err; }
 				finally { tavernSessionTransition.end(); setBusy(false); }
 			}
 			async function preparePlayConversation(card) {
@@ -6298,6 +6340,7 @@ window.__ModuleLoader__.load({
 					turn: 1,
 					helperContext: selectedOpening.helperContext,
 					openingPreview: selectedOpening.openingPreview,
+                    onSubmitOpening: function (text) { return newConversation(openingPicker.card, null, selectedOpening.id, openingPicker.userName || "你", text); },
 					onSelectOpening: function (id) {
 						if (busy) throw new Error("正在开始游戏，请稍后重试");
 						const index = openingPicker.openings.findIndex(function (opening) { return opening.id === id; });
@@ -6439,6 +6482,7 @@ window.__ModuleLoader__.load({
 					sessions: ctx.sessions,
 					workspaces: ctx.workspaces,
 					conversationHost: createConversationHostAdapter(ctx),
+                    executeSlash: createTavernFrameSlashExecutor(ctx),
 					renameSession: async function (sessionId, title) {
 						const session = ctx.sessions.binding(sessionId)?.session;
 						if (session === undefined) throw new Error("找不到该对话");
@@ -9775,6 +9819,7 @@ window.__ModuleLoader__.load({
 		exports.groupTavernHistory = groupTavernHistory;
 		exports.createPlayWorkspaceResolver = createPlayWorkspaceResolver;
 		exports.createSessionListRecoveryModule = createSessionListRecoveryModule;
+		exports.installOpeningHostComposer = installOpeningHostComposer;
 		exports.createConversationLifecycleModule = createConversationLifecycleModule;
 		exports.createConversationHostAdapter = createConversationHostAdapter;
 		exports.createConversationPrewarmModule = createConversationPrewarmModule;

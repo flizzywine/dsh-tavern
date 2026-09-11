@@ -391,3 +391,15 @@ test('开局草稿世界书在第一次保存前固化，再次打开不覆盖�
   const reopened = await h.make().start({ ...h.input, preparation: { worldbookSnapshot: { version: 99 } } })
   assert.deepEqual(reopened.openingWorldbookSnapshot, snapshot)
 })
+
+test('starting from a preparation preserves chat and selected opening variables', async () => {
+  const h = initializationFixture()
+  h.state.extensions = { mvuResources: [{ enabled: true }] }
+  const preparation = { worldbookSnapshot: { version: 1 }, variables: { setup: 'ready' }, messageVariables: { stat_data: { name: '旅人', hp: 12 } } }
+  const chat = await h.make().start({ ...h.input, preparation })
+  assert.deepEqual(chat.variables, preparation.variables)
+  const opening = chat.messages.find(message => message.greeting)
+  assert.deepEqual(opening.variables[opening.swipeId || 0], preparation.messageVariables)
+  preparation.messageVariables.stat_data.hp = 0
+  assert.equal(opening.variables[opening.swipeId || 0].stat_data.hp, 12)
+})

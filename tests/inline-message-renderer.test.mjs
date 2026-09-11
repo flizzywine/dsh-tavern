@@ -2050,3 +2050,14 @@ test('trusted opening exposes live MVU and EJS to original parent-window checks'
     }
   }
 })
+
+test('preparation host APIs retain priority over a background session runtime', () => {
+  const host = {}, preparation = { Mvu: { id: 'preparation' }, _: {} }, session = { Mvu: { id: 'session' } }
+  const releasePreparation = client.installTavernTrustedHostFacade(host, preparation, 10)
+  const releaseSession = client.installTavernTrustedHostFacade(host, session)
+  assert.equal(host.Mvu, preparation.Mvu)
+  releasePreparation()
+  assert.equal(host.Mvu, session.Mvu)
+  releaseSession()
+  assert.equal(Object.hasOwn(host, 'Mvu'), false)
+})

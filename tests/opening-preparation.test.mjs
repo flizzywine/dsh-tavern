@@ -99,6 +99,7 @@ test('准备页加载真实模板引擎，运行时变量和插件设置均隔�
   assert.match(draft.runtime.scripts[0].assetUrl, /vendor\/magvarupdate\/bundle.js$/)
   const result = await service.callRuntime(draft.id, 'updateTavernHelperVariables', { option: { type: 'message', message_id: 0 }, variables: { stat_data: { hp: 10 }, schema: {} } })
   assert.equal(result.context.messages[0].variables.stat_data.hp, 10)
+  assert.equal(service.resolve(draft.id, "card", "alternate:0").messageVariables.stat_data.hp, 10)
   const settings = { ...draft.runtime.context.extensionSettings, mvu: { enabled: true } }
   const saved = await service.callRuntime(draft.id, 'saveTavernExtensionSettings', { settings, expectedSettings: draft.runtime.context.extensionSettings })
   assert.deepEqual(saved.extensionSettings, settings)

@@ -190,6 +190,13 @@ export function createConversationInitialization(options) {
         events: []
       }
     }), chat.sceneOpeningWorldbook))
+    if (preparation && groupOfMode(chatMode) === 'play') {
+      chat.variables = structuredClone(preparation.variables || {});
+      const opening = chat.messages.find(message => message.greeting);
+      if (usesMvu && opening && preparation.messageVariables) {
+        opening.variables[opening.swipeId || 0] = structuredClone(preparation.messageVariables);
+      }
+    }
     delete chat.sceneOpeningWorldbook
     const hasSession = typeof sessionId === 'string' && sessionId !== ''
     if (importDraft) {
