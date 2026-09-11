@@ -3037,6 +3037,8 @@ window.__ModuleLoader__.load({
 			window.getLorebookSettings = function () { return copy(lorebookSettings); };
 			window.setLorebookSettings = function (settings) { lorebookSettings = Object.assign({}, lorebookSettings, copy(settings || {})); return copy(lorebookSettings); };
 			window.eventOn = function (name, handler) { return events.listen(name, handler); };
+			// Legacy Tavern Helper shorthand; resolve the button in its registering script.
+			window.eventOnButton = function (name, handler) { window.eventOn(window.getButtonEvent(name), handler); };
 			window.eventMakeFirst = function (name, handler) { return events.listen(name, handler, "first"); };
 			window.eventMakeLast = function (name, handler) { return events.listen(name, handler, "last"); };
 			window.eventOnce = function (name, handler) { return events.listen(name, handler, null, true); };

@@ -274,3 +274,25 @@ test('延迟执行的 jQuery ready 回调注册事件时保留原脚本归属', 
   assert.equal(result.error, 'original script failure')
   assert.equal(result.scriptId, 'a')
 })
+
+test('旧 eventOnButton 按所属脚本注册同名按钮，等待异步回调并沿用事件解绑', async () => {
+  const h = helperHostHarness(), w = h.window, seen = []
+  w.__dshTavernHelperSetCurrentScript('a')
+  const a = w.getButtonEvent('搜索面板')
+  const handler = async () => { await tick(); seen.push(w.getScriptId()) }
+  w.eventOnButton('搜索面板', handler)
+  w.eventOnButton('搜索面板', handler)
+  w.__dshTavernHelperSetCurrentScript('b')
+  const b = w.getButtonEvent('搜索面板')
+  w.eventOnButton('搜索面板', () => seen.push('b'))
+  h.receive({ type: 'dsh-tavern-helper-event', eventId: 'button-a', name: a, args: [] })
+  await tick(); await tick()
+  assert.deepEqual(seen, ['a'], '同名按钮隔离，重复注册不重复执行')
+  assert(h.sent.some(item => item.type === 'dsh-tavern-helper-event-complete' && item.eventId === 'button-a' && !item.error))
+  await w.eventEmit(b)
+  assert.deepEqual(seen, ['a', 'b'])
+  w.__dshTavernHelperSetCurrentScript('a')
+  w.eventOff(a, handler)
+  await w.eventEmit(a)
+  assert.deepEqual(seen, ['a', 'b'])
+})
