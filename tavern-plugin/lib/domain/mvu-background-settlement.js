@@ -26,22 +26,22 @@ const jsonValueSchema = {
 const operationSchemas = [
   {
     type: 'object', additionalProperties: false,
-    properties: { op: { enum: ['replace', 'insert', 'add'] }, path: { type: 'string' }, value: jsonValueSchema },
+    properties: { op: { type: 'string', enum: ['replace', 'insert', 'add'] }, path: { type: 'string' }, value: jsonValueSchema },
     required: ['op', 'path', 'value']
   },
   {
     type: 'object', additionalProperties: false,
-    properties: { op: { const: 'delta' }, path: { type: 'string' }, value: { type: 'number' } },
+    properties: { op: { type: 'string', const: 'delta' }, path: { type: 'string' }, value: { type: 'number' } },
     required: ['op', 'path', 'value']
   },
   {
     type: 'object', additionalProperties: false,
-    properties: { op: { const: 'remove' }, path: { type: 'string' } },
+    properties: { op: { type: 'string', const: 'remove' }, path: { type: 'string' } },
     required: ['op', 'path']
   },
   {
     type: 'object', additionalProperties: false,
-    properties: { op: { const: 'move' }, from: { type: 'string' }, path: { type: 'string' } },
+    properties: { op: { type: 'string', const: 'move' }, from: { type: 'string' }, path: { type: 'string' } },
     required: ['op', 'from', 'path']
   }
 ]

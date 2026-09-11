@@ -230,7 +230,7 @@ BackgroundTaskFrame {
                 "type": "object",
                 "additionalProperties": false,
                 "properties": {
-                  "op": { "enum": ["replace", "insert", "add"] },
+                  "op": { "type": "string", "enum": ["replace", "insert", "add"] },
                   "path": { "type": "string" },
                   "value": {}
                 },
@@ -240,7 +240,7 @@ BackgroundTaskFrame {
                 "type": "object",
                 "additionalProperties": false,
                 "properties": {
-                  "op": { "const": "delta" },
+                  "op": { "type": "string", "const": "delta" },
                   "path": { "type": "string" },
                   "value": { "type": "number" }
                 },
@@ -250,7 +250,7 @@ BackgroundTaskFrame {
                 "type": "object",
                 "additionalProperties": false,
                 "properties": {
-                  "op": { "const": "remove" },
+                  "op": { "type": "string", "const": "remove" },
                   "path": { "type": "string" }
                 },
                 "required": ["op", "path"]
@@ -259,7 +259,7 @@ BackgroundTaskFrame {
                 "type": "object",
                 "additionalProperties": false,
                 "properties": {
-                  "op": { "const": "move" },
+                  "op": { "type": "string", "const": "move" },
                   "from": { "type": "string" },
                   "path": { "type": "string" }
                 },
