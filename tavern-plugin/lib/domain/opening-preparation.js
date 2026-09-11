@@ -47,7 +47,7 @@ export function createOpeningPreparation({ readCard, worldBooks, templateRuntime
       draft.sourceLifecycleRevision = Number(settings.sourceChat?.tavernHelperLifecycleRevision) || 0
       draft.card = copy(card)
       draft.userName = settings.userName || '你'
-      const swipes = [card.first_mes || ''].concat(card.alternate_greetings || [])
+      const swipes = draft.openings.map(opening => opening.text)
       draft.chat = { id: draft.id, cardPath, mode: 'story', mvu: { enabled: settings.runtime === true }, _storageRevision: 0,
         variables: {}, messages: [{ role: 'assistant', text: swipes[0], sourceText: swipes[0], greeting: true, turn: 1, swipeId: 0, swipes, variables: swipes.map(() => ({})) }] }
       const extensions = readRuntimeExtensions ? await readRuntimeExtensions(cardPath) : {}
@@ -129,7 +129,7 @@ export function createOpeningPreparation({ readCard, worldBooks, templateRuntime
       if (draft.cardPath !== cardPath) throw new Error('开局草稿与人物卡不匹配')
       const selected = openingId || 'primary'
       if (!draft.openings.some(opening => opening.id === selected)) throw new Error('人物卡开场白不存在')
-      return copy({ openingVariables: Object.fromEntries(draft.openings.map(opening => [opening.id, draft.chat.messages[0]?.variables?.[opening.id === 'primary' ? 0 : Number(opening.id.split(':')[1]) + 1] || {}])), variables: draft.chat.variables || {}, messageVariables: draft.chat.messages[0]?.variables?.[draft.chat.messages[0]?.swipeId || 0] || {}, openingId: selected, sourceSessionId: draft.sourceSessionId, sourceLifecycleRevision: draft.sourceLifecycleRevision, worldbookSnapshot: { version: 1, source: draft.source, document: draft.document } })
+      return copy({ openingVariables: Object.fromEntries(draft.openings.map((opening, index) => [opening.id, draft.chat.messages[0]?.variables?.[index] || {}])), variables: draft.chat.variables || {}, messageVariables: draft.chat.messages[0]?.variables?.[draft.chat.messages[0]?.swipeId || 0] || {}, openingId: selected, sourceSessionId: draft.sourceSessionId, sourceLifecycleRevision: draft.sourceLifecycleRevision, worldbookSnapshot: { version: 1, source: draft.source, document: draft.document } })
     }
   }
 }

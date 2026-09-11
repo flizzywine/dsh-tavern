@@ -33,3 +33,15 @@ test('all pre-game Markdown call sites support links without a Session file reso
     assert.doesNotThrow(() => vm.runInNewContext(renderer + '\n' + call, sandbox))
   }
 })
+
+test('helper-driven openings render one compatible message host including Markdown HTML', () => {
+  const options = { openingPreview: { runtime: { scripts: [] }, messageHtml: '<p><strong>opening</strong></p>' } }
+  const sandbox = { options, projection: { parts: [{ kind: 'markdown', text: '**opening**' }] },
+    projectionPartsOf: value => value.parts, TavernMessageFrame: props => props,
+    React: { createElement: (component, props) => component(props) } }
+  const result = vm.runInNewContext(renderer + '\nrenderTavernProjection(projection, options)', sandbox)
+  assert.match(result.content, /id="chat"/)
+  assert.match(result.content, /class="mes" mesid="0"/)
+  assert.match(result.content, /class="mes_text"><p><strong>opening<\/strong><\/p>/)
+  assert.equal(result.openingPreview, options.openingPreview)
+})

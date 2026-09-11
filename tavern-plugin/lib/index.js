@@ -1,3 +1,5 @@
+import { cardOpeningChoices } from './domain/card-openings.js'
+import { marked } from 'marked'
 import { presentModelError } from './domain/model-error-presentation.js'
 import { validateCardFile } from './domain/card-validation.js'
 import { resolveAgentCompaction } from './agent-compaction.js'
@@ -784,13 +786,16 @@ export async function apply(ctx) {
       presetRegexScripts: Array.isArray(preset && preset.regexScripts) ? preset.regexScripts : []
     })
     const hasOpeningScript = opening => /<script\b/i.test(opening.projection.text) || opening.projection.parts.some(part => /<script\b/i.test(part.content || ''))
-    const interactive = previews.openings.some(hasOpeningScript)
+    const hasHelperScripts = projectTavernHelperScripts(extensions.helperScripts).scripts.length > 0
+    const interactive = hasHelperScripts || previews.openings.some(hasOpeningScript)
     const preparation = interactive ? await openingPreparation.create(cardPath, { runtime: (extensions.mvuResources || []).some(item => item.enabled !== false), userName }) : null
     if (preparation) {
-      const swipes = [str(card.first_mes)].concat(Array.isArray(card.alternate_greetings) ? card.alternate_greetings : [])
-      const openingIds = swipes.map((text, index) => str(text).trim() ? (index === 0 ? 'primary' : 'alternate:' + (index - 1)) : null)
-      for (const opening of previews.openings) if (hasOpeningScript(opening)) {
+      const choices = cardOpeningChoices(card)
+      const swipes = choices.map(opening => opening.text)
+      const openingIds = choices.map(opening => opening.id)
+      for (const opening of previews.openings) if (hasHelperScripts || hasOpeningScript(opening)) {
         opening.openingPreview = { swipes, openingIds, selectedIndex: openingIds.indexOf(opening.id),
+          messageHtml: opening.projection.parts.map(part => part.kind === 'markdown' ? marked.parse(str(part.text), { gfm: true }) : str(part.content)).join('\n'),
           preparationId: preparation.id, worldbook: preparation.worldbook, characterName: card.name, runtime: preparation.runtime }
       }
     }

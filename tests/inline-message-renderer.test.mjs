@@ -861,7 +861,7 @@ test('人物卡 Helper 脚本使用独立不透明 iframe，并获得脚本、�
   const modules = JSON.parse(loader.match(/const scripts=(\[.*\]);/)[1])
   const source = modules[0].content
   assert.equal(source, "import 'https://example.test/动态世界书.js'")
-  assert.match(loader, /await window\.__dshTavernInitializationTiming\.wait\("companion-module",loadModule\(script\.content,script\.id\),script\.id\)/)
+  assert.match(loader, /await window\.__dshTavernInitializationTiming\.wait\("companion-module",loadModule\(script\.content,script\.id,false\),script\.id\)/)
   assert.match(loader, /__dshTavernHelperSetCurrentScript\(script\.id\)/)
   assert.match(loader, /__dshTavernHelperSubscriptionsReady\(script\.id\)/)
   assert.match(document, /getScriptId/)
@@ -2111,5 +2111,22 @@ test('pending opening frame can initialize its private MVU draft before becoming
   assert.equal(calls[0]?.[0], 'callOpeningRuntime')
   assert.equal(calls[0]?.[1].id, 'draft')
   assert.equal(replies.find(reply => reply.requestId === 'init')?.ok, true)
+  listeners.get('message')({ source, data: { type: 'dsh-tavern-opening-read', token: pending.token, requestId: 'read' } })
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(calls.at(-1)?.[0], 'getOpeningPreparation')
+  assert.equal(replies.find(reply => reply.requestId === 'read')?.ok, true)
   stop()
+})
+
+
+test('opening script host stays inside the preview while transport retains its real parent', () => {
+  const outer = { document: { name: 'app' } }
+  const host = { parent: outer, document: { name: 'preview' }, addEventListener() { assert.equal(this, host) } }
+  const scope = client.createTavernPreviewWindow(host)
+  assert.equal(scope.parent, scope)
+  assert.equal(scope.top.document, host.document)
+  assert.equal(host.parent, outer)
+  scope.addEventListener('message', () => {})
+  scope.cardState = 1
+  assert.equal(host.cardState, 1)
 })

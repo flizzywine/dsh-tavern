@@ -157,3 +157,16 @@ test('opening API restores its response listener after document replacement', as
   listeners.clear() // document.open clears listeners but keeps global API functions.
   assert.equal((await context.window.getWorldbook('book'))[0].name, 'mode')
 })
+
+test('empty greetings are excluded from script swipe indices and variable mapping', async () => {
+  const service = createOpeningPreparation({
+    readCard: async () => ({ name: 'chooser', first_mes: '', alternate_greetings: ['marker', '', 'story'] }),
+    worldBooks: { bound: async () => null },
+    readRuntimeExtensions: async () => ({ helperScripts: [{ id: 'chooser', type: 'script', content: 'void 0' }] })
+  })
+  const draft = await service.create('card')
+  assert.deepEqual(draft.runtime.context.messages[0].swipes, ['marker', 'story'])
+  assert.deepEqual(draft.openings.map(item => item.id), ['alternate:0', 'alternate:2'])
+  await service.callRuntime(draft.id, 'updateTavernHelperMessages', { messages: [{ message_id: 0, swipes_data: [{ slot: 0 }, { slot: 1 }] }] })
+  assert.deepEqual(service.resolve(draft.id, 'card', 'alternate:2').openingVariables['alternate:2'], { slot: 1 })
+})
