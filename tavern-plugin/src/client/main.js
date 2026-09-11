@@ -4766,6 +4766,22 @@ window.__ModuleLoader__.load({
 			return Object.freeze({ register: register });
 		}
 
+		function tavernHistoryCardKey(item) {
+			return item.cardPath ? "card:" + item.cardPath : "unbound:" + (item.chatId || item.sessionId);
+		}
+
+		function groupTavernHistory(history, summaries = {}) {
+			function timestamp(value) { const n = Number(value); return Number.isFinite(n) ? n : (Date.parse(value) || 0); }
+			function activity(item) { return Math.max(timestamp(item.lastOpenedAt), timestamp(item.updatedAt), timestamp(summaries[item.sessionId]?.updatedAt)); }
+			const groups = new Map();
+			for (const item of history.slice().sort((a, b) => activity(b) - activity(a))) {
+				const key = tavernHistoryCardKey(item);
+				if (!groups.has(key)) groups.set(key, { key, name: item.cardName || "未命名人物卡", path: item.cardPath || "", items: [] });
+				groups.get(key).items.push(item);
+			}
+			return Array.from(groups.values());
+		}
+
 		function createTavernShellFeatureModule() {
 		function TavernSidebar(props) {
 			function TavernCardListContent(props) {
@@ -4792,6 +4808,17 @@ window.__ModuleLoader__.load({
 			const [initialResources, setInitialResources] = React.useState([]);
 			const [selectedInitialResources, setSelectedInitialResources] = React.useState({});
 			const [history, setHistory] = React.useState([]);
+			const [historyGroupState, setHistoryGroupState] = React.useState(function () {
+				try { const value = JSON.parse(window.localStorage.getItem("dsh-tavern-history-groups") || "{}"); return value && typeof value === "object" && !Array.isArray(value) ? value : {}; } catch (_) { return {}; }
+			});
+			const activeHistoryItem = history.find(item => item.sessionId === current && isPlayMode(item.mode));
+			const activeHistoryGroup = activeHistoryItem ? tavernHistoryCardKey(activeHistoryItem) : "";
+			React.useEffect(function () {
+				if (activeHistoryGroup) setHistoryGroupState(previous => ({ ...previous, [activeHistoryGroup]: true }));
+			}, [current, activeHistoryGroup]);
+			React.useEffect(function () {
+				try { window.localStorage.setItem("dsh-tavern-history-groups", JSON.stringify(historyGroupState)); } catch (_) {}
+			}, [historyGroupState]);
 			const [picking, setPicking] = React.useState(false);
 			const [busy, setBusy] = React.useState(false);
 			const [error, setError] = usePersistentError("左侧栏操作");
@@ -5465,7 +5492,7 @@ window.__ModuleLoader__.load({
 				if (uiMode !== "play") return true;
 				return (item.requestMode === "sillytavern" ? "sillytavern" : "dsh") === requestMode;
 			});
-			const rows = visibleHistory.map(function (item) {
+			function renderHistoryRow(item) {
 				const summary = summaries[item.sessionId];
 				const title = item.title || (summary && summary.displayTitle ? summary.displayTitle : (item.cardName + "的新对话"));
 				return h("div", { key: item.sessionId, className: "dsh-tavern-side-row" + (current === item.sessionId ? " active" : "") },
@@ -5478,7 +5505,7 @@ window.__ModuleLoader__.load({
 					} catch (err) { setError(String(err && err.message || err)); }
 				} },
 					h("div", { className: "dsh-tavern-side-row-name" }, title),
-					h("div", { className: "dsh-tavern-side-row-meta" }, h("span", null, item.mode === "card" ? (item.cardPath ? ("已创建：" + item.cardName) : "尚未创建正式人物卡") : (modeLabel(item.mode || "story") + " · " + item.cardName)), h("span", null, formatTime(item.lastOpenedAt || (summary ? summary.updatedAt : item.updatedAt))))
+					h("div", { className: "dsh-tavern-side-row-meta" }, h("span", null, item.mode === "card" ? (item.cardPath ? ("已创建：" + item.cardName) : "尚未创建正式人物卡") : modeLabel(item.mode || "story")), h("span", null, formatTime(item.lastOpenedAt || (summary ? summary.updatedAt : item.updatedAt))))
 					),
 					!managing ? h("button", { className: "dsh-tavern-side-row-more", title: "对话操作", "aria-expanded": menuSession === item.sessionId ? "true" : "false", onClick: function () { setMenuSession(menuSession === item.sessionId ? null : item.sessionId); } }, "⋯") : null,
 					!managing && menuSession === item.sessionId ? h("div", { className: "dsh-tavern-side-row-menu" },
@@ -5486,6 +5513,14 @@ window.__ModuleLoader__.load({
 						h("button", { className: "danger", disabled: busy, onClick: function () { deleteConversation(item, title); } }, "删除")
 					) : null
 				);
+			}
+			const rows = uiMode !== "play" ? visibleHistory.map(renderHistoryRow) : groupTavernHistory(visibleHistory, summaries).map(function (group) {
+				const expanded = historyGroupState[group.key] === true;
+				return h("section", { key: group.key, className: "dsh-tavern-history-group" },
+					h("button", { className: "dsh-tavern-history-group-toggle", "aria-expanded": expanded, title: group.path || group.name,
+						onClick: function () { setHistoryGroupState(previous => ({ ...previous, [group.key]: !expanded })); setMenuSession(null); }
+					}, h("span", { "aria-hidden": true }, expanded ? "▾" : "▸"), h("span", { className: "dsh-tavern-history-group-name" }, group.name), h("span", { className: "dsh-tavern-history-group-count" }, group.items.length)),
+					expanded ? h("div", { className: "dsh-tavern-history-group-items" }, group.items.map(renderHistoryRow)) : null);
 			});
 			const selectedOpening = openingPicker && openingPicker.openings[openingPicker.index];
 			const pickerError = error ? h("div", { className: "dsh-tavern-picker-error", role: "alert" },
@@ -8842,6 +8877,7 @@ window.__ModuleLoader__.load({
 		exports.applyBodyRegenerationResult = applyBodyRegenerationResult;
 		exports.createTavernCoordinationEventModule = createTavernCoordinationEventModule;
 		exports.describeTavernActivity = describeTavernActivity;
+		exports.groupTavernHistory = groupTavernHistory;
 		exports.createPlayWorkspaceResolver = createPlayWorkspaceResolver;
 		exports.createSessionListRecoveryModule = createSessionListRecoveryModule;
 		exports.createConversationLifecycleModule = createConversationLifecycleModule;

@@ -631,3 +631,14 @@ body.dsh-tavern-shell-active [data-dsh-panel-host] { overflow: clip; }
 .dsh-tavern-error-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 6px 12px; font-size: 12px; }
 .dsh-tavern-error-controls[hidden] { display: none; }
 .dsh-tavern-error-controls button { color: inherit; background: transparent; border: 1px solid currentColor; border-radius: 5px; padding: 3px 8px; cursor: pointer; }
+
+/* Conversation groups are a sidebar projection, not folders in stored chat data. */
+.dsh-tavern-history-group { flex-shrink: 0; min-width: 0; }
+.dsh-tavern-history-group-toggle { display: flex; align-items: center; gap: 7px; width: 100%; padding: 9px 12px; border: 0; border-radius: 6px; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.dsh-tavern-history-group-toggle:hover { background: rgba(128,128,128,.12); }
+.dsh-tavern-history-group-toggle:focus-visible { outline: 2px solid currentColor; outline-offset: -2px; }
+.dsh-tavern-history-group-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.dsh-tavern-history-group-count { flex-shrink: 0; opacity: .6; font-size: 12px; }
+.dsh-tavern-history-group-items { padding-left: 10px; display: flex; flex-direction: column; gap: 4px; }
+
+.dsh-tavern-history-group-items .dsh-tavern-side-row-meta > span:last-child { white-space: nowrap; flex-shrink: 0; }
