@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "ef561af047decc4fe7d9fd769feb66449c268791",
-  "releaseSequence": 159,
+  "revision": "0f9a51af3589b7da7b3dd622c86badb867459a0b",
+  "releaseSequence": 160,
   "version": "1.6.0",
   "files": [
     {
@@ -241,8 +241,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "70a8e68dc4136b1a3607f54c01f73268b02eb9c83a03ae4b5ec56e1961076aa8",
-      "size": 668354
+      "sha256": "3886ea03de94cb4db8ebd05bbdf5c4ae3f907ad3ba4d55e11949793acbf6a212",
+      "size": 671198
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -3316,8 +3316,8 @@
     },
     {
       "path": "tavern-plugin/src/client/main.js",
-      "sha256": "bfd8f53e25c1432801bfb24f855bb0742db4046f806ca7f6ec8fe2fdde0688b6",
-      "size": 619595
+      "sha256": "fc9761f46963fd78d76cded41d211bf3412026eaf8c2f69d28315252e99d79ec",
+      "size": 622439
     },
     {
       "path": "tavern-plugin/src/client/modules/library-refresh.js",
