@@ -336,3 +336,49 @@ test('旧配置开启台账时仍不注入台账任务或工具，变量无需�
   assert.equal(result.ledger, undefined)
   assert.equal(result.traceSessionId, 'same-background')
 })
+
+test('independent posture and variable tools can finish in one response in either order', async () => {
+  for (const reversed of [false, true]) {
+    let runs = 0, writes = 0
+    const module = createMvuSettlementModule({
+      model: { async run(input) {
+        runs++
+        assert.match(input.system, /同一次回复中同时调用/)
+        const calls = [{ name: 'posture_submit', arguments: { posture: '站立' } }, { name: 'mvu_submit_update', arguments: { operations: [] } }]
+        if (reversed) calls.reverse()
+        const results = await Promise.all(calls.map(call => input.onToolCall(call)))
+        assert.ok(results.every(result => JSON.parse(result).ok))
+        assert.equal(input.stopToolsWhen(), true)
+        assert.equal(input.acceptWithoutText(), true)
+        await input.onToolCall({ name: 'posture_submit', arguments: { posture: '重复修改' } })
+        await input.onToolCall(calls.find(call => call.name === 'mvu_submit_update'))
+        return {}
+      } },
+      runtime: { async settleMvuUpdate() { writes++; return { updated: false, context: { messages: [{ variables: {} }, { variables: { stat_data: { hp: 10 } } }] } } } }
+    })
+    const result = await module.settleVariables({ operationId: 'batch', chatId: 'chat', branchId: 'branch', basedOnRevision: 1, turn: 2, swipeId: 0, sessionId: 's', messageId: 1, storyText: '她站在门边。', currentVariables: { stat_data: { hp: 10 } }, backgroundTasks: { posture: true, variables: true } })
+    assert.equal(runs, 1)
+    assert.equal(writes, 1)
+    assert.equal(result.posture, '站立')
+  }
+})
+
+test('failed posture can be corrected after variables succeed without repeating variable execution', async () => {
+  let writes = 0
+  const module = createMvuSettlementModule({
+    model: { async run(input) {
+      assert.equal(JSON.parse(await input.onToolCall({ name: 'mvu_submit_update', arguments: { operations: [] } })).ok, true)
+      assert.equal(input.stopToolsWhen(), false)
+      assert.equal(input.acceptWithoutText(), false)
+      assert.equal(JSON.parse(await input.onToolCall({ name: 'posture_submit', arguments: { posture: '' } })).retryable, true)
+      assert.equal(input.stopToolsWhen(), false)
+      assert.equal(JSON.parse(await input.onToolCall({ name: 'posture_submit', arguments: { posture: '坐下' } })).ok, true)
+      assert.equal(input.stopToolsWhen(), true)
+      return {}
+    } },
+    runtime: { async settleMvuUpdate() { writes++; return { updated: false, context: { messages: [{ variables: {} }, { variables: { stat_data: { hp: 10 } } }] } } } }
+  })
+  const result = await module.settleVariables({ operationId: 'batch', chatId: 'chat', branchId: 'branch', basedOnRevision: 1, turn: 2, swipeId: 0, sessionId: 's', messageId: 1, storyText: '她站在门边。', currentVariables: { stat_data: { hp: 10 } }, backgroundTasks: { posture: true } })
+  assert.equal(result.posture, '坐下')
+  assert.equal(writes, 1)
+})

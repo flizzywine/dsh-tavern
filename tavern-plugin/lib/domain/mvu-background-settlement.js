@@ -374,13 +374,13 @@ export function projectMvuBackgroundRequest(frame) {
       '只根据【正文】中已经确认发生的事实结算变量，不得读取或推断玩家意图。',
       '不得根据旧轮剧情、隐藏思考、候选项或未发生事件更新变量。',
       ...(tasks.characterDesign ? ['若确实需要人物设计，在当前后台 Agent 内先加载 tavern-character-design 并调用人物档案工具；无需也不得创建另一个 Agent。完成后继续本轮结算。'] : ['本轮人物设计已关闭，不调用人物设计 Skill 或生成档案。']),
-      tasks.posture ? '调用 mvu_submit_update 前必须调用 posture_submit 提交本轮结束时可见的人物姿势；不得输出 JSON。' : '本轮姿势结算已关闭，直接提交变量，不生成姿势。',
+      tasks.posture ? '在同一次回复中同时调用 posture_submit 和 mvu_submit_update，分别提交本轮结束时可见的人物姿势与变量变化；两者互不依赖，无需等待前一个工具返回。不得在回复正文输出 JSON。' : '本轮姿势结算已关闭，直接提交变量，不生成姿势。',
       '必须调用 mvu_submit_update，以工具返回的实际执行校验结果为准。最多提交三次。',
       '变量通过工具提交，不在回复中输出 XML 变量协议；人物卡中的变量含义、更新条件和校验规则仍须遵守。',
       '有变化时提交完整 operations；没有变化时也必须提交 operations: []。',
       '若 ok=false 且 retryable=true，读取 error、failures 和 runtimeDiagnostics，根据 currentVariables 与变量结构修正完整 operations 后再次调用；不要原样反复提交。',
       'rolledBack=true 表示整批变量修改未保存，可以基于原快照重新提交完整更新；不得用空 operations 掩盖尚未修复的失败。',
-      'mvu_submit_update 返回 ok=true 或 retryable=false 后停止调用，不能重复执行已成功的变量更新，也不能绕过人物卡校验。'
+      'mvu_submit_update 返回 ok=true 或 retryable=false 后，不再调用该工具；若姿势尚未成功，只补交姿势。姿势已成功则不重复提交。不能重复执行已成功的变量更新，也不能绕过人物卡校验。'
     ].join('\n'),
     tools: [...(tasks.posture ? [POSTURE_SUBMIT_TOOL] : []), ...(tasks.characterDesign ? [CHARACTER_DESIGN_READ_TOOL, CHARACTER_DESIGN_SAVE_TOOL] : []), MVU_SUBMIT_UPDATE_TOOL]
   }
@@ -465,6 +465,7 @@ export function createMvuSettlementModule(options = {}) {
       }
       if (call && call.name === POSTURE_SUBMIT_TOOL_NAME) {
         if (!tasks.posture) return JSON.stringify({ ok: false, error: '姿势结算已关闭' })
+        if (posture !== null) return JSON.stringify({ ok: true, alreadySubmitted: true })
         try {
           posture = normalizePostureSubmission(call.arguments, {
             charName: input.charName,
@@ -474,9 +475,6 @@ export function createMvuSettlementModule(options = {}) {
         } catch (error) {
           return JSON.stringify({ ok: false, retryable: true, error: str(error && error.message || error) })
         }
-      }
-      if (tasks.posture && posture === null) {
-        return JSON.stringify({ ok: false, retryable: true, error: '请先调用 posture_submit 提交姿势，再调用 mvu_submit_update。' })
       }
       // Serialize parallel calls too. Success or an unsafe-to-retry failure is terminal.
       if (feedback && (feedback.ok || !feedback.retryable)) return JSON.stringify(feedback)
@@ -554,8 +552,8 @@ export function createMvuSettlementModule(options = {}) {
         system: [str(input.system).trim(), request.system].filter(Boolean).join('\n\n'),
         tools: request.tools, maxToolCalls: maxAttempts + 12,
         toolLimitMessage: '本轮后台工具调用过多，请停止额外查询；变量更新仍不得跳过校验。',
-        stopToolsWhen: () => feedback !== null && (feedback.ok || !feedback.retryable),
-        acceptWithoutText: () => result !== null,
+        stopToolsWhen: () => feedback !== null && (feedback.ok || !feedback.retryable) && (!tasks.posture || posture !== null),
+        acceptWithoutText: () => result !== null && (!tasks.posture || posture !== null),
         temperature: 0.1, sessionId: input.sessionId, turn: Math.max(0, Number(input.turn) || 0), signal: input.signal,
         webSearchEnabled: input.webSearchEnabled === true,
         onToolCall(call) {
@@ -578,6 +576,12 @@ export function createMvuSettlementModule(options = {}) {
     await toolTail
     if (!result) {
       const error = new Error(feedback?.error || '后台 Agent 未调用 mvu_submit_update')
+      error.traceSessionId = traceSessionId
+      error.traceBoundary = traceBoundary
+      throw error
+    }
+    if (tasks.posture && posture === null) {
+      const error = new Error('后台 Agent 未提交有效姿势')
       error.traceSessionId = traceSessionId
       error.traceBoundary = traceBoundary
       throw error
