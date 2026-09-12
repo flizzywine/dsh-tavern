@@ -587,6 +587,7 @@ export async function apply(ctx) {
       write: async function (path, text) { return await fileResources.writeWorking(path, text) },
       bindingForCard: async function (cardPath) { return await fileResources.worldBookBindingForCard(cardPath) },
       bind: async function (cardPath, path) { return await fileResources.bindWorldBook(cardPath, path) },
+      bindMany: async function (cardPath, sources) { return await fileResources.bindWorldBooks(cardPath, sources) },
       unbind: async function (cardPath) { return await fileResources.unbindWorldBook(cardPath) }
     },
     cards: {
@@ -2469,7 +2470,8 @@ export async function apply(ctx) {
       case 'getWorldBookBinding': return { binding: await worldBooks.binding(args && args.cardPath) }
       case 'getWorldBookAssociations': return { associations: await worldBooks.associations(args && args.source) }
       case 'bindWorldBook': return { binding: await worldBooks.bind(args && args.cardPath, args && args.source) }
-      case 'unbindWorldBook': return { binding: await worldBooks.unbind(args && args.cardPath) }
+      case 'setWorldBookBindings': return { binding: await worldBooks.setBindings(args && args.cardPath, args && args.sources) }
+      case 'unbindWorldBook': return { binding: await worldBooks.unbind(args && args.cardPath, args && args.source) }
       case 'importWorldBook': return { worldBook: await worldBooks.import(args && args.payload) }
       case 'updateWorldBook': return await worldBooks.update(args && args.source, args && args.update)
       case 'exportWorldBook': return { worldBook: await worldBooks.export(args && args.source) }

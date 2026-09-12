@@ -4,11 +4,11 @@ import { createServer } from 'node:http'
 import { readFile } from 'node:fs/promises'
 import { createHelperWorldbookHost } from './helper-worldbook-host.mjs'
 
-const host = await createHelperWorldbookHost(process.argv.includes('--embedded'))
+const multiple = process.argv.includes('--multiple')
+const host = await createHelperWorldbookHost(process.argv.includes('--embedded'), multiple)
+const originals = JSON.stringify([await host.read(), await host.readExtra()])
 async function browserClientSource() {
 let source = await readFile(new URL('../../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
-source = source.replace('import("/api/dsh-tavern/vendor/runtime-assets/zod/index.mjs")', 'Promise.resolve({})')
-source = source.replace('import("/api/dsh-tavern/vendor/runtime-assets/yaml/index.mjs")', 'Promise.resolve({})')
 for (const dependency of ['tavernIconDependencies', 'tavernStaticAssetShim', 'tavernHelperScriptDependencies']) source = source.replaceAll('+ ' + dependency + '()', "+ ''")
 return source
 }
@@ -44,18 +44,39 @@ function cardScript(readonly) {
     eventOn('MESSAGE_SENT',()=>events.push('normal'));
     SillyTavern.getContext().eventSource.makeFirst('message_sent',()=>events.push('first'));
     eventOnce('MESSAGE_SENT',()=>events.push('once'));
-    eventOn('audit-check',()=>parent.postMessage({type:'host-smoke-result',events,rows,popupVerified:true,settings:ctx.extensionSettings,native,mvuPresent:window.Mvu!==undefined,readonly:${readonly}},'*'));
+    eventOn('audit-check',()=>parent.postMessage(JSON.parse(JSON.stringify({type:'host-smoke-result',events,rows,popupVerified:true,settings:ctx.extensionSettings,native,mvuPresent:window.Mvu!==undefined,readonly:${readonly}})),'*'));
   `
 }
 const server = createServer(async (request, response) => {
   try {
     const url = new URL(request.url, 'http://localhost')
+    response.setHeader('Access-Control-Allow-Origin', '*')
+    const assetPrefix = '/api/dsh-tavern/vendor/runtime-assets/'
+    const asset = url.pathname.startsWith(assetPrefix) ? url.pathname.slice(assetPrefix.length) : ''
+    if (['zod/index.mjs', 'yaml/index.mjs', 'fontawesome/css/all.min.css'].includes(asset)) {
+      response.setHeader('Content-Type', asset.endsWith('.css') ? 'text/css' : 'text/javascript')
+      response.end(await readFile(new URL('../../tavern-plugin/lib/vendor/runtime-assets/' + asset, import.meta.url)))
+      return
+    }
+    if (url.pathname === '/api/dsh-tavern/client-assets/tavern.css') {
+      response.setHeader('Content-Type', 'text/css')
+      response.end(await readFile(new URL('../../tavern-plugin/lib/client-assets/tavern.css', import.meta.url)))
+      return
+    }
     if (url.pathname === '/client.js') { response.setHeader('Content-Type', 'text/javascript'); response.end(await browserClientSource()); return }
     if (url.pathname === '/rpc') {
       let body = ''; for await (const chunk of request) body += chunk
       const { method, args } = JSON.parse(body)
       const result = await host.invoke(method, args)
       response.setHeader('Content-Type', 'application/json'); response.end(JSON.stringify(result)); return
+    }
+    if (url.pathname === '/verify') {
+      const unchanged = JSON.stringify([await host.read(), await host.readExtra()]) === originals
+      const saved = await host.readChat()
+      const entries = saved.openingWorldbookSnapshot?.document?.entries || {}
+      response.setHeader('Content-Type', 'application/json')
+      response.end(JSON.stringify({ multiple, originalsUnchanged: unchanged, savedEntryCount: Object.keys(entries).length, primaryContent: entries[7]?.content, supplementaryPreserved: Object.values(entries).some(entry => entry.content === '附加正文') }))
+      return
     }
     if (url.pathname === '/favicon.ico') { response.writeHead(204); response.end(); return }
     if (url.pathname !== '/') { response.writeHead(404); response.end(); return }

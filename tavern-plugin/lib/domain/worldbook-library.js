@@ -1,3 +1,4 @@
+import { mergeWorldBooks } from './worldbook-merge.js'
 import { exportCharacterBook, exportSillyTavernWorldBook, inspectWorldBookDocument, prepareWorldBookImport, updateWorldBookDocument } from './worldbook-resource.js'
 
 function str(value) {
@@ -101,6 +102,18 @@ export function createWorldBookLibrary(options = {}) {
     const card = await cards.read(normalized)
     if (card === undefined) throw new Error('人物卡不存在: ' + normalized)
     const stored = await resources.bindingForCard(normalized)
+    if (stored.kind === 'multiple') {
+      const books = await Promise.all(stored.sources.map(async item => {
+        const source = sourceOf(item.kind === 'embedded' ? { kind: 'card', cardPath: item.cardPath } : item)
+        const kind = source.kind === 'card' ? 'embedded' : 'standalone'
+        if (!item.available) return { kind, source, name: '', available: false }
+        const record = await readRecord(source)
+        return { kind, source: record.source, name: record.view.displayName, available: true }
+      }))
+      if (books.length === 0) return { kind: 'none', source: null, name: '', available: true }
+      if (books.length === 1) return books[0]
+      return { kind: 'multiple', books, source: books[0].source, name: books.map(book => book.name || '世界书不可用').join('、'), available: books.every(book => book.available) }
+    }
     if (stored.kind === 'none') return { kind: 'none', source: null, name: '', available: true }
     if (stored.kind === 'standalone') {
       const source = { kind: 'standalone', path: stored.path }
@@ -132,6 +145,7 @@ export function createWorldBookLibrary(options = {}) {
   }
 
   function bindingMatchesSource(current, source) {
+    if (current?.kind === 'multiple') return current.books.some(book => bindingMatchesSource(book, source))
     if (!current || !current.source) return false
     if (source.kind === 'card') {
       return current.kind === 'embedded' && current.source.cardPath === source.cardPath
@@ -157,7 +171,7 @@ export function createWorldBookLibrary(options = {}) {
     const boundCards = cardRows.filter(function (card) { return card.bound }).map(function (card) {
       return { path: card.path, name: card.name }
     })
-    return { source, cards: cardRows, boundCards, conflict: boundCards.length > 1 }
+    return { source, cards: cardRows, boundCards, conflict: false }
   }
 
   async function bound(cardPath, card, chat) {
@@ -170,6 +184,11 @@ export function createWorldBookLibrary(options = {}) {
     const current = await binding(cardPath)
     if (current.kind === 'none') return null
     if (current.available !== true) throw new Error('绑定的世界书不存在，请重新绑定或解绑')
+    if (current.kind === 'multiple') {
+      const records = await Promise.all(current.books.map(book => readRecord(book.source)))
+      const merged = mergeWorldBooks(records)
+      return { source: current.source, document: merged.document, localChatId: chat?.id, mergedSources: merged.sources, view: inspectWorldBookDocument(merged.document) }
+    }
     if (current.kind === 'embedded' && card && current.source.cardPath === normalizePath(cardPath, 'card')) {
       const document = embeddedDocument(card)
       return { source: current.source, view: inspectWorldBookDocument(document, { filename: card.name }) }
@@ -187,17 +206,35 @@ export function createWorldBookLibrary(options = {}) {
       if (owner === undefined) throw new Error('人物卡不存在: ' + source.cardPath)
       if (!owner.character_book || typeof owner.character_book !== 'object') throw new Error('该人物卡没有自带世界书')
     }
-    const relations = await associations(source)
-    const occupied = relations.boundCards.filter(function (item) { return item.path !== normalized })
-    if (occupied.length) throw new Error('该世界书已绑定人物卡：' + occupied.map(function (item) { return item.name || item.path }).join('、'))
-    if (source.kind === 'card' && source.cardPath === normalized) await resources.bind(normalized, null)
-    else await resources.bind(normalized, source.kind === 'card' ? { kind: 'embedded', cardPath: source.cardPath } : source)
+    const current = await binding(normalized)
+    if (bindingMatchesSource(current, source)) return current
+    const books = current.kind === 'multiple' ? current.books : current.source ? [current] : []
+    return await setBindings(normalized, books.map(book => book.source).concat([source]))
+  }
+
+  async function setBindings(cardPath, locators) {
+    const normalized = normalizePath(cardPath, 'card')
+    if (!Array.isArray(locators)) throw new Error('世界书绑定需要有序列表')
+    const sources = locators.map(sourceOf)
+    const identities = sources.map(source => JSON.stringify(source))
+    if (new Set(identities).size !== identities.length) throw new Error('不能重复绑定同一本世界书')
+    for (const source of sources) {
+      await readRecord(source)
+      if (source.kind === 'card') {
+        const owner = await cards.read(source.cardPath)
+        if (!owner?.character_book) throw new Error('该人物卡没有自带世界书')
+      }
+    }
+    await resources.bindMany(normalized, sources.map(source => source.kind === 'card' ? { kind: 'embedded', cardPath: source.cardPath } : source))
     return await binding(normalized)
   }
 
-  async function unbind(cardPath) {
-    await resources.unbind(cardPath)
-    return await binding(cardPath)
+  async function unbind(cardPath, locator) {
+    if (!locator) { await resources.unbind(cardPath); return await binding(cardPath) }
+    const current = await binding(cardPath)
+    const books = current.kind === 'multiple' ? current.books : current.source ? [current] : []
+    const source = sourceOf(locator)
+    return await setBindings(cardPath, books.filter(book => !bindingMatchesSource(book, source)).map(book => book.source))
   }
 
   async function importBook(payload) {
@@ -251,13 +288,13 @@ export function createWorldBookLibrary(options = {}) {
     const current = await binding(cardPath)
     if (current.kind === 'none') return null
     if (current.available !== true) throw new Error('绑定的世界书不存在，请重新绑定或解绑')
-    const record = await readRecord(current.source)
-    return exportCharacterBook(record.document)
+    const record = await bound(cardPath)
+    return exportCharacterBook(record.document || record.view.raw)
   }
 
   async function remove(path) {
     return await removeStandalone(normalizePath(path, 'worldbook'))
   }
 
-  return Object.freeze({ catalog, get, binding, associations, bound, bind, unbind, import: importBook, update, replaceNative, export: exportBook, characterBookForCard, remove })
+  return Object.freeze({ catalog, get, binding, associations, bound, bind, setBindings, unbind, import: importBook, update, replaceNative, export: exportBook, characterBookForCard, remove })
 }

@@ -44,6 +44,7 @@ function harness() {
         if (!bindings.has(cardPath)) return { kind: 'default' }
         const value = bindings.get(cardPath)
         if (value === null) return { kind: 'none' }
+        if (Array.isArray(value)) return { kind: 'multiple', sources: value.map(source => ({ ...source, available: source.kind === 'embedded' ? cards.has(source.cardPath) : files.has(source.path) })) }
         if (value && value.kind === 'embedded') return { kind: 'embedded', cardPath: value.cardPath, available: cards.has(value.cardPath) }
         const path = value && value.kind === 'standalone' ? value.path : value
         return { kind: 'standalone', path, available: files.has(path) }
@@ -52,6 +53,7 @@ function harness() {
         if (locator === null) bindings.delete(cardPath)
         else bindings.set(cardPath, locator)
       },
+      async bindMany(cardPath, sources) { bindings.set(cardPath, clone(sources)) },
       async unbind(cardPath) { bindings.set(cardPath, null) }
     },
     cards: {
@@ -147,7 +149,7 @@ test('World Book Library 隐藏默认内嵌、解绑和独立绑定的存储差�
   assert.equal((await run.library.bound('cards/命运.json')).view.displayName, '王都')
 })
 
-test('World Book Library 提供世界书视角的一对一人物卡绑定关系', async () => {
+test('World Book Library 允许同一本书被多张人物卡复用', async () => {
   const run = harness()
   const source = { kind: 'standalone', path: 'worldbooks/王都.json' }
 
@@ -164,13 +166,11 @@ test('World Book Library 提供世界书视角的一对一人物卡绑定关系'
   assert.deepEqual(bound.boundCards.map(function (card) { return card.name }), ['命运'])
   assert.equal(bound.cards.find(function (card) { return card.name === '命运' }).bound, true)
 
-  await assert.rejects(
-    run.library.bind('cards/空白.json', source),
-    /该世界书已绑定人物卡：命运/
-  )
+  await run.library.bind('cards/空白.json', source)
+  assert.equal((await run.library.associations(source)).boundCards.length, 2)
 })
 
-test('人物卡内置世界书解绑原主人后可一对一绑定给其他人物卡', async () => {
+test('人物卡内置世界书可同时绑定给多张人物卡', async () => {
   const run = harness()
   const source = { kind: 'card', cardPath: 'cards/命运.json' }
 
@@ -183,17 +183,18 @@ test('人物卡内置世界书解绑原主人后可一对一绑定给其他人�
   assert.equal(binding.kind, 'embedded')
   assert.equal(binding.source.cardPath, 'cards/命运.json')
   assert.equal((await run.library.bound('cards/空白.json', run.cards.get('cards/空白.json'))).view.displayName, '命运世界书')
-  await assert.rejects(run.library.bind('cards/命运.json', source), /该世界书已绑定人物卡：空白/)
+  await run.library.bind('cards/命运.json', source)
+  assert.equal((await run.library.associations(source)).boundCards.length, 2)
 })
 
-test('历史数据中同一本世界书绑定多张人物卡时只报告冲突，不自动拆除', async () => {
+test('历史数据中同一本世界书绑定多张人物卡合法且不拆除', async () => {
   const run = harness()
   run.bindings.set('cards/命运.json', 'worldbooks/王都.json')
   run.bindings.set('cards/空白.json', 'worldbooks/王都.json')
 
   const result = await run.library.associations({ kind: 'standalone', path: 'worldbooks/王都.json' })
 
-  assert.equal(result.conflict, true)
+  assert.equal(result.conflict, false)
   assert.deepEqual(result.boundCards.map(function (card) { return card.name }), ['命运', '空白'])
   assert.equal(run.bindings.size, 2)
 })
@@ -243,4 +244,23 @@ test('人物卡导出读取绑定世界书并转换为 character_book', async ()
   assert.deepEqual(book.entries[0].keys, ['城门'])
   assert.equal(book.entries[0].enabled, true)
   assert.equal(book.entries[0].id, 7)
+})
+
+test('添加保留自带书，按绑定顺序合并，移除单书不影响其他绑定，导出包含全部内容', async () => {
+  const run = harness()
+  const source = { kind: 'standalone', path: 'worldbooks/王都.json' }
+  const result = await run.library.bind('cards/命运.json', source)
+  assert.equal(result.kind, 'multiple')
+  assert.equal(result.books.length, 2)
+  assert.equal((await run.library.bind('cards/命运.json', source)).books.length, 2)
+  const merged = await run.library.bound('cards/命运.json')
+  assert.equal(merged.view.displayName, '命运世界书')
+  assert.equal(merged.view.entries.length, 2)
+  assert.equal((await run.library.characterBookForCard('cards/命运.json')).entries.length, 2)
+  await run.library.setBindings('cards/命运.json', result.books.map(book => book.source).reverse())
+  assert.equal((await run.library.bound('cards/命运.json')).view.displayName, '王都')
+  const snapshot = { id: 'game', openingWorldbookSnapshot: { version: 1, source: merged.source, document: merged.document } }
+  await run.library.unbind('cards/命运.json', source)
+  assert.equal((await run.library.binding('cards/命运.json')).kind, 'embedded')
+  assert.equal((await run.library.bound('cards/命运.json', null, snapshot)).view.entries.length, 2)
 })

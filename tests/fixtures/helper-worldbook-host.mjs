@@ -7,28 +7,30 @@ import { createWorldBookLibrary } from '../../tavern-plugin/lib/domain/worldbook
 import { createTavernScriptHostAdapter } from '../../tavern-plugin/lib/domain/tavern-script-host-adapter.js'
 
 // Production library and adapter; only their storage providers point to disposable files.
-export async function createHelperWorldbookHost(embedded = false) {
+export async function createHelperWorldbookHost(embedded = false, multiple = false) {
   const directory = await mkdtemp(join(tmpdir(), 'helper-worldbook-'))
   const book = { name: '审计书', unknownBook: 'keep', entries: embedded
     ? [{ id: 7, comment: '原条目', content: '旧正文', keys: ['旧词'], enabled: true, extensions: { vendor: 'keep' }, unknownEntry: 'keep' }]
     : { 7: { uid: 7, comment: '原条目', content: '旧正文', key: ['旧词'], disable: false, extensions: { vendor: 'keep' }, unknownEntry: 'keep' } } }
-  const card = { name: '测试角色', ...(embedded ? { character_book: book } : {}) }
+  const card = { name: '测试角色', first_mes: '你来到镇上的旅店。', ...(embedded ? { character_book: book } : {}) }
   const json = async name => JSON.parse(await readFile(join(directory, name), 'utf8'))
   const save = async (name, value) => writeFile(join(directory, name), JSON.stringify(value))
+  await save('extra.json', { name: '附加书', entries: { 7: { uid: 7, comment: '附加条目', content: '附加正文', key: ['附加'], disable: false } } })
   await save('book.json', book)
   await save('card.json', card)
   const chat = { id: 'audit', cardPath: 'card.json', mvu: { enabled: false }, messages: [] }
   const library = createWorldBookLibrary({
-    normalizePath(path) { if (!['book.json', 'card.json'].includes(path)) throw Error('fixture path'); return path },
+    normalizePath(path) { if (!['book.json', 'card.json', 'extra.json'].includes(path)) throw Error('fixture path'); return path },
     resources: { readText: path => readFile(join(directory, path), 'utf8'), write: (path, text) => writeFile(join(directory, path), text),
-      bindingForCard: async () => embedded ? { kind: 'default' } : { kind: 'standalone', path: 'book.json', available: true } },
+      bindingForCard: async () => multiple ? { kind: 'multiple', sources: [embedded ? { kind: 'embedded', cardPath: 'card.json', available: true } : { kind: 'standalone', path: 'book.json', available: true }, { kind: 'standalone', path: 'extra.json', available: true }] } : embedded ? { kind: 'default' } : { kind: 'standalone', path: 'book.json', available: true } },
     cards: { read: () => json('card.json'), update: async (_path, patch) => save('card.json', { ...await json('card.json'), ...patch }) },
     removeStandalone: async () => {}
   })
   const extensionSettings = createTavernExtensionSettings(createProfileDataStore({ dataRoot: directory }))
   const writes = []
-  const adapter = createTavernScriptHostAdapter({ hasScripts: async () => true, extensionSettings, resolveChat: async () => chat, writeChat: async (value, metadata) => { writes.push({ chat: structuredClone(value), metadata }) }, readCard: () => json('card.json'), worldBooks: library, scriptDispatch: {} })
+  const adapter = createTavernScriptHostAdapter({ hasScripts: async () => true, extensionSettings, resolveChat: async () => chat, writeChat: async (value, metadata) => { writes.push({ chat: structuredClone(value), metadata }); await save('chat.json', value) }, readChat: () => json('chat.json'), readCard: () => json('card.json'), worldBooks: library, scriptDispatch: {} })
   return { adapter, library, extensionSettings, chat, writes,
+    readChat: () => json('chat.json'), readCard: () => json('card.json'), readExtra: () => json('extra.json'),
     read: async () => embedded ? (await json('card.json')).character_book : await json('book.json'),
     record: async () => library.bound('card.json', await json('card.json')),
     cleanup: () => rm(directory, { recursive: true, force: true }),
