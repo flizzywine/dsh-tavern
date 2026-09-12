@@ -2146,3 +2146,34 @@ test('closing a trusted opening removes its host popup and stylesheet without re
   assert.deepEqual(body.childNodes, [app])
   assert.deepEqual(head.childNodes, [style])
 })
+
+test('trusted host exposes a visible chat mount until the final owner leaves, without a fake composer', () => {
+  const nodes = new Map()
+  const document = { body: { appendChild(node) { nodes.set(node.id, node) } }, getElementById(id) { return nodes.get(id) }, createElement() { return { appendChild() {}, remove() { nodes.delete(this.id) } } } }
+  const host = { document }
+  const releaseA = client.installTavernTrustedHostFacade(host, {})
+  const root = nodes.get('chat')
+  assert.ok(root)
+  assert.notEqual(root.hidden, true)
+  assert.equal(nodes.has('send_textarea'), false)
+  const releaseB = client.installTavernTrustedHostFacade(host, {})
+  releaseA(); releaseA()
+  assert.equal(nodes.get('chat'), root)
+  releaseB()
+  assert.equal(nodes.has('chat'), false)
+  nodes.set('chat', { id: 'chat', existing: true })
+  client.installTavernTrustedHostFacade(host, {})()
+  assert.equal(nodes.get('chat').existing, true)
+})
+
+test('initializeGlobal publishes the value before waking existing global waiters', async () => {
+  const source = clientSource.slice(clientSource.indexOf('window.initializeGlobal = function'), clientSource.indexOf('window.getTavernHelperVersion =', clientSource.indexOf('window.initializeGlobal = function')))
+  const events = client.createTavernHelperEventBus({ currentScript: () => ({ id: 'publisher' }), withScript: (_id, fn) => fn(), reportSubscriptions() {}, post() {} })
+  const window = { eventOn: events.listen, eventOff: events.off, eventEmit: events.emit }
+  vm.runInNewContext(source, { window })
+  const waiting = window.waitGlobalInitialized('Controller')
+  const value = { ready: true }
+  await window.initializeGlobal('Controller', value)
+  assert.equal(await waiting, value)
+  assert.equal(await window.waitGlobalInitialized('Controller'), value)
+})
