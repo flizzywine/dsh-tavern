@@ -322,10 +322,9 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 .dsh-tavern-prompt-row.role-regex { border-left-color: #ed9714; }
 .dsh-tavern-prompt-row.role-script { border-left-color: #8b69d4; }
 .dsh-tavern-prompt-row.role-extension { border-left-color: #718096; }
-.dsh-tavern-prompt-head { display: grid; grid-template-columns: 65px minmax(0,1fr) auto; align-items: center; gap: 8px; padding: 9px 10px; cursor: pointer; list-style: none; }
+.dsh-tavern-prompt-head { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center; gap: 8px; padding: 9px 10px; cursor: pointer; list-style: none; }
 .dsh-tavern-preset-entry-head { grid-template-columns: minmax(0,1fr) auto; }
 .dsh-tavern-prompt-head::-webkit-details-marker { display: none; }
-.dsh-tavern-prompt-role { color: var(--dsw-alias-label-secondary); font-size: 10px; font-weight: 800; }
 .dsh-tavern-prompt-title { min-width: 0; }
 .dsh-tavern-prompt-title b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
 .dsh-tavern-prompt-title span { display: block; overflow: hidden; margin-top: 3px; color: var(--dsw-alias-label-tertiary); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }

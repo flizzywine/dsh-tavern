@@ -21,6 +21,21 @@ export function redactDiagnostic(value, depth = 0) {
   return value
 }
 
+export function sanitizeModuleFailure(value) {
+  if (!value || value.phase !== 'module-load') return null
+  const url = raw => {
+    try { const parsed = new URL(String(raw)); return /^https?:$/.test(parsed.protocol) ? (parsed.origin + parsed.pathname).slice(0, 500) : '' } catch { return '' }
+  }
+  return {
+    phase: 'module-load', reason: ['offline', 'http', 'unknown'].includes(value.reason) ? value.reason : 'unknown',
+    message: redactMvuLoadError(value.message || '', 1000),
+    references: (Array.isArray(value.references) ? value.references : []).slice(0, 8).map(url).filter(Boolean),
+    resources: (Array.isArray(value.resources) ? value.resources : []).slice(0, 8)
+      .filter(entry => entry && Number.isInteger(entry.status) && entry.status >= 400 && entry.status <= 599)
+      .map(entry => ({ url: url(entry.url), status: entry.status })).filter(entry => entry.url)
+  }
+}
+
 export function sanitizeRuntimeDiagnostics(value) {
   return redactDiagnostic((Array.isArray(value) ? value : []).slice(-50).map(item => ({
     kind: String(item?.kind || '').slice(0, 40), name: String(item?.name || '').slice(0, 100),
@@ -126,6 +141,7 @@ export function diagnosticZip(entries) {
 export async function createMvuDiagnosticExport({ cardDiagnostics, performanceDiagnostics, updateDiagnostics, sessionId, backgroundSessionIds = [], store, sessions, persistence, query, attachments, sceneDiagnostics, compatibilityDiagnostics, apiDiagnostics, displayDiagnostics, environment = {} }) {
   const notes = ['包含对话文本、附件与变量信息，分享前请检查隐私。凭据已尽力脱敏。MVU 记录有容量限制，旧故障不会被追溯补录。']
   notes.push('mvu/diagnostics.json 中 stage=regeneration-target 是正文重新生成的目标定位证据：记录失败分支、消息结构、轮次和会话绑定摘要，不记录正文或指导意见；只对更新后再次操作生效。')
+  notes.push('stage=script-runtime 的 moduleFailure 记录模块加载失败原因、最多 8 个脚本引用及同期浏览器可见的失败资源和 HTTP 状态；引用和同期资源不等于完整失败依赖链。跨域资源可能不提供状态；unknown 不代表断网。URL 不含凭据和查询参数，不记录脚本或响应体。仅更新后再次失败才会记录。')
   notes.push('stage=mvu-load 记录下载响应类型、状态、有限的错误信息、尝试次数和执行阶段；不记录完整脚本或响应体。mvu/environment.json 的 mvuAsset 是当前服务进程共享的最近文件读取/校验观察，不代表导出会话在故障时的文件状态；导出不会重新加载文件。日志限量、异步写入，关闭页面或写盘失败可能漏记，旧错误不能追溯补录。')
   if (updateDiagnostics) notes.push('update/diagnostics.json 为本机更新记录，包含检查来源、回退原因和安装结果；限量保留，不补录安装此版本前的故障。')
   notes.push('mvu/diagnostics.json 中 initialization-timing 记录 MVU 初始化的伴随脚本、世界书读取、变量初始化回调、提示词队列及写入耗时。按脚本聚合，约每 5 秒采样，最多记录启动后 3 分钟；pending 表示仍在等待，超时提示不代表任务取消。总耗时可包含并发重叠，不等于页面等待时间；不记录正文和变量值。')

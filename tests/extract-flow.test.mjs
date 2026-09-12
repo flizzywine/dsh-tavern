@@ -261,7 +261,7 @@ test('Tavern 错误面板只保留最新错误，左侧栏连接恢复后撤销�
   assert.match(clientSource, /tavernErrorHub\.report\("正文重新生成", err\)/)
   assert.match(clientSource, /tavernErrorHub\.report\("插件更新", err\)/)
   assert.match(clientSource, /function isIgnoredTavernError\(value\)/)
-  assert.match(errorHub, /if \(isIgnoredTavernError\(error\)\) return/)
+  assert.match(errorHub, /if \(isIgnoredTavernError\(error\) && !error\?\.dshTavernModuleFailure\) return/)
   assert.match(clientSource, /const visible = isIgnoredTavernError\(message\) \? "" : message/)
   assert.match(clientSource, /setLocalError\(visible\)/)
 })
