@@ -3132,6 +3132,10 @@ window.__ModuleLoader__.load({
 				replaceMvuData: async function (value, option) { await window.updateVariablesWith(function () { return value; }, option); return copy(value); },
 				parseMessage: async function () { throw new Error("当前兼容层尚未开放脚本内手动 MVU 重算"); }
 			};
+			window.initializeGlobal = function (name, value) {
+				window[name] = value;
+				return window.eventEmit("global_" + String(name) + "_initialized");
+			};
 			window.waitGlobalInitialized = async function (name) {
 				if (window[name] !== undefined) return window[name];
 				return await new Promise(function (resolve) {
@@ -3511,6 +3515,17 @@ window.__ModuleLoader__.load({
 		}
 
 		function installTavernTrustedHostFacade(host, frameWindow, priority) {
+			// A visible mount root supports legacy host detection and panel mounting.
+			// Never fake send_textarea: scripts must reach the real composer.
+			let chatRoot = host.document && host.document.getElementById('chat');
+			if (!chatRoot && host.document && host.document.createElement) {
+				chatRoot = host.document.createElement('div');
+				chatRoot.id = 'chat';
+				chatRoot.tavernCompatibilityOwners = 0;
+				host.document.body.appendChild(chatRoot);
+			}
+			const ownsChatRoot = chatRoot && typeof chatRoot.tavernCompatibilityOwners === 'number';
+			if (ownsChatRoot) chatRoot.tavernCompatibilityOwners++;
 			// Legacy sorting scripts address the parent document in trusted mode.
 			// This hidden select accepts their UI events only; it has no host listeners.
 			let sortControl = host.document && host.document.getElementById('world_info_sort_order');
@@ -3548,6 +3563,7 @@ window.__ModuleLoader__.load({
 				if (released) return;
 				released = true;
 				if (ownsSortControl && --sortControl.tavernCompatibilityOwners === 0) sortControl.remove();
+				if (ownsChatRoot && --chatRoot.tavernCompatibilityOwners === 0) chatRoot.remove();
 				for (const binding of bindings) {
 					binding.active = false;
 					if (Object.getOwnPropertyDescriptor(host, binding.name)?.get !== binding.get) continue;
