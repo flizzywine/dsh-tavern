@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { displayModeOf, projectDisplayParts, projectReplyHistory, projectReplyLayers } from '../tavern-plugin/lib/domain/reply-presentation.js'
+import { createReplyHistoryProjector, displayModeOf, projectDisplayParts, projectReplyHistory, projectReplyLayers } from '../tavern-plugin/lib/domain/reply-presentation.js'
 
 function script(name, findRegex, replaceString, flags = {}) {
   return {
@@ -381,4 +381,48 @@ test('任意无属性正文协议标签保留 Markdown 段落，不依赖卡片�
   for (const source of ['<story-panel>界面</story-panel>', '<panel class="ui">界面</panel>', '<div><story>界面</story></div>', '```html\n<story>界面</story>\n```']) {
     assert.equal(projectDisplayParts(source).parts[0].kind, 'html')
   }
+})
+
+
+test('历史投影复用未改变的回复，新增和编辑只重算变化项', () => {
+  const project = createReplyHistoryProjector()
+  const messages = [{ role: 'assistant', turn: 1, text: '第一段' }]
+  project(messages)
+  project(structuredClone(messages))
+  assert.equal(project.cacheStats().misses, 1)
+  messages.push({ role: 'assistant', turn: 2, text: '第二段' })
+  project(messages)
+  assert.equal(project.cacheStats().misses, 2)
+  messages[0].text = '修改正文'
+  project(messages)
+  assert.equal(project.cacheStats().misses, 3)
+})
+
+test('正则与身份参数变化使缓存失效，返回结果修改不污染缓存', () => {
+  const project = createReplyHistoryProjector()
+  const messages = [{ role: 'assistant', turn: 1, text: '{{user}}遇见{{char}}' }]
+  const options = { charName: '甲', macroState: { userName: '乙' }, regexScripts: [] }
+  const first = project(messages, options)
+  const expected = structuredClone(first)
+  first.projections[0].parts[0].text = '污染'
+  assert.deepEqual(project(messages, options), expected)
+  options.charName = '丙'
+  assert.match(project(messages, options).projections[0].text, /丙/)
+  options.macroState.userName = '丁'
+  assert.match(project(messages, options).projections[0].text, /丁/)
+  options.regexScripts.push(script('replace', '/遇见/g', '看到'))
+  assert.match(project(messages, options).projections[0].text, /看到/)
+  assert.equal(project.cacheStats().misses, 4)
+})
+
+test('缓存按容量淘汰，超大内容不驻留', () => {
+  const project = createReplyHistoryProjector({ maxCacheEntries: 2, maxCacheBytes: 2048 })
+  const message = text => [{ role: 'assistant', text }]
+  for (const text of ['一', '二', '三']) project(message(text))
+  assert.equal(project.cacheStats().entries, 2)
+  project(message('一'))
+  assert.equal(project.cacheStats().misses, 4)
+  project(message('超大'.repeat(2000)))
+  assert.equal(project.cacheStats().entries, 2)
+  assert.ok(project.cacheStats().estimatedBytes <= 2048)
 })

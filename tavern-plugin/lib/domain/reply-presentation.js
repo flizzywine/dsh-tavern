@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { applyTavernRegexText } from './tavern-regex-display.js'
 import { marked } from 'marked'
 
@@ -290,45 +291,85 @@ function isNativeMarkdownProjection(parts, sessionText) {
   return Array.isArray(parts) && parts.length === 1 && parts[0]?.kind === 'markdown' && str(parts[0].text) === str(sessionText)
 }
 
-/** Rebuild per-turn display projections from authoritative reply sources. */
-export function projectReplyHistory(messages, options = {}) {
-  const projections = []
-  let inferredTurn = 1
-  let latestSourceBacked = false
-
-  for (const message of Array.isArray(messages) ? messages : []) {
-    if (message === null || typeof message !== 'object') continue
-    if (message.role === 'user') {
-      inferredTurn += 1
-      continue
+/** Bound retained projection data as well as entry count; oversized replies bypass caching. */
+export function createReplyHistoryProjector({ maxCacheBytes = 16 * 1024 * 1024, maxCacheEntries = 2048 } = {}) {
+  const cache = new Map()
+  let bytes = 0, hits = 0, misses = 0
+  function digest(value) { return createHash('sha256').update(value).digest('hex') }
+  function projectCached(sourceText, projectionText, options, signature) {
+    const key = createHash('sha256').update(signature).update(String(sourceText.length) + ':')
+      .update(sourceText).update(String(projectionText.length) + ':').update(projectionText).digest('hex')
+    let item = cache.get(key)
+    if (item) {
+      hits++
+      cache.delete(key)
+      cache.set(key, item)
+    } else {
+      misses++
+      const projected = projectReplyLayers(sourceText, Object.assign({}, options, { projectionText }))
+      const value = { displayText: projected.displayText, displayMode: projected.displayMode,
+        displayParts: projected.displayParts, warnings: projected.warnings }
+      // This is a conservative payload estimate, not a measurement of V8 heap usage.
+      const size = value.displayText.length * 2 > maxCacheBytes ? Infinity : JSON.stringify(value).length * 2 + 256
+      if (size > maxCacheBytes || maxCacheEntries <= 0) return value
+      while (cache.size && (bytes + size > maxCacheBytes || cache.size >= maxCacheEntries)) {
+        const oldest = cache.keys().next().value
+        bytes -= cache.get(oldest).size
+        cache.delete(oldest)
+      }
+      item = { value, size }
+      cache.set(key, item)
+      bytes += size
     }
-    if (message.role !== 'assistant') continue
-
-    const turn = Math.max(0, Number(message.turn) || (message.greeting === true ? 1 : inferredTurn))
-    if (turn === 0) continue
-    const hasSource = Object.prototype.hasOwnProperty.call(message, 'sourceText')
-    const sourceText = hasSource ? str(message.sourceText) : str(message.text)
-    const projectionText = Object.prototype.hasOwnProperty.call(message, 'projectionText')
-      ? str(message.projectionText)
-      : sourceText
-    const projected = projectReplyLayers(sourceText, Object.assign({}, options, { projectionText }))
-    const sessionText = str(message.text)
-
-    if (message.bodyEdit || !isNativeMarkdownProjection(projected.displayParts, sessionText) || (Array.isArray(message.swipes) && message.swipes.length > 1)) {
-      projections.push({
-        version: 2,
-        turn,
-        text: projected.displayText,
-        mode: projected.displayMode,
-        parts: projected.displayParts,
-        warnings: projected.warnings
-      })
-    }
-    latestSourceBacked = hasSource
+    // Callers may annotate returned parts; never expose mutable cached objects.
+    return structuredClone(item.value)
   }
+  function projectHistory(messages, options = {}) {
+    const signature = digest(JSON.stringify({ regexScripts: options.regexScripts || [],
+      charName: options.charName, userName: options.macroState?.userName,
+      placement: options.placement, isEdit: options.isEdit, depth: options.depth }))
+    const projections = []
+    let inferredTurn = 1
+    let latestSourceBacked = false
 
-  return { projections, presentation: null, latestSourceBacked }
+    for (const message of Array.isArray(messages) ? messages : []) {
+      if (message === null || typeof message !== 'object') continue
+      if (message.role === 'user') {
+        inferredTurn += 1
+        continue
+      }
+      if (message.role !== 'assistant') continue
+
+      const turn = Math.max(0, Number(message.turn) || (message.greeting === true ? 1 : inferredTurn))
+      if (turn === 0) continue
+      const hasSource = Object.prototype.hasOwnProperty.call(message, 'sourceText')
+      const sourceText = hasSource ? str(message.sourceText) : str(message.text)
+      const projectionText = Object.prototype.hasOwnProperty.call(message, 'projectionText')
+        ? str(message.projectionText)
+        : sourceText
+      const projected = projectCached(sourceText, projectionText, options, signature)
+      const sessionText = str(message.text)
+
+      if (message.bodyEdit || !isNativeMarkdownProjection(projected.displayParts, sessionText) || (Array.isArray(message.swipes) && message.swipes.length > 1)) {
+        projections.push({
+          version: 2,
+          turn,
+          text: projected.displayText,
+          mode: projected.displayMode,
+          parts: projected.displayParts,
+          warnings: projected.warnings
+        })
+      }
+      latestSourceBacked = hasSource
+    }
+
+    return { projections, presentation: null, latestSourceBacked }
+  }
+  projectHistory.cacheStats = () => ({ entries: cache.size, estimatedBytes: bytes, hits, misses })
+  return projectHistory
 }
+
+export const projectReplyHistory = createReplyHistoryProjector()
 
 /**
  * Transitional old-shape adapter. New callers should use projectReplyLayers().
