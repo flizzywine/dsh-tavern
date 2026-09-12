@@ -70,10 +70,6 @@ function installOpeningPreviewBridge(token, preview) {
       await window.setChatMessages([{ message_id: 0, swipe_id: savedIndex }]);
     }
   });
-  if (original) {
-    window.getTavernHelperVersion = function () { return "4.8.19"; };
-    window.TavernHelper.getTavernHelperVersion = window.getTavernHelperVersion;
-  }
   window.getCurrentMessageId = window.getLastMessageId = function () { return 0; };
   window.getChatMessages = function (id, options) {
     if (original) return original.getChatMessages(id, options);

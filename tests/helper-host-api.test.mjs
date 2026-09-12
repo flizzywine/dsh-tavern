@@ -324,3 +324,16 @@ test('事件清理接口仅清理当前脚本，支持别名、重复清理与�
   await w.eventEmit('one')
   assert.deepEqual(seen, ['b', 'shared'])
 })
+
+test('Helper 版本同步返回，await 调用及开场预览保持一致（issue 18）', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const w = helperHostHarness().window
+  const getVersion = w.getTavernHelperVersion
+  assert.equal(getVersion(), '4.8.19')
+  assert.equal(await getVersion(), '4.8.19')
+  assert.equal(w.TavernHelper.getTavernHelperVersion, getVersion)
+  const source = await readFile(new URL('../tavern-plugin/src/client/opening-preview.js', import.meta.url), 'utf8')
+  vm.runInNewContext(source + '\ninstallOpeningPreviewBridge("version-test", {runtime:true,swipes:["Hello"],selectedIndex:0,openingIds:["first"]});', w)
+  assert.equal(w.getTavernHelperVersion, getVersion)
+  assert.equal(w.TavernHelper.getTavernHelperVersion(), '4.8.19')
+})

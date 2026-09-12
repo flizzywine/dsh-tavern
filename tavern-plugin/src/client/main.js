@@ -2465,7 +2465,8 @@ window.__ModuleLoader__.load({
 					window.eventOn(eventName, listener);
 				});
 			};
-			window.getTavernHelperVersion = async function () { return "3.4.17"; };
+			// Compatibility version shared by the script runtime and opening preview.
+			window.getTavernHelperVersion = function () { return "4.8.19"; };
 			window.substitudeMacros = function (value) {
 				return String(value || "")
 					.replace(/{{\s*user\s*}}/gi, String(state.playerName || "你"))

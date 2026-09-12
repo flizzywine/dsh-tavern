@@ -1712,10 +1712,6 @@ window.__ModuleLoader__.load({
 		      await window.setChatMessages([{ message_id: 0, swipe_id: savedIndex }]);
 		    }
 		  });
-		  if (original) {
-		    window.getTavernHelperVersion = function () { return "4.8.19"; };
-		    window.TavernHelper.getTavernHelperVersion = window.getTavernHelperVersion;
-		  }
 		  window.getCurrentMessageId = window.getLastMessageId = function () { return 0; };
 		  window.getChatMessages = function (id, options) {
 		    if (original) return original.getChatMessages(id, options);
@@ -3201,7 +3197,8 @@ window.__ModuleLoader__.load({
 					window.eventOn(eventName, listener);
 				});
 			};
-			window.getTavernHelperVersion = async function () { return "3.4.17"; };
+			// Compatibility version shared by the script runtime and opening preview.
+			window.getTavernHelperVersion = function () { return "4.8.19"; };
 			window.substitudeMacros = function (value) {
 				return String(value || "")
 					.replace(/{{\s*user\s*}}/gi, String(state.playerName || "你"))
