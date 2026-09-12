@@ -5381,7 +5381,7 @@ window.__ModuleLoader__.load({
 					if (initialMessage) await props.executeSlash("/send " + initialMessage + "|/trigger", created.sessionId);
 					if (targetMode !== "card") window.localStorage.setItem("dsh-tavern-player-name", resolvedUserName);
 					console.info("dsh-tavern: 开始游戏完成", (Date.now() - startedAt) + "ms", preparedSessionId ? "预热命中" : "即时创建");
-				} catch (err) { if (!created) setOpeningPicker(previousOpeningPicker); setError((created ? "游戏已创建，开局消息发送失败：" : "创建对话失败：") + String(err && err.message || err)); if (initialMessage) throw err; }
+				} catch (err) { if (!created) setOpeningPicker(previousOpeningPicker); setError((created ? "游戏已创建，开局消息发送失败：" : String(err && err.phase || "创建对话") + "失败：") + String(err && err.message || err)); if (initialMessage) throw err; }
 				finally { tavernSessionTransition.end(); setBusy(false); }
 			}
 			async function preparePlayConversation(card) {
