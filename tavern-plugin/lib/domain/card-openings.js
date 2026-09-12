@@ -24,3 +24,11 @@ export function resolveCardOpening(card, openingId) {
   if (selected === undefined) throw new Error('人物卡开场白不存在: ' + requested)
   return selected.text
 }
+
+/** SillyTavern removes an empty primary greeting before assigning swipe indices. */
+export function cardOpeningSwipes(card) {
+  const swipes = [str(card?.first_mes), ...(Array.isArray(card?.alternate_greetings) ? card.alternate_greetings.map(str) : [])]
+  const openingIds = swipes.map((text, index) => text.trim() ? (index ? 'alternate:' + (index - 1) : 'primary') : null)
+  if (swipes.length > 1 && swipes[0] === '') { swipes.shift(); openingIds.shift() }
+  return { swipes, openingIds }
+}

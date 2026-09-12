@@ -46,9 +46,16 @@ function installOpeningPreviewBridge(token, preview) {
     getWorldbook: window.getWorldbook, updateWorldbookWith: window.updateWorldbookWith });
   const chat = [{ is_user: false, name: preview.characterName || '', mes: swipes[selected], swipe_id: selected, swipes: swipes.slice() }];
   let savedIndex = selected;
+  const swipe = { to: async function (_chatId, direction, options = {}) {
+    if (options.forceMesId !== undefined && Number(options.forceMesId) !== 0) throw new Error('只能切换开场消息');
+    const index = options.forceSwipeId !== undefined ? Number(options.forceSwipeId)
+      : direction === 'left' ? selected - 1 : direction === 'right' ? selected + 1 : NaN;
+    return window.setChatMessages([{ message_id: 0, swipe_id: index }]);
+  } };
+  if (!window.toastr) window.toastr = { info: console.info, success: console.info, warning: console.warn, error: console.error };
   window.SillyTavern = Object.assign({}, original && original.host, {
-    chat,
-    getContext: function () { return Object.assign({}, original && original.host.getContext(), { chat, extensionSettings: original ? original.host.getContext().extensionSettings : {} }); },
+    chat, swipe,
+    getContext: function () { return Object.assign({}, original && original.host.getContext(), { chat, swipe, extensionSettings: original ? original.host.getContext().extensionSettings : {} }); },
     saveChat: async function () {
       const message = chat[0];
       const index = Number(message && message.swipe_id);
@@ -138,10 +145,18 @@ function installSessionOpeningBridge(token, descriptor) {
     pending.delete(data.requestId); clearTimeout(task.timer);
     if (data.ok) task.resolve(data.result); else task.reject(new Error(data.error || '开始旅程失败'));
   });
+  const swipe = { to: async function (_chatId, direction, options = {}) {
+    if (options.forceMesId !== undefined && Number(options.forceMesId) !== 0) throw new Error('只能切换开场消息');
+    const index = options.forceSwipeId !== undefined ? Number(options.forceSwipeId)
+      : direction === 'left' ? chat[0].swipe_id - 1 : direction === 'right' ? chat[0].swipe_id + 1 : NaN;
+    if (!Number.isInteger(index) || !descriptor.openingIds[index]) throw new Error('人物卡开场白不存在');
+    return window.setChatMessage(swipes[index], 0, { swipe_id: index });
+  } };
+  if (!window.toastr) window.toastr = { info: console.info, success: console.info, warning: console.warn, error: console.error };
   window.SillyTavern = Object.assign({}, window.SillyTavern, {
     extensionSettings: descriptor.extensionSettings || {},
     TavernHelper: window.TavernHelper,
-    chat,
+    chat, swipe,
     getContext: function () { return window.SillyTavern; },
     saveChat: async function () {
       const row = chat[0], index = row && row.swipe_id;
