@@ -382,3 +382,26 @@ test('failed posture can be corrected after variables succeed without repeating 
   assert.equal(result.posture, '坐下')
   assert.equal(writes, 1)
 })
+
+test('工具使用约定由工具定义承载，本轮提示只安排任务', () => {
+  for (const posture of [true, false]) {
+    const request = projectMvuBackgroundRequest(createMvuBackgroundTaskFrame({
+      operationId: 'tool-contract', chatId: 'chat', branchId: 'branch', basedOnRevision: 1,
+      messageId: 0, swipeId: 0, storyText: '她站在门边。', currentVariables: { stat_data: { hp: 10 } },
+      backgroundTasks: { posture, variables: true }, updateRules: ['体力不得小于零。']
+    }))
+    const tool = request.tools.find(tool => tool.name === 'mvu_submit_update')
+    assert.match(tool.description, /最多提交三次/)
+    assert.match(tool.description, /rolledBack=true/)
+    assert.match(tool.description, /ok=true 或 retryable=false/)
+    assert.match(tool.description, /currentVariables/)
+    assert.match(tool.parameters.properties.operations.description, /没有变化时提交空数组/)
+    assert.doesNotMatch(request.system, /rolledBack|retryable|最多提交三次|空数组|XML 变量协议/)
+    assert.match(request.system, /必须调用 mvu_submit_update/)
+    assert.match(request.turnContext, /体力不得小于零/)
+    if (posture) {
+      assert.match(request.system, /同一次回复中同时调用/)
+      assert.match(request.tools.find(tool => tool.name === 'posture_submit').description, /ok=true 后不再重复提交/)
+    }
+  }
+})

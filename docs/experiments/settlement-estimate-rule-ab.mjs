@@ -17,7 +17,7 @@ const summaries=[];
 for(let repeat=1;repeat<=3;repeat++)for(const [scenario,storyText] of Object.entries(scenarios))for(const arm of (repeat%2?['without','with']:['with','without'])){
  const id=`${scenario}-${repeat}-${arm}`,steps=[];let state=structuredClone(initial);
  const module=createMvuSettlementModule({model:{async run(input){
- let system=input.system;
+ let system=input.system.replaceAll('\n数值不确定时，合理即可，不要求必须精确。','');
  if(arm==='with')system+='\n数值不确定时，合理即可，不要求必须精确。';
  const messages=[{role:'system',content:'你是与前台正文生成隔离的酒馆后台 Agent。严格按本次任务协议结算。'}, {role:'user',content:`【本轮权威状态】\n${input.turnContext}\n\n【最近剧情与本次任务】\n任务类型：状态结算\n[正文]\n${storyText}\n\n【DSH 后台任务协议（最终指令）】\n${system}`}];
  const tools=input.tools.map(t=>({type:'function',function:{name:t.name,description:t.description,parameters:t.parameters}}));

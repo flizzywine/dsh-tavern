@@ -48,14 +48,19 @@ const operationSchemas = [
 
 export const MVU_SUBMIT_UPDATE_TOOL = Object.freeze({
   name: MVU_SUBMIT_UPDATE_TOOL_NAME,
-  description: '提交本轮正文确认的变量变化并等待实际执行校验。失败且 retryable 为 true 时根据错误修正完整 operations 后重试，最多提交三次；成功后停止调用。没有变化时提交空数组。',
+  description: [
+    '提交本轮正文确认的变量变化，以返回的实际执行校验结果为准。变量通过本工具提交，不在回复中输出 XML 变量协议；人物卡中的变量含义、更新条件和校验规则仍须遵守。',
+    '最多提交三次。若 ok=false 且 retryable=true，读取 error、failures 和 runtimeDiagnostics，根据 currentVariables 与变量结构修正完整 operations 后重试，不要原样反复提交。',
+    'rolledBack=true 表示整批修改未保存，可以基于原快照重新提交完整更新；不得用空 operations 掩盖尚未修复的失败。',
+    '返回 ok=true 或 retryable=false 后停止调用本工具，不能重复执行已成功的变量更新，也不能绕过人物卡校验。'
+  ].join('\n'),
   parameters: Object.freeze({
     type: 'object',
     additionalProperties: false,
     properties: {
       operations: {
         type: 'array',
-        description: '官方 MVU JSON Patch 方言。path/from 使用完整变量快照中的绝对路径（例如 /stat_data/角色/好感度）；没有变量变化时必须为空数组。',
+        description: '官方 MVU JSON Patch 方言。path/from 使用完整变量快照中的绝对路径（例如 /stat_data/角色/好感度）；有变化时提交完整 operations，没有变化时提交空数组。',
         items: { oneOf: operationSchemas }
       }
     },
@@ -375,12 +380,8 @@ export function projectMvuBackgroundRequest(frame) {
       '不得根据旧轮剧情、隐藏思考、候选项或未发生事件更新变量。',
       ...(tasks.characterDesign ? ['若确实需要人物设计，在当前后台 Agent 内先加载 tavern-character-design 并调用人物档案工具；无需也不得创建另一个 Agent。完成后继续本轮结算。'] : ['本轮人物设计已关闭，不调用人物设计 Skill 或生成档案。']),
       tasks.posture ? '在同一次回复中同时调用 posture_submit 和 mvu_submit_update，分别提交本轮结束时可见的人物姿势与变量变化；两者互不依赖，无需等待前一个工具返回。不得在回复正文输出 JSON。' : '本轮姿势结算已关闭，直接提交变量，不生成姿势。',
-      '必须调用 mvu_submit_update，以工具返回的实际执行校验结果为准。最多提交三次。',
-      '变量通过工具提交，不在回复中输出 XML 变量协议；人物卡中的变量含义、更新条件和校验规则仍须遵守。',
-      '有变化时提交完整 operations；没有变化时也必须提交 operations: []。',
-      '若 ok=false 且 retryable=true，读取 error、failures 和 runtimeDiagnostics，根据 currentVariables 与变量结构修正完整 operations 后再次调用；不要原样反复提交。',
-      'rolledBack=true 表示整批变量修改未保存，可以基于原快照重新提交完整更新；不得用空 operations 掩盖尚未修复的失败。',
-      'mvu_submit_update 返回 ok=true 或 retryable=false 后，不再调用该工具；若姿势尚未成功，只补交姿势。姿势已成功则不重复提交。不能重复执行已成功的变量更新，也不能绕过人物卡校验。'
+      '本轮必须调用 mvu_submit_update；姿势和变量分别以各自工具返回结果为准，只补交未完成项。',
+      '数值不确定时，合理即可，不要求必须精确。'
     ].join('\n'),
     tools: [...(tasks.posture ? [POSTURE_SUBMIT_TOOL] : []), ...(tasks.characterDesign ? [CHARACTER_DESIGN_READ_TOOL, CHARACTER_DESIGN_SAVE_TOOL] : []), MVU_SUBMIT_UPDATE_TOOL]
   }
