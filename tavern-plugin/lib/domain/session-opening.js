@@ -1,17 +1,15 @@
-import { cardOpeningChoices } from './card-openings.js'
+import { cardOpeningSwipes } from './card-openings.js'
 
 /** Only an untouched greeting may hand off to a new native play session. */
 export function sessionOpeningDescriptor(chat, card) {
   const messages = chat?.messages || []
   if (!['story', 'script'].includes(chat?.mode) || messages.length !== 1 || messages[0]?.greeting !== true) return null
   if (Object.values(chat.timeline?.operations || {}).some(op => op.status === 'running')) return null
-  const swipes = [card?.first_mes || '', ...(card?.alternate_greetings || [])]
+  const { swipes, openingIds } = cardOpeningSwipes(card)
   const text = messages[0].sourceText ?? messages[0].text
   const selectedIndex = swipes.indexOf(text)
   if (selectedIndex < 0) return null
-  const choices = new Set(cardOpeningChoices(card).map(choice => choice.id))
-  return { swipes, selectedIndex, characterName: card.name,
-    openingIds: swipes.map((_, index) => { const id = index ? 'alternate:' + (index - 1) : 'primary'; return choices.has(id) ? id : null }) }
+  return { swipes, selectedIndex, characterName: card.name, openingIds }
 }
 
 export async function prepareSessionOpening({ chat, card, swipeId, message, preparation }) {

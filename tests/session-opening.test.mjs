@@ -9,7 +9,7 @@ import { inspectWorldBookDocument } from '../tavern-plugin/lib/domain/worldbook-
 const card = { name: '测试卡', first_mes: '【首页】', alternate_greetings: ['实际开场'] }
 const initial = () => ({ id: 'old-chat', sessionId: 'old-session', cardPath: 'card', mode: 'story', messages: [{ role: 'assistant', text: '【首页】', sourceText: '【首页】', greeting: true }], macroState: { userName: '玩家' } })
 
-for (const method of ['saveChat', 'setChatMessage']) test('正式首页开场切换进入原生新会话：' + method, async () => {
+for (const method of ['saveChat', 'setChatMessage', 'swipe.to']) test('正式首页开场切换进入原生新会话：' + method, async () => {
   const chat = initial(), original = structuredClone(chat)
   const sourceBook = { name: '本局世界书', entries: [{ id: 1, name: '选中的核心', content: '规则', enabled: true }] }
   const preparation = createOpeningPreparation({ readCard: async () => card, worldBooks: { bound: async (_path, _card, source) => {
@@ -37,7 +37,12 @@ for (const method of ['saveChat', 'setChatMessage']) test('正式首页开场切
   assert.ok(script, '正式消息必须加载开场宿主接口')
   vm.runInNewContext(script[1], w)
   // Same host calls used by the card's StartPage.
-  if (method === 'setChatMessage') {
+  if (method === 'swipe.to') {
+    const ctx = w.SillyTavern.getContext()
+    await assert.rejects(ctx.swipe.to(null, 'right', { forceMesId: 1, forceSwipeId: 1 }), /开场/)
+    await assert.rejects(ctx.swipe.to(null, 'right', { forceMesId: 0, forceSwipeId: 99 }), /开场/)
+    await ctx.swipe.to(null, 'right', { forceMesId: 0, forceSwipeId: 1 })
+  } else if (method === 'setChatMessage') {
     await w.setChatMessage('实际开场', 0, { swipe_id: 1, refresh: 'display_and_render_current' })
   } else {
   w.SillyTavern.chat[0].swipe_id = 1
@@ -60,4 +65,10 @@ test('已有剧情、运行中的回合和伪造开场不能通过首页改写�
   assert.equal(sessionOpeningDescriptor(busy, card), null)
   await assert.rejects(prepareSessionOpening({ chat: initial(), card, swipeId: 1, message: '任意正文' }), /已有开场/)
   await assert.rejects(prepareSessionOpening({ chat: played, card, swipeId: 1, message: '实际开场' }), /已有剧情/)
+})
+
+test('empty primary follows native swipe numbering without shifting alternate ids', () => {
+  const c = { name: 'chooser', first_mes: '', alternate_greetings: ['menu', 'story'] }
+  const chat = initial(); chat.messages[0].text = chat.messages[0].sourceText = 'menu'
+  assert.deepEqual(sessionOpeningDescriptor(chat, c), { swipes: ['menu', 'story'], openingIds: ['alternate:0', 'alternate:1'], selectedIndex: 0, characterName: 'chooser' })
 })

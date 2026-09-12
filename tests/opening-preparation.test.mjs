@@ -170,3 +170,22 @@ test('empty greetings are excluded from script swipe indices and variable mappin
   await service.callRuntime(draft.id, 'updateTavernHelperMessages', { messages: [{ message_id: 0, swipes_data: [{ slot: 0 }, { slot: 1 }] }] })
   assert.deepEqual(service.resolve(draft.id, 'card', 'alternate:2').openingVariables['alternate:2'], { slot: 1 })
 })
+
+test('native swipe.to selects a preview and rejects historical message targets', async () => {
+  let receive, selected
+  const parent = { postMessage(message) {
+    selected = message.swipeId
+    queueMicrotask(() => receive({ source: parent, data: { type: 'dsh-tavern-opening-response', token: 'swipe', requestId: message.requestId, ok: true } }))
+  } }
+  const context = vm.createContext({ window: {}, parent, setTimeout, clearTimeout, console, addEventListener: (_, fn) => { receive = fn } })
+  vm.runInContext(await readFile(new URL('../tavern-plugin/src/client/opening-preview.js', import.meta.url), 'utf8'), context)
+  context.installOpeningPreviewBridge('swipe', { swipes: ['menu', 'story'], openingIds: ['alternate:0', 'alternate:1'], selectedIndex: 0 })
+  const swipe = context.window.SillyTavern.getContext().swipe
+  await assert.rejects(swipe.to(null, 'right', { forceMesId: 2, forceSwipeId: 1 }), /开场/)
+  await assert.rejects(swipe.to(null, 'right', { forceMesId: 0, forceSwipeId: 20 }), /开场/)
+  assert.equal(selected, undefined)
+  await swipe.to(null, 'right', { forceMesId: 0, forceSwipeId: 1, source: 'slash_command' })
+  assert.equal(selected, 1)
+  await swipe.to(null, 'left')
+  assert.equal(selected, 0)
+})

@@ -154,3 +154,19 @@ test('text fenced complete HTML from opening regex renders as HTML, ordinary tex
     if (expected === 'html') assert.equal(result.openings[0].projection.parts[0].content, body + '\n');
   }
 });
+
+test('native swipe chooser receives opening bridge metadata without treating prose as a chooser', async () => {
+  const card = { name: '选择台', first_mes: '<script>const ctx=SillyTavern.getContext();ctx.swipe.to(null,"right",{forceMesId:0,forceSwipeId:1});</script>', alternate_greetings: ['目标开场'] }
+  const result = await projectCardOpeningPreviews({ card })
+  assert.ok(result.openings[0].openingPreview)
+  assert.equal(result.openings[0].openingPreview.openingIds[1], 'alternate:0')
+  const prose = await projectCardOpeningPreviews({ card: { first_mes: 'He swiped his card. The character_menu appeared and he decided to jump.' } })
+  assert.equal(prose.openings[0].openingPreview, null)
+})
+
+test('native chooser drops an empty primary while preserving alternate opening ids', async () => {
+  const result = await projectCardOpeningPreviews({ card: { first_mes: '', alternate_greetings: ['<script>ctx.swipe.to(null, "right", { forceSwipeId: 1 })</script>', 'story'] } })
+  assert.deepEqual(result.openings[0].openingPreview.openingIds, ['alternate:0', 'alternate:1'])
+  assert.equal(result.openings[0].openingPreview.selectedIndex, 0)
+  assert.equal(result.openings[0].openingPreview.swipes[1], 'story')
+})
