@@ -50,16 +50,7 @@ window.__ModuleLoader__.load({
 			return btoa(binary);
 		}
 
-		function parseTextResourceFile(file) {
-			const name = String(file && file.name || "");
-			if (!name.toLowerCase().endsWith(".epub")) {
-				return file.text().then(function (text) { return { name: name, type: file.type || "", text: text, chunkSize: 500 }; });
-			}
-			if (Number(file.size) > 50 * 1024 * 1024) return Promise.reject(new Error("EPUB 文件不能超过 50 MB"));
-			return file.arrayBuffer().then(function (buffer) {
-				return { name: name, type: file.type || "application/epub+zip", fileB64: bytesToBase64(new Uint8Array(buffer)), chunkSize: 500 };
-			});
-		}
+		// @include text-resource-file.js
 
 		function parseCardFile(file) {
 			const name = String(file.name || "");
