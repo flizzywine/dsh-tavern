@@ -41,7 +41,7 @@ doc = doc.replace(/<script data-dsh-tavern-helper-dependency[^>]*>[\s\S]*?<\/scr
   window.__dshTavernHelperSetCurrentScript=()=>{};
   window.waitGlobalInitialized=async()=>{ if(!window.coreReady) throw Error('core not awaited'); };
   window.__dshTavernHelperSubscriptionsReady=id=>results.push({id,ok:true});
-  window.__dshTavernHelperSubscriptionsFailed=(id,error)=>results.push({id,ok:false,error:String(error.message||error)});
+  window.__dshTavernHelperSubscriptionsFailed=(id,error)=>results.push({id,ok:false,error:String(error.message||error),moduleFailure:error.dshTavernModuleFailure||null});
   window.__dshTavernResolveCompanionScriptsReady=()=>parent.postMessage({type:'module-smoke',results,tail:window.tailReady===true},'*');
   <\/script>`)
 const server = createServer((request, response) => {

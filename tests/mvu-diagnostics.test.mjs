@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { createMvuDiagnosticStore, createMvuDiagnosticExport, redactDiagnostic, sanitizeMvuLoadDiagnostic } from '../tavern-plugin/lib/domain/mvu-diagnostics.js'
+import { createMvuDiagnosticStore, createMvuDiagnosticExport, redactDiagnostic, sanitizeModuleFailure, redactMvuLoadError, sanitizeMvuLoadDiagnostic } from '../tavern-plugin/lib/domain/mvu-diagnostics.js'
 import { createMvuSettlementModule } from '../tavern-plugin/lib/domain/mvu-background-settlement.js'
 import { createTavernScriptHostAdapter } from '../tavern-plugin/lib/domain/tavern-script-host-adapter.js'
 import { createTavernScriptDispatch } from '../tavern-plugin/lib/domain/tavern-script-dispatch.js'
@@ -57,13 +57,17 @@ test('真实日志 RPC 保留加载字段；诊断写盘失败不向运行路径
   const start = source.indexOf("case 'recordMvuRuntimeDiagnostic':")
   const end = source.indexOf("case 'getPlayChatDebugTarget':", start)
   const store = createMvuDiagnosticStore(storage())
-  const context = { chatForSession: async id => ({ sessionId: id }), str: String, sanitizeMvuLoadDiagnostic, mvuDiagnostics: store }
+  const context = { chatForSession: async id => ({ sessionId: id }), str: String, sanitizeMvuLoadDiagnostic, sanitizeModuleFailure, redactMvuLoadError, mvuDiagnostics: store }
   const invoke = vm.runInNewContext('(async function(args){switch("recordMvuRuntimeDiagnostic"){' + source.slice(start, end) + '}})', context)
   const args = { sessionId: 's', diagnostic: { kind: 'mvu-load', phase: 'download-response', httpStatus: 403, contentType: 'text/plain' } }
   assert.equal((await invoke(args)).recorded, true)
   const row = (await store.read('s')).records[0]
   assert.equal(row.stage, 'mvu-load')
   assert.equal(row.diagnostic.httpStatus, 403)
+  await invoke({sessionId:'s', diagnostic:{scriptId:'schema',level:'error',message:'模块加载失败',moduleFailure:{phase:'module-load',reason:'http',resources:[{url:'https://cdn.example/a.js?token=PRIVATE',status:404}]}}})
+  const moduleRow = (await store.read('s')).records.at(-1)
+  assert.equal(moduleRow.diagnostic.moduleFailure.resources[0].status,404)
+  assert.doesNotMatch(JSON.stringify(moduleRow),/PRIVATE/)
   context.mvuDiagnostics = { record: async () => { throw Error('disk failure') } }
   assert.equal((await invoke(args)).recorded, false)
 })
@@ -262,3 +266,19 @@ test('oversized card does not prevent exporting diagnostic logs', async () => {
   assert.match(result.buffer.toString(), /mvu\/diagnostics.json/)
   assert.ok(result.buffer.length < 100000)
 })
+
+
+test('模块加载详情只保留限量脱敏资源和 HTTP 状态', async () => {
+  const detail = sanitizeModuleFailure({ phase:'module-load', reason:'http', message:'Bearer PRIVATE', source:'PRIVATE',
+    references:['https://user:PRIVATE@cdn.example/a.js?token=PRIVATE#PRIVATE', 'data:PRIVATE'],
+    resources:[{url:'https://cdn.example/b.js?key=PRIVATE',status:404,body:'PRIVATE'}, {url:'https://cdn.example/c.js',status:0}] });
+  assert.deepEqual(detail.references,['https://cdn.example/a.js']);
+  assert.deepEqual(detail.resources,[{url:'https://cdn.example/b.js',status:404}]);
+  assert.doesNotMatch(JSON.stringify(detail),/PRIVATE/);
+  const store=createMvuDiagnosticStore(storage());
+  await store.record('s',{stage:'script-runtime',diagnostic:{moduleFailure:detail}});
+  const zip=await createMvuDiagnosticExport({sessionId:'s',store});
+  assert.match(zip.buffer.toString(),/module-load/);
+  assert.match(zip.buffer.toString(),/404/);
+  assert.doesNotMatch(zip.buffer.toString(),/PRIVATE/);
+});

@@ -837,3 +837,14 @@ test('queued prompt operations batch in order and refresh once; reads remain bar
   assert.ok(replies.every(reply => reply.ok))
   h.runtime.dispose()
 })
+
+
+test('同一运行时的同一脚本故障只提醒一次，其他错误不重置去重', () => {
+  const h = sandbox()
+  h.runtime.sync('A', view())
+  const frame = h.frames[0]
+  frame.load()
+  for (const message of ['依赖失败', '另一个错误', '依赖失败']) h.message(frame, 'dsh-tavern-helper-script-runtime', { scriptId:'script', message, moduleFailure:{phase:'module-load',reason:'unknown',references:[],resources:[]} })
+  assert.equal(h.errors.length,2)
+  h.runtime.dispose()
+})

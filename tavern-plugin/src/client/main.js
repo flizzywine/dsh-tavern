@@ -653,6 +653,15 @@ window.__ModuleLoader__.load({
 			return /failed to fetch/i.test(String(value && value.message || value || "").trim());
 		}
 
+		function sanitizeTavernModuleFailure(value) {
+			if (!value || value.phase !== "module-load") return null;
+			function url(raw) { try { const parsed = new URL(String(raw)); return /^https?:$/.test(parsed.protocol) ? (parsed.origin + parsed.pathname).slice(0, 500) : ""; } catch (_) { return ""; } }
+			return { phase: "module-load", reason: ["offline", "http", "unknown"].includes(value.reason) ? value.reason : "unknown",
+				message: String(value.message || "").replace(/https?:\/\/[^\s"'<>]+/gi, url).replace(/\b(?:Bearer|Basic)\s+[^\s"'<>]+/gi, "[REDACTED]").slice(0, 1000),
+				references: (Array.isArray(value.references) ? value.references : []).slice(0, 8).map(url).filter(Boolean),
+				resources: (Array.isArray(value.resources) ? value.resources : []).slice(0, 8).filter(function (entry) { return entry && Number.isInteger(entry.status) && entry.status >= 400 && entry.status <= 599; }).map(function (entry) { return { url: url(entry.url), status: entry.status }; }).filter(function (entry) { return entry.url; }) };
+		}
+
 		const tavernErrorHub = (function () {
 			const storageKey = "dsh-tavern:error-history:v1";
 			function loadItems() {
@@ -660,7 +669,7 @@ window.__ModuleLoader__.load({
 					const value = JSON.parse(window.sessionStorage.getItem(storageKey) || "[]");
 					return Array.isArray(value) ? value.filter(function (item) {
 						return item && typeof item.id === "string" && typeof item.source === "string" && typeof item.message === "string";
-					}).slice(0, 1) : [];
+					}).slice(0, 1).map(function (item) { return Object.assign({}, item, { moduleFailure: sanitizeTavernModuleFailure(item.moduleFailure) }); }) : [];
 				} catch (_) { return []; }
 			}
 			let items = loadItems();
@@ -674,16 +683,16 @@ window.__ModuleLoader__.load({
 				getSnapshot: function () { return items.slice(); },
 				subscribe: function (listener) { listeners.add(listener); return function () { listeners.delete(listener); }; },
 				report: function (source, error) {
-					if (isIgnoredTavernError(error)) return;
+					if (isIgnoredTavernError(error) && !error?.dshTavernModuleFailure) return;
 					const message = String(error && error.message || error || "").trim();
 					if (!message) return;
 					const scope = String(source || "DSH Tavern");
 					const now = Date.now();
 					const existing = items[0] && items[0].source === scope && items[0].message === message ? items[0] : null;
 					if (existing) {
-						items = [{ id: existing.id, source: scope, message: message, firstAt: existing.firstAt, lastAt: now, count: existing.count + 1 }];
+						items = [{ id: existing.id, source: scope, message: message, firstAt: existing.firstAt, lastAt: now, count: existing.count + 1, moduleFailure: sanitizeTavernModuleFailure(error && error.dshTavernModuleFailure) || existing.moduleFailure }];
 					} else {
-						items = [{ id: "tavern-error-" + (++sequence), source: scope, message: message, firstAt: now, lastAt: now, count: 1 }];
+						items = [{ id: "tavern-error-" + (++sequence), source: scope, message: message, firstAt: now, lastAt: now, count: 1, moduleFailure: sanitizeTavernModuleFailure(error && error.dshTavernModuleFailure) }];
 					}
 					emit();
 				},
@@ -730,12 +739,16 @@ window.__ModuleLoader__.load({
 			if (!items.length) return null;
 			const h = React.createElement;
 			const item = items[0];
-			const text = "[" + formatErrorTime(item.lastAt) + "] " + item.source + (item.count > 1 ? "（重复 " + item.count + " 次）" : "") + "\n" + item.message;
+			const text = "[" + formatErrorTime(item.lastAt) + "] " + item.source + (item.count > 1 ? "（重复 " + item.count + " 次）" : "") + "\n" + item.message + (item.moduleFailure ? "\n" + JSON.stringify(item.moduleFailure, null, 2) : "");
 			return h("section", { className: "dsh-tavern-error-center", role: "region", "aria-label": "DSH Tavern 错误记录" },
 				h("div", { className: "dsh-tavern-error-center-head" }, h("span", null, "最新错误"), h("button", { className: "dsh-tavern-btn", onClick: function () { copyErrorText(text); } }, "复制"), h("button", { className: "dsh-tavern-btn", onClick: tavernErrorHub.clear }, "清除")),
 				h("div", { className: "dsh-tavern-error-list" }, h("article", { className: "dsh-tavern-error-item", key: item.id },
 					h("div", { className: "dsh-tavern-error-meta" }, h("span", null, item.source), item.count > 1 ? h("span", null, "重复 " + item.count + " 次") : null, h("time", { dateTime: new Date(item.lastAt).toISOString() }, formatErrorTime(item.lastAt))),
-					h("div", { className: "dsh-tavern-error-message" }, item.message)
+					h("div", { className: "dsh-tavern-error-message" }, item.message),
+					item.moduleFailure ? h("details", { className: "dsh-tavern-module-error-details" }, h("summary", null, "查看详情"),
+						h("pre", { style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, "阶段：模块加载\n原因：" + ({ offline: "浏览器离线", http: "依赖请求返回 HTTP 错误", unknown: "浏览器未提供确切原因" }[item.moduleFailure.reason] || "未知") + "\n浏览器信息：" + (item.moduleFailure.message || "未提供") + "\n脚本引用（不代表已确认失败）：\n" + (item.moduleFailure.references || []).join("\n") + "\n同期失败资源（浏览器可见范围）：\n" + (item.moduleFailure.resources || []).map(function (entry) { return entry.url + " — HTTP " + entry.status; }).join("\n")),
+						h("p", null, "刷新将重新初始化页面脚本，请先保存未提交的输入。"),
+						h("button", { type: "button", className: "dsh-tavern-btn", onClick: function () { window.location.reload(); } }, "刷新页面重试")) : null
 				))
 			);
 		}
@@ -2416,7 +2429,7 @@ window.__ModuleLoader__.load({
 			window.__dshTavernHelperSubscriptionsFailed = function (scriptId, error) {
 				const script = scriptsById[String(scriptId || currentScript().id)];
 				if (script) script.failed = true;
-				parent.postMessage({ type: "dsh-tavern-helper-script-runtime", token: token, scriptId: script && script.id || currentScript().id, level: "error", message: String(error && error.message || error || "人物卡脚本初始化失败") }, "*");
+				parent.postMessage({ type: "dsh-tavern-helper-script-runtime", token: token, scriptId: script && script.id || currentScript().id, level: "error", message: String(error && error.message || error || "人物卡脚本初始化失败"), moduleFailure: error && error.dshTavernModuleFailure || null }, "*");
 				reportSubscriptions();
 			};
 			window.tavern_events = {
@@ -2704,6 +2717,25 @@ window.__ModuleLoader__.load({
 			if (scriptId === "__dsh_official_mvu__") source = "const $ = window.jQuery;\n" + source;
 			if (previewScope && scriptId !== "__dsh_official_mvu__") source = "const window = (" + createTavernPreviewWindow.toString() + ")(globalThis); const parent = window, top = window, self = window;\n" + source;
 			const sourceUrl = "dsh-tavern-script:" + encodeURIComponent(String(scriptId || "module"));
+			const startedAt = window.performance && window.performance.now ? window.performance.now() : 0;
+			function loadFailure(event) {
+				function safeUrl(value) {
+					try { const url = new URL(value, document.baseURI); if (!/^https?:$/.test(url.protocol)) return ""; return (url.origin + url.pathname).slice(0, 500); } catch (_) { return ""; }
+				}
+				function safeMessage(value) {
+					return String(value || "").replace(/https?:\/\/[^\s"'<>]+/gi, safeUrl).replace(/\b(?:Bearer|Basic)\s+[^\s"'<>]+/gi, "[REDACTED]").replace(/\bsk-[A-Za-z0-9_-]{8,}/g, "[REDACTED]").replace(/((?:api[-_]?key|access[-_]?token|password|secret|authorization)["']?\s*[=:]\s*["']?)[^\s,;"'<>]+/gi, "$1[REDACTED]").slice(0, 1000);
+				}
+				const references = Array.from(new Set((String(source).match(/(?:https?:\/\/|\/api\/dsh-tavern\/)[^\s"'<>`]+/g) || []).map(safeUrl).filter(Boolean))).slice(0, 8);
+				let resources = [];
+				try { resources = window.performance.getEntriesByType("resource").filter(function (entry) { return entry.startTime >= startedAt && entry.initiatorType === "script" && entry.responseStatus >= 400 && entry.responseStatus <= 599; }).slice(-8).map(function (entry) { return { url: safeUrl(entry.name), status: entry.responseStatus }; }).filter(function (entry) { return entry.url; }); } catch (_) {}
+				const offline = window.navigator && window.navigator.onLine === false;
+				const httpFailure = resources.some(function (entry) { return references.includes(entry.url); });
+				const reason = offline ? "offline" : httpFailure ? "http" : "unknown";
+				const message = offline ? "浏览器当前离线，人物卡脚本依赖加载失败。请检查网络后刷新页面重试。" : httpFailure ? "人物卡脚本依赖请求失败。请查看详情中的 HTTP 状态；资源恢复后刷新页面重试。" : "人物卡模块或依赖加载失败，暂不能确定原因。请查看详情；可检查网络，若持续失败请导出诊断包。";
+				const error = new Error(message + " 该脚本功能可能不可用，变量脚本失败会影响初始化或校验。");
+				error.dshTavernModuleFailure = { phase: "module-load", reason: reason, message: safeMessage(event && event.message), references: references, resources: resources };
+				return error;
+			}
 			return new Promise(function (resolve, reject) {
 				const element = document.createElement("script");
 				const completionKey = "__dshTavernModuleComplete_" + Math.random().toString(36).slice(2);
@@ -2718,11 +2750,16 @@ window.__ModuleLoader__.load({
 				}
 				function onError(event) {
 					if (String(event.filename || "").startsWith("dsh-tavern-script:") && event.filename !== sourceUrl) return;
-					finish(event.error || new Error(event.message || "人物卡模块或依赖加载失败"));
+					const message = String(event.error && event.error.message || event.message || "");
+					if (/Failed to fetch dynamically imported module|Importing a module script failed|error loading dynamically imported module/i.test(message)) finish(loadFailure({ message: message }));
+					else finish(event.error || new Error(event.message || "人物卡模块或依赖加载失败"));
 				}
 				window[completionKey] = function () { finish(); };
 				window.addEventListener("error", onError);
-				element.onerror = onError;
+				element.onerror = function (event) {
+					if (event && (event.error || event.message)) { onError(event); return; }
+					finish(loadFailure(event));
+				};
 				element.type = "module";
 				// Inline modules inherit srcdoc's document base. Native imports retain
 				// bindings/re-exports and dynamic imports can resolve local cache URLs.
@@ -3400,8 +3437,16 @@ window.__ModuleLoader__.load({
 					const script = record.scripts.get(String(data.scriptId || ""));
 					const source = script ? "人物卡脚本「" + script.name + "」" : "人物卡" + record.name;
 					if (script && !script.subscriptionsReady) script.initializationError = message.slice(0, 4000);
-					invoke("recordMvuRuntimeDiagnostic", { diagnostic: { level: "error", scriptId: String(data.scriptId || ""), message: message.slice(0, 4000) } }, activeSessionId).catch(function () {});
-					if (message !== record.lastRuntimeError) { record.lastRuntimeError = message; reportError(source, new Error(message)); }
+					invoke("recordMvuRuntimeDiagnostic", { diagnostic: { level: "error", scriptId: String(data.scriptId || ""), message: message.slice(0, 4000), moduleFailure: data.moduleFailure } }, activeSessionId).catch(function () {});
+					const errorKey = String(data.scriptId || "") + "\n" + message;
+					if (!record.runtimeErrorKeys) record.runtimeErrorKeys = new Set();
+					if (!record.runtimeErrorKeys.has(errorKey)) {
+						if (record.runtimeErrorKeys.size >= 200) record.runtimeErrorKeys.delete(record.runtimeErrorKeys.values().next().value);
+						record.runtimeErrorKeys.add(errorKey);
+						const error = new Error(message);
+						if (data.moduleFailure && data.moduleFailure.phase === "module-load") error.dshTavernModuleFailure = sanitizeTavernModuleFailure(data.moduleFailure);
+						reportError(source, error);
+					}
 					return;
 				}
 				if (data.type !== "dsh-tavern-helper-call" || !allowedMethods.has(data.method)) return;
