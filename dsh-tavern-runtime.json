@@ -1,13 +1,13 @@
 {
   "schemaVersion": 2,
-  "revision": "5e4b69edf7d699735c4a4ba1ce2be5e7561babcd",
-  "releaseSequence": 171,
+  "revision": "b1b87052098e845796551ac4e4aabc7e789bb514",
+  "releaseSequence": 172,
   "version": "1.7.0",
   "files": [
     {
       "path": "bin/application-update.mjs",
-      "sha256": "846fc8bc1d7e57b048b23dfb323365ac58e144607b06fb37deeca22962fdb598",
-      "size": 8975
+      "sha256": "83ebaae923dd70423813dec39c3f71d72e34ebf5d3ddf44a2438aefeda9948ab",
+      "size": 8410
     },
     {
       "path": "bin/build-tavern-client.mjs",
@@ -26,8 +26,8 @@
     },
     {
       "path": "bin/dsh-compatibility.mjs",
-      "sha256": "60af9b1b6b24cabe82d125a7fd32f822ce42822f9a6ccf42213c0dde3bfeb622",
-      "size": 2110
+      "sha256": "aa70d40b82baa68884e82d3394e7acad6e6b75a81c2852c9d12e0e251e2bdb82",
+      "size": 2467
     },
     {
       "path": "bin/dsh-tavern",
@@ -56,8 +56,8 @@
     },
     {
       "path": "bin/plugin-dependencies.mjs",
-      "sha256": "45c7edd653a7f24c9b4efd58c61c7bc407ded600d046ce395bf02613ddb8a740",
-      "size": 7913
+      "sha256": "5395e73082cf94f879bb2bc265f6d322f956e02cf96086be7bb5c045b709b558",
+      "size": 8995
     },
     {
       "path": "bin/profile-configuration.mjs",
@@ -66,8 +66,8 @@
     },
     {
       "path": "bin/profile-installation.mjs",
-      "sha256": "821b3db1bfa84428d36056194e3b070c5940b6cb41abacab0e67bb98bce118b2",
-      "size": 13356
+      "sha256": "b3e3b60e142f21cf1da13acd0ef8dc5fad138d229c12d0655bc60dc2b0c6c9ae",
+      "size": 13219
     },
     {
       "path": "bin/service-lifecycle.mjs",
@@ -106,13 +106,13 @@
     },
     {
       "path": "install.ps1",
-      "sha256": "ff3998cc72c9a4b678a5bc39c2c7815612e98170ed82404bc0ed75edae0d0e92",
-      "size": 15770
+      "sha256": "ac37cf7ab631f86b60704d1518728c24305b019ca85f03fe3af24502e624c5aa",
+      "size": 16184
     },
     {
       "path": "install.sh",
-      "sha256": "98e28e817f1396b46ae0fadcf8b6da798aa93f28126efb799a98958f2de9ae6e",
-      "size": 12063
+      "sha256": "dd9ac315564471744c3686600042ecdd9cabd56a305dffba81ec068ce2bc0a7a",
+      "size": 12410
     },
     {
       "path": "package.json",
@@ -216,8 +216,8 @@
     },
     {
       "path": "tavern-plugin/lib/application-updater.js",
-      "sha256": "ae58b07cfaed3e65745f605d25ef5ee904d07cee0bd03eb67d668cbcb6f20b1f",
-      "size": 24125
+      "sha256": "652f3091b78e0d3a333d4509bfde08e1aa74111e076962199d9a247a24079333",
+      "size": 24640
     },
     {
       "path": "tavern-plugin/lib/background-agent-runner.js",
@@ -241,8 +241,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "6d1e74bec8ad77141593cf556fd089d263a4a22e1cad775154ab9f8057682d47",
-      "size": 695998
+      "sha256": "c3ff90cd4718be736431c466053e35e29ca5d40fd518b93c7a0be73d19ad3f73",
+      "size": 696308
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -661,8 +661,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/scene-illustration.js",
-      "sha256": "30eff91a2f6ade62b6cd67b62ccda5ff637c97f72d5e3d2f7d92fed64ce5eb05",
-      "size": 42712
+      "sha256": "9f27bb7ebe0025a66c1118500a1a7719c03079067d10844bfc02a8a08e975429",
+      "size": 43004
     },
     {
       "path": "tavern-plugin/lib/domain/scene-image-adjustment.js",
@@ -3326,8 +3326,8 @@
     },
     {
       "path": "tavern-plugin/src/client/main.js",
-      "sha256": "68fca42262979895172a0daa81b773658cade13a71290b01998d136cb5f415f0",
-      "size": 642445
+      "sha256": "e2ae3ee10a7bdbd4e79e04df48ca410651905b7cea3f9e70610f73452c948c46",
+      "size": 642755
     },
     {
       "path": "tavern-plugin/src/client/modules/library-refresh.js",
