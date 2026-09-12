@@ -55,3 +55,22 @@ test('CDN 清单生成器包含全部依赖补丁及其校验值', async t => {
     assert.equal(entry.sha256, createHash('sha256').update(content).digest('hex'))
   }
 })
+
+test('Git 增量归档在用户开启 CRLF 转换时仍保持运行文件原始字节', async t => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'tavern-archive-eol-'))
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  const git = args => execFileSync('git', args, { cwd: directory })
+  git(['init', '-q'])
+  const source = Buffer.from('#!/bin/sh\necho hello\n')
+  await writeFile(path.join(directory, 'install.sh'), source)
+  git(['-c', 'core.autocrlf=false', 'add', '.'])
+  git(['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-qm', 'fixture'])
+  git(['config', 'core.autocrlf', 'true'])
+  for (const installer of [unix, windows]) {
+    const line = installer.split('\n').find(line => line.includes(' archive --format='))
+    const flags = [...line.matchAll(/-c (core\.[a-z]+=[a-z]+)/g)].flatMap(match => ['-c', match[1]])
+    assert.ok(flags.length > 0)
+    const archive = git([...flags, 'archive', '--format=tar', 'HEAD'])
+    assert.deepEqual(execFileSync('tar', ['-xOf', '-', 'install.sh'], { input: archive }), source)
+  }
+})

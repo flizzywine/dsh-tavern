@@ -129,7 +129,7 @@ if command -v git >/dev/null 2>&1; then
     && git --git-dir="${SOURCE_CACHE}" remote set-url origin "${REPOSITORY_URL}" \
     && git --git-dir="${SOURCE_CACHE}" fetch --depth 1 origin main \
     && TARGET_COMMIT=$(git --git-dir="${SOURCE_CACHE}" rev-parse FETCH_HEAD) \
-    && git --git-dir="${SOURCE_CACHE}" archive --format=tar --output="${TEMP_DIR}/app.tar" FETCH_HEAD -- ${RUNTIME_PATHS}; then
+    && git -c core.autocrlf=false -c core.eol=lf --git-dir="${SOURCE_CACHE}" archive --format=tar --output="${TEMP_DIR}/app.tar" FETCH_HEAD -- ${RUNTIME_PATHS}; then
     USED_GIT=1
   else
     echo "Git 增量更新不可用，将回退到完整 ZIP。" >&2

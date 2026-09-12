@@ -148,7 +148,7 @@ try {
       Assert-LastCommand 'DSH Tavern 增量更新失败。'
       $TargetCommit = (& $GitCommand --git-dir=$SourceCache rev-parse FETCH_HEAD).Trim()
       Assert-LastCommand 'DSH Tavern 提交号读取失败。'
-      & $GitCommand --git-dir=$SourceCache archive --format=zip "--output=$ArchivePath" FETCH_HEAD -- @RuntimePaths
+      & $GitCommand -c core.autocrlf=false -c core.eol=lf --git-dir=$SourceCache archive --format=zip "--output=$ArchivePath" FETCH_HEAD -- @RuntimePaths
       Assert-LastCommand 'DSH Tavern 精简运行包生成失败。'
       $UsedGit = $true
     }
