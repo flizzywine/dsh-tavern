@@ -2,6 +2,36 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { createForegroundHandoff } from '../tavern-plugin/lib/domain/foreground-handoff.js'
+import { prepareWorldBookRecall } from '../tavern-plugin/lib/domain/worldbook-recall.js'
+
+test('直接输入首轮前召回开场关键词，不扫描玩家输入、不调用结算模型、不重复准备', async () => {
+  const chat = { id: 'opening', mode: 'story', messages: [{ role: 'assistant', greeting: true, text: '铜铃渡口旁有星砂信箱。', turn: 1 }] }
+  const entries = ['铜铃渡口', '星砂信箱', '玩家专有词'].map((key, index) => ({ ref: 'entry:' + index, enabled: true, constant: false, primaryKeys: [key], content: '秘密' + index }))
+  let preparations = 0
+  const handoff = createForegroundHandoff({
+    store: { async chatForSession() { return chat } },
+    tasks: { activity() { return { phase: 'idle', role: '', busy: false } } },
+    async queueBackground() { assert.fail('开场召回无需启动结算模型') },
+    async prepareOpeningWorldBook(current) {
+      preparations++
+      const result = prepareWorldBookRecall({ chat: current, card: { name: '阿芙拉' }, turn: 1, worldBook: { view: { entries } } })
+      current.preparedWorldBook = { refs: result.refs }
+      current.preparedWorldBookContext = result.context
+    },
+    turns: {
+      async finalize() {}, async discard() {},
+      async prepare() {
+        assert.deepEqual(chat.preparedWorldBook.refs, ['entry:0', 'entry:1'])
+        assert.match(chat.preparedWorldBookContext, /秘密0/)
+        assert.match(chat.preparedWorldBookContext, /秘密1/)
+        assert.doesNotMatch(chat.preparedWorldBookContext, /秘密2/)
+      }
+    }
+  })
+  await handoff.prepare({ sessionId: 'session', turn: 2, userText: '玩家专有词' })
+  await handoff.prepare({ sessionId: 'session', turn: 2, userText: '玩家专有词' })
+  assert.equal(preparations, 1)
+})
 
 test('Foreground Turn 完成后立即排队待处理的后台结算', async () => {
   const deferred = []

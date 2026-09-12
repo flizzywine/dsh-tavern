@@ -27,6 +27,14 @@ export function createForegroundHandoff(options = {}) {
     if (chat !== undefined && activity.role === 'settlement' && (activity.phase === 'pending' || activity.phase === 'running')) {
       await queueBackground(chat.id)
     }
+    // A greeting is already story text. Direct typing may bypass candidate
+    // preparation, so project its keywords locally before the first body request.
+    if (chat && ['story', 'script'].includes(chat.mode) && !chat.preparedWorldBook &&
+        chat.messages?.length === 1 && chat.messages[0]?.greeting === true &&
+        typeof options.prepareOpeningWorldBook === 'function') {
+      const latest = await store.chatForSession(input.sessionId)
+      if (latest && !latest.preparedWorldBook) await options.prepareOpeningWorldBook(latest)
+    }
     return await turns.prepare(input)
   }
 

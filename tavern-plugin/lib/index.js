@@ -2328,6 +2328,7 @@ export async function apply(ctx) {
   })
   const foregroundHandoff = createForegroundHandoff({
     turns: turnOrchestrator,
+    prepareOpeningWorldBook: prepareNextWorldBookContext,
     store: { chatForSession, readChat },
     tasks: backgroundTasks,
     queueBackground: queueSettlement,
