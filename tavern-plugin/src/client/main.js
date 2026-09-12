@@ -4817,7 +4817,7 @@ window.__ModuleLoader__.load({
 				const mentions = React.useMemo(function () { return owner === undefined ? undefined : props.fileMentions(owner); }, [owner, props.fileMentions]);
 				const rendered = sessionTransitioning ? (sessionTransitioning.projection ? [
 					React.createElement(React.Fragment, { key: "opening-preview" }, renderTavernProjection(sessionTransitioning.projection, { streaming: false, codeLabels: { copyLabel: "复制", copiedLabel: "已复制" }, mentions: undefined, sessionId: "", turn: 1, helperContext: null, trustedCardMode: sessionTransitioning.trustedCardMode === true })),
-					React.createElement("div", { key: "switching", className: "dsh-tavern-session-switching", role: "status" }, openingPicker.preparing ? "正在准备开场与脚本资源…" : "正在完成游戏初始化…")
+					React.createElement("div", { key: "switching", className: "dsh-tavern-session-switching", role: "status" }, "正在完成游戏初始化…")
 				] : [React.createElement("div", { key: "switching", className: "dsh-tavern-session-switching", role: "status" }, "正在完成游戏初始化…")]) : renderTavernAssistantBlocks({
 					blocks: data.blocks,
 					streaming: data.status === "running",
@@ -5745,7 +5745,7 @@ window.__ModuleLoader__.load({
 					helperContext: null,
 					trustedCardMode: openingPicker.trustedCardMode
 				})) : null,
-				busy ? h("div", { className: "dsh-tavern-session-switching", role: "status" }, "正在完成游戏初始化…") : null,
+				busy ? h("div", { className: "dsh-tavern-session-switching", role: "status" }, openingPicker.preparing ? "正在准备开场与脚本资源…" : "正在完成游戏初始化…") : null,
 					selectedOpening && selectedOpening.usesUser ? h(React.Fragment, null,
 						h("label", { className: "dsh-tavern-player-name" }, h("span", null, "故事中的玩家称呼（可选）"), h("input", { value: openingPicker.userName || "你", maxLength: 80, autoFocus: true, placeholder: "你", disabled: busy, onChange: function (event) { setOpeningPicker(Object.assign({}, openingPicker, { userName: event.target.value })); } })),
 						h("div", { className: "dsh-tavern-player-name-help" }, "可以填写姓名、昵称或身份；不填则使用“你”。开场白预览会随之更新。")
