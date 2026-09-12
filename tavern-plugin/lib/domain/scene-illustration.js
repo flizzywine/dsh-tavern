@@ -37,7 +37,7 @@ export function sceneTarget(chat, turn) {
   if (!Number.isSafeInteger(turn) || turn < 1) throw new Error('正文轮次不合法')
   if (!chat || !['story', 'script'].includes(chat.mode || 'story')) throw new Error('请先打开游玩对话')
   const index = (chat.messages || []).findIndex(message => message?.role === 'assistant' && Number(message.turn || (message.greeting ? 1 : 0)) === Number(turn))
-  if (index < 0) throw new Error('这段正文已不存在')
+  if (index < 0) throw Object.assign(new Error('这段正文已不存在'), { code: 'SCENE_TARGET_UNAVAILABLE' })
   const message = chat.messages[index]
   const swipeId = Math.max(0, Number(message.swipeId) || 0)
   const source = String(message.swipes?.[swipeId] ?? message.sourceText ?? message.text ?? '')
@@ -151,7 +151,12 @@ export function createSceneIllustrations(deps) {
       referencePerson: plan?.people?.length === 1 && plan.subjects?.length === 1 && imageReferencePeople({ plan }).length === 1 ? plan.people[0].name : '' })) }
   }
   async function status(sessionId, turn) {
-    const { chat, target, path } = await resolve(sessionId, turn)
+    let resolved
+    try { resolved = await resolve(sessionId, turn) } catch (error) {
+      if (error.code !== 'SCENE_TARGET_UNAVAILABLE') throw error
+      return { turn: Number(turn), status: 'unavailable', reason: 'target-unavailable', versions: [] }
+    }
+    const { chat, target, path } = resolved
     const current = await config()
     const last = [...chat.messages].reverse().find(item => item.role === 'assistant')
     const reference = await imageReferences.select({ chatId: chat.id, lineage: sceneLineage(chat, sceneTarget(chat, Number(last.turn || 1))), config: current })

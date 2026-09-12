@@ -6667,7 +6667,7 @@ window.__ModuleLoader__.load({
 		function useSceneImageRecord(sessionId, turn) {
 			const [state, setState] = React.useState(null);
 			React.useEffect(function () {
-				let active = true, timer, revision = 0;
+				let active = true, timer, revision = 0, missingRetries = 0;
 				setState(null);
 				if (!sessionId || !turn) return;
 				async function refresh(event) {
@@ -6678,7 +6678,12 @@ window.__ModuleLoader__.load({
 						const result = await rpc("sceneImageStatus", { turn: turn }, sessionId);
 						if (!active || requested !== revision) return;
 						setState(result.illustration);
-						if (result.illustration.status === "running") timer = window.setTimeout(refresh, 1500);
+						if (result.illustration.reason === "target-unavailable") {
+                            if (missingRetries++ < 5) timer = window.setTimeout(refresh, 1500);
+                        } else {
+                            missingRetries = 0;
+                            if (result.illustration.status === "running") timer = window.setTimeout(refresh, 1500);
+                        }
 					} catch (e) {
 						if (active && requested === revision) setState(function (previous) { return Object.assign({}, previous || { status: "unavailable", versions: [] }, { error: String(e.message || e) }); });
 					}

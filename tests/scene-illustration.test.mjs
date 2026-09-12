@@ -1256,3 +1256,17 @@ test('image-only style adjustment is saved only on its picture and global style 
   assert.equal(calls, 2)
   assert.deepEqual(await fx.store.readJson(imagePath + 'plans.json'), canonical)
 })
+
+test('status tolerates an unsynced or removed body while image writes stay strict', async t => {
+  const fx = await fixture(t)
+  const before = structuredClone(fx.chat())
+  const missing = await fx.service.status('parent', 3)
+  assert.equal(missing.status, 'unavailable')
+  assert.equal(missing.reason, 'target-unavailable')
+  assert.equal(missing.key, undefined)
+  assert.equal(missing.error, undefined)
+  await assert.rejects(fx.service.start('parent', 3, 'missing'), /正文已不存在/)
+  assert.deepEqual(fx.chat(), before)
+  fx.chat().messages.push({ role: 'assistant', turn: 3, text: '正文同步完成。' })
+  assert.equal((await fx.service.status('parent', 3)).status, 'idle')
+})

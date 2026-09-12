@@ -357,3 +357,21 @@ test('native story replies render illustrations, while card mode and transitioni
   assert.equal(evaluate({ sessionTransitioning: true }), null)
   assert.equal(evaluate({ storyTurn: 0 }), null)
 })
+
+test('missing scene target retries are bounded and recovery clears unavailable state', async () => {
+  let state, effect, timer, calls = 0, ready = false
+  const ctx = vm.createContext({
+    React: { useState: () => [null, value => { state = typeof value === 'function' ? value(state) : value }], useEffect: fn => { effect = fn } },
+    window: { clearTimeout() { timer = null }, setTimeout(fn) { timer = fn }, addEventListener() {}, removeEventListener() {} },
+    rpc: async () => { calls++; return { illustration: ready ? {status:'idle',key:'valid',versions:[]} : {status:'unavailable',reason:'target-unavailable',versions:[]} } }
+  })
+  const hook = vm.runInContext(extract('useSceneImageRecord', 'SceneImageAction') + ';useSceneImageRecord', ctx)
+  const tick = () => new Promise(resolve => setImmediate(resolve))
+  hook('session', 4); const cleanup = effect(); await tick()
+  while (timer) { const next = timer; timer = null; next(); await tick() }
+  assert.equal(calls, 6)
+  assert.equal(state.error, undefined)
+  cleanup(); ready = true; effect(); await tick()
+  assert.equal(state.key, 'valid')
+  assert.equal(timer, null)
+})
