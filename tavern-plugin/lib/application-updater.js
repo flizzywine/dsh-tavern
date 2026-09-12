@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { recordUpdateDiagnostic, readUpdateDiagnostics } from '../../bin/update-diagnostics.mjs'
 import { execFile, spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { readFile } from 'node:fs/promises'
+import { readFile, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { promisify } from 'node:util'
 
@@ -140,18 +140,25 @@ async function readRecordedCommit(sourceRoot, dshHome) {
     if (error?.code !== 'ENOENT') throw error
   }
   try {
-    const gitRoot = path.join(sourceRoot, '.git')
+    let gitRoot = path.join(sourceRoot, '.git')
+    if ((await stat(gitRoot)).isFile()) {
+      const target = (await readFile(gitRoot, 'utf8')).trim().match(/^gitdir:\s+(.+)$/)?.[1]
+      if (!target) throw new Error('无法识别 Git 工作区元数据')
+      gitRoot = path.resolve(sourceRoot, target)
+    }
+    const commonDir = await readFile(path.join(gitRoot, 'commondir'), 'utf8').catch(error => error?.code === 'ENOENT' ? '' : Promise.reject(error))
+    const referenceRoot = commonDir.trim() ? path.resolve(gitRoot, commonDir.trim()) : gitRoot
     const head = (await readFile(path.join(gitRoot, 'HEAD'), 'utf8')).trim()
     if (/^[0-9a-f]{40}$/i.test(head)) return head
     const reference = head.match(/^ref:\s+(.+)$/)?.[1]
     if (reference) {
       try {
-        const commit = (await readFile(path.join(gitRoot, reference), 'utf8')).trim()
+        const commit = (await readFile(path.join(referenceRoot, reference), 'utf8')).trim()
         if (/^[0-9a-f]{40}$/i.test(commit)) return commit
       } catch (error) {
         if (error?.code !== 'ENOENT') throw error
       }
-      const packed = await readFile(path.join(gitRoot, 'packed-refs'), 'utf8').catch((error) => error?.code === 'ENOENT' ? '' : Promise.reject(error))
+      const packed = await readFile(path.join(referenceRoot, 'packed-refs'), 'utf8').catch((error) => error?.code === 'ENOENT' ? '' : Promise.reject(error))
       const escaped = reference.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
       const commit = packed.match(new RegExp(`^([0-9a-f]{40}) ${escaped}$`, 'mi'))?.[1] || ''
       if (commit) return commit

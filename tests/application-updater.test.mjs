@@ -810,3 +810,27 @@ test('更新诊断跨检查保留回退和网络原因，并可在重启后读�
     assert.ok(!JSON.stringify(records).includes('secret'))
   } finally { await rm(root, { recursive: true, force: true }) }
 })
+
+for (const mode of ['relative-loose', 'absolute-packed', 'detached']) test('Git worktree 正确读取独立 HEAD 与共享 refs：' + mode, async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-updater-worktree-'))
+  try {
+    const source = path.join(root, 'checkout')
+    const common = path.join(root, 'repository.git')
+    const metadata = path.join(common, 'worktrees', 'trial')
+    const commit = 'd'.repeat(40)
+    await mkdir(source, { recursive: true })
+    await mkdir(metadata, { recursive: true })
+    await mkdir(path.join(common, 'refs', 'heads'), { recursive: true })
+    await writeFile(path.join(source, '.git'), 'gitdir: ' + (mode.startsWith('absolute') ? metadata : path.relative(source, metadata)) + '\n')
+    await writeFile(path.join(metadata, 'commondir'), '../..\n')
+    await writeFile(path.join(metadata, 'HEAD'), mode === 'detached' ? commit + '\n' : 'ref: refs/heads/trial\n')
+    if (mode.endsWith('packed')) await writeFile(path.join(common, 'packed-refs'), commit + ' refs/heads/trial\n')
+    else await writeFile(path.join(common, 'refs', 'heads', 'trial'), commit + '\n')
+    await writeFile(path.join(source, 'package.json'), JSON.stringify({ version: '0.7.2' }))
+    const updater = createApplicationUpdater({ dataRoot: path.join(root, 'data'), sourceRoot: source, runtimeHost: 'android',
+      fetchManifest: async () => ({ version: '0.7.2' }), fetchLatestCommit: async () => commit })
+    const result = await updater.check()
+    assert.equal(result.phase, 'up-to-date')
+    assert.equal(result.currentCommit, commit)
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
