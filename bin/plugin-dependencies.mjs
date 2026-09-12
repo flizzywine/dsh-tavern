@@ -66,7 +66,24 @@ function resolveHostAnchor({ dsh, host = 'cli', env = process.env, execPath = pr
 }
 
 export function resolveHostDependencies({ dsh, host = 'cli', env = process.env, execPath = process.execPath, platform = process.platform, requiredExports = REQUIRED_HOST_EXPORTS }) {
-  const anchor = resolveHostAnchor({ dsh, host, env, execPath, platform })
+  let anchor = resolveHostAnchor({ dsh, host, env, execPath, platform })
+  if (host === 'desktop') {
+    const candidates = [anchor]
+    // Existing links point into the selected Desktop even when the detached
+    // updater runs under system Node without Desktop environment variables.
+    for (const name of Object.keys(REQUIRED_HOST_EXPORTS)) {
+      try {
+        const dependency = findPackage(name, anchor, false)
+        if (dependency) candidates.push(path.join(dependency.directory, 'host-dependencies.cjs'))
+      } catch {}
+    }
+    if (env.DSH_DESKTOP_DSH_BOOTSTRAP) candidates.push(resolveHostAnchor({ host, env: { DSH_DESKTOP_DSH_BOOTSTRAP: env.DSH_DESKTOP_DSH_BOOTSTRAP }, execPath, platform }))
+    if (env.DSH_DESKTOP_APP_EXECUTABLE) candidates.push(resolveHostAnchor({ host, env: { DSH_DESKTOP_APP_EXECUTABLE: env.DSH_DESKTOP_APP_EXECUTABLE }, execPath, platform }))
+    // Choose one complete resolution root; never assemble mixed host versions.
+    anchor = candidates.find(candidate => Object.keys(requiredExports).every(name => {
+      try { return Boolean(findPackage(name, candidate)) } catch { return false }
+    })) || anchor
+  }
 
   const dependencies = []
   for (const [name, exportName] of Object.entries(requiredExports)) {
