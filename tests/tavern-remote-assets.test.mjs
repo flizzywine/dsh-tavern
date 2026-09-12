@@ -189,3 +189,42 @@ test('opening media and dynamic directory bases are not fetched as executable en
   assert.equal(requests.length, 2)
   assert.match(result.regexScripts[0].replaceString, /\/api\/dsh-tavern\/remote-assets\//)
 })
+
+test('禁用资源不请求；并发准备共享请求且网络并发不超过三', async () => {
+  let active = 0, maximum = 0, calls = 0
+  const store = createTavernRemoteAssetPinStore({ fetch: async () => {
+    calls++; active++; maximum = Math.max(maximum, active)
+    await new Promise(resolve => setTimeout(resolve, 10)); active--
+    return { ok: true, json: async () => ({ sha: 'a'.repeat(40) }), text: async () => 'export const ready=true' }
+  } })
+  const helperScripts = Array.from({ length: 6 }, (_, i) => ({ name: String(i), enabled: true, content: `import 'https://cdn.jsdelivr.net/gh/example/repo@main/${i}.js'` }))
+  await store.pinExtensions({ helperScripts: helperScripts.map(s => ({ ...s, enabled: false })) })
+  assert.equal(calls, 0)
+  const [one, two] = await Promise.all([store.pinExtensions({ helperScripts }), store.pinExtensions({ helperScripts })])
+  assert.deepEqual(one, two)
+  assert.equal(calls, 7)
+  assert.equal(maximum, 3)
+  const warm = await store.pinExtensions({ helperScripts })
+  assert.deepEqual(warm, one)
+  assert.equal(calls, 7)
+})
+
+test('响应正文超时也中止，失败冷却后可重试', async () => {
+  let calls = 0, now = 0, aborted = 0
+  const store = createTavernRemoteAssetPinStore({ timeoutMs: 15, retryDelayMs: 100, now: () => now,
+    fetch: async (_url, { signal }) => {
+      calls++; signal.addEventListener('abort', () => aborted++)
+      return { ok: true, json: () => new Promise(() => {}), text: () => new Promise(() => {}) }
+    }, resolveGitRef: async () => { throw new Error('offline') }
+  })
+  const input = { helperScripts: [{ enabled: true, content: "import 'https://cdn.jsdelivr.net/gh/example/slow@main/a.js'" }] }
+  const result = await store.pinExtensions(input)
+  assert.equal(result.helperScripts[0].enabled, false)
+  assert.equal(aborted, 2)
+  const previous = calls
+  await store.pinExtensions(input)
+  assert.equal(calls, previous)
+  now = 101
+  await store.pinExtensions(input)
+  assert.ok(calls > previous)
+})

@@ -18,3 +18,13 @@ test('性能摘要限制容量、过滤任意字段，并区分快慢请求', ()
   for (let i = 0; i < 1000; i++) store.record('method' + i, 1)
   assert.equal(store.read().methods.length, 80)
 })
+
+test('开场计时只保存固定字段并限制记录数量', () => {
+  const diagnostics = createPerformanceDiagnostics()
+  for (let i = 0; i < 100; i++) diagnostics.opening({ stage: 'resources', durationMs: 12, cacheHitCount: 1, content: 'PRIVATE', url: 'secret' })
+  const snapshot = diagnostics.read()
+  assert.equal(snapshot.openings.length, 60)
+  assert.equal(snapshot.openings[0].durationMs, 12)
+  assert.ok(!JSON.stringify(snapshot).includes('PRIVATE'))
+  assert.ok(!JSON.stringify(snapshot).includes('secret'))
+})

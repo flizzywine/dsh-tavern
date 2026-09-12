@@ -189,3 +189,10 @@ test('native swipe.to selects a preview and rejects historical message targets',
   await swipe.to(null, 'left')
   assert.equal(selected, 0)
 })
+
+test('开场准备复用已读取的卡片和扩展，不重复加载资源', async () => {
+  const service = createOpeningPreparation({ readCard: async () => { throw new Error('重复读取') },
+    readRuntimeExtensions: async () => { throw new Error('重复准备扩展') }, worldBooks: { bound: async () => null } })
+  const draft = await service.create('card', { card, extensions: { helperScripts: [] } })
+  assert.ok(draft.id)
+})

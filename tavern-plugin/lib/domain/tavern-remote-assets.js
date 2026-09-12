@@ -22,11 +22,11 @@ function validGitRef(value) {
   return value === 'HEAD' || (/^[A-Za-z0-9._/-]+$/.test(value) && !value.startsWith('-') && !value.includes('..') && !value.includes('@{'))
 }
 
-async function resolveWithGit(reference) {
+async function resolveWithGit(reference, options = {}) {
   if (!validGitHubPart(reference.owner) || !validGitHubPart(reference.repo) || !validGitRef(reference.ref)) throw new Error('远程 Git 引用格式不安全')
   const repoUrl = 'https://github.com/' + reference.owner + '/' + reference.repo + '.git'
   const patterns = reference.ref === 'HEAD' ? ['HEAD'] : ['refs/heads/' + reference.ref, 'refs/tags/' + reference.ref, 'refs/tags/' + reference.ref + '^{}']
-  const result = await execFile('git', ['ls-remote', '--refs', repoUrl].concat(patterns), { timeout: 20000, maxBuffer: 1024 * 1024 })
+  const result = await execFile('git', ['ls-remote', '--refs', repoUrl].concat(patterns), { timeout: options.timeoutMs || 5000, signal: options.signal, maxBuffer: 1024 * 1024 })
   const commits = str(result.stdout).split(/\r?\n/).map(function (line) { return line.trim().split(/\s+/)[0] }).filter(function (commit) { return FIXED_COMMIT.test(commit) })
   if (commits.length === 0) throw new Error('Git 未返回可锁定的提交号')
   return commits[commits.length - 1]
@@ -76,10 +76,57 @@ export function createTavernRemoteAssetPinStore(options = {}) {
   const memory = new Map()
   const assetsByUrl = new Map()
   const assetsByHash = new Map()
+  const timeoutMs = options.timeoutMs || 8000
+  const retryDelayMs = options.retryDelayMs ?? 30000
+  const now = options.now || Date.now
+  const pending = new Map(), failures = new Map(), waiters = []
+  const report = row => options.onDiagnostic?.(row)
+  let active = 0
+  async function limited(operation) {
+    if (active >= 3) await new Promise(resolve => waiters.push(resolve))
+    else active++
+    try { return await operation() }
+    finally { const next = waiters.shift(); if (next) next(); else active-- }
+  }
+  function shared(key, operation) {
+    if (pending.has(key)) { report({ stage: 'resources', sharedCount: 1 }); return pending.get(key) }
+    const failure = failures.get(key)
+    if (failure && now() < failure.until) { report({ stage: 'resources', cooldownCount: 1 }); return Promise.reject(failure.error) }
+    failures.delete(key)
+    const task = Promise.resolve().then(operation).catch(error => {
+      if (failures.size >= 256) failures.delete(failures.keys().next().value)
+      failures.set(key, { error, until: now() + retryDelayMs })
+      throw error
+    }).finally(() => pending.delete(key))
+    pending.set(key, task)
+    return task
+  }
+  async function timed(operation, duration = timeoutMs) {
+    return limited(async () => {
+      const controller = new AbortController()
+      let timer
+      try {
+        return await Promise.race([operation(controller.signal), new Promise((_, reject) => {
+          timer = setTimeout(() => { controller.abort(); reject(new Error('远程资源请求超时')); }, duration)
+        })])
+      } finally { clearTimeout(timer) }
+    })
+  }
+  const fetchBody = (url, headers, kind) => timed(async signal => {
+    const response = await request(url, { headers, signal })
+    if (!response || response.ok !== true) throw new Error('HTTP ' + str(response && response.status))
+    return { response, body: await response[kind]() }
+  })
+  let loading
   let loaded = false
   let mutationTail = Promise.resolve()
 
-  async function load() {
+  function load() {
+    if (!loading) loading = loadSaved().catch(error => { loading = null; throw error })
+    return loading
+  }
+
+  async function loadSaved() {
     if (loaded) return
     const saved = typeof readJson === 'function' ? await readJson(storagePath) : null
     const pins = saved && saved.pins && typeof saved.pins === 'object' ? saved.pins : {}
@@ -99,7 +146,7 @@ export function createTavernRemoteAssetPinStore(options = {}) {
 
   async function persist(key, value) {
     if (typeof updateJson !== 'function') return
-    mutationTail = mutationTail.then(async function () {
+    mutationTail = mutationTail.catch(() => {}).then(async function () {
       await updateJson(storagePath, function (current) {
         const next = current && typeof current === 'object' ? Object.assign({}, current) : {}
         next.version = 2
@@ -114,7 +161,7 @@ export function createTavernRemoteAssetPinStore(options = {}) {
 
   async function persistAsset(asset) {
     if (typeof updateJson !== 'function') return
-    mutationTail = mutationTail.then(async function () {
+    mutationTail = mutationTail.catch(() => {}).then(async function () {
       await updateJson(storagePath, function (current) {
         const next = current && typeof current === 'object' ? Object.assign({}, current) : {}
         next.version = 2
@@ -134,16 +181,15 @@ export function createTavernRemoteAssetPinStore(options = {}) {
     await mutationTail
   }
 
-  async function cacheFixed(reference) {
+  function cacheFixed(reference) { return shared("asset:" + reference.url, () => cacheFixedOnce(reference)) }
+
+  async function cacheFixedOnce(reference) {
     await load()
-    if (assetsByUrl.has(reference.url)) return assetsByUrl.get(reference.url)
+    if (assetsByUrl.has(reference.url)) { report({ stage: 'resources', cacheHitCount: 1 }); return assetsByUrl.get(reference.url) }
     if (typeof request !== 'function') throw new Error('当前运行环境不能缓存远程入口内容')
-    let response
-    try { response = await request(reference.url, { headers: { Accept: 'text/javascript, text/html, text/plain;q=0.9', 'User-Agent': 'dsh-tavern' } }) } catch (error) {
-      throw new Error('固定入口内容缓存不可用（' + str(error && error.message || error) + '）')
-    }
-    if (!response || response.ok !== true) throw new Error('固定入口内容缓存不可用（HTTP ' + str(response && response.status) + '）')
-    const content = await response.text()
+    let fetched
+    try { fetched = await fetchBody(reference.url, { Accept: 'text/javascript, text/html, text/plain;q=0.9', 'User-Agent': 'dsh-tavern' }, 'text') } catch (error) { throw new Error('固定入口内容缓存不可用（' + str(error.message || error) + '）') }
+    const { response, body: content } = fetched
     if (Buffer.byteLength(content, 'utf8') > MAX_ENTRY_BYTES) throw new Error('固定入口内容超过 5 MiB 上限')
     const mediaType = str(response.headers && response.headers.get && response.headers.get('content-type')).split(';')[0].trim() || (reference.path.endsWith('.html') ? 'text/html' : 'text/javascript')
     if (!/^(text\/|application\/(javascript|json)$)/i.test(mediaType)) throw new Error('固定入口返回了不支持的内容类型: ' + mediaType)
@@ -154,25 +200,25 @@ export function createTavernRemoteAssetPinStore(options = {}) {
     return asset
   }
 
-  async function resolvePin(reference) {
+  function resolvePin(reference) { return shared("pin:" + reference.owner + "/" + reference.repo + "@" + reference.ref, () => resolvePinOnce(reference)) }
+
+  async function resolvePinOnce(reference) {
     await load()
     const key = reference.owner + '/' + reference.repo + '@' + reference.ref
-    if (memory.has(key)) return memory.get(key)
+    if (memory.has(key)) { report({ stage: 'resources', cacheHitCount: 1 }); return memory.get(key) }
     if (typeof request !== 'function') throw new Error('当前运行环境不能解析远程脚本提交')
     let commit = ''
     let apiError = ''
     try {
       const endpoint = 'https://api.github.com/repos/' + encodeURIComponent(reference.owner) + '/' + encodeURIComponent(reference.repo) + '/commits/' + encodeURIComponent(reference.ref)
-      const response = await request(endpoint, { headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'dsh-tavern' } })
-      if (!response || response.ok !== true) throw new Error('HTTP ' + str(response && response.status))
-      const body = await response.json()
+      const { body } = await fetchBody(endpoint, { Accept: 'application/vnd.github+json', 'User-Agent': 'dsh-tavern' }, 'json')
       commit = str(body && body.sha)
     } catch (error) {
       apiError = str(error && error.message || error)
     }
     if (!FIXED_COMMIT.test(commit)) {
       try {
-        commit = await gitResolver(reference)
+        commit = await timed(signal => gitResolver(reference, { signal, timeoutMs: Math.min(timeoutMs, 5000) }), Math.min(timeoutMs, 5000))
       } catch (error) {
         throw new Error('GitHub API 解析失败（' + (apiError || '无效提交号') + '）；Git 后备解析失败（' + str(error && error.message || error) + '）')
       }
@@ -193,7 +239,7 @@ export function createTavernRemoteAssetPinStore(options = {}) {
     // A content-pinned fallback remains authoritative even if the tag later changes.
     for (const reference of originalReferences) {
       const asset = assetsByUrl.get(reference.url)
-      if (asset) result = result.split(reference.url).join(cachedPath(asset))
+      if (asset) { report({ stage: 'resources', cacheHitCount: 1 }); result = result.split(reference.url).join(cachedPath(asset)) }
     }
     const references = inspectMutableJsDelivrUrls(result).filter(isTextEntry)
     const pins = []
@@ -223,47 +269,40 @@ export function createTavernRemoteAssetPinStore(options = {}) {
       }
     }
     const fixedReferences = new Map(inspectFixedJsDelivrUrls(result).filter(isTextEntry).map(function (item) { return [item.url, item] }))
-    for (const reference of fixedReferences.values()) {
-      try {
-        const asset = await cacheFixed(reference)
-        result = result.split(reference.url).join(cachedPath(asset))
-      } catch (error) {
-        diagnostics.push({ status: 'uncached-remote-asset', url: reference.url, message: str(error && error.message || error) })
-      }
+    const contents = await Promise.all(Array.from(fixedReferences.values(), async reference => {
+      try { return { reference, asset: await cacheFixed(reference) } }
+      catch (error) { return { reference, error } }
+    }))
+    for (const { reference, asset, error } of contents) {
+      if (error) diagnostics.push({ status: 'uncached-remote-asset', url: reference.url, message: str(error.message || error) })
+      else result = result.split(reference.url).join(cachedPath(asset))
     }
     return { text: result, pins, diagnostics }
   }
 
   async function pinExtensions(extensions) {
+    const started = performance.now()
     const helperScripts = []
     const regexScripts = []
     const diagnostics = []
     const pins = []
-    for (const script of Array.isArray(extensions && extensions.helperScripts) ? extensions.helperScripts : []) {
-      // Keep the original identity for runtime ownership filtering. Rewriting
-      // to a hash URL would hide renamed MVU cores (e.g. MVUZOD) from that filter.
-      if (isHostOwnedMvu(script)) {
-        helperScripts.push(clone(script))
-        continue
-      }
-      const resolved = await pinText(script.content)
-      helperScripts.push(Object.assign({}, script, {
-        content: resolved.text,
-        enabled: resolved.diagnostics.length === 0 ? script.enabled : false
-      }))
-      diagnostics.push(...resolved.diagnostics.map(function (item) { return Object.assign({ asset: 'helper', name: str(script.name) }, item) }))
-      pins.push(...resolved.pins)
-    }
-    for (const script of Array.isArray(extensions && extensions.regexScripts) ? extensions.regexScripts : []) {
-      const resolved = await pinText(script.replaceString)
-      regexScripts.push(Object.assign({}, script, {
-        replaceString: resolved.text,
-        enabled: resolved.diagnostics.length === 0 ? script.enabled : false
-      }))
-      diagnostics.push(...resolved.diagnostics.map(function (item) { return Object.assign({ asset: 'regex', name: str(script.name) }, item) }))
+    const jobs = [
+      ...(extensions?.helperScripts || []).map(script => ({ script, kind: 'helper', field: 'content' })),
+      ...(extensions?.regexScripts || []).map(script => ({ script, kind: 'regex', field: 'replaceString' }))
+    ]
+    const results = await Promise.all(jobs.map(async job => {
+      if (job.script.enabled === false || (job.kind === 'helper' && isHostOwnedMvu(job.script))) return { ...job, resolved: null }
+      return { ...job, resolved: await pinText(job.script[job.field]) }
+    }))
+    for (const { script, kind, field, resolved } of results) {
+      const target = kind === 'helper' ? helperScripts : regexScripts
+      if (!resolved) { target.push(clone(script)); continue }
+      target.push({ ...script, [field]: resolved.text, enabled: resolved.diagnostics.length === 0 ? script.enabled : false })
+      diagnostics.push(...resolved.diagnostics.map(item => ({ asset: kind, name: str(script.name), ...item })))
       pins.push(...resolved.pins)
     }
     const uniquePins = Array.from(new Map(pins.map(function (pin) { return [pin.owner + '/' + pin.repo + '@' + pin.ref, pin] })).values())
+    report({ stage: 'resources', durationMs: performance.now() - started, helperCount: helperScripts.length, regexCount: regexScripts.length, skippedCount: jobs.filter(job => job.script.enabled === false).length, failedCount: diagnostics.length })
     return { helperScripts, regexScripts, diagnostics, pins: uniquePins }
   }
 

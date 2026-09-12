@@ -38,7 +38,7 @@ export function createOpeningPreparation({ readCard, worldBooks, templateRuntime
     async create(cardPath, settings = {}) {
       for (const [id, draft] of drafts) if (now() - draft.touchedAt > lifetime) drafts.delete(id)
       if (drafts.size >= 64) throw new Error('打开的游戏准备页过多，请稍后重试')
-      const card = await readCard(cardPath)
+      const card = settings.card || await readCard(cardPath)
       if (!card) throw new Error('人物卡不存在')
       const record = await worldBooks.bound(cardPath, card, settings.sourceChat)
       const draft = { id: randomUUID(), cardPath, openings: cardOpeningChoices(card),
@@ -50,7 +50,7 @@ export function createOpeningPreparation({ readCard, worldBooks, templateRuntime
       const swipes = draft.openings.map(opening => opening.text)
       draft.chat = { id: draft.id, cardPath, mode: 'story', mvu: { enabled: settings.runtime === true }, _storageRevision: 0,
         variables: {}, messages: [{ role: 'assistant', text: swipes[0], sourceText: swipes[0], greeting: true, turn: 1, swipeId: 0, swipes, variables: swipes.map(() => ({})) }] }
-      const extensions = readRuntimeExtensions ? await readRuntimeExtensions(cardPath) : {}
+      const extensions = settings.extensions || (readRuntimeExtensions ? await readRuntimeExtensions(cardPath) : {})
       const projected = projectTavernHelperScripts(extensions.helperScripts)
       draft.helperScripts = projected.scripts
       draft.diagnostics = projected.diagnostics.concat(extensions.diagnostics || [])

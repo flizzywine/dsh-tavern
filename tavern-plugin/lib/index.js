@@ -192,6 +192,7 @@ export async function apply(ctx) {
   const apiDiagnostics = createTavernApiDiagnostics(profileData)
   const compatibilityDiagnostics = createTavernCompatibilityDiagnosticStore(profileData)
   const tavernRemoteAssets = createTavernRemoteAssetPinStore({
+    onDiagnostic: row => performanceDiagnostics.opening(row),
     readJson: async function (path) { return await profileData.readJson(path) },
     updateJson: async function (path, updater) { return await profileData.updateJson(path, updater) }
   })
@@ -772,24 +773,31 @@ export async function apply(ctx) {
   }
   const openingPreparation = createOpeningPreparation({ readCard, worldBooks, readRuntimeExtensions: async cardPath => tavernRemoteAssets.pinExtensions(await readCardExtensions(cardPath)), templateRuntime: promptTemplateRuntime, generateRaw: (config, context) => generateHelperRaw(config, { ...context, callModel }) })
   async function getCardOpenings(cardPath, userName, requestMode) {
-    const card = await readCard(cardPath)
+    const startedAt = performance.now(), stages = {}
+    let success = false
+    async function timedStage(stage, operation) {
+      const started = performance.now()
+      try { return await operation() } finally { stages[stage] = Math.round(performance.now() - started); performanceDiagnostics.opening({ stage, durationMs: stages[stage] }) }
+    }
+    try {
+    const card = await timedStage('readCard', () => readCard(cardPath))
     if (card === undefined) throw new Error('人物卡不存在: ' + cardPath)
     const settings = await readTavernSettings()
-    const cardExtensions = await readCardExtensions(cardPath)
-    const extensions = { ...cardExtensions, ...await tavernRemoteAssets.pinExtensions(cardExtensions) }
+    const cardExtensions = await timedStage('readExtensions', () => readCardExtensions(cardPath))
+    const extensions = { ...cardExtensions, ...await timedStage('resources', () => tavernRemoteAssets.pinExtensions(cardExtensions)) }
     const preset = settings.compatibilityMode && requestMode === 'sillytavern'
       ? await runtimePresets.fullSnapshot()
       : null
-    const previews = await projectCardOpeningPreviews({
+    const previews = await timedStage('preview', () => projectCardOpeningPreviews({
       card,
       extensions,
       userName,
       presetRegexScripts: Array.isArray(preset && preset.regexScripts) ? preset.regexScripts : []
-    })
+    }))
     const hasOpeningScript = opening => /<script\b/i.test(opening.projection.text) || opening.projection.parts.some(part => /<script\b/i.test(part.content || ''))
     const hasHelperScripts = projectTavernHelperScripts(extensions.helperScripts).scripts.length > 0
     const interactive = hasHelperScripts || previews.openings.some(hasOpeningScript)
-    const preparation = interactive ? await openingPreparation.create(cardPath, { runtime: (extensions.mvuResources || []).some(item => item.enabled !== false), userName }) : null
+    const preparation = interactive ? await timedStage('prepare', () => openingPreparation.create(cardPath, { card, extensions, runtime: (extensions.mvuResources || []).some(item => item.enabled !== false), userName })) : null
     if (preparation) {
       const choices = cardOpeningChoices(card)
       const swipes = choices.map(opening => opening.text)
@@ -800,11 +808,15 @@ export async function apply(ctx) {
           preparationId: preparation.id, worldbook: preparation.worldbook, characterName: card.name, runtime: preparation.runtime }
       }
     }
+    success = true
     return {
       preparationId: preparation?.id || '',
       openings: previews.openings,
       diagnostics: previews.diagnostics,
       trustedCardMode: settings.trustedCardMode
+    }
+    } finally {
+      console.info('[dsh-tavern.opening]', JSON.stringify({ success, durationMs: Math.round(performance.now() - startedAt), stages }))
     }
   }
   function presentUserPreferenceProfile(value) {
