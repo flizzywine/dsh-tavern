@@ -1,3 +1,4 @@
+import { resourceSaveSummary, observeResourceSave } from './resource-save-summary.js'
 import { projectFullPromptTemplateState, applyFullPromptTemplateState, validateFullPromptTemplateSave } from './full-prompt-template-state.js'
 import { mutateScriptPrompts } from './tavern-script-prompts.js'
 import { exportSillyTavernWorldBook, inspectWorldBookDocument, updateWorldBookDocument } from './worldbook-resource.js'
@@ -237,7 +238,7 @@ export function createTavernScriptHostAdapter(options = {}) {
       if (transaction && operations.length > 0) throw new Error('MVU 结算事务不能修改跨存储的世界书')
       const updated = operations.length === 0
         ? resolved.record
-        : await updateBoundWorldbook(resolved, { operations })
+        : await observeResourceSave(resourceSaveSummary('worldbook', resolved.record.localChatId ? 'session' : resolved.record.source.kind === 'card' ? 'card' : 'worldbook', projectTavernHelperWorldbook(resolved.record.view).entries, entries), () => updateBoundWorldbook(resolved, { operations }), summary => options.recordResourceSave?.(sessionId, summary))
       return { updated: operations.length > 0, worldbook: projectTavernHelperWorldbook(updated.view) }
     })
   }
@@ -292,7 +293,7 @@ export function createTavernScriptHostAdapter(options = {}) {
       if (!isDeepStrictEqual(current, expectedWorldInfo)) throw new Error('世界书已被其他操作修改，请重新读取后重试')
       const transaction = settlementTransactions.get(str(sessionId))
       if (transaction) throw new Error('MVU 结算事务不能修改跨存储的世界书')
-      const updated = await updateBoundWorldbook(resolved, {}, worldInfo)
+      const updated = await observeResourceSave(resourceSaveSummary('worldbook', resolved.record.localChatId ? 'session' : resolved.record.source.kind === 'card' ? 'card' : 'worldbook', current.entries, worldInfo.entries, true), () => updateBoundWorldbook(resolved, {}, worldInfo), summary => options.recordResourceSave?.(sessionId, summary))
       return { updated: true, worldbook: projectTavernHelperWorldbook(updated.view), worldInfo: await exportBoundWorldbook(updated) }
     })
   }
@@ -379,7 +380,7 @@ export function createTavernScriptHostAdapter(options = {}) {
   async function saveExtensionSettings(sessionId, settings, expectedSettings) {
     await assertScriptEnabled(await resolveChat(sessionId))
     if (!options.extensionSettings) throw new Error('插件设置存储未连接')
-    const extensionSettings = await options.extensionSettings.save(settings, expectedSettings)
+    const extensionSettings = await observeResourceSave(resourceSaveSummary('regex', 'global', expectedSettings?.regex, settings?.regex, true), () => options.extensionSettings.save(settings, expectedSettings), summary => options.recordResourceSave?.(sessionId, summary))
     if (typeof options.extensionSettingsChanged === 'function') await options.extensionSettingsChanged(str(sessionId))
     return { updated: true, extensionSettings }
   }
