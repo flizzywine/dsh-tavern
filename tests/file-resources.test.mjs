@@ -423,3 +423,27 @@ test('旧 scripts 副本迁移为资料引用，同名资料优先且旧副本�
     assert.equal(await readFile(path.join(root, 'legacy-id-storage/script-copies/角色/故事.txt'), 'utf8'), '旧副本正文')
   } finally { await rm(root, { recursive: true, force: true }) }
 })
+
+test('多世界书有序绑定支持复用、重复校验及重命名删除同步', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'tavern-multi-books-'))
+  try {
+    const store = createFileResourceStore({ dataRoot: root })
+    await store.ensure()
+    for (const name of ['a', 'b']) await store.writeWorking('cards/' + name + '.json', JSON.stringify({ name, character_book: { entries: [] } }))
+    for (const name of ['one', 'two']) await store.writeWorking('worldbooks/' + name + '.json', JSON.stringify({ name, entries: {} }))
+    const sources = [{ kind: 'embedded', cardPath: 'cards/a.json' }, { kind: 'standalone', path: 'worldbooks/one.json' }, { kind: 'standalone', path: 'worldbooks/two.json' }]
+    await store.bindWorldBooks('cards/a.json', sources)
+    await store.bindWorldBooks('cards/b.json', sources)
+    assert.deepEqual((await store.worldBookBindingForCard('cards/a.json')).sources.map(({ available, ...item }) => item), sources)
+    await assert.rejects(store.bindWorldBooks('cards/a.json', [sources[1], sources[1]]), /重复绑定/)
+    const renamed = await store.rename('worldbooks/one.json', 'renamed')
+    for (const card of ['a', 'b']) assert.equal((await store.worldBookBindingForCard('cards/' + card + '.json')).sources[1].path, renamed.path)
+    await store.remove('worldbooks/two.json')
+    assert.equal((await store.worldBookBindingForCard('cards/b.json')).sources.length, 2)
+    const renamedCard = await store.rename('cards/a.json', 'renamed-card')
+    assert.equal((await store.worldBookBindingForCard('cards/b.json')).sources[0].cardPath, renamedCard.path)
+    assert.equal((await store.worldBookBindingForCard(renamedCard.path)).sources.length, 2)
+    await store.bindWorldBooks('cards/b.json', [])
+    assert.deepEqual(await store.worldBookBindingForCard('cards/b.json'), { kind: 'multiple', sources: [] })
+  } finally { await rm(root, { recursive: true, force: true }) }
+})

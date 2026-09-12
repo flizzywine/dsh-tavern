@@ -301,6 +301,12 @@ export function createFileResourceStore(options = {}) {
     const bindings = await readWorldBookBindings()
     if (!Object.prototype.hasOwnProperty.call(bindings, card)) return { kind: 'default' }
     const value = bindings[card]
+    if (value?.version === 2 && Array.isArray(value.sources)) {
+      const sources = await Promise.all(value.sources.map(async source => source.kind === 'embedded'
+        ? { kind: 'embedded', cardPath: normalizeResourcePath(source.cardPath, 'card'), available: await exists(absolute(normalizeResourcePath(source.cardPath, 'card'))) }
+        : { kind: 'standalone', path: normalizeResourcePath(source.path, 'worldbook'), available: await exists(absolute(normalizeResourcePath(source.path, 'worldbook'))) }))
+      return { kind: 'multiple', sources }
+    }
     if (value === null) return { kind: 'none' }
     if (typeof value === 'string') {
       const worldBookPath = normalizeResourcePath(value, 'worldbook')
@@ -335,6 +341,28 @@ export function createFileResourceStore(options = {}) {
     bindings[card] = worldBook
     await writeWorldBookBindings(bindings)
     return { kind: 'standalone', path: worldBook, available: true }
+  }
+
+  async function bindWorldBooks(cardPath, sources) {
+    const card = normalizeResourcePath(cardPath, 'card')
+    if (!await exists(absolute(card))) throw new Error('人物卡不存在: ' + card)
+    if (!Array.isArray(sources)) throw new Error('世界书绑定需要有序列表')
+    const normalized = []
+    const seen = new Set()
+    for (const source of sources) {
+      const item = source?.kind === 'embedded'
+        ? { kind: 'embedded', cardPath: normalizeResourcePath(source.cardPath, 'card') }
+        : { kind: 'standalone', path: normalizeResourcePath(source?.path, 'worldbook') }
+      const key = JSON.stringify(item)
+      if (seen.has(key)) throw new Error('不能重复绑定同一本世界书')
+      if (!await exists(absolute(item.path || item.cardPath))) throw new Error('世界书来源不存在: ' + (item.path || item.cardPath))
+      seen.add(key)
+      normalized.push(item)
+    }
+    const bindings = await readWorldBookBindings()
+    bindings[card] = { version: 2, sources: normalized }
+    await writeWorldBookBindings(bindings)
+    return await worldBookBindingForCard(card)
   }
 
   async function unbindWorldBook(cardPath) {
@@ -515,6 +543,14 @@ export function createFileResourceStore(options = {}) {
         delete worldBookBindings[normalized]
         worldBookBindingsChanged = true
       }
+      for (const [cardPath, value] of Object.entries(worldBookBindings)) {
+        if (value?.version !== 2 || !Array.isArray(value.sources)) continue
+        const sources = value.sources.filter(source => (kind === 'card' ? source.cardPath : source.path) !== normalized)
+        if (sources.length !== value.sources.length) {
+          worldBookBindings[cardPath] = { version: 2, sources }
+          worldBookBindingsChanged = true
+        }
+      }
       if (kind === 'card') {
         for (const cardPath of Object.keys(worldBookBindings)) {
           const value = worldBookBindings[cardPath]
@@ -619,6 +655,13 @@ export function createFileResourceStore(options = {}) {
       worldBookBindings[newPath] = worldBookBindings[oldPath]
       delete worldBookBindings[oldPath]
       worldBookBindingsChanged = true
+    }
+    for (const value of Object.values(worldBookBindings)) {
+      if (value?.version !== 2 || !Array.isArray(value.sources)) continue
+      for (const source of value.sources) {
+        const key = kind === 'card' ? 'cardPath' : kind === 'worldbook' ? 'path' : null
+        if (key && source[key] === oldPath) { source[key] = newPath; worldBookBindingsChanged = true }
+      }
     }
     if (kind === 'card') {
       for (const cardPath of Object.keys(worldBookBindings)) {
@@ -841,5 +884,5 @@ export function createFileResourceStore(options = {}) {
     return result
   }
 
-  return Object.freeze({ absolute, bindMaterial, bindWorldBook, cardsForMaterial, ensure, ensureCardWorkspace, hasCardImage, importCard, importText, importWorldBook, list, migrateLegacy, readCard, readCardImage, readText, remove, rename: renameResource, replaceScript, restoreCard, scriptBindingsForCards, scriptForCard, unbindMaterial, unbindWorldBook, worldBookBindingForCard, writeWorking })
+  return Object.freeze({ absolute, bindMaterial, bindWorldBook, bindWorldBooks, cardsForMaterial, ensure, ensureCardWorkspace, hasCardImage, importCard, importText, importWorldBook, list, migrateLegacy, readCard, readCardImage, readText, remove, rename: renameResource, replaceScript, restoreCard, scriptBindingsForCards, scriptForCard, unbindMaterial, unbindWorldBook, worldBookBindingForCard, writeWorking })
 }
