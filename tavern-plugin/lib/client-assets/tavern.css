@@ -659,3 +659,7 @@ body.dsh-tavern-shell-active [data-dsh-panel-host] { overflow: clip; }
 @media (max-width: 640px) {
   .dsh-tavern-card-picker:has(.dsh-tavern-greeting-preview) { max-height: calc(100dvh - 24px); }
 }
+
+.dsh-tavern-worldbook-bound { padding: 8px 12px; font-size: 12px; text-align: left; overflow-wrap: anywhere; }
+.dsh-tavern-worldbook-new { margin: 12px 0 8px; padding: 8px 12px; }
+.dsh-tavern-worldbook > .dsh-tavern-script-row:first-child { border-top: 0; margin-top: 0; padding-top: 0; }
