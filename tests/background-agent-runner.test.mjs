@@ -1368,3 +1368,34 @@ test('temporary settlement tools conclude only after both submissions, without a
     assert.equal(concluded, 1)
   }
 })
+
+test('生图已有空前缀会话补入开局 system，连续任务保持背景且不混入正文', async () => {
+  let assemble, pending, reads = 0
+  const seen = [], personas = []
+  const session = { id: 'image-opening-context', header: {}, events: [], append(type, data) { const event = { type, data, seq: this.events.length }; this.events.push(event); return event } }
+  const runner = createBackgroundAgentRunner({
+    id: () => session.id,
+    resolveStablePrefix: async () => { reads++; return '【用户已确认的长期偏好】\n偏好标记\n【故事设定 · 人物卡】\n人物标记\n【常驻世界书】\n常驻标记' },
+    resolveCurrentWorldbook: async () => undefined,
+    agents: { get: () => ({ session: { header: {} } }), async create(options) {
+      await options.setup({ systemPrompt: { section(value) { personas.push(value.text) }, suppressRuntimeContext() {} }, tools: { restrict() {}, register() {} }, on(name, callback) { if (name === 'system-prompt/assemble') assemble = callback } })
+      return { agent: { session, followup(message) { pending = (async () => {
+        const result = await assemble({}, { agent: { session } }, async () => ({ sections: personas.map(text => ({ name: 'persona', text })), tools: [] }))
+        seen.push({ system: result.sections.map(s => s.text).join('\n'), message })
+        session.append('assistant/message', { message: { content: [{ type: 'text', text: '完成' }] } })
+      })() }, async whenIdle() { await pending } }, async dispose() {} }
+    } }
+  })
+  try {
+    for (const text of ['当前场景一', '历史场景二']) await runner.run({ sessionId: 'parent', persistent: true, task: 'image', selection: { provider: 'test', model: 'fake' }, messages: [{ role: 'user', content: [{ type: 'text', text }] }], tools: [] })
+    assert.equal(reads, 1)
+    assert.equal(seen[0].system, seen[1].system)
+    assert.match(seen[0].system, /独立的场景生图 Agent/)
+    for (const marker of ['偏好标记', '人物标记', '常驻标记']) {
+      assert.match(seen[0].system, new RegExp(marker))
+      assert.doesNotMatch(JSON.stringify(seen.map(item => item.message)), new RegExp(marker))
+    }
+    assert.doesNotMatch(seen[0].system, /当前场景一|历史场景二/)
+    assert.equal(session.events.filter(event => event.data?.id === 'tavern-session-prefix:' + session.id).length, 1)
+  } finally { await runner.dispose() }
+})

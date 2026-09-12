@@ -1506,7 +1506,8 @@ export async function apply(ctx) {
       return chat ? (await nativeWorldBookTemplateContext(chat, await readChatCard(chat))).context : undefined
     },
     resolveStablePrefix: async function (input) {
-      if (input.task === 'image') return ''
+      // Image tasks share the opening snapshot; current-worldbook replacement stays disabled above
+      // because a requested illustration may target an earlier story turn.
       const chat = await chatForSession(input.sessionId)
       return chat ? await ensurePlayCardSnapshot(chat) : ''
     },
