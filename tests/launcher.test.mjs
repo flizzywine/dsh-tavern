@@ -223,7 +223,7 @@ test('更新器成功执行并清理临时脚本后写入 completed 终态', asy
   }
 })
 
-test('代码已覆盖但自动重启失败时不再误报整体更新失败', async () => {
+test('代码已覆盖但安装器失败时仍保留失败状态', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'dsh-tavern-update-partial-'))
   try {
     const statusFile = path.join(root, 'update-status.json')
@@ -232,11 +232,11 @@ test('代码已覆盖但自动重启失败时不再误报整体更新失败', as
     const installerSource = process.platform === 'win32' ? 'exit 1\r\n' : '#!/bin/sh\nexit 1\n'
     await writeFile(path.join(root, installerName), installerSource)
     await writeFile(path.join(root, '.dsh-tavern-release.json'), JSON.stringify({ commit }))
-    await updateApplication({ host: 'cli', statusFile, delay: 0, sourceRoot: root, targetCommit: commit, log() {} })
+    await assert.rejects(() => updateApplication({ host: 'cli', statusFile, delay: 0, sourceRoot: root, targetCommit: commit, log() {} }), /更新失败/)
     const status = JSON.parse(await readFile(statusFile, 'utf8'))
-    assert.equal(status.phase, 'installed-restart-required')
+    assert.equal(status.phase, 'failed')
     assert.equal(status.targetCommit, commit)
-    assert.match(status.error, /程序文件已更新/)
+    assert.match(status.error, /更新失败/)
   } finally {
     await rm(root, { recursive: true, force: true })
   }

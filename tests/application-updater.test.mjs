@@ -746,16 +746,17 @@ test('Android 安装记录让 UI 更新任务沿用 Android 宿主', async () =>
   }
 })
 
-test('手动重启后把“文件已更新”状态收敛为更新完成', async () => {
+test('旧版未确认完成的 Desktop 更新恢复为可重试失败状态', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-updater-recovered-'))
   try {
     const dataRoot = path.join(root, 'data')
     const statusFile = path.join(dataRoot, 'update-status.json')
     await mkdir(dataRoot, { recursive: true })
-    await writeFile(statusFile, JSON.stringify({ phase: 'installed-restart-required', host: 'cli', targetCommit: 'f'.repeat(40) }))
+    await writeFile(statusFile, JSON.stringify({ phase: 'installed-restart-required', host: 'desktop', targetCommit: 'f'.repeat(40) }))
     const updater = createApplicationUpdater({ dataRoot, sourceRoot: root, runtimeHost: 'cli', now: () => 2345 })
     assert.deepEqual(await updater.status(), {
-      phase: 'completed', host: 'cli', completedAt: 2345, targetCommit: 'f'.repeat(40), recoveredByRestart: true,
+      phase: 'failed', repairRequired: true, host: 'desktop', failedAt: 2345, targetCommit: 'f'.repeat(40),
+      error: '上次更新未确认安装完成，请重新检查并重试更新。',
       currentVersion: 'unknown', currentCommit: '',
     })
   } finally {
@@ -833,4 +834,22 @@ for (const mode of ['relative-loose', 'absolute-packed', 'detached']) test('Git 
     assert.equal(result.phase, 'up-to-date')
     assert.equal(result.currentCommit, commit)
   } finally { await rm(root, { recursive: true, force: true }) }
+})
+
+test('安装失败但已是目标提交时，检查后仍能重新运行安装器', async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'tavern-repair-update-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  await writeFile(path.join(root, 'update-status.json'), JSON.stringify({ phase: 'failed', repairRequired: true, host: 'desktop' }))
+  let spawned = false
+  const updater = createApplicationUpdater({
+    ...verifiedUpdate, dataRoot: root, sourceRoot: root, runtimeHost: 'desktop',
+    fetchLatestCommit: async () => knownIdentity.currentCommit,
+    spawnProcess() {
+      spawned = true
+      return { pid: 123, once(event, listener) { if (event === 'spawn') queueMicrotask(listener); return this }, unref() {} }
+    },
+  })
+  assert.equal((await updater.check()).phase, 'update-available')
+  assert.equal((await updater.start()).phase, 'running')
+  assert.equal(spawned, true)
 })

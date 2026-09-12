@@ -367,13 +367,16 @@ export function createApplicationUpdater(options) {
         await writeStatus( interrupted)
         return { ...interrupted, ...identity }
       }
-      if (current.phase === 'installed-restart-required' && current.host !== 'desktop') {
-        const completed = {
-          phase: 'completed', host: current.host, completedAt: checkedAt,
-          targetCommit: current.targetCommit, recoveredByRestart: true,
+      if (current.phase === 'installed-restart-required') {
+        // Older installers inferred success from copied source files, which
+        // does not prove dependency installation or profile setup succeeded.
+        const recovered = {
+          phase: 'failed', repairRequired: true, host: current.host, failedAt: checkedAt,
+          targetCommit: current.targetCommit,
+          error: '上次更新未确认安装完成，请重新检查并重试更新。',
         }
-        await writeStatus( completed)
-        return { ...completed, ...identity }
+        await writeStatus(recovered)
+        return { ...recovered, ...identity }
       }
       if (current.phase === 'failed') {
         const error = sanitizeUpdateError(current.error)
@@ -406,6 +409,7 @@ export function createApplicationUpdater(options) {
     } catch (error) {
       const failed = {
         phase: 'check-failed', host: installHost, checkedAt: now(),
+        ...(current.repairRequired ? { repairRequired: true } : {}),
         currentVersion: current.currentVersion, currentCommit: current.currentCommit,
         error: `无法检查更新：${sanitizeUpdateError(error?.message || error)}`,
       }
@@ -415,7 +419,8 @@ export function createApplicationUpdater(options) {
     const checked = {
       checkPolicy: UPDATE_CHECK_POLICY,
       checkedForCommit: identity.currentCommit,
-      phase: version.updateAvailable ? 'update-available' : 'up-to-date',
+      phase: version.updateAvailable || current.repairRequired ? 'update-available' : 'up-to-date',
+      ...(current.repairRequired ? { repairRequired: true } : {}),
       host: installHost, checkedAt: now(),
       currentVersion: version.currentVersion, latestVersion: version.latestVersion,
       currentCommit: version.currentCommit, latestCommit: version.latestCommit,
@@ -437,11 +442,11 @@ export function createApplicationUpdater(options) {
     try {
       version = await versions(identity)
     } catch (error) {
-      const failed = { phase: 'failed', host: installHost, failedAt: now(), error: `无法检查最新版，尚未开始下载：${sanitizeUpdateError(error?.message || error)}` }
+      const failed = { phase: 'failed', ...(current.repairRequired ? { repairRequired: true } : {}), host: installHost, failedAt: now(), error: `无法检查最新版，尚未开始下载：${sanitizeUpdateError(error?.message || error)}` }
       await writeStatus( failed)
       throw new Error(failed.error)
     }
-    if (!version.updateAvailable) {
+    if (!version.updateAvailable && !current.repairRequired) {
       const upToDate = {
         phase: 'up-to-date', host: installHost, checkedAt: now(),
         currentVersion: version.currentVersion, latestVersion: version.latestVersion,
@@ -504,7 +509,7 @@ export function createApplicationUpdater(options) {
         await writeStatus( running)
       }
     } catch (error) {
-      const failed = { phase: 'failed', host: installHost, failedAt: now(), error: String(error?.message || error) }
+      const failed = { phase: 'failed', ...(current.repairRequired ? { repairRequired: true } : {}), host: installHost, failedAt: now(), error: String(error?.message || error) }
       await writeStatus( failed)
       throw error
     }

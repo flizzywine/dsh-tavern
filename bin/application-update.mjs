@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process'
 import { closeSync, copyFileSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { INSTALL_HOSTS, SOURCE_ROOT, RELEASE_FILE, RUNTIME_HOST, runtimeEnvironment, commandExists, sleep } from './launcher-environment.mjs'
+import { INSTALL_HOSTS, SOURCE_ROOT, RUNTIME_HOST, runtimeEnvironment, commandExists, sleep } from './launcher-environment.mjs'
 
 // Own update execution and durable terminal outcomes, including installed-but-needs-restart.
 export function encodeWindowsPowerShellScript(source) {
@@ -122,19 +122,8 @@ export async function updateApplication(options = { host: RUNTIME_HOST, statusFi
     if (outputFile !== '' && existsSync(outputFile)) {
       try { unlinkSync(outputFile) } catch {}
     }
-    let installedCommit = ''
-    try {
-      installedCommit = String(JSON.parse(readFileSync(path.join(sourceRoot, RELEASE_FILE), 'utf8').replace(/^\uFEFF/, ''))?.commit || '')
-    } catch {}
-    if (targetCommit && installedCommit.toLowerCase() === targetCommit.toLowerCase()) {
-      writeUpdateStatus(options.statusFile, {
-        phase: 'installed-restart-required', host: options.host, installedAt: Date.now(), targetCommit,
-        error: '程序文件已更新，但自动启动或就绪检查未完成。请手动重启 DSH Tavern。',
-      })
-      return
-    }
     writeUpdateStatus(options.statusFile, {
-      phase: 'failed', host: options.host, failedAt: Date.now(), error: String(failure?.message || failure),
+      phase: 'failed', repairRequired: true, host: options.host, failedAt: Date.now(), error: String(failure?.message || failure),
       ...(targetCommit ? { targetCommit } : {}),
     })
     throw failure
