@@ -47,9 +47,10 @@ test('地点调整层级保留子树和当前位置，禁止循环和覆盖，�
   assert.deepEqual(removed.locationPath, [])
 })
 
-test('普通卡真实 runSettlement 调用原后台并提交台账，姿势不能提前结束', async () => {
+test('普通卡结算忽略旧的自动台账开关，只提交姿势并保留已有台账', async () => {
   const source = await readFile(new URL('../tavern-plugin/lib/index.js', import.meta.url), 'utf8')
-  let chat = { id: 'chat', sessionId: 'front', messages: [{ role: 'assistant', turn: 2, text: '获得解药' }] }
+  const existingLedger = applyLedgerDelta(null, { items: { add: [{ name: '旧台账解药', qty: 3 }] } }, 1)
+  let chat = { ledger: structuredClone(existingLedger), id: 'chat', sessionId: 'front', messages: [{ role: 'assistant', turn: 2, text: '获得解药' }] }
   let calls = 0
   const ctx = {
     normalizeBackgroundTasks,
@@ -58,10 +59,11 @@ test('普通卡真实 runSettlement 调用原后台并提交台账，姿势不�
     readChatCard: async () => ({ name: '测试卡' }), readTavernSettings: async () => ({ backgroundTasks: { ledger: true, posture: true, variables: false, characterDesign: false } }),
     backgroundModelSelection: () => ({ model: 'fake' }),
     backgroundAgentRunner: { run: async input => {
-      calls++; assert.equal(input.persistentSessionId, 'same-background'); assert.ok(input.system.includes('台账维护'))
-      assert.equal(JSON.parse(await input.onToolCall({ name: 'posture_submit', arguments: { posture: '站立' } })).retryable, true)
+      calls++; assert.equal(input.persistentSessionId, 'same-background'); assert.ok(!input.system.includes('台账维护'))
+      assert.deepEqual(Array.from(input.tools, tool => tool.name), ['posture_submit'])
       assert.equal(input.stopToolsWhen(), false)
-      assert.equal(JSON.parse(await input.onToolCall({ name: 'ledger_submit', arguments: { items: { add: [{ name: '解药', qty: 2 }] } } })).ok, true)
+      assert.equal(JSON.parse(await input.onToolCall({ name: 'ledger_submit', arguments: { items: { add: [{ name: '解药', qty: 2 }] } } })).ok, false)
+      assert.equal(input.stopToolsWhen(), false)
       assert.equal(JSON.parse(await input.onToolCall({ name: 'posture_submit', arguments: { posture: '站立' } })).ok, true)
       assert.equal(input.stopToolsWhen(), true)
       return { traceSessionId: 'same-background', traceBoundary: 5 }
@@ -82,7 +84,8 @@ test('普通卡真实 runSettlement 调用原后台并提交台账，姿势不�
   vm.runInNewContext(source.slice(start, stop) + '\nthis.run = runSettlement', ctx)
   await ctx.run('chat', new AbortController().signal)
   assert.equal(calls, 1)
-  assert.equal(chat.ledger.items[0].qty, 2)
+  assert.deepEqual(chat.ledger, existingLedger)
+  assert.equal(chat.posture, '站立')
   assert.equal(chat.settleStatus, 'done')
 })
 
