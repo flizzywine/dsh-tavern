@@ -8,12 +8,17 @@ window.__ModuleLoader__.load({
 			let DshUi = require("@deepseek-ai/dsh-client-ui-primitives");
 
 		const stylesheetId = "dsh-tavern-plugin/tavern.css";
+		const stylesheetUrl = "/api/dsh-tavern/client-assets/tavern.css?v=20260912-system-prompts";
+		if (typeof document !== "undefined") {
+			const existing = document.querySelector("link[data-plugin-css=" + JSON.stringify(stylesheetId) + "]");
+			if (existing && existing.getAttribute("href") !== stylesheetUrl) existing.setAttribute("href", stylesheetUrl);
+		}
 		if (typeof document !== "undefined" && document.querySelector("link[data-plugin-css=" + JSON.stringify(stylesheetId) + "]") === null) {
 			const stylesheet = document.createElement("link");
 			stylesheet.rel = "stylesheet";
 			stylesheet.dataset.plugin = "dsh-tavern-plugin";
 			stylesheet.dataset.pluginCss = stylesheetId;
-			stylesheet.href = "/api/dsh-tavern/client-assets/tavern.css";
+			stylesheet.href = stylesheetUrl;
 			document.head.appendChild(stylesheet);
 		}
 
@@ -6478,7 +6483,7 @@ window.__ModuleLoader__.load({
 			}
 			function row(item) {
 				const value = draft(item); const dirty = value !== String(item.text || "");
-				return h("details", { key: item.name, className: "dsh-tavern-prompt-row role-system" },
+				return h("details", { key: item.name, className: "dsh-tavern-prompt-row dsh-tavern-system-prompt-row role-system" },
 					h("summary", { className: "dsh-tavern-prompt-head" }, h("span", { className: "dsh-tavern-prompt-title" }, h("b", null, item.label), h("span", null, item.description)), h("span", { className: "dsh-tavern-prompt-state " + (item.customized ? "on" : "off") }, item.customized ? "已修改" : "默认")),
 					h("div", { className: "dsh-tavern-prompt-editor" },
 						h("label", { className: "dsh-tavern-prompt-editor-field full" }, "内容", h("textarea", { value: value, disabled: state.busy, onChange: function (event) { edit(item.name, event.target.value); }, "aria-label": item.label })),
@@ -7242,7 +7247,7 @@ window.__ModuleLoader__.load({
 			const visible = cards.filter(function (item) { return !needle || (item.name + " " + item.path).toLocaleLowerCase().includes(needle); });
 			return h("div", { className: "dsh-tavern-library" },
 				h("div", { className: "dsh-tavern-status-head" }, h("div", { className: "dsh-tavern-status-title" }, "人物卡库"), h("div", { className: "dsh-tavern-question-sub" }, cards.length + " 张人物卡"), h("div", { className: "dsh-tavern-library-head-actions" }, h(MobileCardImportButton, { inputRef: importInput, disabled: busy, onImported: async function (imported) { await refreshCards(); await loadCard(imported.path); notifyTavernDataChanged(["cards"], "cards"); } }), h("input", { ref: importInput, type: "file", multiple: true, accept: ".png,.json", style: { display: "none" }, onChange: function (event) { const files = Array.from(event.target.files || []); importCardFiles(files); event.target.value = ""; } }))),
-				h("div", { className: "dsh-tavern-question-sub", role: "status" }, importStatus || "支持多选 PNG、JSON 人物卡一起导入"),
+				h("div", { className: "dsh-tavern-question-sub dsh-tavern-card-import-hint", role: "status" }, importStatus || "支持多选 PNG、JSON 人物卡一起导入"),
 				cardBatch.toolbar(visible),
 				h("input", { className: "dsh-tavern-library-search", value: query, placeholder: "搜索名称或文件名", onChange: function (event) { setQuery(event.target.value); } }),
 				h("div", { className: "dsh-tavern-resource-body" }, error ? h("div", { className: "dsh-tavern-dock-error" }, error) : null, visible.length ? visible.map(function (item) { return h("div", { key: item.path, className: "dsh-tavern-library-card-row" },

@@ -331,6 +331,12 @@ body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px
 .dsh-tavern-prompt-state { display: flex; align-items: center; gap: 5px; color: var(--dsw-alias-label-secondary); font-size: 9px; white-space: nowrap; }
 .dsh-tavern-prompt-state::before { width: 8px; height: 8px; border: 2px solid #23bd63; border-radius: 999px; content: ""; }
 .dsh-tavern-prompt-state.off::before { border-color: #91a0b5; }
+.dsh-tavern-system-prompt-row > .dsh-tavern-prompt-head { grid-template-columns: minmax(0, 1fr) auto; gap: 16px; padding: 14px 16px; }
+.dsh-tavern-system-prompt-row .dsh-tavern-prompt-title b { overflow: visible; white-space: normal; overflow-wrap: anywhere; font-size: 14px; line-height: 1.5; }
+.dsh-tavern-system-prompt-row .dsh-tavern-prompt-title span { overflow: visible; white-space: normal; overflow-wrap: anywhere; font-size: 12px; line-height: 1.6; }
+.dsh-tavern-system-prompt-row .dsh-tavern-prompt-state { justify-self: end; font-size: 11px; }
+.dsh-tavern-system-prompt-row .dsh-tavern-prompt-state::before { display: none; }
+
 .dsh-tavern-prompt-state.is-toggle { position: relative; flex-shrink: 0; min-height: 32px; gap: 7px; border: 0; border-radius: 6px; padding: 4px 5px; background: transparent; font: inherit; font-weight: 600; cursor: pointer; }
 .dsh-tavern-prompt-state.is-toggle.on { color: #16766b; }
 .dsh-tavern-prompt-state.is-toggle.off { color: var(--dsw-alias-label-secondary); }
@@ -648,6 +654,9 @@ body.dsh-tavern-shell-active [data-dsh-panel-host] { overflow: clip; }
 .dsh-tavern-card-batch .danger { color: #c34848; }
 .dsh-tavern-card-batch-notice { flex-basis: 100%; overflow-wrap: anywhere; font-size: 12px; }
 
+.dsh-tavern-card-import-hint { padding: 12px 12px 4px; }
+.dsh-tavern-library > .dsh-tavern-card-batch { flex-shrink: 0; margin: 0 12px; padding: 10px 0 6px; gap: 10px; }
+.dsh-tavern-library > .dsh-tavern-card-batch + .dsh-tavern-library-search { margin-top: 12px; }
 
 /* Size every opening by content; scroll the dialog instead of squeezing long forms. */
 .dsh-tavern-card-picker:has(.dsh-tavern-greeting-preview) { display: flex; flex-direction: column; max-height: calc(100dvh - 48px); }
