@@ -28,7 +28,12 @@ test('Web 宿主只装载样式模块，不再内嵌整份 CSS', async () => {
   assert.deepEqual(appended[0], {
     name: 'link', rel: 'stylesheet',
     dataset: { plugin: 'dsh-tavern-plugin', pluginCss: 'dsh-tavern-plugin/tavern.css' },
-    href: '/api/dsh-tavern/client-assets/tavern.css'
+    href: '/api/dsh-tavern/client-assets/tavern.css?v=20260912-system-prompts'
   })
+  const existing = { href: '/api/dsh-tavern/client-assets/tavern.css', getAttribute() { return this.href }, setAttribute(name, value) { this[name] = value } }
+  document.querySelector = () => existing
+  descriptor.factory(() => ({}))
+  assert.equal(existing.href, appended[0].href)
+  assert.equal(appended.length, 1, 'refresh the existing stylesheet without appending a duplicate')
   assert.doesNotMatch(source, /const TAVERN_CSS\s*=\s*`/)
 })
