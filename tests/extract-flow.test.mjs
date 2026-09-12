@@ -1074,13 +1074,16 @@ test('游戏准备预热与正式启动不再操纵通知连接槽', () => {
   assert.match(serverSource, /case 'preparePlayStart':[\s\S]*await runtimePresets\.prepareFullSnapshot\(\)/)
 })
 
-test('世界书条目的低频匹配开关默认收进兼容字段', () => {
+test('有效的世界书匹配设置在兼容字段之外，兼容字段默认折叠', () => {
   const editor = between(clientSource, 'function WorldBookEditor', 'function WorldBookLibraryTab')
   const compatibility = editor.indexOf('h("details", null, h("summary", null, "兼容字段")')
 
   assert.ok(compatibility >= 0)
   for (const label of ['"二级触发词"', '"启用"', '"使用二级条件"', '"区分大小写"', '"整词匹配"']) {
-    assert.ok(editor.indexOf(label) > compatibility)
+    assert.ok(editor.indexOf(label) >= 0 && editor.indexOf(label) < compatibility, label)
+  }
+  for (const label of ['"注入位置"', '"深度"', '"概率 %"', '"向量候选"', '"不被递归触发"']) {
+    assert.ok(editor.indexOf(label) > compatibility, label)
   }
   assert.doesNotMatch(editor.slice(compatibility, compatibility + 80), /open:/)
 })
