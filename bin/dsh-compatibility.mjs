@@ -7,6 +7,12 @@ const compatibility = JSON.parse(readFileSync(new URL('../config/dsh-compatibili
 export const { adaptedDshVersion, recommendedDesktopVersion, desktopReleasesUrl, recommendedDshaVersion, dshaReleasesUrl } = compatibility
 if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(adaptedDshVersion)) throw new Error('DSH 适配版本配置无效')
 
+export function extractDshVersion(output) {
+  const match = String(output || '').match(/\b(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)\b/)
+  if (!match) throw new Error('无法识别当前 DSH 版本。')
+  return match[1]
+}
+
 export function dshCompatibilityNotice(currentVersion = '', host = 'desktop') {
   if (host === 'cli') return `命令行版独立安装并使用 DSH ${adaptedDshVersion}，不复用或修改全局 DSH。`
   const notice = host === 'android'
@@ -26,5 +32,9 @@ export function assertCompatibleDshVersion(currentVersion, host = 'cli') {
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  console.log(process.argv[2] === '--version' ? adaptedDshVersion : dshCompatibilityNotice('', process.argv[3] || 'desktop'))
+  if (process.argv[2] === '--check') {
+    assertCompatibleDshVersion(extractDshVersion(process.argv[4]), process.argv[3])
+  } else {
+    console.log(process.argv[2] === '--version' ? adaptedDshVersion : dshCompatibilityNotice('', process.argv[3] || 'desktop'))
+  }
 }

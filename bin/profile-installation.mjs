@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { stopService } from './service-lifecycle.mjs'
 import { installCliRuntime, migrateCliHome } from './cli-runtime.mjs'
-import { assertCompatibleDshVersion, dshCompatibilityNotice } from './dsh-compatibility.mjs'
+import { extractDshVersion, assertCompatibleDshVersion, dshCompatibilityNotice } from './dsh-compatibility.mjs'
 import { installPluginDependencies } from './plugin-dependencies.mjs'
 import { migrateLegacyTavernData, resolveTavernDataRoot } from '../tavern-plugin/lib/domain/tavern-data.js'
 import { ensureUserExtensions } from '../tavern-plugin/lib/domain/user-extensions.js'
@@ -12,11 +12,7 @@ import { ensureSidebarDefaults } from './launcher-settings.mjs'
 import { INSTALL_HOSTS, SOURCE_ROOT, DSH_ROOT, LEGACY_DSH_ROOT, CLI_RUNTIME_ROOT, RUNTIME_HOST, PROFILE_DIR, LOG_DIR, SCRIPT_PATH, PROFILE, RELEASE_FILE, DEFAULT_COMMIT_URL, REQUIRED_SOURCE_FILES, findDshCommand, requireCommand, run, runDsh } from './launcher-environment.mjs'
 
 // Own installation transaction and legacy-source discovery. Desktop never installs a CLI shim.
-export function extractDshVersion(output) {
-  const match = String(output || '').match(/\b(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)\b/)
-  if (!match) throw new Error('无法识别当前 DSH 版本。')
-  return match[1]
-}
+export { extractDshVersion } from './dsh-compatibility.mjs'
 
 export function parseInstallHost(args = []) {
   let host = RUNTIME_HOST

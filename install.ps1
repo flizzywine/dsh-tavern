@@ -254,6 +254,14 @@ try {
   $DshCommand = Resolve-Command 'dsh'
   if ($InstallHost -ne 'cli' -and $null -eq $DshCommand) { throw '未找到 DSH。Desktop 版请从 DSH Desktop 托盘打开 DSH Terminal 后运行本命令。' }
 
+  # Validate before replacing any installed application files.
+  if ($InstallHost -ne 'cli') {
+    $CurrentDshVersion = (& $DshCommand --version)
+    Assert-LastCommand '无法读取宿主 DSH 版本。'
+    & node $CompatibilityScript --check $InstallHost ($CurrentDshVersion -join "`n")
+    Assert-LastCommand '宿主 DSH 版本不兼容，尚未覆盖程序文件。'
+  }
+
   $OldLauncher = Join-Path $AppDir 'bin\dsh-tavern.mjs'
   if ($InstallHost -eq 'cli' -and (Test-Path $OldLauncher)) {
     & node $OldLauncher stop *> $null
