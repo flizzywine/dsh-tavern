@@ -2223,7 +2223,17 @@ window.__ModuleLoader__.load({
 				if (listeners[name]) for (const entry of Array.from(listeners[name])) if (entry.handler === handler && entry.scriptId === currentScript().id) listeners[name].delete(entry);
 				reportSubscriptions();
 			}
+			function clearMatching(predicate) {
+				const scriptId = currentScript().id;
+				for (const name of Object.keys(listeners)) for (const entry of Array.from(listeners[name])) {
+					if (entry.scriptId === scriptId && predicate(name, entry)) listeners[name].delete(entry);
+				}
+				reportSubscriptions();
+			}
 			return Object.freeze({
+				clearEvent: function (name) { name = eventName(name); clearMatching(function (key) { return key === name; }); },
+				clearListener: function (handler) { clearMatching(function (_name, entry) { return entry.handler === handler; }); },
+				clearAll: function () { clearMatching(function () { return true; }); },
 				listen: listen, off: off, emit: eventEmit, emitHost: emitHostEvent,
 				names: function () { return Object.keys(listeners).filter(function (name) { return listeners[name] && listeners[name].size > 0; }); },
 				subscriptionsFor: function (scriptId) { return Object.keys(listeners).filter(function (name) { return listeners[name] && Array.from(listeners[name]).some(function (entry) { return entry.scriptId === scriptId; }); }); }
@@ -3131,6 +3141,9 @@ window.__ModuleLoader__.load({
 			window.eventOnce = function (name, handler) { return events.listen(name, handler, null, true); };
 			window.eventOff = events.off;
 			window.eventRemoveListener = window.eventOff;
+			window.eventClearEvent = events.clearEvent;
+			window.eventClearListener = events.clearListener;
+			window.eventClearAll = events.clearAll;
 			window.eventEmit = events.emit;
 			let resolveCompanionScriptsReady;
 			window.__dshTavernCompanionScriptsReady = initializationTiming.wait("companion-barrier", new Promise(function (resolve) { resolveCompanionScriptsReady = resolve; }));
