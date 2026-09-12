@@ -62,6 +62,10 @@ export function createTavernApiDiagnostics(storage) {
     }
   }
   return {
+    recordResourceSave(sessionId, summary) {
+      if (!sessionId) return
+      record(sessionId, { at: Date.now(), method: 'resource-save', ...summary })
+    },
     async observe(method, args, run) {
       const sessionId = typeof args?.sessionId === 'string' ? args.sessionId : ''
       if (!tracked.test(method) || !sessionId) return run()

@@ -1068,6 +1068,7 @@ export async function apply(ctx) {
     return { captured: true, turn, partIndex: index, captureKind: capture.captureKind }
   }
   const tavernScriptHostAdapter = createTavernScriptHostAdapter({
+    recordResourceSave: (sessionId, summary) => apiDiagnostics.recordResourceSave(sessionId, summary),
     publishCreatedMessages: async function (chat, targets) {
       const session = sessionStore.get(chat.sessionId) || agentRegistry.get(chat.sessionId)?.session
       appendHelperUserSessionContext(session, chat, targets)
