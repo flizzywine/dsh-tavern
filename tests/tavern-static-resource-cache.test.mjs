@@ -106,11 +106,33 @@ test('缓存 HTML 的不带引号子资源地址也进入本地缓存', function
   assert.ok(html.includes('data-src=https://assets.example/lazy.png'))
 })
 
-test('静态缓存拒绝非 HTTPS、本机和内网地址', function () {
-  assert.throws(function () { normalizeCacheableResourceUrl('http://example.com/a.js') }, /HTTPS/)
-  assert.throws(function () { normalizeCacheableResourceUrl('https://localhost/a.js') }, /内网/)
-  assert.throws(function () { normalizeCacheableResourceUrl('https://127.0.0.1/a.js') }, /内网/)
-  assert.throws(function () { normalizeCacheableResourceUrl('https://192.168.1.2/a.js') }, /内网/)
+test('静态缓存允许本机、内网与 Fake-IP 地址，仍要求 HTTPS 且不携带凭据', function () {
+  assert.throws(() => normalizeCacheableResourceUrl('http://example.com/a.js'), /HTTPS/)
+  assert.throws(() => normalizeCacheableResourceUrl('https://user:password@localhost/a.js'), /凭据/)
+  for (const host of ['localhost', 'device.local', '127.0.0.1', '10.0.0.1', '192.168.1.2', '[::1]', '[fdfe:dcba:9876::52]', '[fd00::1]', '[fe80::1]']) {
+    assert.equal(normalizeCacheableResourceUrl('https://' + host + '/a.js'), 'https://' + host + '/a.js')
+  }
+})
+
+test('默认下载链路不预先拒绝 DNS 或私网地址，重定向后仍可加载', async t => {
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-private-cache-'))
+  t.after(() => rm(rootDir, {recursive:true, force:true}))
+  const calls = [], originalFetch = globalThis.fetch
+  let cache
+  try {
+    globalThis.fetch = async url => {
+      calls.push(url)
+      if (url === 'https://cdn.invalid/module.js') return {status:302,headers:{get:()=> 'https://[fdfe:dcba:9876::52]/module.js'}}
+      return response('export const ready=true;', 'application/javascript', url)
+    }
+    // Use the production default fetch path: no test-only DNS verifier bypass.
+    cache = createTavernStaticResourceCache({rootDir})
+  } finally { globalThis.fetch = originalFetch }
+  const result = await cache.get('https://cdn.invalid/module.js')
+  assert.match(result.body.toString(), /ready=true/)
+  assert.deepEqual(calls, ['https://cdn.invalid/module.js', 'https://[fdfe:dcba:9876::52]/module.js'])
+  await cache.get('https://192.168.1.2/module.js')
+  assert.equal(calls.at(-1), 'https://192.168.1.2/module.js')
 })
 
 test('超出单文件上限或不支持的响应不会写入缓存', async function (t) {

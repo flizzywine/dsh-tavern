@@ -1,8 +1,6 @@
 import { projectTavernHostScript } from './tavern-host-script-projection.js'
 import { createHash } from 'node:crypto'
 import { mkdir, readFile, readdir, rename, stat, unlink, utimes, writeFile } from 'node:fs/promises'
-import { lookup } from 'node:dns/promises'
-import { isIP } from 'node:net'
 import path from 'node:path'
 
 const DEFAULT_MAX_ENTRY_BYTES = 64 * 1024 * 1024
@@ -17,31 +15,11 @@ function cacheKey(url) {
   return createHash('sha256').update(url, 'utf8').digest('hex')
 }
 
-function privateIp(hostname) {
-  if (isIP(hostname) === 4) {
-    const parts = hostname.split('.').map(Number)
-    return parts[0] === 10 || parts[0] === 127 || parts[0] === 0 || (parts[0] === 169 && parts[1] === 254) || (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) || (parts[0] === 192 && parts[1] === 168)
-  }
-  if (isIP(hostname) === 6) {
-    const normalized = hostname.toLowerCase()
-    return normalized === '::1' || normalized === '::' || normalized.startsWith('fc') || normalized.startsWith('fd') || normalized.startsWith('fe8') || normalized.startsWith('fe9') || normalized.startsWith('fea') || normalized.startsWith('feb')
-  }
-  return false
-}
-
-async function verifyPublicHostname(url) {
-  const hostname = new URL(url).hostname
-  const addresses = await lookup(hostname, { all: true, verbatim: true })
-  if (addresses.length === 0 || addresses.some(function (item) { return privateIp(item.address) })) throw new Error('不允许缓存解析到本机或内网的资源')
-}
-
 export function normalizeCacheableResourceUrl(value) {
   let parsed
   try { parsed = new URL(str(value)) } catch { throw new Error('静态资源 URL 无效') }
-  const hostname = parsed.hostname.toLowerCase()
   if (parsed.protocol !== 'https:') throw new Error('只缓存 HTTPS 静态资源')
   if (parsed.username !== '' || parsed.password !== '') throw new Error('静态资源 URL 不能包含凭据')
-  if (hostname === 'localhost' || hostname.endsWith('.localhost') || hostname.endsWith('.local') || privateIp(hostname)) throw new Error('不允许缓存本机或内网资源')
   parsed.hash = ''
   return parsed.href
 }
@@ -167,7 +145,7 @@ export function createTavernStaticResourceCache(options = {}) {
   const request = options.fetch || globalThis.fetch
   const maxEntryBytes = Math.max(1, Number(options.maxEntryBytes) || DEFAULT_MAX_ENTRY_BYTES)
   const maxTotalBytes = Math.max(maxEntryBytes, Number(options.maxTotalBytes) || DEFAULT_MAX_TOTAL_BYTES)
-  const verifyHostname = typeof options.verifyHostname === 'function' ? options.verifyHostname : (options.fetch ? async function () {} : verifyPublicHostname)
+  const verifyHostname = typeof options.verifyHostname === 'function' ? options.verifyHostname : async function () {}
   const inflight = new Map()
 
   function paths(url) {
