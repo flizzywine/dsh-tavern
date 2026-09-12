@@ -7533,15 +7533,7 @@ window.__ModuleLoader__.load({
 			const ownWorldBookName = String(ownWorldBook && ownWorldBook.name || "").trim() || String(props.view.card.name || "").trim() || cardPath;
 			const worldBookChoices = availableWorldBooks.filter(function (item) { return !(item.kind === "card" && item.cardPath === cardPath); });
 			const worldBookPanel = h("div", { className: "dsh-tavern-worldbook" },
-				h("div", { className: "dsh-tavern-worldbook-note" }, hasWorldBookBinding ? "当前绑定：" + (worldBookBinding.name || "世界书不可用") : "当前未绑定世界书。人物卡有自带世界书时默认绑定自带内容。"),
-				h("div", { className: "dsh-tavern-script-row" },
-					h("select", { value: selectedWorldBook, disabled: worldBookBusy || worldBookCatalogLoading, onChange: function (event) { setSelectedWorldBook(event.target.value); } },
-						h("option", { value: "" }, worldBookCatalogLoading ? "正在读取世界书库…" : "选择世界书"),
-						ownWorldBook && typeof ownWorldBook === "object" ? h("option", { value: worldBookChoiceValue({ kind: "card", cardPath: cardPath }) }, ownWorldBookName + "（当前人物卡）") : null,
-						worldBookChoices.map(function (item) { const value = worldBookChoiceValue(item); return h("option", { key: value, value: value }, item.kind === "card" ? item.name + "（人物卡：" + item.cardName + "）" : item.name + "（独立世界书）"); })
-					),
-					h("button", { className: "dsh-tavern-script-primary", disabled: worldBookBusy || !selectedWorldBook || boundWorldBooks.some(function (book) { return worldBookChoiceValue(book.source) === selectedWorldBook; }), onClick: bindSelectedWorldBook }, worldBookBusy ? "处理中…" : "添加绑定")
-				),
+				!hasWorldBookBinding ? h("div", { className: "dsh-tavern-worldbook-note" }, "尚未绑定世界书") : null,
 				boundWorldBooks.map(function (book, index) {
 					return h("div", { key: worldBookChoiceValue(book.source), className: "dsh-tavern-script-row" },
 						h("span", null, (index === 0 ? "主书：" : "附加书：") + (book.name || "世界书不可用")),
@@ -7551,6 +7543,14 @@ window.__ModuleLoader__.load({
 						h("button", { className: "dsh-tavern-worldbook-add", disabled: worldBookBusy || !book.available, onClick: function () { if (typeof props.onOpenWorldBook === "function") props.onOpenWorldBook(book.source); } }, "打开世界书")
 					);
 				}),
+				h("div", { className: "dsh-tavern-script-row" },
+					h("select", { value: selectedWorldBook, disabled: worldBookBusy || worldBookCatalogLoading, onChange: function (event) { setSelectedWorldBook(event.target.value); } },
+						h("option", { value: "" }, worldBookCatalogLoading ? "正在读取世界书库…" : "选择世界书"),
+						ownWorldBook && typeof ownWorldBook === "object" ? h("option", { value: worldBookChoiceValue({ kind: "card", cardPath: cardPath }) }, ownWorldBookName + "（当前人物卡）") : null,
+						worldBookChoices.map(function (item) { const value = worldBookChoiceValue(item); return h("option", { key: value, value: value }, item.kind === "card" ? item.name + "（人物卡：" + item.cardName + "）" : item.name + "（独立世界书）"); })
+					),
+					h("button", { className: "dsh-tavern-script-primary", disabled: worldBookBusy || !selectedWorldBook || boundWorldBooks.some(function (book) { return worldBookChoiceValue(book.source) === selectedWorldBook; }), onClick: bindSelectedWorldBook }, worldBookBusy ? "处理中…" : "新增绑定")
+				),
 				h("div", { className: "dsh-tavern-worldbook-note" }, "多本世界书可能相互冲突，引发异常"),
 				worldBookError ? h("div", { className: "dsh-card-error" },
 					worldBookError,
