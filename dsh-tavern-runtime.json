@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "5baa2c8fc4b43606c429bd07f43534a3ed6cb9c6",
-  "releaseSequence": 165,
+  "revision": "272ad8b02449bb844abf7fc49acfdb2ce48f36e2",
+  "releaseSequence": 166,
   "version": "1.6.0",
   "files": [
     {
@@ -956,8 +956,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/tavern-static-resource-cache.js",
-      "sha256": "0de8c370404a8f566cfc1793c86953a53e435612d962ab8af49f7703b7a51ea2",
-      "size": 13846
+      "sha256": "4bc80f7e04ec08f659ec6e01ceee81ef038b6dec7695d7455ccc85f023d56ee4",
+      "size": 12510
     },
     {
       "path": "tavern-plugin/lib/domain/tavern-token-meter.js",
@@ -1011,8 +1011,8 @@
     },
     {
       "path": "tavern-plugin/lib/index.js",
-      "sha256": "709a39440385182403915841eab2a47a20651b36532952824aaa8d364dc533d4",
-      "size": 239912
+      "sha256": "80ffa637269922fa7a9ca774ab00009a84f804b24e434024e9b242cb7889069c",
+      "size": 240044
     },
     {
       "path": "tavern-plugin/lib/profile-data-store.js",
@@ -3291,8 +3291,8 @@
     },
     {
       "path": "tavern-plugin/prompts/scene-image-system.md",
-      "sha256": "1d50b95e18928ca25ebfa91068bb414b7395efb94f364238c58ae340a7813d7d",
-      "size": 712
+      "sha256": "9a682c19d502c33e36fd2c0596e8bb8b4f37a0424e254c9a8019617fa4c77449",
+      "size": 1044
     },
     {
       "path": "tavern-plugin/prompts/scene-plan.md",
