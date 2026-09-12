@@ -1,5 +1,6 @@
 // Real installed DSH Agent loop/tools/attachments; scripted model and local image API.
 // No paid requests, credentials, or user chats are accessed.
+import { sessionEvents } from '../../tavern-plugin/lib/domain/session-events.js'
 import { createServer } from 'node:http'
 import { mkdtemp, writeFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -177,6 +178,7 @@ export async function createSceneImageNativeRuntime(bootPath, { unifiedPlugin = 
   await service.configure({ model: 'fixture-image', baseURL: endpoint, apiKey: keys.get(IMAGE_CREDENTIAL) })
   await service.configure({ enabled: true })
   return { get service() { return service }, get agentRunning() { return agentRuns > 0 }, chat, before, requests, imageRequests, parent, endpoint,
+    traceEvents(sessionId) { return structuredClone(sessionEvents(ctx.sessions.get(sessionId))) },
     failNext(status = 503, message = 'test failure') { failNext = { status, message } },
     failNextSave() { failSave = true },
     holdNextImage() { holdNext = true },
