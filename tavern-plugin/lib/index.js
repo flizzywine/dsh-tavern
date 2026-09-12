@@ -1352,6 +1352,11 @@ export async function apply(ctx) {
     return result.sort(function (left, right) { return Number(left.turn) - Number(right.turn) })
   }
   async function startChat(cardPath, sessionId, mode, openingId, userName, requestMode, preparationId, cardTask) {
+    // Plain greetings have no interactive preview draft, but need the same
+    // game-local worldbook snapshot as scripted openings.
+    if (!preparationId && groupOfMode(mode || 'story') === 'play') {
+      preparationId = (await openingPreparation.create(cardPath, { userName })).id
+    }
     const preparation = preparationId ? openingPreparation.resolve(preparationId, cardPath, openingId) : undefined
     if (preparation?.sourceSessionId) {
       const source = await chatForSession(preparation.sourceSessionId)
