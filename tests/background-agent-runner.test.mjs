@@ -1326,3 +1326,45 @@ test('常驻后台会话在下一任务替换世界书，任务内固定且不�
     assert.match(JSON.stringify(session.events), /开局DLC/)
   } finally { await runner.dispose() }
 })
+
+test('temporary settlement tools conclude only after both submissions, without a closing model step', async () => {
+  for (const reversed of [false, true]) {
+    const registered = new Map()
+    const submitted = new Set()
+    let concluded = 0
+    const tools = ['posture_submit', 'mvu_submit_update'].map(name => ({ name, parameters: { type: 'object' } }))
+    const runner = createBackgroundAgentRunner({
+      id: () => 'background-joint-temporary',
+      agents: {
+        get: () => ({ id: 'parent', session: { header: {} } }),
+        async create(options) {
+          await options.setup({
+            systemPrompt: { section() {}, suppressRuntimeContext() {} }, on() {},
+            tools: { restrict() {}, register(tool) { registered.set(tool.name, tool); return () => registered.delete(tool.name) } }
+          })
+          return { agent: {
+            session: { id: 'background-joint-temporary', events: [], append() {} }, followup() {},
+            async whenIdle() {
+              const names = tools.map(tool => tool.name)
+              if (reversed) names.reverse()
+              const execution = { concludeTurn() { concluded++ } }
+              await registered.get(names[0]).execute({}, execution)
+              assert.equal(concluded, 0, 'the second submission must remain executable')
+              assert.equal(registered.size, 2)
+              await registered.get(names[1]).execute({}, execution)
+              assert.equal(concluded, 1, 'finish without another provider request')
+              assert.equal(registered.size, 0)
+            }
+          }, async dispose() {} }
+        }
+      }
+    })
+    try {
+      await runner.run({ sessionId: 'parent', task: 'settlement', selection: { provider: 'test', model: 'test' },
+        messages: [], tools, stopToolsWhen: () => submitted.size === 2, acceptWithoutText: () => submitted.size === 2,
+        async onToolCall(call) { submitted.add(call.name); return JSON.stringify({ ok: true }) }
+      })
+    } finally { await runner.dispose() }
+    assert.equal(concluded, 1)
+  }
+})

@@ -310,7 +310,11 @@ export function createBackgroundAgentTask(options) {
             const result = characterDesignStage
               ? str(await characterDesignStage.execute(tool.name, invoke))
               : await invoke()
-            if (typeof input.stopToolsWhen === 'function' && (input.stopToolsWhen() || toolCallCount >= maxToolCalls)) await removeTools()
+            if (typeof input.stopToolsWhen === 'function') {
+              const complete = input.stopToolsWhen()
+              if (complete) execution?.concludeTurn?.()
+              if (complete || toolCallCount >= maxToolCalls) await removeTools()
+            }
             return result
           }
         })
