@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "6f5ecd9ccc626363a1073d1a1e16dbd8b9ccceec",
-  "releaseSequence": 169,
+  "revision": "c025af5305e204e97a2f67ab8504ae0120065030",
+  "releaseSequence": 170,
   "version": "1.7.0",
   "files": [
     {
@@ -241,8 +241,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "91613806b726073f40def654936ce96e36e0b8ed483baf48611fc104c29b41b2",
-      "size": 693185
+      "sha256": "8c6495bc93e0913b9928ae7e7831d220ec33774c3f10150eada600bf55a8e9ab",
+      "size": 694529
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -316,13 +316,13 @@
     },
     {
       "path": "tavern-plugin/lib/domain/card-opening-previews.js",
-      "sha256": "f269376b19c93ff0763624571e500dc8c29f24dc8d5055afcb2d2b762ae1fabd",
-      "size": 2592
+      "sha256": "d65358a393b93ece22cde34579b24ef133d7d439e5287403d3749afe266a900d",
+      "size": 2492
     },
     {
       "path": "tavern-plugin/lib/domain/card-openings.js",
-      "sha256": "704063c56effbc2262c7c6738afc27933eb1c437fbf233890a83735b1f7038ba",
-      "size": 1132
+      "sha256": "a75933f921650d4d8a3193710c32a26bb990da50dc16bbc663d747b8a3f01673",
+      "size": 1626
     },
     {
       "path": "tavern-plugin/lib/domain/card-preparation.js",
@@ -776,8 +776,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/session-opening.js",
-      "sha256": "c1a4f11835cb4eac2a2ff41c31a6d14e5c5fd43db75ebcf7ffb5dbfdbc9da882",
-      "size": 1745
+      "sha256": "e4b17a2cbcb7b0183aebfa34437efd629a75b4a9132f37ec3543c8201483059a",
+      "size": 1516
     },
     {
       "path": "tavern-plugin/lib/domain/session-seed-trajectory.js",
@@ -3346,8 +3346,8 @@
     },
     {
       "path": "tavern-plugin/src/client/opening-preview.js",
-      "sha256": "dada700e58c72df7f0a4d7eb2a3b0b4ce55ffa8a29b450fc9f295c3cc1f38c7b",
-      "size": 9468
+      "sha256": "1a90c2663f016c5be87e5b0df6f78232705843c8d8f2761a7212164bfb1ae50e",
+      "size": 10782
     },
     {
       "path": "tavern-plugin/src/client/subagent-catalog-sync.js",
