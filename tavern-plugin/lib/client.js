@@ -10661,6 +10661,28 @@ window.__ModuleLoader__.load({
                     h("div", { role: "status", className: "dsh-local-feedback" }, busy ? "保存中…" : ""));
         }
 
+		function TavernClearFailedNoticeAction(props) {
+			const [busy, setBusy] = React.useState(false);
+			const running = props.useSession(function (snapshot) { return snapshot.running === true; });
+			const latestMessageId = props.useChat(latestTavernAssistantMessageId);
+			const live = useLiveTavernView(props.sessionId, "clearFailedNotice:" + String(running) + ":" + String(latestMessageId));
+			const coordination = useTavernCoordination(props.sessionId, "clearFailedNotice:" + String(running));
+			const activity = describeTavernActivity(coordination.view && coordination.view.activity);
+			const blocked = busy || running || activity.busy;
+			async function clearNotices() {
+				if (blocked) return;
+				setBusy(true);
+				try {
+					const result = await rpc("clearFailedNotice", {}, props.sessionId);
+					notifyTavernDataChanged(["sessions"], "failed-notice-cleanup");
+					if (!result || (!result.cleared && !(result.turns && result.turns.length))) tavernErrorHub.report("清除失败提示", new Error("本会话没有找到失败提示"));
+				} catch (error) { tavernErrorHub.report("清除失败提示", error); }
+				finally { setBusy(false); liveTavernView.invalidate(props.sessionId); tavernCoordination.invalidate(props.sessionId); }
+			}
+			if (!live.view) return null;
+			return React.createElement("button", { role: "menuitem", disabled: blocked, onClick: clearNotices, title: "清除失败提示：去掉消息里的失败文本，并把失败轮次从历史与模型面中剔除" }, busy ? "清除中…" : "清除失败提示");
+		}
+
 		function TavernMoreActions(props) {
 			const [open, setOpen] = React.useState(false);
 			const root = React.useRef(null);
@@ -10678,6 +10700,7 @@ window.__ModuleLoader__.load({
                     React.createElement(TavernStopBackgroundAction, Object.assign({}, props, { inMenu: true })),
 					React.createElement(TavernEditBodyAction, props),
 					React.createElement(TavernRollbackAction, props),
+					React.createElement(TavernClearFailedNoticeAction, props),
 					React.createElement(TavernCompactionAction, Object.assign({}, props, { inMenu: true })))
 			);
 		}

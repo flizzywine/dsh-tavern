@@ -93,6 +93,7 @@ import { compileSillyTavernRequest, createCleanCompatibilityPreset } from './dom
 import { applySillyTavernStrictTools } from './domain/sillytavern-strict-tools.js'
 import { createForegroundOrchestrationStrategies } from './domain/foreground-orchestration-strategies.js'
 import { pendingFailedSurfaceTurns, foregroundSuppressedTurns, clearFailedTurnSurface, hasRollbackMessages, supersededRegenerationErrorTurns } from './domain/rollback-surface.js'
+import { applyFailedNoticeCleanup } from './domain/failed-turn-notice.js'
 import { assistantResultForTurn } from './domain/session-turn-result.js'
 import { createTavernRetryLimiter } from './domain/tavern-retry-limiter.js'
 import { lastTavernHelperVariables, projectTavernHelperContext } from './domain/tavern-helper-context.js'
@@ -3045,6 +3046,26 @@ export async function apply(ctx) {
       case 'saveBodyEdit': return { view: await bodyEditor.save(args && args.sessionId, args) }
       case 'regenBody': return { view: await regenBody(args && args.chatId, args && args.guidance, args && args.sessionId) }
       case 'rollbackTurn': return { view: await rollbackTurn(args && args.sessionId, args && args.chatId) }
+      case 'clearFailedNotice': {
+        const sessionId = str(args && args.sessionId)
+        const chat = await chatForSession(sessionId)
+        if (!chat) throw new Error('请先打开游玩会话')
+        const liveAgent = agentRegistry.get(sessionId)
+        const liveSession = sessionStore.get(sessionId) || (liveAgent && liveAgent.session)
+        const events = liveSession ? sessionEvents(liveSession) : []
+        let result = null
+        const saved = await updateChat(chat.id, current => {
+          if (current._storageRevision !== chat._storageRevision) throw new Error('当前游戏已变化，请刷新后重试')
+          result = applyFailedNoticeCleanup(current, {
+            requested: args && args.turns,
+            remembered: chat.clearedFailedNoticeTurns,
+            replace: args && args.replace === true,
+            events
+          })
+          return current
+        }, { source: 'ui.clear-failed-notice' })
+        return { view: await sessionView(sessionId), cleared: result.cleared, turns: result.turns, suppressedDshTurns: saved.suppressedDshTurns }
+      }
       case 'stopBackground': return { view: await stopBackground(args && args.sessionId, args && args.operationId) }
       case 'retrySettlement': return { view: await retrySettlement(args && args.sessionId, args && args.turn, args && args.guidance) }
       case 'retryMvuSettlement': return { view: await retrySettlement(args && args.sessionId, args && args.turn, args && args.guidance) }
