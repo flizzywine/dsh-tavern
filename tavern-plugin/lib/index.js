@@ -309,6 +309,10 @@ export async function apply(ctx) {
     builtInDirectory: sourceRoot + '/presets/tavern/skills',
     backgroundDirectory: sourceRoot + '/presets/tavern-background/skills'
   })
+  const fateWritingSkillNames = new Set(['fate-adjudication', 'fate-cognition', 'fate-reference-retrieval'])
+  function writingSkillAvailableForChat(skill, chat) {
+    return !fateWritingSkillNames.has(skill?.name) || String(chat?.cardContextSnapshot || '').includes('<type_moon_world_constitution>')
+  }
 
   async function skillRoleFor(agent) {
     const sessionId = agent?.session?.id
@@ -320,7 +324,7 @@ export async function apply(ctx) {
   async function skillEnabledFor(skill, agent) {
     if (await skillRoleFor(agent) !== 'foreground') return true
     const chat = await chatForSession(agent?.session?.id)
-    return !(chat?.disabledWritingSkills || []).map(canonicalTavernSkillName).includes(skill.name)
+    return writingSkillAvailableForChat(skill, chat) && !(chat?.disabledWritingSkills || []).map(canonicalTavernSkillName).includes(skill.name)
   }
   let invalidateTavernSkills = () => {}
   const skillRegistry = ctx.get('skills')
@@ -2881,13 +2885,13 @@ export async function apply(ctx) {
       case 'getConversationWritingSkills': {
         const chat = await chatForSession(str(args?.sessionId))
         if (!chat || groupOfMode(chat.mode) !== 'play') throw new Error('请先打开游玩会话')
-        return { skills: (await tavernSkills.list()).filter(skill => skill.agents.includes('foreground')).map(skill => ({ name: skill.name, description: skill.description, enabled: !(chat.disabledWritingSkills || []).map(canonicalTavernSkillName).includes(skill.name) })) }
+        return { skills: (await tavernSkills.list()).filter(skill => skill.agents.includes('foreground') && writingSkillAvailableForChat(skill, chat)).map(skill => ({ name: skill.name, description: skill.description, enabled: !(chat.disabledWritingSkills || []).map(canonicalTavernSkillName).includes(skill.name) })) }
       }
       case 'setConversationWritingSkill': {
         const chat = await chatForSession(str(args?.sessionId))
         if (!chat || groupOfMode(chat.mode) !== 'play') throw new Error('请先打开游玩会话')
         const skill = await tavernSkills.read(args.name)
-        if (!skill?.agents.includes('foreground') || typeof args.enabled !== 'boolean') throw new Error('无效的写作 Skill 配置')
+        if (!skill?.agents.includes('foreground') || !writingSkillAvailableForChat(skill, chat) || typeof args.enabled !== 'boolean') throw new Error('无效的写作 Skill 配置')
         await updateChat(chat.id, current => ({ ...current, disabledWritingSkills: args.enabled ? (current.disabledWritingSkills || []).map(canonicalTavernSkillName).filter(name => name !== skill.name) : [...new Set([...(current.disabledWritingSkills || []).map(canonicalTavernSkillName), skill.name])] }), { source: 'writing-skill.switch' })
         invalidateTavernSkills()
         return { saved: true }
