@@ -4,8 +4,13 @@ settings:
   autoInstallPeers: false
   excludeLinksFromLockfile: false
 
+overrides:
+  lodash-es: 4.18.0
+
 patchedDependencies:
-  dsh-better-sidebar@0.17.1: 7a52a0f297b795762438b7490834078a77e43b6075146b4a6297fc3d80bd1d1f
+  dsh-better-sidebar@0.17.1:
+    hash: 7a52a0f297b795762438b7490834078a77e43b6075146b4a6297fc3d80bd1d1f
+    path: patches/dsh-better-sidebar@0.17.1.patch
 
 importers:
 
@@ -685,11 +690,9 @@ packages:
   layout-base@2.0.1:
     resolution: {integrity: sha512-dp3s92+uNI1hWIpPGH3jK2kxE2lMjdXdr+DH8ynZHpd6PUlH6x6cbuXnoMmiNumznqaNO31xu9e79F0uuZ0JFg==}
 
-  lodash-es@4.17.23:
-    resolution: {integrity: sha512-kVI48u3PZr38HdYz98UmfPnXl2DXrpdctLrFLCd3kOx1xUkOmpFPx7gCWWM5MPkL/fD8zb+Ph0QzjGFs4+hHWg==}
-
-  lodash-es@4.18.1:
-    resolution: {integrity: sha512-J8xewKD/Gk22OZbhpOVSwcs60zhd95ESDwezOFuA3/099925PdHJ7OFHNTGtajL3AlZkykD32HykiMo+BIBI8A==}
+  lodash-es@4.18.0:
+    resolution: {integrity: sha512-koAgswPPA+UTaPN64Etp+PGP+WT6oqOS2NMi5yDkMaiGw9qY4VxQbQF0mtKMyr4BlTznWyzePV5UpECTJQmSUA==}
+    deprecated: Bad release. Please use lodash-es@4.17.23 instead.
 
   lru-cache@10.4.3:
     resolution: {integrity: sha512-JNAzZcXrCt42VGLuYz0zfAzDfAvJWW6AfYlDBQyDV5DClI2m5sAmK+OIO7s59XfsRsWHp02jAJrRadPRGTt6SQ==}
@@ -899,12 +902,12 @@ snapshots:
     dependencies:
       '@chevrotain/gast': 11.2.0
       '@chevrotain/types': 11.2.0
-      lodash-es: 4.17.23
+      lodash-es: 4.18.0
 
   '@chevrotain/gast@11.2.0':
     dependencies:
       '@chevrotain/types': 11.2.0
-      lodash-es: 4.17.23
+      lodash-es: 4.18.0
 
   '@chevrotain/regexp-to-ast@11.2.0': {}
 
@@ -1346,7 +1349,7 @@ snapshots:
       '@chevrotain/regexp-to-ast': 11.2.0
       '@chevrotain/types': 11.2.0
       '@chevrotain/utils': 11.2.0
-      lodash-es: 4.17.23
+      lodash-es: 4.18.0
 
   clsx@2.1.1: {}
 
@@ -1555,7 +1558,7 @@ snapshots:
   dagre-d3-es@7.0.14:
     dependencies:
       d3: 7.9.0
-      lodash-es: 4.18.1
+      lodash-es: 4.18.0
 
   data-urls@5.0.0:
     dependencies:
@@ -1702,9 +1705,7 @@ snapshots:
 
   layout-base@2.0.1: {}
 
-  lodash-es@4.17.23: {}
-
-  lodash-es@4.18.1: {}
+  lodash-es@4.18.0: {}
 
   lru-cache@10.4.3: {}
 
