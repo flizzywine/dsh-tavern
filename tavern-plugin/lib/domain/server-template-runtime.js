@@ -56,7 +56,7 @@ export function createServerTemplateRuntime({ rpc, store, timeoutMs = 120000, id
     const permissionFlag = process.allowedNodeEnvironmentFlags.has('--permission') ? '--permission' : '--experimental-permission'
     const child = fork(worker, [], { env: { NODE_ENV: 'production', ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}) },
       execArgv: [permissionFlag, '--allow-fs-read=' + plugin, '--allow-fs-read=' + modules, '--max-old-space-size=256'],
-      stdio: ['ignore', 'ignore', 'ignore', 'ipc'], serialization: 'advanced' })
+      stdio: ['ignore', 'ignore', 'ignore', 'ipc'], serialization: 'advanced', windowsHide: true })
     const record = { child, sessionId, pending: new Map(), busy: true, ready: false, closed: false, usedAt: Date.now(), writes: Promise.resolve() }
     sessions.set(sessionId, record)
     child.on('error', error => stop(record, error))

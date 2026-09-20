@@ -26,7 +26,7 @@ async function resolveWithGit(reference, options = {}) {
   if (!validGitHubPart(reference.owner) || !validGitHubPart(reference.repo) || !validGitRef(reference.ref)) throw new Error('远程 Git 引用格式不安全')
   const repoUrl = 'https://github.com/' + reference.owner + '/' + reference.repo + '.git'
   const patterns = reference.ref === 'HEAD' ? ['HEAD'] : ['refs/heads/' + reference.ref, 'refs/tags/' + reference.ref, 'refs/tags/' + reference.ref + '^{}']
-  const result = await execFile('git', ['ls-remote', '--refs', repoUrl].concat(patterns), { timeout: options.timeoutMs || 5000, signal: options.signal, maxBuffer: 1024 * 1024 })
+  const result = await execFile('git', ['ls-remote', '--refs', repoUrl].concat(patterns), { timeout: options.timeoutMs || 5000, signal: options.signal, maxBuffer: 1024 * 1024, windowsHide: true })
   const commits = str(result.stdout).split(/\r?\n/).map(function (line) { return line.trim().split(/\s+/)[0] }).filter(function (commit) { return FIXED_COMMIT.test(commit) })
   if (commits.length === 0) throw new Error('Git 未返回可锁定的提交号')
   return commits[commits.length - 1]
