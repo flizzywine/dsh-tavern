@@ -11,7 +11,7 @@ function clone(value) {
 
 export const TAVERN_SCRIPT_EXECUTION_TIMEOUT_MS = 60000
 // Allow a 10s fallback heartbeat plus a 15s client request deadline.
-export const TAVERN_SCRIPT_CLAIM_TIMEOUT_MS = 30000
+export const TAVERN_SCRIPT_CLAIM_TIMEOUT_MS = 180000
 
 /**
  * Own the lifecycle of Host work that must execute in the browser Tavern

@@ -4775,7 +4775,7 @@ window.__ModuleLoader__.load({
 
 		// Only downloading is repeatable. Once evaluation starts, its effects are unknown.
 		function createMvuBundleLoader(options) {
-			const delays = options.retryDelays || [1000, 2000];
+			const delays = options.retryDelays || [1000, 3000, 6000];
 			let disposed = false, pending = null, resume = null, cancel = null;
 			const loadId = "mvu-load-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2);
 			let cycle = 0, attemptNumber = 0, diagnosticCount = 0;
@@ -4876,7 +4876,7 @@ window.__ModuleLoader__.load({
 						}),
 						new Promise(function (_resolve, reject) {
 							cancel = function () { controller.abort(); reject(new Error("MVU loader disposed")); };
-							timer = setTimeout(function () { controller.abort(); reject(new Error("MVU 下载超时")); }, options.timeoutMs || 10000);
+							timer = setTimeout(function () { controller.abort(); reject(new Error("MVU 下载超时")); }, options.timeoutMs || 60000);
 						})
 					]);
 				} catch (error) {
@@ -5245,8 +5245,8 @@ window.__ModuleLoader__.load({
 			const mutationCoalesceMs = Math.max(0, options && options.mutationCoalesceMs !== undefined && options.mutationCoalesceMs !== null ? Number(options.mutationCoalesceMs) : 400);
 			const onReady = options && typeof options.onReady === "function" ? options.onReady : function () {};
 			const onMvuLoadState = options && options.onMvuLoadState || function () {};
-			const initializationTimeoutMs = Math.max(1000, Number(options && options.initializationTimeoutMs) || 15000);
-			const eventTimeoutMs = Math.max(10, Number(options && options.eventTimeoutMs) || 15000);
+			const initializationTimeoutMs = Math.max(1000, Number(options && options.initializationTimeoutMs) || 180000);
+			const eventTimeoutMs = Math.max(10, Number(options && options.eventTimeoutMs) || 120000);
 			// Card scripts often debounce derived writes with setTimeout after MESSAGE_RECEIVED.
 			// Keep mvu-work events open briefly so those writes still join the settlement.
 			const mvuWorkEventPrefix = "mvu-work:";

@@ -118,7 +118,9 @@ export function createBackgroundTaskCoordinator(options = {}) {
         const existing = operations.find(function (operation) {
           return operation && operation.kind === 'agent' && str(operation.requestId) === requestId
         })
-        if (existing !== undefined) {
+        // 与 timeline.beginAgent 同规则：仅运行中的操作可复用；终态操作复用会把
+        // 过期 basedOn 带进新任务，所有校验必炸（死循环根源）。
+        if (existing !== undefined && str(existing.status) === 'running') {
           if (str(existing.role) !== requestedRole) {
             const error = new Error('同一后台请求标识对应了不同 Agent role')
             error.code = 'IDEMPOTENCY_CONFLICT'

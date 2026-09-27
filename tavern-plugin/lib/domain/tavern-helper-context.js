@@ -5,6 +5,32 @@ function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
 }
 
+// 瘦身 2.0（R2）：历史楼变量读取器，由宿主（index.js）启动时注册一次。
+// 签名 (chatId) => Map<turn, tree> | undefined——来自 SQLite 快照链的解析缓存。
+// 投影时楼层 JSON 里没有树（已被瘦身清理）就从这里按 turn 补齐，喂给引擎/前端
+// 的数据与瘦身前逐字节一致。树对象按共享只读约定出借，投影内部照旧 clone。
+let variableHistoryReader = null
+export function setVariableHistoryReader(fn) { variableHistoryReader = typeof fn === 'function' ? fn : null }
+export function clearVariableHistoryReader() { variableHistoryReader = null }
+
+function hasUsableTree(source) {
+  if (!Array.isArray(source.variables) || source.variables.length === 0) return false
+  return source.variables.some(value => value !== null && typeof value === 'object' && Object.keys(value).length > 0)
+}
+
+/** Fill the selected swipe's variables from the SQLite snapshot chain after slimming. */
+function backfillVariablesFromHistory(source, swipeId, historyMap) {
+  if (historyMap === null || historyMap === undefined) return
+  if (hasUsableTree(source)) return
+  const turn = Math.max(0, Number(source.turn) || 0)
+  if (!Number.isSafeInteger(turn) || turn < 1) return
+  const tree = historyMap.get(turn)
+  if (tree === undefined || tree === null || typeof tree !== 'object') return
+  if (!Array.isArray(source.variables)) source.variables = []
+  while (source.variables.length <= swipeId) source.variables.push({})
+  source.variables[swipeId] = clone(tree)
+}
+
 function clone(value) {
   return value === undefined ? undefined : structuredClone(value)
 }
@@ -51,8 +77,9 @@ function tavernHelperRole(source) {
 }
 
 /** Project one Chat floor into the synchronous Tavern Helper message shape. */
-export function projectTavernHelperMessage(source, messageId) {
+export function projectTavernHelperMessage(source, messageId, historyMap, allowBackfill = true) {
   const swipeId = selectedSwipe(source)
+  if (allowBackfill) backfillVariablesFromHistory(source, swipeId, historyMap)
   const swipes = Array.isArray(source.swipes) && source.swipes.length > 0
     ? source.swipes.map(str)
     : [str(source.sourceText || source.text)]
@@ -104,6 +131,12 @@ function rememberAssistantTurn(turnMessageIds, source, messageId, role) {
 /** Project authoritative Chat state into the synchronous Tavern Helper read API. */
 export function projectTavernHelperContext(chat, options = {}) {
   const sources = Array.isArray(chat && chat.messages) ? chat.messages : []
+  // R2：历史楼变量补数——楼里 JSON 有树照旧用 JSON（热楼零改动），没有才查快照缓存
+  const historyMap = variableHistoryReader && chat && chat.id !== undefined && chat.id !== null
+    ? variableHistoryReader(str(chat.id)) : null
+  // R2.1 补数限窗：全量投影只补尾部窗口内的楼。深历史楼全补会让投影体积按
+  // "楼数 × 树"线性爆炸（463 楼 ≈ 9MB/次），堵死前端连接与引擎资产下载。
+  const backfillWindow = Math.max(0, sources.length - 48)
   const previousMessages = Array.isArray(options.previousMessages) ? options.previousMessages : null
   const dirtyIndices = options.dirtyIndices instanceof Set ? options.dirtyIndices : null
   const skeletonUntil = Number.isSafeInteger(options.skeletonUntil) ? Math.max(0, options.skeletonUntil) : 0
@@ -129,7 +162,7 @@ export function projectTavernHelperContext(chat, options = {}) {
     } else if (index < skeletonUntil) {
       projected = projectTavernHelperMessageSkeleton(source, messageId)
     } else {
-      projected = projectTavernHelperMessage(source, messageId)
+      projected = projectTavernHelperMessage(source, messageId, historyMap, index >= backfillWindow)
     }
     messages.push(projected)
     rememberAssistantTurn(turnMessageIds, source, messageId, projected.role)
@@ -156,13 +189,15 @@ export function projectTavernHelperContext(chat, options = {}) {
 /** Replace stub floors with full projections for a closed index range. */
 export function hydrateTavernHelperMessages(chat, from, to) {
   const sources = Array.isArray(chat && chat.messages) ? chat.messages : []
+  const historyMap = variableHistoryReader && chat && chat.id !== undefined && chat.id !== null
+    ? variableHistoryReader(str(chat.id)) : null
   const start = Math.max(0, Number(from) || 0)
   const end = Math.min(sources.length - 1, Number.isSafeInteger(Number(to)) ? Number(to) : sources.length - 1)
   const messages = []
   for (let index = start; index <= end; index++) {
     const source = sources[index]
     if (!source || typeof source !== 'object') throw new Error('消息楼层不存在: ' + index)
-    messages.push(projectTavernHelperMessage(source, index))
+    messages.push(projectTavernHelperMessage(source, index, historyMap))
   }
   return { from: start, to: end, messages }
 }

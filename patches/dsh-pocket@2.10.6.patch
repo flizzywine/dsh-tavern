@@ -1,3 +1,4 @@
+diff --git a/client/client.js b/client/client.js
 --- a/client/client.js
 +++ b/client/client.js
 @@ -2724,11 +2724,16 @@

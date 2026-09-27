@@ -17,7 +17,11 @@
     "@deepseek-ai/dsh-skill-filesystem": ">=0.1.2-rc.1 <0.2.0",
     "dsh-mnemon": "0.5.15",
     "dsh-mnemon-source-runtime": "0.5.9",
-    "dsh-mnemon-source-documents": "0.5.6"
+    "dsh-mnemon-source-documents": "0.5.6",
+    "lodash": "^4.17.21",
+    "mathjs": "^15.2.0",
+    "json5": "^2.2.3",
+    "jsonrepair": "^3.15.0"
   },
   "exports": {
     ".": "./lib/index.js",

@@ -341,7 +341,9 @@ export function createStoryTimeline(options = {}) {
       const existing = Object.values(chat.timeline.operations).find(function (operation) {
         return operation.kind === 'agent' && str(operation.requestId) === requestId
       })
-      if (existing !== undefined) {
+      // 只有运行中的同请求操作才复用；已终态（completed/failed/cancelled）的旧任务
+      // 不复用——否则新一轮结算会拿着过期的 basedOn 去过所有校验，必然死循环。
+      if (existing !== undefined && existing.status === 'running') {
         if (existing.role !== role) {
           const error = new Error('同一后台请求标识对应了不同 Agent role')
           error.code = 'IDEMPOTENCY_CONFLICT'

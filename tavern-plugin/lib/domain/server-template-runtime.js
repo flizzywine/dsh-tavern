@@ -12,7 +12,7 @@ const require = createRequire(import.meta.url)
 const worker = fileURLToPath(new URL('./server-template-worker.js', import.meta.url))
 
 /** Service-owned sessions. No browser leases, heartbeat, or replay of started work. */
-export function createServerTemplateRuntime({ rpc, store, timeoutMs = 120000, idleMs = 600000, maxSessions = 4, readOnly = false, maxOldSpaceMb, onDiagnostic }) {
+export function createServerTemplateRuntime({ rpc, store, timeoutMs = 900000, idleMs = 600000, maxSessions = 4, readOnly = false, maxOldSpaceMb, onDiagnostic }) {
   const heapMb = Number(maxOldSpaceMb ?? process.env.DSH_TAVERN_TEMPLATE_HEAP_MB ?? 1024)
   if (!Number.isInteger(heapMb) || heapMb < 128 || heapMb > 4096) throw new RangeError('DSH_TAVERN_TEMPLATE_HEAP_MB 必须是 128 到 4096 之间的整数（MB）')
   const sessions = new Map(), tails = new Map(), generations = new Map(), jobs = new Map()

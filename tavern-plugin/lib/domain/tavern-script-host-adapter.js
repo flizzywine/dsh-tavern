@@ -20,15 +20,30 @@ import {
   replaceTavernHelperWorldbookOperations
 } from './tavern-helper-worldbook.js'
 import { createMvuSettlementEffect } from './mvu-settlement-effect.js'
+import * as mvuUpdateCore from './mvu/mvu-update-core.js'
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
 }
 
-function isOfficialMvuData(value) {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
-    && value.stat_data !== undefined && value.schema !== undefined
-}
+  function isOfficialMvuData(value) {
+    return value !== null && typeof value === 'object' && !Array.isArray(value)
+      && value.stat_data !== undefined && value.schema !== undefined
+  }
+
+  // P1 双写：MVU 树级别的变量写同步进 SQLite state（小对象与 chat/script/global 变量不进）。
+  // 此阶段读尚未切换，失败只告警；读切换后由同一幂等语义兜底。
+  function mirrorVariableWrite(chat, updated, variables) {
+    const store = options.variableStore
+    if (!store || !updated || updated.type !== 'message') return
+    try {
+      const message = (chat.messages || [])[updated.messageId]
+      const tree = Array.isArray(variables) ? variables[Math.max(0, Number(message && message.swipeId) || 0)] : null
+      if (isOfficialMvuData(tree) || (tree !== null && typeof tree === 'object' && tree.stat_data !== undefined)) {
+        store.updateState(chat.id, { turn: Math.max(0, Number(message && message.turn) || 0), tree })
+      }
+    } catch (error) { console.warn('dsh-tavern: 变量 SQLite 双写失败（JSON 已落盘）:', str(error && error.message || error)) }
+  }
 
 // Pinned upstream src/function/update/index.ts throttles MESSAGE_RECEIVED at
 // 3000ms. Re-entering sooner returns the old Promise and schedules a late write.
@@ -199,11 +214,17 @@ export function createTavernScriptHostAdapter(options = {}) {
           patched = true
           const { messages: _messages, ...header } = saved
           Object.assign(chat, header)
-          if (updated.type === 'message') chat.messages[updated.messageId].variables = normalized
+          if (updated.type === 'message') {
+            chat.messages[updated.messageId].variables = normalized
+            mirrorVariableWrite(chat, updated, normalized)
+          }
         }
       }
       // A competing revision needs the existing three-way merge/conflict checks.
-      if (!saved) await options.writeChat(chat, { source: 'tavern-helper.variables' })
+      if (!saved) {
+        await options.writeChat(chat, { source: 'tavern-helper.variables' })
+        mirrorVariableWrite(chat, updated, updated.type === 'message' && Array.isArray(chat.messages[updated.messageId]?.variables) ? chat.messages[updated.messageId].variables : null)
+      }
     }
     catch (error) {
       if (error && error.code === 'DSH_TAVERN_CHAT_CONFLICT') {
@@ -598,14 +619,6 @@ export function createTavernScriptHostAdapter(options = {}) {
     // resolveChat awaited above: another attempt may have reserved this session
     // in the meantime. Never overwrite its draft or release its ownership.
     if (settlementTransactions.has(sessionId)) throw new Error('当前对话已有 MVU 变量结算正在执行')
-    // An earlier lifecycle event still owns the executor. Installing an MVU
-    // transaction now would reject its legitimate writes during context loading,
-    // even though dispatch would eventually return busy and defer this attempt.
-    const beforeDispatch = options.scriptDispatch.status?.(sessionId)
-    if (beforeDispatch?.busy) {
-      await record('runtime-deferred', { availability: beforeDispatch })
-      return { updated: false, deferred: true, deferredReason: 'runtime-busy', context: projectTavernHelperContext(current) }
-    }
     const originalText = str((message.swipes && message.swipes[swipeId]) ?? message.sourceText ?? message.text)
     const transaction = {
       draft: structuredClone(current),
@@ -631,49 +644,44 @@ export function createTavernScriptHostAdapter(options = {}) {
         if (prior) prior.variables = structuredClone(input.baselineVariables)
       }
       const internalText = str(input.storyText).trim() + '\n\n' + command
-      projected.message = internalText
-      if (!Array.isArray(projected.swipes)) projected.swipes = [originalText]
-      projected.swipes[swipeId] = internalText
-      const availability = options.scriptDispatch.status?.(sessionId)
-      const hasMvuSnapshot = value => value && value.stat_data !== undefined && value.schema !== undefined
-      const currentSnapshot = hasMvuSnapshot(projected.variables) === true
-      const priorSnapshot = eventContext.messages.slice(0, messageId).some(item => hasMvuSnapshot(item.variables))
-      await record('runtime-dispatch', { availability, baseline: { currentSnapshot, priorSnapshot, usesCurrentFallback: currentSnapshot && !priorSnapshot } })
-      async function initializationRejected(error) {
-        const validation = { changes: [], sideEffects: [], failures: [{ message: error }] }
-        await record('runtime-initialization-failed', { error })
+      // 第二阶段（M2/M3）：变量应用进程内执行——官方核心移植版（mvu-update-core）直接
+      // 应用到事务草稿的目标楼层，浏览器引擎的认领/租约/回执跨公网链路整体退役。
+      await record('runtime-dispatch', { mode: 'server' })
+      const draftMessage = transaction.draft.messages[messageId]
+      if (!draftMessage || typeof draftMessage !== 'object') throw new Error('MVU 变量结算楼层不存在')
+      if (!Array.isArray(draftMessage.variables)) draftMessage.variables = []
+      while (draftMessage.variables.length <= swipeId) draftMessage.variables.push({})
+      const priorFloorVariables = draftMessage.variables[swipeId]
+      const mvuData = {
+        initialized_lorebooks:
+          (input.baselineVariables && input.baselineVariables.initialized_lorebooks) ||
+          (priorFloorVariables && priorFloorVariables.initialized_lorebooks) || {},
+        stat_data:
+          (input.baselineVariables && input.baselineVariables.stat_data !== undefined)
+            ? structuredClone(input.baselineVariables.stat_data)
+            : (priorFloorVariables && priorFloorVariables.stat_data !== undefined
+                ? structuredClone(priorFloorVariables.stat_data)
+                : {}),
+        schema:
+          (input.baselineVariables && input.baselineVariables.schema !== undefined)
+            ? structuredClone(input.baselineVariables.schema)
+            : (priorFloorVariables && priorFloorVariables.schema !== undefined
+                ? structuredClone(priorFloorVariables.schema)
+                : { type: 'object', properties: {}, extensible: true }),
+      }
+      try {
+        await mvuUpdateCore.updateVariables(command, mvuData)
+      } catch (error) {
+        await record('runtime-error', { error: str(error && error.message || error) })
+        const validation = { changes: [], sideEffects: [], failures: [{ message: str(error && error.message || error) }] }
         return { updated: false, rejected: true, retryable: false, validation,
-          diagnostics: [{ kind: 'initialization', level: 'error', initializationFailed: true, message: error }],
+          diagnostics: [{ kind: 'server-engine', level: 'error', message: str(error && error.message || error) }],
           context: projectTavernHelperContext(current) }
       }
-      if (availability?.initializationError) return await initializationRejected(availability.initializationError)
-      // MVU is a local capability of the chat. A temporarily absent browser
-      // executor is scheduling state, not a failed settlement. Return the
-      // prepared transaction immediately so the caller can persist and resume
-      // it when the executor registers again.
-      if (availability && availability.ready !== true) {
-        await record('runtime-deferred', { availability })
-        return { updated: false, deferred: true, deferredReason: 'runtime-not-ready', context: projectTavernHelperContext(current) }
-      }
-      const dispatched = await options.scriptDispatch.dispatch(sessionId, 'MESSAGE_RECEIVED', [messageId], eventContext, { eventId: transaction.eventId, signal: input.signal })
-      await record('runtime-completed', { handled: dispatched.handled === true, timedOut: dispatched.timedOut === true, executionLost: dispatched.executionLost === true, claimTimedOut: dispatched.claimTimedOut === true, phase: dispatched.phase, disposed: dispatched.disposed === true, error: dispatched.error, diagnostics: dispatched.diagnostics || [] })
-      if (dispatched.handled !== true) {
-        if (dispatched.initializationFailed === true) return await initializationRejected(str(dispatched.error))
-        if (dispatched.unavailable === true || (input.durable === true && (dispatched.disposed === true || dispatched.timedOut === true || /超时|timed?\s*out|timeout/i.test(str(dispatched.error))))) {
-          await record('runtime-deferred', { availability: options.scriptDispatch.status?.(sessionId) })
-          return { updated: false, deferred: true, deferredReason: dispatched.claimTimedOut === true ? 'claim-timeout' : 'delivery-interrupted', context: projectTavernHelperContext(current) }
-        }
-        if (str(dispatched.error).trim() !== '' && !dispatched.timedOut && !dispatched.disposed
-          && !/超时|timed?\s*out|timeout/i.test(str(dispatched.error))) {
-          const validation = { changes: [], sideEffects: [], failures: [{ message: str(dispatched.error) }] }
-          await record('validation-rejected', { failures: validation.failures, externalEffects: transaction.externalEffects === true })
-          return { updated: false, rejected: true, retryable: transaction.externalEffects !== true, retryAfterMs: MVU_RETRY_AFTER_MS,
-            validation, diagnostics: dispatched.diagnostics || [], context: projectTavernHelperContext(current) }
-        }
-        if (dispatched.timedOut === true) throw new Error('MVU 脚本执行回执超时，本轮结算未确认完成，请重试结算')
-        if (dispatched.disposed === true) throw new Error('MVU 浏览器执行器已断开，本轮结算中断，请重试结算')
-        throw new Error(str(dispatched.error).trim() || '官方 MVU 浏览器运行时尚未就绪，本轮未执行变量结算')
-      }
+      // 应用结果（含 display_data/delta_data 镜像）写回事务草稿的目标楼层
+      draftMessage.variables[swipeId] = mvuData
+      const dispatched = { handled: true, mode: 'server' }
+      await record('runtime-completed', { handled: true, mode: 'server' })
       const settled = transaction.draft.messages[messageId]
       if (!settled || Math.max(0, Number(settled.swipeId) || 0) !== swipeId) {
         return { updated: false, stale: true, context: projectTavernHelperContext(current) }

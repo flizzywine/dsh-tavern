@@ -50,7 +50,7 @@ export function selectRegenerationTarget(chat, session, observe) {
  * Timeline owns revisions; this module owns the workflow, including aborts.
  * Callers supply host adapters, never intermediate rollback or swipe state.
  */
-export function createRoundHistory({ chats, sessions, scripts, timeline, queueSettlement, cancelSettlement, present, diagnostics, sessionPatch }) {
+export function createRoundHistory({ chats, sessions, scripts, timeline, queueSettlement, cancelSettlement, present, diagnostics, sessionPatch, variableStore }) {
   const { read: readChat, forSession: chatForSession, readCard: readChatCard,
     readRevision: readChatRevision, write: writeChat, update: updateChat } = chats
   const { read: readScript, continuity: scriptContinuity } = scripts
@@ -485,8 +485,9 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     delete chat.regenRecovery
     if (rollbackCommitKey !== '') delete chat.nativeCommits[rollbackCommitKey]
     chat.tavernHelperLifecycleRevision = Math.max(0, Number(chat.tavernHelperLifecycleRevision) || 0) + 1
-    chat.suppressedDshTurns = Array.from(new Set((Array.isArray(chat.suppressedDshTurns) ? chat.suppressedDshTurns : []).concat(
-      [hiddenTurn], Number.isSafeInteger(regeneratedVisibleTurn) && regeneratedVisibleTurn > 0 ? [regeneratedVisibleTurn] : []))).sort(function (left, right) { return left - right })
+    // 回退 = 物理清除（第一阶段）：抑制标记清空——历史已干净，无需再遮蔽任何轮次
+    //（残留标记正是"回退后页面空白"的根源）。SQLite 快照链的删除在不可逆点之后执行（见下）。
+    chat.suppressedDshTurns = []
     chat.regeneratedDshTurns = chat.regeneratedDshTurns && typeof chat.regeneratedDshTurns === 'object' && !Array.isArray(chat.regeneratedDshTurns)
       ? structuredClone(chat.regeneratedDshTurns) : {}
     delete chat.regeneratedDshTurns[String(hiddenTurn)]
@@ -522,6 +523,11 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     }
     // Rewind immediately after the foreground commit; retain the timeline's retry
     // boundary so the next task can safely retry if this best-effort step fails.
+    // 至此正文与消息面均已提交，回退不可逆：变量快照链执行物理删除（回退 = 清除，非隐藏）。
+    if (variableStore) {
+      try { variableStore.deleteFrom(chat.id, hiddenTurn) }
+      catch (error) { rollbackWarning = '正文已回退，变量 SQLite 清理失败：' + str(error?.message || error) }
+    }
     for (const participant of Object.values(storyTimeline.inspect({ chat }).participants || {})) {
       if (participant.status !== 'needs-rewind' || !participant.sessionId) continue
       let restoredHandle
@@ -568,7 +574,9 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
       if (typeof sessions.flush === 'function') await sessions.flush(session)
       chat = await updateChat(chat.id, current => {
         if (current.timeline?.branchId !== chat.timeline?.branchId || current.timeline?.revision !== chat.timeline?.revision) return current
-        current.rollbackUndo = { ...undo, ready: true, branchId: current.timeline.branchId, revision: current.timeline.revision,
+        // 物理清除语义：不提供"撤销回退"（ready 恒为 false，前端不显示撤销按钮）——
+        // 被回退轮的变量已从 SQLite 链删除，撤销会得到正文与变量不一致的状态。
+        current.rollbackUndo = { ...undo, ready: false, branchId: current.timeline.branchId, revision: current.timeline.revision,
           lifecycleRevision: Number(current.tavernHelperLifecycleRevision || 0),
           storageRevision: Number(current._storageRevision || 0) + 1,
           foreground: { ...undo.foreground, afterCount: sessionEvents(session).length } }

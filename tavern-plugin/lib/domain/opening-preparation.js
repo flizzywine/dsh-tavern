@@ -33,7 +33,8 @@ export function createOpeningPreparation({ readCard, worldBooks, generateRaw, re
   function present(draft) {
     return copy({ id: draft.id, cardPath: draft.cardPath, openings: draft.openings,
       openingId: draft.openingId || draft.openings[0]?.id, diagnostics: copy(draft.diagnostics || []),
-      runtime: draft.runtimeEnabled ? { context: runtimeContext(draft), scripts: (draft.chat.mvu.enabled ? [{ id: '__dsh_official_mvu__', name: 'MVU', system: 'official-mvu', assetUrl: OFFICIAL_MVU_VERSION.assetUrl }] : []).concat(draft.helperScripts || []) } : null,
+      // M3 前端退役（第二阶段）：官方 MVU 引擎不再下发浏览器——变量应用在服务端进程内（mvu/mvu-update-core）
+      runtime: draft.runtimeEnabled ? { context: runtimeContext(draft), scripts: (draft.helperScripts || []) } : null,
       worldbook: draft.document ? projectTavernHelperWorldbook(inspectWorldBookDocument(draft.document)) : null })
   }
   return {

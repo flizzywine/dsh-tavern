@@ -9,7 +9,9 @@ export function rescueHistoryInput(source) {
   for (let index = 0; index < rows.length; index++) {
     const message = rows[index], swipe = message.swipeId ?? 0
     const value = Number.isSafeInteger(swipe) && swipe >= 0 && Array.isArray(message.variables) ? message.variables[swipe] : undefined
-    if (object(value) && object(value.stat_data) && object(value.schema)) { snapshot = structuredClone(value); snapshotIndex = index }
+    /* [rescue-string-schema] schema 可能是字符串（本卡实测如此） */
+    const schemaOk = value => object(value?.schema) || (typeof value?.schema === 'string' && value.schema.trim() !== '')
+    if (object(value) && object(value.stat_data) && schemaOk(value)) { snapshot = structuredClone(value); snapshotIndex = index }
   }
   if (source.mvu?.enabled && !snapshot) throw new Error('旧档没有包含 stat_data 和 schema 的可用 MVU 快照，无法携带状态救援；原存档未修改')
   const snapshotTarget = Math.max(0, rows.findLastIndex(m => m.role === 'assistant'))

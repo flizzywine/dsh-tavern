@@ -128,13 +128,14 @@ import { createForegroundOrchestrationStrategies } from './domain/foreground-orc
 import { clearFailedTurnSurface } from './domain/rollback-surface.js'
 import { assistantResultForTurn } from './domain/session-turn-result.js'
 import { createTavernRetryLimiter } from './domain/tavern-retry-limiter.js'
-import { lastTavernHelperVariables, projectTavernHelperContext, hydrateTavernHelperMessages, HELPER_MESSAGE_COLD_WINDOW } from './domain/tavern-helper-context.js'
+import { lastTavernHelperVariables, projectTavernHelperContext, hydrateTavernHelperMessages, HELPER_MESSAGE_COLD_WINDOW, setVariableHistoryReader } from './domain/tavern-helper-context.js'
 import { projectTavernHelperWorldbook } from './domain/tavern-helper-worldbook.js'
 import { applyTavernHelperVariableMacros } from './domain/tavern-helper-variable-macros.js'
 import { projectTavernHelperScripts, hasTavernScriptRuntime } from './domain/tavern-helper-scripts.js'
 import { createTavernScriptDispatch } from './domain/tavern-script-dispatch.js'
 import { createTavernExtensionSettings } from './domain/tavern-extension-settings.js'
 import { createTavernScriptHostAdapter } from './domain/tavern-script-host-adapter.js'
+import { createVariableSqliteStore } from './domain/variable-sqlite-store.js'
 import { createTavernRemoteAssetPinStore } from './domain/tavern-remote-assets.js'
 import { OFFICIAL_MVU_VERSION, readOfficialMvuBundle, inspectOfficialMvuAsset } from './domain/official-mvu-assets.js'
 import { TAVERN_RUNTIME_ASSET_PREFIX, readTavernRuntimeAsset } from './domain/tavern-runtime-assets.js'
@@ -179,6 +180,7 @@ import {
 import { createProfileDataStore } from './profile-data-store.js'
 import { createChatPersistence } from './domain/chat-persistence.js'
 import { createChatJournalStore } from './domain/chat-journal-store.js'
+import { createChatSqliteStore } from './domain/chat-sqlite-store.js'
 import { createResourceGraph } from './domain/resource-graph.js'
 import { normalizeBackgroundTasks, applyTavernSettingsPatch, presentTavernSettings, resolveSystemPrompt } from './domain/tavern-settings.js'
 import { prompt, SYSTEM_PROMPT_DEFINITIONS, SYSTEM_PROMPT_NAMES } from './prompt-catalog.js'
@@ -722,7 +724,30 @@ export async function apply(ctx) {
     }
     return chat
   }
-  const chatJournalStore = createChatJournalStore({ dataRoot, legacyData: profileData, now: Date.now, logger: console })
+  // 3.0：存档后端开关（TAVERN_ARCHIVE_STORE=file 回文件后端；默认 sqlite=存档进库）
+  const chatJournalStore = process.env.TAVERN_ARCHIVE_STORE === 'file'
+    ? createChatJournalStore({ dataRoot, legacyData: profileData, now: Date.now, logger: console })
+    : createChatSqliteStore({ dataRoot, legacyData: profileData, now: Date.now, logger: console })
+  // 变量 SQLite 存储（第一阶段，TAVERN_VARIABLE_SQLITE=off 一键回旧路径）
+  const variableSqliteStore = process.env.TAVERN_VARIABLE_SQLITE === 'off' ? null
+    : createVariableSqliteStore({ chatsRoot: dataRoot + '/chats', now: Date.now, logger: console })
+  // 瘦身 2.0（TAVERN_VARIABLE_SLIM=off 关瘦身、保留读切换）：
+  // R2 投影注入——历史楼变量从 SQLite 快照链补齐，引擎/前端拿到的数据与瘦身前一致
+  if (variableSqliteStore) {
+    setVariableHistoryReader(chatId => variableSqliteStore.snapshotAll(chatId))
+  }
+  const variableSlimEnabled = process.env.TAVERN_VARIABLE_SLIM !== 'off'
+  function currentVariablesOf(chat) {
+    const json = lastTavernHelperVariables(chat && chat.messages)
+    if (json !== undefined) return json
+    if (variableSqliteStore && chat && chat.id) {
+      try {
+        const tree = variableSqliteStore.snapshot(chat.id)
+        if (tree !== undefined) return tree
+      } catch (error) { console.warn('dsh-tavern: 变量 SQLite 兜底读取失败:', str(error && error.message || error)) }
+    }
+    return undefined
+  }
   const chatPersistence = createChatPersistence({ store: chatJournalStore, normalize: normalizeChat, now: Date.now })
   async function readChat(chatId) {
     const chat = await chatPersistence.read(chatId)
@@ -1274,6 +1299,7 @@ export async function apply(ctx) {
   }
   const tavernScriptHostAdapter = createTavernScriptHostAdapter({
     recordResourceSave: (sessionId, summary) => apiDiagnostics.recordResourceSave(sessionId, summary),
+    variableStore: variableSqliteStore,
     publishCreatedMessages: async function (chat, targets) {
       const session = sessionStore.get(chat.sessionId) || agentRegistry.get(chat.sessionId)?.session
       appendHelperUserSessionContext(session, chat, targets)
@@ -2312,7 +2338,11 @@ export async function apply(ctx) {
       const message = messages[messageId]
       if (!message || message.role !== 'assistant' || !message.mvu || message.mvu.pending !== true) continue
       const swipeId = Math.max(0, Number(message.swipeId) || 0)
-      const variables = message.mvuBaseline?.swipeId === swipeId ? message.mvuBaseline.variables : (Array.isArray(message.variables) ? message.variables[swipeId] : undefined)
+      let variables = message.mvuBaseline?.swipeId === swipeId ? message.mvuBaseline.variables : (Array.isArray(message.variables) ? message.variables[swipeId] : undefined)
+      // 瘦身后（P4）基线可能已从 JSON 清除：SQLite state 即上一轮结算后的树，语义等价
+      if (!(variables && typeof variables === 'object') && variableSqliteStore) {
+        try { variables = variableSqliteStore.snapshot(chat && chat.id) } catch (_error) { /* 回退 JSON 空基线 */ }
+      }
       return {
         messageId,
         swipeId,
@@ -2373,6 +2403,10 @@ export async function apply(ctx) {
     return latest
   }
   async function runSettlement(chatId, signal) {
+    // 熔断：同一任务身份连续失败 3 次即落失败状态退出——防止"终态任务复用/校验必炸"
+    // 类问题演变成每 250ms 一次空 commit 的死循环（2026-09-27 实测烧掉上千 revision）。
+    let loopFaults = 0
+    let loopLastOp = ''
     while (true) {
       signal?.throwIfAborted()
       let snapshot = await readChat(chatId)
@@ -2381,7 +2415,7 @@ export async function apply(ctx) {
       snapshot = await prepareNextWorldBookContext(snapshot, signal)
       signal?.throwIfAborted()
       if (snapshot === null) return
-      const taskRun = await backgroundTasks.begin(snapshot, 'settlement')
+      const taskRun = await backgroundTasks.begin(snapshot, 'settlement', { requestId: 'settlement-' + str(snapshot.id) })
       snapshot = taskRun.chat
       let backgroundSessionId = str(taskRun.participantRequest.sessionId)
       let backgroundBoundary = null
@@ -2566,7 +2600,64 @@ export async function apply(ctx) {
             str(result && result.posture).trim() !== '',
           participant: taskRun.participant({ sessionId: backgroundSessionId, boundary: backgroundBoundary }),
           apply(draft) {
-            if (mvuResult && mvuResult.effect) applyMvuSettlementEffect(draft, mvuResult.effect)
+            if (mvuResult && mvuResult.effect) {
+              applyMvuSettlementEffect(draft, mvuResult.effect)
+              // P1 双写：结算落盘即写 SQLite 快照链（JSON 照旧）。此阶段读尚未切换，
+              // 双写失败只告警不阻断；读路径保持 JSON（最新楼保留树），SQLite 承担
+              // 快照链（时间旅行）+ 回退物理删除 + 审计。
+              if (variableSqliteStore) {
+                try {
+                  const settled = (draft.messages || [])[mvuTarget.messageId]
+                  const tree = settled && Array.isArray(settled.variables) ? settled.variables[Math.max(0, Number(settled.swipeId) || 0)] : null
+                  if (tree !== null && typeof tree === 'object' && tree.stat_data !== undefined) {
+                    // 惰性迁移：旧档首次结算时把 JSON 历史快照链一次性导入（同 turn 后楼覆盖前楼）
+                    if (!variableSqliteStore.has(draft.id)) {
+                      try {
+                        const rows = []
+                        for (const message of Array.isArray(draft.messages) ? draft.messages : []) {
+                          if (!message || typeof message !== 'object' || !Array.isArray(message.variables)) continue
+                          const swipe = Math.max(0, Number(message.swipeId) || 0)
+                          const snapshot = message.variables[swipe]
+                          if (snapshot && typeof snapshot === 'object' && snapshot.stat_data !== undefined) {
+                            rows.push({ turn: Math.max(0, Number(message.turn) || 0), source: 'import', tree: snapshot })
+                          }
+                        }
+                        if (rows.length) {
+                          variableSqliteStore.importSnapshots(draft.id, rows)
+                          console.log('dsh-tavern: 变量 SQLite 惰性迁移完成:', draft.id, rows.length, '轮')
+                        }
+                      } catch (error) { console.warn('dsh-tavern: 变量 SQLite 惰性迁移失败（本轮照常双写）:', str(error && error.message || error)) }
+                    }
+                    variableSqliteStore.commitSettlement(draft.id, {
+                      turn: Math.max(0, Number(settled.turn) || 0), tree,
+                      operations: mvuResult.effect.changes, uid: mvuResult.effect.operationId
+                    })
+                  }
+                } catch (error) { console.warn('dsh-tavern: 变量 SQLite 双写失败（JSON 已落盘）:', str(error && error.message || error)) }
+              }
+              // P4 瘦身 2.0（R3，K=4）：历史楼层变量已可从 SQLite 快照链补齐（R2 投影注入），
+              // JSON 只保留最近 4 楼热数据。1.0 翻车根因（引擎楼层恢复断供）由 R2 修复。
+              // 开关：TAVERN_VARIABLE_SLIM=off 一键关瘦身（R2 读切换保留，JSON 全量）。
+              if (variableSqliteStore && variableSlimEnabled) {
+                try {
+                  const messages = Array.isArray(draft.messages) ? draft.messages : []
+                  let kept = 0
+                  for (let index = messages.length - 1; index >= 0; index--) {
+                    const message = messages[index]
+                    if (!message || typeof message !== 'object') continue
+                    // greeting 楼是引擎的初始化基线（活数据，会被引擎重新初始化更新）——永不清理
+                    if (message.greeting === true || index === 0) continue
+                    const hasTree = Array.isArray(message.variables) && message.variables.some(value => value && typeof value === 'object')
+                    const hasBaseline = message.mvuBaseline && typeof message.mvuBaseline === 'object'
+                    if (!hasTree && !hasBaseline) continue
+                    if (kept < 4) { kept++; continue }
+                    if (hasTree) delete message.variables
+                    if (hasBaseline) delete message.mvuBaseline
+                    if (message.mvu && typeof message.mvu === 'object' && !message.mvu.pending) delete message.mvu.delivery
+                  }
+                } catch (error) { console.warn('dsh-tavern: 变量 JSON 瘦身失败（不影响数据）:', str(error && error.message || error)) }
+              }
+            }
             stat = applySettlement(draft, result)
             if (mvuTarget && mvuResult === null && backgroundTasksSettings.variables === false) {
               const target = draft.messages[mvuTarget.messageId]
@@ -2604,6 +2695,8 @@ export async function apply(ctx) {
         return
       } catch (err) {
         if (signal?.aborted) return
+        // 诊断：catch 链路曾经整段静默（stale-continue 分支无任何日志），排障时看不到首次错误。
+        console.warn('dsh-tavern: 结算任务异常:', chatId, str(err && err.message || err), err && err.stack ? String(err.stack).split('\n')[1] || '' : '')
         const failedSessionId = str(err && err.traceSessionId)
         if (failedSessionId && failedSessionId !== backgroundSessionId) {
           backgroundSessionId = failedSessionId
@@ -2618,6 +2711,26 @@ export async function apply(ctx) {
         if (failed.status === 'missing') return
         if (failed.status === 'stale') {
           const activity = backgroundTasks.activity(failed.chat)
+          console.warn('dsh-tavern: 结算失败提交返回 stale，重入任务循环:', chatId, 'phase=' + activity.phase, 'op=' + activity.operationId)
+          loopFaults = str(activity.operationId) === loopLastOp ? loopFaults + 1 : 1
+          loopLastOp = str(activity.operationId)
+          if (loopFaults >= 3) {
+            console.error('dsh-tavern: 结算任务连续失败，停止重试:', chatId, str(err && err.message || err))
+            const failedLatest = await readChat(chatId)
+            if (failedLatest === undefined) return
+            const failedTarget = pendingMvuTarget(failedLatest)
+            const failedMessage = str(err && err.message || err) || '后台结算连续失败'
+            if (failedTarget !== null) {
+              failedTarget.message.mvu = {
+                pending: false, modified: false, diagnostics: [{ message: failedMessage }], events: [],
+                receipt: err?.mvuReceipt ? structuredClone(err.mvuReceipt) : { version: 1, status: 'error', summary: '', changes: [], failures: [{ command: '', message: failedMessage }] }
+              }
+            }
+            failedLatest.settleStatus = 'failed'
+            failedLatest.settleError = failedMessage
+            await writeChat(failedLatest, { source: 'settlement.mvu-failed' })
+            return
+          }
           if (activity.role === 'settlement' && (activity.phase === 'pending' || activity.phase === 'running')) continue
           return
         }
@@ -2839,7 +2952,7 @@ export async function apply(ctx) {
     },
     projectUserTemplate: async ({chat,text}) => {
       const global = await readPromptTemplateGlobalVariables()
-      const result = await fullTemplateRuntime.forSession(chat.sessionId).renderInput(text, {userName:chat.macroState?.userName || '你',scopes:{global,local:chat.variables || {},initial:chat.promptTemplateInitialVariables || {},message:lastTavernHelperVariables(chat.messages) || {}}})
+      const result = await fullTemplateRuntime.forSession(chat.sessionId).renderInput(text, {userName:chat.macroState?.userName || '你',scopes:{global,local:chat.variables || {},initial:chat.promptTemplateInitialVariables || {},message:currentVariablesOf(chat) || {}}})
       const row = result.message
       await tavernScriptHostAdapter.saveFullPromptTemplateGlobals(chat.sessionId, result.scopes.global, global)
       return {scopes:result.scopes,message:{role:'user',text:row.mes,sourceText:row.mes,swipeId:row.swipe_id,swipes:row.swipes,variables:row.variables,tavernPluginData:Object.fromEntries(['is_ejs_processed','variables_initialized','template_display'].filter(key=>row[key]!==undefined).map(key=>[key,row[key]]))}}
@@ -2905,6 +3018,7 @@ export async function apply(ctx) {
   // ---------- 重新生成正文（生成即替换，无确认） ----------
   const { regenerate: regenBody, replayFailed: replayFailedTurn, recover: recoverRegeneration, rollback: rollbackTurn, undoRollback: undoRollbackTurn } = createRoundHistory({
     diagnostics: mvuDiagnostics,
+    variableStore: variableSqliteStore,
     chats: { read: readChat, readState: chatPersistence.readSessionState, forSession: chatForSession, readCard: readChatCard,
       readRevision: readChatRevision, write: writeChat, update: updateChat },
     sessions: { get: function (sessionId) { return ctx.get('agents')?.get(sessionId) },
@@ -3972,7 +4086,7 @@ export async function apply(ctx) {
     compiled.trace.presetMode = presetPath === '' ? 'builtin-clean' : 'external'
     compiled.trace.regexCount = regexScripts.length
     const helperMacros = applyTavernHelperVariableMacros(compiled.messages, {
-      message: lastTavernHelperVariables(chat.messages),
+      message: currentVariablesOf(chat),
       chat: chat.variables,
       character: extensions && extensions.variables,
       preset: snapshot && snapshot.variables,
@@ -3994,7 +4108,7 @@ export async function apply(ctx) {
         global: await readPromptTemplateGlobalVariables(),
         initial: chat.promptTemplateInitialVariables,
         local: chat.variables,
-        message: lastTavernHelperVariables(chat.messages)
+        message: currentVariablesOf(chat)
       }
     }
     const initialized = await promptTemplates.initializeVariables(worldInfo.entries, templateContext)
