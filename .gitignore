@@ -33,3 +33,5 @@ docs/research/sillytavern-successful-prompt-snapshot-*.json
 
 # Local installation context (host and isolated home)
 .dsh-tavern-local.json
+*.pre-labfix
+*.pre-localfix
