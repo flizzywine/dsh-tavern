@@ -1696,6 +1696,60 @@ window.__ModuleLoader__.load({
 			const token = JSON.stringify(String(input && input.token || "")).replace(/</g, "\\u003c");
 			const helperContext = JSON.stringify(input && input.helperContext || null).replace(/</g, "\\u003c").replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
 			const helperTurn = Math.max(0, Number(input && input.turn) || 0);
+			// insecure context（HTTP 公网访问）下 crypto.subtle 不存在，卡脚本的页面完整性
+			// 校验（sha256）会整体失败。注入纯 JS SHA-256 兜底；原生存在时不覆盖。
+			function installTavernCryptoSubtlePolyfill() {
+				try {
+					if (typeof window === "undefined" || (window.crypto && window.crypto.subtle && typeof window.crypto.subtle.digest === "function")) return;
+					var K = [0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2];
+					function sha256Bytes(bytes) {
+						var H = [0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19];
+						var length = bytes.length;
+						var total = Math.ceil((length + 9) / 64) * 64;
+						var padded = new Uint8Array(total);
+						padded.set(bytes); padded[length] = 0x80;
+						var view = new DataView(padded.buffer);
+						view.setUint32(total - 4, (length * 8) >>> 0);
+						view.setUint32(total - 8, Math.floor(length * 8 / 4294967296));
+						var w = new Array(64);
+						for (var block = 0; block < total; block += 64) {
+							for (var t = 0; t < 16; t++) w[t] = view.getUint32(block + t * 4);
+							for (var t2 = 16; t2 < 64; t2++) {
+								var s0 = ((w[t2 - 15] >>> 7) | (w[t2 - 15] << 25)) ^ ((w[t2 - 15] >>> 18) | (w[t2 - 15] << 14)) ^ (w[t2 - 15] >>> 3);
+								var s1 = ((w[t2 - 2] >>> 17) | (w[t2 - 2] << 15)) ^ ((w[t2 - 2] >>> 19) | (w[t2 - 2] << 13)) ^ (w[t2 - 2] >>> 10);
+								w[t2] = (w[t2 - 16] + s0 + w[t2 - 7] + s1) | 0;
+							}
+							var a = H[0], b = H[1], c = H[2], d = H[3], e = H[4], f = H[5], g = H[6], h = H[7];
+							for (var t3 = 0; t3 < 64; t3++) {
+								var S1 = ((e >>> 6) | (e << 26)) ^ ((e >>> 11) | (e << 21)) ^ ((e >>> 25) | (e << 7));
+								var ch = (e & f) ^ (~e & g);
+								var temp1 = (h + S1 + ch + K[t3] + w[t3]) | 0;
+								var S0 = ((a >>> 2) | (a << 30)) ^ ((a >>> 13) | (a << 19)) ^ ((a >>> 22) | (a << 10));
+								var maj = (a & b) ^ (a & c) ^ (b & c);
+								var temp2 = (S0 + maj) | 0;
+								h = g; g = f; f = e; e = (d + temp1) | 0; d = c; c = b; b = a; a = (temp1 + temp2) | 0;
+							}
+							H[0] = (H[0] + a) | 0; H[1] = (H[1] + b) | 0; H[2] = (H[2] + c) | 0; H[3] = (H[3] + d) | 0;
+							H[4] = (H[4] + e) | 0; H[5] = (H[5] + f) | 0; H[6] = (H[6] + g) | 0; H[7] = (H[7] + h) | 0;
+						}
+						var out = new Uint8Array(32);
+						var outView = new DataView(out.buffer);
+						for (var j = 0; j < 8; j++) outView.setUint32(j * 4, H[j] >>> 0);
+						return out;
+					}
+					window.crypto = window.crypto || {};
+					window.crypto.subtle = {
+						digest: function (algorithm, data) {
+							return Promise.resolve().then(function () {
+								var name = String(typeof algorithm === "object" && algorithm !== null ? algorithm.name : algorithm || "").toUpperCase().replace(/[-_]/g, "");
+								if (name !== "SHA256") throw new Error("polyfill 仅支持 SHA-256");
+								var bytes = data instanceof ArrayBuffer ? new Uint8Array(data) : ArrayBuffer.isView(data) ? new Uint8Array(data.buffer, data.byteOffset, data.byteLength) : new Uint8Array(0);
+								return sha256Bytes(bytes).buffer;
+							});
+						}
+					};
+				} catch (_error) {}
+			}
 			const preparationRuntime = input && input.openingPreview && input.openingPreview.runtime
 				? buildTavernHelperScriptParts({ token: input.token, context: input.openingPreview.runtime.context, scripts: input.openingPreview.runtime.scripts, previewScope: true }) : null;
 			const helperDependencies = input && (input.helperContext || input.openingPreview) ? tavernHelperMessageDependencies() : sillyTavernCssCompatibilityDependencies() + (/<script\b/i.test(html) ? tavernHelperMessageDependencies() : "");
@@ -1717,7 +1771,7 @@ window.__ModuleLoader__.load({
 				+ '<meta name="viewport" content="width=device-width,initial-scale=1">'
 				+ '<meta name="referrer" content="no-referrer">'
 				+ '<meta http-equiv="Content-Security-Policy" content="default-src https: http: data: blob:; img-src https: http: data: blob:; media-src https: http: data: blob:; font-src https: http: data:; style-src \'unsafe-inline\' https: http:; script-src \'unsafe-inline\' \'unsafe-eval\' https: http: data: blob:; connect-src https: http: wss: data: blob:; frame-src https: http: data: blob:; object-src \'none\'; base-uri \'none\'; form-action \'none\'">'
-				+ '<style>:root{color-scheme:light dark}html,body{box-sizing:border-box;margin:0;min-height:0;background:transparent;color:CanvasText;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:16px;line-height:1.75}body{padding:0 1px;overflow-wrap:anywhere;white-space:pre-wrap}html[data-dsh-tavern-scroll]{overflow-y:auto!important}html[data-dsh-tavern-scroll] body{overflow-y:visible!important}body>*{white-space:normal}maintext{display:block;white-space:pre-wrap;overflow-wrap:anywhere}.dsh-tavern-plain-text{white-space:pre-wrap;overflow-wrap:anywhere}*,*:before,*:after{box-sizing:border-box}img,video,svg,canvas{max-width:100%;height:auto}pre{max-width:100%;overflow:auto;white-space:pre-wrap}table{max-width:100%;border-collapse:collapse}a{color:LinkText}</style>' + (preparationRuntime ? preparationRuntime.head : helperDependencies) + tavernStaticAssetShim() + '<script data-dsh-tavern-remote-document>(' + installTavernRemoteDocumentLoader.toString() + ')();<\/script>' + storageShim + helperShim + interactiveHelperShim + mvuViewObservationShim + cleanRuntimeReporter
+				+ '<style>:root{color-scheme:light dark}html,body{box-sizing:border-box;margin:0;min-height:0;background:transparent;color:CanvasText;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:16px;line-height:1.75}body{padding:0 1px;overflow-wrap:anywhere;white-space:pre-wrap}html[data-dsh-tavern-scroll]{overflow-y:auto!important}html[data-dsh-tavern-scroll] body{overflow-y:visible!important}body>*{white-space:normal}maintext{display:block;white-space:pre-wrap;overflow-wrap:anywhere}.dsh-tavern-plain-text{white-space:pre-wrap;overflow-wrap:anywhere}*,*:before,*:after{box-sizing:border-box}img,video,svg,canvas{max-width:100%;height:auto}pre{max-width:100%;overflow:auto;white-space:pre-wrap}table{max-width:100%;border-collapse:collapse}a{color:LinkText}</style>' + (preparationRuntime ? preparationRuntime.head : helperDependencies) + tavernStaticAssetShim() + '<script data-dsh-tavern-remote-document>(' + installTavernRemoteDocumentLoader.toString() + ')();<\/script>' + storageShim + helperShim + '<script data-dsh-tavern-crypto-polyfill>(' + installTavernCryptoSubtlePolyfill.toString() + ')();<\/script>' + interactiveHelperShim + mvuViewObservationShim + cleanRuntimeReporter
 				+ (input && input.helperContext && input.helperContext.openingHost ? '<script data-dsh-tavern-session-opening>(' + installSessionOpeningBridge.toString() + ')(' + token + ',' + JSON.stringify(Object.assign({}, input.helperContext.openingHost, { extensionSettings: input.helperContext.extensionSettings || {} })).replace(/</g, '\\u003c') + ');<\/script>' : '')
 				+ (input && input.helperContext ? '<script data-dsh-tavern-frame-variable-aliases>(' + installTavernFrameVariableAliases.toString() + ')();<\/script>' : '')
 				+ (input && input.helperContext && input.persistent === true && input.preserveInstance !== true ? '<script data-dsh-tavern-status-refresh>(' + installTavernStatusRefresh.toString() + ')(' + token + ');<\/script>' : '')
@@ -3947,8 +4001,10 @@ window.__ModuleLoader__.load({
 				const context = helperContext(view, scripts);
 				const nextSnapshot = snapshot(context);
 				const officialOwner = Boolean(view && view.tavernMvuRuntime && view.tavernMvuRuntime.owner === "official");
-				// Viewers mirror committed data without replaying settlement callbacks.
-				const queuedEvents = officialOwner || viewer ? [] : eventsBetween(previous, nextSnapshot);
+				// Viewers no longer replay settlement callbacks, but the UI scripts assigned
+				// to the browser (proposal-card-runtime-full.md A.2) still need the diffed
+				// events (MESSAGE_RECEIVED / mag_variable_update_ended ...) to refresh.
+				const queuedEvents = eventsBetween(previous, nextSnapshot);
 				const fingerprint = scripts.map(function (script) { return script.id + "\n" + script.content; }).join("\n---\n") + "\ntrusted=" + String(trustedCardMode) + "\nviewer=" + String(viewer);
 				let record = records.get("shared");
 				if (record && record.fingerprint !== fingerprint) { removeRecord("shared"); record = null; }
@@ -4468,6 +4524,7 @@ window.__ModuleLoader__.load({
 				const currentRuntime = ensureRuntime(nextSessionId);
 				input = { sessionId: nextSessionId, view: view };
 				currentRuntime.sync(nextSessionId, runtimeView(view));
+				if (typeof showCardScriptDiagnostics === "function") { try { showCardScriptDiagnostics(nextSessionId, view); } catch (_diagError) {} }
 				// Claim also renews the lease and recovers work when its signal was lost.
 				if (heartbeatTimer === null && startHeartbeat) heartbeatTimer = startHeartbeat(function () { void claimWork(); }, heartbeatIntervalMs);
 				void claimWork();
@@ -5468,6 +5525,10 @@ window.__ModuleLoader__.load({
 			return [{ kind: "markdown", text: String(projection.text || "") }];
 		}
 
+		// ST DOM 兼容壳的指纹缓存：投影内容未变时返回相同元素引用，React 跳过 reconcile——
+		// 卡脚本挂载进 .mes_text 的 DOM（开场页 iframe 等）不会被每轮 view 刷新的重渲染覆盖。
+		const tavernProjectionShellCache = new Map();
+
 		function renderTavernProjection(projection, options) {
 			const h = React.createElement;
 			const parts = projectionPartsOf(projection);
@@ -5478,11 +5539,31 @@ window.__ModuleLoader__.load({
 				}).join("\n")) + '</div></div></div>';
 				return h(TavernMessageFrame, Object.assign({}, options, { key: "opening-runtime", content: content, partIndex: 0, eager: options.eagerFrame }));
 			}
-			return parts.map(function (part, index) {
+			// ST DOM 兼容壳（proposal-card-runtime-full.md A.2 续）：SillyTavern 风格卡脚本
+			// 以 #chat > .mes > .mes_text 定位楼层并原位挂载 UI（东京卡开场设定页等）。
+			// 三层壳全部 display:contents——不产生布局盒，原样式零影响。
+			const stFingerprint = JSON.stringify(parts.map(function (part) {
+				return [part.kind, part.kind === "markdown" ? String(part.text || "") : String(part.content !== undefined ? part.content : part.html || "")];
+			})) + ":" + String(options.turn) + ":" + String(options.streaming === true);
+			const cachedShell = tavernProjectionShellCache.get(stFingerprint);
+			if (cachedShell) return cachedShell;
+			const children = parts.map(function (part, index) {
 				if (part.kind === "markdown") return h(TavernColoredMarkdown, { key: index, text: String(part.text || ""), streaming: options.streaming, labels: { code: options.codeLabels, footnotes: "脚注" }, codeLabels: options.codeLabels, fileMentions: options.mentions });
 				const content = String(part.content !== undefined ? part.content : part.html || "");
 				return h(TavernMessageFrame, { key: index, content: content, sessionId: options.sessionId, turn: options.turn, partIndex: index, frameOwner: options.frameOwner, helperContext: options.helperContext, openingPreview: options.openingPreview, onSelectOpening: options.onSelectOpening, onSubmitOpening: options.onSubmitOpening, trustedCardMode: options.trustedCardMode, eager: options.eagerFrame, executeSlash: options.executeSlash });
 			});
+			const shell = [h("div", { key: "st-chat", id: "chat", style: { display: "contents" } },
+				children.map(function (child, index) {
+					return h("div", { key: index, className: "mes", mesid: String(index), style: { display: "contents" } },
+						h("div", { className: "mes_text", style: { display: "contents" } }, child));
+				})
+			)];
+			tavernProjectionShellCache.set(stFingerprint, shell);
+			if (tavernProjectionShellCache.size > 64) {
+				const oldest = tavernProjectionShellCache.keys().next().value;
+				tavernProjectionShellCache.delete(oldest);
+			}
+			return shell;
 		}
 
 		function renderTavernAssistantBlocks(input) {
@@ -11159,6 +11240,7 @@ window.__ModuleLoader__.load({
 		exports.createTavernShellFeatureModule = createTavernShellFeatureModule;
 		exports.createTavernRuntimeGenerationMonitor = createTavernRuntimeGenerationMonitor;
 		// @include modules/assistant-visibility.js
+		// @include modules/card-script-diagnostics.js
 		installTavernAssistantVisibilityPatch(require);
 		// @include modules/host-session-patch.js
 		installTavernSessionHistoryPatch(require, rpc);

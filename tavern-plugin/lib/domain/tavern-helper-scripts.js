@@ -49,3 +49,15 @@ export function hasTavernScriptRuntime(chat, helperScripts) {
   if (!chat || !chat.cardPath || !['story', 'script'].includes(chat.mode || 'story')) return false
   return chat.mvu?.enabled === true || projectTavernHelperScripts(helperScripts).scripts.length > 0
 }
+
+// 脚本级分派（proposal-card-runtime-full.md A.2）：改变状态的脚本进服务端沙箱，
+// 操作 DOM 的 UI 脚本下发浏览器执行器。esm 型待模块系统（T2）处理，暂单独归类。
+const DOM_TOKENS = /\b(document\s*\.|querySelector(?:All)?|getElementById|getElementsByClassName|createElement|createTextNode|innerHTML|outerHTML|insertAdjacentHTML|addEventListener|classList|getComputedStyle|matchMedia)\b/
+
+export function classifyCardScript(code) {
+  const src = str(code)
+  if (src.trim() === '') return 'empty'
+  if (/^\s*(import[\s{("']|export\s)/.test(src) || /\bimport\s*\(/.test(src)) return 'esm'
+  if (DOM_TOKENS.test(src)) return 'browser-ui'
+  return 'server-compute'
+}

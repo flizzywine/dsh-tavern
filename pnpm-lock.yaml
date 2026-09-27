@@ -5,8 +5,8 @@ settings:
   excludeLinksFromLockfile: false
 
 patchedDependencies:
-  dsh-better-sidebar@0.19.1: b29bb1e1e983c7efc5e71e4bad2f1acc4b134f3d5ded25cab9f8eee2111e60a3
-  dsh-pocket@2.10.6: b87a52109852c2e61a3f4d89a00e580460ebb5b3f89c47d1170b68ad594adb38
+  dsh-better-sidebar@0.19.1: 173c43516a505a34c8d554cf5b7a70c25775d7ac28a032c05cc8626abc44be43
+  dsh-pocket@2.10.6: ace55cf452ea922103d992115c56bd235c4d3da5e0607ac7664f4ba73032311d
 
 importers:
 
@@ -51,13 +51,13 @@ importers:
     devDependencies:
       dsh-better-sidebar:
         specifier: 0.19.1
-        version: 0.19.1(patch_hash=b29bb1e1e983c7efc5e71e4bad2f1acc4b134f3d5ded25cab9f8eee2111e60a3)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
+        version: 0.19.1(patch_hash=173c43516a505a34c8d554cf5b7a70c25775d7ac28a032c05cc8626abc44be43)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
       dsh-dream-skin:
         specifier: link:./tavern-plugin/packages/dsh-dream-skin
         version: link:tavern-plugin/packages/dsh-dream-skin
       dsh-pocket:
         specifier: 2.10.6
-        version: 2.10.6(patch_hash=b87a52109852c2e61a3f4d89a00e580460ebb5b3f89c47d1170b68ad594adb38)
+        version: 2.10.6(patch_hash=ace55cf452ea922103d992115c56bd235c4d3da5e0607ac7664f4ba73032311d)
       dsh-tavern-plugin:
         specifier: link:./tavern-plugin
         version: link:tavern-plugin
@@ -1937,7 +1937,7 @@ snapshots:
     optionalDependencies:
       '@types/trusted-types': 2.0.7
 
-  dsh-better-sidebar@0.19.1(patch_hash=b29bb1e1e983c7efc5e71e4bad2f1acc4b134f3d5ded25cab9f8eee2111e60a3)(react-dom@19.2.0(react@19.2.0))(react@19.2.0):
+  dsh-better-sidebar@0.19.1(patch_hash=173c43516a505a34c8d554cf5b7a70c25775d7ac28a032c05cc8626abc44be43)(react-dom@19.2.0(react@19.2.0))(react@19.2.0):
     dependencies:
       '@codemirror/commands': 6.11.0
       '@codemirror/lang-cpp': 6.0.3
@@ -2079,7 +2079,7 @@ snapshots:
       yaml: 2.9.0
       zod: 4.6.5
 
-  dsh-pocket@2.10.6(patch_hash=b87a52109852c2e61a3f4d89a00e580460ebb5b3f89c47d1170b68ad594adb38):
+  dsh-pocket@2.10.6(patch_hash=ace55cf452ea922103d992115c56bd235c4d3da5e0607ac7664f4ba73032311d):
     dependencies:
       qrcode: 1.5.4
       qrcode-terminal: 0.12.0

@@ -21,10 +21,70 @@ import {
 } from './tavern-helper-worldbook.js'
 import { createMvuSettlementEffect } from './mvu-settlement-effect.js'
 import * as mvuUpdateCore from './mvu/mvu-update-core.js'
+import { projectTavernHelperScripts, classifyCardScript } from './tavern-helper-scripts.js'
+import { getOrCreateRuntime, disposeRuntime } from './mvu/mvu-card-runtime.js'
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
 }
+
+// Pinned upstream src/function/update/index.ts throttles MESSAGE_RECEIVED at
+// 3000ms. Re-entering sooner returns the old Promise and schedules a late write.
+const MVU_RETRY_AFTER_MS = 3100
+
+// ---------- M2 卡脚本服务端沙箱（派生值重算） ----------
+// 卡片自带的辅助脚本在 node:vm 沙箱常驻：结算事务内触发 mag_variable_update_ended
+// （钩子就地修改变量树，随事务一起提交）；提交完成后派发 MESSAGE_RECEIVED 兜底重算
+// （脚本延迟读最新变量→重算→经宿主变量 API 写回，事务外 patch 落盘并镜像 SQLite）。
+// MVU 核心 bundle 已由进程内引擎执行（isHostOwnedMvu 过滤），ESM import 型脚本缺远程
+// 模块系统，两者都不进沙箱。
+const MVU_SANDBOX_SLEEP = ms => new Promise(resolve => setTimeout(resolve, ms))
+
+// Pinned upstream src/variable_def.ts variable_events.
+const MVU_SANDBOX_EVENTS = {
+  VARIABLE_INITIALIZED: 'mag_variable_initialized',
+  VARIABLE_UPDATE_STARTED: 'mag_variable_update_started',
+  COMMAND_PARSED: 'mag_command_parsed',
+  VARIABLE_UPDATE_ENDED: 'mag_variable_update_ended',
+  BEFORE_MESSAGE_UPDATE: 'mag_before_message_update',
+  SINGLE_VARIABLE_UPDATED: 'mag_variable_updated'
+}
+
+function deepMergeTavernVariables(base, patch) {
+  const out = Array.isArray(base) ? base.slice() : { ...(base && typeof base === 'object' ? base : {}) }
+  for (const [key, value] of Object.entries(patch && typeof patch === 'object' && !Array.isArray(patch) ? patch : {})) {
+    const current = out[key]
+    out[key] = value !== null && typeof value === 'object' && !Array.isArray(value)
+      && current !== null && typeof current === 'object' && !Array.isArray(current)
+      ? deepMergeTavernVariables(current, value)
+      : (value === undefined ? current : value)
+  }
+  return out
+}
+
+function sandboxMessageId(messages, value, fallback) {
+  const raw = value === undefined || value === null || value === 'latest' ? -1 : Number(value)
+  const messageId = raw < 0 ? messages.length + raw : raw
+  if (!Number.isInteger(messageId) || messageId < 0 || messageId >= messages.length) return fallback
+  return messageId
+}
+
+/**
+ * Translate the Tavern-shaped host API exposed to card scripts into mutations
+ * of dsh-tavern's authoritative chat and worldbook state.
+ */
+export function createTavernScriptHostAdapter(options = {}) {
+  const syncTemplateState = createFullPromptTemplateSync()
+  const templateCharacters = createJsonValueProjectionCache({ capacity: 8, maxBytes: 16 * 1024 * 1024 })
+  const mutationTails = new Map()
+  const settlementTransactions = new Map()
+
+  function assertDependencies() {
+    for (const name of ['resolveChat', 'writeChat', 'readCard', 'worldBooks', 'scriptDispatch']) {
+      if (!options[name]) throw new Error('Tavern Script Host Adapter 缺少依赖: ' + name)
+    }
+  }
+  assertDependencies()
 
   function isOfficialMvuData(value) {
     return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -45,26 +105,245 @@ function str(value) {
     } catch (error) { console.warn('dsh-tavern: 变量 SQLite 双写失败（JSON 已落盘）:', str(error && error.message || error)) }
   }
 
-// Pinned upstream src/function/update/index.ts throttles MESSAGE_RECEIVED at
-// 3000ms. Re-entering sooner returns the old Promise and schedules a late write.
-const MVU_RETRY_AFTER_MS = 3100
+  // 卡脚本沙箱：cardPath → { key, runtime }；cardPath → 派发期读写绑定。
+  // 绑定覆盖 VARIABLE_UPDATE_ENDED（事务草稿）与 MESSAGE_RECEIVED 兜底（已提交快照）
+  // 两个窗口；同卡新一轮结算会覆盖旧绑定（脚本重算幂等，语义无害）。
+  const cardSandboxRuntimes = new Map()
+  const sandboxBindings = new Map()
+  // 玩家可见诊断缓冲（A.6.1）：沙箱加载/钩子/分派错误按卡收集，view 组装时并入
+  // tavernHelperScriptDiagnostics 透出——服务端静默失败对玩家不再不可见。
+  const cardScriptDiagnostics = new Map()
+  function recordCardScriptDiagnostic(cardPath, entry) {
+    const key = str(cardPath)
+    if (key === '') return
+    const list = cardScriptDiagnostics.get(key) || []
+    list.push(Object.assign({ at: Date.now() }, entry))
+    cardScriptDiagnostics.set(key, list.slice(-20))
+  }
 
-/**
- * Translate the Tavern-shaped host API exposed to card scripts into mutations
- * of dsh-tavern's authoritative chat and worldbook state.
- */
-export function createTavernScriptHostAdapter(options = {}) {
-  const syncTemplateState = createFullPromptTemplateSync()
-  const templateCharacters = createJsonValueProjectionCache({ capacity: 8, maxBytes: 16 * 1024 * 1024 })
-  const mutationTails = new Map()
-  const settlementTransactions = new Map()
-
-  function assertDependencies() {
-    for (const name of ['resolveChat', 'writeChat', 'readCard', 'worldBooks', 'scriptDispatch']) {
-      if (!options[name]) throw new Error('Tavern Script Host Adapter 缺少依赖: ' + name)
+  function makeSandboxHostApi(cardPath) {
+    const cloneJson = value => {
+      try { return structuredClone(value) } catch { return value === undefined ? {} : JSON.parse(JSON.stringify(value)) }
+    }
+    const bindingOf = () => sandboxBindings.get(cardPath) || null
+    // 未注入实现的酒馆助手 API：按空操作降级（不炸脚本），记录进玩家可见诊断（A.6.1 #4）。
+    const unsupportedSeen = new Set()
+    const unsupportedApi = name => (..._args) => {
+      if (!unsupportedSeen.has(name)) {
+        unsupportedSeen.add(name)
+        recordCardScriptDiagnostic(cardPath, { scriptId: '', name: '卡脚本', status: 'warning', message: '卡脚本调用了暂不支持的宿主 API "' + name + '"，已按空操作处理，相关功能可能缺失' })
+        console.warn('[mvu-sandbox] 卡脚本调用了未注入的宿主 API "' + name + '"，已按空操作处理')
+      }
+      return undefined
+    }
+    const variablesOf = (option = {}) => {
+      const binding = bindingOf()
+      if (!binding) return {}
+      const chat = binding.chat
+      const type = (option && option.type) || 'message'
+      if (type === 'global') return {}
+      if (type === 'chat') return cloneJson(chat.variables || {})
+      if (type === 'script') {
+        const id = str(option && option.script_id).trim()
+        const saved = chat.tavernHelperScriptVariables
+        return cloneJson(saved && Object.hasOwn(saved, id) && saved[id] && typeof saved[id] === 'object' ? saved[id] : {})
+      }
+      const messages = Array.isArray(chat.messages) ? chat.messages : []
+      const wanted = option && option.message_id !== undefined ? option.message_id : binding.messageId
+      const messageId = sandboxMessageId(messages, wanted, binding.messageId)
+      if (messageId < 0 || messageId >= messages.length) return {}
+      const message = messages[messageId]
+      const swipeId = option && Object.hasOwn(option, 'swipe_id') ? Math.max(0, Number(option.swipe_id) || 0) : Math.max(0, Number(message.swipeId) || 0)
+      const variables = Array.isArray(message.variables) ? message.variables[swipeId] : undefined
+      return cloneJson(variables && typeof variables === 'object' ? variables : {})
+    }
+    const replaceVariables = async (variables, option = {}) => {
+      const binding = bindingOf()
+      if (!binding) throw new Error('卡脚本变量写窗口未开启（不在结算或兜底派发期）')
+      const optionOut = { type: (option && option.type) || 'message' }
+      if (optionOut.type === 'message') {
+        optionOut.message_id = option && option.message_id !== undefined ? option.message_id : binding.messageId
+        if (option && option.swipe_id !== undefined) optionOut.swipe_id = option.swipe_id
+      } else if (optionOut.type === 'script') {
+        optionOut.script_id = str(option && option.script_id).trim()
+      }
+      return updateVariables(binding.sessionId, optionOut, variables && typeof variables === 'object' ? variables : {}, undefined, '')
+    }
+    // 酒馆助手 getChatMessages 的 range 语义：缺省=当前楼；'latest'=最后一楼；负数=从尾数；
+    // [start,end] 闭区间；'all'=全部。投影字段与酒馆助手对齐（message_id/role/is_user/content/data）。
+    const chatMessagesProjection = (binding, range) => {
+      const chat = binding.chat
+      const messages = Array.isArray(chat.messages) ? chat.messages : []
+      let indices
+      if (range === undefined || range === null) indices = [binding.messageId]
+      else if (range === 'all') indices = messages.map((_value, index) => index)
+      else if (Array.isArray(range)) {
+        const start = Math.max(0, Number(range[0]) || 0)
+        const end = Math.min(messages.length - 1, Number(range[1]) || 0)
+        indices = []
+        for (let index = start; index <= end; index++) indices.push(index)
+      } else {
+        const id = sandboxMessageId(messages, range, binding.messageId)
+        indices = [id]
+      }
+      return indices.filter(index => index >= 0 && index < messages.length).map(index => {
+        const message = messages[index]
+        const swipeId = Math.max(0, Number(message.swipeId) || 0)
+        const variables = Array.isArray(message.variables) ? message.variables[swipeId] : undefined
+        return {
+          message_id: index,
+          role: message.role === 'user' || message.tavernRole === 'user' ? 'user' : 'assistant',
+          is_user: message.role === 'user' || message.tavernRole === 'user',
+          is_system: message.role === 'system' || message.tavernRole === 'system',
+          swipe_id: swipeId,
+          content: str(message.sourceText || message.text),
+          data: cloneJson(variables && typeof variables === 'object' ? variables : {})
+        }
+      })
+    }
+    const getVariables = option => variablesOf(option)
+    const insertOrAssignVariables = async (variables, option = {}) =>
+      replaceVariables(deepMergeTavernVariables(variablesOf(option), variables), option)
+    return {
+      // ---- 变量 ----
+      getVariables,
+      replaceVariables,
+      insertOrAssignVariables,
+      deleteVariable: async (option = {}) => replaceVariables({}, option),
+      // ---- 楼层 ----
+      getCurrentMessageId: () => { const binding = bindingOf(); return binding ? binding.messageId : -1 },
+      getLastMessageId: () => { const binding = bindingOf(); return binding ? Math.max(0, (Array.isArray(binding.chat.messages) ? binding.chat.messages.length : 1) - 1) : -1 },
+      getChatMessages: async (range, _type) => {
+        const binding = bindingOf()
+        if (!binding) return []
+        return chatMessagesProjection(binding, range)
+      },
+      getAllChatMessages: async () => {
+        const binding = bindingOf()
+        if (!binding) return []
+        return chatMessagesProjection(binding, 'all')
+      },
+      setChatMessages: async (range, patches) => {
+        const binding = bindingOf()
+        if (!binding) throw new Error('卡脚本楼层写窗口未开启')
+        const list = Array.isArray(patches) ? patches : [patches]
+        const base = chatMessagesProjection(binding, range)
+        if (base.length === 0) return { updated: false }
+        return updateMessages(binding.sessionId, base.map((projected, offset) => {
+          const patch = list[offset] !== undefined ? list[offset] : list[0]
+          return patch && typeof patch === 'object'
+            ? { message_id: projected.message_id, ...(patch.message !== undefined ? { message: patch.message } : {}), ...(patch.data !== undefined ? { data: patch.data } : {}), ...(patch.swipe_id !== undefined ? { swipe_id: patch.swipe_id } : {}) }
+            : { message_id: projected.message_id }
+        }), undefined, '')
+      },
+      createChatMessages: async (messages, option = {}) => {
+        const binding = bindingOf()
+        if (!binding) throw new Error('卡脚本楼层写窗口未开启')
+        return createMessages(binding.sessionId, Array.isArray(messages) ? messages : [messages], option, undefined, '')
+      },
+      deleteChatMessages: unsupportedApi('deleteChatMessages'),
+      // ---- 脚本变量 ----
+      getScriptVariables: async (option = {}) => variablesOf({ type: 'script', script_id: option && option.script_id }),
+      replaceScriptVariables: async (variables, option = {}) => replaceVariables(variables, { type: 'script', script_id: option && option.script_id }),
+      insertOrAssignScriptVariables: async (variables, option = {}) => replaceVariables(deepMergeTavernVariables(variablesOf({ type: 'script', script_id: option && option.script_id }), variables), { type: 'script', script_id: option && option.script_id }),
+      // ---- 世界书 ----
+      getWorldbook: async (name) => {
+        const binding = bindingOf()
+        if (!binding) return []
+        return getWorldbook(binding.sessionId, str(name), false)
+      },
+      replaceWorldbook: async (name, entries) => {
+        const binding = bindingOf()
+        if (!binding) throw new Error('卡脚本世界书写窗口未开启')
+        return replaceWorldbook(binding.sessionId, str(name), Array.isArray(entries) ? entries : [], undefined, false)
+      },
+      // ---- 人物卡 ----
+      getCharData: () => {
+        const binding = bindingOf()
+        const snapshot = binding && binding.chat.cardDefinitionSnapshot
+        if (!snapshot || typeof snapshot !== 'object') return {}
+        return {
+          name: str(snapshot.name), description: str(snapshot.description), personality: str(snapshot.personality),
+          scenario: str(snapshot.scenario), first_mes: str(snapshot.first_mes), mes_example: str(snapshot.mes_example),
+          creator_notes: str(snapshot.creator_notes), character_version: str(snapshot.character_version),
+          tags: cloneJson(Array.isArray(snapshot.tags) ? snapshot.tags : [])
+        }
+      },
+      // ---- 事件与环境 ----
+      waitGlobalInitialized: async () => {},
+      $: fn => { if (typeof fn === 'function') Promise.resolve().then(fn).catch(() => {}) },
+      Mvu: { events: MVU_SANDBOX_EVENTS },
+      // ---- 未实现（按需补）：UI/LLM/正则/斜杠命令等 ----
+      triggerSlash: unsupportedApi('triggerSlash'),
+      generate: unsupportedApi('generate'),
+      generateRaw: unsupportedApi('generateRaw'),
+      getTavernRegexes: unsupportedApi('getTavernRegexes'),
+      replaceTavernRegexes: unsupportedApi('replaceTavernRegexes'),
+      getWorldbookNames: unsupportedApi('getWorldbookNames'),
+      createLorebook: unsupportedApi('createLorebook'),
+      deleteLorebook: unsupportedApi('deleteLorebook')
     }
   }
-  assertDependencies()
+
+  async function ensureCardSandboxRuntime(chat) {
+    if (!chat || !chat.cardPath || !chat.mvu || chat.mvu.enabled !== true) return null
+    if (typeof options.readCardExtensions !== 'function') return null
+    const store = options.cardScriptDispatchStore
+    const cardPath = str(chat.cardPath)
+    // 卡级标记（事件钩子期探针触发、无法定位脚本时的粗粒度兜底）：整卡转浏览器
+    if (store && store.lookupCard(cardPath)) return null
+    const extensions = await options.readCardExtensions(chat.cardPath, chat)
+    const projected = projectTavernHelperScripts(extensions && extensions.helperScripts, chat.tavernHelperScriptVariables)
+    const sources = projected.scripts
+      .map(script => ({ id: script.id, name: script.name || script.id, code: str(script.content) }))
+      .filter(source => classifyCardScript(source.code) === 'server-compute'
+        && !(store && store.lookupScript(cardPath, source.id, source.code)))
+    if (sources.length === 0) return null
+    const key = sources.map(source => source.name + ':' + source.code.length).join('|')
+    const cached = cardSandboxRuntimes.get(cardPath)
+    if (cached && cached.key === key) return cached.runtime
+    if (cached) { try { disposeRuntime(cardPath) } catch {} }
+    // 探针回调：加载期携带脚本名 → 精确标记；事件钩子期 scriptName 为空 → 卡级标记。
+    // 标记后使该卡沙箱缓存失效，下一次分派自动把命中脚本下发浏览器（A.6.2 自愈）。
+    const onDomAccess = scriptName => {
+      try {
+        const store2 = options.cardScriptDispatchStore
+        if (store2) {
+          const source = scriptName ? sources.find(item => item.name === scriptName) : null
+          if (source) store2.markScript(cardPath, source.id, source.code, 'dom-probe')
+          else store2.markCard(cardPath, 'dom-probe-hook')
+        }
+        recordCardScriptDiagnostic(cardPath, {
+          scriptId: '', name: scriptName || '卡脚本', status: 'info',
+          message: '已自动识别为界面脚本并转浏览器执行（下次刷新生效）'
+        })
+        cardSandboxRuntimes.delete(cardPath)
+        disposeRuntime(cardPath)
+        console.warn('[mvu-sandbox] DOM 探针触发:', cardPath, scriptName || '(事件钩子期，整卡转浏览器)')
+      } catch {}
+    }
+    const runtime = getOrCreateRuntime(cardPath, sources, makeSandboxHostApi(cardPath), 8000, onDomAccess)
+    cardSandboxRuntimes.set(cardPath, { key, runtime })
+    // 脚本顶层的钩子注册是异步链（$(init) → await waitGlobalInitialized → eventOn），
+    // 且 vm 跨 realm 微任务时序不保证在宿主 await 恢复前排空——等一个宏任务边界。
+    await MVU_SANDBOX_SLEEP(60)
+    // 加载期错误透出（A.6.1 #1）：排除探针触发的预期转浏览器条目
+    for (const item of runtime.errors) {
+      recordCardScriptDiagnostic(cardPath, item.domProbe
+        ? { scriptId: '', name: item.source, status: 'info', message: item.error }
+        : { scriptId: '', name: item.source, status: 'error', message: '在服务端加载失败：' + item.error })
+    }
+    if (runtime.domAccessed) { cardSandboxRuntimes.delete(cardPath); disposeRuntime(cardPath); return null }
+    return runtime
+  }
+
+  function bindSandboxSession(cardPath, chat, sessionId, messageId, swipeId) {
+    sandboxBindings.set(str(cardPath), { chat, sessionId: str(sessionId), messageId, swipeId })
+  }
+
+  function releaseSandboxBinding(cardPath) {
+    sandboxBindings.delete(str(cardPath))
+  }
 
   function assertMvuEnabled(chat) {
     if (!chat || !chat.mvu || chat.mvu.enabled !== true) throw new Error('当前人物卡未启用 MVU 兼容运行时')
@@ -632,6 +911,8 @@ export function createTavernScriptHostAdapter(options = {}) {
       if (!Array.isArray(target.variables)) target.variables = []
       target.variables[swipeId] = structuredClone(input.baselineVariables)
     }
+    let cardSandboxRuntime = null
+    let settlementPrepared = false
     settlementTransactions.set(sessionId, transaction)
     try {
       const eventContext = await context(sessionId, transaction.draft)
@@ -678,6 +959,21 @@ export function createTavernScriptHostAdapter(options = {}) {
           diagnostics: [{ kind: 'server-engine', level: 'error', message: str(error && error.message || error) }],
           context: projectTavernHelperContext(current) }
       }
+      // 卡脚本钩子（派生值重算）：变量命令应用完成后触发 mag_variable_update_ended，
+      // 钩子就地修改 mvuData（脚本内 250ms 防抖，等待其 flush 后再写回草稿）。
+      try {
+        cardSandboxRuntime = await ensureCardSandboxRuntime(current)
+        console.warn('[mvu-hook-debug] runtime=', Boolean(cardSandboxRuntime), 'events=', cardSandboxRuntime ? cardSandboxRuntime.events.length : -1)
+        if (cardSandboxRuntime && cardSandboxRuntime.events.length > 0) {
+          bindSandboxSession(current.cardPath, transaction.draft, sessionId, messageId, swipeId)
+          await cardSandboxRuntime.dispatchEvent(MVU_SANDBOX_EVENTS.VARIABLE_UPDATE_ENDED, mvuData, structuredClone(mvuData))
+          await MVU_SANDBOX_SLEEP(320)
+          await record('card-hook-applied', { hooks: cardSandboxRuntime.events.length })
+        }
+      } catch (hookError) {
+        recordCardScriptDiagnostic(cardPath, { scriptId: '', name: '卡脚本', status: 'error', message: '脚本钩子在结算中执行失败：' + str(hookError && hookError.message || hookError) })
+        await record('card-hook-error', { phase: 'update-ended', error: str(hookError && hookError.message || hookError) })
+      }
       // 应用结果（含 display_data/delta_data 镜像）写回事务草稿的目标楼层
       draftMessage.variables[swipeId] = mvuData
       const dispatched = { handled: true, mode: 'server' }
@@ -722,6 +1018,7 @@ export function createTavernScriptHostAdapter(options = {}) {
         before: current, after: transaction.draft
       })
       await record('prepared', { mutations: transaction.mutations })
+      settlementPrepared = true
       return {
         updated: true,
         validation,
@@ -737,6 +1034,28 @@ export function createTavernScriptHostAdapter(options = {}) {
       throw error
     } finally {
       settlementTransactions.delete(sessionId)
+      // 卡脚本 MESSAGE_RECEIVED 兜底派发：脚本会延迟 1.5s 读取最新变量重算并经宿主
+      // 变量 API 写回（事务外 patch 落盘 + 镜像 SQLite）。此处只负责派发，等待与写回
+      // 全部在后台完成，不阻塞结算返回。
+      if (cardSandboxRuntime && cardSandboxRuntime.events.length > 0 && settlementPrepared) {
+        const runtime = cardSandboxRuntime
+        const cardPath = str(current.cardPath)
+        void MVU_SANDBOX_SLEEP(1200).then(async () => {
+          try {
+            const latest = await resolveChat(sessionId)
+            bindSandboxSession(cardPath, latest, sessionId, messageId, swipeId)
+            await runtime.dispatchEvent('MESSAGE_RECEIVED', messageId)
+            // 覆盖脚本内 1500ms 延迟 + 重算 + 写回，再释放读写绑定。
+            await MVU_SANDBOX_SLEEP(6500)
+            await record('card-hook-message-received', { phase: 'dispatched' })
+          } catch (hookError) {
+            recordCardScriptDiagnostic(cardPath, { scriptId: '', name: '卡脚本', status: 'error', message: '脚本钩子在浏览器事件兜底中失败：' + str(hookError && hookError.message || hookError) })
+            await record('card-hook-error', { phase: 'message-received', error: str(hookError && hookError.message || hookError) })
+          } finally {
+            releaseSandboxBinding(cardPath)
+          }
+        })
+      }
     }
   }
 
@@ -744,6 +1063,11 @@ export function createTavernScriptHostAdapter(options = {}) {
     context,
     dispatchEvent,
     settleMvuUpdate,
+    /** 玩家可见诊断（A.6.1）：指定卡的分派/沙箱/钩子错误，view 组装时并入 tavernHelperScriptDiagnostics */
+    collectCardScriptDiagnostics: function (cardPath) {
+      const list = cardScriptDiagnostics.get(str(cardPath)) || []
+      return list.map(entry => ({ scriptId: entry.scriptId || '', name: entry.name || '卡脚本', status: entry.status || 'warning', message: entry.message }))
+    },
     updatePrompts,
     updateVariables,
     updateMessages,
