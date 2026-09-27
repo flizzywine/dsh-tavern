@@ -48,6 +48,7 @@ export async function projectCardOpeningPreviews(input = {}) {
         openingPreview: isOpeningChooser(projection.displayText) ? {
           swipes, openingIds, selectedIndex: openingIds.indexOf(opening.id)
         } : null,
+        frameSizing: extensions.frameSizing || null,
         helperContext: null
       }
     }),

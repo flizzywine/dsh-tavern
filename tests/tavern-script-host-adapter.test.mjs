@@ -625,20 +625,18 @@ test('MVU 已预约执行器但还在准备上下文时，新生命周期事件�
   await new Promise(resolve => setImmediate(resolve))
   const ordinary = run.adapter.dispatchEvent({ sessionId: 'session-1', name: 'MESSAGE_RECEIVED', args: [0], context: {} })
   await new Promise(resolve => setImmediate(resolve))
-  const early = dispatch.claim('session-1', 'browser', true)
-  if (early.event) {
-    dispatch.start('session-1', early.event.id, early.leaseToken, 'browser')
-    dispatch.complete('session-1', early.event.id, [0], 'browser', early.leaseToken)
-  }
+  // Context preparation now happens while projecting an offer, under the same reservation.
+  let offered=false
+  const pendingOffer=dispatch.claimWithContext('session-1','browser',true).then(value=>{offered=true;return value})
+  await new Promise(resolve=>setImmediate(resolve))
+  assert.equal(offered,false)
   const result = await ordinary
   releaseCard({})
-  await new Promise(resolve => setImmediate(resolve))
-  const work = dispatch.claim('session-1', 'browser', true)
+  const work = await pendingOffer
   dispatch.start('session-1', work.event.id, work.leaseToken, 'browser')
   await run.adapter.updateMessages('session-1', [{ message_id: 0, data: { hp: 14 } }], 2, work.event.id)
   dispatch.complete('session-1', work.event.id, [0], 'browser', work.leaseToken)
   assert.equal((await outcome).updated, true)
-  assert.equal(early.event, null)
   assert.equal(result.busy, true)
 })
 

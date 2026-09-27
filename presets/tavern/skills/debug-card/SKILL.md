@@ -31,6 +31,8 @@ description: "在卡片工作台诊断游玩异常：正文或状态栏显示错
 
 定位到模型输出、提示词组装、Session 投影、展示正则、iframe 运行、后台任务或人物卡规则中的具体环节。核对当前卡与游玩快照是否一致；当前规则重新计算的结果不能代表当时的处理过程。
 
+遇到 iframe 太矮、长内容裁切、滚动或百分比高度问题时，通过 `tavern_read_skill_reference` 读取 [iframe 高度适配](references/frame-sizing.md)（name 为 `debug-card`，path 为 `references/frame-sizing.md`），根据实际布局证据选择模式；长正文优先撑高外框。
+
 完成标准：给出支持原因的具体证据，并说明仍未排除的因素。发现宿主或提供方问题时报告边界，不通过篡改卡片来掩盖故障。
 
 ## 4. 最小修复与复测

@@ -7,12 +7,12 @@ import { createChatJournalStore } from '../tavern-plugin/lib/domain/chat-journal
 import { createChatPersistence } from '../tavern-plugin/lib/domain/chat-persistence.js'
 import { createTavernScriptHostAdapter } from '../tavern-plugin/lib/domain/tavern-script-host-adapter.js'
 
-async function harness(t, beforePatch) {
+async function harness(t, beforePatch, sliced = false) {
  const root=await mkdtemp(join(tmpdir(),'variable-patch-'));t.after(()=>rm(root,{recursive:true,force:true}))
  const persistence=createChatPersistence({store:createChatJournalStore({dataRoot:root})})
  await persistence.write({id:'c',sessionId:'s',mode:'story',mvu:{enabled:true},tavernHelperLifecycleRevision:1,variables:{old:1},messages:[{role:'assistant',text:'history',variables:[{hp:10}]},{role:'assistant',text:'current'}]})
- const calls={writes:0,patches:[]}
- const adapter=createTavernScriptHostAdapter({resolveChat:()=>persistence.read('c'),readCard:async()=>({}),worldBooks:{},scriptDispatch:{},
+ const calls={writes:0,patches:[],fullReads:0,slices:[]}
+ const adapter=createTavernScriptHostAdapter({resolveChat:()=>{calls.fullReads++;return persistence.read('c')},...(sliced ? {resolveChatSlice:(_session,indices,fields)=>{calls.slices.push(indices);return persistence.readSlice('c',indices,fields)},readChatRevision:persistence.readRevision} : {}),readCard:async()=>({}),worldBooks:{},scriptDispatch:{},
  writeChat:async(...args)=>{calls.writes++;return persistence.write(...args)},
  patchChat:async(...args)=>{calls.patches.push(structuredClone(args[2]));await beforePatch?.(persistence);return persistence.patch(...args)}})
  return {persistence,adapter,calls,root}
@@ -87,4 +87,30 @@ test('刷新回写相同变量不推进存储版本，空补丁仍检查版本�
  assert.equal(await persistence.patch('c',before._storageRevision-1,[]),undefined)
  await assert.rejects(persistence.patch('c',before._storageRevision,[],{assertCurrent(){throw new Error('cancelled')}}),/cancelled/)
  assert.deepEqual(await persistence.read('c'),before)
+})
+
+for(const type of ['message','chat','script'])test('compact sliced variable update avoids full reads: '+type,async t=>{
+ const {adapter,persistence,calls}=await harness(t,undefined,true)
+ const before=await persistence.read('c')
+ const result=await adapter.updateVariables('s',{type,message_id:-1,script_id:'test'},{hp:8},1,undefined,{chatId:'c',stateRevision:before._storageRevision,lifecycleRevision:1})
+ assert.equal(calls.fullReads,0);assert.equal(calls.writes,0);assert.ok(result.contextDelta)
+ assert.deepEqual(calls.slices,type==='message'?[[],[1]]:[[]])
+ assert.equal((await persistence.read('c')).messages[0].variables[0].hp,10)
+})
+
+test('sliced CAS conflict preserves original-base conflict detection',async t=>{
+ let once=false
+ const {adapter,persistence}=await harness(t,async p=>{if(!once){once=true;await p.update('c',c=>({...c,variables:{old:3}}))}},true)
+ const before=await persistence.read('c')
+ await assert.rejects(adapter.updateVariables('s',{type:'chat'},{old:2},1,undefined,{chatId:'c',stateRevision:before._storageRevision,lifecycleRevision:1}),{code:'DSH_TAVERN_CHAT_CONFLICT'})
+ assert.equal((await persistence.read('c')).variables.old,3)
+})
+
+test('sliced CAS conflict still merges unrelated concurrent fields',async t=>{
+ let once=false
+ const {adapter,persistence,calls}=await harness(t,async p=>{if(!once){once=true;await p.update('c',c=>({...c,title:'concurrent'}))}},true)
+ const before=await persistence.read('c')
+ const result=await adapter.updateVariables('s',{type:'chat'},{hp:8},1,undefined,{chatId:'c',stateRevision:before._storageRevision,lifecycleRevision:1})
+ assert.ok(result.context);assert.equal(calls.writes,1)
+ const saved=await persistence.read('c');assert.equal(saved.title,'concurrent');assert.equal(saved.variables.hp,8)
 })

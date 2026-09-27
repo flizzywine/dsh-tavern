@@ -23,7 +23,6 @@
     "test:e2e:compaction": "node bin/build-tavern-client.mjs --check && node tests/e2e/compaction-suite.mjs",
     "build:plugin-package": "node bin/build-plugin-package.mjs",
     "check:plugin-package": "node bin/build-plugin-package.mjs --check",
-    "prepublishOnly": "npm run check:client && npm run check:plugin-package",
     "test:card-memory": "node --test tests/card-memory.test.mjs",
     "test:e2e:card-memory": "node bin/build-tavern-client.mjs --check && node tests/e2e/gameplay.mjs --card-memory"
   },
@@ -95,8 +94,5 @@
     "type": "git",
     "url": "https://github.com/flizzywine/dsh-tavern.git"
   },
-  "publishConfig": {
-    "registry": "https://registry.npmjs.org/",
-    "access": "public"
-  }
+  "private": true
 }

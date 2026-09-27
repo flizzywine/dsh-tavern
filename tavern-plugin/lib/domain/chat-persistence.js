@@ -169,9 +169,9 @@ export function createChatPersistence(options = {}) {
   }
 
   // Detached read-only projection; never remember it as a stale-write baseline.
-  async function readSessionState(chatId) {
+  async function readSessionState(chatId, options) {
     if (typeof records.readSessionState !== 'function') return read(chatId)
-    const value = await records.readSessionState(chatId)
+    const value = await records.readSessionState(chatId, options)
     return value === undefined ? undefined : normalize(value)
   }
 
@@ -270,8 +270,12 @@ export function createChatPersistence(options = {}) {
     const selected=await records.readSlice(chatId,indices,fields)
     return selected ? {...selected,chat:normalize(selected.chat)} : undefined
   }
-  async function readChangedSlice(chatId, revision) {
-    const selected = await records.readChangedSlice?.(chatId, revision)
+  async function readSettlementBase(chatId) {
+    const selected = await records.readSettlementBase?.(chatId)
+    return selected ? {...selected,chat:normalize(selected.chat)} : undefined
+  }
+  async function readChangedSlice(chatId, revision, fields) {
+    const selected = await records.readChangedSlice?.(chatId, revision, fields)
     return selected ? {...selected, chat: normalize(selected.chat)} : undefined
   }
   async function readChangedIndices(chatId, revision) {
@@ -295,5 +299,5 @@ export function createChatPersistence(options = {}) {
     await records.remove(chatId)
   }
 
-  return Object.freeze({ read, readSessionState, readSceneImageState, readSettlementCheckpoint, readBackgroundConfig, readDisplayRuntimeState, readSlice, readChangedSlice, readChangedIndices, readViewDelta, patch, readRevision, write, update, version, remove })
+  return Object.freeze({ read, readSessionState, readSceneImageState, readSettlementCheckpoint, readBackgroundConfig, readDisplayRuntimeState, readSlice, readSettlementBase, readChangedSlice, readChangedIndices, readViewDelta, patch, readRevision, write, update, version, remove })
 }

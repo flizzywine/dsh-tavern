@@ -49,7 +49,7 @@ function harness({ holdReleases = false, dropSignals = false, claimTimeoutMs, re
     createExecution: settings => client.createTavernScriptExecutionModule({ ...settings, window,
       rpc: async (method, args, id) => {
         calls.push({ method, args, id })
-        if (method === 'claimTavernScriptWork') return gate.claim(id, args.runtimeId, args.ready)
+        if (method === 'claimTavernScriptWork') return gate.claimWithContext(id, args.runtimeId, args.ready, args.initializationError, args.contextBaseline)
         if (method === 'startTavernScriptWork') return gate.start(id, args.eventId, args.leaseToken, args.runtimeId)
         if (method === 'heartbeatTavernScriptRuntime') return { active: gate.touch(id, args.runtimeId, args.ready) }
         if (method === 'releaseTavernHelperRuntime') {

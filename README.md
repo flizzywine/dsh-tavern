@@ -116,7 +116,7 @@ Pocket 手机访问仅在 Desktop 版提供，CLI 安装和升级会移除 Pocke
 
 ### 已有 DSH：标准插件安装（试验）
 
-已有适配版本 DSH 的用户，可将 Tavern 安装到独立 Profile。安装命令、版本要求及 npm / GitHub 更新差异见[标准插件安装指南](https://flizzywine.github.io/dsh-tavern/#plugin-installation)。
+已有适配版本 DSH 的用户，可将 Tavern 安装到独立 Profile。GitHub 安装命令及版本要求见[标准插件安装指南](https://flizzywine.github.io/dsh-tavern/#plugin-installation)。
 
 [完整安装、更新与排错指南](https://flizzywine.github.io/dsh-tavern/#a02)包含安装目录、启动入口、DSHA 安装、手机远程访问和常见故障处理。
 

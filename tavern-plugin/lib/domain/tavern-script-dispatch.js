@@ -99,7 +99,7 @@ export function createTavernScriptDispatch(options = {}) {
     return requireReady !== true || current.ready === true
   }
 
-  function claim(sessionId, runtimeId = 'legacy', ready = false, initializationError = '') {
+  function claim(sessionId, runtimeId = 'legacy', ready = false, initializationError = '', omitContext = false) {
     const id = str(sessionId)
     if (!touch(id, runtimeId, ready, initializationError)) return { active: false, ready: false, event: null }
     const runtime = presence.get(id)
@@ -126,7 +126,18 @@ export function createTavernScriptDispatch(options = {}) {
         publishSignal(id, { kind: 'runtime-work', version: record.event.id })
       }, claimTimeoutMs)
     }
-    return { active: true, ready: true, event: clone(record.event), leaseToken: record.leaseToken }
+    return { active: true, ready: true, event: clone(omitContext ? { ...record.event, context: null } : record.event), leaseToken: record.leaseToken }
+  }
+
+  async function claimWithContext(sessionId, runtimeId, ready, initializationError, baseline) {
+    const offered = claim(sessionId, runtimeId, ready, initializationError, true)
+    if (!offered.event) return offered
+    const record = records.get(str(sessionId))
+    const context = record.contextForBaseline ? await record.contextForBaseline(baseline) : clone(record.event.context)
+    // Projection can await storage. Never deliver an expired or reassigned offer.
+    if (records.get(str(sessionId)) !== record || record.leaseToken !== offered.leaseToken || record.phase !== 'offered') return { ...offered, event: null }
+    offered.event.context = context
+    return offered
   }
 
   function start(sessionId, eventId, leaseToken, runtimeId = 'legacy') {
@@ -176,7 +187,7 @@ export function createTavernScriptDispatch(options = {}) {
       context: clone(context)
     }
     return await new Promise(function (resolve) {
-      const record = { event, resolve, phase: 'queued', offeredTo: '', leaseToken: '', claimTimer: null, offerTimer: null, executionTimer: null }
+      const record = { event, contextForBaseline: work.contextForBaseline, resolve, phase: 'queued', offeredTo: '', leaseToken: '', claimTimer: null, offerTimer: null, executionTimer: null }
       record.claimTimer = setTimeout(function () {
         // A runtime that stays "ready" but cannot claim signalled work is no
         // longer a usable lease. Keeping that stale presence makes settlement
@@ -225,5 +236,5 @@ export function createTavernScriptDispatch(options = {}) {
       ...(present && current.initializationError ? { initializationError: current.initializationError } : {}) }
   }
 
-  return Object.freeze({ touch, available, claim, start, workState, complete, dispatch, subscribeReady, subscribeSettled, dispose, status })
+  return Object.freeze({ supportsContextProjection: true, touch, available, claim, claimWithContext, start, workState, complete, dispatch, subscribeReady, subscribeSettled, dispose, status })
 }

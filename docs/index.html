@@ -1210,13 +1210,7 @@ dsh-tavern open</code></pre></div>
 <p>切换预设、画像、模型、推理强度或相关任务与工具配置可能使提示词缓存失效，首次请求会增加耗时和费用。无需为了每轮剧情频繁改设置；临时写作要求可以使用 <a href="#b09">Guide</a>。</p><footer class="article-footer"><span>DSH Tavern 使用文档</span><a class="" href="#help">需要帮助？</a></footer></article><article class="doc-page" id="plugin-installation" data-group="advanced" data-title="标准插件安装（试验）"><div class="breadcrumb">使用文档 <span>/</span> <a class="" href="#advanced">高级功能</a> <span>/</span> 功能说明</div><h1 tabindex="-1">标准插件安装（试验）</h1><p class="lead">已有 DSH 时，将 Tavern 作为标准插件安装到独立 Profile。</p><h2 id="plugin-installation--section-1">适用条件</h2>
 <p>已安装 <strong>DSH 0.1.5-rc.2、Node.js 22.19+、pnpm</strong>，准备新建独立的 <code>tavern</code> Profile。当前先支持普通 DSH CLI 的新安装。</p>
 <p>已通过专用安装器安装的 CLI、Desktop 或 Android 酒馆，请继续使用各自原有的更新方式，不要向同一个 Profile 叠装。其他安装方式见<a href="#a02">安装与启动</a>。</p>
-<h2 id="plugin-installation--section-2">选择安装来源</h2>
-<p>在系统终端中运行以下一种安装命令。</p>
-<h3>npm：已发布的正式版本</h3>
-<div class="code-block"><div class="code-heading"><span>bash</span><button type="button" class="copy-code" aria-label="复制这段命令" hidden>复制</button></div><pre tabindex="0"><code>dsh plugin --profile tavern add dsh-profile-tavern@latest</code></pre></div>
-<p>npm 包：<a href="https://www.npmjs.com/package/dsh-profile-tavern">dsh-profile-tavern</a>。国内镜像可能延迟同步新版本。</p>
-<p><strong>npm 包仅在正式版本（大版本）发布时同步，不包含期间的小更新和即时修复。</strong> <code>@latest</code> 指最新已发布的 npm 包，不代表 GitHub 最新代码；重复运行 npm 安装命令也无法获取尚未发布到 npm 的更新。</p>
-<h3>GitHub：跟进最新代码</h3>
+<h2 id="plugin-installation--section-2">从 GitHub 安装</h2>
 <p>需要 Git。在终端运行：</p>
 <div class="code-block"><div class="code-heading"><span>bash</span><button type="button" class="copy-code" aria-label="复制这段命令" hidden>复制</button></div><pre tabindex="0"><code>dsh plugin --profile tavern add github:flizzywine/dsh-tavern</code></pre></div>
 <p>DSH 会创建 Profile、安装完整运行包并启用酒馆。运行包包含 Web 配置、侧栏、人物卡功能、预设和 Skill，无需自行构建。酒馆使用当前 DSH，启动时检查适配版本，不会另装或升级宿主。</p>
@@ -1224,7 +1218,7 @@ dsh-tavern open</code></pre></div>
 <p>安装完成后运行：</p>
 <div class="code-block"><div class="code-heading"><span>bash</span><button type="button" class="copy-code" aria-label="复制这段命令" hidden>复制</button></div><pre tabindex="0"><code>dsh --profile tavern</code></pre></div>
 <p>打开酒馆网页，看到 Tavern 界面后，继续<a href="#a03">配置文字模型</a>并<a href="#a04">开始第一局</a>。</p>
-<p>更新时先关闭酒馆，重新运行所选来源的安装命令，再启动。页面中的“查看更新命令”提供对应命令，这种安装方式不使用专用安装器的源码更新器。需要即时修复时，使用 GitHub 来源。</p>
+<p>更新时先关闭酒馆，重新运行上述 GitHub 安装命令，再启动。页面中的“查看更新命令”提供对应命令，这种安装方式不使用专用安装器的源码更新器。</p>
 <h2 id="plugin-installation--section-4">数据位置与使用边界</h2>
 <p>数据位于当前 <code>DSH_HOME</code> 下的 <code>profile-data/tavern/</code>；未设置 <code>DSH_HOME</code> 时通常为 <code>~/.dsh/profile-data/tavern/</code>。程序由 Profile 的包管理器维护。</p>
 <p>这条路线不会迁移旧 CLI 的独立数据，也不附带 Desktop 的 Pocket 手机访问配置或宿主字体文件修改。侧栏终端复用宿主提供的 <code>node-pty</code>；宿主缺少此依赖时，终端会显示修复提示，酒馆仍可使用。</p><footer class="article-footer"><span>DSH Tavern 使用文档</span><a class="" href="#help">需要帮助？</a></footer></article><article class="doc-page" id="appearance" data-group="play" data-title="皮肤与外观"><div class="breadcrumb">使用文档 <span>/</span> <a class="" href="#play">游玩模式</a> <span>/</span> 功能说明</div><h1 tabindex="-1">皮肤与外观</h1><p class="lead">选择酒馆主题、强调色与壁纸。</p><h2 id="appearance--section-1">选择皮肤</h2>

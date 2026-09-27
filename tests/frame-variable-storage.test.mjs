@@ -11,6 +11,7 @@ function fixture() {
   const client = descriptor.factory(() => ({}))
   const html = client.buildTavernFrameDocument({ token: 'frame', turn: 1, content: '', helperContext: {
     characterVariables: { unrelated: 1, start_presets: { presets: [] } }, globalVariables: { shared: 2 },
+    scriptVariables: { a: {count:1}, b: {count:7} },
     messages: [{ message_id: 0, variables: { stat_data: { 主角: { 姓名: '旧' } } } }], turnMessageIds: { 1: 0 }
   } })
   const calls = [], listeners = []
@@ -24,6 +25,21 @@ function fixture() {
   vm.runInContext(script, context)
   return { w, calls, reply(result = { updated: true }, ok = true) { for (const fn of listeners) fn({ source: parent, data: { type: 'dsh-tavern-helper-response', token: 'frame', requestId: calls.at(-1).requestId, ok, result, error: '保存失败' } }) } }
 }
+test('状态栏 script 作用域读写隔离，失败回滚不污染消息或其他脚本', async () => {
+  const h=fixture(), option={type:'script',script_id:'a'}, w=h.w
+  assert.equal(w.getVariables(option).count,1)
+  const message=JSON.stringify(w.getVariables({type:'message'}))
+  const pending=w.insertOrAssignVariables({count:2},option)
+  assert.equal(w.getVariables(option).count,2)
+  assert.equal(w.getVariables({type:'script',script_id:'b'}).count,7)
+  assert.equal(JSON.stringify(w.getVariables({type:'message'})),message)
+  h.reply(); await pending
+  const failed=w.replaceVariables({count:3},option)
+  h.reply({},false)
+  await assert.rejects(failed,/保存失败/)
+  assert.equal(w.getVariables(option).count,2)
+  assert.equal(JSON.stringify(w.getVariables({type:'message'})),message)
+})
 test('消息 iframe 导入角色预设后同步读到新列表，保存接口可等待且不污染消息变量', async () => {
   const h = fixture(), w = h.w
   assert.equal(w.getVariables({ type: 'global' }).shared, 2)

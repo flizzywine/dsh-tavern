@@ -143,7 +143,7 @@ test('宿主提供独立错误投影，前端按 Session 隔离并只观察对�
   const source = await readFile(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
   assert.match(host, /const rollbackEvidence = sessionDebugEvidence\(chat.sessionId, true\)/)
   const stateView = await readFile(new URL('../tavern-plugin/lib/domain/chat-session-state.js', import.meta.url), 'utf8')
-  assert.match(host, /sessionStateView\.rollback\(chat, evidence\)/)
+  assert.match(host, /sessionStateView\.rollback\(chat, evidence, changes\)/)
   assert.match(stateView, /suppressedDshTurns: foregroundSuppressedTurns\(chat, evidence.events \|\| \[\]\)/)
   assert.match(stateView, /suppressedDshErrorTurns: supersededRegenerationErrorTurns\(\{\s*events: evidence.events \|\| \[\],\s*suppressedDshTurns: chat.suppressedDshTurns/)
   assert.match(source, /createElement\(SupersededTurnErrors, Object.assign\(\{\}, props, \{ key: props.sessionId \}\)\)/)

@@ -67,7 +67,7 @@ test('standard plugin installation delegates updates to DSH without fetching or 
   assert.equal(await readFile(path.join(profile, 'package.json'), 'utf8'), manifest)
 })
 
-test('npm installation keeps npm as its update channel', async t => {
+test('retired npm installation offers the GitHub update channel', async t => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'tavern-npm-updater-'))
   t.after(() => rm(root, { recursive: true, force: true }))
   const profile = path.join(root, 'profiles/tavern')
@@ -80,7 +80,7 @@ test('npm installation keeps npm as its update channel', async t => {
     dataRoot: path.join(root, 'profile-data/tavern/data'),
     readLocalIdentity: async () => knownIdentity })
   assert.equal((await updater.status()).updateCommand,
-    'dsh plugin --profile tavern add dsh-profile-tavern@latest')
+    'dsh plugin --profile tavern add github:flizzywine/dsh-tavern')
 })
 
 test('真实 Git 历史可离线识别新旧，包括 archive 安装的 bare source-cache', async () => {

@@ -106,6 +106,8 @@ export function createCandidateTasks({ chats, generator, backgroundTasks, sessio
     return {
       runtimeGeneration,
       liveSession,
+      chatId: str(chat.id),
+      storageRevision: Number(chat._storageRevision) || 0,
       requestMode: chat.requestMode === 'sillytavern' ? 'sillytavern' : 'dsh',
       cardPath: str(chat.cardPath),
       cardName: str(chat.cardName),

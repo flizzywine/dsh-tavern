@@ -1,50 +1,74 @@
 // Bound initial story rendering independently of host child-slot ownership.
 // Only explicit input expands history; canonical records are never changed.
-function createTavernHistoryViewport(initialLimit = 20) {
-    const entries = new Map(), listeners = new Set(), limits = new Map();
-    let snapshot = new Set();
-    function publish(next, force = false) {
-        if (!force && next.size === snapshot.size && [...next].every(key => snapshot.has(key))) return;
-        const previous = snapshot;
-        snapshot = new Set(next);
-        for (const key of previous) if (!next.has(key)) entries.get(key)?.release();
-        listeners.forEach(fn => fn());
+function createTavernHistoryViewport(initialLimit = 20, { visit = () => {} } = {}) {
+    const index = createOrderedNumericIndex({ visit });
+    const entries = new Map(), sessions = new Map(), listeners = new Map();
+    let activeSession, selected = index.from([]), earlierKey;
+    function state(key) {
+        const item = entries.get(key);
+        return item && item.sessionId === activeSession && index.get(selected, item.turn)
+            ? (key === earlierKey ? 2 : 1) : 0;
     }
-    function ordered(sessionId) {
-        return [...entries.values()].filter(item => item.sessionId === sessionId).sort((a, b) => a.turn - b.turn);
+    function publish(sessionId, next) {
+        const oldEarlier = earlierKey, previousSession = activeSession;
+        const changes = previousSession === sessionId ? index.changed(selected, next)
+            : [...selected.map(item => ({ before: item })), ...next.map(item => ({ after: item }))];
+        activeSession = sessionId;
+        selected = next;
+        const rows = sessions.get(sessionId)?.rows;
+        earlierKey = rows?.length && next.length && rows[0].turn < next[0].turn ? next[0].key : undefined;
+        const changedKeys = new Set([oldEarlier, earlierKey]);
+        for (const change of changes) {
+            if (change.before) { changedKeys.add(change.before.key); change.before.release(); }
+            if (change.after) changedKeys.add(change.after.key);
+        }
+        for (const key of changedKeys) if (key !== undefined) listeners.get(key)?.forEach(fn => fn());
     }
     function select(sessionId) {
-        const rows = ordered(sessionId);
-        publish(new Set(rows.slice(-(limits.get(sessionId) || initialLimit)).map(item => item.key)), true);
+        const session = sessions.get(sessionId);
+        publish(sessionId, session ? index.suffix(session.rows, session.rows.length - (session.limit || initialLimit)) : index.from([]));
     }
     return {
-        subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); },
-        snapshot() { return snapshot; },
+        subscribe(key, fn) {
+            let bucket = listeners.get(key);
+            if (!bucket) listeners.set(key, bucket = new Set());
+            bucket.add(fn);
+            return () => { bucket.delete(fn); if (!bucket.size) listeners.delete(key); };
+        },
+        state,
         register(sessionId, turn, release) {
             const key = JSON.stringify([sessionId, turn]);
-            let item = entries.get(key);
-            const added = !item;
-            const newest = ordered(sessionId).at(-1);
-            if (added && limits.has(sessionId) && newest && turn > newest.turn) limits.set(sessionId, limits.get(sessionId) + 1);
-            if (!item) { item = { key, sessionId, turn, release, mounts: 0 }; entries.set(key, item); }
+            let item = entries.get(key), session = sessions.get(sessionId);
+            if (!session) sessions.set(sessionId, session = { rows: index.from([]) });
+            const added = !item, newest = session.rows[session.rows.length - 1];
+            if (added && session.limit && newest && turn > newest.turn) session.limit++;
+            if (!item) {
+                item = { key, sessionId, turn, release, mounts: 0 };
+                entries.set(key, item);
+                session.rows = index.update(session.rows, [[turn, item]]);
+            }
             item.mounts++;
             if (added) select(sessionId);
             return () => {
                 if (--item.mounts > 0) return;
-                item.release();
                 entries.delete(key);
-                if (!ordered(sessionId).length) limits.delete(sessionId);
-                publish(new Set([...snapshot].filter(k => k !== key)));
+                session.rows = index.update(session.rows, [[turn, undefined]]);
+                if (!session.rows.length) sessions.delete(sessionId);
+                if (activeSession === sessionId && index.get(selected, turn)) {
+                    publish(sessionId, index.update(selected, [[turn, undefined]]));
+                } else {
+                    item.release();
+                    if (activeSession === sessionId) publish(sessionId, selected);
+                }
             };
         },
         more(sessionId) {
-            limits.set(sessionId, (limits.get(sessionId) || initialLimit) + initialLimit);
+            const session = sessions.get(sessionId);
+            if (!session) return;
+            session.limit = (session.limit || initialLimit) + initialLimit;
             select(sessionId);
         },
-        hasEarlier(sessionId, turn) {
-            const rows = ordered(sessionId), selected = rows.filter(item => snapshot.has(item.key));
-            return selected[0]?.turn === turn && rows[0]?.turn < turn;
-        },
+        hasEarlier(sessionId, turn) { return earlierKey === JSON.stringify([sessionId, turn]); },
         key(sessionId, turn) { return JSON.stringify([sessionId, turn]); }
     };
 }
@@ -55,11 +79,14 @@ function TavernWindowedNode(props) {
     const expanding = React.useRef(false);
     const turn = Number(props.node.location?.turn?.turn || 0);
     const key = tavernHistoryViewport.key(props.sessionId, turn);
-    const active = React.useSyncExternalStore(tavernHistoryViewport.subscribe, tavernHistoryViewport.snapshot).has(key);
+    const subscribe = React.useCallback(fn => tavernHistoryViewport.subscribe(key, fn), [key]);
+    const getState = React.useCallback(() => tavernHistoryViewport.state(key), [key]);
+    const viewportState = React.useSyncExternalStore(subscribe, getState);
+    const active = viewportState !== 0;
     React.useLayoutEffect(() => tavernHistoryViewport.register(props.sessionId, turn, () => {
         tavernRetainedFrames.invalidateOwner(key);
     }), [key]);
-    const earlier = props.node.kind !== "user" && tavernHistoryViewport.hasEarlier(props.sessionId, turn);
+    const earlier = props.node.kind !== "user" && viewportState === 2;
     function more() {
         if (expanding.current) return;
         expanding.current = true;

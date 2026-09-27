@@ -1,4 +1,5 @@
 import {setupRealVariables,realVariableLookupChecks} from './real-variable-lookup.mjs'
+import { incrementalMvuChecks } from './mvu-incremental.mjs'
 import {openingUpdateChecks} from './opening-update.mjs'
 import { backgroundLifecycleChecks } from './background-lifecycle.mjs'
 import { cardMemoryChecks } from './card-memory.mjs'
@@ -257,7 +258,9 @@ try {
     assert.deepEqual(errors, [], '浏览器不得出现未捕获异常')
     await page.screenshot({ path: join(output, 'after-reload.png'), fullPage: true })
   })
-  if (process.argv.includes('--background-lifecycle')) {
+  if (process.argv.includes('--mvu-incremental')) {
+    await incrementalMvuChecks({page,step,savedChat,output,report,restartServer})
+  } else if (process.argv.includes('--background-lifecycle')) {
     await backgroundLifecycleChecks({page,step,savedChat,data,output,report,restartServer})
   } else if (displayScenario) {
     await displayRegressionChecks({page,step,savedChat,data,output,report,restartServer})

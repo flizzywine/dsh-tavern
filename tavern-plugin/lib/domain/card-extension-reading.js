@@ -1,3 +1,5 @@
+import { normalizeCardFrameSizing } from './frame-sizing.js'
+
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
 }
@@ -146,6 +148,7 @@ export function inspectCardExtensions(value) {
   const otherExtensions = otherExtensionsOf(extensions)
   const tavernHelper = object(extensions.tavern_helper) ? extensions.tavern_helper : {}
   return {
+    frameSizing: normalizeCardFrameSizing(extensions.dsh_tavern?.frameSizing),
     extensionCount: regexScripts.length + helperScripts.length + otherExtensions.length + mvuResources.filter(function (item) { return item.kind === 'extension' }).length,
     regexScripts,
     helperScripts,

@@ -30,7 +30,11 @@ function assertIdentity(chat, effect) {
 
 /** Create a serializable, operation-scoped effect without persisting Chat state. */
 export function createMvuSettlementEffect(input = {}) {
-  const changes = diffJson(input.before, input.after).filter(function (change) {
+  // The caller owns the draft and declares every touched floor. Do not scan
+  // shared history to rediscover a write set that is already known.
+  const rawChanges = input.messageIndices ? diffMvuChanges(input.before, input.after, input.messageIndices)
+    : diffJson(input.before, input.after)
+  const changes = rawChanges.filter(function (change) {
     return Array.isArray(change.path) && ALLOWED_ROOTS.has(String(change.path[0] || ''))
   })
   return {
@@ -48,13 +52,46 @@ export function createMvuSettlementEffect(input = {}) {
 }
 
 /** Apply one effect at the Story Timeline commit seam while preserving unrelated projections. */
-export function applyMvuSettlementEffect(chat, effect) {
+export function applyMvuSettlementEffect(chat, effect, scope) {
   assertIdentity(chat, effect)
   const changes = effect.changes.filter(change => ALLOWED_ROOTS.has(String(change.path?.[0])))
+  if (Array.isArray(scope?.messageIndices)) {
+    const allowed = new Set(scope.messageIndices)
+    const byFloor = new Map(), head = []
+    for (const change of changes) {
+      if (change.path[0] !== 'messages') { head.push(change); continue }
+      const id = change.path[1]
+      if (!allowed.has(id)) throw new Error('MVU effect wrote an undeclared floor')
+      if (!byFloor.has(id)) byFloor.set(id, [])
+      byFloor.get(id).push({...change,path:change.path.slice(2)})
+    }
+    // Prepare all changed rows before publishing any, preserving failure isolation.
+    const rows = [...byFloor].map(([id, edits]) => [id, applyJsonChangesShared(chat.messages[id], edits)])
+    const applied = applyJsonChangesShared({...chat, messages: undefined}, head)
+    for (const root of new Set(head.map(change => change.path[0]))) {
+      if (Object.hasOwn(applied, root)) chat[root] = applied[root]
+      else delete chat[root]
+    }
+    for (const [id, row] of rows) chat.messages[id] = row
+    return chat
+  }
   const applied = applyJsonChangesShared(chat, changes)
   for (const root of new Set(changes.map(change => change.path[0]))) {
     if (Object.hasOwn(applied, root)) chat[root] = applied[root]
     else delete chat[root]
   }
   return chat
+}
+
+/** Compare detached metadata and explicitly owned floors, never array length. */
+export function diffMvuChanges(before, after, indices) {
+  const {messages: beforeMessages, ...beforeHead} = before
+  const {messages: afterMessages, ...afterHead} = after
+  if (beforeMessages.length !== afterMessages.length) throw new Error('Scoped MVU cannot change history membership')
+  const changes = diffJson(beforeHead, afterHead)
+  for (const id of indices) {
+    if (!Number.isSafeInteger(id) || id < 0 || id >= beforeMessages.length) throw new Error('Invalid scoped MVU floor')
+    for (const change of diffJson(beforeMessages[id], afterMessages[id])) changes.push({...change,path:['messages',id,...change.path]})
+  }
+  return changes
 }

@@ -6,6 +6,7 @@ import { homedir } from 'node:os'
 import { createRequire } from 'node:module'
 import path from 'node:path'
 import { chromium } from 'playwright'
+const ordered = (await readFile(new URL('../tavern-plugin/lib/domain/ordered-numeric-index.js', import.meta.url), 'utf8')).replace('export { createOrderedNumericIndex };', '')
 const source = await readFile(new URL('../tavern-plugin/src/client/modules/history-viewport.js', import.meta.url), 'utf8')
 
 const dsh = process.env.DSH_BROWSER_ROOT || path.join(homedir(), '.dsh-tavern/runtime/lib/node_modules/@deepseek-ai/dsh')
@@ -27,7 +28,7 @@ test('real React loads older pages on upward input without remounting retained f
     await page.setContent('<div id="app" data-conversation-scroll style="height:600px;overflow:auto;overflow-anchor:none"></div>')
     await page.addScriptTag({content: bundle + `
       const React=modules.react;
-      ${retention}\n${retained}\n${source}
+      ${ordered}\n${retention}\n${retained}\n${source}
       const retention=createTavernSessionRetention({window});retention.select('a');
       const tavernRetainedFrames=createRetainedTavernFrames({window,retention,createLifecycle(props){
         const d={token:Math.random().toString(),trustedCardMode:true,html:'<input value="fresh"><script>window.identity=Math.random()</'+'script>',ref(){}};

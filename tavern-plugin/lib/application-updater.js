@@ -452,13 +452,9 @@ export function createApplicationUpdater(options) {
     try {
       const manifest = JSON.parse(await readFile(profileManifest, 'utf8'))
       if (manifest.dsh?.profile?.bundles?.includes('dsh-profile-tavern')) {
-        const spec = manifest.dependencies?.['dsh-profile-tavern']
-        const registryInstall = typeof spec === 'string' && !/[:/]/.test(spec)
         return {
           phase: 'package-managed', host: await host(), ...await localIdentity(),
-          updateCommand: registryInstall
-            ? 'dsh plugin --profile tavern add dsh-profile-tavern@latest'
-            : 'dsh plugin --profile tavern add github:flizzywine/dsh-tavern',
+          updateCommand: 'dsh plugin --profile tavern add github:flizzywine/dsh-tavern',
         }
       }
     } catch (error) {

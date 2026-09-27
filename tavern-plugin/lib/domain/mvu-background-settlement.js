@@ -427,6 +427,7 @@ export function createMvuSettlementModule(options = {}) {
   async function applySubmission(input, frame, submission, diagnosticId) {
     if (input.onSubmission) await input.onSubmission(clone(submission))
     const applied = await options.runtime.settleMvuUpdate({
+      compactResult: true,
       durable: Boolean(input.onSubmission), signal: input.signal,
       operationId: input.operationId,
       chatId: input.chatId, branchId: input.branchId, basedOnRevision: input.basedOnRevision,
@@ -440,7 +441,7 @@ export function createMvuSettlementModule(options = {}) {
     })
     if (applied.deferred === true || applied.stale === true) return { applied }
     const projected = applied.context?.messages?.[input.messageId]
-    const after = clone(projected?.variables || {})
+    const after = clone(applied.variables || projected?.variables || {})
     const audit = applied.validation || auditMvuSettlement(input.currentVariables, after, submission.operations)
     const rolledBack = applied.rejected === true
     const changes = rolledBack ? [] : audit.changes

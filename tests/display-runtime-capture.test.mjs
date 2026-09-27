@@ -117,3 +117,21 @@ test('legacy inferred turns and MVU-only reports preserve diagnostic content', a
   projected.displayRuntime.frames[0].dom = 'mutation outside transaction'
   assert.equal((await records.read('chat')).messages[2].displayRuntime.frames[0].dom, 'rendered status')
 })
+
+test('layout evidence is bounded, persists through replay and deduplicates without touching variables', async t => {
+  const { capture, records, root } = await harness(t)
+  const layout = { mode: 'viewport', source: 'template', width: 390, height: 600, availableHeight: 600,
+    roots: Array.from({ length: 20 }, () => ({ tag: 'BODY', height: 600, scrollHeight: Infinity, id: 'x'.repeat(200), arbitrary: 'discard' })), arbitrary: 'discard' }
+  assert.equal((await capture('session', 459, 0, { layout })).captured, true)
+  assert.equal((await capture('session', 459, 0, { layout })).captured, false)
+  const saved = await createChatJournalStore({ dataRoot: root }).read('chat')
+  const evidence = saved.messages[458].displayRuntime.frames[0].layout
+  assert.equal(evidence.height, 600)
+  assert.equal(evidence.roots.length, 3)
+  assert.equal(evidence.roots[0].id.length, 80)
+  assert.equal(evidence.roots[0].scrollHeight, null)
+  assert.equal(evidence.arbitrary, undefined)
+  assert.equal(saved.messages[458].variables.stat_data.gold, 10)
+  assert.equal((await capture('session', 459, 0, { layout: { ...layout, height: 400 } })).captured, true)
+  assert.equal((await records.read('chat')).messages[458].displayRuntime.frames[0].layout.height, 400)
+})

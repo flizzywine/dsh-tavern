@@ -65,7 +65,12 @@ test('正式消息 renderer 使用原生 Markdown、完整标签参数，并只�
   // Only the final assistant node of the newest story turn owns inline status.
   function inlineStatus(nextProps = props) {
     const node = Assistant(nextProps)
-    return node.tag(node.props).children.filter(child => child?.tag?.name === 'TavernPersistentStatusRuntime')
+    return node.tag(node.props).children.map(child => {
+      if (child?.tag?.name !== 'TavernInlineStatusRuntime') return child
+      const status = child.tag(child.props)
+      assert.equal(status.props.view, currentView, 'inline runtime receives the complete live view')
+      return status
+    }).filter(child => child?.tag?.name === 'TavernPersistentStatusRuntime')
   }
   props.useTurnData = () => ({ closing: { finalNode: { seq: 1 } } })
   assert.equal(inlineStatus().length, 0, 'default stays in sidebar')

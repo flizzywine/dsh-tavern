@@ -79,3 +79,19 @@ test('重新加载同步开场 initvar 元数据，保留正文与当前变量',
   assert.equal(original.messages[0].sourceText,'保留原开场\n'+old.first_mes)
  }finally{runtime.dispose()}
 })
+
+test('frame sizing is applied as card configuration while preserving earned variables and story', async () => {
+  const runtime = createLiveCardUpdate()
+  try {
+    const original = chat(card({ gold: 0 }), { gold: 73 })
+    original.messages[0].text = 'existing story'
+    const next = structuredClone(original.cardDefinitionSnapshot)
+    next.extensions.dsh_tavern = { frameSizing: { default: { mode: 'viewport' }, panels: { status: { mode: 'content', maxHeight: 600 } } } }
+    const updated = await runtime.prepare(original, next, original)
+    assert.equal(updated.messages[0].text, 'existing story')
+    assert.equal(updated.messages[0].variables[0].stat_data.gold, 73)
+    assert.equal(updated.timeline[0].variables.stat_data.gold, 73)
+    assert.equal(updated.rollbackUndo.variables.stat_data.gold, 73)
+    assert.deepEqual(original.cardDefinitionSnapshot.extensions, {})
+  } finally { runtime.dispose() }
+})

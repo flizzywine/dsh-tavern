@@ -7,6 +7,7 @@ import { createCandidateTasks } from '../tavern-plugin/lib/domain/candidate-task
 import { createChatPersistence } from '../tavern-plugin/lib/domain/chat-persistence.js'
 import { createChatJournalStore } from '../tavern-plugin/lib/domain/chat-journal-store.js'
 import { createDurableTaskMailbox } from '../tavern-plugin/lib/domain/durable-task-mailbox.js'
+import { createCoordinationEventPublisher } from '../tavern-plugin/lib/domain/coordination-event-publisher.js'
 
 function deferred() {
   let resolve
@@ -37,6 +38,28 @@ async function harness(t) {
   return { chats, create, restart() { db = persistence() }, seed: createDurableTaskMailbox({ store: { readChat: chats.read, writeChat: chats.write } }) }
 }
 const request = { sessionId: 's', messageId: 'm', requestId: 'r', guidance: '  提示  ' }
+
+test('纯变量写入通过真实协调快照通知所有页面，未变版本不重复通知', async t => {
+  const h = await harness(t)
+  const service = h.create({})
+  const received = []
+  const publisher = createCoordinationEventPublisher({
+    load: id => service.sync(id, {kind:'candidate'}),
+    publishSignal: (id, signal) => received.push(signal),
+    startInterval: () => ({}), stopInterval() {}
+  })
+  const stop = publisher.watch('s'); t.after(stop)
+  await until(() => received.length, count => count === 1)
+  const before = await h.chats.read('c')
+  before.variables = {gold:12}
+  await h.chats.write(before)
+  await publisher.publish('s')
+  assert.equal(received.length,2,'活动与候选不变时也必须发布变量写入')
+  assert.equal(received[1].snapshot.storageRevision,(await h.chats.read('c'))._storageRevision)
+  assert.deepEqual(received[1].snapshot.activity,received[0].snapshot.activity)
+  await publisher.publish('s')
+  assert.equal(received.length,2,'同一个存储版本仍应去重')
+})
 
 test('生产提交接口先持久化且不等待生成；并发重复与响应丢失只执行一次', async t => {
   const h = await harness(t), gate = deferred()

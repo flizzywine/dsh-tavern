@@ -57,3 +57,17 @@ for (const kind of ['revision', 'resource', 'missing']) test(`invalid delta ${ki
   await f.reader.read('s')
   assert.equal(f.calls.fullRead,2)
 })
+
+
+test('verified truncation evidence reaches input projection while the full view fallback remains',async()=>{
+ const f=fixture();f.chat={...f.chat,messages:[{role:'assistant',text:'one'},{role:'assistant',text:'two'}]}
+ await f.reader.read('s')
+ f.chat={...f.chat,_storageRevision:2,messages:f.chat.messages.slice(0,1)}
+ f.deps.readViewDelta=async()=>({baseRevision:1,revision:2,indices:[],changedHeaderFields:['_storageRevision'],chat:f.chat})
+ const original=f.deps.project.full;let evidence
+ f.deps.project.full=async(chat,options)=>{evidence=options.inputChanges;return original(chat)}
+ await f.reader.read('s')
+ assert.equal(f.calls.full,2);assert.equal(f.calls.dirty,0)
+ assert.equal(evidence.baseRevision,1);assert.deepEqual([...evidence.indices],[])
+ assert.deepEqual(evidence.changedHeaderFields,['_storageRevision'])
+})

@@ -18,10 +18,12 @@ const timed=(name,fn)=>async(...args)=>{const start=performance.now();try{return
 const persistence=createChatPersistence({store:createChatJournalStore({dataRoot:root})})
 const data=createProfileDataStore({dataRoot:root})
 const registry=createTavernConversationRegistry({store:{readLinks:()=>data.readJson('sessions.json'),updateLinks:fn=>data.updateJson('sessions.json',fn),readIndex:timed('index.read',()=>data.readJson('index.json')),writeIndex:timed('index.write',v=>data.writeJson('index.json',v)),readChat:persistence.read,writeChat:persistence.write,removeChat:persistence.remove}})
-const count=600
+const countArg=process.argv.find(value=>value.startsWith('--count='))
+const count=countArg ? Number(countArg.slice('--count='.length)) : 600
+if(!Number.isSafeInteger(count) || count<2 || count>20000) throw new Error('--count must be an integer between 2 and 20000')
 const seeded={id:'c',sessionId:'s',cardPath:'cards/test.json',mode:'story',mvu:{enabled:true},variables:{},messages:Array.from({length:count},(_,i)=>({role:i%2?'assistant':'user',text:'正文'.repeat(2000),variables:[{stat_data:{hp:10,details:'历史变量'.repeat(1000)},schema:{}}]}))}
 await persistence.write(seeded)
-const adapter=createTavernScriptHostAdapter({resolveChat:timed('chat.read',()=>persistence.read('c')),readCard:async()=>({}),worldBooks:{},scriptDispatch:{},
+const adapter=createTavernScriptHostAdapter({resolveChat:timed('chat.read',()=>persistence.read('c')),resolveChatSlice:timed('chat.slice',(_session,indices,fields)=>persistence.readSlice('c',indices,fields)),readChatRevision:persistence.readRevision,readCard:async()=>({}),worldBooks:{},scriptDispatch:{},
  writeChat:timed('chat.write',async(chat,metadata)=>{const saved=await persistence.write(chat,metadata);await registry.sync(saved);return saved}),
  patchChat:timed('chat.patch',async(...args)=>{const saved=await persistence.patch(...args);if(saved)await registry.sync(saved);return saved})})
 const results=[]

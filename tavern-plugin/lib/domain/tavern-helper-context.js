@@ -1,3 +1,6 @@
+import { createIndexedArrayApi } from './indexed-array.js'
+import { freezeJson } from './freeze-json.js'
+const helperIndex = createIndexedArrayApi({valid: row => Boolean(row && !row.stub)})
 import { assertPluginJson } from './tavern-chat-plugin-data.js'
 import { projectAgentContent } from './runtime-content-projection.js'
 
@@ -146,9 +149,17 @@ export function projectTavernHelperContext(chat, options = {}) {
     const nextCount = sources.length
     for (let index = Math.min(previousCount, nextCount); index < nextCount; index++) dirty.add(index)
   }
-  const messages = []
-  const turnMessageIds = {}
-  for (let index = 0; index < sources.length; index++) {
+  let messages = []
+  let turnMessageIds = {}
+  const indexedReuse = options.indexed && options.layoutChanged === false && dirty && options.previousContext
+    && helperIndex.info(previousMessages)?.complete && previousMessages.length === sources.length
+    && options.previousContext.chatId === str(chat.id)
+    && options.previousContext.lifecycleRevision === Math.max(0,Number(chat.tavernHelperLifecycleRevision)||0)
+  if (indexedReuse) {
+    messages = helperIndex.update(previousMessages,[...dirty].map(id => [id,freezeJson(projectTavernHelperMessage(sources[id],id))]))
+    turnMessageIds = options.previousContext.turnMessageIds
+  }
+  for (let index = 0; !indexedReuse && index < sources.length; index++) {
     const source = sources[index]
     if (!source || typeof source !== 'object') continue
     const messageId = messages.length
@@ -166,6 +177,10 @@ export function projectTavernHelperContext(chat, options = {}) {
     }
     messages.push(projected)
     rememberAssistantTurn(turnMessageIds, source, messageId, projected.role)
+  }
+  if (options.indexed && !indexedReuse) {
+    messages = helperIndex.from(messages.map(freezeJson))
+    turnMessageIds = freezeJson(turnMessageIds)
   }
   const result = {
     version: 1,
@@ -334,4 +349,9 @@ export function replaceTavernHelperMessages(chat, patches) {
     updated.push({ messageId, swipeId })
   }
   return updated
+}
+
+// Indexed production projections have a cached completeness aggregate.
+export function helperMessagesComplete(messages) {
+  return helperIndex.info(messages)?.complete ?? !messages.some(message=>message?.stub === true)
 }

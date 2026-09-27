@@ -7,6 +7,10 @@ export function coordinationEventId(snapshot) {
   const task = snapshot && snapshot.task || {}
   return [
     str(snapshot && snapshot.runtimeGeneration),
+    // Variable-only commits leave task/activity state unchanged. Wake all
+    // viewers for the new durable revision without projecting message history.
+    str(snapshot && snapshot.chatId),
+    Number(snapshot && snapshot.storageRevision) || 0,
     JSON.stringify([str(snapshot && snapshot.cardPath), str(snapshot && snapshot.cardName)]),
     snapshot && snapshot.liveSession === true ? '1' : '0',
     Number(snapshot && snapshot.mailboxVersion) || 0,

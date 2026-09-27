@@ -575,19 +575,7 @@ export const pluginInstallation = `
 
 已通过专用安装器安装的 CLI、Desktop 或 Android 酒馆，请继续使用各自原有的更新方式，不要向同一个 Profile 叠装。其他安装方式见[安装与启动](#a02)。
 
-## 选择安装来源
-
-在系统终端中运行以下一种安装命令。
-
-### npm：已发布的正式版本
-
-` + code('bash', 'dsh plugin --profile tavern add dsh-profile-tavern@latest') + `
-
-npm 包：[dsh-profile-tavern](https://www.npmjs.com/package/dsh-profile-tavern)。国内镜像可能延迟同步新版本。
-
-**npm 包仅在正式版本（大版本）发布时同步，不包含期间的小更新和即时修复。** \`@latest\` 指最新已发布的 npm 包，不代表 GitHub 最新代码；重复运行 npm 安装命令也无法获取尚未发布到 npm 的更新。
-
-### GitHub：跟进最新代码
+## 从 GitHub 安装
 
 需要 Git。在终端运行：
 
@@ -603,7 +591,7 @@ DSH 会创建 Profile、安装完整运行包并启用酒馆。运行包包含 W
 
 打开酒馆网页，看到 Tavern 界面后，继续[配置文字模型](#a03)并[开始第一局](#a04)。
 
-更新时先关闭酒馆，重新运行所选来源的安装命令，再启动。页面中的“查看更新命令”提供对应命令，这种安装方式不使用专用安装器的源码更新器。需要即时修复时，使用 GitHub 来源。
+更新时先关闭酒馆，重新运行上述 GitHub 安装命令，再启动。页面中的“查看更新命令”提供对应命令，这种安装方式不使用专用安装器的源码更新器。
 
 ## 数据位置与使用边界
 

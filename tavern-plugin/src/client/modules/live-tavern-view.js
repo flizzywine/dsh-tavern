@@ -16,13 +16,105 @@ function createLiveTavernViewModule(options) {
 	function initialState() { return { phase: "idle", view: null, error: "", updatedAt: 0 }; }
 	function recordFor(sessionId) {
 		const id = String(sessionId || "");
-		if (!records.has(id)) records.set(id, { id: id, state: initialState(), listeners: new Set(), timer: null, watchdog: null, loading: false, reloadRequested: false, optimisticBusy: false, eviction: null, controller: null });
+		if (!records.has(id)) records.set(id, { id: id, state: initialState(), listeners: new Set(), paths: dependencyNode(), timer: null, watchdog: null, loading: false, reloadRequested: false, optimisticBusy: false, eviction: null, controller: null });
 		return records.get(id);
 	}
-	function publish(record, state) {
+	function dependencyNode() { return { exact: new Set(), all: new Set(), children: new Map() }; }
+	function register(root, paths, listener) {
+		const nodes = new Set(), leaves = new Set(), edges = [];
+		paths.forEach(function (path) {
+			let node = root; nodes.add(node);
+			path.forEach(function (key) {
+				key = String(key);
+				if (!node.children.has(key)) node.children.set(key, dependencyNode());
+				edges.push([node, key]); node = node.children.get(key); nodes.add(node);
+			});
+			leaves.add(node);
+		});
+		nodes.forEach(node => node.all.add(listener));
+		leaves.forEach(node => node.exact.add(listener));
+		return function () {
+			nodes.forEach(node => node.all.delete(listener));
+			leaves.forEach(node => node.exact.delete(listener));
+			for (let i = edges.length - 1; i >= 0; i--) {
+				const [parent, key] = edges[i];
+				if (parent.children.get(key)?.all.size === 0) parent.children.delete(key);
+			}
+		};
+	}
+	function affected(root, paths) {
+		const listeners = new Set(root.exact);
+		paths.forEach(function (path) {
+			let node = root;
+			for (const key of path) {
+				node = node.children.get(String(key));
+				if (!node) return;
+				node.exact.forEach(listener => listeners.add(listener));
+			}
+			node.all.forEach(listener => listeners.add(listener));
+		});
+		return listeners;
+	}
+	function addReceiptStatePaths(paths, before, after) {
+		if (Boolean(before?.activity?.busy) !== Boolean(after?.activity?.busy)) paths.push(["$receiptBusy"]);
+		if (!Object.is(before?.settlementTurn, after?.settlementTurn)) {
+			paths.push(["$settlementOwner", String(before?.settlementTurn)], ["$settlementOwner", String(after?.settlementTurn)]);
+		}
+	}
+	function publish(record, state, result) {
 		if (records.get(record.id) !== record) return;
+		// A confirmed no-op should not wake every mounted history component.
+		// In this opt-in mode updatedAt records the last published state change.
+		if (options.deduplicateViews === true && record.state.phase === state.phase
+			&& record.state.view === state.view && record.state.error === state.error) return;
+		let listeners = record.listeners;
+		if (result && result.viewBase === record.state.view && result.viewDelta
+			&& record.state.phase === state.phase && record.state.error === state.error) {
+			const delta = result.viewDelta;
+			const paths = delta.set.map(entry => entry[0]).concat(delta.remove);
+			if (paths.some(path => path[0] === "regeneratedDshTurns")) {
+				if (Array.isArray(result.storyChanges)) for (const turn of result.storyChanges) paths.push(["$storyHostTurn", String(turn)]);
+				else paths.push(["$storyHostTurn"]);
+			}
+			if (paths.some(path => path[0] === "replyProjections")) {
+				const change = result.projectionChanges;
+				if (change) {
+					for (const turn of change.turns) paths.push(["$projectionTurn", String(turn)]);
+					if (change.beforeLatest !== change.afterLatest) {
+						paths.push(["$projectionLatestTurn", String(change.beforeLatest)], ["$projectionLatestTurn", String(change.afterLatest)]);
+					}
+				} else paths.push(["$projectionTurn"], ["$projectionLatestTurn"]);
+			}
+			// Virtual turn dependencies are separate from positional array paths.
+			// Legacy/whole-array edits cannot prove turn locality and invalidate all.
+			if (paths.some(path => path[0] === "mvuReceipts")) paths.push(["$mvuReceiptTurn"]);
+			if (delta.receiptDelta && (delta.receiptDelta.set.length || delta.receiptDelta.remove.length)) {
+				paths.push(["mvuReceipts"]);
+				for (const row of delta.receiptDelta.set) paths.push(["$mvuReceiptTurn", String(row.turn)]);
+				for (const turn of delta.receiptDelta.remove) paths.push(["$mvuReceiptTurn", String(turn)]);
+			}
+			if (Boolean(record.state.view?.tavernHelper) !== Boolean(state.view?.tavernHelper)) paths.push(["$helperAvailable"]);
+			addReceiptStatePaths(paths, record.state.view, state.view);
+			listeners = affected(record.paths, paths);
+		} else if (options.deduplicateViews === true && record.state.view && state.view
+			&& record.state.phase === state.phase && record.state.error === state.error) {
+			// The identity-based mode already requires immutable published views.
+			// Hydration and local replacements preserve unrelated field identities:
+			// route those updates without enumerating history or all subscribers.
+			const before = record.state.view, after = state.view;
+			const keys = new Set([...Object.keys(before), ...Object.keys(after)]);
+			const paths = [];
+			for (const key of keys) if (Object.prototype.hasOwnProperty.call(before, key) !== Object.prototype.hasOwnProperty.call(after, key)
+				|| !Object.is(before[key], after[key])) paths.push([key]);
+			if (paths.some(path => path[0] === "regeneratedDshTurns")) paths.push(["$storyHostTurn"]);
+			if (paths.some(path => path[0] === "replyProjections")) paths.push(["$projectionTurn"], ["$projectionLatestTurn"]);
+			if (paths.some(path => path[0] === "mvuReceipts")) paths.push(["$mvuReceiptTurn"]);
+			if (Boolean(record.state.view?.tavernHelper) !== Boolean(state.view?.tavernHelper)) paths.push(["$helperAvailable"]);
+			addReceiptStatePaths(paths, record.state.view, state.view);
+			listeners = affected(record.paths, paths);
+		}
 		record.state = state;
-		record.listeners.forEach(function (listener) { listener(state); });
+		listeners.forEach(function (listener) { listener(state); });
 	}
 	function schedule(record, delay) {
 		if (records.get(record.id) !== record || record.listeners.size === 0) return;
@@ -66,7 +158,7 @@ function createLiveTavernViewModule(options) {
 				return;
 			}
 			if (shouldPoll(view)) record.optimisticBusy = false;
-			publish(record, { phase: "ready", view: view, error: "", updatedAt: Date.now() });
+			publish(record, { phase: "ready", view: view, error: "", updatedAt: Date.now() }, result);
 			if (view && view.tavernHelper && view.tavernHelper.messagesPending && typeof options.hydrateHelperMessages === "function") {
 				try {
 					view = await options.hydrateHelperMessages(record.id, view) || view;
@@ -116,6 +208,46 @@ function createLiveTavernViewModule(options) {
 	}
 
 	return {
+		// Each selection owns a stable snapshot, including missing-property semantics.
+		select: function (sessionId, paths) {
+			const module = this;
+			paths = paths.map(path => path.map(String));
+			if (paths.some(path => path.length === 0)) return {
+				getSnapshot: function () { return module.getSnapshot(sessionId); },
+				subscribe: function (notify) { return module.subscribe(sessionId, notify); }
+			};
+			// A selected parent already includes its children. Never write a child
+			// through a borrowed parent object while constructing the projection.
+			paths = paths.filter((path, i, all) => !all.some((parent, j) =>
+				(j < i || parent.length < path.length) && parent.length <= path.length
+				&& parent.every((key, depth) => path[depth] === key)));
+			let previous = null, values = null;
+			function snapshot() {
+				const state = module.getSnapshot(sessionId);
+				const next = paths.map(function (path) {
+					let value = state.view, present = value != null;
+					for (const key of path) {
+						present = value != null && Object.prototype.hasOwnProperty.call(value, key);
+						if (!present) return [false, undefined];
+						value = value[key];
+					}
+					return [present, value];
+				});
+				if (previous && previous.phase === state.phase && previous.error === state.error
+					&& (previous.view === null) === (state.view === null)
+					&& next.every((entry, i) => entry[0] === values[i][0] && Object.is(entry[1], values[i][1]))) return previous;
+				const view = state.view === null ? null : Object.create(null);
+				if (view) paths.forEach(function (path, i) {
+					if (!next[i][0]) return;
+					let target = view;
+					path.slice(0, -1).forEach(key => { target = target[key] || (target[key] = Object.create(null)); });
+					target[path[path.length - 1]] = next[i][1];
+				});
+				values = next;
+				return previous = Object.assign({}, state, { view: view });
+			}
+			return { getSnapshot: snapshot, subscribe: function (notify) { return module.subscribe(sessionId, notify, paths); } };
+		},
 		evict: evict,
 		getSnapshot: function (sessionId) { return recordFor(sessionId).state; },
 		setView: function (sessionId, view) {
@@ -131,10 +263,11 @@ function createLiveTavernViewModule(options) {
 				if (records.get(record.id) === record) invalidate(sessionId);
 			};
 		},
-		subscribe: function (sessionId, listener) {
+		subscribe: function (sessionId, listener, paths) {
 			const record = recordFor(sessionId);
 			if (record.eviction !== null) { cancelTimer(record.eviction); record.eviction = null; }
 			const firstSubscriber = record.listeners.size === 0;
+			const unregister = register(record.paths, paths || [[]], listener);
 			record.listeners.add(listener);
 			listener(record.state);
 			if (firstSubscriber) schedule(record, 0);
@@ -144,6 +277,7 @@ function createLiveTavernViewModule(options) {
 				}, watchdogIntervalMs);
 			}
 			return function () {
+				unregister();
 				record.listeners.delete(listener);
 				if (record.listeners.size === 0) {
 					if (cacheRetentionMs > 0 && record.eviction === null) record.eviction = scheduleTimer(function () {

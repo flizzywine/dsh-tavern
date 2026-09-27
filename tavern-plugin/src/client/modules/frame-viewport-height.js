@@ -8,6 +8,15 @@ function tavernFrameViewportFloor() {
 		return /(?:^|[^\d.])100(?:d|s|l)?vh\b/i.test((style.height || '') + ' ' + (style.minHeight || ''));
 	}
 	function visible(node) {
+        // The embedding adapter resets document roots to content height. An
+        // overridden author rule on body/html is not a live viewport-sized panel.
+        if (node === document.body || node === document.documentElement) return false;
+        for (var ancestor = node.parentElement; ancestor; ancestor = ancestor.parentElement) {
+            if (ancestor.tagName === 'DETAILS' && !ancestor.open) {
+                var summary = ancestor.querySelector('summary');
+                if (!summary || !summary.contains(node)) return false;
+            }
+        }
 		var rect = node.getBoundingClientRect();
 		var style = getComputedStyle(node);
 		return rect.width > window.innerWidth / 2 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none';

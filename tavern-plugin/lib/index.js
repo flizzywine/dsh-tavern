@@ -1,3 +1,5 @@
+import { createInputFieldsProjection } from './domain/input-fields-projection.js'
+import { createScopedMessages } from './domain/scoped-messages.js'
 import {registerVariableReadTool} from './domain/read-variables.js'
 import { createBackgroundSessionRetirement, installRetiredBackgroundFilter } from './domain/background-session-retirement.js'
 import { createCardMemory, CARD_MEMORY_TOOLS } from '../packages/dsh-tavern-card-memory/index.js'
@@ -729,7 +731,7 @@ export async function apply(ctx) {
   }
   // 3.0：存档后端开关（TAVERN_ARCHIVE_STORE=file 回文件后端；默认 sqlite=存档进库）
   const chatJournalStore = process.env.TAVERN_ARCHIVE_STORE === 'file'
-    ? createChatJournalStore({ dataRoot, legacyData: profileData, now: Date.now, logger: console })
+    ? createChatJournalStore({ dataRoot, legacyData: profileData, now: Date.now, logger: console, backgroundSnapshots: true })
     : createChatSqliteStore({ dataRoot, legacyData: profileData, now: Date.now, logger: console })
   // 变量 SQLite 存储（第一阶段，TAVERN_VARIABLE_SQLITE=off 一键回旧路径）
   const variableSqliteStore = process.env.TAVERN_VARIABLE_SQLITE === 'off' ? null
@@ -751,6 +753,7 @@ export async function apply(ctx) {
     }
     return undefined
   }
+  ctx.effect(() => () => { if (typeof chatJournalStore.flushMaintenance === 'function') chatJournalStore.flushMaintenance() }, 'dsh-tavern: finish queued Chat snapshots')
   const chatPersistence = createChatPersistence({ store: chatJournalStore, normalize: normalizeChat, now: Date.now })
   async function readChat(chatId) {
     const chat = await chatPersistence.read(chatId)
@@ -829,7 +832,7 @@ export async function apply(ctx) {
       readIndex,
       writeIndex,
       readChat,
-      readChatState: chatPersistence.readSessionState,
+      readChatState: id => chatPersistence.readSessionState(id, {scoped:true}),
       readBackgroundConfig: chatPersistence.readBackgroundConfig,
       readSceneImageState: chatPersistence.readSceneImageState,
       writeChat: rawWriteChat,
@@ -1209,6 +1212,25 @@ export async function apply(ctx) {
     return str(value).split(/[?#]/)[0].replace(/\/\/[^/@\s]+@/, '//').slice(0, 1000)
   }
 
+  function sanitizeFrameLayout(value) {
+    if (!value || typeof value !== 'object') return null
+    const number = n => typeof n === 'number' && Number.isFinite(n) ? Math.round(Math.max(0, Math.min(1000000, n))) : null
+    return {
+      mode: ['legacy', 'content', 'viewport', 'fixed'].includes(value.mode) ? value.mode : 'legacy',
+      source: ['template', 'panel', 'card'].includes(value.source) ? value.source : 'legacy',
+      reason: value.reason === 'container' ? 'container' : 'content',
+      phase: ['loading', 'interactive', 'complete'].includes(value.phase) ? value.phase : null,
+      width: number(value.width), height: number(value.height), availableHeight: number(value.availableHeight),
+      minHeight: number(value.minHeight), maxHeight: number(value.maxHeight),
+      roots: (Array.isArray(value.roots) ? value.roots : []).slice(0, 3).map(node => ({
+        tag: str(node?.tag).slice(0, 16), id: str(node?.id).slice(0, 80),
+        width: number(node?.width), height: number(node?.height), clientHeight: number(node?.clientHeight), scrollHeight: number(node?.scrollHeight),
+        position: str(node?.position).slice(0, 24), overflowY: str(node?.overflowY).slice(0, 24),
+        cssHeight: str(node?.cssHeight).slice(0, 32), minHeight: str(node?.minHeight).slice(0, 32)
+      }))
+    }
+  }
+
   function sanitizeDisplayRuntime(value) {
     const input = value && typeof value === 'object' ? value : {}
     function scalar(item, limit = 4000) {
@@ -1222,6 +1244,7 @@ export async function apply(ctx) {
       panelId: str(input.panelId).replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 80),
       placement: input.placement === "sidebar" ? "sidebar" : "message",
       dom: str(input.dom).slice(0, 100000),
+      layout: sanitizeFrameLayout(input.layout),
       console: (Array.isArray(input.console) ? input.console : []).slice(-100).map(function (item) {
         return { at: Math.max(0, Number(item && item.at) || 0), level: ['log', 'info', 'warn', 'error'].includes(item && item.level) ? item.level : 'log', args: scalar(item && item.args, 12000) }
       }),
@@ -1241,6 +1264,7 @@ export async function apply(ctx) {
       panelId: str(runtime.panelId),
       placement: runtime.placement,
       dom: str(runtime.dom),
+      layout: runtime.layout || null,
       console: (Array.isArray(runtime.console) ? runtime.console : []).map(function (item) {
         return { level: item && item.level, args: item && item.args }
       }),
@@ -1309,10 +1333,17 @@ export async function apply(ctx) {
       await sessionStore.flush(session)
     },
     resolveChat: chatForSession,
-    resolveChatSlice: async (sessionId,indices) => {
+    resolveSettlementBase: async sessionId => {
+      const chatId = (await readSessionMap())[sessionId]
+      if (!chatId) return undefined
+      const selected = await chatPersistence.readSettlementBase(chatId)
+      if (!selected || selected.chat.sessionId !== sessionId || selected.chat.backgroundConfigVersion !== 1 || selected.chat.conversationFeaturesVersion !== 1) return undefined
+      return selected
+    },
+    resolveChatSlice: async (sessionId,indices,fields) => {
       const chatId=(await readSessionMap())[sessionId]
       if(!chatId)return undefined
-      const selected=await chatPersistence.readSlice(chatId,indices)
+      const selected=await chatPersistence.readSlice(chatId,indices,fields)
       if(!selected || selected.chat.sessionId!==sessionId || selected.chat.backgroundConfigVersion!==1 || selected.chat.conversationFeaturesVersion!==1)return undefined
       return selected
     },
@@ -1327,10 +1358,10 @@ export async function apply(ctx) {
       if(!selected || selected.chat.sessionId!==sessionId || selected.chat.backgroundConfigVersion!==1 || selected.chat.conversationFeaturesVersion!==1)return undefined
       return selected
     },
-    resolveChangedChatSlice: async (sessionId,revision) => {
+    resolveChangedChatSlice: async (sessionId,revision,fields) => {
       const chatId=(await readSessionMap())[sessionId]
       if(!chatId)return undefined
-      const selected=await chatPersistence.readChangedSlice(chatId,revision)
+      const selected=await chatPersistence.readChangedSlice(chatId,revision,fields)
       if(!selected || selected.chat.sessionId!==sessionId || selected.chat.backgroundConfigVersion!==1 || selected.chat.conversationFeaturesVersion!==1)return undefined
       return selected
     },
@@ -1417,7 +1448,8 @@ export async function apply(ctx) {
   }
   const liveCardUpdate = createLiveCardUpdate({readGlobals:readPromptTemplateGlobalVariables})
   ctx.effect(() => () => liveCardUpdate.dispose())
-  const incrementalReplyView = createIncrementalReplyView({ readChanges: (id, revision) => chatPersistence.readChangedSlice(id, revision) })
+  const inputFieldsProjection = createInputFieldsProjection()
+  const incrementalReplyView = createIncrementalReplyView({ readChanges: (id, revision) => chatPersistence.readChangedSlice(id, revision, 'settlement') })
   async function view(chat, card, persistedProjection = false, options = {}) {
     scheduleTemplateSync(chat)
     const runtimeSettings = await requestPerformance.stage('settings', () => readTavernSettings())
@@ -1447,7 +1479,7 @@ export async function apply(ctx) {
         charName: chat.cardName, macroState: chat.macroState,
         regexScripts: composeTavernRegexScripts(cardExtensions, presetRegexScripts),
         placement: 2, isMarkdown: true, isEdit: false, depth: 0
-      }, { charName: chat.cardName, macroState: chat.macroState, regexScripts: cardExtensions.regexScripts }))
+      }, { charName: chat.cardName, macroState: chat.macroState, regexScripts: cardExtensions.regexScripts }, {shared:true}))
       replyDisplay = await liveCardUpdate.project(chat, card, replyDisplay, {charName:chat.cardName,macroState:chat.macroState,regexScripts:cardExtensions.regexScripts})
       replyDisplay.projections = withLegacyPresentationProjection(chat, replyDisplay.projections)
     }
@@ -1474,26 +1506,7 @@ export async function apply(ctx) {
       if (event.type === 'assistant/message' && event.data?.message?.source?.kind === 'model') messagesByTurn.set(turn, event.data.message.id)
     }
     for (const [turn, messageId] of messagesByTurn) if (messageId) forkTurnsByMessageId[messageId] = turn
-    const inputSources = {}
-    const inputTemplateDisplays = {}
-    let inputTurn = 1
-    for (const message of chat.messages || []) {
-      if (message.role !== "user") continue
-      inputTurn++
-      const display = message.tavernPluginData?.template_display
-      if (display && display.source === (message.sourceText ?? message.text) && display.swipe === (message.swipeId || 0)) inputTemplateDisplays[inputTurn] = display.html
-    }
-    const runtimeInputs = chat.runtimeInputs && typeof chat.runtimeInputs === 'object' ? chat.runtimeInputs : {}
-    for (const turn of Object.keys(runtimeInputs)) {
-      const input = runtimeInputs[turn]
-      inputSources[turn] = str(input && input.source)
-    }
-    inputTurn = 1
-    for (const message of chat.messages || []) {
-      if (message.role !== 'user') continue
-      inputTurn++
-      if (message.templateHistoryEdit || message.templateInputSource) inputSources[inputTurn] = message.sourceText ?? message.text
-    }
+    const {inputSources,inputTemplateDisplays}=inputFieldsProjection.project(persistedProjection ? chat : {...chat,_storageRevision:undefined}, options.inputChanges)
     const cardUpdate = ['story', 'script'].includes(chat.mode || 'story') && chat.requestMode !== 'sillytavern'
       ? await cardUpdateStatus(chat) : { available: false }
     const helperEnabled = hasTavernScriptRuntime(chat, cardExtensions.helperScripts)
@@ -1525,10 +1538,10 @@ export async function apply(ctx) {
       ? Math.max(0, messageCount - HELPER_MESSAGE_COLD_WINDOW)
       : (Number.isSafeInteger(options.skeletonUntil) ? Math.max(0, options.skeletonUntil) : 0)
     const helperContext = helperEnabled
-      ? await requestPerformance.stage('helperMessagesProjection', () => projectTavernHelperContext(chat, { skeletonUntil }))
+      ? await requestPerformance.stage('helperMessagesProjection', () => projectTavernHelperContext(chat, { skeletonUntil, indexed:true }))
       : null
     const rollbackEvidence = sessionDebugEvidence(chat.sessionId, true)
-    const rollbackFields = rollbackViewFields(chat, rollbackEvidence)
+    const rollbackFields = rollbackViewFields(chat, rollbackEvidence, options.inputChanges)
     return {
       chatId: chat.id,
       contextCompaction: chat.contextCompaction || null,
@@ -1576,7 +1589,7 @@ export async function apply(ctx) {
       ),
       tavernRemoteAssetPins: Array.isArray(cardExtensions.remoteAssetPins) ? cardExtensions.remoteAssetPins : [],
       tavernHelperWorldbook: helperWorldbook,
-      tavernRuntimePolicy: { trustedCardMode: runtimeSettings.trustedCardMode },
+      tavernRuntimePolicy: { trustedCardMode: runtimeSettings.trustedCardMode, frameSizing: cardExtensions.frameSizing },
       releaseCapabilities: TAVERN_RELEASE_CAPABILITIES,
       presentationWarnings: (Array.isArray(chat.presentationWarnings) ? chat.presentationWarnings : []).concat(
         chat.importHistory?.rescue ? [rescueHistoryNotice(chat.importHistory.rescue)] : [],
@@ -1615,9 +1628,9 @@ export async function apply(ctx) {
     return projections
   }
   function withLegacyPresentationProjection(chat, projections) {
-    const result = Array.isArray(projections) ? projections.slice() : []
     const legacy = chat && chat.presentation
-    if (!legacy || typeof legacy !== 'object' || str(legacy.html) === '') return result
+    if (!legacy || typeof legacy !== 'object' || str(legacy.html) === '') return Array.isArray(projections) ? projections : []
+    const result = Array.isArray(projections) ? projections.slice() : []
     const turn = Math.max(1, Number(legacy.turn) || (legacy.source === 'opening' ? 1 : 0))
     if (result.some(function (projection) { return Number(projection.turn) === turn })) return result
     const messages = Array.isArray(chat.messages) ? chat.messages : []
@@ -1677,16 +1690,17 @@ export async function apply(ctx) {
     return Object.assign({}, operation, { result: { candidates } })
   }
   const sessionStateView = createSessionStateView({
+    sharedReceipts: true, sharedMappings: true,
     activity: chat => backgroundTasks.activity(chat),
     evidence: sessionId => sessionDebugEvidence(sessionId, true)
   })
-  function mvuReceiptsOf(chat) { return sessionStateView.receipts(chat) }
-  function rollbackViewFields(chat, evidence) { return sessionStateView.rollback(chat, evidence) }
-  function volatileSessionViewFields(chat, activity) { return sessionStateView.volatile(chat, activity) }
+  function mvuReceiptsOf(chat, changes) { return sessionStateView.receipts(chat, changes) }
+  function rollbackViewFields(chat, evidence, changes) { return sessionStateView.rollback(chat, evidence, changes) }
+  function volatileSessionViewFields(chat, activity, changes) { return sessionStateView.volatile(chat, activity, changes) }
 
   async function projectCachedSessionView(chat, previous, activity) {
     const mode = chat.mode || 'story'
-    const reused = Object.assign({}, previous, volatileSessionViewFields(chat, activity))
+    const reused = Object.assign({}, previous, volatileSessionViewFields(chat, activity, {baseRevision:chat._storageRevision,indices:[],layoutChanged:false}))
     if (mode === 'script') {
       reused.scriptProgress = await requestPerformance.stage('scriptProgress', async () => {
         const script = await readScript(chat.cardPath)
@@ -1697,16 +1711,18 @@ export async function apply(ctx) {
     }
     return reused
   }
-  async function projectDirtySessionView(chat, previous, dirtyMessageIndices, activity) {
+  async function projectDirtySessionView(chat, previous, dirtyMessageIndices, activity, {layoutChanged,changedHeaderFields,runtimeInputChanges} = {}) {
     const card = await readChatCard(chat)
     const mode = chat.mode || 'story'
     const previousMessages = previous.tavernHelper.messages
-    const next = Object.assign({}, previous, volatileSessionViewFields(chat, activity), {
+    const changes = {baseRevision:previous.tavernHelper.stateRevision,indices:[...dirtyMessageIndices],layoutChanged,changedHeaderFields}
+    const next = Object.assign({}, previous, volatileSessionViewFields(chat, activity, changes), {
       posture: chat.posture || '',
       guides: Array.isArray(chat.guides) ? chat.guides : []
     })
+    Object.assign(next,inputFieldsProjection.project(chat,{baseRevision:changes.baseRevision,indices:dirtyMessageIndices,changedHeaderFields,runtimeInputChanges}))
     const helperCore = await requestPerformance.stage('helperMessagesProjection', () => projectTavernHelperContext(chat, {
-      previousMessages,
+      previousMessages, previousContext:previous.tavernHelper, indexed:true, layoutChanged,
       dirtyIndices: dirtyMessageIndices
     }))
     next.tavernHelper = Object.assign({}, previous.tavernHelper, helperCore, {
@@ -1730,18 +1746,17 @@ export async function apply(ctx) {
         charName: chat.cardName, macroState: chat.macroState,
         regexScripts: composeTavernRegexScripts(cardExtensions, presetRegexScripts),
         placement: 2, isMarkdown: true, isEdit: false, depth: 0
-      }, { charName: chat.cardName, macroState: chat.macroState, regexScripts: cardExtensions.regexScripts }))
-      const renderChat = {...chat,messages:chat.messages.map((message,index) => message.variables ? message : {...message,variables:helperCore.messages[index]?.swipes_data || []})}
+      }, { charName: chat.cardName, macroState: chat.macroState, regexScripts: cardExtensions.regexScripts }, {shared:true}))
+      const renderChat = {...chat,messages:createScopedMessages(chat.messages.length,[],index=>{const message=chat.messages[index];return message.variables ? message : {...message,variables:helperCore.messages[index]?.swipes_data || []}})}
       replyDisplay = await liveCardUpdate.project(renderChat, card, replyDisplay, {charName:chat.cardName,macroState:chat.macroState,regexScripts:cardExtensions.regexScripts})
       replyDisplay.projections = withLegacyPresentationProjection(chat, replyDisplay.projections)
       next.replyProjections = replyDisplay.projections
       next.tavernStatusView = replyDisplay.statusView || null
       next.tavernStatusViews = replyDisplay.statusViews || []
     }
-    next.mvuReceipts = mvuReceiptsOf(chat)
     return next
   }
-  async function projectFullSessionView(chat, { windowHelperMessages = false } = {}) {
+  async function projectFullSessionView(chat, { windowHelperMessages = false, inputChanges } = {}) {
     const mode = chat.mode || 'story', isCard = mode === 'card', cardPath = str(chat.cardPath)
     let card = null, cardReadError = null
     try { card = isCard && cardPath === '' ? null : await requestPerformance.stage('readCard', () => readChatCard(chat)) }
@@ -1751,7 +1766,7 @@ export async function apply(ctx) {
       card = { name: chat.cardName || chat.cardPath }
     }
     const result = await requestPerformance.stage('projectView', () => view(chat, card, true, {
-      skeletonUntil: windowHelperMessages === true
+      skeletonUntil: windowHelperMessages === true, inputChanges
     }))
     if (cardReadError) result.cardReadError = cardReadError
     if (isCard) result.workspace = workspaceViewOf(chat)
@@ -2615,12 +2630,14 @@ export async function apply(ctx) {
         signal?.throwIfAborted()
         let stat = { postureUpdated: false }
         const completion = {
+          ...(mvuTarget && (mvuResult?.effect?.changes || []).every(c => c.path[0] !== 'messages' || Number.isInteger(c.path[1]))
+            ? {messageIndices:[mvuTarget.messageId,...(mvuResult?.effect?.changes || []).filter(c=>c.path[0]==='messages').map(c=>c.path[1])]} : {}),
           stateChanged: Boolean(mvuResult?.effect?.changes?.length) || Boolean(mvuResult && mvuResult.receipt && mvuResult.receipt.status === 'updated') ||
             str(result && result.posture).trim() !== '',
           participant: taskRun.participant({ sessionId: backgroundSessionId, boundary: backgroundBoundary }),
-          apply(draft) {
+          apply(draft, scope) {
             if (mvuResult && mvuResult.effect) {
-              applyMvuSettlementEffect(draft, mvuResult.effect)
+              applyMvuSettlementEffect(draft, mvuResult.effect, scope)
               // P1 双写：结算落盘即写 SQLite 快照链（JSON 照旧）。此阶段读尚未切换，
               // 双写失败只告警不阻断；读路径保持 JSON（最新楼保留树），SQLite 承担
               // 快照链（时间旅行）+ 回退物理删除 + 审计。
@@ -3486,7 +3503,7 @@ export async function apply(ctx) {
         }
         return { scripts, cardPath: uiChat.cardPath }
       }
-	      case 'getTavernHelperContext': return { context: await tavernScriptHostAdapter.context(args && args.sessionId) }
+	      case 'getTavernHelperContext': return { context: args?.eventId ? await tavernScriptHostAdapter.transactionContext(args.sessionId,args.eventId) : await tavernScriptHostAdapter.context(args && args.sessionId) }
 	      case 'updateTavernHelperPrompts': return await tavernScriptHostAdapter.updatePrompts(args && args.sessionId, args && args.operation, args && args.expectedLifecycleRevision, args && args.eventId)
 	      case 'updateTavernHelperVariables': return await tavernScriptHostAdapter.updateVariables(args && args.sessionId, args && args.option, args && args.variables, args && args.expectedLifecycleRevision, args && args.eventId, args && args.contextBaseline)
 	      case 'updateTavernHelperMessages': return await tavernScriptHostAdapter.updateMessages(args && args.sessionId, args && args.messages, args && args.expectedLifecycleRevision, args && args.eventId)
@@ -3529,7 +3546,7 @@ export async function apply(ctx) {
       case 'saveTavernWorldInfo': return await tavernScriptHostAdapter.saveWorldInfo(args && args.sessionId, args && args.name, args && args.worldInfo, args && args.expectedWorldInfo)
       case 'getTavernHelperWorldbook': return await tavernScriptHostAdapter.getWorldbook(args && args.sessionId, args && args.name)
       case 'replaceTavernHelperWorldbook': return await tavernScriptHostAdapter.replaceWorldbook(args && args.sessionId, args && args.name, args && args.entries, args && args.expectedEntries)
-	  case 'claimTavernScriptWork': return tavernScriptHostAdapter.claimWork(args && args.sessionId, args && args.runtimeId, args && args.ready, args && args.initializationError)
+	  case 'claimTavernScriptWork': return tavernScriptHostAdapter.claimWork(args && args.sessionId, args && args.runtimeId, args && args.ready, args && args.initializationError, args && args.contextBaseline)
 	  case 'startTavernScriptWork': return tavernScriptHostAdapter.startWork(args && args.sessionId, args && args.eventId, args && args.leaseToken, args && args.runtimeId)
 	  case 'getTavernScriptWorkState': return tavernScriptHostAdapter.workState(args && args.sessionId, args && args.eventId, args && args.leaseToken, args && args.runtimeId, args && args.keepAlive)
 	  case 'heartbeatTavernScriptRuntime': return tavernScriptHostAdapter.heartbeatRuntime(args && args.sessionId, args && args.runtimeId, args && args.ready, args && args.initializationError)

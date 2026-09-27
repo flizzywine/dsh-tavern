@@ -4,7 +4,7 @@ import fs from 'node:fs'
 import vm from 'node:vm'
 import { createSessionViewSync } from '../tavern-plugin/lib/domain/session-view-sync.js'
 const context = vm.createContext({})
-vm.runInContext(fs.readFileSync(new URL('../tavern-plugin/src/client/modules/session-view-sync.js', import.meta.url), 'utf8') + '\nthis.reader = createSessionViewReader', context)
+vm.runInContext(fs.readFileSync(new URL('../tavern-plugin/lib/domain/indexed-array.js', import.meta.url), 'utf8').replace(/^export .*$/gm,'') + '\n' + fs.readFileSync(new URL('../tavern-plugin/src/client/modules/session-view-sync.js', import.meta.url), 'utf8') + '\nthis.reader = createSessionViewReader', context)
 const json = value => JSON.parse(JSON.stringify(value))
 const sample = () => ({ activity: { busy: false }, replyProjections: [{ turn: 1, text: 'old' }], inputSources: { a: 'input' }, inputTemplateDisplays: {}, tavernHelper: { messages: [{ mes: 'old', variables: { hp: 1 } }], variables: { hp: 1 } } })
 
