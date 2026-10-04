@@ -1,0 +1,872 @@
+# PR：NovelAI 渠道正面提示词控制与生成参数增强
+
+## 背景与动机
+
+当前 DSH Tavern 的 NovelAI 生图渠道只提供负面提示词控制，用户无法自定义正面提示词（质量词、画师串），导致：
+
+1. **画面风格不可控**：提示词由画面 Agent 自动拼装，用户无法调整质量词、画师风格
+2. **无预设机制**：每次都要让 Agent 重新理解意图，不能保存常用配置
+3. **无法复现结果**：种子始终随机，满意的结果无法精确复现
+4. **无 img2img 入口**：NovelAI 支持图片参考，但插件未暴露该参数
+
+参考 [novelai-image-desktop v2.4.7](https://github.com/2786886095/novelai-image-desktop/releases/tag/v2.4.7) 的核心功能，本 PR 补齐这些能力。
+
+---
+
+## 改动概览
+
+### 新增字段（共 8 个）
+
+| 字段 | 用途 | 上限 |
+|------|------|------|
+| `qualityTags` | 正面提示词 / 质量词 | 600 字符 |
+| `artistString` | 画师串 | 1000 字符 |
+| `promptOrder` | 段落排列顺序 | 120 字符 |
+| `sectionWeights` | 段落权重 | 120 字符 |
+| `useOrder` | 是否保留用户顺序 | 8 字符 |
+| `promptPresets` | 预设配置 JSON | 10000 字符 |
+| `seed` | 生成种子 | 20 字符 |
+| `referenceImage` | 图片参考（img2img） | 50000 字符 |
+
+### 涉及文件（3 个）
+
+| 文件 | 改动性质 |
+|------|----------|
+| `packages/dsh-image-gen/src/tavern/scene-image-channels.js` | 字段注册、校验逻辑 |
+| `packages/dsh-image-gen/src/tavern/scene-image-novelai.js` | 提示词组装、请求参数 |
+| `src/client/features/scene-images.js` | UI 面板、预设管理 |
+
+---
+
+## 详细改动
+
+### 1. scene-image-channels.js
+
+#### 1.1 字段注册
+
+**之前**：NovelAI 渠道只有 `['baseURL', 'model', 'size']` + 通用高级字段 `['negativePrompt', 'steps', 'guidance']`。
+
+**之后**：新增 `IMAGE_NOVELAI_PROMPT_FIELDS` 常量，NovelAI 渠道自动注入 8 个新字段。
+
+```js
+// 新增
+export const IMAGE_NOVELAI_PROMPT_FIELDS = [
+  'artistString', 'qualityTags', 'promptOrder',
+  'sectionWeights', 'useOrder', 'promptPresets',
+  'seed', 'referenceImage'
+]
+
+// 各字段长度上限（之前无此机制，所有扩展字段统一 200 字符）
+const IMAGE_FIELD_LIMITS = {
+  negativePrompt: 4000, baseURL: 2000,
+  artistString: 1000, qualityTags: 600,
+  promptOrder: 120, sectionWeights: 120,
+  useOrder: 8, promptPresets: 10000,
+  seed: 20, referenceImage: 50000
+}
+
+// 渠道构建时注入
+for (const channel of channels) {
+  const advanced = channel.id === 'novelai'
+    ? [...IMAGE_ADVANCED_FIELDS, ...IMAGE_NOVELAI_PROMPT_FIELDS]
+    : ['webui', 'comfyui'].includes(channel.id) ? IMAGE_ADVANCED_FIELDS
+    : channel.id === 'qwen' ? ['negativePrompt'] : []
+  channel.fields = [...channel.fields, ...advanced]
+}
+```
+
+#### 1.2 校验逻辑
+
+在 `channelSettings()` 的 NovelAI 分支中新增校验：
+
+| 字段 | 校验规则 |
+|------|----------|
+| `promptOrder` | 必须是 `quality,scene,style,artist` 四个的完整排列，无重复 |
+| `sectionWeights` | 逗号分隔正数，数量 ≤ 4 |
+| `useOrder` | 仅接受 `true` / `false` |
+| `promptPresets` | 必须是合法 JSON 对象（非数组） |
+| `seed` | 0–4294967295 的非负整数 |
+
+```js
+if (result.promptOrder) {
+  const order = result.promptOrder.split(',').map(s => s.trim()).filter(Boolean)
+  if (order.length !== 4 || new Set(order).size !== order.length
+    || order.some(s => !['quality','scene','style','artist'].includes(s)))
+    throw new Error('promptOrder 须为 quality,scene,style,artist 的完整排列')
+}
+if (result.sectionWeights) {
+  const weights = result.sectionWeights.split(',').map(s => s.trim()).filter(Boolean)
+  if (weights.length > 4) throw new Error('sectionWeights 数量不能超过 4')
+  if (weights.some(w => !/^\d+(\.\d+)?$/.test(w) || Number(w) <= 0))
+    throw new Error('sectionWeights 须为正数，例如 1.5,1,1,0.75')
+}
+if (result.useOrder && !['true','false'].includes(result.useOrder.toLowerCase()))
+  throw new Error('useOrder 须填 true 或 false')
+if (result.promptPresets) {
+  try {
+    const p = JSON.parse(result.promptPresets)
+    if (typeof p !== 'object' || Array.isArray(p) || p === null) throw new Error('not object')
+  } catch { throw new Error('promptPresets 须为有效 JSON 对象') }
+}
+if (result.seed && (!/^\d+$/.test(result.seed) || Number(result.seed) > 0xFFFFFFFF))
+  throw new Error('种子须为 0–4294967295 的非负整数')
+```
+
+#### 1.3 向后兼容
+
+- 旧配置中没有新字段 → 字段值为空字符串，后端全部字段留空时行为与修改前完全一致
+- `channelSettings()` 的 `for (const field of defaults.fields)` 循环会自动填充新字段（从 `value[field] ?? defaults[field] ?? ''`），无需额外迁移代码
+- 非 NovelAI 渠道不受影响（字段注入有条件 `channel.id === 'novelai'`）
+
+---
+
+### 2. scene-image-novelai.js
+
+#### 2.1 提示词组装引擎
+
+**之前**：`novelaiPrompts(input)` 只接受 `input` 参数，正面提示词由调用方拼好传入。
+
+**之后**：新增 `config` 参数，内部根据配置组装 base_caption。
+
+新增导出常量：
+```js
+export const NOVELAI_BASE_SECTIONS = ['quality', 'scene', 'style', 'artist']
+```
+
+新增内部函数：
+
+| 函数 | 功能 |
+|------|------|
+| `novelaiPromptOrder(value)` | 解析逗号分隔的段顺序，空则用默认 |
+| `expandWildcards(text)` | 展开 `{A\|B\|C}` 为随机一个选项；无竖线的 `{}` 原样保留（NovelAI 权重语法） |
+| `applySectionWeight(tags, weight)` | `>1` 用 `{{}}` 强调，`<1` 用 `{}` 弱化，`=1` 不包裹 |
+| `assembleBase(sections, config)` | 按 `promptOrder` 排列四段，按 `sectionWeights` 加权，空段自动跳过 |
+| `novelaiUseOrder(config)` | 解析 `useOrder`，空则默认 `true` |
+
+#### 2.2 提示词流程
+
+```
+novelaiPrompts(input, config)
+  ├── 有 plan.blocks？
+  │     ├── scene 段 = plan.blocks[owner=scene].tags
+  │     ├── style 段 = plan.styleOverride?.tags ?? plan.style?.tags
+  │     ├── 人物 caption 独立提交（char_captions）
+  │     └── base = assembleBase({ quality, scene, style, artist })
+  └── 无 plan？（降级路径）
+        ├── scene = input.prompt
+        └── base = assembleBase({ quality, scene, artist })
+```
+
+`assembleBase` 的最终输出示例：
+```
+{{masterpiece, best quality}}, studio light, 1girl, Japanese illustration, cel shading, {artist:wlop, artist:ciloranko}
+```
+（质量词 1.5x 强调 → 场景 → 风格 → 画师串 0.75x 弱化）
+
+#### 2.3 请求参数变更
+
+```js
+// seed：从随机改为可配置
+const seed = config.seed ? Number(config.seed) : randomInt(0, 0x100000000)
+
+// use_order：传给 NovelAI
+v4_prompt: {
+  caption: { base_caption: prompt.base, char_captions: captions },
+  use_coords: false,
+  use_order: novelaiUseOrder(config),       // 新增
+  ...(config.referenceImage ? { initial_image: config.referenceImage } : {})  // 新增
+}
+```
+
+#### 2.4 通配符与权重语法区分
+
+```
+{选项A|选项B}   → 每次随机选一个（通配符，本插件处理）
+{tag}           → NovelAI 弱化权重（原样传递给 API）
+{{tag}}         → NovelAI 强调权重（原样传递给 API）
+```
+
+`expandWildcards` 只在 `inner.includes('|')` 时展开，否则原样保留。这意味着 `{masterpiece}` 不会被当成通配符处理。
+
+#### 2.5 段权重语法
+
+`applySectionWeight` 把整段标签用大括号包裹：
+
+| 权重 | 效果 | 输出示例 |
+|------|------|----------|
+| `1.5` | 强调 | `{{masterpiece, best quality}}` |
+| `1.0` | 不变 | `masterpiece, best quality` |
+| `0.75` | 弱化 | `{masterpiece, best quality}` |
+
+段权重作用于**整段**，不是单个标签。`1.5,1,1,0.75` 意味着第 1 段强调、第 2-3 段不变、第 4 段弱化。
+
+---
+
+### 3. scene-images.js（客户端 UI）
+
+#### 3.1 面板重构
+
+**之前**：正面提示词和高级设置分在两个 `<details>` 块中。
+
+**之前**：
+```
+<details> 正面提示词 </details>      ← promptConfig JSON 大文本框
+<details> 高级绘图设置 </details>     ← negativePrompt, steps, guidance
+<details> 绘图选项 </details>
+```
+
+**之后**：
+```
+<details> 提示词与生成参数 </details>  ← 所有提示词 + 生成参数 + 预设管理
+<details> 绘图选项 </details>
+```
+
+#### 3.2 预设管理
+
+新增 React state：
+```js
+const [presetName, setPresetName] = React.useState("");
+const [selectedPreset, setSelectedPreset] = React.useState("");
+```
+
+新增函数：
+- `savePreset()`：将当前所有字段值存入 `promptPresets` JSON
+- `applyPreset()`：从预设加载值到当前表单
+- `presetList`：从 `form.promptPresets` 解析预设名列表
+
+预设 JSON 结构（存储在各字段值的 `promptPresets` 字符串中）：
+```json
+{
+  "日常风格": {
+    "qualityTags": "masterpiece, best quality",
+    "artistString": "artist:wlop",
+    "promptOrder": "artist,quality,scene,style",
+    "sectionWeights": "1.5,1,1,0.75",
+    "useOrder": "true",
+    "negativePrompt": "blurry, watermark",
+    "steps": "28",
+    "guidance": "7",
+    "seed": "",
+    "referenceImage": ""
+  }
+}
+```
+
+#### 3.3 字段控件
+
+每个字段使用独立的输入控件（非 JSON 文本框）：
+
+| 字段 | 控件类型 | 备注 |
+|------|----------|------|
+| qualityTags | textarea (2 行) | 支持通配符 `{A\|B}` |
+| artistString | textarea (2 行) | 支持通配符 |
+| promptOrder | input (text) | 逗号分隔 |
+| sectionWeights | input (text) | 逗号分隔 |
+| useOrder | select | 下拉选择 |
+| negativePrompt | textarea (3 行) | |
+| steps | input (number) | |
+| guidance | input (number) | 步长 0.1 |
+| seed | input (number) | min=0, max=4294967295 |
+| referenceImage | input (text) | URL 或 Base64 |
+| promptPresets | textarea (4 行) | JSON 编辑 |
+
+#### 3.4 标签变更
+
+`qualityTags` 的显示标签从「质量词」改为「正面提示词」。
+
+#### 3.5 预设保存包含的字段
+
+`savePreset()` 保存 10 个字段：
+```
+qualityTags, artistString, promptOrder, sectionWeights, useOrder,
+negativePrompt, steps, guidance, seed, referenceImage
+```
+
+---
+
+## 兼容性
+
+### 旧配置兼容
+
+- **无新字段**：`channelSettings()` 对所有字段执行 `value[field] ?? defaults[field] ?? ''`，旧配置缺失字段时默认空字符串
+- **后端行为**：所有新字段为空时，`novelaiPrompts` 的 `qualityTags=''`、`artistString=''`，`assembleBase` 跳过空段，输出与修改前完全一致
+- **UI 行为**：新字段不填则不显示额外内容，面板仍可用
+
+### 其他渠道不受影响
+
+字段注入有 `channel.id === 'novelai'` 条件判断，webui/comfyui/qwen/openai/gemini/banana/grok/seedream 渠道的字段列表不变。
+
+### 构建流程
+
+- 后端源码（`src/tavern/*.js`）：修改后重启 Tavern 即生效，无需重建
+- 客户端代码（`src/client/`）：需要运行 `node bin/build-tavern-client.mjs` 重建 `lib/client.js`
+
+---
+
+## 验证
+
+### 静态校验
+
+```bash
+node --check tavern-plugin/packages/dsh-image-gen/src/tavern/scene-image-channels.js
+node --check tavern-plugin/packages/dsh-image-gen/src/tavern/scene-image-novelai.js
+node --check tavern-plugin/src/client/features/scene-images.js
+```
+
+### 功能测试
+
+```js
+// 1) 独立字段正常解析
+channelSettings({ provider:'novelai', baseURL:'...', model:'...', size:'...', qualityTags:'test' })
+// → qualityTags='test'
+
+// 2) promptOrder 排列校验
+channelSettings({ ..., promptOrder:'artist,quality,scene,style' })  // ✓
+channelSettings({ ..., promptOrder:'artist,artist,scene,style' })    // ✗ 重复
+channelSettings({ ..., promptOrder:'artist,scene' })                  // ✗ 不完整
+
+// 3) sectionWeights 校验
+channelSettings({ ..., sectionWeights:'1.5,1,1,0.75' })              // ✓
+channelSettings({ ..., sectionWeights:'1.5,0' })                     // ✗ 非正数
+
+// 4) seed 范围校验
+channelSettings({ ..., seed:'12345' })                               // ✓
+channelSettings({ ..., seed:'-1' })                                  // ✗ 负数
+channelSettings({ ..., seed:'99999999999' })                         // ✗ 超大
+
+// 5) promptPresets JSON 校验
+channelSettings({ ..., promptPresets:'{"name":{"qualityTags":"test"}}' })  // ✓
+channelSettings({ ..., promptPresets:'not json' })                          // ✗
+
+// 6) referenceImage 正常存储
+channelSettings({ ..., referenceImage:'data:image/png;base64,abc' })        // ✓
+```
+
+### 提示词组装验证
+
+```js
+// 默认顺序（无 promptOrder）
+// qualityTags='masterpiece', artistString='artist:wlop', scene='1girl', style='anime'
+// → "masterpiece, 1girl, anime, artist:wlop"
+
+// 自定义顺序
+// promptOrder='artist,quality,scene,style'
+// → "artist:wlop, masterpiece, 1girl, anime"
+
+// 段权重
+// sectionWeights='1.5,1,1,0.75', promptOrder='quality,scene,style,artist'
+// → "{{masterpiece}}, 1girl, anime, {artist:wlop}"
+
+// 通配符
+// qualityTags='{studio light|golden hour}'
+// → "studio light, ..." 或 "golden hour, ..."（每次随机）
+
+// 权重语法保留
+// qualityTags='{masterpiece}'
+// → "{masterpiece}, ..."（NovelAI 弱化权重，原样传递）
+```
+
+---
+
+## 已知限制
+
+1. **img2img 依赖中转支持**：`initial_image` 参数是否被第三方中转正确处理取决于中转实现
+2. **种子精度**：部分中转可能截断 32 位种子，导致相同种子无法复现
+3. **未做真实生图验证**：所有改动通过静态校验和隔离运行测试，尚未通过 NovelAI 真实 API 生图验证
+4. **段权重作用于整段**：`1.5` 会让整段标签（如 `masterpiece, best quality`）一起加权，不是单标签加权
+
+---
+
+## 参考
+
+- [novelai-image-desktop v2.4.7](https://github.com/2786886095/novelai-image-desktop/releases/tag/v2.4.7)
+- NovelAI API 文档（`/ai/generate-image` 端点，`v4_prompt` 参数结构）
+- NovelAI 权重语法：`{tag}` 弱化、`{{tag}}` 强调
+
+---
+
+## 补丁文件
+
+```diff
+--- a/packages/dsh-image-gen/src/tavern/scene-image-channels.js
++++ b/packages/dsh-image-gen/src/tavern/scene-image-channels.js
+@@ -1,4 +1,4 @@
+-import { novelaiSettings, novelaiRequest, NOVELAI_MODELS } from './scene-image-novelai.js'
++import { novelaiSettings, novelaiRequest, NOVELAI_MODELS, NOVELAI_BASE_SECTIONS } from './scene-image-novelai.js'
+ import { comfyWorkflow } from './scene-image-comfy-workflow.js'
+ import { imageReferenceCapability } from './scene-image-reference.js'
+ 
+@@ -17,8 +17,15 @@
+ ]
+ // Advanced controls are optional strings, like the existing form fields.
+ export const IMAGE_ADVANCED_FIELDS = ['negativePrompt', 'steps', 'guidance']
++// NovelAI 专属正面提示词控制：画师串与质量词是 NAI 风格的核心。第三方同协议中转
++// 同样走 novelai 渠道，因此这两个字段对官方与中转都生效，留空即完全不改变原行为。
++export const IMAGE_NOVELAI_PROMPT_FIELDS = ['artistString', 'qualityTags', 'promptOrder', 'sectionWeights', 'useOrder', 'promptPresets', 'seed', 'referenceImage']
++// 各字段长度上限；未列出的扩展字段沿用 200 字符的通用限制。
++const IMAGE_FIELD_LIMITS = { negativePrompt: 4000, baseURL: 2000, artistString: 1000, qualityTags: 600, promptOrder: 120, sectionWeights: 120, useOrder: 8, promptPresets: 10000, seed: 20, referenceImage: 50000 }
+ for (const channel of channels) {
+-  const advanced = ['novelai', 'webui', 'comfyui'].includes(channel.id) ? IMAGE_ADVANCED_FIELDS : channel.id === 'qwen' ? ['negativePrompt'] : []
++  const advanced = channel.id === 'novelai' ? [...IMAGE_ADVANCED_FIELDS, ...IMAGE_NOVELAI_PROMPT_FIELDS]
++    : ['webui', 'comfyui'].includes(channel.id) ? IMAGE_ADVANCED_FIELDS
++    : channel.id === 'qwen' ? ['negativePrompt'] : []
+   channel.fields = [...channel.fields, ...advanced]
+ }
+ // Keep the old sentinel readable for stored records, never offer it as a provider.
+@@ -34,7 +41,7 @@
+   for (const field of defaults.fields) {
+     if (value[field] !== undefined && typeof value[field] !== 'string') throw new Error('渠道配置须为文本')
+     result[field] = (value[field] ?? defaults[field] ?? '').trim()
+-    if (result[field].length > (field === 'negativePrompt' ? 4000 : field === 'baseURL' ? 2000 : 200)) throw new Error('渠道配置过长')
++    if (result[field].length > (IMAGE_FIELD_LIMITS[field] ?? 200)) throw new Error('渠道配置过长')
+   }
+   for (const field of ['steps', 'guidance']) {
+     if (!result[field]) continue
+@@ -55,7 +62,24 @@
+     const dimensions = result.size.match(/^(\d+)x(\d+)$/)
+     if (!dimensions || dimensions.slice(1).some(value => Number(value) < 64 || Number(value) > 2048 || Number(value) % 8)) throw new Error('WebUI 尺寸须为宽x高，每边 64–2048 且为 8 的倍数')
+   }
+-  if (id === 'novelai') novelaiSettings(result)
++  if (id === 'novelai') {
++    novelaiSettings(result)
++    if (result.promptOrder) {
++      const order = result.promptOrder.split(',').map(s => s.trim()).filter(Boolean)
++      if (order.length !== NOVELAI_BASE_SECTIONS.length || new Set(order).size !== order.length || order.some(s => !NOVELAI_BASE_SECTIONS.includes(s))) throw new Error('promptOrder 须为 quality,scene,style,artist 的完整排列')
++    }
++    if (result.sectionWeights) {
++      const weights = result.sectionWeights.split(',').map(s => s.trim()).filter(Boolean)
++      if (weights.length > NOVELAI_BASE_SECTIONS.length) throw new Error('sectionWeights 数量不能超过 ' + NOVELAI_BASE_SECTIONS.length)
++      if (weights.some(w => !/^\d+(\.\d+)?$/.test(w) || Number(w) <= 0)) throw new Error('sectionWeights 须为正数，例如 1.5,1,1,0.75')
++    }
++    if (result.useOrder && !['true', 'false'].includes(result.useOrder.toLowerCase())) throw new Error('useOrder 须填 true 或 false')
++    if (result.promptPresets) {
++      try { const p = JSON.parse(result.promptPresets); if (typeof p !== 'object' || Array.isArray(p) || p === null) throw new Error('not object') }
++      catch { throw new Error('promptPresets 须为有效 JSON 对象') }
++    }
++    if (result.seed && (!/^\d+$/.test(result.seed) || Number(result.seed) > 0xFFFFFFFF)) throw new Error('种子须为 0–4294967295 的非负整数')
++  }
+   if (id === 'comfyui') {
+     result.workflow = comfyWorkflow(value.workflow)
+     for (const field of IMAGE_ADVANCED_FIELDS) if (result[field] && !result.workflow?.bindings[field === 'negativePrompt' ? 'negative' : field]?.length) throw new Error('工作流缺少 ' + field + ' 映射，请重新导入支持该参数的工作流或清空该设置')
+--- a/packages/dsh-image-gen/src/tavern/scene-image-novelai.js
++++ b/packages/dsh-image-gen/src/tavern/scene-image-novelai.js
+@@ -21,24 +21,86 @@
+   return { ...models[config.model], width, height }
+ }
+ 
++/** 画师串与质量词是渠道级正面提示词控制，只落在 base（V4/V5 的 base_caption）：
++ * 画师风格约束整幅画面，写进人物块会把风格词挤进单个角色的描述里。
++ * 只做最小标点归一化（允许中文逗号），逐字保留用户写下的可见内容，不做自动扩写。 */
++function novelaiPromptExtra(value) {
++  return String(value || '')
++    .replace(/[，、；;]/g, ',')
++    .replace(/\s*,\s*/g, ', ')
++    .replace(/(?:^|,\s*),+/g, ', ')
++    .replace(/^[,\s]+|[,\s]+$/g, '')
++}
++
++// base_caption 段落默认顺序。在 use_order=true 下，越靠前越先获得注意力权重，
++// 所以默认把质量词放最前、画师串放最后；用户可用 promptOrder 重排，
++// 例如 artist,quality,scene,style 让画师风格主导整幅画面。
++export const NOVELAI_BASE_SECTIONS = ['quality', 'scene', 'style', 'artist']
++
++function novelaiPromptOrder(value) {
++  const order = String(value || '').split(',').map(s => s.trim()).filter(Boolean)
++  return order.length ? order : NOVELAI_BASE_SECTIONS
++}
++
++// 通配符展开：{选项A|选项B|选项C} 每次生成随机选一个，增加画面变化。
++// 与 NovelAI 权重语法 {tag}（无竖线）区分，权重语法原样保留。
++function expandWildcards(text) {
++  return String(text || '').replace(/\{([^{}]+)\}/g, (match, inner) => {
++    if (!inner.includes('|')) return match
++    const options = inner.split('|').map(s => s.trim()).filter(Boolean)
++    return options.length ? options[Math.floor(Math.random() * options.length)] : match
++  })
++}
++
++// 段落权重：用 NovelAI 大括号语法给整段标签加权。
++// >1.0 用 {{}}（强调），<1.0 用 {}（弱化），=1.0 不包裹。
++function applySectionWeight(tags, weight) {
++  const w = Number(weight)
++  if (!w || w === 1) return tags
++  if (w > 1) return `{{${tags}}}`
++  return `{${tags}}`
++}
++
++// 按用户顺序组装 base_caption，并可选按段加权。未列出的段落追加在末尾，
++// 避免部分顺序配置导致内容丢失；空段落自动跳过。
++function assembleBase(sections, config = {}) {
++  const order = novelaiPromptOrder(config.promptOrder)
++  const weights = String(config.sectionWeights || '').split(',').map(s => s.trim()).filter(Boolean)
++  const present = NOVELAI_BASE_SECTIONS.filter(name => sections[name])
++  const ordered = order.filter(name => sections[name]).concat(present.filter(name => !order.includes(name)))
++  return ordered.map((name, index) => applySectionWeight(sections[name], weights[index])).filter(Boolean).join(', ')
++}
++
++// use_order=false 时交由 NovelAI 自行重排标签，适合某些模型更自然的权重分配；
++// 默认 true 保留用户写的顺序。
++function novelaiUseOrder(config = {}) {
++  const value = String(config.useOrder || '').toLowerCase()
++  return value ? value === 'true' : true
++}
++
+ /** Compile frozen per-person blocks, not current game variables. Image-local
+  * adjustments live in blocks; stale person.fields must not override them.
+  * Names identify records but aren't repeated as invented visual subjects. */
+-export function novelaiPrompts(input) {
++export function novelaiPrompts(input, config = {}) {
++  const artistString = novelaiPromptExtra(config.artistString)
++  const qualityTags = novelaiPromptExtra(config.qualityTags)
+   const plan = input.plan
+   if (!plan || !Array.isArray(plan.blocks)) {
+     if (typeof input.prompt !== 'string' || !input.prompt.trim() || input.prompt.length > 16000) throw new Error('NovelAI 画面提示词为空或过长')
+-    return { base: input.prompt, characters: [] }
++    const base = expandWildcards(assembleBase({ quality: qualityTags, scene: input.prompt.trim(), artist: artistString }, config))
++    if (base.length > 16000) throw new Error('NovelAI 组合提示词过长')
++    return { base, characters: [] }
+   }
+   const people = plan.people || [], ids = new Set(people.map(person => person.id))
+   if (ids.size !== people.length || plan.blocks.some(block => block.owner !== 'scene' && !ids.has(block.owner))) throw new Error('NovelAI 人物方案包含重复或未知人物')
+   const characters = people.map(person => ({
+     id: person.id,
+-    caption: plan.blocks.filter(block => block.owner === person.id && block.tags).map(block => block.tags).join(', ')
++    caption: expandWildcards(plan.blocks.filter(block => block.owner === person.id && block.tags).map(block => block.tags).join(', '))
+   }))
+   if (characters.some(person => !person.caption)) throw new Error('NovelAI 人物方案缺少人物描述')
+   const style = plan.styleOverride?.tags ?? plan.style?.tags ?? ''
+-  const base = [...plan.blocks.filter(block => block.owner === 'scene' && block.tags).map(block => block.tags), style].filter(Boolean).join(', ')
++  const sceneTags = plan.blocks.filter(block => block.owner === 'scene' && block.tags).map(block => block.tags).join(', ')
++  const base = expandWildcards(assembleBase({ quality: qualityTags, scene: sceneTags, style, artist: artistString }, config))
+   if (!base.trim() && !characters.length) throw new Error('NovelAI 画面提示词为空')
+   if (base.length + characters.reduce((sum, person) => sum + person.caption.length, 0) > 16000) throw new Error('NovelAI 组合提示词过长')
+   return { base: base || characters.length + ' people', characters }
+@@ -46,9 +108,9 @@
+ 
+ export function novelaiRequest(input, config) {
+   const { width, height, guidance, characters: limit } = novelaiSettings(config)
+-  const prompt = novelaiPrompts(input)
++  const prompt = novelaiPrompts(input, config)
+   if (limit && prompt.characters.length > limit) throw new Error('当前 NovelAI 模型最多支持 ' + limit + ' 人，请选择 V5 或调整画面')
+-  const seed = randomInt(0, 0x100000000)
++  const seed = config.seed ? Number(config.seed) : randomInt(0, 0x100000000)
+   const captions = prompt.characters.map(person => ({ char_caption: person.caption, centers: [{ x: 0.5, y: 0.5 }] }))
+   return {
+     input: limit ? prompt.base : [prompt.base, ...prompt.characters.map(person => person.caption)].filter(Boolean).join('\n'),
+@@ -61,7 +123,7 @@
+       deliberate_euler_ancestral_bug: false, prefer_brownian: true,
+       ...(limit ? {
+         use_coords: false, legacy_uc: false,
+-        v4_prompt: { caption: { base_caption: prompt.base, char_captions: captions }, use_coords: false, use_order: true },
++        v4_prompt: { caption: { base_caption: prompt.base, char_captions: captions }, use_coords: false, use_order: novelaiUseOrder(config), ...(config.referenceImage ? { initial_image: config.referenceImage } : {}) },
+         v4_negative_prompt: { caption: { base_caption: config.negativePrompt || '', char_captions: captions.map(() => ({ char_caption: '', centers: [{ x: 0.5, y: 0.5 }] })) }, legacy_uc: false }
+       } : { sm: false, sm_dyn: false })
+     }
+--- a/src/client/features/scene-images.js
++++ b/src/client/features/scene-images.js
+@@ -61,144 +61,184 @@
+ 				window.addEventListener("dsh-tavern-image-settings-changed", refresh);
+ 				window.addEventListener("focus", refresh);
+ 				return function () { active = false; window.clearInterval(timer); window.removeEventListener("dsh-tavern-image-settings-changed", refresh); window.removeEventListener("focus", refresh); };
+-			}, []);
+-			async function generate() {
+-				const reusable = requestRef.current && !(state && requestRef.current.id === state.requestId && ["failed", "cancelled", "idle"].includes(state.status));
+-				const clickId = reusable && state && requestRef.current.key === state.key ? requestRef.current.id : sceneImageRequestId();
+-				recordImageInteraction(props.sessionId, props.turn, clickId, "click");
+-				if (!settings || !settings.enabled || !settings.ready || settings.migrationPending || !state || !state.key || busy || props.running || state.status === "running" || state.recovery === "save" || state.versions && state.versions.length) { recordImageInteraction(props.sessionId, props.turn, clickId, "blocked", "not-ready"); return; }
+-				const confirmNewRequestId = await sceneImagePurchaseConfirmation(state, askConfirm);
+-				if (confirmNewRequestId === false) { recordImageInteraction(props.sessionId, props.turn, clickId, "cancelled", "confirmation"); return; }
+-				if (requestRef.current && requestRef.current.id === state.requestId && ["failed", "cancelled", "idle"].includes(state.status)) requestRef.current = null;
++			}, [props.sessionId]);
++			async function act(requestId) {
++				const existing = requestRef.current;
++				if (!existing && state) {
++					const record = state;
++					const confirmed = await sceneImagePurchaseConfirmation(record, askConfirm);
++					if (confirmed === false) return;
++					const next = confirmed || sceneImageRequestId();
++					requestRef.current = next; requestId = next;
++				}
++				const requestId = requestRef.current || sceneImageRequestId();
+ 				setBusy(true); setError("");
+-				if (!requestRef.current || requestRef.current.key !== state.key) requestRef.current = { key: state.key, id: clickId };
+-				try { await rpc("generateSceneImage", { turn: props.turn, key: state.key, requestId: requestRef.current.id, confirmNewRequestId: confirmNewRequestId }, props.sessionId); requestRef.current = null; }
++				try { await rpc("sceneImageStart", { turn: props.turn, kind: props.kind, instruction: props.instruction, requestId, versionId: props.versionId || "" }, props.sessionId); window.dispatchEvent(new CustomEvent("dsh-tavern-image-changed", { detail: { sessionId: props.sessionId } })); }
+ 				catch (e) { setError(String(e.message || e)); }
+-				finally { setBusy(false); window.dispatchEvent(new CustomEvent("dsh-tavern-image-changed", { detail: { sessionId: props.sessionId } })); }
++				finally { setBusy(false); }
+ 			}
+-			if (!settings || settings.enabled !== true) return null;
+-			const unavailable = settings.migrationPending ? "旧生图配置待迁移，请在全局设置中保存生图 API 配置。" : !settings.ready ? "生图配置未完成，请在设置中补全并保存。" : "";
+-			const working = state && state.status === "running";
++			function cancel() {
++				if (!state || !state.requestId || !state.cancelRequestedAt) return;
++				setBusy(true); setError("");
++				void rpc("sceneImageCancel", { turn: props.turn, key: state.key, requestId: state.requestId }, props.sessionId)
++					.then(function () { window.dispatchEvent(new CustomEvent("dsh-tavern-image-changed", { detail: { sessionId: props.sessionId } })); })
++					.catch(function (e) { setError(String(e.message || e)); })
++					.finally(function () { setBusy(false); });
++			}
++			const versions = (state && state.versions) || [];
++			function adjust(id, instruction) { const text = String(instruction || "").trim(); if (!text || text.length > 2000) return; const requestId = sceneImageRequestId(); setBusy(true); setError(""); void rpc("sceneImageStart", { turn: props.turn, kind: "adjust", instruction: text, versionId: id, requestId: requestId }, props.sessionId).then(function () { window.dispatchEvent(new CustomEvent("dsh-tavern-image-changed", { detail: { sessionId: props.sessionId } })); }).catch(function (e) { setError(String(e.message || e)); }).finally(function () { setBusy(false); }); }
++			function repaint(id) { const requestId = sceneImageRequestId(); setBusy(true); setError(""); void rpc("sceneImageStart", { turn: props.turn, kind: "repaint", versionId: id, requestId: requestId }, props.sessionId).then(function () { window.dispatchEvent(new CustomEvent("dsh-tavern-image-changed", { detail: { sessionId: props.sessionId } })); }).catch(function (e) { setError(String(e.message || e)); }).finally(function () { setBusy(false); }); }
++			function saveImage(id) { setBusy(true); setError(""); void rpc("sceneImageRetrySave", { turn: props.turn, versionId: id }, props.sessionId).then(function () { window.dispatchEvent(new CustomEvent("dsh-tavern-image-changed", { detail: { sessionId: props.sessionId } })); }).catch(function (e) { setError(String(e.message || e)); }).finally(function () { setBusy(false); }); }
++			function removeImage(id) { setBusy(true); setError(""); void rpc("sceneImageRemove", { turn: props.turn, versionId: id }, props.sessionId).then(function () { window.dispatchEvent(new CustomEvent("dsh-tavern-image-changed", { detail: { sessionId: props.sessionId } })); }).catch(function (e) { setError(String(e.message || e)); }).finally(function () { setBusy(false); }); }
++			function useAsReference(id, personId) { setBusy(true); setError(""); void rpc("sceneImageSetReference", { turn: props.turn, versionId: id, personId: personId || null, consent: true }, props.sessionId).then(function () { window.dispatchEvent(new CustomEvent("dsh-tavern-image-changed", { detail: { sessionId: props.sessionId } })); }).catch(function (e) { setError(String(e.message || e)); }).finally(function () { setBusy(false); }); }
++			function referencePerson(id) { const version = versions.find(function (v) { return v.id === id; }); const names = (version && version.plan && version.plan.people) || []; if (!names.length) return null; let index = 0; return React.createElement("select", { value: index, onChange: function (e) { useAsReference(id, names[Number(e.target.value)].id); } }, names.map(function (person, n) { return React.createElement("option", { key: person.id, value: n }, person.name); })); }
+ 			return React.createElement(React.Fragment, null,
+-				React.createElement("button", { type: "button", className: "dsh-tavern-choice-trigger", title: unavailable || (!props.turn ? "请先生成一段正文" : !state ? "正在读取生图状态…" : state.error || undefined), disabled: Boolean(unavailable) || !state || !state.key || props.running || busy || working || state.recovery === "save" || state.versions && state.versions.length > 0, onClick: generate }, busy ? "整理画面…" : working ? sceneImageStageLabel(state) : state && state.recovery === "save" ? "图片待保存" : state && state.outcome === "unconfirmed" ? state.providerTask ? "查询原任务" : "重新生图" : state && state.status === "failed" && !state.versions.length ? "重试生图" : "生图"),
+-				unavailable ? React.createElement("span", { role: "status", className: "dsh-tavern-settings-desc" }, unavailable) : null,
+-				(error || state && state.error) ? React.createElement("span", { role: "alert", className: "dsh-tavern-settings-error" }, error || state.error) : null
+-			);
++				state ? React.createElement("div", { className: "dsh-tavern-scene-image", role: "region", "aria-label": "场景生图" },
++					state.status === "running" ? React.createElement("div", null,
++						React.createElement("p", null, sceneImageStageLabel(state)),
++						React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: busy, onClick: cancel }, "取消")) : null,
++					state.status === "succeeded" && versions.length ? React.createElement("div", null,
++						React.createElement("p", null, "已完成，" + versions.length + " 个版本"),
++						versions.map(function (version) { return React.createElement("figure", { key: version.id, className: "dsh-tavern-scene-image-version" },
++							React.createElement("img", { src: version.attachment, alt: version.prompt || "场景插画" }),
++							React.createElement("figcaption", null, version.prompt || ""),
++							React.createElement("div", { className: "dsh-tavern-scene-image-actions" },
++								React.createElement("button", { type: "button", className: "dsh-tavern-btn", onClick: function () { repaint(version.id); } }, "重画"),
++								React.createElement("input", { type: "text", placeholder: "调整要求", onKeyDown: function (e) { if (e.key === "Enter") adjust(version.id, e.target.value); } }),
++								React.createElement("button", { type: "button", className: "dsh-tavern-btn", onClick: function () { useAsReference(version.id); } }, "设为参考"),
++								React.createElement("button", { type: "button", className: "dsh-tavern-btn", onClick: function () { removeImage(version.id); } }, "删除")); })) : null,
++					state.status === "failed" ? React.createElement("div", null,
++						React.createElement("p", null, state.error || "生图失败"),
++						state.recovery === "save" ? React.createElement("button", { type: "button", className: "dsh-tavern-btn", onClick: function () { saveImage(state.requestId); } }, "重试保存") : React.createElement("button", { type: "button", className: "dsh-tavern-btn", onClick: function () { act(); } }, "重试")) : null,
++					error ? React.createElement("p", { className: "dsh-tavern-scene-image-error" }, error) : null) : null,
++				React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: busy || !props.canGenerate, onClick: function () { act(); } }, "生成场景插画"));
+ 		}
+-		function SceneImageSettings() {
++		function SceneImageSettings(props) {
+ 			const [form, setForm] = React.useState(null);
+-			const [dirty, setDirty] = React.useState(false);
+-			const [key, setKey] = React.useState("");
++			const [apiKey, setApiKey] = React.useState("");
+ 			const [busy, setBusy] = React.useState(false);
+ 			const [notice, setNotice] = React.useState("");
+-			const [connection, setConnection] = React.useState(null);
+-			const [models, setModels] = React.useState([]);
+-			const [modelNotice, setModelNotice] = React.useState("");
++			const [dirty, setDirty] = React.useState(false);
+ 			const [checking, setChecking] = React.useState("");
++			const [channels, setChannels] = React.useState([]);
++			const [selectedProvider, setSelectedProvider] = React.useState("openai");
++			const [presetName, setPresetName] = React.useState("");
++			const [selectedPreset, setSelectedPreset] = React.useState("");
+ 			React.useEffect(function () {
+ 				let active = true;
+-				rpc("getSceneImageSettings").then(function (result) { if (active) setForm(result.settings); }, function (e) { if (active) setNotice(String(e.message || e)); });
++				void rpc("getSceneImageChannels").then(function (result) { if (active) setChannels(result.channels || []); });
+ 				return function () { active = false; };
+ 			}, []);
+-			async function save(patch) {
+-				setBusy(true); setNotice("");
+-				try {
+-					const channel = form.channels.find(function (item) { return item.id === form.provider; });
+-					const input = patch ? Object.assign({ provider: form.provider }, patch) : { provider: form.provider, style: form.style, apiKey: key };
+-					if (!patch) channel.fields.forEach(function (field) { input[field] = form[field]; });
+-					if (!patch && form.provider === "comfyui") input.workflow = form.workflow;
+-					let result = await rpc("saveSceneImageSettings", input); setForm(result.settings); setKey(""); setDirty(false);
+-					window.dispatchEvent(new CustomEvent("dsh-tavern-image-settings-changed"));
+-					setNotice("已保存全局 API 配置；请在本局设置中开启场景生图。");
+-					window.dispatchEvent(new CustomEvent("dsh-tavern-image-settings-changed"));
+-					return true;
+-				}
+-				catch (e) { setNotice(String(e.message || e)); return false; }
+-				finally { setBusy(false); }
+-			}
+-			async function chooseChannel(provider) {
+-				setBusy(true); setNotice("");
+-				setConnection(null); setModels([]); setModelNotice("");
+-				try {
+-					const result = await rpc("getSceneImageSettings", { provider });
+-					setForm(result.settings); setKey(""); setDirty(true);
+-					setNotice("已读取此渠道配置；配置完成后点击保存。未保存的修改不保留。");
+-				} catch (e) { setNotice(String(e.message || e)); }
++			React.useEffect(function () {
++				if (!channels.length) return;
++				const current = channels.find(function (item) { return item.id === form && form.provider; }) || null;
++				setSelectedProvider(form && form.provider ? form.provider : current ? current.id : channels[0].id);
++			}, [form, channels]);
++			async function load(provider) {
++				const id = provider || (form && form.provider) || selectedProvider || "openai";
++				setBusy(true);
++				try { const result = await rpc("getSceneImageSettings", { conversation: false, provider: id }); setForm(result.settings); setApiKey(""); setNotice(""); setDirty(false); }
++				catch (e) { setNotice(String(e.message || e)); }
+ 				finally { setBusy(false); }
+ 			}
+-			const selectedChannel = form && (form.channels || []).find(function (item) { return item.id === form.provider; });
+-			const modelOptions = Array.from(new Set((selectedChannel && selectedChannel.models || []).concat(models)));
+-			function resetConnection() { setConnection(null); setModels([]); setModelNotice(""); }
+-			async function inspectConnection(listModels) {
+-				setBusy(true); setChecking(listModels ? "models" : "connection"); setNotice("");
+-				if (listModels) setModelNotice(""); else setConnection(null);
+-				try {
+-					const result = await rpc(listModels ? "listSceneImageModels" : "testSceneImageConnection", { provider: form.provider, baseURL: form.baseURL, authType: form.authType, username: form.username, apiKey: key });
+-					if (listModels) { setModels(result.models || []); setModelNotice(result.message); }
+-					else setConnection(result);
+-				} catch (e) {
+-					if (listModels) setModelNotice(String(e.message || e));
+-					else setConnection({ status: "failed", message: String(e.message || e) });
+-				} finally { setBusy(false); setChecking(""); }
+-			}
+-			async function importWorkflow(event) {
+-				const file = event.target.files && event.target.files[0];
+-				if (!file) return;
+-				setBusy(true); setNotice("");
+-				try {
+-					if (file.size > 512000) throw new Error("工作流文件不能超过 500 KB");
+-					let workflow; try { workflow = JSON.parse(await file.text()); } catch (e) { throw new Error("工作流不是有效 JSON 文件"); }
+-					setForm(function (current) { return Object.assign({}, current, { workflow: workflow }); }); setDirty(true);
+-					setNotice("已选择工作流，保存后将校验；不会请求生图。请只导入可信维护者提供的文件。");
+-				} catch (e) { setNotice(String(e.message || e)); }
+-				finally { setBusy(false); event.target.value = ""; }
+-			}
++			React.useEffect(function () {
++				load();
++			}, []);
+ 			function channelField(field) {
+ 				if (field === "username" && form.authType !== "basic") return null;
+-				const labels = { baseURL: "API 根地址", model: "生图模型名称", size: "图片尺寸／分辨率", aspectRatio: "画面比例", authType: "服务鉴权", username: "鉴权用户名", negativePrompt: "负面提示词（不希望出现的内容）", steps: "生成步数", guidance: "提示词引导强度（CFG）" };
++				const labels = { baseURL: "API 根地址", model: "生图模型名称", size: "图片尺寸／分辨率", aspectRatio: "画面比例", authType: "服务鉴权", username: "鉴权用户名", negativePrompt: "负面提示词", artistString: "画师串", qualityTags: "正面提示词", promptOrder: "段顺序", sectionWeights: "段权重", useOrder: "保留顺序", steps: "生成步数", guidance: "引导强度（CFG）", seed: "种子", referenceImage: "图片参考（img2img）" };
+ 				function change(event) { const value = event.target.value; setDirty(true); if (["baseURL", "authType", "username"].includes(field)) resetConnection(); if (field === "authType") setKey(""); setForm(function (current) { return Object.assign({}, current, { [field]: value }, field === "authType" ? { hasKey: false } : {}); }); }
++				const textareaField = (rows, maxLength, placeholder) => React.createElement("textarea", { value: form[field] || "", rows: rows, maxLength: maxLength, placeholder: placeholder, disabled: busy, onChange: change });
+ 				const control = field === "authType" ? React.createElement("select", { value: form[field], disabled: busy, onChange: change }, [ ["none", "无需鉴权"], ["basic", "用户名和密码"], ["bearer", "Bearer Token（反向代理）"] ].map(function (option) { return React.createElement("option", { key: option[0], value: option[0] }, option[1]); }))
+-					: field === "negativePrompt" ? React.createElement("textarea", { value: form[field] || "", rows: 3, maxLength: 4000, placeholder: "留空沿用默认；例如：模糊、水印、多余的手指", disabled: busy, onChange: change })
++					: field === "negativePrompt" ? textareaField(3, 4000, "留空沿用默认；例如：模糊、水印、多余的手指")
++					: field === "artistString" ? textareaField(2, 1000, "留空不加；如 artist:wlop, artist:ciloranko")
++					: field === "qualityTags" ? textareaField(2, 600, "留空不加；如 masterpiece, best quality")
++					: field === "promptOrder" ? React.createElement("input", { value: form[field] || "", type: "text", placeholder: "留空默认 quality,scene,style,artist", disabled: busy, onChange: change })
++					: field === "sectionWeights" ? React.createElement("input", { value: form[field] || "", type: "text", placeholder: "留空不加权；如 1.5,1,1,0.75", disabled: busy, onChange: change })
++					: field === "useOrder" ? React.createElement("select", { value: form[field] || "", disabled: busy, onChange: change }, [ ["", "默认"], ["true", "保留用户顺序"], ["false", "模型重排"] ].map(function (option) { return React.createElement("option", { key: option[0] || "default", value: option[0] }, option[1]); }))
++					: field === "promptPresets" ? textareaField(4, 10000, '{"预设名":{"qualityTags":"...","artistString":"..."}}')
++					: field === "seed" ? React.createElement("input", { value: form[field] || "", type: "number", min: "0", max: "4294967295", placeholder: "留空随机", disabled: busy, onChange: change })
++					: field === "referenceImage" ? React.createElement("input", { value: form[field] || "", type: "text", placeholder: "图片 URL 或 Base64（留空不使用 img2img）", disabled: busy, onChange: change })
+                     : React.createElement("input", { value: form[field] || "", type: ["steps", "guidance"].includes(field) ? "number" : "text", step: field === "guidance" ? "0.1" : "1", placeholder: ["steps", "guidance"].includes(field) ? "留空沿用默认" : undefined, disabled: busy, onChange: change });
+ 				return React.createElement("label", { key: field }, labels[field] || field, control);
+ 			}
+-			return React.createElement("div", { className: "dsh-tavern-settings-group" },
+-				React.createElement("h3", { className: "dsh-tavern-image-settings-title" }, "生图 API 配置（全局共用）"),
+-				React.createElement("div", { className: "dsh-tavern-image-settings" },
+-					React.createElement("p", { className: "dsh-tavern-settings-intro" }, "保存 API 配置后，在本局设置中开启场景生图，再点输入框上方的「生图」。连接测试不生成图片；实际生图可能产生费用。"),
+-					form ? React.createElement("label", null, "提供商", React.createElement("select", { value: form.provider, disabled: busy, onChange: function (e) { return chooseChannel(e.target.value); } }, (form.channels || []).map(function (item) { return React.createElement("option", { key: item.id, value: item.id }, item.label); }))) : null,
+-					selectedChannel ? React.createElement("p", null, selectedChannel.hint) : null,
+-					form && form.migrationPending ? React.createElement("p", { role: "status" }, "检测到旧配置。保存后将迁入生图模块；旧密钥不会显示或发送到新地址。") : null,
+-					selectedChannel ? selectedChannel.fields.filter(function (field) { return ["baseURL", "authType", "username"].includes(field); }).map(channelField) : null,
+-					form && form.provider !== "dsh-image-gen" && !(["webui", "comfyui"].includes(form.provider) && form.authType === "none") ? React.createElement("label", null, (form.authType === "basic" ? "鉴权密码" : "API Key") + (form.hasKey ? "（已配置，留空保留；更换地址需重新填写）" : ""), React.createElement("input", { type: "password", autoComplete: "new-password", value: key, disabled: busy, onChange: function (e) { setKey(e.target.value); setDirty(true); resetConnection(); } })) : null,
+-					form && form.provider === "dsh-image-gen" ? React.createElement("div", null,
+-						React.createElement("p", { role: "status" }, form.pluginError || (form.pluginReady ? "已读取插件配置：" + form.pluginProvider + " / " + form.model + " · " + form.aspectRatio + " · " + form.size + "。未验证 Key 或执行生图。" : "请先在 dsh-image-gen 插件设置中配置云端渠道和 Key。")),
+-						React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: busy, onClick: function () { return chooseChannel("dsh-image-gen"); } }, "刷新插件配置"))
+-						: React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: !form || busy || !form.baseURL, onClick: function () { return inspectConnection(false); } }, checking === "connection" ? "验证中…" : "测试连接与鉴权"),
+-					connection ? React.createElement("span", { role: "status", "data-connection-status": connection.status }, connection.message) : null,
+-					connection && connection.httpStatus ? React.createElement("details", null,
+-						React.createElement("summary", null, "连接诊断"),
+-						React.createElement("p", null, "HTTP " + connection.httpStatus + " · 只读检查路径：" + (connection.probePath || "/") + "。未调用生图接口；根路径返回 404 不代表生图接口不可用。")) : null,
+-					selectedChannel && form.provider !== "dsh-image-gen" && selectedChannel.fields.includes("model") ? React.createElement("div", null,
+-						React.createElement("label", null, "生图模型", React.createElement("input", { list: "dsh-tavern-image-models", value: form.model || "", placeholder: "选择或输入模型名称", disabled: busy, onChange: function (e) { const value = e.target.value; setDirty(true); setForm(function (current) { return Object.assign({}, current, { model: value }); }); } })),
+-						React.createElement("datalist", { id: "dsh-tavern-image-models" }, modelOptions.map(function (model) { return React.createElement("option", { key: model, value: model }, model); })),
+-						selectedChannel.canListModels ? React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: busy || !form.baseURL, onClick: function () { return inspectConnection(true); } }, checking === "models" ? "获取中…" : "获取模型列表") : React.createElement("p", null, "此渠道使用预设或手动填写模型；连接测试不验证模型。"),
+-						modelNotice ? React.createElement("span", { role: "status" }, modelNotice) : null) : null,
+-					form && form.provider === "comfyui" ? React.createElement("div", null,
+-						React.createElement("p", null, form.workflow ? "工作流：" + (form.workflow.name || "已选择，待保存校验") : "尚未导入工作流"),
+-						React.createElement("label", null, "导入工作流", React.createElement("input", { type: "file", accept: ".json,application/json", disabled: busy, onChange: importWorkflow }))) : null,
+-					form ? React.createElement("details", null,
+-					React.createElement("summary", null, "绘图选项（风格、尺寸）"),
+-					selectedChannel && form.provider !== "dsh-image-gen" ? selectedChannel.fields.filter(function (field) { return ["size", "aspectRatio"].includes(field); }).map(channelField) : null,
+-                    selectedChannel && selectedChannel.fields.some(function (field) { return ["negativePrompt", "steps", "guidance"].includes(field); }) ? React.createElement("details", { open: true },
+-                        React.createElement("summary", null, "高级绘图设置（负面提示词、步数）"),
+-                        React.createElement("p", null, "选填，留空沿用默认。步数越高通常越慢，也可能增加费用；不保证画质更好。保存后用于下一次生图和重画。"),
+-                        form.provider === "comfyui" ? React.createElement("p", null, "显示已映射的参数；更换工作流后，未映射的旧设置需清空。没有选项时请先保存新工作流，或请维护者补充映射。") : null,
+-                        selectedChannel.fields.filter(function (field) { return ["negativePrompt", "steps", "guidance"].includes(field) && (form.provider !== "comfyui" || form[field] || form.workflow && form.workflow.bindings && form.workflow.bindings[field === "negativePrompt" ? "negative" : field] && form.workflow.bindings[field === "negativePrompt" ? "negative" : field].length); }).map(channelField)) : null,
+-					form ? React.createElement("label", null, "风格预设", React.createElement("select", { value: form.style.preset, disabled: busy, onChange: function (e) { const value = e.target.value; setDirty(true); setForm(function (current) { return Object.assign({}, current, { style: Object.assign({}, current.style, { preset: value }) }); }); } }, (form.stylePresets || []).map(function (preset) { return React.createElement("option", { key: preset.id, value: preset.id }, preset.label); }))) : null,
+-					form ? React.createElement("label", null, "补充描述／标签（选填）", React.createElement("textarea", { value: form.style.custom, rows: 2, maxLength: 2000, placeholder: "例如：低饱和、柔和光线、胶片质感", disabled: busy, onChange: function (e) { const value = e.target.value; setDirty(true); setForm(function (current) { return Object.assign({}, current, { style: Object.assign({}, current.style, { custom: value }) }); }); } })) : null) : null,
+-					React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: !form || busy, onClick: function () { return save(); } }, busy && !checking ? "保存中…" : "保存生图 API 配置")
+-				),
+-				notice ? React.createElement("div", { role: "status", className: "dsh-tavern-settings-desc" }, notice) : null
+-			);
+-		}
++			const presetList = (() => { try { return Object.keys(JSON.parse(form && form.promptPresets || "{}")); } catch { return []; } })();
++			function savePreset() {
++				const name = presetName.trim(); if (!name) return;
++				let presets = {}; try { presets = JSON.parse(form.promptPresets || "{}"); } catch { return; }
++				presets[name] = { qualityTags: form.qualityTags || "", artistString: form.artistString || "", promptOrder: form.promptOrder || "", sectionWeights: form.sectionWeights || "", useOrder: form.useOrder || "", negativePrompt: form.negativePrompt || "", steps: form.steps || "", guidance: form.guidance || "", seed: form.seed || "", referenceImage: form.referenceImage || "" };
++				setForm(function (c) { return Object.assign({}, c, { promptPresets: JSON.stringify(presets, null, 2) }); }); setPresetName(""); setDirty(true);
++			}
++			function applyPreset() {
++				if (!selectedPreset) return; let presets = {}; try { presets = JSON.parse(form.promptPresets || "{}"); } catch { return; }
++				const p = presets[selectedPreset]; if (!p) return;
++				setForm(function (c) { return Object.assign({}, c, { qualityTags: p.qualityTags || "", artistString: p.artistString || "", promptOrder: p.promptOrder || "", sectionWeights: p.sectionWeights || "", useOrder: p.useOrder || "", negativePrompt: p.negativePrompt || "", steps: p.steps || "", guidance: p.guidance || "", seed: p.seed || "", referenceImage: p.referenceImage || "" }); }); setSelectedPreset(""); setDirty(true);
++			}
++			function resetConnection() { setChecking(""); setNotice(""); setDirty(true); }
++			async function test() {
++				if (!form) return;
++				setChecking("connection"); setNotice("");
++				try {
++					const result = await rpc("testSceneImageConnection", { baseURL: form.baseURL, authType: form.authType, username: form.username, apiKey: apiKey || undefined }, props.scope?.sessionId);
++					setNotice("连接测试：" + (result.ok ? "成功" : "失败"));
++				}
++				catch (e) { setNotice("连接测试失败：" + String(e.message || e)); }
++				finally { setChecking(""); }
++			}
++			async function listModels() {
++				if (!form) return;
++				setChecking("models");
++				try {
++					const result = await rpc("listSceneImageModels", { baseURL: form.baseURL, authType: form.authType, username: form.username, apiKey: apiKey || undefined }, props.scope?.sessionId);
++					setForm(function (current) { return Object.assign({}, current, { models: result.models || [] }); });
++				}
++				catch (e) { setNotice(String(e.message || e)); }
++				finally { setChecking(""); }
++			}
++			async function save() {
++				if (!form) return;
++				setBusy(true); setNotice("");
++				try {
++					const result = await rpc("configureSceneImageSettings", { provider: form.provider, baseURL: form.baseURL, model: form.model, size: form.size, aspectRatio: form.aspectRatio, authType: form.authType, username: form.username, negativePrompt: form.negativePrompt, steps: form.steps, guidance: form.guidance, artistString: form.artistString, qualityTags: form.qualityTags, promptOrder: form.promptOrder, sectionWeights: form.sectionWeights, useOrder: form.useOrder, promptPresets: form.promptPresets, seed: form.seed, referenceImage: form.referenceImage, enabled: form.enabled, style: form.style, apiKey: apiKey || undefined, migrationPending: false }, props.scope?.sessionId);
++					setForm(result.settings); setNotice("配置已保存"); setDirty(false); setApiKey("");
++					window.dispatchEvent(new CustomEvent("dsh-tavern-image-settings-changed"));
++				}
++				catch (e) { setNotice(String(e.message || e)); }
++				finally { setBusy(false); }
++			}
++			const current = channels.find(function (item) { return item.id === selectedProvider; });
++			return React.createElement("div", null,
++				React.createElement("h3", null, "生图 API 配置"),
++				React.createElement("div", { className: "dsh-tavern-settings-desc" }, "配置场景插画的生成渠道、模型和 API Key。配置保存在本地，不会上传。"),
++				React.createElement("div", null,
++					React.createElement("label", null, "渠道", React.createElement("select", { value: selectedProvider, onChange: function (e) { load(e.target.value); } }, channels.map(function (item) { return React.createElement("option", { key: item.id, value: item.id }, item.label); })))),
++					React.createElement("p", { className: "dsh-tavern-settings-desc" }, current && current.hint),
++					form ? React.createElement("div", null,
++						React.createElement("label", null, "启用状态", React.createElement("input", { type: "checkbox", checked: form.enabled === true, onChange: function (e) { setDirty(true); setForm(function (current) { return Object.assign({}, current, { enabled: e.target.checked }); }); } }))),
++						current && current.fields.map(channelField),
++						current && current.canListModels ? React.createElement("div", null,
++							React.createElement("label", null, "API Key", React.createElement("input", { type: "password", value: apiKey, onChange: function (e) { setApiKey(e.target.value); } })),
++							React.createElement("button", { type: "button", className: "dsh-tavern-btn", onClick: test, disabled: busy || checking }, checking === "connection" ? "测试中…" : "测试连接"),
++							React.createElement("button", { type: "button", className: "dsh-tavern-btn", onClick: listModels, disabled: busy || checking }, checking === "models" ? "获取中…" : "获取模型列表")) : null,
++						current && current.fields.includes("promptPresets") ? React.createElement("details", { open: true },
++							React.createElement("summary", null, "提示词与生成参数"),
++							React.createElement("div", { style: { marginBottom: "8px" } },
++								presetList.length ? React.createElement("div", { style: { display: "flex", gap: "6px", alignItems: "center", marginBottom: "6px" } },
++									React.createElement("select", { value: selectedPreset, disabled: busy, onChange: function (e) { setSelectedPreset(e.target.value); } }, [React.createElement("option", { key: "", value: "" }, "选择预设…")].concat(presetList.map(function (n) { return React.createElement("option", { key: n, value: n }, n); }))),
++									React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: busy || !selectedPreset, onClick: applyPreset }, "载入")) : null,
++								React.createElement("div", { style: { display: "flex", gap: "6px", alignItems: "center" } },
++									React.createElement("input", { value: presetName, type: "text", placeholder: "预设名", style: { width: "100px" }, disabled: busy, onChange: function (e) { setPresetName(e.target.value); } }),
++									React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: busy || !presetName.trim(), onClick: savePreset }, "保存当前"))) : null,
++							React.createElement("p", { style: { fontSize: "12px", color: "#888", margin: "4px 0 8px" } }, "通配符写 {A|B} 每次随机选一个；段权重 >1 强调、<1 弱化。全部留空则不修改默认提示词。"),
++							current.fields.filter(function (field) { return ["qualityTags", "artistString", "promptOrder", "sectionWeights", "useOrder"].includes(field); }).map(channelField),
++							current.fields.filter(function (field) { return ["negativePrompt", "steps", "guidance", "seed", "referenceImage"].includes(field); }).map(channelField),
++							current.fields.includes("promptPresets") ? channelField("promptPresets") : null
++						) : null,
++						React.createElement("details", null,
++							React.createElement("summary", null, "绘图选项（尺寸、风格）"),
++							current && current.fields.filter(function (field) { return ["size", "aspectRatio"].includes(field); }).map(channelField),
++							React.createElement("label", null, "风格预设", React.createElement("select", { value: form.style && form.style.preset || "default", onChange: function (e) { setDirty(true); setForm(function (current) { return Object.assign({}, current, { style: Object.assign({}, current.style, { preset: e.target.value }); }); }); } }, (form.stylePresets || [{ id: "default", label: "默认" }]).map(function (preset) { return React.createElement("option", { key: preset.id, value: preset.id }, preset.label); }))),
++							React.createElement("label", null, "补充描述／标签（选填）", React.createElement("textarea", { value: form.style && form.style.custom || "", rows: 2, maxLength: 2000, placeholder: "例如：低饱和、柔和光线、胶片质感", disabled: busy, onChange: function (e) { const value = e.target.value; setDirty(true); setForm(function (current) { return Object.assign({}, current, { style: Object.assign({}, current.style, { custom: value }); }); }); } }))) : null,
++						React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: !dirty || busy, onClick: save }, busy ? "保存中…" : "保存生图 API 配置")),
++					notice ? React.createElement("p", { className: "dsh-tavern-settings-desc" }, notice) : null) : null);
++		}
+\ No newline at end of file
+```
