@@ -69,7 +69,7 @@ test('standard bundle and sidebar distribution match their maintained sources', 
   assert.match(read('tavern-plugin/packages/dsh-better-sidebar/lib/index.js'), /function threadBoundaryEvents\(/)
 })
 
-test('real DSH composes the standard package into the same CLI runtime as the legacy bundles', { skip: !process.env.DSH_BOOT_MODULE }, async () => {
+test('real DSH composes the standard package alongside the host Web bundle without duplicating it', { skip: !process.env.DSH_BOOT_MODULE }, async () => {
   const boot = await import(pathToFileURL(process.env.DSH_BOOT_MODULE))
   const hostRoot = path.resolve(path.dirname(process.env.DSH_BOOT_MODULE), '../..')
   const policy = JSON.parse(read('config/dsh-compatibility.json'))
@@ -83,7 +83,7 @@ test('real DSH composes the standard package into the same CLI runtime as the le
     load(path.join(root, 'tavern-plugin/cordis.patch.yml')),
     load(path.join(root, 'tavern-plugin/packages/dsh-tavern-remote/cordis.patch.yml')),
   ])
-  const standard = boot.composeEntries([base, load(path.join(root, 'plugin.patch.yml'))])
+  const standard = boot.composeEntries([base, web, load(path.join(root, 'plugin.patch.yml'))])
     .filter(entry => entry.id !== 'tavern-package-guard')
   const names = Object.fromEntries(legacy.map(entry => [entry.id, entry.name]))
   for (const entry of standard) entry.name = names[entry.id]
