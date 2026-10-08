@@ -2765,7 +2765,7 @@ const channels = [
 			"model",
 			"size"
 		],
-		hint: "默认使用官方 V5 Full。第三方必须支持相同的 /ai/generate-image 协议与 ZIP 图片响应，不是 OpenAI 兼容地址。"
+		hint: "默认使用官方 V5 Full。中转站可新建接入点：与官方同协议的选「NovelAI 原生」，STA1N 这类用对话接口出图的选「对话生图」。"
 	},
 	{
 		id: "openai",
