@@ -50,12 +50,12 @@ test('same names stay distinct without citations; unknown identities and invalid
   assert.equal((await fx.prepare(2)).saved, undefined, 'no partially valid revision published')
 })
 
-test('branches and games do not share future identities; stale parallel commits cannot overwrite a newer revision', async t => {
+test('branches share identity and appearance but not state; games stay separate; stale parallel commits cannot overwrite a newer revision', async t => {
   const fx = await fixture(t), pending = await fx.prepare()
   const one = await fx.module.commit(pending, first())
   assert.equal((await fx.module.commit(pending, first())).id, one.id, 'identical submission is idempotent')
   const branch = await fx.prepare(2, '林岚挥手。', { lineage: [{ key: 'alternative', turn: 1 }, { key: 'two', turn: 2 }] })
-  assert.equal(branch.input.characters.length, 0)
+  assert.deepEqual(branch.input.characters, [{ id: one.subjects[0], name: '林岚', fields: { appearance: '黑发' } }])
   assert.equal((await fx.prepare(1, '林岚', { chatId: 'other-game' })).input.characters.length, 0)
   const stale = await fx.prepare(2, '林岚坐下。')
   const fresh = await fx.prepare(3, '林岚挥手。')
@@ -87,4 +87,20 @@ test('插图位置：方案里的原话在正文中找到才保留，找不到�
   const dropped = await fx.module.commit(await fx.prepare(2, text), { ...first(), continuity: 'changed', subjects: [kept.subjects[0]], characters: [], anchor: '正文里没有这句' })
   assert.equal(dropped.anchor, undefined)
   await assert.rejects(fx.module.commit(await fx.prepare(3, text), { ...first(), anchor: 'x'.repeat(201) }), /anchor/)
+})
+
+test('an earlier turn drawn after a later one keeps the same person id, without the later state', async t => {
+  const fx = await fixture(t)
+  const later = await fx.module.commit(await fx.prepare(3), first())
+  const earlier = await fx.prepare(1, '她推门进来。')
+  assert.equal(earlier.input.characters.length, 0, 'not mentioned: the archive is not sent')
+  const value = first()
+  value.characters = [{ id: 'linlan', name: '林岚', fields: { action: field('推门', 'opening door') } }]
+  value.subjects = ['linlan']
+  const frame = await fx.module.commit(earlier, value)
+  assert.deepEqual(frame.subjects, later.subjects)
+  assert.match(frame.prompt, /black hair/)
+  assert.doesNotMatch(frame.prompt, /white coat|standing/)
+  const next = await fx.prepare(2, '林岚坐下。')
+  assert.deepEqual(next.input.characters.map(person => person.id), later.subjects)
 })

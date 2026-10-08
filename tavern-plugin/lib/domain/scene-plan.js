@@ -17,6 +17,10 @@ function keys(value, allowed, label) {
 
 export { SCENE_PLAN_TOOL } from './scene-plan-draft.js'
 
+function appearanceOnly(person) {
+  return { ...person, fields: person.fields.appearance ? { appearance: person.fields.appearance } : {} }
+}
+
 /** A per-game atomic document publishes character revisions, blocks and frames
  * together. Content-addressed revisions never overwrite another story position. */
 export function createScenePlans({ store }) {
@@ -26,8 +30,25 @@ export function createScenePlans({ store }) {
     const data = await store.readJson(pathFor(chatId)) || empty()
     const saved = data.frames[target.key]?.[profile]
     const applicable = lineage.flatMap(item => Object.values(data.frames[item.key] || {}))
+    // One person, one id per game. Earlier story positions give the full
+    // state; later turns and other branches give identity and appearance only,
+    // so their clothing or posture never leaks backwards. A name met again in
+    // another picture is the same person; two same-named people inside one
+    // picture stay distinct.
     const known = Object.create(null)
-    for (const frame of applicable) for (const ref of frame.characterRefs) known[data.characters[ref].id] = data.characters[ref]
+    const elsewhere = Object.values(data.frames).flatMap(item => Object.values(item))
+      .filter(frame => !applicable.includes(frame)).sort((a, b) => a.turn - b.turn)
+    function remember(frame, person) {
+      const names = frame.characterRefs.map(ref => data.characters[ref].name)
+      if (names.filter(name => name === person.name).length === 1) {
+        for (const other of Object.values(known)) if (other.name === person.name) delete known[other.id]
+      }
+      known[person.id] = person
+    }
+    for (const frame of elsewhere) for (const ref of frame.characterRefs) remember(frame, appearanceOnly(data.characters[ref]))
+    for (const frame of applicable) for (const ref of frame.characterRefs) remember(frame, data.characters[ref])
+    const identities = Object.create(null)
+    for (const person of Object.values(known)) identities[person.name] = Object.hasOwn(identities, person.name) ? null : appearanceOnly(person)
     const previous = applicable.at(-1)
     const targetText = sources.find(item => item.id === 'target')?.text || ''
     // Relevant known identities: explicitly mentioned, or the preceding picture's
@@ -44,7 +65,7 @@ export function createScenePlans({ store }) {
     const previousScene = previous?.scene?.environment ? { environment: previous.scene.environment } : {}
     if (previousScene.environment && !block('scene', 'environment', previousScene.environment.text)) missingBlocks.push({ owner: 'scene', field: 'environment' })
     const input = { targetKey: target.key, turn: target.turn, profile, gapComplete, sources, characters: candidates.map(person => ({ id: person.id, name: person.name, fields: Object.fromEntries(Object.entries(person.fields).map(([field, value]) => [field, value.text])) })), previousScene: Object.fromEntries(Object.entries(previousScene).map(([field, value]) => [field, { text: value.text }])), missingBlocks }
-    return { chatId, target, profile, generation: data.generation, sources, people, previousScene, previousTurn: previous?.turn, previousMoment: previous?.moment || 'end', gapComplete, input, saved, block }
+    return { chatId, target, profile, generation: data.generation, sources, people, identities, previousScene, previousTurn: previous?.turn, previousMoment: previous?.moment || 'end', gapComplete, input, saved, block }
   }
   async function commit(prepared, submission) {
     keys(submission, ['description', 'characters', 'subjects', 'scene', 'continuity', 'expressions', 'moment', 'orientation', 'negative', 'anchor'], 'plan')
@@ -93,13 +114,16 @@ export function createScenePlans({ store }) {
       let person = people[localId]
       if (!person) {
         assert(!localId.startsWith('person-'), path + '.id (' + localId + ')：人物 id 不属于本任务已知人物')
-        const id = 'person-' + digest([prepared.chatId, prepared.target.key, localId]).slice(0, 24)
-        assert(!people[id], '同一人物不能重复创建；请引用已提供的 id')
-        const identity = { kind: 'scene-person', targetKey: prepared.target.key }
-        person = { id, name: text(update.name, path + '.name', 100), identity, fields: {} }
-        assert(person.name, path + '.name：新人物必须有 name')
-        people[id] = person
+        const name = text(update.name, path + '.name', 100)
+        assert(name, path + '.name：新人物必须有 name')
+        // A name already drawn elsewhere in this game keeps that person's id,
+        // unless that name is ambiguous.
+        const existing = prepared.identities?.[name]
+        const id = existing?.id || 'person-' + digest([prepared.chatId, prepared.target.key, localId]).slice(0, 24)
+        assert(!touched.has(id), path + '：' + name + ' 已在本方案中，同一人物不能重复创建；请引用已提供的 id')
+        person = people[id] ||= existing ? structuredClone(existing) : { id, name, identity: { kind: 'scene-person', targetKey: prepared.target.key }, fields: {} }
         aliases[localId] = id
+        touched.add(id)
       } else {
         // Ignore legacy identity payloads; identity is assigned only by the host.
         assert(update.name === undefined || update.name === person.name, path + '.name：不能通过绘图修改已知人物姓名')
