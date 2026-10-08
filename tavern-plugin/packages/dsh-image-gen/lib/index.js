@@ -2127,7 +2127,7 @@ function novelaiEndpoints(value, active, baseURL) {
 		}
 		if (parsed && (!["https:", "http:"].includes(parsed.protocol) || parsed.username || parsed.password || parsed.search || parsed.hash)) throw new Error("接入点地址须为不含密钥、查询参数的 HTTP(S) API 根地址");
 		const protocol = entry.protocol === void 0 || entry.protocol === "" ? "native" : entry.protocol;
-		if (!NOVELAI_PROTOCOLS.includes(protocol)) throw new Error("接入点协议只能是 NovelAI 原生或对话生图");
+		if (!NOVELAI_PROTOCOLS.includes(protocol)) throw new Error("接口格式只能是官方格式或对话格式");
 		return {
 			id: entry.id,
 			name: libraryText(entry.name, 40, "接入点名称") || "未命名接入点",
@@ -2743,7 +2743,7 @@ const channels = [
 	},
 	{
 		id: "comfyui",
-		label: "ComfyUI",
+		label: "ComfyUI（自建）",
 		baseURL: "",
 		authType: "none",
 		username: "",
@@ -2756,7 +2756,7 @@ const channels = [
 	},
 	{
 		id: "novelai",
-		label: "NovelAI（官方或中转站，含 STA1N）",
+		label: "NovelAI（官方或中转站）",
 		baseURL: "https://image.novelai.net",
 		model: "nai-diffusion-5-full",
 		size: "832x1216",
@@ -2765,11 +2765,11 @@ const channels = [
 			"model",
 			"size"
 		],
-		hint: "默认使用官方 V5 Full。中转站可新建接入点：与官方同协议的选「NovelAI 原生」，STA1N 这类用对话接口出图的选「对话生图」。"
+		hint: "默认连 NovelAI 官方，使用 V5 Full。用中转站时新建一个接入点，填中转站地址和 Key：接口和官方一样的选「官方格式」，STA1N 这类选「对话格式」。"
 	},
 	{
 		id: "openai",
-		label: "OpenAI / Images 兼容中转",
+		label: "OpenAI（gpt-image 及兼容中转）",
 		baseURL: "https://api.openai.com/v1",
 		model: "gpt-image-2",
 		size: "1024x1024",
@@ -2778,11 +2778,11 @@ const channels = [
 			"model",
 			"size"
 		],
-		hint: "官方可使用默认地址与模型；兼容中转请填写自己的地址和模型。"
+		hint: "官方可直接用默认地址与模型；兼容中转请填写自己的地址和模型。"
 	},
 	{
 		id: "gemini",
-		label: "Google Gemini 原生",
+		label: "Google Gemini（官方）",
 		baseURL: "https://generativelanguage.googleapis.com/v1beta",
 		model: "gemini-3.1-flash-image",
 		size: "1K",
@@ -2797,7 +2797,7 @@ const channels = [
 	},
 	{
 		id: "banana",
-		label: "聊天接口出图中转（Banana / Gemini 等）",
+		label: "Gemini 中转站（Nano Banana 等）",
 		baseURL: "",
 		model: "",
 		size: "1K",
@@ -2806,11 +2806,11 @@ const channels = [
 			"model",
 			"size"
 		],
-		hint: "用 chat/completions 接口出图的 Banana / Gemini 中转站选这个，地址填到 /v1，模型名照中转站列表填写。NovelAI 模型的中转（如 STA1N）不要选这里，请选「NovelAI / 同协议第三方」，接入点协议选「对话生图」。"
+		hint: "Gemini 图片模型（Nano Banana 等）的中转站选这个，地址填到 /v1，模型名照中转站列表填写。NovelAI 的中转站（如 STA1N）请选「NovelAI（官方或中转站）」。"
 	},
 	{
 		id: "grok",
-		label: "Grok Images",
+		label: "Grok（xAI）",
 		baseURL: "https://api.x.ai/v1",
 		model: "grok-imagine-image-2.0",
 		size: "1k",
@@ -2825,7 +2825,7 @@ const channels = [
 	},
 	{
 		id: "seedream",
-		label: "Seedream / 火山方舟",
+		label: "Seedream（火山方舟）",
 		baseURL: "https://ark.cn-beijing.volces.com/api/v3",
 		model: "doubao-seedream-5-0-260128",
 		size: "2K",
@@ -2838,7 +2838,7 @@ const channels = [
 	},
 	{
 		id: "qwen",
-		label: "百炼 Qwen-Image",
+		label: "Qwen-Image（阿里百炼）",
 		baseURL: "https://dashscope.aliyuncs.com/api/v1",
 		model: "qwen-image-3.0",
 		size: "1024*1024",
@@ -2851,7 +2851,7 @@ const channels = [
 	},
 	{
 		id: "webui",
-		label: "SD WebUI / Forge",
+		label: "SD WebUI / Forge（自建）",
 		baseURL: "",
 		size: "512x512",
 		authType: "none",
@@ -3184,7 +3184,7 @@ function channelImageResult(provider = "openai", payload) {
 		const text = String(payload?.choices?.[0]?.message?.content ?? "");
 		const url = text.match(/!\[[^\]]*\]\(((?:https?:\/\/|data:image\/[^;]+;base64,)[^\s)]+)\)/)?.[1] || text.match(/https?:\/\/[^\s)\]"'<>]+/)?.[0];
 		if (url) return { url };
-		throw /* @__PURE__ */ new Error(text.trim() ? "对话生图没有返回图片链接：" + text.trim().slice(0, 200) : "对话生图没有返回图片链接");
+		throw /* @__PURE__ */ new Error(text.trim() ? "中转站没有返回图片链接：" + text.trim().slice(0, 200) : "中转站没有返回图片链接");
 	}
 	if (provider === "banana") {
 		const message = payload?.choices?.[0]?.message;
@@ -4008,7 +4008,7 @@ async function requestSceneImage(input, deps) {
 			}).filter(([, item]) => typeof item === "string").map(([key, item]) => [key, safe(item)]));
 		} catch {}
 		const error = /* @__PURE__ */ new Error("生图服务请求失败（HTTP " + response.status + "）" + (detail.message ? "：" + detail.message : "") + (detail.param ? "（字段：" + detail.param + "）" : ""));
-		if (response.status === 404 && input.provider === "openai") error.message += "。该地址没有 Images 生图接口；如果中转站用聊天接口出图，请改选「聊天接口出图中转」渠道";
+		if (response.status === 404 && input.provider === "openai") error.message += "。该地址没有 OpenAI 图片接口：Gemini 图片模型的中转站请改选「Gemini 中转站（Nano Banana 等）」，NovelAI 的中转站请改选「NovelAI（官方或中转站）」";
 		error.imageFailure = {
 			httpStatus: response.status,
 			...detail
@@ -4026,7 +4026,7 @@ async function requestSceneImage(input, deps) {
 	if (input.provider === "novelai" && spec.body.messages === void 0) {
 		const archive = await boundedBytes(response, maxBytes + 65536);
 		if (/^\s*</.test(archive.subarray(0, 64).toString("utf8"))) {
-			const error = /* @__PURE__ */ new Error("该地址返回的是网页，不是 NovelAI 图片。它多半是用对话接口出图的中转站（如 STA1N）：请把这个接入点的协议改成「对话生图」。");
+			const error = /* @__PURE__ */ new Error("该地址返回的是网页，不是 NovelAI 图片。如果这是 STA1N 这类中转站，请把这个接入点的「接口格式」改成「对话格式」。");
 			error.imageOutcome = "rejected";
 			throw error;
 		}

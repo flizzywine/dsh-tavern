@@ -51,7 +51,7 @@ test('NovelAI rejects HTML/JSON masquerading as ZIP, corrupt images and oversize
     assert.equal(count, 1)
   }
   await assert.rejects(generateSceneImage(input, { fetch: async () => new Response('<!doctype html><title>fixture-secret</title>') }),
-    error => /网页.*对话生图/.test(error.message) && error.imageOutcome === 'rejected' && !error.message.includes('fixture-secret'))
+    error => /网页.*接口格式.*对话格式/.test(error.message) && error.imageOutcome === 'rejected' && !error.message.includes('fixture-secret'))
   await assert.rejects(generateSceneImage(input, { fetch: async () => new Response('fixture-secret', { status: 401 }) }), error => error.message.includes('401') && !error.message.includes('fixture-secret'))
   await assert.rejects(generateSceneImage({ ...input, maxBytes: 8 }, { fetch: async () => new Response(imageZip(png)) }), /ZIP|限制/)
   await assert.rejects(generateSceneImage(input, { fetch: async () => new Response('', { headers: { 'content-length': String(1e9) } }) }), /过大/)
@@ -199,6 +199,6 @@ test('NovelAI chat-protocol endpoints (Nai2API, e.g. STA1N) send the field templ
     } })
   assert.equal(result.mediaType, 'image/png')
   assert.deepEqual(calls, ['https://relay.example/v1/chat/completions', 'https://relay.example/files/a.png'])
-  await assert.rejects(generateSceneImage({ ...config, plan, prompt: 'x' }, { fetch: async () => new Response(JSON.stringify({ choices: [{ message: { content: '余额不足' } }] })) }), /没有返回图片链接：余额不足/)
-  assert.throws(() => imageChannelRequest({ ...config, endpoints: [{ ...endpoints[0], protocol: 'other' }], plan }), /接入点协议/)
+  await assert.rejects(generateSceneImage({ ...config, plan, prompt: 'x' }, { fetch: async () => new Response(JSON.stringify({ choices: [{ message: { content: '余额不足' } }] })) }), /中转站没有返回图片链接：余额不足/)
+  assert.throws(() => imageChannelRequest({ ...config, endpoints: [{ ...endpoints[0], protocol: 'other' }], plan }), /接口格式/)
 })

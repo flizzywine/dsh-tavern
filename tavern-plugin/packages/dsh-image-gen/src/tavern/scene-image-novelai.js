@@ -99,7 +99,7 @@ export function novelaiEndpoints(value, active, baseURL) {
     try { parsed = url ? new URL(url) : undefined } catch { throw new Error('接入点地址须为 HTTP(S) API 根地址') }
     if (parsed && (!['https:', 'http:'].includes(parsed.protocol) || parsed.username || parsed.password || parsed.search || parsed.hash)) throw new Error('接入点地址须为不含密钥、查询参数的 HTTP(S) API 根地址')
     const protocol = entry.protocol === undefined || entry.protocol === '' ? 'native' : entry.protocol
-    if (!NOVELAI_PROTOCOLS.includes(protocol)) throw new Error('接入点协议只能是 NovelAI 原生或对话生图')
+    if (!NOVELAI_PROTOCOLS.includes(protocol)) throw new Error('接口格式只能是官方格式或对话格式')
     return { id: entry.id, name: libraryText(entry.name, 40, '接入点名称') || '未命名接入点', baseURL: url, protocol }
   })
   if (!endpoints.length) endpoints.push({ id: 'default', name: '默认', baseURL, protocol: 'native' })

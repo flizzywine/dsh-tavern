@@ -148,7 +148,7 @@ DSH Tavern 功能清单（纯文本审阅版）
 5. 在支持的渠道中，将图片绑定为人物造型参考，也可解除绑定。
 6. 查看生成进度、取消任务、失败重试；生成成功但保存失败时可重试保存。
 7. 检查渠道连接，部分渠道支持读取模型列表。
-8. 渠道入口包括 OpenAI Images、Gemini 原生、Gemini 聊天兼容、Grok、Seedream、Qwen-Image、NovelAI、ComfyUI、SD WebUI / Forge。
+8. 渠道入口包括 OpenAI（gpt-image 及兼容中转）、Google Gemini（官方）、Gemini 中转站（Nano Banana 等）、Grok（xAI）、Seedream（火山方舟）、Qwen-Image（阿里百炼）、NovelAI（官方或中转站）、ComfyUI（自建）、SD WebUI / Forge（自建）。
 9. 实际模型、参考图和参数能力因渠道而异；本地绘图渠道连接已有服务，不负责安装模型。
 
 十一、诊断、维护与数据

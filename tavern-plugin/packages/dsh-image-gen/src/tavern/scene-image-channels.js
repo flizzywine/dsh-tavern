@@ -5,15 +5,15 @@ import { imageReferenceCapability } from './scene-image-reference.js'
 // Protocol presets are versioned here, not inferred by issuing paid probes.
 const channels = [
   { id: 'dsh-image-gen', label: 'dsh-image-gen（内置插件）', model: '', pluginProvider: '', aspectRatio: '', size: '', fields: ['model', 'pluginProvider', 'aspectRatio', 'size'], hint: '随 Tavern 安装，无需另装插件。请到设置 → 插件 → Image generation 配置渠道、模型和 Key；此处无需重复填写。目前 Tavern 接入文生图，不含 ComfyUI 或参考图。' },
-  { id: 'comfyui', label: 'ComfyUI', baseURL: '', authType: 'none', username: '', fields: ['baseURL', 'authType', 'username'], hint: '使用维护者已部署的服务与工作流。导入 API 工作流或维护者准备的映射文件；不会安装模型、节点或清空共享队列。本机地址指 Tavern 服务器。' },
-  { id: 'novelai', label: 'NovelAI（官方或中转站，含 STA1N）', baseURL: 'https://image.novelai.net', model: 'nai-diffusion-5-full', size: '832x1216', fields: ['baseURL', 'model', 'size'], hint: '默认使用官方 V5 Full。中转站可新建接入点：与官方同协议的选「NovelAI 原生」，STA1N 这类用对话接口出图的选「对话生图」。' },
-  { id: 'openai', label: 'OpenAI / Images 兼容中转', baseURL: 'https://api.openai.com/v1', model: 'gpt-image-2', size: '1024x1024', fields: ['baseURL', 'model', 'size'], hint: '官方可使用默认地址与模型；兼容中转请填写自己的地址和模型。' },
-  { id: 'gemini', label: 'Google Gemini 原生', baseURL: 'https://generativelanguage.googleapis.com/v1beta', model: 'gemini-3.1-flash-image', size: '1K', aspectRatio: '1:1', fields: ['baseURL', 'model', 'size', 'aspectRatio'], hint: '使用 Interactions API，不是聊天兼容地址。' },
-  { id: 'banana', label: '聊天接口出图中转（Banana / Gemini 等）', baseURL: '', model: '', size: '1K', fields: ['baseURL', 'model', 'size'], hint: '用 chat/completions 接口出图的 Banana / Gemini 中转站选这个，地址填到 /v1，模型名照中转站列表填写。NovelAI 模型的中转（如 STA1N）不要选这里，请选「NovelAI / 同协议第三方」，接入点协议选「对话生图」。' },
-  { id: 'grok', label: 'Grok Images', baseURL: 'https://api.x.ai/v1', model: 'grok-imagine-image-2.0', size: '1k', aspectRatio: '1:1', fields: ['baseURL', 'model', 'size', 'aspectRatio'], hint: '使用 Images 接口；图片分辨率为 1k 或 2k。' },
-  { id: 'seedream', label: 'Seedream / 火山方舟', baseURL: 'https://ark.cn-beijing.volces.com/api/v3', model: 'doubao-seedream-5-0-260128', size: '2K', fields: ['baseURL', 'model', 'size'], hint: '可填账号可用的模型或接入点；关闭组图，每次只请求一张。' },
-  { id: 'qwen', label: '百炼 Qwen-Image', baseURL: 'https://dashscope.aliyuncs.com/api/v1', model: 'qwen-image-3.0', size: '1024*1024', fields: ['baseURL', 'model', 'size'], hint: '默认北京地址。其他地域或工作空间请填写控制台提供的 API 根地址，密钥须属于相同地域。' },
-  { id: 'webui', label: 'SD WebUI / Forge', baseURL: '', size: '512x512', authType: 'none', username: '', fields: ['baseURL', 'size', 'authType', 'username'], hint: '使用已开启 API 的 WebUI / Forge 服务，沿用服务端模型与默认采样参数。本机地址指 Tavern 服务器，不是访问页面的手机；不会安装模型或修改服务端全局设置。' }
+  { id: 'comfyui', label: 'ComfyUI（自建）', baseURL: '', authType: 'none', username: '', fields: ['baseURL', 'authType', 'username'], hint: '使用维护者已部署的服务与工作流。导入 API 工作流或维护者准备的映射文件；不会安装模型、节点或清空共享队列。本机地址指 Tavern 服务器。' },
+  { id: 'novelai', label: 'NovelAI（官方或中转站）', baseURL: 'https://image.novelai.net', model: 'nai-diffusion-5-full', size: '832x1216', fields: ['baseURL', 'model', 'size'], hint: '默认连 NovelAI 官方，使用 V5 Full。用中转站时新建一个接入点，填中转站地址和 Key：接口和官方一样的选「官方格式」，STA1N 这类选「对话格式」。' },
+  { id: 'openai', label: 'OpenAI（gpt-image 及兼容中转）', baseURL: 'https://api.openai.com/v1', model: 'gpt-image-2', size: '1024x1024', fields: ['baseURL', 'model', 'size'], hint: '官方可直接用默认地址与模型；兼容中转请填写自己的地址和模型。' },
+  { id: 'gemini', label: 'Google Gemini（官方）', baseURL: 'https://generativelanguage.googleapis.com/v1beta', model: 'gemini-3.1-flash-image', size: '1K', aspectRatio: '1:1', fields: ['baseURL', 'model', 'size', 'aspectRatio'], hint: '使用 Interactions API，不是聊天兼容地址。' },
+  { id: 'banana', label: 'Gemini 中转站（Nano Banana 等）', baseURL: '', model: '', size: '1K', fields: ['baseURL', 'model', 'size'], hint: 'Gemini 图片模型（Nano Banana 等）的中转站选这个，地址填到 /v1，模型名照中转站列表填写。NovelAI 的中转站（如 STA1N）请选「NovelAI（官方或中转站）」。' },
+  { id: 'grok', label: 'Grok（xAI）', baseURL: 'https://api.x.ai/v1', model: 'grok-imagine-image-2.0', size: '1k', aspectRatio: '1:1', fields: ['baseURL', 'model', 'size', 'aspectRatio'], hint: '使用 Images 接口；图片分辨率为 1k 或 2k。' },
+  { id: 'seedream', label: 'Seedream（火山方舟）', baseURL: 'https://ark.cn-beijing.volces.com/api/v3', model: 'doubao-seedream-5-0-260128', size: '2K', fields: ['baseURL', 'model', 'size'], hint: '可填账号可用的模型或接入点；关闭组图，每次只请求一张。' },
+  { id: 'qwen', label: 'Qwen-Image（阿里百炼）', baseURL: 'https://dashscope.aliyuncs.com/api/v1', model: 'qwen-image-3.0', size: '1024*1024', fields: ['baseURL', 'model', 'size'], hint: '默认北京地址。其他地域或工作空间请填写控制台提供的 API 根地址，密钥须属于相同地域。' },
+  { id: 'webui', label: 'SD WebUI / Forge（自建）', baseURL: '', size: '512x512', authType: 'none', username: '', fields: ['baseURL', 'size', 'authType', 'username'], hint: '使用已开启 API 的 WebUI / Forge 服务，沿用服务端模型与默认采样参数。本机地址指 Tavern 服务器，不是访问页面的手机；不会安装模型或修改服务端全局设置。' }
 ]
 // Advanced controls are optional strings, like the existing form fields.
 export const IMAGE_ADVANCED_FIELDS = ['negativePrompt', 'steps', 'guidance']
@@ -226,7 +226,7 @@ export function channelImageResult(provider = 'openai', payload) {
     const text = String(payload?.choices?.[0]?.message?.content ?? '')
     const url = text.match(/!\[[^\]]*\]\(((?:https?:\/\/|data:image\/[^;]+;base64,)[^\s)]+)\)/)?.[1] || text.match(/https?:\/\/[^\s)\]"'<>]+/)?.[0]
     if (url) return { url }
-    const error = new Error(text.trim() ? '对话生图没有返回图片链接：' + text.trim().slice(0, 200) : '对话生图没有返回图片链接')
+    const error = new Error(text.trim() ? '中转站没有返回图片链接：' + text.trim().slice(0, 200) : '中转站没有返回图片链接')
     throw error
   }
   if (provider === 'banana') {

@@ -316,10 +316,10 @@
 							h("label", null, "接入点", h("select", { value: form.endpoint || "", disabled: busy, onChange: function (e) { if (!keyPending()) switchEndpoint(e.target.value); } }, endpoints.map(function (entry) { return h("option", { key: entry.id, value: entry.id }, entry.name + (entry.hasKey ? "" : "（未配置 Key）")); }))),
 							h("button", { type: "button", className: "dsh-tavern-btn", disabled: busy || endpoints.length >= 10, onClick: addEndpoint }, "新建"),
 							endpoints.length > 1 ? h("button", { type: "button", className: "dsh-tavern-btn danger", disabled: busy, onClick: removeEndpoint }, "删除") : null) : null,
-						novelai ? h("p", { className: "dsh-tavern-image-hint" }, "官方站和中转站可各存一条、各用各的 Key；切换只改请求地址和协议，模型和提示词设置不变。STA1N 这类用对话接口出图的中转站，协议选「对话生图」。") : null,
+						novelai ? h("p", { className: "dsh-tavern-image-hint" }, "官方和中转站可各存一个接入点，各用各的 Key；切换只改地址和接口格式，模型和提示词设置不变。") : null,
 						novelai && currentEndpoint ? row(h("label", null, "接入点名称", h("input", { value: currentEndpoint.name, maxLength: 40, disabled: busy, onChange: function (e) { renameEndpoint(e.target.value); } })),
-							h("label", null, "协议", h("select", { value: currentEndpoint.protocol || "native", disabled: busy, onChange: function (e) { setEndpointProtocol(e.target.value); } },
-								h("option", { value: "native" }, "NovelAI 原生"), h("option", { value: "chat" }, "对话生图（Nai2API，如 STA1N）")))) : null,
+							h("label", null, "接口格式", h("select", { value: currentEndpoint.protocol || "native", disabled: busy, onChange: function (e) { setEndpointProtocol(e.target.value); } },
+								h("option", { value: "native" }, "官方格式"), h("option", { value: "chat" }, "对话格式（STA1N 等中转站）")))) : null,
 						novelai && currentEndpoint ? channelField("baseURL")
 							: fieldsOf(["baseURL"]).map(channelField),
 						fieldsOf(["authType", "username"]).length ? row.apply(null, fieldsOf(["authType", "username"]).map(channelField)) : null,
