@@ -666,3 +666,18 @@ test('after a picture of an earlier moment, the next planning input re-reads the
   await until(async () => (await fx.service.status('parent', 3)).status === 'succeeded')
   assert.ok(inputs[1].sources.some(source => source.turn === 2 && source.id !== 'target'), 'the earlier-moment turn is resent as history')
 })
+
+test('retry after a failed image request reuses the committed plan without the text Agent', async t => {
+  let agentCalls = 0, imageAttempts = 0
+  const fx = await fixture(t, {
+    runAgent: async input => { agentCalls++; await submitPlanCall(input, { arguments: { plan: planFixture() } }); return {} },
+    generate: async () => { imageAttempts++; if (imageAttempts === 1) throw Object.assign(new Error('provider down'), { imageOutcome: 'rejected' }); return { data: png, mediaType: 'image/png' } }
+  })
+  const key = sceneTarget(fx.chat(), 2).key
+  await fx.service.start('parent', 2, key)
+  await until(async () => (await fx.service.status('parent', 2)).status === 'failed')
+  await fx.service.start('parent', 2, key)
+  await until(async () => (await fx.service.status('parent', 2)).status === 'succeeded')
+  assert.equal(agentCalls, 1)
+  assert.equal(imageAttempts, 2)
+})
