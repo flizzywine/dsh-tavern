@@ -176,6 +176,8 @@ body.dsh-tavern-shell-active,
 body.dsh-tavern-shell-active button[aria-label="新建会话"], body.dsh-tavern-shell-active button[aria-label="New session"] { display: none !important; }
 body.dsh-tavern-shell-active [data-turn-tail] > [data-slot="conversation.chat.turnTail"] + div > button { display: none !important; }
 body.dsh-tavern-shell-active [data-turn-tail] [data-slot="conversation.chat.assistant-actions"] > :not(.dsh-tavern-message-fork) { display: none !important; }
+/* 每一轮都能分叉：较早轮次的操作栏原本只在鼠标悬停时显示，这里只剩分叉按钮，常显。 */
+body.dsh-tavern-shell-active [data-turn-tail] > div:has([data-slot="conversation.chat.assistant-actions"]) { opacity: 1 !important; }
 body.dsh-tavern-shell-active .dsh-tavern-hero-preset-row { display: none !important; }
 /* 会话列表首次加载前不画首页，避免刷新时先闪首页再跳回上次的对话。 */
 body.dsh-tavern-sessions-pending [data-phase="hero"] > *, body.dsh-tavern-sessions-pending [data-phase="hero"]::before { visibility: hidden !important; }
