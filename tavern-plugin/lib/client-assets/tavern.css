@@ -122,6 +122,17 @@ body.dsh-tavern-shell-active,
 .dsh-tavern-image-adjust { box-sizing: border-box; width: min(100%, 560px); padding: 14px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 12px; }
 .dsh-tavern-image-adjust textarea { box-sizing: border-box; display: block; width: 100%; min-height: 80px; margin: 8px 0; }
 .dsh-tavern-image-reference { overflow-wrap: anywhere; }
+/* 重画：一个输入框加右下角的取消/提交，没有标题和外框。 */
+.dsh-tavern-image-repaint { display: flex; flex-direction: column; gap: 8px; padding: 0; border: 0; }
+.dsh-tavern-image-adjust.dsh-tavern-image-repaint textarea { min-height: 64px; margin: 0; padding: 10px 12px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 10px; background: var(--dsw-specific-input-major); color: inherit; font: inherit; font-size: 14px; line-height: 1.6; resize: vertical; transition: border-color .15s, box-shadow .15s; }
+.dsh-tavern-image-repaint textarea::placeholder { color: var(--dsw-alias-label-tertiary); }
+.dsh-tavern-image-repaint textarea:focus { outline: none; border-color: var(--dsh-tavern-accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--dsh-tavern-accent) 18%, transparent); }
+.dsh-tavern-image-repaint-actions { display: flex; justify-content: flex-end; align-items: center; gap: 4px; }
+.dsh-tavern-image-repaint-cancel { padding: 6px 10px; border: 0; border-radius: var(--dsh-tavern-radius-md); background: transparent; color: var(--dsw-alias-label-secondary); font: inherit; font-size: 13px; cursor: pointer; }
+.dsh-tavern-image-repaint-cancel:hover:not(:disabled) { color: var(--dsw-alias-label-primary); background: var(--dsw-alias-interactive-bg-hover); }
+.dsh-tavern-image-repaint-cancel:disabled { opacity: .45; cursor: default; }
+.dsh-tavern-btn.dsh-tavern-image-repaint-submit { background: var(--dsh-tavern-accent-active); color: #fff; font-weight: 600; }
+.dsh-tavern-btn.dsh-tavern-image-repaint-submit:hover:not(:disabled) { background: color-mix(in srgb, var(--dsh-tavern-accent-active) 88%, #000); }
 .dsh-tavern-image-reference select { box-sizing: border-box; display: block; width: 100%; margin: 8px 0; }
 .dsh-tavern-image-settings { display: flex; flex-direction: column; gap: 12px; padding: 20px; }
 .dsh-tavern-image-settings label { display: flex; flex-direction: column; gap: 5px; }

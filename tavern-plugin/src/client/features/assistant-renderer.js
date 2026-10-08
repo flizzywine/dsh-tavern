@@ -383,10 +383,14 @@
 						referenceBindings.map(function (binding) { return React.createElement("button", { key: binding.personId, type: "button", className: "dsh-tavern-btn", disabled: locked, onClick: function () { return setReference(false, binding.personId); } }, "取消「" + binding.name + "」的参考"); }),
 						React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: busy, onClick: function () { setReferenceDraft(null); } }, "关闭参考设置")
 					) : null,
-					adjusting && state.enabled ? React.createElement("div", { className: "dsh-tavern-image-adjust", role: "region", "aria-label": "重画插图" },
-						React.createElement("label", null, "重画意见（选填）", React.createElement("textarea", { value: instruction, maxLength: 2000, placeholder: "留空直接重画；例如：改成雨夜，镜头拉近", onChange: function (event) { setInstruction(event.target.value); }, disabled: locked })),
-						React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: locked, onClick: function () { return generate(instruction.trim() ? "adjust" : "repaint"); } }, "开始重画"),
-						React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: busy, onClick: function () { setAdjusting(false); } }, "取消")
+					adjusting && state.enabled ? React.createElement("div", { className: "dsh-tavern-image-adjust dsh-tavern-image-repaint", role: "region", "aria-label": "重画插图" },
+						React.createElement("textarea", { value: instruction, maxLength: 2000, rows: 2, autoFocus: true, "aria-label": "重画意见（选填）", placeholder: "想怎么改？例如：改成雨夜，镜头拉近。留空则按原画面重画", onChange: function (event) { setInstruction(event.target.value); }, onKeyDown: function (event) {
+							if (event.key === "Escape" && !busy) setAdjusting(false);
+							else if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && !locked) { event.preventDefault(); generate(instruction.trim() ? "adjust" : "repaint"); }
+						}, disabled: locked }),
+						React.createElement("div", { className: "dsh-tavern-image-repaint-actions" },
+							React.createElement("button", { type: "button", className: "dsh-tavern-image-repaint-cancel", disabled: busy, onClick: function () { setAdjusting(false); } }, "取消"),
+							React.createElement("button", { type: "button", className: "dsh-tavern-btn dsh-tavern-image-repaint-submit", disabled: locked, onClick: function () { return generate(instruction.trim() ? "adjust" : "repaint"); } }, instruction.trim() ? "按意见重画" : "直接重画"))
 					) : null,
 					state.status === "running" ? React.createElement(SceneImagePending, { state: state, picture: !version, disabled: busy, onCancel: cancelImage }) : null,
 					state.recovery === "save" && state.status !== "running" ? React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: busy, onClick: retrySave }, "重试保存") : null,
