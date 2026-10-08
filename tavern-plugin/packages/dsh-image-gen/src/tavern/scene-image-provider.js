@@ -163,6 +163,8 @@ async function requestSceneImage(input, deps) {
       detail = Object.fromEntries(Object.entries({ message, code: value?.code, param: value?.param }).filter(([, item]) => typeof item === 'string').map(([key, item]) => [key, safe(item)]))
     } catch { /* A malformed/oversized error must not hide the actual HTTP status. */ }
     const error = new Error('生图服务请求失败（HTTP ' + response.status + '）' + (detail.message ? '：' + detail.message : '') + (detail.param ? '（字段：' + detail.param + '）' : ''))
+    // Many relays serve image models only through chat/completions.
+    if (response.status === 404 && input.provider === 'openai') error.message += '。该地址没有 Images 生图接口；如果中转站用聊天接口出图，请改选「聊天接口出图中转」渠道'
     error.imageFailure = { httpStatus: response.status, ...detail }
     // A proxy timeout/5xx or 429 does not establish whether the upstream took
     // the job. Only explicit validation/auth rejection is safe for ordinary retry.

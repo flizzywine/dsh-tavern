@@ -2745,7 +2745,7 @@ const channels = [
 	},
 	{
 		id: "banana",
-		label: "Banana / Gemini 聊天兼容中转",
+		label: "聊天接口出图中转（Banana / Gemini / NovelAI 等）",
 		baseURL: "",
 		model: "",
 		size: "1K",
@@ -2754,7 +2754,7 @@ const channels = [
 			"model",
 			"size"
 		],
-		hint: "填写支持 chat/completions 生图的中转地址与模型；不自动猜测接口。"
+		hint: "用 chat/completions 接口出图的中转站选这个，例如 new-api 中转的 NovelAI 模型。地址填到 /v1，模型名照中转站列表填写；不自动猜测接口。"
 	},
 	{
 		id: "grok",
@@ -3947,6 +3947,7 @@ async function requestSceneImage(input, deps) {
 			}).filter(([, item]) => typeof item === "string").map(([key, item]) => [key, safe(item)]));
 		} catch {}
 		const error = /* @__PURE__ */ new Error("生图服务请求失败（HTTP " + response.status + "）" + (detail.message ? "：" + detail.message : "") + (detail.param ? "（字段：" + detail.param + "）" : ""));
+		if (response.status === 404 && input.provider === "openai") error.message += "。该地址没有 Images 生图接口；如果中转站用聊天接口出图，请改选「聊天接口出图中转」渠道";
 		error.imageFailure = {
 			httpStatus: response.status,
 			...detail
