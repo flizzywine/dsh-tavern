@@ -161,6 +161,14 @@
 
 		// @include modules/sidebar-start.js
 
+		// 《道渊》开场白的信息卡跟随鼠标做 3D 倾斜，开始链接在卡底，鼠标一动链接就跟着偏，很难点中。
+		// 按卡内容特征识别（卡名会随版本变），只压掉倾斜，卡文件不动。
+		function tavernCardQuirkStyles(html) {
+			if (html.indexOf('id="info-card"') >= 0 && html.indexOf("switchToSecondGreeting") >= 0 && /rotateX\(\$\{rotateX\}deg\)/.test(html))
+				return '<style data-dsh-tavern-card-quirk>#info-card{transform:none!important}</style>';
+			return "";
+		}
+
 		function buildTavernFrameDocument(input) {
 			const html = rewriteTavernStaticMarkup(String(input && (input.content !== undefined ? input.content : input.html) || ""));
 			const sizing = tavernFrameSizing(html, input && input.frameSizing, input && input.persistent ? input.panelId : undefined);
@@ -213,6 +221,7 @@
 				// Viewers without the execution lease still receive live variables. Legacy
 				// status panels read parent.Mvu; expose their Helper API below the executor.
 				+ (!preparationRuntime && input && input.helperContext && input.persistent === true && input.trustedCardMode === true ? '<script data-dsh-tavern-status-host>(function(){const release=(' + installTavernTrustedHostFacade.toString() + ')(window.parent,window,-0.5,["Mvu"]);window.addEventListener("pagehide",release,{once:true});window.addEventListener("unload",release,{once:true});})();<\/script>' : '')
+				+ tavernCardQuirkStyles(html)
 				+ '</head><body class="no-blur">' + (input && input.helperContext ? '<script data-dsh-tavern-legacy-composer>const createTavernFrameLifecycle=' + createTavernFrameLifecycle.toString() + ';(' + installLegacyTavernComposer.toString() + ')();<\/script>' : '') + (preparationRuntime ? preparationRuntime.body : '') + html + sizingRuntime + layoutNormalizer + (input && input.persistent ? "" : textColorRuntime) + reporter + '<script data-dsh-tavern-touch>(' + installTavernFrameTouch.toString() + ')(' + token + ',' + scrollTavernTouchChain.toString() + ');<\/script>' + readyReporter + '</body></html>';
 		}
 
