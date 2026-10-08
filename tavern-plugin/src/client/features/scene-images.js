@@ -343,11 +343,11 @@
 							h("datalist", { id: "dsh-tavern-image-models" }, modelOptions.map(function (model) { return h("option", { key: model, value: model }, model); })),
 							selectedChannel.canListModels ? h("button", { type: "button", className: "dsh-tavern-btn", disabled: busy || !form.baseURL, onClick: function () { return inspectConnection(true); } }, checking === "models" ? "获取中…" : "获取模型列表") : null) : null,
 						// A datalist only offers entries matching the typed value, so a filled
-						// model name hides the fetched list. Offer the fetched models directly.
-						models.length && selectedChannel && selectedChannel.fields.includes("model") ? h("label", null, "从获取的 " + models.length + " 个模型中选择",
-							h("select", { value: models.includes(form.model) ? form.model : "", disabled: busy, onChange: function (e) { const value = e.target.value; if (!value) return; setDirty(true); setForm(function (current) { return Object.assign({}, current, { model: value }); }); } },
+						// model name hides the other choices. Offer them directly.
+						modelOptions.length > 1 && selectedChannel && selectedChannel.fields.includes("model") ? h("label", null, models.length ? "从获取的 " + models.length + " 个模型中选择" : "可选模型",
+							h("select", { value: modelOptions.includes(form.model) ? form.model : "", disabled: busy, onChange: function (e) { const value = e.target.value; if (!value) return; setDirty(true); setForm(function (current) { return Object.assign({}, current, { model: value }); }); } },
 								h("option", { value: "" }, "请选择…"),
-								models.map(function (model) { return h("option", { key: model, value: model }, model); }))) : null,
+								(models.length ? models : modelOptions).map(function (model) { return h("option", { key: model, value: model }, model); }))) : null,
 						modelNotice ? h("p", { role: "status", className: "dsh-tavern-image-hint" }, modelNotice) : null,
 						form.provider === "comfyui" ? h("div", { className: "dsh-tavern-image-field" }, h("span", null, "工作流"),
 							actions(h("span", { className: "dsh-tavern-image-hint" }, form.workflow ? form.workflow.name || "已选择，保存时校验" : "尚未导入"),
