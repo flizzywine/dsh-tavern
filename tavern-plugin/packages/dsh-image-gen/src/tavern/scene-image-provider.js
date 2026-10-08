@@ -171,12 +171,12 @@ async function requestSceneImage(input, deps) {
     if ([400, 401, 402, 403, 404, 422].includes(response.status)) error.imageOutcome = 'rejected'
     throw error
   }
-  if (input.provider === 'novelai') {
+  if (input.provider === 'novelai' && spec.body.messages === undefined) {
     const archive = await boundedBytes(response, maxBytes + 65536)
     // An OpenAI-style relay answers this native path with its own web page:
     // nothing reached an image service, so nothing was charged.
     if (/^\s*</.test(archive.subarray(0, 64).toString('utf8'))) {
-      const error = new Error('该地址返回的是网页，不是 NovelAI 图片。它多半是 OpenAI 兼容的中转站：请改用「OpenAI / Images 兼容中转」渠道，地址填中转站的 /v1，模型名照中转站列表填写。')
+      const error = new Error('该地址返回的是网页，不是 NovelAI 图片。它多半是用对话接口出图的中转站（如 STA1N）：请把这个接入点的协议改成「对话生图」。')
       error.imageOutcome = 'rejected'
       throw error
     }

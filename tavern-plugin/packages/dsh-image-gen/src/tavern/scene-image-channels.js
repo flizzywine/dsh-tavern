@@ -1,4 +1,4 @@
-import { novelaiSettings, novelaiRequest, novelaiArtists, novelaiEndpoints, NOVELAI_MODELS, NOVELAI_BASE_SECTIONS, NOVELAI_QUALITY_PRESETS, NOVELAI_UC_PRESETS, NOVELAI_SAMPLERS, NOVELAI_NOISE_SCHEDULES } from './scene-image-novelai.js'
+import { novelaiSettings, novelaiRequest, novelaiChatRequest, novelaiArtists, novelaiEndpoints, NOVELAI_MODELS, NOVELAI_BASE_SECTIONS, NOVELAI_QUALITY_PRESETS, NOVELAI_UC_PRESETS, NOVELAI_SAMPLERS, NOVELAI_NOISE_SCHEDULES } from './scene-image-novelai.js'
 import { comfyWorkflow } from './scene-image-comfy-workflow.js'
 import { imageReferenceCapability } from './scene-image-reference.js'
 
@@ -166,7 +166,11 @@ export function imageChannelRequest(input) {
   const headers = { 'content-type': 'application/json', authorization: 'Bearer ' + input.apiKey }
   const prompt = input.prompt
   let path = 'images/generations', body
-  if (config.provider === 'novelai') {
+  if (config.provider === 'novelai' && config.protocol === 'chat') {
+    // A bare relay host serves the OpenAI-style API under /v1.
+    path = new URL(config.baseURL).pathname.replace(/\/+$/, '') ? 'chat/completions' : 'v1/chat/completions'
+    body = novelaiChatRequest(input, config)
+  } else if (config.provider === 'novelai') {
     path = 'ai/generate-image'
     body = novelaiRequest(input, config)
   } else if (config.provider === 'webui') {
@@ -216,6 +220,14 @@ export function channelImageResult(provider = 'openai', payload) {
     const parts = payload?.output?.choices?.[0]?.message?.content
     const image = Array.isArray(parts) ? parts.find(part => typeof part?.image === 'string') : undefined
     return image ? { url: image.image } : undefined
+  }
+  if (provider === 'novelai') {
+    // Conversation generation: the reply text holds a Markdown image or a bare link.
+    const text = String(payload?.choices?.[0]?.message?.content ?? '')
+    const url = text.match(/!\[[^\]]*\]\(((?:https?:\/\/|data:image\/[^;]+;base64,)[^\s)]+)\)/)?.[1] || text.match(/https?:\/\/[^\s)\]"'<>]+/)?.[0]
+    if (url) return { url }
+    const error = new Error(text.trim() ? '对话生图没有返回图片链接：' + text.trim().slice(0, 200) : '对话生图没有返回图片链接')
+    throw error
   }
   if (provider === 'banana') {
     const message = payload?.choices?.[0]?.message

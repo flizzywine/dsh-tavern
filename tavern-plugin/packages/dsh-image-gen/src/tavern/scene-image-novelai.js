@@ -20,6 +20,9 @@ export const NOVELAI_UC_PRESETS = Object.freeze(['none', 'light', 'heavy', 'huma
 // Samplers and noise schedules NovelAI's image API accepts; the first entries
 // are the defaults earlier versions always sent.
 export const NOVELAI_SAMPLERS = Object.freeze(['k_euler_ancestral', 'k_euler', 'k_dpmpp_2s_ancestral', 'k_dpmpp_2m', 'k_dpmpp_2m_sde', 'k_dpmpp_sde', 'ddim_v3'])
+// How an endpoint is called: NovelAI's own /ai/generate-image (ZIP reply), or
+// a relay's chat/completions "conversation generation" (Nai2API style, e.g. STA1N).
+export const NOVELAI_PROTOCOLS = Object.freeze(['native', 'chat'])
 export const NOVELAI_NOISE_SCHEDULES = Object.freeze(['karras', 'native', 'exponential', 'polyexponential'])
 const LIBRARY_ID = /^[a-z0-9]{1,12}$/
 const MAX_ENDPOINTS = 10, MAX_ARTISTS = 50
@@ -95,14 +98,16 @@ export function novelaiEndpoints(value, active, baseURL) {
     let parsed
     try { parsed = url ? new URL(url) : undefined } catch { throw new Error('接入点地址须为 HTTP(S) API 根地址') }
     if (parsed && (!['https:', 'http:'].includes(parsed.protocol) || parsed.username || parsed.password || parsed.search || parsed.hash)) throw new Error('接入点地址须为不含密钥、查询参数的 HTTP(S) API 根地址')
-    return { id: entry.id, name: libraryText(entry.name, 40, '接入点名称') || '未命名接入点', baseURL: url }
+    const protocol = entry.protocol === undefined || entry.protocol === '' ? 'native' : entry.protocol
+    if (!NOVELAI_PROTOCOLS.includes(protocol)) throw new Error('接入点协议只能是 NovelAI 原生或对话生图')
+    return { id: entry.id, name: libraryText(entry.name, 40, '接入点名称') || '未命名接入点', baseURL: url, protocol }
   })
-  if (!endpoints.length) endpoints.push({ id: 'default', name: '默认', baseURL })
+  if (!endpoints.length) endpoints.push({ id: 'default', name: '默认', baseURL, protocol: 'native' })
   const id = active || endpoints[0].id
   const current = endpoints.find(entry => entry.id === id)
   if (!current) throw new Error('所选 NovelAI 接入点不存在')
   current.baseURL = baseURL
-  return { endpoints, endpoint: id }
+  return { endpoints, endpoint: id, protocol: current.protocol }
 }
 
 /** Named artist strings, each optionally carrying its own quality and negative
@@ -267,8 +272,8 @@ function imageStrength(config) {
 /** Compile frozen per-person blocks, not current game variables. Image-local
  * adjustments live in blocks; stale person.fields must not override them.
  * Names identify records but aren't repeated as invented visual subjects. */
-export function novelaiPrompts(input, config = {}) {
-  const plan = input.plan, artist = novelaiArtist(config)
+export function novelaiPrompts(input, config = {}, { withArtist = true } = {}) {
+  const plan = input.plan, artist = withArtist ? novelaiArtist(config) : { ...novelaiArtist(config), prompt: '' }
   if (!plan || !Array.isArray(plan.blocks)) {
     if (typeof input.prompt !== 'string' || !input.prompt.trim() || input.prompt.length > 16000) throw new Error('NovelAI 画面提示词为空或过长')
     return { base: assembleBase({ quality: artist.quality, scene: input.prompt, artist: artist.prompt }, config), characters: [] }
@@ -330,5 +335,29 @@ export function novelaiRequest(input, config) {
         v4_negative_prompt: { caption: { base_caption: negative, char_captions: captions.map(() => ({ char_caption: '', centers: [{ x: 0.5, y: 0.5 }] })) }, legacy_uc: false }
       } : { sm: false, sm_dyn: false })
     }
+  }
+}
+
+/** Nai2API-style conversation generation: the relay validates a fixed Chinese
+ * field template in the user message and reads its values from the higher
+ * priority `nai` object. One picture per call; the reply text carries its URL. */
+export function novelaiChatRequest(input, config) {
+  const { width, height, guidance, characters: limit } = novelaiSettings(config)
+  const prompt = novelaiPrompts(input, config, { withArtist: false })
+  if (limit && prompt.characters.length > limit) throw new Error('当前 NovelAI 模型最多支持 ' + limit + ' 人，请选择 V5 或调整画面')
+  const oneLine = text => String(text || '').replace(/\s*\n+\s*/g, ', ').trim()
+  const tags = oneLine([prompt.base, ...prompt.characters.map(person => person.caption)].filter(Boolean).join(', '))
+  const artist = oneLine(novelaiArtist(config).prompt)
+  const negative = oneLine(mergeTags(mergeTags(novelaiArtist(config).negative, novelaiNegativeTags(config)), typeof input.plan?.negative === 'string' ? input.plan.negative : ''))
+  const sampler = config.sampler || 'k_euler_ancestral'
+  const size = width === height ? '方图' : width > height ? '横图' : '竖图'
+  const scale = config.guidance ? Number(config.guidance) : guidance
+  const cfg = config.cfgRescale ? Number(config.cfgRescale) : 0
+  const content = ['提示词:' + tags, '画师串:' + artist, '尺寸:' + size, '提示词引导值:' + scale, '缩放引导值:' + cfg, '负面提示词:' + negative, '采样器:' + sampler].join('\n')
+  return {
+    // Relays list each sampler as its own model, e.g. nai-diffusion-4-5-full:k_euler.
+    model: config.model + ':' + sampler, stream: false,
+    messages: [{ role: 'user', content }],
+    nai: { tag: tags, artist, size, scale, cfg, negative, sampler, noise_schedule: config.noiseSchedule || 'karras' }
   }
 }

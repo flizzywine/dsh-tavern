@@ -2037,6 +2037,7 @@ const NOVELAI_SAMPLERS = Object.freeze([
 	"k_dpmpp_sde",
 	"ddim_v3"
 ]);
+const NOVELAI_PROTOCOLS = Object.freeze(["native", "chat"]);
 const NOVELAI_NOISE_SCHEDULES = Object.freeze([
 	"karras",
 	"native",
@@ -2125,16 +2126,20 @@ function novelaiEndpoints(value, active, baseURL) {
 			throw new Error("接入点地址须为 HTTP(S) API 根地址");
 		}
 		if (parsed && (!["https:", "http:"].includes(parsed.protocol) || parsed.username || parsed.password || parsed.search || parsed.hash)) throw new Error("接入点地址须为不含密钥、查询参数的 HTTP(S) API 根地址");
+		const protocol = entry.protocol === void 0 || entry.protocol === "" ? "native" : entry.protocol;
+		if (!NOVELAI_PROTOCOLS.includes(protocol)) throw new Error("接入点协议只能是 NovelAI 原生或对话生图");
 		return {
 			id: entry.id,
 			name: libraryText(entry.name, 40, "接入点名称") || "未命名接入点",
-			baseURL: url
+			baseURL: url,
+			protocol
 		};
 	});
 	if (!endpoints.length) endpoints.push({
 		id: "default",
 		name: "默认",
-		baseURL
+		baseURL,
+		protocol: "native"
 	});
 	const id = active || endpoints[0].id;
 	const current = endpoints.find((entry) => entry.id === id);
@@ -2142,7 +2147,8 @@ function novelaiEndpoints(value, active, baseURL) {
 	current.baseURL = baseURL;
 	return {
 		endpoints,
-		endpoint: id
+		endpoint: id,
+		protocol: current.protocol
 	};
 }
 /** Named artist strings, each optionally carrying its own quality and negative
@@ -2315,8 +2321,11 @@ function imageStrength(config) {
 /** Compile frozen per-person blocks, not current game variables. Image-local
 * adjustments live in blocks; stale person.fields must not override them.
 * Names identify records but aren't repeated as invented visual subjects. */
-function novelaiPrompts(input, config = {}) {
-	const plan = input.plan, artist = novelaiArtist(config);
+function novelaiPrompts(input, config = {}, { withArtist = true } = {}) {
+	const plan = input.plan, artist = withArtist ? novelaiArtist(config) : {
+		...novelaiArtist(config),
+		prompt: ""
+	};
 	if (!plan || !Array.isArray(plan.blocks)) {
 		if (typeof input.prompt !== "string" || !input.prompt.trim() || input.prompt.length > 16e3) throw new Error("NovelAI 画面提示词为空或过长");
 		return {
@@ -2443,6 +2452,49 @@ function novelaiRequest(input, config) {
 				sm: false,
 				sm_dyn: false
 			}
+		}
+	};
+}
+/** Nai2API-style conversation generation: the relay validates a fixed Chinese
+* field template in the user message and reads its values from the higher
+* priority `nai` object. One picture per call; the reply text carries its URL. */
+function novelaiChatRequest(input, config) {
+	const { width, height, guidance, characters: limit } = novelaiSettings(config);
+	const prompt = novelaiPrompts(input, config, { withArtist: false });
+	if (limit && prompt.characters.length > limit) throw new Error("当前 NovelAI 模型最多支持 " + limit + " 人，请选择 V5 或调整画面");
+	const oneLine = (text) => String(text || "").replace(/\s*\n+\s*/g, ", ").trim();
+	const tags = oneLine([prompt.base, ...prompt.characters.map((person) => person.caption)].filter(Boolean).join(", "));
+	const artist = oneLine(novelaiArtist(config).prompt);
+	const negative = oneLine(mergeTags(mergeTags(novelaiArtist(config).negative, novelaiNegativeTags(config)), typeof input.plan?.negative === "string" ? input.plan.negative : ""));
+	const sampler = config.sampler || "k_euler_ancestral";
+	const size = width === height ? "方图" : width > height ? "横图" : "竖图";
+	const scale = config.guidance ? Number(config.guidance) : guidance;
+	const cfg = config.cfgRescale ? Number(config.cfgRescale) : 0;
+	const content = [
+		"提示词:" + tags,
+		"画师串:" + artist,
+		"尺寸:" + size,
+		"提示词引导值:" + scale,
+		"缩放引导值:" + cfg,
+		"负面提示词:" + negative,
+		"采样器:" + sampler
+	].join("\n");
+	return {
+		model: config.model + ":" + sampler,
+		stream: false,
+		messages: [{
+			role: "user",
+			content
+		}],
+		nai: {
+			tag: tags,
+			artist,
+			size,
+			scale,
+			cfg,
+			negative,
+			sampler,
+			noise_schedule: config.noiseSchedule || "karras"
 		}
 	};
 }
@@ -2995,7 +3047,10 @@ function imageChannelRequest(input) {
 	};
 	const prompt = input.prompt;
 	let path = "images/generations", body;
-	if (config.provider === "novelai") {
+	if (config.provider === "novelai" && config.protocol === "chat") {
+		path = new URL(config.baseURL).pathname.replace(/\/+$/, "") ? "chat/completions" : "v1/chat/completions";
+		body = novelaiChatRequest(input, config);
+	} else if (config.provider === "novelai") {
 		path = "ai/generate-image";
 		body = novelaiRequest(input, config);
 	} else if (config.provider === "webui") {
@@ -3124,6 +3179,12 @@ function channelImageResult(provider = "openai", payload) {
 		const parts = payload?.output?.choices?.[0]?.message?.content;
 		const image = Array.isArray(parts) ? parts.find((part) => typeof part?.image === "string") : void 0;
 		return image ? { url: image.image } : void 0;
+	}
+	if (provider === "novelai") {
+		const text = String(payload?.choices?.[0]?.message?.content ?? "");
+		const url = text.match(/!\[[^\]]*\]\(((?:https?:\/\/|data:image\/[^;]+;base64,)[^\s)]+)\)/)?.[1] || text.match(/https?:\/\/[^\s)\]"'<>]+/)?.[0];
+		if (url) return { url };
+		throw /* @__PURE__ */ new Error(text.trim() ? "对话生图没有返回图片链接：" + text.trim().slice(0, 200) : "对话生图没有返回图片链接");
 	}
 	if (provider === "banana") {
 		const message = payload?.choices?.[0]?.message;
@@ -3962,10 +4023,10 @@ async function requestSceneImage(input, deps) {
 		].includes(response.status)) error.imageOutcome = "rejected";
 		throw error;
 	}
-	if (input.provider === "novelai") {
+	if (input.provider === "novelai" && spec.body.messages === void 0) {
 		const archive = await boundedBytes(response, maxBytes + 65536);
 		if (/^\s*</.test(archive.subarray(0, 64).toString("utf8"))) {
-			const error = /* @__PURE__ */ new Error("该地址返回的是网页，不是 NovelAI 图片。它多半是 OpenAI 兼容的中转站：请改用「OpenAI / Images 兼容中转」渠道，地址填中转站的 /v1，模型名照中转站列表填写。");
+			const error = /* @__PURE__ */ new Error("该地址返回的是网页，不是 NovelAI 图片。它多半是用对话接口出图的中转站（如 STA1N）：请把这个接入点的协议改成「对话生图」。");
 			error.imageOutcome = "rejected";
 			throw error;
 		}

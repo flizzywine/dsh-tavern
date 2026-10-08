@@ -51,7 +51,7 @@ test('NovelAI rejects HTML/JSON masquerading as ZIP, corrupt images and oversize
     assert.equal(count, 1)
   }
   await assert.rejects(generateSceneImage(input, { fetch: async () => new Response('<!doctype html><title>fixture-secret</title>') }),
-    error => /网页.*Images 兼容中转/.test(error.message) && error.imageOutcome === 'rejected' && !error.message.includes('fixture-secret'))
+    error => /网页.*对话生图/.test(error.message) && error.imageOutcome === 'rejected' && !error.message.includes('fixture-secret'))
   await assert.rejects(generateSceneImage(input, { fetch: async () => new Response('fixture-secret', { status: 401 }) }), error => error.message.includes('401') && !error.message.includes('fixture-secret'))
   await assert.rejects(generateSceneImage({ ...input, maxBytes: 8 }, { fetch: async () => new Response(imageZip(png)) }), /ZIP|限制/)
   await assert.rejects(generateSceneImage(input, { fetch: async () => new Response('', { headers: { 'content-length': String(1e9) } }) }), /过大/)
@@ -171,4 +171,34 @@ test('a picture turns the configured size to its own orientation and adds its ow
   assert.deepEqual([webui.width, webui.height, webui.negative_prompt], [768, 512, 'blurry, text'])
   const qwen = imageChannelRequest({ provider: 'qwen', apiKey: 'k', prompt: 'p', model: 'qwen-image-3.0', size: '1328*1024', plan: { orientation: 'portrait', negative: 'text' } }).body.parameters
   assert.deepEqual([qwen.size, qwen.negative_prompt], ['1024*1328', 'text'])
+})
+
+test('NovelAI chat-protocol endpoints (Nai2API, e.g. STA1N) send the field template and read the picture link', async () => {
+  const endpoints = [{ id: 'relay', name: 'STA1N', baseURL: 'https://relay.example', protocol: 'chat' }]
+  const config = { ...input, model: 'nai-diffusion-4-5-full', size: '832x1216', baseURL: 'https://relay.example', endpoint: 'relay', endpoints, sampler: 'k_euler', guidance: '6', negativePrompt: 'lowres',
+    artists: [{ id: 'a1', name: '画师', prompt: 'artist:foo' }], activeArtist: 'a1' }
+  const request = imageChannelRequest({ ...config, plan })
+  assert.equal(request.url, 'https://relay.example/v1/chat/completions')
+  assert.equal(request.body.model, 'nai-diffusion-4-5-full:k_euler')
+  const lines = request.body.messages[0].content.split('\n')
+  assert.deepEqual(lines.map(line => line.split(':')[0]), ['提示词', '画师串', '尺寸', '提示词引导值', '缩放引导值', '负面提示词', '采样器'])
+  assert.equal(lines[1], '画师串:artist:foo')
+  assert.equal(lines[2], '尺寸:竖图')
+  assert.match(lines[0], /girl, black hair/)
+  assert.doesNotMatch(lines[0], /artist:foo/)
+  assert.equal(request.body.nai.size, '竖图')
+  assert.equal(request.body.nai.scale, 6)
+  assert.equal(imageChannelRequest({ ...config, baseURL: 'https://relay.example/v1', endpoints: [{ ...endpoints[0], baseURL: 'https://relay.example/v1' }], plan }).url, 'https://relay.example/v1/chat/completions')
+  const calls = []
+  const result = await generateSceneImage({ ...config, plan, prompt: 'x' }, {
+    validateDownload: async url => url,
+    fetch: async (url, init) => {
+      calls.push(url)
+      if (url.endsWith('/chat/completions')) return new Response(JSON.stringify({ choices: [{ message: { content: '生成完成 ![image](https://relay.example/files/a.png)' } }] }))
+      return new Response(png, { headers: { 'content-type': 'image/png' } })
+    } })
+  assert.equal(result.mediaType, 'image/png')
+  assert.deepEqual(calls, ['https://relay.example/v1/chat/completions', 'https://relay.example/files/a.png'])
+  await assert.rejects(generateSceneImage({ ...config, plan, prompt: 'x' }, { fetch: async () => new Response(JSON.stringify({ choices: [{ message: { content: '余额不足' } }] })) }), /没有返回图片链接：余额不足/)
+  assert.throws(() => imageChannelRequest({ ...config, endpoints: [{ ...endpoints[0], protocol: 'other' }], plan }), /接入点协议/)
 })

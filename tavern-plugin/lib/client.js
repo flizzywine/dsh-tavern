@@ -14023,6 +14023,10 @@ function bindTavernFontZoom(node, win) {
 				setDirty(true);
 				setForm(function (current) { return Object.assign({}, current, { endpoints: (current.endpoints || []).map(function (entry) { return entry.id === current.endpoint ? Object.assign({}, entry, { name: name }) : entry; }) }); });
 			}
+			function setEndpointProtocol(protocol) {
+				setDirty(true); resetConnection();
+				setForm(function (current) { return Object.assign({}, current, { endpoints: (current.endpoints || []).map(function (entry) { return entry.id === current.endpoint ? Object.assign({}, entry, { protocol: protocol }) : entry; }) }); });
+			}
 			const artists = form && form.artists || [];
 			const currentArtist = form && artists.find(function (entry) { return entry.id === form.activeArtist; });
 			function updateArtists(list, active) {
@@ -14146,8 +14150,11 @@ function bindTavernFontZoom(node, win) {
 							h("label", null, "接入点", h("select", { value: form.endpoint || "", disabled: busy, onChange: function (e) { if (!keyPending()) switchEndpoint(e.target.value); } }, endpoints.map(function (entry) { return h("option", { key: entry.id, value: entry.id }, entry.name + (entry.hasKey ? "" : "（未配置 Key）")); }))),
 							h("button", { type: "button", className: "dsh-tavern-btn", disabled: busy || endpoints.length >= 10, onClick: addEndpoint }, "新建"),
 							endpoints.length > 1 ? h("button", { type: "button", className: "dsh-tavern-btn danger", disabled: busy, onClick: removeEndpoint }, "删除") : null) : null,
-						novelai ? h("p", { className: "dsh-tavern-image-hint" }, "官方站和同协议中转站可各存一条、各用各的 Key；切换只改请求地址，模型和提示词设置不变。") : null,
-						novelai && currentEndpoint ? row(h("label", null, "接入点名称", h("input", { value: currentEndpoint.name, maxLength: 40, disabled: busy, onChange: function (e) { renameEndpoint(e.target.value); } })), channelField("baseURL"))
+						novelai ? h("p", { className: "dsh-tavern-image-hint" }, "官方站和中转站可各存一条、各用各的 Key；切换只改请求地址和协议，模型和提示词设置不变。STA1N 这类用对话接口出图的中转站，协议选「对话生图」。") : null,
+						novelai && currentEndpoint ? row(h("label", null, "接入点名称", h("input", { value: currentEndpoint.name, maxLength: 40, disabled: busy, onChange: function (e) { renameEndpoint(e.target.value); } })),
+							h("label", null, "协议", h("select", { value: currentEndpoint.protocol || "native", disabled: busy, onChange: function (e) { setEndpointProtocol(e.target.value); } },
+								h("option", { value: "native" }, "NovelAI 原生"), h("option", { value: "chat" }, "对话生图（Nai2API，如 STA1N）")))) : null,
+						novelai && currentEndpoint ? channelField("baseURL")
 							: fieldsOf(["baseURL"]).map(channelField),
 						fieldsOf(["authType", "username"]).length ? row.apply(null, fieldsOf(["authType", "username"]).map(channelField)) : null,
 						needsKey ? h("label", null, (form.authType === "basic" ? "鉴权密码" : "API Key") + (form.hasKey ? "（已保存，留空沿用）" : ""), h("input", { type: "password", autoComplete: "new-password", value: key, placeholder: form.hasKey ? "更换地址后需重新填写" : "", disabled: busy, onChange: function (e) { setKey(e.target.value); setDirty(true); resetConnection(); } })) : null,

@@ -163,7 +163,7 @@ test('older single-endpoint NovelAI settings read as one default endpoint with t
   await f.setup.configure({ provider: 'novelai', apiKey: 'nai-key', model: 'nai-diffusion-4-5-full', size: '832x1216' })
   const ui = await f.create().setup.settings()
   assert.equal(ui.endpoint, 'default')
-  assert.deepEqual(ui.endpoints, [{ id: 'default', name: '默认', baseURL: 'https://image.novelai.net', hasKey: true }])
+  assert.deepEqual(ui.endpoints, [{ id: 'default', name: '默认', baseURL: 'https://image.novelai.net', protocol: 'native', hasKey: true }])
   assert.ok(f.keys.has('DSH_TAVERN_IMAGE_NOVELAI_API_KEY'))
 })
 
