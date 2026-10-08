@@ -2756,7 +2756,7 @@ const channels = [
 	},
 	{
 		id: "novelai",
-		label: "NovelAI / 同协议第三方",
+		label: "NovelAI（官方或中转站，含 STA1N）",
 		baseURL: "https://image.novelai.net",
 		model: "nai-diffusion-5-full",
 		size: "832x1216",
@@ -2797,7 +2797,7 @@ const channels = [
 	},
 	{
 		id: "banana",
-		label: "聊天接口出图中转（Banana / Gemini / NovelAI 等）",
+		label: "聊天接口出图中转（Banana / Gemini 等）",
 		baseURL: "",
 		model: "",
 		size: "1K",
@@ -2806,7 +2806,7 @@ const channels = [
 			"model",
 			"size"
 		],
-		hint: "用 chat/completions 接口出图的中转站选这个，例如 new-api 中转的 NovelAI 模型。地址填到 /v1，模型名照中转站列表填写；不自动猜测接口。"
+		hint: "用 chat/completions 接口出图的 Banana / Gemini 中转站选这个，地址填到 /v1，模型名照中转站列表填写。NovelAI 模型的中转（如 STA1N）不要选这里，请选「NovelAI / 同协议第三方」，接入点协议选「对话生图」。"
 	},
 	{
 		id: "grok",
