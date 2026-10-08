@@ -201,7 +201,27 @@
 			});
 		})();
 
-		function openSceneImagePreview(url, opener) {
+		// The plan behind a picture, for judging whether the Agent's staging or the image model fell short.
+		function sceneImagePlanDetails(version) {
+			if (!version || !(version.prompt || version.composition || version.description)) return null;
+			const details = document.createElement("details");
+			details.className = "dsh-tavern-image-plan";
+			const summary = document.createElement("summary");
+			summary.textContent = "画面方案";
+			details.append(summary);
+			[["画面", version.description], ["时刻", version.moment === "earlier" ? "本轮中间的瞬间" : "本轮结尾"], ["构图", version.composition], ["提示词", version.prompt]].forEach(function (row) {
+				if (!row[1]) return;
+				const label = document.createElement("dt");
+				label.textContent = row[0];
+				const value = document.createElement("dd");
+				value.textContent = row[1];
+				details.append(label, value);
+			});
+			details.addEventListener("click", function (event) { event.stopPropagation(); });
+			return details;
+		}
+
+		function openSceneImagePreview(url, opener, version) {
 			const dialog = document.createElement("dialog");
 			dialog.className = "dsh-tavern-image-preview";
 			dialog.setAttribute("aria-label", "场景插画预览");
@@ -216,6 +236,8 @@
 			dialog.addEventListener("click", function (event) { if (event.target === dialog) dialog.close(); });
 			dialog.addEventListener("close", function () { dialog.remove(); if (opener && opener.isConnected) opener.focus(); }, { once: true });
 			dialog.append(close, image);
+			const plan = sceneImagePlanDetails(version);
+			if (plan) dialog.append(plan);
 			document.body.append(dialog);
 			dialog.showModal();
 			close.focus();
@@ -355,7 +377,7 @@
 				const canBindReference = state.enabled && state.reference && state.reference.supported && referencePeople.length > 0;
 				const showReference = referenceDraft && version && referenceDraft.key === state.key && referenceDraft.versionId === version.id;
 				return React.createElement("div", { className: "dsh-tavern-illustration" },
-					url ? React.createElement("a", { href: url, "aria-label": "放大场景插画", onClick: function (event) { event.preventDefault(); openSceneImagePreview(url, event.currentTarget); } }, React.createElement("img", { src: url, alt: "本段场景插画", loading: "lazy", onError: function () { setError("图片加载失败，请刷新后重试"); } })) : null,
+					url ? React.createElement("a", { href: url, "aria-label": "放大场景插画", onClick: function (event) { event.preventDefault(); openSceneImagePreview(url, event.currentTarget, version); } }, React.createElement("img", { src: url, alt: "本段场景插画", loading: "lazy", onError: function () { setError("图片加载失败，请刷新后重试"); } })) : null,
 					version ? React.createElement("div", { className: "dsh-tavern-image-actions" },
 						React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: locked, onClick: removeImage }, "删除图片"),
 						versions.length > 1 ? React.createElement(React.Fragment, null,
@@ -384,13 +406,14 @@
 						React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: busy, onClick: function () { setReferenceDraft(null); } }, "关闭参考设置")
 					) : null,
 					adjusting && state.enabled ? React.createElement("div", { className: "dsh-tavern-image-adjust dsh-tavern-image-repaint", role: "region", "aria-label": "重画插图" },
-						React.createElement("textarea", { value: instruction, maxLength: 2000, rows: 2, autoFocus: true, "aria-label": "重画意见（选填）", placeholder: "想怎么改？例如：改成雨夜，镜头拉近。留空则按原画面重画", onChange: function (event) { setInstruction(event.target.value); }, onKeyDown: function (event) {
+						React.createElement("textarea", { value: instruction, maxLength: 2000, rows: 2, autoFocus: true, "aria-label": "重画意见（选填）", placeholder: "想怎么改？例如：改成雨夜，镜头拉近。留空可重新构思画面，或按原方案再画一张", onChange: function (event) { setInstruction(event.target.value); }, onKeyDown: function (event) {
 							if (event.key === "Escape" && !busy) setAdjusting(false);
-							else if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && !locked) { event.preventDefault(); generate(instruction.trim() ? "adjust" : "repaint"); }
+							else if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && !locked) { event.preventDefault(); generate(instruction.trim() ? "adjust" : "replan"); }
 						}, disabled: locked }),
 						React.createElement("div", { className: "dsh-tavern-image-repaint-actions" },
 							React.createElement("button", { type: "button", className: "dsh-tavern-image-repaint-cancel", disabled: busy, onClick: function () { setAdjusting(false); } }, "取消"),
-							React.createElement("button", { type: "button", className: "dsh-tavern-btn dsh-tavern-image-repaint-submit", disabled: locked, onClick: function () { return generate(instruction.trim() ? "adjust" : "repaint"); } }, instruction.trim() ? "按意见重画" : "直接重画"))
+							instruction.trim() ? null : React.createElement("button", { type: "button", className: "dsh-tavern-btn", title: "沿用这张图的画面方案，只换随机种子", disabled: locked, onClick: function () { return generate("repaint"); } }, "同方案重画"),
+							React.createElement("button", { type: "button", className: "dsh-tavern-btn dsh-tavern-image-repaint-submit", title: instruction.trim() ? "按意见修改这张图的方案后重画" : "重新读正文、选时刻、写构图，多跑一次文字模型", disabled: locked, onClick: function () { return generate(instruction.trim() ? "adjust" : "replan"); } }, instruction.trim() ? "按意见重画" : "重新构思画面"))
 					) : null,
 					state.status === "running" ? React.createElement(SceneImagePending, { state: state, picture: !version, disabled: busy, onCancel: cancelImage }) : null,
 					state.recovery === "save" && state.status !== "running" ? React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: busy, onClick: retrySave }, "重试保存") : null,

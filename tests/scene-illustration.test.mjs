@@ -715,3 +715,31 @@ test('auto style: the planning Agent fixes the style on the first picture, which
   assert.equal(inputs[1].styleRequest, undefined)
   assert.match(prompts[1], /Chinese xianxia painting/)
 })
+
+test('replan reruns a clean Agent on the same turn, replaces its saved plan and keeps the earlier picture as a version', async t => {
+  const agents = []
+  let tags = 'A woman standing at a rainy window'
+  const fx = await fixture(t, { runAgent: async input => {
+    agents.push({ persistent: input.persistent, resumes: typeof input.resolvePersistentSessionId === 'function', request: JSON.parse(input.messages[0].content[0].text) })
+    const plan = planFixture(tags)
+    if (agents.length > 1) plan.scene.composition.text = '低机位逆光特写'
+    await submitPlanCall(input, { arguments: { plan } })
+    return {}
+  } })
+  const key = sceneTarget(fx.chat(), 2).key
+  await fx.service.start('parent', 2, key)
+  const first = await until(async () => { const state = await fx.service.status('parent', 2); return state.status === 'succeeded' && state })
+  assert.equal(first.versions[0].composition, '窗边一景')
+  tags = 'low angle close-up, backlit, she turns from the window'
+  await fx.service.start('parent', 2, key, { kind: 'replan', versionId: first.versions[0].id })
+  const second = await until(async () => { const state = await fx.service.status('parent', 2); return state.status === 'succeeded' && state.versions.length === 2 && state })
+  assert.deepEqual(agents.map(item => [item.persistent, item.resumes]), [[true, true], [false, false]])
+  assert.match(second.versions[1].prompt, /^low angle close-up/)
+  assert.match(second.versions[0].prompt, /^A woman standing/)
+  const plans = await fx.store.readJson(imagePath + 'plans.json')
+  assert.match(Object.values(plans.frames[key])[0].prompt, /^low angle close-up/, 'the turn keeps the rethought plan')
+  await fx.service.start('parent', 2, key, { kind: 'repaint', versionId: second.versions[1].id })
+  const third = await until(async () => { const state = await fx.service.status('parent', 2); return state.status === 'succeeded' && state.versions.length === 3 && state })
+  assert.equal(agents.length, 2, 'repaint still skips the Agent')
+  assert.match(third.versions[2].prompt, /^low angle close-up/)
+})

@@ -33,10 +33,11 @@ function appearanceOnly(person) {
 export function createScenePlans({ store }) {
   const pathFor = chatId => 'scene-images/' + createHash('sha256').update(String(chatId)).digest('hex') + '/plans.json'
   const empty = () => ({ version: 1, generation: 0, characters: {}, blocks: {}, frames: {} })
-  async function prepare({ chatId, target, lineage, sources, profile, gapComplete = true, autoStyle = false }) {
+  async function prepare({ chatId, target, lineage, sources, profile, gapComplete = true, autoStyle = false, replan = false }) {
     const data = await store.readJson(pathFor(chatId)) || empty()
-    const saved = data.frames[target.key]?.[profile]
-    const applicable = lineage.flatMap(item => Object.values(data.frames[item.key] || {}))
+    // Replanning ignores this turn's own frame: it is neither reused nor the continuity base.
+    const saved = replan ? undefined : data.frames[target.key]?.[profile]
+    const applicable = lineage.filter(item => !replan || item.key !== target.key).flatMap(item => Object.values(data.frames[item.key] || {}))
     // One person, one id per game. Earlier story positions give the full
     // state; later turns and other branches give identity and appearance only,
     // so their clothing or posture never leaks backwards. A name met again in
@@ -76,7 +77,7 @@ export function createScenePlans({ store }) {
     const styleNeeded = autoStyle && !data.style
     if (styleNeeded) input.styleRequest = { instruction: '本局还没定画风：在 submit_scene_layout 里提交 style:{text,tags}。按这张卡的题材、时代和世界观定一种整局沿用的绘画风格，写媒介、笔触、色调和光影质感；text 为一句中文，tags 为不超过 30 个词的英文短标签。只写风格，不写人物、服装或情节。' }
     const takenIds = new Set(Object.values(data.characters).map(person => person.id))
-    return { chatId, target, profile, styleNeeded, generation: data.generation, sources, people, identities, takenIds, previousScene, previousTurn: previous?.turn, previousMoment: previous?.moment || 'end', gapComplete, input, saved, block }
+    return { chatId, target, profile, styleNeeded, replace: replan, generation: data.generation, sources, people, identities, takenIds, previousScene, previousTurn: previous?.turn, previousMoment: previous?.moment || 'end', gapComplete, input, saved, block }
   }
   async function commit(prepared, submission) {
     keys(submission, ['description', 'characters', 'subjects', 'scene', 'continuity', 'expressions', 'moment', 'orientation', 'negative', 'anchor', 'style'], 'plan')
@@ -210,7 +211,7 @@ export function createScenePlans({ store }) {
     await store.updateJson(pathFor(prepared.chatId), previous => {
       const data = previous || empty()
       const existing = data.frames[prepared.target.key]?.[prepared.profile]
-      if (existing) { assert(existing.id === frame.id, '当前正文方案已保存，旧任务不能覆盖；请重新读取'); return data }
+      if (existing && !prepared.replace) { assert(existing.id === frame.id, '当前正文方案已保存，旧任务不能覆盖；请重新读取'); return data }
       assert(data.generation === prepared.generation, '人物方案版本已变化，请重新读取后提交')
       return { ...data, ...(gameStyle && !data.style ? { style: gameStyle } : {}), generation: data.generation + 1, characters: { ...data.characters, ...characterVersions }, blocks: { ...data.blocks, ...pendingBlocks }, frames: { ...data.frames, [prepared.target.key]: { ...data.frames[prepared.target.key], [prepared.profile]: frame } } }
     })

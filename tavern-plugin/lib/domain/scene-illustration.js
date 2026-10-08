@@ -173,7 +173,7 @@ export function createSceneIllustrations(deps) {
   function present(target, record) {
     const { attachment, savedAttachment, diagnostics, diagnosticContext, providerRequests, referenceImages, plan, requests, versions, deletedVersions, ownerId, ownerPid, ...publicRecord } = record || {}
     const configuration = value => value?.workflow ? { ...value, workflow: { name: value.workflow.name, digest: value.workflow.digest } } : value
-    return { key: target.key, turn: target.turn, status: 'idle', ...publicRecord, hasDeletedImages: Boolean(deletedVersions?.length), ...(publicRecord.configuration ? { configuration: configuration(publicRecord.configuration) } : {}), versions: versionsOf(record).map(({ attachment, plan, ...item }) => ({ ...item, configuration: configuration(item.configuration), description: plan?.description || '', profile: plan?.profile || '', anchor: plan?.anchor || '',
+    return { key: target.key, turn: target.turn, status: 'idle', ...publicRecord, hasDeletedImages: Boolean(deletedVersions?.length), ...(publicRecord.configuration ? { configuration: configuration(publicRecord.configuration) } : {}), versions: versionsOf(record).map(({ attachment, plan, ...item }) => ({ ...item, configuration: configuration(item.configuration), description: plan?.description || '', profile: plan?.profile || '', anchor: plan?.anchor || '', moment: plan?.moment || 'end', composition: plan?.scene?.composition?.text || '',
       referencePeople: imageReferencePeople({ plan }),
       referenceSingle: plan?.subjects?.length === 1 && imageReferencePeople({ plan }).length === 1,
       referencePerson: plan?.people?.length === 1 && plan.subjects?.length === 1 && imageReferencePeople({ plan }).length === 1 ? plan.people[0].name : '' })) }
@@ -266,7 +266,7 @@ export function createSceneIllustrations(deps) {
   }
   async function start(sessionId, turn, expectedKey, options = {}) {
     const kind = options.kind || 'generate'
-    if (!['generate', 'repaint', 'adjust'].includes(kind)) throw new Error('未知生图操作')
+    if (!['generate', 'replan', 'repaint', 'adjust'].includes(kind)) throw new Error('未知生图操作')
     const instruction = typeof options.instruction === 'string' ? options.instruction.trim() : ''
     if (kind === 'adjust' && (!instruction || instruction.length > 2000)) throw new Error('调整要求须为 1–2000 字符')
     const requestId = options.requestId === undefined ? randomUUID() : options.requestId
@@ -295,7 +295,7 @@ export function createSceneIllustrations(deps) {
       const historical = await deps.stateAtTarget?.(chat, target)
       const latestMessage = [...(chat.messages || [])].reverse().find(item => item.role === 'assistant')
       const designSnapshot = historical || (Number(latestMessage?.turn || (latestMessage?.greeting ? 1 : 0)) === target.turn && chat.settleStatus === 'done' ? chat : null)
-      if (kind !== 'generate') {
+      if (kind === 'repaint' || kind === 'adjust') {
         const version = versionsOf(existing).find(item => item.id === options.versionId)
         if (!version) throw new Error('找不到要重画或调整的图片版本')
         basePlan = applyImageStyle(version.plan || legacyImagePlan(version, 'scene-tags-v1:' + version.model), style)
@@ -305,7 +305,7 @@ export function createSceneIllustrations(deps) {
       } else {
         const snapshot = sceneInput(chat, target, historical)
         const basic = sceneSources(chat, target, snapshot)
-        prepared = await plans.prepare({ chatId: chat.id, target, ...basic, profile, autoStyle: gameStylePending(style) })
+        prepared = await plans.prepare({ chatId: chat.id, target, ...basic, profile, autoStyle: gameStylePending(style), replan: kind === 'replan' })
         // A previous picture of an earlier moment did not see the rest of its turn: include that turn again.
         const sinceTurn = prepared.previousTurn === undefined ? target.turn : prepared.previousMoment === 'earlier' ? prepared.previousTurn - 1 : prepared.previousTurn
         material = sceneSources(chat, target, snapshot, sinceTurn)
@@ -351,7 +351,7 @@ export function createSceneIllustrations(deps) {
       diagnosticSecrets.set(record.requestId, [apiKey])
       const job = { controller, requestId: record.requestId, promise: null }
       jobs.set(path, job)
-      job.promise = execute({ sessionId, chatId: chat.id, target, path, record, prepared, material, references, characterDesigns, selectedImageReferences, adjustment, basePlan, profile, style, active, apiKey, selection, controller })
+      job.promise = execute({ fresh: kind === 'replan', sessionId, chatId: chat.id, target, path, record, prepared, material, references, characterDesigns, selectedImageReferences, adjustment, basePlan, profile, style, active, apiKey, selection, controller })
         .finally(() => { jobs.delete(path); diagnosticSecrets.delete(record.requestId) })
       // Failure to persist a failure is reported locally, never as an unhandled rejection.
       job.promise.catch(() => deps.onStorageError?.())
@@ -447,7 +447,9 @@ export function createSceneIllustrations(deps) {
         let failures = 0, toolTail = Promise.resolve()
         let draft = record.planDraft || { characters: {}, layout: null }
         try { result = await deps.runAgent({
-          sessionId: input.sessionId, turn: target.turn, task: 'image', persistent: true,
+          sessionId: input.sessionId, turn: target.turn, task: 'image',
+          // Rethinking a picture starts from a clean Agent: the game's shared session holds its previous answer for this turn.
+          ...(input.fresh ? { persistent: false } : { persistent: true,
           async resolvePersistentSessionId() {
             const saved = await deps.store.readJson('scene-images/' + hash(String(input.chatId)) + '/agent.json')
             if (!saved) return ''
@@ -462,7 +464,7 @@ export function createSceneIllustrations(deps) {
             })
             record.traceSessionId = sessionId
             await writeJob(path, record)
-          },
+          } }),
           selection: input.selection, system: deps.prompt ? deps.prompt(input.adjustment ? 'scene-image-adjustment' : 'scene-plan') : (input.adjustment ? readSceneAdjustmentInstruction() : readScenePlanInstruction()), signal: controller.signal,
           messages: [{ role: 'user', content: [{ type: 'text', text: JSON.stringify({ ...input.prepared.input,
             ...(record.planDraft ? { draft: sceneDraftSummary(draft) } : {}) }) }] }],

@@ -140,3 +140,15 @@ test("auto style: the first plan fixes the game's style once; a missing style ne
   await fx.module.commit(later, { ...first(), style: { text: '水彩', tags: 'watercolor' } })
   assert.equal((await fx.module.gameStyle('game')).text, '国风厚涂', 'a decided style is never replaced by a later plan')
 })
+
+test('replan ignores the turn\'s own frame as saved plan and continuity base, then replaces it', async t => {
+  const fx = await fixture(t)
+  const one = await fx.module.commit(await fx.prepare(), first())
+  const again = await fx.prepare(1, undefined, { replan: true })
+  assert.equal(again.saved, undefined)
+  assert.equal(again.previousTurn, undefined)
+  assert.deepEqual(again.input.characters.map(person => person.fields), [{ appearance: '黑发' }], 'own frame gives identity only, not its pose')
+  const two = await fx.module.commit(again, { ...first(), scene: { composition: field('仰拍特写', 'low angle close-up') }, subjects: [one.subjects[0]], characters: [] })
+  assert.notEqual(two.id, one.id)
+  assert.equal((await fx.prepare()).saved.id, two.id)
+})
