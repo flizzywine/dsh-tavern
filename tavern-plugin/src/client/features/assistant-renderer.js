@@ -329,13 +329,8 @@
 				}
 				const url = version ? "/api/dsh-tavern/scene-image?" + new URLSearchParams({ sessionId: props.sessionId, turn: String(props.turn), key: state.key, versionId: version.id }).toString() : "";
 				if (!state) return null;
-				if (state.status === "idle" && !state.hasDeletedImages) {
-					// Earlier turns have no composer button; offer a quiet way to illustrate them.
-					if (!props.offerGenerate || !state.enabled) return null;
-					return React.createElement("div", { className: "dsh-tavern-illustration-empty" },
-						React.createElement("button", { type: "button", className: "dsh-tavern-btn quiet", disabled: busy, onClick: function () { return generate("generate"); } }, busy ? "整理画面…" : "为这段生成插图"),
-						error ? React.createElement("span", { role: "alert", className: "dsh-tavern-settings-error" }, error) : null);
-				}
+				// Idle earlier turns offer generation from their action row instead.
+				if (state.status === "idle" && !state.hasDeletedImages) return null;
 				const locked = busy || state.status === "running" || state.recovery === "save";
 				const referencePeople = version && version.referencePeople || [];
 				const referenceBindings = state.reference && state.reference.bindings ? state.reference.bindings.filter(function (binding) { return version && binding.versionId === version.id; }) : [];
@@ -581,6 +576,32 @@
 					React.createElement("button", { type: "button", className: "dsh-tavern-message-fork", "aria-label": "从这一轮分叉", disabled: forking, onClick: fork },
 						React.createElement(DshUi.IconBranchOutline16, null)));
 			}
+			// Earlier turns have no composer button: illustrate them from their action row.
+			function TavernIllustrateAssistantAction(props) {
+				const liveState = useScopedLiveTavernView(props.sessionId, String(props.messageId || ""), [["mode"], ["latestAssistantTurn"], ["releaseCapabilities"], ["forkTurnsByMessageId", String(props.messageId || "")]]);
+				const view = liveState.view;
+				const turn = Number(view && view.forkTurnsByMessageId && view.forkTurnsByMessageId[String(props.messageId || "")]) || 0;
+				const earlier = Boolean(view && isPlayMode(view.mode) && view.releaseCapabilities && view.releaseCapabilities.sceneImages && turn > 0 && turn < (Number(view.latestAssistantTurn) || 0));
+				const state = useSceneImageRecord(earlier ? props.sessionId : null, turn);
+				const askConfirm = useTavernConfirm(props.sessionId);
+				const [busy, setBusy] = React.useState(false);
+				if (!earlier || !state || !state.enabled || state.status !== "idle" || state.hasDeletedImages) return null;
+				async function generate() {
+					if (busy) return;
+					const confirmNewRequestId = await sceneImagePurchaseConfirmation(state, askConfirm);
+					if (confirmNewRequestId === false) return;
+					setBusy(true);
+					try { await rpc("generateSceneImage", { turn: turn, key: state.key, kind: "generate", instruction: "", requestId: sceneImageRequestId(), confirmNewRequestId: confirmNewRequestId }, props.sessionId); }
+					catch (error) { tavernErrorHub.report("生成插图", error); }
+					finally { setBusy(false); window.dispatchEvent(new CustomEvent("dsh-tavern-image-changed", { detail: { sessionId: props.sessionId } })); }
+				}
+				return React.createElement(DshUi.Tooltip, { label: busy ? "正在整理画面…" : "为这一轮生成插图", side: "bottom" },
+					React.createElement("button", { type: "button", className: "dsh-tavern-message-fork dsh-tavern-message-illustrate", "aria-label": "为这一轮生成插图", disabled: busy, onClick: generate },
+						React.createElement("svg", { width: 16, height: 16, viewBox: "0 0 16 16", fill: "none", stroke: "currentColor", strokeWidth: 1.3, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true },
+							React.createElement("rect", { x: 2, y: 3, width: 12, height: 10, rx: 2 }),
+							React.createElement("circle", { cx: 6, cy: 6.5, r: 1.2 }),
+							React.createElement("path", { d: "M2.5 12 6.5 8.5 9 10.5 11 9 13.5 11" }))));
+			}
 			function register(input) {
 				const scriptOwner = createTavernScriptSessionOwner({ sessions: input.ctx.sessions, executeSlash: createTavernFrameSlashExecutor(input.ctx) });
 				const executeSlash = createTavernFrameSlashExecutor(input.ctx);
@@ -617,6 +638,12 @@
 						inject: function (sessionId) { return { sessionId: sessionId }; }
 					}, TavernForkAssistantAction); });
 				}, "dsh-tavern: conversation fork action");
+				input.ctx.effect(function () {
+					return input.slots.inject("conversation.chat.assistant-actions", function () { return input.slots.register({
+						name: "conversation.chat.assistant-actions", id: "dsh-tavern-illustrate", order: 21,
+						inject: function (sessionId) { return { sessionId: sessionId }; }
+					}, TavernIllustrateAssistantAction); });
+				}, "dsh-tavern: earlier-turn illustration action");
 			}
 			return Object.freeze({ register: register });
 		}

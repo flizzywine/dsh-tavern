@@ -97,10 +97,6 @@ body.dsh-tavern-shell-active,
 .dsh-tavern-illustration { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
 .dsh-tavern-illustration > a { display: block; max-width: 100%; }
 /* Earlier turns without a picture: a quiet entry that appears when the turn is hovered. */
-.dsh-tavern-illustration-empty { display: flex; align-items: center; gap: 8px; margin-top: 4px; opacity: 0; transition: opacity .15s; }
-.dsh-tavern-illustration-empty .dsh-tavern-btn { font-size: 12px; }
-:is([data-chat-turn], [data-chat-flow-kind]):hover .dsh-tavern-illustration-empty, .dsh-tavern-illustration-empty:focus-within, .dsh-tavern-illustration-empty:has([role="alert"]), .dsh-tavern-illustration-empty:has(:disabled) { opacity: 1; }
-@media (hover: none) { .dsh-tavern-illustration-empty { opacity: .7; } }
 .dsh-tavern-illustration img { display: block; width: auto; height: auto; max-width: min(100%, 320px); max-height: min(240px, 35svh); object-fit: contain; border-radius: 12px; }
 .dsh-tavern-image-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .dsh-tavern-plugin-media { margin: 10px 0; }
