@@ -192,7 +192,7 @@ export function createSceneIllustrations(deps) {
       const selected=await deps.sceneStateForSession(sessionId,{turns:[...turns].filter(turn=>turn<=chat.sceneLatestTurn),revision:chat._storageRevision})
       return Object.values(selected.sceneTargets)
     }, config: current })
-    return { ...present(target, await readRecord(path)), enabled: true, ready: Boolean(current.ready), profile: imageExpressionProfile(current),
+    return { ...present(target, await readRecord(path)), enabled: true, profile: imageExpressionProfile(current),
       reference: { ...reference.capability, warning: reference.warning,
         bindings: reference.active.filter(record => record.source.key === target.key).map(record => ({ versionId: record.source.versionId, personId: record.person.id, name: record.person.name })),
         versions: reference.active.filter(record => record.source.key === target.key).map(record => record.source.versionId) } }

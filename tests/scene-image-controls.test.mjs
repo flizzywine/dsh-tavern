@@ -19,7 +19,7 @@ test('scene request identifiers also work on LAN HTTP without crypto.randomUUID'
 test('turn image action preserves request ID on ambiguous transport errors and cannot regenerate over existing versions', async () => {
   const slots = [], calls = [], reported = []
   let cursor = 0, fail = true
-  const record = { key: 'target-key', status: 'idle', enabled: true, ready: true, versions: [] }
+  const record = { key: 'target-key', status: 'idle', enabled: true, versions: [] }
   const context = vm.createContext({
     useTavernConfirm: () => async () => true,
     recordImageInteraction() {}, DshUi: { Tooltip: 'tooltip' }, tavernErrorHub: { report: (_, error) => reported.push(error) },
@@ -45,12 +45,10 @@ test('turn image action preserves request ID on ambiguous transport errors and c
   record.versions = []; record.recovery = 'save'
   assert.equal(render(), null, 'must not offer generation while bytes await saving')
   delete record.recovery; record.status = 'idle'
-  record.ready = false
-  const before = calls.length
+  // Channel readiness (including the saved key) is checked by the host; its refusal is reported.
+  fail = true; reported.length = 0
   await render().props.onClick()
-  assert.equal(calls.length, before, 'an unconfigured channel reports instead of requesting')
-  assert.match(reported.at(-1).message, /还没配置生图渠道/)
-  record.ready = true
+  assert.match(reported.at(-1).message, /connection lost/)
   fail = true; await render().props.onClick()
   const oldRequest = calls.at(-1).args.requestId
   // The request succeeded remotely, then its last picture was deleted elsewhere.

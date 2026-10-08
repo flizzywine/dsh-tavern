@@ -13887,7 +13887,6 @@ function bindTavernFontZoom(node, win) {
 				const reusable = requestRef.current && !(state && requestRef.current.id === state.requestId && ["failed", "cancelled", "idle"].includes(state.status));
 				const clickId = reusable && state && requestRef.current.key === state.key ? requestRef.current.id : sceneImageRequestId();
 				recordImageInteraction(props.sessionId, props.turn, clickId, "click");
-				if (state && state.key && !state.ready) { tavernErrorHub.report("生图", new Error("还没配置生图渠道：请到 设置 → 场景生图 填写并保存渠道、模型和 API Key")); return; }
 				if (!state || !state.key || busy || state.status === "running" || state.recovery === "save" || state.versions && state.versions.length) { recordImageInteraction(props.sessionId, props.turn, clickId, "blocked", "not-ready"); return; }
 				const confirmNewRequestId = await sceneImagePurchaseConfirmation(state, askConfirm);
 				if (confirmNewRequestId === false) { recordImageInteraction(props.sessionId, props.turn, clickId, "cancelled", "confirmation"); return; }
