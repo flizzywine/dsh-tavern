@@ -66,3 +66,16 @@ test('connection probes use draft credentials, model choices stay editable, and 
   assert.equal(await form.locator('datalist option[value="new-image"]').count(), 0)
   assert.equal(calls.filter(call => call.method === 'saveSceneImageSettings').length, 0)
 })
+
+test('test generation asks before the paid request and shows the picture', async t => {
+  const { form, calls } = await openTavernSettings(t, { settings, respond(method) {
+    if (method === 'testSceneImageGeneration') return { mediaType: 'image/png', data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aKfoAAAAASUVORK5CYII=', model: 'image', durationMs: 3000 }
+  } })
+  await form.getByRole('button', { name: '测试生图', exact: true }).click()
+  assert.equal(calls.filter(call => call.method === 'testSceneImageGeneration').length, 0)
+  await form.getByRole('button', { name: '确认生成', exact: true }).click()
+  await form.getByAltText('测试生图结果').waitFor()
+  await form.getByText(/生成成功 · image · 用时 3 秒/).waitFor()
+  await form.getByLabel('API 根地址').fill('https://another.test/v1')
+  assert.equal(await form.getByRole('button', { name: '测试生图', exact: true }).isDisabled(), true)
+})

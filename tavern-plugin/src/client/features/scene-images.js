@@ -96,6 +96,12 @@
 			const [models, setModels] = React.useState([]);
 			const [modelNotice, setModelNotice] = React.useState("");
 			const [checking, setChecking] = React.useState("");
+			const [trial, setTrial] = React.useState({ state: "idle" });
+			async function runTrial() {
+				setTrial({ state: "running" });
+				try { setTrial({ state: "done", result: await rpc("testSceneImageGeneration", {}) }); }
+				catch (e) { setTrial({ state: "failed", error: String(e.message || e) }); }
+			}
 			React.useEffect(function () {
 				let active = true;
 				rpc("getSceneImageSettings").then(function (result) { if (active) setForm(result.settings); }, function (e) { if (active) setNotice(String(e.message || e)); });
@@ -372,6 +378,18 @@
 						row(channelField("useOrder")))) : null,
 					h("div", { className: "dsh-tavern-image-footer" },
 						h("button", { type: "button", className: "dsh-tavern-btn", disabled: !form || busy, onClick: function () { return save(); } }, busy && !checking ? "保存中…" : "保存生图配置"),
-						notice ? h("span", { role: "status" }, notice) : (dirty ? h("span", { className: "dsh-tavern-image-hint" }, "有未保存的修改") : null)))
+						notice ? h("span", { role: "status" }, notice) : (dirty ? h("span", { className: "dsh-tavern-image-hint" }, "有未保存的修改") : null)),
+					form ? h("div", { className: "dsh-tavern-image-field", "aria-label": "测试生图" },
+						actions(
+							h("button", { type: "button", className: "dsh-tavern-btn", disabled: busy || dirty || trial.state === "running", onClick: function () { setTrial({ state: "confirm" }); } }, trial.state === "running" ? "生成中…" : "测试生图"),
+							h("span", { className: "dsh-tavern-image-hint" }, dirty ? "请先保存配置再测试。" : "按已保存的配置生成一张固定测试图，不进入任何游戏。")),
+						trial.state === "confirm" ? actions(
+							h("span", { role: "status" }, "会真实请求一次生图，可能产生费用。"),
+							h("button", { type: "button", className: "dsh-tavern-btn", onClick: runTrial }, "确认生成"),
+							h("button", { type: "button", className: "dsh-tavern-btn", onClick: function () { setTrial({ state: "idle" }); } }, "取消")) : null,
+						trial.state === "done" ? h("figure", { className: "dsh-tavern-image-trial" },
+							h("img", { src: "data:" + trial.result.mediaType + ";base64," + trial.result.data, alt: "测试生图结果" }),
+							h("figcaption", { role: "status" }, "生成成功" + (trial.result.model ? " · " + trial.result.model : "") + " · 用时 " + Math.round(trial.result.durationMs / 1000) + " 秒")) : null,
+						trial.state === "failed" ? h("p", { role: "alert", className: "dsh-tavern-settings-error" }, trial.error) : null) : null)
 			);
 		}

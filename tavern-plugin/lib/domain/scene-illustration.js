@@ -600,6 +600,33 @@ export function createSceneIllustrations(deps) {
     if (!version?.attachment) throw new Error('图片尚未就绪或已删除')
     return deps.attachments().readImage(version.attachment)
   }
+  // An explicit, paid check of the saved channel: one fixed picture, shown
+  // once and never kept. It waits in the same queue as story pictures.
+  async function testGenerate() {
+    const { active, apiKey } = await capture()
+    if (!channelReady(active, apiKey)) throw new Error('请先在设置中完成生图渠道配置（地址、模型或 API Key）')
+    const profile = imageExpressionProfile(active)
+    const style = await styles.resolve(active.style, profile)
+    const plan = applyImageStyle({ profile, description: '测试图', subjects: ['test'], people: [{ id: 'test', name: '测试人物' }],
+      blocks: [
+        { owner: 'test', field: 'appearance', text: '黑色长发、白色连衣裙、微笑的女孩', tags: 'girl, long black hair, white dress, smiling' },
+        { owner: 'scene', field: 'composition', text: '单人半身', tags: '1girl, solo, upper body' },
+        { owner: 'scene', field: 'environment', text: '晴天的花园', tags: 'flower garden, sunny day' }
+      ], prompt: '测试人物: girl, long black hair, white dress, smiling\n1girl, solo, upper body\nflower garden, sunny day' }, style)
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), deps.timeoutMs || 300000)
+    const startedAt = Date.now()
+    try {
+      const generated = await imageQueue.run({ requestId: 'test-' + randomUUID(), signal: controller.signal }, () =>
+        imageModule.generate({ ...active, apiKey, prompt: composeSceneImagePrompt(plan), plan, referenceImages: [], signal: controller.signal, maxBytes: deps.attachments()?.imageLimits?.maxImageBytes }))
+      const image = generated.data ? generated : await deps.attachments()?.readImage(generated.attachment)
+      if (!image?.data) throw new Error('生图服务没有返回图片')
+      return { mediaType: image.mediaType || 'image/png', data: Buffer.from(image.data).toString('base64'), model: generated.metadata?.model || active.model || '', durationMs: Date.now() - startedAt }
+    } catch (error) {
+      if (controller.signal.aborted) throw new Error('测试生图超时，未得到图片；服务可能已计费')
+      throw new Error(redactImageError(error.message || '测试生图失败', apiKey).slice(0, 500))
+    } finally { clearTimeout(timer) }
+  }
   // Whether agentSessionId is this game's scene-image agent, from its durable binding.
   async function isAgentSession(sessionId, agentSessionId) {
     const chat = await deps.chatForSession(sessionId).catch(() => undefined)
@@ -645,7 +672,7 @@ export function createSceneIllustrations(deps) {
     })
     return present(target, next)
   }
-  return { settings, configure, readArtistPreview: setup.readArtistPreview, testConnection: connection.test, listModels: connection.models, status, start, cancel, retrySave, readImage, exportImages, isAgentSession, undoAgentTurn, removeImage, setReference,
+  return { settings, configure, readArtistPreview: setup.readArtistPreview, testConnection: connection.test, listModels: connection.models, testGenerate, status, start, cancel, retrySave, readImage, exportImages, isAgentSession, undoAgentTurn, removeImage, setReference,
     async dispose() { for (const job of jobs.values()) job.controller.abort(); await Promise.allSettled([...jobs.values()].map(job => job.promise)); imageHosts.delete(ownerId); imageAborters.delete(ownerId) }
   }
 }

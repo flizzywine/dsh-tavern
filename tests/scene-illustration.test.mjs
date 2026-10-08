@@ -681,3 +681,13 @@ test('retry after a failed image request reuses the committed plan without the t
   assert.equal(agentCalls, 1)
   assert.equal(imageAttempts, 2)
 })
+
+test('test generation uses the saved channel once, returns the picture and keeps nothing', async t => {
+  let request
+  const fx = await fixture(t, { generate: async input => { request = input; return { data: png, mediaType: 'image/png' } } })
+  const result = await fx.service.testGenerate()
+  assert.equal(Buffer.from(result.data, 'base64').equals(png), true)
+  assert.equal(result.mediaType, 'image/png')
+  assert.match(request.prompt, /long black hair/)
+  assert.equal((await fx.service.status('parent', 2)).status, 'idle')
+})

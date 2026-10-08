@@ -3857,6 +3857,7 @@ export async function apply(ctx) {
       }
       case 'testSceneImageConnection': return await enabledSceneIllustrations().testConnection(args)
       case 'listSceneImageModels': return await enabledSceneIllustrations().listModels(args)
+      case 'testSceneImageGeneration': return await enabledSceneIllustrations().testGenerate()
       case 'pluginMediaForTurn': return await pluginMediaForTurn(args && args.sessionId, args && args.turn)
       case 'pluginMediaTurns': return await pluginMediaTurns(args && args.sessionId)
       case 'sceneImageStatus': return { illustration: await enabledSceneIllustrations().status(args.sessionId, args.turn) }
