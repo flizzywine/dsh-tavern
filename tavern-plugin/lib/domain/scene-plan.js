@@ -33,7 +33,7 @@ function appearanceOnly(person) {
 export function createScenePlans({ store }) {
   const pathFor = chatId => 'scene-images/' + createHash('sha256').update(String(chatId)).digest('hex') + '/plans.json'
   const empty = () => ({ version: 1, generation: 0, characters: {}, blocks: {}, frames: {} })
-  async function prepare({ chatId, target, lineage, sources, profile, gapComplete = true }) {
+  async function prepare({ chatId, target, lineage, sources, profile, gapComplete = true, autoStyle = false }) {
     const data = await store.readJson(pathFor(chatId)) || empty()
     const saved = data.frames[target.key]?.[profile]
     const applicable = lineage.flatMap(item => Object.values(data.frames[item.key] || {}))
@@ -72,15 +72,25 @@ export function createScenePlans({ store }) {
     const previousScene = previous?.scene?.environment ? { environment: previous.scene.environment } : {}
     if (previousScene.environment && !block('scene', 'environment', previousScene.environment.text)) missingBlocks.push({ owner: 'scene', field: 'environment' })
     const input = { targetKey: target.key, turn: target.turn, profile, gapComplete, sources, characters: candidates.map(person => ({ id: person.id, name: person.name, fields: Object.fromEntries(Object.entries(person.fields).map(([field, value]) => [field, value.text])) })), previousScene: Object.fromEntries(Object.entries(previousScene).map(([field, value]) => [field, { text: value.text }])), missingBlocks }
+    // 'auto' style: the first planned picture of a game fixes its style for every later one.
+    const styleNeeded = autoStyle && !data.style
+    if (styleNeeded) input.styleRequest = { instruction: '本局还没定画风：在 submit_scene_layout 里提交 style:{text,tags}。按这张卡的题材、时代和世界观定一种整局沿用的绘画风格，写媒介、笔触、色调和光影质感；text 为一句中文，tags 为不超过 30 个词的英文短标签。只写风格，不写人物、服装或情节。' }
     const takenIds = new Set(Object.values(data.characters).map(person => person.id))
-    return { chatId, target, profile, generation: data.generation, sources, people, identities, takenIds, previousScene, previousTurn: previous?.turn, previousMoment: previous?.moment || 'end', gapComplete, input, saved, block }
+    return { chatId, target, profile, styleNeeded, generation: data.generation, sources, people, identities, takenIds, previousScene, previousTurn: previous?.turn, previousMoment: previous?.moment || 'end', gapComplete, input, saved, block }
   }
   async function commit(prepared, submission) {
-    keys(submission, ['description', 'characters', 'subjects', 'scene', 'continuity', 'expressions', 'moment', 'orientation', 'negative', 'anchor'], 'plan')
+    keys(submission, ['description', 'characters', 'subjects', 'scene', 'continuity', 'expressions', 'moment', 'orientation', 'negative', 'anchor', 'style'], 'plan')
     const moment = submission.moment ?? 'end', orientation = submission.orientation ?? ''
     assert(['end', 'earlier'].includes(moment), 'moment 必须是 end 或 earlier')
     assert(['', 'portrait', 'landscape', 'square'].includes(orientation), 'orientation 必须是 portrait、landscape 或 square')
     const negative = text(submission.negative ?? '', 'negative', 600)
+    // A missing style never blocks the picture: it stays unstyled and the next plan is asked again.
+    let gameStyle
+    if (prepared.styleNeeded && submission.style !== undefined) {
+      keys(submission.style, ['text', 'tags'], 'style')
+      gameStyle = { text: text(submission.style.text, 'style.text', 200), tags: text(submission.style.tags, 'style.tags', 400) }
+      assert(gameStyle.text && gameStyle.tags, 'style 的 text 和 tags 都不能为空')
+    }
     // Where the picture sits in the story. A sentence not found in the target
     // text is dropped silently; the picture then stays after the text.
     const anchorText = text(submission.anchor ?? '', 'anchor', 200)
@@ -181,13 +191,15 @@ export function createScenePlans({ store }) {
       characterVersions[version] = facts
     }
     for (const field of sceneFields) append('scene', field, scene[field])
-    const promptParts = []
+    // Shot and staging lead: many image models weigh the first words most.
+    const sceneTags = field => scene[field]?.text ? (pendingBlocks[scene[field].blockId] || prepared.block('scene', field, scene[field].text)).tags : ''
+    const promptParts = [sceneTags('composition')].filter(Boolean)
     for (const id of subjects) {
       const person = people[id]
       const tags = personFields.filter(field => person.fields[field]?.text).map(field => { const value = person.fields[field]; return (pendingBlocks[value.blockId] || prepared.block(id, field, value.text)).tags })
       promptParts.push(person.name + ': ' + tags.join(', '))
     }
-    for (const field of sceneFields) if (scene[field]?.text) promptParts.push((pendingBlocks[scene[field].blockId] || prepared.block('scene', field, scene[field].text)).tags)
+    if (sceneTags('environment')) promptParts.push(sceneTags('environment'))
     const prompt = promptParts.join('\n')
     assert(prompt.trim() && prompt.length <= 12000, '组合提示词为空或超过 12000 字符')
     // An earlier moment of the turn is drawn from its own text; the next image
@@ -200,9 +212,12 @@ export function createScenePlans({ store }) {
       const existing = data.frames[prepared.target.key]?.[prepared.profile]
       if (existing) { assert(existing.id === frame.id, '当前正文方案已保存，旧任务不能覆盖；请重新读取'); return data }
       assert(data.generation === prepared.generation, '人物方案版本已变化，请重新读取后提交')
-      return { ...data, generation: data.generation + 1, characters: { ...data.characters, ...characterVersions }, blocks: { ...data.blocks, ...pendingBlocks }, frames: { ...data.frames, [prepared.target.key]: { ...data.frames[prepared.target.key], [prepared.profile]: frame } } }
+      return { ...data, ...(gameStyle && !data.style ? { style: gameStyle } : {}), generation: data.generation + 1, characters: { ...data.characters, ...characterVersions }, blocks: { ...data.blocks, ...pendingBlocks }, frames: { ...data.frames, [prepared.target.key]: { ...data.frames[prepared.target.key], [prepared.profile]: frame } } }
     })
     return frame
+  }
+  async function gameStyle(chatId) {
+    return (await store.readJson(pathFor(chatId)))?.style || null
   }
   async function snapshot(chatId, frame) {
     const data = await store.readJson(pathFor(chatId)) || empty()
@@ -214,5 +229,5 @@ export function createScenePlans({ store }) {
     })
     return { ...frame, blocks, people }
   }
-  return { prepare, commit, snapshot }
+  return { prepare, commit, snapshot, gameStyle }
 }

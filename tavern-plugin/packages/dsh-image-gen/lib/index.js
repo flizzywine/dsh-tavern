@@ -3554,8 +3554,13 @@ function createSceneImageConnection({ settings, credentials, fetchImpl = fetch, 
 }
 [
 	{
+		id: "auto",
+		label: "自动（按题材定）",
+		tags: ""
+	},
+	{
 		id: "default",
-		label: "默认",
+		label: "不指定",
 		tags: ""
 	},
 	{

@@ -351,6 +351,7 @@
 						row(h("label", null, "风格预设", h("select", { value: form.style.preset, disabled: busy, onChange: function (e) { setStyle({ preset: e.target.value }); } }, (form.stylePresets || []).map(function (preset) { return h("option", { key: preset.id, value: preset.id }, preset.label); }))),
 							!["comfyui", "dsh-image-gen"].includes(form.provider) ? h("label", null, "画幅方向", h("select", { value: form.style.orientation || "auto", disabled: busy, onChange: function (e) { setStyle({ orientation: e.target.value }); } },
 								h("option", { value: "auto" }, "按画面自动切换横竖"), h("option", { value: "fixed" }, "固定为上面的尺寸"))) : null),
+						form.style.preset === "auto" ? h("p", { className: "dsh-tavern-image-hint" }, "每局第一张图时由 AI 按这张卡的题材定一种画风，本局之后的插图都沿用；下面的补充描述会附在后面。") : null,
 						!["comfyui", "dsh-image-gen"].includes(form.provider) && (form.style.orientation || "auto") === "auto" ? h("p", { className: "dsh-tavern-image-hint" }, "每张图由 AI 按构图选竖图或横图，把上面的尺寸或比例横竖对调，分辨率不变；正方形和 1K、2K 这类尺寸保持不变。") : null,
 						h("label", null, "补充描述／标签（选填）", h("textarea", { value: form.style.custom, rows: 2, maxLength: 2000, placeholder: "例如：低饱和、柔和光线、胶片质感", disabled: busy, onChange: function (e) { setStyle({ custom: e.target.value }); } }))),
 					novelai ? section("画师串", "可存多套、点选切换，可附预览图。选中的画师串拼在提示词的 artist 段。", artistLibrary()) : null,

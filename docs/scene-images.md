@@ -53,7 +53,7 @@ ComfyUI 简单 API 工作流会识别 KSampler / KSamplerAdvanced 的直接 step
 
 协议参考：[NovelAI 步数与引导强度](https://docs.novelai.net/en/image/stepsguidance/)、[SD WebUI 参数](https://github.com/AUTOMATIC1111/stable-diffusion-webui/wiki/Features)、[百炼 Qwen API](https://help.aliyun.com/zh/model-studio/qwen-image-generation-and-editing-api-reference)。本次新增选项通过本地协议、配置和界面验证；不代表已完成真实供应商付费出图验收。
 
-风格设置只有「风格预设」和选填的「补充描述／标签」。可选默认、日系插画、写实摄影、水彩、水墨或自定义；选预设后也能补充个人偏好。自定义为空按默认处理。保存后跨对话与重启保留，不需每张图重新选择。
+风格设置只有「风格预设」和选填的「补充描述／标签」。可选自动（默认）、不指定、日系插画、写实摄影、水彩、水墨或自定义；选预设后也能补充个人偏好。自定义为空按不指定处理。自动：每局第一张图由生图 Agent 按卡的题材定一种画风，存在这一局里，之后的插图都沿用；没定下来时这张图不加风格，下一张再定。保存后跨对话与重启保留，不需每张图重新选择。
 
 当前 Images 渠道使用内置风格表达和用户原始补充短句，不额外调用文字模型翻译。风格块独立持久保存，更换风格后的生图、重画只组合新风格，旧图和人物资料不变；在途任务仍使用点击时的风格。单图「调整」可以临时改变风格，不写回全局设置。换渠道需要其他表达方式时应另做适配，不能把当前行为当成所有渠道通用。
 

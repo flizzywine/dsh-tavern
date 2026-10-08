@@ -547,7 +547,7 @@ test('repaint bypasses text Agent, retains each version and deduplicates replaye
   await fx.service.start('parent', 2, key)
   const first = await until(async () => { const state = await fx.service.status('parent', 2); return state.status === 'succeeded' && state })
   const versionId = first.versions[0].id
-  assert.deepEqual(first.versions[0].configuration, { provider: 'openai', model: 'test-image', baseURL: 'https://provider.example/v1', size: '1024x1024', style: { preset: 'default', custom: '' } })
+  assert.deepEqual(first.versions[0].configuration, { provider: 'openai', model: 'test-image', baseURL: 'https://provider.example/v1', size: '1024x1024', style: { preset: 'auto', custom: '' } })
   const options = { kind: 'repaint', versionId, requestId: 'same-request-id' }
   const values = await Promise.all([fx.service.start('parent', 2, key, options), fx.service.start('parent', 2, key, options)])
   assert.equal(values[0].requestId, values[1].requestId)
@@ -690,4 +690,28 @@ test('test generation uses the saved channel once, returns the picture and keeps
   assert.equal(result.mediaType, 'image/png')
   assert.match(request.prompt, /long black hair/)
   assert.equal((await fx.service.status('parent', 2)).status, 'idle')
+})
+
+test('auto style: the planning Agent fixes the style on the first picture, which already uses it; later plans are not asked again', async t => {
+  const prompts = [], inputs = []
+  const fx = await fixture(t, {
+    runAgent: async input => {
+      const request = JSON.parse(input.messages[0].content[0].text)
+      inputs.push(request)
+      const plan = planFixture()
+      if (request.styleRequest) plan.style = { text: '国风厚涂', tags: 'Chinese xianxia painting' }
+      await submitPlanCall(input, { arguments: { plan } })
+      return {}
+    },
+    generate: async input => { prompts.push(input.prompt); return { data: png, mediaType: 'image/png' } }
+  })
+  await fx.service.start('parent', 2, sceneTarget(fx.chat(), 2).key)
+  await until(async () => (await fx.service.status('parent', 2)).status === 'succeeded')
+  assert.ok(inputs[0].styleRequest)
+  assert.match(prompts[0], /Visual style only[^\n]*Chinese xianxia painting/)
+  fx.chat().messages.push({ role: 'assistant', turn: 3, text: '她走进室内。' })
+  await fx.service.start('parent', 3, sceneTarget(fx.chat(), 3).key)
+  await until(async () => (await fx.service.status('parent', 3)).status === 'succeeded')
+  assert.equal(inputs[1].styleRequest, undefined)
+  assert.match(prompts[1], /Chinese xianxia painting/)
 })

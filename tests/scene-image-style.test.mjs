@@ -4,7 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { createProfileDataStore } from '../tavern-plugin/lib/profile-data-store.js'
-import { createSceneImageStyles, imageStyleSettings, applyImageStyle, composeSceneImagePrompt, imageStyleOverride } from '../tavern-plugin/lib/domain/scene-image-style.js'
+import { createSceneImageStyles, imageStyleSettings, applyImageStyle, composeSceneImagePrompt, imageStyleOverride, gameStylePending } from '../tavern-plugin/lib/domain/scene-image-style.js'
 import { applyImageAdjustment } from '../tavern-plugin/lib/domain/scene-image-adjustment.js'
 
 async function fixture(t) {
@@ -16,7 +16,7 @@ async function fixture(t) {
 const plan = () => ({ id: 'facts', profile: 'mixed-a', prompt: 'black hair, white coat, sitting indoors', people: [], blocks: [{ id: 'scene', owner: 'scene', field: 'composition', text: '黑发白衣室内坐着', tags: 'black hair, white coat, sitting indoors' }] })
 
 test('style settings preserve original text and reject unknown/oversize configuration', () => {
-  assert.deepEqual(imageStyleSettings(), { preset: 'default', custom: '' })
+  assert.deepEqual(imageStyleSettings(), { preset: 'auto', custom: '' })
   assert.equal(imageStyleSettings({ preset: 'custom', custom: '  低饱和\n水彩  ' }).custom, '  低饱和\n水彩  ')
   for (const value of [null, [], { preset: 'unknown' }, { custom: 'x'.repeat(2001) }, { preset: 'ink', secret: 'key' }]) assert.throws(() => imageStyleSettings(value))
 })
@@ -46,4 +46,17 @@ test('changing global style replaces only style; image-local style remains isola
   assert.equal(converted.styleOverride.profile, 'mixed-b')
   assert.match(composeSceneImagePrompt(converted), /analog film texture/)
   assert.throws(() => imageStyleOverride({ text: 'a', tags: '' }, 'mixed-a'), /同时置空/)
+})
+
+test('auto preset is unstyled until the game has a style, then uses it with the custom supplement', async t => {
+  const fx = await fixture(t)
+  const pending = await fx.styles.resolve({ preset: 'auto', custom: '低饱和' }, 'mixed-a')
+  assert.equal(gameStylePending(pending), true)
+  assert.equal(pending.tags, '低饱和')
+  const decided = await fx.styles.resolve({ preset: 'auto', custom: '低饱和' }, 'mixed-a', { text: '国风', tags: 'Chinese ink illustration' })
+  assert.equal(gameStylePending(decided), false)
+  assert.equal(decided.tags, 'Chinese ink illustration, 低饱和')
+  assert.notEqual(decided.id, pending.id)
+  assert.equal(gameStylePending(await fx.styles.resolve({ preset: 'watercolor' }, 'mixed-a', { tags: 'ignored' })), false)
+  assert.doesNotMatch((await fx.styles.resolve({ preset: 'watercolor' }, 'mixed-a', { tags: 'ignored' })).tags, /ignored/)
 })

@@ -41,12 +41,14 @@ export function applyImageAdjustment(base, update, profile, mode = 'adjust') {
   }
   if (mode === 'convert' && blocks.some(block => block.tags && !seen.has(block.owner + '/' + block.field))) throw new Error('当前表达转换缺少原方案中的块')
   if (base.profile !== profile && blocks.some(block => block.tags && !seen.has(block.owner + '/' + block.field))) throw new Error('表达配置已变化，请同时转换所有未兼容的块，不要混用旧表达')
-  const prompt = []
+  // Same order as a planned frame: composition, people, environment.
+  const sceneTags = field => blocks.filter(block => block.owner === 'scene' && block.field === field && block.tags).map(block => block.tags)
+  const prompt = sceneTags('composition')
   for (const person of base.people || []) {
     const tags = blocks.filter(block => block.owner === person.id && block.tags).map(block => block.tags)
     if (tags.length) prompt.push(person.name + ': ' + tags.join(', '))
   }
-  prompt.push(...blocks.filter(block => block.owner === 'scene' && block.tags).map(block => block.tags))
+  prompt.push(...sceneTags('environment'))
   if (!prompt.length || prompt.join('\n').length > 12000) throw new Error('组合画面提示词为空或过长')
   const result = { ...base, profile, description: update.description, blocks, prompt: prompt.join('\n'), imageOnly: true, basedOn: base.id }
   if (update.style !== undefined) result.styleOverride = imageStyleOverride(update.style, profile)

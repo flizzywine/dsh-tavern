@@ -8,7 +8,7 @@ import { createScenePlans, SCENE_PLAN_TOOL } from './scene-plan.js'
 import { SCENE_DRAFT_TOOLS, SCENE_PLAN_MAX_FAILURES, updateSceneDraft, assembleSceneDraft, sceneDraftSummary, readImageToolArguments } from './scene-plan-draft.js'
 import { readScenePlanInstruction, readSceneAdjustmentInstruction } from '../scene-image-prompts.js'
 import { imageAdjustmentInput, applyImageAdjustment, legacyImagePlan, SCENE_ADJUSTMENT_TOOL } from './scene-image-adjustment.js'
-import { createSceneImageStyles, applyImageStyle, composeSceneImagePrompt } from './scene-image-style.js'
+import { createSceneImageStyles, applyImageStyle, composeSceneImagePrompt, gameStylePending } from './scene-image-style.js'
 import { createPendingSceneImages } from './scene-image-pending.js'
 import { createSceneImageQueue } from './scene-image-queue.js'
 import { createSceneReferences } from './scene-references.js'
@@ -288,7 +288,7 @@ export function createSceneIllustrations(deps) {
       const selectedImageReferences = await imageReferences.select({ chatId: chat.id, lineage: turns => sceneLineage(chat, target, turns), config: active })
       if (typeof deps.attachments()?.saveImage !== 'function' || typeof deps.attachments()?.readImage !== 'function') throw new Error('当前 DSH 未提供图片附件服务，无法保存插画')
       const profile = imageExpressionProfile(active)
-      const style = await styles.resolve(active.style, profile)
+      const style = await styles.resolve(active.style, profile, await plans.gameStyle(chat.id))
       const providerTask = ['failed', 'cancelled'].includes(existing?.status) && existing.providerTask && !['rejected', 'failed'].includes(existing.providerTask.state) ? existing.providerTask : undefined
       if (providerTask && (kind !== existing.kind || instruction !== existing.instruction || (options.versionId || '') !== existing.baseVersionId || JSON.stringify({ ...channelSettings(active), style: active.style }) !== JSON.stringify(existing.configuration))) throw new Error('上次 ComfyUI 任务结果待确认，请恢复原渠道与风格配置，并重试原操作以查询；不会重新提交')
       let prepared, material = { omitted: [] }, basePlan, adjustment = false, references
@@ -305,7 +305,7 @@ export function createSceneIllustrations(deps) {
       } else {
         const snapshot = sceneInput(chat, target, historical)
         const basic = sceneSources(chat, target, snapshot)
-        prepared = await plans.prepare({ chatId: chat.id, target, ...basic, profile })
+        prepared = await plans.prepare({ chatId: chat.id, target, ...basic, profile, autoStyle: gameStylePending(style) })
         // A previous picture of an earlier moment did not see the rest of its turn: include that turn again.
         const sinceTurn = prepared.previousTurn === undefined ? target.turn : prepared.previousMoment === 'earlier' ? prepared.previousTurn - 1 : prepared.previousTurn
         material = sceneSources(chat, target, snapshot, sinceTurn)
@@ -508,6 +508,8 @@ export function createSceneIllustrations(deps) {
                     return '草稿已保存，尚未请求图片。' + JSON.stringify(sceneDraftSummary(draft))
                   }
                   plan = await plans.snapshot(input.chatId, await plans.commit(input.prepared, assembleSceneDraft(updated)))
+                  // The style this plan just fixed for the game applies from this picture on.
+                  if (gameStylePending(input.style)) input.style = await styles.resolve(active.style, input.profile, await plans.gameStyle(input.chatId))
                 }
                 validationError = ''
                 record.plan = plan

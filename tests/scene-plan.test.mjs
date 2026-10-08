@@ -117,3 +117,26 @@ test('new people get their name as id; a second same-named person gets 名字#2;
   pair.subjects = ['a', 'b']; pair.scene = { composition }
   assert.deepEqual((await fx.module.commit(await fx.prepare(3, '两个小周。'), pair)).subjects, ['小周', '小周#2'])
 })
+
+test('shot leads the prompt: composition, then people, then environment', async t => {
+  const fx = await fixture(t)
+  const frame = await fx.module.commit(await fx.prepare(), { ...first(), scene: { environment: field('门口', 'doorway'), composition: field('低机位仰拍近景', 'low angle close-up') } })
+  assert.match(frame.prompt, /^low angle close-up\n林岚: [^\n]+\ndoorway$/)
+})
+
+test("auto style: the first plan fixes the game's style once; a missing style never blocks the picture", async t => {
+  const fx = await fixture(t)
+  const asked = await fx.prepare(1, undefined, { autoStyle: true })
+  assert.match(asked.input.styleRequest.instruction, /style/)
+  assert.equal((await fx.prepare()).input.styleRequest, undefined, 'not asked unless the auto preset is active')
+  await fx.module.commit(asked, first())
+  assert.equal(await fx.module.gameStyle('game'), null, 'skipped style leaves the game undecided')
+  const again = await fx.prepare(2, '林岚挥手。', { autoStyle: true })
+  await assert.rejects(fx.module.commit(again, { ...first(), style: { text: '', tags: '' } }), /不能为空/)
+  await fx.module.commit(again, { ...first(), style: { text: '国风厚涂', tags: 'Chinese xianxia digital painting, thick brushwork' } })
+  assert.deepEqual(await fx.module.gameStyle('game'), { text: '国风厚涂', tags: 'Chinese xianxia digital painting, thick brushwork' })
+  const later = await fx.prepare(3, '林岚坐下。', { autoStyle: true })
+  assert.equal(later.input.styleRequest, undefined)
+  await fx.module.commit(later, { ...first(), style: { text: '水彩', tags: 'watercolor' } })
+  assert.equal((await fx.module.gameStyle('game')).text, '国风厚涂', 'a decided style is never replaced by a later plan')
+})
