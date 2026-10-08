@@ -50,6 +50,8 @@ test('NovelAI rejects HTML/JSON masquerading as ZIP, corrupt images and oversize
     await assert.rejects(generateSceneImage(input, { fetch: async () => { count++; return new Response(bytes) } }), error => !error.message.includes('fixture-secret') && /ZIP|图片格式/.test(error.message))
     assert.equal(count, 1)
   }
+  await assert.rejects(generateSceneImage(input, { fetch: async () => new Response('<!doctype html><title>fixture-secret</title>') }),
+    error => /网页.*Images 兼容中转/.test(error.message) && error.imageOutcome === 'rejected' && !error.message.includes('fixture-secret'))
   await assert.rejects(generateSceneImage(input, { fetch: async () => new Response('fixture-secret', { status: 401 }) }), error => error.message.includes('401') && !error.message.includes('fixture-secret'))
   await assert.rejects(generateSceneImage({ ...input, maxBytes: 8 }, { fetch: async () => new Response(imageZip(png)) }), /ZIP|限制/)
   await assert.rejects(generateSceneImage(input, { fetch: async () => new Response('', { headers: { 'content-length': String(1e9) } }) }), /过大/)

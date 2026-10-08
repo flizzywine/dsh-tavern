@@ -171,6 +171,13 @@ async function requestSceneImage(input, deps) {
   }
   if (input.provider === 'novelai') {
     const archive = await boundedBytes(response, maxBytes + 65536)
+    // An OpenAI-style relay answers this native path with its own web page:
+    // nothing reached an image service, so nothing was charged.
+    if (/^\s*</.test(archive.subarray(0, 64).toString('utf8'))) {
+      const error = new Error('该地址返回的是网页，不是 NovelAI 图片。它多半是 OpenAI 兼容的中转站：请改用「OpenAI / Images 兼容中转」渠道，地址填中转站的 /v1，模型名照中转站列表填写。')
+      error.imageOutcome = 'rejected'
+      throw error
+    }
     return { ...imageBytes(sceneImageFromZip(archive, maxBytes), maxBytes), metadata: { seed: spec.body.parameters.seed, model: spec.body.model, request: spec.body } }
   }
   let payload
