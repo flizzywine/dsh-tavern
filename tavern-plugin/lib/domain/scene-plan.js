@@ -6,6 +6,13 @@ const personFields = ['appearance', 'clothing', 'action', 'expression', 'positio
 const sceneFields = ['environment', 'composition']
 const object = value => value && typeof value === 'object' && !Array.isArray(value)
 const assert = (condition, message) => { if (!condition) throw new Error(message) }
+// A new person's id is their name, readable in plans and Agent logs; a second
+// same-named person in the game gets 名字#2. Older ids (person-…) stay as they are.
+function readableId(name, taken) {
+  const base = name.replace(/[\s#]+/g, '').slice(0, 40) || '人物'
+  if (!taken(base)) return base
+  for (let n = 2; ; n++) if (!taken(base + '#' + n)) return base + '#' + n
+}
 function text(value, label, max = 600) {
   assert(typeof value === 'string' && value.length <= max, label + ' 必须是长度不超过 ' + max + ' 的文本')
   return value.trim()
@@ -65,7 +72,8 @@ export function createScenePlans({ store }) {
     const previousScene = previous?.scene?.environment ? { environment: previous.scene.environment } : {}
     if (previousScene.environment && !block('scene', 'environment', previousScene.environment.text)) missingBlocks.push({ owner: 'scene', field: 'environment' })
     const input = { targetKey: target.key, turn: target.turn, profile, gapComplete, sources, characters: candidates.map(person => ({ id: person.id, name: person.name, fields: Object.fromEntries(Object.entries(person.fields).map(([field, value]) => [field, value.text])) })), previousScene: Object.fromEntries(Object.entries(previousScene).map(([field, value]) => [field, { text: value.text }])), missingBlocks }
-    return { chatId, target, profile, generation: data.generation, sources, people, identities, previousScene, previousTurn: previous?.turn, previousMoment: previous?.moment || 'end', gapComplete, input, saved, block }
+    const takenIds = new Set(Object.values(data.characters).map(person => person.id))
+    return { chatId, target, profile, generation: data.generation, sources, people, identities, takenIds, previousScene, previousTurn: previous?.turn, previousMoment: previous?.moment || 'end', gapComplete, input, saved, block }
   }
   async function commit(prepared, submission) {
     keys(submission, ['description', 'characters', 'subjects', 'scene', 'continuity', 'expressions', 'moment', 'orientation', 'negative', 'anchor'], 'plan')
@@ -115,11 +123,13 @@ export function createScenePlans({ store }) {
       if (!person) {
         assert(!localId.startsWith('person-'), path + '.id (' + localId + ')：人物 id 不属于本任务已知人物')
         const name = text(update.name, path + '.name', 100)
+        // An id from elsewhere in the game is accepted only together with that person's name.
+        assert(!prepared.takenIds?.has(localId) || prepared.identities?.[name]?.id === localId, path + '.id (' + localId + ')：人物 id 不属于本任务已知人物')
         assert(name, path + '.name：新人物必须有 name')
         // A name already drawn elsewhere in this game keeps that person's id,
         // unless that name is ambiguous.
         const existing = prepared.identities?.[name]
-        const id = existing?.id || 'person-' + digest([prepared.chatId, prepared.target.key, localId]).slice(0, 24)
+        const id = existing?.id || readableId(name, candidate => prepared.takenIds?.has(candidate) || Object.hasOwn(people, candidate) || touched.has(candidate))
         assert(!touched.has(id), path + '：' + name + ' 已在本方案中，同一人物不能重复创建；请引用已提供的 id')
         person = people[id] ||= existing ? structuredClone(existing) : { id, name, identity: { kind: 'scene-person', targetKey: prepared.target.key }, fields: {} }
         aliases[localId] = id

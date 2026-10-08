@@ -104,3 +104,16 @@ test('an earlier turn drawn after a later one keeps the same person id, without 
   const next = await fx.prepare(2, '林岚坐下。')
   assert.deepEqual(next.input.characters.map(person => person.id), later.subjects)
 })
+
+test('new people get their name as id; a second same-named person gets 名字#2; legacy ids keep working', async t => {
+  const fx = await fixture(t)
+  const one = await fx.module.commit(await fx.prepare(), first())
+  assert.deepEqual(one.subjects, ['林岚'])
+  const two = await fx.module.commit(await fx.prepare(2, '另一个林岚出现了。'), { description: '', continuity: 'changed', subjects: ['other'],
+    characters: [{ id: 'other', name: '林岚', fields: { appearance: field('红发', 'red hair') } }], scene: { composition } })
+  assert.deepEqual(two.subjects, ['林岚'], 'the same name elsewhere in the game is the same person')
+  const pair = first()
+  pair.characters = [{ id: 'a', name: '小周', fields: { appearance: field('短发', 'short hair') } }, { id: 'b', name: '小周', fields: { appearance: field('长发', 'long hair') } }]
+  pair.subjects = ['a', 'b']; pair.scene = { composition }
+  assert.deepEqual((await fx.module.commit(await fx.prepare(3, '两个小周。'), pair)).subjects, ['小周', '小周#2'])
+})
