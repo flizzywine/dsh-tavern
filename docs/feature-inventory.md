@@ -235,7 +235,7 @@
 - 查看生图进度、取消任务；失败时重试，图片生成成功但保存失败时可单独重试保存。
 - 配置生图渠道、连接检查，以及部分渠道的模型列表读取。
 
-当前渠道目录包含：OpenAI（gpt-image 及兼容中转）、Google Gemini（官方）、Gemini 中转站（Nano Banana 等）、Grok（xAI）、Seedream（火山方舟）、Qwen-Image（阿里百炼）、NovelAI（官方或中转站，接入点可选官方格式或 STA1N 等的对话格式）、ComfyUI（自建）、SD WebUI / Forge（自建）。渠道入口存在不等于任意模型、中转地址都兼容，也不代表本次已逐家实测。
+当前渠道目录包含：OpenAI（gpt-image 及兼容中转）、Google Gemini（官方）、Grok（xAI）、Seedream（火山方舟）、Qwen-Image（阿里百炼）、NovelAI（官方或中转站，接入点可选官方格式或 STA1N 等的对话格式）、ComfyUI（自建）、SD WebUI / Forge（自建）。渠道入口存在不等于任意模型、中转地址都兼容，也不代表本次已逐家实测。
 
 边界：生图需先配置渠道，只在点击时请求，可能产生额外费用；造型参考依渠道能力开放，需确认向目标服务发送图片，不保证锁脸。ComfyUI / WebUI 连接已有服务，不负责安装模型和节点。
 

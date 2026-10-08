@@ -164,7 +164,7 @@ async function requestSceneImage(input, deps) {
     } catch { /* A malformed/oversized error must not hide the actual HTTP status. */ }
     const error = new Error('生图服务请求失败（HTTP ' + response.status + '）' + (detail.message ? '：' + detail.message : '') + (detail.param ? '（字段：' + detail.param + '）' : ''))
     // Many relays serve image models only through chat/completions.
-    if (response.status === 404 && input.provider === 'openai') error.message += '。该地址没有 OpenAI 图片接口：Gemini 图片模型的中转站请改选「Gemini 中转站（Nano Banana 等）」，NovelAI 的中转站请改选「NovelAI（官方或中转站）」'
+    if (response.status === 404 && input.provider === 'openai') error.message += '。该地址没有 OpenAI 图片接口；如果是 NovelAI 的中转站（如 STA1N），请改选「NovelAI（官方或中转站）」'
     error.imageFailure = { httpStatus: response.status, ...detail }
     // A proxy timeout/5xx or 429 does not establish whether the upstream took
     // the job. Only explicit validation/auth rejection is safe for ordinary retry.

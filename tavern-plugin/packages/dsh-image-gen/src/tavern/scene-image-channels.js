@@ -9,7 +9,7 @@ const channels = [
   { id: 'novelai', label: 'NovelAI（官方或中转站）', baseURL: 'https://image.novelai.net', model: 'nai-diffusion-5-full', size: '832x1216', fields: ['baseURL', 'model', 'size'], hint: '默认连 NovelAI 官方，使用 V5 Full。用中转站时新建一个接入点，填中转站地址和 Key：接口和官方一样的选「官方格式」，STA1N 这类选「对话格式」。' },
   { id: 'openai', label: 'OpenAI（gpt-image 及兼容中转）', baseURL: 'https://api.openai.com/v1', model: 'gpt-image-2', size: '1024x1024', fields: ['baseURL', 'model', 'size'], hint: '官方可直接用默认地址与模型；兼容中转请填写自己的地址和模型。' },
   { id: 'gemini', label: 'Google Gemini（官方）', baseURL: 'https://generativelanguage.googleapis.com/v1beta', model: 'gemini-3.1-flash-image', size: '1K', aspectRatio: '1:1', fields: ['baseURL', 'model', 'size', 'aspectRatio'], hint: '使用 Interactions API，不是聊天兼容地址。' },
-  { id: 'banana', label: 'Gemini 中转站（Nano Banana 等）', baseURL: '', model: '', size: '1K', fields: ['baseURL', 'model', 'size'], hint: 'Gemini 图片模型（Nano Banana 等）的中转站选这个，地址填到 /v1，模型名照中转站列表填写。NovelAI 的中转站（如 STA1N）请选「NovelAI（官方或中转站）」。' },
+  { id: 'banana', retired: true, label: 'Gemini 中转站（Nano Banana 等）', baseURL: '', model: '', size: '1K', fields: ['baseURL', 'model', 'size'], hint: 'Gemini 图片模型（Nano Banana 等）的中转站选这个，地址填到 /v1，模型名照中转站列表填写。NovelAI 的中转站（如 STA1N）请选「NovelAI（官方或中转站）」。' },
   { id: 'grok', label: 'Grok（xAI）', baseURL: 'https://api.x.ai/v1', model: 'grok-imagine-image-2.0', size: '1k', aspectRatio: '1:1', fields: ['baseURL', 'model', 'size', 'aspectRatio'], hint: '使用 Images 接口；图片分辨率为 1k 或 2k。' },
   { id: 'seedream', label: 'Seedream（火山方舟）', baseURL: 'https://ark.cn-beijing.volces.com/api/v3', model: 'doubao-seedream-5-0-260128', size: '2K', fields: ['baseURL', 'model', 'size'], hint: '可填账号可用的模型或接入点；关闭组图，每次只请求一张。' },
   { id: 'qwen', label: 'Qwen-Image（阿里百炼）', baseURL: 'https://dashscope.aliyuncs.com/api/v1', model: 'qwen-image-3.0', size: '1024*1024', fields: ['baseURL', 'model', 'size'], hint: '默认北京地址。其他地域或工作空间请填写控制台提供的 API 根地址，密钥须属于相同地域。' },
@@ -37,7 +37,8 @@ for (const channel of channels) {
   channel.fields = [...channel.fields, ...advanced]
 }
 // Keep the old sentinel readable for stored records, never offer it as a provider.
-export const SCENE_IMAGE_CHANNELS = channels.filter(channel => channel.id !== 'dsh-image-gen').map(({ id, label, fields, hint, model }) => ({ id, label, fields, hint, models: id === 'novelai' ? NOVELAI_MODELS : model ? [model] : [], canListModels: ['openai', 'banana', 'gemini', 'grok', 'seedream'].includes(id) }))
+// A retired channel keeps working for those who already use it, but is no longer offered.
+export const SCENE_IMAGE_CHANNELS = channels.filter(channel => channel.id !== 'dsh-image-gen').map(({ id, label, fields, hint, model, retired }) => ({ id, label, fields, hint, ...(retired ? { retired: true } : {}), models: id === 'novelai' ? NOVELAI_MODELS : model ? [model] : [], canListModels: ['openai', 'banana', 'gemini', 'grok', 'seedream'].includes(id) }))
 export function sceneImageChannel(id = 'openai') {
   const channel = channels.find(item => item.id === id)
   if (!channel) throw new Error('未知或尚未接入的生图渠道')

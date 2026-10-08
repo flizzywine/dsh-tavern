@@ -2797,6 +2797,7 @@ const channels = [
 	},
 	{
 		id: "banana",
+		retired: true,
 		label: "Gemini 中转站（Nano Banana 等）",
 		baseURL: "",
 		model: "",
@@ -2910,11 +2911,12 @@ for (const channel of channels) {
 	const advanced = channel.id === "novelai" ? [...IMAGE_ADVANCED_FIELDS, ...IMAGE_NOVELAI_PROMPT_FIELDS] : ["webui", "comfyui"].includes(channel.id) ? IMAGE_ADVANCED_FIELDS : channel.id === "qwen" ? ["negativePrompt"] : [];
 	channel.fields = [...channel.fields, ...advanced];
 }
-const SCENE_IMAGE_CHANNELS = channels.filter((channel) => channel.id !== "dsh-image-gen").map(({ id, label, fields, hint, model }) => ({
+const SCENE_IMAGE_CHANNELS = channels.filter((channel) => channel.id !== "dsh-image-gen").map(({ id, label, fields, hint, model, retired }) => ({
 	id,
 	label,
 	fields,
 	hint,
+	...retired ? { retired: true } : {},
 	models: id === "novelai" ? NOVELAI_MODELS : model ? [model] : [],
 	canListModels: [
 		"openai",
@@ -4008,7 +4010,7 @@ async function requestSceneImage(input, deps) {
 			}).filter(([, item]) => typeof item === "string").map(([key, item]) => [key, safe(item)]));
 		} catch {}
 		const error = /* @__PURE__ */ new Error("生图服务请求失败（HTTP " + response.status + "）" + (detail.message ? "：" + detail.message : "") + (detail.param ? "（字段：" + detail.param + "）" : ""));
-		if (response.status === 404 && input.provider === "openai") error.message += "。该地址没有 OpenAI 图片接口：Gemini 图片模型的中转站请改选「Gemini 中转站（Nano Banana 等）」，NovelAI 的中转站请改选「NovelAI（官方或中转站）」";
+		if (response.status === 404 && input.provider === "openai") error.message += "。该地址没有 OpenAI 图片接口；如果是 NovelAI 的中转站（如 STA1N），请改选「NovelAI（官方或中转站）」";
 		error.imageFailure = {
 			httpStatus: response.status,
 			...detail

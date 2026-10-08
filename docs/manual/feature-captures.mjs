@@ -76,7 +76,7 @@ const entries = {
   'version-check': ['版本与检查更新', '左下角显示当前版本与“检查更新”入口。图中为“尚未检查更新”，未执行更新安装，也不表示已经是最新版。'],
   'installation-status': ['安装后的插件运行状态', '安装并启动后，可在设置 → 插件 → 插件列表中搜索 dsh-tavern，检查全局插件是否“已启用／运行中”。这不是安装向导；各平台安装命令见正文。'],
 }
-for (const [key, label] of Object.entries({openai:'OpenAI（gpt-image 及兼容中转）',gemini:'Google Gemini（官方）',chat:'Gemini 中转站（Nano Banana 等）',grok:'Grok（xAI）',seedream:'Seedream（火山方舟）',qwen:'Qwen-Image（阿里百炼）',novelai:'NovelAI（官方或中转站）',comfyui:'ComfyUI',sd:'SD WebUI / Forge'})) entries['image-'+key] = [label+' 配置', '该渠道的真实设置界面；未填写真实密钥，也未向外部服务发送生成请求。请按自己使用的服务填写，不能仅凭界面存在就认定所有中转兼容。']
+for (const [key, label] of Object.entries({openai:'OpenAI（gpt-image 及兼容中转）',gemini:'Google Gemini（官方）',grok:'Grok（xAI）',seedream:'Seedream（火山方舟）',qwen:'Qwen-Image（阿里百炼）',novelai:'NovelAI（官方或中转站）',comfyui:'ComfyUI',sd:'SD WebUI / Forge'})) entries['image-'+key] = [label+' 配置', '该渠道的真实设置界面；未填写真实密钥，也未向外部服务发送生成请求。请按自己使用的服务填写，不能仅凭界面存在就认定所有中转兼容。']
 export const featureCaptures = Object.fromEntries(Object.entries(entries).map(([key,[title,caption]]) => [key,{file:key+'.jpg',title,alt:title+'：'+caption,caption,width:['model-setup','card-picker'].includes(key)?1309:1280,height:['model-setup','card-picker'].includes(key)?707:720}]))
 
 // Explicit coverage: no catch-all fallback that hides a missing feature capture.
@@ -87,7 +87,7 @@ export const featurePages = {
   d01:['guide-posture'], d02:['play','variable-receipt'], d03:['variable-receipt'], d04:['settlement-retry'], d05:['worldbook-triggers'], d06:['history-recall'], d07:['compaction'], d08:['play','card-extensions'], d09:['card-extensions'], d10:['character-design','character-design-saved'], d11:['card-picker','card-extensions'],
   e01:['profile-interview','profile-draft'], e02:['profile-confirmed'], e03:['profile-edit'], e04:['profile-enabled'],
   f01:['tavern-settings','image-openai'], f02:['image-result'], f03:['image-style'], f04:['image-redraw'], f05:['image-versions'], f06:['image-reference-consent'], f07:['image-reference-consent'], f08:['image-progress'], f09:['image-failure'], f10:['image-connection'],
-  g01:['image-openai'], g02:['image-gemini'], g03:['image-chat'], g04:['image-grok'], g05:['image-seedream'], g06:['image-qwen'], g07:['image-novelai'], g08:['image-comfyui'], g09:['image-sd'],
+  g01:['image-openai'], g02:['image-gemini'], g03:[], g04:['image-grok'], g05:['image-seedream'], g06:['image-qwen'], g07:['image-novelai'], g08:['image-comfyui'], g09:['image-sd'],
   h01:['workbench-tasks'], h02:['create-card-draft'], h03:['extract-material'], h04:['workbench'], h05:['multi-resource'], h06:['worldbook-edit-draft','script-edit-draft'], h07:['convert-mvu-draft'], h08:['debug-workbench'], h09:['restore-card-draft'],
   i01:['card-picker','card-files'], i02:['card'], i03:['card-openings'], i04:['card-extensions'], i05:['card-bindings','script-bound'], i06:['card-files'],
   j01:['worldbook-library'], j02:['worldbook-files'], j03:['worldbook'], j04:['worldbook-triggers'], j05:['worldbook-binding','card-bindings'], j06:['worldbook-advanced'],

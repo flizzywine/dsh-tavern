@@ -14144,7 +14144,7 @@ function bindTavernFontZoom(node, win) {
 				h("div", { className: "dsh-tavern-image-settings" },
 					h("p", { className: "dsh-tavern-settings-intro" }, "保存后，点每轮正文下方的图片图标即可生图。连接测试不生成图片；实际生图可能产生费用。"),
 					!form ? null : section("服务", selectedChannel ? selectedChannel.hint : "",
-						h("label", null, "提供商", h("select", { value: form.provider, disabled: busy, onChange: function (e) { return chooseChannel(e.target.value); } }, (form.channels || []).map(function (item) { return h("option", { key: item.id, value: item.id }, item.label); }))),
+						h("label", null, "提供商", h("select", { value: form.provider, disabled: busy, onChange: function (e) { return chooseChannel(e.target.value); } }, (form.channels || []).filter(function (item) { return !item.retired || item.id === form.provider; }).map(function (item) { return h("option", { key: item.id, value: item.id }, item.label + (item.retired ? "（已停止提供，现有配置仍可用）" : "")); }))),
 						form.migrationPending ? h("p", { role: "status", className: "dsh-tavern-image-hint" }, "检测到旧配置。保存后将迁入生图模块；旧密钥不会显示或发送到新地址。") : null,
 						novelai ? h("div", { className: "dsh-tavern-image-inline" },
 							h("label", null, "接入点", h("select", { value: form.endpoint || "", disabled: busy, onChange: function (e) { if (!keyPending()) switchEndpoint(e.target.value); } }, endpoints.map(function (entry) { return h("option", { key: entry.id, value: entry.id }, entry.name + (entry.hasKey ? "" : "（未配置 Key）")); }))),
