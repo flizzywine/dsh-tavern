@@ -29,3 +29,11 @@ test('玩家输入为引用，配图以相对链接插在对应正文之后', ()
   assert.equal(result.filename, '雨夜.md')
   assert.equal(result.text, '# 雨夜\n\n开场\n\n---\n\n> 推门\n> 进去\n\n---\n\n屋里很暗\n\n![第 2 轮配图](images/002.png)\n\n---\n\n> 点灯\n\n---\n\n灯亮了\n')
 })
+
+test('a turn picture sits after its anchor paragraph, as in play; an unmatched anchor falls back to the end', () => {
+  const chat = { messages: [{ role: 'assistant', turn: 2, text: '她推开门。\n\n雨声灌进屋里，灯火一晃。\n\n她坐下。' }] }
+  const placed = createConversationMarkdownExport(chat, { images: new Map([[2, { path: 'images/002.png', anchor: '雨声灌进屋里' }]]) })
+  assert.match(placed.text, /雨声灌进屋里，灯火一晃。\n\n!\[第 2 轮配图\]\(images\/002\.png\)\n\n她坐下。/)
+  const fallback = createConversationMarkdownExport(chat, { images: new Map([[2, { path: 'images/002.png', anchor: '不存在的句子' }]]) })
+  assert.match(fallback.text, /她坐下。\n\n!\[第 2 轮配图\]/)
+})

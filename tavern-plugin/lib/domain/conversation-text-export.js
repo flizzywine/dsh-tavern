@@ -114,6 +114,8 @@ function storyTurn(message) {
 }
 
 /** Story turns whose illustration belongs in the export, in reading order. */
+import { pluginAnchorInsertion } from './plugin-text-segments.js'
+
 export function conversationStoryTurns(chat) {
   const turns = []
   for (const message of Array.isArray(chat?.messages) ? chat.messages : []) {
@@ -139,9 +141,15 @@ export function createConversationMarkdownExport(chat, options = {}) {
       if (text !== '') sections.push(text.split('\n').map(line => line === '' ? '>' : '> ' + line).join('\n'))
     } else if (message.role === 'assistant') {
       const text = exportMessageText(message.text, { legacyPresentation: true })
-      const image = images.get(storyTurn(message))
+      // An image is a path, or { path, anchor }: placed after the anchor's paragraph as in play, else after the text.
+      const entry = images.get(storyTurn(message))
+      const image = typeof entry === 'string' ? { path: entry, anchor: '' } : entry
       if (text === '' && !image) continue
-      sections.push([text, image ? '![第 ' + storyTurn(message) + ' 轮配图](' + encodeURI(image) + ')' : ''].filter(Boolean).join('\n\n'))
+      if (!image) { sections.push(text); continue }
+      const markdown = '![第 ' + storyTurn(message) + ' 轮配图](' + encodeURI(image.path) + ')'
+      const at = image.anchor ? pluginAnchorInsertion(text, image.anchor) : -1
+      sections.push(at < 0 || at >= text.length ? [text, markdown].filter(Boolean).join('\n\n')
+        : text.slice(0, at).trimEnd() + '\n\n' + markdown + '\n\n' + text.slice(at).trimStart())
     }
   }
   return {

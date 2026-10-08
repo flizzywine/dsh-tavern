@@ -1289,13 +1289,13 @@ export async function apply(ctx) {
     const full = (await readChat(chat.id)) || chat
     const pictures = sceneIllustrations && chat.sessionId ? await sceneIllustrations.exportImages(chat.sessionId, conversationStoryTurns(full)) : []
     const extension = { 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif' }
-    const images = new Map(pictures.map(image => [image.turn, 'images/' + String(image.turn).padStart(3, '0') + '.' + (extension[image.mediaType] || 'png')]))
+    const images = new Map(pictures.map(image => [image.turn, { path: 'images/' + String(image.turn).padStart(3, '0') + '.' + (extension[image.mediaType] || 'png'), anchor: image.anchor }]))
     const exported = createConversationMarkdownExport(full, { title: str(title), images })
     if (exported.messageCount === 0) throw new Error('暂无可导出的对话')
     if (!pictures.length) return { filename: exported.filename, text: exported.text }
     // Pictures are linked from the Markdown, so the story and its images travel as one zip.
     const zip = writeZipEntries([{ path: exported.filename, content: exported.text },
-      ...pictures.map(image => ({ path: images.get(image.turn), content: Buffer.from(image.data) }))])
+      ...pictures.map(image => ({ path: images.get(image.turn).path, content: Buffer.from(image.data) }))])
     return { filename: exported.title + '.zip', base64: zip.toString('base64'), images: pictures.length }
   }
   // Attachment references inside saved JSON (scene image versions, images in messages).

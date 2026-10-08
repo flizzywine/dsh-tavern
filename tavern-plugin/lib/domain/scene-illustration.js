@@ -646,10 +646,12 @@ export function createSceneIllustrations(deps) {
     for (const turn of turns) {
       try {
         const { path } = await resolve(sessionId, turn)
-        const version = versionsOf(await deps.store.readJson(path)).at(-1)
+        // One picture per turn: the newest version, at the newest anchor, the same picture and place play shows by default.
+        const versions = versionsOf(await deps.store.readJson(path)), version = versions.at(-1)
         if (!version?.attachment) continue
         const image = await deps.attachments().readImage(version.attachment)
-        images.push({ turn: Number(turn), mediaType: String(image.mediaType || version.attachment.mediaType || ""), data: image.data })
+        const anchor = versions.findLast(item => item.anchor)?.anchor || ''
+        images.push({ turn: Number(turn), mediaType: String(image.mediaType || version.attachment.mediaType || ""), data: image.data, anchor })
       } catch { /* A missing picture must not block exporting the story. */ }
     }
     return images
