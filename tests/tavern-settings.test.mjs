@@ -100,3 +100,11 @@ test('global play defaults merge individual switches without losing other defaul
   assert.equal(defaults.sceneImagesEnabled, true)
   assert.throws(() => applyTavernSettingsPatch(saved, { defaultPlaySettings: { webSearchEnabled: 'false' } }))
 })
+
+test('the global scene image Agent default model saves like the other defaults and is unset by default', async () => {
+  const { applyTavernSettingsPatch, presentTavernSettings } = await import('../tavern-plugin/lib/domain/tavern-settings.js')
+  assert.equal(presentTavernSettings({}, []).defaultImageModel, null)
+  const saved = applyTavernSettingsPatch({}, { defaultImageModel: { provider: 'p', model: 'flash' } })
+  assert.deepEqual(presentTavernSettings(saved, []).defaultImageModel, { provider: 'p', model: 'flash' })
+  assert.equal(presentTavernSettings(applyTavernSettingsPatch(saved, { defaultImageModel: null }), []).defaultImageModel, null)
+})

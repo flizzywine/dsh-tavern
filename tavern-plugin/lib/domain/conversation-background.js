@@ -15,6 +15,11 @@ export function patchConversationBackground(chat, patch) {
     next.backgroundModelSelection = normalizeBackgroundModel(patch.backgroundModel)
     if (patch.backgroundModel !== null && !next.backgroundModelSelection) throw new Error('后台模型配置无效')
   }
+  if (Object.hasOwn(patch, 'imageModel')) {
+    // null follows the foreground model (at the lightest reasoning level).
+    next.imageModelSelection = normalizeBackgroundModel(patch.imageModel)
+    if (patch.imageModel !== null && !next.imageModelSelection) throw new Error('生图 Agent 模型配置无效')
+  }
   if (Object.hasOwn(patch, 'backgroundTasks')) {
     next.backgroundTasks = normalizeBackgroundTasks({ ...normalizeBackgroundTasks(chat.backgroundTasks), ...patch.backgroundTasks })
   }
