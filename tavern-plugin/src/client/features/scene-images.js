@@ -42,49 +42,37 @@
 			}, [sessionId, turn]);
 			return state;
 		}
+		// Each turn's action row: generate, retry or regenerate a turn without a picture.
+		// Pictures, repaint, cancel and save recovery stay under the picture itself.
 		function SceneImageAction(props) {
-            const askConfirm = useTavernConfirm(props.sessionId || props.scope?.sessionId);
-			const [settings, setSettings] = React.useState(null);
+			const askConfirm = useTavernConfirm(props.sessionId);
 			const [busy, setBusy] = React.useState(false);
-			const [error, setError] = React.useState("");
 			const requestRef = React.useRef(null);
 			const state = useSceneImageRecord(props.sessionId, props.turn);
-			React.useEffect(function () {
-				let active = true, revision = 0;
-				async function refresh() {
-					const request = ++revision;
-					try { const result = await rpc("getSceneImageSettings", { conversation: true, sessionId: props.sessionId }, props.sessionId); if (active && revision === request) setSettings(result.settings); }
-					catch (_) { if (active && revision === request) setSettings(null); }
-				}
-				void refresh();
-				const timer = window.setInterval(refresh, 15000);
-				window.addEventListener("dsh-tavern-image-settings-changed", refresh);
-				window.addEventListener("focus", refresh);
-				return function () { active = false; window.clearInterval(timer); window.removeEventListener("dsh-tavern-image-settings-changed", refresh); window.removeEventListener("focus", refresh); };
-			}, []);
 			async function generate() {
 				const reusable = requestRef.current && !(state && requestRef.current.id === state.requestId && ["failed", "cancelled", "idle"].includes(state.status));
 				const clickId = reusable && state && requestRef.current.key === state.key ? requestRef.current.id : sceneImageRequestId();
 				recordImageInteraction(props.sessionId, props.turn, clickId, "click");
-				if (!settings || !settings.enabled || !settings.ready || settings.migrationPending || !state || !state.key || busy || props.running || state.status === "running" || state.recovery === "save" || state.versions && state.versions.length) { recordImageInteraction(props.sessionId, props.turn, clickId, "blocked", "not-ready"); return; }
+				if (!state || !state.enabled || !state.ready || !state.key || busy || state.status === "running" || state.recovery === "save" || state.versions && state.versions.length) { recordImageInteraction(props.sessionId, props.turn, clickId, "blocked", "not-ready"); return; }
 				const confirmNewRequestId = await sceneImagePurchaseConfirmation(state, askConfirm);
 				if (confirmNewRequestId === false) { recordImageInteraction(props.sessionId, props.turn, clickId, "cancelled", "confirmation"); return; }
 				if (requestRef.current && requestRef.current.id === state.requestId && ["failed", "cancelled", "idle"].includes(state.status)) requestRef.current = null;
-				setBusy(true); setError("");
+				setBusy(true);
 				if (!requestRef.current || requestRef.current.key !== state.key) requestRef.current = { key: state.key, id: clickId };
-				try { await rpc("generateSceneImage", { turn: props.turn, key: state.key, requestId: requestRef.current.id, confirmNewRequestId: confirmNewRequestId }, props.sessionId); requestRef.current = null; }
-				catch (e) { setError(String(e.message || e)); }
+				try { await rpc("generateSceneImage", { turn: props.turn, key: state.key, kind: "generate", instruction: "", requestId: requestRef.current.id, confirmNewRequestId: confirmNewRequestId }, props.sessionId); requestRef.current = null; }
+				catch (e) { tavernErrorHub.report("生图", e); }
 				finally { setBusy(false); window.dispatchEvent(new CustomEvent("dsh-tavern-image-changed", { detail: { sessionId: props.sessionId } })); }
 			}
-			if (!settings || settings.enabled !== true) return null;
-			const unavailable = settings.migrationPending ? "旧生图配置待迁移，请在全局设置中保存生图 API 配置。" : !settings.ready ? "生图配置未完成，请在设置中补全并保存。" : "";
-			const working = state && state.status === "running";
-			return React.createElement(React.Fragment, null,
-				React.createElement("button", { type: "button", className: "dsh-tavern-choice-trigger", title: unavailable || (!props.turn ? "请先生成一段正文" : !state ? "正在读取生图状态…" : state.error || undefined), disabled: Boolean(unavailable) || !state || !state.key || props.running || busy || working || state.recovery === "save" || state.versions && state.versions.length > 0, onClick: generate }, busy ? "整理画面…" : working ? sceneImageStageLabel(state) : state && state.recovery === "save" ? "图片待保存" : state && state.outcome === "unconfirmed" ? state.providerTask ? "查询原任务" : "重新生图" : state && state.status === "failed" && !state.versions.length ? "重试生图" : "生图"),
-				unavailable ? React.createElement("span", { role: "status", className: "dsh-tavern-settings-desc" }, unavailable) : null,
-				// The saved failure already shows under the illustration; only report this click's own error here.
-				error && error !== (state && state.error) ? React.createElement("span", { role: "alert", className: "dsh-tavern-settings-error" }, error) : null
-			);
+			if (!state || !state.enabled || !state.key || state.status === "running" || state.recovery === "save" || state.versions && state.versions.length) return null;
+			const label = !state.ready ? "生图配置未完成，请在设置中补全并保存" : busy ? "正在整理画面…"
+				: state.outcome === "unconfirmed" ? (state.providerTask ? "查询原生图任务" : "重新生图")
+				: ["failed", "cancelled"].includes(state.status) ? "重试生图" : state.hasDeletedImages ? "重新生图" : "为这一轮生成插图";
+			return React.createElement(DshUi.Tooltip, { label: label, side: "bottom" },
+				React.createElement("button", { type: "button", className: "dsh-tavern-message-fork dsh-tavern-message-illustrate", "aria-label": label, disabled: busy || !state.ready, onClick: generate },
+					React.createElement("svg", { width: 16, height: 16, viewBox: "0 0 16 16", fill: "none", stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true },
+						React.createElement("rect", { x: 2, y: 3, width: 12, height: 10, rx: 2 }),
+						React.createElement("circle", { cx: 6, cy: 6.5, r: 1.2 }),
+						React.createElement("path", { d: "M2.5 12 6.5 8.5 9 10.5 11 9 13.5 11" }))));
 		}
 		function SceneImageSettings() {
 			const [form, setForm] = React.useState(null);
@@ -315,7 +303,7 @@
 			return h("div", { className: "dsh-tavern-settings-group" },
 				h("h3", { className: "dsh-tavern-image-settings-title" }, "生图 API 配置（全局共用）"),
 				h("div", { className: "dsh-tavern-image-settings" },
-					h("p", { className: "dsh-tavern-settings-intro" }, "保存后，在本局设置中开启场景生图，再点输入框上方的「生图」。连接测试不生成图片；实际生图可能产生费用。"),
+					h("p", { className: "dsh-tavern-settings-intro" }, "保存后，在本局设置中开启场景生图，再点每轮下方的生图图标。连接测试不生成图片；实际生图可能产生费用。"),
 					!form ? null : section("服务", selectedChannel ? selectedChannel.hint : "",
 						h("label", null, "提供商", h("select", { value: form.provider, disabled: busy, onChange: function (e) { return chooseChannel(e.target.value); } }, (form.channels || []).map(function (item) { return h("option", { key: item.id, value: item.id }, item.label); }))),
 						form.migrationPending ? h("p", { role: "status", className: "dsh-tavern-image-hint" }, "检测到旧配置。保存后将迁入生图模块；旧密钥不会显示或发送到新地址。") : null,

@@ -9,7 +9,7 @@ try {
  await page.goto(process.argv[2]);
  await page.waitForFunction(()=>!document.querySelector('[aria-label="开启场景生图"]')?.disabled);
  if(!await page.getByRole('switch',{name:'开启场景生图'}).isChecked()) await page.getByText('开启场景生图',{exact:true}).click();
- await page.getByRole('button',{name:'生图',exact:true}).click();
+ await page.getByRole('button',{name:'为这一轮生成插图',exact:true}).click();
  await page.getByRole('button',{name:'删除图片',exact:true}).waitFor({timeout:60000});
  await page.locator('.dsh-tavern-illustration img').evaluate(img=>img.decode());
  const original=await page.locator('.dsh-tavern-illustration img').getAttribute('src');

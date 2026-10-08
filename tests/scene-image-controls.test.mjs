@@ -16,13 +16,13 @@ test('scene request identifiers also work on LAN HTTP without crypto.randomUUID'
   assert.ok(ids.every(id => /^[a-zA-Z0-9_-]{8,100}$/.test(id)))
 })
 
-test('main image action preserves request ID on ambiguous transport errors and cannot regenerate over existing versions', async () => {
+test('turn image action preserves request ID on ambiguous transport errors and cannot regenerate over existing versions', async () => {
   const slots = [], calls = []
   let cursor = 0, fail = true
-  const record = { key: 'target-key', status: 'idle', versions: [] }
+  const record = { key: 'target-key', status: 'idle', enabled: true, ready: true, versions: [] }
   const context = vm.createContext({
     useTavernConfirm: () => async () => true,
-    recordImageInteraction() {},
+    recordImageInteraction() {}, DshUi: { Tooltip: 'tooltip' }, tavernErrorHub: { report() {} },
     React: {
       Fragment: 'fragment', createElement: (type, props, ...children) => ({ type, props, children }),
       useState: initial => { const n = cursor++; if (!(n in slots)) slots[n] = initial; return [slots[n], value => { slots[n] = value }] },
@@ -34,41 +34,30 @@ test('main image action preserves request ID on ambiguous transport errors and c
     rpc: async (method, args) => { calls.push({ method, args }); if (fail) throw new Error('connection lost') }
   })
   const Component = vm.runInContext(extract('sceneImageRequestId', 'sceneImageStageLabel') + extract('SceneImageAction', 'SceneImageSettings') + ';SceneImageAction', context)
-  function render() { cursor = 0; return Component({ sessionId: 'session', turn: 1, running: false }) }
-  render(); slots[0] = { enabled: true, ready: true }
-  await render().children[0].props.onClick()
+  function render() { cursor = 0; const tree = Component({ sessionId: 'session', turn: 1 }); return tree && tree.children[0] }
+  await render().props.onClick()
   fail = false
-  await render().children[0].props.onClick()
+  await render().props.onClick()
   assert.equal(calls[0].args.requestId, calls[1].args.requestId)
   assert.equal(calls[0].args.key, record.key)
   record.status = 'failed'; record.versions = [{ id: 'old-image' }]
-  const button = render().children[0]
-  assert.equal(button.props.disabled, true)
-  await button.props.onClick()
-  assert.equal(calls.length, 2)
+  assert.equal(render(), null, 'a turn with a picture offers no generation')
   record.versions = []; record.recovery = 'save'
-  const pending = render().children[0]
-  assert.equal(pending.props.disabled, true)
-  assert.ok(pending.children.includes('图片待保存'))
-  await pending.props.onClick()
-  assert.equal(calls.length, 2, 'must not send generation while bytes await saving')
+  assert.equal(render(), null, 'must not offer generation while bytes await saving')
   delete record.recovery; record.status = 'idle'
-  fail = true; await render().children[0].props.onClick()
+  record.ready = false
+  assert.equal(render().props.disabled, true, 'unfinished configuration disables the action')
+  record.ready = true
+  fail = true; await render().props.onClick()
   const oldRequest = calls.at(-1).args.requestId
   // The request succeeded remotely, then its last picture was deleted elsewhere.
   record.requestId = oldRequest; record.hasDeletedImages = true
-  fail = false; await render().children[0].props.onClick()
+  assert.equal(render().props['aria-label'], '重新生图')
+  fail = false; await render().props.onClick()
   assert.notEqual(calls.at(-1).args.requestId, oldRequest, 'deletion must not reuse the completed request')
 })
 
-test('image dock targets latest story turn even without a display projection or after rollback', () => {
-  const expression = source.match(/const imageTurn = ([^;]+);/)[1]
-  for (const [latestAssistantTurn, replyProjections] of [[4, []], [4, [{ turn: 2 }]], [2, [{ turn: 4 }]]]) {
-    assert.equal(vm.runInNewContext(expression, { live: { view: { latestAssistantTurn, replyProjections } } }), latestAssistantTurn)
-  }
-})
-
-test('delete selected image, handle cancellation/errors, then regenerate the empty historical turn', async () => {
+test('delete selected image, handle cancellation/errors; an emptied turn leaves generation to its action row', async () => {
   const slots = [], calls = []
   let cursor = 0, confirmed = false, failure = false, serial = 0
   const record = { key: 'historical-turn', status: 'succeeded', enabled: false, versions: [{ id: 'first' }, { id: 'second' }] }
@@ -103,12 +92,6 @@ test('delete selected image, handle cancellation/errors, then regenerate the emp
   assert.equal(record.versions[0].id, 'second')
   await button('删除图片').props.onClick()
   assert.equal(record.versions.length, 0)
-  assert.equal(button('重新生图'), undefined, 'generation stays unavailable while image service is disabled')
   record.enabled = true
-  await button('重新生图').props.onClick()
-  assert.equal(calls.at(-1).method, 'generateSceneImage')
-  assert.equal(calls.at(-1).args.kind, 'generate')
-  assert.equal(calls.at(-1).args.turn, 3)
-  assert.equal(calls.at(-1).args.versionId, undefined)
-  assert.equal(calls.at(-1).sessionId, 'session')
+  assert.equal(Component({ sessionId: 'session', turn: 3 }), null, 'no picture: nothing under the text')
 })

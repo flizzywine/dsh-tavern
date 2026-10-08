@@ -329,8 +329,8 @@
 				}
 				const url = version ? "/api/dsh-tavern/scene-image?" + new URLSearchParams({ sessionId: props.sessionId, turn: String(props.turn), key: state.key, versionId: version.id }).toString() : "";
 				if (!state) return null;
-				// Idle earlier turns offer generation from their action row instead.
-				if (state.status === "idle" && !state.hasDeletedImages) return null;
+				// Without a picture, generation lives in the turn's action row.
+				if (!version && state.status === "idle") return null;
 				const locked = busy || state.status === "running" || state.recovery === "save";
 				const referencePeople = version && version.referencePeople || [];
 				const referenceBindings = state.reference && state.reference.bindings ? state.reference.bindings.filter(function (binding) { return version && binding.versionId === version.id; }) : [];
@@ -349,7 +349,6 @@
 							React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: locked, onClick: function () { setAdjusting(true); } }, "重画")
 						) : null
 					) : null,
-					!version && state.hasDeletedImages && state.enabled ? React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: locked, onClick: function () { return generate("generate"); } }, "重新生图") : null,
 					canBindReference || referenceBindings.length ? React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: locked, onClick: openReference }, referenceBindings.length ? "管理造型参考" : "用作造型参考") : null,
 					version && state.enabled && version.profile && version.profile !== state.profile ? React.createElement("span", { role: "status" }, "将按新渠道重新整理画面，可能产生文字模型费用。") : null,
 					state.referenceWarning || state.reference && state.reference.warning ? React.createElement("span", { role: "status" }, state.referenceWarning || state.reference.warning) : null,
@@ -374,9 +373,6 @@
 					state.status === "running" ? React.createElement("span", { role: "status" }, sceneImageStageLabel(state)) : null,
 					state.status === "running" ? React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: busy || Boolean(state.cancelRequestedAt), onClick: cancelImage }, state.cancelRequestedAt ? "正在取消…" : "取消生图") : null,
 					state.recovery === "save" && state.status !== "running" ? React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: busy, onClick: retrySave }, "重试保存") : null,
-					// The latest turn retries from the composer; earlier turns retry here.
-					props.offerGenerate && state.enabled && !version && ["failed", "cancelled"].includes(state.status) && state.recovery !== "save"
-						? React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: busy, onClick: function () { return generate("generate"); } }, busy ? "整理画面…" : "重试生图") : null,
 					error || state && state.error ? React.createElement("span", { role: "alert", className: "dsh-tavern-settings-error" }, error || state.error) : null
 				);
 			}
@@ -502,7 +498,7 @@
 					for (let index = versions.length - 1; index >= 0; index -= 1) if (versions[index].anchor) return versions[index].anchor;
 					return "";
 				})();
-				const illustration = sceneShown ? React.createElement(SceneIllustration, { key: props.sessionId + ":" + storyTurn + ":" + JSON.stringify(projection), sessionId: props.sessionId, turn: storyTurn, record: sceneRecord, offerGenerate: storyTurn < (Number(currentView?.latestAssistantTurn) || 0) }) : null;
+				const illustration = sceneShown ? React.createElement(SceneIllustration, { key: props.sessionId + ":" + storyTurn + ":" + JSON.stringify(projection), sessionId: props.sessionId, turn: storyTurn, record: sceneRecord }) : null;
 				const pluginText = playView ? createTavernPluginTextContext({ items: pluginMedia.items, extras: illustration && sceneAnchor ? [{ id: "scene-illustration", anchor: sceneAnchor, render: function () { return illustration; } }] : [], sessionId: props.sessionId, turn: storyTurn, streaming: data.status === "running" }) : null;
                 const rendered = sessionTransitioning ? [React.createElement("div", { key: "switching", className: "dsh-tavern-session-switching", role: "status" }, "正在完成游戏初始化…")] : waitingForHistory ? [React.createElement("div", {key:"history",role:"status"}, "正在读取历史内容…")] : renderTavernAssistantBlocks({
 					blocks: data.blocks,
@@ -576,31 +572,12 @@
 					React.createElement("button", { type: "button", className: "dsh-tavern-message-fork", "aria-label": "从这一轮分叉", disabled: forking, onClick: fork },
 						React.createElement(DshUi.IconBranchOutline16, null)));
 			}
-			// Earlier turns have no composer button: illustrate them from their action row.
 			function TavernIllustrateAssistantAction(props) {
-				const liveState = useScopedLiveTavernView(props.sessionId, String(props.messageId || ""), [["mode"], ["latestAssistantTurn"], ["releaseCapabilities"], ["forkTurnsByMessageId", String(props.messageId || "")]]);
+				const liveState = useScopedLiveTavernView(props.sessionId, String(props.messageId || ""), [["mode"], ["releaseCapabilities"], ["forkTurnsByMessageId", String(props.messageId || "")]]);
 				const view = liveState.view;
 				const turn = Number(view && view.forkTurnsByMessageId && view.forkTurnsByMessageId[String(props.messageId || "")]) || 0;
-				const earlier = Boolean(view && isPlayMode(view.mode) && view.releaseCapabilities && view.releaseCapabilities.sceneImages && turn > 0 && turn < (Number(view.latestAssistantTurn) || 0));
-				const state = useSceneImageRecord(earlier ? props.sessionId : null, turn);
-				const askConfirm = useTavernConfirm(props.sessionId);
-				const [busy, setBusy] = React.useState(false);
-				if (!earlier || !state || !state.enabled || state.status !== "idle" || state.hasDeletedImages) return null;
-				async function generate() {
-					if (busy) return;
-					const confirmNewRequestId = await sceneImagePurchaseConfirmation(state, askConfirm);
-					if (confirmNewRequestId === false) return;
-					setBusy(true);
-					try { await rpc("generateSceneImage", { turn: turn, key: state.key, kind: "generate", instruction: "", requestId: sceneImageRequestId(), confirmNewRequestId: confirmNewRequestId }, props.sessionId); }
-					catch (error) { tavernErrorHub.report("生成插图", error); }
-					finally { setBusy(false); window.dispatchEvent(new CustomEvent("dsh-tavern-image-changed", { detail: { sessionId: props.sessionId } })); }
-				}
-				return React.createElement(DshUi.Tooltip, { label: busy ? "正在整理画面…" : "为这一轮生成插图", side: "bottom" },
-					React.createElement("button", { type: "button", className: "dsh-tavern-message-fork dsh-tavern-message-illustrate", "aria-label": "为这一轮生成插图", disabled: busy, onClick: generate },
-						React.createElement("svg", { width: 16, height: 16, viewBox: "0 0 16 16", fill: "none", stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true },
-							React.createElement("rect", { x: 2, y: 3, width: 12, height: 10, rx: 2 }),
-							React.createElement("circle", { cx: 6, cy: 6.5, r: 1.2 }),
-							React.createElement("path", { d: "M2.5 12 6.5 8.5 9 10.5 11 9 13.5 11" }))));
+				const shown = Boolean(view && isPlayMode(view.mode) && view.releaseCapabilities && view.releaseCapabilities.sceneImages && turn > 0);
+				return shown ? React.createElement(SceneImageAction, { key: props.sessionId + ":" + turn, sessionId: props.sessionId, turn: turn }) : null;
 			}
 			function register(input) {
 				const scriptOwner = createTavernScriptSessionOwner({ sessions: input.ctx.sessions, executeSlash: createTavernFrameSlashExecutor(input.ctx) });
