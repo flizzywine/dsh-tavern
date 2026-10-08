@@ -12,7 +12,7 @@ test('global API form loads while disabled and saves edited credentials without 
   assert.equal(await form.getByLabel('API 根地址').inputValue(), settings.baseURL)
   await form.getByLabel('API Key', { exact: true }).fill('draft-key')
   await form.getByRole('button', { name: '保存生图配置', exact: true }).click()
-  await form.getByRole('status').filter({ hasText: '已保存全局 API 配置' }).waitFor()
+  await form.getByRole('status').filter({ hasText: '已保存生图配置' }).waitFor()
   const saved = calls.filter(call => call.method === 'saveSceneImageSettings')
   assert.equal(saved.length, 1)
   assert.equal(saved[0].args.apiKey, 'draft-key')

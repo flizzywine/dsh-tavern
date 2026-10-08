@@ -192,7 +192,7 @@ export function createSceneIllustrations(deps) {
       const selected=await deps.sceneStateForSession(sessionId,{turns:[...turns].filter(turn=>turn<=chat.sceneLatestTurn),revision:chat._storageRevision})
       return Object.values(selected.sceneTargets)
     }, config: current })
-    return { ...present(target, await readRecord(path)), enabled: typeof chat.sceneImagesEnabled === 'boolean' ? chat.sceneImagesEnabled : current.enabled, ready: Boolean(current.ready), profile: imageExpressionProfile(current),
+    return { ...present(target, await readRecord(path)), enabled: true, ready: Boolean(current.ready), profile: imageExpressionProfile(current),
       reference: { ...reference.capability, warning: reference.warning,
         bindings: reference.active.filter(record => record.source.key === target.key).map(record => ({ versionId: record.source.versionId, personId: record.person.id, name: record.person.name })),
         versions: reference.active.filter(record => record.source.key === target.key).map(record => record.source.versionId) } }
@@ -201,7 +201,6 @@ export function createSceneIllustrations(deps) {
     const { chat, target, path } = await resolve(sessionId, turn)
     if (key !== target.key) throw new Error('正文版本已变化，请刷新后选择参考图')
     const active = await config()
-    if (enabled && !(typeof chat.sceneImagesEnabled === 'boolean' ? chat.sceneImagesEnabled : active.enabled)) throw new Error('请先启用场景生图')
     const version = versionsOf(await readRecord(path)).find(item => item.id === versionId)
     if (!version?.attachment) throw new Error('参考图片不存在或已删除')
     const latest = [...chat.messages].reverse().find(item => item.role === 'assistant')
@@ -266,8 +265,6 @@ export function createSceneIllustrations(deps) {
     return present(target, record)
   }
   async function start(sessionId, turn, expectedKey, options = {}) {
-    const conversation = await deps.backgroundConfigForSession?.(sessionId)
-    if (conversation?.sceneImagesEnabled === false) throw new Error('请先在本局设置中开启场景生图')
     const kind = options.kind || 'generate'
     if (!['generate', 'repaint', 'adjust'].includes(kind)) throw new Error('未知生图操作')
     const instruction = typeof options.instruction === 'string' ? options.instruction.trim() : ''
@@ -281,14 +278,13 @@ export function createSceneIllustrations(deps) {
       const existing = await readRecord(path)
       if (existing?.recovery === 'save') throw new Error('图片已生成，请先重试保存；不会再次请求图片渠道')
       const { active, apiKey } = await capture()
-      if (!(typeof chat.sceneImagesEnabled === 'boolean' ? chat.sceneImagesEnabled : active.enabled)) throw new Error('请先在本局设置中开启场景生图')
       if (await deps.isRunning?.(sessionId)) throw new Error('请等待当前正文生成完成后再生图')
       if (Object.hasOwn(existing?.requests || {}, requestId) || (kind === 'generate' && existing?.status === 'succeeded') || existing?.status === 'running' && (jobs.has(path) || ownerIsLive(existing, path))) return present(target, existing)
       checkPurchaseConfirmation(existing, options)
       // A failure may reach disk just before the job's finally removes its handle.
       // An explicit retry waits for that cleanup, rather than returning the old failure.
       if (jobs.has(path)) await jobs.get(path).promise
-      if (!channelReady(active, apiKey)) throw new Error('请先在设置中完成生图渠道配置（地址、模型或 API Key）')
+      if (!channelReady(active, apiKey)) throw new Error('还没配置生图渠道：请到 设置 → 场景生图 填写并保存渠道、模型和 API Key')
       const selectedImageReferences = await imageReferences.select({ chatId: chat.id, lineage: turns => sceneLineage(chat, target, turns), config: active })
       if (typeof deps.attachments()?.saveImage !== 'function' || typeof deps.attachments()?.readImage !== 'function') throw new Error('当前 DSH 未提供图片附件服务，无法保存插画')
       const profile = imageExpressionProfile(active)

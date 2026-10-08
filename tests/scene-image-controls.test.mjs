@@ -17,12 +17,12 @@ test('scene request identifiers also work on LAN HTTP without crypto.randomUUID'
 })
 
 test('turn image action preserves request ID on ambiguous transport errors and cannot regenerate over existing versions', async () => {
-  const slots = [], calls = []
+  const slots = [], calls = [], reported = []
   let cursor = 0, fail = true
   const record = { key: 'target-key', status: 'idle', enabled: true, ready: true, versions: [] }
   const context = vm.createContext({
     useTavernConfirm: () => async () => true,
-    recordImageInteraction() {}, DshUi: { Tooltip: 'tooltip' }, tavernErrorHub: { report() {} },
+    recordImageInteraction() {}, DshUi: { Tooltip: 'tooltip' }, tavernErrorHub: { report: (_, error) => reported.push(error) },
     React: {
       Fragment: 'fragment', createElement: (type, props, ...children) => ({ type, props, children }),
       useState: initial => { const n = cursor++; if (!(n in slots)) slots[n] = initial; return [slots[n], value => { slots[n] = value }] },
@@ -46,7 +46,10 @@ test('turn image action preserves request ID on ambiguous transport errors and c
   assert.equal(render(), null, 'must not offer generation while bytes await saving')
   delete record.recovery; record.status = 'idle'
   record.ready = false
-  assert.equal(render().props.disabled, true, 'unfinished configuration disables the action')
+  const before = calls.length
+  await render().props.onClick()
+  assert.equal(calls.length, before, 'an unconfigured channel reports instead of requesting')
+  assert.match(reported.at(-1).message, /还没配置生图渠道/)
   record.ready = true
   fail = true; await render().props.onClick()
   const oldRequest = calls.at(-1).args.requestId

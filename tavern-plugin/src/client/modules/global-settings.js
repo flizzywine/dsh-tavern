@@ -38,7 +38,7 @@ function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernD
             h("section", { className: "dsh-local-section" }, h("h3", null, "后台结算"),
                 toggle("variables", "变量结算", "MVU 卡建议开启；普通卡不执行此任务。", true), toggle("posture", "人物姿势结算", "总结本轮结束时人物的位置、动作和姿势。", true), toggle("variableFeedback", "变量回灌前台", "每轮把上一轮变化的变量最新值告诉前台，减少前后不一致。", true)),
             h("section", { className: "dsh-local-section" }, h("h3", null, "扩展功能"),
-                toggle("webSearchEnabled", "联网搜索", "允许新游戏的前台和后台按需搜索。"), toggle("sceneImagesEnabled", "开启场景生图", "允许手动为剧情配图；渠道在「场景生图」设置页配置。")),
+                toggle("webSearchEnabled", "联网搜索", "允许新游戏的前台和后台按需搜索。")),
             message ? h("p", { role: "status" }, message) : null);
     }
 
