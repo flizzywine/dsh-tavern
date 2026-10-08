@@ -3,7 +3,10 @@ const isOverflow = failure => failure?.code === 'CONTEXT_WINDOW_EXCEEDED' || /ma
 // Oversized restored histories cannot be sent to the summarizer in one request.
 // Intermediate summaries are private to this operation: the native engine alone
 // commits the final checkpoint, after verifying the original surface is intact.
-export async function* boundedCompaction(ctx, request, stream) {
+export async function* boundedCompaction(ctx, request, stream, { quoted = false } = {}) {
+  // Quoted mode sends the history as plain data with no tools at all, so the
+  // summarizer cannot answer with a tool call instead of the summary.
+  if (quoted) { request = { ...request }; delete request.tools }
   const info = await ctx.llm.resolveModelInfo?.(request.provider, request.model, request.signal)
   const capacity = info?.context?.contextWindow
   const reserve = request.maxTokens ?? info?.defaultMaxTokens ?? 8192
@@ -15,9 +18,12 @@ export async function* boundedCompaction(ctx, request, stream) {
   // Leave room for tokenizer/provider framing differences. This is an estimate,
   // not a claim that all providers tokenize text identically.
   let budget = Math.floor(capacity * 0.8) - reserve
-  if (!Number.isFinite(capacity) || capacity <= 0) { yield* stream(request); return }
+  if (!Number.isFinite(capacity) || capacity <= 0) {
+    if (!quoted) { yield* stream(request); return }
+    budget = Infinity
+  }
   let calls = 0
-  if (estimate(request.messages) <= budget) {
+  if (!quoted && estimate(request.messages) <= budget) {
     // Buffer this small output so a rejected optimistic estimate can be retried
     // without leaking partial blocks into the native summary assembler.
     const chunks = []

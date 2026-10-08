@@ -31,7 +31,7 @@ test('one hook projects, applies the story prompt and sends a single summary req
   const hooks = [], sent = []
   const dispatch = (request, index = 0) => index < hooks.length
     ? hooks[index](request, () => dispatch(request, index + 1))
-    : (async function * () { sent.push(request); yield { type: 'finish', reason: { kind: 'stop' } } })()
+    : (async function * () { sent.push(request); yield { type: 'block-end', index: 0, block: { type: 'text', text: '摘要' } }; yield { type: 'finish', reason: { kind: 'stop' } } })()
   const ctx = { on: (_, hook) => hooks.push(hook), llm: { stream: request => dispatch(request), resolveModelInfo: async () => undefined } }
   installCompactionRequestProjection(ctx, async () => true, async request => ({ request: createStoryCompactionRequest(request, '剧情压缩提示') }))
   const instruction = Object.freeze({ role: 'user', content: Object.freeze([{ type: 'text', text: '原生提示' }]), source: Object.freeze({ kind: 'plugin', plugin: 'dsh-compaction-basic' }) })
@@ -109,4 +109,27 @@ test('a history whose rounds all fit the retention needs no compaction, counting
   assert.equal(storyHistoryFullyRetained(session, 2), false)
   assert.equal(storyHistoryFullyRetained(session, 3, { budget: 1 }), false, '超出保留预算的长轮次仍需压缩')
   assert.equal(storyHistoryFullyRetained(session, 0), false)
+})
+
+test('a summary answered with a tool call or no text is retried once as plain text without tools', async () => {
+  const { installCompactionRequestProjection } = await import('../tavern-plugin/lib/domain/compaction-request.js')
+  for (const first of [[{ type: 'block-end', index: 0, block: { type: 'tool-call', name: 'submit', arguments: {} } }, { type: 'finish', reason: { kind: 'tool' } }],
+    [{ type: 'finish', reason: { kind: 'stop' } }]]) {
+    const hooks = [], sent = []
+    const dispatch = (request, index = 0) => index < hooks.length
+      ? hooks[index](request, () => dispatch(request, index + 1))
+      : (async function * () { sent.push(request); if (sent.length === 1) { yield* first; return } yield { type: 'block-end', index: 0, block: { type: 'text', text: '后台摘要' } }; yield { type: 'finish', reason: { kind: 'stop' } } })()
+    const ctx = { on: (_, hook) => hooks.push(hook), llm: { stream: request => dispatch(request), resolveModelInfo: async () => ({ context: { contextWindow: 100000 } }) } }
+    installCompactionRequestProjection(ctx, async () => true)
+    const say = (role, text) => ({ role, content: [{ type: 'text', text }], source: { kind: 'human' } })
+    const request = { purpose: 'compaction', sessionId: 'background', provider: 'p', model: 'm', tools: [{ name: 'submit' }],
+      messages: [say('system', '后台规则'), say('user', '任务'), say('assistant', '结果'), { ...say('user', '总结指令'), source: { kind: 'plugin', plugin: 'dsh-compaction-basic' } }] }
+    const out = []
+    for await (const chunk of ctx.llm.stream(request)) out.push(chunk)
+    assert.equal(sent.length, 2)
+    assert.equal(sent[1].tools, undefined)
+    assert.match(sent[1].messages.at(-2).content[0].text, /任务/)
+    assert.equal(sent[1].messages.at(-1).content[0].text, '总结指令')
+    assert.deepEqual(out.filter(chunk => chunk.type === 'block-end').map(chunk => chunk.block.text), ['后台摘要'])
+  }
 })
