@@ -251,6 +251,24 @@
 					React.createElement("div", { className: "dsh-tavern-user-actions" }, time ? React.createElement("span", null, time) : null, React.createElement(DshUi.Tooltip, { label: copied ? "已复制" : "复制", side: "bottom" }, React.createElement("button", { type: "button", className: "dsh-tavern-user-copy", "aria-label": copied ? "已复制" : "复制", onClick: copy }, React.createElement(copied ? DshUi.IconCheckOutline16 : DshUi.IconCopyOutline16, null))))
 				);
 			}
+			// While a picture is being made: a placeholder frame where it will appear
+			// (or a slim line under the current picture), the stage, elapsed time and a quiet cancel.
+			function SceneImagePending(props) {
+				const state = props.state;
+				const [now, setNow] = React.useState(Date.now());
+				React.useEffect(function () { const timer = window.setInterval(function () { setNow(Date.now()); }, 1000); return function () { window.clearInterval(timer); }; }, []);
+				const started = Number(state.createdAt) || 0;
+				const seconds = started ? Math.max(0, Math.floor((now - started) / 1000)) : 0;
+				const elapsed = started ? (seconds >= 60 ? Math.floor(seconds / 60) + " 分 " + (seconds % 60) + " 秒" : seconds + " 秒") : "";
+				const cancelling = Boolean(state.cancelRequestedAt);
+				const line = React.createElement("div", { className: "dsh-tavern-image-pending-line", role: "status" },
+					React.createElement("span", { className: "dsh-tavern-image-pending-spinner", "aria-hidden": true }),
+					React.createElement("span", null, sceneImageStageLabel(state)),
+					elapsed ? React.createElement("span", { className: "dsh-tavern-image-pending-time" }, elapsed) : null,
+					React.createElement("button", { type: "button", className: "dsh-tavern-image-pending-cancel", disabled: props.disabled || cancelling, onClick: props.onCancel }, cancelling ? "正在取消…" : "取消"));
+				return props.picture ? React.createElement("div", { className: "dsh-tavern-image-pending" },
+					React.createElement("div", { className: "dsh-tavern-image-pending-frame", "aria-hidden": true }), line) : line;
+			}
 			function SceneIllustration(props) {
             const askConfirm = useTavernConfirm(props.sessionId || props.scope?.sessionId);
 				// The message view may already read the record (to place the picture); reuse it.
@@ -370,8 +388,7 @@
 						React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: locked, onClick: function () { return generate(instruction.trim() ? "adjust" : "repaint"); } }, "开始重画"),
 						React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: busy, onClick: function () { setAdjusting(false); } }, "取消")
 					) : null,
-					state.status === "running" ? React.createElement("span", { role: "status" }, sceneImageStageLabel(state)) : null,
-					state.status === "running" ? React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: busy || Boolean(state.cancelRequestedAt), onClick: cancelImage }, state.cancelRequestedAt ? "正在取消…" : "取消生图") : null,
+					state.status === "running" ? React.createElement(SceneImagePending, { state: state, picture: !version, disabled: busy, onCancel: cancelImage }) : null,
 					state.recovery === "save" && state.status !== "running" ? React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: busy, onClick: retrySave }, "重试保存") : null,
 					error || state && state.error ? React.createElement("span", { role: "alert", className: "dsh-tavern-settings-error" }, error || state.error) : null
 				);

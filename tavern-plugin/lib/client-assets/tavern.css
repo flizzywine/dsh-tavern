@@ -97,6 +97,18 @@ body.dsh-tavern-shell-active,
 .dsh-tavern-illustration { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
 .dsh-tavern-illustration > a { display: block; max-width: 100%; }
 /* Earlier turns without a picture: a quiet entry that appears when the turn is hovered. */
+/* 生成中：在图片将出现的位置放一个微光占位框，下面一行显示阶段、用时和取消。 */
+.dsh-tavern-image-pending { display: grid; gap: 8px; width: min(100%, 320px); }
+.dsh-tavern-image-pending-frame { width: 100%; aspect-ratio: 4 / 3; border-radius: 12px; background: linear-gradient(100deg, var(--dsw-alias-bg-layer-2, rgba(0,0,0,.04)) 30%, var(--dsw-alias-bg-layer-3, rgba(0,0,0,.08)) 50%, var(--dsw-alias-bg-layer-2, rgba(0,0,0,.04)) 70%); background-size: 300% 100%; animation: dsh-tavern-image-shimmer 1.8s ease-in-out infinite; }
+@keyframes dsh-tavern-image-shimmer { from { background-position: 100% 0; } to { background-position: 0 0; } }
+.dsh-tavern-image-pending-line { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--dsw-alias-label-secondary); }
+.dsh-tavern-image-pending-time { color: var(--dsw-alias-label-tertiary); font-variant-numeric: tabular-nums; }
+.dsh-tavern-image-pending-spinner { width: 12px; height: 12px; border-radius: 50%; border: 1.5px solid var(--dsw-alias-border-l2); border-top-color: var(--dsw-alias-label-secondary); animation: dsh-tavern-image-spin .8s linear infinite; flex: none; }
+@keyframes dsh-tavern-image-spin { to { transform: rotate(360deg); } }
+.dsh-tavern-image-pending-cancel { margin-left: auto; padding: 2px 6px; border: 0; border-radius: 6px; background: transparent; color: var(--dsw-alias-label-tertiary); font: inherit; font-size: 12px; cursor: pointer; }
+.dsh-tavern-image-pending-cancel:hover:not(:disabled) { color: var(--dsw-alias-label-primary); background: var(--dsw-alias-interactive-bg-hover); }
+.dsh-tavern-image-pending-cancel:disabled { opacity: .5; cursor: default; }
+@media (prefers-reduced-motion: reduce) { .dsh-tavern-image-pending-frame, .dsh-tavern-image-pending-spinner { animation: none; } }
 .dsh-tavern-illustration img { display: block; width: auto; height: auto; max-width: min(100%, 320px); max-height: min(240px, 35svh); object-fit: contain; border-radius: 12px; }
 .dsh-tavern-image-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .dsh-tavern-plugin-media { margin: 10px 0; }

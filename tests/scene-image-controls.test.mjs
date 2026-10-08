@@ -77,7 +77,7 @@ test('delete selected image, handle cancellation/errors; an emptied turn leaves 
       if (method === 'removeSceneImage') { record.versions = record.versions.filter(v => v.id !== args.versionId); record.hasDeletedImages = true; record.status = record.versions.length ? 'succeeded' : 'idle' }
     }
   })
-  const Component = vm.runInContext(extract('SceneIllustration', 'TavernAssistantNodeView') + ';SceneIllustration', context)
+  const Component = vm.runInContext(extract('SceneImagePending', 'TavernAssistantNodeView') + ';SceneIllustration', context)
   const nodes = tree => tree && typeof tree === 'object' ? [tree, ...(tree.children || []).flat(Infinity).flatMap(nodes)] : []
   const render = () => { cursor = 0; return nodes(Component({ sessionId: 'session', turn: 3 })) }
   const button = label => render().find(n => n.type === 'button' && n.children.includes(label))
