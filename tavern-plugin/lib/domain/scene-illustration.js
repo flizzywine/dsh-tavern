@@ -327,7 +327,7 @@ export function createSceneIllustrations(deps) {
       const expressionGuidance = imageExpressionGuidance(active)
       if (providerTask) prepared.saved = existing.plan
       if (prepared.input && expressionGuidance) prepared.input = { ...prepared.input, expressionGuidance }
-      const selection = deps.selection(sessionId)
+      const selection = await deps.selection(sessionId)
       if (!prepared.saved && !selection) throw new Error('请先为当前对话选择模型，供生图 Agent 理解场景')
       const characterDesigns = !prepared.saved
         ? createSceneCharacterDesigns({ snapshot: designSnapshot, target, sources: prepared.sources || [] }) : null
@@ -633,7 +633,7 @@ export function createSceneIllustrations(deps) {
   // Undo the image agent's latest drawing conversation in its own Session. Pictures stay.
   async function undoAgentTurn(sessionId, agentSessionId) {
     if (!await isAgentSession(sessionId, agentSessionId)) throw new Error('这不是当前游戏的文生图对话，未撤销')
-    const selection = deps.selection(sessionId)
+    const selection = await deps.selection(sessionId)
     if (!selection) throw new Error('请先为当前对话选择模型')
     const result = await deps.runAgent({ sessionId, task: 'image', persistent: true, persistentSessionId: agentSessionId, undoLastTask: true, selection, messages: [] })
     return { undone: result?.undone === true }

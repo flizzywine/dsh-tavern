@@ -562,6 +562,18 @@ export async function apply(ctx) {
     }
     return null
   }
+  // Turning a passage into drawing tags needs little deliberation: the scene image
+  // Agent keeps the conversation's model but thinks at the lightest level it offers.
+  // The story model's high effort spent over a minute before the first tool call.
+  async function sceneImageSelection(sessionId) {
+    const selection = modelSelection(sessionId)
+    if (!selection) return selection
+    try {
+      const reasoning = await readBackgroundModelReasoning(llm, selection)
+      if ((reasoning?.efforts || []).some(effort => effort?.id === 'low')) return { ...selection, reasoningEffort: 'low' }
+    } catch { /* Unknown capabilities keep the conversation's own setting. */ }
+    return selection
+  }
   function backgroundModelSelection(chat) {
     return resolveChatBackgroundModel(chat, modelSelection(chat && chat.sessionId))
   }
@@ -2410,7 +2422,7 @@ export async function apply(ctx) {
     prompt: runtimePrompt,
     onDiagnostic: imageHostDiagnostic,
     readLegacyConfiguration: legacyImageConfigurationReader(ctx.get('settings')?.documentPath),
-    store: profileData, diagnostics: sceneDiagnostics, chatForSession, backgroundConfigForSession, sceneStateForSession: sessionChats.readSceneImageState, selection: modelSelection,
+    store: profileData, diagnostics: sceneDiagnostics, chatForSession, backgroundConfigForSession, sceneStateForSession: sessionChats.readSceneImageState, selection: sceneImageSelection,
     worldbookAtTarget: async (chat, target) => {
       try { return await sceneWorldbooks.read(sceneWorldbookBinding(chat, target)) }
       catch (_error) { return { unavailable: '历史世界书快照读取失败，未读取当前世界书。' } }
