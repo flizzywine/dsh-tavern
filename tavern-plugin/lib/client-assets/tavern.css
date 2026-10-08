@@ -124,7 +124,9 @@ body.dsh-tavern-shell-active,
 .dsh-tavern-html-sketch summary { cursor: pointer; user-select: none; }
 .dsh-tavern-html-sketch pre { max-height: 240px; overflow: auto; margin: 6px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .dsh-tavern-assistant-stopped { align-self: flex-start; border-radius: 6px; padding: 0 6px; background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-tertiary); font-size: 11px; line-height: 18px; }
-.dsh-tavern-message-fork { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 999px; background: transparent; color: inherit; cursor: pointer; }
+/* 与 DSH 原生操作图标一致：同尺寸、同为三级标签色，随正文字号缩放。 */
+.dsh-tavern-message-fork { display: inline-flex; align-items: center; justify-content: center; width: calc(28px + var(--dsh-content-font-delta, 0px)); height: calc(28px + var(--dsh-content-font-delta, 0px)); padding: 6px; border: 0; border-radius: 999px; background: transparent; color: var(--dsw-alias-label-tertiary); cursor: pointer; }
+.dsh-tavern-message-fork svg { width: calc(15px + var(--dsh-content-font-delta, 0px)); height: calc(15px + var(--dsh-content-font-delta, 0px)); }
 .dsh-tavern-message-fork:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-secondary); }
 .dsh-tavern-message-fork:disabled { cursor: wait; opacity: .5; }
 .dsh-tavern-swipe-controls { align-self: center; display: flex; align-items: center; gap: 8px; color: var(--dsw-alias-label-tertiary); font-size: 12px; line-height: 24px; }

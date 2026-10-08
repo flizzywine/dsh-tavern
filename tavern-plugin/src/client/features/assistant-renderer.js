@@ -597,7 +597,7 @@
 				}
 				return React.createElement(DshUi.Tooltip, { label: busy ? "正在整理画面…" : "为这一轮生成插图", side: "bottom" },
 					React.createElement("button", { type: "button", className: "dsh-tavern-message-fork dsh-tavern-message-illustrate", "aria-label": "为这一轮生成插图", disabled: busy, onClick: generate },
-						React.createElement("svg", { width: 16, height: 16, viewBox: "0 0 16 16", fill: "none", stroke: "currentColor", strokeWidth: 1.3, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true },
+						React.createElement("svg", { width: 16, height: 16, viewBox: "0 0 16 16", fill: "none", stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true },
 							React.createElement("rect", { x: 2, y: 3, width: 12, height: 10, rx: 2 }),
 							React.createElement("circle", { cx: 6, cy: 6.5, r: 1.2 }),
 							React.createElement("path", { d: "M2.5 12 6.5 8.5 9 10.5 11 9 13.5 11" }))));
