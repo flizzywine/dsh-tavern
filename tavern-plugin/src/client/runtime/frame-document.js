@@ -161,12 +161,33 @@
 
 		// @include modules/sidebar-start.js
 
-		// 《道渊》开场白的信息卡跟随鼠标做 3D 倾斜，开始链接在卡底，鼠标一动链接就跟着偏，很难点中。
-		// 按卡内容特征识别（卡名会随版本变），只压掉倾斜，卡文件不动。
-		function tavernCardQuirkStyles(html) {
-			if (html.indexOf('id="info-card"') >= 0 && html.indexOf("switchToSecondGreeting") >= 0 && /rotateX\(\$\{rotateX\}deg\)/.test(html))
-				return '<style data-dsh-tavern-card-quirk>#info-card{transform:none!important}</style>';
-			return "";
+		// 卡片常写“鼠标在哪卡就朝哪倾斜”的 3D 特效，按钮随鼠标跑，很难点中（如《道渊》开场白）。
+		// 丢掉鼠标移动期间脚本写入的小角度 rotateX/rotateY；翻牌等大角度和样式表动画不受影响。
+		function installTavernPointerTiltGuard(win) {
+			var style = win.document && win.document.documentElement && win.document.documentElement.style;
+			if (!style) return;
+			var lastMove = -Infinity;
+			["mousemove", "pointermove"].forEach(function (type) { win.addEventListener(type, function () { lastMove = Date.now(); }, true); });
+			function tilt(value) {
+				if (Date.now() - lastMove > 250) return false;
+				var pattern = /rotate[XY]\(\s*(-?[\d.]+)(?:deg)?\s*\)/g, match, moved = false;
+				while ((match = pattern.exec(String(value || "")))) {
+					var angle = Math.abs(Number(match[1]));
+					if (!(angle <= 30)) return false;
+					if (angle > 0) moved = true;
+				}
+				return moved;
+			}
+			["transform", "webkitTransform"].forEach(function (name) {
+				for (var owner = Object.getPrototypeOf(style); owner; owner = Object.getPrototypeOf(owner)) {
+					var descriptor = Object.getOwnPropertyDescriptor(owner, name);
+					if (!descriptor) continue;
+					if (descriptor.set && descriptor.configurable) Object.defineProperty(owner, name, Object.assign({}, descriptor, { set: function (value) { if (!tilt(value)) descriptor.set.call(this, value); } }));
+					break;
+				}
+			});
+			var declaration = win.CSSStyleDeclaration && win.CSSStyleDeclaration.prototype, setProperty = declaration && declaration.setProperty;
+			if (setProperty) declaration.setProperty = function (name, value) { if (/^(-webkit-)?transform$/i.test(String(name)) && tilt(value)) return; return setProperty.apply(this, arguments); };
 		}
 
 		function buildTavernFrameDocument(input) {
@@ -205,6 +226,7 @@
             const sizingStyle = !sizing ? "" : '<style data-dsh-tavern-sizing>html[data-dsh-tavern-sizing-scroll]{overflow-y:auto!important}html[data-dsh-tavern-sizing-scroll] body{overflow-y:visible!important}' + (sizing.mode === "content" ? '' : 'html:root,html:root body{height:100%!important;min-height:0!important}html:root body{white-space:normal}') + '</style>';
 			const cleanRuntimeReporter = runtimeReporter.replace('addEventListener("load",schedule);schedule();', 'addEventListener("load",schedule);addEventListener("resize",schedule);schedule();').replace("capturedAt:Date.now(),", "capturedAt:Date.now(),layout:window.__dshTavernFrameLayout?window.__dshTavernFrameLayout():null,").replace('dom=copy.innerHTML;', 'Array.from(copy.querySelectorAll("script[data-dsh-tavern-text-colors],script[data-dsh-tavern-touch]")).forEach(function(node){node.remove();});dom=copy.innerHTML;');
 			return '<!doctype html><html><head><meta charset="utf-8">'
+                + '<script data-dsh-tavern-tilt-guard>(' + installTavernPointerTiltGuard.toString() + ')(window);<\/script>'
                 + '<script data-dsh-tavern-crypto>(' + installTavernCryptoSubtlePolyfill.toString() + ')(window);<\/script>'
 				+ '<meta name="viewport" content="width=device-width,initial-scale=1">'
 				+ '<meta name="referrer" content="no-referrer">'
@@ -221,7 +243,6 @@
 				// Viewers without the execution lease still receive live variables. Legacy
 				// status panels read parent.Mvu; expose their Helper API below the executor.
 				+ (!preparationRuntime && input && input.helperContext && input.persistent === true && input.trustedCardMode === true ? '<script data-dsh-tavern-status-host>(function(){const release=(' + installTavernTrustedHostFacade.toString() + ')(window.parent,window,-0.5,["Mvu"]);window.addEventListener("pagehide",release,{once:true});window.addEventListener("unload",release,{once:true});})();<\/script>' : '')
-				+ tavernCardQuirkStyles(html)
 				+ '</head><body class="no-blur">' + (input && input.helperContext ? '<script data-dsh-tavern-legacy-composer>const createTavernFrameLifecycle=' + createTavernFrameLifecycle.toString() + ';(' + installLegacyTavernComposer.toString() + ')();<\/script>' : '') + (preparationRuntime ? preparationRuntime.body : '') + html + sizingRuntime + layoutNormalizer + (input && input.persistent ? "" : textColorRuntime) + reporter + '<script data-dsh-tavern-touch>(' + installTavernFrameTouch.toString() + ')(' + token + ',' + scrollTavernTouchChain.toString() + ');<\/script>' + readyReporter + '</body></html>';
 		}
 
