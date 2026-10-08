@@ -5,6 +5,11 @@ on:
     branches: [main]
   pull_request:
 
+# A newer push supersedes the checks of an older one on the same branch.
+concurrency:
+  group: launcher-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   cross-platform:
     strategy:
@@ -12,6 +17,12 @@ jobs:
       matrix:
         os: [windows-latest, ubuntu-latest, macos-latest]
         node: [22.19.0, 24.18.1]
+        # Hosted macOS runners are scarce and jobs can queue until cancelled.
+        # Node-version differences are covered on Linux and Windows; macOS
+        # only needs one run for its platform paths, on the oldest supported Node.
+        exclude:
+          - os: macos-latest
+            node: 24.18.1
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
