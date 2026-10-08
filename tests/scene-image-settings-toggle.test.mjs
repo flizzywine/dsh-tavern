@@ -55,6 +55,8 @@ test('connection probes use draft credentials, model choices stay editable, and 
   await diagnostic.getByText(/HTTP 404/).waitFor()
   await form.getByRole('button', { name: '获取模型列表', exact: true }).click()
   await form.locator('datalist option[value="new-image"]').waitFor({ state: 'attached' })
+  await form.getByLabel('从获取的 1 个模型中选择').selectOption('new-image')
+  assert.equal(await form.getByLabel('生图模型', { exact: true }).inputValue(), 'new-image')
   const model = form.getByLabel('生图模型', { exact: true })
   await model.fill('custom-image-model')
   assert.equal(await model.inputValue(), 'custom-image-model')
