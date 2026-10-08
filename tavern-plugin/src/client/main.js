@@ -917,6 +917,20 @@ window.__ModuleLoader__.load({
 					label: function () { return "DSH Tavern"; }
 				}, TavernSettingsSection); });
 			}, "dsh-tavern: settings section");
+			ctx.effect(function () {
+				let dispose = null, active = true;
+				// Releases without scene images get no page at all.
+				rpc("getTavernSettings").then(function (result) {
+					if (!active || !(result.releaseCapabilities && result.releaseCapabilities.sceneImages)) return;
+					dispose = slots.inject("settings.section", function () { return slots.register({
+						name: "settings.section",
+						id: "dsh-tavern-scene-images",
+						order: 111,
+						label: function () { return "场景生图"; }
+					}, function () { return React.createElement("div", { className: "dsh-tavern-settings-section dsh-tavern-global-settings" }, React.createElement(SceneImageSettings, null)); }); });
+				}, function () {});
+				return function () { active = false; if (typeof dispose === "function") dispose(); };
+			}, "dsh-tavern: scene image settings section");
 
 			ctx.effect(function () {
 				const dispose = ctx.betterSidebar.registerTab({ id: "dsh-tavern:system-prompts", title: "系统提示词", order: 5, single: true, component: SystemPromptSidebarTab });

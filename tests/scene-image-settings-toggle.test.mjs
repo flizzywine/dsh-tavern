@@ -11,7 +11,7 @@ test('global API form loads while disabled and saves edited credentials without 
   assert.equal(await form.getByRole('switch').count(), 0)
   assert.equal(await form.getByLabel('API 根地址').inputValue(), settings.baseURL)
   await form.getByLabel('API Key', { exact: true }).fill('draft-key')
-  await form.getByRole('button', { name: '保存生图 API 配置', exact: true }).click()
+  await form.getByRole('button', { name: '保存生图配置', exact: true }).click()
   await form.getByRole('status').filter({ hasText: '已保存全局 API 配置' }).waitFor()
   const saved = calls.filter(call => call.method === 'saveSceneImageSettings')
   assert.equal(saved.length, 1)
@@ -25,11 +25,11 @@ test('global API save failure preserves typed credentials and displays the error
     if (method === 'saveSceneImageSettings') return { ok: false, error: '保存失败' }
   } })
   await form.getByLabel('API Key', { exact: true }).fill('draft-key')
-  await form.getByRole('button', { name: '保存生图 API 配置', exact: true }).click()
+  await form.getByRole('button', { name: '保存生图配置', exact: true }).click()
   await form.getByRole('status').filter({ hasText: '保存失败' }).waitFor()
   assert.equal(calls.find(call => call.method === 'saveSceneImageSettings').args.apiKey, 'draft-key')
   assert.equal(await form.getByLabel('API Key', { exact: true }).inputValue(), 'draft-key')
-  assert.equal(await form.getByRole('button', { name: '保存生图 API 配置', exact: true }).isEnabled(), true)
+  assert.equal(await form.getByRole('button', { name: '保存生图配置', exact: true }).isEnabled(), true)
 })
 
 test('connection probes use draft credentials, model choices stay editable, and address edits clear stale results', async t => {

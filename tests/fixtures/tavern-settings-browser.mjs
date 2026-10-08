@@ -38,16 +38,19 @@ export async function openTavernSettings(t, { settings, respond, sceneImages = t
   await page.addScriptTag({ content: script })
   const source = await readFile(new URL('../../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
   await page.addScriptTag({ content: source })
-  await page.evaluate(() => {
+  // Scene image settings live on their own page, registered once the release allows them.
+  const section = sceneImages ? 'dsh-tavern: scene image settings section' : 'dsh-tavern: settings section'
+  await page.evaluate(async section => {
     let Settings
     window.client.apply({
       inject() { return { dispose() {} } },
       get() {}, tavernSessionSignals: { subscribe() { return () => {} } },
-      effect(run, label) { if (label === 'dsh-tavern: settings section') return run() },
+      effect(run, label) { if (label === section) return run() },
       slots: { inject(_name, run) { return run() }, register(_spec, Component) { Settings = Component } }
     })
+    while (!Settings) await new Promise(resolve => setTimeout(resolve, 10))
     modules['react-dom/client'].createRoot(document.querySelector('main')).render(modules.react.createElement(Settings))
-  })
+  }, section)
   const form = page.locator('.dsh-tavern-settings-group').filter({ has: page.getByRole('heading', { name: '生图 API 配置（全局共用）' }) })
   if (sceneImages) await form.getByLabel(/^提供商/).waitFor().catch(async error => { throw Error(error.message + '\n' + JSON.stringify(errors) + '\n' + await page.locator('body').innerText()) })
   t.after(() => { if (errors.length) throw Error(errors.join('\n')) })
