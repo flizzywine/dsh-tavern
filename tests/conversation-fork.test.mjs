@@ -49,3 +49,23 @@ test('分叉运行链路复用 DSH 原生 Session，不在 Tavern 后端重放�
   assert.doesNotMatch(flow, /appendForkedConversation|sessionStore\.flush|ensureSessionStablePrefix/)
   assert.match(flow, /conversationRegistry\.publish\(fork\)/)
 })
+
+test('分叉只保留分叉点及之前的隐藏轮次记录：分叉后续用的原生轮号不会把新回复整轮隐藏', async () => {
+  const { forkConversationChat } = await import('../tavern-plugin/lib/domain/conversation-fork.js')
+  const { foregroundSuppressedTurns } = await import('../tavern-plugin/lib/domain/rollback-surface.js')
+  // Native turns 1–3 existed; turn 3 was rolled back, an aborted regeneration left 5,
+  // and turn 2 was regenerated into synthetic turn 4.
+  const source = { ...sourceChat(), suppressedDshTurns: [3, 4, 5], hiddenDshErrorTurns: [2, 5], regeneratedDshTurns: { 2: 4, 3: 5 } }
+  const fork = forkConversationChat(source, { chatId: 'chat-fork', sessionId: 'session-fork', id: prefix => prefix + '-x', lastNativeTurn: 4 })
+  assert.deepEqual(fork.suppressedDshTurns, [3, 4])
+  assert.deepEqual(fork.hiddenDshErrorTurns, [2])
+  assert.deepEqual(fork.regeneratedDshTurns, { 2: 4 })
+  assert.deepEqual(source.suppressedDshTurns, [3, 4, 5], 'the source game is untouched')
+  let seq = 0
+  const event = (type, data) => ({ seq: seq++, type, data })
+  const reply = turn => event('assistant/message', { turn, message: { role: 'assistant', source: { kind: 'model' }, content: [{ type: 'text', text: 'NEW' }] } })
+  const events = [5].flatMap(turn => [event('turn/start', { turn }), reply(turn), event('turn/end', { turn, reason: { kind: 'completed' } })])
+  assert.equal(foregroundSuppressedTurns(fork, events).includes(5), false, 'the fork\'s next native turn 5 shows its reply')
+  const unpruned = forkConversationChat(source, { chatId: 'chat-old', sessionId: 'session-old', id: prefix => prefix + '-x' })
+  assert.equal(foregroundSuppressedTurns(unpruned, events).includes(5), true, 'without the fork point the stale entry would hide it')
+})

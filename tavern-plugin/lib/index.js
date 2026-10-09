@@ -2278,7 +2278,8 @@ export async function apply(ctx) {
     const target = sessionStore.get(targetId) || agentRegistry.get(targetId)?.session
     const targetEnd = sessionEvents(target).findLast(event => event.type === 'turn/end')
     if (!targetEnd || targetEnd.seq !== atSeq) throw new Error('原生分叉没有停在指定回合，已拒绝绑定游戏状态')
-    const fork = forkConversationChat(state, { chatId: uid('chat'), sessionId: targetId, id: uid, now: Date.now })
+    const lastNativeTurn = Number(sessionEvents(target).findLast(event => event.type === 'turn/start')?.data?.turn) || 0
+    const fork = forkConversationChat(state, { chatId: uid('chat'), sessionId: targetId, id: uid, now: Date.now, lastNativeTurn })
     fork.forkedFrom = { ...fork.forkedFrom, chatId: source.id, sessionId: source.sessionId, storageRevision: source._storageRevision,
       stateChatId: state.id, stateRevision: state._storageRevision, turn, atSeq }
     await conversationRegistry.publish(fork)

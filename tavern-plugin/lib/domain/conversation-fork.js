@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto'
+
 function clone(value) {
   return value === undefined ? undefined : structuredClone(value)
 }
@@ -43,7 +45,18 @@ export function forkConversationChat(source, options = {}) {
   chat.nativeOpeningAppended = true
   chat.nativeCommits = {}
   // The host forks the native event history with its original turn numbers.
-  // Keep its rollback/regeneration projection alongside the copied game state.
+  // Keep its rollback/regeneration projection alongside the copied game state,
+  // but only up to the fork point: the fork numbers its next native turns from
+  // there, and a hidden-turn entry left above it would hide a new reply.
+  const lastNativeTurn = Number(options.lastNativeTurn)
+  if (Number.isSafeInteger(lastNativeTurn) && lastNativeTurn >= 0) {
+    const kept = turn => Number(turn) <= lastNativeTurn
+    if (Array.isArray(chat.suppressedDshTurns)) chat.suppressedDshTurns = chat.suppressedDshTurns.filter(kept)
+    if (Array.isArray(chat.hiddenDshErrorTurns)) chat.hiddenDshErrorTurns = chat.hiddenDshErrorTurns.filter(kept)
+    if (chat.regeneratedDshTurns && typeof chat.regeneratedDshTurns === 'object') {
+      chat.regeneratedDshTurns = Object.fromEntries(Object.entries(chat.regeneratedDshTurns).filter(([from, to]) => kept(from) && kept(to)))
+    }
+  }
   chat.candidates = null
   chat.candidateAgent = null
   chat.foregroundError = null
