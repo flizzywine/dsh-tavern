@@ -1,8 +1,8 @@
 # Tavern 插件接口
 
-接口版本：**1**
+接口版本：**2**
 
-DSH Tavern 自己不做文生图、文生视频、配音，这些交给第三方 **DSH 插件**。Tavern 只提供一个窄接口：让插件知道「这一轮写完了、写了什么」，并把图片或别的内容「挂回这一轮」。
+DSH Tavern 把扩展功能交给第三方 **DSH 插件**：文生图、文生视频、配音，以及记忆、叙事锚点这类需要参与提示词和后台结算的功能。Tavern 提供一层稳定的接口：让插件知道「这一轮写完了、写了什么」，把图片或别的内容「挂回这一轮」，并往正文请求和后台结算里**添加**内容。插件只能添加，不能替换或接管 Tavern 自己的流程；插件出错只会丢掉它自己那一份，游戏照常进行。
 
 ## 三条承诺
 
@@ -32,7 +32,7 @@ Tavern 向 DSH 注册了两个服务，插件用 DSH 自带的 `inject` 拿：
 
 | 服务名 | 在哪边 | 用来做什么 |
 |---|---|---|
-| `tavern` | 宿主（Node） | 监听轮次、读正文与设定、挂媒体、往正文提示词里加段落 |
+| `tavern` | 宿主（Node） | 监听轮次、读正文与设定、挂媒体、往正文请求和后台结算里加内容 |
 | `tavernUi` | 浏览器 | 自定义媒体的显示方式、正文标记、消息按钮、输入框按钮 |
 
 ```js
@@ -40,7 +40,7 @@ export const name = 'my-image-plugin'
 export const inject = ['tavern']
 
 export function apply(ctx) {
-  if (ctx.tavern.apiVersion < 1) return
+  if (ctx.tavern.apiVersion < 2) return  // 用到第 2 版的接口时
   ctx.tavern.onTurnSettled(async (turn) => { /* ... */ })
 }
 ```
@@ -48,7 +48,7 @@ export function apply(ctx) {
 两条规则：
 
 - **用 `ctx.tavern.方法名()` 的形式调用**，不要把方法单独取出来（`const { attach } = ctx.tavern` 会报错）。Tavern 靠调用方式认出是哪个插件，从而让各插件只能看到、修改自己的内容。
-- **注册类的方法（`onTurnSettled`、`promptSection`、`register…`）在插件卸载时自动撤销**，也会返回一个撤销函数，可以提前调用。
+- **注册类的方法（`onTurnSettled`、`promptSection`、`turnSection`、`settlementSection`、`settlementTool`、`worldbookSource`、`register…`）在插件卸载时自动撤销**，也会返回一个撤销函数，可以提前调用。
 
 ## 基本概念
 
@@ -159,6 +159,58 @@ item = {
 
 > DSH 自带的 `systemPrompt.section` 在 Tavern 游玩时不会生效，因为 Tavern 整体接管了正文提示词。请用这个入口。
 
+`promptSection` 适合不常变的规则。每轮都会变的内容（当前状态、记忆摘要）请用下面的 `turnSection`，不会让提示词缓存失效。
+
+### `turnSection({ name, text })`（第 2 版）
+
+往**这一轮**的正文请求里加一段上下文，例如插件维护的【当前状态】或记忆摘要。`text` 可以是字符串，也可以是函数：每轮准备请求时调用一次，收到 `{ gameId, turn, input }`（`input` 是玩家这一轮的输入原文），返回空字符串就不加。
+
+- 段落放在 Tavern 自己的本轮上下文（世界书、现场状态、Guide 等）之后，多个插件按插件名排序。单段最多 8000 字。
+- 每轮只算一次，结果随这一轮保存；同一轮重试时沿用，不会再次调用。
+- 只进入游玩时的正文请求；使用 SillyTavern 兼容请求模式时不生效。
+- 函数出错或 30 秒没有返回时，这一段被跳过，正文照常生成。
+
+### `worldbookSource({ name, entries })`（第 2 版）
+
+每轮为正文请求补充世界书条目，和 Tavern 召回的世界书放在一起。`entries` 是函数，收到 `{ gameId, turn, input }`，返回条目数组：
+
+```js
+ctx.tavern.worldbookSource({ name: 'side-quests', entries: async ({ gameId, input }) => [
+  { title: '钟楼支线', content: '……' },
+] })
+```
+
+- 要不要加入某条，由插件自己判断（可以按 `input` 匹配关键词）；Tavern 不再按关键词二次筛选。
+- 每个来源每轮最多 20 条，每条最多 4000 字；`title` 可省略。
+- 其余规则同 `turnSection`：每轮算一次、出错跳过、兼容请求模式不生效。
+
+### `settlementSection({ name, text })`（第 2 版）
+
+往每轮的**后台结算**任务里加一段说明，例如「本轮结束时用 `anchor_submit` 记录叙事锚点」。`text` 是字符串或函数，函数收到 `{ gameId, turn }`。出错时跳过。
+
+### `settlementTool({ name, description, parameters, execute })`（第 2 版）
+
+给后台结算的模型一个工具，和 Tavern 自己的结算工具同级。
+
+```js
+ctx.tavern.settlementTool({
+  name: 'anchor_submit',
+  description: '记录本轮的叙事锚点',
+  parameters: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] },
+  async execute({ gameId, turn, arguments: args }) {
+    await save(gameId, turn, args.text)
+    return { ok: true }
+  },
+})
+```
+
+- `name` 用小写字母、数字和下划线，以字母开头，3–48 个字符；不能和 Tavern 自己的工具或其他插件的工具重名。
+- `execute` 的返回值交给模型：字符串原样给，其他值转成 JSON。抛错或 30 秒没有返回时，模型收到一条失败说明，本轮结算照常进行。
+- 每轮结算里，所有插件工具合计最多调用 8 次；插件工具要在模型提交本轮结算之前调用，提交之后再调用会被拒绝。
+- 只在后台结算任务里可调用，候选、生图等其他后台任务里调用会被拒绝。
+- 插件工具跟着 Tavern 自己的结算一起运行：玩家关掉了所有后台结算项时，这一轮不会运行结算，插件工具也就不会被调用。需要每轮必定执行的逻辑，请放在 `onTurnSettled` 里。
+- 工具列表在后台会话建立时固定（它位于请求的缓存前缀里）。插件在启动时注册即可；运行中途才注册的工具，要等下一个后台会话才生效。
+
 ## 浏览器侧：`tavernUi`
 
 浏览器侧的代码运行在 DSH 页面里，使用 DSH 提供的 `react`。插件的 `render` 函数返回 React 元素；出错时只影响这个元素，正文其余部分照常显示。
@@ -206,6 +258,7 @@ context = { gameId, turn, busy }
 ## 不提供的
 
 - 修改正文、修改变量、调用 Tavern 内部的 Agent。
+- 替换或接管 Tavern 自己的流程（结算、提示词组装、世界书召回、压缩）。插件只能往里面添加内容。
 - 读写 Tavern 数据目录、人物卡文件。
 - 插件设置页：用 DSH 自己的设置区（`settings.section`）。
 - 模型调用、凭据、附件存储：直接用 DSH 的 `llm`、`credentials`、`attachments` 服务。
@@ -225,3 +278,4 @@ Tavern 不提前设计接口，而是根据插件实际用到的内容补接口�
 | 版本 | 变化 |
 |---|---|
 | 1 | 首个版本。 |
+| 2 | 新增 `turnSection`、`worldbookSource`、`settlementSection`、`settlementTool`：插件可以往每轮正文请求和后台结算里添加内容。第 1 版接口不变。 |

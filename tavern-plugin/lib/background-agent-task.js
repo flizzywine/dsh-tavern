@@ -112,6 +112,12 @@ export function createBackgroundAgentTask(options) {
     stableNames.add(tool.name)
     stableBackgroundTools.push(tool)
   }
+  // Seam to the plugin layer (plugin-api.js): tools and notes plugins add to settlement.
+  const pluginSettlement = () => typeof options.pluginSettlement === 'function' ? options.pluginSettlement() : null
+  function pluginTools() {
+    const tools = pluginSettlement()?.tools() || []
+    return tools.filter(tool => tool && !stableNames.has(tool.name) && !sharedByName.has(tool.name))
+  }
   function completedBoundary(events) {
     for (let index = (events || []).length - 1; index >= 0; index--) {
       const event = events[index]
@@ -201,7 +207,9 @@ export function createBackgroundAgentTask(options) {
         if (state.input.task === 'image' || state.stableToolDisposers) return
         // Every task sharing this Session sees one fixed tool list: tool definitions sit in the
         // cached request prefix. What a task may call is enforced when the tool executes.
-        state.stableToolDisposers = stableBackgroundTools.map(function (tool) {
+        // Plugin tools join the list when the Session is set up; a plugin loaded later
+        // reaches Sessions set up after it.
+        state.stableToolDisposers = stableBackgroundTools.concat(pluginTools()).map(function (tool) {
           return childCtx.tools.register({
             name: tool.name,
             description: tool.description,
@@ -264,6 +272,12 @@ export function createBackgroundAgentTask(options) {
           const shared = (input.task !== 'worldbook-filter' || registeredShared?.allowDuringWorldbookFilter === true) &&
             (input.task !== 'character-design' || registeredShared?.allowDuringCharacterDesign === true) ? registeredShared : undefined
           const current = allowed.get(tool.name) || (shared && shared.tool)
+          if (current === undefined && input.task === 'settlement' && state.pluginCall && pluginSettlement()?.has(tool.name)) {
+            if (typeof input.stopToolsWhen === 'function' && input.stopToolsWhen()) {
+              return JSON.stringify({ ok: false, retryable: false, message: '当前任务已经提交完成，请结束本轮。插件工具请在提交结算之前调用。' })
+            }
+            return await state.pluginCall(tool.name, args)
+          }
           if (current === undefined) {
             return JSON.stringify({
               ok: false,
@@ -370,6 +384,9 @@ export function createBackgroundAgentTask(options) {
     state.progress=progress
     runtimeInput.signal=input.signal ? AbortSignal.any([input.signal,progress.signal]) : progress.signal
     const removeTaskTools = installTaskTools(state, runtimeInput, agent.session)
+    const plugins = input.task === 'settlement' ? pluginSettlement() : null
+    const pluginContext = { gameId: str(input.sessionId), turn: Math.max(0, Number(input.turn) || 0) }
+    state.pluginCall = plugins ? plugins.calls(pluginContext) : null
     const cancel = () => progress.cancel()
     input.signal?.addEventListener('abort', cancel, { once: true })
 
@@ -405,8 +422,13 @@ export function createBackgroundAgentTask(options) {
         ? worldbookSnapshot(agent.session, turnWorldbook) : null
       const systemUpdate = input.task === 'candidate' && typeof input.systemPromptText === 'string'
         ? cardSystemPromptSnapshot(agent.session, input.systemPromptText) : null
+      const pluginNotes = plugins ? await plugins.sections(pluginContext) : []
+      const pluginToolNames = plugins ? plugins.tools().map(tool => tool.name) : []
+      const pluginText = pluginNotes.length || pluginToolNames.length ? ['【插件附加的结算任务】',
+        ...(pluginToolNames.length ? ['可用插件工具：' + pluginToolNames.join('、') + '。需要时在提交本轮结算之前调用；插件工具失败不影响本轮结算。'] : []),
+        ...pluginNotes.map(note => note.text)].join('\n\n') : ''
       const taskText = [foregroundReads, snapshot?.rendered, systemUpdate?.rendered,
-        backgroundPrompt(filterContext?.messages || input.messages, scriptContext?.turnContext ?? input.turnContext, input.task, input.system, input)].filter(Boolean).join('\n\n')
+        backgroundPrompt(filterContext?.messages || input.messages, scriptContext?.turnContext ?? input.turnContext, input.task, input.system, input), pluginText].filter(Boolean).join('\n\n')
       agent.followup({
         id: randomUUID(),
         role: 'user',
@@ -438,6 +460,7 @@ export function createBackgroundAgentTask(options) {
       progress.dispose()
       state.progress=null
       input.signal?.removeEventListener('abort', cancel)
+      state.pluginCall = null
       await removeTaskTools()
     }
   }

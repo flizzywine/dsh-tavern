@@ -136,6 +136,7 @@ function harness(mode, options = {}) {
     } : undefined,
     resolvePresetRegexScripts: options.resolvePresetRegexScripts,
     projectUserTemplate: options.projectUserTemplate,
+    pluginTurnContext: options.pluginTurnContext,
     projectReply: projectReplyLayers,
     projectWorldBookTemplates: options.projectWorldBookTemplates,
     projectForegroundWorldbook: options.projectForegroundWorldbook,
@@ -313,6 +314,22 @@ test('玩家模板先于本轮召回，重试不重复执行；提交后只产�
     assert.equal(run.chat().messages[0].variables[0].place,'少林')
     assert.equal(run.chat().promptTemplateInput,undefined)
   }
+})
+
+test('插件的本轮上下文和世界书条目进入正文帧，插件层出错时本轮照常', async () => {
+  const seen = []
+  const run = harness('story', { pluginTurnContext: async context => { seen.push(context); return [
+    { name: 'tavern-plugin:mem:state', owner: 'mem', text: '【当前状态】雨夜' },
+    { name: 'tavern-plugin:mem:wb', owner: 'mem', worldbook: true, text: '[支线] 钟楼' }] } })
+  const prepared = await run.orchestrator.prepare({ sessionId: 'session-1', turn: 2, userText: '推门' })
+  assert.deepEqual(seen, [{ gameId: 'session-1', turn: 2, input: '推门' }])
+  const plugin = prepared.frame.contributions.filter(item => item.source.stage === 'plugin')
+  assert.deepEqual(plugin.map(item => [item.kind, item.text, item.source.plugin]), [
+    ['foreground.current-state', '【当前状态】雨夜', 'mem'], ['foreground.active-worldbook', '[支线] 钟楼', 'mem']])
+  const broken = harness('story', { pluginTurnContext: async () => { throw new Error('插件层故障') } })
+  const fine = await broken.orchestrator.prepare({ sessionId: 'session-1', turn: 2, userText: '推门' })
+  assert.equal(fine.ready, true)
+  assert.equal(fine.frame.contributions.some(item => item.source.stage === 'plugin'), false)
 })
 
 test('预设的「只发给模型」输入正则只进本轮请求，不写进保存的玩家消息；永久规则照常保存', async () => {

@@ -159,7 +159,7 @@ function presetMiddleInstructions(snapshot) {
   })
 }
 
-export function foregroundFrameInputs(plan, sourceText, projectedText, presetSnapshot, chat) {
+export function foregroundFrameInputs(plan, sourceText, projectedText, presetSnapshot, chat, pluginSections = []) {
   const inputs = [{
     kind: 'foreground.user-input',
     sourceText,
@@ -176,6 +176,16 @@ export function foregroundFrameInputs(plan, sourceText, projectedText, presetSna
       text: str(section && section.text),
       required: section && section.required === true,
       source: { stage: 'context-plan', sectionKind, index }
+    })
+  }
+  // Plugin contributions follow Tavern's own context: worldbook entries beside the
+  // recalled worldbook, other sections as current-turn state.
+  for (const section of Array.isArray(pluginSections) ? pluginSections : []) {
+    inputs.push({
+      kind: section.worldbook ? 'foreground.active-worldbook' : 'foreground.current-state',
+      text: str(section.text),
+      required: false,
+      source: { stage: 'plugin', plugin: str(section.owner), name: str(section.name) }
     })
   }
   if (usesOfficialMvu(chat)) {
@@ -402,6 +412,9 @@ export function createTurnOrchestrator(options) {
     }
     const sceneWorldbook = typeof options.captureSceneWorldbook === 'function' ? await options.captureSceneWorldbook(chat, card) : null
     const plan = await planner.plan({ purpose: 'body', card, chat: templateWorldBook?.macroState ? { ...chat, macroState: templateWorldBook.macroState } : chat, userText: runtimeUserText, sessionId: input.sessionId, nativeTurn: turn, scriptReference, worldBookContext })
+    // Seam to the plugin layer; it never throws and drops a failing plugin's part.
+    const pluginSections = typeof options.pluginTurnContext === 'function'
+      ? await options.pluginTurnContext({ gameId: input.sessionId, turn, input: userText }).catch(() => []) : []
     const source = frameSource(chat, card, foregroundOperation)
     source.card.systemPromptText = plan.systemPromptText
     source.worldBook.scriptPromptRefs = Array.isArray(scriptWorldBook && scriptWorldBook.refs) ? clone(scriptWorldBook.refs) : []
@@ -416,7 +429,7 @@ export function createTurnOrchestrator(options) {
       turn,
       inputs: foregroundFrameInputs(plan, userText, runtimeUserText,
         Object.hasOwn(input, 'runtimePresetSnapshot') ? input.runtimePresetSnapshot
-          : resolveRuntimePresetMacros(chat.runtimePresetSnapshot, { charName: card.name, macroState: chat.macroState }).snapshot, chat),
+          : resolveRuntimePresetMacros(chat.runtimePresetSnapshot, { charName: card.name, macroState: chat.macroState }).snapshot, chat, pluginSections),
       source: { ...source, ...(sceneWorldbook ? { sceneWorldbook } : {}) }
     }
     let frame = frameBuilder.build(frameInput)
