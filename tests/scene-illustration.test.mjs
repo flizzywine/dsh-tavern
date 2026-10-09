@@ -755,6 +755,7 @@ test('a hand-edited prompt repaints without the Agent and leaves the turn plan a
   await fx.service.start('parent', 2, key)
   const first = await until(async () => { const state = await fx.service.status('parent', 2); return state.status === 'succeeded' && state })
   assert.match(first.versions[0].planPrompt, /^A woman standing/)
+  assert.match(first.versions[0].style, /^自动（本局/)
   await assert.rejects(fx.service.start('parent', 2, key, { kind: 'prompt', versionId: first.versions[0].id, prompt: '  ' }), /提示词须为/)
   await fx.service.start('parent', 2, key, { kind: 'prompt', versionId: first.versions[0].id, prompt: 'dutch angle, she slams the window shut' })
   const second = await until(async () => { const state = await fx.service.status('parent', 2); return state.status === 'succeeded' && state.versions.length === 2 && state })

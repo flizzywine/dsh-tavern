@@ -11843,7 +11843,7 @@ function bindTavernFontZoom(node, win) {
 			const summary = document.createElement("summary");
 			summary.textContent = "画面方案";
 			details.append(summary);
-			[["画面", version.description], ["时刻", version.moment === "earlier" ? "本轮中间的瞬间" : "本轮结尾"], ["构图", version.composition], ["提示词", version.prompt]].forEach(function (row) {
+			[["画面", version.description], ["时刻", version.moment === "earlier" ? "本轮中间的瞬间" : "本轮结尾"], ["构图", version.composition], ["画风", version.style], ["提示词", version.prompt]].forEach(function (row) {
 				if (!row[1]) return;
 				const label = document.createElement("dt");
 				label.textContent = row[0];

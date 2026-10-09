@@ -8,7 +8,7 @@ import { createScenePlans, SCENE_PLAN_TOOL } from './scene-plan.js'
 import { SCENE_DRAFT_TOOLS, SCENE_PLAN_MAX_FAILURES, updateSceneDraft, assembleSceneDraft, sceneDraftSummary, readImageToolArguments } from './scene-plan-draft.js'
 import { readScenePlanInstruction, readSceneAdjustmentInstruction } from '../scene-image-prompts.js'
 import { imageAdjustmentInput, applyImageAdjustment, legacyImagePlan, SCENE_ADJUSTMENT_TOOL } from './scene-image-adjustment.js'
-import { createSceneImageStyles, applyImageStyle, composeSceneImagePrompt, gameStylePending } from './scene-image-style.js'
+import { createSceneImageStyles, applyImageStyle, composeSceneImagePrompt, gameStylePending, SCENE_STYLE_PRESETS } from './scene-image-style.js'
 import { createPendingSceneImages } from './scene-image-pending.js'
 import { createSceneImageQueue } from './scene-image-queue.js'
 import { createSceneReferences } from './scene-references.js'
@@ -170,10 +170,18 @@ export function createSceneIllustrations(deps) {
     }
     return record
   }
+  // Which style a picture was drawn in, readable: the preset (or whether 'auto' had fixed this game's style) and its tags.
+  function styleLabel(plan) {
+    if (plan?.styleOverride) return '单图风格：' + plan.styleOverride.tags
+    const selection = plan?.style?.selection
+    if (!selection) return ''
+    const name = selection.preset === 'auto' ? (selection.game ? '自动（本局已定）' : '自动（本局尚未定）') : SCENE_STYLE_PRESETS.find(item => item.id === selection.preset)?.label || selection.preset
+    return plan.style.tags ? name + '：' + plan.style.tags : name
+  }
   function present(target, record) {
     const { attachment, savedAttachment, diagnostics, diagnosticContext, providerRequests, referenceImages, plan, requests, versions, deletedVersions, ownerId, ownerPid, ...publicRecord } = record || {}
     const configuration = value => value?.workflow ? { ...value, workflow: { name: value.workflow.name, digest: value.workflow.digest } } : value
-    return { key: target.key, turn: target.turn, status: 'idle', ...publicRecord, hasDeletedImages: Boolean(deletedVersions?.length), ...(publicRecord.configuration ? { configuration: configuration(publicRecord.configuration) } : {}), versions: versionsOf(record).map(({ attachment, plan, ...item }) => ({ ...item, configuration: configuration(item.configuration), description: plan?.description || '', planPrompt: plan?.prompt || '', profile: plan?.profile || '', anchor: plan?.anchor || '', moment: plan?.moment || 'end', composition: plan?.scene?.composition?.text || '',
+    return { key: target.key, turn: target.turn, status: 'idle', ...publicRecord, hasDeletedImages: Boolean(deletedVersions?.length), ...(publicRecord.configuration ? { configuration: configuration(publicRecord.configuration) } : {}), versions: versionsOf(record).map(({ attachment, plan, ...item }) => ({ ...item, configuration: configuration(item.configuration), description: plan?.description || '', planPrompt: plan?.prompt || '', style: styleLabel(plan), profile: plan?.profile || '', anchor: plan?.anchor || '', moment: plan?.moment || 'end', composition: plan?.scene?.composition?.text || '',
       referencePeople: imageReferencePeople({ plan }),
       referenceSingle: plan?.subjects?.length === 1 && imageReferencePeople({ plan }).length === 1,
       referencePerson: plan?.people?.length === 1 && plan.subjects?.length === 1 && imageReferencePeople({ plan }).length === 1 ? plan.people[0].name : '' })) }
