@@ -169,6 +169,16 @@ export function foregroundFrameInputs(plan, sourceText, projectedText, presetSna
   const sections = Array.isArray(plan && plan.sections) && plan.sections.length > 0
     ? plan.sections
     : [{ kind: 'legacy-plan-text', required: true, text: str(plan && plan.text) }]
+  const plugins = Array.isArray(pluginSections) ? pluginSections : []
+  const pluginInput = section => ({
+    kind: section.worldbook ? 'foreground.active-worldbook' : 'foreground.current-state',
+    text: str(section.text),
+    required: false,
+    source: { stage: 'plugin', plugin: str(section.owner), name: str(section.name) }
+  })
+  // Plugin contributions sit before or after Tavern's own context: worldbook entries beside
+  // the recalled worldbook, other sections as current-turn state.
+  for (const section of plugins.filter(item => item.position === 'before')) inputs.push(pluginInput(section))
   for (const [index, section] of sections.entries()) {
     const sectionKind = str(section && section.kind)
     inputs.push({
@@ -178,16 +188,7 @@ export function foregroundFrameInputs(plan, sourceText, projectedText, presetSna
       source: { stage: 'context-plan', sectionKind, index }
     })
   }
-  // Plugin contributions follow Tavern's own context: worldbook entries beside the
-  // recalled worldbook, other sections as current-turn state.
-  for (const section of Array.isArray(pluginSections) ? pluginSections : []) {
-    inputs.push({
-      kind: section.worldbook ? 'foreground.active-worldbook' : 'foreground.current-state',
-      text: str(section.text),
-      required: false,
-      source: { stage: 'plugin', plugin: str(section.owner), name: str(section.name) }
-    })
-  }
+  for (const section of plugins.filter(item => item.position !== 'before')) inputs.push(pluginInput(section))
   if (usesOfficialMvu(chat)) {
     inputs.push({
       kind: 'foreground.writing-rules',

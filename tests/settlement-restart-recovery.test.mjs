@@ -75,7 +75,8 @@ async function harness({ beginRunning = true, mvu = true } = {}) {
     agentRegistry: { get: () => undefined }, sessionStore: { get: () => undefined },
     LEDGER_SUBMIT_TOOL, LEDGER_RULES, ledgerContext, createLedgerSubmission,
     conversationRegistry: { list: async () => [] }, ctx: { effect() {} },
-    mvuSettlement: { settleVariables: async () => ({ receipt: { version: 1, status: 'unchanged', changes: [] } }) }
+    mvuSettlement: { settleVariables: async () => ({ receipt: { version: 1, status: 'unchanged', changes: [] } }) },
+    pluginApi: { replaceSettlement: async () => null }
   })
   sandbox.mvuReceiptsOf = createSessionStateView({activity:chat=>tasks.activity(chat),evidence:()=>({})}).receipts
   vm.runInContext(section('  function pendingMvuTarget(', '  async function mvuUpdateRules('), sandbox)
@@ -183,6 +184,27 @@ test('non-MVU settlement binds session before first response so interruption can
   const next = await restarted.begin(h.get(), 'candidate');
   assert.equal(next.participantRequest.sessionId, 'background-first-interrupted');
 });
+
+test('插件替换结算：采用插件交回的姿势，不再运行 Tavern 自己的后台结算；插件退回时照常运行', async () => {
+  const h = await harness({ beginRunning: false, mvu: false })
+  const applied = [], requests = []
+  let runs = 0
+  h.sandbox.applySettlement = (_draft, result) => { applied.push(result); return { postureUpdated: Boolean(result.posture) } }
+  h.sandbox.backgroundAgentRunner.run = async input => { runs++; await input.onToolCall({ name: 'posture_submit', arguments: { posture: 'Tavern 的姿势' } }); return { text: '' } }
+  h.sandbox.pluginApi.replaceSettlement = async input => { requests.push(input); return { owner: 'anchor', posture: '插件的姿势' } }
+  await h.sandbox.queueSettlement('chat')
+  assert.equal(runs, 0)
+  assert.deepEqual(JSON.parse(JSON.stringify(applied)), [{ posture: '插件的姿势' }])
+  assert.deepEqual(JSON.parse(JSON.stringify([requests[0].gameId, requests[0].turn, requests[0].text, requests[0].tasks])), ['session', 2, '门开了', { posture: true }])
+  assert.equal(h.get().settleStatus, 'done')
+
+  const fallback = await harness({ beginRunning: false, mvu: false })
+  const fellBack = []
+  fallback.sandbox.applySettlement = (_draft, result) => { fellBack.push(result); return { postureUpdated: true } }
+  fallback.sandbox.backgroundAgentRunner.run = async input => { await input.onToolCall({ name: 'posture_submit', arguments: { posture: 'Tavern 的姿势' } }); return { text: '' } }
+  await fallback.sandbox.queueSettlement('chat')
+  assert.deepEqual(JSON.parse(JSON.stringify(fellBack)), [{ posture: 'Tavern 的姿势' }], 'no replacement: Tavern settles as before')
+})
 
 test('MVU 执行器失联保留持久任务，恢复后自动续办且不重开模型', async () => {
   const run = await harness({ beginRunning: false })

@@ -858,6 +858,48 @@
                 error ? h("p", { role: "alert" }, "保存失败：" + error) : null);
         }
 
+        // Plugins active in this game (docs/plugin-design.md §5): what each uses, a switch per game,
+        // the choice when several plugins replace one stage, and their recent errors.
+        function TavernConversationPlugins(props) {
+            const h = React.createElement;
+            const [data, setData] = React.useState(null);
+            const [busy, setBusy] = React.useState(false);
+            const [error, setError] = React.useState("");
+            const load = React.useCallback(async function () {
+                try { setData((await rpc("listGamePlugins", {}, props.sessionId)).plugins); setError(""); }
+                catch (err) { setError(String(err.message || err)); }
+            }, [props.sessionId]);
+            React.useEffect(function () { void load(); }, [load]);
+            async function change(payload) {
+                setBusy(true); setError("");
+                try { setData((await rpc("setGamePlugin", payload, props.sessionId)).plugins); }
+                catch (err) { setError(String(err.message || err)); }
+                finally { setBusy(false); }
+            }
+            if (!data || (!data.plugins.length && !data.errors.length)) return error ? h("p", { role: "alert" }, "插件信息读取失败：" + error) : null;
+            const usesText = uses => uses.map(item => item.stage + "·" + item.mode).join("、");
+            return h("section", { className: "dsh-local-section dsh-tavern-game-plugins" }, h("h3", null, "插件"),
+                h("p", { className: "dsh-local-help" }, "本局用到的第三方插件。关掉后，它不再参与本局的提示词、结算和通知；已经挂上的内容保留。"),
+                data.plugins.map(plugin => h("label", { key: plugin.name, className: "dsh-tavern-background-task" },
+                    h("span", null, plugin.name, h("span", { className: "dsh-tavern-settings-desc" }, usesText(plugin.uses))),
+                    h("input", { type: "checkbox", role: "switch", "aria-label": "在本局启用插件 " + plugin.name, checked: plugin.enabled, disabled: busy, onChange: event => change({ name: plugin.name, enabled: event.target.checked }) }))),
+                Object.entries(data.replacements).map(([stage, info]) => h("div", { key: stage, className: "dsh-local-field" },
+                    h("label", null, info.label + "由谁负责", h("select", { className: "dsh-tavern-settings-select", "aria-label": info.label + "由谁负责", disabled: busy,
+                        value: info.chosen === null ? "__default" : info.chosen, onChange: event => change({ replace: { stage, plugin: event.target.value === "__default" ? null : event.target.value } }) },
+                        h("option", { value: "__default" }, "默认（只有一个插件时用它）"),
+                        h("option", { value: "" }, "Tavern 自己的" + info.label),
+                        info.candidates.map(name => h("option", { key: name, value: name }, "插件 " + name)))),
+                    h("p", { className: info.conflict ? "dsh-local-warning" : "dsh-local-help" }, info.conflict
+                        ? "有多个插件都要接管" + info.label + "，请在这里选一个；选好之前用 Tavern 自己的" + info.label + "。"
+                        : "当前：" + (info.active ? "插件 " + info.active : "Tavern 自己的" + info.label) + "。插件出错时自动改用 Tavern 自己的。"))),
+                data.errors.length ? h("details", { className: "dsh-tavern-game-plugin-errors" },
+                    h("summary", null, "最近的插件错误（" + data.errors.length + "）"),
+                    data.errors.map((item, index) => h("p", { key: index, className: "dsh-tavern-settings-desc" },
+                        new Date(item.at).toLocaleTimeString() + " · " + item.plugin + " · " + item.stage + "：" + item.message)),
+                    h("button", { type: "button", className: "dsh-tavern-btn", onClick: load }, "刷新")) : null,
+                error ? h("p", { role: "alert" }, "保存失败：" + error) : null);
+        }
+
         function TavernConversationSettingsTab(props) {
             const h = React.createElement;
             const owner = props.sessions.subagentAddress(props.sessionId)?.parentSessionId || props.sessionId;
@@ -872,7 +914,8 @@
                         h(TavernConversationPreset, { key: owner + ":preset", sessionId: owner }),
                         h(UserPreferenceProfileTab, { key: owner + ":profile", scope: { sessionId: owner }, conversationOnly: true }),
                         h("p", { className: "dsh-local-warning" }, "切换预设或长期偏好会使提示词缓存失效，首次请求会增加耗时和费用。")),
-                    h(TavernConversationBackgroundModel, { key: owner, sessionId: owner }), h(TavernConversationWritingSkills, { key: owner + ":skills", sessionId: owner })) : h("p", null, "请选择一个游玩对话。")));
+                    h(TavernConversationBackgroundModel, { key: owner, sessionId: owner }), h(TavernConversationWritingSkills, { key: owner + ":skills", sessionId: owner }),
+                    h(TavernConversationPlugins, { key: owner + ":plugins", sessionId: owner })) : h("p", null, "请选择一个游玩对话。")));
         }
 
         function TavernConversationSettingsAction(props) {

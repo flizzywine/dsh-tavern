@@ -14,12 +14,12 @@ function setup() {
     deferSessionDeletion: async items => { events.push('defer:' + items.map(item => item.path).join(',')) }
   }
   const backgroundAgentRunner = { releaseFor: async id => { events.push('release:' + id) } }
-  const api = new Function('readChat', 'str', 'storyTimeline', 'agentRegistry', 'cancelSettlement', 'conversationRegistry', 'deletedChatIds', 'gameFootprint', 'backgroundAgentRunner', 'deletedSessionIds', 'apiDiagnostics', 'pluginMedia', 'pluginApi', section + '; return { deleteChats };')(
+  const api = new Function('readChat', 'str', 'storyTimeline', 'agentRegistry', 'cancelSettlement', 'conversationRegistry', 'deletedChatIds', 'gameFootprint', 'backgroundAgentRunner', 'deletedSessionIds', 'apiDiagnostics', 'pluginMedia', 'pluginData', 'pluginApi', section + '; return { deleteChats };')(
     async id => ({ id, sessionId: id }), String,
     { inspect: () => ({ participants: { worker: { sessionId: 'background' } } }) }, workers,
     async id => { events.push('settlement:' + id) },
     { remove: async id => { events.push('remove:' + id); if (id === 'bad') throw new Error('disk error') } }, deletedChatIds, gameFootprint, backgroundAgentRunner, new Set(), { forget: async id => { events.push('forget:' + id) } },
-    { removeChat: async id => { events.push('media:' + id) } }, { gameRemoved: id => events.push('removed:' + id) })
+    { removeChat: async id => { events.push('media:' + id) } }, { removeChat: async () => {} }, { gameRemoved: id => events.push('removed:' + id) })
   return { ...api, events, deletedChatIds }
 }
 test('batch deletion stops foreground and background before removing, deduplicates, and continues after a failure', async () => {

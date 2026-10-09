@@ -180,6 +180,7 @@ test('tavern 服务 v2：本轮上下文、世界书来源、结算说明与结�
     tavern = ctx.tavern
     ctx.tavern.turnSection({ name: 'state', text: ({ gameId, turn, input }) => '【当前状态】' + gameId + '/' + turn + '/' + input })
     ctx.tavern.turnSection({ name: 'broken', text: () => { throw new Error('boom') } })
+    assert.throws(() => ctx.tavern.turnSection({ name: 'odd', text: 'x', position: 'middle' }), /position/)
     ctx.tavern.worldbookSource({ name: 'session', entries: ({ input }) => [{ title: '支线', content: '与' + input + '有关的线索' }, { content: '  ' }] })
     ctx.tavern.settlementSection({ name: 'anchor', text: ({ turn }) => '第 ' + turn + ' 轮请记录叙事锚点' })
     ctx.tavern.settlementTool({ name: 'anchor_submit', description: '提交叙事锚点', parameters: { type: 'object', properties: { text: { type: 'string' } } },
@@ -273,6 +274,63 @@ test('分叉：可见的插件数据与媒体按新游戏的正文版本带过�
   assert.equal(forkedMedia[0].key, 'f2')
   assert.match(forkedMedia[0].id, /^Z2FtZS0y\./, 'new ids belong to the new game')
   assert.equal((await media.list({ chatId: 'chat-1' })).length, 1, 'the source game keeps its own')
+})
+
+test('本局插件面板：列出用途，按局关闭后不再参与提示词、结算与通知，错误留给面板', { skip: !cordis }, async t => {
+  const h = await harness(t, { data: createPluginData({ store: memoryStore() }) })
+  const seen = []
+  await h.root.plugin({ name: 'mem', inject: ['tavern'], apply(ctx) {
+    ctx.tavern.onTurnSettled(turn => seen.push(turn.turn))
+    ctx.tavern.turnSection({ name: 'state', text: '【状态】' })
+    ctx.tavern.settlementTool({ name: 'mem_save', description: '保存', parameters: { type: 'object' }, execute: () => 'ok' })
+  } })
+  await h.root.plugin({ name: 'flaky', inject: ['tavern'], apply(ctx) { ctx.tavern.turnSection({ name: 'x', text: () => { throw new Error('坏了') } }) } })
+  await tick()
+  const panel = await h.api.gamePlugins('game-1')
+  assert.deepEqual(panel.plugins.map(plugin => [plugin.name, plugin.enabled, plugin.uses.map(use => use.stage + use.mode).sort()]),
+    [['flaky', true, ['上下文添加']], ['mem', true, ['上下文添加', '生命周期观察', '结算添加']]])
+  assert.equal((await h.api.turnContext({ gameId: 'game-1', turn: 3, input: '' })).length, 1)
+  assert.deepEqual((await h.api.gamePlugins('game-1')).errors.map(item => [item.plugin, item.stage, item.message]), [['flaky', '本轮上下文段落', '坏了']])
+
+  await h.api.setGamePlugin('game-1', { name: 'mem', enabled: false })
+  assert.deepEqual(await h.api.turnContext({ gameId: 'game-1', turn: 3, input: '' }), [])
+  assert.match(JSON.parse(await h.api.settlement.calls({ gameId: 'game-1', turn: 3 })('mem_save', {})).error, /关闭了插件 mem/)
+  await h.api.turnSettled('game-1')
+  await tick()
+  assert.deepEqual(seen, [], 'a plugin switched off in this game is not notified')
+  assert.equal((await h.api.gamePlugins('game-1')).plugins.find(plugin => plugin.name === 'mem').enabled, false)
+  await h.api.setGamePlugin('game-1', { name: 'mem', enabled: true })
+  assert.equal((await h.api.turnContext({ gameId: 'game-1', turn: 3, input: '' })).length, 1)
+})
+
+test('结算替换：唯一插件自动生效，多个时须玩家选择，返回不合格或出错时退回 Tavern 自己的结算', { skip: !cordis }, async t => {
+  const h = await harness(t, { data: createPluginData({ store: memoryStore() }) })
+  const inputs = []
+  let answer = { posture: '  她坐在窗边  ' }
+  await h.root.plugin({ name: 'anchor', inject: ['tavern'], apply(ctx) { ctx.tavern.replaceSettlement({ settle: async input => { inputs.push(input); return typeof answer === 'function' ? answer() : answer } }) } })
+  await tick()
+  const settle = (tasks = { posture: true }) => h.api.replaceSettlement({ gameId: 'game-1', turn: 3, text: '她推开门。', posture: '站着', tasks })
+  assert.deepEqual(await settle(), { owner: 'anchor', posture: '她坐在窗边' })
+  assert.deepEqual(inputs[0], { gameId: 'game-1', turn: 3, text: '她推开门。', posture: '站着', tasks: { posture: true } })
+  answer = {}
+  assert.equal(await settle(), null, 'posture is required while posture settlement is on')
+  assert.deepEqual(await settle({ posture: false }), { owner: 'anchor', posture: '' })
+  answer = () => { throw new Error('模型超时') }
+  assert.equal(await settle(), null)
+  assert.match((await h.api.gamePlugins('game-1')).errors[0].message, /模型超时/)
+  answer = { posture: '躺下' }
+
+  await h.root.plugin({ name: 'rival', inject: ['tavern'], apply(ctx) { ctx.tavern.replaceSettlement({ settle: async () => ({ posture: '对手' }) }) } })
+  await tick()
+  assert.equal(await settle(), null, 'two candidates and no choice: neither applies')
+  assert.equal((await h.api.gamePlugins('game-1')).replacements.settlement.conflict, true)
+  await h.api.setGamePlugin('game-1', { replace: { stage: 'settlement', plugin: 'rival' } })
+  assert.equal((await settle()).owner, 'rival')
+  await h.api.setGamePlugin('game-1', { replace: { stage: 'settlement', plugin: '' } })
+  assert.equal(await settle(), null, "'' chooses Tavern's own")
+  await h.api.setGamePlugin('game-1', { replace: { stage: 'settlement', plugin: null } })
+  await h.api.setGamePlugin('game-1', { name: 'rival', enabled: false })
+  assert.equal((await settle()).owner, 'anchor', 'switching one off leaves a single candidate')
 })
 
 test('tavern 服务：删局通知', { skip: !cordis }, async t => {

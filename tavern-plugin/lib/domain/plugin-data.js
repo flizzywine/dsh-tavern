@@ -81,8 +81,8 @@ export function createPluginData({ store, now = Date.now }) {
       const turns = own.turns.flatMap(item => keyMap.get(item.turn + '\u0000' + item.key) ? [{ ...item, key: keyMap.get(item.turn + '\u0000' + item.key) }] : [])
       if (turns.length || own.game !== null) owners[owner] = { turns, game: own.game ?? null }
     }
-    if (!Object.keys(owners).length) return 0
-    await update(targetChatId, value => { value.owners = owners })
+    if (!Object.keys(owners).length && !source.settings) return 0
+    await update(targetChatId, value => { value.owners = owners; if (source.settings) value.settings = structuredClone(source.settings) })
     return Object.values(owners).reduce((sum, own) => sum + own.turns.length, 0)
   }
 
@@ -91,7 +91,15 @@ export function createPluginData({ store, now = Date.now }) {
     return Object.values((await read(chatId)).owners).flatMap(own => own.turns.map(item => item.turn))
   }
 
+  /** The player's per-game choices: plugins switched off, and which plugin replaces a stage. */
+  const settingsOf = value => ({ disabled: Array.isArray(value.settings?.disabled) ? [...value.settings.disabled] : [],
+    replacements: value.settings?.replacements && typeof value.settings.replacements === 'object' ? { ...value.settings.replacements } : {} })
+  async function readSettings(chatId) { return settingsOf(await read(chatId)) }
+  async function updateSettings(chatId, change) {
+    return update(chatId, value => { const next = settingsOf(value); change(next); value.settings = next; return settingsOf(value) })
+  }
+
   async function removeChat(chatId) { await store.remove(pathFor(chatId)) }
 
-  return Object.freeze({ saveTurn, turnsUpTo, saveGame, readGame, copyForFork, turns, removeChat, pathFor })
+  return Object.freeze({ saveTurn, turnsUpTo, saveGame, readGame, copyForFork, turns, readSettings, updateSettings, removeChat, pathFor })
 }

@@ -320,12 +320,16 @@ test('插件的本轮上下文和世界书条目进入正文帧，插件层出�
   const seen = []
   const run = harness('story', { pluginTurnContext: async context => { seen.push(context); return [
     { name: 'tavern-plugin:mem:state', owner: 'mem', text: '【当前状态】雨夜' },
-    { name: 'tavern-plugin:mem:wb', owner: 'mem', worldbook: true, text: '[支线] 钟楼' }] } })
+    { name: 'tavern-plugin:mem:wb', owner: 'mem', worldbook: true, text: '[支线] 钟楼' },
+    { name: 'tavern-plugin:mem:first', owner: 'mem', position: 'before', text: '【先读】前情' }] } })
   const prepared = await run.orchestrator.prepare({ sessionId: 'session-1', turn: 2, userText: '推门' })
   assert.deepEqual(seen, [{ gameId: 'session-1', turn: 2, input: '推门' }])
   const plugin = prepared.frame.contributions.filter(item => item.source.stage === 'plugin')
   assert.deepEqual(plugin.map(item => [item.kind, item.text, item.source.plugin]), [
-    ['foreground.current-state', '【当前状态】雨夜', 'mem'], ['foreground.active-worldbook', '[支线] 钟楼', 'mem']])
+    ['foreground.current-state', '【先读】前情', 'mem'], ['foreground.current-state', '【当前状态】雨夜', 'mem'], ['foreground.active-worldbook', '[支线] 钟楼', 'mem']])
+  const order = prepared.frame.contributions.map(item => item.source.stage === 'plugin' ? item.text : 'tavern')
+  assert.equal(order[0], '【先读】前情', "'before' comes ahead of Tavern's own context")
+  assert.equal(order.lastIndexOf('tavern') < order.indexOf('【当前状态】雨夜'), true, "'after' follows it")
   const broken = harness('story', { pluginTurnContext: async () => { throw new Error('插件层故障') } })
   const fine = await broken.orchestrator.prepare({ sessionId: 'session-1', turn: 2, userText: '推门' })
   assert.equal(fine.ready, true)

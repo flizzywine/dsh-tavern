@@ -2281,7 +2281,7 @@ export async function apply(ctx) {
         if (turn > lastTurn) continue
         try { keyMap.set(turn + '\u0000' + computeSceneTarget({ ...state, id: source.id }, turn).key, computeSceneTarget(fork, turn).key) } catch {}
       }
-      if (keyMap.size) await pluginApi.gameForked({ sourceChatId: source.id, targetChatId: fork.id, targetSessionId: fork.sessionId, keyMap })
+      await pluginApi.gameForked({ sourceChatId: source.id, targetChatId: fork.id, targetSessionId: fork.sessionId, keyMap })
       pluginApi.timelineChanged(fork.sessionId, { kind: 'fork', turn: lastTurn, fromGameId: source.sessionId })
     } catch (error) { console.warn('dsh-tavern: 分叉时处理插件数据失败:', str(error?.message || error)) }
   }
@@ -2999,6 +2999,18 @@ export async function apply(ctx) {
         const card = await readChatCard(snapshot)
         signal?.throwIfAborted()
         const variableRetry = snapshot.messages?.some(message => message.mvu?.pending && message.mvu?.variableRetry === true)
+        // Seam to the plugin layer: a plugin may replace the posture settlement of a game
+        // without official MVU. Any failure falls back to Tavern's own settlement.
+        const settleByPlugin = async function () {
+          const latest = [...(snapshot.messages || [])].reverse().find(message => message?.role === 'assistant')
+          const replaced = await pluginApi.replaceSettlement({ gameId: snapshot.sessionId, turn: settlementTurn(snapshot),
+            text: latest ? projectAgentMessageText(latest, { charName: card && card.name, macroState: snapshot.macroState }) : '',
+            posture: str(snapshot.posture), tasks: { posture: backgroundTasksSettings.posture === true } })
+          if (!replaced) return false
+          result = replaced.posture ? { ...normalizePostureSubmission({ posture: replaced.posture }, { charName: card && card.name, macroState: snapshot.macroState }) } : {}
+          text = JSON.stringify({ plugin: replaced.owner, ...result })
+          return true
+        }
         const backgroundTasksSettings = normalizeBackgroundTasks(variableRetry ? { variables: true, posture: false, characterDesign: false } : snapshot.backgroundTasks)
         const mvuTarget = snapshot.mvu && snapshot.mvu.enabled === true && snapshot.mvu.owner === 'official'
           ? pendingMvuTarget(snapshot)
@@ -3104,6 +3116,8 @@ export async function apply(ctx) {
           result = { posture: mvuResult.posture }
         } else if (!backgroundTasksSettings.posture && !backgroundTasksSettings.characterDesign) {
           result = {}
+        } else if (await settleByPlugin()) {
+          // A plugin replaced this settlement; its validated result is committed like Tavern's own.
         } else {
           const selection = backgroundModelSelection(snapshot)
           if (selection === null) throw new Error('没有可用的模型配置，请先在当前会话的模型选择器中选择模型')
@@ -4226,6 +4240,8 @@ export async function apply(ctx) {
       case 'addGuide': return { guides: await conversationGuides.add(args?.sessionId, args?.text) }
       case 'deleteGuide': return { guides: await conversationGuides.remove(args?.sessionId, args) }
       case 'getBodyEdit': return { edit: await bodyEditor.read(args && args.sessionId) }
+      case 'listGamePlugins': return { plugins: await pluginApi.gamePlugins(str(args && args.sessionId)) }
+      case 'setGamePlugin': return { plugins: await pluginApi.setGamePlugin(str(args && args.sessionId), { name: args && args.name, enabled: args && args.enabled, replace: args && args.replace }) }
       case 'saveBodyEdit': {
         const view = await bodyEditor.save(args && args.sessionId, args)
         notifyPluginTimeline(args && args.sessionId, 'edit', { settled: true })

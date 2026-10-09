@@ -167,11 +167,11 @@ item = {
 
 `promptSection` 适合不常变的规则。每轮都会变的内容（当前状态、记忆摘要）请用下面的 `turnSection`，不会让提示词缓存失效。
 
-### `turnSection({ name, text })`（第 2 版）
+### `turnSection({ name, text, position? })`（第 2 版）
 
 往**这一轮**的正文请求里加一段上下文，例如插件维护的【当前状态】或记忆摘要。`text` 可以是字符串，也可以是函数：每轮准备请求时调用一次，收到 `{ gameId, turn, input }`（`input` 是玩家这一轮的输入原文），返回空字符串就不加。
 
-- 段落放在 Tavern 自己的本轮上下文（世界书、现场状态、Guide 等）之后，多个插件按插件名排序。单段最多 8000 字。
+- `position` 默认 `'after'`：段落放在 Tavern 自己的本轮上下文（世界书、现场状态、Guide 等）之后；`'before'` 放在它们之前。更细的位置（比如某一段的前后）不提供，因为 Tavern 内部的段落顺序会调整。多个插件按插件名排序。单段最多 8000 字。
 - 每轮只算一次，结果随这一轮保存；同一轮重试时沿用，不会再次调用。
 - 只进入游玩时的正文请求；使用 SillyTavern 兼容请求模式时不生效。
 - 函数出错或 30 秒没有返回时，这一段被跳过，正文照常生成。
@@ -216,6 +216,30 @@ ctx.tavern.settlementTool({
 - 只在后台结算任务里可调用，候选、生图等其他后台任务里调用会被拒绝。
 - 插件工具跟着 Tavern 自己的结算一起运行：玩家关掉了所有后台结算项时，这一轮不会运行结算，插件工具也就不会被调用。需要每轮必定执行的逻辑，请放在 `onTurnSettled` 里。
 - 工具列表在后台会话建立时固定（它位于请求的缓存前缀里）。插件在启动时注册即可；运行中途才注册的工具，要等下一个后台会话才生效。
+
+### `replaceSettlement({ settle })`（第 2 版）
+
+由插件**接管**每轮的后台结算（替换类接口）。适合想用自己的模型和流程做结算、并维护自己状态的插件。
+
+```js
+ctx.tavern.replaceSettlement({
+  async settle({ gameId, turn, text, posture, tasks }) {
+    // text：这一轮的正文；posture：上一轮的现场姿势；tasks.posture：本局是否开启了姿势结算
+    const next = await myModel(text, posture)
+    await ctx.tavern.saveTurnData({ gameId, turn, data: next.state })
+    return { posture: next.posture }
+  },
+})
+```
+
+- **必须交回什么**：一个对象。本局开启了姿势结算时，`posture` 必须是非空字符串（最多 8000 字），它会成为下一轮正文看到的【现场】；没开启时可以不返回 `posture`。
+- **失败时退回**：`settle` 抛错、120 秒没有返回、或者交回的东西不合格，这一轮自动改用 Tavern 自己的结算，并在「本局设置 → 插件」里记下原因。
+- **范围**：只替换普通卡的姿势结算（以及同一步里的人物设计）。使用官方 MVU 变量的卡，变量结算仍由 Tavern 负责，不会调用 `settle`。玩家关掉了所有后台结算项时，这一轮不结算，也不调用 `settle`。
+- **只有一个生效**：每个插件只能注册一次。只有一个插件注册时，它自动生效；有多个时，要玩家在「本局设置 → 插件」里选一个，选好之前都不生效，用 Tavern 自己的结算。玩家也可以在那里选回 Tavern 自己的结算。
+
+## 本局插件面板
+
+「本局设置 → 插件」列出本局用到的插件、各自用到了哪些阶段（观察、添加、替换），玩家可以按局关掉某个插件，选择由谁负责结算，并查看最近的插件错误。被关掉的插件在这一局不再参与提示词、结算和通知（`onTurnSettled`、`onTimelineChanged`），它的结算工具调用会被拒绝；它已经挂上的媒体和存档数据保留。
 
 ## 插件存档数据（第 2 版）
 
@@ -302,7 +326,7 @@ context = { gameId, turn, busy }
 ## 不提供的
 
 - 修改正文、修改变量、调用 Tavern 内部的 Agent。
-- 替换或接管 Tavern 自己的流程（结算、提示词组装、世界书召回、压缩）：暂未提供。需要时请提插件接口需求，替换类接口会约定插件要交回的结果，并在插件失败时退回 Tavern 自己的做法。
+- 替换 Tavern 的其他流程（提示词组装、世界书召回、压缩、MVU 变量结算）：暂未提供。需要时请提插件接口需求；替换类接口都会约定插件要交回的结果，并在插件失败时退回 Tavern 自己的做法。
 - 读写 Tavern 数据目录、人物卡文件。
 - 插件设置页：用 DSH 自己的设置区（`settings.section`）。
 - 模型调用、凭据、附件存储：直接用 DSH 的 `llm`、`credentials`、`attachments` 服务。
@@ -322,4 +346,4 @@ Tavern 不提前设计接口，而是根据插件实际用到的内容补接口�
 | 版本 | 变化 |
 |---|---|
 | 1 | 首个版本。 |
-| 2 | 新增 `turnSection`、`worldbookSource`、`settlementSection`、`settlementTool`：插件可以往每轮正文请求和后台结算里添加内容。新增插件存档数据（`saveTurnData`、`readTurnData`、`saveGameData`、`readGameData`）与 `onTimelineChanged`；编辑正文后重新发 `onTurnSettled`；分叉时带上插件数据和媒体项。第 1 版接口不变。 |
+| 2 | 新增 `turnSection`、`worldbookSource`、`settlementSection`、`settlementTool`：插件可以往每轮正文请求和后台结算里添加内容。新增插件存档数据（`saveTurnData`、`readTurnData`、`saveGameData`、`readGameData`）与 `onTimelineChanged`；编辑正文后重新发 `onTurnSettled`；分叉时带上插件数据和媒体项。新增第一个替换类接口 `replaceSettlement`，以及本局插件面板（按局开关、选择结算由谁负责、错误记录）。第 1 版接口不变。 |
