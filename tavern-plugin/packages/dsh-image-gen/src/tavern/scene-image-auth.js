@@ -41,7 +41,7 @@ export async function verifySceneImageKey({ probe, baseURL, headers, fetchImpl, 
       // that the same route explicitly refuses an anonymous read as a control.
       const control = await fetchImpl(url, { method: 'GET', headers: { accept: 'application/json' }, redirect: 'manual', signal })
       try {
-        if (![401, 403].includes(control.status)) return unknown('连接成功，但此中转的只读接口未明确要求鉴权，无法确认 API Key 有效性。')
+        if (![401, 403].includes(control.status)) return unknown('连接成功，但此地址的只读接口未明确要求鉴权，无法确认 API Key 有效性。')
       } finally { await control.body?.cancel().catch(() => {}) }
     }
     return { status: 'connected', apiKeyStatus: 'verified', httpStatus, probePath: probe.path,

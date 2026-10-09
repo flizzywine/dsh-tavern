@@ -131,7 +131,7 @@ test('NovelAI endpoints keep separate keys; switching sends only the selected en
   const f = await fixture(t)
   const official = { id: 'default', name: '官方', baseURL: 'https://image.novelai.net' }
   await f.setup.configure({ provider: 'novelai', apiKey: 'official-key', model: 'nai-diffusion-4-5-full', size: '832x1216', endpoint: 'default', endpoints: [official] })
-  const relay = { id: 'relay1', name: '中转', baseURL: 'https://relay.example' }
+  const relay = { id: 'relay1', name: '自定义渠道', baseURL: 'https://relay.example' }
   // A new endpoint needs its own key; the official key is never reused for it.
   let ui = await f.setup.configure({ provider: 'novelai', endpoint: 'relay1', baseURL: relay.baseURL, endpoints: [official, relay] })
   assert.equal(ui.hasKey, false)

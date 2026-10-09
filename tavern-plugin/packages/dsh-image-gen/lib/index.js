@@ -2756,7 +2756,7 @@ const channels = [
 	},
 	{
 		id: "novelai",
-		label: "NovelAI（官方或中转站）",
+		label: "NovelAI（官方或自定义渠道）",
 		baseURL: "https://image.novelai.net",
 		model: "nai-diffusion-5-full",
 		size: "832x1216",
@@ -2765,11 +2765,11 @@ const channels = [
 			"model",
 			"size"
 		],
-		hint: "默认连 NovelAI 官方，使用 V5 Full。用中转站时新建一个接入点，填中转站地址和 Key：接口和官方一样的选「官方格式」，STA1N 这类选「对话格式」。"
+		hint: "默认连 NovelAI 官方，使用 V5 Full。用自定义渠道时新建一个接入点，填它的地址和 Key：接口和官方一样的选「官方格式」，用对话接口出图的选「对话格式」。"
 	},
 	{
 		id: "openai",
-		label: "OpenAI（gpt-image 及兼容中转）",
+		label: "OpenAI（gpt-image 及兼容接口）",
 		baseURL: "https://api.openai.com/v1",
 		model: "gpt-image-2",
 		size: "1024x1024",
@@ -2778,7 +2778,7 @@ const channels = [
 			"model",
 			"size"
 		],
-		hint: "官方可直接用默认地址与模型；兼容中转请填写自己的地址和模型。"
+		hint: "官方可直接用默认地址与模型；自定义渠道请填写自己的地址和模型。"
 	},
 	{
 		id: "gemini",
@@ -2798,7 +2798,7 @@ const channels = [
 	{
 		id: "banana",
 		retired: true,
-		label: "Gemini 中转站（Nano Banana 等）",
+		label: "Gemini 兼容接口（Nano Banana 等）",
 		baseURL: "",
 		model: "",
 		size: "1K",
@@ -2807,7 +2807,7 @@ const channels = [
 			"model",
 			"size"
 		],
-		hint: "Gemini 图片模型（Nano Banana 等）的中转站选这个，地址填到 /v1，模型名照中转站列表填写。NovelAI 的中转站（如 STA1N）请选「NovelAI（官方或中转站）」。"
+		hint: "Gemini 图片模型（Nano Banana 等）的兼容接口选这个，地址填到 /v1，模型名照该服务的模型列表填写。NovelAI 的自定义渠道请选「NovelAI（官方或自定义渠道）」。"
 	},
 	{
 		id: "grok",
@@ -3186,7 +3186,7 @@ function channelImageResult(provider = "openai", payload) {
 		const text = String(payload?.choices?.[0]?.message?.content ?? "");
 		const url = text.match(/!\[[^\]]*\]\(((?:https?:\/\/|data:image\/[^;]+;base64,)[^\s)]+)\)/)?.[1] || text.match(/https?:\/\/[^\s)\]"'<>]+/)?.[0];
 		if (url) return { url };
-		throw /* @__PURE__ */ new Error(text.trim() ? "中转站没有返回图片链接：" + text.trim().slice(0, 200) : "中转站没有返回图片链接");
+		throw /* @__PURE__ */ new Error(text.trim() ? "该接口没有返回图片链接：" + text.trim().slice(0, 200) : "该接口没有返回图片链接");
 	}
 	if (provider === "banana") {
 		const message = payload?.choices?.[0]?.message;
@@ -3274,7 +3274,7 @@ async function verifySceneImageKey({ probe, baseURL, headers, fetchImpl, signal,
 				signal
 			});
 			try {
-				if (![401, 403].includes(control.status)) return unknown("连接成功，但此中转的只读接口未明确要求鉴权，无法确认 API Key 有效性。");
+				if (![401, 403].includes(control.status)) return unknown("连接成功，但此地址的只读接口未明确要求鉴权，无法确认 API Key 有效性。");
 			} finally {
 				await control.body?.cancel().catch(() => {});
 			}
@@ -3975,7 +3975,7 @@ async function requestSceneImage(input, deps) {
 			}).filter(([, item]) => typeof item === "string").map(([key, item]) => [key, safe(item)]));
 		} catch {}
 		const error = /* @__PURE__ */ new Error("生图服务请求失败（HTTP " + response.status + "）" + (detail.message ? "：" + detail.message : "") + (detail.param ? "（字段：" + detail.param + "）" : ""));
-		if (response.status === 404 && input.provider === "openai") error.message += "。该地址没有 OpenAI 图片接口；如果是 NovelAI 的中转站（如 STA1N），请改选「NovelAI（官方或中转站）」";
+		if (response.status === 404 && input.provider === "openai") error.message += "。该地址没有 OpenAI 图片接口；如果它提供的是 NovelAI 图片，请改选「NovelAI（官方或自定义渠道）」并添加接入点";
 		error.imageFailure = {
 			httpStatus: response.status,
 			...detail
@@ -3993,7 +3993,7 @@ async function requestSceneImage(input, deps) {
 	if (input.provider === "novelai" && spec.body.messages === void 0) {
 		const archive = await boundedBytes(response, maxBytes + 65536);
 		if (/^\s*</.test(archive.subarray(0, 64).toString("utf8"))) {
-			const error = /* @__PURE__ */ new Error("该地址返回的是网页，不是 NovelAI 图片。如果这是 STA1N 这类中转站，请把这个接入点的「接口格式」改成「对话格式」。");
+			const error = /* @__PURE__ */ new Error("该地址返回的是网页，不是 NovelAI 图片。如果这个地址用对话接口出图，请把这个接入点的「接口格式」改成「对话格式」。");
 			error.imageOutcome = "rejected";
 			throw error;
 		}

@@ -28,9 +28,9 @@
 
 | 提供商 | 该提交实际使用的协议 | 特殊点 |
 | --- | --- | --- |
-| OpenAI/兼容中转 | `POST <base>/images/generations`，Bearer，model/prompt/size | 兼容 `data/images/output` 数组、`b64_json` 或 URL；仅取首图。并非所有标称 OpenAI-compatible 的中转都提供 Images API |
+| OpenAI/兼容接口 | `POST <base>/images/generations`，Bearer，model/prompt/size | 兼容 `data/images/output` 数组、`b64_json` 或 URL；仅取首图。并非所有标称 OpenAI-compatible 的服务都提供 Images API |
 | Seedream | 文生图复用兼容适配器并指定 URL 返回；编辑走 generations + data URL 数组 | 默认尺寸 `2K`；编辑不是 OpenAI multipart edits |
-| Google | Gemini **Interactions API**，`x-goog-api-key`，`response_format` | 不能直接拿支持 Gemini `generateContent` 的中转地址替代；比例和分辨率分开传 |
+| Google | Gemini **Interactions API**，`x-goog-api-key`，`response_format` | 不能直接拿支持 Gemini `generateContent` 的第三方地址替代；比例和分辨率分开传 |
 | DashScope | `services/aigc/multimodal-generation/generation` | 代码只接受 `qwen-image*` 模型；尺寸 `1024*1024`；不能从 UI 的“万相/Qwen”字样推断支持所有万相模型 |
 | ComfyUI | `/prompt` → `/history/{id}` 轮询 → `/view` 下载 | 用户导入 API workflow；默认 Host 可访问的 `127.0.0.1:8188`；当前不支持 edit_image |
 

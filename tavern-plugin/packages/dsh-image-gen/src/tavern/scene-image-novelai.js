@@ -21,7 +21,7 @@ export const NOVELAI_UC_PRESETS = Object.freeze(['none', 'light', 'heavy', 'huma
 // are the defaults earlier versions always sent.
 export const NOVELAI_SAMPLERS = Object.freeze(['k_euler_ancestral', 'k_euler', 'k_dpmpp_2s_ancestral', 'k_dpmpp_2m', 'k_dpmpp_2m_sde', 'k_dpmpp_sde', 'ddim_v3'])
 // How an endpoint is called: NovelAI's own /ai/generate-image (ZIP reply), or
-// a relay's chat/completions "conversation generation" (Nai2API style, e.g. STA1N).
+// a custom endpoint's chat/completions "conversation generation" (Nai2API style).
 export const NOVELAI_PROTOCOLS = Object.freeze(['native', 'chat'])
 export const NOVELAI_NOISE_SCHEDULES = Object.freeze(['karras', 'native', 'exponential', 'polyexponential'])
 const LIBRARY_ID = /^[a-z0-9]{1,12}$/

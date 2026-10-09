@@ -76,7 +76,7 @@ const entries = {
   'version-check': ['版本与检查更新', '左下角显示当前版本与“检查更新”入口。图中为“尚未检查更新”，未执行更新安装，也不表示已经是最新版。'],
   'installation-status': ['安装后的插件运行状态', '安装并启动后，可在设置 → 插件 → 插件列表中搜索 dsh-tavern，检查全局插件是否“已启用／运行中”。这不是安装向导；各平台安装命令见正文。'],
 }
-for (const [key, label] of Object.entries({openai:'OpenAI（gpt-image 及兼容中转）',gemini:'Google Gemini（官方）',grok:'Grok（xAI）',seedream:'Seedream（火山方舟）',qwen:'Qwen-Image（阿里百炼）',novelai:'NovelAI（官方或中转站）',comfyui:'ComfyUI',sd:'SD WebUI / Forge'})) entries['image-'+key] = [label+' 配置', '该渠道的真实设置界面；未填写真实密钥，也未向外部服务发送生成请求。请按自己使用的服务填写，不能仅凭界面存在就认定所有中转兼容。']
+for (const [key, label] of Object.entries({openai:'OpenAI（gpt-image 及兼容接口）',gemini:'Google Gemini（官方）',grok:'Grok（xAI）',seedream:'Seedream（火山方舟）',qwen:'Qwen-Image（阿里百炼）',novelai:'NovelAI（官方或自定义渠道）',comfyui:'ComfyUI',sd:'SD WebUI / Forge'})) entries['image-'+key] = [label+' 配置', '该渠道的真实设置界面；未填写真实密钥，也未向外部服务发送生成请求。请按自己使用的服务填写，不能仅凭界面存在就认定所有第三方服务都兼容。']
 export const featureCaptures = Object.fromEntries(Object.entries(entries).map(([key,[title,caption]]) => [key,{file:key+'.jpg',title,alt:title+'：'+caption,caption,width:['model-setup','card-picker'].includes(key)?1309:1280,height:['model-setup','card-picker'].includes(key)?707:720}]))
 
 // Explicit coverage: no catch-all fallback that hides a missing feature capture.

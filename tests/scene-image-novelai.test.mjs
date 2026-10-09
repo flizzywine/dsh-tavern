@@ -173,8 +173,8 @@ test('a picture turns the configured size to its own orientation and adds its ow
   assert.deepEqual([qwen.size, qwen.negative_prompt], ['1024*1328', 'text'])
 })
 
-test('NovelAI chat-protocol endpoints (Nai2API, e.g. STA1N) send the field template and read the picture link', async () => {
-  const endpoints = [{ id: 'relay', name: 'STA1N', baseURL: 'https://relay.example', protocol: 'chat' }]
+test('NovelAI chat-protocol endpoints (Nai2API style) send the field template and read the picture link', async () => {
+  const endpoints = [{ id: 'relay', name: '自定义渠道', baseURL: 'https://relay.example', protocol: 'chat' }]
   const config = { ...input, model: 'nai-diffusion-4-5-full', size: '832x1216', baseURL: 'https://relay.example', endpoint: 'relay', endpoints, sampler: 'k_euler', guidance: '6', negativePrompt: 'lowres',
     artists: [{ id: 'a1', name: '画师', prompt: 'artist:foo' }], activeArtist: 'a1' }
   const request = imageChannelRequest({ ...config, plan })
@@ -199,6 +199,6 @@ test('NovelAI chat-protocol endpoints (Nai2API, e.g. STA1N) send the field templ
     } })
   assert.equal(result.mediaType, 'image/png')
   assert.deepEqual(calls, ['https://relay.example/v1/chat/completions', 'https://relay.example/files/a.png'])
-  await assert.rejects(generateSceneImage({ ...config, plan, prompt: 'x' }, { fetch: async () => new Response(JSON.stringify({ choices: [{ message: { content: '余额不足' } }] })) }), /中转站没有返回图片链接：余额不足/)
+  await assert.rejects(generateSceneImage({ ...config, plan, prompt: 'x' }, { fetch: async () => new Response(JSON.stringify({ choices: [{ message: { content: '余额不足' } }] })) }), /该接口没有返回图片链接：余额不足/)
   assert.throws(() => imageChannelRequest({ ...config, endpoints: [{ ...endpoints[0], protocol: 'other' }], plan }), /接口格式/)
 })
