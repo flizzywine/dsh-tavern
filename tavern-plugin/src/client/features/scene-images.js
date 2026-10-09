@@ -76,84 +76,81 @@
 		}
 		// Every picture across games, including deleted ones, for review and clean-up. Deleting
 		// detaches the picture only; the story text and saves are untouched.
-		// Gallery tab beside 对话/轨迹/完整上下文: this game's pictures, or every game's
-		// (including deleted games), newest first; pick several to delete.
+		// Gallery tab beside 对话/轨迹/完整上下文: this game's pictures, one row per
+		// turn from the first turn on. Delete one from its corner, or pick several.
 		function SceneImageGallery(props) {
 			const h = React.createElement;
 			const askConfirm = useTavernConfirm();
-			const [data, setData] = React.useState(null);
-			const [scope, setScope] = React.useState("game");
+			const [items, setItems] = React.useState(null);
+			const [picking, setPicking] = React.useState(false);
 			const [picked, setPicked] = React.useState({});
 			const [busy, setBusy] = React.useState(false);
 			const [notice, setNotice] = React.useState("");
 			const load = React.useCallback(async function () {
 				setBusy(true);
-				try { setData(await rpc("listSceneImageHistory", { sessionId: props.gallerySessionId }, props.gallerySessionId)); }
+				try { setItems((await rpc("listSceneImageHistory", { sessionId: props.gallerySessionId }, props.gallerySessionId)).items); }
 				catch (e) { setNotice(String(e.message || e)); }
 				finally { setBusy(false); }
 			}, [props.gallerySessionId]);
 			React.useEffect(function () {
-				setData(null); setPicked({}); void load();
+				setItems(null); setPicked({}); setPicking(false); void load();
 				function changed() { void load(); }
 				window.addEventListener("dsh-tavern-image-changed", changed);
 				return function () { window.removeEventListener("dsh-tavern-image-changed", changed); };
 			}, [load]);
-			const current = data && data.currentChatId || "";
-			const items = ((data && data.items) || []).filter(function (item) { return scope === "all" || item.chatId === current; });
-			const shots = items.flatMap(function (item) {
-				return item.versions.map(function (version) {
-					return { item: item, version: version, id: item.chatId + "/" + item.key + "/" + version.id,
-						url: "/api/dsh-tavern/scene-image-stored?" + new URLSearchParams({ chatId: item.chatId, key: item.key, versionId: version.id }).toString() };
+			const rows = [];
+			(items || []).forEach(function (item) {
+				let row = rows.find(function (entry) { return entry.turn === item.turn; });
+				if (!row) rows.push(row = { turn: item.turn, shots: [] });
+				item.versions.forEach(function (version) {
+					row.shots.push({ item: item, version: version, id: item.chatId + "/" + item.key + "/" + version.id,
+						url: "/api/dsh-tavern/scene-image-stored?" + new URLSearchParams({ chatId: item.chatId, key: item.key, versionId: version.id }).toString() });
 				});
 			});
-			const games = [];
-			shots.forEach(function (shot) {
-				let game = games.find(function (entry) { return entry.chatId === shot.item.chatId; });
-				if (!game) games.push(game = { chatId: shot.item.chatId, label: shot.item.deleted ? "已删除的游戏" : [shot.item.cardName, shot.item.title].filter(Boolean).join(" · ") || "未命名游戏", shots: [] });
-				game.shots.push(shot);
-			});
+			rows.sort(function (a, b) { return a.turn - b.turn; });
+			rows.forEach(function (row) { row.shots.sort(function (a, b) { return a.version.createdAt - b.version.createdAt; }); });
+			const shots = rows.flatMap(function (row) { return row.shots; });
 			const urls = shots.map(function (shot) { return shot.url; });
 			const chosen = shots.filter(function (shot) { return picked[shot.id]; });
-			function toggle(list, on) { setPicked(function (value) { const next = Object.assign({}, value); list.forEach(function (shot) { if (on) next[shot.id] = true; else delete next[shot.id]; }); return next; }); }
-			async function remove() {
-				if (!chosen.length || !await askConfirm("删除选中的 " + chosen.length + " 张图片？只移除图片，不影响正文与存档。")) return;
+			function toggle(shot, on) { setPicked(function (value) { const next = Object.assign({}, value); if (on) next[shot.id] = true; else delete next[shot.id]; return next; }); }
+			async function remove(list) {
+				if (!list.length || !await askConfirm(list.length === 1 ? "删除第 " + list[0].item.turn + " 轮的这张图片？只移除图片，不影响正文与存档。" : "删除选中的 " + list.length + " 张图片？只移除图片，不影响正文与存档。")) return;
 				setBusy(true); setNotice("");
 				try {
-					const results = (await rpc("removeSceneImageHistory", { items: chosen.map(function (shot) { return { chatId: shot.item.chatId, key: shot.item.key, versionId: shot.version.id }; }) }, props.gallerySessionId)).results;
+					const results = (await rpc("removeSceneImageHistory", { items: list.map(function (shot) { return { chatId: shot.item.chatId, key: shot.item.key, versionId: shot.version.id }; }) }, props.gallerySessionId)).results;
 					const failed = results.filter(function (row) { return !row.ok; });
-					setNotice("已删除 " + (results.length - failed.length) + " 张" + (failed.length ? "，" + failed.length + " 张失败：" + failed[0].error : ""));
-					setPicked({});
+					if (failed.length || list.length > 1) setNotice("已删除 " + (results.length - failed.length) + " 张" + (failed.length ? "，" + failed.length + " 张失败：" + failed[0].error : ""));
+					setPicked({}); setPicking(false);
 					// Turns showing a removed picture refresh; this listener reloads the gallery too.
 					window.dispatchEvent(new CustomEvent("dsh-tavern-image-changed"));
 				} catch (e) { setNotice(String(e.message || e)); }
 				finally { setBusy(false); }
 			}
-			function grid(list) {
-				return h("div", { className: "dsh-tavern-gallery-grid" }, list.map(function (shot) {
-					return h("figure", { key: shot.id, className: "dsh-tavern-gallery-shot" + (picked[shot.id] ? " is-picked" : ""), title: shot.version.description },
-						h("a", { href: shot.url, "aria-label": "放大第 " + shot.item.turn + " 轮插图", onClick: function (event) { event.preventDefault(); openSceneImagePreview(shot.url, event.currentTarget, null, null, { urls: urls, index: urls.indexOf(shot.url) }); } },
-							h("img", { src: shot.url, alt: shot.version.description || "插图", loading: "lazy" })),
-						h("label", { className: "dsh-tavern-gallery-pick", title: "选择" }, h("input", { type: "checkbox", "aria-label": "选择第 " + shot.item.turn + " 轮插图", checked: Boolean(picked[shot.id]), disabled: busy, onChange: function (event) { toggle([shot], event.target.checked); } })),
-						h("figcaption", null, "第 " + shot.item.turn + " 轮"));
-				}));
-			}
-			const all = shots.length > 0 && shots.every(function (shot) { return picked[shot.id]; });
-			return h("section", { className: "dsh-tavern-full-context dsh-tavern-gallery" + (chosen.length ? " is-picking" : "") },
+			return h("section", { className: "dsh-tavern-full-context dsh-tavern-gallery" + (picking ? " is-picking" : "") },
 				h("header", { className: "dsh-context-header" },
-					h("div", null, h("h3", null, "画廊"), h("p", null, data ? "共 " + shots.length + " 张，新到旧" : "读取中…")),
+					h("div", null, h("h3", null, "画廊"), h("p", null, items ? "本局共 " + shots.length + " 张，按轮次排列" : "读取中…")),
 					h("button", { disabled: busy, onClick: load }, busy ? "读取中…" : "刷新")),
-				h("div", { className: "dsh-context-toolbar" },
-					h("div", { className: "dsh-tavern-gallery-scope", role: "tablist", "aria-label": "范围" },
-						[["game", "本局"], ["all", "全部游戏"]].map(function (entry) {
-							return h("button", { key: entry[0], type: "button", role: "tab", "aria-selected": scope === entry[0], className: scope === entry[0] ? "is-active" : "", onClick: function () { setScope(entry[0]); setPicked({}); } }, entry[1]);
-						})),
-					shots.length ? h("button", { type: "button", disabled: busy, onClick: function () { toggle(shots, !all); } }, all ? "取消全选" : "全选") : null,
-					chosen.length ? h("button", { type: "button", className: "danger", disabled: busy, onClick: remove }, "删除选中的 " + chosen.length + " 张") : null),
+				shots.length ? h("div", { className: "dsh-context-toolbar" },
+					picking ? h(React.Fragment, null,
+						h("button", { type: "button", disabled: busy, onClick: function () { setPicked(chosen.length === shots.length ? {} : Object.fromEntries(shots.map(function (shot) { return [shot.id, true]; }))); } }, chosen.length === shots.length ? "取消全选" : "全选"),
+						h("button", { type: "button", className: "danger", disabled: busy || !chosen.length, onClick: function () { void remove(chosen); } }, "删除选中的 " + chosen.length + " 张"),
+						h("button", { type: "button", disabled: busy, onClick: function () { setPicking(false); setPicked({}); } }, "完成"))
+						: h("button", { type: "button", disabled: busy, onClick: function () { setPicking(true); } }, "批量删除")) : null,
 				notice ? h("p", { role: "status" }, notice) : null,
-				data && !shots.length ? h("p", { className: "dsh-context-empty" }, scope === "game" ? "这一局还没有插图。" : "还没有生成过插图。") : null,
-				scope === "game" ? grid(shots) : games.map(function (game) {
-					return h("section", { key: game.chatId, className: "dsh-tavern-gallery-game" },
-						h("h4", null, game.label, h("span", null, game.shots.length + " 张")), grid(game.shots));
+				items && !shots.length ? h("p", { className: "dsh-context-empty" }, "这一局还没有插图。") : null,
+				rows.map(function (row) {
+					return h("section", { key: row.turn, className: "dsh-tavern-gallery-turn" },
+						h("h4", null, row.turn > 0 ? "第 " + row.turn + " 轮" : "开场", h("span", null, row.shots.length + " 张")),
+						h("div", { className: "dsh-tavern-gallery-row" }, row.shots.map(function (shot) {
+							return h("figure", { key: shot.id, className: "dsh-tavern-gallery-shot" + (picked[shot.id] ? " is-picked" : ""), title: shot.version.description },
+								h("a", { href: shot.url, "aria-label": "放大第 " + shot.item.turn + " 轮插图", onClick: function (event) {
+									event.preventDefault();
+									if (picking) toggle(shot, !picked[shot.id]);
+									else openSceneImagePreview(shot.url, event.currentTarget, null, null, { urls: urls, index: urls.indexOf(shot.url) });
+								} }, h("img", { src: shot.url, alt: shot.version.description || "插图", loading: "lazy" })),
+								picking ? h("label", { className: "dsh-tavern-gallery-pick" }, h("input", { type: "checkbox", "aria-label": "选择第 " + shot.item.turn + " 轮插图", checked: Boolean(picked[shot.id]), disabled: busy, onChange: function (event) { toggle(shot, event.target.checked); } }))
+									: h("button", { type: "button", className: "dsh-tavern-gallery-delete", "aria-label": "删除这张图片", title: "删除这张图片", disabled: busy, onClick: function () { void remove([shot]); } }, h(DshUi.IconTrashOutline16, null)));
+						})));
 				}));
 		}
 		function SceneImageSettings() {

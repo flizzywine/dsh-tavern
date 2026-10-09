@@ -705,17 +705,19 @@ export function createSceneIllustrations(deps) {
     if (typeof chatId !== 'string' || !chatId || !/^[0-9a-f]{64}$/.test(String(key))) throw new Error('图片地址不合法')
     return pathFor(chatId, key)
   }
-  async function history() {
+  // One game's pictures (the gallery), or every game's when no chat id is given.
+  async function history(onlyChatId) {
     const games = new Map((await deps.chatSummaries?.() || []).map(chat => [chat.id, chat]))
     const items = []
+    const only = onlyChatId ? hash(String(onlyChatId)) : ''
     for (const folder of await deps.store.list('scene-images')) {
-      if (!folder.directory) continue
+      if (!folder.directory || only && folder.name !== only) continue
       for (const file of await deps.store.list('scene-images/' + folder.name)) {
         if (file.directory || !/^[0-9a-f]{64}\.json$/.test(file.name)) continue
         const record = await deps.store.readJson('scene-images/' + folder.name + '/' + file.name).catch(() => undefined)
         const chatId = record?.diagnosticContext?.chatId
         const versions = versionsOf(record).filter(item => item.attachment)
-        if (typeof chatId !== 'string' || !versions.length || record.key + '.json' !== file.name) continue
+        if (typeof chatId !== 'string' || !versions.length || record.key + '.json' !== file.name || onlyChatId && chatId !== onlyChatId) continue
         const game = games.get(chatId)
         items.push({ chatId, key: record.key, turn: Number(record.turn) || 0, cardName: game?.cardName || '', title: game?.title || '', deleted: !game,
           versions: versions.map(item => ({ id: item.id, description: item.plan?.description || item.description || '', createdAt: Number(item.createdAt) || 0 })) })

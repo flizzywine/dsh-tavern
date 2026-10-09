@@ -3899,9 +3899,11 @@ export async function apply(ctx) {
       case 'retrySceneImageSave': return { illustration: await enabledSceneIllustrations().retrySave(args.sessionId, args.turn, args.key, args.requestId) }
       case 'cancelSceneImage': return { illustration: await enabledSceneIllustrations().cancel(args.sessionId, args.turn, args.key, args.requestId) }
       case 'listSceneImageHistory': {
-        const items = await enabledSceneIllustrations().history()
-        const chat = args?.sessionId ? await backgroundConfigForSession(str(args.sessionId)).catch(() => null) : null
-        return { items, currentChatId: chat?.id || '' }
+        // The gallery shows only the session's own game.
+        const illustrations = enabledSceneIllustrations()
+        if (!args?.sessionId) return { items: await illustrations.history() }
+        const chat = await backgroundConfigForSession(str(args.sessionId))
+        return { items: chat?.id ? await illustrations.history(chat.id) : [] }
       }
       case 'removeSceneImageHistory': return { results: await enabledSceneIllustrations().removeStoredImages(args && args.items) }
       case 'removeSceneImage': return { illustration: await enabledSceneIllustrations().removeImage(args.sessionId, args.turn, args.key, args.versionId) }

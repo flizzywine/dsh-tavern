@@ -1292,27 +1292,26 @@ body.dsh-tavern-shell-active [data-dsh-panel-host] { overflow: clip; }
   display: none;
 }
 
-/* Gallery tab: pictures of this game or every game, newest first. */
-.dsh-tavern-gallery-scope { display: inline-flex; padding: 2px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; }
-.dsh-tavern-full-context .dsh-tavern-gallery-scope button { border: 0; border-radius: 6px; background: transparent; }
-.dsh-tavern-full-context .dsh-tavern-gallery-scope button.is-active { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); font-weight: 500; }
+/* Gallery tab: this game's pictures, one row per turn. */
 .dsh-tavern-full-context button.danger { color: var(--dsw-alias-state-error-primary); }
-.dsh-tavern-gallery-game + .dsh-tavern-gallery-game { margin-top: 24px; }
-.dsh-tavern-gallery-game h4 { display: flex; align-items: baseline; gap: 8px; margin: 0 0 10px; font-size: 14px; font-weight: 600; }
-.dsh-tavern-gallery-game h4 span { font-size: 12px; font-weight: 400; color: var(--dsw-alias-label-tertiary); }
-.dsh-tavern-gallery-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
-.dsh-tavern-gallery-shot { position: relative; margin: 0; }
+.dsh-tavern-gallery-turn + .dsh-tavern-gallery-turn { margin-top: 20px; }
+.dsh-tavern-gallery-turn h4 { display: flex; align-items: baseline; gap: 8px; margin: 0 0 8px; font-size: 14px; font-weight: 600; }
+.dsh-tavern-gallery-turn h4 span { font-size: 12px; font-weight: 400; color: var(--dsw-alias-label-tertiary); }
+.dsh-tavern-gallery-row { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: thin; }
+.dsh-tavern-gallery-shot { position: relative; flex: none; margin: 0; }
 .dsh-tavern-gallery-shot a { display: block; border-radius: 10px; overflow: hidden; outline-offset: 2px; }
-.dsh-tavern-gallery-shot img { display: block; width: 100%; aspect-ratio: 3 / 4; object-fit: cover; background: var(--dsw-alias-interactive-bg-hover); cursor: zoom-in; transition: transform .2s; }
-.dsh-tavern-gallery-shot a:hover img { transform: scale(1.03); }
-.dsh-tavern-gallery-shot.is-picked a { box-shadow: 0 0 0 2px var(--dsw-alias-state-business-primary); }
-.dsh-tavern-gallery-shot figcaption { margin-top: 4px; font-size: 12px; color: var(--dsw-alias-label-tertiary); }
+.dsh-tavern-gallery-shot img { display: block; height: 160px; width: auto; max-width: 300px; object-fit: cover; background: var(--dsw-alias-interactive-bg-hover); cursor: zoom-in; }
+.dsh-tavern-gallery.is-picking .dsh-tavern-gallery-shot img { cursor: pointer; }
+.dsh-tavern-gallery-shot.is-picked a { box-shadow: inset 0 0 0 3px var(--dsw-alias-state-business-primary); }
+.dsh-tavern-gallery-shot.is-picked img { opacity: .85; }
 .dsh-tavern-gallery-pick { position: absolute; top: 6px; left: 6px; display: flex; padding: 4px; border-radius: 6px; background: rgba(0, 0, 0, .35); cursor: pointer; }
 .dsh-tavern-gallery-pick input { margin: 0; cursor: pointer; }
+.dsh-tavern-full-context .dsh-tavern-gallery-delete { position: absolute; top: 6px; right: 6px; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 8px; background: rgba(0, 0, 0, .5); color: #fff; }
+.dsh-tavern-full-context .dsh-tavern-gallery-delete:hover:not(:disabled) { background: var(--dsw-alias-state-error-primary); color: #fff; }
 @media (hover: hover) {
-  .dsh-tavern-gallery:not(.is-picking) .dsh-tavern-gallery-shot:not(:hover, :focus-within) .dsh-tavern-gallery-pick { opacity: 0; }
+  .dsh-tavern-gallery-shot:not(:hover, :focus-within) .dsh-tavern-gallery-delete { opacity: 0; }
 }
-@media (max-width: 600px) { .dsh-tavern-gallery-grid { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 8px; } }
+@media (max-width: 600px) { .dsh-tavern-gallery-shot img { height: 120px; max-width: 220px; } }
 
 .dsh-tavern-full-context { box-sizing: border-box; width: 100%; min-width: 0; padding: 24px clamp(16px, 3vw, 40px) 32px; color: var(--dsw-alias-label-primary); font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
 .dsh-context-header { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 14px; }
