@@ -324,13 +324,22 @@ export function createTurnOrchestrator(options) {
         : null
       const presetRegexScripts = await resolvePresetRegexScripts(chat)
       const regexScripts = composeTavernRegexScripts(extensions, presetRegexScripts)
-      runtimeUserText = projectBackgroundInput(runtimeUserText, regexScripts, 1).text
+      // As in SillyTavern, only permanent input rules change the stored player
+      // message; prompt-only rules (e.g. a preset wrapping the input in tags)
+      // reach the model and never the bubble, copy or saved history.
+      const promptOnly = regexScripts.filter(script => script?.promptOnly === true)
+      runtimeUserText = projectBackgroundInput(runtimeUserText, regexScripts.filter(script => script?.promptOnly !== true), 1).text
       if (typeof options.projectUserTemplate === 'function' && runtimeUserText !== '') {
         const projected = await options.projectUserTemplate({chat,card,turn,text:runtimeUserText})
         runtimeUserText = projected.message.text
         chat.promptTemplateInput = {turn,source:userText,message:projected.message}
         chat.variables = projected.scopes.local
         chat.promptTemplateInitialVariables = projected.scopes.initial
+      }
+      const prompted = projectBackgroundInput(runtimeUserText, promptOnly, 1)
+      if (prompted.changed) {
+        // A replacement may carry macros; SillyTavern substitutes them in the prompt.
+        runtimeUserText = renderMacros !== null && prompted.text.includes('{{') ? renderMacros(prompted.text, chat) : prompted.text
       }
       rememberRuntimeInput(chat, turn, userText, runtimeUserText)
       chatChanged = true

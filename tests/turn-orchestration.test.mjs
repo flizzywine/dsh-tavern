@@ -315,6 +315,22 @@ test('玩家模板先于本轮召回，重试不重复执行；提交后只产�
   }
 })
 
+test('预设的「只发给模型」输入正则只进本轮请求，不写进保存的玩家消息；永久规则照常保存', async () => {
+  const wrap = { id: 'peip', scriptName: 'peip', findRegex: '/^([\\s\\S]+)$/', replaceString: '<peip>$1</peip>{{user}}', placement: [1], promptOnly: true, markdownOnly: false, disabled: false }
+  const fix = { id: 'fix', scriptName: 'fix', findRegex: '/推门/', replaceString: '推开门', placement: [1], promptOnly: false, markdownOnly: false, disabled: false }
+  let templated = ''
+  const run = harness('story', { macros: true, resolvePresetRegexScripts: async () => [fix, wrap],
+    projectUserTemplate: async ({ text }) => { templated = text; return { message: { role: 'user', text, sourceText: text, swipeId: 0, swipes: [text] }, scopes: { local: {}, initial: {} } } } })
+  const input = { sessionId: 'session-1', turn: 1, userText: '推门' }
+  const prepared = await run.orchestrator.prepare(input)
+  assert.equal(templated, '推开门', 'the template renders the stored input, without the prompt-only wrapper')
+  assert.equal(prepared.userText, '<peip>推开门</peip>User', 'the model still receives the wrapper, with its macros substituted')
+  await run.orchestrator.finalize({ ...input, assistantText: '门开了。' })
+  const stored = run.chat().messages[0]
+  assert.deepEqual([stored.text, stored.sourceText, stored.swipes], ['推开门', '推开门', ['推开门']])
+  assert.doesNotMatch(JSON.stringify(stored), /peip/)
+})
+
 for (const mode of ['story', 'script']) test(mode + ' 缺少人物卡绑定时明确拒绝开始回合', async () => {
   const run = harness(mode, { draft: true })
   await assert.rejects(run.orchestrator.prepare({ sessionId: 'session-1', turn: 1, userText: '继续' }), /缺少人物卡绑定/)
