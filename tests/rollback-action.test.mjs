@@ -9,13 +9,12 @@ const component = source.slice(source.indexOf('function CandidateAction('), sour
 
 function harness() {
   let running = true, activity = { phase: 'idle', busy: false, role: '' }, regen = null, fail = false, warning = '', canRollback = true, undoTurn = null
-  const states = [], calls = [], extraView = {}, effects = []
-  let published = null
+  const states = [], calls = [], extraView = {}
   let cursor = 0
   const context = {
     React: {
       Fragment: 'fragment', createElement: (type, props, ...children) => ({ type, props, children }),
-      useRef: value => ({ current: value }), useEffect(effect) { effects.push(effect) }, useLayoutEffect() {},
+      useRef: value => ({ current: value }), useEffect() {}, useLayoutEffect() {},
       useState(initial) {
         const index = cursor++
         if (!(index in states)) states[index] = initial
@@ -23,7 +22,6 @@ function harness() {
       }
     },
     useCandidatePanel: () => null, useRegenPanel: () => regen,
-    regenEntry: { get value() { return published } }, setRegenEntry: value => { published = value },
     useTavernSessionMode: () => 'story', latestTavernAssistantMessageId: () => 'reply',
     useLiveTavernView: () => ({ view: { canRollback, undoRollbackTurn: undoTurn, ...extraView } }),
     useTavernCoordination: () => ({ view: { activity } }),
@@ -51,16 +49,6 @@ function harness() {
     activity(value) { activity = value },
     regen(value) { regen = value ? { sessionId: 'session', phase: 'loading' } : null },
     fail(value) { fail = value }, warning(value) { warning = value },
-    // The 重新生成正文 entry CandidateAction publishes for the icon in the turn's action row.
-    entry() {
-      cursor = 0; effects.length = 0; published = null
-      actions.CandidateAction({ sessionId: 'session', messageId: 'reply', useSession: select => select({ running }), useChat: select => select({}) })
-      const mine = effects.splice(0)
-      calls.length = 0
-      mine.forEach(effect => effect())
-      calls.length = 0
-      return published
-    },
     buttons() {
       cursor = 0
       return actions.CandidateAction({ sessionId: 'session', messageId: 'reply',
@@ -82,23 +70,14 @@ function harness() {
   }
 }
 
-test('开场白不显示正文重生成入口；正式玩家轮次完成后由该轮操作栏的图标提供，输入框上方不再有按钮', () => {
+test('开场白不显示正文重生成入口，正式玩家轮次完成后只显示一个入口', () => {
   const h = harness()
   h.running(false); h.playerRound(false)
   assert.deepEqual(h.buttons().map(button => button.children[0]), ['生成候选项'])
-  assert.equal(h.entry(), null)
   h.playerRound(true)
+  assert.deepEqual(h.buttons().map(button => button.children[0]), ['生成候选项', '重新生成正文'])
+  h.playerRound(false)
   assert.deepEqual(h.buttons().map(button => button.children[0]), ['生成候选项'])
-  const entry = h.entry()
-  assert.equal(entry.messageId, 'reply')
-  assert.equal(entry.disabled, false)
-  assert.equal(entry.spinning, false)
-  h.regen(true)
-  assert.equal(h.entry().spinning, true, '重新生成期间图标旋转')
-  h.regen(false); h.running(true)
-  assert.equal(h.entry().disabled, true)
-  h.running(false); h.playerRound(false)
-  assert.equal(h.entry(), null)
 })
 
 test('实际回退组件在前台、后台和重生成期间禁用，完成后允许点击', async () => {
