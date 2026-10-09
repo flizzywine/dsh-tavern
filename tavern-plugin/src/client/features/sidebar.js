@@ -124,6 +124,11 @@
 			const lastModeSession = React.useRef(null);
 			const fileRef = React.useRef(null);
 			const saveImportFile = React.useRef(null);
+			const sillyTavernChatFile = React.useRef(null);
+			const saveImportMenu = React.useRef(null);
+			const [saveImportMenuOpen, setSaveImportMenuOpen] = React.useState(false);
+			// A SillyTavern chat chosen before its card: held until that card's opening page is ready.
+			const [pendingChatImport, setPendingChatImport] = React.useState(null);
 			const initialImportRef = React.useRef(null);
 			const initialImportKindRef = React.useRef("source");
 			const playWorkspaceIdRef = React.useRef(workspaceId);
@@ -330,6 +335,7 @@
 			function closePicker() {
 				if (busy) return;
 				cardBatch.reset();
+				setPendingChatImport(null);
 				setPicking(false);
 				setCardEntry("");
 			}
@@ -496,17 +502,50 @@
 				catch (err) { setError("重新连接 Session 失败：" + String(err && err.message || err)); }
 				finally { setBusy(false); }
 			}
-			async function previewChatImport(file) {
-				if (!file || !openingPicker) return;
+			async function readChatImportFile(file) {
+				if (file.size > 8 * 1024 * 1024) throw new Error("聊天文件最大支持 8 MB");
+				return await file.text();
+			}
+			async function loadChatImportPreview(card, text, fileName) {
 				setBusy(true); setError("");
 				try {
-					if (file.size > 8 * 1024 * 1024) throw new Error("聊天文件最大支持 8 MB");
-					const text = await file.text();
-					const preview = await call("previewChatImport", { cardPath: openingPicker.card.path, text: text });
-					setChatImport({ cardPath: openingPicker.card.path, text: text, fileName: file.name, preview: preview, userName: preview.userName, textOnly: false });
+					const preview = await call("previewChatImport", { cardPath: card.path, text: text });
+					setChatImport({ cardPath: card.path, text: text, fileName: fileName, preview: preview, userName: preview.userName, textOnly: false });
 				} catch (error) { setError(String(error.message || error)); }
 				finally { setBusy(false); }
 			}
+			async function previewChatImport(file) {
+				if (!file || !openingPicker) return;
+				let text;
+				try { text = await readChatImportFile(file); } catch (error) { setError(String(error.message || error)); return; }
+				await loadChatImportPreview(openingPicker.card, text, file.name);
+			}
+			// From the card list: the chat names its character, so a single same-named card is opened directly.
+			async function chooseSillyTavernChat(file) {
+				if (!file || busy) return;
+				setError("");
+				let text;
+				try { text = await readChatImportFile(file); } catch (error) { setError(String(error.message || error)); return; }
+				let characterName = "";
+				try { characterName = String(JSON.parse(text.slice(0, text.indexOf("\n") >= 0 ? text.indexOf("\n") : text.length)).character_name || "").trim(); } catch (error) {}
+				setPendingChatImport({ text: text, fileName: file.name, characterName: characterName });
+				const matches = characterName ? cards.filter(function (card) { return !card.readError && String(card.name || "").trim() === characterName; }) : [];
+				if (matches.length === 1) await preparePlayConversation(matches[0]);
+			}
+			React.useEffect(function () {
+				if (!pendingChatImport || !openingPicker || openingPicker.preparing || busy) return;
+				const pending = pendingChatImport;
+				setPendingChatImport(null);
+				void loadChatImportPreview(openingPicker.card, pending.text, pending.fileName);
+			}, [pendingChatImport, openingPicker, busy]);
+			React.useEffect(function () {
+				if (!saveImportMenuOpen) return;
+				function outside(event) { if (!saveImportMenu.current || !saveImportMenu.current.contains(event.target)) setSaveImportMenuOpen(false); }
+				function escape(event) { if (event.key === "Escape") setSaveImportMenuOpen(false); }
+				document.addEventListener("pointerdown", outside, true);
+				document.addEventListener("keydown", escape);
+				return function () { document.removeEventListener("pointerdown", outside, true); document.removeEventListener("keydown", escape); };
+			}, [saveImportMenuOpen]);
 			// A save from another install becomes a new game here; the card comes with it.
 			async function importGameSave(file) {
 				if (busy) return;
@@ -940,9 +979,15 @@
 			const playPicker = h("div", { ref: openingLayoutRef, className: "dsh-tavern-card-picker", role: "dialog", "aria-modal": "true", "aria-label": openingPicker ? "游戏准备" : "选择人物卡开始游玩" }, pickerError, openingPicker ? h(React.Fragment, null, importChoice, h("div", { style: { display: importChoice ? "none" : "contents" } }, openingChoice)) : h(React.Fragment, null,
 				h("div", { className: "dsh-tavern-card-picker-head" }, h("span", null, "选择人物卡 · 开始游玩"), h("span", { className: "dsh-tavern-spacer" }), cardBatch.managing ? null : h("button", { className: "dsh-tavern-btn", disabled: busy || !cards.length, onClick: function () { cardBatch.begin(); } }, "批量管理"), h(MobileCardImportButton, { inputRef: fileRef, disabled: busy, onImported: async function () { await refresh(); notifyDataChanged(["cards"]); } }),
 					h("input", { ref: saveImportFile, type: "file", accept: ".dshsave,.zip", style: { display: "none" }, onChange: function (event) { const file = event.target.files && event.target.files[0]; event.target.value = ""; if (file) importGameSave(file); } }),
-					h("button", { className: "dsh-tavern-btn", disabled: busy, title: "导入在其他电脑导出的 .dshsave 存档，作为一局新游戏继续玩", onClick: function () { if (saveImportFile.current) saveImportFile.current.click(); } }, "导入存档"),
+					h("input", { ref: sillyTavernChatFile, type: "file", accept: ".jsonl", style: { display: "none" }, onChange: function (event) { const file = event.target.files && event.target.files[0]; event.target.value = ""; void chooseSillyTavernChat(file); } }),
+					h("div", { className: "dsh-tavern-more-actions dsh-tavern-save-import-menu", ref: saveImportMenu },
+						h("button", { type: "button", className: "dsh-tavern-btn", disabled: busy, "aria-haspopup": "menu", "aria-expanded": saveImportMenuOpen, onClick: function () { setSaveImportMenuOpen(function (value) { return !value; }); } }, "导入存档"),
+						h("div", { className: "dsh-tavern-more-menu", role: "menu", "aria-label": "导入存档", hidden: !saveImportMenuOpen, onClick: function (event) { if (event.target.closest("button:not(:disabled)")) setSaveImportMenuOpen(false); } },
+							h("button", { type: "button", role: "menuitem", disabled: busy, title: "在其他电脑的 DSH Tavern 导出的存档，作为一局新游戏继续玩", onClick: function () { if (saveImportFile.current) saveImportFile.current.click(); } }, "DSH Tavern 存档（.dshsave）"),
+							h("button", { type: "button", role: "menuitem", disabled: busy, title: "SillyTavern 导出的聊天记录，需要对应的人物卡", onClick: function () { if (sillyTavernChatFile.current) sillyTavernChatFile.current.click(); } }, "SillyTavern 聊天记录（.jsonl）"))),
 					h("button", { className: "dsh-tavern-btn", onClick: closePicker }, "关闭")),
 				h("input", { ref: fileRef, type: "file", accept: ".png,.json", style: { display: "none" }, onChange: function (e) { const f = e.target.files && e.target.files[0]; if (f) importCard(f); e.target.value = ""; } }),
+				pendingChatImport ? h("div", { className: "dsh-tavern-side-empty", role: "status", style: { padding: "4px 6px", display: "flex", alignItems: "center", gap: "8px" } }, h("span", null, "选择这份 SillyTavern 聊天记录对应的人物卡" + (pendingChatImport.characterName ? "（记录里的角色：" + pendingChatImport.characterName + "）" : "")), h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { setPendingChatImport(null); } }, "取消")) : null,
 				organization.toolbar(),
 				organization.visible.length ? h(React.Fragment, null, h("div", { className: "dsh-tavern-side-empty", style: { padding: "4px 6px" } }, "已绑定剧本的人物卡将自动按剧本推进；未绑定的按自由故事推进。剧本绑定在“卡片模式”中管理。"), organization.renderCards(function (card) { return h("div", { key: card.path, className: "dsh-tavern-card-pick-wrap" },
 					cardBatch.checkbox(card),

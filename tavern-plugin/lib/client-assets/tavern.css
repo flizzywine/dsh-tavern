@@ -1056,7 +1056,7 @@ body.dsh-tavern-shell-active [data-dsh-panel-host] { overflow: clip; }
 }
 .dsh-tavern-settings-text:focus-visible { outline: 2px solid var(--dsh-tavern-accent); outline-offset: 1px; }
 
-.dsh-tavern-export-menu .dsh-tavern-more-menu { top: calc(100% + 6px); bottom: auto; }
+.dsh-tavern-export-menu .dsh-tavern-more-menu, .dsh-tavern-save-import-menu .dsh-tavern-more-menu { top: calc(100% + 6px); bottom: auto; }
 
 .dsh-tavern-skill-assignments {
   display: flex;
