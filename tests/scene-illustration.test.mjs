@@ -716,7 +716,7 @@ test('auto style: the planning Agent fixes the style on the first picture, which
   assert.match(prompts[1], /Chinese xianxia painting/)
 })
 
-test('replan reruns a clean Agent on the same turn, replaces its saved plan and keeps the earlier picture as a version', async t => {
+test('replan reruns the shared Agent with a rethink request, replaces its saved plan and keeps the earlier picture as a version', async t => {
   const agents = []
   let tags = 'A woman standing at a rainy window'
   const fx = await fixture(t, { runAgent: async input => {
@@ -733,7 +733,10 @@ test('replan reruns a clean Agent on the same turn, replaces its saved plan and 
   tags = 'low angle close-up, backlit, she turns from the window'
   await fx.service.start('parent', 2, key, { kind: 'replan', versionId: first.versions[0].id })
   const second = await until(async () => { const state = await fx.service.status('parent', 2); return state.status === 'succeeded' && state.versions.length === 2 && state })
-  assert.deepEqual(agents.map(item => [item.persistent, item.resumes]), [[true, true], [false, false]])
+  assert.deepEqual(agents.map(item => [item.persistent, item.resumes]), [[true, true], [true, true]], 'no one-shot Agent per rethink')
+  assert.equal(agents[0].request.rethink, undefined)
+  assert.match(agents[1].request.rethink.instruction, /重新构思/)
+  assert.equal(agents[1].request.rethink.rejected.composition, '窗边一景')
   assert.match(second.versions[1].prompt, /^low angle close-up/)
   assert.match(second.versions[0].prompt, /^A woman standing/)
   const plans = await fx.store.readJson(imagePath + 'plans.json')

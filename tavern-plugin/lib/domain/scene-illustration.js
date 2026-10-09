@@ -339,6 +339,12 @@ export function createSceneIllustrations(deps) {
           target, sources: material.sources, people: prepared.input.characters })
         if (references.metadata.available) prepared.input.references = references.metadata
         if (prepared.saved) prepared.saved = await plans.snapshot(chat.id, prepared.saved)
+        if (kind === 'replan') {
+          // Rethinking runs in the game's shared Agent: the turn's text is already known there, only the new request is added.
+          const rejected = (versionsOf(existing).find(item => item.id === options.versionId) || versionsOf(existing).at(-1))?.plan
+          prepared.input = { ...prepared.input, rethink: { instruction: '用户否决了这一轮已有的画面，要求重新构思：换一个时刻、动作或构图，不要沿用旧方案；人物外貌照常保持一致。',
+            ...(rejected ? { rejected: { description: rejected.description || '', moment: rejected.moment || 'end', composition: rejected.scene?.composition?.text || '' } } : {}) } }
+        }
       }
       const expressionGuidance = imageExpressionGuidance(active)
       if (providerTask) prepared.saved = existing.plan
@@ -367,7 +373,7 @@ export function createSceneIllustrations(deps) {
       diagnosticSecrets.set(record.requestId, [apiKey])
       const job = { controller, requestId: record.requestId, promise: null }
       jobs.set(path, job)
-      job.promise = execute({ fresh: kind === 'replan', sessionId, chatId: chat.id, target, path, record, prepared, material, references, characterDesigns, selectedImageReferences, adjustment, basePlan, profile, style, active, apiKey, selection, controller })
+      job.promise = execute({ sessionId, chatId: chat.id, target, path, record, prepared, material, references, characterDesigns, selectedImageReferences, adjustment, basePlan, profile, style, active, apiKey, selection, controller })
         .finally(() => { jobs.delete(path); diagnosticSecrets.delete(record.requestId) })
       // Failure to persist a failure is reported locally, never as an unhandled rejection.
       job.promise.catch(() => deps.onStorageError?.())
@@ -464,8 +470,7 @@ export function createSceneIllustrations(deps) {
         let draft = record.planDraft || { characters: {}, layout: null }
         try { result = await deps.runAgent({
           sessionId: input.sessionId, turn: target.turn, task: 'image',
-          // Rethinking a picture starts from a clean Agent: the game's shared session holds its previous answer for this turn.
-          ...(input.fresh ? { persistent: false } : { persistent: true,
+          persistent: true,
           async resolvePersistentSessionId() {
             const saved = await deps.store.readJson('scene-images/' + hash(String(input.chatId)) + '/agent.json')
             if (!saved) return ''
@@ -480,7 +485,7 @@ export function createSceneIllustrations(deps) {
             })
             record.traceSessionId = sessionId
             await writeJob(path, record)
-          } }),
+          },
           selection: input.selection, system: deps.prompt ? deps.prompt(input.adjustment ? 'scene-image-adjustment' : 'scene-plan') : (input.adjustment ? readSceneAdjustmentInstruction() : readScenePlanInstruction()), signal: controller.signal,
           messages: [{ role: 'user', content: [{ type: 'text', text: JSON.stringify({ ...input.prepared.input,
             ...(record.planDraft ? { draft: sceneDraftSummary(draft) } : {}) }) }] }],
