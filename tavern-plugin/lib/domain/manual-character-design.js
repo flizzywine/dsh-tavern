@@ -1,5 +1,5 @@
 import { CHARACTER_DESIGN_SAVE_TOOL_NAME, createCharacterDesignDocumentSession } from './character-design-document.js'
-import { applyCharacterDesignWorldbook, characterDesignWorldbookSnapshot, characterWorldbookEntries } from './character-design-worldbook.js'
+import { applyCharacterDesignWorldbook, characterDesignWorldbookSnapshot, characterWorldbookEntries, removeCharacterDesignWorldbook } from './character-design-worldbook.js'
 
 /** One explicit request, with drafts committed only after the agent succeeds. */
 export function createManualCharacterDesign({ store, runAgent, selection, beginTask, ensureSession = async () => {}, publishWorldbook, onError = error => console.error('人物设计保存状态失败', error) }) {
@@ -92,5 +92,26 @@ export function createManualCharacterDesign({ store, runAgent, selection, beginT
       })
     }
   }
-  return { start, project, wait: chatId => jobs.get(chatId) }
+  // The player removes one archived character by name. Only this game changes: its
+  // archive and its generated worldbook entry; the card's worldbook library is shared
+  // with other games and stays as it is. The model has no delete tool.
+  async function remove({ sessionId, name }) {
+    const target = String(name || '').trim()
+    if (!target) throw new Error('缺少要删除的人物')
+    const chat = await store.chatForSession(sessionId)
+    if (!chat) throw new Error('对话不存在')
+    if (jobs.has(chat.id)) throw new Error('人物设计正在进行中，请完成后再删除')
+    let result
+    await store.updateChat(chat.id, current => {
+      const document = current.characterDesignDocument
+      const characters = Array.isArray(document?.characters) ? document.characters : []
+      if (!characters.some(character => character?.name === target)) throw new Error('找不到人物档案：' + target)
+      current.characterDesignDocument = { ...document, characters: characters.filter(character => character?.name !== target),
+        revision: Math.max(0, Number(document.revision) || 0) + 1, updatedAt: Date.now() }
+      result = removeCharacterDesignWorldbook(current, target)
+      return current
+    })
+    return { name: target, worldbookRemoved: result.removed, worldbookEdited: result.edited }
+  }
+  return { start, remove, project, wait: chatId => jobs.get(chatId) }
 }

@@ -56,6 +56,17 @@ export function applyCharacterDesignWorldbook(chat, character, fallbackSnapshot)
 }
 
 
+/** Remove one character's generated entry from this game's worldbook. A hand-edited entry stays. */
+export function removeCharacterDesignWorldbook(chat, name) {
+  const snapshot = chat.openingWorldbookSnapshot
+  if (snapshot?.version !== 1 || !snapshot.document) return { removed: false, edited: false }
+  const entry = inspectWorldBookDocument(snapshot.document).entries.find(item => item.rawEntry?.extensions?.dsh_tavern_helper_extra?.[MARKER]?.name === name)
+  if (!entry) return { removed: false, edited: false }
+  if (entry.content !== entry.rawEntry.extensions.dsh_tavern_helper_extra[MARKER].content) return { removed: false, edited: true }
+  snapshot.document = updateWorldBookDocument(snapshot.document, { operations: [{ op: 'delete', ref: entry.ref }] }).document
+  return { removed: true, edited: false }
+}
+
 /** Publish the generated entries only, then acknowledge that delta in this game. */
 export function createCharacterDesignPublisher({ worldBooks, readCard }) {
   return async function publish(chat, characters) {

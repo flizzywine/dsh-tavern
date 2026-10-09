@@ -4135,6 +4135,10 @@ export async function apply(ctx) {
         return hydrateTavernHelperMessages(chat, args && args.from, args && args.to)
       }
       case 'designCharacter': return await manualCharacterDesign.start(args || {})
+      case 'removeCharacterDesign': {
+        if (agentRegistry.get(str(args?.sessionId))?.phase?.kind === 'running') throw new Error('前台正在生成，请完成后再删除人物档案。')
+        return await manualCharacterDesign.remove(args || {})
+      }
       case 'consolidateLedger': return await manualLedger.start(args || {})
       case 'sendPhoneMessage': return { phoneChat: await phoneChat.send(args || {}) }
       case 'runCompaction': {

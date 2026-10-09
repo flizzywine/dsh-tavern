@@ -147,6 +147,7 @@
         }
 
 			function TavernStatusPanel(props) {
+				const [designRemoving, setDesignRemoving] = React.useState("");
             const askConfirm = useTavernConfirm(props.sessionId || props.scope?.sessionId);
 			const [error, setError] = usePersistentError("酒馆状态");
 			const [guideDraft, setGuideDraft] = React.useState("");
@@ -265,6 +266,16 @@
 					liveTavernView.invalidate(props.sessionId);
 				} catch (retryError) { tavernErrorHub.report("重试后台结算", retryError); }
 				finally { setSettlementRetryBusy(false); }
+			}
+			async function removeCharacterDesign(name) {
+				if (designRemoving || !await askConfirm("删除人物档案“" + name + "”？会同时移除本局世界书里为它生成的条目（手动改过的条目保留），人物卡的世界书库不变。")) return;
+				setDesignRemoving(name);
+				try {
+					const result = await rpc("removeCharacterDesign", { name: name }, props.sessionId);
+					if (result.worldbookEdited) tavernErrorHub.report("删除人物档案", new Error("档案已删除；本局世界书里“" + name + "”的条目被手动改过，已保留，如需移除请到世界书中处理。"));
+					liveTavernView.invalidate(props.sessionId);
+				} catch (error) { tavernErrorHub.report("删除人物档案", error); }
+				finally { setDesignRemoving(""); }
 			}
 			async function designCharacter(initialValue = "") {
                 await askTavernText({ title: "设计人物", description: "设计意见（选填）。留空则根据当前剧情和已有档案设计人物。", initialValue, allowEmpty: true, maxLength: 4000, confirmLabel: "开始设计",
@@ -388,7 +399,9 @@
 										aliases ? h("div", { className: "dsh-tavern-character-design-row" }, h("b", null, "别名"), h("p", null, aliases)) : null,
 										(character.sections || []).map(function (section) {
 											return h("div", { key: section.key, className: "dsh-tavern-character-design-row" }, h("b", null, section.label), h("p", null, section.text));
-										})
+										}),
+										h("div", { className: "dsh-tavern-character-design-actions" },
+											h("button", { type: "button", className: "dsh-tavern-btn danger", disabled: Boolean(designRemoving) || running || view.characterDesignTask?.status === "running", onClick: function () { void removeCharacterDesign(character.name); } }, designRemoving === character.name ? "删除中…" : "删除这个人物档案"))
 									); }
 								});
 							}) : h("div", { className: "dsh-tavern-status-empty" }, "点击“设计人物”，按你的要求创建或补充档案。")
