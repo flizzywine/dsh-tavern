@@ -168,7 +168,7 @@ export function imageChannelRequest(input) {
   const prompt = input.prompt
   let path = 'images/generations', body
   if (config.provider === 'novelai' && config.protocol === 'chat') {
-    // A bare relay host serves the OpenAI-style API under /v1.
+    // A bare host serves the OpenAI-style API under /v1.
     path = new URL(config.baseURL).pathname.replace(/\/+$/, '') ? 'chat/completions' : 'v1/chat/completions'
     body = novelaiChatRequest(input, config)
   } else if (config.provider === 'novelai') {

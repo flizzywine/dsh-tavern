@@ -105,7 +105,7 @@ function mergeComfyUIPrompt(preset, user) {
 const DEFAULT_WORKSPACE_FOLDER = "dsh-image-gen";
 /** Google API credential reference. */
 const GOOGLE_API_KEY_ENV = "GEMINI_API_KEY";
-/** OpenAI Platform or compatible relay credential reference. */
+/** OpenAI Platform or compatible endpoint credential reference. */
 const OPENAI_API_KEY_ENV = "OPENAI_API_KEY";
 /** xAI image generation credential; separate from other providers. */
 const GROK_API_KEY_ENV = "XAI_API_KEY";
@@ -2112,7 +2112,7 @@ function libraryEntries(value, limit, label) {
 		return entry;
 	});
 }
-/** Named NovelAI endpoints (official site or same-protocol relays). Each keeps
+/** Named NovelAI endpoints (official site or custom endpoints). Each keeps
 * its own key; the active one's address is the channel baseURL, so switching
 * endpoints changes only where requests go, never model or prompt settings.
 * Older single-endpoint configurations become the `default` entry. */
@@ -2455,7 +2455,7 @@ function novelaiRequest(input, config) {
 		}
 	};
 }
-/** Nai2API-style conversation generation: the relay validates a fixed Chinese
+/** Conversation generation: the custom endpoint validates a fixed Chinese
 * field template in the user message and reads its values from the higher
 * priority `nai` object. One picture per call; the reply text carries its URL. */
 function novelaiChatRequest(input, config) {

@@ -64,7 +64,7 @@ test('九种协议通过真实 DSH 子任务；附件失败后重启仅保存，
   const before = sessionEvents(runtime.parent.agent.session).length
   let count = 0
   for (const { id: provider } of SCENE_IMAGE_CHANNELS) {
-    await runtime.service.configure({ provider, baseURL: runtime.endpoint, ...(provider === 'comfyui' ? { workflow: comfyGraph() } : {}), ...(provider === 'banana' ? { model: 'fixture-relay-image' } : {}), ...(['webui', 'comfyui'].includes(provider) ? {} : { apiKey: 'fixture-' + provider }) })
+    await runtime.service.configure({ provider, baseURL: runtime.endpoint, ...(provider === 'comfyui' ? { workflow: comfyGraph() } : {}), ...(provider === 'banana' ? { model: 'fixture-custom-image' } : {}), ...(['webui', 'comfyui'].includes(provider) ? {} : { apiKey: 'fixture-' + provider }) })
     await runtime.service.configure({ enabled: true })
     assert.equal(runtime.imageRequests.length, count)
     runtime.chat.messages.push({ role: 'assistant', turn: count + 2, sourceText: '她站在窗边看雨。' })

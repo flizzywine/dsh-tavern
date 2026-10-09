@@ -48,7 +48,7 @@ export const DEFAULT_WORKSPACE_FOLDER = 'dsh-image-gen'
 
 /** Google API credential reference. */
 export const GOOGLE_API_KEY_ENV = 'GEMINI_API_KEY'
-/** OpenAI Platform or compatible relay credential reference. */
+/** OpenAI Platform or compatible endpoint credential reference. */
 export const OPENAI_API_KEY_ENV = 'OPENAI_API_KEY'
 /** xAI image generation credential; separate from other providers. */
 export const GROK_API_KEY_ENV = 'XAI_API_KEY'

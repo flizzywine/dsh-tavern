@@ -173,12 +173,12 @@ test('a picture turns the configured size to its own orientation and adds its ow
   assert.deepEqual([qwen.size, qwen.negative_prompt], ['1024*1328', 'text'])
 })
 
-test('NovelAI chat-protocol endpoints (Nai2API style) send the field template and read the picture link', async () => {
-  const endpoints = [{ id: 'relay', name: '自定义渠道', baseURL: 'https://relay.example', protocol: 'chat' }]
-  const config = { ...input, model: 'nai-diffusion-4-5-full', size: '832x1216', baseURL: 'https://relay.example', endpoint: 'relay', endpoints, sampler: 'k_euler', guidance: '6', negativePrompt: 'lowres',
+test('NovelAI chat-protocol custom endpoints send the field template and read the picture link', async () => {
+  const endpoints = [{ id: 'custom', name: '自定义渠道', baseURL: 'https://custom.example', protocol: 'chat' }]
+  const config = { ...input, model: 'nai-diffusion-4-5-full', size: '832x1216', baseURL: 'https://custom.example', endpoint: 'custom', endpoints, sampler: 'k_euler', guidance: '6', negativePrompt: 'lowres',
     artists: [{ id: 'a1', name: '画师', prompt: 'artist:foo' }], activeArtist: 'a1' }
   const request = imageChannelRequest({ ...config, plan })
-  assert.equal(request.url, 'https://relay.example/v1/chat/completions')
+  assert.equal(request.url, 'https://custom.example/v1/chat/completions')
   assert.equal(request.body.model, 'nai-diffusion-4-5-full:k_euler')
   const lines = request.body.messages[0].content.split('\n')
   assert.deepEqual(lines.map(line => line.split(':')[0]), ['提示词', '画师串', '尺寸', '提示词引导值', '缩放引导值', '负面提示词', '采样器'])
@@ -188,17 +188,17 @@ test('NovelAI chat-protocol endpoints (Nai2API style) send the field template an
   assert.doesNotMatch(lines[0], /artist:foo/)
   assert.equal(request.body.nai.size, '竖图')
   assert.equal(request.body.nai.scale, 6)
-  assert.equal(imageChannelRequest({ ...config, baseURL: 'https://relay.example/v1', endpoints: [{ ...endpoints[0], baseURL: 'https://relay.example/v1' }], plan }).url, 'https://relay.example/v1/chat/completions')
+  assert.equal(imageChannelRequest({ ...config, baseURL: 'https://custom.example/v1', endpoints: [{ ...endpoints[0], baseURL: 'https://custom.example/v1' }], plan }).url, 'https://custom.example/v1/chat/completions')
   const calls = []
   const result = await generateSceneImage({ ...config, plan, prompt: 'x' }, {
     validateDownload: async url => url,
     fetch: async (url, init) => {
       calls.push(url)
-      if (url.endsWith('/chat/completions')) return new Response(JSON.stringify({ choices: [{ message: { content: '生成完成 ![image](https://relay.example/files/a.png)' } }] }))
+      if (url.endsWith('/chat/completions')) return new Response(JSON.stringify({ choices: [{ message: { content: '生成完成 ![image](https://custom.example/files/a.png)' } }] }))
       return new Response(png, { headers: { 'content-type': 'image/png' } })
     } })
   assert.equal(result.mediaType, 'image/png')
-  assert.deepEqual(calls, ['https://relay.example/v1/chat/completions', 'https://relay.example/files/a.png'])
+  assert.deepEqual(calls, ['https://custom.example/v1/chat/completions', 'https://custom.example/files/a.png'])
   await assert.rejects(generateSceneImage({ ...config, plan, prompt: 'x' }, { fetch: async () => new Response(JSON.stringify({ choices: [{ message: { content: '余额不足' } }] })) }), /该接口没有返回图片链接：余额不足/)
   assert.throws(() => imageChannelRequest({ ...config, endpoints: [{ ...endpoints[0], protocol: 'other' }], plan }), /接口格式/)
 })

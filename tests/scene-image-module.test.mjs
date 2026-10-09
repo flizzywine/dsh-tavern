@@ -131,31 +131,31 @@ test('NovelAI endpoints keep separate keys; switching sends only the selected en
   const f = await fixture(t)
   const official = { id: 'default', name: '官方', baseURL: 'https://image.novelai.net' }
   await f.setup.configure({ provider: 'novelai', apiKey: 'official-key', model: 'nai-diffusion-4-5-full', size: '832x1216', endpoint: 'default', endpoints: [official] })
-  const relay = { id: 'relay1', name: '自定义渠道', baseURL: 'https://relay.example' }
+  const custom = { id: 'custom1', name: '自定义渠道', baseURL: 'https://custom.example' }
   // A new endpoint needs its own key; the official key is never reused for it.
-  let ui = await f.setup.configure({ provider: 'novelai', endpoint: 'relay1', baseURL: relay.baseURL, endpoints: [official, relay] })
+  let ui = await f.setup.configure({ provider: 'novelai', endpoint: 'custom1', baseURL: custom.baseURL, endpoints: [official, custom] })
   assert.equal(ui.hasKey, false)
-  ui = await f.setup.configure({ provider: 'novelai', endpoint: 'relay1', baseURL: relay.baseURL, endpoints: [official, relay], apiKey: 'relay-key' })
-  assert.equal(ui.endpoint, 'relay1')
-  assert.deepEqual(ui.endpoints.map(entry => [entry.id, entry.baseURL, entry.hasKey]), [['default', 'https://image.novelai.net', true], ['relay1', 'https://relay.example', true]])
+  ui = await f.setup.configure({ provider: 'novelai', endpoint: 'custom1', baseURL: custom.baseURL, endpoints: [official, custom], apiKey: 'custom-key' })
+  assert.equal(ui.endpoint, 'custom1')
+  assert.deepEqual(ui.endpoints.map(entry => [entry.id, entry.baseURL, entry.hasKey]), [['default', 'https://image.novelai.net', true], ['custom1', 'https://custom.example', true]])
   let snapshot = await f.create().setup.capture()
-  assert.equal(snapshot.active.baseURL, 'https://relay.example')
-  assert.equal(snapshot.apiKey, 'relay-key')
+  assert.equal(snapshot.active.baseURL, 'https://custom.example')
+  assert.equal(snapshot.apiKey, 'custom-key')
   // Switching back restores the official address and key without retyping it.
   ui = await f.setup.configure({ provider: 'novelai', endpoint: 'default', baseURL: official.baseURL, endpoints: ui.endpoints })
   snapshot = await f.create().setup.capture()
   assert.equal(snapshot.active.baseURL, 'https://image.novelai.net')
   assert.equal(snapshot.apiKey, 'official-key')
-  // A connection test of the inactive relay uses the relay's own key and address.
+  // A connection test of the inactive custom endpoint uses its own key and address.
   f.requests.length = 0
-  await f.setup.testConnection({ provider: 'novelai', endpoint: 'relay1', baseURL: relay.baseURL }).catch(() => {})
+  await f.setup.testConnection({ provider: 'novelai', endpoint: 'custom1', baseURL: custom.baseURL }).catch(() => {})
   assert.ok(f.requests.length > 0)
   for (const request of f.requests) {
-    assert.equal(new URL(request.url).origin, 'https://relay.example')
-    assert.equal(request.init.headers.authorization, 'Bearer relay-key')
+    assert.equal(new URL(request.url).origin, 'https://custom.example')
+    assert.equal(request.init.headers.authorization, 'Bearer custom-key')
   }
   // Editing an endpoint's address still requires its key again.
-  await assert.rejects(f.setup.configure({ provider: 'novelai', endpoint: 'relay1', baseURL: 'https://other.example', endpoints: ui.endpoints }), /重新填写 API Key/)
+  await assert.rejects(f.setup.configure({ provider: 'novelai', endpoint: 'custom1', baseURL: 'https://other.example', endpoints: ui.endpoints }), /重新填写 API Key/)
 })
 
 test('older single-endpoint NovelAI settings read as one default endpoint with the original key', async t => {

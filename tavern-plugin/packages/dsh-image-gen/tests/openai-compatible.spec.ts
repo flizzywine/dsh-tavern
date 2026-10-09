@@ -9,8 +9,8 @@ describe('OpenAI-compatible images', () => {
     const image = Buffer.from('image bytes').toString('base64')
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({ data: [{ b64_json: image }] }), { headers: { 'content-type': 'application/json' } }))
     vi.stubGlobal('fetch', fetchMock)
-    await expect(generateOpenAICompatibleImage({ provider: 'openai', apiKey: 'key', baseURL: 'https://relay.example/v1', model: 'image-model', prompt: 'a cat', size: '1024x1024', maxBytes: 1024, signal })).resolves.toEqual({ data: new Uint8Array(Buffer.from('image bytes')), mediaType: 'image/png' })
-    expect(fetchMock.mock.calls[0]?.[0]).toBe('https://relay.example/v1/images/generations')
+    await expect(generateOpenAICompatibleImage({ provider: 'openai', apiKey: 'key', baseURL: 'https://custom.example/v1', model: 'image-model', prompt: 'a cat', size: '1024x1024', maxBytes: 1024, signal })).resolves.toEqual({ data: new Uint8Array(Buffer.from('image bytes')), mediaType: 'image/png' })
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('https://custom.example/v1/images/generations')
   })
 
   it('uses multipart /images/edits with the source image', async () => {
@@ -45,7 +45,7 @@ describe('OpenAI-compatible images', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     await editOpenAICompatibleImage({
-      apiKey: 'key', baseURL: 'https://relay.example/v1', model: 'image-model', prompt: 'edit',
+      apiKey: 'key', baseURL: 'https://custom.example/v1', model: 'image-model', prompt: 'edit',
       sourceImages: [{ data: new Uint8Array([1]), mediaType: 'image/png' }],
       maxBytes: 1024, signal,
     })

@@ -144,7 +144,7 @@ async function requestSceneImage(input, deps) {
   })
   let response = await send()
   // NovelAI answers 429 when the account already has a generation running
-  // (e.g. in its own web UI) and same-protocol relays pass it through: the job
+  // (e.g. in its own web UI) and same-protocol custom endpoints pass it through: the job
   // was refused before generating, so waiting and resending cannot double-charge.
   // Other channels and 5xx stay unretried; they do not prove the job was skipped.
   for (let attempt = 0; input.provider === 'novelai' && response.status === 429 && attempt < NOVELAI_BUSY_RETRIES; attempt++) {
@@ -163,7 +163,7 @@ async function requestSceneImage(input, deps) {
       detail = Object.fromEntries(Object.entries({ message, code: value?.code, param: value?.param }).filter(([, item]) => typeof item === 'string').map(([key, item]) => [key, safe(item)]))
     } catch { /* A malformed/oversized error must not hide the actual HTTP status. */ }
     const error = new Error('生图服务请求失败（HTTP ' + response.status + '）' + (detail.message ? '：' + detail.message : '') + (detail.param ? '（字段：' + detail.param + '）' : ''))
-    // Many relays serve image models only through chat/completions.
+    // Many custom endpoints serve image models only through chat/completions.
     if (response.status === 404 && input.provider === 'openai') error.message += '。该地址没有 OpenAI 图片接口；如果它提供的是 NovelAI 图片，请改选「NovelAI（官方或自定义渠道）」并添加接入点'
     error.imageFailure = { httpStatus: response.status, ...detail }
     // A proxy timeout/5xx or 429 does not establish whether the upstream took
@@ -173,7 +173,7 @@ async function requestSceneImage(input, deps) {
   }
   if (input.provider === 'novelai' && spec.body.messages === undefined) {
     const archive = await boundedBytes(response, maxBytes + 65536)
-    // An OpenAI-style relay answers this native path with its own web page:
+    // An OpenAI-style custom endpoint answers this native path with its own web page:
     // nothing reached an image service, so nothing was charged.
     if (/^\s*</.test(archive.subarray(0, 64).toString('utf8'))) {
       const error = new Error('该地址返回的是网页，不是 NovelAI 图片。如果这个地址用对话接口出图，请把这个接入点的「接口格式」改成「对话格式」。')

@@ -21,7 +21,7 @@ export const NOVELAI_UC_PRESETS = Object.freeze(['none', 'light', 'heavy', 'huma
 // are the defaults earlier versions always sent.
 export const NOVELAI_SAMPLERS = Object.freeze(['k_euler_ancestral', 'k_euler', 'k_dpmpp_2s_ancestral', 'k_dpmpp_2m', 'k_dpmpp_2m_sde', 'k_dpmpp_sde', 'ddim_v3'])
 // How an endpoint is called: NovelAI's own /ai/generate-image (ZIP reply), or
-// a custom endpoint's chat/completions "conversation generation" (Nai2API style).
+// a custom endpoint's chat/completions "conversation generation".
 export const NOVELAI_PROTOCOLS = Object.freeze(['native', 'chat'])
 export const NOVELAI_NOISE_SCHEDULES = Object.freeze(['karras', 'native', 'exponential', 'polyexponential'])
 const LIBRARY_ID = /^[a-z0-9]{1,12}$/
@@ -88,7 +88,7 @@ function libraryEntries(value, limit, label) {
   })
 }
 
-/** Named NovelAI endpoints (official site or same-protocol relays). Each keeps
+/** Named NovelAI endpoints (official site or custom endpoints). Each keeps
  * its own key; the active one's address is the channel baseURL, so switching
  * endpoints changes only where requests go, never model or prompt settings.
  * Older single-endpoint configurations become the `default` entry. */
@@ -338,7 +338,7 @@ export function novelaiRequest(input, config) {
   }
 }
 
-/** Nai2API-style conversation generation: the relay validates a fixed Chinese
+/** Conversation generation: the custom endpoint validates a fixed Chinese
  * field template in the user message and reads its values from the higher
  * priority `nai` object. One picture per call; the reply text carries its URL. */
 export function novelaiChatRequest(input, config) {
@@ -355,7 +355,7 @@ export function novelaiChatRequest(input, config) {
   const cfg = config.cfgRescale ? Number(config.cfgRescale) : 0
   const content = ['提示词:' + tags, '画师串:' + artist, '尺寸:' + size, '提示词引导值:' + scale, '缩放引导值:' + cfg, '负面提示词:' + negative, '采样器:' + sampler].join('\n')
   return {
-    // Relays list each sampler as its own model, e.g. nai-diffusion-4-5-full:k_euler.
+    // Such endpoints list each sampler as its own model, e.g. nai-diffusion-4-5-full:k_euler.
     model: config.model + ':' + sampler, stream: false,
     messages: [{ role: 'user', content }],
     nai: { tag: tags, artist, size, scale, cfg, negative, sampler, noise_schedule: config.noiseSchedule || 'karras' }

@@ -58,8 +58,8 @@ describe('Grok native generation adapter', () => {
 describe('Grok plugin configuration and Studio', () => {
   it('has isolated schema, model, endpoint and credential', () => {
     expect(Config({ provider: 'grok' })).toMatchObject({ grokBaseURL: 'https://api.x.ai/v1', grokModel: input().model })
-    expect(resolveProvider({ provider: 'grok', grokModel: 'custom', grokBaseURL: 'https://relay.example/v1', openaiModel: 'not-grok' }))
-      .toMatchObject({ provider: 'grok', apiKeyEnv: 'XAI_API_KEY', model: 'custom', baseURL: 'https://relay.example/v1' })
+    expect(resolveProvider({ provider: 'grok', grokModel: 'custom', grokBaseURL: 'https://custom.example/v1', openaiModel: 'not-grok' }))
+      .toMatchObject({ provider: 'grok', apiKeyEnv: 'XAI_API_KEY', model: 'custom', baseURL: 'https://custom.example/v1' })
     expect(studioProfile({}, 'grok', true)).toMatchObject({ supportsEditing: false, defaultQuality: '1k', defaultRatio: '1:1' })
     expect(conversationRegenerateRequest({ provider: 'grok', model: input().model, output: '16:9, 2k' }, 'new lake'))
       .toMatchObject({ ratio: '16:9', quality: '2k' })

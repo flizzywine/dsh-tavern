@@ -140,7 +140,7 @@ const DICT = {
     // Filter Toolbar
     filterAllProviders: 'All Providers',
     filterGoogle: 'Google Gemini',
-    filterOpenAI: 'OpenAI / Relay',
+    filterOpenAI: 'OpenAI / Compatible',
     filterSeedream: 'ByteDance Seedream',
     filterDashScope: 'Aliyun DashScope',
     filterComfyUI: 'Local ComfyUI',
