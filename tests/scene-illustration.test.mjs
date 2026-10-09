@@ -765,3 +765,26 @@ test('a hand-edited prompt repaints without the Agent and leaves the turn plan a
   const plans = await fx.store.readJson(imagePath + 'plans.json')
   assert.match(Object.values(plans.frames[key])[0].prompt, /^A woman standing/)
 })
+
+test('history lists pictures across games by chat id, reads and removes them without resolving a session', async t => {
+  const fx = await fixture(t)
+  const key = sceneTarget(fx.chat(), 2).key
+  await fx.service.start('parent', 2, key)
+  const first = await until(async () => { const state = await fx.service.status('parent', 2); return state.status === 'succeeded' && state })
+  await fx.service.start('parent', 2, key, { kind: 'repaint', versionId: first.versions[0].id })
+  const second = await until(async () => { const state = await fx.service.status('parent', 2); return state.status === 'succeeded' && state.versions.length === 2 && state })
+  let items = await fx.service.history()
+  assert.deepEqual(items.map(item => [item.chatId, item.key, item.turn, item.deleted, item.versions.length]), [['test-chat', key, 2, true, 2]])
+  fx.deps.chatSummaries = async () => [{ id: 'test-chat', cardName: '段莹莹', title: '晨起' }]
+  items = await fx.service.history()
+  assert.deepEqual([items[0].cardName, items[0].title, items[0].deleted], ['段莹莹', '晨起', false])
+  fx.deps.chatForSession = async () => { throw new Error('session closed') }
+  assert.deepEqual((await fx.service.readStoredImage('test-chat', key, second.versions[0].id)).data, png)
+  await assert.rejects(fx.service.readStoredImage('test-chat', '../plans', second.versions[0].id), /图片地址不合法/)
+  const results = await fx.service.removeStoredImages([{ chatId: 'test-chat', key, versionId: second.versions[0].id }, { chatId: 'test-chat', key, versionId: 'missing' }])
+  assert.deepEqual(results.map(row => row.ok), [true, false])
+  const record = await fx.store.readJson(imagePath + key + '.json')
+  assert.deepEqual(record.versions.map(item => item.id), [second.versions[1].id])
+  assert.equal(record.deletedVersions.length, 1)
+  assert.equal((await fx.service.history())[0].versions.length, 1)
+})

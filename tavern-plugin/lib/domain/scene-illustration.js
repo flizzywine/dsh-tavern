@@ -666,10 +666,8 @@ export function createSceneIllustrations(deps) {
     }
     return images
   }
-  async function removeImage(sessionId, turn, key, versionId) {
-    const { target, path } = await resolve(sessionId, turn)
-    if (target.key !== key) throw new Error('正文版本已变化')
-    const next = await deps.store.updateJson(path, record => {
+  async function detachVersion(path, versionId) {
+    return deps.store.updateJson(path, record => {
       if (record?.status === 'running') throw new Error('请等待当前生图任务结束后删除图片')
       if (record?.recovery === 'save') throw new Error('请先恢复待保存的图片，再删除图片版本')
       const versions = versionsOf(record)
@@ -680,9 +678,53 @@ export function createSceneIllustrations(deps) {
       // their bytes blindly. Keep a tombstone for subsequent reference-aware GC.
       return { ...record, versions: kept, status: kept.length ? 'succeeded' : 'idle', error: '', deletedVersions: [...(record.deletedVersions || []), { ...removed, deletedAt: Date.now() }] }
     })
-    return present(target, next)
   }
-  return { settings, configure, readArtistPreview: setup.readArtistPreview, testConnection: connection.test, listModels: connection.models, testGenerate, status, start, cancel, retrySave, readImage, exportImages, isAgentSession, undoAgentTurn, removeImage, setReference,
+  async function removeImage(sessionId, turn, key, versionId) {
+    const { target, path } = await resolve(sessionId, turn)
+    if (target.key !== key) throw new Error('正文版本已变化')
+    return present(target, await detachVersion(path, versionId))
+  }
+  // History spans every game, including deleted ones whose session no longer resolves,
+  // so these address a record by the chat id saved in it rather than by session and turn.
+  const storedPath = (chatId, key) => {
+    if (typeof chatId !== 'string' || !chatId || !/^[0-9a-f]{64}$/.test(String(key))) throw new Error('图片地址不合法')
+    return pathFor(chatId, key)
+  }
+  async function history() {
+    const games = new Map((await deps.chatSummaries?.() || []).map(chat => [chat.id, chat]))
+    const items = []
+    for (const folder of await deps.store.list('scene-images')) {
+      if (!folder.directory) continue
+      for (const file of await deps.store.list('scene-images/' + folder.name)) {
+        if (file.directory || !/^[0-9a-f]{64}\.json$/.test(file.name)) continue
+        const record = await deps.store.readJson('scene-images/' + folder.name + '/' + file.name).catch(() => undefined)
+        const chatId = record?.diagnosticContext?.chatId
+        const versions = versionsOf(record).filter(item => item.attachment)
+        if (typeof chatId !== 'string' || !versions.length || record.key + '.json' !== file.name) continue
+        const game = games.get(chatId)
+        items.push({ chatId, key: record.key, turn: Number(record.turn) || 0, cardName: game?.cardName || '', title: game?.title || '', deleted: !game,
+          versions: versions.map(item => ({ id: item.id, description: item.plan?.description || item.description || '', createdAt: Number(item.createdAt) || 0 })) })
+      }
+    }
+    const latest = item => Math.max(0, ...item.versions.map(version => version.createdAt))
+    return items.sort((a, b) => latest(b) - latest(a))
+  }
+  async function readStoredImage(chatId, key, versionId) {
+    const version = versionsOf(await readRecord(storedPath(chatId, key))).find(item => item.id === versionId)
+    if (!version?.attachment) throw new Error('图片不存在或已删除')
+    return deps.attachments().readImage(version.attachment)
+  }
+  async function removeStoredImages(items) {
+    if (!Array.isArray(items) || items.length > 500) throw new Error('一次最多删除 500 张')
+    const results = []
+    // One at a time and independently: report exactly which pictures were removed.
+    for (const item of items) {
+      try { await detachVersion(storedPath(item?.chatId, item?.key), item?.versionId); results.push({ versionId: item.versionId, ok: true }) }
+      catch (error) { results.push({ versionId: item?.versionId, ok: false, error: String(error?.message || error) }) }
+    }
+    return results
+  }
+  return { settings, configure, readArtistPreview: setup.readArtistPreview, testConnection: connection.test, listModels: connection.models, testGenerate, status, start, cancel, retrySave, readImage, exportImages, isAgentSession, undoAgentTurn, removeImage, setReference, history, readStoredImage, removeStoredImages,
     async dispose() { for (const job of jobs.values()) job.controller.abort(); await Promise.allSettled([...jobs.values()].map(job => job.promise)); imageHosts.delete(ownerId); imageAborters.delete(ownerId) }
   }
 }

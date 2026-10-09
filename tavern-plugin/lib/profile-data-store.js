@@ -1,4 +1,5 @@
 import path from 'node:path'
+import { readdir } from 'node:fs/promises'
 import { createDurableFilePromotion } from './durable-file-promotion.js'
 
 function resolveSafePath(dataRoot, relativePath) {
@@ -41,6 +42,16 @@ export function createProfileDataStore(options) {
       })
       return decodeJson(result)
     },
-    async remove(relativePath) { await files.remove(resolveSafePath(dataRoot, relativePath)) }
+    async remove(relativePath) { await files.remove(resolveSafePath(dataRoot, relativePath)) },
+    /** Directory entries; a missing directory is empty. */
+    async list(relativePath) {
+      try {
+        const entries = await readdir(resolveSafePath(dataRoot, relativePath), { withFileTypes: true })
+        return entries.map(entry => ({ name: entry.name, directory: entry.isDirectory() }))
+      } catch (error) {
+        if (error?.code === 'ENOENT') return []
+        throw error
+      }
+    }
   })
 }

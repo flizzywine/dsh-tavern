@@ -127,6 +127,19 @@ body.dsh-tavern-shell-active,
 .dsh-tavern-image-plan summary { cursor: pointer; font-weight: 600; }
 .dsh-tavern-image-plan dt { margin-top: 8px; color: #aaa; }
 .dsh-tavern-image-plan dd { margin: 2px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+.dsh-tavern-image-preview .dsh-tavern-image-preview-page { top: 50%; right: auto; transform: translateY(-50%); padding: 6px 14px; font-size: 28px; line-height: 1; }
+.dsh-tavern-image-preview .dsh-tavern-image-preview-page[data-side="prev"] { left: max(16px, env(safe-area-inset-left)); }
+.dsh-tavern-image-preview .dsh-tavern-image-preview-page[data-side="next"] { right: max(16px, env(safe-area-inset-right)); }
+.dsh-tavern-image-preview .dsh-tavern-image-preview-page:disabled { opacity: .3; cursor: default; }
+.dsh-tavern-image-preview-counter { position: absolute; top: max(20px, env(safe-area-inset-top)); left: max(20px, env(safe-area-inset-left)); color: #fff; font-size: 13px; opacity: .85; }
+.dsh-tavern-image-history-game { margin-top: 14px; }
+.dsh-tavern-image-history-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 13px; }
+.dsh-tavern-image-history-head strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dsh-tavern-image-history-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; }
+.dsh-tavern-image-history-shot { margin: 0; padding: 2px; border: 2px solid transparent; border-radius: 8px; }
+.dsh-tavern-image-history-shot.is-picked { border-color: var(--dsw-alias-state-danger, #c0392b); }
+.dsh-tavern-image-history-shot img { display: block; width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 6px; cursor: zoom-in; }
+.dsh-tavern-image-history-shot label { display: flex; align-items: center; gap: 4px; margin-top: 2px; font-size: 11px; color: var(--dsw-alias-label-secondary); cursor: pointer; }
 .dsh-tavern-image-preview .dsh-tavern-image-plan-edit { position: static; display: block; margin: 10px 0 2px auto; min-height: 0; padding: 4px 12px; font-size: 12px; }
 .dsh-tavern-image-repaint { display: flex; flex-direction: column; gap: 8px; padding: 0; border: 0; }
 .dsh-tavern-image-adjust.dsh-tavern-image-repaint textarea { min-height: 64px; margin: 0; padding: 10px 12px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 10px; background: var(--dsw-specific-input-major); color: inherit; font: inherit; font-size: 14px; line-height: 1.6; resize: vertical; transition: border-color .15s, box-shadow .15s; }

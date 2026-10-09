@@ -229,7 +229,8 @@
 			return details;
 		}
 
-		function openSceneImagePreview(url, opener, version, onEditPrompt) {
+		// gallery: { urls, index } pages through several pictures with ‹ › and the arrow keys.
+		function openSceneImagePreview(url, opener, version, onEditPrompt, gallery) {
 			const dialog = document.createElement("dialog");
 			dialog.className = "dsh-tavern-image-preview";
 			dialog.setAttribute("aria-label", "场景插画预览");
@@ -244,6 +245,33 @@
 			dialog.addEventListener("click", function (event) { if (event.target === dialog) dialog.close(); });
 			dialog.addEventListener("close", function () { dialog.remove(); if (opener && opener.isConnected) opener.focus(); }, { once: true });
 			dialog.append(close, image);
+			const urls = gallery && gallery.urls || [];
+			if (urls.length > 1) {
+				let at = Math.max(0, Math.min(urls.length - 1, Number(gallery.index) || 0));
+				const counter = document.createElement("span");
+				counter.className = "dsh-tavern-image-preview-counter";
+				const pager = ["‹", "›"].map(function (text, side) {
+					const button = document.createElement("button");
+					button.type = "button";
+					button.textContent = text;
+					button.className = "dsh-tavern-image-preview-page";
+					button.dataset.side = side ? "next" : "prev";
+					button.setAttribute("aria-label", side ? "下一张" : "上一张");
+					button.addEventListener("click", function () { step(side ? 1 : -1); });
+					return button;
+				});
+				function show() {
+					image.src = urls[at];
+					counter.textContent = (at + 1) + " / " + urls.length;
+					pager[0].disabled = at === 0; pager[1].disabled = at === urls.length - 1;
+				}
+				function step(delta) { if (urls[at + delta]) { at += delta; show(); } }
+				dialog.addEventListener("keydown", function (event) {
+					if (event.key === "ArrowLeft" || event.key === "ArrowRight") { event.preventDefault(); step(event.key === "ArrowLeft" ? -1 : 1); }
+				});
+				dialog.append(counter, pager[0], pager[1]);
+				show();
+			}
 			const plan = sceneImagePlanDetails(version, onEditPrompt && function () { dialog.close(); onEditPrompt(); });
 			if (plan) dialog.append(plan);
 			document.body.append(dialog);
