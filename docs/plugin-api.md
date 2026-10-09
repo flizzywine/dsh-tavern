@@ -48,7 +48,7 @@ export function apply(ctx) {
 两条规则：
 
 - **用 `ctx.tavern.方法名()` 的形式调用**，不要把方法单独取出来（`const { attach } = ctx.tavern` 会报错）。Tavern 靠调用方式认出是哪个插件，从而让各插件只能看到、修改自己的内容。
-- **注册类的方法（`onTurnSettled`、`promptSection`、`turnSection`、`settlementSection`、`settlementTool`、`worldbookSource`、`register…`）在插件卸载时自动撤销**，也会返回一个撤销函数，可以提前调用。
+- **注册类的方法（`onTurnSettled`、`onTimelineChanged`、`promptSection`、`turnSection`、`settlementSection`、`settlementTool`、`worldbookSource`、`register…`）在插件卸载时自动撤销**，也会返回一个撤销函数，可以提前调用。
 
 ## 基本概念
 
@@ -144,6 +144,12 @@ item = {
 
 列出本插件在这一局（或这一轮）挂的全部媒体项，包括其他版本上的；每项带 `current` 表示是否属于当前显示的版本。
 
+### `onTimelineChanged(handler)`（第 2 版）
+
+这一局的剧情线变了之后调用：回退、撤销回退、重新生成、编辑正文、分叉。`handler` 收到 `{ gameId, kind, turn?, fromGameId? }`，`kind` 是 `rollback`、`undo-rollback`、`regenerate`、`edit`、`fork` 之一；`fork` 时 `gameId` 是新游戏，`fromGameId` 是原游戏。以后可能增加新的 `kind`，不认识的请忽略。
+
+这个通知只是告知。插件的按轮数据会自动跟着剧情线走（见下面的「插件存档数据」），不需要在这里同步。编辑正文后，Tavern 还会对新的正文版本再发一次 `onTurnSettled`，插件可以据此重算这一轮。
+
 ### `onGameRemoved(handler)`
 
 一局游戏被删除时调用，收到 `{ gameId }`，供插件清理自己按局保存的数据。插件挂到这局上的媒体项由 Tavern 一并清理。
@@ -211,6 +217,44 @@ ctx.tavern.settlementTool({
 - 插件工具跟着 Tavern 自己的结算一起运行：玩家关掉了所有后台结算项时，这一轮不会运行结算，插件工具也就不会被调用。需要每轮必定执行的逻辑，请放在 `onTurnSettled` 里。
 - 工具列表在后台会话建立时固定（它位于请求的缓存前缀里）。插件在启动时注册即可；运行中途才注册的工具，要等下一个后台会话才生效。
 
+## 插件存档数据（第 2 版）
+
+记忆、叙事锚点这类插件需要按轮保存状态。Tavern 提供两种存储，每个插件只能读写自己的那一份：
+
+| 存储 | 随回退、重新生成变化 | 用来放 |
+|---|---|---|
+| 按轮数据 | 是，自动 | 记忆、状态、锚点等跟剧情走的东西 |
+| 整局数据 | 否 | 插件设置、缓存、跨分支的统计 |
+
+### `saveTurnData({ gameId, turn, textVersion?, data })`
+
+把数据挂在这一轮**当前显示的正文版本**上。`textVersion` 可以省略；给了就必须是当前版本，否则报错（防止把旧回合的结果写到新正文上）。`data` 是能转成 JSON 的值，最多 64 KB；传 `null` 清除这一轮的数据。每个插件每局最多 2000 条、合计 8 MB。返回 `{ turn, textVersion }`。
+
+在 `settlementTool` 的 `execute` 里调用时，用收到的 `gameId`、`turn`，省略 `textVersion` 即可。
+
+### `readTurnData({ gameId, turn })`
+
+读**当前剧情线上第 `turn` 轮及之前最新的一条**，返回 `{ turn, textVersion, data }`，没有时返回 `null`。
+
+不需要处理回退：被回退、被重新生成、被编辑替换掉的正文版本，挂在上面的数据自然读不到；撤销回退后又能读到。推荐每轮存一份**完整状态**，读的时候直接拿最近一条，不用自己拼。
+
+### `saveGameData({ gameId, data })`、`readGameData({ gameId })`
+
+整局数据，不随剧情线变化，最多 256 KB。`readGameData` 没有数据时返回 `null`。
+
+各种操作下的行为：
+
+| 操作 | 按轮数据 | 整局数据 |
+|---|---|---|
+| 回退 | 被回退的轮次读不到 | 不变 |
+| 撤销回退 | 恢复 | 不变 |
+| 重新生成、编辑正文 | 新版本还没有数据，旧版本的读不到 | 不变 |
+| 分叉 | 分叉点及之前、当前显示的数据带到新游戏 | 复制一份到新游戏 |
+| 删局 | 删除 | 删除 |
+| 导出存档 | 不包含 | 不包含 |
+
+分叉时，插件挂的媒体项也按同样规则带到新游戏。
+
 ## 浏览器侧：`tavernUi`
 
 浏览器侧的代码运行在 DSH 页面里，使用 DSH 提供的 `react`。插件的 `render` 函数返回 React 元素；出错时只影响这个元素，正文其余部分照常显示。
@@ -266,7 +310,7 @@ context = { gameId, turn, busy }
 ## 已知限制
 
 - 插件需要完整重启 DSH 才会加载。这是 DSH 的机制。
-- 导出存档暂不包含插件媒体项；导入后的新局里看不到它们。
+- 导出存档暂不包含插件媒体项和插件存档数据；导入后的新局里看不到它们。
 - 开场白不触发 `onTurnSettled`。
 
 ## 缺接口怎么办
@@ -278,4 +322,4 @@ Tavern 不提前设计接口，而是根据插件实际用到的内容补接口�
 | 版本 | 变化 |
 |---|---|
 | 1 | 首个版本。 |
-| 2 | 新增 `turnSection`、`worldbookSource`、`settlementSection`、`settlementTool`：插件可以往每轮正文请求和后台结算里添加内容。第 1 版接口不变。 |
+| 2 | 新增 `turnSection`、`worldbookSource`、`settlementSection`、`settlementTool`：插件可以往每轮正文请求和后台结算里添加内容。新增插件存档数据（`saveTurnData`、`readTurnData`、`saveGameData`、`readGameData`）与 `onTimelineChanged`；编辑正文后重新发 `onTurnSettled`；分叉时带上插件数据和媒体项。第 1 版接口不变。 |

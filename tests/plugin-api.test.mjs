@@ -4,6 +4,7 @@ import { pathToFileURL } from 'node:url'
 import test from 'node:test'
 import { createPluginMedia, pluginMediaRange, pluginMediaSession, slicePluginMediaStream, pluginFileMediaType } from '../tavern-plugin/lib/domain/plugin-media.js'
 import { createTavernPluginApi, TAVERN_PLUGIN_API_VERSION } from '../tavern-plugin/lib/plugin-api.js'
+import { createPluginData } from '../tavern-plugin/lib/domain/plugin-data.js'
 
 function memoryStore() {
   const files = new Map()
@@ -210,6 +211,68 @@ test('tavern 服务 v2：本轮上下文、世界书来源、结算说明与结�
   assert.deepEqual(await h.api.turnContext({ gameId: 'game-1', turn: 4, input: '推门' }), [])
   assert.deepEqual(h.api.settlement.tools(), [])
   assert.match(JSON.parse(await call('anchor_submit', {})).error, /不可用/)
+})
+
+test('插件存档数据：按轮数据绑定正文版本，回退与重新生成后自然读不到旧版本，撤销后恢复；整局数据不随剧情变', { skip: !cordis }, async t => {
+  const store = memoryStore()
+  // The story line: turn -> the text version currently shown.
+  const shown = new Map([[1, 'v1'], [2, 'v2'], [3, 'v3']])
+  const h = await harness(t, { data: createPluginData({ store }), currentKey: async (_sessionId, turn) => shown.get(turn) ?? null })
+  const changes = []
+  let mem, other
+  await h.root.plugin({ name: 'memory', inject: ['tavern'], apply(ctx) { mem = ctx.tavern; ctx.tavern.onTimelineChanged(change => changes.push(change)) } })
+  await h.root.plugin({ name: 'other', inject: ['tavern'], apply(ctx) { other = ctx.tavern } })
+  await tick()
+  assert.deepEqual(await mem.saveTurnData({ gameId: 'game-1', turn: 2, data: { hp: 8 } }), { turn: 2, textVersion: 'v2' })
+  await mem.saveTurnData({ gameId: 'game-1', turn: 3, textVersion: 'v3', data: { hp: 5 } })
+  await assert.rejects(mem.saveTurnData({ gameId: 'game-1', turn: 3, textVersion: 'old', data: {} }), /当前显示/)
+  await assert.rejects(mem.saveTurnData({ gameId: 'game-1', turn: 9, data: {} }), /不存在/)
+  await assert.rejects(mem.saveTurnData({ gameId: 'game-1', turn: 2, data: { big: 'x'.repeat(70000) } }), /64 KB/)
+  assert.deepEqual(await mem.readTurnData({ gameId: 'game-1', turn: 3 }), { turn: 3, textVersion: 'v3', data: { hp: 5 } })
+  assert.deepEqual(await mem.readTurnData({ gameId: 'game-1', turn: 1 }), null)
+  assert.equal(await other.readTurnData({ gameId: 'game-1', turn: 3 }), null, 'each plugin sees only its own data')
+
+  shown.set(3, 'v3-regenerated')
+  assert.deepEqual(await mem.readTurnData({ gameId: 'game-1', turn: 3 }), { turn: 2, textVersion: 'v2', data: { hp: 8 } }, 'regenerated: the old version is not read')
+  shown.delete(3)
+  assert.equal((await mem.readTurnData({ gameId: 'game-1', turn: 5 })).turn, 2, 'rolled back')
+  shown.set(3, 'v3')
+  assert.deepEqual((await mem.readTurnData({ gameId: 'game-1', turn: 3 })).data, { hp: 5 }, 'undo restores it without any sync')
+  await mem.saveTurnData({ gameId: 'game-1', turn: 3, data: null })
+  assert.equal((await mem.readTurnData({ gameId: 'game-1', turn: 3 })).turn, 2, 'null clears the turn')
+
+  await mem.saveGameData({ gameId: 'game-1', data: { seen: 3 } })
+  shown.delete(2)
+  assert.deepEqual(await mem.readGameData({ gameId: 'game-1' }), { seen: 3 })
+  assert.equal(await other.readGameData({ gameId: 'game-1' }), null)
+  await assert.rejects(mem.saveGameData({ gameId: 'missing', data: {} }), /不存在/)
+
+  h.api.timelineChanged('game-1', { kind: 'rollback', turn: 3 })
+  h.api.timelineChanged('game-1', { kind: 'not-a-kind' })
+  await tick()
+  assert.deepEqual(changes, [{ gameId: 'game-1', kind: 'rollback', turn: 3 }])
+})
+
+test('分叉：可见的插件数据与媒体按新游戏的正文版本带过去，旧版本与分叉点之后的不带', { skip: !cordis }, async t => {
+  const store = memoryStore()
+  const data = createPluginData({ store })
+  const media = createPluginMedia({ store })
+  await data.saveTurn({ chatId: 'chat-1', owner: 'memory', turn: 2, key: 'v2', data: { hp: 8 } })
+  await data.saveTurn({ chatId: 'chat-1', owner: 'memory', turn: 2, key: 'v2-old', data: { hp: 1 } })
+  await data.saveTurn({ chatId: 'chat-1', owner: 'memory', turn: 4, key: 'v4', data: { hp: 2 } })
+  await data.saveGame({ chatId: 'chat-1', owner: 'memory', data: { seen: 1 } })
+  await media.issue('chat-1', 2, 'v2')
+  await media.attach({ chatId: 'chat-1', sessionId: 'game-1', owner: 'img', turn: 2, key: 'v2', currentKey: 'v2', item: { kind: 'x/y', data: 1 } })
+  const h = await harness(t, { data, media })
+  assert.deepEqual(await h.api.forkTurns('chat-1'), [2, 4])
+  const copied = await h.api.gameForked({ sourceChatId: 'chat-1', targetChatId: 'chat-2', targetSessionId: 'game-2', keyMap: new Map([['2\u0000v2', 'f2']]) })
+  assert.deepEqual(copied, { data: 1, media: 1 })
+  assert.deepEqual((await data.turnsUpTo({ chatId: 'chat-2', owner: 'memory', turn: 9 })).map(item => [item.turn, item.key, item.data]), [[2, 'f2', { hp: 8 }]])
+  assert.deepEqual(await data.readGame({ chatId: 'chat-2', owner: 'memory' }), { seen: 1 })
+  const forkedMedia = await media.list({ chatId: 'chat-2' })
+  assert.equal(forkedMedia[0].key, 'f2')
+  assert.match(forkedMedia[0].id, /^Z2FtZS0y\./, 'new ids belong to the new game')
+  assert.equal((await media.list({ chatId: 'chat-1' })).length, 1, 'the source game keeps its own')
 })
 
 test('tavern 服务：删局通知', { skip: !cordis }, async t => {

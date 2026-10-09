@@ -58,6 +58,7 @@ function gameIdOf(value) {
 export function createTavernPluginApi(deps) {
   const settledHandlers = new Set()
   const removedHandlers = new Set()
+  const timelineHandlers = new Set()
   const sections = new Map()
   const turnSections = new Map()
   const settlementSections = new Map()
@@ -87,6 +88,12 @@ export function createTavernPluginApi(deps) {
       text: material.text, rawText: material.source,
       card: { id: material.card.path, name: material.card.name }
     }
+  }
+
+  async function requireGame(gameId) {
+    const game = await deps.resolveGame(gameIdOf(gameId))
+    if (!game) throw Object.assign(new Error('这一局不存在或不是游玩对话'), { code: 'TAVERN_PLUGIN_NOT_FOUND' })
+    return game
   }
 
   async function locateItem(itemId) {
@@ -136,6 +143,49 @@ export function createTavernPluginApi(deps) {
       if (typeof handler !== 'function') throw new TypeError('onGameRemoved 需要一个函数')
       const entry = { owner: ownerOf(this), handler }
       return owned(this, () => { removedHandlers.add(entry); return () => removedHandlers.delete(entry) }, 'tavern.onGameRemoved()')
+    },
+
+    onTimelineChanged(handler) {
+      if (typeof handler !== 'function') throw new TypeError('onTimelineChanged 需要一个函数')
+      const entry = { owner: ownerOf(this), handler }
+      return owned(this, () => { timelineHandlers.add(entry); return () => timelineHandlers.delete(entry) }, 'tavern.onTimelineChanged()')
+    },
+
+    async saveTurnData({ gameId, turn, textVersion, data } = {}) {
+      const owner = ownerOf(this)
+      const game = await requireGame(gameId)
+      const at = positiveTurn(turn)
+      const key = await deps.currentKey(game.sessionId, at)
+      if (!key) throw Object.assign(new Error('这一轮不存在'), { code: 'TAVERN_PLUGIN_TURN_UNAVAILABLE' })
+      if (textVersion !== undefined && textVersion !== key) throw Object.assign(new Error('textVersion 不是这一轮当前显示的正文版本'), { code: 'TAVERN_PLUGIN_STALE_VERSION' })
+      if (data === undefined) throw new TypeError('data 不能省略；要清除这一轮的数据请传 null')
+      await deps.data.saveTurn({ chatId: game.chatId, owner, turn: at, key, data })
+      return { turn: at, textVersion: key }
+    },
+
+    async readTurnData({ gameId, turn } = {}) {
+      const owner = ownerOf(this)
+      const game = await deps.resolveGame(gameIdOf(gameId))
+      if (!game) return null
+      const keys = new Map()
+      for (const record of await deps.data.turnsUpTo({ chatId: game.chatId, owner, turn: positiveTurn(turn) })) {
+        if (!keys.has(record.turn)) keys.set(record.turn, await deps.currentKey(game.sessionId, record.turn))
+        if (keys.get(record.turn) === record.key) return { turn: record.turn, textVersion: record.key, data: structuredClone(record.data) }
+      }
+      return null
+    },
+
+    async saveGameData({ gameId, data } = {}) {
+      const owner = ownerOf(this)
+      const game = await requireGame(gameId)
+      if (data === undefined) throw new TypeError('data 不能省略；要清除请传 null')
+      await deps.data.saveGame({ chatId: game.chatId, owner, data })
+    },
+
+    async readGameData({ gameId } = {}) {
+      const owner = ownerOf(this)
+      const game = await deps.resolveGame(gameIdOf(gameId))
+      return game ? deps.data.readGame({ chatId: game.chatId, owner }) : null
     },
 
     async getTurn({ gameId, turn } = {}) {
@@ -245,6 +295,31 @@ export function createTavernPluginApi(deps) {
     if (gameId) dispatch(removedHandlers, { gameId }, 'onGameRemoved')
   }
 
+  const TIMELINE_KINDS = new Set(['rollback', 'undo-rollback', 'regenerate', 'edit', 'fork'])
+  /** Called by Tavern after the story line of a game changed; the change is informational. */
+  function timelineChanged(gameId, change = {}) {
+    if (!gameId || !TIMELINE_KINDS.has(change.kind) || timelineHandlers.size === 0) return
+    const turn = Number(change.turn)
+    dispatch(timelineHandlers, { gameId, kind: change.kind, ...(Number.isSafeInteger(turn) && turn > 0 ? { turn } : {}),
+      ...(change.fromGameId ? { fromGameId: String(change.fromGameId) } : {}) }, 'onTimelineChanged')
+  }
+
+  /** Called by Tavern when a game is forked: carry the visible plugin data and media. */
+  async function gameForked({ sourceChatId, targetChatId, targetSessionId, keyMap }) {
+    const copied = { data: 0, media: 0 }
+    try { copied.data = await deps.data.copyForFork({ sourceChatId, targetChatId, keyMap }) }
+    catch (error) { log.warn?.('dsh-tavern: 分叉时复制插件数据失败: ' + String(error?.message || error)) }
+    try { copied.media = await deps.media.copyForFork({ sourceChatId, targetChatId, targetSessionId, keyMap }) }
+    catch (error) { log.warn?.('dsh-tavern: 分叉时复制插件媒体失败: ' + String(error?.message || error)) }
+    return copied
+  }
+
+  /** Turns that hold plugin data or media, so a fork computes versions only for them. */
+  async function forkTurns(chatId) {
+    const turns = await Promise.all([deps.data.turns(chatId).catch(() => []), deps.media.turns(chatId).catch(() => [])])
+    return [...new Set(turns.flat())].sort((a, b) => a - b)
+  }
+
   /** Plugin sections for the foreground story prompt, in a stable order. */
   async function promptSections({ gameId, turn }) {
     return (await collectSections(sections, { gameId, turn }, '提示词段落')).map(({ name, text }) => ({ name, text }))
@@ -294,5 +369,5 @@ export function createTavernPluginApi(deps) {
     }
   })
 
-  return Object.freeze({ service, turnSettled, gameRemoved, promptSections, turnContext, settlement })
+  return Object.freeze({ service, turnSettled, gameRemoved, timelineChanged, gameForked, forkTurns, promptSections, turnContext, settlement })
 }

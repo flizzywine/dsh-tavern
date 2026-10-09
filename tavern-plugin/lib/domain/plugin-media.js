@@ -161,11 +161,27 @@ export function createPluginMedia({ store, now = Date.now, id = randomUUID }) {
   async function find(chatId, itemId) {
     return (await read(chatId)).items.find(item => item.id === itemId) || null
   }
+  /** Carry a fork's visible media: items whose version maps into the new game get new ids there. */
+  async function copyForFork({ sourceChatId, targetChatId, targetSessionId, keyMap }) {
+    const source = await read(sourceChatId)
+    const items = source.items.flatMap(item => {
+      const key = keyMap.get(item.turn + '\u0000' + item.key)
+      return key ? [{ ...structuredClone(item), id: pluginMediaId(targetSessionId, id()), key }] : []
+    })
+    if (!items.length) return 0
+    await update(targetChatId, value => {
+      value.items = items
+      for (const item of items) value.issued[item.turn] = [item.key]
+    })
+    return items.length
+  }
+  /** Turns of a game that hold any plugin media, for building a fork's key map. */
+  async function turns(chatId) { return (await read(chatId)).items.map(item => item.turn) }
   async function removeChat(chatId) {
     await store.remove(pathFor(chatId))
     for (const known of issuedKnown) if (known.startsWith(chatId + '\u0000')) issuedKnown.delete(known)
   }
-  return Object.freeze({ issue, attach, patch, remove, list, find, removeChat, pathFor })
+  return Object.freeze({ issue, attach, patch, remove, list, find, copyForFork, turns, removeChat, pathFor })
 }
 
 const FILE_MEDIA_TYPES = {

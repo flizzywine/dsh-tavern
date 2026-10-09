@@ -103,6 +103,7 @@ import { CANDIDATE_SUBMIT_TOOL, SCRIPT_POINT_TOOL, SCRIPT_READ_TOOL, createCandi
 import { computeSceneTarget, createSceneIllustrations, sceneTarget } from './domain/scene-illustration.js'
 import { legacyImageConfigurationReader } from './domain/image-generation-host.js'
 import { createPluginMedia, publicPluginMedia, pluginFileMediaType } from './domain/plugin-media.js'
+import { createPluginData } from './domain/plugin-data.js'
 import { createPluginTurnReader } from './domain/plugin-turns.js'
 import { createTavernPluginApi } from './plugin-api.js'
 import { createSceneWorldbooks, sceneWorldbookBinding } from './domain/scene-worldbook.js'
@@ -1269,6 +1270,7 @@ export async function apply(ctx) {
     const result = await conversationRegistry.remove(chatId)
     deletedChatIds.add(chatId)
     await pluginMedia.removeChat(chatId).catch(() => console.warn('dsh-tavern: 插件媒体记录清理失败', chatId))
+    await pluginData.removeChat(chatId).catch(() => console.warn('dsh-tavern: 插件数据清理失败', chatId))
     pluginApi.gameRemoved(footprint?.foregroundSessionId || chat?.sessionId)
     if (footprint) {
       deletedSessionIds.add(footprint.foregroundSessionId)
@@ -2270,6 +2272,20 @@ export async function apply(ctx) {
       return { source, state, turn, atSeq: conversationForkBoundary(session, state, turn) }
     } finally { if (handle) await handle.dispose() }
   }
+  // Plugin data and media are bound to text versions, whose keys hash the game id:
+  // map the fork's visible turns to the new game's keys. A failure never undoes the fork.
+  async function forkPluginState(source, state, fork, lastTurn) {
+    try {
+      const keyMap = new Map()
+      for (const turn of await pluginApi.forkTurns(source.id)) {
+        if (turn > lastTurn) continue
+        try { keyMap.set(turn + '\u0000' + computeSceneTarget({ ...state, id: source.id }, turn).key, computeSceneTarget(fork, turn).key) } catch {}
+      }
+      if (keyMap.size) await pluginApi.gameForked({ sourceChatId: source.id, targetChatId: fork.id, targetSessionId: fork.sessionId, keyMap })
+      pluginApi.timelineChanged(fork.sessionId, { kind: 'fork', turn: lastTurn, fromGameId: source.sessionId })
+    } catch (error) { console.warn('dsh-tavern: 分叉时处理插件数据失败:', str(error?.message || error)) }
+  }
+
   async function forkChat(sourceChatId, sourceSessionId, targetSessionId, requestedTurn, expectedRevision, expectedAtSeq) {
     const { source, state, turn, atSeq } = await prepareConversationFork(sourceChatId, sourceSessionId, requestedTurn)
     if (expectedRevision !== source._storageRevision || expectedAtSeq !== atSeq) throw new Error('源对话已变化，请重新选择分叉回合')
@@ -2283,6 +2299,7 @@ export async function apply(ctx) {
     fork.forkedFrom = { ...fork.forkedFrom, chatId: source.id, sessionId: source.sessionId, storageRevision: source._storageRevision,
       stateChatId: state.id, stateRevision: state._storageRevision, turn, atSeq }
     await conversationRegistry.publish(fork)
+    await forkPluginState(source, state, fork, turn)
     return conversationForkReceipt(fork, { lastTurn: turn, messageCount: fork.messages.length })
   }
 
@@ -2454,6 +2471,7 @@ export async function apply(ctx) {
   if (sceneIllustrations !== null) ctx.effect(() => () => sceneIllustrations.dispose(), 'dsh-tavern: dispose scene image agents')
   // Public extension service for third-party DSH plugins (docs/plugin-api.md).
   const pluginMedia = createPluginMedia({ store: profileData })
+  const pluginData = createPluginData({ store: profileData })
   const pluginTurns = createPluginTurnReader({
     sessionState: sessionStateForSession,
     sceneState: (sessionId, turns) => sessionChats.readSceneImageState(sessionId, { turns }),
@@ -2468,11 +2486,20 @@ export async function apply(ctx) {
     logger: console,
     reservedToolNames: [...BACKGROUND_TOOLS, HISTORY_RECALL_TOOL].map(tool => tool?.name).concat(['character_design_finish', 'worldbook_search', 'web_search', 'skill']).filter(Boolean),
     media: pluginMedia,
+    data: pluginData,
     ...pluginTurns,
     backgroundModel: async sessionId => backgroundModelSelection(await backgroundConfigForSession(sessionId)),
     publish: sessionId => sessionSignals.publish(sessionId, { kind: 'plugin-media', version: String(Date.now()) + ':' + Math.random().toString(36).slice(2) })
   })
   ctx.provide('tavern', pluginApi.service)
+  // Tell plugins the story line changed (informational: their turn data follows text versions
+  // by itself). After an edit or an undone rollback the visible version may be new to them.
+  function notifyPluginTimeline(sessionId, kind, { turn, settled = false } = {}) {
+    const id = str(sessionId)
+    if (!id) return
+    pluginApi.timelineChanged(id, { kind, turn })
+    if (settled) void pluginApi.turnSettled(id).catch(error => console.warn('dsh-tavern: 插件轮次通知失败:', str(error?.message || error)))
+  }
   // Bytes of one item, only while it belongs to the text version on screen.
   async function readPluginMediaFile(sessionId, itemId) {
     const missing = () => Object.assign(new Error('媒体不存在或不属于当前正文版本'), { code: 'TAVERN_PLUGIN_NOT_FOUND' })
@@ -4199,9 +4226,21 @@ export async function apply(ctx) {
       case 'addGuide': return { guides: await conversationGuides.add(args?.sessionId, args?.text) }
       case 'deleteGuide': return { guides: await conversationGuides.remove(args?.sessionId, args) }
       case 'getBodyEdit': return { edit: await bodyEditor.read(args && args.sessionId) }
-      case 'saveBodyEdit': return { view: await bodyEditor.save(args && args.sessionId, args) }
-      case 'regenBody': return { view: await regenBody(args && args.chatId, args && args.guidance, args && args.sessionId) }
-      case 'replayTurn': return { view: await replayFailedTurn(args && args.chatId, args && args.sessionId) }
+      case 'saveBodyEdit': {
+        const view = await bodyEditor.save(args && args.sessionId, args)
+        notifyPluginTimeline(args && args.sessionId, 'edit', { settled: true })
+        return { view }
+      }
+      case 'regenBody': {
+        const view = await regenBody(args && args.chatId, args && args.guidance, args && args.sessionId)
+        notifyPluginTimeline(args && args.sessionId, 'regenerate')
+        return { view }
+      }
+      case 'replayTurn': {
+        const view = await replayFailedTurn(args && args.chatId, args && args.sessionId)
+        notifyPluginTimeline(args && args.sessionId, 'regenerate')
+        return { view }
+      }
       case 'setAllFailedErrorVisibility': {
         const sessionId = str(args && args.sessionId)
         const chat = await chatForSession(sessionId)
@@ -4227,8 +4266,16 @@ export async function apply(ctx) {
         await updateChat(chat.id, current => setFailedErrorVisibility(current, events, args.turn, args.hidden), { source: 'ui.error-visibility' })
         return { view: await sessionView(sessionId) }
       }
-      case 'undoRollbackTurn': return { view: await undoRollbackTurn(args && args.sessionId, args && args.chatId) }
-      case 'rollbackTurn': return { view: await rollbackTurn(args && args.sessionId, args && args.chatId, args && args.expectedTurn) }
+      case 'undoRollbackTurn': {
+        const view = await undoRollbackTurn(args && args.sessionId, args && args.chatId)
+        notifyPluginTimeline(args && args.sessionId, 'undo-rollback', { settled: true })
+        return { view }
+      }
+      case 'rollbackTurn': {
+        const view = await rollbackTurn(args && args.sessionId, args && args.chatId, args && args.expectedTurn)
+        notifyPluginTimeline(args && args.sessionId, 'rollback', { turn: args && args.expectedTurn })
+        return { view }
+      }
       case 'getBackgroundProgress': return { progress: backgroundAgentRunner.progress(args && args.sessionId) }
       case 'stopBackground': return { view: await stopBackground(args && args.sessionId, args && args.operationId) }
       case 'retrySettlement': return { view: await retrySettlement(args && args.sessionId, args && args.turn, args && args.guidance) }
