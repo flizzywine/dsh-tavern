@@ -73,9 +73,9 @@ export function createScenePlans({ store }) {
     const previousScene = previous?.scene?.environment ? { environment: previous.scene.environment } : {}
     if (previousScene.environment && !block('scene', 'environment', previousScene.environment.text)) missingBlocks.push({ owner: 'scene', field: 'environment' })
     const input = { targetKey: target.key, turn: target.turn, profile, gapComplete, sources, characters: candidates.map(person => ({ id: person.id, name: person.name, fields: Object.fromEntries(Object.entries(person.fields).map(([field, value]) => [field, value.text])) })), previousScene: Object.fromEntries(Object.entries(previousScene).map(([field, value]) => [field, { text: value.text }])), missingBlocks }
-    // 'auto' style: every plan writes its picture's style, continuing the previous
-    // picture's on this story line (older games: the style once fixed for the game).
-    const previousStyle = [...applicable].reverse().find(frame => frame.artStyle)?.artStyle || data.style || null
+    // 'auto' style: every plan writes its picture's style, continuing the style of
+    // the game's most recently planned picture, whichever turn or branch it was on.
+    const previousStyle = data.style || null
     const styleNeeded = autoStyle
     if (styleNeeded) input.styleRequest = { instruction: '在 submit_scene_layout 里提交这张图的画风 style:{text,tags}：媒介、笔触、色调和光影质感。text 为一句中文，tags 为不超过 30 个词的英文短标签；只写风格，不写人物、服装或情节。' +
       (previousStyle ? 'previous 是上一张图的画风，保持画风连续。' : '还没有上一张图：按这张卡的题材、时代和世界观定。') + (stylePreference ? 'preference 是用户的画风偏好，须遵从。' : ''),
@@ -217,7 +217,7 @@ export function createScenePlans({ store }) {
       const existing = data.frames[prepared.target.key]?.[prepared.profile]
       if (existing && !prepared.replace) { assert(existing.id === frame.id, '当前正文方案已保存，旧任务不能覆盖；请重新读取'); return data }
       assert(data.generation === prepared.generation, '人物方案版本已变化，请重新读取后提交')
-      return { ...data, generation: data.generation + 1, characters: { ...data.characters, ...characterVersions }, blocks: { ...data.blocks, ...pendingBlocks }, frames: { ...data.frames, [prepared.target.key]: { ...data.frames[prepared.target.key], [prepared.profile]: frame } } }
+      return { ...data, ...(artStyle ? { style: frame.artStyle } : {}), generation: data.generation + 1, characters: { ...data.characters, ...characterVersions }, blocks: { ...data.blocks, ...pendingBlocks }, frames: { ...data.frames, [prepared.target.key]: { ...data.frames[prepared.target.key], [prepared.profile]: frame } } }
     })
     return frame
   }

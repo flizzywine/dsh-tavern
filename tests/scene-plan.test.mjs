@@ -144,6 +144,7 @@ test('auto style: each plan writes its picture\'s style and is given the previou
   const night = await fx.prepare(4, '夜里下雨。', { autoStyle: true })
   assert.equal((await fx.module.commit(night, { ...first(), style: { text: '国风厚涂，冷色雨夜', tags: 'Chinese xianxia digital painting, cold rainy night' } })).artStyle.text, '国风厚涂，冷色雨夜')
   assert.equal((await fx.prepare(5, '天亮了。', { autoStyle: true })).input.styleRequest.previous.text, '国风厚涂，冷色雨夜')
+  assert.equal((await fx.prepare(2, '回到前面补一张。', { autoStyle: true })).input.styleRequest.previous.text, '国风厚涂，冷色雨夜', 'the most recent picture, not story order')
 })
 
 test('replan ignores the turn\'s own frame as saved plan and continuity base, then replaces it', async t => {
