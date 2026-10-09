@@ -4,6 +4,7 @@ import { inputAttachments } from './player-input-content.js'
 import { resolveRuntimePresetMacros } from './runtime-presets.js'
 import { composeTavernRegexScripts } from './card-extension-reading.js'
 import { scriptPromptFrameInputs, consumeScriptPrompts } from './tavern-script-prompts.js'
+import { ledgerFrameInputs } from './story-ledger.js'
 import { projectBackgroundInput } from './runtime-content-projection.js'
 import { lastTavernHelperVariables } from './tavern-helper-context.js'
 import { bindSceneWorldbook } from './scene-worldbook.js'
@@ -197,7 +198,7 @@ export function foregroundFrameInputs(plan, sourceText, projectedText, presetSna
       source: { stage: 'mvu-background-owner' }
     })
   }
-  return inputs.concat(presetMiddleInstructions(presetSnapshot), scriptPromptFrameInputs(chat))
+  return inputs.concat(ledgerFrameInputs(chat), presetMiddleInstructions(presetSnapshot), scriptPromptFrameInputs(chat))
 }
 
 function frameSource(chat, card, operation) {
@@ -441,6 +442,8 @@ export function createTurnOrchestrator(options) {
       frame = frameBuilder.build({ ...frameInput, source: { ...source, worldBook: { ...source.worldBook, ...receipt } } })
     }
     consumeScriptPrompts(chat)
+    // The ledger is read once after a consolidation; this turn's frame keeps it for retries.
+    delete chat.ledgerInjection
     rememberFrame(chat, frame)
     chatChanged = true
     if (chatChanged) await savePreparation({ source: 'foreground.prepare' })

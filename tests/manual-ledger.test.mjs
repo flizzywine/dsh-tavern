@@ -3,6 +3,7 @@ import { createBackgroundTaskCoordinator } from '../tavern-plugin/lib/domain/bac
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createManualLedger, ledgerBacklog } from '../tavern-plugin/lib/domain/manual-ledger.js'
+import { ledgerFrameInputs } from '../tavern-plugin/lib/domain/story-ledger.js'
 
 const round = turn => [
   { role: 'user', turn, text: '第' + turn + '轮行动' },
@@ -38,6 +39,7 @@ test('手动整理只处理上次之后的新剧情，并记录整理到的轮�
   assert.equal(after.ledger.consolidatedTurn, 2)
   assert.equal(after.ledger.items[0].qty, 1)
   assert.equal(run.api.project(after).pendingRounds, 0)
+  assert.deepEqual(after.ledgerInjection, { through: 2 }, 'the next story turn reads the ledger once')
   assert.match(seen[0], /第 1 轮[\s\S]*第 2 轮/)
   await assert.rejects(run.api.start({ sessionId: 'session' }), /还没有新的剧情/)
 })
@@ -59,4 +61,14 @@ test('长历史分批整理：一次只读预算内的轮次，剩余留到下�
   const next = ledgerBacklog({ messages, ledger: { version: 1, items: [], npcs: [], scenes: [], itemLog: [], locationPath: [], consolidatedTurn: backlog.through } }, 400)
   assert.equal(next.from, backlog.through)
   assert.doesNotMatch(next.text, new RegExp('【第 ' + backlog.through + ' 轮】'))
+})
+
+test('整理后的台账只给下一轮正文一次；台账为空或没有整理时不提供', () => {
+  const ledger = { version: 1, location: '旅店', locationPath: [], items: [{ name: '钥匙', qty: 1 }], npcs: [], scenes: [], itemLog: [], updatedTurn: 2, consolidatedTurn: 2 }
+  const [input] = ledgerFrameInputs({ ledger, ledgerInjection: { through: 2 } })
+  assert.equal(input.kind, 'foreground.current-state')
+  assert.match(input.text, /^【游玩台账 · 整理至第 2 轮[^】]*】\n\{"location":"旅店"/)
+  assert.doesNotMatch(input.text, /consolidatedTurn|updatedTurn/)
+  assert.deepEqual(ledgerFrameInputs({ ledger }), [])
+  assert.deepEqual(ledgerFrameInputs({ ledger: { version: 1, location: '', locationPath: [], items: [], npcs: [], scenes: [], itemLog: [] }, ledgerInjection: { through: 2 } }), [])
 })

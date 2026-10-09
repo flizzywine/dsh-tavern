@@ -42,8 +42,9 @@ export function ledgerBacklog(chat, limit = LEDGER_BATCH_CHARS) {
 const MANUAL_RULES = LEDGER_RULES.replace('先完成台账，再提交姿势或变量；不要创建其他 Agent。', '不要创建其他 Agent。')
 
 /**
- * Player-triggered ledger consolidation. The ledger is a memo for the player only:
- * it is never added to foreground, candidate or settlement prompts.
+ * Player-triggered ledger consolidation. The ledger is a memo for the player; after
+ * a consolidation the next story turn reads it once (see ledgerFrameInputs), so the
+ * story sees fresh facts without carrying the ledger in every request.
  */
 export function createManualLedger({ store, runAgent, selection, beginTask, ensureSession = async () => {}, onError = error => console.error('台账整理保存状态失败', error) }) {
   const jobs = new Map()
@@ -93,7 +94,7 @@ export function createManualLedger({ store, runAgent, selection, beginTask, ensu
         rewindTo: taskRun.participantRequest.rewindTo,
         onPersistentSessionReady: id => taskRun.bindSession(id), sessionId, chatId: chat.id, selection: model,
         backgroundTasks: { variables: false, posture: false, characterDesign: false },
-        system: '本次执行玩家手动发起的台账整理。台账只是给玩家查阅的备忘录，不影响后续正文。阅读给出的剧情（第 '
+        system: '本次执行玩家手动发起的台账整理。台账是给玩家查阅的备忘录，整理后下一轮正文会参考一次。阅读给出的剧情（第 '
           + (backlog.from + 1) + '–' + backlog.through + ' 轮），对照当前台账，调用一次 ledger_submit 提交这些剧情带来的增量；没有变化也提交 {}。不得改写正文、变量或姿势。\n\n' + MANUAL_RULES,
         messages: [{ role: 'user', content: [{ type: 'text', text: ledgerContext(chat.ledger) + '\n\n【待整理剧情】\n' + backlog.text }] }],
         tools: [LEDGER_SUBMIT_TOOL],
@@ -111,6 +112,7 @@ export function createManualLedger({ store, runAgent, selection, beginTask, ensu
         if (JSON.stringify(readLedger(current.ledger)) !== JSON.stringify(readLedger(chat.ledger))) throw new Error('台账已被修改，本次整理未保存，请重试。')
         current.ledger = { ...submission.result, consolidatedTurn: backlog.through }
         current.ledgerTask = { status: 'done', from: backlog.from, through: backlog.through, error: '' }
+        current.ledgerInjection = { through: backlog.through }
         return current
       } })
       if (completed.status !== 'committed') throw new Error('剧情已变化，本次整理未保存，请重试。')

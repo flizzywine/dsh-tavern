@@ -42,6 +42,7 @@ function harness(mode, options = {}) {
     workspace: mode === 'card' ? { mountedResources: [], sourceIds: options.draft ? ['src-1'] : [], draft: { name: '' }, player: '', cursor: 0, prepared: null } : null,
     _storageRevision: 1
   }
+  Object.assign(chat, clone(options.chatFields || {}))
   const history = new Map([[1, clone(chat)]])
   const settlements = []
   const createdCards = []
@@ -334,6 +335,19 @@ test('插件的本轮上下文和世界书条目进入正文帧，插件层出�
   const fine = await broken.orchestrator.prepare({ sessionId: 'session-1', turn: 2, userText: '推门' })
   assert.equal(fine.ready, true)
   assert.equal(fine.frame.contributions.some(item => item.source.stage === 'plugin'), false)
+})
+
+test('整理过的游玩台账只进入下一轮的正文帧一次', async () => {
+  const ledger = { version: 1, location: '钟楼', locationPath: [], items: [{ name: '钥匙', qty: 1 }], npcs: [], scenes: [], itemLog: [] }
+  const run = harness('story', { chatFields: { ledger, ledgerInjection: { through: 1 } } })
+  const first = await run.orchestrator.prepare({ sessionId: 'session-1', turn: 2, userText: '上楼' })
+  assert.equal(first.frame.contributions.filter(item => item.source.stage === 'ledger').length, 1)
+  assert.equal(run.chat().ledgerInjection, undefined)
+  const retry = await run.orchestrator.prepare({ sessionId: 'session-1', turn: 2, userText: '上楼' })
+  assert.equal(retry.frame.contributions.filter(item => item.source.stage === 'ledger').length, 1, 'a retry of the same turn keeps it')
+  await run.orchestrator.finalize({ sessionId: 'session-1', turn: 2, userText: '上楼', assistantText: '钟声响起。' })
+  const next = await run.orchestrator.prepare({ sessionId: 'session-1', turn: 3, userText: '下楼' })
+  assert.equal(next.frame.contributions.some(item => item.source.stage === 'ledger'), false)
 })
 
 test('预设的「只发给模型」输入正则只进本轮请求，不写进保存的玩家消息；永久规则照常保存', async () => {

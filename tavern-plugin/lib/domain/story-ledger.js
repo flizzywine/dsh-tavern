@@ -69,6 +69,17 @@ export const LEDGER_RULES = `【台账维护】
 不要求重写完整台账，不编造数值、关系或人物离场后的变化。MVU 变量与人物设计档案各自继续原任务，不从台账直接改它们。`
 export function ledgerContext(value) { return '【当前台账（已结算）】\n' + JSON.stringify(readLedger(value)) }
 
+const MAX_INJECTED_LEDGER = 12000
+/** The one-time foreground input after a manual consolidation; [] when nothing is pending. */
+export function ledgerFrameInputs(chat) {
+  if (!object(chat?.ledgerInjection)) return []
+  const { consolidatedTurn, version, updatedTurn, ...ledger } = readLedger(chat.ledger)
+  if (!ledger.location && !['items', 'npcs', 'scenes'].some(kind => ledger[kind]?.length)) return []
+  const text = JSON.stringify(ledger)
+  return [{ kind: 'foreground.current-state', required: false, source: { stage: 'ledger', through: chat.ledgerInjection.through },
+    text: '【游玩台账 · 整理至第 ' + chat.ledgerInjection.through + ' 轮（只在这一轮提供，用来核对物品、人物与地点；与正文冲突时以正文为准）】\n' + text.slice(0, MAX_INJECTED_LEDGER) }]
+}
+
 /** Pure, atomic delta projection. A failed call leaves the authoritative ledger untouched. */
 export function applyLedgerDelta(current, delta, turn) {
   if (!object(delta)) throw new Error('ledger_submit 参数须为对象')
