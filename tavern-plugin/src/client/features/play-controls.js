@@ -1338,15 +1338,20 @@
 			);
 		}
 
+		// The last guidance per game, offered again when the player regenerates once more.
+		const regenGuidance = new Map();
 		function RegenPanel(props) {
 			const panel = useRegenPanel();
 			const sessionMode = useTavernSessionMode(props.sessionId);
 			const running = props.useSession(function (snapshot) { return snapshot.running; });
-			const [guidance, setGuidance] = React.useState("");
+			const [guidance, setGuidance] = React.useState(function () { return regenGuidance.get(props.sessionId) || ""; });
+			const opened = panel && panel.sessionId === props.sessionId && panel.phase === "input";
+			React.useEffect(function () { if (opened) setGuidance(regenGuidance.get(props.sessionId) || ""); }, [opened, props.sessionId]);
 			const h = React.createElement;
 			if (!isPlayMode(sessionMode) || running || !panel || panel.sessionId !== props.sessionId) return null;
 			async function generate() {
 				const guide = guidance.trim();
+				if (guide) regenGuidance.set(props.sessionId, guide); else regenGuidance.delete(props.sessionId);
 				setRegenPanel(Object.assign({}, panel, { phase: "loading", error: "" }));
 				try {
 					await submitBodyRegeneration(props.sessionId, panel, guide);
