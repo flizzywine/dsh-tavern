@@ -506,6 +506,18 @@
 			throw lastError || new Error("持久任务提交失败");
 		}
 
+		// The latest turn's 重新生成正文 entry: CandidateAction owns its state and publishes it,
+		// the icon in that turn's action row (TavernRegenerateAssistantAction) renders it.
+		const regenEntry = { value: null, listeners: new Set() };
+		function setRegenEntry(value) {
+			regenEntry.value = value;
+			regenEntry.listeners.forEach(function (listener) { listener(value); });
+		}
+		function useRegenEntry() {
+			const [value, setValue] = React.useState(regenEntry.value);
+			React.useEffect(function () { regenEntry.listeners.add(setValue); setValue(regenEntry.value); return function () { regenEntry.listeners.delete(setValue); }; }, []);
+			return value;
+		}
 		const regenPanel = { value: null, listeners: new Set() };
 		function setRegenPanel(value) {
 			regenPanel.value = value;
@@ -623,6 +635,17 @@
 				catch (err) { tavernErrorHub.report("重新生成本轮", err); }
 				finally { setReplayBusy(false); liveTavernView.invalidate(props.sessionId); }
 			}
+			const openRef = React.useRef(openRegeneration);
+			openRef.current = openRegeneration;
+			const regenShown = isPlayMode(sessionMode) && latestMessageId === props.messageId && canRollback && !canReplayFailed;
+			const regenDisabled = frontRunning || (activity.busy && !settlementActive) || regenBusy;
+			const regenTitle = regenBusy ? "正在重新生成正文…" : settlementActive ? "重新生成正文（会取消当前正文的后台结算）" : activity.busy ? activity.blockReason : "重新生成正文（可填写意见）";
+			React.useEffect(function () {
+				if (!regenShown) return;
+				const entry = { sessionId: props.sessionId, messageId: props.messageId, disabled: regenDisabled, spinning: regenBusy, title: regenTitle, open: function (event) { openRef.current(event); } };
+				setRegenEntry(entry);
+				return function () { if (regenEntry.value === entry) setRegenEntry(null); };
+			}, [regenShown, props.sessionId, props.messageId, regenDisabled, regenBusy, regenTitle]);
 			const h = React.createElement;
 			const isScript = sessionMode === "script";
 			const hasReadyPanel = candidatePanelState !== null && candidatePanelState.sessionId === props.sessionId && candidatePanelState.messageId === props.messageId && candidatePanelState.phase === "ready";
@@ -638,8 +661,17 @@
 						generate(false);
 					}
 				} }, settlementActive ? "后台结算中…" : (activity.busy ? activity.label : ((busy || taskBusy) ? "生成中…" : (hasReadyPanel ? "重新生成候选项" : "生成候选项")))),
-				(canReplayFailed || canRollback) ? h("button", { className: "dsh-tavern-choice-trigger", disabled: frontRunning || (!canReplayFailed && activity.busy && !settlementActive) || regenBusy || replayBusy, title: canReplayFailed ? "移除被中断的回复并原样重放本轮请求（复用模型缓存）" : (settlementActive ? "重新生成将取消当前正文的后台结算" : (activity.busy ? activity.blockReason : "可选择填写意见，再重新生成并替换当前正文")), onClick: canReplayFailed ? replayFailed : openRegeneration }, replayBusy ? "重放中…" : regenBusy ? "重生成中…" : canReplayFailed ? "重新生成本轮" : "重新生成正文") : null
+				// A normal reply is regenerated from the icon in its action row; only an interrupted one keeps this button.
+				canReplayFailed ? h("button", { className: "dsh-tavern-choice-trigger", disabled: frontRunning || regenBusy || replayBusy, title: "移除被中断的回复并原样重放本轮请求（复用模型缓存）", onClick: replayFailed }, replayBusy ? "重放中…" : "重新生成本轮") : null
 			);
+		}
+
+		function TavernRegenerateAssistantAction(props) {
+			const entry = useRegenEntry();
+			if (!entry || entry.sessionId !== props.sessionId || entry.messageId !== props.messageId) return null;
+			return React.createElement(DshUi.Tooltip, { label: entry.title, side: "bottom" },
+				React.createElement("button", { type: "button", className: "dsh-tavern-message-fork dsh-tavern-message-regen" + (entry.spinning ? " is-spinning" : ""), "aria-label": "重新生成正文", disabled: entry.disabled, onClick: entry.open },
+					React.createElement(DshUi.IconRefreshOutline16, null)));
 		}
 
 		function TavernRollbackAction(props) {
@@ -1431,6 +1463,10 @@
 				{ name: "conversation.input.dock", id: "dsh-tavern-candidate-guide", order: -115, label: "重新生成候选项" },
 				function (props) { return React.createElement(CandidateGuidePanel, props); }
 			)), "dsh-tavern: candidate guide panel");
+			ctx.effect(() => slots.inject("conversation.chat.assistant-actions", () => slots.register({
+				name: "conversation.chat.assistant-actions", id: "dsh-tavern-regenerate", order: 19,
+				inject: function (sessionId) { return { sessionId: sessionId }; }
+			}, TavernRegenerateAssistantAction)), "dsh-tavern: regenerate body action");
 			ctx.effect(() => slots.inject("conversation.input.dock", () => slots.register(
 				{ name: "conversation.input.dock", id: "dsh-tavern-regen", order: -110, label: "重新生成正文" },
 				function (props) { return React.createElement(React.Fragment, null, React.createElement(RegenPanel, props), React.createElement(BodyEditPanel, props)); }

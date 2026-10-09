@@ -162,6 +162,10 @@ body.dsh-tavern-shell-active,
 .dsh-tavern-message-fork svg { width: calc(15px + var(--dsh-content-font-delta, 0px)); height: calc(15px + var(--dsh-content-font-delta, 0px)); }
 .dsh-tavern-message-fork:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-secondary); }
 .dsh-tavern-message-fork:disabled { cursor: wait; opacity: .5; }
+.dsh-tavern-message-regen.is-spinning:disabled { opacity: 1; }
+.dsh-tavern-message-regen.is-spinning svg { animation: dsh-tavern-regen-spin 1s linear infinite; }
+@keyframes dsh-tavern-regen-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .dsh-tavern-message-regen.is-spinning svg { animation-duration: 3s; } }
 .dsh-tavern-swipe-controls { align-self: center; display: flex; align-items: center; gap: 8px; color: var(--dsw-alias-label-tertiary); font-size: 12px; line-height: 24px; }
 .dsh-tavern-swipe-controls button { min-width: 28px; height: 26px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 7px; background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-secondary); cursor: pointer; }
 .dsh-tavern-swipe-controls button:disabled { opacity: .35; cursor: default; }
