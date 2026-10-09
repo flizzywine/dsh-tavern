@@ -8,7 +8,7 @@ import { createScenePlans, SCENE_PLAN_TOOL } from './scene-plan.js'
 import { SCENE_DRAFT_TOOLS, SCENE_PLAN_MAX_FAILURES, updateSceneDraft, assembleSceneDraft, sceneDraftSummary, readImageToolArguments } from './scene-plan-draft.js'
 import { readScenePlanInstruction, readSceneAdjustmentInstruction } from '../scene-image-prompts.js'
 import { imageAdjustmentInput, applyImageAdjustment, legacyImagePlan, SCENE_ADJUSTMENT_TOOL } from './scene-image-adjustment.js'
-import { createSceneImageStyles, applyImageStyle, composeSceneImagePrompt, gameStylePending, SCENE_STYLE_PRESETS } from './scene-image-style.js'
+import { createSceneImageStyles, applyImageStyle, composeSceneImagePrompt, styleWrittenByAgent, legacyStyleLabel } from './scene-image-style.js'
 import { createPendingSceneImages } from './scene-image-pending.js'
 import { createSceneImageQueue } from './scene-image-queue.js'
 import { createSceneReferences } from './scene-references.js'
@@ -170,14 +170,17 @@ export function createSceneIllustrations(deps) {
     }
     return record
   }
-  // Which style a picture was drawn in, readable: the preset (or whether 'auto' had fixed this game's style) and its tags.
+  // Which style a picture was drawn in, readable: written by the Agent or locked, and its words.
   function styleLabel(plan) {
     if (plan?.styleOverride) return '单图风格：' + plan.styleOverride.tags
     const selection = plan?.style?.selection
     if (!selection) return ''
-    const name = selection.preset === 'auto' ? (selection.game ? '自动（本局已定）' : '自动（本局尚未定）') : SCENE_STYLE_PRESETS.find(item => item.id === selection.preset)?.label || selection.preset
+    if (selection.preset === 'auto') return plan.artStyle ? '自动：' + plan.artStyle.text + '（' + plan.artStyle.tags + '）' : selection.game ? '自动：' + selection.game : '自动（未写画风）'
+    const name = selection.preset === 'custom' ? '锁定画风' : legacyStyleLabel(selection.preset) || selection.preset
     return plan.style.tags ? name + '：' + plan.style.tags : name
   }
+  // An 'auto' picture's own style; older pictures kept only the game's style tags.
+  const artStyleOf = plan => plan?.artStyle || (plan?.style?.selection?.game ? { text: '', tags: plan.style.selection.game } : null)
   function present(target, record) {
     const { attachment, savedAttachment, diagnostics, diagnosticContext, providerRequests, referenceImages, plan, requests, versions, deletedVersions, ownerId, ownerPid, ...publicRecord } = record || {}
     const configuration = value => value?.workflow ? { ...value, workflow: { name: value.workflow.name, digest: value.workflow.digest } } : value
@@ -298,7 +301,7 @@ export function createSceneIllustrations(deps) {
       const selectedImageReferences = await imageReferences.select({ chatId: chat.id, lineage: turns => sceneLineage(chat, target, turns), config: active })
       if (typeof deps.attachments()?.saveImage !== 'function' || typeof deps.attachments()?.readImage !== 'function') throw new Error('当前 DSH 未提供图片附件服务，无法保存插画')
       const profile = imageExpressionProfile(active)
-      const style = await styles.resolve(active.style, profile, await plans.gameStyle(chat.id))
+      const styleOf = plan => styles.resolve(active.style, profile, artStyleOf(plan))
       const providerTask = ['failed', 'cancelled'].includes(existing?.status) && existing.providerTask && !['rejected', 'failed'].includes(existing.providerTask.state) ? existing.providerTask : undefined
       if (providerTask && (kind !== existing.kind || instruction !== existing.instruction || (options.versionId || '') !== existing.baseVersionId || JSON.stringify({ ...channelSettings(active), style: active.style }) !== JSON.stringify(existing.configuration))) throw new Error('上次 ComfyUI 任务结果待确认，请恢复原渠道与风格配置，并重试原操作以查询；不会重新提交')
       let prepared, material = { omitted: [] }, basePlan, adjustment = false, references
@@ -309,19 +312,20 @@ export function createSceneIllustrations(deps) {
         // Hand-edited prompt: no Agent, no change to people or the turn's plan; only this picture's prompt.
         const version = versionsOf(existing).find(item => item.id === options.versionId)
         if (!version) throw new Error('找不到要重画的图片版本')
-        basePlan = applyImageStyle(legacyImagePlan({ prompt: instruction, description: version.plan?.description || version.description }, profile), style)
+        const artStyle = artStyleOf(version.plan)
+        basePlan = applyImageStyle({ ...legacyImagePlan({ prompt: instruction, description: version.plan?.description || version.description }, profile), ...(artStyle ? { artStyle } : {}) }, await styleOf(version.plan))
         prepared = { saved: basePlan, input: null }
       } else if (kind === 'repaint' || kind === 'adjust') {
         const version = versionsOf(existing).find(item => item.id === options.versionId)
         if (!version) throw new Error('找不到要重画或调整的图片版本')
-        basePlan = applyImageStyle(version.plan || legacyImagePlan(version, 'scene-tags-v1:' + version.model), style)
+        basePlan = applyImageStyle(version.plan || legacyImagePlan(version, 'scene-tags-v1:' + version.model), await styleOf(version.plan))
         adjustment = kind === 'adjust' ? 'adjust' : basePlan.profile !== profile ? 'convert' : false
         prepared = { saved: adjustment ? null : basePlan, input: adjustment ? imageAdjustmentInput(basePlan, instruction, profile, adjustment) : null }
-        if (existing?.status === 'failed' && existing.plan && existing.kind === kind && existing.instruction === instruction && existing.baseVersionId === options.versionId && existing.plan.profile === profile && existing.plan.style?.id === style.id) prepared.saved = existing.plan
+        if (existing?.status === 'failed' && existing.plan && existing.kind === kind && existing.instruction === instruction && existing.baseVersionId === options.versionId && existing.plan.profile === profile && existing.plan.style?.id === basePlan.style.id) prepared.saved = existing.plan
       } else {
         const snapshot = sceneInput(chat, target, historical)
         const basic = sceneSources(chat, target, snapshot)
-        prepared = await plans.prepare({ chatId: chat.id, target, ...basic, profile, autoStyle: gameStylePending(style), replan: kind === 'replan' })
+        prepared = await plans.prepare({ chatId: chat.id, target, ...basic, profile, autoStyle: styleWrittenByAgent(active.style), stylePreference: active.style?.custom?.trim() || '', replan: kind === 'replan' })
         // A previous picture of an earlier moment did not see the rest of its turn: include that turn again.
         const sinceTurn = prepared.previousTurn === undefined ? target.turn : prepared.previousMoment === 'earlier' ? prepared.previousTurn - 1 : prepared.previousTurn
         material = sceneSources(chat, target, snapshot, sinceTurn)
@@ -354,7 +358,7 @@ export function createSceneIllustrations(deps) {
       const characterDesigns = !prepared.saved
         ? createSceneCharacterDesigns({ snapshot: designSnapshot, target, sources: prepared.sources || [] }) : null
       const controller = new AbortController()
-      const draftBinding = hash(JSON.stringify([target.key, profile, prepared.generation, channelSettings(active), style.id, kind, instruction]))
+      const draftBinding = hash(JSON.stringify([target.key, profile, prepared.generation, channelSettings(active), active.style, kind, instruction]))
       let claimed = false
       const record = await deps.store.updateJson(path, current => {
         if (current?.recovery === 'save') throw new Error('图片已生成，请先重试保存；不会再次请求图片渠道')
@@ -373,7 +377,7 @@ export function createSceneIllustrations(deps) {
       diagnosticSecrets.set(record.requestId, [apiKey])
       const job = { controller, requestId: record.requestId, promise: null }
       jobs.set(path, job)
-      job.promise = execute({ sessionId, chatId: chat.id, target, path, record, prepared, material, references, characterDesigns, selectedImageReferences, adjustment, basePlan, profile, style, active, apiKey, selection, controller })
+      job.promise = execute({ sessionId, chatId: chat.id, target, path, record, prepared, material, references, characterDesigns, selectedImageReferences, adjustment, basePlan, profile, styleOf, active, apiKey, selection, controller })
         .finally(() => { jobs.delete(path); diagnosticSecrets.delete(record.requestId) })
       // Failure to persist a failure is reported locally, never as an unhandled rejection.
       job.promise.catch(() => deps.onStorageError?.())
@@ -400,7 +404,7 @@ export function createSceneIllustrations(deps) {
     }
     async function deliverImage() {
       controller.signal.throwIfAborted()
-      plan = applyImageStyle(plan, input.style)
+      plan = applyImageStyle(plan, await input.styleOf(plan))
       const prompt = composeSceneImagePrompt(plan)
       record.planId = plan.id
       record.plan = plan
@@ -531,8 +535,6 @@ export function createSceneIllustrations(deps) {
                     return '草稿已保存，尚未请求图片。' + JSON.stringify(sceneDraftSummary(draft))
                   }
                   plan = await plans.snapshot(input.chatId, await plans.commit(input.prepared, assembleSceneDraft(updated)))
-                  // The style this plan just fixed for the game applies from this picture on.
-                  if (gameStylePending(input.style)) input.style = await styles.resolve(active.style, input.profile, await plans.gameStyle(input.chatId))
                 }
                 validationError = ''
                 record.plan = plan

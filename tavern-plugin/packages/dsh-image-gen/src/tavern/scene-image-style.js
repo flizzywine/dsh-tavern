@@ -2,52 +2,65 @@ import { createHash } from 'node:crypto'
 
 const hash = value => createHash('sha256').update(JSON.stringify(value)).digest('hex')
 const TEMPLATE_VERSION = 'scene-style-v1'
+// 'auto': the planning Agent writes each picture's style, continuing the previous
+// picture's; the custom text is a preference it follows. 'custom': the custom text
+// is the style of every picture, verbatim.
 const presets = [
-  { id: 'auto', label: '自动（按题材定）', tags: '' },
-  { id: 'default', label: '不指定', tags: '' },
-  { id: 'anime', label: '日系插画', tags: 'Japanese illustration, clean linework, cel shading' },
-  { id: 'photo', label: '写实摄影', tags: 'photorealistic photography, lifelike textures' },
-  { id: 'watercolor', label: '水彩', tags: 'watercolor painting, translucent pigments, paper texture' },
-  { id: 'ink', label: '水墨', tags: 'Chinese ink wash painting, expressive brushwork, ink on paper' },
-  { id: 'custom', label: '自定义', tags: '' }
+  { id: 'auto', label: '自动（AI 每张写，延续上一张）' },
+  { id: 'custom', label: '锁定画风' }
 ]
-export const SCENE_STYLE_PRESETS = presets.map(({ id, label }) => ({ id, label }))
+// Retired fixed presets become a locked style with the same words.
+const legacy = {
+  anime: { label: '日系插画', tags: 'Japanese illustration, clean linework, cel shading' },
+  photo: { label: '写实摄影', tags: 'photorealistic photography, lifelike textures' },
+  watercolor: { label: '水彩', tags: 'watercolor painting, translucent pigments, paper texture' },
+  ink: { label: '水墨', tags: 'Chinese ink wash painting, expressive brushwork, ink on paper' },
+  default: { label: '不指定', tags: '' }
+}
+export const SCENE_STYLE_PRESETS = presets
+export const legacyStyleLabel = id => legacy[id]?.label || ''
 
 export function imageStyleSettings(input = {}) {
   if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).some(key => !['preset', 'custom', 'orientation'].includes(key))) throw new Error('风格设置只能包含 preset、custom 与 orientation')
-  const preset = input.preset ?? 'auto', custom = input.custom ?? '', orientation = input.orientation ?? 'auto'
-  if (!presets.some(item => item.id === preset)) throw new Error('未知的生图风格')
+  let preset = input.preset ?? 'auto', custom = input.custom ?? ''
+  const orientation = input.orientation ?? 'auto'
   if (typeof custom !== 'string' || custom.length > 2000) throw new Error('风格补充须为不超过 2000 字符的文本')
+  if (Object.hasOwn(legacy, preset)) {
+    custom = [legacy[preset].tags, custom.trim()].filter(Boolean).join(', ')
+    preset = custom ? 'custom' : 'auto'
+  }
+  if (!presets.some(item => item.id === preset)) throw new Error('未知的生图风格')
   // 'auto' (the default, omitted so older records compare equal) lets each picture
   // turn the configured size to portrait or landscape; 'fixed' never does.
   if (!['auto', 'fixed'].includes(orientation)) throw new Error('画幅方向只能是 auto 或 fixed')
   return { preset, custom, ...(orientation === 'fixed' ? { orientation } : {}) } // Keep the user's original wording, independently of its expression.
 }
 
+/** Whether the planning Agent writes this picture's style. */
+export const styleWrittenByAgent = input => { const selection = imageStyleSettings(input); return selection.preset === 'auto' || !selection.custom.trim() }
+
 /** Current Images channel accepts short sentences as well as tags: its custom
  * style can be used verbatim without a separate paid translation task. A future
  * tag-only channel must supply its own versioned expression implementation. */
 export function createSceneImageStyles({ store }) {
-  /** 'auto' uses the style the planning Agent fixed for this game (gameStyle);
-   * until one exists the result is unstyled (see gameStylePending). */
-  async function resolve(input, profile, gameStyle) {
+  /** 'auto' uses the style the planning Agent wrote for this picture (artStyle);
+   * without one the picture is unstyled. */
+  async function resolve(input, profile, artStyle) {
     const selection = imageStyleSettings(input)
-    const normalized = { preset: selection.preset === 'custom' && !selection.custom.trim() ? 'default' : selection.preset, custom: selection.custom.trim(),
-      ...(selection.preset === 'auto' && gameStyle?.tags ? { game: gameStyle.tags } : {}) }
+    const locked = !styleWrittenByAgent(selection)
+    const normalized = locked ? { preset: 'custom', custom: selection.custom.trim() }
+      : { preset: 'auto', custom: '', ...(artStyle?.tags ? { game: artStyle.tags } : {}) }
     const selectionDigest = hash(normalized)
     const id = hash([TEMPLATE_VERSION, profile, selectionDigest])
     const path = 'scene-images/styles/' + id + '.json'
     const existing = await store.readJson(path)
     if (existing) return existing
-    const preset = presets.find(item => item.id === normalized.preset)
-    const tags = [preset.tags, normalized.game, normalized.custom].filter(Boolean).join(', ')
+    const tags = locked ? normalized.custom : normalized.game || ''
     const block = { id, selectionDigest, templateVersion: TEMPLATE_VERSION, profile, selection: normalized, tags }
     return store.updateJson(path, current => current || block)
   }
   return { resolve }
 }
-
-export const gameStylePending = style => style?.selection?.preset === 'auto' && !style.selection.game
 
 /** Style lives only in image snapshots; canonical people/scene blocks are untouched. */
 export function applyImageStyle(plan, style) {

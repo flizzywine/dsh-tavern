@@ -3552,46 +3552,6 @@ function createSceneImageConnection({ settings, credentials, fetchImpl = fetch, 
 		models: (input) => request(input, true)
 	};
 }
-[
-	{
-		id: "auto",
-		label: "自动（按题材定）",
-		tags: ""
-	},
-	{
-		id: "default",
-		label: "不指定",
-		tags: ""
-	},
-	{
-		id: "anime",
-		label: "日系插画",
-		tags: "Japanese illustration, clean linework, cel shading"
-	},
-	{
-		id: "photo",
-		label: "写实摄影",
-		tags: "photorealistic photography, lifelike textures"
-	},
-	{
-		id: "watercolor",
-		label: "水彩",
-		tags: "watercolor painting, translucent pigments, paper texture"
-	},
-	{
-		id: "ink",
-		label: "水墨",
-		tags: "Chinese ink wash painting, expressive brushwork, ink on paper"
-	},
-	{
-		id: "custom",
-		label: "自定义",
-		tags: ""
-	}
-].map(({ id, label }) => ({
-	id,
-	label
-}));
 //#endregion
 //#region lib/types/tavern/scene-image-zip.js
 const fail = () => {

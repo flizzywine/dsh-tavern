@@ -15,7 +15,7 @@ async function fixture(t) {
   t.after(() => rm(root, { recursive: true, force: true }))
   const store = createProfileDataStore({ dataRoot: root })
   let module = createScenePlans({ store })
-  const targets = [{ key: 'one', turn: 1 }, { key: 'two', turn: 2 }, { key: 'three', turn: 3 }]
+  const targets = [{ key: 'one', turn: 1 }, { key: 'two', turn: 2 }, { key: 'three', turn: 3 }, { key: 'four', turn: 4 }, { key: 'five', turn: 5 }]
   return { store, get module() { return module }, restart() { module = createScenePlans({ store }) }, async prepare(turn = 1, text = '林岚黑发白衣，站在门口。', extra = {}) {
     return module.prepare({ chatId: 'game', target: targets[turn - 1], lineage: targets.slice(0, turn), sources: [{ id: 'target', turn, text }], profile: 'tags-v1', ...extra })
   } }
@@ -124,21 +124,26 @@ test('shot leads the prompt: composition, then people, then environment', async 
   assert.match(frame.prompt, /^low angle close-up\n林岚: [^\n]+\ndoorway$/)
 })
 
-test("auto style: the first plan fixes the game's style once; a missing style never blocks the picture", async t => {
+test('auto style: each plan writes its picture\'s style and is given the previous one; a missing style keeps the previous', async t => {
   const fx = await fixture(t)
-  const asked = await fx.prepare(1, undefined, { autoStyle: true })
-  assert.match(asked.input.styleRequest.instruction, /style/)
-  assert.equal((await fx.prepare()).input.styleRequest, undefined, 'not asked unless the auto preset is active')
-  await fx.module.commit(asked, first())
-  assert.equal(await fx.module.gameStyle('game'), null, 'skipped style leaves the game undecided')
+  const asked = await fx.prepare(1, undefined, { autoStyle: true, stylePreference: '偏日系' })
+  assert.match(asked.input.styleRequest.instruction, /题材/)
+  assert.equal(asked.input.styleRequest.previous, undefined)
+  assert.equal(asked.input.styleRequest.preference, '偏日系')
+  assert.equal((await fx.prepare()).input.styleRequest, undefined, 'not asked when the style is locked')
+  assert.equal((await fx.module.commit(asked, first())).artStyle, undefined, 'skipped style leaves the picture unstyled')
   const again = await fx.prepare(2, '林岚挥手。', { autoStyle: true })
+  assert.equal(again.input.styleRequest.previous, undefined)
   await assert.rejects(fx.module.commit(again, { ...first(), style: { text: '', tags: '' } }), /不能为空/)
-  await fx.module.commit(again, { ...first(), style: { text: '国风厚涂', tags: 'Chinese xianxia digital painting, thick brushwork' } })
-  assert.deepEqual(await fx.module.gameStyle('game'), { text: '国风厚涂', tags: 'Chinese xianxia digital painting, thick brushwork' })
+  const painted = await fx.module.commit(again, { ...first(), style: { text: '国风厚涂', tags: 'Chinese xianxia digital painting' } })
+  assert.deepEqual(painted.artStyle, { text: '国风厚涂', tags: 'Chinese xianxia digital painting' })
   const later = await fx.prepare(3, '林岚坐下。', { autoStyle: true })
-  assert.equal(later.input.styleRequest, undefined)
-  await fx.module.commit(later, { ...first(), style: { text: '水彩', tags: 'watercolor' } })
-  assert.equal((await fx.module.gameStyle('game')).text, '国风厚涂', 'a decided style is never replaced by a later plan')
+  assert.deepEqual(later.input.styleRequest.previous, painted.artStyle)
+  assert.match(later.input.styleRequest.instruction, /连续/)
+  assert.deepEqual((await fx.module.commit(later, first())).artStyle, painted.artStyle, 'no style given: the previous one continues')
+  const night = await fx.prepare(4, '夜里下雨。', { autoStyle: true })
+  assert.equal((await fx.module.commit(night, { ...first(), style: { text: '国风厚涂，冷色雨夜', tags: 'Chinese xianxia digital painting, cold rainy night' } })).artStyle.text, '国风厚涂，冷色雨夜')
+  assert.equal((await fx.prepare(5, '天亮了。', { autoStyle: true })).input.styleRequest.previous.text, '国风厚涂，冷色雨夜')
 })
 
 test('replan ignores the turn\'s own frame as saved plan and continuity base, then replaces it', async t => {

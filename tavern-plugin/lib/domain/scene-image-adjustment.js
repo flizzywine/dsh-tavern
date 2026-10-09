@@ -12,7 +12,7 @@ export const SCENE_ADJUSTMENT_TOOL = {
 
 function hash(value) { return createHash('sha256').update(JSON.stringify(value)).digest('hex') }
 export function imageAdjustmentInput(base, instruction, profile, mode = 'adjust') {
-  return { mode, instruction, profile, baseProfile: base.profile, description: base.description || '', ...(base.style ? { style: base.styleOverride || { text: base.style.selection, tags: base.style.tags } } : {}), people: (base.people || []).map(person => ({ id: person.id, name: person.name })), blocks: base.blocks.map(block => ({ owner: block.owner, field: block.field, text: block.text || '', tags: block.tags })) }
+  return { mode, instruction, profile, baseProfile: base.profile, description: base.description || '', ...(base.style ? { style: base.styleOverride || { text: base.artStyle?.text || '', tags: base.style.tags } } : {}), people: (base.people || []).map(person => ({ id: person.id, name: person.name })), blocks: base.blocks.map(block => ({ owner: block.owner, field: block.field, text: block.text || '', tags: block.tags })) }
 }
 /** Image-local immutable overlay. Never calls the persistent character store. */
 export function applyImageAdjustment(base, update, profile, mode = 'adjust') {

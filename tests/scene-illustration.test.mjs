@@ -596,22 +596,23 @@ test('style saves do not charge; repaint restyles without text work, frozen jobs
       return { data: png, mediaType: 'image/png' }
     }
   })
-  await fx.service.configure({ style: { preset: 'watercolor', custom: '  低饱和  ' } })
+  await fx.service.configure({ style: { preset: 'custom', custom: '  watercolor, 低饱和  ' } })
   assert.equal(calls, 0)
   assert.equal(prompts.length, 0)
   const key = sceneTarget(fx.chat(), 2).key
   await fx.service.start('parent', 2, key)
   await until(() => release)
-  await fx.service.configure({ style: { preset: 'ink' } })
-  assert.equal((await fx.service.settings()).style.custom, '  低饱和  ', 'partial style saves retain custom text')
+  await fx.service.configure({ style: { orientation: 'fixed' } })
+  assert.equal((await fx.service.settings()).style.custom, '  watercolor, 低饱和  ', 'partial style saves retain custom text')
+  await fx.service.configure({ style: { custom: 'ink wash, 低饱和' } })
   release()
   const first = await until(async () => { const record = await fx.service.status('parent', 2); return record.status === 'succeeded' && record })
   assert.match(first.versions[0].prompt, /watercolor.*低饱和/)
-  assert.equal(first.versions[0].configuration.style.preset, 'watercolor')
+  assert.equal(first.versions[0].configuration.style.custom, '  watercolor, 低饱和  ')
   assert.doesNotMatch(first.versions[0].prompt, /ink wash/)
   const canonical = await fx.store.readJson(imagePath + 'plans.json')
   const restarted = fx.createService()
-  assert.equal((await restarted.settings()).style.preset, 'ink')
+  assert.equal((await restarted.settings()).style.preset, 'custom')
   await restarted.start('parent', 2, key, { kind: 'repaint', versionId: first.versions[0].id })
   const second = await until(async () => { const record = await restarted.status('parent', 2); return record.status === 'succeeded' && record })
   assert.match(second.versions[1].prompt, /ink wash.*低饱和/)
@@ -692,28 +693,32 @@ test('test generation uses the saved channel once, returns the picture and keeps
   assert.equal((await fx.service.status('parent', 2)).status, 'idle')
 })
 
-test('auto style: the planning Agent fixes the style on the first picture, which already uses it; later plans are not asked again', async t => {
+test('auto style: each picture uses the style its plan wrote; the next plan is given it as the previous style', async t => {
   const prompts = [], inputs = []
   const fx = await fixture(t, {
     runAgent: async input => {
       const request = JSON.parse(input.messages[0].content[0].text)
       inputs.push(request)
       const plan = planFixture()
-      if (request.styleRequest) plan.style = { text: '国风厚涂', tags: 'Chinese xianxia painting' }
+      plan.style = inputs.length === 1 ? { text: '国风厚涂', tags: 'Chinese xianxia painting' } : { text: '国风厚涂，夜色', tags: 'Chinese xianxia painting, night' }
       await submitPlanCall(input, { arguments: { plan } })
       return {}
     },
     generate: async input => { prompts.push(input.prompt); return { data: png, mediaType: 'image/png' } }
   })
   await fx.service.start('parent', 2, sceneTarget(fx.chat(), 2).key)
-  await until(async () => (await fx.service.status('parent', 2)).status === 'succeeded')
-  assert.ok(inputs[0].styleRequest)
-  assert.match(prompts[0], /Visual style only[^\n]*Chinese xianxia painting/)
+  const first = await until(async () => { const state = await fx.service.status('parent', 2); return state.status === 'succeeded' && state })
+  assert.equal(inputs[0].styleRequest.previous, undefined)
+  assert.match(prompts[0], /Visual style only[^\n]*Chinese xianxia painting$/)
+  assert.equal(first.versions[0].style, '自动：国风厚涂（Chinese xianxia painting）')
   fx.chat().messages.push({ role: 'assistant', turn: 3, text: '她走进室内。' })
   await fx.service.start('parent', 3, sceneTarget(fx.chat(), 3).key)
   await until(async () => (await fx.service.status('parent', 3)).status === 'succeeded')
-  assert.equal(inputs[1].styleRequest, undefined)
-  assert.match(prompts[1], /Chinese xianxia painting/)
+  assert.deepEqual(inputs[1].styleRequest.previous, { text: '国风厚涂', tags: 'Chinese xianxia painting' })
+  assert.match(prompts[1], /Chinese xianxia painting, night$/)
+  await fx.service.start('parent', 2, sceneTarget(fx.chat(), 2).key, { kind: 'repaint', versionId: first.versions[0].id })
+  await until(async () => (await fx.service.status('parent', 2)).versions.length === 2)
+  assert.match(prompts[2], /Chinese xianxia painting$/, 'repainting keeps that picture\'s own style')
 })
 
 test('replan reruns the shared Agent with a rethink request, replaces its saved plan and keeps the earlier picture as a version', async t => {
@@ -758,7 +763,7 @@ test('a hand-edited prompt repaints without the Agent and leaves the turn plan a
   await fx.service.start('parent', 2, key)
   const first = await until(async () => { const state = await fx.service.status('parent', 2); return state.status === 'succeeded' && state })
   assert.match(first.versions[0].planPrompt, /^A woman standing/)
-  assert.match(first.versions[0].style, /^自动（本局/)
+  assert.equal(first.versions[0].style, '自动（未写画风）')
   await assert.rejects(fx.service.start('parent', 2, key, { kind: 'prompt', versionId: first.versions[0].id, prompt: '  ' }), /提示词须为/)
   await fx.service.start('parent', 2, key, { kind: 'prompt', versionId: first.versions[0].id, prompt: 'dutch angle, she slams the window shut' })
   const second = await until(async () => { const state = await fx.service.status('parent', 2); return state.status === 'succeeded' && state.versions.length === 2 && state })
