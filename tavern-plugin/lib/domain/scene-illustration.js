@@ -173,7 +173,7 @@ export function createSceneIllustrations(deps) {
   function present(target, record) {
     const { attachment, savedAttachment, diagnostics, diagnosticContext, providerRequests, referenceImages, plan, requests, versions, deletedVersions, ownerId, ownerPid, ...publicRecord } = record || {}
     const configuration = value => value?.workflow ? { ...value, workflow: { name: value.workflow.name, digest: value.workflow.digest } } : value
-    return { key: target.key, turn: target.turn, status: 'idle', ...publicRecord, hasDeletedImages: Boolean(deletedVersions?.length), ...(publicRecord.configuration ? { configuration: configuration(publicRecord.configuration) } : {}), versions: versionsOf(record).map(({ attachment, plan, ...item }) => ({ ...item, configuration: configuration(item.configuration), description: plan?.description || '', profile: plan?.profile || '', anchor: plan?.anchor || '', moment: plan?.moment || 'end', composition: plan?.scene?.composition?.text || '',
+    return { key: target.key, turn: target.turn, status: 'idle', ...publicRecord, hasDeletedImages: Boolean(deletedVersions?.length), ...(publicRecord.configuration ? { configuration: configuration(publicRecord.configuration) } : {}), versions: versionsOf(record).map(({ attachment, plan, ...item }) => ({ ...item, configuration: configuration(item.configuration), description: plan?.description || '', planPrompt: plan?.prompt || '', profile: plan?.profile || '', anchor: plan?.anchor || '', moment: plan?.moment || 'end', composition: plan?.scene?.composition?.text || '',
       referencePeople: imageReferencePeople({ plan }),
       referenceSingle: plan?.subjects?.length === 1 && imageReferencePeople({ plan }).length === 1,
       referencePerson: plan?.people?.length === 1 && plan.subjects?.length === 1 && imageReferencePeople({ plan }).length === 1 ? plan.people[0].name : '' })) }
@@ -266,9 +266,11 @@ export function createSceneIllustrations(deps) {
   }
   async function start(sessionId, turn, expectedKey, options = {}) {
     const kind = options.kind || 'generate'
-    if (!['generate', 'replan', 'repaint', 'adjust'].includes(kind)) throw new Error('未知生图操作')
-    const instruction = typeof options.instruction === 'string' ? options.instruction.trim() : ''
+    if (!['generate', 'replan', 'repaint', 'adjust', 'prompt'].includes(kind)) throw new Error('未知生图操作')
+    // A 'prompt' repaint carries the user's own picture prompt in place of an instruction.
+    const instruction = String((kind === 'prompt' ? options.prompt : options.instruction) ?? '').trim()
     if (kind === 'adjust' && (!instruction || instruction.length > 2000)) throw new Error('调整要求须为 1–2000 字符')
+    if (kind === 'prompt' && (!instruction || instruction.length > 12000)) throw new Error('提示词须为 1–12000 字符')
     const requestId = options.requestId === undefined ? randomUUID() : options.requestId
     if (typeof requestId !== 'string' || !/^[a-zA-Z0-9_-]{8,100}$/.test(requestId)) throw new Error('生图请求标识不合法')
     const { chat, target, path } = await resolve(sessionId, turn)
@@ -295,7 +297,13 @@ export function createSceneIllustrations(deps) {
       const historical = await deps.stateAtTarget?.(chat, target)
       const latestMessage = [...(chat.messages || [])].reverse().find(item => item.role === 'assistant')
       const designSnapshot = historical || (Number(latestMessage?.turn || (latestMessage?.greeting ? 1 : 0)) === target.turn && chat.settleStatus === 'done' ? chat : null)
-      if (kind === 'repaint' || kind === 'adjust') {
+      if (kind === 'prompt') {
+        // Hand-edited prompt: no Agent, no change to people or the turn's plan; only this picture's prompt.
+        const version = versionsOf(existing).find(item => item.id === options.versionId)
+        if (!version) throw new Error('找不到要重画的图片版本')
+        basePlan = applyImageStyle(legacyImagePlan({ prompt: instruction, description: version.plan?.description || version.description }, profile), style)
+        prepared = { saved: basePlan, input: null }
+      } else if (kind === 'repaint' || kind === 'adjust') {
         const version = versionsOf(existing).find(item => item.id === options.versionId)
         if (!version) throw new Error('找不到要重画或调整的图片版本')
         basePlan = applyImageStyle(version.plan || legacyImagePlan(version, 'scene-tags-v1:' + version.model), style)

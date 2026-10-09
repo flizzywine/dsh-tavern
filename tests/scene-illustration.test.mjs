@@ -743,3 +743,25 @@ test('replan reruns a clean Agent on the same turn, replaces its saved plan and 
   assert.equal(agents.length, 2, 'repaint still skips the Agent')
   assert.match(third.versions[2].prompt, /^low angle close-up/)
 })
+
+test('a hand-edited prompt repaints without the Agent and leaves the turn plan alone', async t => {
+  let agents = 0
+  const prompts = []
+  const fx = await fixture(t, {
+    runAgent: async input => { agents++; await submitPlanCall(input, { arguments: { plan: planFixture('A woman standing at a rainy window') } }); return {} },
+    generate: async input => { prompts.push(input.prompt); return { data: png, mediaType: 'image/png' } },
+  })
+  const key = sceneTarget(fx.chat(), 2).key
+  await fx.service.start('parent', 2, key)
+  const first = await until(async () => { const state = await fx.service.status('parent', 2); return state.status === 'succeeded' && state })
+  assert.match(first.versions[0].planPrompt, /^A woman standing/)
+  await assert.rejects(fx.service.start('parent', 2, key, { kind: 'prompt', versionId: first.versions[0].id, prompt: '  ' }), /提示词须为/)
+  await fx.service.start('parent', 2, key, { kind: 'prompt', versionId: first.versions[0].id, prompt: 'dutch angle, she slams the window shut' })
+  const second = await until(async () => { const state = await fx.service.status('parent', 2); return state.status === 'succeeded' && state.versions.length === 2 && state })
+  assert.equal(agents, 1)
+  assert.match(prompts[1], /^dutch angle, she slams the window shut/)
+  assert.equal(second.versions[1].planPrompt, 'dutch angle, she slams the window shut')
+  assert.equal(second.versions[1].description, first.versions[0].description)
+  const plans = await fx.store.readJson(imagePath + 'plans.json')
+  assert.match(Object.values(plans.frames[key])[0].prompt, /^A woman standing/)
+})

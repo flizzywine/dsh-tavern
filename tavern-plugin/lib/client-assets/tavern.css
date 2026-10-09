@@ -127,6 +127,7 @@ body.dsh-tavern-shell-active,
 .dsh-tavern-image-plan summary { cursor: pointer; font-weight: 600; }
 .dsh-tavern-image-plan dt { margin-top: 8px; color: #aaa; }
 .dsh-tavern-image-plan dd { margin: 2px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+.dsh-tavern-image-preview .dsh-tavern-image-plan-edit { position: static; display: block; margin: 10px 0 2px auto; min-height: 0; padding: 4px 12px; font-size: 12px; }
 .dsh-tavern-image-repaint { display: flex; flex-direction: column; gap: 8px; padding: 0; border: 0; }
 .dsh-tavern-image-adjust.dsh-tavern-image-repaint textarea { min-height: 64px; margin: 0; padding: 10px 12px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 10px; background: var(--dsw-specific-input-major); color: inherit; font: inherit; font-size: 14px; line-height: 1.6; resize: vertical; transition: border-color .15s, box-shadow .15s; }
 .dsh-tavern-image-repaint textarea::placeholder { color: var(--dsw-alias-label-tertiary); }
@@ -2145,10 +2146,10 @@ details.dsh-tavern-image-section[open] > summary { margin-bottom: 12px; }
 .dsh-tavern-image-field { display: flex; flex-direction: column; gap: 5px; font-size: 13px; }
 .dsh-tavern-image-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-height: 34px; }
 .dsh-tavern-image-actions > [role="status"] { font-size: 12px; color: var(--dsw-alias-label-secondary); }
-/* 删除、重画、翻页等只在鼠标移到插图上时出现；位置预留，出现时不挤动正文。触屏没有悬停，始终显示。 */
+/* 删除、重画、翻页等只在鼠标移到插图上时出现；位置预留，出现时不挤动正文。触屏没有悬停，始终显示。只限插图内：设置页也用这个类。 */
 @media (hover: hover) {
-  .dsh-tavern-image-actions { opacity: 0; transition: opacity .15s; }
-  .dsh-tavern-illustration:hover .dsh-tavern-image-actions, .dsh-tavern-image-actions:focus-within { opacity: 1; }
+  .dsh-tavern-illustration .dsh-tavern-image-actions { opacity: 0; transition: opacity .15s; }
+  .dsh-tavern-illustration:hover .dsh-tavern-image-actions, .dsh-tavern-illustration .dsh-tavern-image-actions:focus-within { opacity: 1; }
 }
 .dsh-tavern-image-inline { display: flex; align-items: flex-end; gap: 8px; }
 .dsh-tavern-image-inline > label { flex: 1 1 auto; min-width: 0; }
