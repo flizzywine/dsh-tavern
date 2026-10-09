@@ -774,6 +774,10 @@ window.__ModuleLoader__.load({
                 name: "conversation.view", id: "dsh-tavern:full-context", order: 11,
                 label: "完整上下文", inject: sessionId => ({ contextSessionId: sessionId })
             }, FullRequestContextView)), "dsh-tavern: full request context");
+            ctx.effect(() => slots.inject("conversation.view", () => slots.register({
+                name: "conversation.view", id: "dsh-tavern:gallery", order: 12,
+                label: "画廊", inject: sessionId => ({ gallerySessionId: sessionId })
+            }, SceneImageGallery)), "dsh-tavern: picture gallery");
 			// Public browser API for third-party plugins (docs/plugin-api.md).
 			tavernUiExtensions.service.ctx = ctx;
 			if (typeof ctx.provide === "function") ctx.provide("tavernUi", tavernUiExtensions.service);

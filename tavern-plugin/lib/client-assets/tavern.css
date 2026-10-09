@@ -132,14 +132,6 @@ body.dsh-tavern-shell-active,
 .dsh-tavern-image-preview .dsh-tavern-image-preview-page[data-side="next"] { right: max(16px, env(safe-area-inset-right)); }
 .dsh-tavern-image-preview .dsh-tavern-image-preview-page:disabled { opacity: .3; cursor: default; }
 .dsh-tavern-image-preview-counter { position: absolute; top: max(20px, env(safe-area-inset-top)); left: max(20px, env(safe-area-inset-left)); color: #fff; font-size: 13px; opacity: .85; }
-.dsh-tavern-image-history-game { margin-top: 14px; }
-.dsh-tavern-image-history-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 13px; }
-.dsh-tavern-image-history-head strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dsh-tavern-image-history-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; }
-.dsh-tavern-image-history-shot { margin: 0; padding: 2px; border: 2px solid transparent; border-radius: 8px; }
-.dsh-tavern-image-history-shot.is-picked { border-color: var(--dsw-alias-state-danger, #c0392b); }
-.dsh-tavern-image-history-shot img { display: block; width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 6px; cursor: zoom-in; }
-.dsh-tavern-image-history-shot label { display: flex; align-items: center; gap: 4px; margin-top: 2px; font-size: 11px; color: var(--dsw-alias-label-secondary); cursor: pointer; }
 .dsh-tavern-image-preview .dsh-tavern-image-plan-edit { position: static; display: block; margin: 10px 0 2px auto; min-height: 0; padding: 4px 12px; font-size: 12px; }
 .dsh-tavern-image-repaint { display: flex; flex-direction: column; gap: 8px; padding: 0; border: 0; }
 .dsh-tavern-image-adjust.dsh-tavern-image-repaint textarea { min-height: 64px; margin: 0; padding: 10px 12px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 10px; background: var(--dsw-specific-input-major); color: inherit; font: inherit; font-size: 14px; line-height: 1.6; resize: vertical; transition: border-color .15s, box-shadow .15s; }
@@ -1295,6 +1287,28 @@ body.dsh-tavern-shell-active [data-dsh-panel-host] { overflow: clip; }
 [data-phase="active"]:has(.dsh-tavern-full-context) [data-width-handle] {
   display: none;
 }
+
+/* Gallery tab: pictures of this game or every game, newest first. */
+.dsh-tavern-gallery-scope { display: inline-flex; padding: 2px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; }
+.dsh-tavern-full-context .dsh-tavern-gallery-scope button { border: 0; border-radius: 6px; background: transparent; }
+.dsh-tavern-full-context .dsh-tavern-gallery-scope button.is-active { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); font-weight: 500; }
+.dsh-tavern-full-context button.danger { color: var(--dsw-alias-state-error-primary); }
+.dsh-tavern-gallery-game + .dsh-tavern-gallery-game { margin-top: 24px; }
+.dsh-tavern-gallery-game h4 { display: flex; align-items: baseline; gap: 8px; margin: 0 0 10px; font-size: 14px; font-weight: 600; }
+.dsh-tavern-gallery-game h4 span { font-size: 12px; font-weight: 400; color: var(--dsw-alias-label-tertiary); }
+.dsh-tavern-gallery-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
+.dsh-tavern-gallery-shot { position: relative; margin: 0; }
+.dsh-tavern-gallery-shot a { display: block; border-radius: 10px; overflow: hidden; outline-offset: 2px; }
+.dsh-tavern-gallery-shot img { display: block; width: 100%; aspect-ratio: 3 / 4; object-fit: cover; background: var(--dsw-alias-interactive-bg-hover); cursor: zoom-in; transition: transform .2s; }
+.dsh-tavern-gallery-shot a:hover img { transform: scale(1.03); }
+.dsh-tavern-gallery-shot.is-picked a { box-shadow: 0 0 0 2px var(--dsw-alias-state-business-primary); }
+.dsh-tavern-gallery-shot figcaption { margin-top: 4px; font-size: 12px; color: var(--dsw-alias-label-tertiary); }
+.dsh-tavern-gallery-pick { position: absolute; top: 6px; left: 6px; display: flex; padding: 4px; border-radius: 6px; background: rgba(0, 0, 0, .35); cursor: pointer; }
+.dsh-tavern-gallery-pick input { margin: 0; cursor: pointer; }
+@media (hover: hover) {
+  .dsh-tavern-gallery:not(.is-picking) .dsh-tavern-gallery-shot:not(:hover, :focus-within) .dsh-tavern-gallery-pick { opacity: 0; }
+}
+@media (max-width: 600px) { .dsh-tavern-gallery-grid { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 8px; } }
 
 .dsh-tavern-full-context { box-sizing: border-box; width: 100%; min-width: 0; padding: 24px clamp(16px, 3vw, 40px) 32px; color: var(--dsw-alias-label-primary); font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
 .dsh-context-header { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 14px; }

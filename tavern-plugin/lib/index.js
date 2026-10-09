@@ -3898,7 +3898,11 @@ export async function apply(ctx) {
       }
       case 'retrySceneImageSave': return { illustration: await enabledSceneIllustrations().retrySave(args.sessionId, args.turn, args.key, args.requestId) }
       case 'cancelSceneImage': return { illustration: await enabledSceneIllustrations().cancel(args.sessionId, args.turn, args.key, args.requestId) }
-      case 'listSceneImageHistory': return { items: await enabledSceneIllustrations().history() }
+      case 'listSceneImageHistory': {
+        const items = await enabledSceneIllustrations().history()
+        const chat = args?.sessionId ? await backgroundConfigForSession(str(args.sessionId)).catch(() => null) : null
+        return { items, currentChatId: chat?.id || '' }
+      }
       case 'removeSceneImageHistory': return { results: await enabledSceneIllustrations().removeStoredImages(args && args.items) }
       case 'removeSceneImage': return { illustration: await enabledSceneIllustrations().removeImage(args.sessionId, args.turn, args.key, args.versionId) }
       case 'setSceneImageReference': return { illustration: await enabledSceneIllustrations().setReference(args.sessionId, args.turn, args.key, args.versionId, args.consent, args.enabled !== false, args.personId) }
