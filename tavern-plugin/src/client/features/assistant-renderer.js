@@ -201,25 +201,50 @@
 			});
 		})();
 
-		function openSceneImagePreview(url, opener) {
+		function openSceneImagePreview(url, opener, gallery) {
 			const dialog = document.createElement("dialog");
 			dialog.className = "dsh-tavern-image-preview";
 			dialog.setAttribute("aria-label", "场景插画预览");
+			// 不传 gallery 时就是单张，行为与原来完全一致；传了就支持左右翻页。
+			const list = gallery && Array.isArray(gallery.urls) && gallery.urls.length ? gallery.urls.slice() : [url];
+			let at = Math.max(0, Math.min(list.length - 1, Number(gallery && gallery.index) || 0));
 			const close = document.createElement("button");
 			close.type = "button";
 			close.textContent = "缩小并返回 ×";
 			close.setAttribute("aria-label", "缩小并返回");
 			const image = document.createElement("img");
-			image.src = url;
 			image.alt = "放大的场景插画";
+			const counter = document.createElement("span");
+			counter.className = "dsh-tavern-image-preview-counter";
+			const prev = document.createElement("button");
+			prev.type = "button"; prev.textContent = "‹"; prev.className = "dsh-tavern-image-preview-prev"; prev.setAttribute("aria-label", "上一张");
+			const next = document.createElement("button");
+			next.type = "button"; next.textContent = "›"; next.className = "dsh-tavern-image-preview-next"; next.setAttribute("aria-label", "下一张");
+			function show() {
+				image.src = list[at];
+				counter.textContent = list.length > 1 ? (at + 1) + " / " + list.length : "";
+				prev.disabled = at <= 0; next.disabled = at >= list.length - 1;
+			}
+			function step(delta) { const target = at + delta; if (target >= 0 && target < list.length) { at = target; show(); } }
+			prev.addEventListener("click", function () { step(-1); });
+			next.addEventListener("click", function () { step(1); });
+			dialog.addEventListener("keydown", function (event) {
+				if (event.key === "ArrowLeft") { event.preventDefault(); step(-1); }
+				else if (event.key === "ArrowRight") { event.preventDefault(); step(1); }
+			});
 			close.addEventListener("click", function () { dialog.close(); });
 			dialog.addEventListener("click", function (event) { if (event.target === dialog) dialog.close(); });
 			dialog.addEventListener("close", function () { dialog.remove(); if (opener && opener.isConnected) opener.focus(); }, { once: true });
-			dialog.append(close, image);
+			dialog.append(close, counter, prev, next, image);
+			show();
 			document.body.append(dialog);
 			dialog.showModal();
 			close.focus();
 		}
+		// 历史图片面板（scene-images.js）要用同一个查看器。两个文件作用域各自独立，
+		// 只能通过 window 共享；这里只暴露这一个纯 DOM 函数（内部只用 <dialog> 和局部
+		// 变量），不暴露任何状态，所以不会让两边的渲染互相影响。
+		window.__dshTavernSceneImagePreview = openSceneImagePreview;
 
 		function createTavernAssistantRendererFeatureModule() {
 			function TavernUserNodeView(props) {
@@ -281,6 +306,8 @@
 				const [adjusting, setAdjusting] = React.useState(false);
 				const [instruction, setInstruction] = React.useState("");
 				const [referenceDraft, setReferenceDraft] = React.useState(null);
+				const [promptDraft, setPromptDraft] = React.useState("");
+				const [showingPrompt, setShowingPrompt] = React.useState(false);
 				const requestRef = React.useRef(null);
 				const versions = state && state.versions || [];
 				const version = versions.find(function (item) { return item.id === selected; }) || versions[versions.length - 1];
@@ -316,11 +343,11 @@
 					if (confirmNewRequestId === false) { recordImageInteraction(props.sessionId, props.turn, clickId, "cancelled", "confirmation"); return; }
 					if (requestRef.current && requestRef.current.id === state.requestId && ["failed", "cancelled", "idle"].includes(state.status)) requestRef.current = null;
 					setBusy(true); setError("");
-					const signature = kind + ":" + (version && version.id) + ":" + instruction;
+					const signature = kind + ":" + (version && version.id) + ":" + (kind === "prompt" ? promptDraft : instruction);
 					if (!requestRef.current || requestRef.current.signature !== signature) requestRef.current = { signature: signature, id: clickId };
 					try {
-						await rpc("generateSceneImage", { turn: props.turn, key: state.key, kind: kind, versionId: version && version.id, instruction: kind === "adjust" ? instruction : "", requestId: requestRef.current.id, confirmNewRequestId: confirmNewRequestId }, props.sessionId);
-						requestRef.current = null; setAdjusting(false); setInstruction("");
+						await rpc("generateSceneImage", { turn: props.turn, key: state.key, kind: kind, versionId: version && version.id, instruction: kind === "adjust" ? instruction : "", prompt: kind === "prompt" ? promptDraft : "", requestId: requestRef.current.id, confirmNewRequestId: confirmNewRequestId }, props.sessionId);
+						requestRef.current = null; setAdjusting(false); setInstruction(""); setShowingPrompt(false);
 					} catch (e) { setError(String(e.message || e)); }
 					finally { setBusy(false); notify(); }
 				}
@@ -355,7 +382,7 @@
 				const canBindReference = state.enabled && state.reference && state.reference.supported && referencePeople.length > 0;
 				const showReference = referenceDraft && version && referenceDraft.key === state.key && referenceDraft.versionId === version.id;
 				return React.createElement("div", { className: "dsh-tavern-illustration" },
-					url ? React.createElement("a", { href: url, "aria-label": "放大场景插画", onClick: function (event) { event.preventDefault(); openSceneImagePreview(url, event.currentTarget); } }, React.createElement("img", { src: url, alt: "本段场景插画", loading: "lazy", onError: function () { setError("图片加载失败，请刷新后重试"); } })) : null,
+					url ? React.createElement("a", { href: url, "aria-label": "放大场景插画", onClick: function (event) { event.preventDefault(); openSceneImagePreview(url, event.currentTarget); } }, React.createElement("img", { src: url, alt: "本段场景插画", loading: "lazy", title: "左键放大 · 右键查看或编辑提示词", onContextMenu: version ? function (event) { event.preventDefault(); setPromptDraft(version.prompt || ""); setAdjusting(false); setShowingPrompt(true); } : undefined, onError: function () { setError("图片加载失败，请刷新后重试"); } })) : null,
 					version ? React.createElement("div", { className: "dsh-tavern-image-actions" },
 						React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: locked, onClick: removeImage }, "删除图片"),
 						versions.length > 1 ? React.createElement(React.Fragment, null,
@@ -382,6 +409,14 @@
 						) : null,
 						referenceBindings.map(function (binding) { return React.createElement("button", { key: binding.personId, type: "button", className: "dsh-tavern-btn", disabled: locked, onClick: function () { return setReference(false, binding.personId); } }, "取消「" + binding.name + "」的参考"); }),
 						React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: busy, onClick: function () { setReferenceDraft(null); } }, "关闭参考设置")
+					) : null,
+					showingPrompt && state.enabled && version ? React.createElement("div", { className: "dsh-tavern-image-adjust", role: "region", "aria-label": "图片提示词" },
+						React.createElement("p", { className: "dsh-tavern-image-hint" }, "这张图实际发给绘图渠道的提示词。可直接改，然后按这段重画；不改动人物资料与剧情。"),
+						version.prompt ? null : React.createElement("p", { className: "dsh-tavern-image-hint" }, "这张图是早前生成的，当时还没有保存提示词（旧数据）。改完重画一张，之后就会记下来。"),
+						React.createElement("textarea", { value: promptDraft, rows: 6, maxLength: 12000, "aria-label": "图片提示词", placeholder: "留空则按原画面重画", onChange: function (event) { setPromptDraft(event.target.value); }, disabled: locked }),
+						React.createElement("div", { className: "dsh-tavern-image-repaint-actions" },
+							React.createElement("button", { type: "button", className: "dsh-tavern-image-repaint-cancel", disabled: busy, onClick: function () { setShowingPrompt(false); } }, "关闭"),
+							React.createElement("button", { type: "button", className: "dsh-tavern-btn dsh-tavern-image-repaint-submit", disabled: locked || !promptDraft.trim(), onClick: function () { return generate("prompt"); } }, "用这段重画"))
 					) : null,
 					adjusting && state.enabled ? React.createElement("div", { className: "dsh-tavern-image-adjust dsh-tavern-image-repaint", role: "region", "aria-label": "重画插图" },
 						React.createElement("textarea", { value: instruction, maxLength: 2000, rows: 2, autoFocus: true, "aria-label": "重画意见（选填）", placeholder: "想怎么改？例如：改成雨夜，镜头拉近。留空则按原画面重画", onChange: function (event) { setInstruction(event.target.value); }, onKeyDown: function (event) {

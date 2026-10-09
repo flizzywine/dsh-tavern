@@ -173,7 +173,7 @@ export function createSceneIllustrations(deps) {
   function present(target, record) {
     const { attachment, savedAttachment, diagnostics, diagnosticContext, providerRequests, referenceImages, plan, requests, versions, deletedVersions, ownerId, ownerPid, ...publicRecord } = record || {}
     const configuration = value => value?.workflow ? { ...value, workflow: { name: value.workflow.name, digest: value.workflow.digest } } : value
-    return { key: target.key, turn: target.turn, status: 'idle', ...publicRecord, hasDeletedImages: Boolean(deletedVersions?.length), ...(publicRecord.configuration ? { configuration: configuration(publicRecord.configuration) } : {}), versions: versionsOf(record).map(({ attachment, plan, ...item }) => ({ ...item, configuration: configuration(item.configuration), description: plan?.description || '', profile: plan?.profile || '', anchor: plan?.anchor || '',
+    return { key: target.key, turn: target.turn, status: 'idle', ...publicRecord, hasDeletedImages: Boolean(deletedVersions?.length), ...(publicRecord.configuration ? { configuration: configuration(publicRecord.configuration) } : {}), versions: versionsOf(record).map(({ attachment, plan, ...item }) => ({ ...item, configuration: configuration(item.configuration), description: plan?.description || '', prompt: plan?.prompt || '', profile: plan?.profile || '', anchor: plan?.anchor || '',
       referencePeople: imageReferencePeople({ plan }),
       referenceSingle: plan?.subjects?.length === 1 && imageReferencePeople({ plan }).length === 1,
       referencePerson: plan?.people?.length === 1 && plan.subjects?.length === 1 && imageReferencePeople({ plan }).length === 1 ? plan.people[0].name : '' })) }
@@ -196,6 +196,58 @@ export function createSceneIllustrations(deps) {
       reference: { ...reference.capability, warning: reference.warning,
         bindings: reference.active.filter(record => record.source.key === target.key).map(record => ({ versionId: record.source.versionId, personId: record.person.id, name: record.person.name })),
         versions: reference.active.filter(record => record.source.key === target.key).map(record => record.source.versionId) } }
+  }
+  /** 列出**所有会话**生成过的插图，供「设置 → 场景生图」里的历史面板使用。只读：
+   *  不读正文、不改任何记录，也不触碰故事消息或 MVU 状态。记录按 chatId 的哈希分
+   *  目录存放、哈希不可逆推，所以只能枚举目录；每条记录自带 diagnosticContext
+   *  （含 sessionId / chatId），图片地址与删除操作都靠它。 */
+  async function list() {
+    const items = []
+    const dirs = await deps.store.readdir('scene-images').catch(() => [])
+    for (const entry of dirs) {
+      if (!entry.directory) continue
+      const files = await deps.store.readdir('scene-images/' + entry.name).catch(() => [])
+      for (const file of files) {
+        if (file.directory || !/^[0-9a-f]{64}\.json$/.test(file.name)) continue
+        let record = null
+        try { record = await deps.store.readJson('scene-images/' + entry.name + '/' + file.name) } catch { record = null }
+        if (!record) continue
+        const versions = versionsOf(record).filter(item => item && item.attachment)
+        if (!versions.length) continue
+        const sessionId = record.diagnosticContext?.sessionId || ''
+        if (!sessionId) continue
+        items.push({
+          sessionId,
+          chatId: record.diagnosticContext?.chatId || '',
+          key: String(record.key || ''),
+          turn: Number(record.turn || 0),
+          createdAt: Number(record.createdAt || 0),
+          versions: versions.map(item => ({
+            id: item.id,
+            description: item.plan?.description || item.description || '',
+            prompt: item.plan?.prompt || '',
+            createdAt: Number(item.createdAt || 0),
+          })),
+        })
+      }
+    }
+    items.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0) || b.turn - a.turn)
+    return { items }
+  }
+  /** 批量删除图片版本。逐条独立处理：一条失败不影响其余，返回值里逐项报结果，
+   *  便于前端把「删掉了哪些、哪些没删掉」如实显示出来。 */
+  async function removeMany(items) {
+    const list = Array.isArray(items) ? items.slice(0, 200) : []
+    const results = []
+    for (const item of list) {
+      try {
+        await removeImage(item?.sessionId, item?.turn, item?.key, item?.versionId, item?.chatId)
+        results.push({ versionId: item?.versionId ?? null, ok: true })
+      } catch (error) {
+        results.push({ versionId: item?.versionId ?? null, ok: false, error: String(error?.message || error) })
+      }
+    }
+    return { results }
   }
   async function setReference(sessionId, turn, key, versionId, consent, enabled = true, personId) {
     const { chat, target, path } = await resolve(sessionId, turn)
@@ -266,7 +318,7 @@ export function createSceneIllustrations(deps) {
   }
   async function start(sessionId, turn, expectedKey, options = {}) {
     const kind = options.kind || 'generate'
-    if (!['generate', 'repaint', 'adjust'].includes(kind)) throw new Error('未知生图操作')
+    if (!['generate', 'repaint', 'adjust', 'prompt'].includes(kind)) throw new Error('未知生图操作')
     const instruction = typeof options.instruction === 'string' ? options.instruction.trim() : ''
     if (kind === 'adjust' && (!instruction || instruction.length > 2000)) throw new Error('调整要求须为 1–2000 字符')
     const requestId = options.requestId === undefined ? randomUUID() : options.requestId
@@ -295,7 +347,17 @@ export function createSceneIllustrations(deps) {
       const historical = await deps.stateAtTarget?.(chat, target)
       const latestMessage = [...(chat.messages || [])].reverse().find(item => item.role === 'assistant')
       const designSnapshot = historical || (Number(latestMessage?.turn || (latestMessage?.greeting ? 1 : 0)) === target.turn && chat.settleStatus === 'done' ? chat : null)
-      if (kind !== 'generate') {
+      if (kind === 'prompt') {
+        // 用户直接给出提示词重画：不经过绘图 Agent，按给定文本构造画面方案。
+        // 人物资料与剧情不受影响，只替换这一张图的画面描述。
+        const version = versionsOf(existing).find(item => item.id === options.versionId)
+        if (!version) throw new Error('找不到要重画的图片版本')
+        const manual = typeof options.prompt === 'string' ? options.prompt.trim() : ''
+        if (!manual || manual.length > 12000) throw new Error('提示词须为 1–12000 字符')
+        basePlan = applyImageStyle(legacyImagePlan({ prompt: manual, description: version.description }, profile), style)
+        adjustment = false
+        prepared = { saved: basePlan, input: null }
+      } else if (kind !== 'generate') {
         const version = versionsOf(existing).find(item => item.id === options.versionId)
         if (!version) throw new Error('找不到要重画或调整的图片版本')
         basePlan = applyImageStyle(version.plan || legacyImagePlan(version, 'scene-tags-v1:' + version.model), style)
@@ -589,9 +651,16 @@ export function createSceneIllustrations(deps) {
     starts.set(path, starting)
     try { return await starting } finally { starts.delete(path) }
   }
-  async function readImage(sessionId, turn, key, versionId) {
-    const { target, path } = await resolve(sessionId, turn)
-    if (target.key !== key) throw new Error('图片不属于当前正文版本')
+  async function readImage(sessionId, turn, key, versionId, chatId) {
+    // 历史图片所属的会话早已关闭，resolve 不到；而记录里存了 chatId，可直接定位文件。
+    // 两条路径都只是「找到那个记录文件」，取图逻辑完全一致。
+    let path
+    if (chatId) path = pathFor(String(chatId), String(key || ''))
+    else {
+      const resolved = await resolve(sessionId, turn)
+      if (resolved.target.key !== key) throw new Error('图片不属于当前正文版本')
+      path = resolved.path
+    }
     const record = await readRecord(path)
     const versions = versionsOf(record)
     const version = versionId ? versions.find(item => item.id === versionId) : versions.at(-1)
@@ -656,10 +725,9 @@ export function createSceneIllustrations(deps) {
     }
     return images
   }
-  async function removeImage(sessionId, turn, key, versionId) {
-    const { target, path } = await resolve(sessionId, turn)
-    if (target.key !== key) throw new Error('正文版本已变化')
-    const next = await deps.store.updateJson(path, record => {
+  /** 只摘掉一个版本、保留 tombstone。会话内删除与历史删除共用这一段。 */
+  async function detachVersion(path, versionId) {
+    return deps.store.updateJson(path, record => {
       if (record?.status === 'running') throw new Error('请等待当前生图任务结束后删除图片')
       if (record?.recovery === 'save') throw new Error('请先恢复待保存的图片，再删除图片版本')
       const versions = versionsOf(record)
@@ -670,9 +738,20 @@ export function createSceneIllustrations(deps) {
       // their bytes blindly. Keep a tombstone for subsequent reference-aware GC.
       return { ...record, versions: kept, status: kept.length ? 'succeeded' : 'idle', error: '', deletedVersions: [...(record.deletedVersions || []), { ...removed, deletedAt: Date.now() }] }
     })
+  }
+  async function removeImage(sessionId, turn, key, versionId, chatId) {
+    // 历史图片：会话已关闭，用记录自带的 chatId 直接定位，不再解析会话。
+    if (chatId) {
+      const path = pathFor(String(chatId), String(key || ''))
+      const next = await detachVersion(path, versionId)
+      return { key: String(key || ''), turn: Number(next?.turn || turn || 0), remaining: versionsOf(next).length }
+    }
+    const { target, path } = await resolve(sessionId, turn)
+    if (target.key !== key) throw new Error('正文版本已变化')
+    const next = await detachVersion(path, versionId)
     return present(target, next)
   }
-  return { settings, configure, readArtistPreview: setup.readArtistPreview, testConnection: connection.test, listModels: connection.models, testGenerate, status, start, cancel, retrySave, readImage, exportImages, isAgentSession, undoAgentTurn, removeImage, setReference,
+  return { settings, configure, readArtistPreview: setup.readArtistPreview, testConnection: connection.test, listModels: connection.models, testGenerate, status, list, removeMany, start, cancel, retrySave, readImage, exportImages, isAgentSession, undoAgentTurn, removeImage, setReference,
     async dispose() { for (const job of jobs.values()) job.controller.abort(); await Promise.allSettled([...jobs.values()].map(job => job.promise)); imageHosts.delete(ownerId); imageAborters.delete(ownerId) }
   }
 }

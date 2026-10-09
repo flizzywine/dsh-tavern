@@ -85,6 +85,35 @@
 			const [modelNotice, setModelNotice] = React.useState("");
 			const [checking, setChecking] = React.useState("");
 			const [trial, setTrial] = React.useState({ state: "idle" });
+			// 历史图片（跨会话只读列表 + 批量删除）。删除只移除图片版本，不动正文与存档。
+			const [history, setHistory] = React.useState(null);
+			const [historyPicked, setHistoryPicked] = React.useState([]);
+			const [historyBusy, setHistoryBusy] = React.useState(false);
+			const [historyNotice, setHistoryNotice] = React.useState("");
+			async function loadHistory() {
+				setHistoryBusy(true); setHistoryNotice("");
+				try {
+					const result = await rpc("listSceneImages", {});
+					setHistory(result.history || { items: [] });
+					setHistoryPicked([]);
+				} catch (e) { setHistoryNotice(String(e.message || e)); }
+				finally { setHistoryBusy(false); }
+			}
+			async function removePicked() {
+				if (!historyPicked.length || !history) return;
+				setHistoryBusy(true); setHistoryNotice("");
+				try {
+					const items = history.items.flatMap(function (entry) {
+						return entry.versions.filter(function (item) { return historyPicked.indexOf(item.id) >= 0; })
+							.map(function (item) { return { sessionId: entry.sessionId, chatId: entry.chatId, turn: entry.turn, key: entry.key, versionId: item.id }; });
+					});
+					const result = await rpc("removeSceneImages", { items: items });
+					const failed = ((result.removed && result.removed.results) || []).filter(function (row) { return !row.ok; }).length;
+					setHistoryNotice(failed ? "已删除 " + (items.length - failed) + " 张，" + failed + " 张删除失败" : "已删除 " + items.length + " 张");
+					await loadHistory();
+				} catch (e) { setHistoryNotice(String(e.message || e)); }
+				finally { setHistoryBusy(false); }
+			}
 			async function runTrial() {
 				setTrial({ state: "running" });
 				try { setTrial({ state: "done", result: await rpc("testSceneImageGeneration", {}) }); }
@@ -386,6 +415,40 @@
 						trial.state === "done" ? h("figure", { className: "dsh-tavern-image-trial" },
 							h("img", { src: "data:" + trial.result.mediaType + ";base64," + trial.result.data, alt: "测试生图结果" }),
 							h("figcaption", { role: "status" }, "生成成功" + (trial.result.model ? " · " + trial.result.model : "") + " · 用时 " + Math.round(trial.result.durationMs / 1000) + " 秒")) : null,
-						trial.state === "failed" ? h("p", { role: "alert", className: "dsh-tavern-settings-error" }, trial.error) : null) : null)
+						trial.state === "failed" ? h("p", { role: "alert", className: "dsh-tavern-settings-error" }, trial.error) : null) : null),
+					h("details", { className: "dsh-tavern-image-section" },
+						h("summary", null, "历史图片"),
+						h("div", { className: "dsh-tavern-image-section-body" },
+							h("p", { className: "dsh-tavern-image-hint" }, "所有会话生成过的插图，新到旧排列。勾选后批量删除；只移除图片，不影响正文与存档。"),
+							h("div", { className: "dsh-tavern-image-actions" },
+								h("button", { type: "button", className: "dsh-tavern-btn", disabled: historyBusy, onClick: function () { return loadHistory(); } }, historyBusy ? "读取中…" : (history ? "刷新" : "读取历史图片")),
+								history && historyPicked.length ? h("button", { type: "button", className: "dsh-tavern-btn danger", disabled: historyBusy, onClick: function () { return removePicked(); } }, "删除选中的 " + historyPicked.length + " 张") : null,
+								history && historyPicked.length ? h("button", { type: "button", className: "dsh-tavern-btn", disabled: historyBusy, onClick: function () { setHistoryPicked([]); } }, "取消选择") : null),
+							historyNotice ? h("span", { role: "status" }, historyNotice) : null,
+							history ? (history.items.length ? (function () {
+								// 先把整组图片摊平，查看器才能在这些历史图片之间左右翻页。
+								const shots = [];
+								history.items.forEach(function (entry) {
+									entry.versions.forEach(function (item) {
+										shots.push({ entry: entry, item: item, href: "/api/dsh-tavern/scene-image?" + new URLSearchParams({ sessionId: entry.sessionId, chatId: entry.chatId, turn: String(entry.turn), key: entry.key, versionId: item.id }).toString() });
+									});
+								});
+								const urls = shots.map(function (shot) { return shot.href; });
+								return h("div", { style: { display: "flex", flexWrap: "wrap", gap: "8px", marginTop: "8px" } }, shots.map(function (shot, at) {
+									const entry = shot.entry, item = shot.item, href = shot.href;
+									const picked = historyPicked.indexOf(item.id) >= 0;
+									return h("div", { key: item.id, title: item.description || ("第 " + entry.turn + " 轮"), style: { display: "block", width: "104px", border: "2px solid " + (picked ? "#b91c1c" : "transparent"), borderRadius: "8px", padding: "2px" } },
+										h("a", { href: href, title: "点击放大查看原图", style: { display: "block" }, onClick: function (event) {
+											event.preventDefault();
+											// 用 Tavern 自己的模态查看器（<dialog>），可在这批历史图片间左右翻页。
+											if (typeof window.__dshTavernSceneImagePreview === "function") window.__dshTavernSceneImagePreview(href, event.currentTarget, { urls: urls, index: at });
+											else window.open(href, "_blank", "noopener");
+										} },
+											h("img", { src: href, alt: item.description || "插图", loading: "lazy", style: { width: "96px", height: "96px", objectFit: "cover", borderRadius: "6px", display: "block", cursor: "zoom-in" } })),
+										h("label", { style: { display: "flex", alignItems: "center", gap: "4px", fontSize: "11px", opacity: 0.8, marginTop: "2px", cursor: "pointer" } },
+											h("input", { type: "checkbox", checked: picked, disabled: historyBusy, onChange: function () { setHistoryPicked(function (current) { return picked ? current.filter(function (id) { return id !== item.id; }) : current.concat([item.id]); }); } }),
+											"第 " + entry.turn + " 轮"));
+								}));
+							})() : h("p", { className: "dsh-tavern-image-hint" }, "还没有生成过插图。")) : h("p", { className: "dsh-tavern-image-hint" }, "点上面的按钮读取历史图片。")))
 			);
 		}

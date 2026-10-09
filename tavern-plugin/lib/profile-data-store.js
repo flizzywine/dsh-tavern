@@ -1,4 +1,5 @@
 import path from 'node:path'
+import { readdir } from 'node:fs/promises'
 import { createDurableFilePromotion } from './durable-file-promotion.js'
 
 function resolveSafePath(dataRoot, relativePath) {
@@ -41,6 +42,18 @@ export function createProfileDataStore(options) {
       })
       return decodeJson(result)
     },
-    async remove(relativePath) { await files.remove(resolveSafePath(dataRoot, relativePath)) }
+    async remove(relativePath) { await files.remove(resolveSafePath(dataRoot, relativePath)) },
+    /** 只读枚举。图片记录按 chatId 的哈希分目录存放，哈希不可逆推，所以「列出
+     *  所有会话的图片」必须先能列出目录。纯读，不改变任何写入语义；目录不存在
+     *  返回空数组，由调用方区分「还没有」和「读失败」。 */
+    async readdir(relativePath) {
+      try {
+        const entries = await readdir(resolveSafePath(dataRoot, relativePath), { withFileTypes: true })
+        return entries.map(entry => ({ name: entry.name, directory: entry.isDirectory() }))
+      } catch (error) {
+        if (error?.code === 'ENOENT') return []
+        throw error
+      }
+    }
   })
 }
