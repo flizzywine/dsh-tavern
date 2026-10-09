@@ -68,6 +68,8 @@ export function createTavernPluginApi(deps) {
   const settlementSections = new Map()
   const settlementTools = new Map()
   const worldbookSources = new Map()
+  const candidateSections = new Map()
+  const compactionSections = new Map()
   const replacements = { settlement: new Map() }
   const attachedOwners = new Set()
   const errors = new Map()
@@ -284,6 +286,18 @@ export function createTavernPluginApi(deps) {
       return register.call(this, settlementSections, owner + '\u0000' + name, { owner, name, text }, 'tavern.settlementSection()', '结算说明段落 ' + name + ' 已注册')
     },
 
+    candidateSection({ name, text } = {}) {
+      const owner = ownerOf(this)
+      sectionName(name); textOrFunction(text)
+      return register.call(this, candidateSections, owner + '\u0000' + name, { owner, name, text }, 'tavern.candidateSection()', '候选说明段落 ' + name + ' 已注册')
+    },
+
+    compactionSection({ name, text } = {}) {
+      const owner = ownerOf(this)
+      sectionName(name); textOrFunction(text)
+      return register.call(this, compactionSections, owner + '\u0000' + name, { owner, name, text }, 'tavern.compactionSection()', '压缩说明段落 ' + name + ' 已注册')
+    },
+
     settlementTool({ name, description, parameters, execute } = {}) {
       const owner = ownerOf(this)
       if (typeof name !== 'string' || !TOOL_NAME.test(name)) throw new Error('工具名只能用小写字母、数字和下划线，以字母开头，3–48 个字符')
@@ -395,6 +409,8 @@ export function createTavernPluginApi(deps) {
     for (const entry of removedHandlers) use(entry.owner, '生命周期', '观察')
     for (const entry of [...sections.values(), ...turnSections.values(), ...worldbookSources.values()]) use(entry.owner, '上下文', '添加')
     for (const entry of [...settlementSections.values(), ...settlementTools.values()]) use(entry.owner, '结算', '添加')
+    for (const entry of candidateSections.values()) use(entry.owner, '候选', '添加')
+    for (const entry of compactionSections.values()) use(entry.owner, '压缩', '添加')
     for (const owner of attachedOwners) use(owner, '界面', '添加')
     const stages = {}
     for (const [stage, registry] of Object.entries(replacements)) {
@@ -458,6 +474,16 @@ export function createTavernPluginApi(deps) {
     return result
   }
 
+  /** Seam: notes plugins add to the background candidate task. */
+  const candidate = Object.freeze({
+    async sections({ gameId, turn }) { return collectSections(candidateSections, { gameId, turn }, '候选说明段落', (await choicesFor(gameId)).disabled) }
+  })
+
+  /** Seam: notes plugins add to a story game's summary instruction. */
+  async function compactionNotes({ gameId }) {
+    return collectSections(compactionSections, { gameId }, '压缩说明段落', (await choicesFor(gameId)).disabled)
+  }
+
   /** Seam: what the background settlement task offers the model on behalf of plugins. */
   const settlement = Object.freeze({
     /** Tool definitions, in a stable order: they sit in the cached request prefix. */
@@ -485,5 +511,5 @@ export function createTavernPluginApi(deps) {
     }
   })
 
-  return Object.freeze({ service, turnSettled, gameRemoved, timelineChanged, gameForked, forkTurns, promptSections, turnContext, settlement, replaceSettlement, gamePlugins, setGamePlugin })
+  return Object.freeze({ service, turnSettled, gameRemoved, timelineChanged, gameForked, forkTurns, promptSections, turnContext, settlement, candidate, compactionNotes, replaceSettlement, gamePlugins, setGamePlugin })
 }

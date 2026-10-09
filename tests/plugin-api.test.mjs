@@ -207,10 +207,17 @@ test('tavern 服务 v2：本轮上下文、世界书来源、结算说明与结�
   for (let index = 0; index < 6; index++) await call('anchor_submit', { text: 'x' })
   assert.match(JSON.parse(await call('anchor_submit', { text: 'x' })).error, /上限/)
 
+  tavern.candidateSection({ name: 'tone', text: ({ gameId }) => gameId + ' 的候选偏向探索' })
+  tavern.compactionSection({ name: 'keep', text: '摘要里保留叙事锚点' })
+  assert.deepEqual((await h.api.candidate.sections({ gameId: 'game-1' })).map(note => note.text), ['game-1 的候选偏向探索'])
+  assert.deepEqual((await h.api.compactionNotes({ gameId: 'game-1' })).map(note => note.text), ['摘要里保留叙事锚点'])
+  assert.deepEqual((await h.api.gamePlugins('game-1')).plugins[0].uses.map(use => use.stage + use.mode).sort(), ['上下文添加', '候选添加', '压缩添加', '结算添加'])
+
   await fiber.dispose()
   await tick()
   assert.deepEqual(await h.api.turnContext({ gameId: 'game-1', turn: 4, input: '推门' }), [])
   assert.deepEqual(h.api.settlement.tools(), [])
+  assert.deepEqual(await h.api.compactionNotes({ gameId: 'game-1' }), [])
   assert.match(JSON.parse(await call('anchor_submit', {})).error, /不可用/)
 })
 

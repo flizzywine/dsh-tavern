@@ -780,6 +780,7 @@ window.__ModuleLoader__.load({
             }, SceneImageGallery)), "dsh-tavern: picture gallery");
 			// Public browser API for third-party plugins (docs/plugin-api.md).
 			tavernUiExtensions.service.ctx = ctx;
+			tavernUiExtensions.attachHost(ctx);
 			if (typeof ctx.provide === "function") ctx.provide("tavernUi", tavernUiExtensions.service);
 			const signals = ctx.tavernSessionSignals;
 			if (!signals || typeof signals.subscribe !== "function") throw new Error("DSH Tavern Remote 状态流不可用");

@@ -533,6 +533,7 @@ test('插件结算工具：随后台会话固定注册，只在结算任务里�
     id: () => 'background-plugin-tools',
     backgroundTools: [{ name: 'posture_submit', parameters: { type: 'object' } }, { name: 'candidate_submit', parameters: { type: 'object' } }],
     pluginSettlement: () => pluginSettlement,
+    pluginCandidate: () => ({ sections: async ({ gameId }) => [{ text: gameId + ' 候选多给探索选项' }] }),
     agents: {
       get: () => ({ id: 'parent', session: { header: {} } }),
       async create(options) {
@@ -568,6 +569,7 @@ test('插件结算工具：随后台会话固定注册，只在结算任务里�
       messages: [], tools: [{ name: 'candidate_submit', parameters: { type: 'object' } }], onToolCall: async () => '{}' })
     assert.match(results.at(-1), /不允许调用 anchor_submit/)
     assert.equal(pluginCalls.length, 1)
-    assert.doesNotMatch(texts[1], /插件附加/)
+    assert.doesNotMatch(texts[1], /插件附加的结算任务/)
+    assert.match(texts[1], /【插件附加的候选要求】[\s\S]*parent 候选多给探索选项/)
   } finally { await runner.dispose() }
 })

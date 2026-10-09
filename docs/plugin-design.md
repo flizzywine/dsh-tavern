@@ -25,10 +25,10 @@
 | 生成 | 组装好的请求 | 模型原始回复 | — |
 | 回复 | 模型原始回复 | 保存的正文、显示用的正文 | 浏览器侧：正文标记、媒体渲染 |
 | 结算 | 本轮正文、存档状态 | 现场姿势、变量更新、人物设计 | 添加：`settlementSection`、`settlementTool`；替换：`replaceSettlement`（普通卡的姿势结算） |
-| 候选 | 本轮正文、存档状态 | 下一步行动候选 | — |
-| 压缩 | 历史消息 | 历史摘要 | — |
+| 候选 | 本轮正文、存档状态 | 下一步行动候选 | 添加：`candidateSection` |
+| 压缩 | 历史消息 | 历史摘要 | 添加：`compactionSection` |
 | 生命周期 | — | 轮次写完、回退、撤销回退、重新生成、分叉、删局 | 观察：`onTurnSettled`、`onTimelineChanged`、`onGameRemoved` |
-| 界面 | — | 媒体、按钮、面板 | 浏览器侧 `tavernUi`；宿主侧 `attach` 等 |
+| 界面 | — | 媒体、按钮、面板 | 浏览器侧 `tavernUi`（含侧栏面板 `registerPanel`）；宿主侧 `attach` 等 |
 
 ## 3. 三种介入方式
 
@@ -112,6 +112,9 @@ const data = await ctx.tavern.readGameData({ gameId })
 | `promptSection`、`turnSection`、`worldbookSource` | 上下文 | 添加 |
 | `settlementSection`、`settlementTool` | 结算 | 添加 |
 | `replaceSettlement` | 结算 | 替换 |
+| `candidateSection` | 候选 | 添加 |
+| `compactionSection` | 压缩 | 添加 |
+| `tavernUi.registerPanel` | 界面 | 添加 |
 | `saveTurnData`、`readTurnData`、`saveGameData`、`readGameData` | （存档数据，见第 4 节） | — |
 | `attach`、`update`、`remove`、`list` | 界面 | 添加 |
 | `tavernUi` 全部 | 界面、回复 | 添加 |
@@ -125,7 +128,7 @@ const data = await ctx.tavern.readGameData({ gameId })
 | 1 ✅ | 插件存档数据（按轮、整局）；分叉时带上按轮数据和媒体项；生命周期观察 `onTimelineChanged`（回退、撤销回退、重新生成、编辑、分叉）；编辑正文后重新发 `onTurnSettled` | — |
 | 2 ✅ | 本局插件面板与按局开关；插件出错提示（「本局设置 → 插件」） | — |
 | 3 ✅ | 第一个替换类接口：结算替换 `replaceSettlement`。第一版只替换普通卡的姿势结算，交回 `posture`；官方 MVU 卡的变量结算仍由 Tavern 负责，变量更新的交回格式等有实际需求再定 | 批次 2 |
-| 4 | 其余阶段按实际需求开放：候选、压缩、生成参数等 | 各自的需求 |
+| 4 部分 ✅ | 已开放：候选与压缩的「添加」（`candidateSection`、`compactionSection`）、浏览器侧插件面板 `registerPanel`。其余（输入、生成、宿主侧回复处理、世界书召回替换、候选与压缩的替换、MVU 变量结算替换）按实际需求开放 | 各自的需求 |
 
 每一批都附带：文档、内置 Skill 里的副本、示例插件中相关的部分，以及「插件出错时游戏照常」的测试。
 

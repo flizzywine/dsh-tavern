@@ -424,9 +424,12 @@ export function createBackgroundAgentTask(options) {
         ? cardSystemPromptSnapshot(agent.session, input.systemPromptText) : null
       const pluginNotes = plugins ? await plugins.sections(pluginContext) : []
       const pluginToolNames = plugins ? plugins.tools().map(tool => tool.name) : []
+      const candidateNotes = input.task === 'candidate' && typeof options.pluginCandidate === 'function'
+        ? await options.pluginCandidate()?.sections(pluginContext).catch(() => []) || [] : []
       const pluginText = pluginNotes.length || pluginToolNames.length ? ['【插件附加的结算任务】',
         ...(pluginToolNames.length ? ['可用插件工具：' + pluginToolNames.join('、') + '。需要时在提交本轮结算之前调用；插件工具失败不影响本轮结算。'] : []),
-        ...pluginNotes.map(note => note.text)].join('\n\n') : ''
+        ...pluginNotes.map(note => note.text)].join('\n\n')
+        : candidateNotes.length ? ['【插件附加的候选要求】', ...candidateNotes.map(note => note.text)].join('\n\n') : ''
       const taskText = [foregroundReads, snapshot?.rendered, systemUpdate?.rendered,
         backgroundPrompt(filterContext?.messages || input.messages, scriptContext?.turnContext ?? input.turnContext, input.task, input.system, input), pluginText].filter(Boolean).join('\n\n')
       agent.followup({

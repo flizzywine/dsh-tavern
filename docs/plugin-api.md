@@ -65,7 +65,7 @@ export function apply(ctx) {
 
 ### `apiVersion`
 
-当前为 `1`。以后新增能力时会增大，旧能力保持不变。
+当前为 `2`。以后新增能力时会增大，旧能力保持不变。浏览器侧的 `tavernUi.apiVersion` 单独计数，当前也是 `2`。
 
 ### `onTurnSettled(handler)`
 
@@ -217,6 +217,14 @@ ctx.tavern.settlementTool({
 - 插件工具跟着 Tavern 自己的结算一起运行：玩家关掉了所有后台结算项时，这一轮不会运行结算，插件工具也就不会被调用。需要每轮必定执行的逻辑，请放在 `onTurnSettled` 里。
 - 工具列表在后台会话建立时固定（它位于请求的缓存前缀里）。插件在启动时注册即可；运行中途才注册的工具，要等下一个后台会话才生效。
 
+### `candidateSection({ name, text })`（第 2 版）
+
+往后台**候选**任务（生成下一步行动选项）里加一段要求，例如「至少给一个探索类选项」。`text` 是字符串或函数，函数收到 `{ gameId }`。出错时跳过，候选照常生成。
+
+### `compactionSection({ name, text })`（第 2 版）
+
+往游玩对话的**上下文压缩**（历史摘要）要求里加一段，例如「摘要里保留每个叙事锚点的原文」。`text` 是字符串或函数，函数收到 `{ gameId }`。只作用于游玩对话；出错时跳过，压缩照常进行。
+
 ### `replaceSettlement({ settle })`（第 2 版）
 
 由插件**接管**每轮的后台结算（替换类接口）。适合想用自己的模型和流程做结算、并维护自己状态的插件。
@@ -323,10 +331,22 @@ context = { gameId, turn, busy }
 
 想替换内置生图的插件就用这个入口。内置生图的入口在每轮正文下方的操作栏（图片图标），与插件按钮互不占位，由用户选择用哪个。
 
+### `registerPanel({ id, title, render })`（第 2 版）
+
+在右侧栏加一页插件自己的面板，比如记忆、锚点或状态一览。玩家从侧栏的「＋」里打开，面板显示在「插件」一组。
+
+```js
+ctx.tavernUi.registerPanel({ id: 'memory', title: '记忆', render: ({ gameId, visible }) => h(MemoryPanel, { gameId }) })
+```
+
+- `id` 用小写字母、数字、点、下划线和连字符；`title` 1–40 字。
+- `render` 收到当前侧栏对应的 `gameId`，返回 React 元素；没有打开游戏时，Tavern 显示提示，不调用 `render`。
+- 面板出错时只显示一行错误，不影响侧栏其他页。插件卸载时面板自动移除。
+
 ## 不提供的
 
 - 修改正文、修改变量、调用 Tavern 内部的 Agent。
-- 替换 Tavern 的其他流程（提示词组装、世界书召回、压缩、MVU 变量结算）：暂未提供。需要时请提插件接口需求；替换类接口都会约定插件要交回的结果，并在插件失败时退回 Tavern 自己的做法。
+- 替换 Tavern 的其他流程（提示词组装、世界书召回、候选、压缩、MVU 变量结算）：暂未提供。需要时请提插件接口需求；替换类接口都会约定插件要交回的结果，并在插件失败时退回 Tavern 自己的做法。
 - 读写 Tavern 数据目录、人物卡文件。
 - 插件设置页：用 DSH 自己的设置区（`settings.section`）。
 - 模型调用、凭据、附件存储：直接用 DSH 的 `llm`、`credentials`、`attachments` 服务。
@@ -346,4 +366,4 @@ Tavern 不提前设计接口，而是根据插件实际用到的内容补接口�
 | 版本 | 变化 |
 |---|---|
 | 1 | 首个版本。 |
-| 2 | 新增 `turnSection`、`worldbookSource`、`settlementSection`、`settlementTool`：插件可以往每轮正文请求和后台结算里添加内容。新增插件存档数据（`saveTurnData`、`readTurnData`、`saveGameData`、`readGameData`）与 `onTimelineChanged`；编辑正文后重新发 `onTurnSettled`；分叉时带上插件数据和媒体项。新增第一个替换类接口 `replaceSettlement`，以及本局插件面板（按局开关、选择结算由谁负责、错误记录）。第 1 版接口不变。 |
+| 2 | 新增 `turnSection`、`worldbookSource`、`settlementSection`、`settlementTool`：插件可以往每轮正文请求和后台结算里添加内容。新增插件存档数据（`saveTurnData`、`readTurnData`、`saveGameData`、`readGameData`）与 `onTimelineChanged`；编辑正文后重新发 `onTurnSettled`；分叉时带上插件数据和媒体项。新增第一个替换类接口 `replaceSettlement`，以及本局插件面板（按局开关、选择结算由谁负责、错误记录）。新增 `candidateSection`、`compactionSection`；浏览器侧新增 `registerPanel`（`tavernUi.apiVersion` 为 2）。第 1 版接口不变。 |

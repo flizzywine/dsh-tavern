@@ -2316,6 +2316,7 @@ export async function apply(ctx) {
     backgroundTools: BACKGROUND_TOOLS,
     // Set up after the runner: plugin tools are read when a background Session is set up.
     pluginSettlement: () => pluginApi.settlement,
+    pluginCandidate: () => pluginApi.candidate,
     sharedTools: [sharedWorldbookSearch(searchWorldbook), {
       tool: HISTORY_RECALL_TOOL,
       async execute({ input, args }) {
@@ -4591,6 +4592,7 @@ export async function apply(ctx) {
     foregroundStrategies,
     fullTemplateRuntime,
     modelRequestLog,
+    pluginCompactionNotes: pluginApi.compactionNotes,
     requestCoordinates,
     runtimePrompt,
     sessionStateForSession,

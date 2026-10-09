@@ -5638,6 +5638,7 @@ function tavernModelRefusalNotice(text) {
 						['本局', ['dsh-tavern:status', 'dsh-tavern:conversation-settings']],
 						['资料库', ['dsh-tavern:cards', 'dsh-tavern:worldbooks', 'dsh-tavern:presets', 'dsh-tavern:regex-library', 'dsh-tavern:resources', 'dsh-tavern:skills', 'dsh-tavern:system-prompts']],
 						['偏好', ['dsh-tavern:user-profile', 'dsh-tavern:guide-library', 'dsh-tavern:card-memory']],
+						['插件', null],
 						['其他', []]
 					];
 					const paths = {
@@ -5655,10 +5656,12 @@ function tavernModelRefusalNotice(text) {
 						'card-memory': 'M5 3h14v18H5zM8 7h8M8 11h8M8 15h5',
 						fallback: 'M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z'
 					};
-					const known = new Set(groups.flatMap(group => group[1]));
+					const known = new Set(groups.flatMap(group => group[1] || []));
+					const isPluginPanel = option => option.id.startsWith('tavern-plugin:');
 					const css = `.dsh-tavern-start{box-sizing:border-box;padding:18px 16px 24px;overflow:auto;min-height:0;width:100%;color:var(--dsw-alias-label-primary);container-type:inline-size}.dsh-tavern-start section+section{margin-top:22px}.dsh-tavern-start h3{font-size:12px;font-weight:500;color:var(--dsw-alias-label-tertiary);margin:0 2px 8px}.dsh-tavern-start-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,104px),1fr));gap:8px}.dsh-tavern-start-card{appearance:none;font:inherit;font-size:13px;color:inherit;background:var(--dsw-specific-input-major,#fff);border:1px solid var(--dsw-alias-border-l2,#ddd);border-radius:12px;min-width:0;min-height:88px;padding:14px 8px 12px;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:9px;cursor:pointer;transition:border-color 140ms ease,transform 140ms ease,box-shadow 140ms ease}.dsh-tavern-start-card:hover:not(:disabled){border-color:var(--dsh-tavern-accent-border);box-shadow:0 4px 14px rgba(0,0,0,.06);transform:translateY(-1px)}.dsh-tavern-start-card:active:not(:disabled){transform:none}.dsh-tavern-start-card:focus-visible{outline:2px solid var(--dsh-tavern-accent);outline-offset:2px}.dsh-tavern-start-card:disabled{opacity:.45;cursor:default}.dsh-tavern-start-icon{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;background:var(--dsh-tavern-accent-soft);color:var(--dsh-tavern-accent)}.dsh-tavern-start-icon svg{width:20px;height:20px}.dsh-tavern-start-label{text-align:center;line-height:1.4;overflow-wrap:anywhere}@media (prefers-reduced-motion:reduce){.dsh-tavern-start-card{transition:none}.dsh-tavern-start-card:hover:not(:disabled){transform:none}}@container(max-width:260px){.dsh-tavern-start-grid{gap:6px}.dsh-tavern-start-card{font-size:12px;padding:10px 6px;min-height:76px}}`;
 					return h('div', {className:'dsh-tavern-start'}, h('style',null,css), groups.map(([title, ids]) => {
-						const options = ids.length ? ids.map(id => newTabOptions.find(option => option.id === id)).filter(Boolean) : newTabOptions.filter(option => !known.has(option.id));
+						const options = ids === null ? newTabOptions.filter(isPluginPanel)
+							: ids.length ? ids.map(id => newTabOptions.find(option => option.id === id)).filter(Boolean) : newTabOptions.filter(option => !known.has(option.id) && !isPluginPanel(option));
 						if (!options.length) return null;
 						return h('section',{key:title,'aria-label':title},h('h3',null,title),h('div',{className:'dsh-tavern-start-grid'},options.map(option => {
 							const key=option.id.replace('dsh-tavern:','');
@@ -10620,7 +10623,10 @@ function bindTavernFontZoom(node, win) {
 			const markers = [];
 			const messageActions = [];
 			const composerActions = [];
+			const panels = new Map();
 			const listeners = new Set();
+			// Tavern's own context, for the sidebar a plugin panel opens in (set at apply).
+			let host = null;
 			let version = 0;
 			function changed() { version += 1; Array.from(listeners).forEach(function (listener) { listener(); }); }
 			function ownerOf(service) {
@@ -10645,7 +10651,7 @@ function bindTavernFontZoom(node, win) {
 			}
 			const service = {
 				ctx: undefined,
-				apiVersion: 1,
+				apiVersion: 2,
 				registerMediaRenderer(kind, render) {
 					if (typeof kind !== "string" || !/^[a-z0-9][a-z0-9._-]{0,63}\/[a-z0-9][a-z0-9._-]{0,63}$/.test(kind)) throw new TypeError("只能为插件自定义的 <插件名>/<类型> 注册显示方式");
 					if (typeof render !== "function") throw new TypeError("registerMediaRenderer 需要 render 函数");
@@ -10669,11 +10675,34 @@ function bindTavernFontZoom(node, win) {
 				registerComposerAction(input) {
 					const entry = Object.assign({ owner: ownerOf(this) }, action(input, "registerComposerAction"));
 					return owned(this, function () { return addTo(composerActions, entry); }, "tavernUi.registerComposerAction()");
+				},
+				// A sidebar page of the plugin's own, for the game open beside it (apiVersion 2).
+				registerPanel(input) {
+					if (!input || typeof input.id !== "string" || !/^[a-z0-9][a-z0-9._-]{0,63}$/.test(input.id)) throw new TypeError("registerPanel 的 id 只能用小写字母、数字、点、下划线和连字符");
+					if (typeof input.title !== "string" || !input.title.trim() || input.title.length > 40) throw new TypeError("registerPanel 需要 1–40 字的 title");
+					if (typeof input.render !== "function") throw new TypeError("registerPanel 需要 render 函数");
+					const owner = ownerOf(this);
+					const tabId = "tavern-plugin:" + owner + ":" + input.id;
+					const render = input.render, title = input.title.trim();
+					return owned(this, function () {
+						if (panels.has(tabId)) throw new Error("面板 " + input.id + " 已注册");
+						if (!host || !host.betterSidebar || typeof host.betterSidebar.registerTab !== "function") throw new Error("当前界面没有侧栏，无法注册插件面板");
+						const dispose = host.betterSidebar.registerTab({ id: tabId, title: title, order: 60, single: true,
+							component: function (props) {
+								const gameId = props.scope && props.scope.sessionId || "";
+								return React.createElement(tavernPluginBoundary(), { owner: owner, fallback: React.createElement("p", { className: "dsh-tavern-plugin-panel-error" }, "插件 " + owner + " 的面板出错了") },
+									gameId ? render({ gameId: gameId, visible: props.visible !== false }) : React.createElement("p", { className: "dsh-tavern-plugin-panel-empty" }, "请先打开一局游戏。"));
+							} });
+						panels.set(tabId, owner);
+						changed();
+						return function () { if (typeof dispose === "function") dispose(); panels.delete(tabId); changed(); };
+					}, "tavernUi.registerPanel()");
 				}
 			};
 			Object.defineProperty(service, Symbol.for("cordis.tracker"), { value: { associate: "tavernUi", property: "ctx" } });
 			return {
 				service: service,
+				attachHost: function (ctx) { host = ctx; },
 				subscribe: function (listener) { listeners.add(listener); return function () { listeners.delete(listener); }; },
 				getSnapshot: function () { return version; },
 				mediaRenderer: function (kind) { return mediaRenderers.get(kind); },
@@ -19132,6 +19161,7 @@ function bindTavernFontZoom(node, win) {
             }, SceneImageGallery)), "dsh-tavern: picture gallery");
 			// Public browser API for third-party plugins (docs/plugin-api.md).
 			tavernUiExtensions.service.ctx = ctx;
+			tavernUiExtensions.attachHost(ctx);
 			if (typeof ctx.provide === "function") ctx.provide("tavernUi", tavernUiExtensions.service);
 			const signals = ctx.tavernSessionSignals;
 			if (!signals || typeof signals.subscribe !== "function") throw new Error("DSH Tavern Remote 状态流不可用");

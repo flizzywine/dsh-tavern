@@ -14,6 +14,7 @@ export function registerModelStreamHooks({
   foregroundStrategies,
   fullTemplateRuntime,
   modelRequestLog,
+  pluginCompactionNotes,
   requestCoordinates,
   storyRetention,
   runtimePrompt,
@@ -50,7 +51,10 @@ export function registerModelStreamHooks({
     const chat = await chatForSession(str(request.sessionId))
     if (!usesStoryCompaction(chat)) return { request }
     if (needsImportContextPreparation(chat)) throw new Error('导入对话尚未完成首次上下文容量检查，暂不调用摘要模型')
-    const story = createStoryCompactionRequest(request, runtimePrompt('story-compaction'))
+    // Seam to the plugin layer: plugins may add what the summary must keep.
+    const notes = pluginCompactionNotes ? await pluginCompactionNotes({ gameId: str(request.sessionId) }).catch(() => []) : []
+    const instruction = [runtimePrompt('story-compaction'), ...(notes.length ? ['【插件附加的摘要要求】', ...notes.map(note => note.text)] : [])].join('\n\n')
+    const story = createStoryCompactionRequest(request, instruction)
     const session = sessionStore.get(story.sessionId) || agentRegistry.get(story.sessionId)?.session
     const retention = await storyRetention(story)
     return retainRecentStoryRounds(story, retention.rounds - nativelyRetainedRounds(session, story), retention)

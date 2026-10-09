@@ -8,7 +8,10 @@
 			const markers = [];
 			const messageActions = [];
 			const composerActions = [];
+			const panels = new Map();
 			const listeners = new Set();
+			// Tavern's own context, for the sidebar a plugin panel opens in (set at apply).
+			let host = null;
 			let version = 0;
 			function changed() { version += 1; Array.from(listeners).forEach(function (listener) { listener(); }); }
 			function ownerOf(service) {
@@ -33,7 +36,7 @@
 			}
 			const service = {
 				ctx: undefined,
-				apiVersion: 1,
+				apiVersion: 2,
 				registerMediaRenderer(kind, render) {
 					if (typeof kind !== "string" || !/^[a-z0-9][a-z0-9._-]{0,63}\/[a-z0-9][a-z0-9._-]{0,63}$/.test(kind)) throw new TypeError("只能为插件自定义的 <插件名>/<类型> 注册显示方式");
 					if (typeof render !== "function") throw new TypeError("registerMediaRenderer 需要 render 函数");
@@ -57,11 +60,34 @@
 				registerComposerAction(input) {
 					const entry = Object.assign({ owner: ownerOf(this) }, action(input, "registerComposerAction"));
 					return owned(this, function () { return addTo(composerActions, entry); }, "tavernUi.registerComposerAction()");
+				},
+				// A sidebar page of the plugin's own, for the game open beside it (apiVersion 2).
+				registerPanel(input) {
+					if (!input || typeof input.id !== "string" || !/^[a-z0-9][a-z0-9._-]{0,63}$/.test(input.id)) throw new TypeError("registerPanel 的 id 只能用小写字母、数字、点、下划线和连字符");
+					if (typeof input.title !== "string" || !input.title.trim() || input.title.length > 40) throw new TypeError("registerPanel 需要 1–40 字的 title");
+					if (typeof input.render !== "function") throw new TypeError("registerPanel 需要 render 函数");
+					const owner = ownerOf(this);
+					const tabId = "tavern-plugin:" + owner + ":" + input.id;
+					const render = input.render, title = input.title.trim();
+					return owned(this, function () {
+						if (panels.has(tabId)) throw new Error("面板 " + input.id + " 已注册");
+						if (!host || !host.betterSidebar || typeof host.betterSidebar.registerTab !== "function") throw new Error("当前界面没有侧栏，无法注册插件面板");
+						const dispose = host.betterSidebar.registerTab({ id: tabId, title: title, order: 60, single: true,
+							component: function (props) {
+								const gameId = props.scope && props.scope.sessionId || "";
+								return React.createElement(tavernPluginBoundary(), { owner: owner, fallback: React.createElement("p", { className: "dsh-tavern-plugin-panel-error" }, "插件 " + owner + " 的面板出错了") },
+									gameId ? render({ gameId: gameId, visible: props.visible !== false }) : React.createElement("p", { className: "dsh-tavern-plugin-panel-empty" }, "请先打开一局游戏。"));
+							} });
+						panels.set(tabId, owner);
+						changed();
+						return function () { if (typeof dispose === "function") dispose(); panels.delete(tabId); changed(); };
+					}, "tavernUi.registerPanel()");
 				}
 			};
 			Object.defineProperty(service, Symbol.for("cordis.tracker"), { value: { associate: "tavernUi", property: "ctx" } });
 			return {
 				service: service,
+				attachHost: function (ctx) { host = ctx; },
 				subscribe: function (listener) { listeners.add(listener); return function () { listeners.delete(listener); }; },
 				getSnapshot: function () { return version; },
 				mediaRenderer: function (kind) { return mediaRenderers.get(kind); },
