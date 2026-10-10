@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "5ca73127be2d2bec7d0758cc0550caa92140f87b",
-  "releaseSequence": 573,
+  "revision": "49ff11b7e10159ef344a198f598d0ec0ba4a503d",
+  "releaseSequence": 574,
   "version": "2.5.0",
   "files": [
     {
@@ -346,8 +346,8 @@
     },
     {
       "path": "presets/tavern/skills/debug-card/references/evidence.md",
-      "sha256": "7718e916742764362f5a49e67ec7f62528812a916d0821a3b3faa90bca79ff9a",
-      "size": 7519
+      "sha256": "5ec1c07ad834bdb14ee582c533d63758b0ba1eddcc09781cd22ad3a887ac0afe",
+      "size": 7537
     },
     {
       "path": "presets/tavern/skills/debug-card/references/frame-sizing.md",
@@ -396,8 +396,8 @@
     },
     {
       "path": "presets/tavern/skills/user-profile/SKILL.md",
-      "sha256": "56313217b3556b2a840cb3557024eaa97acb7b323f8fbeec2630450833ec5442",
-      "size": 2833
+      "sha256": "44a5d27aceb86c1f02e635c99b0d1f137345f70e48988a2e33adad54382199ef",
+      "size": 2899
     },
     {
       "path": "presets/tavern/user-tools-bridge/index.js",
