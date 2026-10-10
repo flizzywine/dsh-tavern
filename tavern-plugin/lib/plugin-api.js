@@ -535,6 +535,17 @@ export function createTavernPluginApi(deps) {
   }
 
   /** Seam: plugin entries for a game's world book pool, validated, in a stable order. Each read asks the plugins again. */
+  // The pool is read several times a turn: report each source's problem once until it changes.
+  const poolReports = new Map()
+  function reportPool(gameId, pool, stage, error) {
+    const key = gameId + '\u0000' + pool.owner + '\u0000' + pool.name
+    const message = error ? String(error?.message || error) : ''
+    if (poolReports.get(key) === message) return
+    if (message) poolReports.set(key, message); else poolReports.delete(key)
+    if (poolReports.size > 1000) poolReports.delete(poolReports.keys().next().value)
+    if (error) recordError(gameId, pool.owner, stage, error)
+  }
+
   async function worldbookPoolEntries({ gameId, turn }) {
     if (!worldbookPools.size) return []
     const { disabled } = await choicesFor(gameId)
@@ -543,8 +554,8 @@ export function createTavernPluginApi(deps) {
       const stage = '世界书条目 ' + pool.name
       let entries
       try { entries = await bounded(pool.entries(structuredClone({ gameId, turn })), stage, POOL_TIMEOUT_MS) }
-      catch (error) { recordError(gameId, pool.owner, stage, error); continue }
-      if (!Array.isArray(entries)) { if (entries != null) recordError(gameId, pool.owner, stage, new Error('entries 要返回数组')); continue }
+      catch (error) { reportPool(gameId, pool, stage, error); continue }
+      if (!Array.isArray(entries)) { reportPool(gameId, pool, stage, entries == null ? null : new Error('entries 要返回数组')); continue }
       const seen = new Set(), problems = []
       for (const entry of entries.slice(0, MAX_POOL_ENTRIES)) {
         const id = typeof entry?.id === 'string' ? entry.id : ''
@@ -562,7 +573,7 @@ export function createTavernPluginApi(deps) {
           constant: entry.constant === true, force: entry.force === true })
       }
       if (entries.length > MAX_POOL_ENTRIES) problems.push('每个来源最多 ' + MAX_POOL_ENTRIES + ' 条，多出的已忽略')
-      if (problems.length) recordError(gameId, pool.owner, stage, new Error(problems.slice(0, 3).join('；')))
+      reportPool(gameId, pool, stage, problems.length ? new Error(problems.slice(0, 3).join('；')) : null)
     }
     return result
   }

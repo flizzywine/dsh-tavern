@@ -572,6 +572,8 @@ test('tavern 服务：worldbookEntries 的条目经校验后交给世界书召�
   const panel = await h.api.gamePlugins('game-1')
   assert.deepEqual(panel.plugins[0].uses, [{ stage: '世界书', mode: '添加' }])
   assert.match(panel.errors[0].message, /重复.*bad id.*EJS/)
+  await h.api.worldbookPoolEntries({ gameId: 'game-1', turn: 4 })
+  assert.equal((await h.api.gamePlugins('game-1')).errors.length, 1, '同一问题每轮多次读取只记一次')
   fiber.dispose()
   await tick()
   assert.deepEqual(await h.api.worldbookPoolEntries({ gameId: 'game-1', turn: 4 }), [])
