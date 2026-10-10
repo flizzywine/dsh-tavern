@@ -505,6 +505,12 @@ export function createTavernPluginApi(deps) {
     /** Tool definitions, in a stable order: they sit in the cached request prefix. */
     tools() { return Array.from(settlementTools.values()).sort((a, b) => a.name.localeCompare(b.name)).map(entry => entry.tool) },
     has(name) { return settlementTools.has(name) },
+    /** This game's plugin tools, split by whether the player has their plugin on. */
+    async toolNames({ gameId }) {
+      const { disabled } = await choicesFor(gameId).catch(() => ({ disabled: new Set() }))
+      const names = Array.from(settlementTools.values()).sort((a, b) => a.name.localeCompare(b.name))
+      return { available: names.filter(entry => !disabled.has(entry.owner)).map(entry => entry.name), unavailable: names.filter(entry => disabled.has(entry.owner)).map(entry => entry.name) }
+    },
     async sections({ gameId, turn }) { return collectSections(settlementSections, { gameId, turn }, '结算说明段落', (await choicesFor(gameId)).disabled) },
     /** One settlement run's dispatcher: bounded calls, errors returned to the model, never thrown. */
     calls({ gameId, turn }) {
@@ -513,7 +519,7 @@ export function createTavernPluginApi(deps) {
       return async function call(name, args) {
         const entry = settlementTools.get(name)
         if (!entry) return JSON.stringify({ ok: false, retryable: false, error: '插件工具 ' + name + ' 已不可用' })
-        if ((await choices).disabled.has(entry.owner)) return JSON.stringify({ ok: false, retryable: false, error: '玩家在本局关闭了插件 ' + entry.owner + '，不要再调用它的工具' })
+        if ((await choices).disabled.has(entry.owner)) return JSON.stringify({ ok: false, retryable: false, error: '玩家在本局关闭了插件 ' + entry.owner + '，本轮不要调用它的工具；以后各轮以结算任务里列出的可用插件工具为准' })
         if (++count > MAX_TOOL_CALLS_PER_SETTLEMENT) return JSON.stringify({ ok: false, retryable: false, error: '本轮插件工具调用次数已达上限，请继续完成结算' })
         try {
           const value = await bounded(entry.execute({ gameId, turn, arguments: structuredClone(args ?? {}) }), '插件工具 ' + name)

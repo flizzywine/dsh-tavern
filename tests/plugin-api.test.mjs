@@ -301,13 +301,15 @@ test('本局插件面板：列出用途，按局关闭后不再参与提示词�
 
   await h.api.setGamePlugin('game-1', { name: 'mem', enabled: false })
   assert.deepEqual(await h.api.turnContext({ gameId: 'game-1', turn: 3, input: '' }), [])
-  assert.match(JSON.parse(await h.api.settlement.calls({ gameId: 'game-1', turn: 3 })('mem_save', {})).error, /关闭了插件 mem/)
+  assert.match(JSON.parse(await h.api.settlement.calls({ gameId: 'game-1', turn: 3 })('mem_save', {})).error, /关闭了插件 mem，本轮不要调用/)
+  assert.deepEqual(await h.api.settlement.toolNames({ gameId: 'game-1' }), { available: [], unavailable: ['mem_save'] })
   await h.api.turnSettled('game-1')
   await tick()
   assert.deepEqual(seen, [], 'a plugin switched off in this game is not notified')
   assert.equal((await h.api.gamePlugins('game-1')).plugins.find(plugin => plugin.name === 'mem').enabled, false)
   await h.api.setGamePlugin('game-1', { name: 'mem', enabled: true })
   assert.equal((await h.api.turnContext({ gameId: 'game-1', turn: 3, input: '' })).length, 1)
+  assert.deepEqual(await h.api.settlement.toolNames({ gameId: 'game-1' }), { available: ['mem_save'], unavailable: [] }, 'switched back on, its tools are offered again')
 })
 
 test('结算替换：唯一插件自动生效，多个时须玩家选择，返回不合格或出错时退回 Tavern 自己的结算', { skip: !cordis }, async t => {

@@ -526,6 +526,7 @@ test('插件结算工具：随后台会话固定注册，只在结算任务里�
   const pluginSettlement = {
     tools: () => [{ name: 'anchor_submit', description: '提交锚点', parameters: { type: 'object' }, countsTowardLimit: false }],
     has: name => name === 'anchor_submit',
+    toolNames: async () => ({ available: ['anchor_submit'], unavailable: ['old_tool'] }),
     sections: async ({ gameId, turn }) => [{ text: gameId + ' 第 ' + turn + ' 轮记录锚点' }],
     calls: context => async (name, args) => { pluginCalls.push([context, name, args]); return JSON.stringify({ ok: true }) }
   }
@@ -562,7 +563,8 @@ test('插件结算工具：随后台会话固定注册，只在结算任务里�
     assert.ok(registered.has('anchor_submit'), 'plugin tools sit in the fixed tool list')
     assert.deepEqual(pluginCalls, [[{ gameId: 'parent', turn: 4 }, 'anchor_submit', { text: '门' }]])
     assert.match(results[2], /提交结算之前/, 'after the final submission a plugin tool is refused')
-    assert.match(texts[0], /【插件附加的结算任务】[\s\S]*anchor_submit[\s\S]*parent 第 4 轮记录锚点/)
+    assert.match(texts[0], /【插件附加的结算任务】[\s\S]*本轮可用插件工具：anchor_submit。以本轮列出的为准[\s\S]*parent 第 4 轮记录锚点/)
+    assert.match(texts[0], /本轮不可用的插件工具（玩家在本局关闭了对应插件）：old_tool。本轮不要调用/)
 
     script = async () => { results.push(await registered.get('anchor_submit').execute({ text: '候选里' })) }
     await runner.run({ sessionId: 'parent', persistent: true, task: 'candidate', selection: { provider: 'test', model: 'test' },
