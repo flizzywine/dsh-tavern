@@ -485,6 +485,7 @@ test('内置 Skill 携带的接口文档与示例和正本一致', async () => {
   const { readFile } = await import('node:fs/promises')
   const read = path => readFile(new URL('../' + path, import.meta.url), 'utf8')
   assert.equal(await read('presets/tavern/skills/tavern-plugin/references/plugin-api.md'), await read('docs/plugin-api.md'), '修改 docs/plugin-api.md 后同步复制到 Skill')
+  assert.equal(await read('presets/tavern/skills/tavern-plugin/references/plugin-recipes.md'), await read('docs/plugin-recipes.md'), '修改 docs/plugin-recipes.md 后同步复制到 Skill')
   const example = /```js\n([\s\S]*)```\n$/.exec(await read('presets/tavern/skills/tavern-plugin/references/example-plugin.md'))?.[1]
   assert.equal(example, await read('examples/tavern-plugin-hello/index.mjs'), '修改示例插件后同步复制到 Skill')
 })

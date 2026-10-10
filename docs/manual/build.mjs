@@ -25,6 +25,7 @@ export function markdown(source, route) {
     }
     if (line.startsWith('## ')) { output.push(`<h2 id="${route}--section-${++heading}">${inline(line.slice(3))}</h2>`); continue }
     if (line.startsWith('### ')) { output.push(`<h3>${inline(line.slice(4))}</h3>`); continue }
+    if (line.startsWith('> ')) { output.push(`<blockquote><p>${inline(line.slice(2))}</p></blockquote>`); continue }
     if (line.startsWith('|')) {
       const rows = []
       while (i < lines.length && lines[i].trim().startsWith('|')) rows.push(lines[i++].trim())
@@ -108,7 +109,7 @@ export function renderSite(inventory) {
 <meta property="og:title" content="DSH Tavern 使用文档"><meta property="og:description" content="酒馆生态兼容、游玩模式、卡片模式与高级功能。"><meta property="og:type" content="website"><meta property="og:image" content="https://flizzywine.github.io/dsh-tavern/assets/social.png">
 <meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="DSH Tavern 使用文档"><meta name="twitter:description" content="按界面与操作逐项查阅 DSH Tavern 功能。"><meta name="twitter:image" content="https://flizzywine.github.io/dsh-tavern/assets/social.png">
 <link rel="icon" type="image/svg+xml" href="assets/brand/favicon.svg"><link rel="icon" type="image/png" sizes="32x32" href="assets/brand/favicon-32.png"><link rel="apple-touch-icon" href="assets/brand/dsh-tavern-app-icon-192.png">
-<link rel="stylesheet" href="assets/manual.css?v=20260903-screenshots"><script src="assets/manual-state.js" defer></script><script src="assets/manual.js" defer></script>
+<link rel="stylesheet" href="assets/manual.css?v=20261010-plugins"><script src="assets/manual-state.js" defer></script><script src="assets/manual.js" defer></script>
 </head>
 <body>
 <a class="skip-link" href="#main">跳到正文</a>

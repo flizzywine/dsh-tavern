@@ -1,15 +1,15 @@
 ---
 name: tavern-plugin
-description: "编写或修改给 DSH Tavern 用的媒体插件：文生图、文生视频、配音、插图显示、正文标记、消息或输入框上的插件按钮。用户要做这类插件、或想把图片视频挂进正文时使用；普通人物卡、世界书和通用工具不使用。"
+description: "编写或修改给 DSH Tavern 用的插件：文生图、文生视频、配音、插图显示、正文标记、插件按钮与面板，以及记忆、状态、世界演进这类参与提示词和后台结算的插件。用户要做这类插件时使用；普通人物卡、世界书和通用工具不使用。"
 ---
 
-# Tavern 媒体插件
+# Tavern 插件
 
-Tavern 为第三方 DSH 插件开放了一个稳定的媒体接口。插件只通过这个接口与 Tavern 交互，Tavern 更新后插件不需要改。
+Tavern 为第三方 DSH 插件开放了一套稳定的接口。插件只通过这个接口与 Tavern 交互，Tavern 更新后插件不需要改。
 
 ## 先读接口
 
-动手前通过 `tavern_read_skill_reference` 读取 [插件接口](references/plugin-api.md)（name 为 `tavern-plugin`，path 为 `references/plugin-api.md`）。需要起步代码时再读取 [示例插件](references/example-plugin.md)（path 为 `references/example-plugin.md`）。
+动手前通过 `tavern_read_skill_reference` 读取 [插件接口](references/plugin-api.md)（name 为 `tavern-plugin`，path 为 `references/plugin-api.md`）。按要做的插件找写法时读取 [常见用法](references/plugin-recipes.md)（path 为 `references/plugin-recipes.md`）。需要起步代码时再读取 [示例插件](references/example-plugin.md)（path 为 `references/example-plugin.md`）。
 
 ## 硬性要求
 
