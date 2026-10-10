@@ -9,6 +9,7 @@
 			const messageActions = [];
 			const composerActions = [];
 			const panels = new Map();
+			const startGroups = [];
 			const listeners = new Set();
 			// Tavern's own context, for the sidebar a plugin panel opens in (set at apply).
 			let host = null;
@@ -87,6 +88,15 @@
 						changed();
 						return function () { if (typeof dispose === "function") dispose(); panels.delete(tabId); changed(); };
 					}, "tavernUi.registerPanel()");
+				},
+				// A group of the plugin's own on the sidebar start page; tabs not in any group stay under 「插件」 or 「其他」.
+				registerStartGroup(input) {
+					if (!input || typeof input.title !== "string" || !input.title.trim() || input.title.trim().length > 20) throw new TypeError("registerStartGroup 需要 1–20 字的 title");
+					if (!Array.isArray(input.tabs) || !input.tabs.length || input.tabs.length > 20 || !input.tabs.every(function (tab) { return typeof tab === "string" && tab.length > 0 && tab.length <= 160; })) throw new TypeError("registerStartGroup 的 tabs 需要 1–20 个侧栏页 id");
+					const owner = ownerOf(this);
+					// A bare id names the plugin's own registerPanel page; anything with ":" is a sidebar tab id as registered.
+					const entry = { owner: owner, title: input.title.trim(), tabs: input.tabs.map(function (tab) { return tab.indexOf(":") >= 0 ? tab : "tavern-plugin:" + owner + ":" + tab; }) };
+					return owned(this, function () { return addTo(startGroups, entry); }, "tavernUi.registerStartGroup()");
 				}
 			};
 			Object.defineProperty(service, Symbol.for("cordis.tracker"), { value: { associate: "tavernUi", property: "ctx" } });
@@ -98,7 +108,8 @@
 				mediaRenderer: function (kind) { return mediaRenderers.get(kind); },
 				markers: function () { return markers.slice(); },
 				messageActions: function () { return messageActions.slice(); },
-				composerActions: function () { return composerActions.slice(); }
+				composerActions: function () { return composerActions.slice(); },
+				startGroups: function () { return startGroups.map(function (group) { return { title: group.title, tabs: group.tabs.slice() }; }); }
 			};
 		}
 		const tavernUiExtensions = createTavernUiExtensions();
