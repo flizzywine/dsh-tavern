@@ -29,7 +29,8 @@ export function createPluginTurnReader(deps) {
   async function currentKey(sessionId, turn) { return (await currentTarget(sessionId, turn))?.key ?? null }
 
   // A turn is readable once written: an earlier turn always, the latest one
-  // only after its settlement finished or failed (its text no longer changes).
+  // once no settlement is pending or running for it. An edit or a rollback
+  // leaves it 'idle': its text is final, no settlement is coming.
   async function material(sessionId, turn, { requireLatest = false } = {}) {
     const game = await resolveGame(sessionId)
     if (!game) return null
@@ -44,7 +45,7 @@ export function createPluginTurnReader(deps) {
     if (index < 0 || (requireLatest && index !== latest)) return null
     const header = await deps.header(game.sessionId, ['settleStatus', 'macroState', 'cardPath', 'cardName'])
     if (!header) return null
-    if (index === latest && !messages[index].greeting && (!['done', 'failed'].includes(header.settleStatus) || messages[index].mvu?.pending === true)) return null
+    if (index === latest && !messages[index].greeting && (!['done', 'failed', 'idle'].includes(header.settleStatus) || messages[index].mvu?.pending === true)) return null
     const target = await currentTarget(game.sessionId, turn)
     if (!target) return null
     return {
