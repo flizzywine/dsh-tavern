@@ -290,7 +290,7 @@ export const overview = {
 }
 
 export const extraPages = [{ id: "local-settings", title: "本局设置", group: "play", intro: "在游玩顶部调整当前游戏，已有对话与变量保留。", content: "## 本局设置：只调整正在玩的这局\n\n入口在游玩顶部“本局设置”，打开后显示在右侧。大多数选项修改后自动保存，玩家称呼在离开输入框后保存；留意保存反馈。已有对话和变量保留。\n\n| 设置 | 用途与生效范围 |\n| --- | --- |\n| 玩家称呼 | 修改后用于后续内容，不重写已有正文 |\n| 当前预设 | 为本局选择外部预设，或不使用外部预设；影响后续正文 |\n| 用户画像 | 选择已确认画像或不使用画像，下一轮生效；可展开核对本局实际内容，库中有更新时可应用最新版本 |\n| 后台模型 | 选择独立模型或跟随前台；下一次后台任务生效，正在执行的任务不变 |\n| 推理强度 | 根据后台模型支持的选项调整；跟随前台时使用对应配置 |\n| 生图 Agent 模型 | 整理插图画面、写绘图提示词用的模型；默认跟随前台（此时用最低推理强度，出图更快），也可单独选模型和推理强度；下一次生图生效 |\n| 变量结算 | 控制后台 MVU 更新；MVU 卡建议保留开启，普通卡不执行这项任务 |\n| 变量回灌前台 | 默认开启；每轮把上一轮变化的变量最新值告诉前台，减少时间、地点、数值前后不一致 |\n| 人物姿势结算 | 控制后台是否总结人物位置、动作和姿势 |\n| 联网搜索 | 允许本局前后台按需查外部资料，后续请求生效 |\n| 写作 Skill | 控制本局后续可加载的写作方法，不删除已经加载到历史中的内容 |\n\n切换预设、画像、模型、推理强度或相关任务与工具配置可能使提示词缓存失效，首次请求会增加耗时和费用。无需为了每轮剧情频繁改设置；临时写作要求可以使用 [Guide](#b09)。\n\n" },
-  { id: 'plugin-installation', title: '用 DSH 命令安装 Tavern（试验）', group: 'advanced', intro: '已有 DSH 时，用 dsh plugin 命令把 Tavern 安装到独立 Profile。这是安装 Tavern 本身的一种方式，不是给 Tavern 装插件；第三方插件见插件开发两页。', content: pluginInstallation },
+  { id: 'plugin-installation', title: '用 DSH 命令安装 Tavern（试验）', group: 'getting-started', intro: '已有 DSH 时，用 dsh plugin 命令把 Tavern 安装到独立 Profile。这是安装 Tavern 本身的一种方式，不是给 Tavern 装插件；第三方插件见插件开发两页。', content: pluginInstallation },
   { id: 'appearance', title: '皮肤与外观', group: 'play', intro: '选择酒馆主题、强调色与壁纸。', content: appearance },
   { id: 'plugin-recipes', title: '插件开发：常见用法', group: 'advanced', intro: '按要做的插件找写法：配图、记忆、读变量、后台推演、接管结算。', content: developerDoc('plugin-recipes.md') },
   { id: 'plugin-api', title: '插件开发：接口参考', group: 'advanced', intro: '第三方 DSH 插件可用的 Tavern 接口，逐个说明。', content: developerDoc('plugin-api.md') }
