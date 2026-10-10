@@ -14422,12 +14422,12 @@ function bindTavernFontZoom(node, win) {
 			const sampling = fieldsOf(["steps", "guidance"]).filter(advancedVisible);
 			const setStyle = function (patch) { setDirty(true); setForm(function (current) { return Object.assign({}, current, { style: Object.assign({}, current.style, patch) }); }); };
 			return h("div", { className: "dsh-tavern-settings-group" },
+				!form ? null : h("label", { className: "dsh-tavern-background-task" },
+					h("span", null, "开启场景生图", h("span", { className: "dsh-tavern-settings-desc" }, form.enabled ? "所有游戏的每轮正文下方显示生图图标；关闭后隐藏，已有插图保留。" : form.ready && !dirty ? "开启后，所有游戏的每轮正文下方显示生图图标。" : "需先保存完整的生图配置（渠道、模型和 API Key）才能开启。")),
+					h("input", { type: "checkbox", role: "switch", "aria-label": "开启场景生图", checked: form.enabled === true, disabled: busy || !form.enabled && (dirty || !form.ready), onChange: function (e) { void save({ enabled: e.target.checked }); } })),
 				h("h3", { className: "dsh-tavern-image-settings-title" }, "生图 API 配置（全局共用）"),
 				h("div", { className: "dsh-tavern-image-settings" },
 					h("p", { className: "dsh-tavern-settings-intro" }, "保存完整配置后，打开「开启场景生图」，每轮正文下方会出现生图图标。连接测试不生成图片；实际生图可能产生费用。"),
-					!form ? null : h("label", { className: "dsh-tavern-background-task" },
-						h("span", null, "开启场景生图", h("span", { className: "dsh-tavern-settings-desc" }, form.enabled ? "所有游戏的每轮正文下方显示生图图标；关闭后隐藏，已有插图保留。" : form.ready && !dirty ? "开启后，所有游戏的每轮正文下方显示生图图标。" : "需先保存完整的生图配置（渠道、模型和 API Key）才能开启。")),
-						h("input", { type: "checkbox", role: "switch", "aria-label": "开启场景生图", checked: form.enabled === true, disabled: busy || !form.enabled && (dirty || !form.ready), onChange: function (e) { void save({ enabled: e.target.checked }); } })),
 					!form ? null : section("服务", selectedChannel ? selectedChannel.hint : "",
 						h("label", null, "提供商", h("select", { value: form.provider, disabled: busy, onChange: function (e) { return chooseChannel(e.target.value); } }, (form.channels || []).filter(function (item) { return !item.retired || item.id === form.provider; }).map(function (item) { return h("option", { key: item.id, value: item.id }, item.label + (item.retired ? "（已停止提供，现有配置仍可用）" : "")); }))),
 						form.migrationPending ? h("p", { role: "status", className: "dsh-tavern-image-hint" }, "检测到旧配置。保存后将迁入生图模块；旧密钥不会显示或发送到新地址。") : null,
