@@ -164,3 +164,18 @@ test('durable completion is readable while a mailbox write is blocked', async ()
   assert.equal(result.task.status,'succeeded')
  } finally {unblock();await writing}
 })
+
+test('任务表被存成数组时，新任务仍能写入并查到', async () => {
+  let chat = { id: 'c', _storageRevision: 1, taskMailbox: { version: 3, latestByKind: { settle: 'old' }, tasks: [{ taskId: 'old', requestId: 'old-r', kind: 'settle', status: 'succeeded', createdAt: 1 }] } }
+  const mailbox = createDurableTaskMailbox({ store: {
+    readChat() { throw new Error('full read forbidden') },
+    writeChat() { throw new Error('full write forbidden') },
+    async readState() { return structuredClone(chat) },
+    async patchChat(id, revision, changes) { chat = applyJsonChanges(chat, changes); chat._storageRevision++; return structuredClone(chat) }
+  } })
+  const task = await mailbox.submit('c', { kind: 'candidate', requestId: 'r' })
+  assert.equal(Array.isArray(chat.taskMailbox.tasks), false)
+  assert.equal(chat.taskMailbox.tasks[task.taskId].requestId, 'r')
+  assert.equal(chat.taskMailbox.tasks.old.status, 'succeeded')
+  assert.equal((await mailbox.sync('c', { requestId: 'r' })).task.taskId, task.taskId)
+})

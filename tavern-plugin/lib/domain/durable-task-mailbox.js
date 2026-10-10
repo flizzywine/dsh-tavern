@@ -11,6 +11,12 @@ const VALID = new Set(['queued', 'running', ...TERMINAL])
 
 function mailboxOf(chat) {
   const source = chat && chat.taskMailbox
+  if (source && typeof source === 'object' && Array.isArray(source.tasks)) {
+    // Tasks are keyed by taskId; an array (written by an outside patch) would silently drop new tasks on diff.
+    const tasks = {}
+    for (const task of source.tasks) if (task && typeof task === 'object' && str(task.taskId)) tasks[str(task.taskId)] = task
+    source.tasks = tasks
+  }
   if (source && typeof source === 'object' && source.tasks && typeof source.tasks === 'object') {
     if (!source.latestByKind || typeof source.latestByKind !== 'object') source.latestByKind = {}
     if (!Number.isSafeInteger(source.version) || source.version < 0) source.version = 0
