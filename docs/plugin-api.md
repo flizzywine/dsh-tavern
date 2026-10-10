@@ -466,13 +466,19 @@ ctx.tavernUi.registerStartGroup({ title: '叙事锚定', tabs: ['narrative-ancho
 
 Tavern 只给顶层会话（玩家的游戏会话）加回合上下文和「【酒馆状态】」这类提示；带 `parentSession` 的子 Agent 会话一律不加，插件 Agent 收到的只有插件自己给的内容。
 
-## 不提供的
+## 暂时没有的
+
+下面这些目前还没有接口，不代表不能开放。有实际需要时请提[插件接口需求](https://github.com/flizzywine/dsh-tavern/issues/new?template=plugin-api.yml)，写清要做的插件和卡在哪一步，能开放的会按需补上。
 
 - 修改正文、修改变量、调用 Tavern 内部的 Agent。
-- 替换 Tavern 的其他流程（提示词组装、世界书召回、候选、压缩、MVU 变量结算）：暂未提供。需要时请提插件接口需求；替换类接口都会约定插件要交回的结果，并在插件失败时退回 Tavern 自己的做法。
-- 读写 Tavern 数据目录、人物卡文件。
-- 插件设置页：用 DSH 自己的设置区（`settings.section`）。
-- 模型调用、凭据、附件存储：直接用 DSH 的 `llm`、`credentials`、`attachments` 服务。
+- 替换 Tavern 的其他流程（提示词组装、世界书召回、候选、压缩、MVU 变量结算）。替换类接口会约定插件要交回的结果，插件失败时退回 Tavern 自己的做法。
+
+直接读写 Tavern 的数据目录和人物卡文件不属于接口：这些文件的格式会随版本变化，插件这样做，Tavern 一更新就可能失效。需要里面的数据，请按上面的方式提需求，由 Tavern 提供读取接口。
+
+## 用 DSH 自带的
+
+- 插件设置页：用 DSH 的设置区（`settings.section`）。
+- 模型调用、凭据、附件存储：用 DSH 的 `llm`、`credentials`、`attachments` 服务。
 
 ## 已知限制
 
