@@ -203,7 +203,7 @@ export function createSceneIllustrations(deps) {
       const selected=await deps.sceneStateForSession(sessionId,{turns:[...turns].filter(turn=>turn<=chat.sceneLatestTurn),revision:chat._storageRevision})
       return Object.values(selected.sceneTargets)
     }, config: current })
-    return { ...present(target, await readRecord(path)), enabled: true, profile: imageExpressionProfile(current),
+    return { ...present(target, await readRecord(path)), enabled: current.enabled === true, profile: imageExpressionProfile(current),
       reference: { ...reference.capability, warning: reference.warning,
         bindings: reference.active.filter(record => record.source.key === target.key).map(record => ({ versionId: record.source.versionId, personId: record.person.id, name: record.person.name })),
         versions: reference.active.filter(record => record.source.key === target.key).map(record => record.source.versionId) } }
@@ -291,6 +291,7 @@ export function createSceneIllustrations(deps) {
       const existing = await readRecord(path)
       if (existing?.recovery === 'save') throw new Error('图片已生成，请先重试保存；不会再次请求图片渠道')
       const { active, apiKey } = await capture()
+      if (active.enabled !== true) throw new Error('场景生图未开启：请到 设置 → 场景生图 打开「开启场景生图」')
       if (await deps.isRunning?.(sessionId)) throw new Error('请等待当前正文生成完成后再生图')
       if (Object.hasOwn(existing?.requests || {}, requestId) || (kind === 'generate' && existing?.status === 'succeeded') || existing?.status === 'running' && (jobs.has(path) || ownerIsLive(existing, path))) return present(target, existing)
       checkPurchaseConfirmation(existing, options)

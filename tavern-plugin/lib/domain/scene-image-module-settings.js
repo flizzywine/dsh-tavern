@@ -70,7 +70,7 @@ export function createModuleSceneImageSettings({ store, credentials, imageModule
       const id = current.provider
       const changesProvider = id !== (doc.provider === 'dsh-image-gen' ? current.activeProvider : doc.provider)
       const edits = Object.keys(input).some(key => !['provider', 'enabled'].includes(key))
-      if (input.enabled === true && (changesProvider || edits)) throw new Error('请先保存完整生图配置，再手动启用')
+      if (input.enabled === true && (changesProvider || edits || !current.ready)) throw new Error('请先保存完整生图配置（渠道、模型和 API Key），再开启场景生图')
       let next = current
       if (edits) {
         const style = imageStyleSettings({ ...doc.style, ...input.style })
@@ -100,7 +100,8 @@ export function createModuleSceneImageSettings({ store, credentials, imageModule
         const providers = { ...latest.providers }
         if (!next.migrationPending) { delete providers[id]; if (latest.provider === 'dsh-image-gen') delete providers['dsh-image-gen'] }
         return { ...latest, version: 4, provider: id, providers, style: doc.style,
-          enabled: input.enabled ?? doc.enabled }
+          // A switch left on cannot outlive the configuration it was turned on for.
+          enabled: (input.enabled ?? doc.enabled) && Boolean(next.ready) }
       })
       return read()
     }),

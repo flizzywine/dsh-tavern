@@ -8,7 +8,7 @@ test('global API form loads while disabled and saves edited credentials without 
   const { form, calls } = await openTavernSettings(t, { settings, respond(method) {
     if (method === 'saveSceneImageSettings') return { settings: { ...settings, hasKey: true } }
   } })
-  assert.equal(await form.getByRole('switch').count(), 0)
+  assert.equal(await form.getByRole('switch', { name: '开启场景生图' }).isDisabled(), true, 'cannot turn on before the configuration is complete')
   assert.equal(await form.getByLabel('API 根地址').inputValue(), settings.baseURL)
   await form.getByLabel('API Key', { exact: true }).fill('draft-key')
   await form.getByRole('button', { name: '保存生图配置', exact: true }).click()
@@ -18,6 +18,18 @@ test('global API form loads while disabled and saves edited credentials without 
   assert.equal(saved[0].args.apiKey, 'draft-key')
   assert.equal(Object.hasOwn(saved[0].args, 'enabled'), false)
   assert.equal(await form.getByLabel(/API Key/).inputValue(), '')
+})
+
+test('the global switch turns on only for a saved, complete configuration', async t => {
+  const { form, calls } = await openTavernSettings(t, { settings: { ...settings, ready: true, hasKey: true }, respond(method, args) {
+    if (method === 'saveSceneImageSettings') return { settings: { ...settings, ready: true, hasKey: true, enabled: args.enabled } }
+  } })
+  const toggle = form.getByRole('switch', { name: '开启场景生图' })
+  assert.equal(await toggle.isChecked(), false, 'off by default')
+  await toggle.click()
+  await form.getByRole('status').filter({ hasText: '已开启场景生图' }).waitFor()
+  assert.deepEqual(calls.filter(call => call.method === 'saveSceneImageSettings').map(call => call.args), [{ provider: 'openai', enabled: true }])
+  assert.equal(await toggle.isChecked(), true)
 })
 
 test('global API save failure preserves typed credentials and displays the error', async t => {

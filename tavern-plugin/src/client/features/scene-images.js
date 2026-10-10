@@ -53,7 +53,7 @@
 				const reusable = requestRef.current && !(state && requestRef.current.id === state.requestId && ["failed", "cancelled", "idle"].includes(state.status));
 				const clickId = reusable && state && requestRef.current.key === state.key ? requestRef.current.id : sceneImageRequestId();
 				recordImageInteraction(props.sessionId, props.turn, clickId, "click");
-				if (!state || !state.key || busy || state.status === "running" || state.recovery === "save" || state.versions && state.versions.length) { recordImageInteraction(props.sessionId, props.turn, clickId, "blocked", "not-ready"); return; }
+				if (!state || !state.enabled || !state.key || busy || state.status === "running" || state.recovery === "save" || state.versions && state.versions.length) { recordImageInteraction(props.sessionId, props.turn, clickId, "blocked", "not-ready"); return; }
 				const confirmNewRequestId = await sceneImagePurchaseConfirmation(state, askConfirm);
 				if (confirmNewRequestId === false) { recordImageInteraction(props.sessionId, props.turn, clickId, "cancelled", "confirmation"); return; }
 				if (requestRef.current && requestRef.current.id === state.requestId && ["failed", "cancelled", "idle"].includes(state.status)) requestRef.current = null;
@@ -63,7 +63,7 @@
 				catch (e) { tavernErrorHub.report("生图", e); }
 				finally { setBusy(false); window.dispatchEvent(new CustomEvent("dsh-tavern-image-changed", { detail: { sessionId: props.sessionId } })); }
 			}
-			if (!state || !state.key || state.status === "running" || state.recovery === "save" || state.versions && state.versions.length) return null;
+			if (!state || !state.enabled || !state.key || state.status === "running" || state.recovery === "save" || state.versions && state.versions.length) return null;
 			const label = busy ? "正在整理画面…"
 				: state.outcome === "unconfirmed" ? (state.providerTask ? "查询原生图任务" : "重新生图")
 				: ["failed", "cancelled"].includes(state.status) ? "重试生图" : state.hasDeletedImages ? "重新生图" : "为这一轮生成插图";
@@ -184,7 +184,7 @@
 					if (!patch && form.provider === "novelai") { input.endpoints = syncedEndpoints(form); input.artists = form.artists || []; }
 					let result = await rpc("saveSceneImageSettings", input); setForm(result.settings); setKey(""); setDirty(false);
 					window.dispatchEvent(new CustomEvent("dsh-tavern-image-settings-changed"));
-					setNotice("已保存生图配置，点每轮正文下方的图片图标即可生图。");
+					setNotice(patch && Object.hasOwn(patch, "enabled") ? (result.settings.enabled ? "已开启场景生图，点每轮正文下方的图片图标即可生图。" : "已关闭场景生图，已有插图保留。") : result.settings.enabled ? "已保存生图配置。" : "已保存生图配置；打开上方「开启场景生图」后，每轮正文下方会出现生图图标。");
 					window.dispatchEvent(new CustomEvent("dsh-tavern-image-settings-changed"));
 					return true;
 				}
@@ -386,7 +386,10 @@
 			return h("div", { className: "dsh-tavern-settings-group" },
 				h("h3", { className: "dsh-tavern-image-settings-title" }, "生图 API 配置（全局共用）"),
 				h("div", { className: "dsh-tavern-image-settings" },
-					h("p", { className: "dsh-tavern-settings-intro" }, "保存后，点每轮正文下方的图片图标即可生图。连接测试不生成图片；实际生图可能产生费用。"),
+					h("p", { className: "dsh-tavern-settings-intro" }, "保存完整配置后，打开「开启场景生图」，每轮正文下方会出现生图图标。连接测试不生成图片；实际生图可能产生费用。"),
+					!form ? null : h("label", { className: "dsh-tavern-background-task" },
+						h("span", null, "开启场景生图", h("span", { className: "dsh-tavern-settings-desc" }, form.enabled ? "所有游戏的每轮正文下方显示生图图标；关闭后隐藏，已有插图保留。" : form.ready && !dirty ? "开启后，所有游戏的每轮正文下方显示生图图标。" : "需先保存完整的生图配置（渠道、模型和 API Key）才能开启。")),
+						h("input", { type: "checkbox", role: "switch", "aria-label": "开启场景生图", checked: form.enabled === true, disabled: busy || !form.enabled && (dirty || !form.ready), onChange: function (e) { void save({ enabled: e.target.checked }); } })),
 					!form ? null : section("服务", selectedChannel ? selectedChannel.hint : "",
 						h("label", null, "提供商", h("select", { value: form.provider, disabled: busy, onChange: function (e) { return chooseChannel(e.target.value); } }, (form.channels || []).filter(function (item) { return !item.retired || item.id === form.provider; }).map(function (item) { return h("option", { key: item.id, value: item.id }, item.label + (item.retired ? "（已停止提供，现有配置仍可用）" : "")); }))),
 						form.migrationPending ? h("p", { role: "status", className: "dsh-tavern-image-hint" }, "检测到旧配置。保存后将迁入生图模块；旧密钥不会显示或发送到新地址。") : null,

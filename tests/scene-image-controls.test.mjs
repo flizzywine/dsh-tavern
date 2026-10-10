@@ -35,6 +35,9 @@ test('turn image action preserves request ID on ambiguous transport errors and c
   })
   const Component = vm.runInContext(extract('sceneImageRequestId', 'sceneImageStageLabel') + extract('SceneImageAction', 'SceneImageSettings') + ';SceneImageAction', context)
   function render() { cursor = 0; const tree = Component({ sessionId: 'session', turn: 1 }); return tree && tree.children[0] }
+  record.enabled = false
+  assert.equal(render(), null, 'no icon while the global switch is off')
+  record.enabled = true
   await render().props.onClick()
   fail = false
   await render().props.onClick()

@@ -3919,7 +3919,6 @@ export async function apply(ctx) {
         return { settings }
       }
       case 'saveSceneImageSettings': {
-        if (Object.hasOwn(args || {}, 'enabled')) throw new Error('请在本局设置中开启或关闭场景生图')
         return { settings: await enabledSceneIllustrations().configure(args) }
       }
       case 'testSceneImageConnection': return await enabledSceneIllustrations().testConnection(args)
