@@ -16,7 +16,7 @@ export const screenshots = {
   worldbook: { file: 'worldbook.jpg', title: '世界书条目', alt: '世界书编辑器展开蓝色鸢尾花印章条目，显示主触发词、内容和保存世界书按钮', caption: '一个世界书条目可以包含标题、触发词与背景正文。图中“鸢尾、花店”用于描述该条目的触发条件，填写后需保存。' },
   preset: { file: 'preset.jpg', title: '外部预设提示词', alt: '预设编辑器展示外部条目的开关、角色与内容', caption: '外部预设可供检查、编辑和整理，但可能改变系统行为。日常文风调整优先修改人物卡或使用 Guide。' },
   script: { file: 'script.jpg', title: '剧本内容预览', alt: '剧本与素材库右侧预览雨夜来信原创三幕剧情大纲', caption: '导入后可以在剧本与素材库阅读工作版，并返回列表管理引用和人物卡绑定。图中是预写大纲，不代表已经完成模型推进。' },
-  profile: { file: 'user-profile.jpg', title: '用户画像入口', alt: '右侧用户画像面板处于尚未建立状态，显示开始建立用户画像按钮', caption: '用户画像是按需使用的高级功能，从右侧面板进入。独立样例环境尚未建立画像；它不是新建游戏的必填步骤。' },
+  profile: { file: 'user-profile.jpg', title: '长期偏好入口', alt: '右侧长期偏好面板处于尚未建立状态，显示开始建立长期偏好按钮', caption: '长期偏好是按需使用的高级功能，从右侧面板进入。独立样例环境尚未建立长期偏好；它不是新建游戏的必填步骤。' },
 }
 
 // Each inventory feature has its own explicit screenshot assignment.
@@ -34,7 +34,7 @@ screenshots["library-skills"] = {"file": "library-skills-20260917.jpg", "title":
 
 screenshots["library-prompts"] = {"file": "library-prompts-20260917.jpg", "title": "系统提示词库", "alt": "系统提示词条目、导入导出与默认状态", "caption": "管理内置提示词；库中条目与外部预设分开，主动恢复默认会清除对应自定义修改。", "width": 509, "height": 732, "source": {"date": "2026-09-17", "runtime": "DSH Tavern v1.9.0 · 2ac3164", "label": "实际应用局部截图 · 无私人资源内容"}}
 
-screenshots["local-settings"] = {"file": "local-settings-20260917.jpg", "title": "本局设置", "alt": "玩家称呼、当前预设与用户画像选择", "caption": "仅影响当前游戏，修改自动保存；选择画像从下一轮生效。", "width": 509, "height": 514, "source": {"date": "2026-09-17", "runtime": "DSH Tavern v1.9.0 · 2ac3164", "label": "实际应用局部截图 · 无私人资源内容"}}
+screenshots["local-settings"] = {"file": "local-settings-20260917.jpg", "title": "本局设置", "alt": "玩家称呼、当前预设与长期偏好选择", "caption": "仅影响当前游戏，修改自动保存；选择长期偏好从下一轮生效。", "width": 509, "height": 514, "source": {"date": "2026-09-17", "runtime": "DSH Tavern v1.9.0 · 2ac3164", "label": "实际应用局部截图 · 无私人资源内容"}}
 
 screenshots["global-settings"] = {"file": "global-settings-20260917.jpg", "title": "全局酒馆设置", "alt": "DSH Tavern 设置中的正文分色与上下文压缩", "caption": "分色即时应用于当前浏览器；压缩模式需点击保存压缩设置。", "width": 794, "height": 795, "source": {"date": "2026-09-17", "runtime": "DSH Tavern v1.9.0 · 2ac3164", "label": "实际应用局部截图 · 无私人资源内容"}}
 Object.assign(pageScreenshots, { cards: ['library-skills', 'library-prompts'], play: ['local-settings', 'global-settings'], m05: ['library-skills'], l05: ['library-prompts'], l06: ['library-prompts'], d07: ['global-settings'], e04: ['local-settings'], m01: [], h01: [], h05: [], i02: [], i03: [], i04: [], i05: [], i06: [], j01: [], j02: [], j03: [], j05: [], k01: [], k02: [], k03: [], k04: [], l01: [], l02: [], l03: [], l04: [] })
