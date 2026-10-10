@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "02a36400a0b72126117582093a03164b80a4a9a8",
-  "releaseSequence": 567,
+  "revision": "319a464fe7156b3a921fb6e8d2767bc42a8bcd43",
+  "releaseSequence": 568,
   "version": "2.5.0",
   "files": [
     {
@@ -381,8 +381,8 @@
     },
     {
       "path": "presets/tavern/skills/tavern-plugin/references/plugin-api.md",
-      "sha256": "429483211104b79831591355efe79f3b4b9ea0fe5560f7b1e1eca26bea139a09",
-      "size": 24913
+      "sha256": "fe5535c6d56957b386a7171f071db1b9058f29e1f4f28cb4f266a38413ed2fe4",
+      "size": 25749
     },
     {
       "path": "presets/tavern/skills/tavern-plugin/SKILL.md",
@@ -1196,8 +1196,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/plugin-turns.js",
-      "sha256": "fde74744624472abce36ea98e1f130bd82030db3d755b3ea977fea3b566ec53e",
-      "size": 4474
+      "sha256": "93a2123c754fcce3dc1a7457d043f5dd0d30b4f52abf8447e566e1ee4a1554e7",
+      "size": 4917
     },
     {
       "path": "tavern-plugin/lib/domain/png-thumbnail.js",
@@ -1961,8 +1961,8 @@
     },
     {
       "path": "tavern-plugin/lib/plugin-api.js",
-      "sha256": "13957c308ccbf465bfa0197136afe7a0a86c927db14682a606088c964db63f21",
-      "size": 28949
+      "sha256": "11d1dd14b99a0f1f88bbde7885140401914ba84f53fd8e8c7a28da286d2e8949",
+      "size": 29108
     },
     {
       "path": "tavern-plugin/lib/profile-data-store.js",
