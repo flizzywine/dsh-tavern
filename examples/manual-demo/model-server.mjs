@@ -7,6 +7,16 @@ import { characterDesign } from './character-design.mjs'
 let imageMode = 'success', imageVersion = 0, settlementError = false
 
 const actions = ['我翻开旧地址簿，寻找蓝色鸢尾花的记录。', '我问林澄，她最后一次见到花店主人是什么时候。', '我把信放进防水邮袋，邀请林澄一起去旧花店。', '我先去码头向邻居打听旧花店的地址。']
+const ledger = {
+  location: '旧花店门口', locationPath: ['灯塔镇', '石板路', '旧花店'],
+  items: { add: [{ name: '未署名的信', desc: '盖着蓝色鸢尾花印章，收件人写着“等灯亮起来的人”。', qty: 1, carried: true }, { name: '旧地址簿', desc: '夹着灯塔开放日的旧照片。', qty: 1, carried: true }] },
+  npcs: { add: [{ name: '林澄', title: '灯塔管理员', relation: '同行的朋友，愿意一起寻找收件人', desc: '短发，深蓝外套，常带一把深蓝雨伞。', important: true, follow: true }, { name: '周姨', title: '旧花店主人', relation: '尚未见面', desc: '开放日照片里别着蓝色鸢尾花的人。', location: '旧花店' }] },
+  scenes: { add: [{ path: ['灯塔镇', '邮局'], desc: '雨夜里即将打烊的小邮局。' }, { path: ['灯塔镇', '石板路', '旧花店'], desc: '石板路尽头的旧花店，门旁铜牌仍在，花盆里长出新芽。' }] },
+}
+// Script mode recommends one action that follows the outline's next block.
+const scriptActions = ['我拿着开放日照片去旧花店附近，向邻居打听曾在花店帮忙的人。']
+const { name, aliases, identity, personality, appearance, speechStyle, narrativeRole } = characterDesign
+const designProfile = { name, aliases, identity, personality, appearance, speechStyle, narrativeRole }
 const story = '### 第二章 · 石板路上的灯\n\n你把旧地址簿翻到花店那一页。纸角夹着一张开放日照片：林澄站在灯塔下，身旁的人别着蓝色鸢尾花。\n\n“是周姨。”林澄轻轻点了点照片，“她的花店就在石板路尽头。先去看看？雨已经小了。”\n\n你们沿着屋檐走到旧花店。门旁的铜牌仍在，花盆里长出了新芽。林澄收好伞，站在门口等你决定要不要敲门。'
 const server = createServer(async (req, res) => {
   if (req.method === 'POST' && req.url?.startsWith('/__fixture/settlement/')) { settlementError = req.url.endsWith('/error'); return res.end('Local settlement fixture: ' + (settlementError ? 'error' : 'success')) }
@@ -40,10 +50,15 @@ const server = createServer(async (req, res) => {
     if (tools.includes('submit_scene_plan')) {
       if (last?.role === 'tool' && previousTools.includes('submit_scene_plan')) content = '本地示例图片已交给应用保存；这是原创示意图，不是真实模型生成效果。'
       else if (last?.role === 'tool' && previousTools.includes('submit_scene_layout')) call('submit_scene_plan', {})
-      else if (last?.role === 'tool' && previousTools.includes('submit_scene_character')) call('submit_scene_layout', { description: '文档示意：灯塔镇与林澄', subjects: ['lin-cheng'], continuity: 'changed', scene: { environment: { text: '海边小镇、灯塔与花店。', tags: 'seaside town, lighthouse, flower shop' }, composition: { text: '横向全景，人物站在路边。', tags: 'wide composition, figure by the road' } } })
+      else if (last?.role === 'tool' && previousTools.includes('submit_scene_character')) call('submit_scene_layout', { description: '文档示意：灯塔镇与林澄', subjects: ['lin-cheng'], continuity: 'changed', style: { text: '水彩插画，低饱和蓝绿色调，柔和的雨后光线。', tags: 'watercolor illustration, muted teal palette, soft overcast light' }, scene: { environment: { text: '海边小镇、灯塔与花店。', tags: 'seaside town, lighthouse, flower shop' }, composition: { text: '横向全景，人物站在路边。', tags: 'wide composition, figure by the road' } } })
       else call('submit_scene_character', { id: 'lin-cheng', name: '林澄', fields: { appearance: { text: '成年灯塔管理员，短发。', tags: 'adult lighthouse keeper, short hair' }, clothing: { text: '深蓝外套。', tags: 'navy jacket' }, action: { text: '站在路边。', tags: 'standing beside road' } } })
     }
+    // Manual ledger consolidation shares the background agent's full tool list; the task text identifies it.
+    else if (tools.includes('ledger_submit') && /台账整理/.test(recent) && last?.role !== 'tool') call('ledger_submit', ledger)
     else if (tools.includes('submit_image_adjustment') && last?.role !== 'tool') call('submit_image_adjustment', { update: { description: '文档样例：调整为傍晚色调。', patches: [{ owner: 'scene', field: 'environment', text: '傍晚的海边小镇。', tags: 'seaside town at dusk' }] } })
+    // Manual "设计人物" request: its user message is a JSON task with a guidance field.
+    else if (/"guidance"/.test(recent) && tools.includes('character_design_save') && last?.role !== 'tool') call('character_design_save', designProfile)
+    else if (/"guidance"/.test(recent) && last?.role === 'tool' && previousTools.includes('character_design_save')) call('character_design_finish', {})
     else if (mvu && tools.includes('character_design_save') && last?.role !== 'tool' && recent.includes('"人物":')) call('character_design_save', characterDesign)
     else if (last?.role === 'tool' && previousTools.includes('character_design_save')) call('posture_submit', { posture: '林澄站在邮局柜台旁，手中拿着雨伞；玩家正在阅读旧地址簿。' })
     else if (!mvu && tools.includes('tavern_recall_history') && last?.role !== 'tool' && /帮我回忆/.test(recent)) call('tavern_recall_history', { query: '鸢尾', limit: 3 })
@@ -51,7 +66,7 @@ const server = createServer(async (req, res) => {
     else if (tools.includes('mvu_submit_update') && last?.role === 'tool' && previousTools.includes('posture_submit')) call('mvu_submit_update', { operations: settlementError ? [{ op: 'replace', path: '/不存在的样例字段', value: '模拟无效路径，展示错误恢复' }] : updates })
     else if (last?.role === 'tool') content = '文档样例任务已提交。'
     else if ((mvu || posture) && tools.includes('posture_submit')) call('posture_submit', { posture: recent.includes('第二章') ? '林澄站在旧花店门口，收拢深蓝色雨伞；玩家拿着旧地址簿，信件放在防水邮袋里。' : '林澄站在邮局柜台旁，拿着深蓝色雨伞；玩家面前放着旧地址簿和未署名的信。' })
-    else if (tools.includes('candidate_submit_choices')) call('candidate_submit_choices', { actions, scene: '雨停了，花店二楼亮起一盏灯。' })
+    else if (tools.includes('candidate_submit_choices')) call('candidate_submit_choices', { actions: /剧本候选/.test(recent) ? scriptActions : actions, scene: '雨停了，花店二楼亮起一盏灯。' })
     else if (/修改人物卡|文风|Skill|工具|插件|恢复原版/.test(recent) && !tools.includes('posture_submit')) content = '这是本地文档样例回复，不是真实模型建议。\n\n我会先保留海边小镇、邮递员与旧信的主线，只调整你指定的部分。你可以说明希望保留的设定和修改范围，确认后再写入工作版。'
     if (system.includes('Create a concise title')) content = '雨夜来信 · 文档样例'
     const id = 'chatcmpl-demo-' + randomUUID(), reason = calls.length ? 'tool_calls' : 'stop'
