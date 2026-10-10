@@ -72,7 +72,7 @@ const entries = {
   'tool-plugin-draft': ['讨论自定义工具与插件', '先限定只读权限和输入输出，再讨论实现与启用。'+draft],
   plugins: ['DSH 插件列表', '实际插件设置显示当前预设组合及启用状态；不是通用 SillyTavern 插件安装器。'],
   'history-menu': ['继续与整理对话', '游玩历史条目中的菜单提供重命名和删除；删除对话不等于删除人物卡。'],
-  'export-controls': ['导出故事与排错日志', '顶部“故事正文”导出 Markdown 用于阅读故事，“日志”包含排错资料；分享日志前需要检查隐私。'],
+  'export-controls': ['导出故事与排错日志', '顶部“故事正文”导出 Markdown 用于阅读故事，“日志”包含排错资料；分享日志前需要检查隐私。图为旧版界面，现在菜单里还有“存档”。'],
   'version-check': ['版本与检查更新', '左下角显示当前版本与“检查更新”入口。图中为“尚未检查更新”，未执行更新安装，也不表示已经是最新版。'],
   'installation-status': ['安装后的插件运行状态', '安装并启动后，可在设置 → 插件 → 插件列表中搜索 dsh-tavern，检查全局插件是否“已启用／运行中”。这不是安装向导；各平台安装命令见正文。'],
 }
@@ -81,18 +81,18 @@ export const featureCaptures = Object.fromEntries(Object.entries(entries).map(([
 
 // Explicit coverage: no catch-all fallback that hides a missing feature capture.
 export const featurePages = {
-  a01:['play','workbench'], a02:['installation-status'], a03:['model-setup'], a04:['opening','play-input'], a05:['play'], a06:['tavern-settings'],
-  b01:['card-picker'], b02:['opening'], b03:['player-name'], b04:['play-input'], b05:['candidates','candidate-selection'], b06:['candidate-regenerate'], b07:['body-rewrite'], b08:['rollback-controls'], b09:['guide-posture'], b10:['message-reasoning'],
-  c01:['script-start'], c02:['script-choice'], c03:['script-progress'], c04:['script-progress'],
+  a01:['play','workbench'], a02:[], a03:['model-setup'], a04:['opening','play-input'], a05:['play'], a06:['tavern-settings'],
+  b01:['card-picker'], b02:['opening'], b03:['player-name'], b04:['play-input'], b05:['candidates'], b06:['candidate-regenerate'], b07:['body-rewrite'], b08:['rollback-controls'], b09:['guide-posture'], b10:['message-reasoning'],
+  c01:['script-start'], c02:['script-choice'], c03:[], c04:[],
   d01:['guide-posture'], d02:['play','variable-receipt'], d03:['variable-receipt'], d04:['settlement-retry'], d05:['worldbook-triggers'], d06:['history-recall'], d07:['compaction'], d08:['play','card-extensions'], d09:['card-extensions'], d10:['character-design','character-design-saved'], d11:['card-picker','card-extensions'],
   e01:['profile-interview','profile-draft'], e02:['profile-confirmed'], e03:['profile-edit'], e04:['profile-enabled'],
-  f01:['tavern-settings','image-openai'], f02:['image-result'], f03:['image-style'], f04:['image-redraw'], f05:['image-versions'], f06:['image-reference-consent'], f07:['image-reference-consent'], f08:['image-progress'], f09:['image-failure'], f10:['image-connection'],
+  f01:['tavern-settings','image-openai'], f02:['image-result'], f03:[], f04:[], f05:['image-versions'], f06:['image-reference-consent'], f07:['image-reference-consent'], f08:['image-progress'], f09:['image-failure'], f10:['image-connection'],
   g01:['image-openai'], g02:['image-gemini'], g03:[], g04:['image-grok'], g05:['image-seedream'], g06:['image-qwen'], g07:['image-novelai'], g08:['image-comfyui'], g09:['image-sd'],
   h01:['workbench-tasks'], h02:['create-card-draft'], h03:['extract-material'], h04:['workbench'], h05:['multi-resource'], h06:['worldbook-edit-draft','script-edit-draft'], h07:['convert-mvu-draft'], h08:['debug-workbench'], h09:['restore-card-draft'],
   i01:['card-picker','card-files'], i02:['card'], i03:['card-openings'], i04:['card-extensions'], i05:['card-bindings','script-bound'], i06:['card-files'],
   j01:['worldbook-library'], j02:['worldbook-files'], j03:['worldbook'], j04:['worldbook-triggers'], j05:['worldbook-binding','card-bindings'], j06:['worldbook-advanced'],
   k01:['script-library'], k02:['script-edit-draft'], k03:['script-binding','script-bound'], k04:['script-library'],
   l01:['preset-library'], l02:['preset-file-actions'], l03:['preset'], l04:['preset-regex'], l05:['system-prompt-editor'], l06:['system-prompts'],
-  m01:['tavern-settings','background-trace'], m02:['internet-search'], m03:['background-trace'], m04:['style-analysis-draft'], m05:['skill-draft'], m06:['tool-plugin-draft'], m07:['plugins'],
-  n01:['history-menu'], n02:['export-controls'], n03:['export-controls','debug-workbench'], n04:['export-controls'], n05:['version-check'], n06:['installation-status'], n07:['resource-files'], n08:['settlement-retry','debug-workbench'],
+  m01:['tavern-settings','background-trace'], m02:['internet-search'], m03:['background-trace'], m04:['style-analysis-draft'], m05:['skill-draft'], m06:['tool-plugin-draft'], m07:[],
+  n01:['history-menu'], n02:['export-controls'], n03:['export-controls','debug-workbench'], n04:['export-controls'], n05:['version-check'], n06:[], n07:['resource-files'], n08:['settlement-retry','debug-workbench'],
 }
