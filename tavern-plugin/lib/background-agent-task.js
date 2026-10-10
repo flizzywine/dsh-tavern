@@ -39,7 +39,7 @@ function backgroundPrompt(messages, turnContext, task, taskProtocol, input = {})
       : (message && message.role === 'assistant' ? '正文' : '用户')
     return '[' + role + ']\n' + messageText(message)
   }).filter(function (text) { return text.trim() !== '' }).join('\n\n')
-  const taskName = task === 'worldbook-filter' ? '世界书筛选' : task === 'image' ? '场景生图' : task === 'settlement' ? '状态结算' : task === 'phone' ? '手机私聊' : task === 'character-design' ? '人物设计' : task === 'ledger' ? '台账整理' : '候选生成'
+  const taskName = task === 'worldbook-filter' ? '世界书筛选' : task === 'image' ? '场景生图' : task === 'settlement' ? '状态结算' : task === 'phone' ? '手机私聊' : task === 'character-design' ? '人物设计' : task === 'ledger' ? '台账整理' : task === 'plugin' ? '插件任务' : '候选生成'
   sections.push('【最近剧情与本次任务】\n任务类型：' + taskName + '\n' + recent)
   const protocol = str(taskProtocol).trim()
   if (protocol !== '') sections.push('【任务要求】\n' + protocol)
@@ -85,7 +85,7 @@ export function maximumBackgroundTokens(selection) {
 }
 
 export function traceError(error, traceSessionId, task) {
-  const fallback = task === 'settlement' ? '后台状态结算失败' : task === 'phone' ? '手机私聊回复失败' : '后台候选生成失败'
+  const fallback = task === 'settlement' ? '后台状态结算失败' : task === 'phone' ? '手机私聊回复失败' : task === 'plugin' ? '插件后台任务失败' : '后台候选生成失败'
   const wrapped = new Error(str(error && error.message || error) || fallback, { cause: error })
   wrapped.traceSessionId = traceSessionId
   return wrapped
@@ -129,6 +129,8 @@ export function createBackgroundAgentTask(options) {
   function setupFor(state, descriptor, appendDescriptor) {
     const backgroundPersona = state.input.task === 'phone'
       ? '你是与故事正文隔离的手机私聊 Agent。你只代表指定联系人回复当前手机消息，不推进正文、不修改状态，也不把私聊虚构成已经发生的现场剧情。'
+      : state.input.task === 'plugin'
+      ? '你是与前台正文生成隔离的酒馆后台 Agent，正在为一个插件完成一次性任务。只按任务要求输出结果，不续写正文，不自行修改游戏状态；需要资料时可以查世界书和历史。'
       : '你是与前台正文生成隔离的酒馆后台 Agent。你会在同一个剧情分支中依次承担状态结算与候选生成，人物设计仅在用户明确发起人物设计任务时执行；严格按每轮末尾追加的任务协议输出，不得把某类任务的输出格式混入另一类任务。最新权威状态优先于 Session 中的旧动态状态。'
     let descriptorAppended = !appendDescriptor
     return async function (childCtx) {
@@ -307,7 +309,15 @@ export function createBackgroundAgentTask(options) {
           return result
         }
       }
+      // A plugin task runs in its own one-off Session: its own tools join the fixed list there.
+      const active = state.activeToolTask
+      const extraDisposers = input.task === 'plugin' ? tools.filter(tool => !stableNames.has(tool.name)).map(tool => state.ctx.tools.register({
+        name: tool.name, description: tool.description, parameters: tool.parameters,
+        output: { schema: { type: 'string' }, render: function (_args, value) { return [{ type: 'text', text: value }] } },
+        execute: (args, execution) => active.execute(tool, args, execution)
+      })).filter(dispose => typeof dispose === 'function') : []
       return async function () {
+        for (const dispose of extraDisposers.reverse()) await dispose()
         if (state.activeToolTask !== null && state.activeToolTask !== undefined) state.activeToolTask = null
         if (state.characterDesignStage === characterDesignStage) state.characterDesignStage = null
       }
@@ -452,7 +462,7 @@ export function createBackgroundAgentTask(options) {
         const underlying = terminalError(sessionEvents(agent.session), eventStart)
         if (underlying !== null) throw underlying
         if (typeof runtimeInput.acceptWithoutText !== 'function' || runtimeInput.acceptWithoutText() !== true) {
-          throw new Error(input.task === 'settlement' ? '后台 Agent 没有返回结算文本' : '后台 Agent 没有返回候选文本')
+          throw new Error(input.task === 'settlement' ? '后台 Agent 没有返回结算文本' : input.task === 'plugin' ? '后台 Agent 没有返回任务结果' : '后台 Agent 没有返回候选文本')
         }
       }
       const text = rawResult === null ? '' : rawResult.text.trim()

@@ -116,7 +116,7 @@ ctx.tavern.onTurnSettled(async ({ gameId, turn, variables }) => {
 })
 ```
 
-变量只读，改它不影响游戏。不同的卡变量结构不同，Tavern 不解释变量的含义。
+收到的 `variables` 是副本，要改变量用 `setVariables`（只能改最新一轮）。不同的卡变量结构不同，Tavern 不解释变量的含义。
 
 ## 后台长任务：不要写入过期的结果
 

@@ -159,5 +159,28 @@ export function createBodyEditor({ chats, sessions, timeline, activity, project,
       return present(saved)
     } finally { pending.delete(sessionId) }
   }
-  return Object.freeze({ read, save })
+  // A whole new text (plugins): its HTML and markers must equal the current ones, in order;
+  // only the prose between them changes, through the same checks as a player's edit.
+  async function replaceText(sessionId, text) {
+    const { chat, message, parts } = await context(sessionId)
+    const fixed = parts.filter(part => part.kind !== 'text')
+    const gaps = Array.from({ length: fixed.length + 1 }, () => '')
+    let gap = 0
+    for (const part of editableReplyParts(String(text))) {
+      if (part.kind === 'text') { gaps[gap] += part.text; continue }
+      if (gap >= fixed.length || fixed[gap].kind !== part.kind || fixed[gap].text.trim() !== part.text.trim()) throw new Error('正文里的 HTML 块要保持原样，只能改文字')
+      gap++
+    }
+    if (gap !== fixed.length) throw new Error('正文里的 HTML 块要保持原样，只能改文字')
+    const texts = []
+    gap = 0
+    for (const part of parts) {
+      if (part.kind !== 'text') { gap++; continue }
+      texts.push(gaps[gap])
+      gaps[gap] = ''
+    }
+    if (gaps.some(rest => rest.trim())) throw new Error('只能修改原有的文字段落，不能在 HTML 块之间新增段落')
+    return await save(sessionId, { token: token(chat, message), texts })
+  }
+  return Object.freeze({ read, save, replaceText })
 }

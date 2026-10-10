@@ -70,7 +70,7 @@ window.__ModuleLoader__.load({
 | 修改 `index.mjs` | 要重启 DSH |
 | 删除插件文件夹 | 宿主侧不再加载；刷新页面后浏览器侧消失 |
 
-Tavern 把 `plugins/` 下的插件登记在 DSH 的 Tavern 配置（`~/.dsh/profiles/tavern/cordis.patch.yml`）里，以 `tavern-user-plugin-` 开头的条目由 Tavern 自动维护，不要手改。插件文件夹缺 `package.json` 或宿主入口时会被跳过，原因写在 Tavern 日志里。
+Tavern 把 `plugins/` 下的插件登记在 DSH 的 Tavern 配置（`~/.dsh/profiles/tavern/cordis.patch.yml`）里，以 `tavern-user-plugin-` 开头的条目由 Tavern 自动维护，不要手改。插件文件夹缺 `package.json` 或宿主入口时会被跳过，原因写在 Tavern 日志里。Tavern 通过插件文件夹里自动生成的 `.tavern-entry.mjs` 加载宿主侧：插件代码有语法错误、导入失败或 `apply` 抛错时，只在日志里记一条「plugins/<文件夹> 加载失败 / 启动失败」，不会让 DSH 起不来。这个文件不要改，也不用提交到插件仓库。
 
 > 不要把插件放进 `tools/` 和 `tools.cordis.yml`：那里是卡片工作台的自创工具，挂在 Agent 预设里，要等第一局开始才加载，浏览器侧也永远不会加载。
 
@@ -127,12 +127,12 @@ export function apply(ctx) {
   text,          // 这一轮正文的纯文本（去掉了 HTML 标签与程序块，宏已展开）
   rawText,       // 模型原始输出（含插件让模型写进正文的标记）
   card: { id, name },  // id 是人物卡在库里的位置，卡被移动或改名后可能变化
-  variables,     // 这一轮结算后的消息变量（只读副本），没有时为 null
+  variables,     // 这一轮结算后的消息变量（副本），没有时为 null
   settledAt,     // 毫秒时间戳
 }
 ```
 
-`variables` 与 SillyTavern 的消息变量同一结构：使用 MVU 变量的卡，变量在 `variables.stat_data` 下。它跟着正文版本走：回退、重新生成、切换版本后读到的是当前显示版本的变量。只能读，改它不影响游戏；Tavern 不解释其中的内容（例如游戏日期），由插件按卡自己的变量名读取。
+`variables` 与 SillyTavern 的消息变量同一结构：使用 MVU 变量的卡，变量在 `variables.stat_data` 下。它跟着正文版本走：回退、重新生成、切换版本后读到的是当前显示版本的变量。这是副本，直接改它不影响游戏，要改请用 `setVariables`；Tavern 不解释其中的内容（例如游戏日期），由插件按卡自己的变量名读取。
 
 处理函数里抛错不会影响游戏，错误会写进日志。处理函数不必等生图完成才返回。
 
@@ -155,9 +155,36 @@ export function apply(ctx) {
 
 `lore` 是生成那一刻保存的快照，后来改世界书不影响已写完的轮次；是否与正文相关由插件自己按 `keys` 和 `constant` 判断。没有快照的旧轮次返回空数组。这一轮不可读时抛错。只读这一轮的设定材料，不读整局历史。
 
+### `getCard({ gameId })`（第 2 版）
+
+读这局正在玩的人物卡，返回 SillyTavern 角色卡的数据（`name`、`description`、`personality`、`scenario`、`first_mes`、`character_book`、`extensions` 等，以卡里实际有的字段为准）。开局时保存了人物卡快照的游戏，读到的是快照，和正文生成用的是同一份。返回的是副本，改它不影响游戏。
+
+### `getHistory({ gameId, from, to })`（第 2 版）
+
+读第 `from` 到 `to` 轮已经写完的正文，一次最多 50 轮（省略 `to` 时读 50 轮）。返回 `[{ turn, input, text, rawText }]`：`input` 是玩家这一轮发的话（开场白为空），`text`、`rawText` 的含义同 `onTurnSettled`。还在生成、结算中的最新一轮不返回。只读要的那几轮，长局也不会读整局历史。
+
 ### `backgroundModel({ gameId })`
 
 返回这一局 Tavern 使用的后台模型 `{ provider, model }`，没有时为 `null`。插件可以用它通过 DSH 的 `llm` 服务做自己的规划，不必让用户再选一次模型。
+
+### `runTask({ gameId, prompt, tools?, signal? })`（第 2 版）
+
+让 Tavern 为这局开一个一次性的后台 Agent，替插件完成一项任务，返回 `{ text }`。它用这局的后台模型，带着和 Tavern 自己的后台任务一样的背景：人物卡、世界书、最近两轮剧情，也能查世界书、查历史原文。
+
+```js
+const { text } = await ctx.tavern.runTask({
+  gameId,
+  prompt: '游戏日期从初五跳到了二十。按世界设定，推演这十五天里各方势力的进展，列成要点。',
+  tools: [{ name: 'world_event_save', description: '保存一条推演出的事件', parameters: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] },
+    execute: async ({ text }) => { events.push(text); return { ok: true } } }],
+})
+```
+
+- 每次都是新的会话，用完即弃，不会进入 Tavern 结算、候选用的那个常驻后台会话，也不影响它们的上下文。
+- `tools` 最多 8 个，格式同 `settlementTool`（多一个 `execute`），工具名不能和 Tavern 自己的工具重名；一次任务最多调用 16 次。工具出错时把错误交给模型，同时记入插件错误记录。
+- 请求会记进这局的请求记录，「完整上下文」里可以查看。用 `signal`（`AbortSignal`）可以中途停止；10 分钟没结束会自动停止并抛错。
+- 这局没有后台模型，或玩家在本局关闭了这个插件时，直接抛错。花的是玩家后台模型的额度，请只在需要时调用。
+- 只需要一次普通的模型调用、不需要游戏背景时，直接用 DSH 的 `llm` 服务更省。
 
 ### `attach({ gameId, turn, textVersion, item })`
 
@@ -335,6 +362,34 @@ ctx.tavern.handle('dsh-tavern-xxx/redraw', async ({ gameId, turn }) => {
 - 参数里带上 `gameId`：玩家在这一局关掉了插件时，调用会被拒绝；处理函数出错会记进这一局的插件错误。不带 `gameId` 的调用不受按局开关约束。
 - 没有超时限制，长任务请自己控制。
 
+## 改最新一轮（第 2 版）
+
+两个接口都只能改**最新一轮**，并且要等这一轮写完、后台结算结束；适合在 `onTurnSettled` 里调用。都要带上 `textVersion`：期间玩家回退、重新生成或已经改过，会报 `TAVERN_PLUGIN_STALE_VERSION`，什么也不改。玩家在本局关闭了这个插件时也会被拒绝。
+
+### `setVariables({ gameId, turn, textVersion, variables })`
+
+用 `variables` 整个替换这一轮当前版本的消息变量（结构同 `onTurnSettled` 收到的 `variables`，MVU 卡的数据在 `stat_data` 下）。先读、改、再整个写回：
+
+```js
+ctx.tavern.onTurnSettled(async ({ gameId, turn, textVersion, variables }) => {
+  if (!variables?.stat_data) return
+  const next = structuredClone(variables)
+  next.stat_data.世界.日期 = advance(next.stat_data.世界.日期)
+  await ctx.tavern.setVariables({ gameId, turn, textVersion, variables: next })
+})
+```
+
+- 改完后状态栏随即刷新，下一轮正文和后台结算都以改过的变量为准。
+- Tavern 不检查变量结构，写错了会直接影响状态栏和后续结算，请按这张卡的变量结构写。最大 1 MB。
+- 这一轮的后台结算还没结束时报 `TAVERN_PLUGIN_TURN_UNAVAILABLE`，下一轮正文已经在生成时报 `TAVERN_PLUGIN_BUSY`，都是稍后再试；在 `onTurnSettled` 里调用就不会遇到。
+
+### `editTurn({ gameId, turn, textVersion, text })`
+
+用 `text` 替换这一轮的正文，走的是玩家「编辑正文」同一条路：回退、分叉照常，宏、脚本和结算不会重跑。返回改后这一轮的内容（同 `getTurn`），里面有新的 `textVersion`。
+
+- `text` 是完整的新正文，请在 `rawText` 的基础上改；不要拿 `text` 字段去改，它去掉了 HTML 块，交回来会被拒绝。正文里的 HTML 块（状态栏、美化代码等）必须原样保留，只能改它们之间的文字，也不能在 HTML 块之间新增段落。
+- 改完后所有插件会再收到一次这一轮的 `onTurnSettled`（`textVersion` 是新的）。在 `onTurnSettled` 里改正文的插件，要先判断是不是已经改过，避免反复修改。
+
 ## 本局插件面板
 
 「本局设置 → 插件」列出本局用到的插件、各自用到了哪些阶段（观察、添加、替换），玩家可以按局关掉某个插件，选择由谁负责结算，并查看最近的插件错误。被关掉的插件在这一局不再参与提示词、结算和通知（`onTurnSettled`、`onTimelineChanged`），它的结算工具调用会被拒绝；它已经挂上的媒体和存档数据保留。
@@ -470,7 +525,8 @@ Tavern 只给顶层会话（玩家的游戏会话）加回合上下文和「【�
 
 下面这些目前还没有接口，不代表不能开放。有实际需要时请提[插件接口需求](https://github.com/flizzywine/dsh-tavern/issues/new?template=plugin-api.yml)，写清要做的插件和卡在哪一步，能开放的会按需补上。
 
-- 修改正文、修改变量、调用 Tavern 内部的 Agent。
+- 修改更早的轮次（`setVariables`、`editTurn` 目前只改最新一轮）。
+- 直接使用 Tavern 自己的常驻后台会话：它带着整局的结算历史，插件任务混进去会影响之后的结算。需要游戏背景的后台工作请用 `runTask`。
 - 替换 Tavern 的其他流程（提示词组装、世界书召回、候选、压缩、MVU 变量结算）。替换类接口会约定插件要交回的结果，插件失败时退回 Tavern 自己的做法。
 
 直接读写 Tavern 的数据目录和人物卡文件不属于接口：这些文件的格式会随版本变化，插件这样做，Tavern 一更新就可能失效。需要里面的数据，请按上面的方式提需求，由 Tavern 提供读取接口。
@@ -495,4 +551,4 @@ Tavern 尽量开放接口，并保持每个接口简单、稳定；接口按插�
 | 版本 | 变化 |
 |---|---|
 | 1 | 首个版本。 |
-| 2 | 新增 `turnSection`、`worldbookSource`、`settlementSection`、`settlementTool`：插件可以往每轮正文请求和后台结算里添加内容。新增插件存档数据（`saveTurnData`、`readTurnData`、`saveGameData`、`readGameData`）与 `onTimelineChanged`；编辑正文后重新发 `onTurnSettled`；分叉时带上插件数据和媒体项。新增第一个替换类接口 `replaceSettlement`，以及本局插件面板（按局开关、选择结算由谁负责、错误记录）。新增 `candidateSection`、`compactionSection`、`worldbookEntries`；浏览器侧新增 `registerPanel`、`registerStartGroup`（`tavernUi.apiVersion` 为 2）。`onTurnSettled`、`getTurn` 增加只读的 `variables`。新增宿主侧 `handle` 与浏览器侧 `callHost`，插件的浏览器侧可以调用自己的宿主侧。插件可放进数据目录的 `plugins/` 文件夹加载。第 1 版接口不变。 |
+| 2 | 新增 `turnSection`、`worldbookSource`、`settlementSection`、`settlementTool`：插件可以往每轮正文请求和后台结算里添加内容。新增插件存档数据（`saveTurnData`、`readTurnData`、`saveGameData`、`readGameData`）与 `onTimelineChanged`；编辑正文后重新发 `onTurnSettled`；分叉时带上插件数据和媒体项。新增第一个替换类接口 `replaceSettlement`，以及本局插件面板（按局开关、选择结算由谁负责、错误记录）。新增 `candidateSection`、`compactionSection`、`worldbookEntries`；浏览器侧新增 `registerPanel`、`registerStartGroup`（`tavernUi.apiVersion` 为 2）。`onTurnSettled`、`getTurn` 增加只读的 `variables`。新增 `getCard`、`getHistory`、`setVariables`、`editTurn`、`runTask`。新增宿主侧 `handle` 与浏览器侧 `callHost`，插件的浏览器侧可以调用自己的宿主侧。插件可放进数据目录的 `plugins/` 文件夹加载。第 1 版接口不变。 |

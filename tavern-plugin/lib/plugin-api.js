@@ -22,6 +22,13 @@ const POOL_ENTRY_ID = /^[A-Za-z0-9._-]{1,64}$/
 const PLUGIN_TIMEOUT_MS = 30000
 const REPLACEMENT_TIMEOUT_MS = 120000
 const MAX_ERRORS_PER_GAME = 30
+const MAX_VARIABLES = 1024 * 1024
+const MAX_EDIT_TEXT = 200000
+const MAX_HISTORY_TURNS = 50
+const MAX_TASK_PROMPT = 20000
+const MAX_TASK_TOOLS = 8
+const MAX_TOOL_CALLS_PER_TASK = 16
+const TASK_TIMEOUT_MS = 600000
 // Stages a plugin may replace, and what a replacement must hand back (docs/plugin-design.md).
 const REPLACEABLE_STAGES = Object.freeze({ settlement: '结算' })
 
@@ -135,6 +142,16 @@ export function createTavernPluginApi(deps) {
     }
   }
 
+  /** The latest settled turn, shown in textVersion, of a game where this plugin is on. */
+  async function writableTurn(owner, gameId, turn, textVersion, label) {
+    const material = await requireTurn(gameId, turn)
+    if ((await choicesFor(material.sessionId)).disabled.has(owner)) throw new Error('玩家在本局关闭了插件 ' + owner)
+    if (typeof textVersion !== 'string' || textVersion !== material.key) throw Object.assign(new Error(label + ' 的 textVersion 不是这一轮当前显示的正文版本'), { code: 'TAVERN_PLUGIN_STALE_VERSION' })
+    const latest = await deps.readLatestSettledTurn(material.sessionId)
+    if (!latest || latest.turn !== material.turn) throw Object.assign(new Error(label + ' 只能用于最新一轮，且要等这一轮写完、后台结算结束'), { code: 'TAVERN_PLUGIN_TURN_UNAVAILABLE' })
+    return material
+  }
+
   async function requireGame(gameId) {
     const game = await deps.resolveGame(gameIdOf(gameId))
     if (!game) throw Object.assign(new Error('这一局不存在或不是游玩对话'), { code: 'TAVERN_PLUGIN_NOT_FOUND' })
@@ -242,6 +259,87 @@ export function createTavernPluginApi(deps) {
 
     async getCardContext({ gameId, turn } = {}) {
       return await deps.readCardContext(await requireTurn(gameId, turn))
+    },
+
+    // The game's character card as Tavern plays it, read-only.
+    async getCard({ gameId } = {}) {
+      const game = await requireGame(gameId)
+      const card = await deps.readCard(game.sessionId)
+      if (!card) return null
+      const { path: _where, ...data } = structuredClone(card)
+      return data
+    },
+
+    // Settled turns from..to (at most 50), each with the player's input and the shown text.
+    async getHistory({ gameId, from, to } = {}) {
+      const game = await requireGame(gameId)
+      const first = positiveTurn(from), last = to === undefined ? first + MAX_HISTORY_TURNS - 1 : positiveTurn(to)
+      if (last < first) throw new Error('to 不能小于 from')
+      return await deps.readHistory(game.sessionId, first, Math.min(last, first + MAX_HISTORY_TURNS - 1))
+    },
+
+    // Replace the variables of the latest turn's shown version (after its settlement).
+    async setVariables({ gameId, turn, textVersion, variables } = {}) {
+      const owner = ownerOf(this)
+      const material = await writableTurn(owner, gameId, turn, textVersion, 'setVariables')
+      if (variables === null || typeof variables !== 'object' || Array.isArray(variables)) throw new TypeError('variables 必须是对象')
+      const json = JSON.stringify(variables)
+      if (json.length > MAX_VARIABLES) throw new Error('variables 不能超过 1 MB')
+      await deps.writeVariables(material, JSON.parse(json))
+      await changed(material.sessionId)
+      return { turn: material.turn, textVersion: material.key }
+    },
+
+    // Replace the latest turn's text; HTML blocks in it must stay as they are. Plugins then get onTurnSettled again.
+    async editTurn({ gameId, turn, textVersion, text } = {}) {
+      const owner = ownerOf(this)
+      const material = await writableTurn(owner, gameId, turn, textVersion, 'editTurn')
+      if (typeof text !== 'string' || !text.trim()) throw new TypeError('text 必须是非空字符串')
+      if (text.length > MAX_EDIT_TEXT) throw new Error('text 太长')
+      await deps.editText(material, text)
+      return await snapshotOf(await requireTurn(material.sessionId, material.turn))
+    },
+
+    // A one-off task in a fresh background session of this game: same background model,
+    // card background and world book as Tavern's own tasks, never Tavern's resident session.
+    async runTask({ gameId, prompt, tools = [], signal } = {}) {
+      const owner = ownerOf(this)
+      const game = await requireGame(gameId)
+      if ((await choicesFor(game.sessionId)).disabled.has(owner)) throw new Error('玩家在本局关闭了插件 ' + owner)
+      if (typeof prompt !== 'string' || !prompt.trim()) throw new TypeError('prompt 必须是非空字符串')
+      if (prompt.length > MAX_TASK_PROMPT) throw new Error('prompt 不能超过 20000 字')
+      if (!Array.isArray(tools) || tools.length > MAX_TASK_TOOLS) throw new Error('tools 最多 8 个')
+      const byName = new Map()
+      for (const tool of tools) {
+        if (!tool || typeof tool.name !== 'string' || !TOOL_NAME.test(tool.name)) throw new Error('工具名只能用小写字母、数字和下划线，以字母开头，3–48 个字符')
+        if (reservedToolNames.has(tool.name) || byName.has(tool.name)) throw new Error('工具名 ' + tool.name + ' 已被占用')
+        if (typeof tool.description !== 'string' || !tool.description.trim()) throw new Error('工具 ' + tool.name + ' 需要 description')
+        if (!tool.parameters || typeof tool.parameters !== 'object' || tool.parameters.type !== 'object') throw new Error('工具 ' + tool.name + ' 的 parameters 必须是 type 为 object 的 JSON Schema')
+        if (typeof tool.execute !== 'function') throw new TypeError('工具 ' + tool.name + ' 需要 execute 函数')
+        byName.set(tool.name, tool)
+      }
+      let calls = 0
+      const call = async (name, args) => {
+        const tool = byName.get(name)
+        if (!tool) return JSON.stringify({ ok: false, error: '没有这个工具：' + name })
+        if (++calls > MAX_TOOL_CALLS_PER_TASK) return JSON.stringify({ ok: false, error: '工具调用次数已达上限，请直接给出结果' })
+        try {
+          const value = await bounded(tool.execute(structuredClone(args ?? {})), '插件工具 ' + name)
+          return (typeof value === 'string' ? value : JSON.stringify(value ?? { ok: true })).slice(0, MAX_TOOL_RESULT)
+        } catch (error) {
+          recordError(game.sessionId, owner, '后台任务工具 ' + name, error)
+          return JSON.stringify({ ok: false, error: String(error?.message || error).slice(0, 500) })
+        }
+      }
+      try {
+        const result = await bounded(deps.runTask({ gameId: game.sessionId, owner, prompt: prompt.trim(),
+          tools: Array.from(byName.values()).map(tool => ({ name: tool.name, description: tool.description.trim(), parameters: structuredClone(tool.parameters) })),
+          call, signal }), '后台任务', TASK_TIMEOUT_MS)
+        return { text: String(result?.text || '') }
+      } catch (error) {
+        if (!signal?.aborted) recordError(game.sessionId, owner, '后台任务', error)
+        throw error
+      }
     },
 
     async backgroundModel({ gameId } = {}) {

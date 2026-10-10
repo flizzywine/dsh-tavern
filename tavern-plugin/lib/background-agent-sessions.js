@@ -140,6 +140,7 @@ export function createBackgroundAgentSessions(options, task) {
       mode: 'one-shot', provider: 'dsh-tavern-phone', label: '手机私聊',
       persona: '只扮演指定联系人回复一条手机私聊，不推进正文或修改游戏状态。'
     })
+    if (input.task === 'plugin') return snapshotSubagentDescriptor({ mode: 'one-shot', provider: LEGACY_BACKGROUND_PROVIDER, label: '插件任务' + (input.pluginName ? '：' + String(input.pluginName).slice(0, 60) : '') })
     if (!persistent) return snapshotSubagentDescriptor({ mode: 'one-shot', provider: LEGACY_BACKGROUND_PROVIDER, label: '候选研究' })
     return snapshotSubagentDescriptor({
       mode: 'continuable',

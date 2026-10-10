@@ -575,3 +575,41 @@ test('插件结算工具：随后台会话固定注册，只在结算任务里�
     assert.match(texts[1], /【插件附加的候选要求】[\s\S]*parent 候选多给探索选项/)
   } finally { await runner.dispose() }
 })
+
+test('插件后台任务：独立的一次性会话，插件工具注册在这个会话里并交给插件执行，结束后撤销', async () => {
+  const registered = new Map(), texts = [], results = [], created = []
+  let work = Promise.resolve(), script = async () => {}
+  const runner = createBackgroundAgentRunner({
+    id: () => 'plugin-task-' + created.length,
+    backgroundTools: [{ name: 'posture_submit', parameters: { type: 'object' } }],
+    agents: {
+      get: () => ({ id: 'parent', session: { header: {} } }),
+      async create(options) {
+        created.push(options)
+        await options.setup({
+          systemPrompt: { section() {}, suppressRuntimeContext() {} }, on() {},
+          tools: { restrict() {}, register(tool) { registered.set(tool.name, tool); return () => registered.delete(tool.name) } }
+        })
+        const session = { id: 'plugin-task', events: [], append(type, data) { this.events.push({ type, data }) } }
+        return { agent: { session,
+          followup(message) { texts.push(message.content[0].text); work = (async () => { await script(); session.append('assistant/message', { message: { content: [{ type: 'text', text: '推演完成' }] } }) })() },
+          async whenIdle() { await work } }, async dispose() {} }
+      }
+    }
+  })
+  try {
+    const calls = []
+    script = async () => {
+      results.push(await registered.get('world_advance').execute({ days: 15 }))
+      results.push(await registered.get('posture_submit').execute({}))
+    }
+    const result = await runner.run({ sessionId: 'parent', persistent: false, task: 'plugin', pluginName: 'world-sim', selection: { provider: 'test', model: 'test' },
+      system: '按日期推进世界', messages: [], tools: [{ name: 'world_advance', description: '推进', parameters: { type: 'object' } }],
+      onToolCall: async call => { calls.push(call); return JSON.stringify({ ok: true }) } })
+    assert.equal(result.text, '推演完成')
+    assert.deepEqual(calls, [{ name: 'world_advance', arguments: { days: 15 } }])
+    assert.match(results[1], /不允许调用 posture_submit/)
+    assert.match(texts[0], /任务类型：插件任务[\s\S]*【任务要求】\n按日期推进世界/)
+    assert.equal(registered.has('world_advance'), false, '任务结束后撤销插件工具')
+  } finally { await runner.dispose() }
+})

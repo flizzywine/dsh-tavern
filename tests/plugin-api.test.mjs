@@ -412,6 +412,10 @@ test('插件轮次读取：真实存储下与生图共用正文版本，未结�
   assert.deepEqual(await reader.readVariables(await reader.readTurn('game-1', 2)), { stat_data: { 日期: '二十' } }, '按当前显示的版本读变量')
   assert.notEqual(await reader.currentKey('game-1', 2), latest.key, '换版本后正文版本变化')
   assert.deepEqual((await reader.readCardContext(await reader.readTurn('game-1', 2))).lore, [], '新版本不继承旧版本的世界书快照')
+  await db.update(chat.id, current => { current.settleStatus = 'idle'; return current })
+  assert.equal((await reader.readLatestSettledTurn('game-1')).turn, 2, '编辑正文或回退后没有待结算的任务，最新一轮仍然可读')
+  await db.update(chat.id, current => { current.settleStatus = 'running'; return current })
+  assert.equal(await reader.readLatestSettledTurn('game-1'), null, '结算进行中不可读')
 })
 
 test('真实正文请求：插件段落只进入游玩的 system，卡片 Agent 不受影响', { skip: !process.env.DSH_BOOT_MODULE }, async t => {
@@ -577,4 +581,69 @@ test('tavern 服务：worldbookEntries 的条目经校验后交给世界书召�
   fiber.dispose()
   await tick()
   assert.deepEqual(await h.api.worldbookPoolEntries({ gameId: 'game-1', turn: 4 }), [])
+})
+
+test('tavern 服务：getCard、getHistory 只读；setVariables、editTurn 只改最新一轮的当前版本', { skip: !cordis }, async t => {
+  const writes = [], edits = [], ranges = []
+  const h = await harness(t, {
+    readCard: async sessionId => ({ name: 'A', description: '海边小镇', sessionId }),
+    readHistory: async (sessionId, first, last) => { ranges.push([first, last]); return [{ turn: first, input: '你好', text: '她推开门。', rawText: '<b>她</b>推开门。' }] },
+    writeVariables: async (material, variables) => writes.push([material.turn, variables]),
+    editText: async (material, text) => edits.push([material.turn, text]),
+    readTurn: async (sessionId, turn) => sessionId === 'game-1' ? turnMaterial({ turn, key: 'key-' + turn }) : null,
+    data: { readSettings: async () => ({ disabled: [] }), updateSettings: async () => {} },
+  })
+  let tavern
+  await h.root.plugin({ name: 'state-plugin', inject: ['tavern'], apply(ctx) { tavern = ctx.tavern } })
+  await tick()
+  const card = await tavern.getCard({ gameId: 'game-1' })
+  card.name = '改了'
+  assert.equal((await tavern.getCard({ gameId: 'game-1' })).name, 'A', '拿到的是副本')
+  await tavern.getHistory({ gameId: 'game-1', from: 2 })
+  await tavern.getHistory({ gameId: 'game-1', from: 1, to: 500 })
+  assert.deepEqual(ranges, [[2, 51], [1, 50]], '一次最多 50 轮')
+  await assert.rejects(tavern.getHistory({ gameId: 'game-1', from: 5, to: 2 }), /to 不能小于 from/)
+
+  assert.deepEqual(await tavern.setVariables({ gameId: 'game-1', turn: 3, textVersion: 'key-3', variables: { stat_data: { 日期: '初五' } } }), { turn: 3, textVersion: 'key-3' })
+  assert.deepEqual(writes, [[3, { stat_data: { 日期: '初五' } }]])
+  await assert.rejects(tavern.setVariables({ gameId: 'game-1', turn: 3, textVersion: 'old', variables: {} }), { code: 'TAVERN_PLUGIN_STALE_VERSION' })
+  await assert.rejects(tavern.setVariables({ gameId: 'game-1', turn: 3, textVersion: 'key-3', variables: [] }), /对象/)
+  await tavern.editTurn({ gameId: 'game-1', turn: 3, textVersion: 'key-3', text: '她轻轻推开门。' })
+  assert.deepEqual(edits, [[3, '她轻轻推开门。']])
+
+  h.setLatest(turnMaterial({ turn: 4, index: 7, key: 'key-4' }))
+  await assert.rejects(tavern.setVariables({ gameId: 'game-1', turn: 3, textVersion: 'key-3', variables: {} }), { code: 'TAVERN_PLUGIN_TURN_UNAVAILABLE' }, '不是最新一轮')
+})
+
+test('tavern 服务：runTask 校验工具，模型调用的工具交给插件执行，失败记入插件错误', { skip: !cordis }, async t => {
+  let request
+  const h = await harness(t, {
+    reservedToolNames: ['posture_submit'],
+    data: { readSettings: async () => ({ disabled: [] }), updateSettings: async () => {} },
+    runTask: async input => {
+      request = input
+      const ok = await input.call('note_save', { text: '记下' })
+      const bad = await input.call('note_fail', {})
+      const missing = await input.call('nobody', {})
+      return { text: [ok, bad, missing].join('|') }
+    },
+  })
+  let tavern
+  await h.root.plugin({ name: 'world-plugin', inject: ['tavern'], apply(ctx) { tavern = ctx.tavern } })
+  await tick()
+  const tools = [
+    { name: 'note_save', description: '保存', parameters: { type: 'object' }, execute: async ({ text }) => ({ ok: true, text }) },
+    { name: 'note_fail', description: '失败', parameters: { type: 'object' }, execute: async () => { throw new Error('写不进去') } },
+  ]
+  const result = await tavern.runTask({ gameId: 'game-1', prompt: '  推演这十天  ', tools })
+  assert.equal(request.prompt, '推演这十天')
+  assert.equal(request.owner, 'world-plugin')
+  assert.deepEqual(request.tools.map(tool => tool.name), ['note_save', 'note_fail'])
+  assert.equal(request.tools[0].execute, undefined, '只把定义交给模型')
+  assert.match(result.text, /"text":"记下"/)
+  assert.match(result.text, /写不进去/)
+  assert.match(result.text, /没有这个工具/)
+  assert.match((await h.api.gamePlugins('game-1')).errors[0].message, /写不进去/)
+  await assert.rejects(tavern.runTask({ gameId: 'game-1', prompt: 'x', tools: [{ ...tools[0], name: 'posture_submit' }] }), /已被占用/)
+  await assert.rejects(tavern.runTask({ gameId: 'game-1', prompt: ' ' }), /prompt/)
 })

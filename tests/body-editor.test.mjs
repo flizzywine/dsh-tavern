@@ -133,3 +133,15 @@ test('在正文末尾追加文字时保留与后续结构块之间的空行，�
   await h.editor.save(h.session.id, { token: edit.token, texts: ['剑光飞过。她笑了。', '秦晚晴'] })
   assert.equal(h.chat.messages[1].sourceText, '剑光飞过。她笑了。\n\n<name>秦晚晴</name>')
 })
+
+test('插件整段替换正文：HTML 块必须原样保留，只改文字', async () => {
+  const block = '```html\n<div class="status">体力 9</div>\n```'
+  const h = fixture('雨停了。\n\n' + block)
+  const original = structuredClone(h.chat)
+  await assert.rejects(h.editor.replaceText(h.session.id, '雨停了。\n\n```html\n<div class="status">体力 1</div>\n```'), /HTML 块要保持原样/)
+  await assert.rejects(h.editor.replaceText(h.session.id, '雨停了。'), /HTML 块要保持原样/)
+  await assert.rejects(h.editor.replaceText(h.session.id, '雨停了。\n\n' + block + '\n\n多出来的一段。'), /不能在 HTML 块之间新增段落/)
+  assert.deepEqual(h.chat, original)
+  await h.editor.replaceText(h.session.id, '雨停了，灯亮了。\n\n' + block)
+  assert.equal(h.chat.messages[1].sourceText, '雨停了，灯亮了。\n\n' + block)
+})

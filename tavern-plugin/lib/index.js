@@ -103,7 +103,7 @@ import { fileURLToPath } from 'node:url'
 import { createBackgroundAgentRunner, executeBackgroundCompaction } from './background-agent-runner.js'
 import { createApplicationUpdater } from './application-updater.js'
 import { CANDIDATE_SUBMIT_TOOL, SCRIPT_POINT_TOOL, SCRIPT_READ_TOOL, createCandidateGenerator } from './domain/candidate-generation.js'
-import { computeSceneTarget, createSceneIllustrations, sceneTarget } from './domain/scene-illustration.js'
+import { computeSceneTarget, createSceneIllustrations, sceneTarget, projectedSceneText } from './domain/scene-illustration.js'
 import { legacyImageConfigurationReader } from './domain/image-generation-host.js'
 import { createPluginMedia, publicPluginMedia, pluginFileMediaType } from './domain/plugin-media.js'
 import { createPluginData } from './domain/plugin-data.js'
@@ -2497,6 +2497,71 @@ export async function apply(ctx) {
     worldbooks: sceneWorldbooks
   })
   const pluginSettlementProgress = createPluginSettlementProgress()
+  // ---------- 插件接口：读人物卡与历史、改变量、后台任务（docs/plugin-api.md） ----------
+  const pluginStoryTurn = message => Number(message?.turn || (message?.greeting ? 1 : 0))
+  const pluginSource = message => str(message?.projectionText ?? message?.sourceText ?? message?.text)
+  async function readPluginCard(sessionId) {
+    const header = await chatHeaderForSession(sessionId, ['cardPath', 'cardName', 'cardDefinitionSnapshot'])
+    return header ? await readChatCard(header) : null
+  }
+  async function readPluginHistory(sessionId, first, last) {
+    const state = await sessionStateForSession(sessionId)
+    const rows = Array.isArray(state?.messages) ? state.messages : []
+    let latest = 0
+    for (const row of rows) if (row?.role === 'assistant') latest = Math.max(latest, pluginStoryTurn(row))
+    // The latest turn joins once its settlement is over, like getTurn.
+    const cap = (await pluginTurns.readLatestSettledTurn(sessionId))?.turn ?? latest - 1
+    const picks = []
+    rows.forEach((row, index) => {
+      const turn = row?.role === 'assistant' ? pluginStoryTurn(row) : 0
+      if (turn < first || turn > Math.min(last, cap)) return
+      let input = -1
+      for (let back = index - 1; back >= 0 && rows[back]?.role !== 'assistant'; back--) if (rows[back]?.role === 'user') { input = back; break }
+      picks.push({ turn, index, input })
+    })
+    if (!picks.length) return []
+    const indices = [...new Set(picks.flatMap(pick => pick.input >= 0 ? [pick.input, pick.index] : [pick.index]))]
+    const selected = await chatSliceForSession(sessionId, indices, ['macroState'])
+    const byIndex = selected?.chat?.messages ? new Map(indices.map((index, at) => [index, selected.chat.messages[at]]))
+      : new Map(((await chatForSession(sessionId))?.messages || []).map((row, index) => [index, row]))
+    const macroState = selected?.chat?.macroState
+    return picks.map(pick => {
+      const row = byIndex.get(pick.index), source = pluginSource(row)
+      return { turn: pick.turn, input: pick.input >= 0 ? str(byIndex.get(pick.input)?.sourceText ?? byIndex.get(pick.input)?.text) : '',
+        text: projectedSceneText(source, macroState), rawText: source }
+    })
+  }
+  // The latest turn's shown variables; refused while a turn is written or settled.
+  async function writePluginVariables(material, variables) {
+    const sessionId = material.sessionId
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const state = await sessionStateForSession(sessionId)
+      if (!state || state.regenInProgress || backgroundTasks.activity(state).busy || agentRegistry.get(sessionId)?.phase?.kind === 'running') {
+        throw Object.assign(new Error('正文生成或后台处理进行中，请稍后再改变量'), { code: 'TAVERN_PLUGIN_BUSY' })
+      }
+      const selected = await chatSliceForSession(sessionId, [material.index], ['_storageRevision'])
+      const row = selected?.chat?.messages?.[0]
+      if (!row || row.role !== 'assistant' || pluginStoryTurn(row) !== material.turn) throw Object.assign(new Error('这一轮已经变化'), { code: 'TAVERN_PLUGIN_STALE_VERSION' })
+      const next = Array.isArray(row.variables) ? row.variables.slice() : []
+      next[Math.max(0, Number(row.swipeId) || 0)] = variables
+      const saved = await patchChat(selected.chat.id, selected.chat._storageRevision,
+        [{ op: 'set', path: ['messages', material.index, 'variables'], value: JSON.parse(JSON.stringify(next)) }], { source: 'plugin.variables' })
+      if (saved) return
+      if (await pluginTurns.currentKey(sessionId, material.turn) !== material.key) break
+    }
+    throw Object.assign(new Error('存档刚刚变化，变量没有写入，请重新读取后再试'), { code: 'TAVERN_PLUGIN_STALE_VERSION' })
+  }
+  // A plugin's one-off task: a fresh background Session, never the resident one settlement uses.
+  async function runPluginTask({ gameId, owner, prompt, tools, call, signal }) {
+    const selection = backgroundModelSelection(await backgroundConfigForSession(gameId))
+    if (!selection) throw new Error('这局没有可用的后台模型')
+    const chat = await storyContext({ sessionId: gameId })
+    const recent = (chat?.messages || []).filter(message => message && !message.greeting && ['user', 'assistant'].includes(message.role)).slice(-2)
+      .map(message => ({ role: message.role, content: [{ type: 'text', text: pluginSource(message).slice(-2400) }] }))
+    return await backgroundAgentRunner.run({ task: 'plugin', pluginName: owner, persistent: false, sessionId: gameId, selection, signal,
+      turn: Number(chat?.messages?.at(-1)?.turn) || 0, system: prompt, messages: recent, tools, maxToolCalls: 16,
+      onToolCall: request => call(request.name, typeof request.arguments === 'string' ? JSON.parse(request.arguments || '{}') : request.arguments) })
+  }
   const pluginApi = createTavernPluginApi({
     ctx,
     logger: console,
@@ -2505,6 +2570,14 @@ export async function apply(ctx) {
     data: pluginData,
     ...pluginTurns,
     backgroundModel: async sessionId => backgroundModelSelection(await backgroundConfigForSession(sessionId)),
+    readCard: readPluginCard,
+    readHistory: readPluginHistory,
+    writeVariables: writePluginVariables,
+    editText: async (material, text) => {
+      await bodyEditor.replaceText(material.sessionId, text)
+      notifyPluginTimeline(material.sessionId, 'edit', { settled: true })
+    },
+    runTask: runPluginTask,
     publish: sessionId => sessionSignals.publish(sessionId, { kind: 'plugin-media', version: String(Date.now()) + ':' + Math.random().toString(36).slice(2) })
   })
   ctx.provide('tavern', pluginApi.service)
