@@ -4299,6 +4299,7 @@ export async function apply(ctx) {
         notifyPluginTimeline(args && args.sessionId, 'rollback', { turn: args && args.expectedTurn })
         return { view }
       }
+      case 'callPluginHandler': return { result: await pluginApi.callHandler(args && args.name, args && args.args) }
       case 'getBackgroundProgress': return { progress: backgroundAgentRunner.progress(args && args.sessionId) || pluginSettlementProgress.snapshot(args && args.sessionId) }
       case 'stopBackground': return { view: await stopBackground(args && args.sessionId, args && args.operationId) }
       case 'retrySettlement': return { view: await retrySettlement(args && args.sessionId, args && args.turn, args && args.guidance) }

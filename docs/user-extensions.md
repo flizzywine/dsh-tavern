@@ -7,6 +7,7 @@
 | 工具、插件源码及依赖 | `tools/` |
 | 工具加载清单 | `tools.cordis.yml` |
 | Skill 与配套文件 | `skills/<名称>/` |
+| Tavern 插件（用 `tavern` / `tavernUi` 接口，可带浏览器侧） | `plugins/<名称>/`，见[插件接口](plugin-api.md)「快速开始」 |
 
 ## 创建持久工具
 

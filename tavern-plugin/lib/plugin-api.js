@@ -8,6 +8,9 @@ const TRACKER = Symbol.for('cordis.tracker')
 const SECTION_NAME = /^[a-z0-9][a-z0-9._-]{0,63}$/
 const MAX_SECTION_TEXT = 8000
 const TOOL_NAME = /^[a-z][a-z0-9_]{2,47}$/
+const HANDLER_NAME = /^[a-z0-9][a-z0-9._:/-]{0,95}$/
+const MAX_HANDLER_ARGS = 256 * 1024
+const MAX_HANDLER_RESULT = 4 * 1024 * 1024
 const MAX_TOOL_RESULT = 20000
 const MAX_TOOL_CALLS_PER_SETTLEMENT = 8
 const MAX_WORLDBOOK_ENTRIES = 20
@@ -76,6 +79,7 @@ export function createTavernPluginApi(deps) {
   const settlementSections = new Map()
   const settlementTools = new Map()
   const worldbookSources = new Map()
+  const handlers = new Map()
   const candidateSections = new Map()
   const compactionSections = new Map()
   const replacements = { settlement: new Map() }
@@ -325,6 +329,14 @@ export function createTavernPluginApi(deps) {
       return register.call(this, replacements.settlement, owner, { owner, settle }, 'tavern.replaceSettlement()', '本插件已经注册了结算替换')
     },
 
+    // Browser halves call their own host half through tavernUi.callHost(name, args).
+    handle(name, handler) {
+      const owner = ownerOf(this)
+      if (typeof name !== 'string' || !HANDLER_NAME.test(name)) throw new Error('handle 的 name 只能用小写字母、数字和 . _ : / -，最多 96 个字符')
+      if (typeof handler !== 'function') throw new TypeError('handle 需要一个函数')
+      return register.call(this, handlers, name, { owner, handler }, 'tavern.handle()', '处理函数 ' + name + ' 已被注册，请在名字前加上插件名')
+    },
+
     worldbookSource({ name, entries } = {}) {
       const owner = ownerOf(this)
       sectionName(name)
@@ -333,6 +345,22 @@ export function createTavernPluginApi(deps) {
     }
   }
   Object.defineProperty(service, TRACKER, { value: { associate: 'tavern', property: 'ctx' } })
+
+  /** A browser half calling a host handler; JSON in, JSON out. */
+  async function callHandler(name, args) {
+    const entry = handlers.get(String(name || ''))
+    if (!entry) throw Object.assign(new Error('没有名为 ' + name + ' 的插件处理函数（插件未加载，或宿主侧没有调用 tavern.handle 注册）'), { code: 'TAVERN_PLUGIN_NOT_FOUND' })
+    const input = args === undefined ? {} : args
+    if (JSON.stringify(input).length > MAX_HANDLER_ARGS) throw new Error('callHost 的参数不能超过 256 KB')
+    const gameId = typeof input?.gameId === 'string' ? input.gameId : ''
+    if (gameId && (await choicesFor(gameId)).disabled.has(entry.owner)) throw new Error('玩家在本局关闭了插件 ' + entry.owner)
+    let result
+    try { result = await entry.handler(structuredClone(input)) }
+    catch (error) { if (gameId) recordError(gameId, entry.owner, 'handle:' + name, error); throw error }
+    const text = result === undefined ? undefined : JSON.stringify(result)
+    if (text !== undefined && text.length > MAX_HANDLER_RESULT) throw new Error('插件处理函数的返回值不能超过 4 MB')
+    return text === undefined ? null : JSON.parse(text)
+  }
 
   /** Called by Tavern after a turn's settlement finished (or failed). */
   async function turnSettled(sessionId) {
@@ -535,5 +563,5 @@ export function createTavernPluginApi(deps) {
     }
   })
 
-  return Object.freeze({ service, turnSettled, gameRemoved, timelineChanged, gameForked, forkTurns, promptSections, turnContext, settlement, candidate, compactionNotes, replaceSettlement, gamePlugins, setGamePlugin })
+  return Object.freeze({ service, callHandler, turnSettled, gameRemoved, timelineChanged, gameForked, forkTurns, promptSections, turnContext, settlement, candidate, compactionNotes, replaceSettlement, gamePlugins, setGamePlugin })
 }

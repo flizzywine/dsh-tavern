@@ -486,8 +486,11 @@ test('内置 Skill 携带的接口文档与示例和正本一致', async () => {
   const read = path => readFile(new URL('../' + path, import.meta.url), 'utf8')
   assert.equal(await read('presets/tavern/skills/tavern-plugin/references/plugin-api.md'), await read('docs/plugin-api.md'), '修改 docs/plugin-api.md 后同步复制到 Skill')
   assert.equal(await read('presets/tavern/skills/tavern-plugin/references/plugin-recipes.md'), await read('docs/plugin-recipes.md'), '修改 docs/plugin-recipes.md 后同步复制到 Skill')
-  const example = /```js\n([\s\S]*)```\n$/.exec(await read('presets/tavern/skills/tavern-plugin/references/example-plugin.md'))?.[1]
-  assert.equal(example, await read('examples/tavern-plugin-hello/index.mjs'), '修改示例插件后同步复制到 Skill')
+  const copy = await read('presets/tavern/skills/tavern-plugin/references/example-plugin.md')
+  for (const file of ['package.json', 'index.mjs', 'client.js']) {
+    const block = new RegExp('## ' + file.replace('.', '\\.') + '\\n\\n```\\w+\\n([\\s\\S]*?)\\n```').exec(copy)?.[1]
+    assert.equal(block + '\n', await read('examples/tavern-plugin-hello/' + file), '修改示例插件 ' + file + ' 后同步复制到 Skill')
+  }
 })
 
 test('重复读取同一正文版本不再读写媒体记录', async () => {
@@ -518,4 +521,33 @@ test('tavern 服务：onTurnSettled 与 getTurn 带上这一轮的只读变量',
   const read = await tavern.getTurn({ gameId: 'game-1', turn: 3 })
   read.variables.stat_data.turn = 9
   assert.deepEqual((await tavern.getTurn({ gameId: 'game-1', turn: 3 })).variables, { stat_data: { turn: 3 } })
+})
+
+test('tavern 服务：handle 注册的处理函数供浏览器侧 callHost 调用，插件卸载后撤销', { skip: !cordis }, async t => {
+  const h = await harness(t)
+  const fiber = await h.root.plugin({ name: 'drawer', inject: ['tavern'], apply(ctx) {
+    ctx.tavern.handle('drawer/draw', async ({ gameId, turn }) => ({ gameId, turn, ok: true }))
+    ctx.tavern.handle('drawer/fail', async () => { throw new Error('出错了') })
+  } })
+  await tick()
+  assert.deepEqual(await h.api.callHandler('drawer/draw', { gameId: 'game-1', turn: 3 }), { gameId: 'game-1', turn: 3, ok: true })
+  await assert.rejects(h.api.callHandler('drawer/fail', {}), /出错了/)
+  await assert.rejects(h.api.callHandler('nobody/draw', {}), { code: 'TAVERN_PLUGIN_NOT_FOUND' })
+  await assert.rejects(h.root.plugin({ name: 'other', inject: ['tavern'], apply(ctx) { ctx.tavern.handle('drawer/draw', () => 1) } }).then(tick), /已被注册/)
+  fiber.dispose()
+  await tick()
+  await assert.rejects(h.api.callHandler('drawer/draw', {}), { code: 'TAVERN_PLUGIN_NOT_FOUND' })
+})
+
+test('示例插件的重画按钮：callHost 调到宿主侧，按当前正文再挂一张图', { skip: !cordis }, async t => {
+  const h = await harness(t)
+  await h.root.plugin({ name: 'fake-attachments', apply(ctx) {
+    ctx.provide('attachments', { async saveImage(input) { return { attachmentId: 'png-x', mediaType: input.mediaType, bytes: input.data.length, width: 96, height: 64 } } })
+  } })
+  await h.root.plugin(await import('../examples/tavern-plugin-hello/index.mjs'))
+  await tick()
+  const { id } = await h.api.callHandler('tavern-plugin-hello/redraw', { gameId: 'game-1', turn: 3 })
+  const item = (await h.media.list({ chatId: 'chat-1' })).find(entry => entry.id === id)
+  assert.equal(item.status, 'ready')
+  await assert.rejects(h.api.callHandler('tavern-plugin-hello/redraw', { gameId: 'game-1', turn: 9 }), /还没写完/)
 })

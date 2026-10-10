@@ -1,0 +1,15 @@
+{
+  "name": "tavern-plugin-hello",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.mjs",
+    "./client": "./client.js"
+  },
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "inject": ["dsh-tavern-plugin"]
+    }
+  }
+}

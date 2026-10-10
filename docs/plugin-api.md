@@ -14,19 +14,65 @@ DSH Tavern 把扩展功能交给第三方 **DSH 插件**：文生图、文生视
 
 ## 快速开始
 
-最小示例：[`examples/tavern-plugin-hello`](../examples/tavern-plugin-hello/index.mjs)。每轮正文写完后，它在第一句话所在段落的后面挂一张图，先显示「生成中…」，再换成图片。把其中的 `drawImage()` 换成你的生图服务，就是一个完整的生图插件。
+一个插件就是一个文件夹。把它放进 Tavern 数据目录的 `plugins/` 下就会加载，不需要改 Tavern 的任何文件，也不需要打包：
+
+```text
+~/.dsh/profile-data/tavern/data/plugins/
+└─ dsh-tavern-xxx/
+   ├─ package.json   声明宿主侧入口，以及（可选的）浏览器侧
+   ├─ index.mjs      宿主侧：用 ctx.tavern
+   └─ client.js      浏览器侧（可选）：用 ctx.tavernUi
+```
+
+设置了 `DSH_HOME` 时，数据目录在 `$DSH_HOME/profile-data/tavern/data/`。最小示例 [`examples/tavern-plugin-hello`](../examples/tavern-plugin-hello/) 就是这样一个文件夹，整个复制过去即可：宿主侧每轮在第一句话所在段落后挂一张图（先显示「生成中…」再换成图片），浏览器侧把正文里的 `hello###…###` 显示成徽章。把其中的 `drawImage()` 换成你的生图服务，就是一个完整的生图插件。
 
 按「要做什么插件」找写法（配图、记忆、读变量、后台推演、接管结算等），见[常见用法](plugin-recipes.md)。
 
-只有宿主侧代码的插件，可以放进 Tavern 用户数据目录：代码放在 `tools/<名称>/`，再在 `tools.cordis.yml` 里加一条（见[用户自创工具](user-extensions.md)）：
+`package.json` 的写法：
 
-```yaml
-- id: tavern-plugin-hello
-  name: ./tools/tavern-plugin-hello/index.mjs
-  config: {}
+```json
+{
+  "name": "dsh-tavern-xxx",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./index.mjs", "./client": "./client.js" },
+  "dsh": { "client": { "platform": "web", "inject": ["dsh-tavern-plugin"] } }
+}
 ```
 
-需要浏览器侧界面（自定义显示、正文标记、按钮）的插件，按 DSH 插件包的方式发布和安装。插件名建议叫 `dsh-tavern-xxx`，方便用户辨认。插件都需要**完整重启 DSH** 才会加载，刷新页面不够。
+- 宿主侧入口必须有（`exports` 的 `"."`，或 `main`）。只做界面的插件也要放一个空的 `index.mjs`（`export function apply() {}`）。
+- 没有浏览器侧时，去掉 `"./client"` 和整个 `dsh` 字段。
+- 插件名建议叫 `dsh-tavern-xxx`，方便用户辨认；不能和已安装的包同名（例如 `dsh-tavern-plugin`），否则会被跳过。
+- 插件被删除或卸载时要释放的东西（定时器、连接），用 `ctx.effect(() => () => { /* 清理 */ })` 注册。
+
+浏览器侧的 `client.js` 由浏览器直接加载，不需要打包，固定写成下面的样子；`id` 必须和 `package.json` 的 `name` 一致，React 用 `require('react')` 取：
+
+```js
+window.__ModuleLoader__.load({
+  id: 'dsh-tavern-xxx',
+  factory: (require) => {
+    const React = require('react')
+    return {
+      name: 'dsh-tavern-xxx',
+      inject: ['tavernUi'],
+      apply(ctx) { /* ctx.tavernUi.registerTextMarker(...) 等 */ },
+    }
+  },
+})
+```
+
+什么时候生效：
+
+| 操作 | 生效方式 |
+|---|---|
+| 往 `plugins/` 放进一个新插件 | 不用重启：宿主侧几秒内加载，浏览器侧刷新一次页面后出现 |
+| 修改 `client.js` | 不用刷新：几秒内自动换成新代码 |
+| 修改 `index.mjs` | 要重启 DSH |
+| 删除插件文件夹 | 宿主侧不再加载；刷新页面后浏览器侧消失 |
+
+Tavern 把 `plugins/` 下的插件登记在 DSH 的 Tavern 配置（`~/.dsh/profiles/tavern/cordis.patch.yml`）里，以 `tavern-user-plugin-` 开头的条目由 Tavern 自动维护，不要手改。插件文件夹缺 `package.json` 或宿主入口时会被跳过，原因写在 Tavern 日志里。
+
+> 不要把插件放进 `tools/` 和 `tools.cordis.yml`：那里是卡片工作台的自创工具，挂在 Agent 预设里，要等第一局开始才加载，浏览器侧也永远不会加载。
 
 ## 怎么拿到接口
 
@@ -254,6 +300,23 @@ ctx.tavern.replaceSettlement({
 - **范围**：只替换普通卡的姿势结算（以及同一步里的人物设计）。使用官方 MVU 变量的卡，变量结算仍由 Tavern 负责，不会调用 `settle`。玩家关掉了所有后台结算项时，这一轮不结算，也不调用 `settle`。
 - **只有一个生效**：每个插件只能注册一次。只有一个插件注册时，它自动生效；有多个时，要玩家在「本局设置 → 插件」里选一个，选好之前都不生效，用 Tavern 自己的结算。玩家也可以在那里选回 Tavern 自己的结算。
 
+### `handle(name, handler)`（第 2 版）
+
+注册一个处理函数，供插件自己的浏览器侧用 `tavernUi.callHost(name, args)` 调用，例如浏览器侧的「重画」按钮让宿主侧去生成。
+
+```js
+ctx.tavern.handle('dsh-tavern-xxx/redraw', async ({ gameId, turn }) => {
+  const current = await ctx.tavern.getTurn({ gameId, turn })
+  // ……生成并 attach
+  return { ok: true }
+})
+```
+
+- `name` 在所有插件之间唯一，建议以插件名开头；用小写字母、数字和 `. _ : / -`，最多 96 个字符。
+- `handler` 收到浏览器侧传来的参数（能转成 JSON 的值，最多 256 KB），返回值同样要能转成 JSON（最多 4 MB），原样交回浏览器侧。抛错时浏览器侧的 `callHost` 以同样的错误信息失败。
+- 参数里带上 `gameId`：玩家在这一局关掉了插件时，调用会被拒绝；处理函数出错会记进这一局的插件错误。不带 `gameId` 的调用不受按局开关约束。
+- 没有超时限制，长任务请自己控制。
+
 ## 本局插件面板
 
 「本局设置 → 插件」列出本局用到的插件、各自用到了哪些阶段（观察、添加、替换），玩家可以按局关掉某个插件，选择由谁负责结算，并查看最近的插件错误。被关掉的插件在这一局不再参与提示词、结算和通知（`onTurnSettled`、`onTimelineChanged`），它的结算工具调用会被拒绝；它已经挂上的媒体和存档数据保留。
@@ -342,6 +405,19 @@ context = { gameId, turn, busy }
 
 想替换内置生图的插件就用这个入口。内置生图的入口在每轮正文下方的操作栏（图片图标），与插件按钮互不占位，由用户选择用哪个。
 
+### `callHost(name, args)`（第 2 版）
+
+调用宿主侧用 `tavern.handle(name, handler)` 注册的处理函数，返回一个 Promise，结果是处理函数的返回值。
+
+```js
+ctx.tavernUi.registerMessageAction({
+  id: 'redraw', label: '重画',
+  run: ({ gameId, turn }) => ctx.tavernUi.callHost('dsh-tavern-xxx/redraw', { gameId, turn }),
+})
+```
+
+处理函数不存在（插件宿主侧没加载、或没注册这个名字）时失败，错误码 `TAVERN_PLUGIN_NOT_FOUND`。
+
 ### `registerPanel({ id, title, render })`（第 2 版）
 
 在右侧栏加一页插件自己的面板，比如记忆、锚点或状态一览。玩家从侧栏的「＋」里打开，面板显示在「插件」一组。
@@ -370,7 +446,7 @@ Tavern 只给顶层会话（玩家的游戏会话）加回合上下文和「【�
 
 ## 已知限制
 
-- 插件需要完整重启 DSH 才会加载。这是 DSH 的机制。
+- 修改插件的宿主侧代码（`index.mjs`）后要重启 DSH 才生效。这是 DSH 的机制。
 - 导出存档暂不包含插件媒体项和插件存档数据；导入后的新局里看不到它们。
 - 开场白不触发 `onTurnSettled`。
 
@@ -383,4 +459,4 @@ Tavern 尽量开放接口，并保持每个接口简单、稳定；接口按插�
 | 版本 | 变化 |
 |---|---|
 | 1 | 首个版本。 |
-| 2 | 新增 `turnSection`、`worldbookSource`、`settlementSection`、`settlementTool`：插件可以往每轮正文请求和后台结算里添加内容。新增插件存档数据（`saveTurnData`、`readTurnData`、`saveGameData`、`readGameData`）与 `onTimelineChanged`；编辑正文后重新发 `onTurnSettled`；分叉时带上插件数据和媒体项。新增第一个替换类接口 `replaceSettlement`，以及本局插件面板（按局开关、选择结算由谁负责、错误记录）。新增 `candidateSection`、`compactionSection`；浏览器侧新增 `registerPanel`（`tavernUi.apiVersion` 为 2）。`onTurnSettled`、`getTurn` 增加只读的 `variables`。第 1 版接口不变。 |
+| 2 | 新增 `turnSection`、`worldbookSource`、`settlementSection`、`settlementTool`：插件可以往每轮正文请求和后台结算里添加内容。新增插件存档数据（`saveTurnData`、`readTurnData`、`saveGameData`、`readGameData`）与 `onTimelineChanged`；编辑正文后重新发 `onTurnSettled`；分叉时带上插件数据和媒体项。新增第一个替换类接口 `replaceSettlement`，以及本局插件面板（按局开关、选择结算由谁负责、错误记录）。新增 `candidateSection`、`compactionSection`；浏览器侧新增 `registerPanel`（`tavernUi.apiVersion` 为 2）。`onTurnSettled`、`getTurn` 增加只读的 `variables`。新增宿主侧 `handle` 与浏览器侧 `callHost`，插件的浏览器侧可以调用自己的宿主侧。插件可放进数据目录的 `plugins/` 文件夹加载。第 1 版接口不变。 |

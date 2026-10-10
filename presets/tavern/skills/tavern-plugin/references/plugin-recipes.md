@@ -1,6 +1,6 @@
 # Tavern 插件常见用法
 
-这里按「我要做什么」列出常见插件的写法，每段代码都只用[插件接口](https://github.com/flizzywine/dsh-tavern/blob/main/docs/plugin-api.md)里列出的方法。代码是骨架：`drawImage()`、`callModel()` 这类函数换成你自己的服务。每个方法的完整规则以接口文档为准。
+这里按「我要做什么」列出常见插件的写法，插件怎么放、怎么加载见接口文档的「快速开始」。每段代码都只用[插件接口](https://github.com/flizzywine/dsh-tavern/blob/main/docs/plugin-api.md)里列出的方法。代码是骨架：`drawImage()`、`callModel()` 这类函数换成你自己的服务。每个方法的完整规则以接口文档为准。
 
 ## 每轮配一张图（生图、配音、视频）
 
@@ -34,18 +34,26 @@ export function apply(ctx) {
 
 ## 让玩家手动触发（「配图」「重画」按钮）
 
-不想每轮都生成，就在浏览器侧加按钮，按钮再调用插件自己在宿主侧注册的功能。
+不想每轮都生成，就在浏览器侧加按钮，按钮用 `callHost` 调用宿主侧用 `handle` 注册的处理函数。
 
 ```js
-// 浏览器侧
+// 宿主侧 index.mjs
+ctx.tavern.handle('dsh-tavern-my-image/draw', async ({ gameId, turn }) => {
+  const current = await ctx.tavern.getTurn({ gameId, turn })   // 这一轮当前显示的正文和 textVersion
+  if (!current) throw new Error('这一轮还没写完')
+  await drawAndAttach(current)                                  // 按上一节挂图
+  return { ok: true }
+})
+
+// 浏览器侧 client.js
 ctx.tavernUi.registerMessageAction({
   id: 'draw', label: '配图',
   when: ({ settled }) => settled,
-  run: async ({ gameId, turn }) => { await callMyHostApi('draw', { gameId, turn }) },
+  run: ({ gameId, turn }) => ctx.tavernUi.callHost('dsh-tavern-my-image/draw', { gameId, turn }),
 })
 ```
 
-宿主侧收到请求后，用 `getTurn({ gameId, turn })` 读这一轮的正文和 `textVersion`，再按上一节挂图。针对最新一轮的按钮放在输入框上方，用 `registerComposerAction`。
+针对最新一轮的按钮放在输入框上方，用 `registerComposerAction`。示例插件 `tavern-plugin-hello` 的「重画示例图」按钮就是这样写的。
 
 ## 让模型在正文里写标记，由插件显示
 
