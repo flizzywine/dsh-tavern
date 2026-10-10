@@ -124,6 +124,7 @@ test('tavern 服务：按调用插件识别归属，插件卸载后自动撤销�
   assert.equal(seen[0].textVersion, 'key-3')
   assert.equal(seen[0].card.name, 'A')
   assert.equal(seen[0].rawText, '<b>她</b>推开门。')
+  assert.equal(seen[0].variables, null, '没有提供变量读取时为 null')
   assert.deepEqual(await h.api.promptSections({ gameId: 'game-1' }), [{ name: 'tavern-plugin:image-plugin:rules', text: '为 game-1 配图' }])
 
   const { id } = await tavern.attach({ gameId: 'game-1', turn: 3, textVersion: seen[0].textVersion, item: { kind: 'image', status: 'pending' } })
@@ -382,7 +383,7 @@ test('插件轮次读取：真实存储下与生图共用正文版本，未结�
   const messages = [
     { role: 'assistant', greeting: true, turn: 1, text: '开场。', swipes: ['开场。'], swipeId: 0 },
     { role: 'user', turn: 2, text: '进门' },
-    bindSceneWorldbook({ role: 'assistant', turn: 2, text: '她<b>推开</b>酒馆的门。', swipes: ['她<b>推开</b>酒馆的门。'], swipeId: 0, mvu: { pending: false } }, ref)
+    bindSceneWorldbook({ role: 'assistant', turn: 2, text: '她<b>推开</b>酒馆的门。', swipes: ['她<b>推开</b>酒馆的门。'], swipeId: 0, mvu: { pending: false }, variables: [{ stat_data: { 日期: '初五' } }] }, ref)
   ]
   const chat = await db.write({ id: 'chat-1', sessionId: 'game-1', mode: 'story', cardPath: '/cards/a.json', cardName: 'A', settleStatus: 'pending', messages })
   const reader = createPluginTurnReader({
@@ -405,7 +406,10 @@ test('插件轮次读取：真实存储下与生图共用正文版本，未结�
   const context = await reader.readCardContext(latest)
   assert.equal(context.description, 'A是酒馆老板。')
   assert.deepEqual(context.lore, [{ title: '酒馆', keys: ['酒馆'], constant: false, content: '酒馆在城东。' }])
-  await db.update(chat.id, current => { current.messages[2].swipes.push('另一个版本。'); current.messages[2].swipeId = 1; return current })
+  assert.deepEqual(await reader.readVariables(latest), { stat_data: { 日期: '初五' } }, '结算后的消息变量只读可得')
+  assert.equal(await reader.readVariables(await reader.readTurn('game-1', 1)), null, '没有变量时为 null')
+  await db.update(chat.id, current => { current.messages[2].swipes.push('另一个版本。'); current.messages[2].swipeId = 1; current.messages[2].variables.push({ stat_data: { 日期: '二十' } }); return current })
+  assert.deepEqual(await reader.readVariables(await reader.readTurn('game-1', 2)), { stat_data: { 日期: '二十' } }, '按当前显示的版本读变量')
   assert.notEqual(await reader.currentKey('game-1', 2), latest.key, '换版本后正文版本变化')
   assert.deepEqual((await reader.readCardContext(await reader.readTurn('game-1', 2))).lore, [], '新版本不继承旧版本的世界书快照')
 })
@@ -499,4 +503,18 @@ test('重复读取同一正文版本不再读写媒体记录', async () => {
   await media.removeChat('c')
   await media.issue('c', 2, 'k')
   assert.equal(writes, 2, '删局后重新登记')
+})
+
+test('tavern 服务：onTurnSettled 与 getTurn 带上这一轮的只读变量', { skip: !cordis }, async t => {
+  const h = await harness(t, { readVariables: async material => ({ stat_data: { turn: material.turn } }) })
+  const seen = []
+  let tavern
+  await h.root.plugin({ name: 'world', inject: ['tavern'], apply(ctx) { tavern = ctx.tavern; ctx.tavern.onTurnSettled(turn => seen.push(turn)) } })
+  await tick()
+  await h.api.turnSettled('game-1')
+  await tick()
+  assert.deepEqual(seen[0].variables, { stat_data: { turn: 3 } })
+  const read = await tavern.getTurn({ gameId: 'game-1', turn: 3 })
+  read.variables.stat_data.turn = 9
+  assert.deepEqual((await tavern.getTurn({ gameId: 'game-1', turn: 3 })).variables, { stat_data: { turn: 3 } })
 })

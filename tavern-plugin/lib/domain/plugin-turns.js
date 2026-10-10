@@ -54,14 +54,25 @@ export function createPluginTurnReader(deps) {
     }
   }
 
+  async function turnRow(turn) {
+    const sliced = await deps.slice(turn.sessionId, [turn.index])
+    return sliced ? sliced.chat?.messages?.[0]
+      : ((await deps.fullChat(turn.sessionId))?.messages || []).find(message => message?.role === 'assistant' && storyTurnOf(message) === turn.turn)
+  }
+
+  // Message variables of the shown version after settlement (MVU data under stat_data).
+  async function readVariables(turn) {
+    const row = await turnRow(turn)
+    const value = row?.variables?.[Math.max(0, Number(row.swipeId) || 0)]
+    return value !== null && typeof value === 'object' && !Array.isArray(value) ? structuredClone(value) : null
+  }
+
   async function readCardContext(turn) {
     const header = await deps.header(turn.sessionId, ['mode', 'cardPath', 'cardName', 'macroState', 'cardDefinitionSnapshot'])
     const card = header ? await deps.readChatCard(header).catch(() => null) : null
     const project = value => typeof value === 'string' && value.trim()
       ? projectAgentContent(value, { macroState: header?.macroState, charName: card?.name || header?.cardName }).agentText.trim() : ''
-    const sliced = await deps.slice(turn.sessionId, [turn.index])
-    const row = sliced ? sliced.chat?.messages?.[0]
-      : ((await deps.fullChat(turn.sessionId))?.messages || []).find(message => message?.role === 'assistant' && storyTurnOf(message) === turn.turn)
+    const row = await turnRow(turn)
     const binding = row ? sceneWorldbookBinding({ messages: [row] }, { turn: turn.turn, sourceDigest: turn.sourceDigest }) : null
     const book = binding && deps.worldbooks ? await deps.worldbooks.read(binding) : null
     const lore = Array.isArray(book?.entries) ? book.entries.map(entry => ({
@@ -78,6 +89,7 @@ export function createPluginTurnReader(deps) {
     currentKey,
     readTurn: (sessionId, turn) => material(sessionId, turn),
     readLatestSettledTurn: sessionId => material(sessionId, undefined, { requireLatest: true }),
-    readCardContext
+    readCardContext,
+    readVariables
   })
 }

@@ -79,15 +79,18 @@ export function apply(ctx) {
   text,          // 这一轮正文的纯文本（去掉了 HTML 标签与程序块，宏已展开）
   rawText,       // 模型原始输出（含插件让模型写进正文的标记）
   card: { id, name },  // id 是人物卡在库里的位置，卡被移动或改名后可能变化
+  variables,     // 这一轮结算后的消息变量（只读副本），没有时为 null
   settledAt,     // 毫秒时间戳
 }
 ```
+
+`variables` 与 SillyTavern 的消息变量同一结构：使用 MVU 变量的卡，变量在 `variables.stat_data` 下。它跟着正文版本走：回退、重新生成、切换版本后读到的是当前显示版本的变量。只能读，改它不影响游戏；Tavern 不解释其中的内容（例如游戏日期），由插件按卡自己的变量名读取。
 
 处理函数里抛错不会影响游戏，错误会写进日志。处理函数不必等生图完成才返回。
 
 ### `getTurn({ gameId, turn })`
 
-读某一轮**当前显示版本**的同一份内容（不含 `settledAt`）。这一轮不存在、或者是还没结算完的最新一轮时返回 `null`。用于插件自己的「手动生成」按钮。只读这一轮，不读整局历史，可以按需随时调用。
+读某一轮**当前显示版本**的同一份内容（含 `variables`，不含 `settledAt`）。这一轮不存在、或者是还没结算完的最新一轮时返回 `null`。用于插件自己的「手动生成」按钮。只读这一轮，不读整局历史，可以按需随时调用。
 
 ### `getCardContext({ gameId, turn })`
 
@@ -268,6 +271,8 @@ ctx.tavern.replaceSettlement({
 
 在 `settlementTool` 的 `execute` 里调用时，用收到的 `gameId`、`turn`，省略 `textVersion` 即可。
 
+插件自己在后台跑的长任务（例如推演），开始时记下这一轮的 `textVersion`，保存时带上它：期间玩家回退、重新生成或切换了版本，保存会报错，过期的结果不会写进当前剧情线。需要提前停掉任务时，监听 `onTimelineChanged`。
+
 ### `readTurnData({ gameId, turn })`
 
 读**当前剧情线上第 `turn` 轮及之前最新的一条**，返回 `{ turn, textVersion, data }`，没有时返回 `null`。
@@ -376,4 +381,4 @@ Tavern 不提前设计接口，而是根据插件实际用到的内容补接口�
 | 版本 | 变化 |
 |---|---|
 | 1 | 首个版本。 |
-| 2 | 新增 `turnSection`、`worldbookSource`、`settlementSection`、`settlementTool`：插件可以往每轮正文请求和后台结算里添加内容。新增插件存档数据（`saveTurnData`、`readTurnData`、`saveGameData`、`readGameData`）与 `onTimelineChanged`；编辑正文后重新发 `onTurnSettled`；分叉时带上插件数据和媒体项。新增第一个替换类接口 `replaceSettlement`，以及本局插件面板（按局开关、选择结算由谁负责、错误记录）。新增 `candidateSection`、`compactionSection`；浏览器侧新增 `registerPanel`（`tavernUi.apiVersion` 为 2）。第 1 版接口不变。 |
+| 2 | 新增 `turnSection`、`worldbookSource`、`settlementSection`、`settlementTool`：插件可以往每轮正文请求和后台结算里添加内容。新增插件存档数据（`saveTurnData`、`readTurnData`、`saveGameData`、`readGameData`）与 `onTimelineChanged`；编辑正文后重新发 `onTurnSettled`；分叉时带上插件数据和媒体项。新增第一个替换类接口 `replaceSettlement`，以及本局插件面板（按局开关、选择结算由谁负责、错误记录）。新增 `candidateSection`、`compactionSection`；浏览器侧新增 `registerPanel`（`tavernUi.apiVersion` 为 2）。`onTurnSettled`、`getTurn` 增加只读的 `variables`。第 1 版接口不变。 |

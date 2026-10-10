@@ -116,11 +116,13 @@ export function createTavernPluginApi(deps) {
     return material
   }
 
-  function snapshotOf(material) {
+  async function snapshotOf(material) {
+    const variables = deps.readVariables ? await deps.readVariables(material).catch(() => null) : null
     return {
       gameId: material.sessionId, turn: material.turn, textVersion: material.key,
       text: material.text, rawText: material.source,
-      card: { id: material.card.path, name: material.card.name }
+      card: { id: material.card.path, name: material.card.name },
+      variables: variables ?? null
     }
   }
 
@@ -226,7 +228,7 @@ export function createTavernPluginApi(deps) {
       const material = await deps.readTurn(gameIdOf(gameId), positiveTurn(turn))
       if (!material) return null
       await deps.media.issue(material.chatId, material.turn, material.key)
-      return snapshotOf(material)
+      return await snapshotOf(material)
     },
 
     async getCardContext({ gameId, turn } = {}) {
@@ -342,7 +344,7 @@ export function createTavernPluginApi(deps) {
     notified.add(id)
     if (notified.size > 2000) notified.delete(notified.values().next().value)
     await deps.media.issue(material.chatId, material.turn, material.key)
-    dispatch(settledHandlers, { ...snapshotOf(material), settledAt: Date.now() }, 'onTurnSettled', (await choicesFor(material.sessionId)).disabled)
+    dispatch(settledHandlers, { ...(await snapshotOf(material)), settledAt: Date.now() }, 'onTurnSettled', (await choicesFor(material.sessionId)).disabled)
   }
 
   function gameRemoved(gameId) {
