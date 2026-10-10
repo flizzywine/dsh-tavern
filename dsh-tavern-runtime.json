@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "3438e3cb80c94aad47247b8bd1e2468731848790",
-  "releaseSequence": 565,
+  "revision": "a9a0fd7184b12432a001a129daca6ebd48298502",
+  "releaseSequence": 566,
   "version": "2.5.0",
   "files": [
     {
@@ -381,8 +381,8 @@
     },
     {
       "path": "presets/tavern/skills/tavern-plugin/references/plugin-api.md",
-      "sha256": "ed6f35b49e9660d39474f0b541fb456a7ea97c4ba72688ce6538066f61d36be3",
-      "size": 24318
+      "sha256": "3b0b7b19c2cbfeb6c04b68c41f6c52b1b216492fdc39d33e66dfa9790b7e1c7f",
+      "size": 24690
     },
     {
       "path": "presets/tavern/skills/tavern-plugin/SKILL.md",
@@ -431,8 +431,8 @@
     },
     {
       "path": "tavern-plugin/lib/background-agent-task.js",
-      "sha256": "16f76ec2f840d818c7bb47fe070bf01374f5c9beefb9432c90bd624d31f32a21",
-      "size": 28814
+      "sha256": "ba8f91a4e276d6eaadbcae5c8fd38014ac385f209d0bcebf1ba9879046f35f85",
+      "size": 29403
     },
     {
       "path": "tavern-plugin/lib/client-assets/lockup-dark.svg",
@@ -1961,8 +1961,8 @@
     },
     {
       "path": "tavern-plugin/lib/plugin-api.js",
-      "sha256": "fa76964682ae92ab8ce28e8ecab3ac3ab27d8eb23563bc1e78ff7c263bedf27b",
-      "size": 28369
+      "sha256": "13957c308ccbf465bfa0197136afe7a0a86c927db14682a606088c964db63f21",
+      "size": 28949
     },
     {
       "path": "tavern-plugin/lib/profile-data-store.js",
