@@ -21,6 +21,7 @@ import { createRegexLibrary } from './domain/regex-library.js'
 import { copyJsonTree } from './domain/copy-json-tree.js'
 import { createCandidateContextReader } from './domain/candidate-context-reader.js'
 import { createCandidateWorldbookPreparation } from './domain/candidate-worldbook-preparation.js'
+import { withPluginWorldbookEntries } from './domain/plugin-worldbook.js'
 import { createTemplateWindowReader, templateStateFields } from './domain/template-window-reader.js'
 import { createSessionResourceAccess } from './domain/session-resource-access.js'
 import { worldBookDisplayName } from './domain/worldbook-resource.js'
@@ -2229,7 +2230,7 @@ export async function apply(ctx) {
     }
   })
   const projectForegroundWorldbook = createForegroundWorldbook({
-    bound: (...args) => worldBooks.bound(...args),
+    bound: (cardPath, card, chat) => playWorldBook(chat, card),
     runtime: promptTemplateRuntime,
     globalVariables: readPromptTemplateGlobalVariables,
     scanText: scriptPromptScanText,
@@ -2240,7 +2241,7 @@ export async function apply(ctx) {
       const chat = await chatForSession(sessionId)
       if (!chat || !['story', 'script'].includes(chat.mode || 'story')) throw new Error('世界书查询仅用于当前游玩对话')
       const card = await readChatCard(chat)
-      return { chat, card, worldBook: await worldBooks.bound(chat.cardPath, card, chat) }
+      return { chat, card, worldBook: await playWorldBook(chat, card) }
     },
     render: async ({ chat, card, worldBook }, selected) => {
       const runtime = await promptTemplateRuntime(chat.sessionId)
@@ -2713,7 +2714,7 @@ export async function apply(ctx) {
   async function nativeWorldBookTemplateContext(chat, card) {
     let worldBook
     try {
-      worldBook = await worldBooks.bound(chat.cardPath, card, chat)
+      worldBook = await playWorldBook(chat, card)
     } catch (error) {
       console.warn('dsh-tavern: 动态世界书读取失败，已跳过:', str(error && error.message || error))
       return { context: '', refs: [], diagnostics: [{ kind: 'worldbook-template', code: 'worldbook-read-failed' }] }
@@ -2910,6 +2911,13 @@ export async function apply(ctx) {
     try { return historyScanDepth(await worldBooks.bound(chat.cardPath, await readChatCard(chat), chat)) }
     catch { return Infinity }
   }
+  // What recall, world book search and screening read: the bound book plus plugin entries (tavern.worldbookEntries).
+  async function playWorldBook(chat, card) {
+    const record = await worldBooks.bound(chat.cardPath, card, chat)
+    if (!chat?.sessionId) return record
+    const turn = Number([...(chat.messages || [])].reverse().find(message => message?.role === 'assistant')?.turn) || 0
+    return withPluginWorldbookEntries(record, await pluginApi.worldbookPoolEntries({ gameId: chat.sessionId, turn }))
+  }
   const boundedHistory = createBoundedHistory({ links: readSessionMap, readWindow: chatPersistence.readWindow })
   // A story request reads the header, every floor its world book scans (plus the
   // current input or latest body), the latest reply and the latest variable floor.
@@ -2949,8 +2957,8 @@ export async function apply(ctx) {
     let error = null
     try {
       const card = await readChatCard(snapshot)
-      const worldBook = await worldBooks.bound(snapshot.cardPath, card, snapshot)
-      prepared = prepareWorldBookRecall({ turn, chat: snapshot, card, worldBook })
+      const worldBook = await playWorldBook(snapshot, card)
+      prepared = prepareWorldBookRecall({ turn, chat: snapshot, card, worldBook, activationRequests: worldBook?.pluginActivationRequests })
     } catch (caught) {
       error = str(caught && caught.message || caught)
       prepared = prepareWorldBookRecall({ turn, chat: snapshot, card: null, worldBook: null })
@@ -3519,8 +3527,8 @@ export async function apply(ctx) {
     projectScriptPromptWorldbook: async function ({ chat, card, turn }) {
       const text = scriptPromptScanText(chat)
       if (!text.trim()) return null
-      const worldBook = await worldBooks.bound(chat.cardPath, card, chat)
-      return prepareWorldBookRecall({ chat, card, turn, worldBook, latestBody: text })
+      const worldBook = await playWorldBook(chat, card)
+      return prepareWorldBookRecall({ chat, card, turn, worldBook, latestBody: text, activationRequests: worldBook?.pluginActivationRequests })
     },
     resolvePresetRegexScripts: async function (chat) {
       if (!chat || groupOfMode(chat.mode) !== 'play') return []

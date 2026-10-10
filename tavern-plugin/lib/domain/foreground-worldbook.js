@@ -33,7 +33,7 @@ export function createForegroundWorldbook({ bound, runtime, globalVariables, sca
       }
       const templateRuntime = await runtime(chat.sessionId), globals = await globalVariables()
       worldBook = await prepareTemplateWorldbook(worldBook, templateRuntime, chat, globals)
-      const preparedActivations = [...(worldBook?.templateActivationRequests || []), ...unreadCharacterDesigns(worldBook, chat)]
+      const preparedActivations = [...(worldBook?.templateActivationRequests || []), ...unreadCharacterDesigns(worldBook, chat), ...(worldBook?.pluginActivationRequests || [])]
       let activationRequests = preparedActivations, recalled, projected
       const tokenCosts = {}
       // Only the post-reply prefilter may ask a model; sending and history import stay local.

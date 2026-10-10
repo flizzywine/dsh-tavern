@@ -15,6 +15,10 @@ const MAX_TOOL_RESULT = 20000
 const MAX_TOOL_CALLS_PER_SETTLEMENT = 8
 const MAX_WORLDBOOK_ENTRIES = 20
 const MAX_WORLDBOOK_ENTRY = 4000
+const MAX_POOL_ENTRIES = 200
+// Read on every send, settlement and world book search: a slow plugin must not hold the game up.
+const POOL_TIMEOUT_MS = 5000
+const POOL_ENTRY_ID = /^[A-Za-z0-9._-]{1,64}$/
 const PLUGIN_TIMEOUT_MS = 30000
 const REPLACEMENT_TIMEOUT_MS = 120000
 const MAX_ERRORS_PER_GAME = 30
@@ -79,6 +83,7 @@ export function createTavernPluginApi(deps) {
   const settlementSections = new Map()
   const settlementTools = new Map()
   const worldbookSources = new Map()
+  const worldbookPools = new Map()
   const handlers = new Map()
   const candidateSections = new Map()
   const compactionSections = new Map()
@@ -342,6 +347,14 @@ export function createTavernPluginApi(deps) {
       sectionName(name)
       if (typeof entries !== 'function') throw new TypeError('entries 必须是函数')
       return register.call(this, worldbookSources, owner + '\u0000' + name, { owner, name, entries }, 'tavern.worldbookSource()', '世界书来源 ' + name + ' 已注册')
+    },
+
+    // Entries joining this game's world book pool: Tavern's own recall decides what reaches a request.
+    worldbookEntries({ name, entries } = {}) {
+      const owner = ownerOf(this)
+      sectionName(name)
+      if (typeof entries !== 'function') throw new TypeError('entries 必须是函数')
+      return register.call(this, worldbookPools, owner + '\u0000' + name, { owner, name, entries }, 'tavern.worldbookEntries()', '世界书条目来源 ' + name + ' 已注册')
     }
   }
   Object.defineProperty(service, TRACKER, { value: { associate: 'tavern', property: 'ctx' } })
@@ -454,6 +467,7 @@ export function createTavernPluginApi(deps) {
     for (const entry of timelineHandlers) use(entry.owner, '生命周期', '观察')
     for (const entry of removedHandlers) use(entry.owner, '生命周期', '观察')
     for (const entry of [...sections.values(), ...turnSections.values(), ...worldbookSources.values()]) use(entry.owner, '上下文', '添加')
+    for (const entry of worldbookPools.values()) use(entry.owner, '世界书', '添加')
     for (const entry of [...settlementSections.values(), ...settlementTools.values()]) use(entry.owner, '结算', '添加')
     for (const entry of candidateSections.values()) use(entry.owner, '候选', '添加')
     for (const entry of compactionSections.values()) use(entry.owner, '压缩', '添加')
@@ -520,6 +534,39 @@ export function createTavernPluginApi(deps) {
     return result
   }
 
+  /** Seam: plugin entries for a game's world book pool, validated, in a stable order. Each read asks the plugins again. */
+  async function worldbookPoolEntries({ gameId, turn }) {
+    if (!worldbookPools.size) return []
+    const { disabled } = await choicesFor(gameId)
+    const result = []
+    for (const pool of Array.from(worldbookPools.values()).filter(entry => !disabled.has(entry.owner)).sort((a, b) => a.owner.localeCompare(b.owner) || a.name.localeCompare(b.name))) {
+      const stage = '世界书条目 ' + pool.name
+      let entries
+      try { entries = await bounded(pool.entries(structuredClone({ gameId, turn })), stage, POOL_TIMEOUT_MS) }
+      catch (error) { recordError(gameId, pool.owner, stage, error); continue }
+      if (!Array.isArray(entries)) { if (entries != null) recordError(gameId, pool.owner, stage, new Error('entries 要返回数组')); continue }
+      const seen = new Set(), problems = []
+      for (const entry of entries.slice(0, MAX_POOL_ENTRIES)) {
+        const id = typeof entry?.id === 'string' ? entry.id : ''
+        const content = typeof entry?.content === 'string' ? entry.content.trim() : ''
+        if (!POOL_ENTRY_ID.test(id) || seen.has(id)) { problems.push('条目 id 缺失、格式不对或重复：' + String(id).slice(0, 64)); continue }
+        seen.add(id)
+        if (!content) continue
+        if (content.length > MAX_WORLDBOOK_ENTRY) { problems.push('条目 ' + id + ' 超过 ' + MAX_WORLDBOOK_ENTRY + ' 字'); continue }
+        // The template runtime only knows the bound books; a plugin entry is plain text.
+        if (/<%[=_-]?[\s\S]*?%>/.test(content)) { problems.push('条目 ' + id + ' 含 EJS 模板，插件条目不支持'); continue }
+        const keys = list => (Array.isArray(list) ? list : []).filter(key => typeof key === 'string' && key.trim()).slice(0, 50).map(key => key.trim().slice(0, 200))
+        result.push({ owner: pool.owner, source: pool.name, id, content,
+          title: typeof entry.title === 'string' ? entry.title.trim().slice(0, 200) : '',
+          keys: keys(entry.keys), secondaryKeys: keys(entry.secondaryKeys),
+          constant: entry.constant === true, force: entry.force === true })
+      }
+      if (entries.length > MAX_POOL_ENTRIES) problems.push('每个来源最多 ' + MAX_POOL_ENTRIES + ' 条，多出的已忽略')
+      if (problems.length) recordError(gameId, pool.owner, stage, new Error(problems.slice(0, 3).join('；')))
+    }
+    return result
+  }
+
   /** Seam: notes plugins add to the background candidate task. */
   const candidate = Object.freeze({
     async sections({ gameId, turn }) { return collectSections(candidateSections, { gameId, turn }, '候选说明段落', (await choicesFor(gameId)).disabled) }
@@ -563,5 +610,5 @@ export function createTavernPluginApi(deps) {
     }
   })
 
-  return Object.freeze({ service, callHandler, turnSettled, gameRemoved, timelineChanged, gameForked, forkTurns, promptSections, turnContext, settlement, candidate, compactionNotes, replaceSettlement, gamePlugins, setGamePlugin })
+  return Object.freeze({ service, callHandler, turnSettled, gameRemoved, timelineChanged, gameForked, forkTurns, promptSections, turnContext, worldbookPoolEntries, settlement, candidate, compactionNotes, replaceSettlement, gamePlugins, setGamePlugin })
 }

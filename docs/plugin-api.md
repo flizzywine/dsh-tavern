@@ -241,6 +241,24 @@ ctx.tavern.worldbookSource({ name: 'side-quests', entries: async ({ gameId, inpu
 - 每个来源每轮最多 20 条，每条最多 4000 字；`title` 可省略。
 - 其余规则同 `turnSection`：每轮算一次、出错跳过、兼容请求模式不生效。
 
+### `worldbookEntries({ name, entries })`（第 2 版）
+
+把插件自己的条目放进这局的世界书条目池，和人物卡、世界书库的条目一起交给 Tavern 召回：关键词激活、常驻、冷却、筛选复审，以及后台结算、候选和 Agent 查世界书看到的资料，都按 Tavern 自己的规则处理。适合会话临时世界书、NPC 台账、剧情线索这类随游戏变化的条目。
+
+```js
+ctx.tavern.worldbookEntries({ name: 'session', entries: async ({ gameId, turn }) => {
+  const saved = turn ? (await ctx.tavern.readTurnData({ gameId, turn }))?.data : null
+  return (saved?.entries || []).map(item => ({ id: item.id, title: item.title, keys: item.keys, content: item.content }))
+} })
+```
+
+- 每个条目：`id`（必填，同一来源内唯一，字母、数字、点、下划线和连字符，最多 64 字）、`content`（最多 4000 字）、`title`、`keys`（关键词）、`secondaryKeys`（次要关键词，填了就要求同时命中其中之一）、`constant`（常驻）、`force`（本轮必定入选，不看关键词，其余规则不变）。每个来源最多 200 条。
+- `turn` 是最近写完的一轮（还没有时为 0）。Tavern 每次读条目池都会调用 `entries`：发送前、后台结算准备、候选、Agent 查世界书时各一次，所以要快，读插件自己存好的数据即可，不要在这里调用模型。5 秒没有返回或出错时，本次不加插件条目，游戏照常进行。
+- 冷却和已读按 `id` 记账：同一个 `id` 改了内容，按新内容重新计算。
+- 插件条目是纯文本：含 EJS 模板（`<% %>`）的条目会被跳过。它们只参与召回，不写进人物卡或世界书文件，世界书编辑界面里看不到。
+- 不合格的条目（`id` 重复、超长、含模板）被跳过，原因记在「本局设置 → 插件」的错误记录里。
+- 和 `worldbookSource` 的区别：`worldbookSource` 由插件自己决定加入哪些内容，直接写进正文请求；`worldbookEntries` 只把条目放进条目池，加不加入由 Tavern 召回决定。
+
 ### `settlementSection({ name, text })`（第 2 版）
 
 往每轮的**后台结算**任务里加一段说明，例如「本轮结束时用 `anchor_submit` 记录叙事锚点」。`text` 是字符串或函数，函数收到 `{ gameId, turn }`。出错时跳过。
@@ -471,4 +489,4 @@ Tavern 尽量开放接口，并保持每个接口简单、稳定；接口按插�
 | 版本 | 变化 |
 |---|---|
 | 1 | 首个版本。 |
-| 2 | 新增 `turnSection`、`worldbookSource`、`settlementSection`、`settlementTool`：插件可以往每轮正文请求和后台结算里添加内容。新增插件存档数据（`saveTurnData`、`readTurnData`、`saveGameData`、`readGameData`）与 `onTimelineChanged`；编辑正文后重新发 `onTurnSettled`；分叉时带上插件数据和媒体项。新增第一个替换类接口 `replaceSettlement`，以及本局插件面板（按局开关、选择结算由谁负责、错误记录）。新增 `candidateSection`、`compactionSection`；浏览器侧新增 `registerPanel`、`registerStartGroup`（`tavernUi.apiVersion` 为 2）。`onTurnSettled`、`getTurn` 增加只读的 `variables`。新增宿主侧 `handle` 与浏览器侧 `callHost`，插件的浏览器侧可以调用自己的宿主侧。插件可放进数据目录的 `plugins/` 文件夹加载。第 1 版接口不变。 |
+| 2 | 新增 `turnSection`、`worldbookSource`、`settlementSection`、`settlementTool`：插件可以往每轮正文请求和后台结算里添加内容。新增插件存档数据（`saveTurnData`、`readTurnData`、`saveGameData`、`readGameData`）与 `onTimelineChanged`；编辑正文后重新发 `onTurnSettled`；分叉时带上插件数据和媒体项。新增第一个替换类接口 `replaceSettlement`，以及本局插件面板（按局开关、选择结算由谁负责、错误记录）。新增 `candidateSection`、`compactionSection`、`worldbookEntries`；浏览器侧新增 `registerPanel`、`registerStartGroup`（`tavernUi.apiVersion` 为 2）。`onTurnSettled`、`getTurn` 增加只读的 `variables`。新增宿主侧 `handle` 与浏览器侧 `callHost`，插件的浏览器侧可以调用自己的宿主侧。插件可放进数据目录的 `plugins/` 文件夹加载。第 1 版接口不变。 |

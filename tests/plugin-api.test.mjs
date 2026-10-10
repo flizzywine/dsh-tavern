@@ -551,3 +551,28 @@ test('示例插件的重画按钮：callHost 调到宿主侧，按当前正文�
   assert.equal(item.status, 'ready')
   await assert.rejects(h.api.callHandler('tavern-plugin-hello/redraw', { gameId: 'game-1', turn: 9 }), /还没写完/)
 })
+
+test('tavern 服务：worldbookEntries 的条目经校验后交给世界书召回，坏条目记入插件错误', { skip: !cordis }, async t => {
+  const h = await harness(t, { data: { readSettings: async () => ({ disabled: [] }), updateSettings: async () => {} } })
+  const seen = []
+  const fiber = await h.root.plugin({ name: 'narrative-anchor', inject: ['tavern'], apply(ctx) {
+    ctx.tavern.worldbookEntries({ name: 'session', entries: async context => { seen.push(context); return [
+      { id: 'letter', title: '未署名的信', content: '  信是周姨写的。 ', keys: ['那封信', 3], force: true },
+      { id: 'letter', content: '重复' },
+      { id: 'bad id', content: 'x' },
+      { id: 'tpl', content: '<%= 1 %>' },
+      { id: 'empty', content: '  ' },
+    ] } })
+    assert.throws(() => ctx.tavern.worldbookEntries({ name: 'session', entries: () => [] }), /已注册/)
+  } })
+  await tick()
+  const entries = await h.api.worldbookPoolEntries({ gameId: 'game-1', turn: 4 })
+  assert.deepEqual(seen, [{ gameId: 'game-1', turn: 4 }])
+  assert.deepEqual(entries, [{ owner: 'narrative-anchor', source: 'session', id: 'letter', content: '信是周姨写的。', title: '未署名的信', keys: ['那封信'], secondaryKeys: [], constant: false, force: true }])
+  const panel = await h.api.gamePlugins('game-1')
+  assert.deepEqual(panel.plugins[0].uses, [{ stage: '世界书', mode: '添加' }])
+  assert.match(panel.errors[0].message, /重复.*bad id.*EJS/)
+  fiber.dispose()
+  await tick()
+  assert.deepEqual(await h.api.worldbookPoolEntries({ gameId: 'game-1', turn: 4 }), [])
+})
