@@ -5,6 +5,36 @@ import { parseDocument, YAMLSeq } from 'yaml'
 
 // Entries Tavern writes for folders in <data>/plugins. Every other patch entry belongs to the user.
 const ID_PREFIX = 'tavern-user-plugin-'
+// Loaded in place of the plugin's own entry, beside its package.json so its browser half is still found.
+export const GUARD_FILE = '.tavern-entry.mjs'
+
+/**
+ * A plugin that fails to import or to apply must not stop DSH from starting:
+ * the guard imports it, reports the failure in the log and loads nothing instead.
+ */
+export function guardSource({ folder, name, main }) {
+  const label = JSON.stringify('[Tavern 插件] plugins/' + folder)
+  return `// Tavern 自动生成，请勿修改：插件加载或启动出错时只记日志，不影响 DSH 启动。
+const report = (stage, error) => console.warn(${label} + ' ' + stage + '失败：' + (error && error.stack || error))
+let plugin = null
+try {
+  const mod = await import(new URL(${JSON.stringify(main)}, import.meta.url).href)
+  const value = typeof mod.apply === 'function' ? mod : mod.default
+  plugin = typeof value === 'function' ? { apply: value } : value && typeof value.apply === 'function' ? value : null
+  if (!plugin) report('加载', new Error('入口没有导出 apply 函数'))
+} catch (error) { report('加载', error) }
+export const name = plugin && typeof plugin.name === 'string' && plugin.name ? plugin.name : ${JSON.stringify(name)}
+export const inject = plugin ? plugin.inject : undefined
+export const Config = plugin ? plugin.Config : undefined
+export function apply(ctx, config) {
+  if (!plugin) return
+  try {
+    const result = plugin.apply(ctx, config)
+    return result && typeof result.then === 'function' ? result.catch(error => report('启动', error)) : result
+  } catch (error) { report('启动', error) }
+}
+`
+}
 
 export function userPluginPaths(dataRoot, dshHome = path.resolve(dataRoot, '../../..')) {
   return {
@@ -45,7 +75,8 @@ export async function scanUserPlugins(pluginsDir, { installed = () => false } = 
     if (pkg.name && installed(String(pkg.name))) { problems.push({ folder, reason: '插件名 ' + pkg.name + ' 与已安装的包重名，请换一个名字' }); continue }
     const id = ID_PREFIX + String(pkg.name || folder).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
     if (plugins.some(plugin => plugin.id === id)) { problems.push({ folder, reason: '插件名与其他插件重复' }); continue }
-    plugins.push({ id, folder, name: String(pkg.name || folder), entry })
+    const relative = './' + path.relative(dir, entry).split(path.sep).join('/')
+    plugins.push({ id, folder, name: String(pkg.name || folder), entry: path.join(dir, GUARD_FILE), main: relative })
   }
   return { plugins, problems }
 }
@@ -110,6 +141,12 @@ export async function syncUserPlugins({ dataRoot, dshHome, logger = console } = 
     logger.warn?.('[Tavern 插件] 跳过 plugins/' + problem.folder + '：' + problem.reason)
   }
   for (const key of reported.keys()) if (key.startsWith(paths.plugins + '\u0000') && !problems.some(problem => key.endsWith('\u0000' + problem.folder))) reported.delete(key)
+  for (const plugin of plugins) {
+    const guard = guardSource(plugin)
+    let current = null
+    try { current = await readFile(plugin.entry, 'utf8') } catch {}
+    if (current !== guard) await replaceFile(plugin.entry, guard)
+  }
   const file = path.join(paths.profile, 'cordis.patch.yml')
   let text = ''
   try { text = await readFile(file, 'utf8') } catch (error) { if (error.code !== 'ENOENT') throw error }

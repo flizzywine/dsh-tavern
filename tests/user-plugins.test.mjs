@@ -4,6 +4,7 @@ import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { parse } from 'yaml'
+import { pathToFileURL } from 'node:url'
 import { syncPatchText, syncUserPlugins } from '../tavern-plugin/lib/domain/user-plugins.js'
 
 async function home(t) {
@@ -37,7 +38,7 @@ test('plugins 目录里的插件写进 profile patch，用户自己的条目原�
   assert.match(text, /# 我的覆盖/)
   assert.deepEqual(parse(text), [
     { id: 'approval', config: { policy: 'never' } },
-    { insert: [{ id: 'tavern-user-plugin-dsh-tavern-memory', name: path.join(dir, 'index.mjs') }] },
+    { insert: [{ id: 'tavern-user-plugin-dsh-tavern-memory', name: path.join(dir, '.tavern-entry.mjs') }] },
   ])
   assert.match(warnings.join('\n'), /plugins\/broken：缺少 package\.json/)
   assert.equal((await syncUserPlugins({ dataRoot, logger: { warn() {} } })).changed, false, '没有变化时不改写文件')
@@ -81,4 +82,35 @@ test('不折行改写用户的长路径；与已安装的包重名的插件不�
   assert.ok(text.includes(`"${long}"`), '用户原有的长行保持一行')
   assert.deepEqual(parse(text).at(-1).insert.map(entry => entry.id), ['tavern-user-plugin-ok'])
   assert.equal(warnings.filter(text => text.includes('plugins/clash')).length, 1)
+})
+
+test('插件经由 Tavern 的保护入口加载：导入失败或 apply 抛错只记日志，不让 DSH 起不来', async t => {
+  const { dataRoot } = await home(t)
+  const good = await plugin(dataRoot, 'good', { name: 'good-plugin', exports: { '.': './lib/main.mjs' } }, {})
+  await mkdir(path.join(good, 'lib'))
+  await writeFile(path.join(good, 'lib', 'main.mjs'), "export const name = 'good-plugin'\nexport const inject = ['tavern']\nexport function apply(ctx) { ctx.applied = true; return 'ok' }\n")
+  await plugin(dataRoot, 'throws', { name: 'throws', main: 'index.mjs' }, { 'index.mjs': "export async function apply() { throw new Error('启动炸了') }\n" })
+  await plugin(dataRoot, 'syntax', { name: 'syntax', main: 'index.mjs' }, { 'index.mjs': 'export function apply( {\n' })
+  await plugin(dataRoot, 'default', { name: 'default', main: 'index.mjs' }, { 'index.mjs': 'export default function (ctx) { ctx.applied = true }\n' })
+  const result = await syncUserPlugins({ dataRoot, logger: { warn() {} } })
+  const load = async folder => import(pathToFileURL(result.plugins.find(item => item.folder === folder).entry).href + '?' + Math.random())
+  const warnings = [], original = console.warn
+  console.warn = text => warnings.push(String(text))
+  t.after(() => { console.warn = original })
+  const ok = await load('good'), ctx = {}
+  assert.equal(ok.name, 'good-plugin')
+  assert.deepEqual(ok.inject, ['tavern'])
+  assert.equal(ok.apply(ctx), 'ok')
+  assert.equal(ctx.applied, true)
+  const thrown = await load('throws')
+  assert.equal(thrown.name, 'throws', '没有导出 name 时用包名')
+  await thrown.apply({})
+  const broken = await load('syntax')
+  assert.equal(broken.apply({}), undefined)
+  const fallback = await load('default'), other = {}
+  fallback.apply(other)
+  assert.equal(other.applied, true)
+  assert.match(warnings.join('\n'), /plugins\/throws 启动失败：Error: 启动炸了/)
+  assert.match(warnings.join('\n'), /plugins\/syntax 加载失败：SyntaxError/)
+  assert.equal((await syncUserPlugins({ dataRoot, logger: { warn() {} } })).changed, false, '保护入口不变时不重写')
 })
