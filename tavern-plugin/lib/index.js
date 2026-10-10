@@ -2045,15 +2045,17 @@ export async function apply(ctx) {
   async function projectCachedSessionView(chat, previous, activity) {
     const mode = chat.mode || 'story'
     const reused = Object.assign({}, previous, volatileSessionViewFields(chat, activity, {baseRevision:chat._storageRevision,indices:[],layoutChanged:false}))
-    if (mode === 'script') {
-      reused.scriptProgress = await requestPerformance.stage('scriptProgress', async () => {
-        const script = await readScript(chat.cardPath)
-        return script !== undefined && Array.isArray(script.chunks)
-          ? scriptContinuity.inspect({ script: script, state: chat.scriptState, request: { kind: 'progress' } })
-          : null
-      })
-    }
+    if (mode === 'script') reused.scriptProgress = await scriptProgressOf(chat)
     return reused
+  }
+  // The volatile fields reset it; every partial projection of a script game recomputes it.
+  async function scriptProgressOf(chat) {
+    return await requestPerformance.stage('scriptProgress', async () => {
+      const script = await readScript(chat.cardPath)
+      return script !== undefined && Array.isArray(script.chunks)
+        ? scriptContinuity.inspect({ script: script, state: chat.scriptState, request: { kind: 'progress' } })
+        : null
+    })
   }
   async function projectDirtySessionView(chat, previous, dirtyMessageIndices, activity, {layoutChanged,layoutFrom,changedHeaderFields,runtimeInputChanges} = {}) {
     const card = await readChatCard(chat)
@@ -2062,8 +2064,14 @@ export async function apply(ctx) {
     const changes = {baseRevision:previous.tavernHelper.stateRevision,indices:[...dirtyMessageIndices],layoutChanged,changedHeaderFields}
     const next = Object.assign({}, previous, volatileSessionViewFields(chat, activity, changes), {
       posture: chat.posture || '',
-      guides: Array.isArray(chat.guides) ? chat.guides : []
+      guides: Array.isArray(chat.guides) ? chat.guides : [],
+      // Header state a background task rewrites without touching any message.
+      ledger: readLedger(chat.ledger),
+      ledgerTask: manualLedger.project(chat),
+      characterDesigns: projectCharacterDesignDocument(chat.characterDesignDocument),
+      characterDesignTask: manualCharacterDesign.project(chat)
     })
+    if (mode === 'script') next.scriptProgress = await scriptProgressOf(chat)
     Object.assign(next,inputFieldsProjection.project(chat,{baseRevision:changes.baseRevision,indices:dirtyMessageIndices,changedHeaderFields,runtimeInputChanges}))
     const helperCore = await requestPerformance.stage('helperMessagesProjection', () => projectTavernHelperContext(chat, {
       previousMessages, previousContext:previous.tavernHelper, indexed:true, layoutChanged, layoutFrom,
