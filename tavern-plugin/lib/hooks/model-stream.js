@@ -60,6 +60,15 @@ export function registerModelStreamHooks({
     return retainRecentStoryRounds(story, retention.rounds - nativelyRetainedRounds(session, story), retention)
   })
 
+  async function gameChildSession(sessionId) {
+    const parentSessionId = str((sessionStore.get(sessionId) || agentRegistry.get(sessionId)?.session)?.header?.parentSession)
+    if (!parentSessionId || parentSessionId === sessionId || backgroundAgentRunner.owns(parentSessionId)) return null
+    const chat = await chatHeaderForSession(parentSessionId, ['requestMode', 'compatibilityTraces', 'bypassPlanId', 'runtimePresetSnapshot'])
+    if (!chat || !['story', 'script'].includes(chat.mode)) return null
+    // The request carries no turn; file it under the game's latest turn so old bodies are pruned with the rest.
+    const turn = (await modelRequestLog.list(chat.id)).reduce((latest, entry) => Math.max(latest, Number(entry.turn) || 0), 0)
+    return { chat, context: { scope: 'background', task: 'subagent', parentSessionId, turn } }
+  }
   ctx.on('llm/stream', function (options, next) {
     const sessionId = str(options && options.sessionId)
     const coordinates = requestCoordinates.get(sessionId)
@@ -85,7 +94,11 @@ export function registerModelStreamHooks({
         return
       }
       let requestRecord = null
-      if (options.purpose === undefined && chat !== undefined && ['story', 'script', 'card'].includes(chat.mode)) {
+      // Agents a plugin creates under a game are not Tavern's own sessions; log them
+      // as that game's background requests so 完整上下文 can show them.
+      const child = options.purpose === undefined && !backgroundContext && !chat ? await gameChildSession(sessionId) : null
+      if (child) requestRecord = await modelRequestLog.record({ chat: child.chat, context: child.context, coordinates: {}, options })
+      else if (options.purpose === undefined && chat !== undefined && ['story', 'script', 'card'].includes(chat.mode)) {
         const coordinates = requestCoordinates.get(sessionId) || {}
         requestRecord = await modelRequestLog.record({ chat, context: backgroundContext, coordinates, options })
         if (!backgroundContext && ['story', 'script'].includes(chat.mode)) {
@@ -110,8 +123,9 @@ export function registerModelStreamHooks({
       } finally {
         const completed = finish && finish.kind !== 'error' && finish.kind !== 'aborted'
         foregroundStrategies.completeRequest(options, completed)
-        if (chat && requestRecord) {
-          try { await modelRequestLog.complete({ chatId: chat.id, id: requestRecord.id, text: responseText, finish, error: failure }) }
+        const owner = child ? child.chat : chat
+        if (owner && requestRecord) {
+          try { await modelRequestLog.complete({ chatId: owner.id, id: requestRecord.id, text: responseText, finish, error: failure }) }
           catch (error) { console.error('dsh-tavern: 模型结果日志写入失败', str(error && error.message || error)) }
         }
       }

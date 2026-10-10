@@ -343,6 +343,10 @@ ctx.tavernUi.registerPanel({ id: 'memory', title: '记忆', render: ({ gameId, v
 - `render` 收到当前侧栏对应的 `gameId`，返回 React 元素；没有打开游戏时，Tavern 显示提示，不调用 `render`。
 - 面板出错时只显示一行错误，不影响侧栏其他页。插件卸载时面板自动移除。
 
+## 插件自建 Agent 的请求记录
+
+插件用 DSH 的 `agents` 服务为某局游戏建子 Agent 时（例如自己做结算），只要创建时把 `meta.parentSession` 设为这局的 `gameId`，这个 Agent 发出的模型请求就会自动记进这局的请求记录：作为后台请求，归在当时最新的一轮，和 Tavern 自己的请求一样只保留最近 30 轮原文。在该子 Agent 的会话里打开「完整上下文」即可查看。插件不需要调用任何接口，也不要自己写 Tavern 的请求记录文件。
+
 ## 不提供的
 
 - 修改正文、修改变量、调用 Tavern 内部的 Agent。
