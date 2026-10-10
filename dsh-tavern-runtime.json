@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "319a464fe7156b3a921fb6e8d2767bc42a8bcd43",
-  "releaseSequence": 568,
+  "revision": "2931dc7c3ac0b12d1519fb3ca54a7ad8b4976c53",
+  "releaseSequence": 569,
   "version": "2.5.0",
   "files": [
     {
@@ -381,13 +381,18 @@
     },
     {
       "path": "presets/tavern/skills/tavern-plugin/references/plugin-api.md",
-      "sha256": "fe5535c6d56957b386a7171f071db1b9058f29e1f4f28cb4f266a38413ed2fe4",
-      "size": 25749
+      "sha256": "6f300b6fa7d2658820586fe899f47ae2961a08302733a5cdbfa310ea0803b8c1",
+      "size": 26085
+    },
+    {
+      "path": "presets/tavern/skills/tavern-plugin/references/plugin-recipes.md",
+      "sha256": "5d49bb37ca41573dfcb2796ad9c2ab85e8b2b8e117912e7d1fc6bce1fc2a0e51",
+      "size": 10005
     },
     {
       "path": "presets/tavern/skills/tavern-plugin/SKILL.md",
-      "sha256": "67dff3436a5e795f52a8e64697c318644e1c44a43d5c142ae58770135e7668b5",
-      "size": 1959
+      "sha256": "9559e0b519d9d63e278d846bfe8bbf287a16ea3e22f6ac384ba75cd305915825",
+      "size": 2103
     },
     {
       "path": "presets/tavern/skills/user-profile/SKILL.md",
