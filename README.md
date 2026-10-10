@@ -107,9 +107,7 @@
 
 ![MVU 人物卡的变量更新结果与右侧酒馆状态栏](docs/images/readme/mvu-status-panel.png)
 
-**小手机**：边读剧情，边看角色发来的消息。
-
-![正文与右侧小手机聊天界面](docs/images/readme/phone-panel.png)
+**小手机**：带小手机的人物卡也能用。
 
 **场景插画**：为当前剧情配一张图。
 
