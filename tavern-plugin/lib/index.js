@@ -2,6 +2,7 @@ import { ensureSessionVariableDirectory } from './domain/session-variable-direct
 import { createCompatibilityTurnCompiler } from './domain/compatibility-turn.js'
 import { registerTavernHttpRoutes } from './http/routes.js'
 import { registerRequestHooks } from './hooks/request.js'
+import { syncUserPlugins, watchUserPlugins } from './domain/user-plugins.js'
 import { registerModelStreamHooks } from './hooks/model-stream.js'
 import { registerTurnLifecycleHooks } from './hooks/turn-lifecycle.js'
 import { registerGameplayTools } from './tools/gameplay.js'
@@ -282,6 +283,9 @@ export async function apply(ctx) {
   })
   const sourceRoot = fileURLToPath(new URL('../../', import.meta.url))
   const dataRoot = resolveTavernDataRoot()
+  // Folders in <data>/plugins become profile patch entries, so both plugin halves load without editing Tavern.
+  try { await syncUserPlugins({ dataRoot }) } catch (error) { console.warn('dsh-tavern: 同步用户插件失败', error?.message || error) }
+  ctx.effect(() => watchUserPlugins({ dataRoot }))
   const cardMemory = createCardMemory({ dataRoot })
   const stablePrefixStorage = createSessionStablePrefixStorage(dataRoot + '/session-prefixes')
   const profileData = createProfileDataStore({ dataRoot })
