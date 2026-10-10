@@ -231,9 +231,10 @@ ctx.tavern.settlementTool({
 
 ```js
 ctx.tavern.replaceSettlement({
-  async settle({ gameId, turn, text, posture, tasks }) {
+  async settle({ gameId, turn, text, posture, tasks, signal }) {
     // text：这一轮的正文；posture：上一轮的现场姿势；tasks.posture：本局是否开启了姿势结算
-    const next = await myModel(text, posture)
+    // signal：玩家点「停止后台」时中止，把它传给自己的模型请求或子 Agent
+    const next = await myModel(text, posture, { signal })
     await ctx.tavern.saveTurnData({ gameId, turn, data: next.state })
     return { posture: next.posture }
   },
@@ -242,6 +243,8 @@ ctx.tavern.replaceSettlement({
 
 - **必须交回什么**：一个对象。本局开启了姿势结算时，`posture` 必须是非空字符串（最多 8000 字），它会成为下一轮正文看到的【现场】；没开启时可以不返回 `posture`。
 - **失败时退回**：`settle` 抛错、120 秒没有返回、或者交回的东西不合格，这一轮自动改用 Tavern 自己的结算，并在「本局设置 → 插件」里记下原因。
+- **停止**：`signal` 是一个 `AbortSignal`。玩家点「停止后台」时它会中止，Tavern 立刻停止等待，这一轮按玩家停止处理，不会改用 Tavern 自己的结算，也不记为插件错误。插件应据此取消自己的模型请求或子 Agent（例如 `agent.cancel()`）。
+- **进度**：结算进行中，Tavern 的后台等待提示会写明「插件「名称」正在结算」。插件为这局建的子 Agent（见下文「插件自建 Agent 的请求记录」）在输出时，提示会区分「模型仍在输出」和「等待模型有效输出」，与 Tavern 自己的结算一样。
 - **范围**：只替换普通卡的姿势结算（以及同一步里的人物设计）。使用官方 MVU 变量的卡，变量结算仍由 Tavern 负责，不会调用 `settle`。玩家关掉了所有后台结算项时，这一轮不结算，也不调用 `settle`。
 - **只有一个生效**：每个插件只能注册一次。只有一个插件注册时，它自动生效；有多个时，要玩家在「本局设置 → 插件」里选一个，选好之前都不生效，用 Tavern 自己的结算。玩家也可以在那里选回 Tavern 自己的结算。
 

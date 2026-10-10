@@ -318,7 +318,20 @@ test('结算替换：唯一插件自动生效，多个时须玩家选择，返�
   await tick()
   const settle = (tasks = { posture: true }) => h.api.replaceSettlement({ gameId: 'game-1', turn: 3, text: '她推开门。', posture: '站着', tasks })
   assert.deepEqual(await settle(), { owner: 'anchor', posture: '她坐在窗边' })
-  assert.deepEqual(inputs[0], { gameId: 'game-1', turn: 3, text: '她推开门。', posture: '站着', tasks: { posture: true } })
+  const { signal, ...fields } = inputs[0]
+  assert.deepEqual(fields, { gameId: 'game-1', turn: 3, text: '她推开门。', posture: '站着', tasks: { posture: true } })
+  assert.equal(signal.aborted, false, 'settle receives an AbortSignal')
+  // Stopping the settlement aborts settle's signal and stops waiting, without falling back or recording an error.
+  const stop = new AbortController(), started = []
+  answer = () => new Promise(() => {})
+  const pending = h.api.replaceSettlement({ gameId: 'game-1', turn: 3, text: '', posture: '', tasks: { posture: true }, signal: stop.signal, onStart: owner => { started.push(owner); return () => started.push('done') } })
+  await tick()
+  stop.abort(new Error('玩家停止'))
+  await assert.rejects(pending, /玩家停止/)
+  assert.equal(inputs.at(-1).signal.aborted, true)
+  assert.deepEqual(started, ['anchor', 'done'])
+  assert.equal((await h.api.gamePlugins('game-1')).errors.length, 0)
+  answer = { posture: '  她坐在窗边  ' }
   answer = {}
   assert.equal(await settle(), null, 'posture is required while posture settlement is on')
   assert.deepEqual(await settle({ posture: false }), { owner: 'anchor', posture: '' })

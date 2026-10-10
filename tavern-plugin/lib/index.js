@@ -44,6 +44,7 @@ import { createSessionViewReader, createSessionChatReader, createSessionSliceRea
 import { createSessionStateView, settlementTurn, pendingMvuSettlementState, projectDisplayRuntimeState } from './domain/chat-session-state.js'
 import { createSettlementProgressGuard } from './domain/settlement-progress-guard.js'
 import { createSettlementJobs } from './domain/settlement-jobs.js'
+import { createPluginSettlementProgress } from './domain/plugin-settlement-progress.js'
 import { rescueHistoryNotice } from './domain/chat-history-rescue.js'
 import { readHostCompatibility } from './domain/host-compatibility.js'
 import { installHostSessionPatch } from './domain/host-session-patch.js'
@@ -2482,6 +2483,7 @@ export async function apply(ctx) {
     readChatCard,
     worldbooks: sceneWorldbooks
   })
+  const pluginSettlementProgress = createPluginSettlementProgress()
   const pluginApi = createTavernPluginApi({
     ctx,
     logger: console,
@@ -3004,7 +3006,8 @@ export async function apply(ctx) {
         // without official MVU. Any failure falls back to Tavern's own settlement.
         const settleByPlugin = async function () {
           const latest = [...(snapshot.messages || [])].reverse().find(message => message?.role === 'assistant')
-          const replaced = await pluginApi.replaceSettlement({ gameId: snapshot.sessionId, turn: settlementTurn(snapshot),
+          const replaced = await pluginApi.replaceSettlement({ gameId: snapshot.sessionId, turn: settlementTurn(snapshot), signal,
+            onStart: plugin => pluginSettlementProgress.begin(snapshot.sessionId, plugin),
             text: latest ? projectAgentMessageText(latest, { charName: card && card.name, macroState: snapshot.macroState }) : '',
             posture: str(snapshot.posture), tasks: { posture: backgroundTasksSettings.posture === true } })
           if (!replaced) return false
@@ -4292,7 +4295,7 @@ export async function apply(ctx) {
         notifyPluginTimeline(args && args.sessionId, 'rollback', { turn: args && args.expectedTurn })
         return { view }
       }
-      case 'getBackgroundProgress': return { progress: backgroundAgentRunner.progress(args && args.sessionId) }
+      case 'getBackgroundProgress': return { progress: backgroundAgentRunner.progress(args && args.sessionId) || pluginSettlementProgress.snapshot(args && args.sessionId) }
       case 'stopBackground': return { view: await stopBackground(args && args.sessionId, args && args.operationId) }
       case 'retrySettlement': return { view: await retrySettlement(args && args.sessionId, args && args.turn, args && args.guidance) }
       case 'retryMvuSettlement': return { view: await retrySettlement(args && args.sessionId, args && args.turn, args && args.guidance) }
@@ -4592,6 +4595,7 @@ export async function apply(ctx) {
     fullTemplateRuntime,
     modelRequestLog,
     pluginCompactionNotes: pluginApi.compactionNotes,
+    pluginSettlementProgress,
     requestCoordinates,
     runtimePrompt,
     sessionStateForSession,

@@ -18250,6 +18250,10 @@ function bindTavernFontZoom(node, win) {
 
         function backgroundWaitMessage(progress, now) {
             if (!progress || now - progress.startedAt < 60000) return "";
+            const plugin = progress.plugin ? "插件「" + progress.plugin + "」正在结算。" : "";
+            return plugin + backgroundPhaseMessage(progress, now);
+        }
+        function backgroundPhaseMessage(progress, now) {
             if (progress.phase === "model") {
                 return now - progress.lastProgressAt < 15000
                     ? "模型仍在输出思考、正文或工具参数，后台任务尚未完成。可以继续等待或停止后台；已生成的正文会保留。"

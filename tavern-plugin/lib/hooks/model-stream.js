@@ -15,6 +15,7 @@ export function registerModelStreamHooks({
   fullTemplateRuntime,
   modelRequestLog,
   pluginCompactionNotes,
+  pluginSettlementProgress,
   requestCoordinates,
   storyRetention,
   runtimePrompt,
@@ -107,12 +108,15 @@ export function registerModelStreamHooks({
             .catch(error => console.warn('dsh-tavern: 世界书请求日志关联失败', String(error?.message || error)))
         }
       }
+      const progress = child ? event => pluginSettlementProgress?.model(child.context.parentSessionId, event) : () => {}
+      progress('start')
       let responseText = ''
       let finish = null
       let failure = null
       try {
         for await (const chunk of stream) {
           if (chunk && chunk.type === 'text-delta') responseText += str(chunk.text)
+          if (chunk && ['text-delta', 'reasoning-delta', 'tool-call-delta'].includes(chunk.type)) progress('output')
           if (chunk && chunk.type === 'finish') finish = chunk.reason === undefined ? chunk : chunk.reason
           yield chunk
         }
@@ -121,6 +125,7 @@ export function registerModelStreamHooks({
         failure = str(displayedError && displayedError.message || displayedError)
         throw displayedError
       } finally {
+        progress('end')
         const completed = finish && finish.kind !== 'error' && finish.kind !== 'aborted'
         foregroundStrategies.completeRequest(options, completed)
         const owner = child ? child.chat : chat

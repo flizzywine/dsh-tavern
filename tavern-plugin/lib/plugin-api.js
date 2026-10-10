@@ -46,6 +46,14 @@ function bounded(promise, label, ms = PLUGIN_TIMEOUT_MS) {
   })]).finally(() => clearTimeout(timer))
 }
 
+function untilAborted(promise, signal) {
+  let abort
+  return Promise.race([Promise.resolve(promise), new Promise((_resolve, reject) => {
+    abort = () => reject(signal.reason)
+    signal.addEventListener('abort', abort, { once: true })
+  })]).finally(() => signal.removeEventListener('abort', abort))
+}
+
 function textOrFunction(text) {
   if (typeof text !== 'string' && typeof text !== 'function') throw new TypeError('text 必须是字符串或函数')
 }
@@ -380,8 +388,12 @@ export function createTavernPluginApi(deps) {
   async function replaceSettlement(input) {
     const entry = await replacementFor('settlement', input.gameId)
     if (!entry) return null
+    const signal = input.signal || new AbortController().signal
+    const finish = input.onStart?.(entry.owner)
     try {
-      const value = await bounded(entry.settle(structuredClone({ gameId: input.gameId, turn: input.turn, text: input.text, posture: input.posture, tasks: input.tasks })), '结算替换', REPLACEMENT_TIMEOUT_MS)
+      signal.throwIfAborted()
+      const fields = structuredClone({ gameId: input.gameId, turn: input.turn, text: input.text, posture: input.posture, tasks: input.tasks })
+      const value = await bounded(untilAborted(entry.settle({ ...fields, signal }), signal), '结算替换', REPLACEMENT_TIMEOUT_MS)
       if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('settle 必须返回对象')
       const posture = value.posture === undefined || value.posture === null ? '' : value.posture
       if (typeof posture !== 'string') throw new Error('posture 必须是字符串')
@@ -389,8 +401,12 @@ export function createTavernPluginApi(deps) {
       if (posture.length > 8000) throw new Error('posture 不能超过 8000 字')
       return { owner: entry.owner, posture: posture.trim() }
     } catch (error) {
+      // The player stopped the settlement: stop, do not fall back to Tavern's own.
+      if (signal.aborted) throw signal.reason
       recordError(input.gameId, entry.owner, '结算替换（已改用 Tavern 自己的结算）', error)
       return null
+    } finally {
+      finish?.()
     }
   }
 
