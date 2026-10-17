@@ -1,0 +1,29 @@
+{
+  "name": "dsh-tavern-ui-switch",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Switch the DSH desktop profile between the Tavern interface and the original DSH interface, from a button inside the app.",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "cordis.patch.yml",
+    "lib/index.js",
+    "lib/client.js",
+    "lib/profile.js",
+    "bin/relaunch.mjs"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": []
+    }
+  }
+}

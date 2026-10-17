@@ -1,0 +1,8 @@
+# 界面切换 bundle：只插入一个插件行，不覆盖任何既有配置。
+# 它需要在两种界面下都保持加载，因此不能像其它 bundle 那样被切换掉。
+- insert:
+    - id: tavern-ui-switch
+      name: dsh-tavern-ui-switch
+      # 可选：悬浮按钮位置，默认右下角；可选 bottom-right / bottom-left / top-right / top-left
+      # config:
+      #   anchor: bottom-right

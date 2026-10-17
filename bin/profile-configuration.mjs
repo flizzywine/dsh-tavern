@@ -10,6 +10,11 @@ import { createDurableFilePromotion } from '../tavern-plugin/lib/durable-file-pr
 
 export const PROFILE_CONFIGURATION_VERSION = 1
 
+// The interface switch must stay loaded in both interfaces, so the Tavern
+// installer keeps it in the profile and records the original bundle list.
+export const UI_SWITCH_BUNDLE = 'dsh-tavern-ui-switch'
+const BASE_BUNDLES = ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app']
+
 const LEGACY_MANAGED_BUNDLES = [
   '@deepseek-ai/dsh-base',
   '@deepseek-ai/dsh-web-app',
@@ -63,6 +68,9 @@ export function mergeProfileManifest({ source, current = {}, pluginPath, dataRoo
   // Official Desktop loads Tavern in its own process; the old launcher would
   // start a second server against the same save directory.
   if (host === 'desktop') excludedHostBundles.push('dsh-tavern-launcher')
+  // The switch renders inside the web UI and restarts the desktop shell, so it
+  // is only installed on the desktop host.
+  if (host !== 'desktop') excludedHostBundles.push(UI_SWITCH_BUNDLE)
   const sourceBundles = uniqueStrings(sourceProfile.bundles)
     .map(name => name === 'dsh-web-mobile' ? selectedLayout : name)
     .filter(name => name && !excludedHostBundles.includes(name))
@@ -76,7 +84,7 @@ export function mergeProfileManifest({ source, current = {}, pluginPath, dataRoo
   // Local subpackages and host-specific layouts are development dependencies of
   // the installable aggregate, but remain explicit dependencies of legacy Profiles.
   const localDependencies = Object.fromEntries(
-    ['dsh-tavern-plugin', 'dsh-tavern-remote', 'dsh-pocket', 'dsh-web-mobile', 'dsh-better-sidebar', 'dsh-dream-skin']
+    ['dsh-tavern-plugin', 'dsh-tavern-remote', 'dsh-pocket', 'dsh-web-mobile', 'dsh-better-sidebar', 'dsh-dream-skin', UI_SWITCH_BUNDLE]
       .filter(name => sourceDocument.devDependencies?.[name] !== undefined)
       .map(name => [name, sourceDocument.devDependencies[name]]),
   )
@@ -96,6 +104,15 @@ export function mergeProfileManifest({ source, current = {}, pluginPath, dataRoo
     } else dependencies[name] = sourceValue
   }
 
+  // The bundle list the profile falls back to when the user switches back to the
+  // original DSH interface: the host's base layers, the user's own bundles, and
+  // the switch itself — which has to stay loaded to offer the way back.
+  const officialBundles = uniqueStrings([
+    ...BASE_BUNDLES.filter((name) => bundles.includes(name)),
+    ...(bundles.includes(UI_SWITCH_BUNDLE) ? [UI_SWITCH_BUNDLE] : []),
+    ...userBundles,
+  ])
+
   return {
     ...currentDocument,
     name: 'dsh-profile-tavern',
@@ -114,6 +131,7 @@ export function mergeProfileManifest({ source, current = {}, pluginPath, dataRoo
       dshVersion,
       managedBundles: sourceBundles,
       managedDependencies,
+      officialBundles,
       profileConfigurationVersion: PROFILE_CONFIGURATION_VERSION,
     },
   }

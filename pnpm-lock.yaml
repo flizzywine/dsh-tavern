@@ -64,6 +64,9 @@ importers:
       dsh-tavern-remote:
         specifier: link:./tavern-plugin/packages/dsh-tavern-remote
         version: link:tavern-plugin/packages/dsh-tavern-remote
+      dsh-tavern-ui-switch:
+        specifier: link:./tavern-plugin/packages/dsh-tavern-ui-switch
+        version: link:tavern-plugin/packages/dsh-tavern-ui-switch
       dsh-web-mobile:
         specifier: 3.1.0
         version: 3.1.0(patch_hash=b151174b09138f5a19067f2593383b1cd6586547748ab6848e3e3e061d0a270b)(react@19.2.0)

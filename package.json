@@ -50,7 +50,8 @@
         "dsh-better-sidebar",
         "dsh-dream-skin",
         "dsh-tavern-plugin",
-        "dsh-tavern-remote"
+        "dsh-tavern-remote",
+        "dsh-tavern-ui-switch"
       ]
     },
     "bundle": {
@@ -64,6 +65,7 @@
     "scheduler": "0.27.0",
     "dsh-tavern-plugin": "link:./tavern-plugin",
     "dsh-tavern-remote": "link:./tavern-plugin/packages/dsh-tavern-remote",
+    "dsh-tavern-ui-switch": "link:./tavern-plugin/packages/dsh-tavern-ui-switch",
     "dsh-pocket": "2.12.0",
     "dsh-web-mobile": "3.1.0",
     "dsh-better-sidebar": "0.28.0",
