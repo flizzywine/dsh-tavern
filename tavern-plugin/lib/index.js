@@ -245,7 +245,7 @@ export async function apply(ctx) {
     query: ctx.get('sessionQuery'),
   })
   if (sessionPatch.status === 'failed') console.warn('dsh-tavern: 会话补丁未安装，正文编辑、回退和重新生成不可用：' + sessionPatch.reason)
-  // 更新到 SESSION_PATCH_VERSION（0.2.0-rc.2）后，每次启动都在对话被打开之前准备旧档。
+  // 更新到 SESSION_PATCH_VERSION（0.2.1-rc.2）后，每次启动都在对话被打开之前准备旧档。
   // 已经能打开的不改文件。补丁没装上也要做。
   if (sessionPatch.view().hostVersion === SESSION_PATCH_VERSION) {
     const open = (persistence?.tracker?.openHandles?.size || 0) + (persistence?.tracker?.writers?.size || 0)

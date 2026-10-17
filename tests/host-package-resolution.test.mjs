@@ -164,7 +164,9 @@ test('宿主包解析失败时 installHostSessionPatch 走 failed 而不是静�
 test('真机桌面：换用 asar 根后补丁走到版本闸，不再报「无法解析宿主 DSH 包」', { skip: desktopSkip }, async () => {
   const require = await defaultHostRequire(null, { env: desktopEnv, argv: desktopArgv })
   const { Context } = await load(require.resolve('@deepseek-ai/cordis'))
-  const { default: Jsonl } = await load(require.resolve('@deepseek-ai/dsh-session-persistence-jsonl'))
+  // 0.2.1-rc.2：JSONL 后端改成 cordis 插件模块（apply/Config），不再 default 导出实现类。
+  const jsonlModule = await load(require.resolve('@deepseek-ai/dsh-session-persistence-jsonl'))
+  const Jsonl = jsonlModule.default ?? jsonlModule
   const ctx = new Context()
   try {
     await ctx.plugin(Jsonl, { root: mkdtempSync(join(tmpdir(), 'tavern-asar-host-patch-')), compression: 'none' })

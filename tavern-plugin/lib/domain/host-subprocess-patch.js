@@ -6,12 +6,12 @@ import { pathToFileURL } from 'node:url'
 import { defaultHostRequire } from './host-session-patch.js'
 
 const PACKAGE = '@deepseek-ai/dsh-subprocess-local'
-// 0.2.0-rc.2 适配：宿主 runtime 升级后重新钉版本与字节。0.2.0 另新增拆分包
+// 0.2.1-rc.2 适配：宿主 runtime 升级后重新钉版本与字节。0.2.0 另新增拆分包
 // @deepseek-ai/dsh-subprocess，但 Windows Job launcher 仍由 dsh-subprocess-local 提供
 // （锚点 `env: runnerEnvironment(WINDOWS_RUNNER_SELECTION, invocation),` 在该包入口仍唯一命中 1 次）。
 // sha256 用 tmp/compute-pins.mjs 从 desktop app.asar 内该文件实际内容重算。
-const VERSION = '0.2.0-rc.2'
-const SHA256 = 'e40106ed35a1e1744c016e77f2cf59b07f87969bb7c4b424d26fb08da75e3922'
+const VERSION = '0.2.1-rc.2'
+const SHA256 = '2964d94d6aa735f79e5cd5f54035a9d73b371e8060dda7e3bf666593428c04f4'
 const installed = new WeakMap()
 
 // DSH's Windows Job launcher starts a Node runner with an IPC channel. From a

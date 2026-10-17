@@ -1,4 +1,4 @@
-// In-memory host/client patch for DSH 0.2.0-rc.2. Official package files stay unchanged.
+// In-memory host/client patch for DSH 0.2.1-rc.2. Official package files stay unchanged.
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
@@ -9,7 +9,7 @@ import { join, sep } from 'node:path'
 import { hostRequireCandidates } from './host-package-resolution.js'
 
 export async function prepareExpandedPatch(runtime, options = {}) {
-  const expectedVersion = options.version ?? '0.2.0-rc.2'
+  const expectedVersion = options.version ?? '0.2.1-rc.2'
   const marker = 'dsh-tavern/required-session-patch-v1'
   const require = createRequire(join(runtime, 'package.json'))
   const originals = new Map()
@@ -99,7 +99,16 @@ export async function prepareExpandedPatch(runtime, options = {}) {
       'if (event.type === "assistant/message" && sources !== void 0) throw',
       `if (event.type === "assistant/message" && sources !== void 0 && !${own}) throw`))
     const { sessionFormatCatalog: catalog } = await compile('@deepseek-ai/dsh-session-format-catalog')
-    const { default: PatchedPersistence } = await compile('@deepseek-ai/dsh-session-persistence-jsonl')
+    // 0.2.1-rc.2 适配：JSONL 后端不再 default 导出实现类（改成 cordis 插件模块，
+    // 只导出 Config / JsonlCompressionSchema / apply / name）。给内部类补一个导出名，
+    // 才能拿到「打了补丁的」prototype 覆盖到活实例上。
+    const patchedJsonl = await compile('@deepseek-ai/dsh-session-persistence-jsonl', text => {
+      const declared = /\bvar\s+(\w+)\s*=\s*class\s+extends\s+SessionPersistence\b/.exec(text)
+      assert.ok(declared, 'Pinned patch target drifted: JSONL persistence class declaration')
+      return text + '\nexport { ' + declared[1] + ' as __dshTavernPatchedJsonlPersistence };'
+    })
+    const PatchedPersistence = patchedJsonl.__dshTavernPatchedJsonlPersistence
+    assert.ok(PatchedPersistence, 'Pinned patch target drifted: JSONL persistence class export')
     // Guard #74: Windows create/rename path does `await import("koffi")`. If the
     // bare specifier survived into the data: module, new chats fail immediately.
     {
@@ -183,28 +192,28 @@ export async function prepareExpandedPatch(runtime, options = {}) {
 }
 
 export const SESSION_PATCH_PROTOCOL = 1
-// 0.2.0-rc.2 适配：宿主 runtime 从 0.1.5-rc.2 升到 0.2.0-rc.2；补丁锚点在 0.2.0 全部
-// 仍唯一命中（见 tmp/audit-host.md 的 E1），因此这里是重钉版本 + 重算字节，不是重写补丁。
-export const SESSION_PATCH_VERSION = '0.2.0-rc.2'
+// 0.2.1-rc.2 适配：宿主 runtime 从 0.2.0-rc.2 升到 0.2.1-rc.2；补丁锚点在 0.2.1 全部
+// 仍唯一命中（surface / dsh-session / jsonl 持久化 / session-query / 客户端历史各有改动，
+// 但锚点字符串与导出形状未变），因此这里是重钉版本 + 重算字节，不是重写补丁。
+export const SESSION_PATCH_VERSION = '0.2.1-rc.2'
 const INSTALLED = Symbol.for('dsh-tavern.host-session-patch.v1')
-// Each entry lists every known-good bytes of that file for 0.2.0-rc.2.
-// Official npm is always first. The 0.1.5-rc.2 list also carried DSHA v0.1.5-rc2
-// packaging variants; no 0.2.0 DSHA/Android build has been audited yet, so those
-// variants must be appended here (with their own sha256) before they are shipped.
+// Each entry lists every known-good bytes of that file for 0.2.1-rc.2.
+// Official npm is always first. No 0.2.1 DSHA/Android build has been audited yet,
+// so those variants must be appended here (with their own sha256) before shipping.
 // Values recomputed from the desktop app.asar with tmp/compute-pins.mjs.
 const PINNED_SHA256 = Object.freeze({
-  '@deepseek-ai/dsh-session/surface': Object.freeze(['7e9d4bd3b7c5b2eceed0f8b035e9c021237c72baa2b53e4c6fc941e8b417580e']),
-  '@deepseek-ai/dsh-session': Object.freeze(['87ea85e2fb5318bf1f826db9a1c88c1b26d3ea328027a7f32b211880c4d62b9d']),
+  '@deepseek-ai/dsh-session/surface': Object.freeze(['ebe8920a22fca8d987cbacab94c9db92f71df44863f58370a1be559155be734e']),
+  '@deepseek-ai/dsh-session': Object.freeze(['2f5dd07cb5c744a29abbb8003a8a4cefd9e582c6e2538074ca299a0ddd02a3bf']),
   '@deepseek-ai/dsh-session-persistence': Object.freeze(['cc0b6d3a224133af611b428d5a49020e300f86c3b4ba28037aeb219029bde3eb']),
   '@deepseek-ai/dsh-session-format-v2-to-v3': Object.freeze([
     '0dc56fb447e9046fc25995bcd08dbac26e832eba6e9eb583ef49d26467c27cd7',
   ]),
   '@deepseek-ai/dsh-session-format-catalog': Object.freeze(['836bbb772ab505c299f1a4a246164c50c7c08b67ab0d17f1251d7ea2cd8c1818']),
   '@deepseek-ai/dsh-session-persistence-jsonl': Object.freeze([
-    '0845707017acc2b4a8a75eab2244fa3fd88587b8094ab32014321dce7ca1e31b',
+    '973dd78679b2661d6f492343bc22b124ae958aa597d3b36c698a2c650f909984',
   ]),
-  '@deepseek-ai/dsh-session-query': Object.freeze(['dd8056fad008063c7e85169d4306720abe8efa6b32eac98f1b3053c6f89894aa']),
-  '@deepseek-ai/dsh-api-session-controller/client': Object.freeze(['60ec6a006443b40e5ab718f3fa53c301559c5c28427ca650c3851127ce370d43']),
+  '@deepseek-ai/dsh-session-query': Object.freeze(['76ce2944e561c12f48b5e240d68cafe54ce6d667b1d20722e6939ed834489939']),
+  '@deepseek-ai/dsh-api-session-controller/client': Object.freeze(['82f2301c18f0e51340c1eedf8ecdfb939e873b3770a80632e438b86e82887d0e']),
 })
 // 导出给测试：宿主文件"未被打补丁改动"的断言应当跟随这份引脚表，而不是另抄一份哈希。
 export { PINNED_SHA256 }
