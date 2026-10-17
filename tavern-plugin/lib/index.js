@@ -142,7 +142,7 @@ import { createCoordinationEventPublisher } from './domain/coordination-event-pu
 import { createSessionSignalTransport } from './domain/session-signal-transport.js'
 import { createCandidateTasks } from './domain/candidate-tasks.js'
 import { extractEpubText } from './domain/epub-text.js'
-import { createFileResourceStore, normalizeResourcePath, resourceKind } from './domain/file-resources.js'
+import { createFileResourceStore, normalizeResourcePath, resourceKind, stripPngTextChunks } from './domain/file-resources.js'
 import { createMobileCardImport } from './domain/mobile-card-import.js'
 import { createForegroundHandoff } from './domain/foreground-handoff.js'
 import { createForegroundFrameBuilder } from './domain/agent-input-frame.js'
@@ -168,6 +168,8 @@ import { createManualLedger } from './domain/manual-ledger.js'
 import { POSTURE_SUBMIT_TOOL, POSTURE_SUBMIT_TOOL_NAME, lastSubmittedPosture, normalizePostureSubmission } from './domain/posture-submission.js'
 import { createCastPresentation } from './domain/cast-presentation.js'
 import { createCastAssets } from './domain/cast-assets.js'
+import { createSpeech } from './domain/speech.js'
+import { buildCharx, cardImport } from './domain/card-assets.js'
 import { createPostureItem, createSettlementItems, plainSettlementPlan, runPipelineStages } from './domain/background-pipeline.js'
 import { TAVERN_COMPATIBILITY_CAPABILITIES, createTavernCompatibilityDiagnosticStore } from './domain/tavern-compatibility-diagnostics.js'
 import { createMvuDiagnosticStore, createMvuDiagnosticExport, sanitizeRuntimeDiagnostics, sanitizeModuleFailure, sanitizeMvuLoadDiagnostic, redactMvuLoadError } from './domain/mvu-diagnostics.js'
@@ -1023,6 +1025,8 @@ export async function apply(ctx) {
     return result
   }
   const castAssets = createCastAssets({ store: profileData })
+  // Voiced dialogue: channels are Tavern's and the plugins' (pluginApi is created later; read lazily).
+  const speech = createSpeech({ store: profileData, credentials: () => ctx.get('credentials'), plugins: () => pluginApi.speechProviders() })
   resourceGraph = createResourceGraph({
     castAssets,
     cardOrganization,
@@ -1041,11 +1045,33 @@ export async function apply(ctx) {
     if (card === undefined) throw new Error('人物卡不存在: ' + chat.cardPath)
     return card
   }
-  async function importCard(payload) {
+  async function importCard(input) {
+    // A CHARX is stored as PNG or JSON; the material any card file carries goes to its character material.
+    const { payload, collected } = cardImport(input)
     const workspace = cardPreparation.create({ kind: 'import', payload: payload })
     const cardPath = await fileResources.importCard(payload, workspace)
     const card = cardPreparation.project(workspace)
-    return { path: cardPath, name: card.name, description: card.description, tags: card.tags }
+    let assets = null
+    if (collected && (collected.emotions.length || collected.backgrounds.length || collected.cover || collected.extras.length || collected.cast.length || collected.skipped)) {
+      try { assets = { ...await castAssets.importCardAssets({ cardPath, name: card.name || '主角', collected }), skipped: collected.skipped } }
+      catch (error) { assets = { error: str(error?.message || error) } }
+    }
+    return { path: cardPath, name: card.name, description: card.description, tags: card.tags, ...(assets ? { assets } : {}) }
+  }
+  // The card as CHARX: Character Card V3 with its character material (docs/design/tavern-to-galgame.md).
+  async function exportCardCharx(input) {
+    const cardPath = normalizeResourcePath(input, 'card')
+    const workspace = await readCardWorkspace(cardPath)
+    if (workspace === undefined) throw Object.assign(new Error('人物卡不存在: ' + cardPath), { code: 'TAVERN_NOT_FOUND' })
+    const document = cardPreparation.present({ card: workspace, as: 'sillytavern-v3', characterBook: await worldBooks.characterBookForCard(cardPath) })
+    const image = await fileResources.readCardImage(cardPath).catch(() => undefined)
+    const manifest = await castAssets.read(cardPath)
+    const files = new Map()
+    for (const file of new Set([...manifest.characters.flatMap(character => [character.avatar, ...Object.values(character.sprites || {})]), ...(manifest.backgrounds || []).map(item => item.file), ...(manifest.extras || []).map(item => item.file)].filter(Boolean))) {
+      files.set(file, await castAssets.readFile(cardPath, file))
+    }
+    const name = str(document?.data?.name || cardPreparation.project(workspace).name || '人物卡')
+    return { name, bytes: buildCharx({ document, cover: image ? stripPngTextChunks(image) : null, manifest, characterName: name, readFile: file => files.get(file) }) }
   }
   const cardSummaries = createCardSummaryCache({
     absolute: cardPath => fileResources.absolute(cardPath),
@@ -2619,7 +2645,10 @@ export async function apply(ctx) {
     enabled: async () => (await readTavernSettings()).castPresentation === true,
     turns: pluginTurns,
     data: pluginData,
-    publish: sessionId => sessionSignals.publish(sessionId, { kind: 'cast', version: String(Date.now()) + ':' + Math.random().toString(36).slice(2) })
+    publish: (sessionId, annotation) => {
+      sessionSignals.publish(sessionId, { kind: 'cast', version: String(Date.now()) + ':' + Math.random().toString(36).slice(2) })
+      pluginApi.castAnnotated(sessionId, annotation)
+    }
   })
   // Work riding on the main settlement call: Tavern's own items first, then plugins.
   const settlementItems = createSettlementItems({ items: () => [castPresentation.settlement], plugins: () => pluginApi.settlement })
@@ -2627,7 +2656,7 @@ export async function apply(ctx) {
   function castAssetView(cardPath, manifest) {
     const key = castAssets.keyOf(cardPath)
     const url = file => file ? '/api/dsh-tavern/cast-asset?' + new URLSearchParams({ card: key, file }).toString() : ''
-    return manifest.characters.map(character => ({ name: character.name, aliases: character.aliases || [], avatarUrl: url(character.avatar),
+    return manifest.characters.map(character => ({ name: character.name, aliases: character.aliases || [], avatarUrl: url(character.avatar), voices: character.voices || {},
       sprites: Object.fromEntries(Object.entries(character.sprites || {}).map(([emotion, file]) => [emotion, url(file)])) }))
   }
   async function castCardOf(sessionId) {
@@ -2647,8 +2676,25 @@ export async function apply(ctx) {
       const material = await pluginTurns.readTurn(str(sessionId), turn).catch(() => null) || (turn === wanted.at(-1) ? await pluginTurns.readPendingTurn(str(sessionId)).catch(() => null) : null)
       if (material && material.turn === turn) turns.push({ turn, text: material.text, lines: annotated.turns[turn] || [] })
     }
+    const manifest = await castAssets.read(card.path)
+    const background = (manifest.backgrounds || [])[0]
     return { enabled: annotated.enabled, player: card.player, card: { name: card.name, imageUrl: '/api/dsh-tavern/card-image?path=' + encodeURIComponent(card.path) },
-      cast: castAssetView(card.path, await castAssets.read(card.path)), turns }
+      background: background ? '/api/dsh-tavern/cast-asset?' + new URLSearchParams({ card: castAssets.keyOf(card.path), file: background.file }).toString() : '',
+      cast: castAssetView(card.path, manifest), turns }
+  }
+  // One line in its speaker's voice on the chosen channel; { skip } when voicing is off or narration is silent.
+  async function speakLine(sessionId, { speaker, text, emotion, narration } = {}) {
+    const current = await speech.active()
+    if (!current) return { skip: true, reason: 'off' }
+    const card = await castCardOf(str(sessionId)).catch(() => null)
+    const name = str(speaker).trim()
+    const character = card && name ? (await castAssets.read(card.path)).characters.find(item => item.name === name || (item.aliases || []).includes(name)) : null
+    const voice = speech.voiceFor({ character, provider: current.provider, config: current.config, narration: narration === true })
+    if (voice === null) return { skip: true, reason: 'narration' }
+    return speechReply(await speech.synthesize({ provider: current.provider.id, text, voice, emotion }))
+  }
+  function speechReply(result) {
+    return result.browser ? result : { url: '/api/dsh-tavern/speech-audio?id=' + result.id, mediaType: result.mediaType }
   }
   async function castEdit(sessionId, edit) {
     const card = await castCardOf(sessionId)
@@ -2745,6 +2791,13 @@ export async function apply(ctx) {
       return { url: '/api/dsh-tavern/card-image?path=' + encodeURIComponent(cardPath), mediaType: 'image/png' }
     },
     readHistory: readPluginHistory,
+    readCast: (sessionId, turn) => castPresentation.annotation(sessionId, turn),
+    synthesizeSpeech: (sessionId, line) => speakLine(sessionId, line),
+    readCastAssets: async sessionId => {
+      const card = await castCardOf(sessionId)
+      return { player: card.player, card: { name: card.name, imageUrl: '/api/dsh-tavern/card-image?path=' + encodeURIComponent(card.path) },
+        characters: castAssetView(card.path, await castAssets.read(card.path)) }
+    },
     readActivity: async sessionId => {
       const chat = await taskStateReader.forSession(sessionId)
       const activity = chat ? backgroundTasks.activity(chat) : null
@@ -4276,6 +4329,11 @@ export async function apply(ctx) {
       case 'castSetImage': return await castEdit(args && args.sessionId, cardPath => castAssets.setImage({ cardPath, name: args.name, slot: args.slot, bytes: Buffer.from(str(args.data), 'base64') }))
       case 'castRemoveImage': return await castEdit(args && args.sessionId, cardPath => castAssets.removeImage({ cardPath, name: args.name, slot: args.slot }))
       case 'castSetCharacter': return await castEdit(args && args.sessionId, cardPath => castAssets.setCharacter({ cardPath, name: args.name, rename: args.rename, aliases: args.aliases }))
+      case 'castSetVoice': return await castEdit(args && args.sessionId, cardPath => castAssets.setVoice({ cardPath, name: args.name, provider: args.provider, voice: args.voice }))
+      case 'getSpeechSettings': return await speech.present()
+      case 'updateSpeechSettings': return await speech.save({ enabled: args && args.enabled, provider: args && args.provider, config: args && args.config || {}, apiKey: args && args.apiKey })
+      case 'speechTest': return speechReply(await speech.synthesize({ provider: args && args.provider, text: str(args && args.text) || '你好，这是配音试听。', voice: args && args.voice, emotion: args && args.emotion }))
+      case 'speechForLine': return await speakLine(args && args.sessionId, args || {})
       case 'castRemoveCharacter': return await castEdit(args && args.sessionId, cardPath => castAssets.removeCharacter({ cardPath, name: args.name }))
       case 'castImportSpritePack': return await castEdit(args && args.sessionId, (cardPath, card) => castAssets.importSpritePack({ cardPath, name: str(args.name).trim() || card.name || undefined, bytes: Buffer.from(str(args.data), 'base64') }))
       case 'pluginMediaTurns': return await pluginMediaTurns(args && args.sessionId)
@@ -4730,6 +4788,8 @@ export async function apply(ctx) {
   registerTavernHttpRoutes({
     ctx,
     castAssets,
+    speech,
+    exportCardCharx,
     exposeHandler: handle => { tavernHttpHandle = handle },
     pluginAssets: createPluginAssets({ pluginsDir: userPluginPaths(dataRoot).plugins }),
     dispatch,

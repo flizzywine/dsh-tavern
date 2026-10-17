@@ -744,3 +744,55 @@ test('人物设计档案：插件读取本局档案，并能按结算同样的�
   disabled = ['image-plugin']
   await assert.rejects(tavern.saveCharacterDesign({ gameId: 'game-1', ...person }), /关闭了插件/)
 })
+
+test('台词标注与角色素材：插件读取某轮当前版本的标注和卡的人物素材，标注完成时收到通知；本局关闭的插件不通知', { skip: !cordis }, async t => {
+  const lines = [{ n: 1, quote: '你好。', speaker: '林曦', emotion: 'joy' }]
+  let disabled = []
+  const h = await harness(t, {
+    readCast: async (sessionId, turn) => turn === 3 ? { turn, textVersion: 'key-3', lines } : null,
+    readCastAssets: async () => ({ player: '你', card: { name: 'A', imageUrl: '/card' }, characters: [{ name: '林曦', aliases: [], avatarUrl: '/a', sprites: { joy: '/j' } }] }),
+    data: { readSettings: async () => ({ disabled }), updateSettings: async () => {} }
+  })
+  const seen = []
+  let tavern
+  await h.root.plugin({ name: 'director', inject: ['tavern'], apply(ctx) { tavern = ctx.tavern; ctx.tavern.onCastAnnotated(event => seen.push(event)) } })
+  await tick()
+  assert.deepEqual(await tavern.getCast({ gameId: 'game-1', turn: 3 }), { turn: 3, textVersion: 'key-3', lines })
+  assert.equal(await tavern.getCast({ gameId: 'game-1', turn: 4 }), null)
+  await assert.rejects(tavern.getCast({ gameId: 'nope', turn: 3 }), /不存在/)
+  assert.equal((await tavern.getCastAssets({ gameId: 'game-1' })).characters[0].sprites.joy, '/j')
+  h.api.castAnnotated('game-1', { turn: 3, textVersion: 'key-3', lines })
+  await tick()
+  assert.deepEqual(seen, [{ gameId: 'game-1', turn: 3, textVersion: 'key-3', lines }])
+  assert.deepEqual((await h.api.gamePlugins('game-1')).plugins[0].uses, [{ stage: '演出', mode: '观察' }])
+  disabled = ['director']
+  h.api.castAnnotated('game-1', { turn: 3, textVersion: 'key-3', lines })
+  await tick()
+  assert.equal(seen.length, 1)
+})
+
+test('配音渠道：插件注册的渠道带上归属，合成超时或出错记入插件错误；synthesizeSpeech 按本局人物声音合成', { skip: !cordis }, async t => {
+  const lines = []
+  const h = await harness(t, { synthesizeSpeech: async (sessionId, line) => { lines.push([sessionId, line]); return line.narration ? { skip: true } : { url: '/api/dsh-tavern/speech-audio?id=x.mp3', mediaType: 'audio/mpeg' } } })
+  let tavern
+  await h.root.plugin({ name: 'edge-tts', inject: ['tavern'], apply(ctx) {
+    tavern = ctx.tavern
+    ctx.tavern.speechProvider({ id: 'edge', label: 'Edge 朗读', voices: ['zh-CN-XiaoxiaoNeural'], synthesize: async ({ text }) => {
+      if (text === 'boom') throw new Error('服务挂了')
+      return { data: new Uint8Array([1]), mediaType: 'audio/mpeg' }
+    } })
+  } })
+  await tick()
+  const [entry] = h.api.speechProviders()
+  assert.equal(entry.id, 'edge-tts/edge')
+  assert.equal(entry.owner, 'edge-tts')
+  assert.deepEqual(await entry.synthesize({ text: '你好' }), { data: new Uint8Array([1]), mediaType: 'audio/mpeg' })
+  await assert.rejects(entry.synthesize({ text: 'boom' }), /服务挂了/)
+  assert.throws(() => tavern.speechProvider({ id: 'edge', label: '重复', synthesize() {} }), /已注册/)
+  assert.throws(() => tavern.speechProvider({ id: 'Bad', label: 'x', synthesize() {} }), /name/)
+
+  assert.deepEqual(await tavern.synthesizeSpeech({ gameId: 'game-1', speaker: '林曦', text: '你好', emotion: 'joy' }), { url: '/api/dsh-tavern/speech-audio?id=x.mp3', mediaType: 'audio/mpeg' })
+  assert.deepEqual(lines[0], ['game-1', { speaker: '林曦', text: '你好', emotion: 'joy', narration: false }])
+  assert.equal(await tavern.synthesizeSpeech({ gameId: 'game-1', text: '夜深了。', narration: true }), null)
+  await assert.rejects(tavern.synthesizeSpeech({ gameId: 'game-1', text: ' ' }), /text/)
+})

@@ -45,15 +45,34 @@ window.__ModuleLoader__.load({
 
 		// @include text-resource-file.js
 
+		/** What a card file brought into its character material, for the import notice. */
+		function tavernCardAssetNotice(assets) {
+			if (!assets) return "";
+			if (assets.error) return "角色素材导入失败：" + assets.error;
+			const parts = [];
+			if (assets.sprites) parts.push(assets.sprites + " 张立绘");
+			if (assets.backgrounds) parts.push(assets.backgrounds + " 张背景");
+			if (assets.avatars) parts.push(assets.avatars + " 个头像");
+			const notes = parts.length ? ["带入" + parts.join("、")] : [];
+			const unmatched = assets.unmatched || [];
+			if (unmatched.length) notes.push(unmatched.length + " 个表情名未识别（" + unmatched.slice(0, 5).join("、") + (unmatched.length > 5 ? "…" : "") + "），已保留，导出 CHARX 时写回");
+			else if (assets.kept) notes.push("另有 " + assets.kept + " 个素材原样保留，导出 CHARX 时写回");
+			if (assets.skipped) notes.push(assets.skipped + " 个素材读不到，已跳过");
+			return notes.join("；");
+		}
+
 		function parseCardFile(file) {
 			const name = String(file.name || "");
+			if (name.toLowerCase().endsWith(".charx")) {
+				return file.arrayBuffer().then(function (buf) { return { kind: "charx", name: name, fileB64: bytesToBase64(new Uint8Array(buf)) }; });
+			}
 			if (name.toLowerCase().endsWith(".json")) {
 				return file.text().then(function (text) { return { kind: "text", name: name, text: text }; });
 			}
 			return file.arrayBuffer().then(function (buf) {
 				const bytes = new Uint8Array(buf);
 				if (bytes.length <= 8 || ascii(bytes, 0, 8) !== "\x89PNG\r\n\x1a\n") {
-					throw new Error("无法识别的角色卡文件（需要 PNG 或 JSON）");
+					throw new Error("无法识别的角色卡文件（需要 PNG、JSON 或 CHARX）");
 				}
 				let off = 8;
 				while (off + 8 <= bytes.length) {
@@ -727,6 +746,8 @@ window.__ModuleLoader__.load({
 // @include runtime/message-frame-lifecycle.js
 
 // @include features/plugin-extensions.js
+
+// @include features/speech.js
 
 // @include features/cast-presentation.js
 

@@ -26,6 +26,8 @@ export function registerTavernHttpRoutes({
   tavernRemoteAssets,
   tavernStaticResources,
   castAssets,
+  speech,
+  exportCardCharx,
   exposeHandler,
 }) {
   const webServer = ctx.get('webServer')
@@ -189,6 +191,23 @@ export function registerTavernHttpRoutes({
             // Content-addressed file names: a URL never changes what it serves.
             res.writeHead(200, { 'Content-Type': image.mediaType, 'Content-Length': image.bytes.byteLength, 'Cache-Control': 'private, max-age=31536000, immutable', 'X-Content-Type-Options': 'nosniff' })
             res.end(image.bytes)
+            return
+          }
+          if (req.method === 'GET' && pathname === '/api/dsh-tavern/speech-audio') {
+            const audio = speech ? await speech.readAudio(new URL(req.url, 'http://x').searchParams.get('id')) : undefined
+            if (audio === undefined) { res.writeHead(404, { 'X-Content-Type-Options': 'nosniff' }); res.end('not found'); return }
+            res.writeHead(200, { 'Content-Type': audio.mediaType, 'Content-Length': audio.bytes.byteLength, 'Cache-Control': 'private, max-age=31536000, immutable', 'X-Content-Type-Options': 'nosniff' })
+            res.end(audio.bytes)
+            return
+          }
+          if (req.method === 'GET' && pathname === '/api/dsh-tavern/card-charx') {
+            let file
+            try { file = await exportCardCharx(new URL(req.url, 'http://x').searchParams.get('path')) }
+            catch (error) { res.writeHead(error?.code === 'TAVERN_NOT_FOUND' || /路径|不存在/.test(String(error?.message)) ? 404 : 500, { 'Content-Type': 'text/plain; charset=utf-8', 'X-Content-Type-Options': 'nosniff' }); res.end(String(error?.message || error)); return }
+            const name = file.name.replace(/[\\/:*?"<>|\r\n]/g, '_') + '.charx'
+            res.writeHead(200, { 'Content-Type': 'application/zip', 'Content-Length': file.bytes.byteLength, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff',
+              'Content-Disposition': "attachment; filename=\"card.charx\"; filename*=UTF-8''" + encodeURIComponent(name) })
+            res.end(file.bytes)
             return
           }
           if (req.method === 'GET' && pathname === '/api/dsh-tavern/card-image') {

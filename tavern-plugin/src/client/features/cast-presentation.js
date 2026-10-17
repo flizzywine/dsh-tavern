@@ -88,17 +88,19 @@
 			function flush() { if (narration.length) { segments.push({ kind: "text", text: narration.join("\n") }); narration = []; } }
 			for (const row of source.split("\n")) {
 				let speaker = null;
+				const quotes = [];
 				for (const range of findTavernQuoteRanges(row)) {
 					const quote = row.slice(range[0] + 1, range[1] - 1).trim();
 					for (let index = cursor; index < lines.length; index += 1) {
 						if (String(lines[index].quote || "").trim() !== quote) continue;
 						if (!speaker) speaker = lines[index];
+						quotes.push(quote);
 						cursor = index + 1;
 						matched += 1;
 						break;
 					}
 				}
-				if (speaker && row.trim()) { flush(); segments.push({ kind: "line", text: row, speaker: speaker.speaker, emotion: speaker.emotion }); }
+				if (speaker && row.trim()) { flush(); segments.push({ kind: "line", text: row, speaker: speaker.speaker, emotion: speaker.emotion, quotes: quotes }); }
 				else narration.push(row);
 			}
 			flush();
@@ -118,6 +120,11 @@
 			return React.createElement("span", { className: "dsh-tavern-cast-avatar dsh-tavern-cast-avatar-letter", "aria-hidden": true, style: { "--dsh-cast-hue": tavernCastHue(name) } }, Array.from(name)[0] || "?");
 		}
 
+		function TavernCastSpeak(props) {
+			const speech = useTavernSpeechSettings();
+			return speech && speech.enabled ? React.createElement(TavernSpeakButton, props) : null;
+		}
+
 		/** Render text with annotated lines as speaker rows; falls back to the plain renderer. */
 		function renderTavernCastText(text, key, renderText, cast) {
 			const segments = cast && tavernCastSegments(text, cast.lines);
@@ -131,7 +138,8 @@
 					h("div", { className: "dsh-tavern-cast-body" },
 						h("div", { className: "dsh-tavern-cast-head" },
 							h("span", { className: "dsh-tavern-cast-name", style: { "--dsh-cast-hue": tavernCastHue(segment.speaker) } }, segment.speaker),
-							TAVERN_CAST_EMOTIONS[segment.emotion] && segment.emotion !== "neutral" ? h("span", { className: "dsh-tavern-cast-emotion" }, TAVERN_CAST_EMOTIONS[segment.emotion]) : null),
+							TAVERN_CAST_EMOTIONS[segment.emotion] && segment.emotion !== "neutral" ? h("span", { className: "dsh-tavern-cast-emotion" }, TAVERN_CAST_EMOTIONS[segment.emotion]) : null,
+							cast.sessionId ? h(TavernCastSpeak, { sessionId: cast.sessionId, speaker: segment.speaker, text: segment.quotes.join(" "), emotion: segment.emotion }) : null),
 						renderText(segment.text, "text")));
 			}));
 		}

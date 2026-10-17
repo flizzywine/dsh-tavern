@@ -38,7 +38,7 @@ export function createCastPresentation({ enabled, turns, data, publish = () => {
       catch (error) { return JSON.stringify({ ok: false, retryable: true, error: String(error?.message || error) }) }
       await data.saveTurn({ chatId: target.chatId, owner: CAST_DATA_OWNER, turn, key: target.key, data: { version: 1, lines } })
       pending.delete(keyOf(gameId, turn))
-      publish(gameId)
+      publish(gameId, { turn, textVersion: target.key, lines })
       return JSON.stringify({ ok: true, annotated: lines.length })
     }
   })
@@ -61,5 +61,15 @@ export function createCastPresentation({ enabled, turns, data, publish = () => {
     return { enabled: true, turns: result }
   }
 
-  return Object.freeze({ settlement, forTurns })
+  /** One turn's annotation for the text version shown now, whether or not annotating is on. */
+  async function annotation(sessionId, turn) {
+    const game = await turns.resolveGame(sessionId)
+    const key = game && await turns.currentKey(game.sessionId, turn)
+    if (!key) return null
+    const record = (await records(game.chatId, turn)).find(item => item.turn === turn && item.key === key)
+    const lines = record?.data?.lines
+    return Array.isArray(lines) && lines.length ? { turn, textVersion: key, lines: structuredClone(lines) } : null
+  }
+
+  return Object.freeze({ settlement, forTurns, annotation })
 }

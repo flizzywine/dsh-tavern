@@ -43,13 +43,17 @@
 
 ## 第三步：配音
 
-- 每个人物选一个声音，旁白可选不念。提供方先接 OpenAI 兼容语音接口和 GPT-SoVITS。
-- 宿主端合成并缓存；气泡头像上有播放按钮，可选自动播放。
-- 没有标注的卡，只念引号里的话。
+- **一个全局开关**：「设置 → DSH Tavern → 显示与交互 → 配音」，默认关。打开前要选好渠道并填齐设置。
+- **渠道**：浏览器朗读（系统语音，零配置）、OpenAI 兼容 `/audio/speech`（OpenAI、硅基流动 CosyVoice、中转）、GPT-SoVITS（api_v2）、MiniMax T2A v2；插件可用 `speechProvider` 再加。各渠道分别保存设置，Key 存在 DSH 凭据库，改地址必须重填 Key。
+- **声音**：每个渠道有默认声音和旁白声音（旁白留空则不念）；每个人物在舞台页「角色素材」里按渠道单独选声音，跟着人物卡走，换渠道不丢。
+- **情绪**：gpt-4o 系列把标注的情绪写成语气要求；MiniMax 映射到它的 7 种情绪；插件渠道拿到情绪名自己处理。
+- **合成与缓存**：宿主侧合成，按「渠道 + 非密钥设置 + 声音 + 情绪 + 文字」内容寻址存进 `speech-cache/`，同一句只付费一次；浏览器朗读在浏览器里合成，不经宿主。
+- **在哪里听**：带头像的台词行有朗读按钮（只念引号里的话）；舞台和全屏舞台有「朗读」开关（每台浏览器记住），翻到哪句念哪句，自动播放时念完再翻页。
+- **还没做**：缓存不会自动清理；正文写完自动念整轮。
 
 ## 插件接口
 
-- 宿主侧：`getCast({ gameId, turn })` 读某一轮的台词标注；`onCastAnnotated` 标注完成时通知；`getCastAssets({ gameId })` 读角色素材；`synthesizeSpeech({ gameId, speaker, text })`。
-- 浏览器侧：`watchCast(gameId, listener)`、`castAssetUrl(...)`、`playSpeech(...)`。
+已开放（见[插件接口](../plugin-api.md)「演出」与 `registerStageView`）：
 
-接口在对应功能稳定后再加，写进 `docs/plugin-api.md` 的版本记录。
+- 宿主侧：`getCast({ gameId, turn })` 读某一轮当前版本的台词标注；`onCastAnnotated` 标注保存时通知；`getCastAssets({ gameId })` 读角色素材；`speechProvider` 加配音渠道；`synthesizeSpeech` 按人物声音合成一句。
+- 浏览器侧：`getStage`、`watchStage` 读舞台数据；`registerStageView` 换舞台画面，Tavern 保留阅读流程，插件失败时退回内置画面；`speak`、`stopSpeech` 朗读。

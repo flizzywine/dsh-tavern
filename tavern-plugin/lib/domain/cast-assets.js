@@ -1,11 +1,13 @@
 import { createHash } from 'node:crypto'
 import { CAST_EMOTIONS } from './cast-annotation.js'
 import { readZipEntries } from './zip-entries.js'
+import { emotionSlot as emotionSlotOf } from './card-assets.js'
 
 // Per-card character material (docs/design/cast-presentation.md): avatar and expression sprites
 // per character, laid out like a SillyTavern sprite pack so such packs import as they are.
 const hash = value => createHash('sha256').update(value).digest('hex')
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024
+const MAX_EXTRA_BYTES = 20 * 1024 * 1024
 const MAX_CHARACTERS = 64
 const MAX_NAME = 24
 const IMAGE_TYPES = Object.freeze({ png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif' })
@@ -50,11 +52,12 @@ export function createCastAssets({ store }) {
     const source = dirOf(from), target = dirOf(to)
     const manifest = await store.readJson(source + '/cast.json')
     if (!valid(manifest)) return
-    const files = new Set(manifest.characters.flatMap(character => [character.avatar, ...Object.values(character.sprites || {})]).filter(Boolean))
+    const files = new Set([...manifest.characters.flatMap(character => [character.avatar, ...Object.values(character.sprites || {})]),
+      ...(manifest.backgrounds || []).map(item => item.file), ...(manifest.extras || []).map(item => item.file)].filter(Boolean))
     for (const file of files) {
-      const image = await readImage(hash(String(from)), file)
-      if (!image) throw new Error('人物素材图片不存在: ' + file)
-      await store.writeBytes(target + '/files/' + file, image.bytes)
+      const bytes = await store.readBytes(source + '/files/' + file)
+      if (!bytes) throw new Error('人物素材文件不存在: ' + file)
+      await store.writeBytes(target + '/files/' + file, bytes)
     }
     await store.writeJson(target + '/cast.json', manifest)
     await store.remove(source + '/cast.json')
@@ -127,6 +130,23 @@ export function createCastAssets({ store }) {
     return read(cardPath)
   }
 
+  /** A character's voice for one speech provider (docs/design/cast-presentation.md); '' clears it. */
+  async function setVoice({ cardPath, name, provider, voice }) {
+    const character = castName(name)
+    if (typeof provider !== 'string' || !/^[a-z0-9][a-z0-9._/-]{0,96}$/.test(provider)) throw invalid('配音渠道无效')
+    const value = typeof voice === 'string' ? voice.trim() : ''
+    if ([...value].length > 300) throw invalid('声音设置最多 300 字')
+    await update(cardPath, manifest => {
+      const target = characterIn(manifest, character, Boolean(value))
+      if (!target) return
+      const voices = { ...(target.voices || {}) }
+      if (value) voices[provider] = value
+      else delete voices[provider]
+      target.voices = voices
+    })
+    return read(cardPath)
+  }
+
   async function removeCharacter({ cardPath, name }) {
     const character = castName(name)
     await update(cardPath, manifest => { manifest.characters = manifest.characters.filter(item => item.name !== character) })
@@ -159,6 +179,80 @@ export function createCastAssets({ store }) {
     return { cast: await read(cardPath), imported: written.length, skipped, characters: [...new Set(written.map(image => image.owner))] }
   }
 
+  /** A file kept only to be exported again (audio, models, unrecognized expressions). */
+  async function writeExtra(cardPath, bytes, ext) {
+    if (!bytes?.length) throw invalid('文件为空')
+    if (bytes.length > MAX_EXTRA_BYTES) throw invalid('单个素材不能超过 20 MB')
+    const file = hash(bytes).slice(0, 32) + '.' + (/^[a-z0-9]{1,10}$/.test(ext) ? ext : 'bin')
+    await store.writeBytes(dirOf(cardPath) + '/files/' + file, bytes)
+    return file
+  }
+
+  /**
+   * Material a card file carried (see card-assets.js collectCardAssets): the main character's
+   * expressions and avatar, backgrounds, Tavern's own cast entry; anything not usable is kept.
+   */
+  async function importCardAssets({ cardPath, name, collected }) {
+    const owner = castName(name)
+    const image = async (bytes) => imageExtension(bytes) && bytes.length <= MAX_IMAGE_BYTES ? writeImage(cardPath, bytes) : null
+    const summary = { sprites: 0, backgrounds: 0, avatars: 0, kept: 0, unmatched: [] }
+    const sprites = [], backgrounds = [], extras = [], cast = []
+    let avatar = null
+    const taken = new Set()
+    for (const emotion of collected.emotions) {
+      const slot = emotionSlotOf(emotion.name)
+      const file = slot && !taken.has(slot) ? await image(emotion.bytes) : null
+      if (file) { taken.add(slot); sprites.push({ slot, file }); continue }
+      extras.push({ type: 'emotion', name: emotion.name, ext: emotion.ext, file: await writeExtra(cardPath, emotion.bytes, emotion.ext) })
+      if (!slot) summary.unmatched.push(emotion.name)
+    }
+    for (const background of collected.backgrounds) {
+      const file = await image(background.bytes)
+      if (file) backgrounds.push({ name: background.name, file })
+      else extras.push({ type: 'background', name: background.name, ext: background.ext, file: await writeExtra(cardPath, background.bytes, background.ext) })
+    }
+    if (collected.cover) {
+      avatar = await image(collected.cover.bytes)
+      if (!avatar) extras.push({ type: 'icon', name: 'main', ext: collected.cover.ext, file: await writeExtra(cardPath, collected.cover.bytes, collected.cover.ext) })
+    }
+    for (const extra of collected.extras) extras.push({ type: extra.type.slice(0, 40), name: extra.name, ext: extra.ext, file: await writeExtra(cardPath, extra.bytes, extra.ext) })
+    for (const character of collected.cast) {
+      let person
+      try { person = castName(character.name) } catch { continue }
+      const entry = { name: person, aliases: character.aliases.map(alias => { try { return castName(alias) } catch { return null } }).filter(Boolean).slice(0, 8), avatar: character.avatar ? await image(character.avatar) : null, sprites: {}, voices: character.voices }
+      for (const [slot, bytes] of Object.entries(character.sprites)) { const file = await image(bytes); if (file) entry.sprites[slot] = file }
+      cast.push(entry)
+    }
+    await update(cardPath, manifest => {
+      const main = characterIn(manifest, owner, sprites.length > 0 || Boolean(avatar))
+      if (main) {
+        for (const sprite of sprites) main.sprites[sprite.slot] = sprite.file
+        if (avatar && !main.avatar) main.avatar = avatar
+      }
+      for (const entry of cast) {
+        if (manifest.characters.length >= MAX_CHARACTERS && !characterIn(manifest, entry.name, false)) continue
+        const target = characterIn(manifest, entry.name, true)
+        target.aliases = [...new Set([...(target.aliases || []), ...entry.aliases])].filter(alias => alias !== target.name).slice(0, 8)
+        if (entry.avatar) target.avatar = entry.avatar
+        Object.assign(target.sprites, entry.sprites)
+        if (Object.keys(entry.voices).length) target.voices = { ...(target.voices || {}), ...entry.voices }
+      }
+      manifest.backgrounds = [...(manifest.backgrounds || []), ...backgrounds.filter(item => !(manifest.backgrounds || []).some(existing => existing.file === item.file))]
+      manifest.extras = [...(manifest.extras || []), ...extras.filter(item => !(manifest.extras || []).some(existing => existing.file === item.file && existing.type === item.type))]
+    })
+    summary.sprites = sprites.length + cast.reduce((total, entry) => total + Object.keys(entry.sprites).length, 0)
+    summary.backgrounds = backgrounds.length
+    summary.avatars = (avatar ? 1 : 0) + cast.filter(entry => entry.avatar).length
+    summary.kept = extras.length
+    return summary
+  }
+
+  /** Bytes of one of the card's material files, for export. */
+  async function readFile(cardPath, file) {
+    if (!/^[0-9a-f]{32}\.[a-z0-9]{1,10}$/.test(String(file))) return undefined
+    return await store.readBytes(dirOf(cardPath) + '/files/' + file) || undefined
+  }
+
   /** One stored image by the card's key (see keyOf), as the asset route serves it. */
   async function readImage(key, file) {
     if (!/^[0-9a-f]{64}$/.test(String(key)) || !/^[0-9a-f]{32}\.(png|jpg|webp|gif)$/.test(String(file))) return undefined
@@ -166,5 +260,5 @@ export function createCastAssets({ store }) {
     return bytes ? { bytes, mediaType: IMAGE_TYPES[file.split('.').pop()] } : undefined
   }
 
-  return Object.freeze({ read, movePath, setImage, removeImage, setCharacter, removeCharacter, importSpritePack, readImage, keyOf: cardPath => hash(String(cardPath)) })
+  return Object.freeze({ read, movePath, setImage, removeImage, setCharacter, setVoice, removeCharacter, importSpritePack, importCardAssets, readFile, readImage, keyOf: cardPath => hash(String(cardPath)) })
 }
