@@ -1,6 +1,6 @@
 <p align="center">
 
-> **测试版：仅支持官方 DeepSeek Harness 0.2.1-rc.2。** [测试版安装方法](README-0.2.1-rc.2.md) · [稳定版下载](https://github.com/flizzywine/dsh-tavern/releases/latest)
+> **测试版：仅支持官方 DeepSeek Harness 0.2.1-rc.2。** [测试版安装方法](README-0.2.1-rc.2.md) · [原有安装方法](#快速开始)
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/flizzywine/dsh-tavern/main/docs/assets/brand/dsh-tavern-lockup-on-dark.svg">
     <img src="docs/assets/brand/dsh-tavern-lockup.svg" width="360" alt="DSH 酒馆">
@@ -115,12 +115,76 @@
 
 ## 快速开始
 
-| 渠道 | 适合谁 | 安装 |
-| --- | --- | --- |
-| 稳定版 | 日常游玩 | [下载稳定版](https://github.com/flizzywine/dsh-tavern/releases/latest) · [安装指南](https://flizzywine.github.io/dsh-tavern/#a02) |
-| 测试版 | 参与 DSH 0.2.1 适配测试 | [官方桌面测试版安装方法](README-0.2.1-rc.2.md) |
+### Windows
 
-本分支为测试版，目前仅支持官方 DeepSeek Harness **0.2.1-rc.2**（macOS / Windows）。安装、更新、存档迁移和回退说明见上方测试版指南。DSHA、独立命令行及一键 EXE 请继续使用稳定版。
+**方式一：一键安装包（推荐）**
+
+**[下载 Windows 安装包](https://github.com/flizzywine/dsh-tavern/releases/download/v2.6/DSH-Tavern-Desktop-2.0.13-x64-Setup8.exe)**（x64），双击运行，保持联网，按提示完成。以后从桌面「DSH Tavern」快捷方式打开，无需另装 Node.js 或 DSH Desktop。[图文教程 →](https://flizzywine.github.io/dsh-tavern/#a02--section-2)
+
+**方式二：借助 DSH Desktop**
+
+先安装 **[DSH Desktop 2.0.13](https://github.com/anywhere-labs/dsh-desktop/releases/tag/v2.0.13)**，在 **设置 → 通用设置 → 打开 DSH 终端** 中运行下面的命令，完成后重启 Desktop，选择 **tavern** Profile。[图文教程 →](https://flizzywine.github.io/dsh-tavern/#a02--section-3)
+
+```powershell
+$env:DSH_TAVERN_HOST='desktop'; $tavernInstaller=[Text.Encoding]::UTF8.GetString((New-Object Net.WebClient).DownloadData('https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@main/install.ps1')); Invoke-Expression $tavernInstaller
+```
+
+**方式三：命令行**
+
+需要 **Node.js 22.19+**，在 PowerShell 中运行，安装后自动打开网页，以后用 `dsh-tavern open` 打开。[详细说明 →](https://flizzywine.github.io/dsh-tavern/#a02--section-4)
+
+```powershell
+$env:DSH_TAVERN_HOST='cli'; $tavernInstaller=[Text.Encoding]::UTF8.GetString((New-Object Net.WebClient).DownloadData('https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@main/install.ps1')); Invoke-Expression $tavernInstaller
+```
+
+### macOS
+
+先安装 **[DSH Desktop 2.0.13](https://github.com/anywhere-labs/dsh-desktop/releases/tag/v2.0.13)**，在 **设置 → 通用设置 → 打开 DSH 终端** 中运行：
+
+```bash
+curl -fsSL https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@main/install.sh | DSH_TAVERN_HOST=desktop sh
+```
+
+完成后重启 Desktop，选择 **tavern** Profile。[图文教程 →](https://flizzywine.github.io/dsh-tavern/#a02--section-3)
+
+### Linux
+
+需要 **Node.js 22.19+**，在终端运行：
+
+```bash
+curl -fsSL https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@main/install.sh | DSH_TAVERN_HOST=cli sh
+```
+
+安装后自动打开网页；以后用 `dsh-tavern open` 打开。[详细说明 →](https://flizzywine.github.io/dsh-tavern/#a02--section-4)
+
+### Android
+
+**方式一：一键安装（推荐）**
+
+**[下载 Android APK](https://github.com/flizzywine/dsh-tavern/releases/download/v2.1/dsh-tavern-android-release.apk)**（Android 11+、ARM64），安装后打开，点击启动，首次保持联网等待自动安装完成。[图文教程 →](https://flizzywine.github.io/dsh-tavern/#a02--section-5)
+
+**方式二：借助 DSHA**
+
+已在用 **[DSHA](https://github.com/DSH-APP/DSHA/releases)** 的，可以在 DSHA 中安装并启动酒馆。[图文教程 →](https://flizzywine.github.io/dsh-tavern/#a02--section-6)
+
+### 手机远程访问
+
+酒馆跑在电脑或服务器上，用手机浏览器也能玩。[详细说明 →](https://flizzywine.github.io/dsh-tavern/#a02--section-10)
+
+- **电脑运行、手机扫码**：Desktop 版已自带 [dsh-pocket](https://github.com/shaobeichen/dsh-pocket)，在 **设置 → 手机访问** 选择局域网或公网，扫码即可。
+- **服务器部署、账号登录**：安装 [dsh-webui-auth](https://github.com/Yuuz12/dsh-webui-auth)，为远程网页加上登录认证。
+
+### 开始游玩
+
+在 **设置 → 模型** 填入模型服务和 API 密钥（任意模型都可以，本地模型也行），导入人物卡就能开局。[图文教程 →](https://flizzywine.github.io/dsh-tavern/#a02--section-7)
+
+**更新与重装：**在酒馆里点「更新到最新版」即可更新。需要重装时，重新运行原来的安装包或命令，只替换程序，人物卡、聊天和设置都会保留。[详细说明 →](https://flizzywine.github.io/dsh-tavern/#a02--section-9)
+
+安装失败时看[常见故障](https://flizzywine.github.io/dsh-tavern/#a02--section-11)；macOS 命令行安装、已有 DSH 的[插件安装](https://flizzywine.github.io/dsh-tavern/#plugin-installation)等见[完整安装指南](https://flizzywine.github.io/dsh-tavern/#a02)（宿主适配 DSH **0.1.5-rc.2**）。
+
+### 测试版：DSH 0.2.1 官方桌面
+
+如需参与新宿主适配测试，可额外选择[测试版安装方法](https://github.com/flizzywine/dsh-tavern/blob/0.2.1%E7%89%88%E6%9C%AC/README-0.2.1-rc.2.md) · [测试版说明](https://github.com/flizzywine/dsh-tavern/releases/tag/v2.7.0-dsh0.2.1-test.2)。目前仅支持官方 DeepSeek Harness **0.2.1-rc.2** 桌面版（macOS / Windows），支持从旧命令行版及自定义目录备份、校验并迁移数据；暂不支持 DSHA、独立命令行或社区 Desktop。
 
 ## 交流与反馈
 

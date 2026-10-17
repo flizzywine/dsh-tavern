@@ -1,3 +1,4 @@
+import { importUserHome } from './import-user-home.mjs'
 import { randomUUID } from 'node:crypto'
 import installationState from './installation-state.cjs'
 import { recordInstallationReceipt } from './installation-receipt.mjs'
@@ -173,8 +174,8 @@ function installedCommandSource() {
   }
 }
 
-function existingProfileSource() {
-  const manifest = path.join(PROFILE_DIR, 'package.json')
+function existingProfileSource(profileDir = PROFILE_DIR) {
+  const manifest = path.join(profileDir, 'package.json')
   if (!existsSync(manifest)) return null
   try {
     const source = JSON.parse(readFileSync(manifest, 'utf8'))?.dshTavern?.source
@@ -196,6 +197,7 @@ function legacyDataRoots() {
   }
   add(installedCommandSource())
   add(existingProfileSource())
+  add(existingProfileSource(path.join(DSH_ROOT, 'profiles', 'tavern')))
   add(SOURCE_ROOT)
   for (const candidate of (process.env.DSH_TAVERN_LEGACY_DATA || '').split(path.delimiter)) add(candidate, true)
   return roots
@@ -277,6 +279,10 @@ async function installProfileOwned(host, { attemptId, runInstall, runDsh }) {
     assertCompatibleDshVersion(dshVersion, host)
     console.log(dshCompatibilityNotice(dshVersion, host))
 
+    if (host === 'desktop' && process.env.DSH_TAVERN_IMPORT_HOME) {
+      const imported = importUserHome({ source: process.env.DSH_TAVERN_IMPORT_HOME, target: DSH_ROOT })
+      console.log(`${imported.alreadyImported ? '已继承过该目录，保留当前进度' : '旧目录数据继承完成'}；双方备份：${imported.backup}`)
+    }
     mkdirSync(PROFILE_DIR, { recursive: true })
     mkdirSync(LOG_DIR, { recursive: true })
     const dataRoot = resolveTavernDataRoot({ dshHome: DSH_ROOT })
