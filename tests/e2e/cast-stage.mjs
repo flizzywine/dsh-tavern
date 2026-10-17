@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
+import { createServer } from 'node:http'
 import { join } from 'node:path'
-import { writeZipEntries } from '../../tavern-plugin/lib/domain/zip-entries.js'
+import { readZipEntries, writeZipEntries } from '../../tavern-plugin/lib/domain/zip-entries.js'
 
 import { crc32, deflateSync } from 'node:zlib'
 
@@ -22,8 +23,17 @@ function figurePng([r, g, b], width = 120, height = 200) {
 
 // The stage: right panel, character material, full-screen reader that can send the next input.
 export async function castStageChecks({ page, step, output, report }) {
-  await step('舞台：右侧小舞台按台词换人，导入立绘包后显示立绘', async () => {
+  await step('插件舞台：导演插件定下的地点和时间画在舞台上，可选回内置舞台', async () => {
     await page.getByRole('button', { name: '舞台', exact: true }).filter({ visible: true }).first().click()
+    const choice = page.getByRole('combobox', { name: '舞台样式' })
+    assert.equal(await choice.inputValue(), 'tavern-plugin-director:scene', '装了插件舞台时默认用它')
+    await page.locator('.dsh-tavern-stage-tab').getByText('酒馆大堂 · 夜晚', { exact: true }).waitFor()
+    await page.waitForTimeout(400)
+    await page.screenshot({ path: join(output, 'cast-stage-plugin.png') })
+    await choice.selectOption('dsh-tavern:builtin')
+    report.castStagePlugin = true
+  })
+  await step('舞台：右侧小舞台按台词换人，导入立绘包后显示立绘', async () => {
     const scene = page.locator('.dsh-tavern-stage-tab .dsh-tavern-stage-scene')
     await scene.waitFor()
     // Opens at the turn's last annotated line.
@@ -58,6 +68,94 @@ export async function castStageChecks({ page, step, output, report }) {
     await page.keyboard.press('Escape')
     await overlay.waitFor({ state: 'detached' })
     report.castStageFullscreen = true
+  })
+}
+
+// Voicing through an OpenAI-compatible channel: a local stand-in service records what it is asked to say.
+export async function castSpeechChecks({ page, step, output, report }) {
+  const requests = []
+  const server = createServer((req, res) => {
+    let body = ''
+    req.on('data', chunk => { body += chunk })
+    req.on('end', () => {
+      requests.push({ url: req.url, authorization: req.headers.authorization, body: JSON.parse(body || '{}') })
+      res.writeHead(200, { 'content-type': 'audio/mpeg' })
+      res.end(Buffer.from('ID3' + 'e2e-audio'.repeat(8)))
+    })
+  })
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
+  try {
+    await step('配音：设置 OpenAI 兼容渠道，台词行朗读用默认声音，角色素材里换声音后按人物的声音读', async () => {
+      const chatUrl = page.url()
+      await page.getByRole('button', { name: 'Settings', exact: true }).click()
+      await page.getByText('DSH Tavern', { exact: true }).first().click()
+      await page.getByRole('combobox', { name: '配音渠道', exact: true }).selectOption('openai')
+      await page.getByRole('textbox', { name: 'API 根地址', exact: true }).fill('http://127.0.0.1:' + server.address().port + '/v1')
+      await page.getByRole('textbox', { name: '模型', exact: true }).fill('tts-1')
+      await page.getByLabel('API Key', { exact: true }).fill('sk-e2e')
+      await page.getByLabel('默认声音', { exact: true }).fill('alloy')
+      await page.getByRole('switch', { name: '配音', exact: true }).click()
+      await page.getByText('已保存，使用「OpenAI 兼容接口」配音').waitFor()
+      assert.equal(await page.getByRole('switch', { name: '配音', exact: true }).isChecked(), true)
+      await page.screenshot({ path: join(output, 'speech-settings.png') })
+      await page.goto(chatUrl)
+      const row = page.locator('.dsh-tavern-cast-line').filter({ visible: true }).filter({ hasText: '店主' }).first()
+      await row.getByRole('button', { name: '朗读这句', exact: true }).click()
+      await expectRequest(requests, request => request.body.voice === 'alloy')
+      assert.deepEqual(requests[0].body, { model: 'tts-1', input: '欢迎回来，这是你的奖励。', voice: 'alloy', response_format: 'mp3' })
+      assert.equal(requests[0].authorization, 'Bearer sk-e2e')
+
+      await page.getByRole('button', { name: '舞台', exact: true }).filter({ visible: true }).first().click()
+      const voice = page.getByLabel('店主 的声音', { exact: true })
+      await voice.fill('onyx')
+      await voice.press('Enter')
+      await page.getByText('已保存 店主 的声音').waitFor()
+      const served = page.waitForResponse(response => response.url().includes('/api/dsh-tavern/speech-audio?id='))
+      await row.getByRole('button', { name: '朗读这句', exact: true }).click()
+      await expectRequest(requests, request => request.body.voice === 'onyx')
+      const audio = await served
+      assert.equal(audio.status(), 200)
+      assert.equal(audio.headers()['content-type'], 'audio/mpeg')
+      assert.equal((await page.request.get(new URL('/api/dsh-tavern/speech-audio?id=' + '0'.repeat(64) + '.mp3', page.url()).href)).status(), 404)
+      report.castSpeech = true
+    })
+  } finally { server.close() }
+}
+
+async function expectRequest(requests, match) {
+  for (let index = 0; index < 100; index++) {
+    if (requests.some(match)) return
+    await new Promise(resolve => setTimeout(resolve, 100))
+  }
+  throw new Error('配音服务没有收到预期的请求：' + JSON.stringify(requests.map(request => request.body)))
+}
+
+// A CHARX card brings its expressions and background; exporting writes them back.
+export async function castCardFileChecks({ page, step, report }) {
+  await step('CHARX：导入带立绘和背景的卡，素材进角色素材；导出 CHARX 写回', async () => {
+    const card = { spec: 'chara_card_v3', spec_version: '3.0', data: { name: 'CHARX 验收', description: '带素材的卡', first_mes: '你好。', group_only_greetings: [], assets: [
+      { type: 'icon', uri: 'embeded://assets/icon/images/main.png', name: 'main', ext: 'png' },
+      { type: 'emotion', uri: 'embeded://assets/emotion/images/smile.png', name: 'smile', ext: 'png' },
+      { type: 'emotion', uri: 'embeded://assets/emotion/images/think.png', name: 'thinking', ext: 'png' },
+      { type: 'background', uri: 'embeded://assets/background/images/room.png', name: 'main', ext: 'png' }] } }
+    const file = writeZipEntries([{ path: 'card.json', content: JSON.stringify(card) }, { path: 'assets/icon/images/main.png', content: figurePng([90, 120, 200]) },
+      { path: 'assets/emotion/images/smile.png', content: figurePng([230, 160, 90]) }, { path: 'assets/emotion/images/think.png', content: figurePng([120, 200, 120]) },
+      { path: 'assets/background/images/room.png', content: figurePng([40, 40, 60], 160, 90) }])
+    const call = (method, args) => page.evaluate(async ([method, args]) => (await fetch('/api/dsh-tavern/' + method, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(args) })).json(), [method, args])
+    const imported = await call('importCard', { payload: { kind: 'charx', name: 'CHARX 验收.charx', fileB64: file.toString('base64') } })
+    assert.equal(imported.ok, true, JSON.stringify(imported))
+    assert.deepEqual(imported.card.assets, { sprites: 1, backgrounds: 1, avatars: 0, kept: 1, unmatched: ['thinking'], skipped: 0 })
+    const listed = (await call('listCards', {})).cards.find(item => item.path === imported.card.path)
+    assert.equal(listed.hasImage, true, 'PNG 卡面当作人物卡封面')
+    const exported = await page.request.get(new URL('/api/dsh-tavern/card-charx?path=' + encodeURIComponent(imported.card.path), page.url()).href)
+    assert.equal(exported.status(), 200)
+    const entries = readZipEntries(await exported.body())
+    const written = JSON.parse(entries.get('card.json').toString('utf8'))
+    assert.equal(written.data.name, 'CHARX 验收')
+    assert.equal(written.data.first_mes, '你好。')
+    assert.deepEqual(written.data.assets.map(asset => [asset.type, asset.name]), [['icon', 'main'], ['emotion', 'joy'], ['background', 'main'], ['emotion', 'thinking']])
+    for (const asset of written.data.assets) assert.ok(entries.has(asset.uri.replace('embeded://', '')), asset.uri)
+    report.castCardFile = true
   })
 }
 

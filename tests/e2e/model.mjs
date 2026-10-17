@@ -177,6 +177,14 @@ export function apply(ctx) {
       const perf = process.env.TAVERN_E2E_PERFORMANCE_DIR ? JSON.parse(await readFile(process.env.TAVERN_E2E_PERFORMANCE_DIR + '/performance-control.json', 'utf8').catch(() => 'null')) : null
       const gold = perf?.gold ?? (cardUpdate ? 20 : presetRound || (text.includes('E2E 修正金币为四十') ? 40 : (text.includes('雨夜重写') || text.includes('雨夜里')) ? 30 : (text.includes('再次领取奖励') || text.includes('金币累计二十枚')) ? 20 : 10))
       const goldId = perf ? 'perf-gold-' + perf.id : 'e2e-gold-' + gold, postureId = 'e2e-posture-' + gold
+      // The director plugin example (examples/tavern-plugin-director): its task sets the scene once, then ends.
+      if (JSON.stringify(input.messages).includes('舞台导演') && tools.has('director_scene')) {
+        const block = done.has('e2e-director') ? { type: 'text', text: '已定场景。' } : { type: 'tool-call', id: 'e2e-director', name: 'director_scene', arguments: JSON.stringify({ place: '酒馆大堂', time: '夜晚', mood: '温馨' }) }
+        yield { type: 'block-start', index: 0, blockType: block.type }
+        yield { type: 'block-end', index: 0, block }
+        yield { type: 'finish', reason: { kind: block.type === 'tool-call' ? 'tool-calls' : 'stop' } }
+        return
+      }
       const blocks = []
       if (tools.has('candidate_submit_choices')) blocks.push({ type: 'tool-call', id: 'e2e-choices', name: 'candidate_submit_choices', arguments: JSON.stringify({ actions: ['再次领取奖励', '向店主道谢', '查看任务告示', '清点背包'], scene: '夜幕降临酒馆' }) })
       // Dialogue annotation: name every numbered quote of the settlement note.

@@ -28,6 +28,7 @@ export async function openTavernSettings(t, { settings, respond, sceneImages = t
       else if (method === 'getCandidatePreferences') result = { candidateDismissMode: 'after-fill' }
       else if (method === 'confirmSessionPatch') result = {}
       else if (method === 'getDefaultWritingSkills') result = { skills: [] }
+      else if (method === 'getSpeechSettings') result = { enabled: false, provider: 'browser', providers: [{ id: 'browser', label: '浏览器朗读', browser: true, key: false, fields: [], voices: [], voice: '', narratorVoice: '' }] }
       else throw new Error('Unexpected settings request: ' + method)
     }
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ok: true, ...result }) })

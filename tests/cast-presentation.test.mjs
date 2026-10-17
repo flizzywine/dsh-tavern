@@ -17,7 +17,7 @@ function harness({ enabled = true, text = '她说：“你好。”\n他答：�
     async currentKey(_sessionId, turn) { return turn === 2 ? state.key : null },
     async readPendingTurn() { return { chatId: 'chat', turn: 2, key: state.key, text, greeting: false } }
   }
-  const cast = createCastPresentation({ enabled: async () => state.enabled, turns, data, publish: () => state.published++ })
+  const cast = createCastPresentation({ enabled: async () => state.enabled, turns, data, publish: (_gameId, annotation) => { state.published++; state.annotation = annotation } })
   return { cast, data, state }
 }
 
@@ -31,8 +31,13 @@ test('结算时列出本轮台词，提交后按正文版本保存，换了版�
   assert.equal((await data.turnsUpTo({ chatId: 'chat', owner: CAST_DATA_OWNER, turn: 2 })).length, 1)
   const read = await cast.forTurns('game', [2, 3])
   assert.deepEqual(read, { enabled: true, turns: { 2: [{ n: 1, quote: '你好。', speaker: '林曦', emotion: 'joy' }, { n: 2, quote: '嗯', speaker: '老周', emotion: 'neutral' }] } })
+  assert.deepEqual(state.annotation, { turn: 2, textVersion: 'v1', lines: read.turns[2] }, '通知带上这一轮的版本和标注')
+  state.enabled = false
+  assert.deepEqual(await cast.annotation('game', 2), { turn: 2, textVersion: 'v1', lines: read.turns[2] }, '关掉标注后已有的标注仍可读')
+  state.enabled = true
   state.key = 'v2'
   assert.deepEqual(await cast.forTurns('game', [2]), { enabled: true, turns: {} })
+  assert.equal(await cast.annotation('game', 2), null)
 })
 
 const { createCastAssets, imageExtension } = await import('../tavern-plugin/lib/domain/cast-assets.js')

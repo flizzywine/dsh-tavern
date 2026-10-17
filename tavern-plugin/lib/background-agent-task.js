@@ -265,6 +265,7 @@ export function createBackgroundAgentTask(options) {
     }
     const maxToolCalls = Number.isInteger(input.maxToolCalls) && input.maxToolCalls > 0 ? input.maxToolCalls : 8
     let toolCallCount = 0
+    let refusedCount = 0
     let removed = false
     const allowed = new Map(tools.map(function (tool) { return [tool.name, tool] }))
     if (stableBackgroundTools.length > 0 && input.task !== 'image') {
@@ -279,6 +280,12 @@ export function createBackgroundAgentTask(options) {
             if (result !== undefined) return result
           }
           if (current === undefined) {
+            // Refused calls cost no budget, so a model repeating one must still be stopped.
+            refusedCount++
+            if (refusedCount > maxToolCalls) {
+              execution?.concludeTurn?.()
+              return JSON.stringify({ ok: false, retryable: false, message: '多次调用了当前任务不允许的工具，本轮结束。' })
+            }
             return JSON.stringify({
               ok: false,
               retryable: true,

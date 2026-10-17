@@ -3,7 +3,7 @@ import path from 'node:path'
 
 import { renderPngThumbnail } from './png-thumbnail.js'
 
-const CARD_EXTENSIONS = new Set(['.json', '.png'])
+const CARD_EXTENSIONS = new Set(['.json', '.png', '.charx'])
 const DEFAULT_MAX_BYTES = 25 * 1024 * 1024
 const DEFAULT_THUMBNAIL_CACHE = 240
 
@@ -89,7 +89,9 @@ export function createMobileCardImport(options = {}) {
     if (!enabled) throw new Error('当前宿主不允许从手机下载目录导入')
     const entry = await resolve(id)
     const buffer = await readFile(path.join(entry.root.path, entry.item.name))
-    return path.extname(entry.item.name).toLowerCase() === '.json'
+    const extension = path.extname(entry.item.name).toLowerCase()
+    if (extension === '.charx') return { kind: 'charx', name: entry.item.name, fileB64: buffer.toString('base64') }
+    return extension === '.json'
       ? { kind: 'text', name: entry.item.name, text: buffer.toString('utf8') }
       : pngPayload(buffer, entry.item.name)
   }

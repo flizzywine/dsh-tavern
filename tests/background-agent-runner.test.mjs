@@ -565,5 +565,15 @@ test('插件后台任务：独立的一次性会话，插件工具注册在这�
     assert.match(results[1], /不允许调用 posture_submit/)
     assert.match(texts[0], /任务类型：插件任务[\s\S]*【任务要求】\n按日期推进世界/)
     assert.equal(registered.has('world_advance'), false, '任务结束后撤销插件工具')
+
+    // A model that keeps calling a tool this task refuses is stopped, not left to loop until the timeout.
+    let concluded = 0
+    script = async () => { for (let index = 0; index < 20; index++) results.push(await registered.get('posture_submit').execute({}, { concludeTurn() { concluded++ } })) }
+    results.length = 0
+    await runner.run({ sessionId: 'parent', persistent: false, task: 'plugin', pluginName: 'world-sim', selection: { provider: 'test', model: 'test' },
+      system: '按日期推进世界', messages: [], tools: [{ name: 'world_advance', description: '推进', parameters: { type: 'object' } }], maxToolCalls: 3, onToolCall: async () => '{}' })
+    assert.match(results[2], /不允许调用/)
+    assert.match(results[3], /多次调用了当前任务不允许的工具，本轮结束/)
+    assert.ok(concluded >= 1)
   } finally { await runner.dispose() }
 })

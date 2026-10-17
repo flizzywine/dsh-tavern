@@ -21,7 +21,7 @@ import { backgroundLifecycleChecks } from './background-lifecycle.mjs'
 import { cardMemoryChecks } from './card-memory.mjs'
 import {displayRegressionRules, displayRegressionChecks} from './display-regression.mjs'
 import { surfaceRecoveryChecks } from './surface-recovery.mjs'
-import { castStageChecks, castStageInputChecks } from './cast-stage.mjs'
+import { castCardFileChecks, castSpeechChecks, castStageChecks, castStageInputChecks } from './cast-stage.mjs'
 import { cardVariableUpdateChecks } from './card-variable-update.mjs'
 import { cardUpdateChecks } from './card-update.mjs'
 import { sidebarUpgrade } from './sidebar-upgrade.mjs'
@@ -180,6 +180,8 @@ try {
       prompt_order: [{ order: [{ identifier: 'main', enabled: true }] }]
     }))
     await mkdir(join(data, 'resources/cards'), { recursive: true })
+    // The stage plugin example: a director settlement task and a plugin stage view.
+    if (castScenario) await cp(join(source, 'examples/tavern-plugin-director'), join(data, 'plugins/tavern-plugin-director'), { recursive: true })
     // Deliberate continuous DOM updates: a real status card must receive new
     // variables even when it never reaches the frame's DOM-idle threshold.
     const status = '<div id="e2e-gold">金币：加载中</div><script>function refresh(){const v=getAllVariables();document.getElementById("e2e-gold").textContent="金币："+(v.stat_data?.gold??"未初始化")}refresh();setInterval(refresh,200)</script>'
@@ -542,6 +544,8 @@ try {
     report.castLines = true
   })
   if (castScenario) await castStageChecks({ page, step, output, report })
+  if (castScenario) await castSpeechChecks({ page, step, output, report })
+  if (castScenario) await castCardFileChecks({ page, step, report })
   await step('刷新后确认同一局、正文和状态均保留', async () => {
     await page.reload({ waitUntil: 'domcontentloaded' })
     await inspectScreen()
@@ -880,7 +884,13 @@ try {
   if (process.env.TAVERN_E2E_BROKEN_STOP !== '1' && !['--settlement-performance', '--display-regression', '--text-colors', '--opening-only'].some(flag => process.argv.includes(flag))) await step('存档与模型上下文一致', async () => {
     const chat = await savedChat().catch(() => null)
     if (!chat?.sessionId) return
-    const result = await page.evaluate(async sessionId => (await fetch('/api/dsh-tavern/storyAlignment', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sessionId }) })).json(), chat.sessionId)
+    // The last round's native commit may still be landing; a real mismatch stays after the wait.
+    let result
+    for (let attempt = 0; attempt < 20; attempt++) {
+      result = await page.evaluate(async sessionId => (await fetch('/api/dsh-tavern/storyAlignment', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sessionId }) })).json(), chat.sessionId)
+      if (result.ok === false || !result.alignment || result.alignment.aligned) break
+      await page.waitForTimeout(500)
+    }
     report.storyAlignment = result.alignment ?? result
     assert.ok(result.ok !== false, '核对接口失败：' + JSON.stringify(result))
     assert.ok(!result.alignment || result.alignment.aligned, '存档与模型上下文不一致：' + JSON.stringify(result.alignment))

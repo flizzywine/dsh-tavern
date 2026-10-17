@@ -103,6 +103,8 @@ export function createTavernPluginApi(deps) {
   const settledHandlers = new Set()
   const removedHandlers = new Set()
   const timelineHandlers = new Set()
+  const castHandlers = new Set()
+  const speechProviders = new Map()
   const sections = new Map()
   const turnSections = new Map()
   const settlementSections = new Map()
@@ -255,6 +257,46 @@ export function createTavernPluginApi(deps) {
       if (typeof handler !== 'function') throw new TypeError('onTimelineChanged 需要一个函数')
       const entry = { owner: ownerOf(this), handler }
       return owned(this, () => { timelineHandlers.add(entry); return () => timelineHandlers.delete(entry) }, 'tavern.onTimelineChanged()')
+    },
+
+    // Who says each quoted line and how they feel (docs/design/cast-presentation.md), annotated by settlement.
+    onCastAnnotated(handler) {
+      if (typeof handler !== 'function') throw new TypeError('onCastAnnotated 需要一个函数')
+      const entry = { owner: ownerOf(this), handler }
+      return owned(this, () => { castHandlers.add(entry); return () => castHandlers.delete(entry) }, 'tavern.onCastAnnotated()')
+    },
+
+    async getCast({ gameId, turn } = {}) {
+      const game = await requireGame(gameId)
+      return (await deps.readCast?.(game.sessionId, positiveTurn(turn))) ?? null
+    },
+
+    // The card's characters with their avatar and expression sprites, as URLs a page can show.
+    async getCastAssets({ gameId } = {}) {
+      const game = await requireGame(gameId)
+      return (await deps.readCastAssets?.(game.sessionId)) ?? null
+    },
+
+    // A speech channel of the plugin's own; players pick it in Tavern's voicing settings.
+    speechProvider({ id, label, description = '', voices = [], defaultVoice = '', synthesize } = {}) {
+      const owner = ownerOf(this)
+      sectionName(id)
+      if (typeof label !== 'string' || !label.trim() || label.trim().length > 30) throw new Error('label 必须是 1–30 字')
+      if (typeof synthesize !== 'function') throw new TypeError('speechProvider 需要 synthesize 函数')
+      if (!Array.isArray(voices) || voices.some(voice => typeof voice !== 'string')) throw new TypeError('voices 必须是文本数组')
+      const key = owner + '/' + id
+      const entry = { id: key, owner, label: label.trim(), description: String(description).slice(0, 300), voices: voices.slice(0, 200), defaultVoice: String(defaultVoice || ''),
+        synthesize: input => bounded(synthesize(input), '配音渠道 ' + key, REPLACEMENT_TIMEOUT_MS).catch(error => { recordError(null, owner, '配音', error); throw error }) }
+      return register.call(this, speechProviders, key, entry, 'tavern.speechProvider()', '配音渠道 ' + id + ' 已注册')
+    },
+
+    // Say a line in a character's voice on the channel the player chose: { url, mediaType }, or
+    // null when voicing is off, the channel is the browser's own, or narration is set silent.
+    async synthesizeSpeech({ gameId, speaker, text, emotion, narration } = {}) {
+      const game = await requireGame(gameId)
+      if (typeof text !== 'string' || !text.trim()) throw new TypeError('text 必须是非空字符串')
+      const result = await deps.synthesizeSpeech?.(game.sessionId, { speaker: typeof speaker === 'string' ? speaker : '', text, emotion: typeof emotion === 'string' ? emotion : 'neutral', narration: narration === true })
+      return result && result.url ? { url: result.url, mediaType: result.mediaType } : null
     },
 
     async saveTurnData({ gameId, turn, textVersion, data } = {}) {
@@ -776,6 +818,12 @@ export function createTavernPluginApi(deps) {
     dispatch(settledHandlers, { ...(await snapshotOf(material)), settledAt: Date.now() }, 'onTurnSettled', (await choicesFor(material.sessionId)).disabled)
   }
 
+  /** Called by Tavern after settlement saved a turn's dialogue annotation. */
+  function castAnnotated(gameId, annotation) {
+    if (!gameId || castHandlers.size === 0) return
+    void choicesFor(gameId).then(({ disabled }) => dispatch(castHandlers, { gameId, ...annotation }, 'onCastAnnotated', disabled))
+  }
+
   function gameRemoved(gameId) {
     if (gameId) dispatch(removedHandlers, { gameId }, 'onGameRemoved')
   }
@@ -871,6 +919,8 @@ export function createTavernPluginApi(deps) {
     for (const entry of settledHandlers) use(entry.owner, '生命周期', '观察')
     for (const entry of timelineHandlers) use(entry.owner, '生命周期', '观察')
     for (const entry of removedHandlers) use(entry.owner, '生命周期', '观察')
+    for (const entry of castHandlers) use(entry.owner, '演出', '观察')
+    for (const entry of speechProviders.values()) use(entry.owner, '配音', '添加')
     for (const entry of [...sections.values(), ...turnSections.values(), ...worldbookSources.values()]) use(entry.owner, '上下文', '添加')
     for (const entry of worldbookPools.values()) use(entry.owner, '世界书', '添加')
     for (const entry of [...settlementSections.values(), ...settlementTools.values()]) use(entry.owner, '结算', '添加')
@@ -1046,6 +1096,7 @@ export function createTavernPluginApi(deps) {
     return entry ? entry.modes.slice() : null
   }
 
-  return Object.freeze({ service, toolModesFor, callHandler, turnState, exportGame, importGame, turnSettled, gameRemoved, timelineChanged, gameForked, forkTurns, promptSections, turnContext, worldbookPoolEntries, settlement, candidate, compactionNotes, replaceSettlement,
+  return Object.freeze({ service, toolModesFor, callHandler, turnState, exportGame, importGame, turnSettled, castAnnotated, gameRemoved,
+    speechProviders: () => Array.from(speechProviders.values()), timelineChanged, gameForked, forkTurns, promptSections, turnContext, worldbookPoolEntries, settlement, candidate, compactionNotes, replaceSettlement,
     runSettlementTasks, manualTaskFor, runManualTask, stopTasks, runningTask, gamePlugins, setGamePlugin })
 }

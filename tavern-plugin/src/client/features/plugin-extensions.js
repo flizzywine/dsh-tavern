@@ -11,6 +11,7 @@
 			const panels = new Map();
 			const startGroups = [];
 			const cardListViews = [];
+			const stageViews = [];
 			const listeners = new Set();
 			// Tavern's own context, for the sidebar a plugin panel opens in (set at apply).
 			let host = null;
@@ -137,6 +138,58 @@
 						return function () { disposed = true; stopView(); if (typeof stopSessions === "function") stopSessions(); };
 					}, "tavernUi.watchTurnState()");
 				},
+				// What the stage shows (apiVersion 2): the latest turns with their dialogue annotations, and the card's characters.
+				getStage(gameId, options) {
+					if (typeof gameId !== "string" || !gameId) return Promise.reject(new TypeError("getStage 需要 gameId"));
+					const count = options && Number(options.count) || 5;
+					return rpc("castStage", { count: count }, gameId).then(tavernStagePublicData);
+				},
+				// Calls listener with the stage now and after each new turn, annotation or material change, while that game is open here.
+				watchStage(gameId, listener) {
+					if (typeof gameId !== "string" || !gameId) throw new TypeError("watchStage 需要 gameId");
+					if (typeof listener !== "function") throw new TypeError("watchStage 需要 listener 函数");
+					const owner = ownerOf(this), getStage = service.getStage;
+					return owned(this, function () {
+						let disposed = false, queued = false, last = "", generation = 0;
+						function refresh() {
+							if (queued || disposed) return;
+							queued = true;
+							const request = ++generation;
+							Promise.resolve().then(function () { queued = false; return disposed ? null : getStage(gameId); }).then(function (stage) {
+								const text = JSON.stringify(stage);
+								if (disposed || request !== generation || !stage || text === last) return;
+								last = text;
+								try { listener(stage); } catch (error) { try { tavernErrorHub.report("插件 " + owner, error); } catch (_) {} }
+							}, function () {});
+						}
+						let stopCast = function () {};
+						try { if (tavernSessionSignals && typeof tavernSessionSignals.subscribe === "function") stopCast = tavernSessionSignals.subscribe(gameId, "cast", refresh); } catch (_) {}
+						const stopView = liveTavernView.subscribe(gameId, refresh, [["settlementTurn"], ["updatedAt"]]);
+						refresh();
+						return function () { disposed = true; stopView(); stopCast(); };
+					}, "tavernUi.watchStage()");
+				},
+				// Another look for the stage, in the right panel and full screen. Tavern keeps the reading
+				// (paging, auto play, input); the view draws the scene, and Tavern's own is used when it fails.
+				registerStageView(input) {
+					if (!input || typeof input.id !== "string" || !/^[a-z0-9][a-z0-9._-]{0,63}$/.test(input.id)) throw new TypeError("registerStageView 的 id 只能用小写字母、数字、点、下划线和连字符");
+					if (typeof input.label !== "string" || !input.label.trim() || input.label.trim().length > 20) throw new TypeError("registerStageView 需要 1–20 字的 label");
+					if (typeof input.render !== "function") throw new TypeError("registerStageView 需要 render 函数");
+					const owner = ownerOf(this);
+					const entry = { key: owner + ":" + input.id, owner: owner, label: input.label.trim(), render: input.render };
+					return owned(this, function () {
+						if (stageViews.some(function (view) { return view.key === entry.key; })) throw new Error("舞台视图 " + input.id + " 已注册");
+						return addTo(stageViews, entry);
+					}, "tavernUi.registerStageView()");
+				},
+				// Say a line in its character's voice on the channel the player chose (apiVersion 2);
+				// resolves true when it was heard to the end. A new line stops the one being said.
+				speak(input) {
+					if (!input || typeof input.gameId !== "string" || !input.gameId) return Promise.reject(new TypeError("speak 需要 gameId"));
+					if (typeof input.text !== "string" || !input.text.trim()) return Promise.reject(new TypeError("speak 需要 text"));
+					return tavernSpeech.speak({ sessionId: input.gameId, speaker: typeof input.speaker === "string" ? input.speaker : "", text: input.text, emotion: input.emotion, narration: input.narration === true });
+				},
+				stopSpeech() { tavernSpeech.stop(); },
 				// Put text in the game's input box without sending it.
 				setInput(input) {
 					const composer = composerFor(input, "setInput");
@@ -220,6 +273,7 @@
 				messageActions: function () { return messageActions.slice(); },
 				composerActions: function () { return composerActions.slice(); },
 				cardListViews: function () { return cardListViews.slice(); },
+				stageViews: function () { return stageViews.slice(); },
 				startGroups: function () { return startGroups.map(function (group) { return { title: group.title, tabs: group.tabs.slice() }; }); }
 			};
 		}
