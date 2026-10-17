@@ -1,0 +1,4 @@
+{
+  "title": "Profile Bridge",
+  "description": "Make the DeepSeek Harness Desktop app use a profile that already has your plugins: links profiles/desktop to the profile you pick, backs the old directory up, and reverts on demand."
+}

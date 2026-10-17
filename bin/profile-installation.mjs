@@ -1,3 +1,4 @@
+import { beginDesktopProfileInstallation } from './desktop-profile-installation.mjs'
 import { importUserHome } from './import-user-home.mjs'
 import { randomUUID } from 'node:crypto'
 import installationState from './installation-state.cjs'
@@ -16,7 +17,7 @@ import { installPluginDependencies, resolveHostDependencies } from './plugin-dep
 import { isAsarPath } from './desktop-host-paths.mjs'
 import { migrateLegacyTavernData, resolveTavernDataRoot } from '../tavern-plugin/lib/domain/tavern-data.js'
 import { ensureUserExtensions } from '../tavern-plugin/lib/domain/user-extensions.js'
-import { beginProfileConfigurationUpdate, mergeDesktopLegacyProfile, mergeProfilePatchTexts, loadProfileManifest, mergeProfileManifest, prepareProfilePatch, prepareProfileWorkspace, syncProfileDependencyPatches } from './profile-configuration.mjs'
+import { beginProfileConfigurationUpdate, loadProfileManifest, mergeProfileManifest, prepareProfilePatch, prepareProfileWorkspace, syncProfileDependencyPatches } from './profile-configuration.mjs'
 import { ensureSidebarDefaults } from './launcher-settings.mjs'
 import { INSTALL_HOSTS, SOURCE_ROOT, DSH_ROOT, LEGACY_DSH_ROOT, CLI_RUNTIME_ROOT, RUNTIME_HOST, PROFILE_DIR, LOG_DIR, SCRIPT_PATH, PROFILE, RELEASE_FILE, DEFAULT_COMMIT_URL, REQUIRED_SOURCE_FILES, findDshCommand, pinnedDesktopDsh, requireCommand, run, runInstallCommand, runInstallDsh } from './launcher-environment.mjs'
 
@@ -56,10 +57,6 @@ function prepareProfileConfiguration(host, dshVersion) {
     throw new Error(`目标 profile 已属于其他项目：${current.name}`)
   }
 
-  const oldProfile = path.join(DSH_ROOT, 'profiles', 'tavern')
-  const migrateDesktop = host === 'desktop' && !current.dshTavern?.officialDesktop
-  const legacy = migrateDesktop ? loadProfileManifest({ profileDir: oldProfile }) : {}
-  if (migrateDesktop) current = mergeDesktopLegacyProfile(current, legacy)
   const pluginPath = path.join(SOURCE_ROOT, 'tavern-plugin')
   const manifest = mergeProfileManifest({
     source,
@@ -75,14 +72,11 @@ function prepareProfileConfiguration(host, dshVersion) {
     legacyManagedText: readFileSync(path.join(SOURCE_ROOT, 'config', 'legacy-profile-patch-v0.6.yml'), 'utf8'),
     profileConfigurationVersion: current.dshTavern && current.dshTavern.profileConfigurationVersion,
   })
-  if (host === 'desktop') manifest.dshTavern.officialDesktop = true
-  if (migrateDesktop && existsSync(path.join(oldProfile, 'cordis.patch.yml'))) {
-    const oldPatch = prepareProfilePatch({ profileDir: oldProfile, templateText: '[]',
-      legacyManagedText: readFileSync(path.join(SOURCE_ROOT, 'config', 'legacy-profile-patch-v0.6.yml'), 'utf8'),
-      profileConfigurationVersion: legacy.dshTavern?.profileConfigurationVersion })
-      ?? readFileSync(path.join(oldProfile, 'cordis.patch.yml'), 'utf8')
-    const currentPatch = patchText ?? readFileSync(path.join(PROFILE_DIR, 'cordis.patch.yml'), 'utf8')
-    patchText = mergeProfilePatchTexts(oldPatch, currentPatch)
+  if (host === 'desktop') {
+    manifest.dshTavern.officialDesktop = true
+    manifest.dshTavern.profileBridge = true
+    manifest.dsh.profile.bundles = [...new Set([...manifest.dsh.profile.bundles, 'dsh-profile-bridge'])]
+    manifest.dependencies['dsh-profile-bridge'] = `link:${path.join(pluginPath, 'packages/dsh-profile-bridge').replaceAll(path.sep, '/')}`
   }
   return { manifest, patchText }
 }
@@ -273,6 +267,7 @@ async function installProfileOwned(host, { attemptId, runInstall, runDsh }) {
   }
   const runtime = host === 'cli' ? await installCliRuntime({ root: CLI_RUNTIME_ROOT, run: runInstall }) : null
   if (runtime?.reused) console.log('已复用版本匹配且可启动的独立 DSH，无需重新下载。')
+  let bridge
   try {
     const dsh = runtime?.command || pinnedDesktopDsh(host)?.bootstrap || findDshCommand(host)
     const dshVersion = extractDshVersion(await runDsh(dsh, ['--version'], { capture: true, host, timeoutMs: 30_000 }))
@@ -282,6 +277,10 @@ async function installProfileOwned(host, { attemptId, runInstall, runDsh }) {
     if (host === 'desktop' && process.env.DSH_TAVERN_IMPORT_HOME) {
       const imported = importUserHome({ source: process.env.DSH_TAVERN_IMPORT_HOME, target: DSH_ROOT })
       console.log(`${imported.alreadyImported ? '已继承过该目录，保留当前进度' : '旧目录数据继承完成'}；双方备份：${imported.backup}`)
+    }
+    if (host === 'desktop') {
+      bridge = beginDesktopProfileInstallation({ home: DSH_ROOT, sourceRoot: SOURCE_ROOT })
+      console.log(`Profile 完整备份：${bridge.backup}`)
     }
     mkdirSync(PROFILE_DIR, { recursive: true })
     mkdirSync(LOG_DIR, { recursive: true })
@@ -326,6 +325,10 @@ async function installProfileOwned(host, { attemptId, runInstall, runDsh }) {
       // patchThemeFontLimit 抛错、被下面的 catch 捕获后 rollback 整个安装。
       if (isAsarPath(theme.directory)) console.log('0.2.0 桌面把 dsh-client-ui-theme 放在 app.asar 内（只读归档），字号上限补丁跳过；界面字号仍以宿主上限为准。')
       else if (patchThemeFontLimit(theme.directory)) console.log('已将 DSH 原有字号上限放宽到 32px。')
+      if (bridge) {
+        await runInstall('node', [path.join(SOURCE_ROOT, 'bin', 'validate-desktop-profile.mjs'), bridge.desktopStage], { label: '验证原版 Desktop 切换入口', timeoutMs: 60_000 })
+        bridge.finish()
+      }
       transaction.commit()
     } catch (error) {
       if (!error.unsafeToRetry) await transaction.rollback()
@@ -341,10 +344,11 @@ async function installProfileOwned(host, { attemptId, runInstall, runDsh }) {
     writeFileSync(path.join(SOURCE_ROOT, '.dsh-tavern-local.json'), JSON.stringify({ host, dshHome: DSH_ROOT }) + '\n')
     runtime?.commit()
     const receipt = await recordInstallationReceipt({ sourceRoot: SOURCE_ROOT, dshHome: DSH_ROOT, host, attemptId })
+    bridge?.commit()
     console.log('DSH Tavern 已安装。')
     console.log(host === 'cli' ? `已安装独立 DSH ${dshVersion}：${CLI_RUNTIME_ROOT}；不使用全局 DSH。` : `已复用当前 DSH ${dshVersion} 的本地依赖；未升级或降级宿主。`)
     if (host === 'desktop') {
-      console.log('请重启官方 DeepSeek Harness，酒馆已安装到 desktop 配置；原 Tavern 数据目录保持不变。')
+      console.log(`请重启官方 DeepSeek Harness，酒馆已安装到 ${path.basename(PROFILE_DIR)} 配置；原 Tavern 数据目录保持不变。`)
     } else if (host === 'android') {
       console.log('Android Tavern Profile 已配置。')
     } else {
@@ -355,7 +359,7 @@ async function installProfileOwned(host, { attemptId, runInstall, runDsh }) {
     }
     return receipt
   } catch (error) {
-    if (!error.unsafeToRetry) runtime?.rollback()
+    if (!error.unsafeToRetry) { bridge?.rollback(); runtime?.rollback() }
     throw error
   }
 }

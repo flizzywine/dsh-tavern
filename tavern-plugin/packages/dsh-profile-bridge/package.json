@@ -1,0 +1,59 @@
+{
+  "name": "dsh-profile-bridge",
+  "version": "0.2.0-tavern.1",
+  "description": "官方桌面 profile 桥接：退出后切换，保留原版配置",
+  "license": "MIT",
+  "author": "2NF",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/2NF/dsh-profile-bridge.git"
+  },
+  "homepage": "https://github.com/2NF/dsh-profile-bridge#readme",
+  "bugs": {
+    "url": "https://github.com/2NF/dsh-profile-bridge/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "profile",
+    "desktop"
+  ],
+  "type": "module",
+  "icon": "./icon.svg",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "lib",
+    "locale",
+    "icon.svg",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-client-ui-settings"
+      ]
+    }
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

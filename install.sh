@@ -11,8 +11,8 @@ export pnpm_config_update_notifier=false
 
 INSTALL_HOST=${DSH_TAVERN_HOST:-desktop}
 case ${INSTALL_HOST} in
-  desktop) ;;
-  *) echo "安装失败：测试版仅支持官方 DeepSeek Harness Desktop，不支持宿主 ${INSTALL_HOST}" >&2; exit 1 ;;
+  desktop|cli) ;;
+  *) echo "安装失败：测试版支持官方桌面和独立命令行，不支持宿主 ${INSTALL_HOST}" >&2; exit 1 ;;
 esac
 
 REPOSITORY=${DSH_TAVERN_REPOSITORY:-flizzywine/dsh-tavern}
@@ -1110,7 +1110,7 @@ fi
 
 if [ "${INSTALL_HOST}" = "desktop" ]; then
   echo "DSH Tavern Desktop 版安装完成。"
-  echo "请重启官方 DeepSeek Harness，酒馆已安装到 desktop 配置。"
+  echo "请重启官方 DeepSeek Harness，酒馆已安装到独立 tavern 配置；原版 desktop 已备份，可在设置 → 配置档案中切换。"
 else
   if [ "${DSH_TAVERN_DEFER_SERVICE_START:-0}" != "1" ]; then
     DSH_HOME=${DSH_ROOT} node "${APP_DIR}/bin/dsh-tavern.mjs" start

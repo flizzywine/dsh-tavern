@@ -17,11 +17,13 @@ const installation = existsSync(installationFile) ? JSON.parse(readFileSync(inst
 const hostArgument = process.argv.find((arg) => arg.startsWith('--host='))?.slice(7)
   || (process.argv.includes('--host') ? process.argv[process.argv.indexOf('--host') + 1] : '')
 export const RUNTIME_HOST = hostArgument || process.env.DSH_TAVERN_RUNTIME_HOST || process.env.DSH_TAVERN_HOST || installation.host || 'cli'
-export const PROFILE = RUNTIME_HOST === 'desktop' ? 'desktop' : 'tavern'
 export const LEGACY_DSH_ROOT = process.env.DSH_TAVERN_LEGACY_DSH_HOME || process.env.DSH_HOME || path.join(os.homedir(), '.dsh')
 export const DSH_ROOT = path.resolve(RUNTIME_HOST === 'cli'
   ? (process.env.DSH_TAVERN_CLI_HOME || (installation.host === 'cli' && installation.dshHome) || path.join(os.homedir(), '.dsh-tavern'))
   : (process.env.DSH_HOME || path.join(os.homedir(), '.dsh')))
+// All new testing installations own a separate tavern profile.
+export function installedProfile() { return 'tavern' }
+export const PROFILE = installedProfile(RUNTIME_HOST, DSH_ROOT)
 export const CLI_RUNTIME_ROOT = path.join(DSH_ROOT, 'runtime')
 export function runtimeEnvironment({ installation = true } = {}) {
   const environment = { ...process.env }
@@ -71,6 +73,8 @@ export const TAVERN_SIDEBAR_DEFAULTS = {
 }
 export const REQUIRED_SOURCE_FILES = [
   'package.json',
+  'bin/desktop-profile-installation.mjs',
+  'tavern-plugin/packages/dsh-profile-bridge/lib/helper.mjs',
   'cordis.patch.yml',
   path.join('config', 'legacy-profile-patch-v0.6.yml'),
   'pnpm-workspace.yaml',

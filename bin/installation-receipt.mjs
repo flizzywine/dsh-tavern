@@ -9,7 +9,7 @@ async function installationFingerprint(sourceRoot, dshHome, host) {
     path.join(sourceRoot, 'package.json'),
     path.join(sourceRoot, 'pnpm-lock.yaml'),
     path.join(sourceRoot, '.dsh-tavern-local.json'),
-    ...['package.json', 'cordis.patch.yml', 'pnpm-workspace.yaml'].map(file => path.join(dshHome, 'profiles', host === 'desktop' ? 'desktop' : 'tavern', file)),
+    ...['package.json', 'cordis.patch.yml', 'pnpm-workspace.yaml'].map(file => path.join(dshHome, 'profiles', 'tavern', file)),
   ]
   const digest = createHash('sha256')
   for (const file of files) digest.update(file).update('\0').update(await readFile(file)).update('\0')

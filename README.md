@@ -1,6 +1,6 @@
 <p align="center">
 
-> **测试版：仅支持官方 DeepSeek Harness 0.2.1-rc.2。** [测试版安装方法](README-0.2.1-rc.2.md) · [原有安装方法](#快速开始)
+> **测试版：官方 DeepSeek Harness 0.2.1-rc.2 与独立命令行。** [测试版安装方法](README-0.2.1-rc.2.md) · [原有安装方法](#快速开始)
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/flizzywine/dsh-tavern/main/docs/assets/brand/dsh-tavern-lockup-on-dark.svg">
     <img src="docs/assets/brand/dsh-tavern-lockup.svg" width="360" alt="DSH 酒馆">
@@ -182,9 +182,9 @@ curl -fsSL https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@main/install.sh | D
 
 安装失败时看[常见故障](https://flizzywine.github.io/dsh-tavern/#a02--section-11)；macOS 命令行安装、已有 DSH 的[插件安装](https://flizzywine.github.io/dsh-tavern/#plugin-installation)等见[完整安装指南](https://flizzywine.github.io/dsh-tavern/#a02)（宿主适配 DSH **0.1.5-rc.2**）。
 
-### 测试版：DSH 0.2.1 官方桌面
+### 测试版：DSH 0.2.1
 
-如需参与新宿主适配测试，可额外选择[测试版安装方法](https://github.com/flizzywine/dsh-tavern/blob/0.2.1%E7%89%88%E6%9C%AC/README-0.2.1-rc.2.md) · [测试版说明](https://github.com/flizzywine/dsh-tavern/releases/tag/v2.7.0-dsh0.2.1-test.2)。目前仅支持官方 DeepSeek Harness **0.2.1-rc.2** 桌面版（macOS / Windows），支持从旧命令行版及自定义目录备份、校验并迁移数据；暂不支持 DSHA、独立命令行或社区 Desktop。
+如需参与新宿主适配测试，可额外选择[测试版安装方法](https://github.com/flizzywine/dsh-tavern/blob/0.2.1%E7%89%88%E6%9C%AC/README-0.2.1-rc.2.md) · [测试版说明](https://github.com/flizzywine/dsh-tavern/releases/tag/v2.7.0-dsh0.2.1-test.2)。支持官方 DeepSeek Harness **0.2.1-rc.2** 桌面版（macOS / Windows）及独立命令行版，支持从旧命令行版及自定义目录备份、校验并迁移数据；暂不支持 DSHA 或社区 Desktop。
 
 ## 交流与反馈
 

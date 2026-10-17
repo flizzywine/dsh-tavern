@@ -63,6 +63,7 @@ export function mergeProfileManifest({ source, current = {}, pluginPath, dataRoo
   // Official Desktop loads Tavern in its own process; the old launcher would
   // start a second server against the same save directory.
   if (host === 'desktop') excludedHostBundles.push('dsh-tavern-launcher')
+  else excludedHostBundles.push('dsh-profile-bridge')
   const sourceBundles = uniqueStrings(sourceProfile.bundles)
     .map(name => name === 'dsh-web-mobile' ? selectedLayout : name)
     .filter(name => name && !excludedHostBundles.includes(name))

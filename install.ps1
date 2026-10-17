@@ -3,7 +3,7 @@ $PreviousConsoleOutputEncoding = [Console]::OutputEncoding
 $PreviousOutputEncoding = $OutputEncoding
 
 $InstallHost = if ($env:DSH_TAVERN_HOST) { $env:DSH_TAVERN_HOST } else { 'desktop' }
-if ($InstallHost -ne 'desktop') { throw "测试版仅支持官方 DeepSeek Harness Desktop，不支持宿主：$InstallHost" }
+if ($InstallHost -notin @('desktop', 'cli')) { throw "测试版支持官方桌面和独立命令行，不支持宿主：$InstallHost" }
 
 $Repository = if ($env:DSH_TAVERN_REPOSITORY) { $env:DSH_TAVERN_REPOSITORY } else { 'flizzywine/dsh-tavern' }
 $RepositoryUrl = if ($env:DSH_TAVERN_GIT_URL) { $env:DSH_TAVERN_GIT_URL } else { "https://github.com/$Repository.git" }
@@ -1300,7 +1300,7 @@ try {
   }
   if ($InstallHost -eq 'desktop') {
     Write-Host 'DSH Tavern Desktop 版安装完成。'
-    Write-Host '请重启官方 DeepSeek Harness，酒馆已安装到 desktop 配置。'
+    Write-Host '请重启官方 DeepSeek Harness，酒馆已安装到独立 tavern 配置；原版 desktop 已备份，可在设置 → 配置档案中切换。'
   }
   else {
     if ($env:DSH_TAVERN_DEFER_SERVICE_START -ne '1') {

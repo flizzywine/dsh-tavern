@@ -1,0 +1,4 @@
+{
+  "title": "配置档案桥接",
+  "description": "让 DeepSeek Harness 桌面版直接使用你已经装好插件的 profile：一键把 profiles/desktop 链接到目标 profile，原目录自动备份，随时可还原。"
+}

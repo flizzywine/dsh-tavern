@@ -43,7 +43,7 @@ function merge(from, to) {
   }
   if (JSON.stringify(inventory(from)) !== JSON.stringify(inventory(to))) throw Error(`存在不同内容的同名存档或附件，已停止迁移：${to}`)
 }
-function assertDesktopStopped(homes) {
+export function assertDesktopStopped(homes, { requireGuiClosed = false } = {}) {
   let commands
   try {
     commands = process.platform === 'win32'
@@ -53,6 +53,7 @@ function assertDesktopStopped(homes) {
   const normalize = value => value.replaceAll('\\', '/').toLowerCase()
   for (const line of commands.split('\n')) {
     const command = normalize(line)
+    if (requireGuiClosed && /deepseek harness(?:\.exe)?[\"]?\s*$/.test(command.trim())) throw Error('请完整退出官方桌面后再安装或迁移数据。')
     if (!command.includes('dsh-desktop-host')) continue
     if (homes.some(home => command.includes(normalize(path.join(home, 'profiles'))))) throw Error('请完整退出使用源目录或目标目录的官方桌面，再迁移用户数据。')
   }
