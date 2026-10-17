@@ -1,5 +1,6 @@
 import { isDeepStrictEqual } from 'node:util'
-import { appendSessionEvent, sessionEvents, sessionEventData, surfaceReplacementRange } from './session-events.js'
+import { appendSessionEvent, openTurnStep, sessionEvents, sessionEventData, surfaceReplacementRange, withSurfaceEditStep } from './session-events.js'
+import { agentForSession } from './agent-lookup.js'
 
 /** Commit a replacement against the current surface, never the raw history.
  * Existing callers retain their transaction/flush ownership. Message IDs are
@@ -34,14 +35,27 @@ export function createSessionSurfaceMutator(session, events = sessionEvents(sess
     remember(typeof event === 'number' ? (session.eventAt?.(event) ?? session.events?.[event]) : event)
     return event
   }
+  // Released V4 requires assistant/tool surface events to sit inside the open
+  // turn and step and carry that step's numbers; a rewrite of an older round
+  // otherwise stops the whole archive from loading ("does not match an open
+  // turn and step"). Such a write gets a step of its own, and its retry must
+  // still match although the step number may differ between attempts.
+  const sameWithoutPlacement = (left, right) => isDeepStrictEqual(
+    { ...left, turn: null, step: null }, { ...right, turn: null, step: null })
   function replace(type, data, { start, end, sourceEventSeqs }) {
     const id = type === 'assistant/message' || type === 'tool/result' ? data.message?.id : data.id
     const normalized = sessionEventData(session, type, data)
+    const events = sessionEvents(session)
+    const open = openTurnStep(events)
+    const adoptsStep = (type === 'assistant/message' || type === 'tool/result')
+      && events.some(event => event.type === 'turn/start')
+      && (open.turn === null || open.step === null)
     if (id) {
       const prior = (replacements.get(type)?.get(id) || []).find(event => isDeepStrictEqual(event.sourceEventSeqs, sourceEventSeqs))
       if (prior) {
         const range = surfaceReplacementRange(prior.surfaceOp)
-        if (range.start === start && range.end === end && isDeepStrictEqual(prior.data, normalized)) return prior
+        const same = adoptsStep ? sameWithoutPlacement(prior.data, normalized) : isDeepStrictEqual(prior.data, normalized)
+        if (range.start === start && range.end === end && same) return prior
         throw new Error('消息修改标识已用于不同内容，请重新读取上下文')
       }
     }
@@ -56,9 +70,15 @@ export function createSessionSurfaceMutator(session, events = sessionEvents(sess
     const referenced = new Set(Array.isArray(sourceEventSeqs) ? sourceEventSeqs : [])
     if (!Array.isArray(sourceEventSeqs) || targets.some(seq => !referenced.has(seq)) ||
         sourceEventSeqs.some(seq => !Number.isSafeInteger(seq) || !bySeq.has(seq))) throw new Error('消息替换缺少有效的来源引用')
-    return append(type, data, {
+    // An open step already accepts the caller's placement. Between rounds there is
+    // none: released V4 then refuses the event and the whole archive stops
+    // loading, so give the write a step of its own.
+    if (!adoptsStep) return append(type, data, {
       surfaceOp: { op: 'replace', start, end }, sourceEventSeqs
     })
+    return withSurfaceEditStep(session, agentForSession(session), (turn, step) => append(type, { ...data, turn, step }, {
+      surfaceOp: { op: 'replace', start, end }, sourceEventSeqs
+    }))
   }
   return { append, replace }
 }

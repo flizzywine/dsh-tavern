@@ -109,6 +109,7 @@ import { scriptPromptScanText } from './domain/tavern-script-prompts.js'
 import { createOpeningPreparation } from './domain/opening-preparation.js'
 import { createChatHistoryImportService } from './domain/chat-history-import-service.js'
 import { sessionEvents } from './domain/session-events.js'
+import { setAgentResolver } from './domain/agent-lookup.js'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { createHash, randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
@@ -272,6 +273,9 @@ export async function apply(ctx) {
     console.error('dsh-tavern: 缺少 llm、agents 或 sessions 服务')
     return
   }
+  // Surface rewrites that happen between rounds need the live Agent to publish
+  // their edit turn as used (V4 numbers the next turn from phase.lastTurn).
+  setAgentResolver(sessionId => agentRegistry.get(String(sessionId || '')))
   const agentDefaultModel = ctx.get('agentDefaultModel')
   let autoCompaction = null
   const compactionTimers = new Map()

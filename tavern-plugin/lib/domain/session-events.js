@@ -11,7 +11,7 @@ export function sessionEvents(session) {
 // token meter rejects a step that starts before the previous one ended. Both the
 // reserved head and the Agent's own step therefore have to agree on which turn
 // and step is open, so read it from the log instead of assuming.
-function openTurnStep(events) {
+export function openTurnStep(events) {
   let turn = null
   let step = null
   for (const event of events) {
@@ -88,6 +88,25 @@ export function withSurfaceEditTurn(session, agent, write) {
       }
     }
   }
+}
+
+// Released V4 requires every assistant/tool surface event to sit inside an open
+// turn AND an open step, carrying that step's numbers. Rewrites of older rounds
+// run while their own step already closed: place the write in the step open now,
+// open a step when only the turn is open, and fall back to a dedicated turn when
+// nothing is open at all.
+export function withSurfaceEditStep(session, agent, write) {
+  const current = openTurnStep(sessionEvents(session))
+  if (current.turn !== null && current.step !== null) return write(current.turn, current.step)
+  if (current.turn !== null) {
+    const step = sessionEvents(session).reduce((highest, event) =>
+      event.type === 'step/start' && event.data?.turn === current.turn ? Math.max(highest, Number(event.data.step) || 0) : highest, 0) + 1
+    appendSessionEvent(session, 'step/start', { turn: current.turn, step })
+    try { return write(current.turn, step) } finally {
+      appendSessionEvent(session, 'step/end', { turn: current.turn, step })
+    }
+  }
+  return withSurfaceEditTurn(session, agent, write)
 }
 
 // V3 compaction pins only surface node zero. Reserve the host's empty system
